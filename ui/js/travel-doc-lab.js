@@ -614,6 +614,32 @@
     return st.apiBase + "/api/photos/" + encodeURIComponent(photoId) + "/thumb";
   }
 
+  // [Each of the four thumbnail call sites built its own img element and
+  // set the native lazy loading hint on it until 2026-07-29. Three of the
+  // four never showed a picture. Native lazy loading is evaluated against
+  // the document's own scrollport, and the day inspector, the attach
+  // drawer and every other panel that floats above the page are position
+  // absolute or fixed containers with their own overflow auto body.
+  // Chrome lays the thumbnail out, reserves the tile, and then never
+  // issues the request --- the operator is left looking at an empty box
+  // with a "Remove from this day" button under it. Verified live on
+  // 2026-07-29 against the first promoted Picker photo: inside the Day 1
+  // inspector the img stayed at naturalWidth 0 through open, scroll, and
+  // even re-insertion into the already-open section, while the identical
+  // URL loaded 301x400 the instant loading was set to "eager". The trip
+  // gallery is the one site that worked, because it scrolls with the
+  // page, and it is also the one site that can hold every photo on a
+  // trip, so it is the one site that keeps the hint. The decision lives
+  // in one place now instead of four, so the next panel cannot inherit
+  // the bug by copying a line.]
+  function thumbImg(photoId, alt, lazy) {
+    var im = document.createElement("img");
+    im.src = thumbUrl(photoId);
+    im.alt = alt || "trip photo";
+    if (lazy) im.loading = "lazy";
+    return im;
+  }
+
   function datePrefix(v) { return v ? String(v).slice(0, 10) : ""; }
 
   function linkTakenDate(l) {
@@ -3988,10 +4014,7 @@
       var rowA = el("div", "tdl-photo-row");
       dayLinks.slice(0, 12).forEach(function (l) {
         var cellWrap = el("div", "tdl-photo-cell");
-        var im = document.createElement("img");
-        im.src = thumbUrl(l.photo_id);
-        im.alt = l.caption || "trip photo";
-        im.loading = "lazy";
+        var im = thumbImg(l.photo_id, l.caption, false);
         cellWrap.appendChild(im);
         cellWrap.appendChild(btn("tdl-btn tdl-btn-small", "Remove from this day",
           function () { unlinkDayPhoto(day, l.id); }));
@@ -4003,10 +4026,7 @@
       ph.appendChild(el("div", "tdl-row-title-plain", "Dated to this day (not attached)"));
       var rowB = el("div", "tdl-photo-row");
       dateLinks.slice(0, 8).forEach(function (l) {
-        var im = document.createElement("img");
-        im.src = thumbUrl(l.photo_id);
-        im.alt = l.caption || "trip photo";
-        im.loading = "lazy";
+        var im = thumbImg(l.photo_id, l.caption, false);
         rowB.appendChild(im);
       });
       ph.appendChild(rowB);
@@ -4698,10 +4718,7 @@
         paintAttach();
       });
       cell.appendChild(cb);
-      var im = document.createElement("img");
-      im.src = thumbUrl(l.photo_id);
-      im.alt = l.caption || "trip photo";
-      im.loading = "lazy";
+      var im = thumbImg(l.photo_id, l.caption, false);
       cell.appendChild(im);
       var meta = el("div", "tdl-picker-meta");
       meta.appendChild(el("span", "", linkTakenDate(l) || "undated"));
@@ -5430,10 +5447,7 @@
     links.forEach(function (l) {
       var cell = btn("tdl-ph" + (st.selectedPhotoLinkId === l.id ? " tdl-selected" : ""), "",
         function () { openLightbox(l.id); });
-      var im = document.createElement("img");
-      im.src = thumbUrl(l.photo_id);
-      im.alt = l.caption || "trip photo";
-      im.loading = "lazy";
+      var im = thumbImg(l.photo_id, l.caption, true);
       cell.appendChild(im);
       cell.appendChild(el("span", "tdl-ph-date", linkTakenDate(l) || "undated"));
       gallery.appendChild(cell);
@@ -5447,9 +5461,7 @@
     if (!sel) {
       detail.appendChild(el("p", "tdl-muted", "Select a photo to see its details."));
     } else {
-      var big = document.createElement("img");
-      big.src = thumbUrl(sel.photo_id);
-      big.alt = sel.caption || "trip photo";
+      var big = thumbImg(sel.photo_id, sel.caption, false);
       detail.appendChild(big);
       var stop = sel.trip_stop_id && findStop(sel.trip_stop_id);
       var region = sel.trip_region_id && findRegion(sel.trip_region_id);
@@ -7715,9 +7727,7 @@
         })[0];
         var pchip = el("span", "tdl-lori-chip");
         if (link) {
-          var im = document.createElement("img");
-          im.src = thumbUrl(link.photo_id);
-          im.alt = "anchored photo";
+          var im = thumbImg(link.photo_id, "anchored photo", false);
           pchip.appendChild(im);
         }
         pchip.appendChild(el("span", "", "Photo anchored"));
@@ -7954,9 +7964,7 @@
       var pRow = el("div", "tdl-lori-overlay-chip-row");
       var pchip = el("span", "tdl-lori-chip");
       if (plink) {
-        var pim = document.createElement("img");
-        pim.src = thumbUrl(plink.photo_id);
-        pim.alt = "anchored photo";
+        var pim = thumbImg(plink.photo_id, "anchored photo", false);
         pchip.appendChild(pim);
       }
       pchip.appendChild(el("span", "", "Photo anchored"));
