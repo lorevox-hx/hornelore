@@ -2903,5 +2903,123 @@ class RouteOrderBoardTest(unittest.TestCase):
                              name + " must leave encoding to api()")
 
 
+class LazyThumbnailScrollportTest(unittest.TestCase):
+    """One decision about the native lazy-loading hint, in one place.
+
+    Until 2026-07-29 each of the four thumbnail call sites built its own
+    ``img`` and set ``loading = "lazy"`` on it, and three of the four
+    never showed a picture. ``loading="lazy"`` is evaluated against the
+    DOCUMENT's scrollport. The day inspector and the attach drawer float
+    above the page -- they are position absolute / fixed boxes with their
+    own ``overflow: auto`` body -- so Chrome lays the tile out, reserves
+    its space, and then never issues the request. The operator is left
+    looking at an empty box with a "Remove from this day" button under
+    it, forever, with no error anywhere.
+
+    Verified live on 2026-07-29 against the first promoted Picker photo:
+    inside the Day 1 inspector the img stayed at naturalWidth 0 through
+    open, scroll, and re-insertion into the already-open section, while
+    the identical URL loaded 301x400 the instant the hint was dropped.
+    The same failure reproduced in the "Add photos" drawer.
+
+    The trip Photos gallery is the one site that worked, because it
+    scrolls with the page, and it is also the one site that can hold
+    every photo on a trip, so it is the one site that keeps the hint.
+
+    This test does not check that the current four sites are right --
+    it checks that there is only ever ONE place where the decision can
+    be made, so the fifth panel someone adds cannot inherit the bug by
+    copying a line.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.src = _stripped_js()
+        cls.css = _tds.UNIFIED_CSS.stripped()
+
+    def _fn(self, name: str, span: int = 900) -> str:
+        i = self.src.index(name)
+        return self.src[i:i + span]
+
+    def test_the_lazy_hint_is_set_in_exactly_one_place(self):
+        """Scanned against comment-stripped source on purpose: the
+        paragraph above names the very string it forbids, and a raw
+        scan would fire on the explanation rather than on the code."""
+        self.assertEqual(
+            1, self.src.count('loading = "lazy"'),
+            'the native lazy hint must be set only inside thumbImg(); a '
+            'call site that sets it directly is invisible to this rule '
+            'and will silently never load inside a floating panel')
+        self.assertNotIn('loading="lazy"', self.src)
+
+    def test_that_one_place_is_thumb_img(self):
+        fn = self._fn("function thumbImg(", 400)
+        self.assertIn('if (lazy) im.loading = "lazy";', fn)
+        self.assertIn("im.src = thumbUrl(", fn)
+
+    def test_the_hint_is_opt_in_not_opt_out(self):
+        """``if (lazy)`` and not ``if (lazy !== false)``. A new caller
+        that forgets the argument gets an EAGER image -- a wasted request
+        at worst. The opposite default gets a permanently blank tile."""
+        fn = self._fn("function thumbImg(", 400)
+        self.assertIn("function thumbImg(photoId, alt, lazy)", fn)
+        self.assertNotIn("!== false", fn)
+        self.assertNotIn("!= false", fn)
+
+    def test_every_thumbnail_img_comes_from_thumb_img(self):
+        """thumbUrl() may be READ anywhere, but an ``img`` whose src is
+        a thumb URL must be built by the helper -- that is what makes the
+        count above mean what it says."""
+        self.assertEqual(
+            1, self.src.count("im.src = thumbUrl("),
+            "only thumbImg() may build a thumbnail img element")
+
+    def test_only_the_trip_gallery_asks_for_lazy(self):
+        calls = re.findall(r"thumbImg\(l\.photo_id, l\.caption, (true|false)\)",
+                           self.src)
+        self.assertEqual(4, len(calls),
+                         "expected four thumbnail call sites, found %r" % calls)
+        self.assertEqual(1, calls.count("true"),
+                         "exactly one site -- the trip gallery -- scrolls "
+                         "with the document and may keep the hint")
+        self.assertEqual(3, calls.count("false"))
+
+    def test_the_floating_panels_pass_false(self):
+        """Named individually so a future edit that flips one of them
+        back fails with the panel's name rather than with a count."""
+        for marker in (
+            '"tdl-photo-cell"',      # day inspector, attached to this day
+            '"tdl-picker-cell"',     # the attach drawer
+        ):
+            i = self.src.index(marker)
+            window = self.src[i:i + 500]
+            self.assertIn("thumbImg(l.photo_id, l.caption, false)", window,
+                          marker + " is inside a floating panel and must "
+                          "not carry the lazy hint")
+
+    def test_the_gallery_is_the_site_that_passes_true(self):
+        i = self.src.index('"tdl-gallery"')
+        window = self.src[i:i + 700]
+        self.assertIn("thumbImg(l.photo_id, l.caption, true)", window)
+
+    def test_the_css_still_makes_those_panels_their_own_scrollport(self):
+        """The REASON the rule exists, pinned. If the inspector and the
+        drawer ever stop being floating boxes with their own scrolling
+        body, this test failing is the notice that the ban above can be
+        reconsidered -- rather than a rule nobody remembers the cause of.
+        """
+        body = re.search(r"\.tdl-inspector-body\s*\{[^}]*\}", self.css)
+        self.assertIsNotNone(body, ".tdl-inspector-body rule not found")
+        self.assertIn("overflow: auto", body.group(0))
+
+        drawer = re.search(r"\.tdl-drawer\s*\{[^}]*\}", self.css)
+        self.assertIsNotNone(drawer, ".tdl-drawer rule not found")
+        self.assertIn("position: fixed", drawer.group(0))
+
+        dbody = re.search(r"\.tdl-drawer-body\s*\{[^}]*\}", self.css)
+        self.assertIsNotNone(dbody, ".tdl-drawer-body rule not found")
+        self.assertIn("overflow: auto", dbody.group(0))
+
+
 if __name__ == "__main__":
     unittest.main()
