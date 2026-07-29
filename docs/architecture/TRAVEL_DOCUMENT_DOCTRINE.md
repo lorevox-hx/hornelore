@@ -247,6 +247,36 @@ a key named `session_id` or `picker_session_id` raises `ExternalTokenError` at
 write time. Use `picker_session`. This is a landmine and it has been stepped
 on once already.
 
+**A guard that covers a lane does not cover a shared route the lane feeds.**
+Added 2026-07-29, and it is the one thing live smoke 10 taught that no
+fixture had. Twelve of the smoke's thirteen patterns came back clean, and
+they were clean because this ruling had been designed for them. The
+thirteenth failed: `GET /api/import-provenance/queue` was serving
+`candidates[].batch.external_ref`, proven by direct equality to be the raw
+Google Picker session identifier. It escaped through `_QUEUE_BATCH_COLUMNS`
+-- a generic column tuple written for Takeout batches long before a picker
+session existed to put in one. Every guard the picker lane was given held.
+The value left through a door the lane did not own.
+
+Two rules follow, and they bind every producer rather than the Picker:
+
+- **The raw provider reference stays server-side.** Chris, 2026-07-29:
+  *"No renaming or masking -- the provider reference stays server-side."*
+  Holding a provider handle in a column is correct; handing it to a browser
+  is not, and a rename or a mask is not a fix because the value is the
+  secret. A UI that needs to identify a batch has Hornelore's internal
+  `batch_id`.
+- **Response contracts are scanned serialised, never as a field list.** The
+  defect a contract test exists to catch is precisely a value arriving
+  through a field nobody enumerated, so a test that enumerates the fields it
+  expects to be safe cannot catch it -- it would have passed on 2026-07-28.
+  Serialise the whole response, walk every key at every depth against
+  `_SECRET_KEY_HINTS`, and scan the serialised form for credential and
+  download-URL shapes. Written that way the guard is producer-agnostic and
+  the next external source inherits it without doing anything.
+
+Closed by `WO-TRAVEL-DOC-PICKER-QUEUE-REF-LEAK-01`.
+
 ### 1.11 A phase is a scope wall
 
 Each phase is its own session and its own commit. A wall is enforced by
@@ -406,9 +436,18 @@ So, for every producer on this lane and not only the Picker:
   incomplete -- may legitimately return different bytes. It stages atomically
   and the new hash becomes the integrity record. That is `repaired`, not an
   error.
-- `hash_mismatch` survives, narrower: a local integrity problem, or bytes
-  changing unexpectedly inside one controlled write. **Never because two
-  separate provider fetches differ.**
+- `hash_mismatch` is confined to a local integrity problem, or bytes changing
+  unexpectedly inside one controlled write. **Never because two separate
+  provider fetches differ.** *Corrected 2026-07-29 when this was implemented:
+  this bullet said the reason "survives, narrower", and in the Picker route it
+  did not survive at all. It is gone from `_ROUTE_REASONS` rather than left
+  sitting there unemitted, because nothing in that lane can any longer meet
+  the narrowed description -- the local copy is checked against its own row
+  **before** any network call, and a check that fails is repaired rather than
+  reported. A reason name kept in the table would advertise a classification
+  the route cannot make. The narrowed meaning stands as doctrine for any lane
+  that does have a controlled write to guard; what changed is that this one
+  does not.*
 
 **The refusal behaviour itself was right and is kept.** Chris: *"The system
 correctly refused to overwrite a good staged file. The mistake happened
@@ -845,7 +884,89 @@ fetch, exactly as 1.14 says.
 **The browser-side failure stands regardless**, and
 `WO-TRAVEL-DOC-PICKER-QUEUE-REF-LEAK-01` is unaffected by any of this. A clean
 log is not a clean response body; they are different surfaces and were scanned
-separately on purpose.
+separately on purpose. *Closed 2026-07-29 by 2.11 below.*
+
+### 2.11 The corrective pair -- what smokes 9 and 10 cost, and what fixed it
+
+Both work orders opened on 2026-07-29 are implemented, in the order Chris set:
+*"implement re-ingest/repair semantics followed by the queue `external_ref`
+removal."*
+
+**`WO-TRAVEL-DOC-PICKER-REINGEST-REPAIR-01` -- a reversal, not a refinement.**
+Until this landed, `_settle_existing()` downloaded the item first and compared
+the fresh hash to the row: equal meant `unchanged`, different meant a
+permanent `hash_mismatch`. Both halves were wrong at once, because ruling 1.14
+says the second fetch is not expected to match. The order is now the whole
+fix. `server/code/api/routers/google_picker.py`:
+
+    candidate exists
+    |
+    +- staged copy hashes to the stored file_hash
+    |     -> unchanged, AND NOTHING IS FETCHED
+    |
+    +- staged copy missing or corrupt, photo_id is null
+    |     -> fetch, re-stamp the byte-derived row fields, re-stage
+    |     -> repaired
+    |
+    +- staged copy missing or corrupt, photo_id is set
+          -> refuse: candidate_already_promoted, permanent
+
+The download now sits behind a zero-argument callable that `_settle_existing`
+may decline to call, which is what makes "the fetch does not happen" a
+structural property rather than a comment. `hash_mismatch` is out of
+`_ROUTE_REASONS` entirely (see the correction in 1.14) and
+`candidate_already_promoted` is in.
+
+The repair's one new writer is
+`import_repository.candidate_restage()` -- the only writer of `file_hash`
+after creation. It touches byte-derived fields only, never `photo_id`,
+`state`, `trip_id`, `person_id`, `external_id`, `hidden`, `match_reason_json`
+or any review field, and it raises `CandidateAlreadyPromotedError` on a
+promoted candidate. **The archive boundary is enforced twice on purpose**: the
+router refuses before it fetches, so a promoted candidate costs no bandwidth
+and leaves the staging directory untouched; the repository refuses at the
+write, so the next caller inherits the guard instead of having to remember it.
+In the repair path the row is re-stamped *before* the bytes are staged, which
+is the safe order -- a crash between the two leaves a row describing bytes not
+on disk, and that is exactly the condition the `unchanged` check detects and
+repairs on the next run.
+
+The response text was corrected too. It used to promise *"nothing already
+landed is re-downloaded"* while re-downloading everything already landed; it
+now says *"Complete, locally verified candidates are not downloaded again.
+Missing or damaged staged files may be downloaded again for repair."* and it
+offers retry advice only when something retryable actually failed.
+
+**`WO-TRAVEL-DOC-PICKER-QUEUE-REF-LEAK-01` -- one tuple.** `external_ref` is
+out of `_QUEUE_BATCH_COLUMNS`. No rename, no mask, no migration: the column
+stays on `import_batch`, and the three server-side readers of the picker
+session id -- the poll, ingest and delete calls -- take it from `batch_get()`,
+a `SELECT *`, and are untouched. No browser code read it.
+
+**Test evidence.** `tests.test_google_picker_phase2b_ingest` **70 OK**, its
+`TestReIngest` class rewritten so that every assertion in it is the inverse of
+what it asserted before, against a `_JitteringDownloadHttp` double that
+returns different bytes for the same `external_id` on every call -- a double
+that repeated itself would satisfy the old dependency by accident.
+`tests.test_import_provenance_queue` **62 OK**, six of them the new
+`QueueResponseContractTests`. Neighbours green:
+`tests.test_google_picker_phase1` 39, `tests.test_google_picker_phase2a` 38,
+`tests.test_google_picker_phase2b_acquire` 99,
+`tests.test_import_provenance_routes` 69,
+`tests.test_import_provenance_promote` 78,
+`tests.test_safety_import_contract` 11.
+
+**Both were proven non-vacuous by mutation rather than asserted to be.**
+Re-inserting the download as the first statement of `_settle_existing` failed
+exactly five of the new ingest tests. Putting `"external_ref"` back into
+`_QUEUE_BATCH_COLUMNS` failed exactly three queue tests -- the key walk, the
+raw-value scan, and the inverted inline assertion.
+
+**Not verified here:** the live re-runs. Smoke 9 must return
+`created: 0 / repaired: 0 / unchanged: 7 / failed: 0`, and smoke 10 must find
+the raw session identifier absent from the queue response. Until those run
+against the serving stack this section is evidence about the test venv, which
+is the same web stack but not the same act.
 
 ---
 
