@@ -757,10 +757,72 @@ producer does not automatically cover the surfaces that producer feeds, which
 is why the corrective work order's contract test scans the **serialised whole
 response** rather than an enumerated field list.
 
-**The server-log half of smoke 10 is still open.** `hornelore_data/logs` is
-empty -- the server logs to Chris's terminal and that is the only copy. The
+**[CORRECTED IN PLACE 2026-07-29 -- the paragraph that stood here was wrong
+about where the logs are, and the log half is now closed.]** The retired text
+read: *"The server-log half of smoke 10 is still open. `hornelore_data/logs`
+is empty -- the server logs to Chris's terminal and that is the only copy. The
 `google_picker:` lines have not yet been scanned, so whether a second leak
-exists is **unknown, not clear**. The browser-side failure stands regardless.
+exists is unknown, not clear."* The middle sentence was **never true**. The
+server writes to `.runtime/logs/` in the repo root -- `api.log` was 10,450,170
+bytes and current at the moment that sentence was published. The mistake was
+looking in one plausible directory, finding it empty, and reporting an absence
+as a fact instead of as a failed search. **`hornelore_data/logs` being empty
+was evidence about `hornelore_data/logs` and nothing else.**
+
+**The server-log half of smoke 10 passes.** Scanned across all four log files
+-- `api.log`, `tts.log`, `ui.log`, `useful.log` -- with the true Picker
+session values read out of `import_batch.external_ref` and grepped for
+directly, rather than by pattern-guessing what a session id looks like:
+
+- The two real Picker session values occur **zero** times in any log file.
+- `ya29.`, `GOCSPX`, `client_secret`, `refresh_token`, `baseUrl`, `base_url`,
+  `googleusercontent`, `googleapis.com`, `Authorization` and `Bearer ` occur
+  **zero** times in any log file.
+- `google_picker: minted access token, expires_in=3599s` reports no value, no
+  prefix and no length -- spec §10.4 satisfied at the one line most likely to
+  violate it.
+- `google_picker: created picker session` deliberately logs **no** identifier.
+- The UUID that does appear, in `opened batch` and `ingest for batch` lines
+  and in access-log paths, is Hornelore's internal `batch_id`. That is the
+  identifier ruling 1.10 wants in the open.
+- `session_id` appears 645 times in `api.log` and **every** occurrence is the
+  transcript/narration subsystem's own query parameter. Same word, unrelated
+  lane -- which is the guard-writing rule showing up in a security scan.
+
+**One advisory finding, not a violation, and it is Chris's to rule on.** The
+21 `google_picker: downloaded item <id> -- <n> byte(s)` lines log the raw
+Google **media item id**. It is not on the forbidden list -- it is not a
+credential, not a bearer-scoped URL, and Hornelore already stores it as
+`external_id` -- but it is a raw provider reference sitting in a log, and 1.10
+is about where provider references are allowed to be, so the question is
+legitimate and is recorded rather than answered here.
+
+**The logs also confirmed ruling 1.14 a third time, from a source that is
+neither the browser nor Chris's terminal.** `api.log` holds the *original*
+creating ingest of 2026-07-28 12:40 as well as the two later runs, so the same
+seven media items were fetched from Google three times and the server logged
+its own byte count each time:
+
+| media item (tail) | 12:39 (stored) | 17:42 | 17:55 |
+| --- | --- | --- | --- |
+| `...HthQ` | 4477047 | 4477050 | 4477049 |
+| `...fRVjRA` | 4749520 | 4749519 | 4749521 |
+| `...piqEOA` | 5954602 | 5954601 | 5954602 |
+| `...WoXxA` | 4375462 | 4375462 | 4375463 |
+| `...Jv60Q` | 5621898 | 5621900 | 5621899 |
+| `...PXMHw` | 5658815 | 5658816 | 5658816 |
+| `...i0kA` | 3275572 | 3275569 | 3275569 |
+
+Two items returned **three different sizes in three fetches**. All seven
+differ from the stored size on at least one later run. The stored column is
+not a separate measurement -- it is the 12:39 run, which is the point: the
+hash on the row is the checksum of the copy Hornelore kept from one particular
+fetch, exactly as 1.14 says.
+
+**The browser-side failure stands regardless**, and
+`WO-TRAVEL-DOC-PICKER-QUEUE-REF-LEAK-01` is unaffected by any of this. A clean
+log is not a clean response body; they are different surfaces and were scanned
+separately on purpose.
 
 ---
 
@@ -982,6 +1044,15 @@ In `docs/architecture/TRAVEL_DOCUMENT_DOCTRINE.md` itself, on 2026-07-29:
 - The ingest response's `next` string, *"nothing already landed is
   re-downloaded"*, is false today. Chris: *"It is factually false today."*
   Also corrected by that work order.
+- 2.10's closing paragraph claimed `hornelore_data/logs` is empty and that
+  "the server logs to Chris's terminal and that is the only copy". **Never
+  true.** The server writes to `.runtime/logs/`. Corrected in place at 2.10
+  with the retired wording quoted. The same false claim was published in the
+  same commit in `CLAUDE.md`'s 2026-07-29 changelog entry and in the
+  checklist's `**Active as of:**` line; the checklist line is corrected in
+  place, and the changelog entry is **left standing and retired by a later
+  dated entry**, because a changelog is a record of what was believed on a
+  date and rewriting it would destroy the evidence that the mistake happened.
 
 ---
 
