@@ -1,7 +1,7 @@
 # TRAVEL_DOCUMENT_DOCTRINE
 
 **Status:** ACTIVE — permanent doctrine for the travel-document evidence lanes
-**Date:** 2026-07-28
+**Date:** 2026-07-29 (opened 2026-07-28)
 **Decision owner:** Chris Horne
 **Type:** Architectural Decision Record (ADR) — not a Work Order
 **Companion to:** `docs/wo/WO-TRAVEL-DOC-GOOGLE-PHOTOS-PICKER-01_Spec.md` — §12.7 is restated here in full
@@ -196,21 +196,89 @@ and when.
 
 ### 1.8 Promotion requires bytes we hold
 
+**The title of this ruling was always right. Its implementation was a proxy
+for the title, and on 2026-07-29 the proxy stopped agreeing with it.** What
+follows is the ruling as it now stands; the retired text is quoted below it in
+full, because it was true when written and that is a different fact from
+having been wrong.
+
+Promotion mints a `photos` row, which is permanent authority, and it needs the
+image bytes. The precondition is therefore, and only:
+
 ```
-PROMOTABLE_SOURCES = ("local_upload", "manual")
+a verified local source file is available to promotion
 ```
 
-The provider-side sources are deliberately absent. Promotion mints a `photos`
-row, which is permanent authority, and it needs the image bytes.
-`local_upload` and `manual` are the two sources where the operator is holding
-them. `google_photos_picker` and `google_takeout` each have to fetch their own
-bytes through their own lane first. `csv` is a manifest of claims about files
-nobody has handed us.
+Chris's words, 2026-07-29: *"The real precondition is: `a verified local
+source file is available to promotion` not merely: `the source name appears in
+an allowlist`."*
 
-Adding a source to that tuple without also building its fetch would turn
-promotion into a way to mint photo rows for images that do not exist. When
-`google_photos_picker` is added — Phase 3, see 3.1 — it is added *because* the
-fetch lane now exists, and `google_takeout` still stays out.
+Two lanes satisfy it, and they satisfy it differently:
+
+- **The operator is holding the bytes and hands them up.** `local_upload` and
+  `manual`. The multipart body *is* the source file, and there is nothing on
+  the server to verify it against, so the upload is both the bytes and the
+  authority for them. These two names are now `UPLOAD_SOURCES`, and the tuple
+  means what it says — *these sources arrive by upload* — rather than standing
+  in for *these sources may be promoted*.
+- **The lane already fetched the bytes and Hornelore staged them.**
+  `google_photos_picker`. The staged original at
+  `import_staging/<batch_id>/<candidate_id>/original.<ext>` is re-hashed and
+  compared to `candidate.file_hash` at promote time. Equality is the
+  verification, and it is a stronger warrant than an upload gets, because an
+  upload has nothing to be checked against.
+
+**A source name is not evidence.** It is a label on the row describing where
+the item came from, and it can be true while the bytes are gone — deleted,
+truncated, never staged, staged under a different batch. Gating promotion on
+the name means promotion can be told the file exists by a string. Gating it on
+the file means promotion has to find the file, open it, and get the same
+digest the row recorded. That is why the fix was not to add
+`"google_photos_picker"` to the old tuple, and why Chris ruled the shortcut
+out in advance: *"Do not solve this only by adding `"google_photos_picker"` to
+`PROMOTABLE_SOURCES` while leaving the endpoint dependent on multipart upload
+bytes."*
+
+`google_takeout` and `csv` still do not satisfy the precondition, and they do
+not satisfy it for the original reason: neither has a fetch lane that stages a
+file Hornelore can re-hash. `csv` is a manifest of claims about files nobody
+has handed us. Neither is excluded by name — each is excluded because there is
+nothing on disk to verify. When Takeout grows a staging lane it will pass this
+ruling without this ruling changing, which is the test of whether a
+precondition was written about the right thing.
+
+**Refusal is explicit and non-destructive.** Missing staged original, digest
+disagreement, already-promoted candidate, non-pending candidate, unresolvable
+batch or candidate: each returns its own reason and writes nothing — no
+`photos` row, no `photo_id`, no link, no state change. A promotion that cannot
+prove it has the bytes does not get to guess.
+
+**Until 2026-07-29 this section read, in full:**
+
+> ```
+> PROMOTABLE_SOURCES = ("local_upload", "manual")
+> ```
+>
+> The provider-side sources are deliberately absent. Promotion mints a
+> `photos` row, which is permanent authority, and it needs the image bytes.
+> `local_upload` and `manual` are the two sources where the operator is
+> holding them. `google_photos_picker` and `google_takeout` each have to fetch
+> their own bytes through their own lane first. `csv` is a manifest of claims
+> about files nobody has handed us.
+>
+> Adding a source to that tuple without also building its fetch would turn
+> promotion into a way to mint photo rows for images that do not exist. When
+> `google_photos_picker` is added — Phase 3, see 3.1 — it is added *because*
+> the fetch lane now exists, and `google_takeout` still stays out.
+
+Every sentence of that was true on the day it was written, and the last one
+even predicted the trigger correctly: the fetch lane now exists, so the
+condition it named is met. What it got wrong is the shape of the unlock. It
+assumed the unlock would be an edit to the tuple, because on 2026-07-27 the
+tuple and the precondition were the same set and nobody had to choose between
+them. Phase 2B's staging lane separated them. From that day the tuple was a
+cache of a fact it no longer computed, and the honest fix was to stop asking
+it the question. See 2.12.
 
 ### 1.9 The identity boundary
 
@@ -481,6 +549,57 @@ form, and it binds every producer, not only the Picker.
 
 Implemented by `WO-TRAVEL-DOC-PICKER-REINGEST-REPAIR-01`.
 
+### 1.15 A destination is chosen at placement, not carried on the candidate
+
+Added 2026-07-29 by `WO-PICKER-PROMOTE-TO-DAY-01`.
+
+An `import_candidate` carries `trip_id` and no day. That is not an omission
+waiting to be filled in — it is the shape of the three layers, and the reason
+is a difference in what each layer is *for*:
+
+    photos              permanent archive.  No trip column, no day column.
+    trip_photo_links    placement.          Carries trip_id AND trip_day_id.
+    import_candidate    review + provenance. Carries trip_id. No day.
+
+Chris's ruling, carried forward: *"A photo itself should not 'belong to a
+day.' Its placement should."* The candidate is the third case of the same
+idea. It is a temporary record of *something offered for review*, and a day is
+not a property of an offer — it is a decision the operator makes about where
+the accepted thing goes. Storing a day on the candidate would mean the
+decision was recorded before it was made, in the row that exists precisely
+because no decision has been made yet.
+
+**The operative consequence: the day is selected at the placement step,
+immediately after promotion, and written to `trip_photo_links.trip_day_id`.
+No column is added to `import_candidate` and no migration is required.**
+
+`trip_id` is different and stays where it is, because it is not a decision the
+review step makes. It is supplied on the import request and it scopes the
+whole batch — ruling 1.9 says the destination is always explicit and supplied
+by the request, and the trip is that destination. The day is a narrower choice
+*inside* an already-chosen trip.
+
+Two guards follow from the pair:
+
+- **A day outside the candidate's trip is refused.** The trip was decided at
+  import; placement may narrow it, never move it. Silently accepting a foreign
+  day would let the review step overrule the import request, which is the one
+  thing 1.9 exists to prevent.
+- **A suggested day is not a chosen day.** EXIF date may be *offered* as a
+  default in the picker control, clearly labelled, and the operator confirms
+  it. Chris: *"Do not infer the day silently from EXIF date unless the UI
+  clearly presents that only as a suggestion and the operator confirms it."* A
+  date that is wrong by a timezone is wrong by a day, and a silent default
+  makes that undetectable.
+
+**What this ruling does not do is design a destination framework.** A
+generalised polymorphic destination table — candidates pointing at arbitrary
+targets of arbitrary kinds — would cover trips, days, projects, chapters and
+things nobody has asked for, and every one of those is speculative today. See
+3.9. This ruling is the narrower claim that survives that framework being
+built later: wherever destinations end up living, the day is not on the
+candidate.
+
 ---
 
 ## Part 2 — Implemented and verified (as of 2026-07-29)
@@ -494,8 +613,10 @@ Migration `0037_import_provenance_foundation.sql` exists at
 `server/code/db/migrations/` and is the highest-numbered migration in the
 tree. It provides `import_batch` and `import_candidate`. The vocabularies —
 `IMPORT_SOURCES`, `BATCH_STATUSES`, `CANDIDATE_STATES`, `TAKEN_AT_SOURCES`,
-`CANDIDATE_LOCATION_SOURCES`, `DECIDABLE_STATES`, `PROMOTABLE_SOURCES` — live
-in `server/code/api/services/import_repository.py`.
+`CANDIDATE_LOCATION_SOURCES`, `DECIDABLE_STATES`, `UPLOAD_SOURCES` — live
+in `server/code/api/services/import_repository.py`. [That last name read
+`PROMOTABLE_SOURCES` until 2026-07-29; it was renamed, not repurposed, and the
+reason is ruling 1.8.]
 
 The Evidence Review Queue from `WO-TRAVEL-DOC-EVIDENCE-REVIEW-QUEUE-01` is the
 review surface over that foundation.
@@ -968,17 +1089,202 @@ the raw session identifier absent from the queue response. Until those run
 against the serving stack this section is evidence about the test venv, which
 is the same web stack but not the same act.
 
+### 2.12 The wall at promotion, and how it moved
+
+`WO-PICKER-PROMOTE-TO-DAY-01`, 2026-07-29. The work order that made this
+sentence executable:
+
+    Google Photos -> import -> Evidence Queue -> approve
+                  -> attach to trip/day -> see photo on the day card
+
+**Which wall blocked it.** Ruling 1.8, in its 2026-07-27 form, plus deferred
+item 3.1. Promotion accepted `local_upload` and `manual` and nothing else, and
+the promote endpoint took its bytes from a multipart upload. A picker
+candidate reaching that endpoint was refused with a message stating the
+candidate does not contain image bytes. So the Evidence Queue's `Promote +
+accept` opened a file chooser and asked the operator to supply the file.
+
+**Why the assumption was true for local upload and false for Picker.** For
+`local_upload` the operator *is* the source. The bytes exist only in their
+hand; there is nothing on the server to compare them to; the multipart body is
+simultaneously the file and the sole authority for it. Under those conditions
+"the source name is `local_upload`" and "a verified local file is available"
+are the same statement, and using either as the gate gives the same answer.
+
+Phase 2B ended that equivalence on 2026-07-28. The Picker ingest lane
+downloads the original, writes it to
+`import_staging/<batch_id>/<candidate_id>/original.<ext>`, and records its
+digest on the candidate row. From that moment Hornelore held a *server-side,
+hash-verified* copy of the very file promotion needed — a strictly better
+position than an upload, because it can be checked. The assumption survived
+because nothing exercised it: no picker candidate had reached promotion yet.
+The first one that did found a gate asking a question whose answer had stopped
+tracking the fact it stood for.
+
+**What the operator saw, and why it was intolerable.** The drawer asked Chris
+to download the photo from Google and upload it back into Hornelore — bytes
+the server already had, verified, on disk. Chris: *"The operator must not
+download the Google photo and manually upload it back into Hornelore."* That
+is not a UI annoyance; it is the interface asking a human to launder data
+around a check the system was already passing.
+
+**How the wall moved.** Not by widening the allowlist. Ruling 1.8 was
+rewritten so the precondition is the thing it was always named after — *a
+verified local source file is available to promotion* — and the tuple was
+renamed `UPLOAD_SOURCES`, which is what it actually enumerates. The moved wall
+is recorded in 1.8 with its retired text quoted in full, per this document's
+Maintenance rule and per ruling 1.11.
+
+Concretely, in `import_repository.py`:
+
+- `UPLOAD_SOURCES = ("local_upload", "manual")` — the retired
+  `PROMOTABLE_SOURCES` name and its retired meaning are quoted in a comment
+  above it.
+- `staged_original_path()` and `_verified_staged_source()` resolve the staged
+  file and re-hash it against `candidate.file_hash`, raising
+  `StagedOriginalMissingError` or `StagedOriginalMismatchError`. Both map to
+  409 in the router alongside the existing `PhotoBytesMissingError`.
+- `_promotion_needs_upload()` computes, per candidate, whether promotion still
+  needs an upload, and `queue_read()` publishes it as
+  `promotion_needs_upload`. **The UI does not decide this and does not know
+  the rule** — the drawer reads the flag. A screen that re-derived it from the
+  source name would be a second copy of ruling 1.8, and the second copy is the
+  one that goes stale.
+- Step 3 of `candidate_promote` resolves the byte source: upload bytes if the
+  request carried them, otherwise the verified staged original, copied into a
+  `tempfile.mkdtemp(prefix="hl-promote-")` handoff — because `store_photo_file`
+  *moves* its source, and the staged original must survive promotion. Ruling
+  1.14's three-hash separation depends on it still being there.
+
+**Why the path convention became its own module.** `server/code/services/
+import_staging.py` is new and owns `STAGING_ROOT`, the `original.<ext>`
+convention, the safe-segment rule and `hash_file()`. The shared intake lane
+must not import a provider module to find out where a provider staged a file —
+that is §12.7's boundary, and importing `services.google_picker.acquire` from
+`import_repository` would have inverted it. Both sides now import the
+convention; `acquire.py` re-exports it so its own callers are unchanged.
+
+**The transaction boundary held.** A successful `Promote + accept` verifies
+the staged source, creates or resolves the permanent `photos` row, sets
+`candidate.photo_id`, accepts the candidate, and preserves the trip
+destination. Repeating it creates neither a second photo nor a second link; a
+candidate that already carries a `photo_id` is reported as already promoted
+rather than promoted twice. `external_id`, provider identity and unrelated
+review fields are untouched. The photo is still born
+`narrator_ready=0`, `needs_confirmation=1`, `date_approved_for_lori=0`,
+`location_approved_for_lori=0` — `IntakeIsNotApprovalError` still enforces it,
+and promotion is still not approval.
+
+**Why day-at-placement.** See ruling 1.15. The short form: `import_candidate`
+has no day column, `trip_photo_links` does, and the day is a decision made
+*at* review rather than a property carried *into* it. Selecting it at the
+placement step immediately after promotion needs no migration, no new table
+and no pending-destination state, and it leaves the generalised destination
+question (3.9) genuinely open rather than half-answered by a column somebody
+added in a hurry.
+
+`trips.py` carries the placement: `TripDayPhotoLinksReq` gained
+`photo_ids`, `link_day_photos` accepts permanent photo ids with an ownership
+check and upserts through `photo_link_upsert(assignment_method="operator")`,
+and `unlink_day_photos` refuses `photo_ids` with a 422 rather than quietly
+ignoring the field. The upsert is what makes repeated placement idempotent,
+and `UNIQUE (trip_id, photo_id)` from ruling 1.12 is what makes the upsert the
+only possible shape.
+
+**One lesson about instruments, which is the same lesson twice.** The drawer's
+doctrine paragraph was rewritten from two acts to three and made plainer, on
+Chris's instruction to *"use plain operator language."* A wall test in
+`tests/test_travel_doc_lab.py` failed on the rewrite — it asserted
+`assertIn("not narrator-facing", sec)`, and the paragraph now says *"kept
+private, not shown to the narrator"*, which makes the same promise in words an
+operator already owns. The test failed on prose that had got **better**.
+
+The first repair — a regex accepting either wording — failed too, because the
+sentence is not a string in the source. It is several string literals joined
+with `" +"` and a newline, since the sentences are longer than the line
+budget, so the author's line wrap fell between two of the words. The working
+repair is `_sentence_rx()`, which matches a phrase across concatenation seams
+and loosens nothing else: the words are escaped, must appear in order, and
+neither pattern has an optional part, so deleting a guarantee still fails and
+softening one into "usually" still fails.
+
+This document already carries the rule that **a guard written against a
+*word* fires on documentation quoting that word**. The corollary, added here:
+**a guard written against a raw substring of UI prose fires when the prose is
+rewrapped or made plainer.** Both are the instrument reporting on itself
+rather than on the thing it guards. In both cases the fix is to assert on the
+*claim* — parsed, or matched across the seams the source is allowed to have —
+never on the byte sequence the author happened to type.
+
+**Test evidence.** `tests/test_picker_promote_to_day.py` is new: **35 tests**,
+covering the ten checks the work order named — promotion without multipart
+upload, hash verification before promotion, non-destructive refusal on missing
+or corrupt staged bytes, idempotence and explicit already-promoted reporting,
+`external_id` preserved with no provider session handle returned, linking to
+an existing `trip_day_id`, no duplicate link on repeated placement, refusal of
+a day outside the candidate's trip, no file chooser for picker candidates in
+the queue UI, and the day surface displaying the attached photo. Neighbours
+re-run per module, one process each: `test_travel_doc_lab` **168**,
+`test_import_provenance_promote` **78** (its `PromotableSourceTests` renamed
+`UploadSourceTests` and moved forward, not deleted),
+`test_google_picker_phase2b_acquire` **99**,
+`test_google_picker_phase2b_ingest` **70**, `test_import_provenance_routes`
+**69**, `test_import_provenance_queue` **62**, `test_trip_days` **45**,
+`test_travel_doc_shell_mount` **45**, `test_travelogue_builder` **42**,
+`test_google_picker_phase1` **40**, and 29 further suites — **44 modules,
+1471 tests.**
+
+Four non-green results, each accounted for and none of them this work order's:
+`test_import_repository::test_counters_are_recomputed_not_incremented` and
+`test_metadata_trust::test_missing_trust_is_legacy_trusted` are known
+pre-existing failures; `test_api_namespace_alias::
+test_trip_repository_reads_the_patched_db_path` and
+`test_trip_lane_fixpack_js::test_tab_switch_is_guarded` were each proven
+pre-existing by showing the code region they read is byte-identical between
+the sandbox copy and Chris's disk. The last of those is worth naming: it
+slices a fixed 160-character window after `function setTab(tab) {` and the
+guard it looks for now lands four characters past the window. That is the
+third instance of the same defect this section is about.
+
+**Whole-tree `unittest discover` is not a valid instrument here**, and this
+work order re-proved it: 4215 tests in one process gave 240 failures and 711
+errors, all from shared `api.db.DB_PATH` state leaking across suites
+(`sqlite3.IntegrityError: FOREIGN KEY constraint failed` in unrelated
+`setUp`s). The same modules run one process each are green. Per-module is the
+method.
+
+**Not verified here:** the live acceptance run. It is recorded in 2.13 when it
+happens, and until then this section is evidence about the test venv, which is
+the same web stack but not the same act.
+
 ---
 
 ## Part 3 — Deferred or not started
 
 Each item here was considered and consciously left. The reason is the point.
 
-### 3.1 Phase 3 — promotion unlock
+### 3.1 ~~Phase 3 — promotion unlock~~ — LANDED 2026-07-29, by different means
 
-Adding `google_photos_picker` to `PROMOTABLE_SOURCES`, so a reviewed picker
-candidate can become a `photos` row. Not started. It is gated behind the fetch
-lane existing, which it now does, and behind 3.3.
+**Struck rather than deleted, and struck rather than ticked, because the thing
+that landed is not the thing this section described.** It read, in full:
+
+> Adding `google_photos_picker` to `PROMOTABLE_SOURCES`, so a reviewed picker
+> candidate can become a `photos` row. Not started. It is gated behind the
+> fetch lane existing, which it now does, and behind 3.3.
+
+The *outcome* arrived: a reviewed picker candidate can now become a `photos`
+row. The *mechanism* named in the first sentence was ruled out in advance by
+Chris and is not what shipped — `PROMOTABLE_SOURCES` no longer exists under
+that name, and no source name was added to any allowlist. Promotion is gated
+on a verified staged file. See 1.8 and 2.12.
+
+The second sentence is the interesting one to leave standing. Both gates it
+named turned out to be real, and both are now satisfied: the fetch lane exists
+(2.4), and 3.3 — the promote-time re-hash — is no longer deferred, because it
+stopped being an optional safety check and became the precondition itself.
+This section spent a day describing a plan whose two dependencies were
+correctly identified and whose implementation was wrong, which is a better
+failure than the reverse.
 
 ### 3.2 ~~Phase 2D~~ / Phase 4 — the operator affordance
 
@@ -1002,12 +1308,28 @@ subject to 1.3 exactly as 2D was. A strip that grows a list of past runs with
 controls on them has become the second queue ruling 1.3 forbids, and it will
 get there one reasonable-looking feature at a time if nobody is counting.
 
-### 3.3 The promote-time re-hash check (spec §8)
+### 3.3 ~~The promote-time re-hash check (spec §8)~~ — IMPLEMENTED 2026-07-29
 
-`store_photo_file()` will re-hash the staged file at promote time. If the
-staged bytes and the ingest-time `file_hash` ever disagree, promotion should
-refuse rather than reconcile. That check does not exist and belongs to Phase
-3. This is on the record as an open risk, not as an oversight.
+**Struck rather than deleted. It read, in full:**
+
+> `store_photo_file()` will re-hash the staged file at promote time. If the
+> staged bytes and the ingest-time `file_hash` ever disagree, promotion should
+> refuse rather than reconcile. That check does not exist and belongs to Phase
+> 3. This is on the record as an open risk, not as an oversight.
+
+It exists, it belongs to Phase 3 exactly as predicted, and it refuses rather
+than reconciles: `StagedOriginalMismatchError`, 409, nothing written. One
+detail differs and it is worth the sentence. The check does not live in
+`store_photo_file()`; it lives in `_verified_staged_source()` in
+`import_repository.py`, upstream of the store, because by the time
+`store_photo_file` is called the decision to promote has already been taken.
+A verification that runs inside the writer is a verification that runs after
+the point of no return.
+
+The larger change is in what the check *is for*. This section filed it as a
+safety net over an unlock that would happen anyway. It is now the unlock —
+the whole of what distinguishes a promotable picker candidate from an
+unpromotable one. See 1.8.
 
 ### 3.4 A persisted per-run failure summary (spec §12.4)
 
@@ -1070,8 +1392,16 @@ receipt's own unfinished half.
 
 ### 3.6 Google Takeout
 
-Different lane, different work order. It stays out of `PROMOTABLE_SOURCES`
-even after Phase 3.
+Different lane, different work order.
+
+[This section read: "It stays out of `PROMOTABLE_SOURCES` even after Phase 3."
+That named a tuple which no longer exists under that name, and it named the
+wrong reason. Corrected 2026-07-29.] Takeout is not held out of promotion by a
+list. It fails the precondition in 1.8 because it has no lane that stages a
+file Hornelore can re-hash, and it will pass the same precondition unchanged
+on the day it grows one. That is the difference between an exclusion and an
+absence, and the version of this sentence that named a tuple could not tell
+them apart.
 
 ### 3.7 Lori Review Assistant
 
@@ -1083,6 +1413,56 @@ Everything on this lane is `requests` plus the standard library.
 `google-auth` and `google-api-python-client` were explicitly rejected: they
 would be environment work, and they buy nothing over a twenty-line token
 exchange.
+
+### 3.9 A generalised destination framework
+
+**Not started, and deliberately not started by this work order.** Chris:
+*"Do not introduce a generic polymorphic destination schema merely to finish
+this path."*
+
+The shape being declined is a destination table letting any candidate point at
+any target of any kind — trip, day, project, chapter, whatever comes later —
+with a type discriminator and a foreign key nobody can constrain. Every
+requirement it would serve beyond trip-and-day is speculative today, and the
+cost is not the table: it is that a polymorphic key cannot be enforced by the
+database, so every guarantee the schema currently gives for free (ruling
+1.12's `UNIQUE (trip_id, photo_id)` most of all) becomes application code that
+has to remember.
+
+Ruling 1.15 is the part that had to be decided now, and it was decided in the
+narrowest form that survives this framework being built later: the day is not
+on the candidate. When a second kind of destination is actually asked for,
+this is a design phase of its own, with the schema wall from 3.4 applying in
+full.
+
+### 3.10 The three-source chooser
+
+**Not started.** The intended shape is a single entry point on the day
+workspace — *add photos from* → upload / Google Photos / Takeout — so that
+choosing a source is one act rather than three separate affordances in three
+places. `WO-PICKER-PROMOTE-TO-DAY-01` deliberately did not build it: the
+workflow it was chartered to finish runs through the existing Picker strip and
+the existing Evidence Queue, and adding a chooser would have been new surface
+in a work order whose deliverable was a photo visible on a day card.
+
+Bound in advance by ruling 1.3 when it is built. A chooser that grows per
+source state, per source history, or per source review controls has become the
+second queue.
+
+### 3.11 Automatic day assignment from EXIF
+
+**Not started, and constrained in advance by ruling 1.15.** A candidate's
+`taken_at` can be compared to the trip's day dates and the matching day
+offered as a default. What may not happen is the day being chosen silently on
+that basis. Chris: *"Do not infer the day silently from EXIF date unless the
+UI clearly presents that only as a suggestion and the operator confirms it."*
+
+The reason is 1.4's reason wearing different clothes. `taken_at` may come from
+EXIF, from the provider's metadata, or from a filename, and its timezone is
+frequently unknown; an hour of error at a day boundary is a full day of error
+in the placement. A suggestion the operator confirms costs one click and makes
+the error visible. A default nobody confirmed is indistinguishable from a
+fact.
 
 ---
 
@@ -1110,6 +1490,25 @@ and until it exists, ruling 1.6 is the whole of the answer.
 
 Made in place rather than deleted, because a claim that was true when written
 and a claim that was never true are different facts.
+
+**In this document itself, 2026-07-29, by `WO-PICKER-PROMOTE-TO-DAY-01`.**
+Listed first because a document that corrects others and not itself is keeping
+two standards:
+
+- **Ruling 1.8** stated its precondition as a tuple of source names. True on
+  2026-07-27, when the tuple and the precondition were the same set; false
+  from 2026-07-28, when Phase 2B's staging lane separated them. Rewritten to
+  the precondition it was always titled after, with the retired text quoted in
+  full inside it.
+- **3.1** described the promotion unlock as an edit to that tuple. The outcome
+  landed; the mechanism did not, and was ruled out in advance. Struck, quoted,
+  and told why.
+- **3.3** filed the promote-time re-hash as a deferred safety net. It is
+  implemented, and it is not a net — it is the gate. Struck and quoted.
+- **3.6** excluded Takeout by naming a tuple that no longer exists, which
+  also named the wrong reason. Corrected in place.
+- **2.1** listed `PROMOTABLE_SOURCES` among the live vocabularies. Renamed
+  `UPLOAD_SOURCES`; the old name is noted in brackets rather than erased.
 
 In `docs/wo/WO-TRAVEL-DOC-GOOGLE-PHOTOS-PICKER-01_Spec.md`:
 
