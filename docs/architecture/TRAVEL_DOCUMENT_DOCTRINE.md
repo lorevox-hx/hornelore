@@ -372,9 +372,56 @@ row either. The receipt is therefore the *only* record a failed acquisition
 ever gets — and today that receipt lives in an HTTP response and dies on
 reload. See 3.4, which stopped being a nicety the moment this ruling landed.
 
+### 1.14 Provider bytes are not identity
+
+Chris's ruling, 2026-07-29, verbatim:
+
+> external_id / Google media item ID identifies the logical picked item.
+> file_hash verifies Hornelore's staged local copy.
+> A later Google download is not expected to reproduce the same hash.
+
+**This ruling was bought with a failed smoke, and the failure is the useful
+part of the record.** Live smoke 9 re-ran ingest over seven healthy
+candidates and got seven `hash_mismatch` refusals. Nothing was corrupt --
+every staged file on disk hashed exactly to its row. Two runs minutes apart
+were then compared item by item, and five of the seven returned *different
+bytes each time*, within three bytes in both directions. Google regenerates
+metadata server-side per request. The code was refusing correctly against an
+assumption that was wrong.
+
+So, for every producer on this lane and not only the Picker:
+
+- The provider's own stable identifier is the identity of the picked item.
+  Here that is `external_id`, indexed unique on `(batch_id, external_id)`.
+  **A hash is not promoted to identity to solve this.** Chris, explicitly:
+  *"This does not justify changing candidate identity to hashes."*
+- `file_hash` is the checksum of the copy **Hornelore retained**, not a
+  fingerprint supplied by the provider. It answers *is my file still my
+  file*, and nothing else.
+- Re-ingest verifies the local copy first and, when it verifies, reports
+  `unchanged` **without asking the provider for the bytes again**. Chris:
+  *"That avoids Google's byte jitter entirely."* The download that does not
+  happen is the fix; skipping the comparison would only hide it.
+- A re-download for **repair** -- missing, corrupt, or an earlier attempt left
+  incomplete -- may legitimately return different bytes. It stages atomically
+  and the new hash becomes the integrity record. That is `repaired`, not an
+  error.
+- `hash_mismatch` survives, narrower: a local integrity problem, or bytes
+  changing unexpectedly inside one controlled write. **Never because two
+  separate provider fetches differ.**
+
+**The refusal behaviour itself was right and is kept.** Chris: *"The system
+correctly refused to overwrite a good staged file. The mistake happened
+before that decision: it should never have downloaded the file again in the
+first place."* A row and a file that disagree are still worse than a refusal
+somebody can read. What moves is where the decision sits, not how defensive
+it is.
+
+Implemented by `WO-TRAVEL-DOC-PICKER-REINGEST-REPAIR-01`.
+
 ---
 
-## Part 2 — Implemented and verified (as of 2026-07-28)
+## Part 2 — Implemented and verified (as of 2026-07-29)
 
 Everything in this part is checkable. Where a claim rests on a test run, the
 suite and the count are named; where it rests on code, the file is named.
@@ -503,9 +550,20 @@ fix — it is the gate working, not the gate being in the way.
 
 ### 2.6 What "verified" does not yet cover
 
-No run has touched a real `baseUrl`, a real bearer token, or real EXIF. The
-credential-hygiene claims in 1.10 are proved against fixtures. The live smoke
-against a real Picker session is the next gate and it has not been run.
+**The last sentence of this paragraph stopped being true on 2026-07-28.** It
+read, in full: *"No run has touched a real `baseUrl`, a real bearer token, or
+real EXIF. The credential-hygiene claims in 1.10 are proved against fixtures.
+The live smoke against a real Picker session is the next gate and it has not
+been run."* The first two sentences were retired by the Phase 2B live run on
+2026-07-27, which touched all three. The third was retired by smokes 9 and 10
+on 2026-07-28. See 2.10, which is where the live claims now live -- and which
+is careful about which of them passed.
+
+What the paragraph was protecting is still worth keeping, so it is restated
+rather than dropped: **a suite is not a browser and a fixture is not Google.**
+Smoke 9 is the proof, not the counterexample -- 193 green tests did not know
+that Google returns different bytes for the same item on a second fetch,
+because no fixture had ever been asked to.
 
 **2D does not change that, and it is worth being exact about why.** Its 24
 tests read the shipped JavaScript and CSS as text. That is the right shape of
@@ -590,6 +648,119 @@ asked to push back on this and has not yet.
 
 **This section carries no live-smoke claim.** 2.6 applies unchanged. The
 suites are green and no browser has watched a day card disappear.
+
+### 2.9 The Stage 1 cleanup pass on the day workspace
+
+Six changes, committed as `7508f1f` on 2026-07-28, **no new behaviour**. They
+are recorded here because 2.7 and 2.8 describe the surface they altered, and a
+reader comparing this document to the tree would otherwise find wording that
+does not match.
+
+1. **The partial-success warning opens with what succeeded.** It now begins
+   *"The trip dates were saved, but ..."*. It used to open with *"could not be
+   removed"*, which is what a **failed** save looks like -- the operator was
+   being told the opposite of what had happened. Deliberately still amber: a
+   partial success is not a success.
+2. **The generator-column guard exists.** New class
+   `DayGeneratorEmptinessGuardTest` in `tests/test_trip_days_reconcile.py`, two
+   tests. It reads `DAY_OWN_TEXT_FIELDS` and `DAY_OWN_LIST_FIELDS` out of the
+   JavaScript, slices `trip_repository.py` down to `trip_days_generate` before
+   searching for the INSERT, and asserts the generator writes no field that
+   `dayOwnContent` counts as content. It also pins the one deliberate
+   exception: `trip_region_id` **is** stamped by the generator and **is not**
+   counted. This is the guard 2.8's flagged implementation choice needed and
+   did not have -- an auto-generated card that the emptiness rule considers
+   non-empty could never be dropped, and nothing was watching for one.
+3. **"Attach photos" became "Add photos"** on the day workspace.
+4. **The drawer kicker became "Choose existing Hornelore photos"**, which says
+   which of the three sources it is rather than describing the drawer.
+5. **The stale Upload instruction is gone from the empty picker.** It named a
+   control that no longer exists in that workflow. Chris ruled on exactly this
+   distinction: *"This trip has no photos yet. That is the right empty state.
+   The problem was the stale instruction telling you to use a control that no
+   longer exists in that workflow, not the factual sentence itself."* The
+   assertion guarding it is a **NotIn**, so a fourth destination cannot be
+   quietly written back in.
+6. **The empty picker drawer is compact.** A `tdl-photo-picker-bare` modifier
+   the renderer adds only when nothing is pickable.
+
+**Two test-record notes, because both are the shape of defect this document
+keeps warning about.** `test_round_2_fixes_preserved` had its "Attach photos"
+assertion *inverted* rather than deleted, so the old wording cannot return
+unnoticed. And `test_the_removal_is_reported_after_it_happens` was a single
+whole-function `assertIn` that had been green for the entire life of the
+defect it was supposed to catch; it now slices to the two branches separately.
+That is the sixth-shape guard failure -- a whole-file or whole-function search
+matching the wrong occurrence of a literal that appears more than once -- and
+it has now bitten twice. **Slice to the enclosing function first.**
+
+Suites green on the device: `trip_days_reconcile` 28, `trip_days` 45,
+`travel_doc_lab` 168, `travel_doc_doctrine` 6, `travel_doc_picker_ui` 24,
+`travel_doc_surface_gates` 13, `travel_doc_shell_mount` 45,
+`travel_doc_evidence_ui` 7.
+
+**This section carries no live-smoke claim, and the commit says so about
+itself:** *"no browser has rendered any of this. The compact drawer and the
+new wording are both visual claims still unverified."* 2.6 applies unchanged.
+Chris's ten-item visual verification list is still open.
+
+### 2.10 Live smokes 9 and 10 -- what they actually proved
+
+Run 2026-07-28 against the real serving stack, the real batch
+`8b5b47cb-4298-43fc-8ea6-827a5916e460` (seven candidates, session expires
+2026-08-04), with `HORNELORE_IMPORT_PROVENANCE=1` and
+`HORNELORE_GOOGLE_PICKER=1` confirmed in the `.env` the shortcut-launched
+stack uses. Both were run twice -- once from the browser, once independently
+by Chris from a WSL terminal -- and the two runs agreed.
+
+**Smoke 9: the deduplication half passed. The retry half did not, and it
+found a real defect.** Chris's ruling, verbatim: *"Record the deduplication
+portion as passed, but do not mark the retry behavior complete. It found a
+real provider-compatibility defect."*
+
+What passed, and it is not a small list: re-ingesting an existing batch
+created **no** duplicate row, promoted **nothing**, wrote **no** `photos` row,
+moved **no** batch counter, and left all seven rows `pending`. Totals held at
+14 candidates / 5 batches / 18 photos / 13 links. The
+`(batch_id, external_id)` uniqueness is doing its job in production.
+
+What failed: all seven items returned `outcome: failed`, `reason:
+hash_mismatch`, `retryable: false`. The cause is ruling 1.14 -- Google returns
+different bytes for the same media item on a later fetch. **The side-effect-free
+pre-flight `GET /sessions/{batch_id}` was used before every ingest, as its own
+docstring requires**, and the batch stayed `open` throughout, so the
+`_SESSION_UNUSABLE` hazard never fired. Corrective work order:
+`WO-TRAVEL-DOC-PICKER-REINGEST-REPAIR-01`. Until it lands and smoke 9 re-runs
+to `created: 0 / repaired: 0 / unchanged: 7 / failed: 0`, **the retry path is
+unverified and must not be described as working.**
+
+**Smoke 10: the browser half is complete and it is a confirmed failure.** One
+violation out of thirteen scanned patterns. `GET /api/import-provenance/queue`
+returns `candidates[].batch.external_ref`, proven by direct equality to be the
+raw Google Picker session identifier. Corrective work order:
+`WO-TRAVEL-DOC-PICKER-QUEUE-REF-LEAK-01`. Chris: *"Do not merely rename the
+key or partially mask the value. The raw provider reference should remain
+server-side."*
+
+The twelve that passed are evidence about ruling 1.10 and deserve naming: 81
+network requests, all to `localhost:8000`, no Google origin, no credential in
+any URL or query string; the ingest response body clean on all thirteen; the
+health endpoint reporting credential presence as **booleans only**, exactly as
+spec §10.4 requires; the console clean with zero errors; and `match_reason`
+clean, with the key `session_id` appearing nowhere -- the deliberate
+`picker_session` naming works.
+
+**The lesson is where the leak was, not that there was one.** Every guard
+written *for the picker lane* held. The value escaped through a generic column
+tuple on a shared route that predates the lane. A structural rule applied to a
+producer does not automatically cover the surfaces that producer feeds, which
+is why the corrective work order's contract test scans the **serialised whole
+response** rather than an enumerated field list.
+
+**The server-log half of smoke 10 is still open.** `hornelore_data/logs` is
+empty -- the server logs to Chris's terminal and that is the only copy. The
+`google_picker:` lines have not yet been scanned, so whether a second leak
+exists is **unknown, not clear**. The browser-side failure stands regardless.
 
 ---
 
@@ -791,6 +962,27 @@ In `MASTER_WORK_ORDER_CHECKLIST.md`:
   appended to stops being readable at the top, which is the whole reason it
   sits on one line.
 
+
+In `docs/architecture/TRAVEL_DOCUMENT_DOCTRINE.md` itself, on 2026-07-29:
+
+- 2.6's third sentence, "The live smoke against a real Picker session is the
+  next gate and it has not been run", was retired by smokes 9 and 10 and
+  corrected in place with the retired wording quoted. Its first two sentences
+  had been retired a day earlier by the Phase 2B live run and are corrected in
+  the same paragraph.
+- The `ingest_picker_session` docstring's idempotency claim -- *"Running it
+  twice over the same selection creates nothing the second time"* -- is
+  **true**, and the sentence after it is not: *"the re-ingest branch above
+  checks the bytes against the hash already on the row before it will replace
+  anything"* describes checking freshly downloaded bytes, which is the defect
+  smoke 9 found. It is corrected by
+  `WO-TRAVEL-DOC-PICKER-REINGEST-REPAIR-01`, in code, not here -- recorded in
+  this list so the two halves of one docstring are not confused for each
+  other.
+- The ingest response's `next` string, *"nothing already landed is
+  re-downloaded"*, is false today. Chris: *"It is factually false today."*
+  Also corrected by that work order.
+
 ---
 
 ## What this document is and is not
@@ -853,6 +1045,11 @@ authoring any WO that touches trips, photos, or imported evidence.
   sit inside
 - `docs/wo/WO-LOREVOX-MULTI-OPERATOR-GOOGLE-AUTH-01_Spec.md` — FUTURE DESIGN
   ONLY; see 4.1
+- `docs/wo/WO-TRAVEL-DOC-PICKER-REINGEST-REPAIR-01_Spec.md` -- opened
+  2026-07-29; implements ruling 1.14 after live smoke 9
+- `docs/wo/WO-TRAVEL-DOC-PICKER-QUEUE-REF-LEAK-01_Spec.md` -- opened
+  2026-07-29; removes the raw Picker session id from the queue payload after
+  live smoke 10
 - `CLAUDE.md` — "Travel Doc Evidence + Web Context Rule (permanent doctrine,
   2026-07-10)" and "Google Photos Picker identity boundary (permanent
   doctrine, 2026-07-27)"
