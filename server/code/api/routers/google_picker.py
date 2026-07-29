@@ -38,12 +38,25 @@ WHAT THIS ROUTER STILL DELIBERATELY DOES NOT DO, AND WHY
   * It writes no ``photos`` row and performs no promotion. Ingest ends at
     a ``pending`` candidate in the existing Evidence Review Queue; the
     operator is the next step, not this code.
-  * It does not add ``google_photos_picker`` to
-    ``import_repository.PROMOTABLE_SOURCES``. That happens in Phase 3,
-    and only after Phase 2 has proven it can stage real bytes. The
-    existing comment on that tuple is the reason: adding a provider
-    source without its fetch "would turn promotion into a way to mint
-    photo rows for images that do not exist."
+  * Until 2026-07-29 a second bullet here read that it "does not add
+    ``google_photos_picker`` to ``import_repository.PROMOTABLE_SOURCES``.
+    That happens in Phase 3, and only after Phase 2 has proven it can
+    stage real bytes."
+
+    Phase 2 proved it, and Phase 3 landed on 2026-07-29. What changed is
+    NOT that a source name was added to an allowlist. That tuple was
+    renamed ``UPLOAD_SOURCES``, because the fear it encoded -- "adding a
+    provider source without its fetch would turn promotion into a way to
+    mint photo rows for images that do not exist" -- was never really
+    about the source's NAME. It was about whether real, verified bytes
+    were on this machine. Promotion now asks that question directly: it
+    resolves the staged original, hashes it, and compares the digest to
+    the candidate's ``file_hash`` before it will create anything. A
+    provider source with no staged bytes is refused by that check, which
+    is a stronger guarantee than the allowlist ever gave.
+
+    This router's own posture is unchanged: it still ends at a
+    ``pending`` candidate and still calls no promotion.
   * It has no DELETE on the evidence lane. ``DELETE /sessions/{id}``
     ends the PICKING SESSION AT GOOGLE. The ``import_batch`` survives it
     untouched -- it can be closed, reopened or hidden through the
@@ -91,6 +104,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ..services import import_repository as repo
+from ...services import import_staging
 from ...services.google_picker import acquire, oauth, picker_client
 
 logger = logging.getLogger("code.api.routers.google_picker")
@@ -500,23 +514,27 @@ def _discard(tmp_path: Optional[str]) -> None:
 def _staged_original(batch_id: str, candidate_id: str) -> Optional[Path]:
     """The one ``original.*`` in a candidate's staging directory, or None.
 
-    None means "not staged as Phase 3 will require it" and deliberately
-    covers three cases that all want the same answer: the directory does
-    not exist, it is empty, or it holds more than one ``original.*``.
-    Phase 3 resolves the directory and requires exactly one file in it,
-    so a directory holding two is already broken -- and re-staging is
-    the repair, because ``stage_original`` writes the new one and then
-    removes the stale extensions.
+    2026-07-29: the body of this function moved to
+    ``services/import_staging.staged_original``. What stood here
+    resolved the directory through ``acquire.staging_dir_for`` and
+    globbed it, under a docstring that said the answer was something
+    "Phase 3 resolves ... and requires exactly one file in it" -- true
+    while promotion was still deferred and this router was the tree's
+    only reader.
+
+    Phase 3 arrived on 2026-07-29. Promotion resolves the same directory
+    from the SHARED intake lane now, and two functions globbing one
+    convention is one convention that can drift. The name is kept
+    because the ingest path below reads better with it, and because it
+    is what this router's own tests already pin.
+
+    None still means "there is no single staged copy to work from", and
+    still deliberately covers the directory not existing, being empty,
+    or holding more than one ``original.*``. Re-staging remains the
+    repair: ``stage_original`` writes the new one and then removes the
+    stale extensions.
     """
-    try:
-        target_dir = acquire.staging_dir_for(batch_id, candidate_id)
-    except acquire.AcquireError:
-        return None
-    try:
-        found = sorted(p for p in target_dir.glob("original.*") if p.is_file())
-    except OSError:
-        return None
-    return found[0] if len(found) == 1 else None
+    return import_staging.staged_original(batch_id, candidate_id)
 
 
 def _existing_by_external_id(batch_id: str) -> Dict[str, Dict[str, Any]]:

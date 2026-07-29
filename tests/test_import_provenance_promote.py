@@ -683,10 +683,33 @@ class PromotionRefusesToInventAPhotoTests(_Base):
         self.assertIn("never the image", detail)
 
 
-class PromotableSourceTests(_Base):
+class UploadSourceTests(_Base):
+    """MOVED FORWARD 2026-07-29 (was `PromotableSourceTests`).
 
-    def test_promotion_is_defined_only_for_local_and_manual(self):
-        self.assertEqual(repo.PROMOTABLE_SOURCES, ("local_upload", "manual"))
+    The class name asserted, by naming, that the tuple decided WHO MAY
+    BE PROMOTED. That was never quite what it did, and on 2026-07-29 it
+    stopped being defensible at all: a picker candidate is promotable,
+    from the verified copy the import lane already staged.
+
+    What the tuple actually decides -- and still decides -- is who may
+    be promoted FROM A FILE THE OPERATOR HANDED US in this request. That
+    stays exactly two sources, and every case below is unchanged in
+    behaviour: a provider batch that arrives with an uploaded file is
+    still refused 400, because the operator must never be asked to
+    download their own photo and post it back."""
+
+    def test_uploads_are_accepted_only_for_local_and_manual(self):
+        """The retired assertion, verbatim, was:
+
+            self.assertEqual(repo.PROMOTABLE_SOURCES,
+                             ("local_upload", "manual"))
+
+        Same tuple, renamed to say what it gates. The old name is
+        asserted GONE rather than merely unused: a module that still
+        exported it would let a future reader believe promotion is
+        decided by a source list."""
+        self.assertEqual(repo.UPLOAD_SOURCES, ("local_upload", "manual"))
+        self.assertFalse(hasattr(repo, "PROMOTABLE_SOURCES"))
 
     def test_a_manual_batch_promotes(self):
         bid = self._open_batch(source="manual")

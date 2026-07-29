@@ -33,11 +33,16 @@ What is locked here:
      source contains no DELETE FROM.
 
   6. THE PHASE WALL HOLDS, WHEREVER IT CURRENTLY STANDS.
-     `google_photos_picker` is NOT in PROMOTABLE_SOURCES and no route in
-     this lane creates a candidate. Phase 2A moved one board of this
-     wall: `picker_client` now HAS a media-item listing, so the wall
-     tests what listing must still not do -- no byte download, and no
-     route wired to it.
+     2026-07-29: this bullet used to read "`google_photos_picker` is NOT
+     in PROMOTABLE_SOURCES and no route in this lane creates a
+     candidate." Both halves have been overtaken. Phase 2B wires this
+     lane to candidate creation, and PROMOTABLE_SOURCES no longer
+     exists: it was renamed UPLOAD_SOURCES, because the list never meant
+     "may be promoted" -- it meant "may be promoted from a file the
+     operator supplied". The picker is still off that list, and must
+     stay off it. The wall now stands at: no byte download in the
+     listing client, no route following `baseUrl`, and promotion gated
+     on a verified staged copy rather than on a source name.
 
 Nothing here touches the network: `requests` is replaced inside the two
 service modules by a recording double.
@@ -716,11 +721,51 @@ class TestPhaseWalls(_Base):
     fail loudly if a later session reaches past the Phase 1 wall without
     doing the work the wall exists to force."""
 
-    def test_picker_source_is_not_promotable_yet(self):
-        self.assertNotIn("google_photos_picker", repo.PROMOTABLE_SOURCES,
-                         "google_photos_picker may only join PROMOTABLE_SOURCES "
-                         "in Phase 3, after Phase 2 can stage real bytes")
+    def test_the_picker_never_asks_the_operator_to_upload_the_file(self):
+        """MOVED FORWARD 2026-07-29 (was
+        `test_picker_source_is_not_promotable_yet`).
+
+        The retired assertion read, verbatim:
+
+            self.assertNotIn("google_photos_picker", repo.PROMOTABLE_SOURCES,
+                             "google_photos_picker may only join
+                             PROMOTABLE_SOURCES in Phase 3, after Phase 2
+                             can stage real bytes")
+
+        Its condition has been met. Phase 2B stages real bytes and
+        hash-verifies them, so the thing the wall was waiting for has
+        happened. But the list was NOT widened to let the picker in --
+        it was renamed, because it never meant "may be promoted". It
+        meant "may be promoted FROM AN UPLOADED FILE", and that is still
+        false for the picker and must stay false: an operator must never
+        be told to download their own Google photo and post it back.
+
+        So the wall moves one step in, to the tighter claim: the list is
+        about uploads, the picker is not on it, and the old name is
+        gone rather than quietly still accepting the picker."""
+        self.assertFalse(
+            hasattr(repo, "PROMOTABLE_SOURCES"),
+            "PROMOTABLE_SOURCES was renamed UPLOAD_SOURCES; a module still "
+            "exporting the old name is one that never moved the wall")
+        self.assertEqual(repo.UPLOAD_SOURCES, ("local_upload", "manual"))
+        self.assertNotIn("google_photos_picker", repo.UPLOAD_SOURCES)
         self.assertIn("google_photos_picker", repo.IMPORT_SOURCES)
+
+    def test_promotion_is_gated_on_a_verified_file_not_on_a_source_name(self):
+        """The replacement precondition, asserted as structure.
+
+        A source-name allowlist can be widened by one word and will then
+        happily promote a candidate whose bytes are absent or wrong. The
+        precondition that actually protects the archive is "a verified
+        local copy of this candidate's picture is on disk", so the
+        repository has to own three things: a way to find that copy, and
+        two distinct, named refusals for the two ways it can be
+        unusable. Their absence would mean the gate reverted to a list."""
+        for name in ("staged_original_path", "StagedOriginalMissingError",
+                     "StagedOriginalMismatchError"):
+            self.assertTrue(hasattr(repo, name),
+                            "promotion is gated on verified staged bytes; %r "
+                            "is part of that gate" % name)
 
     def test_listing_exists_but_downloads_nothing(self):
         """Phase 2A added `list_media_items`. What it must NOT have

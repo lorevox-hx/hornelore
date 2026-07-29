@@ -60,17 +60,43 @@ Deliberately absent, and to stay absent:
     that photo is born narrator_ready = 0, needs_confirmation = 1 and
     unapproved for Lori on both the date and the location. Accepting a
     candidate still only RECORDS a promotion; it still cannot cause one.
-  * ``POST /promote`` is restricted to ``local_upload`` and ``manual``
-    batches. The provider-side sources have no fetch yet, and promotion
-    without bytes would mean inventing an ``image_path``.
+  * ``POST /promote`` accepts an UPLOADED FILE only for ``local_upload``
+    and ``manual`` batches. Until 2026-07-29 this bullet read:
+
+        "``POST /promote`` is restricted to ``local_upload`` and
+        ``manual`` batches. The provider-side sources have no fetch yet,
+        and promotion without bytes would mean inventing an
+        ``image_path``."
+
+    The second sentence gave the reason, and the Picker lane then went
+    and satisfied it: it fetches, hashes and stages the original before
+    a candidate is ever offered for review, so promoting one invents
+    nothing. What survives is the narrower rule the sentence was
+    protecting -- the operator must never be asked to supply a file the
+    system already holds -- so an upload is refused for the
+    provider-side sources instead of the promotion being refused.
+    ``google_takeout`` and ``csv`` remain unpromotable in fact: they
+    have no lane that stages bytes, so there is nothing to verify.
   * There is no Google Photos and no Takeout here. ``GET /queue`` is the
     queue's read and ``POST /promote`` is its one write; WO-3 through
     WO-5 are elsewhere.
   * ``GET /queue`` has no ``proposed_trip_day_id`` /
     ``proposed_region_id`` / ``proposed_stop_id``. Migration 0037 has no
-    such columns, so placement in this system is trip-granularity and
-    nothing finer. The route does not invent a finer answer than the
-    schema can hold.
+    such columns and this work order did not add any. Until 2026-07-29
+    the reason given was:
+
+        "so placement in this system is trip-granularity and nothing
+        finer. The route does not invent a finer answer than the schema
+        can hold."
+
+    The first half was never true of the system, only of this table:
+    ``trip_photo_links`` has carried ``trip_day_id`` since 0015. What is
+    true is that a CANDIDATE has no day, because a candidate is a review
+    record and the day is a placement. The day is chosen by the operator
+    at the placement step, immediately after promotion, and written to
+    the link -- so no pending destination has to be parked on the
+    candidate and no migration is owed. The route still does not invent
+    a finer answer than the schema can hold.
 
 The route layer re-checks the person/trip/photo boundaries itself rather
 than trusting the repository to be the only guard. The repository check
@@ -155,6 +181,13 @@ _STATUS_BY_ERROR = (
     # real. What is missing is the image, which is a fact about the
     # state of the world, not about the request.
     (repo.PhotoBytesMissingError, 409),
+    # The same reasoning, one step further in. These two say the import
+    # lane's own copy of the picture is gone or is not the file the
+    # candidate describes. Nothing about the request is wrong and there
+    # is nothing the caller can put in the payload to fix it -- the fix
+    # is to run the import again -- so 409, and never 400 or 500.
+    (repo.StagedOriginalMissingError, 409),
+    (repo.StagedOriginalMismatchError, 409),
     (repo.ExternalTokenError, 400),
     (repo.InvalidStateError, 400),
 )
@@ -586,14 +619,33 @@ async def promote_candidate_route(
 ) -> Dict[str, Any]:
     """Materialize a candidate into a photos row. Does not decide it.
 
-    Multipart, and ``file`` is optional, because there are two ways this
-    ends with a photo_id and only one of them needs bytes. If the
-    candidate is already promoted, or its ``file_hash`` matches a photo
-    this person already has, the answer is a lookup and the operator
-    should not be made to find a file they already uploaded. When
-    neither holds, the file IS the request: an import_candidate carries
-    a filename and a byte count, never the image, so there is nothing
-    else promotion could build ``photos.image_path`` out of.
+    Multipart, and ``file`` is optional. Until 2026-07-29 this docstring
+    ended the list of ways to promote with:
+
+        "When neither holds, the file IS the request: an import_candidate
+        carries a filename and a byte count, never the image, so there is
+        nothing else promotion could build `photos.image_path` out of."
+
+    That was true of every import lane that existed when it was written,
+    all of which began with the operator holding the file. It stopped
+    being true when the Picker lane started downloading the original
+    itself, hashing it, and keeping the verified copy server-side. For
+    those candidates an upload would mean asking the operator to fetch
+    their own photo back out of Google and hand it to a program that
+    already has it.
+
+    So there are now four ways this ends with a photo_id and only one of
+    them needs an upload: the candidate is already promoted; its
+    ``file_hash`` matches a photo this person already has; the import
+    lane's own verified copy is on disk; or the operator supplied the
+    file. The repository decides between them in that order --
+    ``candidate_promote`` owns the rule, this route only carries the
+    bytes when there are bytes to carry.
+
+    An upload is accepted only for the lanes where the operator is the
+    one holding the picture. Supplying one for a provider-side import is
+    refused rather than quietly ignored, which is a 400 out of
+    ``InvalidStateError``.
 
     The candidate is still ``pending`` when this returns. Accepting it
     is the next, separate request, to ``POST /decision`` with the

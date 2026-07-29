@@ -91,6 +91,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import requests
 
+from .. import import_staging
 from ..photo_intake.dedupe import sha256_file
 from ..photo_intake.exif import extract_exif
 from ..photo_intake.metadata_trust import classify_metadata_trust
@@ -108,9 +109,22 @@ _ABS_MAX_BYTES = 2 * 1024 * 1024 * 1024
 _CHUNK = 65536
 _TIMEOUT = (10, 120)                      # (connect, read-between-chunks)
 
-STAGING_ROOT = "import_staging"
-INCOMING_DIRNAME = ".incoming"
-DATA_DIR_ENV = "DATA_DIR"
+# 2026-07-29: these three were DEFINED here. The lines that stood here
+# read ``STAGING_ROOT = "import_staging"``, ``INCOMING_DIRNAME =
+# ".incoming"`` and ``DATA_DIR_ENV = "DATA_DIR"``, and that was right
+# while this module was both the only writer and the only reader of the
+# staging tree.
+#
+# It stopped being right when promotion had to read the same tree.
+# Promotion lives in the SHARED intake lane, and a shared lane must not
+# import one provider's module to find out where bytes live. The
+# convention moved to ``services/import_staging.py`` -- one definition,
+# delegated to from both ends -- and these names are re-exported here so
+# this module's own callers and tests keep working against the
+# vocabulary they already use.
+STAGING_ROOT = import_staging.STAGING_ROOT
+INCOMING_DIRNAME = import_staging.INCOMING_DIRNAME
+DATA_DIR_ENV = import_staging.DATA_DIR_ENV
 
 
 def max_bytes() -> int:
@@ -686,30 +700,38 @@ def read_evidence_metadata(path: str, *,
 # Batch and candidate ids are uuid4 hex-with-dashes today, but the guard
 # is about traversal, not about uuid shape: `..` and separators are what
 # must never reach a filesystem call.
-_SAFE_ID_RX = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+#
+# 2026-07-29: the expression itself moved to ``import_staging`` with the
+# rest of the convention. Re-exported rather than restated, because two
+# copies of a traversal guard is one copy that can be relaxed alone.
+_SAFE_ID_RX = import_staging._SAFE_ID_RX
+
+
+def _as_acquire_error(exc: import_staging.StagingPathError) -> AcquireError:
+    """One refusal, retold in this lane's vocabulary.
+
+    ``import_staging`` raises with the SAME three reason strings this
+    module already classifies (``data_dir_unset``, ``invalid_request``,
+    ``unsafe_identifier``), so the translation carries the reason across
+    unchanged and ``is_retryable`` reaches the same verdict it always
+    did. The message is carried across too: it never contains the
+    offending value, by construction on both sides.
+    """
+    return AcquireError(str(exc), reason=exc.reason)
 
 
 def _data_dir() -> Path:
-    raw = (os.environ.get(DATA_DIR_ENV) or "").strip()
-    if not raw:
-        raise AcquireError(
-            "%s is not set; refusing to stage bytes without an explicit "
-            "base path." % DATA_DIR_ENV,
-            reason="data_dir_unset")
-    return Path(raw).expanduser()
+    try:
+        return import_staging.data_dir()
+    except import_staging.StagingPathError as exc:
+        raise _as_acquire_error(exc) from None
 
 
 def _safe_segment(value: Any, label: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise AcquireError("a %s is required to resolve a staging path."
-                           % label,
-                           reason="invalid_request")
-    text = value.strip()
-    if not _SAFE_ID_RX.match(text) or ".." in text:
-        raise AcquireError(
-            "%s is not usable as a path segment (value withheld)." % label,
-            reason="unsafe_identifier")
-    return text
+    try:
+        return import_staging.safe_segment(value, label)
+    except import_staging.StagingPathError as exc:
+        raise _as_acquire_error(exc) from None
 
 
 def staging_dir_for(batch_id: str, candidate_id: str) -> Path:
@@ -717,11 +739,18 @@ def staging_dir_for(batch_id: str, candidate_id: str) -> Path:
 
     Derived on demand, never stored. Spec 12.5: ``match_reason`` is
     effectively write-once, so a path recorded there could never be
-    corrected after the file moved. Phase 3 recomputes this from the two
-    ids it already holds.
+    corrected after the file moved. Every reader recomputes this from
+    the two ids it already holds.
+
+    2026-07-29: the body moved to ``import_staging.staging_dir_for``.
+    This is now the Picker lane's door onto the shared convention, kept
+    so that a raise inside it is still an ``AcquireError`` with a reason
+    this lane's failure vocabulary knows how to classify.
     """
-    return (_data_dir() / STAGING_ROOT / _safe_segment(batch_id, "batch_id")
-            / _safe_segment(candidate_id, "candidate_id"))
+    try:
+        return import_staging.staging_dir_for(batch_id, candidate_id)
+    except import_staging.StagingPathError as exc:
+        raise _as_acquire_error(exc) from None
 
 
 def incoming_dir_for(batch_id: str) -> Path:
@@ -789,7 +818,7 @@ def hash_file(path: Any) -> str:
     not a verdict about the photograph.
     """
     try:
-        return sha256_file(str(path))
+        return import_staging.hash_file(path)
     except Exception as exc:
         raise AcquireError(
             "could not hash the file at the staged location (%s)."

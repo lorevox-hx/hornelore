@@ -449,10 +449,23 @@ class CountsTest(_TripDaysCase):
 
 
 class _PhotoLinksReq:
-    """TripDayPhotoLinksReq stand-in."""
+    """TripDayPhotoLinksReq stand-in.
 
-    def __init__(self, ids):
+    2026-07-29: gained `photo_ids`, because the real model did. A photo
+    promoted out of the evidence queue has no link to this trip yet, so
+    the operator has no photo_link_id to send and the only thing they
+    can name is the PHOTO; the attach route accepts that and makes the
+    link itself.
+
+    Defaulted to empty rather than added to every call site: these tests
+    are about the by-link-id path, which is unchanged, and a stand-in
+    that quietly drifts from the model it stands in for is worse than
+    one field of noise. The by-photo-id path is covered end to end in
+    tests/test_picker_promote_to_day.py, through real HTTP."""
+
+    def __init__(self, ids, photo_ids=None):
         self.photo_link_ids = list(ids)
+        self.photo_ids = list(photo_ids or [])
 
 
 class DayPhotoLinkTest(_TripDaysCase):

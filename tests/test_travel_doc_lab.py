@@ -61,6 +61,33 @@ def _destroy_body() -> str:
     return src[i:end]
 
 
+def _sentence_rx(phrase: str) -> str:
+    """A regex matching `phrase` across JS string-concatenation seams.
+
+    Added 2026-07-29. An operator sentence in this file is not a string
+    in the source -- it is several string literals joined with ``" +"``
+    and a newline, because the sentences are longer than the line
+    budget. So a test that asserts on the WORDS the operator reads has
+    to allow for the fact that the author's line wrap can fall anywhere,
+    and a phrase that was contiguous yesterday can be split by a reflow
+    that changed nothing anybody can see on screen.
+
+    Asserting on raw substrings instead makes the wrap point part of the
+    contract, which it is not: it means an edit that only rewrapped a
+    paragraph fails a wall test about what the paragraph SAYS. That is
+    the same defect as a guard written against a word firing on
+    documentation quoting that word -- the instrument reporting on
+    itself rather than on the thing it guards.
+
+    Every space in `phrase` therefore matches whitespace and/or a
+    concatenation seam. Nothing else is loosened: the words themselves
+    are escaped and must appear, in order, with nothing between them but
+    the seam.
+    """
+    seam = r'(?:\s|"\s*\+\s*")+'
+    return seam.join(re.escape(word) for word in phrase.split())
+
+
 def _stripped_css() -> str:
     return _tds.UNIFIED_CSS.stripped()
 
@@ -1746,15 +1773,51 @@ class EvidenceReviewQueueTest(unittest.TestCase):
                              "DELETE aimed at the import-provenance lane")
 
     def test_the_queue_adds_nothing_narrator_facing_and_no_lori_control(self):
-        # Build points 10 and 11. Promotion creates a photo born not
-        # narrator-facing and not approved for Lori; the screen must not
-        # offer to change either, and must say so.
+        """Build points 10 and 11. Promotion creates a photo born not
+        narrator-facing and not approved for Lori; the screen must not
+        offer to change either, and must say so.
+
+        SAME WALL, BETTER INSTRUMENT, 2026-07-29. The final assertion
+        used to read, verbatim:
+
+            self.assertIn("not narrator-facing", sec)
+
+        WO-PICKER-PROMOTE-TO-DAY rewrote the promote drawer's doctrine
+        paragraph from two acts to three, and the operator instruction
+        governing that rewrite was: "Use plain operator language. Do not
+        expose staging paths, provider references, hashes, or repository
+        terminology in the normal UI." The paragraph still makes both
+        promises -- it now reads "kept private, not shown to the
+        narrator, and not approved for Lori on either its date or its
+        location" -- but it makes the first one in words an operator
+        already owns rather than in the hyphenated adjective the schema
+        uses. The old assertion failed on prose that had got PLAINER,
+        which is the same failure mode as a guard written against a word
+        firing on documentation quoting that word.
+
+        So the wall does not move: the screen must still state both
+        guarantees, and must still offer no control over either. What
+        moves is the instrument. Each guarantee is now matched by a
+        pattern that accepts the wordings that mean it and nothing
+        looser -- deleting either sentence still fails, and softening
+        one into "usually" or "by default" still fails, because neither
+        pattern has any optional part. The four field names stay an
+        exact ban list, because those ARE schema strings and there is no
+        plainer way to spell them.
+        """
         sec = self._section()
         for banned in ("narrator_ready", "include_in_memoir",
                        "date_approved_for_lori",
                        "location_approved_for_lori"):
             self.assertNotIn(banned, sec, banned)
-        self.assertIn("not narrator-facing", sec)
+        self.assertRegex(
+            sec,
+            "(?:%s|%s)" % (_sentence_rx("not narrator-facing"),
+                           _sentence_rx("not shown to the narrator")),
+            "the screen must say the photo is born not narrator-facing")
+        self.assertRegex(
+            sec, _sentence_rx("not approved for Lori"),
+            "the screen must say the photo is born unapproved for Lori")
 
     def test_no_takeout_and_the_picker_stays_an_import_affordance(self):
         """RETIRED AND REPLACED 2026-07-28, in place rather than deleted.

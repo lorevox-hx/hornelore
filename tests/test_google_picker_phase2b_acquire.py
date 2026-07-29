@@ -1276,8 +1276,24 @@ class TestPhaseWall(_Base):
             # "errno" arrived with _move_onto's EXDEV branch: the final
             # staging move falls back to copy+replace when the temp file and
             # the destination turn out to sit on different filesystems.
+            #
+            # ".." (i.e. `from .. import import_staging`) arrived
+            # 2026-07-29, and it is a collaborator SUBTRACTED rather than
+            # added. The staging path convention -- STAGING_ROOT, the
+            # safe-segment rule, `import_staging/<batch>/<candidate>/
+            # original.*` -- used to be DEFINED here, which meant any
+            # other module that needed to find a staged original had to
+            # import this one. Promotion needs exactly that. Had the
+            # convention stayed here, promotion would have imported the
+            # Picker's byte-fetching module, and the "one entrance"
+            # property the sibling test guards would have been gone.
+            # So the convention moved down into a provider-neutral
+            # module that owns paths and hashing and nothing else, and
+            # this module now reads it instead of owning it. It opens no
+            # database and creates no candidate, which is what this test
+            # is actually about.
             {"__future__", "logging", "os", "re", "shutil", "tempfile",
-             "errno", "datetime", "pathlib", "typing", "requests",
+             "errno", "datetime", "pathlib", "typing", "requests", "..",
              "..photo_intake.dedupe", "..photo_intake.exif",
              "..photo_intake.metadata_trust"},
             "the acquisition module grew a collaborator; the database and "
@@ -1304,15 +1320,49 @@ class TestPhaseWall(_Base):
         content type, computes the hash and keeps the bearer-scoped URL
         out of every message it raises. If a second module starts
         importing it, those guarantees stop being structural and start
-        being a habit. One importer, named, or this fails."""
+        being a habit. One importer, named, or this fails.
+
+        REWRITTEN 2026-07-29, same wall, better instrument. It used to
+        search for the substrings "google_picker import acquire",
+        "google_picker.acquire" and "import acquire" in the raw text of
+        every file. That is a guard written against a WORD, and a guard
+        written against a word fires on documentation quoting that word.
+        It did: `services/import_staging.py` and
+        `api/services/import_repository.py` both EXPLAIN in prose that
+        they must not reach into the Picker's byte lane, and naming the
+        thing they refuse to import made them read as importers of it.
+        A wall that fails when someone documents why they respected it
+        teaches people to stop documenting.
+
+        So the same claim is now asserted against the parsed import
+        statements. Prose is invisible to it, an import is not, and a
+        lazy `import` inside a function body is still caught because
+        ast.walk descends into one."""
         importers = []
         for path in sorted(_SERVER_CODE.rglob("*.py")):
             if path.name == "acquire.py":
                 continue
-            text = path.read_text(encoding="utf-8", errors="replace")
-            if "google_picker import acquire" in text \
-                    or "google_picker.acquire" in text \
-                    or "import acquire" in text:
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8",
+                                                errors="replace"))
+            except SyntaxError:                     # not ours to police
+                continue
+            hit = False
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if alias.name.split(".")[-1] == "acquire" or \
+                                "google_picker.acquire" in alias.name:
+                            hit = True
+                elif isinstance(node, ast.ImportFrom):
+                    mod = node.module or ""
+                    if mod.endswith("google_picker.acquire") or \
+                            mod.split(".")[-1] == "acquire":
+                        hit = True
+                    elif mod.endswith("google_picker") and any(
+                            a.name == "acquire" for a in node.names):
+                        hit = True
+            if hit:
                 importers.append(path.relative_to(_SERVER_CODE).as_posix())
         self.assertEqual(
             importers, ["api/routers/google_picker.py"],

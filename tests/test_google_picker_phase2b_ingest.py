@@ -55,9 +55,14 @@ What is locked here:
      empty after every run, including runs that failed part-way.
 
   8. INTAKE IS NOT APPROVAL AND NOT PROMOTION. Every candidate is born
-     `pending`, no `photos` row is written, `google_photos_picker` stays
-     out of `PROMOTABLE_SOURCES`, and the router calls neither
-     `candidate_decide` nor `candidate_promote`.
+     `pending`, no `photos` row is written, and the router calls neither
+     `candidate_decide` nor `candidate_promote`. 2026-07-29: this bullet
+     used to add "`google_photos_picker` stays out of
+     `PROMOTABLE_SOURCES`". That list was renamed `UPLOAD_SOURCES` and
+     the picker is still out of it, but the sentence was measuring the
+     wrong thing -- what makes ingest not-promotion is that ingest
+     writes no `photos` row and takes no decision, not what some
+     allowlist says.
 
   9. THE NEW CANDIDATES ARE IN THE EXISTING QUEUE. Not a second review
      surface -- the same `candidates_list` read the Evidence Review
@@ -700,12 +705,21 @@ class TestReIngest(_Base):
         """Point a candidate at a permanent archive photo.
 
         Written straight to the database rather than through
-        ``candidate_promote``, and deliberately: ``PROMOTABLE_SOURCES``
-        is ``("local_upload", "manual")``, so no picker candidate can
-        reach this state through the repository today. The state is
-        still worth guarding -- doctrine 3.1 is that a wall is asserted,
-        not assumed -- and constructing it is the only way to assert the
-        guard fires when the wall eventually moves.
+        ``candidate_promote``, and still deliberately so -- but for a
+        different reason than when it was written. The retired note read:
+
+            ``PROMOTABLE_SOURCES`` is ``("local_upload", "manual")``, so
+            no picker candidate can reach this state through the
+            repository today.
+
+        2026-07-29: that stopped being true. A picker candidate reaches
+        this state through ``candidate_promote`` now, from its verified
+        staged copy. The shortcut stays because these are ACQUISITION
+        tests: what they need is a candidate that is already promoted,
+        cheaply and with no dependency on promotion's own behaviour, so
+        that a failure here is unambiguously an acquisition failure.
+        Promotion is exercised for real in
+        ``tests/test_import_provenance_promote.py``.
         """
         photo_id = str(uuid.uuid4())
         con = self._con()
@@ -1498,8 +1512,26 @@ class TestPhaseWalls(_Base):
         self.assertEqual(self.photo_count(), 0,
                          "promotion is Phase 3; ingest mints no photos")
 
-    def test_the_picker_source_is_still_not_promotable(self):
-        self.assertNotIn("google_photos_picker", repo.PROMOTABLE_SOURCES)
+    def test_the_picker_is_still_never_promoted_from_an_uploaded_file(self):
+        """MOVED FORWARD 2026-07-29 (was
+        `test_the_picker_source_is_still_not_promotable`), which read:
+
+            self.assertNotIn("google_photos_picker", repo.PROMOTABLE_SOURCES)
+
+        The picker IS promotable now -- that is the whole point of the
+        2026-07-29 work -- so an assertion phrased as "not promotable"
+        would be simply false and deleting it would lose what it was
+        protecting. What it was really protecting is that promotion of a
+        picker candidate never routes through an operator upload, and
+        that survives verbatim under the renamed list.
+
+        This test still belongs to the INGEST wall for a second reason:
+        ingest itself must remain non-promoting, which the sibling
+        `test_ingest_creates_no_photos_row` asserts. Promotion is a
+        separate, later, operator-driven act."""
+        self.assertFalse(hasattr(repo, "PROMOTABLE_SOURCES"),
+                         "renamed UPLOAD_SOURCES on 2026-07-29")
+        self.assertNotIn("google_photos_picker", repo.UPLOAD_SOURCES)
         self.assertIn("google_photos_picker", repo.IMPORT_SOURCES)
 
     def test_the_router_records_no_operator_decision(self):

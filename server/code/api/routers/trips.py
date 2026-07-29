@@ -359,6 +359,30 @@ def _photos_for_narrator(narrator_id: str) -> List[Dict[str, Any]]:
         con.close()
 
 
+def _read_photo_owner(photo_id: str) -> Optional[Dict[str, Any]]:
+    """The narrator and the placement signal of one live photo, or None.
+
+    Read here rather than through the photo lane because this is a
+    boundary check, not a photo feature: the day-attach route has to be
+    able to answer "is this even this trip's narrator's picture" without
+    depending on a module that could later decide to widen what it
+    returns. Soft-deleted rows are excluded on purpose -- a deleted
+    photo is not something to hang on a day card."""
+    from .. import db as _db
+    con = sqlite3.connect(str(_db.DB_PATH))
+    con.row_factory = sqlite3.Row
+    con.execute("PRAGMA busy_timeout = 5000;")
+    try:
+        row = con.execute(
+            "SELECT id, narrator_id, date_value, latitude, longitude "
+            "FROM photos WHERE id = ? AND deleted_at IS NULL",
+            (photo_id,),
+        ).fetchone()
+        return dict(row) if row is not None else None
+    finally:
+        con.close()
+
+
 def _flat_stops(trip_id: str) -> List[Dict[str, Any]]:
     tree = trip_repository.trip_tree(trip_id)
     if not tree:
@@ -3428,6 +3452,11 @@ def patch_trip_day(day_id: str, req: TripDayPatch) -> Dict[str, Any]:
 
 class TripDayPhotoLinksReq(BaseModel):
     photo_link_ids: List[str] = []
+    # 2026-07-29. A photo that has just been promoted out of the evidence
+    # queue has no link to this trip yet, so the operator has no
+    # photo_link_id to send and the only thing they can name is the
+    # PHOTO. Accepted on the attach route only; see link_day_photos.
+    photo_ids: List[str] = []
 
 
 def _require_day_in_trip(trip_id: str, day_id: str) -> Dict[str, Any]:
@@ -3454,16 +3483,74 @@ def _require_day_in_trip(trip_id: str, day_id: str) -> Dict[str, Any]:
 @router.post("/{trip_id}/days/{day_id}/photos/link")
 def link_day_photos(trip_id: str, day_id: str,
                     req: TripDayPhotoLinksReq) -> Dict[str, Any]:
-    """Attach existing trip photo links to a day card (0028). Links must
-    belong to this trip; the day must belong to this trip. Attached
-    photos count on their day first (see trip_day_counts).
+    """Attach trip photo links to a day card (0028). Links must belong
+    to this trip; the day must belong to this trip. Attached photos
+    count on their day first (see trip_day_counts).
 
-    2026-07-23 (Bucket B) — classified SQLite errors."""
+    2026-07-23 (Bucket B) — classified SQLite errors.
+
+    2026-07-29 — also accepts ``photo_ids``. Until this date the body
+    was ``photo_link_ids`` alone, which assumed every photo the operator
+    might place on a day was ALREADY linked to the trip; that was true
+    while the only way a photo reached a trip was being uploaded into
+    it. A photo promoted out of the evidence queue has no trip link yet
+    — promotion files it in the archive, and the archive has no opinion
+    about trips — so there is no link id for the operator to name. For
+    those, the missing link is created here, at the moment the operator
+    chooses the day, and stamped ``operator``: a person picked this day,
+    so re-clustering must not move it later.
+
+    Creating the link and setting its day are two writes and this route
+    is not one transaction across them. That is survivable in the only
+    way it can fail: a link created and not dayed is a photo attached to
+    the trip but to no day, which is a state the trip lane already has a
+    name and a UI for, and repeating the request finishes the job
+    without duplicating anything (the link upsert is keyed on
+    UNIQUE(trip_id, photo_id))."""
     _require_trips_enabled()
     _require_day_in_trip(trip_id, day_id)
     ids = list(req.photo_link_ids or [])
-    if not ids:
-        raise HTTPException(status_code=422, detail="no photo_link_ids")
+    photo_ids = [str(p) for p in (req.photo_ids or []) if p]
+    if not ids and not photo_ids:
+        raise HTTPException(status_code=422,
+                            detail="no photo_link_ids and no photo_ids")
+
+    created: List[str] = []
+    if photo_ids:
+        trip = trip_repository.trip_get(trip_id)
+        if not trip:
+            raise HTTPException(status_code=404, detail="no such trip")
+        owner = str(trip.get("person_id") or "")
+        for photo_id in photo_ids:
+            # The photo must be this trip's narrator's. Without this a
+            # caller could hang one person's picture on another
+            # person's day just by knowing two ids.
+            row = _read_photo_owner(photo_id)
+            if row is None:
+                raise HTTPException(
+                    status_code=404, detail="no photo with id %r" % photo_id)
+            if str(row.get("narrator_id") or "") != owner:
+                raise HTTPException(
+                    status_code=409,
+                    detail="photo %s belongs to another narrator and cannot "
+                           "be filed on this trip" % photo_id)
+            try:
+                link_id = trip_repository.photo_link_upsert(
+                    trip_id=trip_id,
+                    photo_id=photo_id,
+                    taken_at=row.get("date_value"),
+                    latitude=row.get("latitude"),
+                    longitude=row.get("longitude"),
+                    assignment_method="operator",
+                    cluster_confidence=1.0,
+                )
+            except sqlite3.Error as exc:
+                raise _classified_sqlite_500(
+                    exc, "[trips][day-photo-link][upsert]", trip_id) from exc
+            created.append(link_id)
+            if link_id not in ids:
+                ids.append(link_id)
+
     try:
         updated = trip_repository.photo_links_set_day(ids, day_id, trip_id)
     except ValueError as exc:
@@ -3471,9 +3558,10 @@ def link_day_photos(trip_id: str, day_id: str,
     except sqlite3.Error as exc:
         raise _classified_sqlite_500(
             exc, "[trips][day-photo-link]", trip_id) from exc
-    logger.info("[trips][days] photo-link trip=%s day=%s n=%d",
-                trip_id, day_id, updated)
-    return {"ok": True, "updated": updated, "trip_day_id": day_id}
+    logger.info("[trips][days] photo-link trip=%s day=%s n=%d new=%d",
+                trip_id, day_id, updated, len(created))
+    return {"ok": True, "updated": updated, "trip_day_id": day_id,
+            "photo_link_ids": ids, "created_link_ids": created}
 
 
 @router.post("/{trip_id}/days/{day_id}/photos/unlink")
@@ -3482,9 +3570,21 @@ def unlink_day_photos(trip_id: str, day_id: str,
     """Detach photo links from a day card (trip_day_id -> NULL). The
     photos keep their trip link; counts fall back to date match.
 
-    2026-07-23 (Bucket B) — classified SQLite errors."""
+    2026-07-23 (Bucket B) — classified SQLite errors.
+
+    2026-07-29 — shares its body model with the attach route, which
+    gained ``photo_ids``. Detach does not accept them, and says so
+    rather than ignoring them: the attach direction can invent a link
+    that does not exist yet, the detach direction never can, and a
+    request that quietly did nothing would read to the operator as a
+    photo that refused to come off a day."""
     _require_trips_enabled()
     _require_day_in_trip(trip_id, day_id)
+    if req.photo_ids:
+        raise HTTPException(
+            status_code=422,
+            detail="detaching is by photo_link_ids; photo_ids is accepted "
+                   "only when attaching")
     ids = list(req.photo_link_ids or [])
     if not ids:
         raise HTTPException(status_code=422, detail="no photo_link_ids")

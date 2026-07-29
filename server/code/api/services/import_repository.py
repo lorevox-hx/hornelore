@@ -67,8 +67,11 @@ Design rules, same posture as `trip_repository.py`:
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
 import sqlite3
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -106,15 +109,60 @@ CANDIDATE_LOCATION_SOURCES = (
 # is not a write this module offers.
 DECIDABLE_STATES = ("accepted", "rejected", "duplicate", "error")
 
-# The batch sources a candidate can be promoted from. Promotion needs
-# the image bytes, and `local_upload` / `manual` are the two sources
-# where the operator is the one holding them. The provider-side sources
-# are deliberately absent: `google_photos_picker` and `google_takeout`
-# each have to fetch their own bytes through their own lane first, and
-# `csv` is a manifest of claims about files nobody has handed us. Adding
-# a source here without also building its fetch would turn promotion
-# into a way to mint photo rows for images that do not exist.
-PROMOTABLE_SOURCES = ("local_upload", "manual")
+# The batch sources whose promotion accepts a file UPLOADED BY THE
+# OPERATOR. These are the two sources where the operator is the one
+# holding the bytes, so handing them over is the only way they can
+# arrive.
+#
+# 2026-07-29 -- THIS TUPLE WAS CALLED `PROMOTABLE_SOURCES`, AND ITS
+# COMMENT READ:
+#
+#     "The batch sources a candidate can be promoted from. Promotion
+#     needs the image bytes, and `local_upload` / `manual` are the two
+#     sources where the operator is the one holding them. The
+#     provider-side sources are deliberately absent: `google_photos_
+#     picker` and `google_takeout` each have to fetch their own bytes
+#     through their own lane first, and `csv` is a manifest of claims
+#     about files nobody has handed us. Adding a source here without
+#     also building its fetch would turn promotion into a way to mint
+#     photo rows for images that do not exist."
+#
+# Every sentence of that was true when it was written, and the fear at
+# the end of it is still the right fear. What was wrong was the shape of
+# the guard, not its purpose.
+#
+# `google_photos_picker` built its fetch. It downloads the original,
+# sniffs it, hashes it, and stages it at
+# `DATA_DIR/import_staging/<batch_id>/<candidate_id>/original.<ext>`,
+# with the digest recorded on the candidate row. So the sentence
+# "provider-side sources have to fetch their own bytes first" was
+# satisfied -- and the tuple, which tested a NAME rather than the fact
+# the name stood for, went on refusing anyway.
+#
+# The precondition promotion actually needs is:
+#
+#     a verified local source file is available to promotion
+#
+# not:
+#
+#     the source name appears in an allowlist.
+#
+# Promotion asks the real question now. It resolves the staged original,
+# hashes it, and compares that digest to the candidate's `file_hash`
+# before it will create anything -- see `candidate_promote`. A provider
+# source with no staged bytes is refused by THAT check, which is
+# strictly stronger than membership in a tuple: an allowlist can be
+# widened by a one-word edit, while a hash comparison cannot be
+# satisfied by anything except the bytes themselves.
+#
+# What the renamed tuple still guards is narrower and still worth
+# guarding: an operator must never be asked to download a Google photo
+# and upload it back into Hornelore. So an UPLOADED file is accepted
+# only for the sources where the operator legitimately holds the file,
+# and `google_photos_picker`, `google_takeout` and `csv` are all still
+# refused an upload. Takeout and csv have no staged-bytes lane either,
+# so they remain unpromotable in fact as well as by name.
+UPLOAD_SOURCES = ("local_upload", "manual")
 
 
 # Columns that must never exist on import_candidate. If one appears, the
@@ -174,6 +222,57 @@ class PhotoBytesMissingError(ImportRepositoryError):
     plausible-looking image_path: a photos row whose path resolves to
     nothing would flow straight into Lori's photo grounding as a real
     picture, and there is no later check that would catch it."""
+
+
+class StagedOriginalMissingError(ImportRepositoryError):
+    """This system's own copy of the picture is not where it should be.
+
+    A provider-side import stages the original it downloaded under
+    `import_staging/<batch_id>/<candidate_id>/original.<ext>`, and that
+    staged copy is what promotion builds the archive photo out of. When
+    it is absent -- never staged, deleted underneath us, unreadable, or
+    the directory holds two originals and nothing on disk says which one
+    the row describes -- promotion refuses.
+
+    IT IS A REFUSAL AND NOT A REPAIR. The repair exists: re-running the
+    Picker's ingest for this batch re-fetches and re-stages, and it is
+    the ingest route that owns the provider credentials, the download
+    cap and the retry vocabulary. Promotion reaching for the network
+    would put a download inside a request the operator started by
+    clicking "accept", and a slow or expired provider session would then
+    look like a broken accept button.
+
+    Nothing is written before this raises. The candidate keeps its
+    state, no `photos` row is created, and no link is made.
+    """
+
+
+class StagedOriginalMismatchError(ImportRepositoryError):
+    """The staged copy is not the copy this candidate describes.
+
+    Two cases, one refusal, because the operator-facing fact is the same
+    in both: the picture on disk cannot be shown to be the picture this
+    row is about.
+
+      * The staged file hashes to something other than the candidate's
+        `file_hash`. Something replaced or damaged the bytes after they
+        were measured.
+      * The candidate carries no `file_hash` at all, so there is nothing
+        to check the bytes against. An unverifiable row is not a row to
+        mint a permanent archive photo from.
+
+    This is doctrine 1.14 read from the promotion end. `file_hash` is
+    what `candidate_promote` resolves an existing archive photo BY, and
+    `photos.file_hash` is UNIQUE across the whole table -- so promoting
+    unverified bytes would file a photograph under a digest that
+    describes a different byte stream, and nothing downstream would ever
+    notice, because both halves would still be internally consistent.
+
+    Also a refusal and not a repair, for the same reason as
+    `StagedOriginalMissingError`. Re-running ingest replaces the staged
+    copy atomically and restamps the row; that is where a repair
+    belongs. Nothing is written before this raises.
+    """
 
 
 class BatchClosedError(ImportRepositoryError):
@@ -1175,6 +1274,26 @@ _QUEUE_BATCH_COLUMNS = (
 _QUEUE_TRIP_COLUMNS = ("id", "title", "start_date", "end_date", "status")
 
 
+def _promotion_needs_upload(cand: Dict[str, Any]) -> bool:
+    """Would promoting this candidate need the operator to supply a file?
+
+    The one question the review screen actually has, phrased as a fact
+    about this candidate rather than as a fact about its source. A lane
+    that keeps its own copy answers False without the browser ever
+    having to know the lane's name.
+
+    Deliberately does NOT hash-verify. That costs a full read of every
+    original on every page load, and a staged copy that is present but
+    wrong is not something an upload fixes -- promotion refuses it by
+    name, and the fix is to run the import again. This decides which
+    control to show, not whether the bytes are good.
+    """
+    if cand.get("photo_id"):
+        return False
+    return staged_original_path(
+        str(cand.get("batch_id") or ""), str(cand.get("id") or "")) is None
+
+
 def queue_read(
     person_id: str,
     trip_id: Optional[str] = None,
@@ -1285,6 +1404,15 @@ def queue_read(
             # "not filed yet" is the single most common state in this
             # queue and it should read as one thing, not three nulls.
             d["trip"] = trip_d if trip_d.get("id") else None
+            # Derived, candidate-level, and deliberately NOT a source
+            # name. The review screen has to know whether to ask the
+            # operator for a file, and the honest question is "is there
+            # already a file here" -- not "is this a Google import".
+            # Answering it here means the browser never carries a list
+            # of source names that would go stale the day a fourth lane
+            # is added. False for an already-promoted candidate: that
+            # one needs nothing at all.
+            d["promotion_needs_upload"] = _promotion_needs_upload(d)
             out.append(d)
 
         return {
@@ -1544,6 +1672,26 @@ def _sha256_file() -> Any:
     return _h
 
 
+def _import_staging() -> Any:
+    """The shared staging convention.
+
+    Deliberately `services.import_staging` and NOT
+    `services.google_picker.acquire`, even though the Picker is the only
+    lane staging bytes today. This module is the shared intake lane every
+    producer enters (spec 12.7); if it imported one provider's module to
+    find out where bytes live, the second provider to stage bytes would
+    have had to import the Picker's module too, or invent a second
+    convention. The convention is called `import_staging` because it
+    never was provider-specific -- only its definition was, until
+    2026-07-29.
+    """
+    try:
+        from ...services import import_staging as _s  # type: ignore
+    except ImportError:
+        from services import import_staging as _s  # type: ignore
+    return _s
+
+
 # ---- the promotion --------------------------------------------------
 
 def _link_photo(candidate_id: str, photo_id: str) -> None:
@@ -1615,6 +1763,88 @@ def _assert_born_unapproved(photo_id: str) -> None:
         )
 
 
+def staged_original_path(batch_id: str, candidate_id: str) -> Optional[str]:
+    """This candidate's staged original as a string path, or None.
+
+    A thin read over `services/import_staging`, exposed as a repository
+    function so that callers who already hold a candidate -- the promote
+    route wanting to decide whether to show a file chooser, the queue
+    read deriving a per-row flag -- can ask the question without either
+    reaching into the staging module themselves or importing the Picker.
+
+    Reads. Creates nothing, moves nothing, and never fetches.
+    """
+    try:
+        found = _import_staging().staged_original(batch_id, candidate_id)
+    except Exception:
+        # A staging module that cannot answer is the same fact as "there
+        # is no staged copy" for every caller of this function, and a
+        # promotion request must not 500 because DATA_DIR is unset.
+        return None
+    return str(found) if found is not None else None
+
+
+def _verified_staged_source(cand: Dict[str, Any]) -> Optional[str]:
+    """The candidate's staged original, PROVEN to be the bytes it claims.
+
+    Returns the path when there is a staged copy and its sha256 equals
+    the candidate's recorded `file_hash`. Returns None when there is no
+    staged copy at all -- that is not an error here, because a
+    `local_upload` candidate legitimately has none and the caller has an
+    uploaded file to fall back on.
+
+    Raises when there IS a staged copy but it cannot be trusted:
+
+      * unreadable                 -> StagedOriginalMissingError
+      * digest differs from the row -> StagedOriginalMismatchError
+      * the row records no digest   -> StagedOriginalMismatchError
+
+    THE ORDER MATTERS. The file is hashed BEFORE anything is created,
+    stored or linked, so every one of these refusals leaves the
+    candidate row, the `photos` table and `trip_photo_links` exactly as
+    they were. There is no half-promoted state to clean up because there
+    is no state written until after this returns a path.
+    """
+    batch_id = cand.get("batch_id")
+    candidate_id = cand.get("id")
+    if not batch_id or not candidate_id:
+        return None
+
+    staged = staged_original_path(str(batch_id), str(candidate_id))
+    if staged is None:
+        return None
+
+    declared = (cand.get("file_hash") or "").strip()
+    if not declared:
+        raise StagedOriginalMismatchError(
+            "candidate %s has a stored copy of its picture but no recorded "
+            "fingerprint to check it against, so there is no way to show "
+            "that the file on disk is the one this row describes. Re-run "
+            "the import for this batch: it re-measures the picture and "
+            "records the fingerprint." % candidate_id
+        )
+
+    try:
+        actual = _import_staging().hash_file(staged)
+    except Exception as exc:
+        raise StagedOriginalMissingError(
+            "candidate %s has a stored copy of its picture that could not "
+            "be read (%s). Re-run the import for this batch to fetch it "
+            "again." % (candidate_id, exc.__class__.__name__)
+        ) from None
+
+    if actual != declared:
+        raise StagedOriginalMismatchError(
+            "the stored copy of candidate %s no longer matches the "
+            "fingerprint recorded for it, so it is not safe to file it in "
+            "the archive under that fingerprint. Nothing was changed. "
+            "Re-run the import for this batch: it replaces the stored copy "
+            "and re-records the measurement." % candidate_id
+        )
+
+    return staged
+
+
 def candidate_promote(
     candidate_id: str,
     source_path: Optional[str] = None,
@@ -1628,17 +1858,51 @@ def candidate_promote(
     did not ('candidate' = already promoted, 'hash' = the same bytes are
     already in this person's archive).
 
-    Resolution order, first match wins:
+    WHERE THE BYTES COME FROM (rewritten 2026-07-29)
+
+    Until 2026-07-29 the first thing this function did was refuse any
+    batch whose `source` was not in `PROMOTABLE_SOURCES`, with:
+
+        "batch %s is a %r import; promotion is defined only for
+        local_upload and manual. A provider-side import has to fetch its
+        own bytes through its own lane before there is anything to
+        promote."
+
+    The Picker fetched its own bytes through its own lane. It downloads
+    the original, sniffs it, hashes it, stages it under
+    `import_staging/<batch_id>/<candidate_id>/original.<ext>`, and
+    records the digest on the candidate. The condition that sentence
+    demanded was met, and the check -- which tested the source's NAME --
+    kept refusing, which is why the operator was being asked to download
+    a Google photo and upload it back into Hornelore by hand.
+
+    The precondition is now the one that was always meant: A VERIFIED
+    LOCAL SOURCE FILE IS AVAILABLE TO PROMOTION. Resolution order, first
+    match wins:
 
       1. The candidate already has a photo_id -> return it. Promotion is
          idempotent, which matters because the review screen's
          "promote + accept" is two requests and the second one can fail.
+         True for every source: a second click must answer with the same
+         photo, not punish the operator for it.
       2. The candidate's declared file_hash matches a live photo of this
          person -> point at it. This is the ordinary case once the
          operator has already uploaded the image through the photo lane.
-      3. `source_path` was supplied -> hash it, refuse if those bytes
-         belong to another narrator, store, insert.
-      4. Otherwise PhotoBytesMissingError.
+         Also true for every source, and safe by construction: it can
+         only ever LINK to a photograph that already exists, never mint
+         one.
+      3. A staged original exists and hashes to the candidate's
+         file_hash -> promote from those bytes. Source-agnostic on
+         purpose: what makes bytes promotable is that they are here and
+         they are proven, not who put them here.
+      4. `source_path` was supplied -> hash it, refuse if those bytes
+         belong to another narrator, store, insert. Restricted to
+         `UPLOAD_SOURCES`; see the guard below.
+      5. Otherwise a refusal that names which of the two was missing.
+
+    Nothing is created, stored or linked until step 3 or 4 has produced
+    a path, so every refusal above leaves the candidate, the `photos`
+    table and `trip_photo_links` untouched.
     """
     con = _connect()
     try:
@@ -1650,13 +1914,29 @@ def candidate_promote(
     finally:
         con.close()
 
-    if batch.get("source") not in PROMOTABLE_SOURCES:
+    source = batch.get("source")
+
+    # An UPLOADED file is only meaningful for the sources where the
+    # operator is the one holding the picture. Checked first, and before
+    # the file is looked at, so an upload is never silently ignored:
+    # Chris, 2026-07-29 -- "The operator must not download the Google
+    # photo and manually upload it back into Hornelore." A lane that
+    # accepted the upload and then quietly promoted the staged copy
+    # instead would be technically correct and would still have taught
+    # the operator to do the wrong thing.
+    if source_path and source not in UPLOAD_SOURCES:
+        if staged_original_path(str(batch.get("id") or ""),
+                                str(candidate_id)) is not None:
+            raise InvalidStateError(
+                "this picture came in through the %r import, which already "
+                "keeps its own copy, so there is no need to supply the file "
+                "again -- promote it without one." % source
+            )
         raise InvalidStateError(
-            "batch %s is a %r import; promotion is defined only for %s. A "
-            "provider-side import has to fetch its own bytes through its "
-            "own lane before there is anything to promote."
-            % (batch.get("id"), batch.get("source"),
-               " and ".join(PROMOTABLE_SOURCES))
+            "batch %s is a %r import; an uploaded file is accepted only for "
+            "%s. A provider-side import has to fetch its own bytes through "
+            "its own lane before there is anything to promote."
+            % (batch.get("id"), source, " and ".join(UPLOAD_SOURCES))
         )
 
     # The same rule as candidate_decide()'s one-way guard, seen from the
@@ -1710,19 +1990,41 @@ def candidate_promote(
                 "candidate": candidate_get(candidate_id),
             }
 
-    # -- 3. materialize from supplied bytes ----------------------------
-    if not source_path:
-        raise PhotoBytesMissingError(
-            "candidate %s has no photo to promote: it is not already "
-            "linked, and no file was supplied. An import candidate "
-            "carries a filename and a size, never the image itself, so "
-            "promotion needs either the file or a photo of this person "
-            "already holding the same bytes." % candidate_id
+    # -- 3. choose the file the archive copy is made from --------------
+    # Still nothing written. This decides WHICH file, and every way of
+    # failing to decide raises before a byte moves.
+    if source_path:
+        # Only reachable for UPLOAD_SOURCES: the guard at the top of this
+        # function has already refused an upload for anything else.
+        promote_from: Optional[str] = str(source_path)
+        from_staging = False
+    else:
+        # Source-agnostic on purpose. What makes bytes promotable is
+        # that they are here and they are proven, not who put them here.
+        # Raises, rather than returning None, when a staged copy exists
+        # but cannot be shown to be this candidate's picture.
+        promote_from = _verified_staged_source(cand)
+        from_staging = promote_from is not None
+
+    if not promote_from:
+        if source in UPLOAD_SOURCES:
+            raise PhotoBytesMissingError(
+                "candidate %s has no photo to promote: it is not already "
+                "linked, and no file was supplied. An import candidate "
+                "carries a filename and a size, never the image itself, so "
+                "promotion needs either the file or a photo of this person "
+                "already holding the same bytes." % candidate_id
+            )
+        raise StagedOriginalMissingError(
+            "candidate %s has no picture to file yet: this system's own "
+            "copy of it is not on disk, and nothing already in the archive "
+            "matches it. Re-run the import for this batch -- that fetches "
+            "the picture again -- and then promote it." % candidate_id
         )
 
     # Hash BEFORE moving anything, exactly as POST /api/photos does, so
     # a duplicate does not litter the archive with an orphan copy.
-    real_hash = _sha256_file()(source_path)
+    real_hash = _sha256_file()(promote_from)
 
     con = _connect()
     try:
@@ -1767,13 +2069,35 @@ def candidate_promote(
     metadata = _promote_metadata(cand, batch, promoted_by_user_id)
 
     photo_id = uuid.uuid4().hex
-    stored = _store_photo_file()(
-        narrator_id=person_id,
-        source_path=source_path,
-        original_filename=(original_filename or cand.get("filename")
-                           or "promoted.bin"),
-        photo_id=photo_id,
-    )
+
+    # `store_photo_file` MOVES what it is handed. For an uploaded file
+    # that is right: the request owns that temporary and nothing else
+    # refers to it. For a staged original it is not. The staged copy
+    # belongs to the import lane -- it is the file the candidate's
+    # recorded fingerprint describes, and the file any later re-check is
+    # measured against -- and the archive is not allowed to eat it
+    # (doctrine 1.14: staging is not the archive). So the archive is fed
+    # a throwaway duplicate. That also means a failure anywhere below
+    # leaves the import lane whole and the candidate still promotable.
+    handoff_dir = tempfile.mkdtemp(prefix="hl-promote-") if from_staging else None
+    try:
+        if handoff_dir is not None:
+            store_from = os.path.join(
+                handoff_dir, os.path.basename(str(promote_from)) or "original")
+            shutil.copyfile(str(promote_from), store_from)
+        else:
+            store_from = str(promote_from)
+
+        stored = _store_photo_file()(
+            narrator_id=person_id,
+            source_path=store_from,
+            original_filename=(original_filename or cand.get("filename")
+                               or "promoted.bin"),
+            photo_id=photo_id,
+        )
+    finally:
+        if handoff_dir is not None:
+            shutil.rmtree(handoff_dir, ignore_errors=True)
 
     photo_repo.create_photo(
         narrator_id=person_id,

@@ -5948,7 +5948,7 @@
     if (c.state === "pending") {
       acts.appendChild(btn("tdl-btn tdl-btn-small tdl-btn-primary",
         c.photo_id ? "Accept (already promoted)" : "Promote + accept",
-        function () { openEvidenceDrawer("promote", c.id); }));
+        function () { openEvidencePromoteDrawer(c); }));
       EVIDENCE_REFUSALS.forEach(function (r) {
         acts.appendChild(btn("tdl-btn tdl-btn-small", r[1], function () {
           openEvidenceDrawer("decide", c.id, r[0]);
@@ -5983,6 +5983,62 @@
       error: "",
     };
     renderAll();
+  }
+
+  // The promote drawer needs the trip's days before it paints, not
+  // after. Two reasons, and the second is the hard one:
+  //
+  //  * a day list that arrives late would make the operator watch the
+  //    control they came here to use appear underneath their cursor;
+  //  * this drawer can hold an <input type=file>, whose FileList script
+  //    cannot write, so a repaint after a file was chosen would silently
+  //    drop it. Loading first means the drawer paints exactly once.
+  //
+  // A candidate that is not filed to a trip has no days to offer. That
+  // is not an error -- it is the "File to trip" step not having been
+  // done yet -- so the drawer opens and says so.
+  function openEvidencePromoteDrawer(c) {
+    if (dayFormDirtyBlocks()) return;
+    var tripId = c.trip && c.trip.id;
+    var d = {
+      kind: "promote",
+      candidateId: c.id,
+      state: "",
+      error: "",
+      days: [],
+      daysError: "",
+      dayId: "",
+      daysLoaded: !tripId,
+    };
+    st.evidenceDrawer = d;
+    if (!tripId) { renderAll(); return; }
+    api("/api/trips/" + encodeURIComponent(tripId) + "/days")
+      .then(function (out) {
+        d.days = (out && out.days) || [];
+        d.dayId = suggestedDayIdFor(c, d.days);
+      })
+      .catch(function (e) {
+        d.daysError = e.message || String(e);
+      })
+      .then(function () {
+        d.daysLoaded = true;
+        // Only paint if this is still the drawer the operator is in.
+        if (st.evidenceDrawer === d) renderAll();
+      });
+  }
+
+  // The date on the photo, offered as a SUGGESTION and nothing more.
+  // Returns "" when nothing matches, so the operator is asked rather
+  // than given a silent default. Never used to file anything on its
+  // own: the value only ever preselects a control the operator can
+  // change, and the drawer says in words that it is a guess.
+  function suggestedDayIdFor(c, days) {
+    var taken = c && c.taken_at ? datePrefix(c.taken_at) : "";
+    if (!taken) return "";
+    var hit = (days || []).filter(function (day) {
+      return day && day.date && String(day.date).slice(0, 10) === taken;
+    })[0];
+    return hit ? String(hit.id) : "";
   }
 
   function closeEvidenceDrawer() { st.evidenceDrawer = null; renderAll(); }
@@ -6020,11 +6076,20 @@
   // route is what accepts, using that photo_id. Nothing here invents a
   // photo_id and nothing here approves anything.
   //
+  // 2026-07-29 — a third act was added at the end: filing the photo on
+  // the day the operator chose. The order is deliberate and is the
+  // order of the sentence the operator read: get the picture, record
+  // the decision, put it on the day. Each step is idempotent, so a
+  // failure anywhere is a retry rather than a repair — promotion
+  // answers with the same photo, the decision refuses a second time
+  // rather than duplicating, and the day link is keyed on the trip and
+  // the photo so filing it twice files it once.
+  //
   // Same file-input constraint as the intake drawer: an <input type=file>
   // holds a FileList that script cannot write, so nothing in an open
   // promote drawer may call renderAll(). The first repaint of the flow
   // happens after a response lands.
-  function promoteAndAccept(candidateId, file, onFail) {
+  function promoteAndAccept(candidateId, file, place, onFail) {
     var base = evidenceCandidatePath(candidateId);
     var opts = { method: "POST" };
     if (file) {
@@ -6034,9 +6099,11 @@
       fd.append("file", file, file.name);
       opts.body = fd;
     }
-    // No file and no body at all is the already-promoted path: the route
-    // takes `file` as optional precisely so a candidate that already has
-    // a photo is not made to re-upload one it already has.
+    // No file and no body at all is the ordinary path now. It covers a
+    // candidate that is already promoted, one whose picture is already
+    // in the archive under the same fingerprint, and one whose import
+    // brought the picture with it. Only an import the operator
+    // themselves fed a file to still needs one here.
     api(base + "/promote", opts)
       .then(function (out) {
         var photoId = out && out.photo_id;
@@ -6053,11 +6120,40 @@
             " — the candidate is still pending and running this again is " +
             "safe.";
           throw e;
-        });
+        }).then(function () { return photoId; });
+      })
+      .then(function (photoId) {
+        if (!place || !place.tripId || !place.dayId) return null;
+        return api("/api/trips/" + encodeURIComponent(place.tripId) +
+          "/days/" + encodeURIComponent(place.dayId) + "/photos/link", {
+            method: "POST",
+            body: { photo_ids: [photoId] },
+          }).catch(function (e) {
+            // The second halfway state, and a gentler one: the photo is
+            // in the archive and the candidate is accepted. Only the
+            // day is missing, and the day can be set from the day card.
+            e.message = "Accepted, but filing it on the day did not " +
+              "land: " + e.message + " — the photo is saved and the " +
+              "candidate is accepted, so you can add it from the day " +
+              "itself or run this again.";
+            throw e;
+          });
       })
       .then(function () {
         st.evidenceDrawer = null;
         return reloadEvidence();
+      })
+      .then(function () {
+        // The day cards read from the trip's photo links, and the count
+        // on each card comes from /days. A photo filed on a day only
+        // becomes visible once both are re-read. Failures here are
+        // swallowed on purpose: the write already succeeded, and a
+        // refresh that could not run is a stale screen, not a lost
+        // photo.
+        return Promise.all([
+          reloadPhotoLinks().catch(function () { return null; }),
+          reloadDays().catch(function () { return null; }),
+        ]);
       })
       .then(function () { renderAll(); })
       .catch(function (e) { onFail(e.message); });
@@ -6068,29 +6164,76 @@
       closeEvidenceDrawer, "tdl-edit-drawer tdl-erq-drawer");
     sh.body.appendChild(el("strong", "", candidateName(c)));
     sh.body.appendChild(el("p", "tdl-intake-doctrine",
-      "Two requests, in this order, because promotion and the decision " +
-      "are separate acts on purpose. First the candidate is materialized " +
-      "into a photo — born not narrator-facing and not approved for Lori " +
-      "on either its date or its location. Then the decision records that " +
-      "it happened. If the first lands and the second does not, the " +
-      "candidate is promoted and still pending, this drawer says so, and " +
-      "running it again is safe."));
+      "Three steps, in this order, because saving the picture, recording " +
+      "your decision and putting it on a day are separate acts on " +
+      "purpose. First the picture is saved — kept private, not shown to " +
+      "the narrator, and not approved for Lori on either its date or its " +
+      "location. Then the decision records that you accepted it. Then it " +
+      "is filed on the day you chose. If one step lands and the next " +
+      "does not, this drawer says which, and running it again is safe."));
+
+    if (!d.daysLoaded) {
+      sh.body.appendChild(el("p", "tdl-muted", "Loading this trip's days…"));
+      sh.foot.appendChild(btn("tdl-btn", "Cancel", closeEvidenceDrawer));
+      return sh.wrap;
+    }
 
     var already = !!c.photo_id;
+    // Derived by the server from whether the picture is actually here,
+    // not from the name of the import it came through. A lane that
+    // brings its own copy answers false and no file is asked for.
+    var needsFile = !already && c.promotion_needs_upload !== false;
     var files = null;
     if (already) {
       sh.body.appendChild(el("p", "tdl-muted",
-        "This candidate is already promoted (photo " +
-        String(c.photo_id).slice(0, 8) + "), so it needs no file — " +
-        "accepting will reuse the photo it already has."));
-    } else {
+        "This one is already saved, so it needs no file — accepting will " +
+        "reuse the picture it already has."));
+    } else if (needsFile) {
       files = el("input");
       files.type = "file";
       files.accept = "image/*";
       sh.body.appendChild(field("Image file", files,
-        "An import candidate carries a filename and a byte count, never " +
-        "the image itself. Without the bytes there is nothing to build " +
-        "the photo out of."));
+        "This one came in as a list entry rather than a picture, so the " +
+        "image file has to come from you."));
+    } else {
+      sh.body.appendChild(el("p", "tdl-muted",
+        "The picture came in with the import and is already here, so " +
+        "there is nothing to upload."));
+    }
+
+    // ── the day ───────────────────────────────────────────────────────
+    var dayCtl = null;
+    var tripId = c.trip && c.trip.id;
+    if (!tripId) {
+      sh.body.appendChild(el("p", "tdl-muted",
+        "This one is not filed to a trip yet, so there is no day to put " +
+        "it on. Accepting it now saves the picture; use “File to trip” " +
+        "first if you want it to land on a day."));
+    } else if (d.daysError) {
+      sh.body.appendChild(el("p", "tdl-muted",
+        "This trip's days could not be loaded (" + d.daysError + "), so " +
+        "no day can be offered. Accepting still saves the picture and " +
+        "you can add it from the day itself."));
+    } else if (!d.days.length) {
+      sh.body.appendChild(el("p", "tdl-muted",
+        "This trip has no days yet. Accepting still saves the picture; " +
+        "build the days and add it from the day itself."));
+    } else {
+      var suggested = suggestedDayIdFor(c, d.days);
+      var opts = [["", "Do not put it on a day yet"]];
+      d.days.forEach(function (day) {
+        opts.push([String(day.id),
+          "Day " + day.day_index + " · " + (day.date || "no date") +
+          (day.title ? " · " + day.title : "") +
+          (String(day.id) === suggested ? "  (matches this photo's date)" : "")]);
+      });
+      dayCtl = selectInput(opts, d.dayId || "");
+      sh.body.appendChild(field("Put it on", dayCtl,
+        suggested
+          ? "The day matching the date on this photo is pre-selected as a " +
+            "suggestion only. Change it if the photo belongs somewhere else."
+          : "Nothing on this photo says which day it belongs to, so pick " +
+            "one."));
     }
 
     var errEl = drawerError(sh.body, d.error);
@@ -6098,14 +6241,16 @@
       function () {
         var chosen = files ?
           Array.prototype.slice.call(files.files || []) : [];
-        if (!already && !chosen.length) {
+        if (needsFile && !chosen.length) {
           errEl.textContent = "Choose the image file for this candidate first.";
           errEl.hidden = false;
           return;
         }
         errEl.hidden = true;
         goBtn.disabled = true;
-        promoteAndAccept(c.id, chosen[0] || null, function (msg) {
+        var place = (dayCtl && dayCtl.value)
+          ? { tripId: tripId, dayId: dayCtl.value } : null;
+        promoteAndAccept(c.id, chosen[0] || null, place, function (msg) {
           goBtn.disabled = false;
           if (st.evidenceDrawer) st.evidenceDrawer.error = msg;
           renderAll();
