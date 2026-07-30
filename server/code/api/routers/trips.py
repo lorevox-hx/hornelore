@@ -3598,3 +3598,319 @@ def unlink_day_photos(trip_id: str, day_id: str,
     logger.info("[trips][days] photo-unlink trip=%s day=%s n=%d",
                 trip_id, day_id, updated)
     return {"ok": True, "updated": updated, "trip_day_id": None}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  WO-LIVE-TRIP-COMPANION-01 Vertical Slice 1 (2026-07-30)
+#  Trip lifecycle, remembered day selection, calendar, and timeline.
+#
+#  These routes exist so that "which trip is Lori working on, and on
+#  which day" stops being a browser variable and becomes a durable fact.
+#  Until this slice the only answer was `state.session.activeTripId` in
+#  ui/js/travels-shelf.js, forwarded to the server as
+#  `runtime71.active_trip_id`. That value dies on page reload and dies on
+#  server restart, so nothing built on it could survive the restart test
+#  this slice has to pass.
+#
+#  What is NOT here, deliberately: no travelogue generation, no second
+#  conversation store, no copy of any turn's text into a trip table. The
+#  timeline projects `turns` through `trip_turn_links`. It stores
+#  nothing of its own.
+#
+#      POST /api/trips/{trip_id}/live-state        {state}
+#      GET  /api/trips/active?person_id=
+#      POST /api/trips/{trip_id}/selected-day      {trip_day_id|null}
+#      GET  /api/trips/{trip_id}/calendar
+#      GET  /api/trips/{trip_id}/days/{day_id}/timeline
+#      GET  /api/trips/{trip_id}/timeline/unplaced
+#      POST /api/trips/trip-turn-links/{link_id}/move {trip_day_id|null}
+# ══════════════════════════════════════════════════════════════════════════
+
+class TripLiveStateBody(BaseModel):
+    state: str
+
+
+class TripSelectedDayBody(BaseModel):
+    trip_day_id: Optional[str] = None
+
+
+class TripTurnLinkMoveBody(BaseModel):
+    trip_day_id: Optional[str] = None
+
+
+@router.post("/{trip_id}/live-state")
+def set_trip_live_state(trip_id: str, req: TripLiveStateBody) -> Dict[str, Any]:
+    """Start, finish, reopen, or archive a trip — deliberately.
+
+    WHY THIS IS NOT DERIVED FROM TODAY'S DATE. A trip whose dates cover
+    today is not necessarily a trip anybody is on. People plan trips
+    they postpone, and they come home early. The work order is explicit:
+    the operator should be able to start and finish the trip
+    deliberately. So `live_state` is set by this route and by nothing
+    else, and no code anywhere infers 'active' from a calendar
+    comparison.
+
+    WHY THIS IS NOT `trips.status`. That column means how far the
+    WRITE-UP has got — draft, in_progress, memoir_ready. It is the
+    authoring state of a document. `live_state` is the lived state of a
+    journey. A trip can be finished and its memoir still a draft; a trip
+    can be underway with nothing written at all. Collapsing them would
+    make one of the two unrepresentable.
+
+    ONE ACTIVE TRIP PER NARRATOR, enforced by a partial unique index in
+    the database rather than by this handler. Starting a second trip
+    while one is running returns 409 and NAMES the trip in the way — it
+    does not silently finish the first one. Which trip you are on is the
+    operator's call, not a side effect.
+    """
+    _require_trips_enabled()
+    state = str(req.state or "").strip().lower()
+    if state not in trip_repository.LIVE_STATES:
+        raise HTTPException(
+            status_code=422,
+            detail=("state must be one of "
+                    + ", ".join(trip_repository.LIVE_STATES)))
+    try:
+        if trip_repository.trip_get(trip_id) is None:
+            raise HTTPException(status_code=404, detail="trip not found")
+        trip = trip_repository.trip_live_state_set(trip_id, state)
+    except trip_repository.TripStateError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": str(exc), "conflict": exc.conflict})
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][live-state]", trip_id) from exc
+    logger.info("[trips][live-state] trip=%s state=%s", trip_id, state)
+    return {"ok": True, "trip": trip}
+
+
+@router.get("/active")
+def get_active_trip(person_id: str = Query(...)) -> Dict[str, Any]:
+    """The durable answer to 'which trip is this narrator on right now?'
+
+    Read from the database, so it is the same answer before and after a
+    reload, and the same answer before and after a restart. This is the
+    route the trip workspace asks on open, and it is the same resolution
+    the completed-turn placement hook performs server-side — one source,
+    two readers, no chance of the browser and the linker disagreeing
+    about which trip a conversation belongs to.
+
+    Returns ``trip: null`` with a reason rather than a 404 when nothing
+    is active. No active trip is a normal state, not an error, and the
+    workspace has to render it calmly.
+    """
+    _require_trips_enabled()
+    from ..services import trip_placement as _tp
+    resolved = _tp.resolve_placement(str(person_id or ""))
+    return {
+        "ok": True,
+        "trip": resolved.get("trip"),
+        "day": resolved.get("day"),
+        "reason": resolved.get("reason") or "",
+    }
+
+
+@router.post("/{trip_id}/selected-day")
+def set_trip_selected_day(trip_id: str,
+                          req: TripSelectedDayBody) -> Dict[str, Any]:
+    """Remember which day of the trip the operator is working in.
+
+    The selection lives on the trip row, not in the browser, for the
+    same reason the active trip does: a conversation that happens after
+    a refresh has to land on the day the operator chose before it.
+
+    Pass ``trip_day_id: null`` to clear the selection. Conversations
+    that arrive with no day selected are still linked to the trip — at
+    placement_status='needs_day', where they show up as reconciliation
+    items rather than disappearing.
+    """
+    _require_trips_enabled()
+    day_id = (str(req.trip_day_id).strip() if req.trip_day_id else None)
+    if day_id:
+        _require_day_in_trip(trip_id, day_id)
+    else:
+        if trip_repository.trip_get(trip_id) is None:
+            raise HTTPException(status_code=404, detail="trip not found")
+    try:
+        trip = trip_repository.trip_selected_day_set(trip_id, day_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][selected-day]", trip_id) from exc
+    logger.info("[trips][selected-day] trip=%s day=%s",
+                trip_id, day_id or "-")
+    return {"ok": True, "trip": trip}
+
+
+@router.get("/{trip_id}/calendar")
+def trip_calendar(trip_id: str) -> Dict[str, Any]:
+    """Every day of the trip, with an indicator of what happened on it.
+
+    A PROJECTION, NOT A NEW MODEL. The days come from `trip_days` —
+    the same rows the day cards already render, through the same
+    windowed/preserved partition, so the calendar can never show a
+    different set of days than the rest of the travel workspace. The
+    indicators are counts read from `trip_turn_links`. Nothing here has
+    its own storage and nothing here is authored.
+
+    COUNTS ONLY. The calendar says that something happened on a day. It
+    never says what was said — that is the timeline's job, one day at a
+    time, and it reads the words out of `turns`.
+
+    ``unplaced_count`` is the reconciliation number: conversations
+    attached to this trip with no day yet.
+    """
+    _require_trips_enabled()
+    try:
+        trip = trip_repository.trip_get(trip_id)
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][calendar][trip]", trip_id) from exc
+    if trip is None:
+        raise HTTPException(status_code=404, detail="trip not found")
+    try:
+        all_days = trip_repository.trip_days_list(trip_id)
+        counts = trip_repository.trip_turn_link_counts(trip_id)
+        item_counts = trip_repository.trip_day_item_counts(trip_id)
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][calendar]", trip_id) from exc
+
+    # (day_rows, trip) — the same argument order list_trip_days uses.
+    windowed, preserved = _partition_days_by_trip_window(all_days, trip)
+
+    def _decorate(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            day_id = row.get("id")
+            item["conversation_count"] = int(counts.get(day_id, 0))
+            # The rail has to answer "is there anything on this day?"
+            # honestly. The first cut counted conversations only, so a
+            # day holding a photograph and a story note rendered as
+            # empty — the calendar disagreeing with the day card two
+            # inches away. These counts exclude hidden rows, because
+            # honest-counts governs display.
+            per_day = item_counts.get(day_id) or {}
+            item["photo_count"] = int(per_day.get("photos", 0))
+            item["note_count"] = int(per_day.get("notes", 0))
+            item["source_count"] = int(per_day.get("sources", 0))
+            item["item_count"] = (
+                item["conversation_count"] + item["photo_count"]
+                + item["note_count"] + item["source_count"])
+            out.append(item)
+        return out
+
+    return {
+        "ok": True,
+        "trip_id": trip_id,
+        "live_state": trip.get("live_state") or "planning",
+        "selected_day_id": trip.get("active_trip_day_id") or None,
+        "days": _decorate(windowed),
+        "preserved": _decorate(preserved),
+        "unplaced_count": int(counts.get("unplaced", 0)),
+    }
+
+
+@router.get("/{trip_id}/days/{day_id}/timeline")
+def trip_day_timeline(trip_id: str, day_id: str) -> Dict[str, Any]:
+    """What happened on one day, in order.
+
+    EVERYTHING already fastened to the day, merged into one ordered
+    list: conversations with Lori linked through `trip_turn_links`,
+    photographs through `trip_photo_links`, story notes through
+    `trip_location_notes`, sources through `trip_sources`, and the day
+    row's own authored text. The first cut projected `trip_turn_links`
+    and nothing else, so a day that visibly held a photograph and a
+    note reported that nothing had been recorded on it. That sentence
+    was false in the one place the operator goes to find out what a day
+    held.
+
+    A READ PROJECTION. It owns no storage. Each item carries the ids the
+    interface needs to navigate BACK to its source, because a timeline
+    entry the operator cannot open is a claim without a receipt, and it
+    carries no duplicated media path and no copied narrative body beyond
+    what the existing surfaces already show.
+
+    Conversation items also carry ``placement_source`` and
+    ``placement_status``, and the interface must show the difference. A
+    day the operator selected is a confirmed placement. A day inferred
+    from a timestamp would be a suggestion. A date suggestion is not an
+    operator choice, and a screen that renders the two identically is
+    quietly turning one into the other.
+    """
+    _require_trips_enabled()
+    _require_day_in_trip(trip_id, day_id)
+    try:
+        items = trip_repository.trip_day_timeline_items(trip_id, day_id)
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][day-timeline]", trip_id) from exc
+    counts: Dict[str, int] = {}
+    for it in items:
+        k = str(it.get("kind") or "")
+        counts[k] = counts.get(k, 0) + 1
+    return {"ok": True, "trip_id": trip_id, "trip_day_id": day_id,
+            "items": items, "count": len(items),
+            "kind_counts": counts}
+
+
+@router.get("/{trip_id}/timeline/unplaced")
+def trip_unplaced_timeline(trip_id: str) -> Dict[str, Any]:
+    """The reconciliation list: conversations on this trip with no day.
+
+    These are the turns that completed while the trip was active but no
+    day was selected. They were NOT discarded — the work order requires
+    that a failure to place a conversation leaves an observable
+    reconciliation item rather than losing the conversation. This is
+    that list, and the move route is how a human resolves it.
+    """
+    _require_trips_enabled()
+    if trip_repository.trip_get(trip_id) is None:
+        raise HTTPException(status_code=404, detail="trip not found")
+    try:
+        items = trip_repository.trip_day_conversation_items(trip_id, None)
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][unplaced-timeline]", trip_id) from exc
+    return {"ok": True, "trip_id": trip_id, "items": items,
+            "count": len(items)}
+
+
+@router.post("/trip-turn-links/{link_id}/move")
+def move_trip_turn_link(link_id: str,
+                        req: TripTurnLinkMoveBody) -> Dict[str, Any]:
+    """Put a linked conversation on a different day, or take it off one.
+
+    Recorded as placement_source='operator_selected', which outranks
+    every automatic source. A replayed turn cannot drag a conversation
+    back off the day a human put it on: the placement claim treats a
+    second attempt on the same turn as a duplicate and leaves the
+    existing row alone.
+
+    Passing ``trip_day_id: null`` returns the conversation to the
+    reconciliation list rather than deleting the link. Nothing on this
+    lane deletes.
+    """
+    _require_trips_enabled()
+    day_id = (str(req.trip_day_id).strip() if req.trip_day_id else None)
+    try:
+        links = None
+        if day_id:
+            day = trip_repository.trip_day_get(day_id)
+            if not day:
+                raise HTTPException(status_code=404, detail="day not found")
+        links = trip_repository.trip_turn_link_move(link_id, day_id)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][link-move]", link_id) from exc
+    if not links:
+        raise HTTPException(status_code=404, detail="link not found")
+    logger.info("[trips][link-move] link=%s day=%s", link_id, day_id or "-")
+    return {"ok": True, "link": links}

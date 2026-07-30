@@ -324,6 +324,13 @@
     loriReturnTab: "plan",   // context-aware Back label + return surface
     photoPickerDayId: null,  // in-lab day photo picker drawer
     noteDrawerDayId: null,   // in-lab day note drawer
+    // WO-LIVE-TRIP-COMPANION-01 VS1 -- the trip timeline modal. null =
+    // closed. Open shape: {dayId, days, preserved, items, unplaced,
+    // unplacedCount, showUnplaced, busy, error}. Every field here is a
+    // PROJECTION of what the server just said; nothing on this screen is
+    // authored, so there is no dirty state to protect and a repaint can
+    // never lose an operator's typing.
+    tripCal: null,
     // WO-TRAVEL-DOC-UNIFY-01 Phase 3A — trip force-delete impact review.
     // null = closed. Open shape: {tripId, tripTitle, counts, error}. The
     // operator's typed confirmation deliberately does NOT live here: it is
@@ -799,7 +806,32 @@
       .then(function (out) {
         st.trips = out.trips || [];
         if (!noAutoSelect && !st.trip && st.trips.length) {
-          return selectTrip(st.trips[0].id);
+          // WO-LIVE-TRIP-COMPANION-01 VS1 — land on the trip the
+          // narrator is actually on, not on whichever one sorts first.
+          //
+          // This is the restart behaviour the slice exists to prove.
+          // The browser forgot everything; the server did not. Asked
+          // through the SAME route the placement service resolves
+          // against, so the workspace cannot open on one trip while
+          // completed turns are being filed to another.
+          //
+          // Degrades to the old behaviour on ANY failure, including the
+          // 404 an unmigrated or flag-off server answers with. Which
+          // trip to open with is a convenience, and a convenience is
+          // never allowed to leave the workspace empty.
+          return api("/api/trips/active?person_id=" +
+                     encodeURIComponent(st.personId))
+            .then(function (act) {
+              return (act && act.trip && act.trip.id) || null;
+            })
+            .catch(function () { return null; })
+            .then(function (activeId) {
+              if (destroyed) return;
+              var known = st.trips.filter(function (t) {
+                return t.id === activeId;
+              })[0];
+              return selectTrip(known ? known.id : st.trips[0].id);
+            });
         }
         renderAll();
       });
@@ -821,6 +853,11 @@
     st.sourceDrawerDayId = null;
     st.reconcile = null;
     st.reconcileDrawerOpen = false;
+    // Same H3 argument as the Lori pane reset: a timeline left open
+    // across a trip switch would be showing Trip A's days over Trip B's
+    // workspace, and its Move control would file Trip A's conversation
+    // onto a day id it no longer has any relationship to.
+    st.tripCal = null;
     // "2 empty day cards were removed" is a claim about THIS trip's
     // calendar. Carried across a switch it becomes a claim about a
     // calendar the operator is now looking at and never touched.
@@ -2128,6 +2165,7 @@
 
     // Drawers / overlays (in-lab — never navigate away).
     if (st.trip && st.loriOverlay) app.appendChild(renderLoriOverlay());
+    if (st.trip && st.tripCal) app.appendChild(renderTripCalendarModal());
     if (st.trip && st.photoPickerDayId) app.appendChild(renderPhotoPicker());
     if (st.trip && st.noteDrawerDayId) app.appendChild(renderNoteDrawer());
     if (st.trip && st.sourceDrawerDayId) app.appendChild(renderSourceDrawer());
@@ -3373,6 +3411,7 @@
       "happened, attach photos, notes, meals, places and sources."));
     head.appendChild(ht);
     wrap.appendChild(head);
+    wrap.appendChild(renderTripLiveBar());
 
     // 2026-07-15 Track C: surface any /days or /days/reconcile-preview
     // load errors instead of silently rendering the empty state — the
@@ -4066,6 +4105,28 @@
     story.appendChild(el("p", "tdl-muted",
       "Lori sees this day — its title and location, its photos, notes " +
       "and sources — while you talk."));
+    // WO-LIVE-TRIP-COMPANION-01 VS1 — where the conversation goes,
+    // said before it happens rather than discovered afterwards.
+    if (tripLiveState() === "active") {
+      if (tripSelectedDayId() === day.id) {
+        story.appendChild(el("p", "tdl-live-note",
+          "You are on this day. What you say to Lori is filed here."));
+      } else {
+        var pickRow = el("p", "tdl-live-note");
+        pickRow.appendChild(document.createTextNode(
+          "Talking with Lori here will file the conversation to this day. "));
+        pickRow.appendChild(btn("tdl-btn tdl-btn-small",
+          "Make this the day I'm on",
+          function () { setTripSelectedDay(day.id); }));
+        story.appendChild(pickRow);
+      }
+      story.appendChild(btn("tdl-btn tdl-btn-small", "▤ What happened today",
+        function () { openTripCalendar(day.id); }));
+    } else {
+      story.appendChild(el("p", "tdl-live-note",
+        "This trip has not been started, so nothing said here is filed " +
+        "to a day yet. Start the trip on the Trip Calendar."));
+    }
 
     var lorHead = el("div", "tdl-row-title");
     lorHead.appendChild(el("span", "",
@@ -7868,11 +7929,660 @@
 
   // ── Lori in context: right drawer over Trip Plan ─────────────────────
 
+  // ── WO-LIVE-TRIP-COMPANION-01 Vertical Slice 1 (2026-07-30) ──────────
+  //
+  // The live trip, and the calendar that shows what was said on it.
+  //
+  // Two subsystems existed here and never met. The travel document knew
+  // about trips, generated day cards, photos and sources. Lori knew how
+  // to hold an interview and persist a turn. Nothing joined them, so a
+  // conversation held while looking at Day 3 of a trip left no mark on
+  // Day 3 of that trip. This section is the join, on the operator's
+  // side of it.
+  //
+  // WHAT IS DELIBERATELY NOT HERE:
+  //
+  // - No second conversation store. Every word on this timeline is read
+  //   back out of `turns` at render time by the server. The link table
+  //   holds identifiers and nothing else, so there is no copy of the
+  //   narrative to fall out of date with the original.
+  // - No second data model for the calendar. The days are the same
+  //   `trip_days` rows the day cards render, through the same
+  //   windowed/preserved partition, so the calendar cannot disagree
+  //   with the board next to it.
+  // - No inferred "active". `live_state` is set by the operator with
+  //   Start trip and Finish trip, and it lives in the database. The
+  //   trip does not become active because today's date fell inside it,
+  //   and it does not stop being active because the browser reloaded.
+  //   That is the whole reason it is a column and not a variable.
+  //
+  // WHY THE SELECTED DAY IS SERVER-SIDE. The Lori pane already had a
+  // `modal_scope.active_trip_day_id`, and it is a browser fact: it is
+  // built per mount, it dies on reload, and the placement service is
+  // forbidden from reading it. What a completed turn is filed against
+  // is `trips.active_trip_day_id`, written by the operator's choice of
+  // day and read back on the server. The two carry nearly the same name
+  // because they mean the same thing to a person --- and only one of
+  // them still means it after a restart.
+
+  var LIVE_STATE_LABEL = {
+    planning: "Planning",
+    active: "On this trip now",
+    completed: "Trip finished",
+    archived: "Archived",
+  };
+
+  // Placement vocabulary, in operator language. The distinction between
+  // the first two is required, not cosmetic: a day the operator chose is
+  // a confirmed placement and a day inferred from a timestamp is a
+  // suggestion, and a screen that renders them identically has quietly
+  // turned a guess into a decision.
+  var PLACEMENT_LABEL = {
+    confirmed: "Confirmed day",
+    suggested: "Suggested day",
+    needs_day: "Needs a day",
+    rejected: "Not on this trip",
+  };
+
+  function tripLiveState(trip) {
+    var t = trip || st.trip;
+    return (t && t.live_state) || "planning";
+  }
+
+  function tripSelectedDayId() {
+    return (st.trip && st.trip.active_trip_day_id) || null;
+  }
+
+  function activeTripRow() {
+    for (var i = 0; i < st.trips.length; i++) {
+      if (st.trips[i].live_state === "active") return st.trips[i];
+    }
+    return null;
+  }
+
+  // Every lifecycle change goes through here so there is exactly one
+  // place that knows a refused transition is a 409 carrying the trip
+  // that is in the way. The refusal is deliberate: two trips at once is
+  // the operator's problem to resolve, and finishing one of them behind
+  // their back is not a resolution.
+  function setTripLiveState(state) {
+    if (!st.trip) return Promise.resolve();
+    var t = encodeURIComponent(st.trip.id);
+    st.error = "";
+    return api("/api/trips/" + t + "/live-state",
+               { method: "POST", body: { state: state } })
+      .then(function () { return refreshTripsPreservingSelection(st.trip.id); })
+      .then(function () {
+        if (st.tripCal) return loadTripCalendar();
+        renderAll();
+      })
+      .catch(function (e) {
+        var other = e && e.body && e.body.detail &&
+          e.body.detail.conflict;
+        if (e && e.status === 409 && other) {
+          st.error = "You are already on “" +
+            (other.title || "another trip") + "”. Finish that trip " +
+            "first, or go to it from the left rail.";
+        } else {
+          st.error = e.message;
+        }
+        renderAll();
+      });
+  }
+
+  // The durable answer to "which day am I on". Called when the operator
+  // opens Lori on a day and from the day picker in the calendar, because
+  // both of those ARE the operator choosing the day --- and nothing
+  // else may write it.
+  function setTripSelectedDay(dayId) {
+    if (!st.trip) return Promise.resolve();
+    var t = encodeURIComponent(st.trip.id);
+    return api("/api/trips/" + t + "/selected-day",
+               { method: "POST", body: { trip_day_id: dayId || null } })
+      .then(function (out) {
+        if (out && out.trip) {
+          st.trip.live_state = out.trip.live_state;
+          st.trip.active_trip_day_id = out.trip.active_trip_day_id;
+        }
+        renderAll();
+      })
+      .catch(function (e) {
+        st.error = e.message;
+        renderAll();
+      });
+  }
+
+  // ── the trip status bar, above the calendar ──────────────────────────
+
+  function renderTripLiveBar() {
+    var state = tripLiveState();
+    var bar = el("div", "tdl-live-bar tdl-live-" + state);
+
+    var chip = el("span", "tdl-live-chip", LIVE_STATE_LABEL[state] || state);
+    bar.appendChild(chip);
+
+    var selDayId = tripSelectedDayId();
+    var selDay = selDayId ? dayById(selDayId) : null;
+    var line = el("span", "tdl-live-line");
+    if (state === "active" && selDay) {
+      line.textContent = "Talking about Day " + selDay.day_index + " — " +
+        prettyDate(selDay.date) + ". What you say to Lori is filed here.";
+    } else if (state === "active") {
+      line.textContent = "No day chosen yet. Open a day and start talking, " +
+        "and it will be filed to that day.";
+    } else if (state === "planning") {
+      line.textContent = "Start the trip when you set off. Until then " +
+        "nothing you say to Lori is filed to a day.";
+    } else if (state === "completed") {
+      line.textContent = "This trip is finished. Everything said on it is " +
+        "still here.";
+    } else {
+      line.textContent = "This trip is put away.";
+    }
+    bar.appendChild(line);
+
+    var acts = el("span", "tdl-live-actions");
+    if (state === "planning") {
+      acts.appendChild(btn("tdl-btn tdl-btn-gold", "Start trip",
+        function () { setTripLiveState("active"); }));
+    } else if (state === "active") {
+      acts.appendChild(btn("tdl-btn", "Finish trip",
+        function () { setTripLiveState("completed"); }));
+    } else {
+      acts.appendChild(btn("tdl-btn", "Reopen trip",
+        function () { setTripLiveState("active"); }));
+    }
+    acts.appendChild(btn("tdl-btn", "▤ Trip timeline",
+      function () { openTripCalendar(); }));
+    bar.appendChild(acts);
+
+    // Resume: when a DIFFERENT trip is the one running, say so here and
+    // offer the way back to it. Without this the operator's only clue
+    // that they are on the wrong screen is the refusal they get when
+    // they press Start trip.
+    var running = activeTripRow();
+    if (running && (!st.trip || running.id !== st.trip.id)) {
+      var res = el("div", "tdl-live-resume");
+      res.appendChild(el("span", "", "You are on “" +
+        (running.title || "a trip") + "” right now."));
+      res.appendChild(btn("tdl-btn tdl-btn-small", "Resume that trip",
+        function () { selectTrip(running.id); }));
+      bar.appendChild(res);
+    }
+    return bar;
+  }
+
+  // ── the calendar / timeline modal ────────────────────────────────────
+
+  function openTripCalendar(dayId) {
+    if (!st.trip) return;
+    st.tripCal = {
+      dayId: dayId || tripSelectedDayId() || st.selectedDayId || null,
+      days: [], preserved: [], items: [], unplaced: [],
+      unplacedCount: 0, showUnplaced: false,
+      busy: true, error: "",
+    };
+    renderAll();
+    loadTripCalendar();
+  }
+
+  function closeTripCalendar() {
+    st.tripCal = null;
+    renderAll();
+  }
+
+  function loadTripCalendar() {
+    if (!st.trip || !st.tripCal) return Promise.resolve();
+    var t = encodeURIComponent(st.trip.id);
+    st.tripCal.busy = true;
+    renderAll();
+    return api("/api/trips/" + t + "/calendar")
+      .then(function (out) {
+        if (!st.tripCal) return null;
+        st.tripCal.days = out.days || [];
+        st.tripCal.preserved = out.preserved || [];
+        st.tripCal.unplacedCount = out.unplaced_count || 0;
+        st.tripCal.error = "";
+        // The modal opens on the day the operator is on. Failing that
+        // it opens on the first day of the trip, because a timeline
+        // that opens on nothing and says "choose a day" has made the
+        // operator do the one piece of work the screen exists to save
+        // them --- and it looks broken, which is worse. Opening on
+        // Day 1 is not a claim that Day 1 was chosen: the rail shows
+        // "You are here" only on the trip\'s actual selected day, and
+        // that badge is the only thing that speaks for the operator.
+        if (!st.tripCal.dayId && out.selected_day_id) {
+          st.tripCal.dayId = out.selected_day_id;
+        }
+        if (!st.tripCal.dayId) {
+          var first = (st.tripCal.days[0] || st.tripCal.preserved[0]);
+          if (first) st.tripCal.dayId = first.id;
+        }
+        return loadTripDayTimeline(st.tripCal.dayId);
+      })
+      .catch(function (e) {
+        if (!st.tripCal) return;
+        st.tripCal.busy = false;
+        st.tripCal.error = e.message;
+        renderAll();
+      });
+  }
+
+  function loadTripDayTimeline(dayId) {
+    if (!st.trip || !st.tripCal) return Promise.resolve();
+    st.tripCal.dayId = dayId || null;
+    if (!dayId) {
+      st.tripCal.items = [];
+      st.tripCal.busy = false;
+      renderAll();
+      return Promise.resolve();
+    }
+    var t = encodeURIComponent(st.trip.id);
+    var d = encodeURIComponent(dayId);
+    st.tripCal.busy = true;
+    renderAll();
+    return api("/api/trips/" + t + "/days/" + d + "/timeline")
+      .then(function (out) {
+        if (!st.tripCal) return;
+        st.tripCal.items = out.items || [];
+        st.tripCal.busy = false;
+        st.tripCal.error = "";
+        renderAll();
+      })
+      .catch(function (e) {
+        if (!st.tripCal) return;
+        st.tripCal.items = [];
+        st.tripCal.busy = false;
+        st.tripCal.error = e.message;
+        renderAll();
+      });
+  }
+
+  function loadTripUnplaced() {
+    if (!st.trip || !st.tripCal) return Promise.resolve();
+    var t = encodeURIComponent(st.trip.id);
+    return api("/api/trips/" + t + "/timeline/unplaced")
+      .then(function (out) {
+        if (!st.tripCal) return;
+        st.tripCal.unplaced = out.items || [];
+        st.tripCal.unplacedCount = out.count || 0;
+        renderAll();
+      })
+      .catch(function (e) {
+        if (!st.tripCal) return;
+        st.tripCal.error = e.message;
+        renderAll();
+      });
+  }
+
+  // Moving is the operator overruling an automatic placement, so it is
+  // recorded as their choice and it never deletes: sending a
+  // conversation off a day returns it to the reconciliation list, where
+  // it stays visible until somebody decides where it belongs.
+  function moveTripTurnLink(linkId, dayId) {
+    var l = encodeURIComponent(linkId);
+    return api("/api/trips/trip-turn-links/" + l + "/move",
+               { method: "POST", body: { trip_day_id: dayId || null } })
+      .then(function () {
+        if (!st.tripCal) return null;
+        return loadTripCalendar().then(function () {
+          if (st.tripCal && st.tripCal.showUnplaced) return loadTripUnplaced();
+        });
+      })
+      .catch(function (e) {
+        if (!st.tripCal) return;
+        st.tripCal.error = e.message;
+        renderAll();
+      });
+  }
+
+  function clockOf(iso) {
+    var s = String(iso || "");
+    var m = s.match(/T(\d{2}):(\d{2})/);
+    if (m) return m[1] + ":" + m[2];
+    m = s.match(/^(\d{2}):(\d{2})/);
+    return m ? m[1] + ":" + m[2] : "";
+  }
+
+  // The day timeline carries five kinds of item now, not one. The
+  // first cut rendered conversations and nothing else, which was fine
+  // while the endpoint only returned conversations and became a lie the
+  // moment the endpoint told the truth about the rest of the day. Each
+  // kind renders from the fields the projection already carries; none
+  // of them holds a copy of anything.
+  var TL_KIND_LABEL = {
+    conversation: "Talk with Lori",
+    photo: "Photograph",
+    note: "Story note",
+    source: "Source",
+    day_text: "On the day card",
+  };
+
+  function renderTimelineItem(item, opts) {
+    opts = opts || {};
+    var kind = String(item.kind || "conversation");
+    if (kind === "photo") return renderTimelinePhoto(item);
+    if (kind === "note") return renderTimelineNote(item);
+    if (kind === "source") return renderTimelineSource(item);
+    if (kind === "day_text") return renderTimelineDayText(item);
+    return renderTimelineConversation(item, opts);
+  }
+
+  function tlHead(item, label) {
+    var head = el("div", "tdl-tl-head");
+    head.appendChild(el("span", "tdl-tl-when", clockOf(item.at) || "—"));
+    head.appendChild(el("span", "tdl-tl-kind", label));
+    return head;
+  }
+
+  // Source navigation for the non-conversation kinds. Every one of them
+  // already has a home --- the day card and its inspector --- so the
+  // timeline sends the operator there rather than growing a second
+  // place to look at a photograph.
+  function openTripDayCard(dayId) {
+    closeTripCalendar();
+    setTab("plan");
+    st.selectedDayId = dayId;
+    renderAll();
+  }
+
+  function renderTimelinePhoto(item) {
+    var row = el("article", "tdl-tl-item tdl-tl-photo");
+    row.appendChild(tlHead(item, TL_KIND_LABEL.photo));
+    if (item.photo_id) {
+      var fig = el("div", "tdl-tl-thumb");
+      // Eager, for the reason recorded at thumbImg: this panel floats
+      // above the page with its own scrolling body, so the lazy hint
+      // never fires and the operator gets an empty box.
+      fig.appendChild(thumbImg(item.photo_id, item.caption || "trip photo",
+        false));
+      row.appendChild(fig);
+    }
+    if (item.caption) row.appendChild(el("p", "tdl-tl-said", item.caption));
+    var acts = el("div", "tdl-tl-actions");
+    acts.appendChild(btn("tdl-btn tdl-btn-small", "Open this day",
+      function () {
+        var target = item.trip_day_id || (st.tripCal && st.tripCal.dayId);
+        if (target) openTripDayCard(target);
+      }));
+    row.appendChild(acts);
+    return row;
+  }
+
+  function renderTimelineNote(item) {
+    var row = el("article", "tdl-tl-item tdl-tl-note");
+    row.appendChild(tlHead(item, TL_KIND_LABEL.note));
+    if (item.title) row.appendChild(el("h4", "tdl-tl-title", item.title));
+    if (item.text) row.appendChild(el("p", "tdl-tl-said", item.text));
+    var acts = el("div", "tdl-tl-actions");
+    acts.appendChild(btn("tdl-btn tdl-btn-small", "Open this day",
+      function () {
+        var target = item.trip_day_id || (st.tripCal && st.tripCal.dayId);
+        if (target) openTripDayCard(target);
+      }));
+    row.appendChild(acts);
+    return row;
+  }
+
+  function renderTimelineSource(item) {
+    var row = el("article", "tdl-tl-item tdl-tl-source");
+    row.appendChild(tlHead(item, TL_KIND_LABEL.source));
+    if (item.title) row.appendChild(el("h4", "tdl-tl-title", item.title));
+    if (item.summary) row.appendChild(el("p", "tdl-tl-said", item.summary));
+    var acts = el("div", "tdl-tl-actions");
+    acts.appendChild(btn("tdl-btn tdl-btn-small", "Open this day",
+      function () {
+        var target = item.trip_day_id || (st.tripCal && st.tripCal.dayId);
+        if (target) openTripDayCard(target);
+      }));
+    row.appendChild(acts);
+    return row;
+  }
+
+  function renderTimelineDayText(item) {
+    var row = el("article", "tdl-tl-item tdl-tl-daytext");
+    var head = el("div", "tdl-tl-head");
+    head.appendChild(el("span", "tdl-tl-when", "—"));
+    head.appendChild(el("span", "tdl-tl-kind", item.label || "On the day card"));
+    row.appendChild(head);
+    if (item.text) row.appendChild(el("p", "tdl-tl-said", item.text));
+    return row;
+  }
+
+  function renderTimelineConversation(item, opts) {
+    opts = opts || {};
+    var row = el("article", "tdl-tl-item");
+
+    var head = el("div", "tdl-tl-head");
+    var when = clockOf(item.at);
+    head.appendChild(el("span", "tdl-tl-when", when || "—"));
+    head.appendChild(el("span", "tdl-tl-kind", "Talk with Lori"));
+    var status = item.placement_status || "confirmed";
+    head.appendChild(el("span", "tdl-tl-badge tdl-tl-" + status,
+      PLACEMENT_LABEL[status] || status));
+    row.appendChild(head);
+
+    if (item.narrator_said) {
+      var u = el("p", "tdl-tl-said tdl-tl-narrator");
+      u.appendChild(el("span", "tdl-tl-who", "You"));
+      u.appendChild(document.createTextNode(" " + item.narrator_said));
+      row.appendChild(u);
+    }
+    if (item.lori_said) {
+      var a = el("p", "tdl-tl-said tdl-tl-lori");
+      a.appendChild(el("span", "tdl-tl-who", "Lori"));
+      a.appendChild(document.createTextNode(" " + item.lori_said));
+      row.appendChild(a);
+    }
+    if (!item.narrator_said && !item.lori_said) {
+      // The link survived and the words did not. Say that plainly
+      // instead of rendering an empty card: an item with no text is
+      // exactly the kind of thing somebody needs to be able to find.
+      row.appendChild(el("p", "tdl-muted",
+        "This conversation is linked here but its words could not be " +
+        "read back."));
+    }
+
+    var acts = el("div", "tdl-tl-actions");
+    // Source navigation. A timeline entry the operator cannot open is a
+    // claim without a receipt: this returns to the conversation surface,
+    // on the day the entry is filed under.
+    if (item.trip_day_id) {
+      acts.appendChild(btn("tdl-btn tdl-btn-small", "Open this conversation",
+        function () {
+          var target = item.trip_day_id;
+          closeTripCalendar();
+          st.selectedDayId = target;
+          openLoriOverlay(target);
+        }));
+    }
+
+    var pick = el("select", "tdl-tl-move");
+    var none = el("option", "", opts.unplaced ? "Put on a day…" :
+      "Move to…");
+    none.value = "";
+    pick.appendChild(none);
+    (st.tripCal ? st.tripCal.days : []).forEach(function (d) {
+      var o = el("option", "", "Day " + d.day_index + " · " +
+        prettyDate(d.date));
+      o.value = d.id;
+      if (d.id === item.trip_day_id) o.selected = true;
+      pick.appendChild(o);
+    });
+    if (item.trip_day_id) {
+      var off = el("option", "", "Take off this day");
+      off.value = "__none__";
+      pick.appendChild(off);
+    }
+    pick.addEventListener("change", function () {
+      var v = pick.value;
+      if (!v) return;
+      moveTripTurnLink(item.link_id, v === "__none__" ? null : v);
+    });
+    acts.appendChild(pick);
+    row.appendChild(acts);
+    return row;
+  }
+
+  function renderTripCalendarModal() {
+    var cal = st.tripCal;
+    var wrap = el("div", "tdl-drawer-scrim tdl-cal-scrim");
+    wrap.addEventListener("click", function (e) {
+      if (e.target === wrap) closeTripCalendar();
+    });
+    var panel = el("section", "tdl-cal-panel");
+
+    var head = el("header", "tdl-cal-head");
+    var ht = el("div");
+    ht.appendChild(el("h2", "", "Trip timeline"));
+    ht.appendChild(el("p", "tdl-muted",
+      (st.trip && st.trip.title ? st.trip.title + " · " : "") +
+      (LIVE_STATE_LABEL[tripLiveState()] || tripLiveState())));
+    head.appendChild(ht);
+    head.appendChild(btn("tdl-btn", "Close", closeTripCalendar));
+    panel.appendChild(head);
+
+    if (cal.error) panel.appendChild(el("div", "tdl-error", cal.error));
+
+    var body = el("div", "tdl-cal-body");
+
+    // Left: every day of the trip.
+    var list = el("nav", "tdl-cal-days");
+    if (!cal.days.length && !cal.preserved.length) {
+      list.appendChild(el("p", "tdl-muted",
+        "This trip has no day cards yet. Set the trip dates and the day " +
+        "cards are created for you."));
+    }
+    function dayButton(d, preserved) {
+      var b = el("button", "tdl-cal-day" +
+        (d.id === cal.dayId ? " tdl-active" : "") +
+        (preserved ? " tdl-cal-day-preserved" : ""));
+      b.type = "button";
+      b.appendChild(el("span", "tdl-cal-day-index", "Day " + d.day_index));
+      b.appendChild(el("span", "tdl-cal-day-date", prettyDate(d.date)));
+      b.appendChild(el("span", "tdl-cal-day-title", dayLabel(d)));
+      // What the day actually holds, in the operator\'s words. Counting
+      // conversations alone made a day with a photograph and a story
+      // note read as empty, and the rail then disagreed with the day
+      // card two inches away.
+      var bits = [];
+      function part(n, one, many) {
+        n = n || 0;
+        if (n) bits.push(n === 1 ? one : (n + " " + many));
+      }
+      part(d.conversation_count, "1 conversation", "conversations");
+      part(d.photo_count, "1 photo", "photos");
+      part(d.note_count, "1 note", "notes");
+      part(d.source_count, "1 source", "sources");
+      b.appendChild(el("span", "tdl-cal-day-count", bits.join(" · ")));
+      if (d.id === tripSelectedDayId()) {
+        b.appendChild(el("span", "tdl-cal-day-here", "You are here"));
+      }
+      b.addEventListener("click", function () { loadTripDayTimeline(d.id); });
+      return b;
+    }
+    cal.days.forEach(function (d) { list.appendChild(dayButton(d, false)); });
+    if (cal.preserved.length) {
+      list.appendChild(el("div", "tdl-cal-sep", "Outside the trip dates"));
+      cal.preserved.forEach(function (d) {
+        list.appendChild(dayButton(d, true));
+      });
+    }
+    body.appendChild(list);
+
+    // Right: what happened on the chosen day.
+    var pane = el("div", "tdl-cal-timeline");
+    var selDay = cal.dayId ? dayById(cal.dayId) : null;
+    if (!cal.dayId) {
+      pane.appendChild(el("p", "tdl-empty",
+        "Choose a day on the left to see what happened on it."));
+    } else {
+      var th = el("div", "tdl-cal-tl-head");
+      th.appendChild(el("h3", "", selDay ?
+        ("Day " + selDay.day_index + " · " + prettyDate(selDay.date)) :
+        "This day"));
+      if (cal.dayId !== tripSelectedDayId()) {
+        th.appendChild(btn("tdl-btn tdl-btn-small", "Talk about this day",
+          function () {
+            setTripSelectedDay(cal.dayId).then(function () {
+              if (st.tripCal) loadTripCalendar();
+            });
+          }));
+      } else {
+        th.appendChild(el("span", "tdl-cal-day-here", "You are here"));
+      }
+      pane.appendChild(th);
+      if (cal.busy) {
+        pane.appendChild(el("p", "tdl-muted", "Loading…"));
+      } else if (!cal.items.length) {
+        pane.appendChild(el("p", "tdl-empty",
+          "Nothing has been recorded on this day yet — no conversation, " +
+          "photo, note or source. Open the day and talk with Lori, and " +
+          "it will appear here."));
+      } else {
+        cal.items.forEach(function (it) {
+          pane.appendChild(renderTimelineItem(it, {}));
+        });
+      }
+    }
+    body.appendChild(pane);
+    panel.appendChild(body);
+
+    // The reconciliation list. It is shown as a footer rather than a
+    // separate screen because it is not a queue somebody is supposed to
+    // work through --- it is the small number of conversations that
+    // completed with no day chosen, and it must stay visible instead of
+    // being tidied away.
+    var foot = el("footer", "tdl-cal-foot");
+    if (cal.unplacedCount) {
+      var fl = el("div", "tdl-cal-foot-line");
+      fl.appendChild(el("span", "", cal.unplacedCount === 1 ?
+        "1 conversation on this trip is not on a day yet." :
+        cal.unplacedCount + " conversations on this trip are not on a day yet."));
+      fl.appendChild(btn("tdl-btn tdl-btn-small",
+        cal.showUnplaced ? "Hide them" : "Show them",
+        function () {
+          cal.showUnplaced = !cal.showUnplaced;
+          if (cal.showUnplaced) loadTripUnplaced(); else renderAll();
+        }));
+      foot.appendChild(fl);
+      if (cal.showUnplaced) {
+        var ul = el("div", "tdl-cal-unplaced");
+        cal.unplaced.forEach(function (it) {
+          ul.appendChild(renderTimelineItem(it, { unplaced: true }));
+        });
+        foot.appendChild(ul);
+      }
+    } else {
+      foot.appendChild(el("span", "tdl-muted",
+        "Every conversation on this trip is on a day."));
+    }
+    panel.appendChild(foot);
+
+    wrap.appendChild(panel);
+    return wrap;
+  }
+
   function openLoriOverlay(dayId) {
     if (dayFormDirtyBlocks()) return;
     st.tab = "plan";
     st.loriReturnTab = "plan";
     st.selectedDayId = dayId || st.selectedDayId;
+    // WO-LIVE-TRIP-COMPANION-01 VS1. Opening Lori on a day IS the
+    // operator choosing the day, so it is written through to
+    // trips.active_trip_day_id -- the durable answer the placement
+    // service reads when the turn completes. It is fire-and-forget on
+    // purpose: the write is one local UPDATE and it lands in
+    // milliseconds, while the earliest a turn can complete is after the
+    // operator has typed a sentence and the model has answered it. A
+    // failure here is not allowed to stop the conversation from opening;
+    // the worst case is a turn that lands on the reconciliation list
+    // with its words intact, which is the outcome this lane is built to
+    // guarantee anyway.
+    if (dayId && tripLiveState() === "active" &&
+        tripSelectedDayId() !== dayId) {
+      setTripSelectedDay(dayId);
+    }
     st.photoPickerDayId = null;
     st.noteDrawerDayId = null;
     loriPane.anchorDay(dayId || null);

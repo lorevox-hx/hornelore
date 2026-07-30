@@ -866,3 +866,206 @@
    forty a disaster, and most of these are retryable by pressing the same
    button again. */
 .tdl-gp-fail { color: #8c2b2b; }
+
+/* ── WO-LIVE-TRIP-COMPANION-01 VS1 — THE LIVE TRIP BAR AND THE TRIP
+   TIMELINE MODAL ─────────────────────────────────────────────────────────
+   Two surfaces arrive with Vertical Slice 1, and they are styled to say
+   two different things.
+
+   The live bar sits under the Trip Calendar head and answers one question
+   at a glance: is the operator ON this trip right now. That is a state,
+   not an action, so the bar is a tinted strip rather than a card --- a
+   card would read as another thing to fill in, and the whole point of the
+   bar is that it reports rather than asks. The four --- planning, active,
+   completed, archived --- reuse this sheet's existing colour idioms
+   (gold/caution for planning, green for live, blue-grey for finished,
+   flat paper for archived) so an operator who has learned the queue
+   colours already knows what these mean.
+
+   The timeline modal is a centred panel, not a right drawer. Every
+   .tdl-drawer on this screen edits ONE record and belongs beside the
+   thing it edits; the timeline projects the whole trip and edits nothing,
+   so pinning it to the right rail would misdescribe it. It reuses
+   .tdl-drawer-scrim for the backdrop (same weight, same z-index band) and
+   sits one step above it at z-index 42, above the day inspector drawer,
+   because it is opened FROM that drawer and must not appear behind it. */
+
+.tdl-live-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .7rem;
+  margin: .55rem 0 .2rem; padding: .55rem .75rem;
+  border: 1px solid var(--tdl-line); border-radius: 12px;
+  background: var(--tdl-paper2);
+}
+.tdl-live-chip {
+  flex: none; border-radius: 999px; padding: .16rem .6rem;
+  font-size: .72rem; font-weight: 900;
+  text-transform: uppercase; letter-spacing: .04em;
+  border: 1px solid var(--tdl-line); background: white; color: var(--tdl-ink);
+}
+.tdl-live-line { flex: 1 1 16rem; min-width: 0; font-size: .86rem; }
+.tdl-live-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-left: auto; }
+
+.tdl-live-planning { background: #fff7e6; border-color: var(--tdl-gold2); }
+.tdl-live-planning .tdl-live-chip { background: #fff1d8; border-color: #ecd2a4; color: #7a501c; }
+.tdl-live-active { background: #e8f5ec; border-color: #b6dcc2; }
+.tdl-live-active .tdl-live-chip { background: #d7eede; border-color: #9ecfae; color: #1f6b3a; }
+.tdl-live-completed { background: #eef3f9; border-color: #cadaeb; }
+.tdl-live-completed .tdl-live-chip { background: #e0eaf6; border-color: #b9cee6; color: var(--tdl-blue); }
+.tdl-live-archived { background: var(--tdl-paper2); border-color: var(--tdl-line); }
+.tdl-live-archived .tdl-live-chip { color: var(--tdl-muted); }
+
+/* The "you are on a different trip" row. It is a full-width line under
+   the bar rather than a fifth chip inside it, because it is about a trip
+   that is NOT the one on screen and must not be misread as this trip's
+   state. */
+.tdl-live-resume {
+  flex: 1 0 100%; display: flex; flex-wrap: wrap; align-items: center; gap: .45rem;
+  margin-top: .15rem; padding-top: .45rem;
+  border-top: 1px dashed var(--tdl-line); font-size: .82rem;
+}
+
+/* The one-line note inside a day card's Story section saying where a
+   conversation started here would be filed. Small and quiet: it is an
+   explanation, and the operator is looking at the day, not at it. */
+.tdl-live-note { margin: .3rem 0 .1rem; font-size: .79rem; color: var(--tdl-muted); }
+.tdl-live-note .tdl-btn { margin-left: .35rem; }
+
+/* ── the modal shell ────────────────────────────────────────────────── */
+.tdl-cal-scrim { display: flex; align-items: center; justify-content: center; padding: 2.2vh 2vw; z-index: 42; }
+.tdl-cal-panel {
+  display: flex; flex-direction: column; min-height: 0;
+  width: min(1040px, 96vw); max-height: 96vh;
+  background: var(--tdl-paper); border: 1px solid var(--tdl-line);
+  border-radius: var(--tdl-radius); box-shadow: var(--tdl-shadow);
+  overflow: hidden;
+}
+.tdl-cal-head {
+  flex: none; display: flex; justify-content: space-between; align-items: flex-start; gap: .8rem;
+  padding: .85rem 1rem; border-bottom: 1px solid var(--tdl-line); background: var(--tdl-paper2);
+}
+.tdl-cal-head h2 { margin: 0; font-size: 1.05rem; }
+.tdl-cal-head p { margin: .15rem 0 0; font-size: .82rem; color: var(--tdl-muted); }
+
+/* Two panes, one scroll region each. The day list is fixed-width so the
+   timeline never reflows when a day's title is long, and both panes own
+   their own overflow so scrolling the conversation never scrolls the day
+   list out from under the operator's cursor. */
+.tdl-cal-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 15rem minmax(0, 1fr); }
+.tdl-cal-days {
+  min-height: 0; overflow: auto; padding: .6rem;
+  display: flex; flex-direction: column; gap: .3rem;
+  border-right: 1px solid var(--tdl-line); background: var(--tdl-paper2);
+}
+.tdl-cal-day {
+  display: grid; gap: .05rem; text-align: left; width: 100%;
+  padding: .45rem .55rem; border: 1px solid transparent; border-radius: 10px;
+  background: transparent; color: var(--tdl-ink); font: inherit; cursor: pointer;
+}
+.tdl-cal-day:hover { background: white; border-color: var(--tdl-line); }
+.tdl-cal-day.tdl-active { background: white; border-color: var(--tdl-blue); box-shadow: inset 3px 0 0 var(--tdl-blue); }
+.tdl-cal-day-index { font-size: .7rem; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; color: var(--tdl-muted); }
+.tdl-cal-day-date { font-size: .8rem; font-weight: 800; }
+.tdl-cal-day-title { font-size: .8rem; color: var(--tdl-muted); overflow-wrap: anywhere; }
+.tdl-cal-day-count {
+  justify-self: start; margin-top: .15rem;
+  border-radius: 999px; padding: .05rem .45rem;
+  font-size: .68rem; font-weight: 900;
+  background: #e8f5ec; border: 1px solid #b6dcc2; color: #1f6b3a;
+}
+/* "You are here" is the selected DAY OF THE TRIP, not the selected row.
+   It stays green wherever it appears --- in the list and in the timeline
+   head --- so the two never look like different facts. */
+.tdl-cal-day-here {
+  justify-self: start; margin-top: .1rem;
+  font-size: .68rem; font-weight: 900; text-transform: uppercase; letter-spacing: .04em;
+  color: #1f6b3a;
+}
+.tdl-cal-day-preserved { opacity: .82; }
+.tdl-cal-sep {
+  margin: .5rem 0 .1rem; padding-top: .45rem; border-top: 1px dashed var(--tdl-line);
+  font-size: .7rem; font-weight: 900; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--tdl-muted);
+}
+
+.tdl-cal-timeline { min-height: 0; overflow: auto; padding: .8rem 1rem; display: flex; flex-direction: column; gap: .5rem; }
+.tdl-cal-tl-head { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding-bottom: .5rem; border-bottom: 1px solid var(--tdl-line); }
+.tdl-cal-tl-head h3 { margin: 0; font-size: .95rem; }
+
+.tdl-cal-foot { flex: none; padding: .7rem 1rem; border-top: 1px solid var(--tdl-line); background: var(--tdl-paper2); font-size: .82rem; }
+.tdl-cal-foot-line { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.tdl-cal-unplaced { margin-top: .55rem; display: flex; flex-direction: column; gap: .45rem; max-height: 34vh; overflow: auto; }
+
+/* ── one timeline item ──────────────────────────────────────────────── */
+.tdl-tl-item { border: 1px solid var(--tdl-line); border-radius: 12px; background: var(--tdl-paper); padding: .6rem .7rem; }
+.tdl-tl-head { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem; margin-bottom: .35rem; }
+.tdl-tl-when { font-variant-numeric: tabular-nums; font-weight: 800; font-size: .82rem; }
+.tdl-tl-kind { font-size: .78rem; color: var(--tdl-muted); }
+
+/* SUGGESTED IS NOT CONFIRMED, AND THE COLOUR HAS TO SAY SO.
+   The work order is explicit that "a date suggestion is not an operator
+   choice". Confirmed borrows the green this sheet already uses for
+   settled things; Suggested borrows the gold it uses for "you still have
+   to look at this"; Needs a day borrows the red band. If these three ever
+   drift toward the same colour, the interface has stopped distinguishing
+   what the operator decided from what the system guessed. */
+.tdl-tl-badge {
+  border-radius: 999px; padding: .08rem .5rem;
+  font-size: .68rem; font-weight: 900; text-transform: uppercase; letter-spacing: .04em;
+  border: 1px solid var(--tdl-line); background: white; color: var(--tdl-muted);
+}
+.tdl-tl-confirmed { background: #e8f5ec; border-color: #b6dcc2; color: #1f6b3a; }
+.tdl-tl-suggested { background: #fff7e6; border-color: var(--tdl-gold2); color: #7a501c; }
+.tdl-tl-needs_day { background: #fdecec; border-color: #f0bcbc; color: #8c2b2b; }
+.tdl-tl-rejected { background: var(--tdl-paper2); border-color: var(--tdl-line); color: var(--tdl-muted); }
+
+/* The narrator's words and Lori's, set in the serif this sheet reserves
+   for narrative. Clamped, not truncated with a character count: the
+   timeline is an index of conversations, and the full text is one click
+   away behind "Open this conversation". */
+.tdl-tl-said {
+  margin: .18rem 0; font-family: var(--tdl-serif); font-size: .86rem; line-height: 1.45;
+  overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+}
+.tdl-tl-who {
+  display: inline-block; margin-right: .4rem;
+  font-family: var(--tdl-font); font-size: .68rem; font-weight: 900;
+  text-transform: uppercase; letter-spacing: .04em; color: var(--tdl-muted);
+}
+.tdl-tl-narrator { color: var(--tdl-ink); }
+.tdl-tl-lori { color: var(--tdl-blue); }
+
+.tdl-tl-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; margin-top: .45rem; }
+.tdl-tl-move {
+  border: 1px solid var(--tdl-line); border-radius: 10px; background: white;
+  color: var(--tdl-ink); font: inherit; font-size: .8rem; padding: .25rem .4rem; max-width: 100%;
+}
+
+/* LAPTOP AND BELOW. Same rule the workspace follows everywhere else in
+   this file: never horizontal-scroll. Under 900px the two panes stack ---
+   days first, because choosing the day is what the operator came to do
+   --- and the day list gets its own capped height so the timeline is
+   still reachable without scrolling past every day of a long trip. */
+@media (max-width: 900px) {
+  .tdl-cal-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .tdl-cal-days { flex-direction: row; flex-wrap: nowrap; overflow-x: auto; max-height: 9.5rem; border-right: 0; border-bottom: 1px solid var(--tdl-line); }
+  .tdl-cal-day { min-width: 11rem; }
+  .tdl-live-actions { margin-left: 0; }
+}
+
+/* WO-LIVE-TRIP-COMPANION-01 VS1 (2026-07-30) — the day timeline stopped
+   being a view of one table. Photographs, story notes, sources and the
+   day card's own text now sit on it beside the conversations. Each kind
+   gets a left edge colour so the eye can sort a mixed day without
+   reading every label, and nothing here is a new component: they are the
+   same .tdl-tl-item card the conversation already used. */
+.tdl-tl-item.tdl-tl-photo { border-left: 3px solid var(--tdl-gold2); }
+.tdl-tl-item.tdl-tl-note { border-left: 3px solid var(--tdl-blue); }
+.tdl-tl-item.tdl-tl-source { border-left: 3px solid var(--tdl-line); }
+.tdl-tl-item.tdl-tl-daytext { border-left: 3px dashed var(--tdl-line); background: var(--tdl-paper2); }
+.tdl-tl-title { margin: 0 0 .25rem; font-size: .92rem; font-weight: 700; }
+.tdl-tl-thumb { margin: .2rem 0 .4rem; }
+.tdl-tl-thumb img {
+  display: block; max-width: 190px; max-height: 150px; width: auto; height: auto;
+  border: 1px solid var(--tdl-line); border-radius: 8px; background: var(--tdl-paper2);
+}

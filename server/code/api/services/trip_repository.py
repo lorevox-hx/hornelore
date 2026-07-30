@@ -65,8 +65,14 @@ def _new_id() -> str:
 # statements, so they are locked to this internal allowlist — never a
 # caller-supplied string (parameterized-SQL doctrine; PRAGMA cannot take
 # a bound parameter for the table name).
+# WO-LIVE-TRIP-COMPANION-01 (2026-07-30): "trips" joined this list when
+# migration 0039 added trips.live_state. The same tolerance argument that
+# put the other three here applies with more force: _trips_has_live_state
+# is probed on every completed interview turn, so an unmigrated database
+# must answer "no live state" and let the conversation finish, not raise.
 _KNOWN_TABLES = (
     "trip_location_notes", "trip_sources", "trip_photo_links",
+    "trips",
 )
 
 
@@ -3666,3 +3672,733 @@ def trip_days_reconcile(
         "kept_out_of_range": kept,
         "preview": trip_days_reconcile_preview(trip_id),
     }
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  WO-LIVE-TRIP-COMPANION-01 Vertical Slice 1 (2026-07-30)
+#  Trip lifecycle, remembered day selection, and turn placement.
+#
+#  Everything below reads or writes only the two things migration 0039
+#  added: the two new columns on `trips`, and the `trip_turn_links`
+#  table. Nothing here writes narrative content, family truth, or a
+#  correction projection.
+# ═══════════════════════════════════════════════════════════════════
+
+# The lived lifecycle of a journey. Deliberately NOT trips.status,
+# which is the authoring state of the write-up. See migration 0039 for
+# why the two are separate columns rather than one merged enum.
+LIVE_STATES = ("planning", "active", "completed", "archived")
+
+# How a conversation's day was chosen.
+PLACEMENT_SOURCES = (
+    "active_trip_day",      # the narrator was on this trip, on this day
+    "operator_selected",    # a human moved it here
+    "timestamp_suggested",  # derived from a timestamp, not yet accepted
+    "later_reconciled",     # placed after the fact by a repair pass
+)
+
+# Whether a human has accepted the placement. `needs_day` is the
+# reconciliation item required by the work order ("A failure to link the
+# trip should not lose the conversation"), not an error to be cleaned up.
+PLACEMENT_STATUSES = ("suggested", "confirmed", "needs_day", "rejected")
+
+
+class TripStateError(Exception):
+    """A refused lifecycle transition, carrying the reason.
+
+    Raised rather than silently corrected. Starting a second trip while
+    one is already active is the case this exists for: the work order
+    requires the operator to start and finish trips deliberately, so the
+    right response is to name the trip that is in the way, not to demote
+    it behind the operator's back.
+    """
+
+    def __init__(self, message: str, conflict: Optional[Dict[str, Any]] = None):
+        super().__init__(message)
+        self.conflict = conflict or {}
+
+
+def _trips_has_live_state(con: sqlite3.Connection) -> bool:
+    """True once migration 0039 has been applied.
+
+    Every accessor below checks this. A DB that has not been migrated
+    yet must degrade to "no active trip" rather than raise, because the
+    completed-turn hook runs on every interview turn and a missing
+    column must never be able to break a conversation.
+    """
+    return _table_has_column(con, "trips", "live_state")
+
+
+def trip_live_state_set(trip_id: str, state: str) -> Dict[str, Any]:
+    """Move a trip through the lived lifecycle. Returns the updated trip.
+
+    Refuses, rather than resolves, the one conflict that matters: a
+    narrator may be on only one trip at a time. The partial unique index
+    ux_trips_one_live_active_per_person would refuse it anyway; this
+    check runs first only so the caller gets a message naming the other
+    trip instead of a bare IntegrityError.
+    """
+    state = str(state or "").strip().lower()
+    if state not in LIVE_STATES:
+        raise TripStateError(
+            "unknown trip state: " + repr(state)
+            + " (expected one of " + ", ".join(LIVE_STATES) + ")")
+
+    con = _connect()
+    try:
+        if not _trips_has_live_state(con):
+            raise TripStateError(
+                "this database has not applied migration 0039, so trips "
+                "have no live state yet")
+
+        row = con.execute(
+            "SELECT id, person_id, title, live_state FROM trips WHERE id=?;",
+            (trip_id,)).fetchone()
+        if not row:
+            raise TripStateError("trip not found: " + str(trip_id))
+
+        if state == "active":
+            other = con.execute(
+                "SELECT id, title FROM trips "
+                "WHERE person_id=? AND live_state='active' AND id<>?;",
+                (row["person_id"], trip_id)).fetchone()
+            if other:
+                raise TripStateError(
+                    "another trip is already active for this narrator; "
+                    "finish it before starting a new one",
+                    # Keyed "id", not "trip_id": every other trip payload
+                    # this API returns carries the trip under "id", and a
+                    # conflict the UI has to render ("finish <title> first")
+                    # is one of those payloads, not a different shape.
+                    conflict={"id": other["id"],
+                              "title": other["title"]})
+
+        now = _now()
+        # Leaving 'active' clears the remembered day. A day selection is
+        # meaningful only while the narrator is on the trip; keeping it
+        # would make a completed trip reopen onto a day chosen months
+        # earlier and look like live state that is not live.
+        if state == "active":
+            con.execute(
+                "UPDATE trips SET live_state=?, updated_at=? WHERE id=?;",
+                (state, now, trip_id))
+        else:
+            con.execute(
+                "UPDATE trips SET live_state=?, active_trip_day_id=NULL, "
+                "updated_at=? WHERE id=?;",
+                (state, now, trip_id))
+        con.commit()
+    finally:
+        con.close()
+
+    updated = trip_get(trip_id)
+    return updated or {}
+
+
+def trip_active_get(person_id: str) -> Optional[Dict[str, Any]]:
+    """The one trip this narrator is currently on, or None.
+
+    This is the durable answer to "which trip is Lori working on". It is
+    read from the database on every completed turn and on every page
+    load, which is what makes the placement survive a restart -- the
+    browser's ``runtime71.active_trip_id`` is a convenience for the
+    current tab and is never the authority.
+    """
+    person_id = str(person_id or "").strip()
+    if not person_id:
+        return None
+    con = _connect()
+    try:
+        if not _trips_has_live_state(con):
+            return None
+        row = con.execute(
+            "SELECT * FROM trips WHERE person_id=? AND live_state='active' "
+            "ORDER BY updated_at DESC LIMIT 1;", (person_id,)).fetchone()
+        return _row_to_dict(row) if row else None
+    except Exception:
+        # An interview turn must not fail because the trip lane is
+        # unreadable. No active trip is a valid answer; a broken turn
+        # is not. Deliberately broader than sqlite3.Error: the schema
+        # probe can raise ValueError, and the caller cannot tell the
+        # difference between "unreadable" and "unmigrated" anyway.
+        return None
+    finally:
+        con.close()
+
+
+def trip_selected_day_set(trip_id: str, trip_day_id: Optional[str]) -> Dict[str, Any]:
+    """Remember which day the operator has open. Returns the updated trip.
+
+    Validated against the trip so a day from another trip can never
+    become the destination for this trip's conversations.
+    """
+    con = _connect()
+    try:
+        if not _trips_has_live_state(con):
+            raise TripStateError(
+                "this database has not applied migration 0039")
+        trip_row = con.execute(
+            "SELECT id FROM trips WHERE id=?;", (trip_id,)).fetchone()
+        if not trip_row:
+            raise TripStateError("trip not found: " + str(trip_id))
+
+        day_id = str(trip_day_id or "").strip() or None
+        if day_id:
+            owns = con.execute(
+                "SELECT 1 FROM trip_days WHERE id=? AND trip_id=?;",
+                (day_id, trip_id)).fetchone()
+            if not owns:
+                raise TripStateError(
+                    "that day does not belong to this trip")
+
+        con.execute(
+            "UPDATE trips SET active_trip_day_id=?, updated_at=? WHERE id=?;",
+            (day_id, _now(), trip_id))
+        con.commit()
+    finally:
+        con.close()
+    return trip_get(trip_id) or {}
+
+
+def trip_day_for_date(trip_id: str, date_text: str) -> Optional[Dict[str, Any]]:
+    """The day card whose date matches, or None.
+
+    Used only as a SUGGESTION source. A match here produces
+    placement_source='timestamp_suggested' and placement_status=
+    'suggested', never 'confirmed' -- the travel-document rule that a
+    date suggestion is not an operator choice applies to conversations
+    exactly as it applies to photographs.
+    """
+    d = str(date_text or "").strip()[:10]
+    if not d:
+        return None
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT * FROM trip_days WHERE trip_id=? AND date=? LIMIT 1;",
+            (trip_id, d)).fetchone()
+        return _day_row_to_dict(row) if row else None
+    except sqlite3.Error:
+        return None
+    finally:
+        con.close()
+
+
+def trip_turn_link_claim(
+    trip_id: str,
+    assistant_turn_row_id: int,
+    trip_day_id: Optional[str] = None,
+    user_turn_row_id: Optional[int] = None,
+    conv_id: str = "",
+    captured_at: str = "",
+    placement_source: str = "active_trip_day",
+    placement_status: str = "confirmed",
+) -> Dict[str, Any]:
+    """Place one persisted turn on one trip day. Idempotent by the database.
+
+    Returns ``{"outcome": "created"|"duplicate", "link": {...}}``.
+
+    The idempotency mechanism is the UNIQUE INDEX on
+    assistant_turn_row_id, not a lookup-then-insert: two concurrent
+    completed-turn hooks for the same turn both attempt the INSERT and
+    exactly one wins. The loser reads the winner's row and reports
+    'duplicate'. This is the same shape as the extraction ledger claim
+    in migration 0038, keyed off the same committed assistant row, so a
+    turn's extraction record and its trip placement can never disagree
+    about which turn they describe.
+
+    A 'duplicate' result deliberately does NOT overwrite the existing
+    placement. If a human has moved a conversation to another day, a
+    replayed turn must not drag it back.
+    """
+    if not trip_id or not assistant_turn_row_id:
+        return {"outcome": "noop", "link": None}
+
+    source = str(placement_source or "").strip() or "active_trip_day"
+    status = str(placement_status or "").strip() or "confirmed"
+    if source not in PLACEMENT_SOURCES:
+        source = "active_trip_day"
+    if status not in PLACEMENT_STATUSES:
+        status = "confirmed"
+    # A conversation with no resolvable day is the reconciliation item,
+    # and it must say so rather than claim to be confirmed on nothing.
+    if not trip_day_id:
+        status = "needs_day"
+
+    now = _now()
+    link_id = _new_id()
+    con = _connect()
+    try:
+        try:
+            con.execute(
+                "INSERT INTO trip_turn_links("
+                "id, trip_id, trip_day_id, conv_id, user_turn_row_id, "
+                "assistant_turn_row_id, captured_at, placement_source, "
+                "placement_status, created_at, updated_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?);",
+                (link_id, trip_id, trip_day_id, str(conv_id or ""),
+                 user_turn_row_id, int(assistant_turn_row_id),
+                 str(captured_at or ""), source, status, now, now),
+            )
+            con.commit()
+            outcome = "created"
+        except sqlite3.IntegrityError:
+            con.rollback()
+            outcome = "duplicate"
+
+        row = con.execute(
+            "SELECT * FROM trip_turn_links WHERE assistant_turn_row_id=?;",
+            (int(assistant_turn_row_id),)).fetchone()
+        return {"outcome": outcome,
+                "link": _row_to_dict(row) if row else None}
+    finally:
+        con.close()
+
+
+def trip_turn_link_move(link_id: str, trip_day_id: Optional[str]) -> Dict[str, Any]:
+    """An operator moves a conversation to another day of the same trip.
+
+    Sets placement_source='operator_selected' and status='confirmed',
+    because a human choosing a day IS the confirmation. Moving to no day
+    is allowed and returns the row to the reconciliation state.
+    """
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT * FROM trip_turn_links WHERE id=?;", (link_id,)).fetchone()
+        if not row:
+            raise TripStateError("link not found: " + str(link_id))
+        day_id = str(trip_day_id or "").strip() or None
+        if day_id:
+            owns = con.execute(
+                "SELECT 1 FROM trip_days WHERE id=? AND trip_id=?;",
+                (day_id, row["trip_id"])).fetchone()
+            if not owns:
+                raise TripStateError("that day does not belong to this trip")
+        con.execute(
+            "UPDATE trip_turn_links SET trip_day_id=?, "
+            "placement_source='operator_selected', placement_status=?, "
+            "updated_at=? WHERE id=?;",
+            (day_id, "confirmed" if day_id else "needs_day", _now(), link_id))
+        con.commit()
+        moved = con.execute(
+            "SELECT * FROM trip_turn_links WHERE id=?;", (link_id,)).fetchone()
+        return _row_to_dict(moved) if moved else {}
+    finally:
+        con.close()
+
+
+def trip_turn_links_list(trip_id: str,
+                         trip_day_id: Optional[str] = None,
+                         include_unplaced: bool = False) -> List[Dict[str, Any]]:
+    """Placement rows for a trip, optionally narrowed to one day."""
+    con = _connect()
+    try:
+        if trip_day_id:
+            sql = ("SELECT * FROM trip_turn_links WHERE trip_id=? AND "
+                   "trip_day_id=? ORDER BY captured_at, assistant_turn_row_id;")
+            rows = con.execute(sql, (trip_id, trip_day_id)).fetchall()
+        elif include_unplaced:
+            rows = con.execute(
+                "SELECT * FROM trip_turn_links WHERE trip_id=? AND "
+                "trip_day_id IS NULL "
+                "ORDER BY captured_at, assistant_turn_row_id;",
+                (trip_id,)).fetchall()
+        else:
+            rows = con.execute(
+                "SELECT * FROM trip_turn_links WHERE trip_id=? "
+                "ORDER BY captured_at, assistant_turn_row_id;",
+                (trip_id,)).fetchall()
+        return [_row_to_dict(r) for r in rows]
+    except sqlite3.Error:
+        return []
+    finally:
+        con.close()
+
+
+def trip_turn_link_counts(trip_id: str) -> Dict[str, int]:
+    """Conversation count per day id, plus 'unplaced' for NULL days.
+
+    Feeds the calendar's per-date indicators. Counts only -- the
+    calendar shows that something happened on a day, never what was
+    said.
+    """
+    out: Dict[str, int] = {}
+    con = _connect()
+    try:
+        for row in con.execute(
+            "SELECT trip_day_id, COUNT(*) AS n FROM trip_turn_links "
+            "WHERE trip_id=? GROUP BY trip_day_id;", (trip_id,)
+        ):
+            key = row["trip_day_id"] or "unplaced"
+            out[key] = int(row["n"])
+        return out
+    except sqlite3.Error:
+        return {}
+    finally:
+        con.close()
+
+
+def trip_day_conversation_items(trip_id: str,
+                                trip_day_id: Optional[str]) -> List[Dict[str, Any]]:
+    """Timeline items for the conversations placed on one day.
+
+    THE TEXT IS READ BACK OUT OF `turns`, NOT OUT OF THE LINK TABLE.
+    That is the whole point of the link table being a link table: there
+    is one conversation store, and this projects it. If a turn is edited
+    or removed in `turns`, the timeline follows automatically because it
+    never held a copy.
+
+    Pass trip_day_id=None to get the trip's unplaced conversations --
+    the reconciliation items.
+    """
+    links = trip_turn_links_list(
+        trip_id, trip_day_id,
+        include_unplaced=(trip_day_id is None))
+    if not links:
+        return []
+
+    ids: List[int] = []
+    for link in links:
+        for key in ("user_turn_row_id", "assistant_turn_row_id"):
+            v = link.get(key)
+            if isinstance(v, int):
+                ids.append(v)
+    if not ids:
+        return []
+
+    texts: Dict[int, Dict[str, Any]] = {}
+    con = _connect()
+    try:
+        marks = ",".join("?" for _ in ids)
+        for row in con.execute(
+            "SELECT id, role, content, ts FROM turns WHERE id IN (" + marks + ");",
+            ids,
+        ):
+            texts[int(row["id"])] = {
+                "role": row["role"], "content": row["content"], "ts": row["ts"]}
+    except sqlite3.Error:
+        texts = {}
+    finally:
+        con.close()
+
+    items: List[Dict[str, Any]] = []
+    for link in links:
+        a_id = link.get("assistant_turn_row_id")
+        u_id = link.get("user_turn_row_id")
+        assistant = texts.get(a_id) if isinstance(a_id, int) else None
+        user = texts.get(u_id) if isinstance(u_id, int) else None
+        when = (link.get("captured_at")
+                or (user or {}).get("ts")
+                or (assistant or {}).get("ts")
+                or "")
+        items.append({
+            "kind": "conversation",
+            "link_id": link.get("id"),
+            "trip_day_id": link.get("trip_day_id"),
+            "conv_id": link.get("conv_id"),
+            "at": when,
+            "placement_source": link.get("placement_source"),
+            "placement_status": link.get("placement_status"),
+            # Source navigation: the ids the UI needs to open the
+            # underlying conversation at the right turn.
+            "user_turn_row_id": u_id,
+            "assistant_turn_row_id": a_id,
+            "narrator_said": (user or {}).get("content") or "",
+            "lori_said": (assistant or {}).get("content") or "",
+        })
+    items.sort(key=lambda i: (str(i.get("at") or ""),
+                             i.get("assistant_turn_row_id") or 0))
+    return items
+
+
+# ── The day timeline ───────────────────────────────────────────────────────
+#
+# WO-LIVE-TRIP-COMPANION-01 VS1, corrected 2026-07-30 after the first
+# live run.
+#
+# The first cut of this projected trip_turn_links and nothing else, so a
+# day that already held a photograph and a story note reported "nothing
+# has been recorded on this day yet". That sentence was false, and it
+# was false in the one place the operator goes to find out what a day
+# held. A timeline that can only see the newest table is not a timeline;
+# it is a view of the newest table.
+#
+# So this is a READ PROJECTION over everything already fastened to a
+# trip day, and it owns no storage of its own. Every item is read live
+# from the table that already holds it -- turns, trip_photo_links,
+# trip_location_notes, trip_sources, and the day row's own operator
+# text. Nothing is copied forward, which is what makes an edit anywhere
+# else show up here without a sync step, and what stops this from
+# becoming the second data model the work order forbids.
+#
+# HIDDEN ROWS DO NOT APPEAR. Honest-counts governs display: a hidden
+# photo must not read as present evidence. (_day_attachment_counts
+# counts hidden rows on purpose, because it answers a different
+# question -- what a delete would detach -- and that answer must
+# include rows the operator cannot currently see.)
+
+DAY_TIMELINE_KINDS = ("conversation", "photo", "note", "source", "day_text")
+
+_DAY_TEXT_LABELS = {
+    "morning_notes": "Morning",
+    "afternoon_notes": "Afternoon",
+    "evening_notes": "Evening",
+    "main_location": "Where we were",
+    "lodging_base": "Where we stayed",
+}
+
+
+def _timeline_hidden_clause(con: sqlite3.Connection, table: str,
+                            alias: str) -> str:
+    """`AND alias.hidden = 0`, or nothing on a database without it."""
+    if _table_has_column(con, table, "hidden"):
+        return " AND " + alias + ".hidden = 0 "
+    return ""
+
+
+def _day_photo_items(con: sqlite3.Connection, trip_id: str,
+                     day_id: str) -> List[Dict[str, Any]]:
+    """Photographs fastened to this day.
+
+    No path, no URL and no coordinate crosses this boundary. The
+    interface already builds its thumbnail from
+    /api/photos/{id}/thumb, so a photo_id is the whole of what it
+    needs, and a storage path here would be an operator-surface leak
+    for no gain.
+    """
+    if not _table_has_column(con, "trip_photo_links", "trip_day_id"):
+        return []
+    sql = ("SELECT l.id AS link_id, l.photo_id, l.taken_at, l.ord, "
+           "       l.caption, l.narrator_caption, "
+           "       p.description AS photo_description "
+           "  FROM trip_photo_links l "
+           "  LEFT JOIN photos p ON p.id = l.photo_id "
+           " WHERE l.trip_id = ? AND l.trip_day_id = ? "
+           + _timeline_hidden_clause(con, "trip_photo_links", "l") +
+           " ORDER BY l.taken_at, l.ord")
+    out: List[Dict[str, Any]] = []
+    for r in con.execute(sql, (trip_id, day_id)):
+        row = _row_to_dict(r)
+        out.append({
+            "kind": "photo",
+            "id": row.get("link_id"),
+            "link_id": row.get("link_id"),
+            "photo_id": row.get("photo_id"),
+            "at": row.get("taken_at") or "",
+            "ord": row.get("ord") or 0,
+            "caption": (row.get("narrator_caption")
+                        or row.get("caption")
+                        or row.get("photo_description") or ""),
+        })
+    return out
+
+
+def _day_note_items(con: sqlite3.Connection, trip_id: str,
+                    day_id: str) -> List[Dict[str, Any]]:
+    """Story notes and location notes fastened to this day."""
+    if not _table_has_column(con, "trip_location_notes", "trip_day_id"):
+        return []
+    sql = ("SELECT n.id, n.note_title, n.note_text, n.source_type, "
+           "       n.source_surface, n.created_at, n.ord "
+           "  FROM trip_location_notes n "
+           " WHERE n.trip_id = ? AND n.trip_day_id = ? "
+           + _timeline_hidden_clause(con, "trip_location_notes", "n") +
+           " ORDER BY n.created_at, n.ord")
+    out: List[Dict[str, Any]] = []
+    for r in con.execute(sql, (trip_id, day_id)):
+        row = _row_to_dict(r)
+        out.append({
+            "kind": "note",
+            "id": row.get("id"),
+            "note_id": row.get("id"),
+            "at": row.get("created_at") or "",
+            "ord": row.get("ord") or 0,
+            "title": row.get("note_title") or "",
+            "text": row.get("note_text") or "",
+            "source_type": row.get("source_type") or "",
+            "source_surface": row.get("source_surface") or "",
+        })
+    return out
+
+
+def _day_source_items(con: sqlite3.Connection, trip_id: str,
+                      day_id: str) -> List[Dict[str, Any]]:
+    """Sources fastened to this day.
+
+    `storage_path` and `filename` are read but never projected: the
+    operator sees a title and a kind, which is the plain language the
+    travel workspace uses everywhere else.
+    """
+    if not _table_has_column(con, "trip_sources", "trip_day_id"):
+        return []
+    sql = ("SELECT s.id, s.title, s.source_type, s.summary, s.link_url, "
+           "       s.source_date, s.created_at, s.ord "
+           "  FROM trip_sources s "
+           " WHERE s.trip_id = ? AND s.trip_day_id = ? "
+           + _timeline_hidden_clause(con, "trip_sources", "s") +
+           " ORDER BY s.created_at, s.ord")
+    out: List[Dict[str, Any]] = []
+    for r in con.execute(sql, (trip_id, day_id)):
+        row = _row_to_dict(r)
+        out.append({
+            "kind": "source",
+            "id": row.get("id"),
+            "source_id": row.get("id"),
+            "at": row.get("source_date") or row.get("created_at") or "",
+            "ord": row.get("ord") or 0,
+            "title": row.get("title") or "",
+            "source_type": row.get("source_type") or "",
+            "summary": row.get("summary") or "",
+            "link_url": row.get("link_url") or "",
+        })
+    return out
+
+
+def _day_own_text_items(day: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The day row's own operator text, places and meals.
+
+    These are not attachments -- they live on the day card itself --
+    but the operator wrote them about this day, so a timeline that
+    omitted them would again be describing a table rather than a day.
+    """
+    out: List[Dict[str, Any]] = []
+    base = str(day.get("date") or "")
+    # `ord` is the day-card reading order, not a clock. These items all
+    # share the day's date and nothing finer, so without it the sort
+    # falls through to the id and the operator gets where they slept
+    # before where they were --- the day card's own order, scrambled.
+    _ord = 0
+    for field in ("main_location", "lodging_base",
+                  "morning_notes", "afternoon_notes", "evening_notes"):
+        _ord += 1
+        text = str(day.get(field) or "").strip()
+        if not text:
+            continue
+        out.append({
+            "kind": "day_text",
+            "id": str(day.get("id") or "") + ":" + field,
+            "field": field,
+            "label": _DAY_TEXT_LABELS.get(field, field),
+            "at": base,
+            "ord": _ord,
+            "text": text,
+        })
+    for field, label in (("places_visited_json", "Places"),
+                         ("meals_json", "Meals")):
+        _ord += 1
+        value = day.get(field)
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except Exception:
+                value = []
+        if not value:
+            continue
+        parts: List[str] = []
+        for entry in value:
+            if isinstance(entry, dict):
+                parts.append(str(entry.get("name")
+                                 or entry.get("label")
+                                 or entry.get("text") or "").strip())
+            else:
+                parts.append(str(entry).strip())
+        parts = [p for p in parts if p]
+        if not parts:
+            continue
+        out.append({
+            "kind": "day_text",
+            "id": str(day.get("id") or "") + ":" + field,
+            "field": field,
+            "label": label,
+            "at": base,
+            "ord": _ord,
+            "text": ", ".join(parts),
+        })
+    return out
+
+
+def trip_day_timeline_items(trip_id: str,
+                            trip_day_id: str) -> List[Dict[str, Any]]:
+    """Everything on one trip day, in the order it happened.
+
+    Conversations, photographs, notes, sources and the day's own
+    operator text, merged and sorted. Items with no time of their own
+    sort after the timed ones rather than pretending to be midnight.
+    """
+    day = trip_day_get(trip_day_id)
+    items: List[Dict[str, Any]] = list(
+        trip_day_conversation_items(trip_id, trip_day_id))
+    con = _connect()
+    try:
+        items.extend(_day_photo_items(con, trip_id, trip_day_id))
+        items.extend(_day_note_items(con, trip_id, trip_day_id))
+        items.extend(_day_source_items(con, trip_id, trip_day_id))
+    finally:
+        con.close()
+    if day:
+        items.extend(_day_own_text_items(day))
+    kind_rank = {k: i for i, k in enumerate(DAY_TIMELINE_KINDS)}
+    items.sort(key=lambda i: (
+        1 if not str(i.get("at") or "").strip() else 0,
+        str(i.get("at") or ""),
+        kind_rank.get(str(i.get("kind") or ""), 99),
+        int(i.get("ord") or 0),
+        str(i.get("id") or ""),
+    ))
+    return items
+
+
+def trip_day_item_counts(trip_id: str) -> Dict[str, Dict[str, int]]:
+    """Per-day counts for the calendar rail, keyed by day id.
+
+    The rail needs to say what a day holds before the operator clicks
+    it. Conversations come from trip_turn_links; the rest is the same
+    attachment tally the day cards already use, minus hidden rows,
+    because this one is a display count.
+    """
+    conv = trip_turn_link_counts(trip_id)
+    out: Dict[str, Dict[str, int]] = {}
+    # EVERY day of the trip gets an entry, and every entry gets all four
+    # keys. A sparse map would make each caller invent its own default
+    # for a day with nothing on it, and "no key" and "zero" would drift
+    # apart the first time one of them forgot. A day with nothing on it
+    # is a fact this function knows; it should say so.
+    for _d in trip_days_list(trip_id):
+        out[str(_d.get("id") or "")] = {
+            "photos": 0, "notes": 0, "sources": 0, "conversations": 0}
+    out.pop("", None)
+    con = _connect()
+    try:
+        for table, alias, bucket in (
+            ("trip_photo_links", "l", "photos"),
+            ("trip_location_notes", "l", "notes"),
+            ("trip_sources", "l", "sources"),
+        ):
+            if not _table_has_column(con, table, "trip_day_id"):
+                continue
+            sql = ("SELECT " + alias + ".trip_day_id AS d, COUNT(*) AS n "
+                   "  FROM " + table + " " + alias +
+                   " WHERE " + alias + ".trip_id = ? "
+                   "   AND " + alias + ".trip_day_id IS NOT NULL "
+                   + _timeline_hidden_clause(con, table, alias) +
+                   " GROUP BY " + alias + ".trip_day_id")
+            for r in con.execute(sql, (trip_id,)):
+                did = str(r["d"] or "")
+                if not did:
+                    continue
+                slot = out.setdefault(did, {
+                    "photos": 0, "notes": 0, "sources": 0,
+                    "conversations": 0})
+                slot[bucket] = int(r["n"])
+    except sqlite3.Error:
+        pass
+    finally:
+        con.close()
+    for did, n in conv.items():
+        if did == "unplaced":
+            continue
+        out.setdefault(str(did), {
+            "photos": 0, "notes": 0, "sources": 0,
+            "conversations": 0})["conversations"] = int(n)
+    return out

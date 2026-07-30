@@ -427,6 +427,18 @@ async def ws_chat(ws: WebSocket):
             # A body that returned normally has persisted its turn, written
             # its archive event, and sent its done frame.
             await _run_completed_turn_extraction(conv_id, user_text, params, ev)
+            # WO-LIVE-TRIP-COMPANION-01 Vertical Slice 1 — join the two
+            # subsystems. Same position and same reasoning as the line
+            # above: the turn is persisted, the archive event is
+            # written, the done frame is sent. Placement runs after all
+            # three or not at all.
+            #
+            # AFTER extraction, not before, and the order is deliberate.
+            # Extraction is the older, load-bearing path; a placement
+            # bug must not be able to delay or displace it. Placement is
+            # three local SQLite statements, so it costs the extraction
+            # claim single-digit milliseconds to go second.
+            await _run_completed_turn_trip_link(conv_id, params, ev)
         finally:
             if _tp_token is not None:
                 try:
@@ -560,6 +572,146 @@ async def ws_chat(ws: WebSocket):
                 "[extract-turn] hook raised (turn already delivered and "
                 "persisted; nothing rolled back) conv=%s err=%s",
                 conv_id, _ext_exc.__class__.__name__,
+            )
+
+    async def _run_completed_turn_trip_link(
+        conv_id: str,
+        params: Dict[str, Any],
+        ev: threading.Event,
+    ) -> None:
+        """WO-LIVE-TRIP-COMPANION-01 Vertical Slice 1 (2026-07-30).
+
+        Link a turn that has already completed to the trip and the day
+        the narrator is living in.
+
+        THE GAP THIS CLOSES. Trips, generated trip days, day cards and
+        photo placement all worked. Lori persisted turns, wrote archive
+        events and dispatched extraction. Nothing joined them. The only
+        notion of "the trip Lori is working on" was
+        `runtime71.active_trip_id`, which is `state.session.activeTripId`
+        in ui/js/travels-shelf.js. That is a browser fact: it does not
+        survive a reload and it does not survive a restart. This hook
+        therefore does NOT read runtime71. It asks the database which
+        trip is live, which is why reopening the trip after a restart
+        shows the same timeline event.
+
+        WHAT THIS HOOK DOES NOT DO. It does not write family truth. It
+        does not touch a projection. It does not change correction
+        behaviour. Placing a conversation on a calendar day is a
+        statement about WHEN a conversation happened, not a claim about
+        a family, and the two must not be allowed to blur. Gate 7 Phase
+        1 measured both boundaries and proved their zeroes were correct
+        by design; this slice leaves both exactly where they were.
+
+        FAILURE ISOLATION. Cannot raise except CancelledError. The
+        service is non-raising on every path; this try/except is a
+        second wall in case the glue is what breaks. By the time this
+        runs the turn is persisted, the archive event is written and
+        the done frame is out, so nothing here can roll back a turn,
+        roll back an archive event, terminate the socket, replace the
+        assistant reply, or leave the browser waiting. Losing a link
+        costs a timeline entry. It must never cost a conversation.
+
+        AND WHEN THE DAY IS UNKNOWN, THE TURN IS STILL LINKED. An
+        active trip with no chosen day does not discard the
+        conversation; the service records it against the trip at
+        placement_status='needs_day', which surfaces as a
+        reconciliation item for a human to place. That is the work
+        order's requirement, verbatim: a failure to link the trip
+        should not lose the conversation, it should leave an observable
+        reconciliation item.
+
+        PRECONDITIONS, all checked in the service rather than assumed:
+          * an eligible turn mode
+          * a committed assistant row id (the idempotency key)
+          * an active trip for this narrator, in the database
+        """
+        try:
+            params = params or {}
+
+            from ..services.trip_placement import (
+                link_completed_turn as _link_turn,
+                placement_eligible as _placement_eligible,
+            )
+
+            turn_mode = str(params.get("turn_mode") or "").strip()
+
+            # Cheapest gate first — the short-circuit modes exit here
+            # without importing the repository or opening the DB.
+            if not _placement_eligible(turn_mode):
+                return
+
+            # A cancelled turn did not happen for the narrator. Do not
+            # put it on the trip's timeline.
+            if ev is not None and ev.is_set():
+                return
+
+            # DELIBERATELY NOT THE SAME PRECONDITION AS EXTRACTION, and
+            # this is the correction the first live acceptance run
+            # bought (2026-07-30). The extraction hook above requires
+            # `_archive_event_persisted`, and it is right to: extraction
+            # reads the memoir archive, so an incomplete archive would
+            # make it read a half-written turn.
+            #
+            # Placement requires no such thing, because
+            # BUG-MODAL-TURNS-ARCHIVED-AS-LIFE-STORY-01 makes the
+            # archive write conditional on surface: a turn whose
+            # surface is `travel_doc_modal` is deliberately kept OUT of
+            # the narrator's life story, so it never sets that flag.
+            # Copying extraction's gate here therefore made every
+            # single Travel Doc turn ineligible for the trip timeline —
+            # which is to say, it made the one surface this whole slice
+            # exists to serve the one surface it could never work on.
+            # The live log recorded it as a silent skip, and a silent
+            # skip on the happy path is the most expensive kind.
+            #
+            # What placement actually needs is that the conversation is
+            # on disk, because the timeline reads its words back out of
+            # `turns` by row id. That is `_persisted_turn_row_id`, set
+            # after COMMIT a few thousand lines below, and the service
+            # re-checks it rather than trusting this gate.
+            #
+            # DO NOT "restore symmetry" with the extraction gate above.
+            # Placing a conversation on a calendar day says WHEN it
+            # happened; it writes no family truth and no memoir. The
+            # two hooks have different preconditions because they have
+            # different jobs.
+            if not params.get("_persisted_turn_row_id"):
+                return
+
+            _outcome = _link_turn(
+                narrator_id=str(params.get("person_id") or ""),
+                assistant_turn_row_id=params.get("_persisted_turn_row_id"),
+                user_turn_row_id=params.get("_persisted_user_turn_row_id"),
+                conv_id=conv_id or "",
+                turn_id=str(params.get("turn_id") or ""),
+                turn_mode=turn_mode,
+                source="chat_ws",
+            )
+
+            # A narrator with no trip running produces a noop on every
+            # single turn. Logging that at INFO would bury api.log in
+            # the ordinary case, so only real placements and real
+            # failures speak up.
+            if _outcome.status == "failed":
+                logger.error(
+                    "[trip-link][chat_ws] conv=%s %s",
+                    conv_id, _outcome.as_log_fields(),
+                )
+            elif _outcome.status != "noop":
+                logger.info(
+                    "[trip-link][chat_ws] conv=%s %s",
+                    conv_id, _outcome.as_log_fields(),
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as _link_exc:
+            # Class name only — a repository message can quote a trip
+            # title or a day label, and this line goes to api.log.
+            logger.error(
+                "[trip-link] hook raised (turn already delivered and "
+                "persisted; nothing rolled back) conv=%s err=%s",
+                conv_id, _link_exc.__class__.__name__,
             )
 
     async def _generate_and_stream_body(conv_id: str, user_text: str, params: Dict[str, Any], ev: threading.Event) -> None:
@@ -4783,12 +4935,19 @@ async def ws_chat(ws: WebSocket):
             _deferred_emit_pending = True
 
         try:
+            # WO-LIVE-TRIP-COMPANION-01 VS1 — the trip timeline renders a
+            # conversation moment, which is both sides of it. It reads
+            # the words back out of `turns` by row id and stores no
+            # copy, so it needs the narrator's row as well as Lori's.
+            # `row_ids_out` is populated only after COMMIT.
+            _persisted_row_ids: Dict[str, Any] = {}
             _persisted_turn_row_id = persist_turn_transaction(
                 conv_id=conv_id,
                 user_message=user_text,
                 assistant_message=final_text,
                 model_name="local-llm-ws",
                 meta={"ws": True, "cancelled": ev.is_set()},
+                row_ids_out=_persisted_row_ids,
             )
             # WO-TRUTH-PIPELINE-01 Phase 2 (Gate 7, 2026-07-30) — hand the
             # committed assistant rowid to the post-response extraction
@@ -4803,6 +4962,8 @@ async def ws_chat(ws: WebSocket):
             # extraction must not run twice for one committed turn.
             try:
                 params["_persisted_turn_row_id"] = _persisted_turn_row_id
+                params["_persisted_user_turn_row_id"] = (
+                    _persisted_row_ids.get("user_row_id"))
             except Exception:
                 pass
         except Exception as persist_err:

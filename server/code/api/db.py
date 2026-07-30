@@ -1551,6 +1551,7 @@ def persist_turn_transaction(
     assistant_message: str,
     model_name: str = "",
     meta: Optional[dict] = None,
+    row_ids_out: Optional[dict] = None,
 ) -> Optional[int]:
     """Commit one user+assistant turn pair. Returns the assistant rowid.
 
@@ -1573,12 +1574,39 @@ def persist_turn_transaction(
     for a successful INSERT into an INTEGER PRIMARY KEY table -- callers
     must still treat None as "no stable key available" and skip
     turn-scoped work rather than fabricate one.
+
+    WO-LIVE-TRIP-COMPANION-01 Vertical Slice 1 (2026-07-30) -- the
+    optional `row_ids_out` dict was added here. The return value did
+    NOT change; the paragraph above still stands exactly as written.
+
+    The trip timeline shows a conversation moment, which means both
+    sides of it: what the narrator said and what Lori said back. It
+    reads that text out of `turns` by row id and never stores a copy,
+    so it needs the USER row id as well as the assistant one. That id
+    existed inside this transaction and was thrown away.
+
+    It is handed back through a caller-supplied dict rather than by
+    widening the return type to a tuple, because eleven call sites in
+    chat_ws.py already call this function for its side effect and one
+    calls it for its int. Changing the return type a second time would
+    break all of them to serve one. Callers that want the pair pass
+    ``row_ids_out={}`` and read `user_row_id` and `assistant_row_id`
+    from it after the call; callers that do not pass it are entirely
+    unaffected. The dict is only populated after COMMIT succeeds, so a
+    populated dict always means "these rows exist."
+
+    Deriving the user row as ``assistant_row_id - 1`` would be right
+    almost always and silently wrong the rest of the time. The
+    timeline would then attribute one narrator's words to another
+    narrator's turn, which is the one class of error a family memoir
+    must never make. So it is captured, not computed.
     """
     init_db()
     ensure_session(conv_id)
     ts = _now_iso()
 
     assistant_rowid: Optional[int] = None
+    user_rowid: Optional[int] = None
     con = _connect()
     cur = con.cursor()
     cur.execute("BEGIN")
@@ -1587,6 +1615,10 @@ def persist_turn_transaction(
             "INSERT INTO turns(conv_id,role,content,ts,anchor_id,meta_json) VALUES(?,?,?,?,?,?);",
             (conv_id, "user", user_message, ts, "", "{}"),
         )
+        # Captured here, inside the transaction, while it is still the
+        # last row inserted. One statement later it is unrecoverable
+        # without guessing.
+        user_rowid = cur.lastrowid
         assistant_meta = {"model": model_name or "", **(meta or {})}
         cur.execute(
             "INSERT INTO turns(conv_id,role,content,ts,anchor_id,meta_json) VALUES(?,?,?,?,?,?);",
@@ -1600,6 +1632,14 @@ def persist_turn_transaction(
         raise
     finally:
         con.close()
+
+    # Only after COMMIT: a populated dict always means the rows exist.
+    if row_ids_out is not None:
+        try:
+            row_ids_out["user_row_id"] = user_rowid
+            row_ids_out["assistant_row_id"] = assistant_rowid
+        except Exception:
+            pass
 
     # TRUTH-PIPELINE-01 Phase 1 (Gate 7) --- observability only.
     # No behavior change. No-op unless HORNELORE_TRUTH_PIPELINE_LOG=1 AND a
