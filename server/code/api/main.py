@@ -184,3 +184,43 @@ app.include_router(chat_ws.router)
 if USE_TTS:
     from .routers import tts as tts_router  # type: ignore
     app.include_router(tts_router.router)
+
+
+# ---------------------------------------------------------------------------
+# WO-TRUTH-PIPELINE-01 Phase 2 (2026-07-30) — completed-turn extraction drain.
+#
+# schedule_completed_turn_extraction runs the extractor on a task that
+# deliberately outlives the turn's own task, because a turn task is cancelled
+# the moment the browser closes its socket — which is exactly what killed
+# extraction in the first live acceptance run. Those tasks are held in a
+# strong-reference set inside the service, so they cannot be garbage-collected
+# mid-flight, but a process that exited without draining them would still
+# strand ledger rows at outcome='started'.
+#
+# This handler is what makes that background task auditable rather than
+# fragile, per Phase 2 Step 4: it waits for in-flight extractions, then cancels
+# whatever is left, and the service records each cancellation in the ledger
+# before the loop closes. main.py carried no startup or shutdown handler of any
+# kind before this one.
+# ---------------------------------------------------------------------------
+@app.on_event("shutdown")
+async def _drain_completed_turn_extractions() -> None:
+    _log = logging.getLogger("code.api.main")
+    try:
+        from .services.turn_extraction import drain_pending_extractions
+        report = await drain_pending_extractions()
+    except Exception as exc:  # never block process shutdown
+        _log.error(
+            "[extract-turn] shutdown drain failed err=%s",
+            exc.__class__.__name__,
+        )
+        return
+    if report.get("pending_at_shutdown"):
+        _log.info(
+            "[extract-turn] shutdown drain pending_at_shutdown=%s "
+            "finished_within_timeout=%s cancelled=%s timeout_s=%s",
+            report.get("pending_at_shutdown"),
+            report.get("finished_within_timeout"),
+            report.get("cancelled"),
+            report.get("timeout_s"),
+        )

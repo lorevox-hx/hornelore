@@ -381,10 +381,28 @@ async def ws_chat(ws: WebSocket):
         Placement here is the whole point. By the time the awaited body
         returns, every path — the main interview path and all six
         deterministic short-circuit branches — has already sent its
-        {"type": "done"} frame. Extraction therefore starts AFTER the
-        browser's completed-turn signal is out the door and cannot delay
-        it. It also runs while the probe window is still open, so
-        `extract_fields_called` lands on the turn that provoked it.
+        {"type": "done"} frame. The extraction CLAIM therefore starts
+        AFTER the browser's completed-turn signal is out the door and
+        cannot delay it. The claim also runs while the probe window is
+        still open, so `extract_fields_called` lands on the turn that
+        provoked it.
+
+        CORRECTED 2026-07-30 by the first live acceptance run. Until that
+        run the paragraph above read:
+
+            "Extraction therefore starts AFTER the browser's
+            completed-turn signal is out the door and cannot delay it.
+            It also runs while the probe window is still open, so
+            `extract_fields_called` lands on the turn that provoked it."
+
+        Both sentences were true of the CLAIM and remain true of it.
+        Neither was true of the extractor call, which used to be awaited
+        here as well. The harness closes its socket the moment it has
+        `done`; chat_ws then cancels the turn task; and every interview
+        turn in that run recorded outcome='failed'
+        error_class='CancelledError' at roughly 830 ms. Only the claim is
+        inline now. The extractor runs on a task the service holds in a
+        strong-reference set and drains on process shutdown.
         """
         _tp_token = None
         try:
@@ -456,6 +474,14 @@ async def ws_chat(ws: WebSocket):
         waiting. The service itself is also non-raising; the try/except
         here is a second wall in case this glue is what breaks.
 
+        SCHEDULED, NOT AWAITED (2026-07-30). This hook calls
+        schedule_completed_turn_extraction, which persists the ledger
+        claim inline — so the attempt is auditable at outcome='started'
+        before any task exists — and then runs the extractor on a task
+        the service holds and drains at shutdown. The await that used to
+        be here is gone; the wrapper docstring above carries the live
+        evidence that retired it.
+
         PRECONDITIONS, all checked below rather than assumed:
           * a committed assistant row id (the idempotency key)
           * the required archive event actually persisted
@@ -467,7 +493,7 @@ async def ws_chat(ws: WebSocket):
             turn_mode = str(params.get("turn_mode") or "").strip()
 
             from ..services.turn_extraction import (
-                extract_completed_turn as _extract_turn,
+                schedule_completed_turn_extraction as _schedule_extraction,
                 extraction_eligible as _eligible,
             )
 
@@ -504,7 +530,7 @@ async def ws_chat(ws: WebSocket):
                 )
                 return
 
-            _outcome = await _extract_turn(
+            _outcome = _schedule_extraction(
                 narrator_id=str(params.get("person_id") or ""),
                 turn_id=str(params.get("turn_id") or ""),
                 user_text=user_text or "",

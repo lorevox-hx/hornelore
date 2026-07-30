@@ -54,35 +54,81 @@ OBSERVABLE -- six distinct events, one vocabulary, in EXTRACTION_EVENTS.
               narrator's text is never logged here and never persisted
               to the ledger.
 
-FAILURE-   -- extract_completed_turn() cannot raise. Every exit path
-ISOLATED      returns an ExtractionOutcome. It runs AFTER the turn has
-              persisted, AFTER the archive event has persisted, and
-              AFTER the user-facing `done` frame has been sent, so no
-              failure here can roll back a turn, roll back an archive
-              event, terminate the WebSocket response, replace the
-              assistant reply, or leave the browser waiting.
+FAILURE-   -- neither begin_completed_turn_extraction() nor
+ISOLATED      extract_completed_turn() can raise. Every exit path
+              returns an ExtractionOutcome. Extraction runs AFTER the
+              turn has persisted, AFTER the archive event has
+              persisted, and AFTER the user-facing `done` frame has
+              been sent, so no failure here can roll back a turn, roll
+              back an archive event, terminate the WebSocket response,
+              replace the assistant reply, or leave the browser
+              waiting.
 
-WHY INLINE-AFTER-RESPONSE AND NOT A DETACHED TASK
--------------------------------------------------
-The hook sits in chat_ws.generate_and_stream() between the awaited turn
-body and the probe close. By that point _generate_and_stream_inner()
-has already sent {"type": "done"} -- the browser's completed-turn signal
-is out the door before extraction starts, so extraction adds zero
-latency to the turn the user is waiting on.
+THE TWO HALVES, AND WHY THE WORK MOVED OFF THE TURN'S OWN TASK
+--------------------------------------------------------------
+CORRECTED 2026-07-30, by the first live acceptance run. Until that run
+this docstring carried a section headed "WHY INLINE-AFTER-RESPONSE AND
+NOT A DETACHED TASK" which asserted:
 
-The repo's only post-response async mechanism is
-`asyncio.create_task` at the start_turn handler, and a bare detached
-task there would be cancelled by the NEXT start_turn with nothing
-written down -- the "silently disappears on process shutdown" failure
-mode Phase 2 was told not to introduce. Running inside the turn's own
-task instead means: (a) the claim row is already persisted at
-outcome='started' before any work begins, so an abandoned attempt is
-auditable rather than invisible; and (b) CancelledError is caught,
-recorded as failed/CancelledError, and re-raised so asyncio's
-cancellation contract is not broken.
+    "Running inside the turn's own task instead means: (a) the claim
+    row is already persisted at outcome='started' before any work
+    begins, so an abandoned attempt is auditable rather than
+    invisible; and (b) CancelledError is caught, recorded as
+    failed/CancelledError, and re-raised so asyncio's cancellation
+    contract is not broken."
 
-A wall-clock ceiling (EXTRACTION_TIMEOUT_S) bounds the extractor so a
-hung LLM call cannot pin the socket's task indefinitely.
+Half (a) and half (b) were both true and both still hold. The
+CONCLUSION drawn from them -- that awaiting extraction inside the turn
+task was therefore safe -- was wrong, and the live run is what proved
+it. Every interview turn in that run recorded outcome='failed',
+error_class='CancelledError', duration_ms 815 and 839: the harness (and
+any real browser that navigates away, refreshes, or drops its socket)
+closes the connection as soon as the `done` frame arrives, chat_ws
+cancels the in-flight turn task, and the extraction awaiting inside it
+died every single time. Extraction that is cancelled 100% of the time
+is not connected to anything.
+
+It also had a second effect nobody had measured for: the awaited
+extraction extended the turn body by ~830ms, and the truth-pipeline
+probe files its record in a `finally` that runs only after the body
+returns -- past the operator harness's read window. The instrument
+reported "no probe record at all" for turns that had in fact succeeded.
+
+So the service is now two halves:
+
+  begin_completed_turn_extraction()  -- eligibility, the persisted
+      claim, and the probe mark. Sqlite only, no model call, single
+      -digit milliseconds. Runs INLINE on the turn's task, inside the
+      turn's probe context, because the probe mark and the claim must
+      belong to the turn that caused them.
+
+  _complete_claim()                  -- the extractor itself, and the
+      ledger close. Runs on a task of its own.
+
+schedule_completed_turn_extraction() joins them for the chat_ws path:
+begin inline, then hand the completion to a task registered in
+_PENDING_EXTRACTIONS. This is NOT the "fragile detached task" Phase 2
+Step 4 forbids, and the distinction is exactly what Step 4 asks for --
+"Do not introduce a fragile detached task that can silently disappear
+on process shutdown without recording its state":
+
+  * State is recorded BEFORE the task exists. The ledger row is
+    committed at outcome='started' by the inline half. A process killed
+    mid-extraction leaves a visibly unfinished row, not a silent gap.
+  * The task is held, not dropped. _PENDING_EXTRACTIONS keeps a strong
+    reference, so the garbage collector cannot eat a running
+    extraction -- the classic create_task() leak.
+  * Shutdown drains it. drain_pending_extractions() is wired to the
+    application's shutdown event; tasks still running past the ceiling
+    are cancelled, and cancellation writes failed/CancelledError to the
+    ledger before re-raising.
+  * A wall-clock ceiling (EXTRACTION_TIMEOUT_S) bounds the extractor so
+    a hung LLM call cannot accumulate tasks forever.
+
+extract_completed_turn() remains begin-then-await-complete in one call.
+It is the synchronous-semantics entry point: the HTTP-adjacent replay
+path and the whole automated suite use it, and it behaves exactly as it
+did before the split.
 
 PRIVACY
 -------
@@ -103,7 +149,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -120,13 +166,20 @@ EXTRACTION_EVENTS: tuple[str, ...] = (
     "extract_fields_failed",
 )
 
-# Terminal statuses an ExtractionOutcome can carry. "requested" and
-# "started" are events, not terminal states -- they never appear here.
+# Statuses an ExtractionOutcome can carry.
+#
+# The first four are terminal and are what the ledger stores.
+# "scheduled" is NOT terminal and is NEVER stored: it is what
+# schedule_completed_turn_extraction() hands back to chat_ws to say "the
+# claim is won, the ledger row is committed at 'started', and the work
+# is running on its own task now." The ledger, not this value, is where
+# that attempt's real outcome will be written.
 EXTRACTION_STATUSES: tuple[str, ...] = (
     "succeeded",
     "noop",
     "duplicate",
     "failed",
+    "scheduled",
 )
 
 # Which turn modes are eligible for completed-turn extraction.
@@ -145,19 +198,34 @@ EXTRACTION_ELIGIBLE_TURN_MODES: frozenset = frozenset({"interview"})
 # the two cannot disagree about what "hung" means.
 EXTRACTION_TIMEOUT_S: float = 90.0
 
+# How long shutdown waits for in-flight extractions before cancelling
+# them. Deliberately shorter than EXTRACTION_TIMEOUT_S: a stack restart
+# should not block for a minute and a half on one hung model call, and a
+# cancelled attempt still writes failed/CancelledError to its ledger row
+# on the way out.
+EXTRACTION_DRAIN_TIMEOUT_S: float = 20.0
+
 _SOURCE_HTTP = "http"
 _SOURCE_CHAT_WS = "chat_ws"
 _SOURCE_HARNESS_REPLAY = "harness_replay"
+
+# Strong references to running completion tasks.
+#
+# asyncio.create_task() only holds a WEAK reference to its task. Without
+# this set the garbage collector is free to collect a running extraction
+# mid-flight -- the documented create_task() footgun. Membership is also
+# what makes the shutdown drain possible at all.
+_PENDING_EXTRACTIONS: Set["asyncio.Task[Any]"] = set()
 
 
 @dataclass
 class ExtractionOutcome:
     """What happened when a completed turn asked for extraction.
 
-    Never an exception. extract_completed_turn() returns one of these on
-    every path including catastrophic failure, because the caller is a
-    turn that has already succeeded from the narrator's point of view
-    and must not be disturbed.
+    Never an exception. Every entry point returns one of these on every
+    path including catastrophic failure, because the caller is a turn
+    that has already succeeded from the narrator's point of view and
+    must not be disturbed.
     """
 
     status: str                       # one of EXTRACTION_STATUSES
@@ -176,8 +244,18 @@ class ExtractionOutcome:
 
     @property
     def ok(self) -> bool:
-        """True when extraction ran or was correctly skipped as a dup."""
-        return self.status in ("succeeded", "noop", "duplicate")
+        """True when extraction ran, was correctly skipped, or is running.
+
+        'scheduled' is ok because the caller -- a turn the narrator has
+        already seen complete -- has nothing left to do about it. The
+        ledger row carries the real answer.
+        """
+        return self.status in ("succeeded", "noop", "duplicate", "scheduled")
+
+    @property
+    def terminal(self) -> bool:
+        """True when this outcome is the final word on the attempt."""
+        return self.status in ("succeeded", "noop", "duplicate", "failed")
 
     def as_log_fields(self) -> str:
         """Identifier/count/classification summary. No narrative text."""
@@ -194,6 +272,30 @@ class ExtractionOutcome:
             f"error={self.error_class or '-'} "
             f"duration_ms={self.duration_ms}"
         )
+
+
+@dataclass
+class _Claim:
+    """A won claim, carrying everything the completion half needs.
+
+    Built only by _begin() and only after the ledger INSERT succeeded,
+    so a _Claim in hand always means "this process owns this turn."
+    """
+
+    ledger_id: int
+    started: float
+    narrator_id: str
+    turn_id: str
+    turn_key: str
+    session_id: str
+    turn_mode: str
+    source: str
+    user_text: str
+    current_section: Optional[str] = None
+    current_target_path: Optional[str] = None
+    current_era: Optional[str] = None
+    current_pass: Optional[str] = None
+    current_mode: Optional[str] = None
 
 
 # ── The test seam ────────────────────────────────────────────────────────
@@ -217,6 +319,20 @@ def forced_failure_mode() -> str:
     return (os.environ.get("HORNELORE_EXTRACTION_FORCE_FAILURE") or "").strip().lower()
 
 
+def forced_failure_armed() -> bool:
+    """True when the Test C seam is live in THIS process.
+
+    Read by the operator harness health route so an acceptance run can
+    verify which environment the SERVER is actually in rather than
+    trusting the shell it was launched from. The first live run of this
+    work order failed exactly there: Phase 2 was executed without the
+    intervening restart, the seam never reached the server process, and
+    the resulting evidence was void. A boolean on a route that is
+    already 404-gated closes that hole without leaking a value.
+    """
+    return forced_failure_mode() in ("raise", "timeout")
+
+
 class ForcedExtractionFailure(RuntimeError):
     """Raised only by the Test C seam. Never raised in production."""
 
@@ -229,6 +345,10 @@ def _mark_probe(detail: str) -> None:
     the shared service, so the stage now reflects an actual invocation of
     the extraction capability rather than "somebody hit that route".
     Both callers pass through here.
+
+    MUST be called on the turn's own task. The probe is keyed to the
+    turn context, so a mark made from the completion task would land
+    nowhere. That is why the mark lives in the inline half.
 
     Swallows everything: probe failure must never affect a turn.
     """
@@ -307,71 +427,104 @@ def build_extraction_request(
     )
 
 
-async def extract_completed_turn(
+def _outcome_for(
+    claim_like: Dict[str, Any],
+    status: str,
+    *,
+    started: float,
+    item_count: int = 0,
+    method: str = "",
+    error_class: str = "",
+    ledger_id: Optional[int] = None,
+    items: Optional[List[Dict[str, Any]]] = None,
+) -> ExtractionOutcome:
+    return ExtractionOutcome(
+        status=status,
+        turn_key=claim_like.get("turn_key", ""),
+        turn_id=claim_like.get("turn_id", ""),
+        narrator_id=claim_like.get("narrator_id", ""),
+        session_id=claim_like.get("session_id", "") or "",
+        turn_mode=claim_like.get("turn_mode", ""),
+        source=claim_like.get("source", ""),
+        item_count=item_count,
+        method=method,
+        error_class=error_class,
+        duration_ms=int((time.monotonic() - started) * 1000),
+        ledger_id=ledger_id,
+        items=items or [],
+    )
+
+
+def _finish_ledger(
+    ledger_id: Optional[int],
+    outcome: str,
+    *,
+    item_count: int = 0,
+    method: str = "",
+    error_class: str = "",
+    duration_ms: int = 0,
+) -> None:
+    """Close the ledger row. Ledger failure must not mask the turn."""
+    if ledger_id is None:
+        return
+    try:
+        from .. import db as _db
+        _db.turn_extraction_finish(
+            ledger_id=int(ledger_id),
+            outcome=outcome,
+            item_count=item_count,
+            method=method,
+            error_class=error_class,
+            duration_ms=duration_ms,
+        )
+    except Exception as fin_exc:
+        logger.error(
+            "[extract-turn] ledger close failed ledger_id=%s outcome=%s "
+            "err=%s (turn unaffected)",
+            ledger_id, outcome, fin_exc.__class__.__name__,
+        )
+
+
+def _begin(
     *,
     narrator_id: str,
     turn_id: str,
     user_text: str,
-    assistant_text: Optional[str] = None,
-    session_id: Optional[str] = None,
-    turn_key: str = "",
-    turn_mode: str = "interview",
-    source: str = _SOURCE_CHAT_WS,
-    current_section: Optional[str] = None,
-    current_target_path: Optional[str] = None,
-    current_era: Optional[str] = None,
-    current_pass: Optional[str] = None,
-    current_mode: Optional[str] = None,
-) -> ExtractionOutcome:
-    """Request field extraction for one completed, persisted turn.
+    session_id: Optional[str],
+    turn_key: str,
+    turn_mode: str,
+    source: str,
+    current_section: Optional[str],
+    current_target_path: Optional[str],
+    current_era: Optional[str],
+    current_pass: Optional[str],
+    current_mode: Optional[str],
+) -> Tuple[Optional[ExtractionOutcome], Optional[_Claim]]:
+    """The inline half: decide, claim, mark the probe. Never raises.
 
-    NEVER RAISES except asyncio.CancelledError, which is recorded and
-    then re-raised so cancellation semantics stay intact. Every other
-    path -- including a broken database, a missing extractor, or a hung
-    LLM -- returns an ExtractionOutcome describing what happened.
+    Returns exactly one of:
+      (terminal_outcome, None) -- nothing more to do; noop, duplicate,
+                                  or a failure in the claim itself.
+      (None, claim)            -- the claim is won and committed at
+                                  outcome='started'; the caller owns the
+                                  obligation to run _complete_claim().
 
-    Preconditions the CALLER must satisfy before calling:
-      * the raw turn has been committed
-      * the required archive event has been written
-      * the user-facing response has already been sent
-
-    Writes NO family truth and touches NO projection. Both boundaries
-    are Phase 1 findings that Phase 2 preserved on purpose.
-
-    `assistant_text` is accepted for outcome logging and future
-    two-sided extraction; it is NOT fed to the extractor today (see
-    build_extraction_request).
+    Everything here is sqlite and string work. No model call, no thread,
+    no await. It is safe to run on the turn's own task because it costs
+    single-digit milliseconds -- which is the whole point, since the
+    truth-pipeline probe cannot file its record until the turn body
+    returns.
     """
     started = time.monotonic()
     narrator_id = (narrator_id or "").strip()
     turn_id = (turn_id or "").strip()
     turn_key = (turn_key or "").strip()
     turn_mode = (turn_mode or "").strip()
-
-    def _outcome(
-        status: str,
-        *,
-        item_count: int = 0,
-        method: str = "",
-        error_class: str = "",
-        ledger_id: Optional[int] = None,
-        items: Optional[List[Dict[str, Any]]] = None,
-    ) -> ExtractionOutcome:
-        return ExtractionOutcome(
-            status=status,
-            turn_key=turn_key,
-            turn_id=turn_id,
-            narrator_id=narrator_id,
-            session_id=session_id or "",
-            turn_mode=turn_mode,
-            source=source,
-            item_count=item_count,
-            method=method,
-            error_class=error_class,
-            duration_ms=int((time.monotonic() - started) * 1000),
-            ledger_id=ledger_id,
-            items=items or [],
-        )
+    ident = {
+        "turn_key": turn_key, "turn_id": turn_id,
+        "narrator_id": narrator_id, "session_id": session_id or "",
+        "turn_mode": turn_mode, "source": source,
+    }
 
     logger.info(
         "[extract-turn] extract_fields_requested turn_id=%s turn_key=%s "
@@ -382,14 +535,16 @@ async def extract_completed_turn(
 
     # ── Guard rails before any claim is taken ────────────────────────
     if not extraction_eligible(turn_mode):
-        out = _outcome("noop", method="ineligible_turn_mode")
+        out = _outcome_for(ident, "noop", started=started,
+                           method="ineligible_turn_mode")
         logger.info("[extract-turn] extract_fields_noop %s", out.as_log_fields())
-        return out
+        return out, None
 
     if not narrator_id or not (user_text or "").strip():
-        out = _outcome("noop", method="missing_narrator_or_text")
+        out = _outcome_for(ident, "noop", started=started,
+                           method="missing_narrator_or_text")
         logger.info("[extract-turn] extract_fields_noop %s", out.as_log_fields())
-        return out
+        return out, None
 
     if not turn_key:
         # No committed row id means no stable key. Phase 2 requires the
@@ -397,13 +552,14 @@ async def extract_completed_turn(
         # to decline rather than fall back to hashing the narrator's
         # words -- a text key would collide across legitimately
         # identical answers and would defeat replay detection anyway.
-        out = _outcome("noop", method="no_stable_turn_key")
+        out = _outcome_for(ident, "noop", started=started,
+                           method="no_stable_turn_key")
         logger.warning(
             "[extract-turn] extract_fields_noop %s "
             "(no committed turn row id -- extraction declined rather "
             "than keyed on text)", out.as_log_fields(),
         )
-        return out
+        return out, None
 
     # ── The persisted claim. The database decides who runs. ──────────
     ledger_id: Optional[int] = None
@@ -418,22 +574,23 @@ async def extract_completed_turn(
             source=source,
         )
     except Exception as claim_exc:
-        out = _outcome("failed", error_class=claim_exc.__class__.__name__)
+        out = _outcome_for(ident, "failed", started=started,
+                           error_class=claim_exc.__class__.__name__)
         logger.error(
             "[extract-turn] extract_fields_failed %s (claim stage)",
             out.as_log_fields(),
         )
-        return out
+        return out, None
 
     if ledger_id is None:
         # Replay, reconnect, or retry of a turn that is already owned.
-        out = _outcome("duplicate", method="already_processed")
+        out = _outcome_for(ident, "duplicate", started=started,
+                           method="already_processed")
         logger.info(
             "[extract-turn] extract_fields_duplicate %s", out.as_log_fields(),
         )
-        return out
+        return out, None
 
-    # ── Run it ───────────────────────────────────────────────────────
     logger.info(
         "[extract-turn] extract_fields_started turn_id=%s turn_key=%s "
         "narrator=%s ledger_id=%s",
@@ -441,46 +598,59 @@ async def extract_completed_turn(
     )
 
     # THE STAGE MEANS "ASKED", NOT "SUCCEEDED". Until 2026-07-30 this
-    # mark lived inside _run_sync, below the forced-failure seam, so a
-    # turn whose extraction was invoked and then failed reported
-    # `extract_fields_called=0` --- the exact reading the original
-    # defect produced. Gate 7 exists because three identical zeroes
-    # meant three different things; an observability stage that cannot
-    # tell "never asked" from "asked and failed" reintroduces the
-    # confusion it was built to remove. The claim is won and the
-    # attempt is about to run, so the stage is true from here on.
-    # Marked on the event loop, inside the turn's own probe context,
-    # rather than in the worker thread.
+    # mark lived inside the extractor thread, below the forced-failure
+    # seam, so a turn whose extraction was invoked and then failed
+    # reported `extract_fields_called=0` --- the exact reading the
+    # original defect produced. Gate 7 exists because three identical
+    # zeroes meant three different things; an observability stage that
+    # cannot tell "never asked" from "asked and failed" reintroduces the
+    # confusion it was built to remove. The claim is won and the attempt
+    # is about to run, so the stage is true from here on.
+    #
+    # It is marked HERE, in the inline half, and nowhere else. The probe
+    # is scoped to the turn; a mark issued from the completion task
+    # would be filed against no turn at all.
     _mark_probe("turn-extraction")
 
-    def _finish(
-        outcome: str,
-        *,
-        item_count: int = 0,
-        method: str = "",
-        error_class: str = "",
-        duration_ms: int = 0,
-    ) -> None:
-        """Close the ledger row. Ledger failure must not mask the turn."""
-        try:
-            from .. import db as _db
-            _db.turn_extraction_finish(
-                ledger_id=int(ledger_id),
-                outcome=outcome,
-                item_count=item_count,
-                method=method,
-                error_class=error_class,
-                duration_ms=duration_ms,
-            )
-        except Exception as fin_exc:
-            logger.error(
-                "[extract-turn] ledger close failed ledger_id=%s outcome=%s "
-                "err=%s (turn unaffected)",
-                ledger_id, outcome, fin_exc.__class__.__name__,
-            )
+    return None, _Claim(
+        ledger_id=int(ledger_id),
+        started=started,
+        narrator_id=narrator_id,
+        turn_id=turn_id,
+        turn_key=turn_key,
+        session_id=session_id or "",
+        turn_mode=turn_mode,
+        source=source,
+        user_text=user_text or "",
+        current_section=current_section,
+        current_target_path=current_target_path,
+        current_era=current_era,
+        current_pass=current_pass,
+        current_mode=current_mode,
+    )
+
+
+async def _complete_claim(claim: _Claim) -> ExtractionOutcome:
+    """The working half: run the extractor, close the ledger row.
+
+    NEVER RAISES except asyncio.CancelledError, which is recorded as
+    failed/CancelledError and then re-raised so asyncio's cancellation
+    contract stays intact. Every other path -- a broken database, a
+    missing extractor, a hung LLM -- returns an ExtractionOutcome.
+
+    Writes NO family truth and touches NO projection. Both boundaries
+    are Phase 1 findings that Phase 2 preserved on purpose.
+    """
+    ident = {
+        "turn_key": claim.turn_key, "turn_id": claim.turn_id,
+        "narrator_id": claim.narrator_id, "session_id": claim.session_id,
+        "turn_mode": claim.turn_mode, "source": claim.source,
+    }
+    ledger_id = claim.ledger_id
+    started = claim.started
 
     def _run_sync() -> Any:
-        """Body executed off the event loop. Marks the probe, extracts."""
+        """Body executed off the event loop. Builds the request, extracts."""
         forced = forced_failure_mode()
         if forced == "raise":
             raise ForcedExtractionFailure(
@@ -490,14 +660,14 @@ async def extract_completed_turn(
         if forced == "timeout":
             time.sleep(EXTRACTION_TIMEOUT_S + 30.0)
         req = build_extraction_request(
-            narrator_id=narrator_id,
-            user_text=user_text,
-            session_id=session_id,
-            current_section=current_section,
-            current_target_path=current_target_path,
-            current_era=current_era,
-            current_pass=current_pass,
-            current_mode=current_mode,
+            narrator_id=claim.narrator_id,
+            user_text=claim.user_text,
+            session_id=claim.session_id or None,
+            current_section=claim.current_section,
+            current_target_path=claim.current_target_path,
+            current_era=claim.current_era,
+            current_pass=claim.current_pass,
+            current_mode=claim.current_mode,
         )
         return _call_extractor(req)
 
@@ -506,29 +676,25 @@ async def extract_completed_turn(
             asyncio.to_thread(_run_sync), timeout=EXTRACTION_TIMEOUT_S,
         )
     except asyncio.CancelledError:
-        # A new start_turn cancelled this socket's task mid-extraction.
-        # Record it, then honour the cancellation contract -- an
-        # abandoned attempt leaves a row behind rather than vanishing.
-        out = _outcome(
-            "failed", error_class="CancelledError", ledger_id=ledger_id,
-        )
-        _finish(
-            "failed", error_class="CancelledError",
-            duration_ms=out.duration_ms,
-        )
+        # Shutdown drain, or a caller that cancelled us. Record it, then
+        # honour the cancellation contract -- an abandoned attempt
+        # leaves a closed row behind rather than a row stuck at
+        # 'started' that nobody can explain later.
+        out = _outcome_for(ident, "failed", started=started,
+                           error_class="CancelledError", ledger_id=ledger_id)
+        _finish_ledger(ledger_id, "failed", error_class="CancelledError",
+                       duration_ms=out.duration_ms)
         logger.warning(
-            "[extract-turn] extract_fields_failed %s (turn cancelled "
-            "mid-extraction; response already delivered)",
+            "[extract-turn] extract_fields_failed %s (extraction cancelled; "
+            "the narrator's turn was delivered and persisted regardless)",
             out.as_log_fields(),
         )
         raise
     except asyncio.TimeoutError:
-        out = _outcome(
-            "failed", error_class="TimeoutError", ledger_id=ledger_id,
-        )
-        _finish(
-            "failed", error_class="TimeoutError", duration_ms=out.duration_ms,
-        )
+        out = _outcome_for(ident, "failed", started=started,
+                           error_class="TimeoutError", ledger_id=ledger_id)
+        _finish_ledger(ledger_id, "failed", error_class="TimeoutError",
+                       duration_ms=out.duration_ms)
         logger.error(
             "[extract-turn] extract_fields_failed %s (ceiling %.0fs)",
             out.as_log_fields(), EXTRACTION_TIMEOUT_S,
@@ -539,13 +705,11 @@ async def extract_completed_turn(
         # saw succeed; nothing the extractor can raise may reach them.
         # Class name only, never str(exc) -- an extractor message can
         # quote the narrator's own words back into the log.
-        out = _outcome(
-            "failed", error_class=exc.__class__.__name__, ledger_id=ledger_id,
-        )
-        _finish(
-            "failed", error_class=exc.__class__.__name__,
-            duration_ms=out.duration_ms,
-        )
+        out = _outcome_for(ident, "failed", started=started,
+                           error_class=exc.__class__.__name__,
+                           ledger_id=ledger_id)
+        _finish_ledger(ledger_id, "failed", error_class=exc.__class__.__name__,
+                       duration_ms=out.duration_ms)
         logger.error(
             "[extract-turn] extract_fields_failed %s", out.as_log_fields(),
         )
@@ -567,14 +731,12 @@ async def extract_completed_turn(
     except Exception as shape_exc:
         # The extractor returned something unexpected. That is a failure
         # of this integration, not of the turn.
-        out = _outcome(
-            "failed", error_class=shape_exc.__class__.__name__,
-            ledger_id=ledger_id,
-        )
-        _finish(
-            "failed", error_class=shape_exc.__class__.__name__,
-            duration_ms=out.duration_ms,
-        )
+        out = _outcome_for(ident, "failed", started=started,
+                           error_class=shape_exc.__class__.__name__,
+                           ledger_id=ledger_id)
+        _finish_ledger(ledger_id, "failed",
+                       error_class=shape_exc.__class__.__name__,
+                       duration_ms=out.duration_ms)
         logger.error(
             "[extract-turn] extract_fields_failed %s (result shape)",
             out.as_log_fields(),
@@ -584,23 +746,256 @@ async def extract_completed_turn(
     if not items:
         # Ran cleanly, found nothing. A narrator can say something with
         # no extractable field in it; that is not an error.
-        out = _outcome(
-            "noop", method=method or "no_items", ledger_id=ledger_id,
-        )
-        _finish(
-            "noop", item_count=0, method=method or "no_items",
-            duration_ms=out.duration_ms,
-        )
+        out = _outcome_for(ident, "noop", started=started,
+                           method=method or "no_items", ledger_id=ledger_id)
+        _finish_ledger(ledger_id, "noop", item_count=0,
+                       method=method or "no_items", duration_ms=out.duration_ms)
         logger.info("[extract-turn] extract_fields_noop %s", out.as_log_fields())
         return out
 
-    out = _outcome(
-        "succeeded", item_count=len(items), method=method,
-        ledger_id=ledger_id, items=items,
-    )
-    _finish(
-        "succeeded", item_count=len(items), method=method,
-        duration_ms=out.duration_ms,
-    )
+    out = _outcome_for(ident, "succeeded", started=started,
+                       item_count=len(items), method=method,
+                       ledger_id=ledger_id, items=items)
+    _finish_ledger(ledger_id, "succeeded", item_count=len(items),
+                   method=method, duration_ms=out.duration_ms)
     logger.info("[extract-turn] extract_fields_succeeded %s", out.as_log_fields())
     return out
+
+
+def begin_completed_turn_extraction(
+    *,
+    narrator_id: str,
+    turn_id: str,
+    user_text: str,
+    session_id: Optional[str] = None,
+    turn_key: str = "",
+    turn_mode: str = "interview",
+    source: str = _SOURCE_CHAT_WS,
+    current_section: Optional[str] = None,
+    current_target_path: Optional[str] = None,
+    current_era: Optional[str] = None,
+    current_pass: Optional[str] = None,
+    current_mode: Optional[str] = None,
+) -> Tuple[Optional[ExtractionOutcome], Optional[_Claim]]:
+    """Public name for the inline half. See _begin()."""
+    return _begin(
+        narrator_id=narrator_id, turn_id=turn_id, user_text=user_text,
+        session_id=session_id, turn_key=turn_key, turn_mode=turn_mode,
+        source=source, current_section=current_section,
+        current_target_path=current_target_path, current_era=current_era,
+        current_pass=current_pass, current_mode=current_mode,
+    )
+
+
+def _on_extraction_task_done(task: "asyncio.Task[Any]") -> None:
+    """Release the strong reference and account for anything unexpected.
+
+    _complete_claim() only ever propagates CancelledError, and the
+    cancelled path has already written its ledger row by the time we get
+    here. Anything else arriving in this callback is a bug in this
+    module, so it is logged loudly rather than swallowed into the
+    "Task exception was never retrieved" void.
+    """
+    _PENDING_EXTRACTIONS.discard(task)
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error(
+            "[extract-turn] completion task ended on an unexpected "
+            "exception class=%s (the narrator's turn was unaffected)",
+            exc.__class__.__name__,
+        )
+
+
+def schedule_completed_turn_extraction(
+    *,
+    narrator_id: str,
+    turn_id: str,
+    user_text: str,
+    assistant_text: Optional[str] = None,
+    session_id: Optional[str] = None,
+    turn_key: str = "",
+    turn_mode: str = "interview",
+    source: str = _SOURCE_CHAT_WS,
+    current_section: Optional[str] = None,
+    current_target_path: Optional[str] = None,
+    current_era: Optional[str] = None,
+    current_pass: Optional[str] = None,
+    current_mode: Optional[str] = None,
+) -> ExtractionOutcome:
+    """The chat_ws entry point. Claim inline, extract on a held task.
+
+    NEVER RAISES, never awaits, and never blocks the turn. Returns a
+    terminal outcome when there was nothing to run, or status
+    'scheduled' when the claim was won and the completion task is
+    registered.
+
+    Preconditions the CALLER must satisfy before calling:
+      * the raw turn has been committed
+      * the required archive event has been written
+      * the user-facing response has already been sent
+
+    `assistant_text` is accepted for symmetry with
+    extract_completed_turn() and for future two-sided extraction; it is
+    NOT fed to the extractor today (see build_extraction_request).
+    """
+    outcome, claim = _begin(
+        narrator_id=narrator_id, turn_id=turn_id, user_text=user_text,
+        session_id=session_id, turn_key=turn_key, turn_mode=turn_mode,
+        source=source, current_section=current_section,
+        current_target_path=current_target_path, current_era=current_era,
+        current_pass=current_pass, current_mode=current_mode,
+    )
+    if claim is None:
+        return outcome  # type: ignore[return-value]
+
+    ident = {
+        "turn_key": claim.turn_key, "turn_id": claim.turn_id,
+        "narrator_id": claim.narrator_id, "session_id": claim.session_id,
+        "turn_mode": claim.turn_mode, "source": claim.source,
+    }
+    try:
+        task = asyncio.get_running_loop().create_task(
+            _complete_claim(claim),
+            name=f"extract-turn:{claim.narrator_id}:{claim.turn_key}",
+        )
+    except RuntimeError as loop_exc:
+        # No running loop. This entry point is for the async turn path;
+        # a caller without a loop wants extract_completed_turn(). The
+        # claim is already committed, so close its row rather than
+        # abandon it at 'started'.
+        out = _outcome_for(ident, "failed", started=claim.started,
+                           error_class=loop_exc.__class__.__name__,
+                           ledger_id=claim.ledger_id)
+        _finish_ledger(claim.ledger_id, "failed",
+                       error_class=loop_exc.__class__.__name__,
+                       duration_ms=out.duration_ms)
+        logger.error(
+            "[extract-turn] extract_fields_failed %s (no running event loop "
+            "-- use extract_completed_turn() from synchronous callers)",
+            out.as_log_fields(),
+        )
+        return out
+
+    _PENDING_EXTRACTIONS.add(task)
+    task.add_done_callback(_on_extraction_task_done)
+    return _outcome_for(ident, "scheduled", started=claim.started,
+                        method="background_task", ledger_id=claim.ledger_id)
+
+
+async def extract_completed_turn(
+    *,
+    narrator_id: str,
+    turn_id: str,
+    user_text: str,
+    assistant_text: Optional[str] = None,
+    session_id: Optional[str] = None,
+    turn_key: str = "",
+    turn_mode: str = "interview",
+    source: str = _SOURCE_CHAT_WS,
+    current_section: Optional[str] = None,
+    current_target_path: Optional[str] = None,
+    current_era: Optional[str] = None,
+    current_pass: Optional[str] = None,
+    current_mode: Optional[str] = None,
+) -> ExtractionOutcome:
+    """Request field extraction for one completed turn and await it.
+
+    Begin-then-complete in a single await. The replay path and the
+    automated suite use this because they want the terminal outcome in
+    hand; chat_ws uses schedule_completed_turn_extraction() instead,
+    because a turn task can be cancelled the instant its socket closes.
+
+    NEVER RAISES except asyncio.CancelledError, which is recorded and
+    then re-raised so cancellation semantics stay intact.
+
+    Preconditions the CALLER must satisfy before calling:
+      * the raw turn has been committed
+      * the required archive event has been written
+      * the user-facing response has already been sent
+
+    Writes NO family truth and touches NO projection.
+
+    `assistant_text` is accepted for outcome logging and future
+    two-sided extraction; it is NOT fed to the extractor today (see
+    build_extraction_request).
+    """
+    outcome, claim = _begin(
+        narrator_id=narrator_id, turn_id=turn_id, user_text=user_text,
+        session_id=session_id, turn_key=turn_key, turn_mode=turn_mode,
+        source=source, current_section=current_section,
+        current_target_path=current_target_path, current_era=current_era,
+        current_pass=current_pass, current_mode=current_mode,
+    )
+    if claim is None:
+        return outcome  # type: ignore[return-value]
+    return await _complete_claim(claim)
+
+
+# ── Shutdown ─────────────────────────────────────────────────────────────
+def pending_extraction_count() -> int:
+    """How many completion tasks are in flight right now."""
+    return len(_PENDING_EXTRACTIONS)
+
+
+async def drain_pending_extractions(
+    timeout: float = EXTRACTION_DRAIN_TIMEOUT_S,
+) -> Dict[str, Any]:
+    """Let in-flight extractions finish, then cancel whatever is left.
+
+    Wired to the application's shutdown event. This is the half of Phase
+    2 Step 4 that makes the completion task not-fragile: "Do not
+    introduce a fragile detached task that can silently disappear on
+    process shutdown without recording its state."
+
+    Every task here already has a committed ledger row at
+    outcome='started'. Tasks that finish within the ceiling close their
+    own rows normally. Tasks that do not are cancelled, and the
+    CancelledError handler in _complete_claim() writes
+    failed/CancelledError before re-raising. Either way no attempt
+    vanishes without a record.
+
+    Never raises. A shutdown path that can throw is a shutdown path that
+    leaves the process wedged.
+    """
+    pending = [t for t in _PENDING_EXTRACTIONS if not t.done()]
+    report: Dict[str, Any] = {
+        "pending_at_shutdown": len(pending),
+        "finished_within_timeout": 0,
+        "cancelled": 0,
+        "timeout_s": timeout,
+    }
+    if not pending:
+        logger.info("[extract-turn] shutdown drain: nothing in flight")
+        return report
+    logger.info(
+        "[extract-turn] shutdown drain: waiting up to %.0fs for %d "
+        "in-flight extraction(s)", timeout, len(pending),
+    )
+    try:
+        done, still_running = await asyncio.wait(pending, timeout=timeout)
+    except Exception as wait_exc:
+        logger.error("[extract-turn] shutdown drain wait failed err=%s",
+                     wait_exc.__class__.__name__)
+        return report
+    report["finished_within_timeout"] = len(done)
+    report["cancelled"] = len(still_running)
+    for task in still_running:
+        task.cancel()
+    if still_running:
+        # Give each cancelled task the chance to write its ledger row on
+        # the way out. return_exceptions=True because every one of them
+        # is expected to raise CancelledError.
+        try:
+            await asyncio.gather(*still_running, return_exceptions=True)
+        except Exception as gather_exc:
+            logger.error("[extract-turn] shutdown drain gather failed err=%s",
+                         gather_exc.__class__.__name__)
+    logger.info(
+        "[extract-turn] shutdown drain complete: %d finished, %d cancelled "
+        "(every cancelled attempt closed its ledger row as "
+        "failed/CancelledError)",
+        report["finished_within_timeout"], report["cancelled"],
+    )
+    return report

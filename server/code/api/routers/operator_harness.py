@@ -154,12 +154,23 @@ def _truth_pipeline_summary(turn_id: str) -> Optional[Dict[str, Any]]:
     able to ask for it. Poll briefly rather than reporting a false absence;
     the archived golfball probe absorbs the same skew with a fixed sleep.
     Never raises --- an observability read must not fail a harness turn.
+
+    CORRECTED 2026-07-30 by the first live acceptance run. The deadline
+    below was 0.5 seconds, chosen for "a few milliseconds" of skew. That
+    run reported truth_pipeline=None for both interview turns while the
+    server's own api.log carried the record for each of them --- a false
+    absence produced by this window, not a missing probe. The turn body
+    was extended past 0.5 s by the extraction that was then awaited
+    inline. Extraction has since moved off the turn task, so the body
+    returns in milliseconds again, but the window stays wide: an
+    instrument that reports absence must be slower to do so than the
+    thing it measures.
     """
     try:
         from ..services import truth_pipeline_probe as _tp
         if not _tp.enabled():
             return None
-        deadline = time.monotonic() + 0.5
+        deadline = time.monotonic() + 5.0
         while True:
             found = _tp.summary_for_turn_id(turn_id)
             if found is not None:
@@ -460,10 +471,30 @@ async def harness_health() -> Dict[str, Any]:
     200 → run the golfball harness.
     """
     _require_enabled()
+
+    # Booleans only. These report which test seams are live IN THIS SERVER
+    # PROCESS, so an acceptance run can refuse to start rather than measure a
+    # stack that was never restarted with the env it needs. The first live
+    # acceptance run scored Test C against a process with no seam armed and
+    # recorded a meaningless CancelledError; there is no value to leak here,
+    # only arming state, so no configuration content is returned.
+    try:
+        from ..services.turn_extraction import forced_failure_armed as _ffa
+        _forced_failure_armed = bool(_ffa())
+    except Exception:
+        _forced_failure_armed = False
+    try:
+        from ..services import truth_pipeline_probe as _tp_health
+        _truth_pipeline_log = bool(_tp_health.enabled())
+    except Exception:
+        _truth_pipeline_log = False
+
     return {
         "ok": True,
         "feature": "operator-harness",
         "endpoint": "POST /api/operator/harness/interview-turn",
+        "forced_failure_armed": _forced_failure_armed,
+        "truth_pipeline_log": _truth_pipeline_log,
         "ts": time.time(),
     }
 
