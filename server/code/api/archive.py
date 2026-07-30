@@ -211,6 +211,15 @@ def append_event(
     with jsonl_path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(event, ensure_ascii=False) + "\n")
 
+    # TRUTH-PIPELINE-01 Phase 1 (Gate 7) --- observability only.
+    # No behavior change. No-op unless HORNELORE_TRUTH_PIPELINE_LOG=1 AND a
+    # turn probe is active in this context. Failure is swallowed.
+    try:
+        from .services import truth_pipeline_probe as _tp
+        _tp.mark("archive_event_created", "transcript.jsonl")
+    except Exception:
+        pass
+
 
 # ---------------------------------------------------------------------------
 # rebuild_txt  — regenerate human-readable transcript

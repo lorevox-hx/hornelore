@@ -350,6 +350,54 @@ async def ws_chat(ws: WebSocket):
     active_person_id: Optional[str] = None
 
     async def generate_and_stream(conv_id: str, user_text: str, params: Dict[str, Any], ev: threading.Event) -> None:
+        """TRUTH-PIPELINE-01 Phase 1 (Gate 7) --- observability-only probe.
+
+        Wraps the real turn body so ONE `[truth-pipeline]` line is emitted
+        per turn recording which of the five truth-write stages fired.
+
+          - the probe is NOT consumed by the extractor
+          - the probe is NOT consumed by Lori
+          - the probe is NOT consumed by safety
+          - the probe is NOT written to truth or any DB, and adds no table
+          - the probe never reaches the narrator surface
+          - probe failure is swallowed silently --- never breaks a turn
+
+        Default-OFF behind HORNELORE_TRUTH_PIPELINE_LOG=1. When the flag
+        is off, begin_turn returns None and every mark() downstream is a
+        no-op, so this wrapper costs one attribute lookup per turn.
+
+        It wraps rather than instruments in place because the turn body
+        returns early from eight deterministic short-circuit branches; a
+        finally is the only placement that sees all of them.
+        """
+        _tp_token = None
+        try:
+            from ..services import truth_pipeline_probe as _tp
+            _tp_token = _tp.begin_turn(
+                conv_id=conv_id,
+                person_id=str((params or {}).get("person_id") or ""),
+                turn_id=str((params or {}).get("turn_id") or ""),
+                turn_mode=str((params or {}).get("turn_mode") or ""),
+            )
+        except Exception:
+            _tp_token = None
+
+        try:
+            await _generate_and_stream_body(conv_id, user_text, params, ev)
+        finally:
+            if _tp_token is not None:
+                try:
+                    from ..services import truth_pipeline_probe as _tp
+                    _tp_summary = _tp.end_turn(_tp_token)
+                    if _tp_summary:
+                        logger.info("%s", _tp.log_line(_tp_summary))
+                except Exception as _tp_err:
+                    logger.warning(
+                        "[truth-pipeline] probe close failed (turn "
+                        "unaffected): %s", _tp_err,
+                    )
+
+    async def _generate_and_stream_body(conv_id: str, user_text: str, params: Dict[str, Any], ev: threading.Event) -> None:
       # WO-10M: Flag-outside-except OOM recovery pattern.
       # The exception object holds references to the stack frame where the
       # allocator failed, which in turn holds references to the tensors that

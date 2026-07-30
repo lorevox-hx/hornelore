@@ -7982,6 +7982,18 @@ def _apply_transcript_safety_layer(
 @router.post("/extract-fields", response_model=ExtractFieldsResponse)
 def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
     """Extract multiple structured fields from a conversational answer."""
+    # TRUTH-PIPELINE-01 Phase 1 (Gate 7) --- observability only.
+    # No behavior change. No-op unless HORNELORE_TRUTH_PIPELINE_LOG=1 AND a
+    # turn probe is active in this context. This endpoint is reached from
+    # the browser (ui/js/interview.js) as a SEPARATE HTTP request, so on a
+    # chat_ws turn it correctly marks nothing --- that zero is the Gate 7
+    # evidence, not a defect. Phase 2/3 routing fixes stay deferred.
+    try:
+        from ..services import truth_pipeline_probe as _tp
+        _tp.mark("extract_fields_called", "extract-fields")
+    except Exception:
+        pass
+
     answer = (req.answer or "").strip()
     if not answer:
         return ExtractFieldsResponse(items=[], method="fallback")

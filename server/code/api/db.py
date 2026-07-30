@@ -1577,6 +1577,15 @@ def persist_turn_transaction(
     finally:
         con.close()
 
+    # TRUTH-PIPELINE-01 Phase 1 (Gate 7) --- observability only.
+    # No behavior change. No-op unless HORNELORE_TRUTH_PIPELINE_LOG=1 AND a
+    # turn probe is active in this context. Failure is swallowed.
+    try:
+        from .services import truth_pipeline_probe as _tp
+        _tp.mark("raw_turn_saved", "turns")
+    except Exception:
+        pass
+
 
 # -----------------------------------------------------------------------------
 # People (routers/people.py)
@@ -2687,6 +2696,16 @@ def ft_add_note(
     )
     con.commit()
     con.close()
+    # TRUTH-PIPELINE-01 Phase 1 (Gate 7) --- observability only.
+    # No behavior change. No-op unless HORNELORE_TRUTH_PIPELINE_LOG=1 AND a
+    # turn probe is active in this context. A browser-driven POST arrives
+    # outside the turn task and so marks nothing --- that zero is the
+    # evidence, not a defect (see services/truth_pipeline_probe.py).
+    try:
+        from .services import truth_pipeline_probe as _tp
+        _tp.mark("family_truth_written", "family_truth_notes")
+    except Exception:
+        pass
     return {
         "id": nid,
         "person_id": person_id,
@@ -2789,6 +2808,16 @@ def ft_add_row(
     )
     con.commit()
     con.close()
+    # TRUTH-PIPELINE-01 Phase 1 (Gate 7) --- observability only.
+    # No behavior change. No-op unless HORNELORE_TRUTH_PIPELINE_LOG=1 AND a
+    # turn probe is active in this context. A browser-driven POST arrives
+    # outside the turn task and so marks nothing --- that zero is the
+    # evidence, not a defect (see services/truth_pipeline_probe.py).
+    try:
+        from .services import truth_pipeline_probe as _tp
+        _tp.mark("family_truth_written", "family_truth_rows")
+    except Exception:
+        pass
     return ft_get_row(rid) or {}
 
 

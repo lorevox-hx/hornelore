@@ -123,10 +123,54 @@ class InterviewTurnResponse(BaseModel):
     story_candidate_delta: int
     safety_event_delta: int
     lock_event_delta: int
+    # TRUTH-PIPELINE-01 Phase 1 (Gate 7) --- which of the five truth-write
+    # stages fired inside this turn. None when
+    # HORNELORE_TRUTH_PIPELINE_LOG is off, so the field is additive and
+    # every existing harness caller keeps working unchanged.
+    #
+    # This is the field that separates the three readings of
+    # `speaker_zero_delta`: a real routing bug, a harness coverage gap, or
+    # correct-by-design silence for a synthetic narrator. Read it together
+    # with story_candidate_delta, never instead of it.
+    truth_pipeline: Optional[Dict[str, Any]] = None
     # Echo of the request for traceability
     person_id: str
     session_id: str
     turn_id: str
+
+
+# ── TRUTH-PIPELINE-01 Phase 1 probe read ───────────────────────────────────
+
+def _truth_pipeline_summary(turn_id: str) -> Optional[Dict[str, Any]]:
+    """Read this turn's truth-write stage summary out of the probe ring.
+
+    Returns None when the probe flag is off --- observability stays
+    default-OFF, and a harness run with the flag off behaves exactly as it
+    did before this field existed.
+
+    The probe files its record in a `finally` that runs AFTER the turn body
+    returns, and the body is what emits the WS `done` the harness waits on.
+    So the record can land a few milliseconds after this function is first
+    able to ask for it. Poll briefly rather than reporting a false absence;
+    the archived golfball probe absorbs the same skew with a fixed sleep.
+    Never raises --- an observability read must not fail a harness turn.
+    """
+    try:
+        from ..services import truth_pipeline_probe as _tp
+        if not _tp.enabled():
+            return None
+        deadline = time.monotonic() + 0.5
+        while True:
+            found = _tp.summary_for_turn_id(turn_id)
+            if found is not None:
+                return found
+            if time.monotonic() >= deadline:
+                return None
+            time.sleep(0.05)
+    except Exception as exc:
+        logger.warning(
+            "[truth-pipeline] harness read failed (turn unaffected): %s", exc)
+        return None
 
 
 # ── Lightweight discipline detectors ───────────────────────────────────────
@@ -485,6 +529,7 @@ async def harness_interview_turn(
         story_candidate_delta=post_story - pre_story,
         safety_event_delta=post_safety - pre_safety,
         lock_event_delta=post_locks - pre_locks,
+        truth_pipeline=_truth_pipeline_summary(turn_id),
         person_id=req.person_id,
         session_id=session_id,
         turn_id=turn_id,

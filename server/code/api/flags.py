@@ -185,3 +185,17 @@ def spantag_enabled() -> bool:
       - sourceSpan coverage ≥ 80% of emitted writes
     """
     return _truthy(os.environ.get("HORNELORE_SPANTAG"))
+
+
+def truth_pipeline_log_enabled() -> bool:
+    """TRUTH-PIPELINE-01 Phase 1 (Gate 7). When True, each narrator turn
+    records WHICH of the five truth-write stages fired --- raw_turn_saved,
+    archive_event_created, extract_fields_called, family_truth_written,
+    projection_updated --- and emits one `[truth-pipeline]` line to
+    api.log at the end of the turn.
+
+    Observability only. No routing change, no DB row, no table, no
+    narrator-facing surface. Phase 2/3 routing fixes stay deferred until
+    this evidence lands. Default OFF.
+    """
+    return _truthy(os.environ.get("HORNELORE_TRUTH_PIPELINE_LOG"))

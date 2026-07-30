@@ -258,6 +258,14 @@ def apply_correction(
             len(summary["retracted"]),
             source_turn_id,
         )
+        # TRUTH-PIPELINE-01 Phase 1 (Gate 7) --- observability only.
+        # No behavior change. No-op unless HORNELORE_TRUTH_PIPELINE_LOG=1
+        # AND a turn probe is active in this context. Failure is swallowed.
+        try:
+            from . import truth_pipeline_probe as _tp
+            _tp.mark("projection_updated", "interview_projections")
+        except Exception:
+            pass
     except Exception as exc:
         logger.warning(
             "[projection-writer] upsert_projection failed person=%s: %s",
