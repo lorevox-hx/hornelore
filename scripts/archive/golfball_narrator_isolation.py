@@ -13,10 +13,11 @@ Answers two questions that cannot be answered by the style-diff probe:
   2. TRUTH PIPELINE FLOW
      For a single turn, verify the data propagates through every
      surface that should see it:
-       raw turn saved (turns / archive_events)
+       raw turn saved (turns)
        story candidate preserved (story_candidates)
+       field extraction requested (turn_extraction_ledger)
        shadow/proposal created (family_truth_rows, if WO-13 wired)
-       projection updated (interview_projection)
+       projection updated (interview_projections)
        operator review surface sees it (/api/operator/story-candidates)
        chronology / timeline surface sees it (/api/chronology-accordion)
        memoir peek surface sees it (memoir_export / projection)
@@ -39,6 +40,15 @@ Pass/fail contract:
   - Each turn's pipeline-flow assertion: at least the bedrock
     surfaces (story_candidates, /api/operator/story-candidates) must
     show the new data. Other surfaces report best-effort.
+
+2026-07-30 — WO-TRUTH-PIPELINE-01 Phase 2 repaired this module's table
+lists. Until that date the two tuples below named seven tables that do
+not exist and omitted `turns`; the archive_events line above read
+"raw turn saved (turns / archive_events)" and interview_projections was
+spelled singular. See the comment above NARRATOR_SCOPED_TABLES_NARRATOR_ID
+for why a nonexistent table in this probe produced a FALSE PASS rather
+than an error, and why the archived "turn did not write anywhere"
+reading was wrong as worded.
 
 Threshold for noise tolerance: zero. If Kent's count goes up after
 Janice speaks, that IS contamination, full stop — no LLM
@@ -106,21 +116,52 @@ ISOLATION_SEQUENCE: List[IsolationTurn] = [
 
 # ── DB probes ──────────────────────────────────────────────────────────────
 
+# WO-TRUTH-PIPELINE-01 Phase 2 (2026-07-30) — THE INSTRUMENT WAS WRONG.
+#
+# Until this date these two tuples named SEVEN tables that do not exist in
+# the schema and never have:
+#
+#     photo_review_queue, narrator_relationships, memory_archive_audio,
+#     memory_archive_events, interview_segment_flags, interview_projection,
+#     archive_events
+#
+# and they OMITTED `turns`, which is where a narrator turn actually lands.
+#
+# That combination is worse than a plain bug, because of how
+# snapshot_narrator() is written: a missing table snapshots as None, a
+# None diffs as "unchanged", and "unchanged" reads as ISOLATION HELD. So
+# seven of the twelve columns of this probe's evidence were guaranteed
+# passes measuring nothing, while the one table that would have shown the
+# turn was not being counted at all. That is how the archived reading
+# "speaker_zero_delta — turn did not write anywhere" was produced, and
+# it was false as worded: Gate 7 Phase 1 measured raw_turn_saved=1 and
+# archive_event_created=2 on the same code.
+#
+# `interview_projection` was a near-miss for the real `interview_projections`.
+#
+# The lists below now name only tables that exist. A schema-validation
+# test (tests/test_golfball_isolation_schema.py) fails the build if any
+# entry here stops existing, so this cannot silently rot again — an
+# inaccurate measuring instrument must not stay available to later gates.
 NARRATOR_SCOPED_TABLES_NARRATOR_ID = (
     "story_candidates",
-    "photos",                # WO-LORI-PHOTO-SHARED-01
-    "photo_review_queue",
-    "narrator_relationships",
+    "photos",                  # WO-LORI-PHOTO-SHARED-01
+    "turn_extraction_ledger",  # Phase 2: the extraction claim/outcome ledger
 )
 NARRATOR_SCOPED_TABLES_PERSON_ID = (
-    "memory_archive_audio",
-    "memory_archive_events",
     "media_archive_items",
     "profiles",
-    "interview_segment_flags",
-    "interview_projection",
+    "interview_projections",
     "family_truth_rows",
-    "archive_events",
+    "family_truth_notes",
+)
+# `turns` is scoped by conv_id, not by a narrator column (its columns are
+# id, conv_id, role, content, ts, anchor_id, meta_json), so it cannot go
+# through _scoped_count. It gets its own counter below. cleanup_synthetic()
+# already used the same conv_id LIKE shape, so the convention is not new
+# here — only the counting side was missing.
+NARRATOR_SCOPED_TABLES_CONV_LIKE = (
+    "turns",
 )
 
 
@@ -159,6 +200,32 @@ def _scoped_count(
         return None
 
 
+def _conv_like_count(
+    conn: sqlite3.Connection,
+    table: str,
+    narrator_id: str,
+) -> Optional[int]:
+    """Count conv-scoped rows belonging to a narrator.
+
+    `turns` carries no narrator column. A harness conv_id embeds the
+    synthetic narrator id, which is what cleanup_synthetic() has always
+    relied on to delete them, so the same LIKE is used to count them.
+    Returns None when the table is missing or the id is empty — never
+    a bare 0, because 0 and "not measured" must stay distinguishable.
+    """
+    if not _table_exists(conn, table) or not narrator_id:
+        return None
+    try:
+        cur = conn.execute(
+            f"SELECT COUNT(*) AS n FROM {table} WHERE conv_id LIKE ?",
+            (f"%{narrator_id}%",),
+        )
+        row = cur.fetchone()
+        return int(row["n"]) if row else 0
+    except sqlite3.Error:
+        return None
+
+
 def snapshot_narrator(db_path: str, narrator_id: str) -> Dict[str, Any]:
     """Take a snapshot of all narrator-scoped table counts. Returns a
     dict {table: count_or_null}. Tables that are missing from the
@@ -173,6 +240,8 @@ def snapshot_narrator(db_path: str, narrator_id: str) -> Dict[str, Any]:
             snap[table] = _scoped_count(conn, table, "narrator_id", narrator_id)
         for table in NARRATOR_SCOPED_TABLES_PERSON_ID:
             snap[table] = _scoped_count(conn, table, "person_id", narrator_id)
+        for table in NARRATOR_SCOPED_TABLES_CONV_LIKE:
+            snap[table] = _conv_like_count(conn, table, narrator_id)
         return snap
     finally:
         conn.close()
@@ -193,13 +262,18 @@ def find_text_in_any_narrator_row(
     hits: List[str] = []
     conn = db_connect(db_path)
     try:
-        # Combine both column conventions
+        # Combine the three scoping conventions. The third one matters:
+        # `turns` is where the narrator's own words land, so leaving it
+        # out of the LEAKAGE search meant the probe could not see the one
+        # kind of contamination it was built to catch (2026-07-30).
         all_tables = [
-            (t, "narrator_id") for t in NARRATOR_SCOPED_TABLES_NARRATOR_ID
+            (t, "narrator_id", "=") for t in NARRATOR_SCOPED_TABLES_NARRATOR_ID
         ] + [
-            (t, "person_id") for t in NARRATOR_SCOPED_TABLES_PERSON_ID
+            (t, "person_id", "=") for t in NARRATOR_SCOPED_TABLES_PERSON_ID
+        ] + [
+            (t, "conv_id", "LIKE") for t in NARRATOR_SCOPED_TABLES_CONV_LIKE
         ]
-        for table, scope_col in all_tables:
+        for table, scope_col, scope_op in all_tables:
             if not _table_exists(conn, table):
                 continue
             try:
@@ -213,10 +287,15 @@ def find_text_in_any_narrator_row(
             ]
             for col in text_cols:
                 try:
+                    scope_val = (
+                        narrator_id if scope_op == "="
+                        else f"%{narrator_id}%"
+                    )
                     row = conn.execute(
                         f"SELECT 1 FROM {table} "
-                        f"WHERE {scope_col} = ? AND {col} LIKE ? LIMIT 1",
-                        (narrator_id, f"%{needle}%"),
+                        f"WHERE {scope_col} {scope_op} ? "
+                        f"AND {col} LIKE ? LIMIT 1",
+                        (scope_val, f"%{needle}%"),
                     ).fetchone()
                 except sqlite3.Error:
                     continue
