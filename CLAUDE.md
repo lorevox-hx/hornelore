@@ -273,6 +273,70 @@ The extraction pipeline is one output surface; **Lori is the companion** — des
 
 ## Changelog
 
+### 2026-07-30 — WO-LIVE-TRIP-COMPANION-01 Vertical Slice 1: Lori and the travel document are one trip experience, and the link survives a restart
+
+**The complete slice passed live against the real stack: 24 checks before the restart,
+14 after, 38 of 38.** The product gap this closes is the one named in the work order —
+not "make extraction work", which Gate 7 finished, but *join Lori and the travel-document
+system into one trip experience*. A narrator can now open Lori from the trip workspace,
+talk, and find that conversation waiting on the right day of the right trip after the
+machine has been turned off and on again.
+
+**The trip lifecycle is deliberate, not inferred from the date.** `trips.live_state`
+(`planning`, `active`, `completed`, `archived`) is a new column in migration 0039,
+separate from `trips.status`, which stays what it always was: authoring state, not lived
+state. The operator starts and finishes a trip; the calendar does not decide it for them.
+Leaving `active` clears `active_trip_day_id`, because a day selected inside a trip that
+is no longer running is a stale claim about where the operator is.
+
+**The link is a link, not a copy.** `trip_turn_links` carries
+`trip_id, trip_day_id, conv_id, user_turn_row_id, assistant_turn_row_id, captured_at,
+placement_source, placement_status` and no narrative text at all — the acceptance run
+asserts that emptiness directly (`PASS the link table holds no narrative text`). The
+words stay in `turns`, where they were already durable. There is no second conversation
+store, and no trip table holding a second copy of what someone said.
+
+**The link is created by the production path, never by the test.** It is written by the
+completed-turn hook in `chat_ws.py`, gated on `params["_persisted_turn_row_id"]` — the
+committed row — and deliberately *not* on a memoir archive event, because a
+`travel_doc_modal` turn never writes one by design
+(`BUG-MODAL-TURNS-ARCHIVED-AS-LIFE-STORY-01`). An earlier cut of this hook copied the
+extraction hook's archive gate and the link silently never appeared; two live runs failed
+on it. `tests/test_trip_placement.py` now holds AST assertions that fail the moment
+placement is gated on an archive event again, with the failure text naming the reason. Do
+not restore symmetry between the two gates.
+
+**The timeline is a read projection over the whole day, not a view of one table.** For
+the selected day it merges conversations, photographs from `trip_photo_links`, story
+notes, sources, and the day card's own text, each from the record that already owns it,
+with hidden rows excluded because honest counts govern display. The live run returned
+`n=5` for Bismarck Day 1 — the new Lori conversation sitting beside the photograph, the
+story note and the day-card text — where a link-only timeline would have shown one item
+and a day that plainly held more. Photo items carry `photo_id` and never a path, a
+filename or a coordinate; the thumbnail is fetched through `/api/photos/{id}/thumb`, so
+raw location never crosses the boundary.
+
+**A suggestion is not a choice.** `placement_source`/`placement_status` drive a badge that
+says Confirmed day only when the operator selected that day; a date the system merely
+inferred reads as Suggested day. The modal opens on the operator's current day, or the
+trip's first day if none is selected, and renders immediately — but opening on Day 1 is
+never rendered as a confirmation, because only the operator's own selection may speak for
+the operator.
+
+**Failure isolation.** The hook cannot raise except `CancelledError`, and it runs after the
+turn is persisted and the done frame is out. Losing a link costs a timeline entry; it must
+never cost a conversation. Linking writes no family truth and changes no correction
+projection behaviour — placing a conversation on a calendar day says *when* it happened,
+not what is true about a family, and the two must not blur.
+
+**Live evidence, 2026-07-30.** Phase 1: `PASS a link row exists for this turn`,
+`PASS placement_source is active_trip_day`, `PASS placement_status is confirmed`,
+`PASS exactly one new link row  0 -> 1`. Phase 2, after `stop_all` / `start_all`:
+`PASS the linked conversation is still on the day  n=5`,
+`PASS trips.active_trip_day_id == the selected day`,
+`PASS the restart created no extra links  1 -> 1`. Evidence at
+`/mnt/c/hornelore_data/_xfer/vs1_acceptance_evidence.json`.
+
 ### 2026-07-30 — Gate 7 Phase 2: completed interview turns now reach extraction, through one held, idempotent, failure-isolated service
 
 **TRUTH-PIPELINE-01 Phase 2 is landed and has passed a full live acceptance run.**
