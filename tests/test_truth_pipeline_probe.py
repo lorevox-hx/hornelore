@@ -284,7 +284,13 @@ class CallSiteCoverageTest(unittest.TestCase):
     _SITES = {
         "raw_turn_saved": ["server/code/api/db.py"],
         "archive_event_created": ["server/code/api/archive.py"],
-        "extract_fields_called": ["server/code/api/routers/extract.py"],
+        # WO-TRUTH-PIPELINE-01 Phase 2 (2026-07-30) — this entry read
+        # ["server/code/api/routers/extract.py"] until this date. It
+        # stopped being true when the extraction body moved behind
+        # api.services.turn_extraction, which is where the mark now
+        # lives so that `extract_fields_called` means "the shared
+        # service ran" rather than "somebody hit that HTTP route".
+        "extract_fields_called": ["server/code/api/services/turn_extraction.py"],
         "family_truth_written": ["server/code/api/db.py"],
         "projection_updated": ["server/code/api/services/projection_writer.py"],
     }
@@ -405,11 +411,22 @@ class TurnPathReachabilityTest(unittest.TestCase):
     did not write anywhere". The probe plus a caller trace split it into
     three different things:
 
-      - extract_fields_called=0 is a REAL GAP. The endpoint has no
-        internal Python caller anywhere in the tree; only the browser
-        (ui/js/interview.js) posts to it. A chat_ws turn therefore never
-        extracts, so nothing downstream of extraction can fire either.
-        This is the single defect, and it is Phase 2 material.
+      - extract_fields_called=0 WAS a REAL GAP. Until 2026-07-30 this
+        entry read: "The endpoint has no internal Python caller anywhere
+        in the tree; only the browser (ui/js/interview.js) posts to it.
+        A chat_ws turn therefore never extracts, so nothing downstream
+        of extraction can fire either. This is the single defect, and it
+        is Phase 2 material."
+
+        That stopped being true on 2026-07-30. Phase 2 closed the gap:
+        the extraction body moved out of the route into
+        routers.extract.run_field_extraction, and both callers — the
+        HTTP endpoint and the chat_ws completed-turn path — now reach
+        it through api.services.turn_extraction. So on a completed
+        interview turn the EXPECTED value is now
+        extract_fields_called=1, and a 0 there is a regression. The
+        structural facts that survived the fix are pinned below by
+        test_the_extraction_route_is_only_a_seam.
 
       - family_truth_written=0 is CORRECT BY DESIGN for any turn. Every
         path into ft_add_note / ft_add_row is an explicit operator HTTP
@@ -423,8 +440,9 @@ class TurnPathReachabilityTest(unittest.TestCase):
         the `turn_mode == "correction"` branch. Both evidence turns ran
         turn_mode="interview", the harness default.
 
-    So Phase 2 is one fix, not three. These tests exist because that
-    sentence is only true while the three structural facts below hold.
+    So Phase 2 was one fix, not three — and as of 2026-07-30 it has
+    shipped. These tests exist because the reading above is only true
+    while the three structural facts below hold.
     They read the AST rather than the raw text on purpose: every one of
     these names also appears in comments and docstrings nearby, and a
     substring guard would pass on prose while missing a real call.
@@ -487,28 +505,121 @@ class TurnPathReachabilityTest(unittest.TestCase):
             "per CLAUDE.md:441, rather than weakening this gate.",
         )
 
-    def test_extract_fields_has_no_internal_python_caller(self):
-        """The one real gap, pinned as a gap.
+    def test_the_extraction_route_is_only_a_seam(self):
+        """The gap is closed; these are the shapes of the closure.
 
-        Nothing under server/code/api calls extract_fields(). The route
-        exists for the browser. When Phase 2 lands an internal caller
-        this test fails --- and that failure is the signal to flip the
-        checklist entry from "real gap" to "fixed", not to loosen the
-        assert.
+        WO-TRUTH-PIPELINE-01 Phase 2 (2026-07-30). This test replaces
+        test_extract_fields_has_no_internal_python_caller, which asserted
+        that NOTHING under server/code/api called extraction. Its own
+        failure message said: "If Phase 2 has closed that gap, say so in
+        the record and move this gate forward with a written reason."
+        Phase 2 closed it, the record is moved forward in this class
+        docstring and in the doctrine, and the reason is that a completed
+        turn is now supposed to extract.
+
+        The gate is moved forward, not removed. Three things that MUST
+        still hold, and each of which the old test was really protecting:
+
+          1. `extract_fields` — the FastAPI route function — still
+             has no internal Python caller. New code must go through the
+             service, not re-enter the endpoint. (A route function called
+             directly from Python is the shape that grows into a
+             self-call.)
+          2. The extraction implementation has exactly ONE internal
+             caller module: api/services/turn_extraction.py. If a second
+             module appears here, the "one shared service" property has
+             been lost.
+          3. chat_ws.py holds no copy of the implementation — it calls
+             the service and nothing else.
         """
-        callers = []
+        route_callers = []
+        impl_callers = []
         for path in self._api_py_files():
-            if "extract_fields" not in path.read_text(encoding="utf-8"):
+            text = path.read_text(encoding="utf-8")
+            if "extract_fields" not in text and "run_field_extraction" not in text:
                 continue  # cheap prefilter; the AST below is the gate
-            if "extract_fields" in self._called_names(self._tree(path)):
-                callers.append(str(path.relative_to(_REPO_ROOT)))
+            called = self._called_names(self._tree(path))
+            rel = str(path.relative_to(_REPO_ROOT)).replace("\\", "/")
+            if "extract_fields" in called:
+                route_callers.append(rel)
+            if "run_field_extraction" in called:
+                impl_callers.append(rel)
+
         self.assertFalse(
-            callers,
-            "extract_fields() now has internal Python caller(s) in "
-            f"{callers}. Phase 1's evidence was that a chat_ws turn "
-            "never extracts because only the browser posts to this "
-            "endpoint. If Phase 2 has closed that gap, say so in the "
-            "record and move this gate forward with a written reason.",
+            route_callers,
+            "the /api/extract-fields ROUTE FUNCTION now has internal "
+            f"Python caller(s) in {route_callers}. Phase 2's rule is "
+            "that both callers reach the shared service, not the "
+            "endpoint. Route the new caller through "
+            "api.services.turn_extraction instead.",
+        )
+
+        self.assertEqual(
+            sorted(impl_callers),
+            ["server/code/api/services/turn_extraction.py"],
+            "the extraction implementation run_field_extraction() is "
+            f"called from {sorted(impl_callers)}. Phase 2 requires "
+            "exactly one internal caller — the shared service — so "
+            "that the probe mark, the six-outcome observability "
+            "vocabulary and the persisted idempotency claim apply "
+            "uniformly. A second caller silently bypasses all three.",
+        )
+
+    def test_chat_ws_reaches_extraction_only_through_the_shared_service(self):
+        """The positive half of Phase 2, asserted behaviourally-in-shape.
+
+        The old gate proved a NEGATIVE (nothing calls extraction) and so
+        could pass forever while the fix rotted. This one proves the
+        POSITIVE: chat_ws calls the shared service, and calls nothing
+        else that could be an extraction shortcut.
+        """
+        tree = self._tree("server/code/api/routers/chat_ws.py")
+        called = set(self._called_names(tree))
+
+        # Resolve import aliases before asking who is called. chat_ws
+        # imports the service as `extract_completed_turn as _extract_turn`
+        # (the repo's local-import convention), so the callee name in the
+        # AST is the alias. Mapping alias -> real name keeps this a
+        # structural check instead of a naming-convention check.
+        aliases = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                for a in node.names:
+                    if a.asname:
+                        aliases[a.asname] = a.name
+        called = {aliases.get(name, name) for name in called}
+
+        self.assertIn(
+            "extract_completed_turn", called,
+            "chat_ws.py no longer calls extract_completed_turn(). That "
+            "call IS the Phase 2 fix: without it a completed interview "
+            "turn persists and archives but never extracts, which is "
+            "exactly the defect Gate 7 Phase 1 measured as "
+            "extract_fields_called=0.",
+        )
+
+        shortcuts = sorted(
+            {"run_field_extraction", "extract_fields", "run_http_extraction"} & called
+        )
+        self.assertFalse(
+            shortcuts,
+            f"chat_ws.py calls {shortcuts} directly. The completed-turn "
+            "path must reach extraction only through "
+            "extract_completed_turn(), which is the one place the "
+            "idempotency claim and the failure isolation live. Calling "
+            "the implementation or the HTTP seam directly skips both.",
+        )
+
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                if "routers.extract" in node.module or node.module.endswith("extract"):
+                    imported.add(node.module)
+        self.assertFalse(
+            imported,
+            f"chat_ws.py imports {sorted(imported)}. The WebSocket path "
+            "must not reach into the HTTP router module; it goes through "
+            "api.services.turn_extraction.",
         )
 
     def test_projection_write_from_chat_ws_sits_in_the_correction_branch(self):

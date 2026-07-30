@@ -9,7 +9,7 @@ import sqlite3
 import uuid
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 logger = logging.getLogger(__name__)
 
@@ -1551,11 +1551,34 @@ def persist_turn_transaction(
     assistant_message: str,
     model_name: str = "",
     meta: Optional[dict] = None,
-) -> None:
+) -> Optional[int]:
+    """Commit one user+assistant turn pair. Returns the assistant rowid.
+
+    WO-TRUTH-PIPELINE-01 Phase 2 (2026-07-30) -- the signature was
+    ``-> None`` until this date. It stopped being true when Phase 2
+    needed a stable idempotency key for turn-scoped field extraction.
+
+    The `turns` table carries no `turn_id` column (cols: id, conv_id,
+    role, content, ts, anchor_id, meta_json), and adding one is a wider
+    schema change than this phase should make. The assistant row's
+    AUTOINCREMENT `id` is already a stable, committed, per-turn
+    identifier -- so it is returned rather than invented. Callers that
+    need turn-scoped idempotency build their key from it
+    (``turnrow:<id>``); everything downstream keys off a row that
+    definitely exists rather than off a hash of the narrator's words.
+
+    All pre-Phase-2 call sites ignore the return value, so returning an
+    int instead of None is behaviour-preserving for them. Returns None
+    only if sqlite declines to report a lastrowid, which it does not do
+    for a successful INSERT into an INTEGER PRIMARY KEY table -- callers
+    must still treat None as "no stable key available" and skip
+    turn-scoped work rather than fabricate one.
+    """
     init_db()
     ensure_session(conv_id)
     ts = _now_iso()
 
+    assistant_rowid: Optional[int] = None
     con = _connect()
     cur = con.cursor()
     cur.execute("BEGIN")
@@ -1569,6 +1592,7 @@ def persist_turn_transaction(
             "INSERT INTO turns(conv_id,role,content,ts,anchor_id,meta_json) VALUES(?,?,?,?,?,?);",
             (conv_id, "assistant", assistant_message, ts, "", _json_dump(assistant_meta)),
         )
+        assistant_rowid = cur.lastrowid
         cur.execute("UPDATE sessions SET updated_at=? WHERE conv_id=?;", (ts, conv_id))
         cur.execute("COMMIT")
     except Exception:
@@ -1585,6 +1609,8 @@ def persist_turn_transaction(
         _tp.mark("raw_turn_saved", "turns")
     except Exception:
         pass
+
+    return assistant_rowid
 
 
 # -----------------------------------------------------------------------------
@@ -6930,3 +6956,194 @@ def consent_attestation_has_complete_set(narrator_id: str) -> bool:
     rows = consent_attestation_list_for_narrator(narrator_id)
     seen = {r["attestation_type"] for r in rows}
     return _CONSENT_ATTEST_TYPES.issubset(seen)
+
+
+# -----------------------------------------------------------------------------
+# WO-TRUTH-PIPELINE-01 Phase 2 (Gate 7) --- turn_extraction_ledger CRUD
+# -----------------------------------------------------------------------------
+#
+# Schema: server/code/db/migrations/0038_turn_extraction_ledger.sql.
+#
+# THE CLAIM IS THE GUARD. turn_extraction_claim() performs an INSERT
+# against a UNIQUE INDEX on (narrator_id, turn_key). The database, not
+# a Python set, decides who wins. That is deliberate: an in-process
+# guard dies with the worker, so a socket reconnect after a restart
+# would re-extract the same committed turn and duplicate its proposals.
+#
+# The claim is written BEFORE the work runs, at outcome='started', and
+# is updated to a terminal outcome after. A row left at 'started' is a
+# recorded in-flight attempt -- which is what makes an extraction that
+# disappears on process shutdown auditable instead of invisible.
+#
+# NOTHING HERE IS TRUTH. The ledger records that extraction was
+# requested for a persisted turn and how the request ended. It stores
+# identifiers, counts, and classifications only -- no narrative text,
+# no extracted values, no field paths (Gate 7 Step 5 privacy rule).
+
+TURN_EXTRACTION_OUTCOMES: Tuple[str, ...] = (
+    "started",
+    "succeeded",
+    "noop",
+    "failed",
+)
+
+
+def turn_extraction_key_for_row(turn_row_id: Any) -> str:
+    """Build the canonical turn_key from a committed `turns.id`.
+
+    Single place where the key format is decided so no caller invents a
+    second one. Returns "" when the row id is missing or not an int-like
+    value -- callers treat "" as "no stable key" and skip turn-scoped
+    idempotency rather than fall back to hashing text.
+    """
+    try:
+        rid = int(turn_row_id)
+    except (TypeError, ValueError):
+        return ""
+    if rid <= 0:
+        return ""
+    return f"turnrow:{rid}"
+
+
+def _row_to_turn_extraction(row) -> Optional[Dict[str, Any]]:
+    if row is None:
+        return None
+    if hasattr(row, "keys"):
+        return {k: row[k] for k in row.keys()}
+    return dict(row)
+
+
+def turn_extraction_get(
+    narrator_id: str,
+    turn_key: str,
+) -> Optional[Dict[str, Any]]:
+    """Look up the ledger row for one (narrator, persisted turn) pair."""
+    if not narrator_id or not turn_key:
+        return None
+    init_db()
+    con = _connect()
+    try:
+        cur = con.execute(
+            "SELECT * FROM turn_extraction_ledger "
+            "WHERE narrator_id = ? AND turn_key = ? LIMIT 1;",
+            (narrator_id, turn_key),
+        )
+        return _row_to_turn_extraction(cur.fetchone())
+    finally:
+        con.close()
+
+
+def turn_extraction_claim(
+    *,
+    narrator_id: str,
+    turn_key: str,
+    turn_id: str = "",
+    session_id: str = "",
+    turn_mode: str = "",
+    source: str = "",
+) -> Optional[int]:
+    """Claim the right to extract this persisted turn exactly once.
+
+    Returns the new ledger row id when THIS caller won the claim, or
+    None when a row already exists -- meaning some earlier attempt
+    already owns this turn and the caller must report `duplicate` and
+    do no work.
+
+    The IntegrityError from the UNIQUE INDEX is the mechanism, not an
+    error condition to be papered over. Any other sqlite error is
+    re-raised: a broken ledger must not silently degrade into
+    "extract every time".
+    """
+    if not narrator_id or not turn_key:
+        return None
+    init_db()
+    now = _now_iso()
+    con = _connect()
+    try:
+        cur = con.execute(
+            """
+            INSERT INTO turn_extraction_ledger(
+                narrator_id, turn_key, turn_id, session_id, turn_mode,
+                source, outcome, item_count, method, error_class,
+                duration_ms, created_at, updated_at
+            ) VALUES (?,?,?,?,?,?,'started',0,'','',0,?,?);
+            """,
+            (
+                narrator_id, turn_key, turn_id or "", session_id or "",
+                turn_mode or "", source or "", now, now,
+            ),
+        )
+        con.commit()
+        return cur.lastrowid
+    except sqlite3.IntegrityError:
+        # Expected on replay/reconnect/retry. Not a failure.
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        return None
+    finally:
+        con.close()
+
+
+def turn_extraction_finish(
+    *,
+    ledger_id: int,
+    outcome: str,
+    item_count: int = 0,
+    method: str = "",
+    error_class: str = "",
+    duration_ms: int = 0,
+) -> bool:
+    """Record the terminal outcome for a claim. Returns True if updated.
+
+    `outcome` must be one of TURN_EXTRACTION_OUTCOMES minus 'started'.
+    'duplicate' is deliberately NOT storable -- it describes a second
+    attempt, and writing it here would overwrite the first attempt's
+    real result.
+    """
+    if not ledger_id:
+        return False
+    outcome = (outcome or "").strip()
+    if outcome not in ("succeeded", "noop", "failed"):
+        raise ValueError(
+            "turn_extraction_finish outcome must be succeeded|noop|failed; "
+            f"got {outcome!r}"
+        )
+    init_db()
+    con = _connect()
+    try:
+        cur = con.execute(
+            """
+            UPDATE turn_extraction_ledger
+               SET outcome = ?, item_count = ?, method = ?,
+                   error_class = ?, duration_ms = ?, updated_at = ?
+             WHERE id = ?;
+            """,
+            (
+                outcome, int(item_count or 0), method or "",
+                error_class or "", int(duration_ms or 0), _now_iso(),
+                int(ledger_id),
+            ),
+        )
+        con.commit()
+        return bool(cur.rowcount)
+    finally:
+        con.close()
+
+
+def turn_extraction_count_for_narrator(narrator_id: str) -> int:
+    """How many ledger rows exist for this narrator. Harness/probe use."""
+    if not narrator_id:
+        return 0
+    init_db()
+    con = _connect()
+    try:
+        cur = con.execute(
+            "SELECT COUNT(*) FROM turn_extraction_ledger WHERE narrator_id = ?;",
+            (narrator_id,),
+        )
+        row = cur.fetchone()
+        return int(row[0]) if row else 0
+    finally:
+        con.close()

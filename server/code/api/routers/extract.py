@@ -7981,19 +7981,49 @@ def _apply_transcript_safety_layer(
 
 @router.post("/extract-fields", response_model=ExtractFieldsResponse)
 def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
-    """Extract multiple structured fields from a conversational answer."""
-    # TRUTH-PIPELINE-01 Phase 1 (Gate 7) --- observability only.
-    # No behavior change. No-op unless HORNELORE_TRUTH_PIPELINE_LOG=1 AND a
-    # turn probe is active in this context. This endpoint is reached from
-    # the browser (ui/js/interview.js) as a SEPARATE HTTP request, so on a
-    # chat_ws turn it correctly marks nothing --- that zero is the Gate 7
-    # evidence, not a defect. Phase 2/3 routing fixes stay deferred.
-    try:
-        from ..services import truth_pipeline_probe as _tp
-        _tp.mark("extract_fields_called", "extract-fields")
-    except Exception:
-        pass
+    """HTTP seam. The extraction itself lives in the shared service.
 
+    WO-TRUTH-PIPELINE-01 Phase 2 (2026-07-30). Until this date this
+    function WAS the extraction implementation, and it carried the note:
+
+        "This endpoint is reached from the browser (ui/js/interview.js)
+        as a SEPARATE HTTP request, so on a chat_ws turn it correctly
+        marks nothing --- that zero is the Gate 7 evidence, not a
+        defect. Phase 2/3 routing fixes stay deferred."
+
+    Half of that stopped being true on 2026-07-30. The zero was correct
+    as evidence, and the routing fix is no longer deferred: the
+    extraction body moved to run_field_extraction() below, and BOTH
+    callers -- this endpoint and the chat_ws completed-turn path -- now
+    reach it through api.services.turn_extraction. The WebSocket server
+    does NOT call this endpoint over HTTP, and chat_ws.py holds no copy
+    of the extraction implementation.
+
+    The probe mark moved with the logic. `extract_fields_called` now
+    reflects an actual invocation of the shared service rather than
+    "somebody hit this route" (Gate 7 Phase 2 Step 5).
+
+    Byte-stable for existing callers: same route, same request model,
+    same response model, same behavior.
+    """
+    from ..services.turn_extraction import run_http_extraction
+    return run_http_extraction(req)
+
+
+def run_field_extraction(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
+    """The extraction implementation. One copy, two callers.
+
+    WO-TRUTH-PIPELINE-01 Phase 2 (2026-07-30) --- this is the body that
+    used to sit directly under the @router.post decorator above. It was
+    moved out unchanged so the chat_ws completed-turn path can reach the
+    same code without duplicating it and without calling an HTTP route
+    from inside the process.
+
+    Do NOT call this directly from new code. Go through
+    api.services.turn_extraction so the probe mark, the six-outcome
+    observability vocabulary, and (on the turn path) the persisted
+    idempotency claim are applied uniformly.
+    """
     answer = (req.answer or "").strip()
     if not answer:
         return ExtractFieldsResponse(items=[], method="fallback")

@@ -194,8 +194,22 @@ def truth_pipeline_log_enabled() -> bool:
     projection_updated --- and emits one `[truth-pipeline]` line to
     api.log at the end of the turn.
 
-    Observability only. No routing change, no DB row, no table, no
-    narrator-facing surface. Phase 2/3 routing fixes stay deferred until
-    this evidence lands. Default OFF.
+    Observability only for THIS FLAG: turning it on changes no routing,
+    writes no DB row, creates no table, and adds no narrator-facing
+    surface. Default OFF.
+
+    Until 2026-07-30 this docstring also read: "Phase 2/3 routing fixes
+    stay deferred until this evidence lands." That stopped being true on
+    2026-07-30. The evidence landed (Phase 1 measured
+    `extract_fields_called = 0` on a completed interview turn) and the
+    Phase 2 routing fix shipped: the chat_ws completed-turn path now
+    reaches field extraction through
+    api.services.turn_extraction.extract_completed_turn.
+
+    That fix is NOT gated on this flag — extraction runs whether or not
+    the probe is logging. This flag still only decides whether the
+    five-stage summary line is emitted. Phase 3 (whether an extraction
+    proposal should reach the review queue automatically) remains
+    deferred and is not gated here either.
     """
     return _truthy(os.environ.get("HORNELORE_TRUTH_PIPELINE_LOG"))

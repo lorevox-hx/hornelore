@@ -369,6 +369,22 @@ async def ws_chat(ws: WebSocket):
         It wraps rather than instruments in place because the turn body
         returns early from eight deterministic short-circuit branches; a
         finally is the only placement that sees all of them.
+
+        WO-TRUTH-PIPELINE-01 PHASE 2 (2026-07-30) — this wrapper is no
+        longer observability-only. The bullet list above said "the probe
+        is NOT written to truth or any DB, and adds no table"; that is
+        still true OF THE PROBE, and the probe itself is unchanged. What
+        changed is that this wrapper now also carries the completed-turn
+        extraction hook, which does write one ledger row per turn (see
+        _run_completed_turn_extraction below).
+
+        Placement here is the whole point. By the time the awaited body
+        returns, every path — the main interview path and all six
+        deterministic short-circuit branches — has already sent its
+        {"type": "done"} frame. Extraction therefore starts AFTER the
+        browser's completed-turn signal is out the door and cannot delay
+        it. It also runs while the probe window is still open, so
+        `extract_fields_called` lands on the turn that provoked it.
         """
         _tp_token = None
         try:
@@ -384,6 +400,15 @@ async def ws_chat(ws: WebSocket):
 
         try:
             await _generate_and_stream_body(conv_id, user_text, params, ev)
+            # WO-TRUTH-PIPELINE-01 Phase 2 — the verified Gate 7 defect
+            # was that a completed chat_ws turn never requested field
+            # extraction. This is the fix, and it is the ONLY new call.
+            #
+            # Inside the try, not the finally: a turn body that raised did
+            # not complete, and an incomplete turn has nothing to extract.
+            # A body that returned normally has persisted its turn, written
+            # its archive event, and sent its done frame.
+            await _run_completed_turn_extraction(conv_id, user_text, params, ev)
         finally:
             if _tp_token is not None:
                 try:
@@ -396,6 +421,120 @@ async def ws_chat(ws: WebSocket):
                         "[truth-pipeline] probe close failed (turn "
                         "unaffected): %s", _tp_err,
                     )
+
+    async def _run_completed_turn_extraction(
+        conv_id: str,
+        user_text: str,
+        params: Dict[str, Any],
+        ev: threading.Event,
+    ) -> None:
+        """WO-TRUTH-PIPELINE-01 Phase 2 (Gate 7, 2026-07-30).
+
+        Request field extraction for a turn that has already completed.
+
+        THE DEFECT THIS CLOSES. Gate 7 Phase 1 measured five truth-write
+        stages per turn and found exactly one real fault:
+        extract_fields_called=0 on every chat_ws turn.
+        /api/extract-fields had no internal Python caller anywhere under
+        server/code/api/ — only ui/js/interview.js posted to it — so a
+        WebSocket-driven turn never extracted and nothing downstream of
+        extraction could fire.
+
+        WHAT THIS FUNCTION DOES NOT DO. It does not write family truth.
+        It does not touch a projection. Phase 1 proved both of those
+        zeroes were correct by design — family truth is operator-gated
+        behind POST /api/family-truth/*, projections are reachable only
+        from the `turn_mode == "correction"` branch — and Phase 2 left
+        both boundaries exactly where they were. The rule is: connect
+        completed turns to EXTRACTION, not to TRUTH.
+
+        FAILURE ISOLATION. Cannot raise except CancelledError. By the
+        time this runs the turn is persisted, the archive event is
+        written, and the done frame has been sent, so nothing here can
+        roll back a turn, roll back an archive event, terminate the
+        socket, replace the assistant reply, or leave the browser
+        waiting. The service itself is also non-raising; the try/except
+        here is a second wall in case this glue is what breaks.
+
+        PRECONDITIONS, all checked below rather than assumed:
+          * a committed assistant row id (the idempotency key)
+          * the required archive event actually persisted
+          * turn_mode is extraction-eligible
+          * the turn was not cancelled
+        """
+        try:
+            params = params or {}
+            turn_mode = str(params.get("turn_mode") or "").strip()
+
+            from ..services.turn_extraction import (
+                extract_completed_turn as _extract_turn,
+                extraction_eligible as _eligible,
+            )
+
+            # Cheapest gate first — most short-circuit modes exit here
+            # without importing db or touching the ledger at all.
+            if not _eligible(turn_mode):
+                return
+
+            # A cancelled turn did not complete for the narrator. Its
+            # persistence is already fail-closed upstream; do not layer
+            # extraction on top of a turn the user abandoned.
+            if ev is not None and ev.is_set():
+                logger.info(
+                    "[extract-turn] skipped conv=%s — turn cancelled",
+                    conv_id,
+                )
+                return
+
+            # The required archive event must have landed. Set by the
+            # main path only after archive_append_event returned.
+            if not params.get("_archive_event_persisted"):
+                logger.info(
+                    "[extract-turn] skipped conv=%s — required archive "
+                    "event not persisted for this turn", conv_id,
+                )
+                return
+
+            from ..db import turn_extraction_key_for_row as _key_for_row
+            _turn_key = _key_for_row(params.get("_persisted_turn_row_id"))
+            if not _turn_key:
+                logger.warning(
+                    "[extract-turn] skipped conv=%s — no committed turn "
+                    "row id, so no stable idempotency key", conv_id,
+                )
+                return
+
+            _outcome = await _extract_turn(
+                narrator_id=str(params.get("person_id") or ""),
+                turn_id=str(params.get("turn_id") or ""),
+                user_text=user_text or "",
+                assistant_text=None,
+                session_id=conv_id or None,
+                turn_key=_turn_key,
+                turn_mode=turn_mode,
+                source="chat_ws",
+                current_section=(params.get("current_section") or None),
+                current_target_path=(params.get("current_target_path") or None),
+                current_era=(params.get("current_era") or None),
+                current_pass=(params.get("current_pass") or None),
+                current_mode=(params.get("current_mode") or None),
+            )
+            logger.info(
+                "[extract-turn][chat_ws] conv=%s %s",
+                conv_id, _outcome.as_log_fields(),
+            )
+        except asyncio.CancelledError:
+            # Honour cancellation. The service already recorded the
+            # abandoned attempt in the ledger before re-raising.
+            raise
+        except Exception as _ext_exc:
+            # Class name only — an extractor message can quote the
+            # narrator's own words, and this line goes to api.log.
+            logger.error(
+                "[extract-turn] hook raised (turn already delivered and "
+                "persisted; nothing rolled back) conv=%s err=%s",
+                conv_id, _ext_exc.__class__.__name__,
+            )
 
     async def _generate_and_stream_body(conv_id: str, user_text: str, params: Dict[str, Any], ev: threading.Event) -> None:
       # WO-10M: Flag-outside-except OOM recovery pattern.
@@ -4618,13 +4757,28 @@ async def ws_chat(ws: WebSocket):
             _deferred_emit_pending = True
 
         try:
-            persist_turn_transaction(
+            _persisted_turn_row_id = persist_turn_transaction(
                 conv_id=conv_id,
                 user_message=user_text,
                 assistant_message=final_text,
                 model_name="local-llm-ws",
                 meta={"ws": True, "cancelled": ev.is_set()},
             )
+            # WO-TRUTH-PIPELINE-01 Phase 2 (Gate 7, 2026-07-30) — hand the
+            # committed assistant rowid to the post-response extraction
+            # hook in generate_and_stream(). `params` is the only object
+            # shared between this body and that wrapper, and it is a plain
+            # dict owned by this turn, so no new global or contextvar is
+            # needed. The underscore prefix marks it as server-internal:
+            # it is never echoed to the client and never persisted.
+            #
+            # The KEY is this row id, not the client's turn_id — a retrying
+            # client may mint a fresh turn_id for the same saved turn, and
+            # extraction must not run twice for one committed turn.
+            try:
+                params["_persisted_turn_row_id"] = _persisted_turn_row_id
+            except Exception:
+                pass
         except Exception as persist_err:
             logger.error("[chat-ws] Phase G: persist_turn_transaction failed — %s", persist_err)
             await _ws_send(ws, {"type": "error", "message": "Turn persist failed — no state written"})
@@ -4651,6 +4805,16 @@ async def ws_chat(ws: WebSocket):
                     current_era=_current_era_for_archive,  # WO-LORI-MEMORY-ECHO-ERA-STORIES-01 Phase 1
                 )
                 archive_rebuild_txt(person_id=person_id, session_id=conv_id)
+                # WO-TRUTH-PIPELINE-01 Phase 2 (Gate 7, 2026-07-30) — the
+                # extraction hook may only fire once the REQUIRED archive
+                # event has actually landed. Set inside the try, after the
+                # append returns, so a raising archive write leaves this
+                # False and extraction is skipped rather than run against a
+                # turn whose archive is incomplete.
+                try:
+                    params["_archive_event_persisted"] = True
+                except Exception:
+                    pass
             except Exception as arch_err:
                 logger.error("[chat-ws] Phase G: archive write failed — %s", arch_err)
 

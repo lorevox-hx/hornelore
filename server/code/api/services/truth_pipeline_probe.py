@@ -30,36 +30,74 @@ record could not choose between them:
 None of the five truth-write stages was observable per turn, so all
 three produced the same reading. This module makes them observable.
 
-Phase 1 stops here on purpose. README:637 — "Phase 2/3 routing fixes
-deferred until Phase 1 evidence lands." A stage that reports 0 here is
-EVIDENCE, not a defect to patch in this phase.
+Phase 1 stopped here on purpose. README:637 — "Phase 2/3 routing fixes
+deferred until Phase 1 evidence lands." A stage that reports 0 in a
+Phase 1 reading is EVIDENCE, not a defect patched in that phase.
+
+  2026-07-30 — Phase 1 evidence landed and Phase 2 shipped. The
+  deferral above is spent for the extraction stage; see the correction
+  under READING A ZERO. This module's own contract did not change:
+  still observability only, still no behaviour, still no DB row.
 
 READING A ZERO
 --------------
 A zero means "this stage did not fire inside this turn's server task".
-It does not by itself mean "broken". Two of the five stages are known
-today to be driven from the browser, not the server turn:
+It does not by itself mean "broken".
 
-  - `extract_fields_called`   — `ui/js/interview.js` posts to
-    /api/extract-fields; the chat_ws turn path never calls it.
-  - `family_truth_written`    — `ui/js/app.js` posts the note and the
-    proposal after the assistant reply lands.
+Until 2026-07-30 this section read:
 
-Those calls arrive as SEPARATE HTTP requests with no active turn
-context, so they legitimately mark nothing on the turn that provoked
-them. Phase 1 records that fact rather than hiding it: the stage is
+    "Two of the five stages are known today to be driven from the
+    browser, not the server turn:
+      - `extract_fields_called` — `ui/js/interview.js` posts to
+        /api/extract-fields; the chat_ws turn path never calls it.
+      - `family_truth_written` — `ui/js/app.js` posts the note and the
+        proposal after the assistant reply lands."
+
+The `extract_fields_called` half stopped being true on 2026-07-30.
+Phase 1 measured that zero on two live turns, tracing confirmed it was
+a real routing defect rather than a coverage gap, and Gate 7 Phase 2
+closed it: `api.services.turn_extraction` is now a shared extraction
+service called from BOTH the HTTP route and the chat_ws completed-turn
+path, and the mark moved out of routers/extract.py into that service.
+So the stage now means what its name says — the extraction capability
+was actually invoked — rather than "somebody hit that route".
+
+Consequence for reading evidence: on a completed interview turn,
+`extract_fields_called=1` is now the EXPECTED value. A 0 there is a
+regression to investigate, not a documented silence. On a
+short-circuit turn mode (floor_hold / meta_question / witness /
+memory_echo / age_recall / correction) 0 remains correct — those modes
+are not extraction-eligible.
+
+`family_truth_written` is unchanged and still browser-driven:
+`ui/js/app.js` posts the note and the proposal as SEPARATE HTTP
+requests with no active turn context, so they legitimately mark nothing
+on the turn that provoked them. That zero is a deliberate review
+boundary, and Phase 2 preserved it — no completed interview turn writes
+family truth. `projection_updated` is likewise still correction-mode
+only.
+
+Phase 1 recorded these facts rather than hiding them: every stage is
 instrumented (`instrumented` is True for all five), so 0 distinguishes
 "did not fire here" from "was never measured".
 
 CORRELATION
 -----------
 There is no single identifier spanning all five stages in the schema —
-`turns` carries no `turn_id` column, and adding one is a schema change
-Phase 1 is not allowed to make. Instead the probe binds a record to the
-running turn with a `contextvars.ContextVar`, so no writer signature
-changes and no id has to be threaded through the nine
+`turns` carries no `turn_id` column, and adding one was a schema change
+Phase 1 was not allowed to make. Instead the probe binds a record to
+the running turn with a `contextvars.ContextVar`, so no writer
+signature changes and no id has to be threaded through the nine
 `persist_turn_transaction` call sites. Writers call `mark(...)`; when
 no turn is active, or the flag is off, `mark(...)` returns immediately.
+
+  2026-07-30 — Phase 2 needed a DURABLE per-turn key, which a
+  contextvar cannot be, and solved it without adding the column:
+  `persist_turn_transaction` now returns the committed assistant
+  `turns.id`, and turn-scoped work keys off `turnrow:<id>`. That is a
+  persistence detail of the extraction ledger, not of this probe —
+  this module still persists nothing. The contextvar above remains the
+  in-process correlation mechanism and is unchanged.
 
 Completed records go to a small in-memory ring buffer (precedent:
 services/stack_monitor.py) so the operator harness can read the summary
