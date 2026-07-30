@@ -505,7 +505,7 @@ chain:
 |---|---|---|
 | `raw_turn_saved` | `db.py`, after `persist_turn_transaction` | **Yes, always** |
 | `archive_event_created` | `archive.py`, after the JSONL append | **Yes, always** (twice) |
-| `extract_fields_called` | `routers/extract.py` | **No — and that is the defect** |
+| `extract_fields_called` | `services/turn_extraction.py::_mark_probe`, reached by both `/api/extract-fields` and the chat_ws completed-turn path (moved there 2026-07-30; it was `routers/extract.py`) | **Yes on an interview turn, since 2026-07-30.** Corrected in place: this cell read *"No — and that is the defect"*, which was true from Phase 1's reading until Phase 2 landed the same day |
 | `family_truth_written` | `db.py`, in `ft_add_note` / `ft_add_row` | **No, by design** |
 | `projection_updated` | `services/projection_writer.py` | **Only on a correction turn** |
 
@@ -577,10 +577,192 @@ identical to a throwaway synthetic id.
 ### Scope wall
 
 Phase 1 was observability only: no schema change, no migration, no
-behavior change. Phase 2 (the extraction routing fix) and Phase 3 are
-**not started** and are Chris's to open. README's condition —
-*"Phase 2/3 routing fixes deferred until Phase 1 evidence lands"* — is
-met, but a met condition is permission to ask, not permission to build.
+behavior change.
+
+**Corrected 2026-07-30.** The rest of this section read:
+
+> *"Phase 2 (the extraction routing fix) and Phase 3 are **not started**
+> and are Chris's to open. README's condition — 'Phase 2/3 routing fixes
+> deferred until Phase 1 evidence lands' — is met, but a met condition is
+> permission to ask, not permission to build."*
+
+That was accurate for the few hours it stood. Chris opened Phase 2 the
+same day and it is landed and live-verified; the section below is what
+replaced it. Phase 3 remains not started.
+
+---
+
+## Completed-turn field extraction (Gate 7, Phase 2)
+
+**Added 2026-07-30, TRUTH-PIPELINE-01 Phase 2.** Phase 1 proved exactly
+one defect: a completed chat_ws interview turn never invoked the
+extraction capability. This section is what closed it.
+
+### The shape
+
+    user turn completes
+      → raw turn persists                    (db.py, persist_turn_transaction)
+      → archive event persists               (archive.py, JSONL append)
+      → the completed-turn response is sent to the browser
+      → extraction is REQUESTED              (services/turn_extraction.py)
+      → its outcome or its failure is recorded observably
+      → the turn stays successful either way
+      → no family truth is written
+      → no correction projection is updated
+
+The governing rule, in Chris's words: *connect completed turns to
+extraction through one shared, idempotent, observable, failure-isolated
+service; do not connect interview turns directly to truth.*
+
+### One service, two callers
+
+`server/code/api/services/turn_extraction.py` holds the extraction
+capability. `POST /api/extract-fields` and the chat_ws completed-turn
+hook both enter through it. The WebSocket server does **not** call its
+own HTTP endpoint, and the extractor is not duplicated in `chat_ws.py`.
+The route's external behaviour is unchanged — that is pinned by test,
+not by inspection.
+
+The `extract_fields_called` probe mark moved out of the HTTP route and
+into the service at the same time, so the stage now means *the
+extraction capability was invoked* rather than *somebody hit that
+route*. Both callers pass through the one `_mark_probe`.
+
+### Idempotency boundary
+
+The key is `turnrow:<rowid>` — the AUTOINCREMENT id of the **committed
+assistant turn row**, returned by `persist_turn_transaction` and carried
+forward as `params["_persisted_turn_row_id"]`. Not the request's
+`turn_id`, which the client supplies, and never the raw text, which
+repeats legitimately.
+
+It is enforced in the database, not in memory:
+`turn_extraction_ledger` (migration `0038`) carries
+`UNIQUE INDEX ux_turn_extraction_ledger_key ON (narrator_id, turn_key)`.
+A claim is an insert. A replay loses the insert and returns `duplicate`
+without doing any work. A process restart does not reopen the window,
+which is the property an in-memory guard could not have given.
+
+`duplicate` is deliberately **not** a stored outcome. The stored set is
+`started` / `succeeded` / `noop` / `failed`; "duplicate" describes the
+*caller's* result on a claim that someone else already holds, and
+writing it would overwrite the real row's outcome.
+
+### Failure isolation, and why the task is held
+
+The order is: persist the critical turn data, complete the user-facing
+response, then extract. Extraction cannot delay or fail the turn.
+
+The first live run on 2026-07-30 failed here, and the failure is worth
+recording because the obvious implementation is the wrong one. The
+extraction was `await`ed on the turn's own task, after the `done` frame
+was sent. The browser then disconnected — correctly, it had its answer —
+the turn task was cancelled, and the extraction was cancelled with it:
+both interview turns recorded `outcome='failed'`
+`error_class='CancelledError'` at 815 ms and 839 ms.
+
+The fix is `schedule_completed_turn_extraction()`, which does the
+eligibility check, the ledger claim, and the probe mark **inline** on
+the turn task, then hands the extractor call to a task created as a
+*sibling* rather than awaited. A sibling task is not cancelled when its
+parent is. Two details make that safe rather than fragile:
+
+- `asyncio.create_task` holds only a **weak** reference, so a running
+  task can be garbage-collected mid-flight. The tasks are held in a
+  module-level strong-reference set and discarded by a done-callback.
+- A process that exited without draining would strand ledger rows at
+  `outcome='started'` forever. `main.py` therefore carries an
+  `@app.on_event("shutdown")` handler — the first event handler that
+  file has ever had — which awaits `drain_pending_extractions()`.
+  Anything still running is given a bounded window and then cancelled
+  *and recorded as cancelled*, so the ledger never lies about what
+  happened.
+
+The probe mark has to stay in the inline half for a mechanical reason:
+`contextvars` are copied at `create_task` time, but the truth-pipeline
+probe files its line in a `finally` after the turn body returns, so a
+mark made from the completion task would land nowhere.
+
+### Observability
+
+Event vocabulary, all on the `[extract-turn]` prefix in `api.log`:
+`extract_fields_requested`, `extract_fields_started`,
+`extract_fields_succeeded`, `extract_fields_noop`,
+`extract_fields_duplicate`, `extract_fields_failed`.
+
+Each carries `turn_id`, `narrator_id`, `session_id`, `turn_mode`,
+outcome, duration, and an error **classification**. The ledger stores
+the same fields plus `item_count` and `method`.
+
+`error_class` is a bare exception class name and nothing else. No
+message, no traceback, no narrator text — a message can quote the
+narrative that provoked it, and the acceptance test asserts the stored
+value contains neither a space nor an `=` for exactly that reason. No
+raw private narrative text is logged anywhere on this path.
+
+### The two boundaries this phase did not move
+
+- **Family truth stays review-gated.** An interview turn writes none.
+  Every path into `ft_add_note` / `ft_add_row` remains an explicit
+  operator HTTP action.
+- **Correction projections stay mode-gated.** An interview turn performs
+  no projection update; a correction turn still reaches
+  `projection_writer.apply_correction` through the existing guarded
+  path. Correction behaviour was not redesigned here.
+
+Both are asserted structurally rather than by substring, so a docstring
+or comment quoting a function name cannot pass or fail the check.
+
+### Live evidence, 2026-07-30
+
+Against the running stack on Chris's machine, narrator
+`harness-test-gate7p2-002608f7`, via the operator harness. Evidence
+JSON in `<DATA_DIR>/_xfer/gate7_phase2_evidence_phase{1,2,3}.json`.
+
+| Test | Turn | raw_turn | archive | extract_called | family_truth | projection | Outcome |
+|---|---|---|---|---|---|---|---|
+| A | normal interview | 1 | 2 | **1** | 0 | 0 | ledger `succeeded`, browser `done` |
+| B | replay of A | — | — | — | — | — | `duplicate (already_processed)`, no second ledger row |
+| C | forced failure | 1 | 2 | **1** | 0 | 0 | ledger `failed`, `error_class=ForcedExtractionFailure`, browser `done` |
+| D | correction control | 1 | 1 | 0 | 0 | **1** | projection version `None -> 1`, field source `correction` |
+| E | flags off | — | — | — | — | — | `/api/operator/harness/*` → 404, disposable narrator fully removed |
+
+The number that closed the gate is Test A's `extract_fields_called=1`.
+The Phase 1 reading of the same stage, on the same path, was `0`.
+
+Test C's value is that `1` and not `0`: a failed extraction must not be
+indistinguishable from never having asked. Its `family_truth_written=0`
+and `projection_updated=0` also hold — a failure does not open a
+side door.
+
+Test D is the control that proves the mode gate still works in the
+direction it is supposed to fire, not merely in the direction it is
+supposed to stay silent.
+
+**A note on Test C's `story_candidates` delta of 1**, which is not
+extraction. That row comes from `story_preservation.preserve_turn` on
+the story-trigger path in `chat_ws.py`, and `api.log` shows it firing
+99 ms after classification and roughly ten seconds before the forced
+extraction failure was recorded. The Test C text carries three scene
+anchors and trips `borderline_scene_anchor`; the Test A text carries
+two and logs `trigger=None`. Field extraction only ever *updates*
+`story_candidates.extracted_fields`; the single `INSERT` in the tree is
+the preservation path.
+
+### The forced-failure seam
+
+Test C's failure comes from `HORNELORE_EXTRACTION_FORCE_FAILURE`, which
+exists only for this test, is read at extraction time, is off by
+default, and short-circuits before the extractor is built so no model
+call is spent. No production configuration is touched to produce the
+failure.
+
+Because it is read in-process, an unrestarted server silently produces a
+meaningless result — that happened on the first attempt and the run had
+to be discarded. The harness health route therefore reports
+`forced_failure_armed` as a **boolean only**, and the acceptance driver
+refuses to run Phase 1 if the seam is armed and refuses to run Phase 2
+if it is not.
 
 ---
 

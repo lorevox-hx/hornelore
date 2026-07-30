@@ -273,6 +273,78 @@ The extraction pipeline is one output surface; **Lori is the companion** — des
 
 ## Changelog
 
+### 2026-07-30 — Gate 7 Phase 2: completed interview turns now reach extraction, through one held, idempotent, failure-isolated service
+
+**TRUTH-PIPELINE-01 Phase 2 is landed and has passed a full live acceptance run.**
+Four commits: `fd680f6` (code), `ab76c23` (tests), `e586809` (the acceptance-driver
+predicate fix), and this one (docs). The defect Phase 1 named — *a completed `chat_ws`
+interview turn did not invoke the existing extraction capability* — is closed. Gate 7
+moves 🟡 → 🟢.
+
+**One service, two callers.** `server/code/api/services/turn_extraction.py` holds the
+provider-neutral extraction call. `POST /api/extract-fields` and the completed-turn path
+in `chat_ws.py` both enter through it. The WebSocket server does not call its own HTTP
+endpoint, and the extraction implementation is not duplicated in `chat_ws.py`.
+
+**The idempotency key is a persisted row, not text.** `turnrow:<assistant turn rowid>`,
+returned by `persist_turn_transaction` and carried forward as
+`params["_persisted_turn_row_id"]`. It is enforced by
+`ux_turn_extraction_ledger_key (narrator_id, turn_key)` in migration 0038, not by an
+in-memory guard, so it survives a restart. A replayed turn reports `duplicate`, and
+`duplicate` is deliberately never *stored* — the ledger keeps the outcome of the work
+that actually ran (`started`, `succeeded`, `noop`, `failed`), and a duplicate by
+definition ran none.
+
+**The extraction task is held, and drained on shutdown.** The live run found this the
+hard way: the first Phase 2 attempt recorded `error_class=CancelledError` at 815 ms and
+839 ms. `asyncio.create_task` keeps only a weak reference, so a running extraction could
+be garbage-collected mid-flight, and a client disconnect was tearing it down. The fix is
+a module-level strong-reference set plus a done-callback, and an `on_event('shutdown')`
+drain. A sibling task created with `create_task` is not cancelled when its parent is
+cancelled — that property is what makes the isolation real rather than nominal. The
+truth-pipeline probe mark stays in the inline half of the turn, because contextvars are
+copied at `create_task` time and the probe files in a `finally` after the turn body has
+already returned.
+
+**Both boundaries still hold, and were measured holding.** An interview turn writes no
+family truth and updates no correction projection. The live control turn (Test D) still
+updates a projection through the correction path, so the silence on interview turns is a
+boundary and not a broken pipe.
+
+**The acceptance driver failed Test C on its own passing evidence, and that was the
+driver's bug.** `projection_unchanged` read
+`rec["db_delta"].get("projection_version") is None`. `_delta` omits a key whose values
+are equal and non-numeric, so while no disposable narrator had ever owned an
+`interview_projections` row, *unchanged* and *absent* were the same state and `is None`
+was accidentally right. Once the `ensure_disposable_person` fixture let Phase 1 Test D
+write a real projection, *unchanged* began arriving as the integer `0`, and `0 is None`
+is False — producing a failure whose own detail line read
+`probe projection_updated=0; version delta 0`, which are the passing values. Corrected to
+three explicit comparisons against zero via `projection_is_unchanged`, with 16 tests
+including a negative control for each of the three measurements. Truthiness is wrong in
+both directions here: `0` is the value required, and `"None -> 1"` is the value rejected.
+No production extraction code was changed for this.
+
+**Live evidence, narrator `harness-test-gate7p2-002608f7-fa77-4814-9cb2-da7d777f92e3`.**
+Test A normal turn: raw turn 1, archive events 2, extract called 1, family truth 0,
+projection 0, ledger `succeeded`. Test B replay: `duplicate (already_processed)`, every
+delta 0 including the ledger. Test C forced failure through a harness-only seam: ledger
+`failed`, `error_class=ForcedExtractionFailure`, `turn_key=turnrow:1447`, 70 ms, and the
+browser turn still succeeded. Test D correction control: `projection_version` `None -> 1`.
+Test E with the flags off: the harness routes return 404, not 403, and cleanup left no
+rows for the disposable narrator. All five browser turns returned ok/done.
+
+**One unrelated write appears in Test C and is not extraction.** `story_candidates`
+moved by 1, from `story_preservation.preserve_turn` — the sole caller of
+`story_candidate_insert` — fired by the content-driven story-trigger classifier
+(`trigger=borderline_scene_anchor`, three scene anchors) 99 ms after classification and
+about ten seconds before the forced extraction failure. Field extraction only ever
+*updates* `story_candidates.extracted_fields`; it never inserts.
+
+**Not in this phase:** correction behavior was not redesigned, the review boundary was
+not weakened, and the archived isolation probe was repaired only as far as Phase 2
+measurement required.
+
 ### 2026-07-30 — Gate 7 reads out: one defect, two correct-by-design silences, and "the turn did not write anywhere" was false as worded
 
 **TRUTH-PIPELINE-01 Phase 1 is landed, flag-live, and read.** Three commits: `0b70e45`
