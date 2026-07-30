@@ -39,6 +39,7 @@ import asyncio
 import os
 import sqlite3
 import sys
+import threading
 import tempfile
 import types
 import unittest
@@ -113,6 +114,10 @@ from api.services import truth_pipeline_probe as _tp         # noqa: E402
 _CHAT_WS = _SERVER_CODE / "api" / "routers" / "chat_ws.py"
 _EXTRACT_ROUTER = _SERVER_CODE / "api" / "routers" / "extract.py"
 _SERVICE = _SERVER_CODE / "api" / "services" / "turn_extraction.py"
+
+
+_MAIN_PY = _SERVER_CODE / "api" / "main.py"
+_HARNESS_ROUTER = _SERVER_CODE / "api" / "routers" / "operator_harness.py"
 
 
 def _tree(path: Path) -> ast.AST:
@@ -997,6 +1002,364 @@ class BoundariesTest(_ServiceCase):
 
 
 # ══ 14 + 15. Nothing else moved ══════════════════════════════════════════
+# ══ 6. The completion task: scheduled, held, drained ═════════════════════
+class ScheduledCompletionTest(_ServiceCase):
+    """The fix for the first live acceptance run.
+
+    That run recorded outcome='failed' error_class='CancelledError' at
+    815 ms and 839 ms for both interview turns. The cause was structural,
+    not a bug in the extractor: the hook awaited extraction inside the
+    turn's own task, the harness closed its socket the moment it had the
+    `done` frame, and chat_ws cancelled the turn task with the extractor
+    still inside it. Every assertion in this class exists because that
+    happened.
+    """
+
+    def _ledger(self):
+        con = sqlite3.connect(str(self.db_path))
+        con.row_factory = sqlite3.Row
+        try:
+            return [dict(r) for r in con.execute(
+                "SELECT * FROM turn_extraction_ledger WHERE narrator_id = ? "
+                "ORDER BY id", (self.narrator_id,))]
+        finally:
+            con.close()
+
+    def _schedule(self, turn_key, **kw):
+        params = dict(
+            narrator_id=self.narrator_id,
+            turn_id=kw.pop("turn_id", "t-sched"),
+            user_text=kw.pop("user_text", "I was born in Mandan in 1958."),
+            session_id=self.conv_id,
+            turn_key=turn_key,
+            turn_mode=kw.pop("turn_mode", "interview"),
+        )
+        params.update(kw)
+        return tx.schedule_completed_turn_extraction(**params)
+
+    def test_scheduling_claims_inline_and_finishes_on_a_held_task(self):
+        """The claim must be durable BEFORE the task exists, so an
+        abandoned attempt is auditable rather than invisible."""
+        _row_id, key = self._save_turn()
+
+        async def go():
+            out = self._schedule(key)
+            # Claimed and recorded before anything is awaited.
+            self.assertEqual(out.status, "scheduled")
+            self.assertTrue(out.ok, "a scheduled turn is not a failed turn")
+            self.assertFalse(
+                out.terminal,
+                "'scheduled' is not an outcome, it is a promise of one",
+            )
+            mid = self._ledger()
+            self.assertEqual(len(mid), 1)
+            self.assertEqual(
+                mid[0]["outcome"], "started",
+                "the claim row must exist at 'started' the instant "
+                "scheduling returns, not after the extractor finishes",
+            )
+            self.assertEqual(tx.pending_extraction_count(), 1)
+            report = await tx.drain_pending_extractions(timeout=10.0)
+            return report
+
+        report = asyncio.run(go())
+        self.assertEqual(report["cancelled"], 0)
+        rows = self._ledger()
+        self.assertEqual(len(rows), 1, "one turn, one ledger row")
+        self.assertEqual(rows[0]["outcome"], "succeeded")
+        self.assertEqual(rows[0]["error_class"], "")
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(tx.pending_extraction_count(), 0,
+                         "a finished task must be released from the registry")
+
+    def test_the_extraction_survives_cancellation_of_the_turn_task(self):
+        """THE REGRESSION. Cancel the parent task mid-extraction; the
+        extraction must still complete and record a real outcome.
+
+        A sibling task created with create_task is not cancelled when the
+        task that created it is cancelled. That property is the entire
+        reason the work moved off the turn task, so it is asserted
+        directly rather than inferred from the absence of an error.
+        """
+        _row_id, key = self._save_turn()
+        entered = threading.Event()
+        release = threading.Event()
+
+        def _slow(req):
+            entered.set()
+            release.wait(10.0)
+            self.calls.append(req)
+            return self._response
+
+        tx._call_extractor = _slow
+
+        async def go():
+            async def turn_task():
+                self._schedule(key)
+                # The turn body goes on living until the client vanishes.
+                await asyncio.sleep(3600)
+
+            parent = asyncio.create_task(turn_task())
+            for _ in range(500):
+                if entered.is_set():
+                    break
+                await asyncio.sleep(0.01)
+            self.assertTrue(entered.is_set(),
+                            "the extractor never started; test is invalid")
+            # This is the harness closing its socket.
+            parent.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await parent
+            self.assertEqual(
+                tx.pending_extraction_count(), 1,
+                "cancelling the turn task took the extraction with it — "
+                "this is exactly the live defect of 2026-07-30",
+            )
+            release.set()
+            return await tx.drain_pending_extractions(timeout=10.0)
+
+        try:
+            report = asyncio.run(go())
+        finally:
+            release.set()   # never leave a pool thread blocked at exit
+
+        self.assertEqual(report["cancelled"], 0)
+        rows = self._ledger()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(
+            rows[0]["outcome"], "succeeded",
+            "the extraction died with its parent again; the live run "
+            "recorded exactly this as failed/CancelledError",
+        )
+        self.assertEqual(rows[0]["error_class"], "")
+
+    def test_the_drain_cancels_leftovers_and_records_each_one(self):
+        """Step 4: no task may silently disappear on process shutdown
+        without recording its state."""
+        _row_id, key = self._save_turn()
+        entered = threading.Event()
+        release = threading.Event()   # deliberately never set in time
+
+        def _stuck(req):
+            entered.set()
+            release.wait(30.0)
+            return self._response
+
+        tx._call_extractor = _stuck
+
+        async def go():
+            self._schedule(key)
+            for _ in range(500):
+                if entered.is_set():
+                    break
+                await asyncio.sleep(0.01)
+            return await tx.drain_pending_extractions(timeout=0.5)
+
+        try:
+            report = asyncio.run(go())
+        finally:
+            release.set()
+
+        self.assertEqual(report["pending_at_shutdown"], 1)
+        self.assertEqual(report["finished_within_timeout"], 0)
+        self.assertEqual(report["cancelled"], 1)
+        rows = self._ledger()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(
+            rows[0]["outcome"], "failed",
+            "a cancelled extraction left its ledger row at 'started'. "
+            "An abandoned attempt that looks in-flight forever is the "
+            "'silently disappear' case Step 4 forbids.",
+        )
+        self.assertEqual(rows[0]["error_class"], "CancelledError")
+
+    def test_the_drain_is_a_no_op_when_nothing_is_pending(self):
+        report = asyncio.run(tx.drain_pending_extractions(timeout=0.5))
+        self.assertEqual(report["pending_at_shutdown"], 0)
+        self.assertEqual(report["cancelled"], 0)
+
+    def test_an_ineligible_mode_is_terminal_and_creates_no_task(self):
+        _row_id, key = self._save_turn()
+
+        async def go():
+            out = self._schedule(key, turn_mode="correction")
+            self.assertEqual(out.status, "noop")
+            self.assertTrue(out.terminal)
+            self.assertEqual(tx.pending_extraction_count(), 0)
+            return out
+
+        asyncio.run(go())
+        self.assertEqual(self._ledger(), [],
+                         "an ineligible turn must not claim the ledger")
+        self.assertEqual(self.calls, [])
+
+    def test_a_replayed_turn_is_a_duplicate_and_creates_no_second_task(self):
+        _row_id, key = self._save_turn()
+
+        async def go():
+            first = self._schedule(key)
+            await tx.drain_pending_extractions(timeout=10.0)
+            second = self._schedule(key, turn_id="t-replay")
+            self.assertEqual(tx.pending_extraction_count(), 0,
+                             "a duplicate must not spawn a second extractor")
+            return first, second
+
+        first, second = asyncio.run(go())
+        self.assertEqual(first.status, "scheduled")
+        self.assertEqual(second.status, "duplicate")
+        self.assertTrue(second.terminal)
+        self.assertEqual(len(self._ledger()), 1)
+        self.assertEqual(len(self.calls), 1)
+
+    def test_scheduling_without_a_running_loop_closes_its_own_claim(self):
+        """Never raise into the caller, and never abandon a claim.
+
+        There is no running loop here, so the task cannot be created. The
+        row must not be left at 'started' forever just because the
+        scheduler could not do its job.
+        """
+        _row_id, key = self._save_turn()
+        out = self._schedule(key)          # called from sync context
+        self.assertEqual(out.status, "failed")
+        self.assertTrue(out.terminal)
+        rows = self._ledger()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["outcome"], "failed")
+        self.assertNotEqual(rows[0]["error_class"], "")
+
+    def test_the_awaiting_entry_point_is_unchanged(self):
+        """extract_completed_turn still runs inline and returns a
+        terminal outcome. The HTTP-side and test-side callers depend on
+        that, and Phase 2 added a second entry point rather than
+        replacing the first."""
+        _row_id, key = self._save_turn()
+        out = self._extract(key)
+        self.assertEqual(out.status, "succeeded")
+        self.assertTrue(out.terminal)
+        self.assertEqual(tx.pending_extraction_count(), 0)
+        self.assertEqual(self._ledger()[0]["outcome"], "succeeded")
+
+    def test_forced_failure_armed_reports_this_process_only(self):
+        """The acceptance script refuses to run Test C unless the SERVER
+        says the seam is live. It was run once against a server that had
+        never been restarted with it, and scored a meaningless
+        CancelledError as the result."""
+        self.assertFalse(tx.forced_failure_armed())
+        os.environ["HORNELORE_EXTRACTION_FORCE_FAILURE"] = "raise"
+        try:
+            self.assertTrue(tx.forced_failure_armed())
+        finally:
+            os.environ.pop("HORNELORE_EXTRACTION_FORCE_FAILURE", None)
+        self.assertFalse(tx.forced_failure_armed())
+
+
+# ══ 7. The wiring around the task ════════════════════════════════════════
+class SchedulingWiringTest(unittest.TestCase):
+    """Source-level facts. Asserted through the AST, never by substring:
+    every string below also appears in a docstring somewhere in these
+    files, and a substring check would go green on the prose alone."""
+
+    def test_the_chat_ws_hook_schedules_and_does_not_await_extraction(self):
+        tree = _tree(_CHAT_WS)
+        called = _called_names(tree)
+        self.assertIn(
+            "schedule_completed_turn_extraction", called,
+            "the completed-turn hook stopped scheduling extraction",
+        )
+        self.assertNotIn(
+            "extract_completed_turn", called,
+            "chat_ws is awaiting extraction inline again. That is the "
+            "shape that produced failed/CancelledError on every "
+            "interview turn of the 2026-07-30 live run.",
+        )
+
+    def test_the_hook_still_lives_in_the_completed_turn_path(self):
+        """Scheduling is only safe where awaiting was: after the turn is
+        persisted, after the archive event, after the done frame."""
+        tree = _tree(_CHAT_WS)
+        sites = [
+            n.lineno for n in ast.walk(tree)
+            if isinstance(n, ast.Call)
+            and getattr(n.func, "id", "") == "_schedule_extraction"
+        ]
+        self.assertTrue(sites, "no call to the scheduling alias at all")
+        for lineno in sites:
+            self.assertEqual(
+                _enclosing_function(tree, lineno),
+                "_run_completed_turn_extraction",
+                "extraction is being scheduled from somewhere other than "
+                "the completed-turn hook",
+            )
+
+    def test_main_py_drains_pending_extractions_on_shutdown(self):
+        """Without this the background task is exactly the 'fragile
+        detached task that can silently disappear on process shutdown'
+        Step 4 forbids."""
+        tree = _tree(_MAIN_PY)
+        handlers = [
+            n for n in ast.walk(tree)
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and any(
+                isinstance(d, ast.Call)
+                and getattr(d.func, "attr", "") == "on_event"
+                and any(getattr(a, "value", None) == "shutdown"
+                        for a in d.args)
+                for d in n.decorator_list
+            )
+        ]
+        self.assertTrue(handlers, "main.py has no shutdown handler")
+        drains = [h for h in handlers
+                  if "drain_pending_extractions" in _called_names(h)]
+        self.assertTrue(
+            drains,
+            "a shutdown handler exists but nothing drains the extraction "
+            "tasks, so in-flight rows would be stranded at 'started'",
+        )
+
+    def test_the_harness_reports_its_own_arming_state(self):
+        tree = _tree(_HARNESS_ROUTER)
+        health = next(
+            (n for n in ast.walk(tree)
+             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+             and n.name == "harness_health"), None)
+        self.assertIsNotNone(health, "the harness health route is gone")
+        keys = {
+            k.value for n in ast.walk(health) if isinstance(n, ast.Dict)
+            for k in n.keys if isinstance(k, ast.Constant)
+        }
+        self.assertIn("forced_failure_armed", keys)
+        self.assertIn("truth_pipeline_log", keys)
+        self.assertIn(
+            "forced_failure_armed", _called_names(health),
+            "the health route reports a key it never asks the service "
+            "for — a hardcoded boolean would be worse than no boolean",
+        )
+
+    def test_the_harness_probe_window_outlasts_the_turn_body(self):
+        """The first live run reported truth_pipeline=None for turns the
+        server's own api.log had already recorded. That was a 0.5 s
+        reporting window, not a missing probe."""
+        tree = _tree(_HARNESS_ROUTER)
+        fn = next(
+            (n for n in ast.walk(tree)
+             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+             and n.name == "_truth_pipeline_summary"), None)
+        self.assertIsNotNone(fn)
+        waits = [
+            n.value for n in ast.walk(fn)
+            if isinstance(n, ast.BinOp) and isinstance(n.op, ast.Add)
+            and isinstance(n.right, ast.Constant)
+            and isinstance(n.right.value, (int, float))
+            for n in [n.right]
+        ]
+        self.assertTrue(waits, "the poll deadline is no longer a literal")
+        self.assertGreaterEqual(
+            max(waits), 5.0,
+            "the probe poll window shrank back below 5 s; a false "
+            "absence there reads as a pipeline defect",
+        )
+
+
 class NoCollateralChangeTest(unittest.TestCase):
     """Acceptance items 14 and 15.
 

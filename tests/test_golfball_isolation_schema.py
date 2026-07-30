@@ -289,6 +289,55 @@ class MissingTableBehaviourTest(unittest.TestCase):
         spec.loader.exec_module(mod)
         return mod
 
+    def test_cleanup_removes_the_disposable_people_row(self):
+        """ADDED 2026-07-30. The Gate 7 Phase 2 acceptance run now creates
+        a real `people` row for its disposable narrator, because
+        interview_projections declares a FOREIGN KEY to people(id) and a
+        correction could not otherwise be written. `people` is keyed on
+        `id`, so neither of cleanup_synthetic's two loops --- one over
+        narrator_id, one over person_id --- ever reaches it. A cleanup
+        that left the row behind would report success while the synthetic
+        narrator stayed in the operator's people list."""
+        conn = sqlite3.connect(str(self.path))
+        conn.execute("CREATE TABLE people (id TEXT PRIMARY KEY, "
+                     "display_name TEXT NOT NULL)")
+        conn.execute("INSERT INTO people (id, display_name) VALUES (?, ?)",
+                     ("harness-test-alpha", "disposable"))
+        conn.execute("INSERT INTO people (id, display_name) VALUES (?, ?)",
+                     ("kent-real-narrator", "Kent"))
+        conn.commit()
+        conn.close()
+
+        result = self.probe.cleanup_synthetic(str(self.path),
+                                              "harness-test-alpha")
+        self.assertTrue(result.get("ok"), result)
+        self.assertEqual(result["deleted"].get("people"), 1,
+                         "cleanup did not delete the disposable people row")
+
+        left = {r[0] for r in self.conn.execute("SELECT id FROM people")}
+        self.assertNotIn("harness-test-alpha", left)
+        self.assertIn("kent-real-narrator", left,
+                      "cleanup reached a narrator it was never given")
+
+    def test_cleanup_refuses_a_narrator_outside_the_harness_prefix(self):
+        """The prefix guard is the only thing standing between this
+        function and a live narrator's people row."""
+        conn = sqlite3.connect(str(self.path))
+        conn.execute("CREATE TABLE people (id TEXT PRIMARY KEY, "
+                     "display_name TEXT NOT NULL)")
+        conn.execute("INSERT INTO people (id, display_name) VALUES (?, ?)",
+                     ("kent-real-narrator", "Kent"))
+        conn.commit()
+        conn.close()
+
+        result = self.probe.cleanup_synthetic(str(self.path),
+                                              "kent-real-narrator")
+        self.assertFalse(result.get("ok"))
+        left = {r[0] for r in self.conn.execute("SELECT id FROM people")}
+        self.assertIn("kent-real-narrator", left,
+                      "cleanup deleted a live narrator. The prefix guard "
+                      "is the whole safety mechanism here.")
+
     def test_a_missing_table_counts_as_none_not_zero(self):
         self.assertIsNone(
             self.probe._scoped_count(self.conn, "no_such_table", "narrator_id", "n1"),

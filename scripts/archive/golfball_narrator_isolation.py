@@ -570,6 +570,27 @@ def cleanup_synthetic(db_path: str, narrator_id: str) -> Dict[str, Any]:
                 deleted["turns"] = cur.rowcount
             except sqlite3.Error:
                 deleted["turns"] = -1
+        # `people` is keyed on id, not narrator_id or person_id, so neither
+        # loop above reaches it. ADDED 2026-07-30: the Gate 7 Phase 2
+        # acceptance run now creates a real people row for its disposable
+        # narrator, because interview_projections has a FOREIGN KEY to
+        # people(id) and a correction could not otherwise be written. A
+        # cleanup that left that row behind would report success while the
+        # synthetic narrator stayed in the people list.
+        #
+        # Deleted LAST, after every child row is gone. The prefix guard at the
+        # top of this function is what makes this safe: it is the same guard
+        # that protects every other table here, and no live narrator id can
+        # begin with "harness-test-".
+        if _table_exists(conn, "people"):
+            try:
+                cur = conn.execute(
+                    "DELETE FROM people WHERE id = ? AND id LIKE ?",
+                    (narrator_id, "harness-test-%"),
+                )
+                deleted["people"] = cur.rowcount
+            except sqlite3.Error:
+                deleted["people"] = -1
         conn.commit()
     finally:
         conn.close()

@@ -577,10 +577,10 @@ class TurnPathReachabilityTest(unittest.TestCase):
         called = set(self._called_names(tree))
 
         # Resolve import aliases before asking who is called. chat_ws
-        # imports the service as `extract_completed_turn as _extract_turn`
-        # (the repo's local-import convention), so the callee name in the
-        # AST is the alias. Mapping alias -> real name keeps this a
-        # structural check instead of a naming-convention check.
+        # imports the service under a local alias (the repo's
+        # local-import convention), so the callee name in the AST is the
+        # alias. Mapping alias -> real name keeps this a structural check
+        # instead of a naming-convention check.
         aliases = {}
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
@@ -589,13 +589,40 @@ class TurnPathReachabilityTest(unittest.TestCase):
                         aliases[a.asname] = a.name
         called = {aliases.get(name, name) for name in called}
 
+        # CORRECTED 2026-07-30 by the first live acceptance run. Until
+        # that run this assertion read:
+        #
+        #     self.assertIn(
+        #         "extract_completed_turn", called,
+        #         "chat_ws.py no longer calls extract_completed_turn().
+        #         That call IS the Phase 2 fix: without it a completed
+        #         interview turn persists and archives but never
+        #         extracts, which is exactly the defect Gate 7 Phase 1
+        #         measured as extract_fields_called=0.")
+        #
+        # The reasoning was right and the named function was wrong.
+        # extract_completed_turn AWAITS the extractor on the caller's own
+        # task. In chat_ws that caller is the turn task, the harness
+        # closes its socket the moment it has the `done` frame, chat_ws
+        # cancels the turn task, and every interview turn of that run
+        # recorded outcome='failed' error_class='CancelledError' at
+        # ~830 ms. The awaiting entry point still exists and is still the
+        # HTTP-side and test-side path; what chat_ws must use is the
+        # scheduling one, which claims the ledger inline and completes on
+        # a task the service holds and drains at shutdown.
         self.assertIn(
-            "extract_completed_turn", called,
-            "chat_ws.py no longer calls extract_completed_turn(). That "
-            "call IS the Phase 2 fix: without it a completed interview "
-            "turn persists and archives but never extracts, which is "
-            "exactly the defect Gate 7 Phase 1 measured as "
+            "schedule_completed_turn_extraction", called,
+            "chat_ws.py no longer schedules completed-turn extraction. "
+            "That call IS the Phase 2 fix: without it a completed "
+            "interview turn persists and archives but never extracts, "
+            "which is exactly the defect Gate 7 Phase 1 measured as "
             "extract_fields_called=0.",
+        )
+        self.assertNotIn(
+            "extract_completed_turn", called,
+            "chat_ws.py is awaiting extraction on the turn task again. "
+            "That is the shape the 2026-07-30 live run proved cannot "
+            "survive the client disconnecting after `done`.",
         )
 
         shortcuts = sorted(

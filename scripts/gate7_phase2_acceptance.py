@@ -106,6 +106,7 @@ import sqlite3
 import sys
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -225,6 +226,13 @@ def snapshot(narrator_id: str) -> Dict[str, Any]:
         out["turns"] = (_count(
             conn, "SELECT COUNT(*) FROM turns WHERE conv_id LIKE ?",
             (f"%{narrator_id}%",)) if _table_exists(conn, "turns") else None)
+        # ADDED 2026-07-30. The disposable narrator now gets a real `people`
+        # row (see ensure_disposable_person below), so Test E's
+        # "no rows left for the disposable narrator" has to count it or the
+        # cleanup check would pass while leaving the row behind.
+        out["people"] = (_count(
+            conn, "SELECT COUNT(*) FROM people WHERE id = ?",
+            (narrator_id,)) if _table_exists(conn, "people") else None)
         # Projection version — a correction can overwrite fields in place.
         out["projection_version"] = None
         out["projection_updated_at"] = ""
@@ -239,6 +247,101 @@ def snapshot(narrator_id: str) -> Dict[str, Any]:
     finally:
         conn.close()
     return out
+
+
+def ensure_disposable_person(narrator_id: str) -> Dict[str, Any]:
+    """Give the disposable narrator a real `people` row before any turn.
+
+    ADDED 2026-07-30, by the first live acceptance run. Test D failed there
+    with `projection_update_path_reachable: probe projection_updated=0`, and
+    api.log carried the actual cause:
+
+        [projection-writer] upsert_projection failed
+        person=harness-test-gate7p2-03d26274-...: FOREIGN KEY constraint failed
+
+    `interview_projections` declares
+    FOREIGN KEY(person_id) REFERENCES people(id) ON DELETE CASCADE, and the
+    harness narrator existed only as a string in conv ids. The correction path
+    was reached and the parse was correct; the write could not land because
+    the narrator was not a person. That is a FIXTURE defect in this script,
+    not a defect in the correction path, and the fix belongs here.
+
+    Written with sqlite directly rather than through POST /api/people because
+    PersonCreate mints its own id --- the API cannot be asked to create a row
+    at a chosen id, and the id is the whole point.
+
+    Refuses any id outside the harness prefix, mirroring the same guard in
+    cleanup_synthetic. narrator_type is 'live': a 'reference' narrator is
+    protected by _block_if_reference and would measure a different path.
+    """
+    if not narrator_id.startswith("harness-test-"):
+        return {"ok": False, "error": "refusing to create a non-synthetic person"}
+    now = datetime.now(timezone.utc).isoformat()
+    conn = _connect()
+    try:
+        existing = conn.execute(
+            "SELECT id FROM people WHERE id = ?", (narrator_id,)).fetchone()
+        if existing is not None:
+            return {"ok": True, "created": False, "id": narrator_id}
+        conn.execute(
+            "INSERT INTO people (id, display_name, role, created_at, "
+            "updated_at, narrator_type) VALUES (?, ?, ?, ?, ?, ?)",
+            (narrator_id, "Gate 7 disposable harness narrator",
+             "narrator", now, now, "live"),
+        )
+        conn.commit()
+        return {"ok": True, "created": True, "id": narrator_id}
+    except sqlite3.Error as exc:
+        return {"ok": False, "error": f"{exc.__class__.__name__}: {exc}"}
+    finally:
+        conn.close()
+
+
+_LEDGER_TERMINAL = ("succeeded", "noop", "failed")
+
+
+def wait_for_ledger_settled(
+    narrator_id: str,
+    known_ids: Any = (),
+    *,
+    timeout: float = 30.0,
+) -> Dict[str, Any]:
+    """Block until this narrator's new ledger rows leave outcome='started'.
+
+    ADDED 2026-07-30. Extraction used to be awaited inside the turn body, so
+    by the time the harness answered, the ledger row was already final and a
+    flat `time.sleep(1.0)` was enough. It is not enough any more: the claim is
+    written inline at outcome='started' and the extractor now runs on a
+    background task that finishes after the response. A fixed sleep would race
+    a real model call, and Test C asserts on the FINAL row --- outcome
+    'failed', error_class 'ForcedExtractionFailure' --- so reading a row still
+    at 'started' would report a false failure.
+
+    Polls instead of sleeping, and returns what it saw rather than raising, so
+    a genuine hang is reported as a timeout in the evidence file instead of
+    being hidden by a longer sleep.
+    """
+    seen = set(known_ids or ())
+    deadline = time.monotonic() + timeout
+    report: Dict[str, Any] = {"timeout_s": timeout, "settled": False,
+                              "waited_s": 0.0, "unsettled": []}
+    start = time.monotonic()
+    while True:
+        rows = [r for r in ledger_rows(narrator_id) if r["id"] not in seen]
+        unsettled = [r for r in rows
+                     if str(r.get("outcome") or "") not in _LEDGER_TERMINAL]
+        if rows and not unsettled:
+            report["settled"] = True
+            report["waited_s"] = round(time.monotonic() - start, 3)
+            report["rows"] = len(rows)
+            return report
+        if time.monotonic() >= deadline:
+            report["waited_s"] = round(time.monotonic() - start, 3)
+            report["rows"] = len(rows)
+            report["unsettled"] = [
+                {"id": r["id"], "outcome": r.get("outcome")} for r in unsettled]
+            return report
+        time.sleep(0.25)
 
 
 def _delta(pre: Dict[str, Any], post: Dict[str, Any]) -> Dict[str, Any]:
@@ -434,10 +537,14 @@ def test_a(narrator_id: str) -> Dict[str, Any]:
         "turn_id": turn_id, "turn_mode": "interview",
     }
     pre = snapshot(narrator_id)
+    pre_ledger = ledger_rows(narrator_id)
     pre_archive = archive_jsonl_lines(narrator_id, session_id)
     resp = harness_turn(person_id=narrator_id, text=_TEST_A_TEXT,
                         session_id=session_id, turn_id=turn_id)
-    time.sleep(1.0)          # the probe files its record in a finally
+    # The probe files its record in a finally, and the extractor now runs on
+    # a background task, so neither is guaranteed done when the response is.
+    rec["ledger_settle"] = wait_for_ledger_settled(
+        narrator_id, {r["id"] for r in pre_ledger})
     post = snapshot(narrator_id)
     post_archive = archive_jsonl_lines(narrator_id, session_id)
 
@@ -455,6 +562,13 @@ def test_a(narrator_id: str) -> Dict[str, Any]:
            "HORNELORE_TRUTH_PIPELINE_LOG must be exported into the SERVER "
            "process, not just this shell. truth_pipeline was "
            f"{resp.get('truth_pipeline')!r}.")
+    _check(rec, "extraction_reached_a_final_outcome",
+           bool(rec["ledger_settle"].get("settled")),
+           "the extraction ledger row never left outcome='started' inside "
+           f"{rec['ledger_settle'].get('timeout_s')}s: "
+           f"{json.dumps(rec['ledger_settle'])}. Every ledger assertion "
+           "below reads a row that is still in flight, so none of them "
+           "means anything.")
     _check(rec, "raw_turn_saved==1", counts.get("raw_turn_saved") == 1,
            f"probe reported {counts.get('raw_turn_saved')!r}")
     _check(rec, "archive_event_created>=1",
@@ -721,7 +835,8 @@ def test_c(narrator_id: str) -> Dict[str, Any]:
     pre_archive = archive_jsonl_lines(narrator_id, session_id)
     resp = harness_turn(person_id=narrator_id, text=_TEST_C_TEXT,
                         session_id=session_id, turn_id=turn_id)
-    time.sleep(1.0)
+    rec["ledger_settle"] = wait_for_ledger_settled(
+        narrator_id, {r["id"] for r in pre_ledger})
     post = snapshot(narrator_id)
     post_ledger = ledger_rows(narrator_id)
     post_archive = archive_jsonl_lines(narrator_id, session_id)
@@ -761,6 +876,13 @@ def test_c(narrator_id: str) -> Dict[str, Any]:
            counts.get("extract_fields_called") == 1,
            f"probe reported {counts.get('extract_fields_called')!r}; a failed "
            "attempt must not be indistinguishable from never asking")
+    _check(rec, "extraction_reached_a_final_outcome",
+           bool(rec["ledger_settle"].get("settled")),
+           "the extraction ledger row never left outcome='started' inside "
+           f"{rec['ledger_settle'].get('timeout_s')}s: "
+           f"{json.dumps(rec['ledger_settle'])}. Every ledger assertion "
+           "below reads a row that is still in flight, so none of them "
+           "means anything.")
     _check(rec, "exactly_one_new_ledger_row", len(new_rows) == 1,
            f"{len(new_rows)} new ledger rows")
     if len(new_rows) == 1:
@@ -965,7 +1087,25 @@ def main() -> int:
                   "re-run. (A 404 here is the correct CLOSED state — it is "
                   "only wrong for phases 1 and 2.)", file=sys.stderr)
             return 2
+        armed = bool((health.get("body") or {}).get("forced_failure_armed")) \
+            if isinstance(health.get("body"), dict) else False
+        print(f"  failure seam   : {'ARMED' if armed else 'disarmed'} "
+              "(server process)")
+        if armed:
+            print("\nFATAL: HORNELORE_EXTRACTION_FORCE_FAILURE is armed in the "
+                  "SERVER process. Tests A, B and D measure the normal path "
+                  "and would all be measuring the Test C seam instead. Unset "
+                  "it, restart the stack, and re-run phase 1.", file=sys.stderr)
+            return 2
         print(f"  narrator       : {narrator_id}")
+        fixture = ensure_disposable_person(narrator_id)
+        print(f"  people row     : {fixture}")
+        if not fixture.get("ok"):
+            print("\nFATAL: could not create the disposable people row. "
+                  "interview_projections has a FOREIGN KEY to people(id), so "
+                  "Test D would fail on the fixture rather than on the "
+                  "correction path.", file=sys.stderr)
+            return 2
         a = test_a(narrator_id)
         records.append(a)
         _print_record(a)
@@ -994,12 +1134,28 @@ def main() -> int:
             print("\nFATAL: the harness must still be enabled for Test C.",
                   file=sys.stderr)
             return 2
+        # ADDED 2026-07-30. The first live Test C was run against a server
+        # that had never been restarted with the seam exported. It recorded
+        # error_class='CancelledError' from a real extractor at ~830 ms
+        # instead of ForcedExtractionFailure, so the test measured nothing
+        # and had to be discarded. The server now reports its own arming
+        # state, and this refuses to spend a turn without it.
+        armed = bool((health.get("body") or {}).get("forced_failure_armed")) \
+            if isinstance(health.get("body"), dict) else False
+        print(f"  failure seam   : {'ARMED' if armed else 'DISARMED'} "
+              "(server process)")
+        if not armed:
+            print("\nFATAL: the forced-failure seam is not live in the SERVER "
+                  "process. Exporting HORNELORE_EXTRACTION_FORCE_FAILURE in "
+                  "this shell is not enough — the stack must be restarted "
+                  "with it exported. Stop the API, export the variable in the "
+                  "terminal that starts it, start it again, and re-run "
+                  "phase 2.", file=sys.stderr)
+            if env["forced_failure_in_this_shell"] == "(unset)":
+                print("       (it is not set in this shell either.)",
+                      file=sys.stderr)
+            return 2
         print(f"  narrator       : {narrator_id}")
-        if env["forced_failure_in_this_shell"] == "(unset)":
-            print("  NOTE: the failure seam is not set in THIS shell. That is "
-                  "fine as long as it was exported into the server process "
-                  "before the restart; the ledger check below is what "
-                  "actually proves it.")
         c = test_c(narrator_id)
         records.append(c)
         _print_record(c)
