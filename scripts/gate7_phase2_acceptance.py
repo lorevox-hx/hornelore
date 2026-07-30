@@ -356,6 +356,75 @@ def _delta(pre: Dict[str, Any], post: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def _delta_is_zero(delta: Dict[str, Any], key: str) -> bool:
+    """True only when `key` moved by exactly nothing.
+
+    CORRECTED 2026-07-30 by the second live acceptance run. Test C's
+    `projection_unchanged` check used to read:
+
+        counts.get("projection_updated", 0) == 0
+        and rec["db_delta"].get("projection_version") is None
+
+    That predicate was written when no disposable narrator had ever owned
+    an `interview_projections` row, so "unchanged" and "absent" were the
+    same state and `_delta` above omitted the key entirely. Once Phase 1
+    Test D started writing a real projection for the same narrator, an
+    UNCHANGED version began arriving as the integer 0 --- and `0 is None`
+    is False, so the check reported a failure whose own detail line read
+    `probe projection_updated=0; version delta 0`. Both of those numbers
+    are the PASSING values. The assertion contradicted its own evidence.
+
+    The distinction this helper has to preserve is that `_delta` encodes
+    three different situations in one slot:
+
+        key absent   the value was equal on both sides and was not an int
+                     --- for projection_version that means no row existed
+                     before and none exists now. Unchanged.
+        int          both sides numeric; the value is post minus pre.
+                     Unchanged only when it is exactly 0.
+        str          something like "None -> 1": the row came into
+                     existence, or a non-numeric value moved. CHANGED,
+                     and it must never be read as zero.
+
+    Truthiness is wrong here in both directions: 0 is the value we
+    require, and a non-empty string like "None -> 1" is the value we
+    reject, so `if delta.get(key)` would invert this check exactly.
+    """
+    if key not in delta:
+        return True
+    value = delta[key]
+    if isinstance(value, bool):
+        return False
+    return isinstance(value, int) and value == 0
+
+
+def projection_is_unchanged(counts: Dict[str, Any],
+                            db_delta: Dict[str, Any]) -> bool:
+    """No correction projection was created, rewritten, or bumped.
+
+    A named function rather than an inline expression so the regression
+    test can exercise THE predicate instead of a copy of it. The bug this
+    replaces survived because the expression lived in one place and was
+    only ever evaluated by a live run.
+
+    Three independent measurements, each compared explicitly to zero:
+
+        probe projection_updated   the pipeline stage counter --- did the
+                                   turn ASK to update a projection
+        interview_projections      row count for this narrator --- did a
+                                   projection come into existence
+        projection_version         the version stamp --- did an existing
+                                   projection get rewritten in place at
+                                   the same row count
+
+    All three must be zero. None of them may be evaluated for truthiness,
+    because zero is the required value.
+    """
+    return (counts.get("projection_updated", 0) == 0
+            and _delta_is_zero(db_delta, "interview_projections")
+            and _delta_is_zero(db_delta, "projection_version"))
+
+
 def ledger_rows(narrator_id: str) -> List[Dict[str, Any]]:
     """The extraction ledger for this narrator. No narrative text lives
     here by design — identifiers, outcome, counts, error CLASS only."""
@@ -907,10 +976,15 @@ def test_c(narrator_id: str) -> Dict[str, Any]:
            and (rec["db_delta"].get("family_truth_notes") or 0) == 0,
            json.dumps({k: v for k, v in rec["db_delta"].items()
                        if "family_truth" in k}))
+    # CORRECTED 2026-07-30 — see _delta_is_zero. Three independent
+    # measurements, each compared explicitly against zero: the probe stage,
+    # the projection ROW COUNT, and the projection VERSION stamp. The row
+    # count catches a projection appearing; the version stamp catches one
+    # being rewritten in place at the same row count.
     _check(rec, "projection_unchanged",
-           counts.get("projection_updated", 0) == 0
-           and rec["db_delta"].get("projection_version") is None,
+           projection_is_unchanged(counts, rec["db_delta"]),
            f"probe projection_updated={counts.get('projection_updated')!r}; "
+           f"row delta {rec['db_delta'].get('interview_projections')!r}; "
            f"version delta {rec['db_delta'].get('projection_version')!r}")
     rec["passed"] = not rec.get("failures")
     return rec
