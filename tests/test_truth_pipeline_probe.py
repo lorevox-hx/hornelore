@@ -31,9 +31,19 @@ What these tests pin, and why each one earns its place:
 
   - No narrator text anywhere in the line. CLAUDE.md:44 --- no operator
     leakage, no diagnostic surfaces. Ids and counts only.
+
+  - The Phase 1 READING itself (added 2026-07-30, after the live
+    evidence run). Two of the three zeros are correct-by-design and one
+    is a real gap, and that split is the entire deliverable of Gate 7.
+    A reading recorded only in prose goes stale the first time somebody
+    wires family truth into the turn path. TurnPathReachabilityTest
+    pins the three structural facts the reading rests on, so a later
+    change to any of them fails the build and forces the doctrine
+    forward instead of leaving the record quietly wrong.
 """
 from __future__ import annotations
 
+import ast
 import os
 import sys
 import unittest
@@ -378,6 +388,186 @@ class HarnessSurfaceTest(unittest.TestCase):
         text = self._HARNESS.read_text(encoding="utf-8")
         self.assertIn("if not _tp.enabled():", text)
         self.assertIn("return None", text)
+
+
+class TurnPathReachabilityTest(unittest.TestCase):
+    """Pins the TRUTH-PIPELINE-01 Phase 1 reading (2026-07-30).
+
+    The live evidence run fired two harness turns --- one synthetic
+    narrator, one real narrator (Kent) --- with identical results:
+
+        raw_turn_saved=1  archive_event_created=2
+        extract_fields_called=0  family_truth_written=0
+        projection_updated=0     fired=2/5
+
+    Before Phase 1 that read as one undifferentiated failure, which is
+    what the archived golfball probe called "speaker_zero_delta --- turn
+    did not write anywhere". The probe plus a caller trace split it into
+    three different things:
+
+      - extract_fields_called=0 is a REAL GAP. The endpoint has no
+        internal Python caller anywhere in the tree; only the browser
+        (ui/js/interview.js) posts to it. A chat_ws turn therefore never
+        extracts, so nothing downstream of extraction can fire either.
+        This is the single defect, and it is Phase 2 material.
+
+      - family_truth_written=0 is CORRECT BY DESIGN for any turn. Every
+        path into ft_add_note / ft_add_row is an explicit operator HTTP
+        action: POST /note, POST /note/{id}/propose, and POST /backfill
+        (which is the only caller of ft_backfill_from_profile_json).
+        Family truth is a review-gated pipeline. A turn is not supposed
+        to write it, and if a turn ever did, that would be the bug.
+
+      - projection_updated=0 is CORRECT BY DESIGN for an INTERVIEW turn.
+        chat_ws reaches projection_writer.apply_correction only inside
+        the `turn_mode == "correction"` branch. Both evidence turns ran
+        turn_mode="interview", the harness default.
+
+    So Phase 2 is one fix, not three. These tests exist because that
+    sentence is only true while the three structural facts below hold.
+    They read the AST rather than the raw text on purpose: every one of
+    these names also appears in comments and docstrings nearby, and a
+    substring guard would pass on prose while missing a real call.
+    """
+
+    _API = _REPO_ROOT / "server/code/api"
+
+    @staticmethod
+    def _tree(rel_or_path):
+        path = rel_or_path
+        if not isinstance(path, Path):
+            path = _REPO_ROOT / rel_or_path
+        return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+
+    @staticmethod
+    def _called_names(tree):
+        """Terminal callee names for every Call in the tree.
+
+        `db.ft_add_note(...)` and a bare `ft_add_note(...)` both reduce
+        to "ft_add_note"; anything in a comment or a string reduces to
+        nothing at all, which is the point.
+        """
+        out = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if isinstance(func, ast.Name):
+                out.append(func.id)
+            elif isinstance(func, ast.Attribute):
+                out.append(func.attr)
+        return out
+
+    def _api_py_files(self):
+        return sorted(
+            p for p in self._API.rglob("*.py")
+            if "__pycache__" not in p.parts
+        )
+
+    def test_family_truth_is_never_written_from_the_turn_path(self):
+        """chat_ws must not call the family-truth writers.
+
+        family_truth_written=0 on a harness turn is only correct-by-
+        design while this holds. If a later phase wires extraction
+        through to family truth, this test fails first --- move the
+        reading forward in the doctrine and the checklist in the same
+        commit, do not just delete the assert.
+        """
+        called = set(self._called_names(
+            self._tree("server/code/api/routers/chat_ws.py")
+        ))
+        leaked = sorted({"ft_add_note", "ft_add_row"} & called)
+        self.assertFalse(
+            leaked,
+            "chat_ws.py now calls the family-truth writer(s) "
+            f"{leaked}. The Phase 1 reading recorded in CLAUDE.md and "
+            "the checklist says family_truth_written=0 is correct by "
+            "design because every write is an explicit operator HTTP "
+            "action. That reading is now wrong. Update it with a date, "
+            "per CLAUDE.md:441, rather than weakening this gate.",
+        )
+
+    def test_extract_fields_has_no_internal_python_caller(self):
+        """The one real gap, pinned as a gap.
+
+        Nothing under server/code/api calls extract_fields(). The route
+        exists for the browser. When Phase 2 lands an internal caller
+        this test fails --- and that failure is the signal to flip the
+        checklist entry from "real gap" to "fixed", not to loosen the
+        assert.
+        """
+        callers = []
+        for path in self._api_py_files():
+            if "extract_fields" not in path.read_text(encoding="utf-8"):
+                continue  # cheap prefilter; the AST below is the gate
+            if "extract_fields" in self._called_names(self._tree(path)):
+                callers.append(str(path.relative_to(_REPO_ROOT)))
+        self.assertFalse(
+            callers,
+            "extract_fields() now has internal Python caller(s) in "
+            f"{callers}. Phase 1's evidence was that a chat_ws turn "
+            "never extracts because only the browser posts to this "
+            "endpoint. If Phase 2 has closed that gap, say so in the "
+            "record and move this gate forward with a written reason.",
+        )
+
+    def test_projection_write_from_chat_ws_sits_in_the_correction_branch(self):
+        """projection_updated=0 is design for interview, not for correction.
+
+        The distinction matters for reading future evidence: a
+        correction turn that still reports projection_updated=0 IS a
+        defect, and an interview turn that reports 0 is not. That is
+        only a usable rule while every apply_correction call in chat_ws
+        is inside `if turn_mode == "correction":`.
+        """
+        tree = self._tree("server/code/api/routers/chat_ws.py")
+
+        def _is_correction_test(node):
+            return (
+                isinstance(node, ast.Compare)
+                and isinstance(node.left, ast.Name)
+                and node.left.id == "turn_mode"
+                and len(node.ops) == 1
+                and isinstance(node.ops[0], ast.Eq)
+                and len(node.comparators) == 1
+                and isinstance(node.comparators[0], ast.Constant)
+                and node.comparators[0].value == "correction"
+            )
+
+        def _apply_call_ids(root):
+            found = set()
+            for node in ast.walk(root):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "apply_correction"
+                ):
+                    found.add(id(node))
+            return found
+
+        all_calls = _apply_call_ids(tree)
+        self.assertTrue(
+            all_calls,
+            "chat_ws.py no longer calls projection_writer."
+            "apply_correction at all. The Phase 1 reading says a "
+            "correction turn is the one turn shape that can move the "
+            "projection. If that path is gone, the reading is stale.",
+        )
+
+        guarded = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.If) and _is_correction_test(node.test):
+                for stmt in node.body:
+                    guarded |= _apply_call_ids(stmt)
+
+        self.assertEqual(
+            all_calls, guarded,
+            "an apply_correction() call in chat_ws.py sits outside the "
+            '`turn_mode == "correction"` branch. Phase 1 recorded '
+            "projection_updated=0 as correct-by-design for an interview "
+            "turn on exactly that basis. Either restore the guard or "
+            "date the correction into the record.",
+        )
 
 
 if __name__ == "__main__":
