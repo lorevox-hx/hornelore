@@ -273,6 +273,106 @@ The extraction pipeline is one output surface; **Lori is the companion** — des
 
 ## Changelog
 
+### 2026-07-30 — Gate 7 reads out: one defect, two correct-by-design silences, and "the turn did not write anywhere" was false as worded
+
+**TRUTH-PIPELINE-01 Phase 1 is landed, flag-live, and read.** Three commits: `0b70e45`
+(code), `7a317df` (tests), and this one (docs and the reading). The lane Chris named as
+the next parent-use priority after banking the Picker lane is closed at Phase 1. No
+schema change, no migration, no dependency, no venv change, no `.env` change, and no
+behavior change — the probe is default-OFF behind `HORNELORE_TRUTH_PIPELINE_LOG` and
+absent from `.env` entirely.
+
+**What was actually wrong with the old number.** The archived golfball probe reported
+`speaker_zero_delta` and glossed it *"turn did not write anywhere."* That gloss was
+wrong in three separate ways at once, and Phase 1's whole value is that it can now tell
+them apart. **(a) The turn does write.** `raw_turn_saved=1` and
+`archive_event_created=2` on every turn — `turns` and the transcript JSONL move every
+time. The sentence was false as worded. **(b) `extract_fields_called=0` is a real gap.**
+`/api/extract-fields` has **no internal Python caller anywhere in the tree** — only the
+route itself and `ui/js/interview.js`. A turn driven through the internal WebSocket,
+which is what the operator harness does, therefore never extracts, and nothing
+downstream of extraction can fire either. **(c) The other two zeros are correct by
+design, not gaps.** Every path into `ft_add_note` / `ft_add_row` is an explicit operator
+HTTP action — `POST /note`, `POST /note/{id}/propose`, and `POST /backfill` as the sole
+caller of `ft_backfill_from_profile_json`. Family truth is a review-gated pipeline; a
+turn writing it would itself be the bug. And chat_ws reaches
+`projection_writer.apply_correction` only inside the `turn_mode == "correction"` branch,
+so an interview turn reading 0 is the expected value. **Phase 2 is therefore one fix,
+not three.**
+
+**The evidence.** Two live harness turns against the running stack on Chris's machine,
+same text, `turn_mode="interview"`, both `status 200` with `errors []`. Turn 1 a
+throwaway synthetic id, turn 2 Kent — a real narrator, chosen specifically to test the
+"synthetic narrators are silent by design" reading. **Byte-identical results:**
+`raw_turn_saved=1 archive_event_created=2 extract_fields_called=0 family_truth_written=0
+projection_updated=0 fired=2/5`, at 9744 ms and 9799 ms. The instrument held its
+contract exactly: `grep -c` for the marker in `api.log` returned **2** — one line per
+turn, not five — carrying ids and counts and no narrator text, per CLAUDE.md:44.
+
+**The fourth candidate reading was refuted, statically and empirically.** *"Correct-by-
+design silence for a synthetic or trainer narrator"* does not exist as a mechanism: no
+file under `server/code/api/` mentions `trainer` at all, `scripts/preload_trainer.py`
+has been archived to `scripts/archive/`, `_trainer` is a template-JSON flag read only by
+UI code that the harness bypasses, and the one id-keyed rule touching Kent is an
+unrelated emergency English lock. Empirically, Kent matched the synthetic id exactly.
+The real read-only mechanism is `narrator_type='reference'` — `_wo13_seed_reference_
+narrators()` promotes on a display-name substring and never demotes, and
+`_block_if_reference()` rejects six family-truth operations with 403. Verified live: of
+36 people, exactly two are `reference` (Shatner, Dolly).
+
+**The reading is pinned in tests, not only in prose.** New `TurnPathReachabilityTest`
+(3 tests, module now 32) asserts the three structural facts the reading rests on: that
+`chat_ws.py` calls neither family-truth writer, that `extract_fields` has no internal
+Python caller across all 131 files under `server/code/api/`, and that every
+`apply_correction` call in chat_ws sits inside the `turn_mode == "correction"` branch.
+It reads the **AST**, not the raw text — every one of those names also appears in nearby
+comments and docstrings, and this is the guard-writing rule for the fourth time: a
+substring guard would have passed on prose while missing a real call. Positive control
+run before trusting it: the same walker does find `ft_add_note` and `ft_add_row` in
+`family_truth.py` and `db.py`, where they really are. If any of the three facts stops
+holding, the build fails and the next reader is told to date the correction in rather
+than delete the assert.
+
+**Two incidental findings, both load-bearing.** `turns` has neither a `person_id` nor a
+`turn_id` column — so threading a turn id through the call sites or adding a column
+would have been a schema change Phase 1 was not allowed to make, and `contextvars`
+correlation was the only design that fit inside the wall. And the archived probe's
+`NARRATOR_SCOPED_TABLES_*` list names **7 tables that do not exist** in the live
+database, misnames `interview_projections` as singular, and **omits `turns`** — the one
+table that always gains rows. That list is why the original delta read as zero. It is
+filed as Phase 2 material and deliberately not fixed here; correcting a probe's own
+table list is not observability-stub work.
+
+**Corrected in place, per CLAUDE.md:441.** README:193, README:253 (gate 7 now 🟡 with
+the reading), and README:637 each quote their retired claim with the date it stopped
+being true. Checklist gate row 7 and Open-work item 3 likewise. **README:380 was found
+wrong while tracing the callers and is corrected in the same commit** — it named
+`scripts/preload_trainer.py`, which no longer exists at that path, and attributed the
+family-truth protection to a "trainer" concept that has no server-side existence. Its
+*substance* is true; only the mechanism was misdescribed, and the correction says so
+rather than overstating the defect. Full reading in
+`docs/architecture/LORI-RUNTIME-ARCHITECTURE.md` § "Truth-write observability (Gate 7)",
+placed after the existing diagnostic contract because that contract answered *which
+stage produced the wrong words* and never answered *whether the turn wrote anything
+down*.
+
+**Gates 5 and 6 are unblocked, not closed.** The turn-level visibility they were waiting
+on exists. Their 🟡 marks still need their own red-team and softened-persistence
+evidence.
+
+**Phase 2/3 is NOT started.** README's condition — *"Phase 2/3 routing fixes deferred
+until Phase 1 evidence lands"* — is met. A met condition is permission to ask, not
+permission to build; Chris opens it.
+
+**Also parked this session, not built.** `WO-TRAVEL-DOC-MEDIA-ACQUISITION-PROVIDERS-01`
+("Unified Media Acquisition Providers"), on Chris's ruling *"it is an idea for later to
+look at and park."* The full review sits in the checklist's new **Parked / deferred
+architecture** section, including the seven reasons it is not ready — chiefly that Phase
+D cannot pass its own acceptance test because the derivative tier it depends on lands in
+Phase E — and the one finding worth keeping regardless: Google's `d` suffix returns EXIF
+minus location, so **GPS loss is a consequence of which suffix Hornelore requests, not a
+Google limitation.**
+
 ### 2026-07-29 (final) --- the run is taken on Chris machine: two Picker photos promote with no upload, land on two chosen days, and show on the day cards
 
 **The deliverable Chris named is met.** He wrote: *"Do not let documentation replace implementation. The deliverable is a working photo visible on a day card."* Two photos are on two day cards. The stack was restarted by Chris, the page reloaded cache-busted, and the workflow run end to end through the browser twice, on two different candidates, exactly as he asked: *"Then repeat with a second candidate to establish that this is a usable workflow rather than a one-row special case."*

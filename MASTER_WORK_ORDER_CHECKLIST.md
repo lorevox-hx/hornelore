@@ -129,7 +129,7 @@ Inherited from pre-pivot work. Pre-pivot evidence in `docs/archive/`; post-pivot
 | 4. Safety acute path | ✅ landed | ✅ live | ✅ verified | pre-pivot |
 | 5. Safety soft-trigger | ✅ landed 2026-07-02 (`safety_classifier.py`, 44 tests) | ✅ live 2026-07-05 (`HORNELORE_SAFETY_LLM_LAYER=1` in `.env`) | 🟡 pending | Remaining: red-team pack on live flags; report → `docs/reports/`. Also `SafetyResult` NameError in `chat_ws.py` closed 2026-07-11 via `ebe64af` — no more silent no-op on trigger. |
 | 6. Post-safety recovery | ✅ landed 2026-07-02 (`lori_softened_response.py`, 32 tests) | ✅ live 2026-07-05 (`HORNELORE_SOFTENED_RESPONSE=1` in `.env`) | 🟡 pending | Remaining: softened-persistence harness evidence on live flags (lockstep with Gate 5). |
-| 7. Truth-pipeline observability | 🔴 not started | — | — | Scoped separately; not in the 6-WO sequence. Highest-priority unstarted lane. |
+| 7. Truth-pipeline observability | ✅ Phase 1 landed 2026-07-30 (`7a317df`, `0b70e45`) | ✅ flag-live 2026-07-30 (`HORNELORE_TRUTH_PIPELINE_LOG=1`, shell-exported for the run; default OFF and NOT in `.env`) | ✅ verified 2026-07-30 (two live harness turns, one log line each) | This row read *"🔴 not started — Scoped separately; not in the 6-WO sequence. Highest-priority unstarted lane."* until **2026-07-30**. Phase 1 is done and read out: **one defect** (`extract_fields_called=0`, no internal Python caller of `/api/extract-fields`) and **two correct-by-design silences** (`family_truth_written` is operator-action-only; `projection_updated` needs `turn_mode == "correction"`). Phase 2 is unblocked, is **one** fix rather than three, and is not started — Chris opens it. Full reading in `docs/architecture/LORI-RUNTIME-ARCHITECTURE.md` § "Truth-write observability (Gate 7)". |
 
 ---
 
@@ -171,7 +171,14 @@ Priority order for what to build next. Items 1 + 2 (migration/trip verification,
 
 1. **C1b — end-to-end WebSocket safety-routing test** — indirect ideation → classifier → `SafetyResult` → segment flag → softened mode → operator-visible signal → safe reply. Not yet proven end-to-end; protects Kent & Janice. Highest-value open safety item.
 2. **`.env.example` drift audit (NEW WO)** — codify a grep gate: `grep -oh 'os.getenv("[A-Z_]\+"' server/code/ | sort -u`. Compare against `.env.example`. Reconcile ~24 stale documented flags + ~30 code-referenced undocumented flags. Flag drift is becoming a real ops risk.
-3. **TRUTH-PIPELINE-01 Phase 1 (Gate 7)** — observability stub across the five truth-write stages (`raw_turn_saved` / `archive_event_created` / `extract_fields_called` / `family_truth_written` / `projection_updated`) per harness turn. Highest-priority unstarted lane. Blocks the remaining 🟡 formal-verified marks on Gates 5 + 6 becoming ✅ (the harness needs turn-level truth-write visibility to distinguish a real bug from a harness coverage gap).
+3. **~~TRUTH-PIPELINE-01 Phase 1 (Gate 7)~~ — ✅ LANDED AND READ OUT 2026-07-30. Kept in place rather than renumbered, so the priority order of the surviving items is unchanged.** This item read *"observability stub across the five truth-write stages (`raw_turn_saved` / `archive_event_created` / `extract_fields_called` / `family_truth_written` / `projection_updated`) per harness turn. Highest-priority unstarted lane. Blocks the remaining 🟡 formal-verified marks on Gates 5 + 6 becoming ✅ (the harness needs turn-level truth-write visibility to distinguish a real bug from a harness coverage gap)."* All of that is now delivered. **What shipped:** `server/code/api/services/truth_pipeline_probe.py` (pure stdlib, `contextvars` correlation, 64-entry ring, default OFF behind `HORNELORE_TRUTH_PIPELINE_LOG`), one `mark()` call site per stage, a `truth_pipeline` field added additively to the operator-harness response, and 37 tests across two modules. No schema change, no migration, no dependency, no `.env` change, no behavior change.
+   - **What the two live turns said** (synthetic narrator and Kent, byte-identical results, `turn_mode="interview"`, both `status 200` with `errors []`): `raw_turn_saved=1 archive_event_created=2 extract_fields_called=0 family_truth_written=0 projection_updated=0 fired=2/5`, one `[truth-pipeline]` line per turn in `api.log` and no more.
+   - **The reading, which is the actual deliverable.** The archived golfball probe called this *"speaker_zero_delta — turn did not write anywhere"*. That sentence was wrong in three separate ways at once. (a) The turn **does** write — `turns` and the transcript JSONL, every time. (b) `extract_fields_called=0` is a **real gap**: `/api/extract-fields` has no internal Python caller anywhere in the tree, only `ui/js/interview.js`, so a chat_ws turn never extracts and nothing downstream of extraction can fire. (c) `family_truth_written=0` and `projection_updated=0` are **correct by design**, not gaps — every path into `ft_add_note` / `ft_add_row` is an explicit operator HTTP action (`POST /note`, `POST /note/{id}/propose`, `POST /backfill`), and chat_ws reaches `projection_writer.apply_correction` only inside the `turn_mode == "correction"` branch. **So Phase 2 is one fix, not three.**
+   - **Reading 3 was refuted, both statically and live.** "Correct-by-design silence for a synthetic or trainer narrator" does not exist as a mechanism: nothing under `server/code/api/` mentions `trainer`, and Kent produced counts identical to a throwaway synthetic id. The real read-only mechanism is `narrator_type='reference'` (Shatner and Dolly, 2 of 36 live rows), enforced at the family-truth routes with 403 — see the corrected README paragraph on narrator templates.
+   - **Gates 5 + 6 are unblocked but not closed.** The visibility they were waiting on exists. Their 🟡 marks still need their own red-team and softened-persistence evidence.
+   - **Phase 2/3 is NOT started.** README's *"Phase 2/3 routing fixes deferred until Phase 1 evidence lands"* condition is met, so this is Chris's decision to open, not an automatic next step.
+   - **Filed for Phase 2, deliberately not fixed inside Phase 1:** `NARRATOR_SCOPED_TABLES_*` in `scripts/archive/golfball_narrator_isolation.py` names **7 tables that do not exist** in the live database (`photo_review_queue`, `narrator_relationships`, `memory_archive_audio`, `memory_archive_events`, `interview_segment_flags`, `interview_projection`, `archive_events`), misnames `interview_projections` as singular, and **omits `turns` entirely** — the one table that always gains rows. That list is why the original delta read as zero. Correcting a probe's own table list is not observability-stub work.
+   - **Incidental schema finding that vindicated the design:** `turns` has neither a `person_id` nor a `turn_id` column. Threading `turn_id` through the call sites or adding a column would have been a schema change Phase 1 was not allowed to make; `contextvars` correlation was the only route that fit inside the wall.
 4. **`sysBubble()` narrator-dignity pass** — some operator-tone bubbles retired behind `LV_INLINE_OPERATOR_BUBBLES`; the full 28-call sweep is still open. Operator/status/debug strings must not write into narrator chat.
 5. **Extraction Track D (measurement first)** — D1 Travel Doc binding-eval corpus (report-only, UI scope as expected binding), D2 `story_candidates` Path 2 (preserved story text → draft candidates, operator review, no auto-promotion), D3 `utterance_frame` first consumer (hints vs Travel Doc scope, report-only). No truth writes.
 6. **QUESTIONNAIRE-BIO-FACTS-MIGRATE-01 Phase 7 live verify** — code + tests landed 2026-06-16; live verify pending. Either finish it or explicitly park.
@@ -179,6 +186,64 @@ Priority order for what to build next. Items 1 + 2 (migration/trip verification,
 8. **WO-LORI-MEMORY-EXERCISE-IMPLEMENTATION-01 draft** — ADR at `docs/architecture/MEMORY-EXERCISE-DECISION.md` says the style stays and needs a real implementation. Draft the WO spec before starting code.
 9. **~~Stale assertion in `tests/test_trip_days_http_sequence.py`~~ -- FIXED 2026-07-27, see the Active block. Kept here for the trail.** -- line 201 asserts `DELETE /api/trips/{id}` returns 200/204. The product deliberately returns 409 with a `requires_force` envelope when the trip has dependents, and by that point the test has created 9 `trip_days` and 1 `trip_bio_suggestions` row. This is the only red suite in the eight-suite TestClient set and it was red before the web-stack alignment, so it is not a compatibility problem. Two clean fixes: expect 409 and assert the envelope shape, or drive the force path (`force: true` + `confirm_trip_id`) and then expect 200. Test-only change; **independent of the parked `trip_bio_suggestions` decision**, because the 9 days fire the gate on their own. Not fixed inside WO-WEB-STACK-TEST-ENV-ALIGNMENT-01 because that package's scope wall forbade test edits.
 10. **Serving venv is off its own pin: `lxml` (NEW 2026-07-27, ruled out of scope twice)** -- `requirements-gpu.txt` pins `lxml==6.0.2` while `.venv-gpu` runs 6.1.1. Found in drift audit section 5, explicitly excluded from the test-env alignment by Chris's ruling (*"Record it as serving-env drift only"*). Either bump the pin to match reality or reinstall the serving venv to match the pin -- but as a serving-env decision, not smuggled into a test-env pass.
+
+## Parked / deferred architecture (not in the priority queue)
+
+Recorded here because the standing rule on moving a scope wall forward is
+*"record any larger deferred architecture separately."* Nothing in this section is
+approved, scheduled, or partially built. An item leaves this section only by
+Chris's word.
+
+### WO-TRAVEL-DOC-MEDIA-ACQUISITION-PROVIDERS-01 — "Unified Media Acquisition Providers for Travel Documents" (PARKED 2026-07-29)
+
+**Status: Proposed, reviewed, PARKED.** Chris's ruling, verbatim: *"it is an idea for
+later to look at and park."* A 1258-line external work order proposing one provider
+abstraction over Google Photos Picker, local-folder import, and an iCloud path. It is
+**not to be implemented**. This entry exists so the review is not lost and so a future
+session does not re-derive it.
+
+**Where it is right.** The direction is sound: `§12.7`'s rule that *every external
+producer must enter the shared intake and review lane, and no producer may create its
+own review queue, its own approval semantics, or its own permanent archive* is exactly
+doctrine 1.3 generalised, and it is the right shape for a third source. The externally
+verified `d`-parameter finding is worth keeping: Google's Picker documentation states
+that concatenating the base URL with `d` returns the image *retaining all EXIF metadata
+except location*. **GPS loss is therefore a consequence of which suffix Hornelore
+requests, not an inherent Google limitation** — a real correction to an assumption held
+earlier in the Picker lane. Base URLs remain active for 60 minutes and require a bearer
+token; `dv` retrieves video; a motion photo can be fetched as either component.
+
+**Why it is not ready, and what to fix before it is revived.**
+
+- **Phase D cannot pass its own acceptance test.** `§22` demands visible thumbnails for
+  HEIC while the derivative tier that would produce them (`§7.5`) does not land until
+  Phase E. The phases are ordered wrong, not merely optimistic.
+- **The provider `Protocol` is Google-shaped.** Two of the three providers would stub
+  `begin` / `status` / `close`. An abstraction that two of three implementors must fake
+  is not yet an abstraction.
+- **`§13`'s do-display list violates the plain-operator-language rule.** It would put
+  *"provider identity"* and *"staging health"* on the operator surface. Chris:
+  *"Use plain operator language. Do not expose staging paths, provider references,
+  hashes, or repository terminology in the normal UI."*
+- **`§10.6`'s iCloud index is a shadow `photos` table**, and its byte-derived columns are
+  provably redundant because `§10.6` itself mandates re-reading the bytes on acquisition.
+- **`§19`'s nine new event types collide with Gate 7** and with `log_filter` discipline.
+  Gate 7 now owns turn-level write observability; a second parallel event vocabulary for
+  the same writes would re-create the noise problem `log_filter.py` was built to end.
+- **The throughput arithmetic does not close.** 50 files x 100 MB is 5 GB per batch, which
+  needs roughly 11 Mbit/s sustained to finish inside the 60-minute base-URL window. The
+  spec does not acknowledge the window as a constraint on batch size.
+- **Chris's own orphan-reconciliation ask is missing from both `§6` and `§25`** — the
+  utility for archive files stranded by a later database failure, already filed as
+  doctrine 3.12. A unification work order that drops the one item the operator asked for
+  is not yet the unification.
+
+**Prerequisite if it is ever revived:** doctrine 3.12 (orphan reconciliation) and the two
+open corrective Picker work orders should close first. Building a second and third
+producer on top of an intake lane that still has known corrective work open would
+multiply that work by three.
+
+---
 
 ## Post-unification epic, WO-2 -- WO-TRAVEL-DOC-EVIDENCE-REVIEW-QUEUE-01 (🔄 **OPEN 2026-07-26 -- all four phases are now RUN. Phases 1, 3 and 2 LANDED; Phase 4's live smoke PASSED 26 of 27 probes and the one failure became Decision 5, the one-way decide guard, which is built and green. The live re-smoke of the fixed path RAN AND PASSED on the restarted stack, so all four phases are now closed and the residue is retired.**)
 

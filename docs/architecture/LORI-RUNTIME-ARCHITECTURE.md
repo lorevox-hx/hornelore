@@ -485,6 +485,105 @@ investigation has a path, and the fix has a known scope.
 
 ---
 
+## Truth-write observability (Gate 7)
+
+**Added 2026-07-30, TRUTH-PIPELINE-01 Phase 1.** The diagnostic contract
+above answers *which stage produced the wrong words*. It said nothing
+about *whether the turn wrote anything down*, and for two months that
+gap was filled by a single number from an archived probe:
+`speaker_zero_delta`, glossed as **"turn did not write anywhere"**.
+Phase 1 exists because that number could not be read. It had at least
+four incompatible meanings and no way to choose between them.
+
+### What is instrumented
+
+Five truth-write stages, one `mark()` call site each, correlated to a
+turn by `contextvars` rather than by threading an id through the call
+chain:
+
+| Stage | Call site | Fires on a chat_ws turn? |
+|---|---|---|
+| `raw_turn_saved` | `db.py`, after `persist_turn_transaction` | **Yes, always** |
+| `archive_event_created` | `archive.py`, after the JSONL append | **Yes, always** (twice) |
+| `extract_fields_called` | `routers/extract.py` | **No — and that is the defect** |
+| `family_truth_written` | `db.py`, in `ft_add_note` / `ft_add_row` | **No, by design** |
+| `projection_updated` | `services/projection_writer.py` | **Only on a correction turn** |
+
+The probe is default-OFF behind `HORNELORE_TRUTH_PIPELINE_LOG`. With the
+flag off, `begin_turn()` returns `None` and `mark()` allocates nothing.
+Every call site is exception-swallowed and every import is lazy, because
+one of them sits inside db.py's turn commit and a probe must never be
+able to take a turn down. Output goes to `api.log` (exactly one line per
+turn) and to the operator-harness JSON response — never to the narrator
+surface. CLAUDE.md:44 forbids diagnostic surfaces in the narrator flow,
+and that applies to this as much as to a Return-to-Operator button.
+
+### The reading, 2026-07-30
+
+Two live harness turns, one synthetic narrator and one real one (Kent),
+same text, `turn_mode="interview"`. Byte-identical results:
+
+    raw_turn_saved=1  archive_event_created=2  extract_fields_called=0
+    family_truth_written=0  projection_updated=0  fired=2/5
+
+Read against a caller trace of the whole tree, the five numbers separate
+into three different kinds of thing, which is the entire point of the
+phase:
+
+1. **The turn does write.** "Turn did not write anywhere" was false as
+   worded. `turns` and the transcript JSONL move on every turn.
+
+2. **`extract_fields_called=0` is a real gap.** `/api/extract-fields`
+   has **no internal Python caller anywhere in the tree**. The only
+   entries are the route itself and `ui/js/interview.js`. A turn driven
+   through the internal WebSocket — which is what the operator harness
+   does — therefore never extracts, and nothing downstream of
+   extraction can fire either. **This is one defect, and it is the
+   whole of Phase 2.**
+
+3. **`family_truth_written=0` and `projection_updated=0` are correct by
+   design, not gaps.** Family truth is a review-gated pipeline: every
+   path into `ft_add_note` / `ft_add_row` is an explicit operator HTTP
+   action (`POST /note`, `POST /note/{id}/propose`, and `POST /backfill`
+   as the sole caller of `ft_backfill_from_profile_json`). A turn is not
+   supposed to write it, and a turn that did would be the bug. The
+   projection is reachable from chat_ws only inside the
+   `turn_mode == "correction"` branch, so an interview turn reading 0 is
+   the expected value.
+
+A fourth candidate reading — *correct-by-design silence for a synthetic
+or trainer narrator* — was **refuted**. No file under
+`server/code/api/` mentions `trainer` at all; the real read-only
+mechanism is `narrator_type='reference'`, enforced with 403 at the
+family-truth routes. And empirically, a real narrator produced counts
+identical to a throwaway synthetic id.
+
+### How to read future evidence
+
+- An **interview** turn reporting `2/5` is healthy-as-designed except
+  for the extraction gap. It is not five failures.
+- A **correction** turn reporting `projection_updated=0` **is** a
+  defect. The interview-turn exemption does not transfer.
+- Any turn reporting `family_truth_written>0` means something has wired
+  a turn into the review-gated pipeline. Treat that as a finding, not a
+  success.
+- A stage reading 0 is only meaningful because it is *instrumented*.
+  `CallSiteCoverageTest` and `TurnPathReachabilityTest` in
+  `tests/test_truth_pipeline_probe.py` fail the build if a call site
+  vanishes or if any of the three structural facts above stops holding.
+  A reading kept only in prose goes stale silently; these tests are what
+  force the correction into the record instead.
+
+### Scope wall
+
+Phase 1 was observability only: no schema change, no migration, no
+behavior change. Phase 2 (the extraction routing fix) and Phase 3 are
+**not started** and are Chris's to open. README's condition —
+*"Phase 2/3 routing fixes deferred until Phase 1 evidence lands"* — is
+met, but a met condition is permission to ask, not permission to build.
+
+---
+
 ## Maintenance
 
 This document is updated whenever:
@@ -494,6 +593,12 @@ This document is updated whenever:
 - A new effective mode is added (extend interaction matrix)
 - The original redesign turn-mode resolution changes (e.g., when
   Memory Echo gets its own WO)
+- A truth-write stage gains, loses, or moves a `mark()` call site, or a
+  stage changes which turn shapes can legitimately reach it (added
+  2026-07-30 — the Gate 7 section's per-stage table and its
+  "how to read future evidence" rules are only correct while that
+  mapping holds, and `TurnPathReachabilityTest` will fail the build
+  before this document is noticed)
 
 Strategy doc and runtime architecture doc are read together by every
 WO author before authoring a new WO that touches Lori behavior. WOs
