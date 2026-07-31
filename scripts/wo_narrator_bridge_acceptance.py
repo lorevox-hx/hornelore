@@ -31,6 +31,17 @@ Three-way verdict. FAIL is reserved for a check that was exercised and
 did not hold. A step the operator has not performed yet is SKIP and the
 run ends INCOMPLETE: the harness must never manufacture the evidence it
 is verifying.
+
+Exit codes, distinct on purpose:
+
+    0  PASS         every exercised check held, nothing was skipped
+    1  FAIL         a check was exercised and did not hold
+    2  usage / API   bad mode, unreachable stack, missing baseline,
+                     required gates off
+    3  INCOMPLETE   nothing broke, but steps were not performed
+
+INCOMPLETE returned 0 until 2026-07-31, which made a half-run
+indistinguishable from a pass to anything reading the exit status.
 """
 
 import hashlib
@@ -131,6 +142,65 @@ def h(s):
     return hashlib.sha256((s or "").encode("utf-8")).hexdigest()[:16]
 
 
+# ------------------------------------------------- turn correlation
+
+# The story candidate has to be tied to the TURN THAT CAUSED IT, and the
+# two tables do not share a key. trip_turn_links is keyed on committed
+# `turns` row ids; a captured note carries source_ref='turn:<turn_id>',
+# where turn_id is the chat_ws turn identifier and not a row id. Nothing
+# joins them.
+#
+# What does join them is the narrator's own sentence. The note stores
+# trip_story_capture._light_clean(narrator_text) and the timeline reads
+# the same turn back out of `turns`, so normalising both the same way
+# identifies the exact turn. This mirrors that cleaner: collapse all
+# whitespace, strip wrapping quotes, casefold. It compares; it never
+# prints.
+#
+# The alternative -- "the one new Lori note" -- is what produced the
+# 2026-07-31 ambiguous FAIL: a Travel Doc modal note written in the same
+# window was graded as the shelf story candidate, and correctly having a
+# Day 1 was reported as the defect.
+
+_MODAL_SURFACE = "travel_doc_modal"
+_TRUNCATION_MARK = " …"          # _light_clean's >4000-char suffix
+
+
+def corr(s):
+    """A comparable form of a narrator turn. Not for display."""
+    s = str(s or "").replace("’", "'")
+    s = re.sub(r"\s+", " ", s).strip()
+    return s.strip('"“”').strip().casefold()
+
+
+def same_turn(note_text, turn_text):
+    """Did this note come from this turn?
+
+    Equality after normalising, with one allowance: _light_clean caps
+    the stored note at 4000 characters and marks the cut, so a long turn
+    is a prefix rather than a match. A short note is never allowed to
+    prefix-match a long turn -- that would let 'yes' match everything."""
+    n, t = corr(note_text), corr(turn_text)
+    if not n or not t:
+        return False
+    if n == t:
+        return True
+    if n.endswith(_TRUNCATION_MARK.strip()):
+        head = n.rstrip(_TRUNCATION_MARK.strip() + " ").strip()
+        return len(head) >= 200 and t.startswith(head)
+    return False
+
+
+def is_modal(note):
+    """Two independent marks, because either alone can be absent.
+
+    source_surface is NULL on rows written before migration 0024 added
+    the column; source_ref's 'modal_turn:' prefix is written by
+    trip_story_capture for every modal capture regardless."""
+    return (str(note.get("surface") or "") == _MODAL_SURFACE
+            or str(note.get("ref") or "").startswith("modal_turn:"))
+
+
 def says_count(text, n):
     """Does the answer state this number, as a digit or as a word?
 
@@ -208,6 +278,13 @@ def snapshot():
         snap["notes"][str(n.get("id"))] = {
             "src": n.get("source_type"),
             "ref": n.get("source_ref"),
+            # Which surface wrote it. The Travels shelf and the Travel
+            # Doc modal both write source_type='lori' into this table,
+            # so without this the two are indistinguishable and a modal
+            # note can be graded as a shelf story. .get() rather than
+            # [] because a pre-0024 database has no such column.
+            "surface": n.get("source_surface"),
+            "created": n.get("created_at"),
             "day": n.get("trip_day_id"),
             "memoir": int(n.get("include_in_memoir") or 0),
             "ctx": int(n.get("include_in_interview_context") or 0),
@@ -243,6 +320,19 @@ def live_conversations():
     for it in get("/api/trips/%s/timeline/unplaced" % TRIP).get("items") or []:
         if it.get("kind") == "conversation":
             rows[str(it.get("link_id"))] = it
+    return rows
+
+
+def live_notes():
+    """The same note rows, with the text still attached.
+
+    verify needs the words to answer 'which turn did this note come
+    from', for the same reason live_conversations() needs them. Read
+    here, compared in memory, never stored and never printed."""
+    rows = {}
+    for n in get("/api/trips/%s/location-notes?include_hidden=1"
+                 % TRIP).get("notes") or []:
+        rows[str(n.get("id"))] = n
     return rows
 
 
@@ -370,35 +460,95 @@ def do_verify(g, now):
         check(not moved,
               "no existing transcript changed (n=%d)" % len(moved))
 
-    # -- D: the story candidate, once, review-only
+    # -- D: the story candidate, once, review-only, correlated
+    #
+    # Graded against THE SHELF STORY TURN, not against every new Lori
+    # note in the window. Both surfaces write source_type='lori' into
+    # trip_location_notes, so a Travel Doc modal note opened during the
+    # same window used to be picked up as the shelf story -- and a modal
+    # note is correctly day-scoped, so the harness reported a correct
+    # row as a placement defect. An unrelated modal note is now named
+    # and ignored, which is the only honest thing to do with it: it is
+    # not this run's evidence and it is not this run's failure.
+    rows = live_conversations()
+    notes_live = live_notes()
     new_notes = [k for k in now["notes"] if k not in old["notes"]]
-    lori_notes = [k for k in new_notes if now["notes"][k]["src"] == "lori"]
-    if not lori_notes:
-        skip("no new lori story candidate -- step 3 not done, or the lane "
+    new_lori = [k for k in new_notes if now["notes"][k]["src"] == "lori"]
+
+    modal_new = [k for k in new_lori if is_modal(now["notes"][k])]
+    if modal_new:
+        out("      (%d new Travel Doc modal note(s) -- another surface, "
+            "not this run's evidence: %s)"
+            % (len(modal_new), ", ".join(k[:8] for k in modal_new)))
+
+    shelf_new = [k for k in new_lori if not is_modal(now["notes"][k])]
+
+    # Correlate by the narrator's own sentence: the note stores a light
+    # clean of the turn, the timeline reads the turn back out of `turns`.
+    story = []
+    for k in shelf_new:
+        text = (notes_live.get(k) or {}).get("note_text")
+        src = [c for c in fresh
+               if same_turn(text, rows.get(c, {}).get("narrator_said"))]
+        if src:
+            story.append((k, src))
+
+    if not fresh:
+        skip("no shelf conversation to correlate a story candidate to -- "
+             "the walkthrough was not done")
+    elif not shelf_new:
+        skip("no new shelf story candidate -- step 3 not done, or the lane "
              "declined the turn (check /api/trips/capture-status)")
+    elif not story:
+        # Present but unattributable. Not a pass and not a placement
+        # failure: nothing here shows it came from the graded turn.
+        skip("%d new shelf candidate(s) matched no new shelf turn -- not "
+             "correlated, so not graded (%s)"
+             % (len(shelf_new), ", ".join(k[:8] for k in shelf_new)))
     else:
-        check(len(lori_notes) == 1,
-              "the story was captured once, not twice (%d)" % len(lori_notes))
-        refs = [now["notes"][k]["ref"] for k in lori_notes]
+        for k, src in story:
+            check(len(src) == 1,
+                  "candidate %s traces to exactly one shelf turn (%d)"
+                  % (k[:8], len(src)))
+        turns_covered = [c for _, src in story for c in src]
+        check(len(set(turns_covered)) == len(turns_covered),
+              "the story was captured once, not twice (%d candidate(s) "
+              "over %d turn(s))" % (len(story), len(set(turns_covered))))
+        refs = [now["notes"][k]["ref"] for k, _ in story]
         check(len(set(refs)) == len(refs),
               "no two candidates share a source turn")
-        for k in lori_notes:
+
+        for k, src in story:
             n = now["notes"][k]
+            conv = rows.get(src[0], {})
+            out("      (candidate %s <- shelf turn %s, %s/%s)"
+                % (k[:8], src[0][:8], conv.get("placement_source"),
+                   conv.get("placement_status")))
             check(n["memoir"] == 0 and n["ctx"] == 0 and n["hidden"] == 0,
                   "candidate %s is review-only: memoir=%d context=%d "
                   "hidden=%d" % (k[:8], n["memoir"], n["ctx"], n["hidden"]))
-            if n["day"]:
-                check(n["day"] == now["selected_day_id"]
-                      and n["day"] in now["day_ids"],
-                      "candidate %s sits on the durable selected day" % k[:8])
+
+            # The day rule, stated as the product rule rather than as a
+            # single assertion whose failure message reads like a claim
+            # that it held. A durable day exists only while the narrator
+            # is genuinely living in this trip; a completed trip opened
+            # from the shelf must get NULL, never an inferred day.
+            durable = (now["selected_day_id"]
+                       if (now["live_state"] == "active"
+                           and now["selected_day_id"] in now["day_ids"])
+                       else None)
+            if durable:
+                check(n["day"] == durable,
+                      "candidate %s carries the durable selected day "
+                      "(day=%s expected=%s)"
+                      % (k[:8], (n["day"] or "none")[:8], durable[:8]))
             else:
-                check(now["selected_day_id"] is None
-                      or now["live_state"] != "active",
-                      "candidate %s has no day, and no valid durable day "
-                      "existed to give it" % k[:8])
+                check(not n["day"],
+                      "candidate %s has no inferred day, because this trip "
+                      "has no durable selected day (live_state=%s day=%s)"
+                      % (k[:8], now["live_state"], (n["day"] or "none")[:8]))
 
     # -- B: the photo answer
-    rows = live_conversations()
     asked = [k for k in fresh
              if PHOTO_QUESTION.search(rows.get(k, {}).get("narrator_said")
                                       or "")]
@@ -461,7 +611,10 @@ def do_verify(g, now):
         out("RESULT: INCOMPLETE -- nothing is broken, but the steps above")
         out("        were not performed, so those behaviours are still")
         out("        unproven. Redo the walkthrough and re-run.")
-        return 0
+        # Exit 3, not 0. An unproven run is not a successful one, and a
+        # shell that reads `&&` cannot tell the difference between "the
+        # acceptance passed" and "half of it never ran" if both are 0.
+        return 3
     out("RESULT: PASS -- WO-TRIP-NARRATOR-BRIDGE-01 acceptance met.")
     return 0
 

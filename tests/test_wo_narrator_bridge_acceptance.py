@@ -174,5 +174,273 @@ class HarnessJudgmentTest(unittest.TestCase):
         self.assertNotIn("gravesite", h)
 
 
+# ---------------------------------------------------------------------
+# Which note is the story?
+#
+# Both the Travels shelf and the Travel Doc modal write
+# source_type='lori' rows into trip_location_notes. The harness used to
+# take "every new Lori note in the window" and grade it as the shelf
+# story, which on 2026-07-31 graded a modal Day 1 note -- correctly day-
+# scoped -- as a placement defect, and reported FAIL on a run that had
+# proved nothing about the thing it named. These tests pin the
+# correlation instead of the count.
+
+STORY = ("I had a chance to visit my mom's parents' gravesite, my old "
+         "elementary school, the two middle schools I attended, my high "
+         "school and junior college—the outsides anyway—with my wife "
+         "Melanie.")
+MODAL_TEXT = "hi, i went to bismarck to do some work"
+TRIP = "9538cd88-5c8b-4da4-b2a9-2a03f8db32a3"
+DAY1 = "day-1-11111111"
+DAY2 = "day-2-22222222"
+
+
+def _conv(link_id, said, day=None, src="travels_shelf_trip",
+          st="needs_day", u=100, a=101):
+    return {"kind": "conversation", "link_id": link_id, "trip_day_id": day,
+            "conv_id": "switch_test", "placement_source": src,
+            "placement_status": st, "user_turn_row_id": u,
+            "assistant_turn_row_id": a, "narrator_said": said,
+            "lori_said": "That sounds like a full day."}
+
+
+def _note(nid, text, surface=None, ref="turn:t-1", day=None):
+    return {"id": nid, "source_type": "lori", "source_ref": ref,
+            "source_surface": surface, "created_at": "2026-07-31T02:00:00Z",
+            "trip_day_id": day, "include_in_memoir": 0,
+            "include_in_interview_context": 0, "hidden": 0,
+            "note_text": text}
+
+
+@unittest.skipUnless(_SCRIPT.exists(), "harness not in this checkout")
+class CandidateCorrelationTest(unittest.TestCase):
+    """do_verify against a canned API. No network, no database."""
+
+    def setUp(self):
+        self.m = _load()
+        self.live_state = "completed"
+        self.selected_day = None
+        self.convs = []
+        self.notes = []
+        self._tmp = None
+
+    def tearDown(self):
+        import os
+        if self._tmp and os.path.exists(self._tmp):
+            os.unlink(self._tmp)
+
+    # -- the canned API -------------------------------------------------
+
+    def _install(self):
+        import json
+        import tempfile
+        m = self.m
+
+        # The walkthrough always produces at least two shelf turns (the
+        # story and the photo question), and do_verify checks for that.
+        # Every fixture therefore carries a second, deliberately
+        # non-story turn: without it these tests would fail on a check
+        # about conversation COUNT while claiming to be about candidate
+        # correlation, and the failure would point at the wrong thing.
+        convs = list(self.convs) + [
+            _conv("f11e5000-ffff", "It was good to be back there again.",
+                  u=102, a=103)]
+
+        def fake_get(path):
+            if "/calendar" in path:
+                return {"live_state": self.live_state,
+                        "selected_day_id": self.selected_day,
+                        "days": [{"id": DAY1}, {"id": DAY2}],
+                        "preserved": []}
+            if "/timeline/unplaced" in path:
+                return {"items": [c for c in convs
+                                  if not c["trip_day_id"]]}
+            if "/timeline" in path:
+                did = path.split("/days/")[1].split("/")[0]
+                return {"items": [c for c in convs
+                                  if c["trip_day_id"] == did]}
+            if "/location-notes" in path:
+                return {"notes": list(self.notes)}
+            if "/photo-inventory" in path:
+                return {"attached": 2, "on_a_day": 2, "cleared_for_lori": 0}
+            if "/capture-status" in path:
+                return {"last": {"reason": "meaningful_trip_answer"}}
+            if "/family-truth/rows" in path:
+                return {"rows": []}
+            if "/photo-links" in path:
+                return {"photo_links": []}
+            raise AssertionError("unstubbed path: " + path)
+
+        m.get = fake_get
+        m.PASS[0] = m.FAIL[0] = m.SKIP[0] = 0
+        del m.LINES[:]
+
+        fh = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False,
+                                         encoding="utf-8")
+        self._tmp = fh.name
+        json.dump({"live_state": self.live_state,
+                   "selected_day_id": self.selected_day,
+                   "day_ids": [DAY1, DAY2], "convs": {}, "notes": {},
+                   "photo_inventory": {"attached": 2},
+                   "family_truth_rows": 0}, fh)
+        fh.close()
+        m.STATE = self._tmp
+
+    def _run(self):
+        m = self.m
+        self._install()
+        gates = dict((k, True) for k in m.REQUIRED_GATES)
+        rc = m.do_verify(gates, m.snapshot())
+        return rc, "\n".join(m.LINES), m.PASS[0], m.FAIL[0], m.SKIP[0]
+
+    # -- the tests ------------------------------------------------------
+
+    def test_an_unrelated_modal_note_does_not_fail_the_shelf_story(self):
+        """The 2026-07-31 shape, both notes present. The shelf story is
+        graded; the modal note is named and ignored."""
+        self.convs = [_conv("c75350cd-aaaa", STORY)]
+        self.notes = [_note("shelf-01", STORY),
+                      _note("09d6f7e4-bbbb", MODAL_TEXT,
+                            surface="travel_doc_modal",
+                            ref="modal_turn:conv:t-9", day=DAY1)]
+        rc, log, p, f, s = self._run()
+        self.assertEqual(f, 0, log)
+        self.assertIn("shelf-01", log)
+        self.assertIn("no inferred day", log)
+        self.assertNotIn("FAIL", log)
+
+    def test_a_modal_note_alone_is_not_graded_as_the_story(self):
+        """Only a modal note exists. The story step is unproven, not
+        broken -- and specifically not a candidate-day FAIL, which is
+        what the harness reported on 2026-07-31."""
+        self.convs = [_conv("c75350cd-aaaa", STORY)]
+        self.notes = [_note("09d6f7e4-bbbb", MODAL_TEXT,
+                            surface="travel_doc_modal",
+                            ref="modal_turn:conv:t-9", day=DAY1)]
+        rc, log, p, f, s = self._run()
+        self.assertEqual(f, 0, log)
+        self.assertEqual(rc, 3, "an unproven run must not exit 0")
+        self.assertIn("no new shelf story candidate", log)
+        self.assertNotIn("durable selected day", log)
+
+    def test_a_modal_note_is_recognised_by_its_ref_without_a_surface(self):
+        """A pre-0024 row has no source_surface. The modal_turn: prefix
+        still marks it, so it must still not be graded as the story."""
+        self.convs = [_conv("c75350cd-aaaa", STORY)]
+        self.notes = [_note("09d6f7e4-bbbb", MODAL_TEXT, surface=None,
+                            ref="modal_turn:conv:t-9", day=DAY1)]
+        rc, log, p, f, s = self._run()
+        self.assertEqual(f, 0, log)
+        self.assertEqual(rc, 3)
+        self.assertIn("no new shelf story candidate", log)
+
+    def test_a_shelf_note_that_matches_no_turn_is_not_graded(self):
+        """Present but unattributable is not evidence, and not a defect
+        either. It must never be silently accepted as the story."""
+        self.convs = [_conv("c75350cd-aaaa", STORY)]
+        self.notes = [_note("shelf-01", "something else entirely, said "
+                                        "on some other day")]
+        rc, log, p, f, s = self._run()
+        self.assertEqual(f, 0, log)
+        self.assertEqual(rc, 3)
+        self.assertIn("matched no new shelf turn", log)
+
+    def test_a_completed_trip_candidate_must_not_carry_a_day(self):
+        """The product rule. A completed trip has no durable day, so an
+        inferred one is a manufactured fact and must fail."""
+        self.convs = [_conv("c75350cd-aaaa", STORY)]
+        self.notes = [_note("shelf-01", STORY, day=DAY1)]
+        rc, log, p, f, s = self._run()
+        self.assertEqual(f, 1, log)
+        self.assertEqual(rc, 1)
+        self.assertIn("no inferred day", log)
+
+    def test_an_active_trip_candidate_must_carry_the_durable_day(self):
+        """The inverse. When the database really does hold a selected
+        day, the candidate is expected to be on it."""
+        self.live_state = "active"
+        self.selected_day = DAY1
+        self.convs = [_conv("c75350cd-aaaa", STORY, day=DAY1,
+                            src="active_trip_day", st="confirmed")]
+        self.notes = [_note("shelf-01", STORY, day=DAY1)]
+        rc, log, p, f, s = self._run()
+        self.assertEqual(f, 0, log)
+        self.assertIn("carries the durable selected day", log)
+
+    def test_an_active_trip_candidate_on_the_wrong_day_fails(self):
+        self.live_state = "active"
+        self.selected_day = DAY1
+        self.convs = [_conv("c75350cd-aaaa", STORY, day=DAY1,
+                            src="active_trip_day", st="confirmed")]
+        self.notes = [_note("shelf-01", STORY, day=DAY2)]
+        rc, log, p, f, s = self._run()
+        self.assertEqual(f, 1, log)
+
+    def test_two_candidates_from_one_turn_are_caught(self):
+        """The duplicate-capture check still bites, now stated over
+        turns rather than over the raw count of new notes."""
+        self.convs = [_conv("c75350cd-aaaa", STORY)]
+        self.notes = [_note("shelf-01", STORY, ref="turn:t-1"),
+                      _note("shelf-02", STORY, ref="turn:t-2")]
+        rc, log, p, f, s = self._run()
+        self.assertGreaterEqual(f, 1, log)
+        self.assertIn("captured once, not twice", log)
+
+    def test_it_still_prints_no_narrative_text(self):
+        self.convs = [_conv("c75350cd-aaaa", STORY)]
+        self.notes = [_note("shelf-01", STORY),
+                      _note("09d6f7e4-bbbb", MODAL_TEXT,
+                            surface="travel_doc_modal",
+                            ref="modal_turn:conv:t-9", day=DAY1)]
+        rc, log, p, f, s = self._run()
+        for fragment in ("gravesite", "Melanie", "elementary", "bismarck",
+                         "Bismarck"):
+            self.assertNotIn(fragment, log, fragment)
+
+
+@unittest.skipUnless(_SCRIPT.exists(), "harness not in this checkout")
+class TurnCorrelationHelperTest(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cls.m = _load()
+
+    def test_a_light_cleaned_note_matches_the_turn_it_came_from(self):
+        """trip_story_capture._light_clean collapses runs of spaces and
+        strips wrapping quotes. The match must survive that."""
+        self.assertTrue(self.m.same_turn(
+            "I went   to Bismarck for work.",
+            '"I went to Bismarck   for work."'))
+
+    def test_a_different_sentence_does_not_match(self):
+        self.assertFalse(self.m.same_turn(
+            "I went to Bismarck for work.",
+            "I visited my grandmother's grave."))
+
+    def test_a_short_note_never_prefix_matches_a_long_turn(self):
+        """Otherwise 'yes' would correlate to every turn on the trip."""
+        self.assertFalse(self.m.same_turn("yes …", "yes, and then we drove "
+                                          "out to the cemetery " * 20))
+
+    def test_a_truncated_long_note_still_matches_its_turn(self):
+        turn = ("We drove out past the old grain elevator and I told her "
+                "about the winters. " * 40)
+        note = turn[:4000].rstrip() + " …"
+        self.assertTrue(self.m.same_turn(note, turn))
+
+    def test_empty_never_matches(self):
+        self.assertFalse(self.m.same_turn("", "anything"))
+        self.assertFalse(self.m.same_turn("anything", ""))
+
+    def test_modal_notes_are_recognised_by_either_mark(self):
+        self.assertTrue(self.m.is_modal({"surface": "travel_doc_modal",
+                                         "ref": "turn:t-1"}))
+        self.assertTrue(self.m.is_modal({"surface": None,
+                                         "ref": "modal_turn:c:t"}))
+        self.assertFalse(self.m.is_modal({"surface": None,
+                                          "ref": "turn:t-1"}))
+        self.assertFalse(self.m.is_modal({"surface": None, "ref": None}))
+
+
 if __name__ == "__main__":
     unittest.main()
