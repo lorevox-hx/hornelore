@@ -290,8 +290,23 @@ def _has_col(conn: sqlite3.Connection, table: str, col: str) -> bool:
 # ── the one live turn ─────────────────────────────────────────────────────
 
 async def _send_one_turn(conv_id: str, person_id: str, message: str,
+                         modal_scope: Optional[Dict[str, Any]] = None,
                          timeout_s: int = 240) -> Dict[str, Any]:
-    """One interview turn, sent the way ui/js/travel-doc-lab.js sends it."""
+    """One interview turn, sent the way ui/js/travel-doc-lab.js sends it.
+
+    `modal_scope` IS AN OBJECT, NOT A WORD. This script sent the string
+    "trip" for three runs while its own docstring claimed to copy the
+    pane's payload. The server read `.get("active_trip_id")` off it and
+    raised `'str' object has no attribute 'get'`; trip story capture
+    swallowed that as `reason=error` and the modal direct-answer branch
+    logged a warning and continued. The link still formed --- placement
+    reads the day off `trips.active_trip_day_id` on the server and never
+    trusted this object --- so the run went green over two production
+    behaviours that had not actually run. A harness that lies about its
+    payload does not test the path it names; it tests a path the product
+    does not have. The shape below is `LoriPane.scope()` in
+    ui/js/travel-doc-lab.js, field for field.
+    """
     payload = {
         "type": "start_turn",
         "session_id": conv_id,
@@ -299,7 +314,7 @@ async def _send_one_turn(conv_id: str, person_id: str, message: str,
         "params": {
             "person_id": person_id,
             "surface": "travel_doc_modal",
-            "modal_scope": "trip",
+            "modal_scope": modal_scope,
             "turn_id": "vs1_acceptance_t1",
         },
     }
@@ -394,7 +409,26 @@ def do_phase1(trip_id: str, day_id: Optional[str], message: str) -> int:
     links_before = _link_count(conn, trip_id)
     print(f"  you    : {message}")
     print("  lori   : ", end="", flush=True)
-    turn = asyncio.run(_send_one_turn(conv_id, person_id, message))
+    # The pane opened on a DAY, so it sends a day-scoped modal scope.
+    # Region and stop come off the chosen day's own row, exactly as
+    # LoriPane.scope() reads them from `dayById(this.dayId)`.
+    modal_scope = {
+        "source_surface": "travel_doc_modal",
+        "person_id": person_id,
+        "active_trip_id": trip_id,
+        # `chosen`, NOT `day_id` --- `day_id` is the optional command
+        # line argument and is None whenever the caller let the script
+        # pick the first day. Sending it would put a null day on the
+        # scope while the server had a real one selected, and the modal
+        # would be scoped to the trip on a run that reads day-scoped.
+        "active_trip_day_id": chosen,
+        "active_trip_region_id": chosen_row.get("trip_region_id") or None,
+        "active_trip_stop_id": chosen_row.get("trip_stop_id") or None,
+        "active_photo_link_id": None,
+        "selected_kind": "day",
+    }
+    turn = asyncio.run(_send_one_turn(conv_id, person_id, message,
+                                      modal_scope=modal_scope))
     check("the turn completed", turn.get("ok") is True,
           str(turn.get("error") or "")[:160])
     final_text = str(turn.get("final_text") or "")

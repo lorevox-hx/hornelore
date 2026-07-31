@@ -631,5 +631,315 @@ class ModalCaptureTest(_CaptureCase):
         n = self._note(res["note_id"])
         self.assertIsNone(n["source_surface"])
 
+class ModalScopeShapeTest(_CaptureCase):
+    """WO-LIVE-TRIP-COMPANION-02 step 2 --- the modal scope is an OBJECT,
+    and when it is not, that fact has to be legible.
+
+    THE DEFECT. `scripts/vs1_trip_companion_acceptance.py` sent the
+    STRING "trip" as `modal_scope` for three acceptance runs while its
+    own docstring claimed to copy the pane's payload field for field.
+    The server called `.get()` on it, AttributeError came back, the
+    blanket non-fatal except swallowed it, and the operator log printed
+    `captured=False reason=error`. Three runs carried that line. Nobody
+    could tell from it that the scope had never been built --- `error`
+    names no thing that happened, so it could not be acted on, and the
+    acceptance run went green while the modal capture path had in fact
+    never executed once.
+
+    WHAT THESE TESTS PIN. Two separate promises. First, a wrong-SHAPE
+    scope is a NAMED no-op (`malformed_scope`) and never an `error`,
+    because a caller sending the wrong type is a caller bug that should
+    say so in one word. Second, when something genuinely does raise, the
+    result reports the exception CLASS and never `str(exc)` --- these
+    results are snapshotted onto operator surfaces, and an exception
+    raised while handling a narrator turn can carry that turn's words in
+    its message. The privacy test below builds an exception whose text is
+    a sentence a narrator might really say, and proves it does not come
+    back out.
+
+    A `None` scope is NOT malformed. That is an ordinary trip-level turn
+    and has its own downstream gates; conflating the two would turn a
+    supported call into a reported fault.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._orig_capture_flag = os.environ.get(
+            "HORNELORE_TRIP_STORY_CAPTURE")
+        os.environ["HORNELORE_TRIP_STORY_CAPTURE"] = "1"
+
+    def tearDown(self):
+        if self._orig_capture_flag is None:
+            os.environ.pop("HORNELORE_TRIP_STORY_CAPTURE", None)
+        else:
+            os.environ["HORNELORE_TRIP_STORY_CAPTURE"] = \
+                self._orig_capture_flag
+        super().tearDown()
+
+    # ── the shape gate ───────────────────────────────────────────────────
+    def test_a_string_scope_is_a_named_no_op_not_an_error(self):
+        # The exact payload the harness sent for three runs.
+        res = tsc.capture_modal_turn(
+            self.person_id, "trip",
+            "We walked the whole riverfront before supper",
+            conv_id="convS", turn_id="s1")
+        self.assertFalse(res["captured"])
+        self.assertEqual(res["reason"], "malformed_scope")
+        self.assertNotEqual(res["reason"], "error")
+        # The type is named so the caller can find its own bug.
+        self.assertEqual(res["error"], "str")
+
+    def test_other_wrong_shapes_are_named_the_same_way(self):
+        for bad in ("trip", 7, ["active_trip_id"], True):
+            with self.subTest(bad=bad):
+                res = tsc.capture_modal_turn(
+                    self.person_id, bad,
+                    "A long enough answer about the afternoon in Bismarck",
+                    conv_id="convS", turn_id="s2")
+                self.assertFalse(res["captured"])
+                self.assertEqual(res["reason"], "malformed_scope")
+
+    def test_a_wrong_shape_writes_nothing(self):
+        before = len(trip_repository.location_notes_list(self.trip_id))
+        tsc.capture_modal_turn(
+            self.person_id, "trip",
+            "The bridge looked completely different in the evening light",
+            conv_id="convS", turn_id="s3")
+        after = len(trip_repository.location_notes_list(self.trip_id))
+        self.assertEqual(before, after)
+
+    def test_absent_scope_is_not_malformed(self):
+        # None is a supported call, not a fault. It has no trip, so it
+        # stops at the ordinary downstream gate --- but it must not be
+        # reported as a shape problem.
+        res = tsc.capture_modal_turn(
+            self.person_id, None,
+            "A perfectly ordinary sentence about the trip",
+            conv_id="convS", turn_id="s4")
+        self.assertFalse(res["captured"])
+        self.assertNotEqual(res["reason"], "malformed_scope")
+
+    def test_an_empty_dict_is_a_real_scope(self):
+        res = tsc.capture_modal_turn(
+            self.person_id, {},
+            "Another perfectly ordinary sentence about the trip",
+            conv_id="convS", turn_id="s5")
+        self.assertNotEqual(res["reason"], "malformed_scope")
+
+    def test_a_real_scope_still_captures(self):
+        # The gate must not have cost us the working path.
+        res = tsc.capture_modal_turn(
+            self.person_id, {"active_trip_id": self.trip_id},
+            "We stopped at the overlook and stayed longer than we meant to",
+            conv_id="convS", turn_id="s6")
+        self.assertTrue(res["captured"], res)
+
+    def test_the_shape_gate_runs_after_the_flag_gate(self):
+        # Flag off means capture does nothing at all, including any
+        # opinion about the caller's argument shapes.
+        os.environ.pop("HORNELORE_TRIP_STORY_CAPTURE", None)
+        res = tsc.capture_modal_turn(
+            self.person_id, "trip", "Anything at all",
+            conv_id="convS", turn_id="s7")
+        self.assertEqual(res["reason"], "flag_off")
+
+    # ── the privacy of the failure report ────────────────────────────────
+    def test_a_real_failure_reports_the_class_and_not_the_message(self):
+        secret = "Dad cried when we found the farmhouse still standing"
+
+        class TripCaptureExploded(RuntimeError):
+            pass
+
+        def boom(**kwargs):
+            raise TripCaptureExploded(secret)
+
+        orig = tsc.capture_trip_story_answer
+        tsc.capture_trip_story_answer = boom
+        try:
+            res = tsc.capture_modal_turn(
+                self.person_id, {"active_trip_id": self.trip_id},
+                secret, conv_id="convS", turn_id="s8")
+        finally:
+            tsc.capture_trip_story_answer = orig
+        self.assertFalse(res["captured"])
+        self.assertEqual(res["reason"], "error")
+        self.assertEqual(res["error"], "TripCaptureExploded")
+        # Nothing anywhere in the result may quote the narrator.
+        self.assertNotIn(secret, repr(res))
+
+    def test_the_non_fatal_contract_holds_for_the_shelf_path_too(self):
+        secret = "Mom kept the ticket stub in her wallet for thirty years"
+
+        class ShelfCaptureExploded(RuntimeError):
+            pass
+
+        def boom(**kwargs):
+            raise ShelfCaptureExploded(secret)
+
+        orig = tsc.capture_trip_story_answer
+        tsc.capture_trip_story_answer = boom
+        try:
+            res = tsc._capture_for_turn_impl(
+                self.person_id,
+                {"travels_shelf_open": True, "active_trip_id": self.trip_id},
+                secret, conv_id="convS", turn_id="s9")
+        finally:
+            tsc.capture_trip_story_answer = orig
+        self.assertEqual(res["reason"], "error")
+        self.assertEqual(res["error"], "ShelfCaptureExploded")
+        self.assertNotIn(secret, repr(res))
+
+    def test_no_except_clause_in_this_module_reports_str_of_the_exception(self):
+        # Belt and braces against the next person restoring `str(exc)`
+        # because it reads as more helpful. It is more helpful; it is
+        # also the narrator's words on an operator screen.
+        #
+        # Read the CODE, not the file: the comment above each except
+        # block says "the CLASS, never str(exc)", and a plain substring
+        # scan would match the warning instead of the thing it warns
+        # about. Every `except ... as exc` in this module is checked for
+        # what it actually passes on.
+        tree = ast.parse((_SERVER_CODE / "api" / "services"
+                          / "trip_story_capture.py").read_text(encoding="utf-8"))
+        handlers = [h for h in ast.walk(tree)
+                    if isinstance(h, ast.ExceptHandler) and h.name]
+        self.assertGreaterEqual(len(handlers), 2, "the non-fatal blocks")
+        classy = 0
+        for h in handlers:
+            bound = h.name
+            for node in ast.walk(h):
+                # str(exc) / repr(exc) / f-strings over the exception.
+                if (isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Name)
+                        and node.func.id in ("str", "repr")
+                        and any(isinstance(a, ast.Name) and a.id == bound
+                                for a in node.args)):
+                    self.fail("%s(%s) reports the exception message" % (
+                        node.func.id, bound))
+                if isinstance(node, ast.JoinedStr):
+                    for a in ast.walk(node):
+                        if isinstance(a, ast.Name) and a.id == bound:
+                            self.fail("f-string reports the exception message")
+                if (isinstance(node, ast.Attribute)
+                        and node.attr == "__name__"):
+                    classy += 1
+        self.assertGreaterEqual(classy, 2,
+                                "each non-fatal block reports the class")
+
+
+class ModalScopeBoundaryNormalizationTest(unittest.TestCase):
+    """WO-LIVE-TRIP-COMPANION-02 step 2 --- ONE normalization, at the
+    boundary where the value arrives.
+
+    Chris's instruction was specific: "Normalize the modal-direct-answer
+    result at its producing boundary. Do not scatter `.get()` guards
+    throughout consumers." A guard in each consumer would have made the
+    crash stop and left the design worse: every future consumer would
+    have to remember, and the one that forgot would fail in production
+    rather than in review. So `chat_ws` reads the raw `modal_scope` key
+    in exactly one place.
+
+    These tests read the source rather than importing it --- `chat_ws`
+    imports fastapi, which is not installed in the test environment, and
+    the property being pinned is structural anyway: WHERE the read
+    happens, not what it returns for a given input. They read the CODE
+    and not the comments: the helper's own comment quotes the key it
+    exists to protect, and a naive substring scan counts that quotation
+    as a second read.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        path = _SERVER_CODE / "api" / "routers" / "chat_ws.py"
+        cls.src = path.read_text(encoding="utf-8")
+        cls.tree = ast.parse(cls.src)
+        cls.fn = None
+        for node in ast.walk(cls.tree):
+            if (isinstance(node, ast.FunctionDef)
+                    and node.name == "_normalized_modal_scope"):
+                cls.fn = node
+
+    def _helper_source(self) -> str:
+        self.assertIsNotNone(self.fn, "boundary helper not found")
+        seg = ast.get_source_segment(self.src, self.fn)
+        self.assertTrue(seg)
+        return seg
+
+    def test_the_boundary_helper_exists(self):
+        self.assertIsNotNone(self.fn, "boundary helper not found")
+
+    def test_the_raw_key_is_read_in_exactly_one_place(self):
+        # Every subscript or .get() of "modal_scope" anywhere in chat_ws,
+        # located by line so a failure names where the stray read is.
+        reads = []
+        for node in ast.walk(self.tree):
+            key = None
+            if (isinstance(node, ast.Subscript)
+                    and isinstance(node.slice, ast.Constant)):
+                key = node.slice.value
+            elif (isinstance(node, ast.Call)
+                  and isinstance(node.func, ast.Attribute)
+                  and node.func.attr == "get"
+                  and node.args
+                  and isinstance(node.args[0], ast.Constant)):
+                key = node.args[0].value
+            if key == "modal_scope":
+                reads.append(node.lineno)
+        self.assertEqual(
+            len(reads), 1,
+            "modal_scope must be read once, at the boundary. Lines: "
+            + repr(reads))
+        self.assertGreaterEqual(reads[0], self.fn.lineno)
+        self.assertLessEqual(reads[0], self.fn.end_lineno)
+
+    def test_every_consumer_goes_through_the_helper(self):
+        calls = [n for n in ast.walk(self.tree)
+                 if isinstance(n, ast.Call)
+                 and isinstance(n.func, ast.Name)
+                 and n.func.id == "_normalized_modal_scope"]
+        self.assertGreaterEqual(
+            len(calls), 2,
+            "both consumers (story capture and the direct-answer branch) "
+            "must go through the boundary helper")
+
+    def test_the_helper_does_not_repair_or_guess(self):
+        # A string is not half a scope. Inventing an active_trip_id from
+        # one would file a conversation against a trip nobody chose.
+        body = self._helper_source()
+        self.assertIn("isinstance(raw, dict)", body)
+        self.assertIn("return None", body)
+
+    def test_the_helper_logs_the_type_and_never_the_value(self):
+        # The scope object carries person and trip identifiers and sits
+        # next to narrative text, so the log line gets the TYPE and the
+        # reason and never the object. Read it with `ast` rather than by
+        # scanning text: the logging call is multi-line and an argument
+        # on a continuation line is exactly the one a text scan misses.
+        self.assertIsNotNone(self.fn, "boundary helper not found")
+        logged, sanctioned = [], 0
+        for node in ast.walk(self.fn):
+            if not isinstance(node, ast.Call):
+                continue
+            f = node.func
+            if not (isinstance(f, ast.Attribute)
+                    and isinstance(f.value, ast.Name)
+                    and f.value.id == "logger"):
+                continue
+            for arg in node.args:
+                # `type(raw).__name__` is the one sanctioned mention.
+                if (isinstance(arg, ast.Attribute)
+                        and arg.attr == "__name__"
+                        and isinstance(arg.value, ast.Call)
+                        and isinstance(arg.value.func, ast.Name)
+                        and arg.value.func.id == "type"):
+                    sanctioned += 1
+                    continue
+                logged.extend(
+                    n.id for n in ast.walk(arg) if isinstance(n, ast.Name))
+        self.assertEqual(sanctioned, 1, "the type is what gets logged")
+        self.assertNotIn("raw", logged,
+                         "the scope object itself must never be logged")
+
+
 if __name__ == "__main__":
     unittest.main()

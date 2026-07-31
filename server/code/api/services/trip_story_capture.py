@@ -468,6 +468,19 @@ def capture_modal_turn(
     try:
         if not capture_enabled():
             return _result(False, "flag_off")
+        # WO-LIVE-TRIP-COMPANION-02 step 2. A scope of the wrong SHAPE is
+        # a named no-op, not an `error`. It was an error before: a client
+        # that sent a string raised AttributeError inside the call below,
+        # the blanket except caught it, and the operator log read
+        # `captured=False reason=error`, which says only that something
+        # went wrong somewhere. Three acceptance runs carried that line
+        # and nobody could tell from it that the modal scope had never
+        # been built --- the reason has to name the thing that happened
+        # or it is not worth logging. Absent scope stays absent; that is
+        # an ordinary trip-level turn and has its own downstream gates.
+        if scope is not None and not isinstance(scope, dict):
+            return _result(False, "malformed_scope",
+                           error=type(scope).__name__)
         sc = scope or {}
         return capture_trip_story_answer(
             person_id=person_id,
@@ -485,7 +498,11 @@ def capture_modal_turn(
             trip_day_id=sc.get("active_trip_day_id"),
         )
     except Exception as exc:  # never let capture break the chat turn
-        return _result(False, "error", error=str(exc))
+        # The CLASS, never str(exc). This result is snapshotted for the
+        # operator surfaces, and an exception raised while handling a
+        # narrator turn can carry that turn's words in its message. The
+        # class name says what broke without quoting anybody.
+        return _result(False, "error", error=exc.__class__.__name__)
 
 
 def _capture_for_turn_impl(
@@ -528,7 +545,11 @@ def _capture_for_turn_impl(
             turn_id=turn_id,
         )
     except Exception as exc:  # never let capture break the chat turn
-        return _result(False, "error", error=str(exc))
+        # The CLASS, never str(exc). This result is snapshotted for the
+        # operator surfaces, and an exception raised while handling a
+        # narrator turn can carry that turn's words in its message. The
+        # class name says what broke without quoting anybody.
+        return _result(False, "error", error=exc.__class__.__name__)
 
 
 # ── Last-status snapshot for operator visibility (Bug Panel / logs) ──────────

@@ -312,6 +312,47 @@ def _cap_conv_cache(d: Dict[str, Any], cap: int = _TRIP_CONV_CACHE_CAP) -> None:
             break
 
 
+# WO-LIVE-TRIP-COMPANION-02 step 2 — ONE normalization of the inbound
+# modal scope, at the boundary where it arrives, for every consumer.
+#
+# THE DEFECT THIS CLOSES. `params["modal_scope"]` is a browser-supplied
+# object: {source_surface, person_id, active_trip_id, active_trip_day_id,
+# active_trip_region_id, active_trip_stop_id, active_photo_link_id,
+# selected_kind}. Two places read it --- trip story capture and the modal
+# direct-answer branch --- and both did `(value or {}).get(...)`, which
+# is only a guard against None. A client that sent a STRING sailed
+# through both and raised `'str' object has no attribute 'get'` deep
+# inside, where one consumer swallowed it as `reason=error` and the other
+# logged a warning and carried on. The turn survived, which is correct;
+# but two production behaviours silently did not run, and nothing said
+# so in a way anyone would notice.
+#
+# WHY HERE AND NOT IN THE CONSUMERS. Scattering isinstance checks down
+# the call chain spreads one question across many places and guarantees
+# the next consumer forgets to ask it. A malformed scope is a fact about
+# the REQUEST, so the request path decides it once, names it, and hands
+# every consumer a value of a known shape.
+#
+# WHAT IT DELIBERATELY DOES NOT DO. It does not repair, coerce or guess.
+# A string is not half a scope, and inventing an `active_trip_id` from
+# one would file a conversation against a trip nobody chose. It does not
+# log the value either: this object carries person and trip identifiers
+# and is adjacent to narrative text, so the log gets the TYPE and the
+# reason, never the contents.
+def _normalized_modal_scope(
+    params: Dict[str, Any], conv_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    raw = params.get("modal_scope")
+    if raw is None:
+        return None
+    if isinstance(raw, dict):
+        return raw
+    logger.warning(
+        "[chat_ws][modal-scope] conv=%s malformed modal_scope type=%s "
+        "— scope dropped, turn continues", conv_id, type(raw).__name__)
+    return None
+
+
 @router.websocket("/ws")
 async def ws_chat(ws: WebSocket):
     await ws.accept()
@@ -1509,7 +1550,7 @@ async def ws_chat(ws: WebSocket):
                     if (params.get("surface") or "") == "travel_doc_modal":
                         _tsc_res = _tsc.capture_modal_turn(
                             person_id,
-                            params.get("modal_scope"),
+                            _normalized_modal_scope(params, conv_id),
                             user_text,
                             previous_lori_text=_tsc_prev.get("lori_text"),
                             conv_id=conv_id,
@@ -1763,7 +1804,7 @@ async def ws_chat(ws: WebSocket):
                 and not _safety_forced_interview):
             try:
                 from ..services import travel_doc_lori_modal as _tdm
-                _msc = params.get("modal_scope") or {}
+                _msc = _normalized_modal_scope(params, conv_id) or {}
                 _modal_scope = _tdm.build_modal_scope(
                     person_id=person_id,
                     active_trip_id=_msc.get("active_trip_id"),
