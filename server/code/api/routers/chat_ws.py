@@ -636,6 +636,20 @@ async def ws_chat(ws: WebSocket):
         trip is live, which is why reopening the trip after a restart
         shows the same timeline event.
 
+        AMENDED 2026-07-31, WO-TRIP-NARRATOR-BRIDGE-01. It now reads
+        runtime71 for exactly two fields, and only as a fallback. A
+        COMPLETED trip has live_state != 'active', so the database
+        answer to "which trip is live" is None and every turn about it
+        was a silent noop -- a man opened the Bismarck trip, told the
+        story of visiting his mother's parents' grave, and nothing
+        anywhere recorded which trip he had been talking about. The
+        database is still asked first and still wins. Only when it has
+        no answer at all does this hook hand the service the narrow
+        shelf fact -- shelf open, this trip id -- and the service
+        re-reads that trip and checks it belongs to him before using
+        it. It never yields a day, and the whole path is behind the
+        default-off HORNELORE_TRIP_SHELF_TURN_LINK.
+
         WHAT THIS HOOK DOES NOT DO. It does not write family truth. It
         does not touch a projection. It does not change correction
         behaviour. Placing a conversation on a calendar day is a
@@ -665,7 +679,9 @@ async def ws_chat(ws: WebSocket):
         PRECONDITIONS, all checked in the service rather than assumed:
           * an eligible turn mode
           * a committed assistant row id (the idempotency key)
-          * an active trip for this narrator, in the database
+          * a trip for this narrator: the durable active trip, or the
+            shelf trip when there is no active one and the fallback
+            flag is on
         """
         try:
             params = params or {}
@@ -720,6 +736,22 @@ async def ws_chat(ws: WebSocket):
             if not params.get("_persisted_turn_row_id"):
                 return
 
+            # (x or {}).get() guards None and nothing else -- the exact
+            # hole that let a string reach two consumers and raise
+            # 'str' object has no attribute 'get' deep inside them. A
+            # runtime71 of the wrong shape is not half a scope; it is
+            # no scope, and the turn places on the durable path or not
+            # at all.
+            _rt71_shelf = params.get("runtime71")
+            if not isinstance(_rt71_shelf, dict):
+                _rt71_shelf = {}
+            _shelf_scope = {
+                "travels_shelf_open": bool(
+                    _rt71_shelf.get("travels_shelf_open")),
+                "active_trip_id": str(
+                    _rt71_shelf.get("active_trip_id") or ""),
+            }
+
             _outcome = _link_turn(
                 narrator_id=str(params.get("person_id") or ""),
                 assistant_turn_row_id=params.get("_persisted_turn_row_id"),
@@ -728,6 +760,12 @@ async def ws_chat(ws: WebSocket):
                 turn_id=str(params.get("turn_id") or ""),
                 turn_mode=turn_mode,
                 source="chat_ws",
+                # Unwrapped HERE, at the boundary, so the placement
+                # service never learns the browser's field names and
+                # has only one thing to be wrong about. Two fields,
+                # both re-validated downstream; the id is a claim, not
+                # an authority.
+                shelf_scope=_shelf_scope,
             )
 
             # A narrator with no trip running produces a noop on every
@@ -1871,9 +1909,19 @@ async def ws_chat(ws: WebSocket):
                         language = "en"
                     _meta_question_answer = _TripAnswerShim()
                     _is_meta_question = True
+                    # WO-TRIP-NARRATOR-BRIDGE-01: two different
+                    # questions reach this branch now. A log line that
+                    # names only the older one would send the next
+                    # reader looking for a trip-knowledge match that
+                    # never happened. Structural label only -- never the
+                    # narrator's text.
+                    _tda_reason = (
+                        "photo_capability_question"
+                        if _tdic.is_photo_capability_question(user_text)
+                        else "trip_knowledge_question")
                     logger.info(
                         "[chat_ws][trip-direct-answer] conv=%s handled=true "
-                        "reason=trip_knowledge_question", conv_id)
+                        "reason=%s", conv_id, _tda_reason)
             except Exception as _tda_exc:
                 logger.warning(
                     "[chat_ws][trip-direct-answer] failed conv=%s: %s "

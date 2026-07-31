@@ -548,9 +548,24 @@ class _PlacementCase(unittest.TestCase):
                           "extract_fields", "run_field_extraction"):
             self.assertNotIn(forbidden, called)
 
-    def test_placement_never_reads_the_browser_supplied_active_trip(self):
-        """`runtime71.active_trip_id` dies on reload and on restart.
-        The link resolves the trip from the database or not at all.
+    def test_placement_never_learns_the_browsers_field_names(self):
+        """`runtime71` dies on reload and on restart, and this module
+        still never names it.
+
+        AMENDED 2026-07-31, WO-TRIP-NARRATOR-BRIDGE-01. This test used
+        to also forbid the string `active_trip_id`, and that clause has
+        been dropped rather than worked around, because the module now
+        legitimately reads that key off a `shelf_scope` argument the
+        caller assembles. Dropping it costs something real, so the
+        property it was standing in for is asserted directly in the
+        three behavioural tests below: Priority 1 wins when it has an
+        answer, a shelf id is re-read from the database before use, and
+        a shelf trip belonging to someone else is refused.
+
+        What survives verbatim is the part that still holds. The word
+        `runtime71` must not appear in executable code here: the caller
+        unwraps it, so this service has no opinion about what the
+        browser calls things and cannot drift from it.
 
         Docstrings are excluded on purpose. The module explains this
         exact gap in its own prose, and a test that cannot tell an
@@ -562,10 +577,9 @@ class _PlacementCase(unittest.TestCase):
         tree = ast.parse(src)
         for node in _executable_string_constants(tree):
             self.assertNotIn("runtime71", node)
-            self.assertNotIn("active_trip_id", node)
         for node in ast.walk(tree):
             if isinstance(node, ast.Attribute):
-                self.assertNotEqual(node.attr, "active_trip_id")
+                self.assertNotEqual(node.attr, "runtime71")
 
     # ── 7. failure isolation ──────────────────────────────────────────
     def test_a_broken_link_never_costs_the_conversation(self):
@@ -693,6 +707,229 @@ class _PlacementCase(unittest.TestCase):
         self.assertEqual(resp["reason"], "no_active_trip")
 
 
+
+class TravelsShelfPlacementCase(_PlacementCase):
+    """WO-TRIP-NARRATOR-BRIDGE-01, Priority 2.
+
+    THE GAP. A COMPLETED trip has live_state != 'active', so
+    trip_active_get() returns None and link_completed_turn() answered
+    noop/no_active_trip for every turn about it. That is not a bug in
+    the placement rule -- the rule is correct for a live trip -- it is a
+    scope the rule never had. A man opened the Bismarck trip on the
+    Travels shelf and told the story of visiting his mother\u2019s parents\u2019
+    gravesite, his elementary school, two middle schools, a high school
+    and a junior college, with his wife Melanie. The turn persisted. The
+    conversation was never lost. It was also never attached to anything,
+    which from the operator\u2019s chair is the same as gone.
+
+    THE DANGER IN FIXING IT is that the fix reaches for the browser. So
+    these tests are mostly about what the shelf path REFUSES: it refuses
+    to run by default, it refuses to outrank the database, it refuses an
+    id it has not re-read, it refuses another person\u2019s trip, it refuses
+    to invent a day, and it refuses to make a finished trip live again.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._orig_shelf = os.environ.get("HORNELORE_TRIP_SHELF_TURN_LINK")
+        os.environ["HORNELORE_TRIP_SHELF_TURN_LINK"] = "1"
+
+    def tearDown(self):
+        if self._orig_shelf is None:
+            os.environ.pop("HORNELORE_TRIP_SHELF_TURN_LINK", None)
+        else:
+            os.environ["HORNELORE_TRIP_SHELF_TURN_LINK"] = self._orig_shelf
+        super().tearDown()
+
+    def _link_shelf(self, arow, urow=None, trip_id=None, open_=True,
+                    conv_id="conv-shelf", scope="__default__"):
+        if scope == "__default__":
+            scope = {"travels_shelf_open": open_,
+                     "active_trip_id": trip_id or self.trip_id}
+        return trip_placement.link_completed_turn(
+            narrator_id=self.person_id,
+            assistant_turn_row_id=arow,
+            user_turn_row_id=urow,
+            conv_id=conv_id,
+            turn_id="t-" + str(arow),
+            turn_mode="interview",
+            source="chat_ws",
+            shelf_scope=scope)
+
+    # ── the gap itself ────────────────────────────────────────────────
+    def test_a_completed_trip_on_the_shelf_now_receives_the_turn(self):
+        # live_state is left completed on purpose. This is the case that
+        # used to vanish.
+        trip_repository.trip_live_state_set(self.trip_id, "completed")
+        urow, arow = self._persist_turn(
+            user="I visited my mom's parents' gravesite, and my old "
+                 "elementary school, with my wife Melanie.",
+            assistant="What did the school look like from outside?")
+        out = self._link_shelf(arow, urow)
+        self.assertEqual(out.status, "needs_day")
+        self.assertEqual(out.trip_id, self.trip_id)
+        self.assertEqual(out.placement_source, "travels_shelf_trip")
+        self.assertEqual(out.placement_status, "needs_day")
+        self.assertEqual(out.trip_day_id, "")
+
+    def test_it_surfaces_in_the_operators_needs_a_day_list(self):
+        """A link nobody can see is not a fix."""
+        trip_repository.trip_live_state_set(self.trip_id, "completed")
+        urow, arow = self._persist_turn(user="Melanie came with me.",
+                                        assistant="Tell me about her.")
+        self._link_shelf(arow, urow)
+        items = trip_repository.trip_day_conversation_items(self.trip_id, None)
+        self.assertEqual(len(items), 1)
+
+    def test_the_source_word_survives_the_repository_whitelist(self):
+        """trip_turn_link_claim silently rewrites an unrecognized source
+        to 'active_trip_day'. If 'travels_shelf_trip' were missing from
+        PLACEMENT_SOURCES the row would claim the narrator was live on
+        the trip that day -- a forgery produced by a typo guard."""
+        self.assertIn("travels_shelf_trip", trip_repository.PLACEMENT_SOURCES)
+        trip_repository.trip_live_state_set(self.trip_id, "completed")
+        urow, arow = self._persist_turn(user="a", assistant="b")
+        self._link_shelf(arow, urow)
+        con = sqlite3.connect(str(self.db_path))
+        try:
+            src = con.execute(
+                "SELECT placement_source FROM trip_turn_links "
+                "WHERE trip_id=?;", (self.trip_id,)).fetchone()[0]
+        finally:
+            con.close()
+        self.assertEqual(src, "travels_shelf_trip")
+
+    # ── everything it refuses ─────────────────────────────────────────
+    def test_it_is_off_by_default(self):
+        os.environ.pop("HORNELORE_TRIP_SHELF_TURN_LINK", None)
+        trip_repository.trip_live_state_set(self.trip_id, "completed")
+        urow, arow = self._persist_turn(user="a", assistant="b")
+        out = self._link_shelf(arow, urow)
+        self.assertEqual(out.status, "noop")
+        self.assertEqual(out.reason, "no_active_trip")
+
+    def test_the_database_outranks_the_shelf(self):
+        """The accepted VS1 path is tried first on every turn. A stale
+        browser payload naming another trip must not redirect a turn
+        away from the trip the database says he is living in."""
+        other = trip_repository.trip_create(
+            person_id=self.person_id, title="Some other trip",
+            start_date="2026-09-01", end_date="2026-09-02")
+        self._start_trip(self.day_id)
+        urow, arow = self._persist_turn(user="a", assistant="b")
+        out = self._link_shelf(arow, urow, trip_id=other)
+        self.assertEqual(out.status, "linked")
+        self.assertEqual(out.trip_id, self.trip_id)
+        self.assertEqual(out.trip_day_id, self.day_id)
+        self.assertEqual(out.placement_source, "active_trip_day")
+
+    def test_another_persons_trip_is_refused(self):
+        """A well-formed id from the wrong journey. This is the check
+        that makes the fallback safe to switch on at all."""
+        stranger = str(uuid.uuid4())
+        con = sqlite3.connect(str(self.db_path))
+        con.execute(
+            "INSERT INTO people (id, display_name, date_of_birth, "
+            "created_at, updated_at) VALUES (?, 'Someone Else', "
+            "'1949-01-01', '2026-07-31', '2026-07-31');", (stranger,))
+        con.commit()
+        con.close()
+        theirs = trip_repository.trip_create(
+            person_id=stranger, title="Not his trip",
+            start_date="2026-09-01", end_date="2026-09-02")
+        urow, arow = self._persist_turn(user="a", assistant="b")
+        out = self._link_shelf(arow, urow, trip_id=theirs)
+        self.assertEqual(out.status, "noop")
+        self.assertEqual(out.reason, "shelf_trip_not_owned")
+        self.assertEqual(self._table_counts().get("trip_turn_links"), 0)
+
+    def test_an_id_for_a_trip_that_does_not_exist_is_refused(self):
+        urow, arow = self._persist_turn(user="a", assistant="b")
+        out = self._link_shelf(arow, urow, trip_id=str(uuid.uuid4()))
+        self.assertEqual(out.status, "noop")
+        self.assertEqual(out.reason, "shelf_trip_missing")
+
+    def test_a_closed_shelf_is_not_a_choice(self):
+        """An active_trip_id left over in a stale payload is not a man
+        opening a trip."""
+        urow, arow = self._persist_turn(user="a", assistant="b")
+        out = self._link_shelf(arow, urow, open_=False)
+        self.assertEqual(out.status, "noop")
+        self.assertEqual(out.reason, "shelf_closed")
+
+    def test_a_malformed_scope_is_refused_not_repaired(self):
+        """The 'str' object has no attribute 'get' family. A string is
+        not half a scope, and inventing a trip id from one would file a
+        conversation against a trip nobody chose."""
+        for bad in ("trip", ["trip"], 7):
+            urow, arow = self._persist_turn(
+                user="a" + str(bad), assistant="b")
+            out = self._link_shelf(arow, urow, scope=bad)
+            self.assertEqual(out.status, "noop", repr(bad))
+            self.assertEqual(out.reason, "malformed_shelf_scope", repr(bad))
+
+    def test_it_never_infers_a_day(self):
+        """Not from the trip's dates, not from stop order, not from the
+        transcript, not from today. The trip has three generated days
+        and the link gets none of them."""
+        trip_repository.trip_live_state_set(self.trip_id, "completed")
+        urow, arow = self._persist_turn(user="a", assistant="b")
+        out = self._link_shelf(arow, urow)
+        self.assertEqual(out.trip_day_id, "")
+        con = sqlite3.connect(str(self.db_path))
+        try:
+            day = con.execute(
+                "SELECT trip_day_id FROM trip_turn_links "
+                "WHERE trip_id=?;", (self.trip_id,)).fetchone()[0]
+        finally:
+            con.close()
+        self.assertIsNone(day)
+
+    def test_it_does_not_make_a_finished_trip_live_again(self):
+        """Opening a historical trip to talk about it is not resuming
+        it. live_state is the operator's word."""
+        trip_repository.trip_live_state_set(self.trip_id, "completed")
+        urow, arow = self._persist_turn(user="a", assistant="b")
+        self._link_shelf(arow, urow)
+        self.assertEqual(
+            trip_repository.trip_get(self.trip_id).get("live_state"),
+            "completed")
+        self.assertIsNone(trip_repository.trip_active_get(self.person_id))
+
+    def test_a_replayed_turn_does_not_create_a_second_link(self):
+        """Idempotency is keyed to the committed assistant row, so a
+        reconnect that replays the same turn is a duplicate, and a
+        duplicate never overwrites a placement an operator has moved."""
+        trip_repository.trip_live_state_set(self.trip_id, "completed")
+        urow, arow = self._persist_turn(user="a", assistant="b")
+        first = self._link_shelf(arow, urow)
+        second = self._link_shelf(arow, urow)
+        self.assertEqual(first.status, "needs_day")
+        self.assertEqual(second.status, "duplicate")
+        self.assertEqual(self._table_counts().get("trip_turn_links"), 1)
+
+    def test_the_shelf_path_writes_only_the_link_table(self):
+        """Same guarantee as Priority 1: no family truth, no
+        projection, nothing but trip_turn_links moves."""
+        trip_repository.trip_live_state_set(self.trip_id, "completed")
+        urow, arow = self._persist_turn(user="a", assistant="b")
+        before = self._table_counts()
+        self._link_shelf(arow, urow)
+        self._assert_only_links_changed(before, self._table_counts())
+
+    def test_an_ineligible_mode_is_still_ineligible_on_the_shelf(self):
+        trip_repository.trip_live_state_set(self.trip_id, "completed")
+        urow, arow = self._persist_turn(user="a", assistant="b")
+        out = trip_placement.link_completed_turn(
+            narrator_id=self.person_id, assistant_turn_row_id=arow,
+            user_turn_row_id=urow, conv_id="c", turn_id="t",
+            turn_mode="correction", source="chat_ws",
+            shelf_scope={"travels_shelf_open": True,
+                         "active_trip_id": self.trip_id})
+        self.assertEqual(out.status, "noop")
+        self.assertEqual(out.reason, "ineligible_turn_mode")
+
+
 class _ChatWsHookCase(unittest.TestCase):
     """The hook is glue; these assertions are about where it sits."""
 
@@ -739,17 +976,39 @@ class _ChatWsHookCase(unittest.TestCase):
                           "archive_append_event", "persist_turn_transaction"):
             self.assertNotIn(forbidden, called)
 
-    def test_the_hook_does_not_read_runtime71(self):
-        """Same exclusion as the service-side test: the hook's own
-        docstring names the browser field in order to say it is not
-        the authority."""
+    def test_the_hook_reads_runtime71_only_to_build_a_shelf_scope(self):
+        """AMENDED 2026-07-31, WO-TRIP-NARRATOR-BRIDGE-01. The hook now
+        does read runtime71, so the old blanket ban is gone. What
+        replaces it is narrower and says the thing that actually
+        matters: the browser value may become a `shelf_scope` argument
+        and nothing else.
+
+        In particular the hook must never hand `_link_turn` a trip_id
+        or a trip_day_id. If it could, the browser would be choosing
+        the trip directly and the database re-read on the other side
+        would be decoration."""
         node = self._find("_run_completed_turn_trip_link")
-        for text in _executable_string_constants(node):
-            self.assertNotIn("runtime71", text)
-            self.assertNotIn("active_trip_id", text)
+        call = None
         for sub in ast.walk(node):
-            if isinstance(sub, ast.Attribute):
-                self.assertNotEqual(sub.attr, "active_trip_id")
+            if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Name) \
+                    and sub.func.id == "_link_turn":
+                call = sub
+        self.assertIsNotNone(call, "the hook no longer calls _link_turn")
+        kwargs = {k.arg for k in call.keywords}
+        self.assertIn("shelf_scope", kwargs)
+        for forbidden in ("trip_id", "trip_day_id", "placement_source",
+                          "placement_status"):
+            self.assertNotIn(forbidden, kwargs)
+
+    def test_the_hook_guards_the_shape_of_runtime71_before_reading_it(self):
+        """(x or {}).get() guards None and nothing else. A string
+        runtime71 would raise 'str' object has no attribute 'get'
+        inside a hook whose entire contract is that it cannot disturb
+        a delivered turn."""
+        src = ast.get_source_segment(
+            self.src, self._find("_run_completed_turn_trip_link")) or ""
+        self.assertIn("isinstance(_rt71_shelf, dict)", src)
+        self.assertNotIn('(params.get("runtime71") or {}).get', src)
 
     def test_the_hook_cannot_swallow_cancellation(self):
         node = self._find("_run_completed_turn_trip_link")
@@ -1064,6 +1323,139 @@ class _DayTimelineProjectionCase(_PlacementCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["narrator_said"], "We took the funicular up.")
         self.assertEqual(items[0]["lori_said"], "Who was with you?")
+
+
+class ClaimRefusalCase(_PlacementCase):
+    """WO-TRIP-NARRATOR-BRIDGE-01 -- the bug underneath the bug.
+
+    Adding 'travels_shelf_trip' to PLACEMENT_SOURCES in Python did not
+    make it legal in the database: 0039 wrote the four accepted words
+    into a CHECK constraint. Every shelf placement was refused, and
+    trip_turn_link_claim reported the refusal as outcome='duplicate',
+    because it treated sqlite3.IntegrityError as proof of the UNIQUE
+    index firing. A CHECK raises the same class. PlacementOutcome.linked
+    reads 'duplicate' as "a link row now exists for this turn", so a
+    turn that was attached to nothing would have been logged as
+    already-handled -- the same disappearance the work order exists to
+    end, one layer further down and harder to see.
+
+    Migration 0040 removes the reason the constraint fires. These tests
+    guard the other half: that a refusal, whatever causes the next one,
+    is never again mistaken for success.
+    """
+
+    def _links_sql(self):
+        con = sqlite3.connect(str(self.db_path))
+        try:
+            return con.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' "
+                "AND name='trip_turn_links';").fetchone()[0]
+        finally:
+            con.close()
+
+    def test_migration_0040_made_the_shelf_word_legal_in_the_schema(self):
+        sql = self._links_sql()
+        self.assertIn("travels_shelf_trip", sql)
+        # The four 0039 words are still accepted. Widening a vocabulary
+        # is not replacing one, and a row already placed by the active
+        # trip path must not become unreadable.
+        for word in ("active_trip_day", "operator_selected",
+                     "timestamp_suggested", "later_reconciled"):
+            self.assertIn(word, sql)
+
+    def test_the_rebuild_put_the_idempotency_index_back(self):
+        """A rebuild drops the old table's indexes with it. If the
+        UNIQUE index on assistant_turn_row_id did not come back, one
+        turn could be placed twice and nothing anywhere would say so."""
+        con = sqlite3.connect(str(self.db_path))
+        try:
+            idx = {r[0] for r in con.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' "
+                "AND tbl_name='trip_turn_links';")}
+        finally:
+            con.close()
+        self.assertIn("ux_trip_turn_links_assistant_row", idx)
+        for name in ("idx_trip_turn_links_trip", "idx_trip_turn_links_day",
+                     "idx_trip_turn_links_conv"):
+            self.assertIn(name, idx)
+
+    def test_the_rebuilt_table_still_refuses_a_word_nobody_defined(self):
+        """The CHECK is widened, not removed. A source the vocabulary
+        does not contain must still be impossible to store, or the
+        column stops being a classification and becomes free text."""
+        self._start_trip(self.day_id)
+        urow, arow = self._persist_turn()
+        con = sqlite3.connect(str(self.db_path))
+        try:
+            con.execute("PRAGMA foreign_keys=ON;")
+            with self.assertRaises(sqlite3.IntegrityError):
+                con.execute(
+                    "INSERT INTO trip_turn_links(id, trip_id, trip_day_id, "
+                    "conv_id, user_turn_row_id, assistant_turn_row_id, "
+                    "captured_at, placement_source, placement_status, "
+                    "created_at, updated_at) "
+                    "VALUES('x', ?, ?, '', ?, ?, '', 'vibes', "
+                    "'confirmed', 'now', 'now');",
+                    (self.trip_id, self.day_id, urow, arow))
+        finally:
+            con.close()
+
+    def test_a_refused_row_is_reported_as_rejected_not_duplicate(self):
+        """A foreign key that does not resolve raises the same
+        exception class as the idempotency index. The claim has to ask
+        the database which of the two happened rather than assume."""
+        urow, arow = self._persist_turn()
+        claim = trip_repository.trip_turn_link_claim(
+            trip_id=self.trip_id,
+            assistant_turn_row_id=arow,
+            trip_day_id="no-such-day-id",
+            user_turn_row_id=urow,
+            conv_id="conv-1")
+        self.assertEqual(claim["outcome"], "rejected")
+        self.assertIsNone(claim["link"])
+        con = sqlite3.connect(str(self.db_path))
+        try:
+            self.assertEqual(
+                con.execute(
+                    "SELECT COUNT(*) FROM trip_turn_links;").fetchone()[0], 0)
+        finally:
+            con.close()
+
+    def test_a_real_second_run_is_still_a_duplicate(self):
+        """The other half of the same question. Re-reading for the row
+        must not turn genuine idempotency into a failure."""
+        self._start_trip(self.day_id)
+        urow, arow = self._persist_turn()
+        self.assertEqual(self._link(arow, urow).status, "linked")
+        again = trip_repository.trip_turn_link_claim(
+            trip_id=self.trip_id,
+            assistant_turn_row_id=arow,
+            trip_day_id=self.other_day_id,
+            user_turn_row_id=urow,
+            conv_id="conv-1")
+        self.assertEqual(again["outcome"], "duplicate")
+        # And it did not drag the placement to the day the replay named.
+        self.assertEqual(again["link"]["trip_day_id"], self.day_id)
+
+    def test_placement_calls_a_refusal_a_failure(self):
+        """'failed' rather than 'noop', because noop is documented as
+        normal and most turns being noop is expected. A turn the
+        database refused to place is not one of those."""
+        self._start_trip(self.day_id)
+        urow, arow = self._persist_turn()
+        orig = trip_repository.trip_turn_link_claim
+        trip_repository.trip_turn_link_claim = \
+            lambda **kw: {"outcome": "rejected", "link": None}
+        try:
+            out = self._link(arow, urow)
+        finally:
+            trip_repository.trip_turn_link_claim = orig
+        self.assertEqual(out.status, "failed")
+        self.assertEqual(out.reason, "claim_rejected")
+        self.assertEqual(out.error_class, "IntegrityError")
+        # The two properties that would have carried the old lie.
+        self.assertFalse(out.linked)
+        self.assertFalse(out.ok)
 
 
 if __name__ == "__main__":

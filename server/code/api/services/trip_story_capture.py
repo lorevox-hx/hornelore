@@ -505,6 +505,47 @@ def capture_modal_turn(
         return _result(False, "error", error=exc.__class__.__name__)
 
 
+def _durable_selected_day(person_id: Optional[str],
+                          active_trip_id: Optional[str]) -> Optional[str]:
+    """The trip day the DATABASE remembers, or None.
+
+    WO-TRIP-NARRATOR-BRIDGE-01 section D: a captured candidate note
+    carries "the durable selected day when valid, otherwise NULL".
+    Valid has a precise meaning here and it is the placement rule, not a
+    guess: the narrator has to be living in this trip -- live_state
+    'active' -- and the day has to be the one stored on the trip row and
+    still belong to it. resolve_placement() answers exactly that
+    question already and is reused rather than reimplemented, so the
+    note and the turn link can never disagree about which day a moment
+    happened on.
+
+    A completed trip opened from the Travels shelf therefore yields
+    None, on purpose. He is telling an old story from his chair; there
+    is no day the software knows. Reaching for the trip's first day, or
+    today's date, or a day named in the sentence, would put a
+    manufactured fact in front of an operator who has no way to tell it
+    from one a human chose. NULL is visible and honest, and the
+    operator can place it.
+
+    The browser's runtime71 is not consulted for the day. It supplies
+    which trip is open on the shelf and nothing else; that id is only
+    used here to check the database's answer is about the SAME trip.
+    """
+    try:
+        from . import trip_placement as _tp
+        resolved = _tp.resolve_placement(str(person_id or ""))
+    except Exception:
+        # Capture is non-fatal by contract, and a day is the optional
+        # part of a candidate note. An unreadable placement lane costs
+        # the day, never the story.
+        return None
+    trip = resolved.get("trip") or {}
+    if str(trip.get("id") or "") != str(active_trip_id or ""):
+        return None
+    day = resolved.get("day") or {}
+    return str(day.get("id") or "") or None
+
+
 def _capture_for_turn_impl(
     person_id: Optional[str],
     runtime71: Optional[Dict[str, Any]],
@@ -520,6 +561,12 @@ def _capture_for_turn_impl(
     Gates the flag + Travels-shelf-open here; everything else (active trip,
     ownership, trip-scope, trivial, scope validation, dedupe) is delegated to
     capture_trip_story_answer. Reads scope ids from runtime71.
+
+    The trip DAY is the one exception and does not come from runtime71:
+    it is read from the database by _durable_selected_day() and is None
+    unless the narrator is genuinely live on the trip the shelf has
+    open. See that function for why a shelf-opened completed trip gets
+    no day rather than a plausible one.
 
     NON-FATAL by contract: any internal error returns an ``error`` result
     instead of raising, so a caller can wrap-or-not and the chat turn is never
@@ -543,6 +590,14 @@ def _capture_for_turn_impl(
             photo_link_id=photo_link_id or rt.get("active_photo_link_id"),
             conv_id=conv_id,
             turn_id=turn_id,
+            # WO-TRIP-NARRATOR-BRIDGE-01 section D. Before this the chat
+            # path passed no day at all, so every narrator candidate
+            # note landed unplaced even while the operator had a day
+            # selected on a live trip. capture_trip_story_answer
+            # re-validates that the id belongs to this trip and drops it
+            # to None if it does not, so this can only narrow.
+            trip_day_id=_durable_selected_day(
+                person_id, rt.get("active_trip_id")),
         )
     except Exception as exc:  # never let capture break the chat turn
         # The CLASS, never str(exc). This result is snapshotted for the

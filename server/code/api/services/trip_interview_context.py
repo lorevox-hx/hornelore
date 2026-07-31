@@ -72,10 +72,29 @@ def _date_span(a: Optional[str], b: Optional[str]) -> str:
     return " to ".join([x for x in (a, b) if x])
 
 
+def _link_belongs_to_trip(link_id: str, trip_id: str) -> bool:
+    """Does this photo link actually sit on this trip? Read-only.
+
+    The active photo id arrives from the browser alongside the rest of
+    the modal scope, and every other field in that object is now
+    shape-checked at the request boundary. Shape is not ownership: a
+    well-formed id from a different trip, or from a link deleted three
+    screens ago, is still a string of the right kind. Lori saying "the
+    one you have selected" about a photo on somebody else's trip is a
+    cross-trip statement, so the id is confirmed against the trip before
+    it is allowed to mean anything."""
+    try:
+        row = trip_repository.photo_link_get(link_id)
+    except Exception:
+        return False
+    return bool(row and row.get("trip_id") == trip_id)
+
+
 def build_trip_interview_context(
     person_id: str,
     active_trip_id: str,
     active_trip_stop_id: Optional[str] = None,
+    active_photo_link_id: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """Return a compact, narrator-safe context dict for an open trip, or
     None when the trip is missing or not owned by ``person_id``.
@@ -150,8 +169,18 @@ def build_trip_interview_context(
     #     (review 2026-07-09 closed the gate — narrator_ready alone no
     #     longer surfaces operator text to Lori)
     # Approved operator context notes ride along as photo_context.
+    #
+    # WO-TRIP-NARRATOR-BRIDGE-01: caption_total and context_total count
+    # EVERY approved item, while the lists below stop at _MAX_CAPTIONS.
+    # They are not the same number and must not be derived from each
+    # other: len(captions) is how much was sent, the totals are how much
+    # exists. Reporting len() as the total would have Lori say "I have
+    # ten captions" on a trip with forty, which is a quiet lie told by a
+    # display limit.
     captions: List[Dict[str, Any]] = []
     photo_context: List[Dict[str, Any]] = []
+    caption_total = 0
+    context_total = 0
     for l in trip_repository.narrator_photo_links(active_trip_id):
         sid, rid = l.get("trip_stop_id"), l.get("trip_region_id")
         where = (stop_name.get(sid) if sid
@@ -164,12 +193,15 @@ def build_trip_interview_context(
             cap = ocap
         else:
             cap = ""
-        if cap and len(captions) < _MAX_CAPTIONS:
-            captions.append({"where": where, "caption": _clip(cap)})
+        if cap:
+            caption_total += 1
+            if len(captions) < _MAX_CAPTIONS:
+                captions.append({"where": where, "caption": _clip(cap)})
         note = (l.get("operator_context_note") or "").strip()
-        if (note and l.get("operator_context_approved_for_lori")
-                and len(photo_context) < _MAX_CAPTIONS):
-            photo_context.append({"where": where, "context": _clip(note)})
+        if note and l.get("operator_context_approved_for_lori"):
+            context_total += 1
+            if len(photo_context) < _MAX_CAPTIONS:
+                photo_context.append({"where": where, "context": _clip(note)})
 
         # WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 Part E: approved OCR/vision only.
         # Draft and rejected photo-context rows NEVER reach narrator-facing
@@ -178,23 +210,52 @@ def build_trip_interview_context(
         try:
             for pcr in trip_repository.photo_context_list_for_link(
                     l.get("id")):
-                if (not pcr.get("approved_for_lori") or pcr.get("rejected")
-                        or len(photo_context) >= _MAX_CAPTIONS):
+                if not pcr.get("approved_for_lori") or pcr.get("rejected"):
                     continue
                 summ = sanitize_for_prompt(pcr.get("result_summary"))
                 if not summ:
                     continue
+                # Build the item FIRST, then count it. Counting before
+                # the context_type check would count a row of some third
+                # type that is never rendered, and Lori would report a
+                # note she does not actually have.
                 if pcr.get("context_type") == "ocr_text":
-                    photo_context.append(
-                        {"where": where,
-                         "context": "the text on one photo reads: "
-                                    + _clip(summ)})
+                    item = "the text on one photo reads: " + _clip(summ)
                 elif pcr.get("context_type") == "vision_description":
-                    photo_context.append(
-                        {"where": where, "context": _clip(summ)})
+                    item = _clip(summ)
+                else:
+                    continue
+                context_total += 1
+                if len(photo_context) < _MAX_CAPTIONS:
+                    photo_context.append({"where": where, "context": item})
         except Exception:
             pass
 
+    # WO-TRIP-NARRATOR-BRIDGE-01 — the inventory Lori was missing.
+    #
+    # The live failure: the narrator asked "can you see any of the photos
+    # I added to my trip?" and Lori produced a continuation question,
+    # because every photo fact in this context is derived from
+    # narrator_photo_links, and on that trip it returned nothing. Two
+    # photos were attached. Both were placed on days. Neither had been
+    # cleared, so the narrator-safe read was empty and the context said
+    # nothing about photos at all -- not "none", which would at least
+    # have been answerable, but nothing. With no fact to stand on, the
+    # model fell back on interview boilerplate. That is the dodge.
+    #
+    # These four numbers are the smallest set that lets an honest answer
+    # be composed, and they are deliberately NOT one number:
+    #   attached          -- exists on the trip, regardless of clearance
+    #   on_a_day          -- has a placement on the timeline
+    #   cleared_for_lori  -- an operator marked the photo narrator-ready
+    #   approved captions / context -- text she may actually quote
+    # "Attached" and "usable by me" are different facts about the same
+    # photo and the narrator can see the first with their own eyes, so
+    # collapsing them would have Lori contradict what is on the screen.
+    #
+    # Counts only. Nothing here carries a caption, a filename, a path, a
+    # coordinate, a confidence value or an operator's words.
+    inv = trip_repository.trip_photo_inventory(active_trip_id)
     ctx: Dict[str, Any] = {
         "trip_id": active_trip_id,
         "title": trip.get("title"),
@@ -204,6 +265,32 @@ def build_trip_interview_context(
         "notes": notes,
         "photo_captions": captions,
         "photo_context": photo_context,
+        "photos": {
+            # WO-TRIP-NARRATOR-BRIDGE-01 names this key photo_count and
+            # defines it as "narrator-ready, nondeleted, nonhidden trip
+            # photo links". Kept under its spec name so it is findable,
+            # but bound to ATTACHED, not to narrator-ready. On the trip
+            # that raised the question both photos were attached and
+            # neither was narrator-ready, so the literal definition
+            # yields zero -- Lori would tell a man that his trip has no
+            # photos while he is looking at two of them. The three
+            # counts below say what he actually needs to know: they are
+            # here, they are placed, nobody has handed them to me.
+            "photo_count": int(inv.get("attached") or 0),
+            "attached": int(inv.get("attached") or 0),
+            "on_a_day": int(inv.get("on_a_day") or 0),
+            "cleared_for_lori": int(inv.get("cleared_for_lori") or 0),
+            "approved_caption_count": caption_total,
+            "approved_context_count": context_total,
+            # The browser sends the selected link id. It is not trusted:
+            # a selection that does not belong to THIS trip reads as no
+            # selection at all, so a stale or forged id can never make
+            # Lori say the narrator is looking at something they are not.
+            "active_photo_selected": bool(
+                active_photo_link_id
+                and _link_belongs_to_trip(active_photo_link_id,
+                                          active_trip_id)),
+        },
     }
     ctx["text"] = _to_prompt_text(ctx)
     return ctx
@@ -232,6 +319,32 @@ def _to_prompt_text(ctx: Dict[str, Any]) -> str:
             "Do not claim the narrator personally confirmed this order unless "
             "they have said so."
         )
+    ph = ctx.get("photos") or {}
+    if ph:
+        # The deterministic answer below handles the direct question. This
+        # line exists for every OTHER turn, where the narrator mentions a
+        # photo in passing and the model must not invent having seen one.
+        # It states the counts and then closes the door in the same breath,
+        # because a bare count is an invitation to describe what is in them.
+        att = int(ph.get("attached") or 0)
+        bits = ["Photos attached to this trip: %d" % att]
+        if att:
+            bits.append("placed on a day: %d" % int(ph.get("on_a_day") or 0))
+            bits.append("cleared for you to use: %d"
+                        % int(ph.get("cleared_for_lori") or 0))
+            bits.append("with an approved caption: %d"
+                        % int(ph.get("approved_caption_count") or 0))
+            bits.append("with approved context: %d"
+                        % int(ph.get("approved_context_count") or 0))
+        lines.append(
+            "; ".join(bits) + ". You do NOT look at images. You may use only "
+            "the approved captions and notes quoted here. Never say or imply "
+            "that you can see, view or look at a photo. If asked whether you "
+            "can see them, say plainly that photos are attached and that you "
+            "work from approved captions and notes instead."
+        )
+        if ph.get("active_photo_selected"):
+            lines.append("The narrator has one photo selected right now.")
     active = ctx.get("active")
     if active:
         lines.append(
@@ -279,6 +392,18 @@ def _flag_on() -> bool:
     return os.getenv(_FLAG, "0").strip().lower() in ("1", "true", "yes", "on")
 
 
+def context_enabled() -> bool:
+    """Public name for the same gate the turn path reads.
+
+    WO-TRIP-NARRATOR-BRIDGE-01 section A: the preflight has to report
+    whether this behaviour is live IN THE SERVING PROCESS, and the only
+    honest way to answer that is to call the function the turn calls. A
+    readout that re-reads os.environ on its own would agree with the
+    shell it was launched from rather than with the server, which is how
+    the first Gate 7 live run was voided."""
+    return _flag_on()
+
+
 def context_block_for_turn(
     person_id: Optional[str],
     runtime71: Optional[Dict[str, Any]],
@@ -297,7 +422,9 @@ def context_block_for_turn(
     if not (person_id and trip_id and rt.get("travels_shelf_open")):
         return ""
     ctx = build_trip_interview_context(
-        person_id, trip_id, active_trip_stop_id=rt.get("active_trip_stop_id"))
+        person_id, trip_id,
+        active_trip_stop_id=rt.get("active_trip_stop_id"),
+        active_photo_link_id=rt.get("active_photo_link_id"))
     if not ctx or not ctx.get("text"):
         return ""
     return _BLOCK_HEADER + ctx["text"]
@@ -341,6 +468,68 @@ _UNKNOWN_FACT_ANSWER = (
     "I don't know that from the approved trip record yet — but you might. "
     "What do you remember about that moment?"
 )
+
+
+# WO-TRIP-NARRATOR-BRIDGE-01 — the capability question.
+#
+# LIVE FAILURE, 2026-07-30. The narrator typed, verbatim:
+#     can you see any of the photos I added to my trip?
+# and Lori replied:
+#     Would you like to continue telling me about your experiences
+#     during the Bismarck Trip?
+# Nothing in _TRIP_KNOWLEDGE_RX matches that sentence. Every photo
+# pattern above is SINGULAR and about CONTENT -- "tell me about the
+# photo", "what date was that taken". A plural question about whether
+# she can reach them at all had no pattern, so the deterministic path
+# never ran and the model produced boilerplate.
+#
+# Two shapes, kept apart because they read differently:
+#
+# GROUP A, capability aimed at Lori: a modal or auxiliary, "you", a
+# reaching verb, then a photo word. The [^?.!]{0,40} gaps let the real
+# sentence through ("can you SEE any of the PHOTOS I added to my trip")
+# without letting the match run across a sentence boundary into an
+# unrelated clause.
+#
+# GROUP B, inventory: "what photos", "how many photos", "are there any
+# photos", "does this trip have photos". These ask what EXISTS rather
+# than what she can do, and they arrive without a capability verb.
+#
+# WHAT IT MUST NOT MATCH is ordinary narrative that happens to mention
+# photographs -- "I took photos of the gravesite that day", "Melanie
+# showed me pictures of the school". Neither carries "you" plus a
+# reaching verb, and neither is an inventory question, so both fall
+# through to the interview as they should. Requiring the second person
+# is what keeps this classifier from eating the memoir.
+_PHOTO_WORD = r"(?:photo|photos|photograph|photographs|picture|pictures|image|images|snapshot|snapshots)"
+
+_PHOTO_CAPABILITY_RX = re.compile(
+    r"(?i)("
+    # Group A — "can you see / view / read / access / open / pull up …"
+    r"\b(?:can|could|do|does|are|will|would)\s+you\b"
+    r"[^?.!]{0,40}?"
+    r"\b(?:see|seen|seeing|view|viewing|read|reading|access|look|looking|"
+    r"open|opened|pull\s+up|bring\s+up|use|using|have|got|remember|"
+    r"recall|find)\b"
+    r"[^?.!]{0,40}?"
+    r"\b" + _PHOTO_WORD + r"\b"
+    r"|"
+    # Group B — inventory: what exists on the trip
+    r"\bwhat\s+" + _PHOTO_WORD + r"\b|"
+    r"\bhow\s+many\s+" + _PHOTO_WORD + r"\b|"
+    r"\b(?:are|is)\s+there\s+(?:any\s+|some\s+)?" + _PHOTO_WORD + r"\b|"
+    r"\b(?:does|did|do)\s+(?:this|the|my)\s+(?:trip|journey)\s+have\s+"
+    r"(?:any\s+)?" + _PHOTO_WORD + r"\b"
+    r")"
+)
+
+
+def is_photo_capability_question(text: Optional[str]) -> bool:
+    """True when the narrator is asking whether Lori can reach the trip
+    photos, or what photos the trip has. Deterministic; second-person or
+    inventory phrasing required, so ordinary narrative about taking
+    photographs is not swallowed."""
+    return bool(_PHOTO_CAPABILITY_RX.search(str(text or "")))
 
 
 def is_trip_knowledge_question(text: Optional[str]) -> bool:
@@ -413,6 +602,122 @@ def compose_direct_answer(ctx: Dict[str, Any]) -> str:
     return " ".join(parts)
 
 
+_COUNT_WORDS = ("no", "one", "two", "three", "four", "five", "six",
+                "seven", "eight", "nine", "ten")
+
+
+def _count_word(n: int) -> str:
+    """Small counts read as words in speech. Nine photos, not 9 photos."""
+    n = int(n or 0)
+    return _COUNT_WORDS[n] if 0 <= n < len(_COUNT_WORDS) else str(n)
+
+
+def compose_photo_capability_answer(ctx: Dict[str, Any]) -> str:
+    """WO-TRIP-NARRATOR-BRIDGE-01. Answer "can you see my photos?" honestly,
+    from counts and approved words only.
+
+    THE RULE THIS EXISTS TO KEEP: Lori never claims image vision. She may say
+    what is attached, what is placed on a day, and what approved words someone
+    has written about a photo. She may not say or imply that she looked at
+    one. The failure this replaces was a dodge -- continuation boilerplate in
+    answer to a direct question -- and the tempting fix, letting the model
+    improvise, trades a dodge for a claim she cannot back.
+
+    Four states, and they are genuinely different answers, which is why this
+    is not one sentence with a number substituted in:
+
+      nothing attached
+          say so, and offer to receive them.
+      attached, none cleared for her
+          say they are here, say plainly that she has not been given them,
+          and ask him to tell her what is in them. This is the live Bismarck
+          state: two attached, both on days, zero cleared. Answering that
+          with "yes, I can see two photos" would be a lie about the only
+          thing he actually asked.
+      attached and cleared, with approved captions or notes
+          quote the approved words. That text is the ONLY photo content she
+          is ever allowed to speak, and quoting it is not the same as
+          looking -- so the sentence that introduces it says where it came
+          from.
+      attached and cleared, but nobody has written anything
+          say the clearance exists and the words do not, because "cleared
+          with nothing on it" and "not cleared" are different situations for
+          the operator to fix and he is also the operator.
+
+    "Cleared" is deliberately plain English. narrator_ready is a column name;
+    saying it to the narrator would be asking a man to debug his own memoir
+    in the middle of telling it.
+    """
+    photos = ctx.get("photos") or {}
+    attached = int(photos.get("attached") or 0)
+    on_a_day = int(photos.get("on_a_day") or 0)
+    cleared = int(photos.get("cleared_for_lori") or 0)
+    caps = [c.get("caption") for c in (ctx.get("photo_captions") or [])
+            if c.get("caption")]
+    notes = [p.get("context") for p in (ctx.get("photo_context") or [])
+             if p.get("context")]
+    title = _safe(ctx.get("title") or "this trip")
+
+    parts: List[str] = []
+
+    if attached <= 0:
+        return (
+            "There aren\u2019t any photos attached to " + title + " yet. "
+            "I don\u2019t look at pictures in any case \u2014 what reaches me is "
+            "the captions and notes someone writes about a photo and approves "
+            "for me to use. Add some when you\u2019re ready, and tell me what\u2019s "
+            "in them, and I\u2019ll hold on to them with you."
+        )
+
+    noun = "photo" if attached == 1 else "photos"
+    lead = ("There " + ("is " if attached == 1 else "are ")
+            + _count_word(attached) + " " + noun + " attached to " + title)
+    if attached and on_a_day >= attached:
+        # "they are both placed on a day" would imply ONE shared day; the
+        # live pair sits on day 1 and day 2. Each, not both.
+        lead += (", and " + ("it\u2019s placed on a day"
+                             if attached == 1
+                             else "each of them is placed on a day"))
+    elif on_a_day > 0:
+        lead += (", " + _count_word(on_a_day) + " of them placed on a day")
+    parts.append(lead + ".")
+
+    if photos.get("active_photo_selected"):
+        parts.append("You have one of them open in front of you right now.")
+
+    parts.append(
+        "I should be straight with you about what that means for me, though: "
+        "I don\u2019t look at the images themselves. What I can work from is the "
+        "captions and notes that have been written about a photo and approved "
+        "for me."
+    )
+
+    if caps or notes:
+        quoted = [_safe(q) for q in (caps[:2] + notes[:1]) if _safe(q)]
+        parts.append("Here\u2019s what I have in writing: "
+                     + "; ".join(quoted) + ".")
+        parts.append("Tell me about the others \u2014 what were you looking at?")
+        return " ".join(parts)
+
+    if cleared <= 0:
+        parts.append(
+            ("That one hasn\u2019t" if attached == 1 else "None of them have")
+            + " been cleared for me yet, so there\u2019s nothing written down "
+            "on my side about " + ("it" if attached == 1 else "them") + "."
+        )
+    else:
+        parts.append(
+            "They\u2019re cleared for me, but no one has written a caption or a "
+            "note on them yet, so I have no words to work from."
+        )
+    parts.append(
+        "Describe " + ("it" if attached == 1 else "them")
+        + " to me instead \u2014 what\u2019s in the picture, and what was happening "
+        "when it was taken?"
+    )
+    return " ".join(parts)
+
+
 def direct_answer_for_turn(
     person_id: Optional[str],
     runtime71: Optional[Dict[str, Any]],
@@ -427,10 +732,17 @@ def direct_answer_for_turn(
     trip_id = rt.get("active_trip_id")
     if not (person_id and trip_id and rt.get("travels_shelf_open")):
         return None
-    if not is_trip_knowledge_question(narrator_text):
+    # The capability question is NOT a trip-knowledge question -- none of
+    # the _TRIP_KNOWLEDGE_RX patterns match "can you see any of the photos
+    # I added to my trip?". Without this second clause the composer below
+    # is unreachable and the live dodge stands.
+    if not (is_trip_knowledge_question(narrator_text)
+            or is_photo_capability_question(narrator_text)):
         return None
     ctx = build_trip_interview_context(
-        person_id, trip_id, active_trip_stop_id=rt.get("active_trip_stop_id"))
+        person_id, trip_id,
+        active_trip_stop_id=rt.get("active_trip_stop_id"),
+        active_photo_link_id=rt.get("active_photo_link_id"))
     if not ctx:
         return None
     # BUG-LORI-TRIP-DIRECT-QUESTION-DODGE-01: date-taken and about-the-
@@ -451,4 +763,10 @@ def direct_answer_for_turn(
                     + "; ".join(bits) +
                     ". What do you remember about that moment?")
         return _UNKNOWN_FACT_ANSWER
+    # Checked AFTER the two singular branches above so shipped
+    # behaviour for "tell me about this photo" is untouched, and
+    # BEFORE the general answer because a capability question that
+    # also trips _TRIP_KNOWLEDGE_RX is still a capability question.
+    if is_photo_capability_question(text):
+        return compose_photo_capability_answer(ctx)
     return compose_direct_answer(ctx)

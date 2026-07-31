@@ -455,6 +455,35 @@ def trip_capture_status() -> Dict[str, Any]:
     return _tsc.capture_status()
 
 
+@router.get("/runtime-gates")
+def trip_runtime_gates() -> Dict[str, Any]:
+    """WO-TRIP-NARRATOR-BRIDGE-01 section A — which trip behaviours are
+    live in THIS process.
+
+    Booleans and nothing else. Every value is the return of the same
+    predicate the feature itself calls, so the answer cannot drift from
+    the behaviour, and no flag name is resolved twice with two different
+    defaults. It deliberately does not echo the environment: an endpoint
+    that returned the raw value of a variable would be a way to read any
+    variable, and these three sit in a file next to API keys and
+    database paths. The operator gets true or false, which is the whole
+    question a preflight asks.
+
+    Not gated behind HORNELORE_TRIPS. A preflight whose job is to say
+    whether the trip features are on cannot itself 404 when they are
+    off; that reads as a broken server rather than a closed gate, so the
+    trips master flag is reported here as another boolean."""
+    from ..services import trip_interview_context as _tic
+    from ..services import trip_story_capture as _tsc
+    from ..services import trip_placement as _tp
+    return {
+        "trips_enabled": bool(_trips_enabled()),
+        "trip_interview_context_enabled": bool(_tic.context_enabled()),
+        "trip_story_capture_enabled": bool(_tsc.capture_enabled()),
+        "trip_shelf_turn_link_enabled": bool(_tp.shelf_link_enabled()),
+    }
+
+
 @router.get("/{trip_id}/tree")
 def get_trip_tree(trip_id: str) -> Dict[str, Any]:
     _require_trips_enabled()
@@ -3814,6 +3843,36 @@ def trip_calendar(trip_id: str) -> Dict[str, Any]:
     }
 
 
+@router.get("/{trip_id}/photo-inventory")
+def trip_photo_inventory(trip_id: str) -> Dict[str, Any]:
+    """WO-TRIP-NARRATOR-BRIDGE-01 section B — the three photo counts, as
+    counts.
+
+    The same read the narrator context uses, so an acceptance run can
+    check that Lori said the number that is actually true rather than
+    re-deriving it from a different query and grading her against a
+    second opinion. trip_photo_inventory returns ints by construction:
+    no column in it can carry a caption, a filename, a path, a
+    coordinate or an operator's words, so this route cannot leak one
+    either. attached, on_a_day and cleared_for_lori stay three separate
+    numbers here for the same reason they are separate there -- "it is
+    on the trip" and "I am allowed to use it" are different facts and
+    the narrator can see the first one on his screen.
+    """
+    _require_trips_enabled()
+    if trip_repository.trip_get(trip_id) is None:
+        raise HTTPException(status_code=404, detail="trip not found")
+    try:
+        inv = trip_repository.trip_photo_inventory(trip_id)
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][photo-inventory]", trip_id) from exc
+    return {"ok": True, "trip_id": trip_id,
+            "attached": int(inv.get("attached") or 0),
+            "on_a_day": int(inv.get("on_a_day") or 0),
+            "cleared_for_lori": int(inv.get("cleared_for_lori") or 0)}
+
+
 @router.get("/{trip_id}/days/{day_id}/timeline")
 def trip_day_timeline(trip_id: str, day_id: str) -> Dict[str, Any]:
     """What happened on one day, in order.
@@ -3861,8 +3920,11 @@ def trip_day_timeline(trip_id: str, day_id: str) -> Dict[str, Any]:
 def trip_unplaced_timeline(trip_id: str) -> Dict[str, Any]:
     """The reconciliation list: conversations on this trip with no day.
 
-    These are the turns that completed while the trip was active but no
-    day was selected. They were NOT discarded — the work order requires
+    These are the turns that completed with no day resolved: either the
+    trip was live and no day was selected, or (WO-TRIP-NARRATOR-BRIDGE-01)
+    the narrator opened a finished trip on the Travels shelf and told a
+    story about it, which names a trip and deliberately names no day.
+    They were NOT discarded — the work order requires
     that a failure to place a conversation leaves an observable
     reconciliation item rather than losing the conversation. This is
     that list, and the move route is how a human resolves it.

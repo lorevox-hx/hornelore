@@ -22,6 +22,30 @@ fact. It does not survive a page reload and it does not survive a server
 restart, so it cannot be the thing a persisted link is built from. This
 service resolves the trip and the day from the DATABASE, every time.
 
+AMENDED 2026-07-31, WO-TRIP-NARRATOR-BRIDGE-01. The paragraph above said
+this module consults the browser nowhere. That is no longer strictly
+true and the correction belongs here rather than in a comment further
+down. A COMPLETED trip -- one the narrator opens on the Travels shelf to
+tell an old story about -- has live_state != 'active', so
+trip_active_get() returns None and every turn about it was a noop. The
+conversation was not misplaced; it was not placed at all, and nothing
+observable said so. The shelf is a real scope: a man opened a specific
+trip and started talking about it.
+
+What changed is narrow and the narrowness is the point. The shelf trip
+is a SECOND-PRIORITY fallback consulted only when the database has no
+active trip at all, so the accepted Vertical Slice 1 path is reached
+first on every turn and is untouched. It arrives as a small named
+argument, `shelf_scope`, not as runtime71 -- the caller does the
+unwrapping, this module never learns the browser's field names. The id
+in it is not trusted: the trip is re-read from the database and its
+person_id must match the narrator, because an id of the right shape
+from the wrong trip would file a man's conversation against someone
+else's journey. It never produces a day. It never writes live_state.
+And the whole path is behind a default-off flag,
+HORNELORE_TRIP_SHELF_TURN_LINK, so the shipped behaviour is byte-for-
+byte what it was until an operator turns it on.
+
 WHAT A LINK IS, AND WHAT IT IS NOT
 ----------------------------------
 A row in `trip_turn_links` carries identifiers only: which trip, which
@@ -260,6 +284,89 @@ def forced_failure_armed() -> bool:
     return bool((os.environ.get("HORNELORE_TRIP_LINK_FORCE_FAILURE") or "").strip())
 
 
+_SHELF_FLAG = "HORNELORE_TRIP_SHELF_TURN_LINK"
+
+
+def shelf_link_enabled() -> bool:
+    """True when the Priority 2 Travels-shelf fallback is live in THIS
+    process. Default OFF, like every rollout flag in this codebase, and
+    read from the server rather than from a shell -- the first Gate 7
+    live run was voided because a seam was set in a terminal that never
+    reached the process."""
+    return (os.environ.get(_SHELF_FLAG, "0") or "").strip().lower() in (
+        "1", "true", "yes", "on")
+
+
+def resolve_shelf_placement(
+    narrator_id: str,
+    shelf_scope: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Priority 2. Answer 'is this narrator telling a story about a trip
+    he has open on the Travels shelf?' -- and answer it from the DATABASE
+    even though the question came from the browser.
+
+    ``shelf_scope`` is ``{"travels_shelf_open": bool, "active_trip_id":
+    str}``, unwrapped by the caller. This module deliberately does not
+    take runtime71: a service that knows the browser's field names has
+    been given a second place to drift from the client.
+
+    Three things are checked and none of them can be skipped:
+
+      the shelf is actually open  -- an active_trip_id left over in a
+          stale payload is not a man choosing a trip.
+      the trip exists             -- the id is re-read, never trusted.
+      the trip is HIS             -- person_id must match. A well-formed
+          id belonging to another person's journey must never receive
+          this conversation. This is the check that makes the whole
+          fallback safe to enable.
+
+    Returns ``{"trip": {...}|None, "reason": str}``. Never raises; a
+    broken trip lane degrades to "no shelf trip", exactly as Priority 1
+    degrades to "no active trip".
+    """
+    out: Dict[str, Any] = {"trip": None, "reason": ""}
+    nid = str(narrator_id or "").strip()
+    if not nid:
+        out["reason"] = "no_narrator"
+        return out
+    if not shelf_link_enabled():
+        out["reason"] = "shelf_link_disabled"
+        return out
+    scope = shelf_scope if isinstance(shelf_scope, dict) else None
+    if scope is None:
+        # Not a shape to repair. A caller that passed a string or a list
+        # did not pass a scope, and inventing one would file the turn
+        # against a trip nobody chose.
+        out["reason"] = ("no_shelf_scope" if shelf_scope is None
+                         else "malformed_shelf_scope")
+        return out
+    if not scope.get("travels_shelf_open"):
+        out["reason"] = "shelf_closed"
+        return out
+    trip_id = str(scope.get("active_trip_id") or "").strip()
+    if not trip_id:
+        out["reason"] = "no_shelf_trip_id"
+        return out
+
+    try:
+        from . import trip_repository as _tr
+        trip = _tr.trip_get(trip_id)
+    except Exception:
+        out["reason"] = "trip_lookup_failed"
+        return out
+
+    if not trip:
+        out["reason"] = "shelf_trip_missing"
+        return out
+    if str(trip.get("person_id") or "") != nid:
+        # Not an error to explain to the client -- a slug for the log.
+        out["reason"] = "shelf_trip_not_owned"
+        return out
+
+    out["trip"] = trip
+    return out
+
+
 def placement_eligible(turn_mode: Optional[str]) -> bool:
     """True when this turn mode may be placed on a trip timeline."""
     return str(turn_mode or "").strip() in PLACEMENT_ELIGIBLE_TURN_MODES
@@ -337,6 +444,7 @@ def link_completed_turn(
     user_turn_row_id: Optional[int] = None,
     captured_at: str = "",
     source: str = _SOURCE_CHAT_WS,
+    shelf_scope: Optional[Dict[str, Any]] = None,
 ) -> PlacementOutcome:
     """Place one completed, persisted turn on the narrator's active trip.
 
@@ -348,7 +456,9 @@ def link_completed_turn(
         persisted row there is nothing stable to key on and nothing
         for the timeline to read text back out of, so the answer is
         noop, not a guess.
-      * an active trip for this narrator, in the database
+      * a trip for this narrator: the durable active trip (Priority 1),
+        or, only when there is none and the fallback flag is on, the
+        trip he has open on the Travels shelf (Priority 2).
 
     Outcomes, in the order they are decided:
       noop      -- ineligible mode, no narrator, no committed row, or
@@ -358,7 +468,16 @@ def link_completed_turn(
       linked    -- active trip and a day the operator chose. Recorded
                    placement_source='active_trip_day',
                    placement_status='confirmed'.
+                   The shelf fallback NEVER produces this outcome: it
+                   resolves a trip and no day, on purpose, because a day
+                   inferred from a date, a stop order, the transcript or
+                   today's calendar is a guess wearing an operator's
+                   clothes. It lands on needs_day and a human names the
+                   day in the timeline.
       duplicate -- already placed. Nothing written, nothing overwritten.
+                   Reported only when a row for this turn is actually
+                   there; a constraint that refuses the insert is a
+                   failure, not an idempotent second run.
       failed    -- something broke. Nothing about the turn changed.
 
     Cannot raise.
@@ -397,11 +516,39 @@ def link_completed_turn(
 
         resolved = resolve_placement(nid)
         trip = resolved.get("trip")
+        day = resolved.get("day")
+        # PRIORITY 1 -- the accepted Vertical Slice 1 path, tried first on
+        # every turn and unchanged. When it finds a trip, the shelf is not
+        # consulted at all: if the database says this narrator is living
+        # in a live trip, that is where his turn belongs even if a stale
+        # browser payload still names another one.
+        placement_source = "active_trip_day"
+        shelf_reason = ""
         if not trip:
-            return _out("noop", reason=resolved.get("reason") or "no_active_trip")
+            # PRIORITY 2 -- WO-TRIP-NARRATOR-BRIDGE-01. He opened a
+            # finished trip on the shelf and started telling it. Before
+            # this, that turn was a silent noop; the conversation was
+            # not lost but it was not attached to anything either, which
+            # is the same thing from the operator's chair.
+            shelf = resolve_shelf_placement(nid, shelf_scope)
+            trip = shelf.get("trip")
+            shelf_reason = str(shelf.get("reason") or "")
+            if trip:
+                placement_source = "travels_shelf_trip"
+                day = None          # never inferred. See the docstring.
+        if not trip:
+            return _out(
+                "noop",
+                reason=(resolved.get("reason") or "no_active_trip")
+                if not shelf_reason
+                or shelf_reason in ("shelf_link_disabled", "no_shelf_scope")
+                # A shelf scope that was present and rejected is the more
+                # informative half of the story -- "no_active_trip" would
+                # hide that a trip was named and refused.
+                else shelf_reason,
+            )
 
         trip_id = str(trip.get("id") or "")
-        day = resolved.get("day")
         day_id = str((day or {}).get("id") or "")
 
         if forced_failure_armed():
@@ -423,7 +570,13 @@ def link_completed_turn(
             # A day the operator selected on the trip IS an operator
             # choice, so this is 'confirmed', not 'suggested'. Nothing
             # in this slice infers a day from a timestamp.
-            placement_source="active_trip_day",
+            #
+            # placement_source now says WHICH question was answered, not
+            # just that one was: 'active_trip_day' means the database
+            # knew, 'travels_shelf_trip' means a man had the trip open.
+            # The operator moving it later overwrites this with
+            # 'operator_selected', which outranks both.
+            placement_source=placement_source,
             placement_status="confirmed" if day_id else "needs_day",
         )
 
@@ -442,13 +595,24 @@ def link_completed_turn(
                 placement_source=str(link.get("placement_source") or ""),
                 placement_status=pstatus,
             )
+        if outcome == "rejected":
+            # The database refused the row outright. Calling that a
+            # noop would file it under "normal, most turns are this";
+            # it is not normal. The turn is delivered, the trip is
+            # known, and the placement does not exist, so it is a
+            # failure and the log should say so on the turn it happens.
+            return _out("failed", reason="claim_rejected",
+                        error_class="IntegrityError", trip_id=trip_id)
         if outcome != "created":
             return _out("noop", reason="claim_" + (outcome or "empty"),
                         trip_id=trip_id)
 
         return _out(
             "needs_day" if pstatus == "needs_day" else "linked",
-            reason="" if placed_day else (resolved.get("reason") or "no_selected_day"),
+            reason=("" if placed_day
+                    else ("travels_shelf_trip"
+                          if placement_source == "travels_shelf_trip"
+                          else (resolved.get("reason") or "no_selected_day"))),
             trip_id=trip_id,
             trip_day_id=placed_day,
             link_id=str(link.get("id") or ""),

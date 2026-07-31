@@ -515,6 +515,137 @@ class _CaptureForTurnCase(_CaptureCase):
         self.assertTrue(row["note_title"])
         self.assertIn("Munich", row["note_title"])
 
+    # ── B. the day on a captured candidate note ─────────────────────────
+    #
+    # WO-TRIP-NARRATOR-BRIDGE-01 section D: "trip_day_id = durable
+    # selected day when valid, otherwise NULL". Before that work order
+    # the chat path passed no day at all, so a narrator answer given
+    # while the operator had a day selected on a LIVE trip still landed
+    # unplaced. The tests below fix both halves: the day is attached
+    # when the database knows it, and it is NULL -- not guessed -- when
+    # it does not.
+
+    def _days(self):
+        trip_repository.trip_days_generate(self.trip_id)
+        return trip_repository.trip_days_list(self.trip_id)
+
+    def _days2(self):
+        """Day cards on the OTHER trip. The shared fixture builds Italy
+        without dates, and day cards are generated from the date span,
+        so the dates go on here rather than in setUp: giving every test
+        in the file a dated second trip would change fixtures these
+        tests do not own."""
+        trip_repository.trip_update(
+            self.trip2_id, start_date="2025-09-04", end_date="2025-09-06")
+        trip_repository.trip_days_generate(self.trip2_id)
+        return trip_repository.trip_days_list(self.trip2_id)
+
+    def _capture_story(self, rt=None, turn_id="day-1"):
+        os.environ[tsc._FLAG] = "1"
+        return tsc.capture_for_turn(
+            self.person_id, rt if rt is not None else self._rt(),
+            "We walked out to the gravesite in the morning and then drove "
+            "past the old school, just the outside of it.",
+            previous_prompt_kind="trip", turn_id=turn_id)
+
+    def test_a_live_trip_puts_the_candidate_on_the_selected_day(self):
+        day_id = self._days()[0]["id"]
+        trip_repository.trip_live_state_set(self.trip_id, "active")
+        trip_repository.trip_selected_day_set(self.trip_id, day_id)
+        r = self._capture_story()
+        self.assertTrue(r["captured"])
+        self.assertEqual(
+            trip_repository.location_note_get(r["note_id"])["trip_day_id"],
+            day_id)
+
+    def test_a_completed_trip_on_the_shelf_leaves_the_day_null(self):
+        """The live Bismarck shape. He opened a finished trip and told a
+        story from his chair; there is no day the software knows. The
+        story is still captured -- NULL is the day, not the verdict."""
+        day_id = self._days()[0]["id"]
+        trip_repository.trip_live_state_set(self.trip_id, "active")
+        trip_repository.trip_selected_day_set(self.trip_id, day_id)
+        trip_repository.trip_live_state_set(self.trip_id, "completed")
+        r = self._capture_story(turn_id="day-2")
+        self.assertTrue(r["captured"])
+        self.assertIsNone(
+            trip_repository.location_note_get(r["note_id"])["trip_day_id"])
+
+    def test_the_day_is_never_taken_from_the_browser(self):
+        """runtime71 says which trip is open on the shelf. It does not
+        get to say which day a moment happened on: that value dies on a
+        reload, and a wrong one puts a manufactured fact in front of an
+        operator who cannot tell it from a human's choice."""
+        day_id = self._days()[0]["id"]
+        trip_repository.trip_live_state_set(self.trip_id, "completed")
+        r = self._capture_story(
+            rt=self._rt(active_trip_day_id=day_id), turn_id="day-3")
+        self.assertTrue(r["captured"])
+        self.assertIsNone(
+            trip_repository.location_note_get(r["note_id"])["trip_day_id"])
+
+    def test_a_selected_day_that_belongs_elsewhere_is_dropped(self):
+        """A day re-parented or deleted out from under the selection.
+        The story keeps its trip and loses its day, rather than being
+        filed on a day from another journey."""
+        foreign = self._days2()[0]["id"]
+        trip_repository.trip_live_state_set(self.trip_id, "active")
+        con = sqlite3.connect(str(self.db_path))
+        try:
+            con.execute("UPDATE trips SET active_trip_day_id=? WHERE id=?;",
+                        (foreign, self.trip_id))
+            con.commit()
+        finally:
+            con.close()
+        r = self._capture_story(turn_id="day-4")
+        self.assertTrue(r["captured"])
+        row = trip_repository.location_note_get(r["note_id"])
+        self.assertEqual(row["trip_id"], self.trip_id)
+        self.assertIsNone(row["trip_day_id"])
+
+    def test_a_day_from_a_different_live_trip_is_not_borrowed(self):
+        """He is live on one trip and has another open on the shelf.
+        The day belongs to the trip he is living in, so the shelf trip's
+        note gets none."""
+        self._days2()
+        day_id = self._days()[0]["id"]
+        trip_repository.trip_live_state_set(self.trip_id, "active")
+        trip_repository.trip_selected_day_set(self.trip_id, day_id)
+        r = self._capture_story(
+            rt=self._rt(active_trip_id=self.trip2_id), turn_id="day-5")
+        self.assertTrue(r["captured"])
+        row = trip_repository.location_note_get(r["note_id"])
+        self.assertEqual(row["trip_id"], self.trip2_id)
+        self.assertIsNone(row["trip_day_id"])
+
+    def test_the_candidate_is_still_review_only_with_a_day_on_it(self):
+        """A day is a placement, not a promotion. Section D's other
+        columns do not move because one of them got filled in."""
+        day_id = self._days()[0]["id"]
+        trip_repository.trip_live_state_set(self.trip_id, "active")
+        trip_repository.trip_selected_day_set(self.trip_id, day_id)
+        r = self._capture_story(turn_id="day-6")
+        row = trip_repository.location_note_get(r["note_id"])
+        self.assertEqual(row["source_type"], "lori")
+        self.assertEqual(int(row["include_in_memoir"] or 0), 0)
+        self.assertEqual(int(row["include_in_interview_context"] or 0), 0)
+        self.assertEqual(int(row["hidden"] or 0), 0)
+
+    def test_a_replayed_turn_does_not_write_a_second_candidate(self):
+        """Section D: written once. The dedupe key is the committed
+        turn id, so a reconnect that replays the same turn finds the
+        note that is already there."""
+        day_id = self._days()[0]["id"]
+        trip_repository.trip_live_state_set(self.trip_id, "active")
+        trip_repository.trip_selected_day_set(self.trip_id, day_id)
+        first = self._capture_story(turn_id="day-7")
+        again = self._capture_story(turn_id="day-7")
+        self.assertTrue(again["captured"])
+        self.assertEqual(again["reason"], "duplicate")
+        self.assertEqual(again["note_id"], first["note_id"])
+        self.assertEqual(len(self._notes()), 1)
+
+
 class ModalCaptureTest(_CaptureCase):
     """WO-TRAVEL-DOC-LORI-MODAL-01 — backend capture slice. Modal turns
     are trip-scoped by construction, stamp source_surface, preserve

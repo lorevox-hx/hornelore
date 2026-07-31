@@ -482,5 +482,206 @@ class DirectQuestionDodgeTest(_ContextCase):
         self.assertNotIn("i can see", a.lower())
 
 
+
+class PhotoCapabilityQuestionTest(_ContextCase):
+    """WO-TRIP-NARRATOR-BRIDGE-01. Live 2026-07-30, the narrator typed
+    "can you see any of the photos I added to my trip?" and Lori replied
+    "Would you like to continue telling me about your experiences during
+    the Bismarck Trip?" -- a dodge, and on a trip that had two photos
+    attached.
+
+    Two failures were possible and both are tested here. The dodge is one.
+    The other is the fix that overshoots: answering "yes" and describing
+    images she never looked at. Every state below asserts BOTH that she
+    answered and that she did not claim sight."""
+
+    _SIGHT_CLAIMS = (
+        "i can see", "i see the photo", "i looked at", "i can view",
+        "i can look at", "in the photo i", "the image shows",
+    )
+
+    def setUp(self):
+        super().setUp()
+        os.environ[tic._FLAG] = "1"
+
+    def _answer(self, text, **rt):
+        return tic.direct_answer_for_turn(self.person_id, self._rt(**rt), text)
+
+    def _assert_no_sight_claim(self, a):
+        low = (a or "").lower()
+        for claim in self._SIGHT_CLAIMS:
+            self.assertNotIn(claim, low)
+
+    def _sql(self, sql, args=()):
+        con = sqlite3.connect(str(self.db_path))
+        con.execute(sql, args)
+        con.commit()
+        con.close()
+
+    # ── the live sentence ───────────────────────────────────────────────
+    def test_chris_exact_sentence_is_answered_not_deflected(self):
+        a = self._answer("can you see any of the photos I added to my trip?")
+        self.assertIsNotNone(a)
+        low = a.lower()
+        self.assertNotIn("would you like to continue", low)
+        self.assertNotIn("shall we continue", low)
+        # It states the count and it states the limit.
+        self.assertIn("two photos", low)
+        self.assertIn("captions and notes", low)
+        self._assert_no_sight_claim(a)
+
+    # ── classifier boundaries ───────────────────────────────────────────
+    def test_classifier_matches_capability_and_inventory_phrasings(self):
+        for t in (
+            "can you see any of the photos I added to my trip?",
+            "Can you see my photos?",
+            "do you have access to the pictures on this trip",
+            "could you look at the images I uploaded?",
+            "what photos do you have for the trip",
+            "how many photos are on this trip?",
+            "are there any photos on my trip",
+            "does this trip have photos",
+        ):
+            self.assertTrue(tic.is_photo_capability_question(t), t)
+
+    def test_every_variant_named_in_the_work_order_matches(self):
+        """WO-TRIP-NARRATOR-BRIDGE-01 section B lists these by hand. If a
+        later tightening of the regex drops one, it should fail here and
+        not in front of the narrator."""
+        for t in (
+            "can you see any of the photos I added to my trip?",
+            "can you see the photos?",
+            "can you see any of my trip photos?",
+            "can you access the photos I added?",
+            "can you read or view my trip photos?",
+            "does this trip have photos?",
+            "what photos do you have for this trip?",
+            "do you have any information about the photos?",
+        ):
+            self.assertTrue(tic.is_photo_capability_question(t), t)
+
+    def test_photo_count_is_the_attached_set_under_its_spec_name(self):
+        """The work order calls the key photo_count and defines it as the
+        narrator-ready set. It is exposed under that name and bound to the
+        attached set, because the narrator-ready definition reports zero on
+        a trip with photos on it."""
+        self._sql("UPDATE photos SET narrator_ready=0")
+        c = tic.build_trip_interview_context(self.person_id, self.trip_id)
+        self.assertEqual(c["photos"]["photo_count"], 2)
+        self.assertEqual(c["photos"]["cleared_for_lori"], 0)
+
+    def test_classifier_does_not_eat_narrative_about_photographs(self):
+        """The classifier sits in front of the interview. If it matches a
+        man telling his story, it replaces his memoir with an inventory
+        readout. These are the sentences it must let through."""
+        for t in (
+            "I took photos of the gravesite that day",
+            "Melanie showed me pictures of the school",
+            "we brought a camera and shot two rolls of film",
+            "the photographs were in a shoebox in the closet",
+            "my father kept every picture he ever took",
+        ):
+            self.assertFalse(tic.is_photo_capability_question(t), t)
+            self.assertIsNone(self._answer(t), t)
+
+    # ── the four states ─────────────────────────────────────────────────
+    def test_no_photos_attached_says_so_and_invites(self):
+        self._sql("DELETE FROM trip_photo_links WHERE trip_id=?",
+                  (self.trip_id,))
+        a = self._answer("how many photos are on this trip?")
+        self.assertIsNotNone(a)
+        low = a.lower()
+        self.assertIn("aren", low)          # "aren't any photos attached"
+        self.assertNotIn("two photos", low)
+        self._assert_no_sight_claim(a)
+
+    def test_attached_with_approved_caption_quotes_the_approved_words(self):
+        # setUp approves 'the train station in Munich' on the ready photo.
+        a = self._answer("can you see my photos?")
+        self.assertIn("train station in Munich", a)
+        # The unready photo's caption is approved too and must NOT appear.
+        self.assertNotIn("SECRET_UNREADY_CAPTION", a)
+        self._assert_no_sight_claim(a)
+
+    def test_attached_but_none_cleared_says_not_cleared_in_plain_words(self):
+        self._sql("UPDATE photos SET narrator_ready=0")
+        a = self._answer("can you see any of the photos I added to my trip?")
+        low = a.lower()
+        self.assertIn("cleared", low)
+        self.assertNotIn("narrator_ready", low)   # operator column name
+        self.assertNotIn("train station in Munich", a)
+        self._assert_no_sight_claim(a)
+
+    def test_cleared_but_unwritten_is_not_the_same_as_uncleared(self):
+        """Cleared-with-nothing-on-it and not-cleared are different things
+        for the operator to fix, and he is also the narrator."""
+        self._sql("UPDATE trip_photo_links SET caption=NULL, "
+                  "caption_approved_for_lori=0")
+        a = self._answer("can you see my photos?")
+        low = a.lower()
+        self.assertIn("no words", low)
+        self.assertNotIn("hasn\u2019t been cleared", low)
+        self._assert_no_sight_claim(a)
+
+    # ── counts are honest ───────────────────────────────────────────────
+    def test_counts_the_attached_set_not_the_cleared_set(self):
+        """The trap fix. narrator_photo_links() returns the CLEARED set;
+        counting it would have reported zero photos on a trip with two."""
+        inv = trip_repository.trip_photo_inventory(self.trip_id)
+        self.assertEqual(inv["attached"], 2)
+        self.assertEqual(inv["cleared_for_lori"], 1)
+
+    def test_unknown_trip_inventory_is_zeros_not_an_error(self):
+        inv = trip_repository.trip_photo_inventory(str(uuid.uuid4()))
+        self.assertEqual(
+            inv, {"attached": 0, "on_a_day": 0, "cleared_for_lori": 0})
+
+    def test_approved_counts_are_uncapped_by_the_display_limit(self):
+        c = tic.build_trip_interview_context(self.person_id, self.trip_id)
+        self.assertEqual(c["photos"]["approved_caption_count"],
+                         len(c["photo_captions"]))
+
+    # ── the selected photo must belong to this trip ─────────────────────
+    def test_selected_photo_is_reported_when_it_is_on_this_trip(self):
+        c = tic.build_trip_interview_context(
+            self.person_id, self.trip_id,
+            active_photo_link_id=self.link_ready)
+        self.assertTrue(c["photos"]["active_photo_selected"])
+
+    def test_a_link_id_from_elsewhere_is_not_treated_as_selected(self):
+        """Shape is not ownership. A well-formed id that belongs to some
+        other trip must not make Lori say he has a photo open."""
+        for bogus in (str(uuid.uuid4()), "not-an-id", ""):
+            c = tic.build_trip_interview_context(
+                self.person_id, self.trip_id, active_photo_link_id=bogus)
+            self.assertFalse(c["photos"]["active_photo_selected"], bogus)
+
+    # ── gates unchanged ─────────────────────────────────────────────────
+    def test_capability_question_still_respects_every_gate(self):
+        q = "can you see any of the photos I added to my trip?"
+        os.environ.pop(tic._FLAG, None)
+        self.assertIsNone(self._answer(q))
+        os.environ[tic._FLAG] = "1"
+        self.assertIsNone(
+            tic.direct_answer_for_turn(
+                self.person_id, self._rt(travels_shelf_open=False), q))
+        self.assertIsNone(
+            tic.direct_answer_for_turn(self.other_person, self._rt(), q))
+
+    def test_shipped_singular_photo_branches_are_untouched(self):
+        a = self._answer("can you tell me about the photo")
+        self.assertIn("train station in Munich", a)
+        b = self._answer("what date was that taken")
+        self.assertIn("approved trip record", b)
+
+    # ── the prompt block closes the same door ───────────────────────────
+    def test_prompt_block_forbids_claiming_sight(self):
+        block = tic.context_block_for_turn(self.person_id, self._rt())
+        low = block.lower()
+        self.assertIn("you do not look at images", low)
+        self.assertIn("never say or imply that you can see", low)
+
+
+
 if __name__ == "__main__":
     unittest.main()

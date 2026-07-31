@@ -1524,6 +1524,55 @@ def narrator_photo_links(trip_id: str) -> List[Dict[str, Any]]:
         con.close()
 
 
+def trip_photo_inventory(trip_id: str) -> Dict[str, int]:
+    """COUNTS ONLY. Never text.
+
+    WO-TRIP-NARRATOR-BRIDGE-01. The narrator asked "can you see any of
+    the photos I added to my trip?" and Lori answered with a
+    continuation question, because nothing in her context said a photo
+    existed at all. The obvious fix -- count what narrator_photo_links
+    returns -- is a trap. That read is the CLEARED set: it filters
+    narrator_ready = 1, and on the live trip that raised the question
+    both attached photos were uncleared, so the count would have been
+    zero while the narrator sat looking at two. Turning a dodge into a
+    confident false denial is worse than the dodge.
+
+    So: attached, placed on a day, and cleared for Lori are THREE
+    SEPARATE FACTS, and this returns all three separately. Nothing here
+    may collapse them into one number, because the answer built on top
+    has to be able to say "they are attached, and I cannot use them
+    yet", which is the true state and is not expressible in one count.
+
+    Returns ints and nothing else BY CONSTRUCTION: no column in this
+    query can carry a caption, a filename, a path, a coordinate or an
+    operator's words, so no later caller can leak one through it.
+    Hidden links and deleted photos are outside every count -- a hidden
+    link is not attached as far as any narrator-facing surface goes.
+    """
+    con = _connect()
+    try:
+        has_hidden = _table_has_column(con, "trip_photo_links", "hidden")
+        has_day = _table_has_column(con, "trip_photo_links", "trip_day_id")
+        day_expr = ("SUM(CASE WHEN l.trip_day_id IS NOT NULL THEN 1 ELSE 0 END)"
+                    if has_day else "0")
+        row = con.execute(
+            "SELECT COUNT(*), " + day_expr + ", "
+            "       SUM(CASE WHEN p.narrator_ready = 1 THEN 1 ELSE 0 END) "
+            "  FROM trip_photo_links l "
+            "  JOIN photos p ON p.id = l.photo_id "
+            " WHERE l.trip_id = ? "
+            "   AND p.deleted_at IS NULL "
+            + ("   AND l.hidden = 0 " if has_hidden else ""),
+            (trip_id,),
+        ).fetchone()
+        return {
+            "attached": int((row[0] if row else 0) or 0),
+            "on_a_day": int((row[1] if row else 0) or 0),
+            "cleared_for_lori": int((row[2] if row else 0) or 0),
+        }
+    finally:
+        con.close()
+
 # Ph1 (WO-TRIP-PHOTO-CONTEXT-ENRICHMENT-FOR-LORI-01): the OPERATOR
 # photo-link read carries reviewable photo metadata (date provenance,
 # gps PRESENCE, place label, approval flags) so the Travel Doc can show
@@ -3692,10 +3741,18 @@ LIVE_STATES = ("planning", "active", "completed", "archived")
 # How a conversation's day was chosen.
 PLACEMENT_SOURCES = (
     "active_trip_day",      # the narrator was on this trip, on this day
+    "travels_shelf_trip",   # he opened a finished trip and told a story
     "operator_selected",    # a human moved it here
     "timestamp_suggested",  # derived from a timestamp, not yet accepted
     "later_reconciled",     # placed after the fact by a repair pass
 )
+# WO-TRIP-NARRATOR-BRIDGE-01 added 'travels_shelf_trip'. It had to be
+# added HERE and not only at the call site: an unrecognized source is
+# silently rewritten to 'active_trip_day' twenty lines below, so a link
+# created from the shelf would have claimed the narrator was live on the
+# trip that day. The coercion is a reasonable default for a typo and a
+# quiet forgery for a new vocabulary word, which is why every new word
+# lands in this tuple in the same commit as the code that emits it.
 
 # Whether a human has accepted the placement. `needs_day` is the
 # reconciliation item required by the work order ("A failure to link the
@@ -3896,7 +3953,8 @@ def trip_turn_link_claim(
 ) -> Dict[str, Any]:
     """Place one persisted turn on one trip day. Idempotent by the database.
 
-    Returns ``{"outcome": "created"|"duplicate", "link": {...}}``.
+    Returns ``{"outcome": "created"|"duplicate"|"rejected"|"noop",
+    "link": {...}}``.
 
     The idempotency mechanism is the UNIQUE INDEX on
     assistant_turn_row_id, not a lookup-then-insert: two concurrent
@@ -3910,6 +3968,14 @@ def trip_turn_link_claim(
     A 'duplicate' result deliberately does NOT overwrite the existing
     placement. If a human has moved a conversation to another day, a
     replayed turn must not drag it back.
+
+    'rejected' means the database refused the row for some reason that
+    is not idempotency -- a CHECK, a foreign key, a NOT NULL. Nothing
+    was written and nothing will be until the cause is removed. It is
+    reported separately from 'duplicate' because the two look identical
+    from the exception (both are sqlite3.IntegrityError) and mean
+    opposite things to the caller: one says the turn is already placed,
+    the other says it is placed nowhere.
     """
     if not trip_id or not assistant_turn_row_id:
         return {"outcome": "noop", "link": None}
@@ -3944,7 +4010,28 @@ def trip_turn_link_claim(
             outcome = "created"
         except sqlite3.IntegrityError:
             con.rollback()
-            outcome = "duplicate"
+            # A refused INSERT is not automatically a duplicate. The
+            # UNIQUE index on assistant_turn_row_id raises
+            # IntegrityError, and so does every CHECK on this table, so
+            # the exception class cannot tell "already placed" from
+            # "not allowed". Asking the database which one happened --
+            # is there a row for this turn or is there not -- is the
+            # only answer that does not go stale the next time someone
+            # adds a constraint.
+            #
+            # WO-TRIP-NARRATOR-BRIDGE-01: this was an unconditional
+            # "duplicate". When 'travels_shelf_trip' was added to
+            # PLACEMENT_SOURCES but not yet to the schema CHECK, every
+            # shelf placement was refused by the database and reported
+            # to the caller as already-placed, which
+            # PlacementOutcome.linked reads as "a link row now exists".
+            # Nothing existed. The turn was delivered and attached to
+            # nothing, silently, which is the failure the work order
+            # exists to end.
+            outcome = "duplicate" if con.execute(
+                "SELECT 1 FROM trip_turn_links "
+                "WHERE assistant_turn_row_id=?;",
+                (int(assistant_turn_row_id),)).fetchone() else "rejected"
 
         row = con.execute(
             "SELECT * FROM trip_turn_links WHERE assistant_turn_row_id=?;",
