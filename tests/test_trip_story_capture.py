@@ -646,6 +646,129 @@ class _CaptureForTurnCase(_CaptureCase):
         self.assertEqual(len(self._notes()), 1)
 
 
+class ConversationCommandTest(_CaptureCase):
+    """WO-TRIP-NARRATOR-BRIDGE-01 section 1C.
+
+    On 2026-07-31 "say that again" was written to the Bismarck Trip as a
+    travel note -- 14 characters of the narrator working the interface,
+    filed in the operator's review pile as something he had said about
+    his trip. It is not a question, and it addresses Lori without any of
+    the phrasings the question lane looks for, so nothing caught it.
+
+    The risk in fixing it is the opposite failure, and it is the worse
+    one: every word here appears inside real narration. A missed command
+    costs one junk row an operator can hide. A false positive silently
+    discards a memory, and nothing anywhere would record that it had
+    happened. Hence the anchoring, and hence the second half of this
+    class.
+    """
+
+    def _capture(self, text):
+        return tsc.capture_trip_story_answer(
+            person_id=self.person_id,
+            active_trip_id=self.trip_id,
+            narrator_text=text,
+            previous_lori_text="Tell me about Munich.",
+            previous_prompt_kind="trip")
+
+    # ── the controls ──────────────────────────────────────────────────
+    def test_the_live_failure_is_refused(self):
+        res = self._capture("say that again")
+        self.assertFalse(res["captured"])
+        self.assertEqual(res["reason"], "conversation_command")
+        self.assertIsNone(res["note_id"])
+
+    def test_it_writes_no_note(self):
+        before = len(self._notes())
+        self._capture("say that again")
+        self.assertEqual(len(self._notes()), before)
+
+    def test_the_controls_the_work_order_names(self):
+        for text in ("say that again", "repeat that", "read it again",
+                     "go back", "pause", "stop talking", "continue"):
+            res = self._capture(text)
+            self.assertFalse(res["captured"], text)
+            self.assertEqual(res["reason"], "conversation_command", text)
+
+    def test_the_ordinary_spoken_variants(self):
+        for text in ("say it again", "repeat it", "read that back",
+                     "hold on", "never mind", "start over", "go on",
+                     "keep going", "slow down", "speak slower",
+                     "what was that", "come again", "back up"):
+            self.assertTrue(
+                tsc._is_conversation_command(text), text)
+
+    def test_politeness_does_not_smuggle_a_command_through(self):
+        for text in ("please say that again", "can you say that again",
+                     "could you repeat that", "say that again please",
+                     "Lori, say that again", "hey lori repeat that"):
+            self.assertTrue(
+                tsc._is_conversation_command(text), text)
+
+    def test_punctuation_and_case_do_not_matter(self):
+        for text in ("Say that again.", "SAY THAT AGAIN!", "  repeat that?  "):
+            self.assertTrue(
+                tsc._is_conversation_command(text), text)
+
+    # ── the memories these words live inside ──────────────────────────
+    def test_narration_containing_the_same_words_still_captures(self):
+        """The four the work order protects by name. Each contains a
+        control word and each is a memory."""
+        for text in (
+            "We had to go back to the hotel because I forgot the tickets.",
+            "She would say that again every Christmas, the same way.",
+            "We stopped at the school and continued to the cemetery.",
+            "I had a chance to visit my mom's parents' gravesite, my old "
+            "elementary school, the two middle schools I attended, my high "
+            "school and junior college, with my wife Melanie.",
+        ):
+            res = self._capture(text)
+            self.assertTrue(res["captured"], text[:40])
+            self.assertEqual(res["reason"], "meaningful_trip_answer",
+                             text[:40])
+
+    def test_a_command_word_that_opens_a_sentence_is_not_a_command(self):
+        """'Go back' anchored at the start is the dangerous shape --
+        anchoring the END is what saves it."""
+        for text in ("go back to that summer, we were living in Bismarck",
+                     "stop signs were the only thing out there for miles",
+                     "wait until you hear what my father did next",
+                     # SHORT ones matter most. The word cap cannot save
+                     # these -- each is inside the six-word budget, so
+                     # the closing anchor is the only thing standing
+                     # between them and being discarded as a command.
+                     "go back to the hotel",
+                     "stop signs everywhere",
+                     "wait for the train",
+                     "we had to pause there",
+                     "continue on to Mandan"):
+            self.assertFalse(
+                tsc._is_conversation_command(text), text)
+
+    def test_a_long_turn_is_never_a_command(self):
+        long_turn = "repeat " * 12
+        self.assertFalse(tsc._is_conversation_command(long_turn))
+
+    # ── it did not take over the neighbouring lanes ───────────────────
+    def test_a_short_acknowledgement_is_still_trivial_not_a_command(self):
+        """The control check runs first, so this asserts it did not
+        swallow the lane below it: 'ok' matches no control and must
+        still report the reason that describes it."""
+        for text in ("ok", "yes", "no", "maybe", "i dont know"):
+            self.assertEqual(self._capture(text)["reason"], "trivial_reply",
+                             text)
+
+    def test_a_real_question_still_reports_as_a_question(self):
+        res = self._capture("can you tell me about the photos on this trip?")
+        self.assertFalse(res["captured"])
+        self.assertEqual(res["reason"], "direct_question_or_command")
+
+    def test_empty_is_not_a_command(self):
+        for text in ("", "   ", None):
+            self.assertFalse(
+                tsc._is_conversation_command(text or ""))
+
+
 class ModalCaptureTest(_CaptureCase):
     """WO-TRAVEL-DOC-LORI-MODAL-01 — backend capture slice. Modal turns
     are trip-scoped by construction, stamp source_surface, preserve

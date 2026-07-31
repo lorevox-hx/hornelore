@@ -142,6 +142,69 @@ def _is_question_or_meta(narrator_text: str) -> bool:
     return False
 
 
+# ── Conversation controls ───────────────────────────────────────────────────
+# WO-TRIP-NARRATOR-BRIDGE-01 §1C. "say that again" was saved as a Bismarck
+# travel note on 2026-07-31 (note 09d6f7e4, 14 characters). It is not a
+# memory. It is the narrator operating the conversation -- the spoken
+# equivalent of pressing a button -- and it reached the operator's review
+# pile as something he had said about his trip.
+#
+# _is_question_or_meta did not catch it and should not have: it is not a
+# question, and it addresses Lori without any of the phrasings that lane
+# looks for. A control is its own category.
+#
+# THE WHOLE DESIGN IS THE ANCHORING. Every one of these words appears
+# inside real narration -- "we had to GO BACK to the hotel", "she would
+# SAY THAT AGAIN every Christmas", "we STOPPED at the school and
+# CONTINUED to the cemetery". A substring match would eat all three. So
+# the pattern must match the ENTIRE normalised turn, with nothing before
+# it and nothing after it but politeness. A turn that is a command says
+# only the command; a turn that is a memory says more.
+_COMMAND_CORE = (
+    r"say (?:that|it) again|say again|"
+    r"repeat(?:\s+(?:that|it|again))*|"
+    r"read (?:that|it) (?:again|back)|"
+    r"go back|back up|"
+    r"pause|"
+    r"stop(?:\s+(?:talking|that|it))?|"
+    r"continue|go on|keep going|carry on|"
+    r"wait|hold on|hang on|(?:just )?a (?:second|moment|minute)|"
+    r"never ?mind|forget it|"
+    r"louder|speak up|slower|slow down|speak (?:slower|slowly|up)|"
+    r"start over|say that one more time|"
+    r"what was that|come again"
+)
+
+_CONVERSATION_COMMAND_RX = re.compile(
+    r"^(?:hey\s+)?(?:lori\s+)?"
+    r"(?:please\s+|can you\s+|could you\s+|would you\s+|will you\s+)?"
+    r"(?:" + _COMMAND_CORE + r")"
+    r"(?:\s+please)?(?:\s+lori)?$",
+    re.I,
+)
+
+# A control is short by nature. This is a second wall, not the first one:
+# if a future edit loosens an alternative above so that it can match a
+# long sentence, this stops that edit from swallowing a memory.
+_MAX_COMMAND_WORDS = 6
+
+
+def _is_conversation_command(narrator_text: str) -> bool:
+    """True when the whole turn is the narrator operating the
+    conversation rather than telling something.
+
+    Deliberately conservative in one direction only. A missed command
+    costs the operator one junk row they can hide; a false positive
+    silently discards a memory, and nothing downstream would ever show
+    that it had happened."""
+    norm = _normalize(narrator_text).replace("'", "")
+    if not norm:
+        return False
+    if len(norm.split()) > _MAX_COMMAND_WORDS:
+        return False
+    return bool(_CONVERSATION_COMMAND_RX.match(norm))
+
+
 def _title_from_question(previous_lori_text: Optional[str]) -> Optional[str]:
     """A short label so the operator can see WHAT Lori asked. Not sanitized
     into the answer — this is display metadata for the review pile."""
@@ -347,7 +410,24 @@ def capture_trip_story_answer(
             photo_valid, trip, place_names):
         return _result(False, "not_trip_scoped")
 
-    # 4. Skip trivial acknowledgments.
+    # 4. Skip conversation controls — "say that again" is the narrator
+    #    working the interface, not a memory of the trip.
+    #
+    #    FIRST, ahead of the trivial check, because most controls are one
+    #    or two words and `trivial_reply` would otherwise claim them. Both
+    #    answers refuse the note, so the row is identical either way; what
+    #    differs is what the operator's log says happened, and "the
+    #    narrator pressed a button" and "the narrator said something too
+    #    short to keep" are not the same event. A reason that names the
+    #    wrong one is how the 2026-07-31 note took three passes to
+    #    explain.
+    #
+    #    An ordinary short acknowledgement ("ok", "yes") matches no
+    #    control and still falls through to `trivial_reply` below.
+    if _is_conversation_command(narrator_text or ""):
+        return _result(False, "conversation_command")
+
+    # 4a. Skip trivial acknowledgments.
     if _is_trivial(narrator_text or ""):
         return _result(False, "trivial_reply")
 
