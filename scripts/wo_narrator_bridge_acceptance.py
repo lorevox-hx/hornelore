@@ -3,8 +3,15 @@
 
     ./scripts/wo_narrator_bridge_acceptance.py preflight
     ./scripts/wo_narrator_bridge_acceptance.py capture   # before the walkthrough
-    ./scripts/wo_narrator_bridge_acceptance.py verify    # after it, and again
-                                                         # after the restart
+    ./scripts/wo_narrator_bridge_acceptance.py verify    # after it
+    ./scripts/wo_narrator_bridge_acceptance.py restart-verify   # after the
+                                                         # operator restarts
+
+`verify` compares the trip against the pre-walkthrough baseline and, when
+it finds nothing wrong, writes down the ids it accepted. `restart-verify`
+checks THOSE ids. Re-running verify after a restart proves the rows
+survived; it cannot prove they are the same rows, because its baseline
+predates the walkthrough and knows nothing of what the walkthrough made.
 
 Reads the API only. Never edits data. Never starts, stops or restarts
 any service -- the operator owns the stack.
@@ -57,6 +64,15 @@ TRIP = "9538cd88-5c8b-4da4-b2a9-2a03f8db32a3"
 PERSON = "a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2"
 REPO = "/mnt/c/Users/chris/hornelore"
 STATE = os.path.join(REPO, "docs/reports/WO-NARRATOR-BRIDGE_ACCEPTANCE_state.json")
+
+# What the first verify ACCEPTED. Separate from STATE on purpose: STATE is
+# the before picture and is overwritten by the next capture, while this is
+# the evidence the restart is checked against and must survive it.
+#
+# Written only by a verify that had zero failures, because a restart check
+# against a run that was already wrong proves the wrongness persisted.
+ACCEPTED = os.path.join(
+    REPO, "docs/reports/WO-NARRATOR-BRIDGE_ACCEPTANCE_accepted.json")
 CONSOLE = os.path.join(
     REPO, "docs/reports/WO-NARRATOR-BRIDGE_ACCEPTANCE_%s.console.txt")
 
@@ -601,6 +617,13 @@ def do_verify(g, now):
               "no family truth was written (%d -> %d)"
               % (old["family_truth_rows"], now["family_truth_rows"]))
 
+    # -- record what this run accepted, for the restart check
+    if not FAIL[0]:
+        out("")
+        if _write_accepted(now, fresh, story):
+            out("accepted record: %s" % ACCEPTED)
+            out("(restart the way you normally do, then run restart-verify)")
+
     out("")
     out("=== %d passed, %d failed, %d not exercised ==="
         % (PASS[0], FAIL[0], SKIP[0]))
@@ -619,9 +642,138 @@ def do_verify(g, now):
     return 0
 
 
+# -------------------------------------------------- restart-verify
+
+def _write_accepted(now, fresh, story):
+    """Freeze what this verify accepted, so the restart has something to
+    be checked AGAINST rather than merely re-run.
+
+    Re-running verify after a restart does prove the rows survived, but
+    it cannot prove they are the SAME rows: it compares against the
+    pre-walkthrough baseline, which knows nothing about what the
+    walkthrough produced. 'No duplicate appeared' and 'the identical
+    link id is still there' are different claims, and the work order
+    asks for the second one."""
+    rec = {
+        "live_state": now["live_state"],
+        "trip_conversations_total": len(now["convs"]),
+        "lori_notes_total": sum(1 for v in now["notes"].values()
+                                if v["src"] == "lori"),
+        "convs": dict((k, now["convs"][k]) for k in fresh),
+        "candidates": dict(
+            (k, {"note": now["notes"][k], "turns": src})
+            for k, src in story),
+    }
+    # Bookkeeping must never void a verdict. Every check has already run
+    # and held by the time this is called; an unwritable path is a fact
+    # about the disk, not about the trip, and turning it into a traceback
+    # would throw away a good run's evidence at the last step.
+    try:
+        os.makedirs(os.path.dirname(ACCEPTED), exist_ok=True)
+        with open(ACCEPTED, "w", encoding="utf-8") as fh:
+            json.dump(rec, fh, indent=1)
+        return True
+    except OSError as exc:
+        out("      (could not write the accepted record: %s -- the restart "
+            "check will have nothing to compare against)"
+            % exc.__class__.__name__)
+        return False
+
+
+def do_restart_verify(g, now):
+    """The persistence check, against the ids the first verify accepted."""
+    print_gates(g)
+    for k in REQUIRED_GATES:
+        check(bool(g.get(k)), "gate %s is still on after the restart" % k)
+
+    if not os.path.exists(ACCEPTED):
+        out("No accepted record at %s" % ACCEPTED)
+        out("Run the walkthrough and 'verify' first; a verify with no")
+        out("failures writes the record this mode checks against.")
+        return 2
+    with open(ACCEPTED, encoding="utf-8") as fh:
+        acc = json.load(fh)
+
+    out("")
+    out("=== WO-TRIP-NARRATOR-BRIDGE-01 RESTART-VERIFY ===")
+    out("")
+
+    check(now["live_state"] == acc["live_state"],
+          "trip live_state survived the restart (%s)" % now["live_state"])
+
+    if not acc["convs"]:
+        skip("the accepted run linked no conversation -- nothing to "
+             "re-check")
+    for k, was in acc["convs"].items():
+        v = now["convs"].get(k)
+        if v is None:
+            check(False, "conversation %s is still on the trip after the "
+                         "restart" % k[:8])
+            continue
+        check(True, "conversation %s is still on the trip" % k[:8])
+        check(v["u"] == was["u"] and v["a"] == was["a"],
+              "conversation %s still points at the same turn rows "
+              "(u=%s a=%s)" % (k[:8], v["u"], v["a"]))
+        # The transcript is the thing a family reads. If a restart can
+        # change it, nothing else here matters.
+        check(v["nh"] == was["nh"] and v["lh"] == was["lh"],
+              "conversation %s transcript is byte-identical" % k[:8])
+        check(v["src"] == was["src"] and v["st"] == was["st"]
+              and v["day"] == was["day"],
+              "conversation %s placement unchanged (%s/%s day=%s)"
+              % (k[:8], v["src"], v["st"], (v["day"] or "none")))
+
+    # Duplicates. A replayed hook would add a row, not change one, so the
+    # per-link checks above cannot see it -- only the totals can.
+    check(len(now["convs"]) == acc["trip_conversations_total"],
+          "no conversation was duplicated by the restart (%d -> %d)"
+          % (acc["trip_conversations_total"], len(now["convs"])))
+    arows = [v["a"] for v in now["convs"].values()]
+    check(len(set(arows)) == len(arows),
+          "each assistant turn is still linked exactly once")
+
+    lori_now = sum(1 for v in now["notes"].values() if v["src"] == "lori")
+    check(lori_now == acc["lori_notes_total"],
+          "no story candidate was duplicated by the restart (%d -> %d)"
+          % (acc["lori_notes_total"], lori_now))
+
+    if not acc["candidates"]:
+        skip("the accepted run captured no story candidate -- nothing to "
+             "re-check")
+    for k, was in acc["candidates"].items():
+        n = now["notes"].get(k)
+        if n is None:
+            check(False, "candidate %s still exists after the restart"
+                  % k[:8])
+            continue
+        check(True, "candidate %s still exists" % k[:8])
+        w = was["note"]
+        check(n["day"] == w["day"],
+              "candidate %s still sits where it did (day=%s)"
+              % (k[:8], (n["day"] or "none")))
+        check(n["memoir"] == 0 and n["ctx"] == 0 and n["hidden"] == 0,
+              "candidate %s is still review-only: memoir=%d context=%d "
+              "hidden=%d" % (k[:8], n["memoir"], n["ctx"], n["hidden"]))
+        check(n["th"] == w["th"],
+              "candidate %s text is byte-identical" % k[:8])
+
+    out("")
+    out("=== %d passed, %d failed, %d not exercised ==="
+        % (PASS[0], FAIL[0], SKIP[0]))
+    if FAIL[0]:
+        out("RESULT: FAIL -- the restart did not preserve the evidence.")
+        return 1
+    if SKIP[0]:
+        out("RESULT: INCOMPLETE -- what was recorded survived, but the")
+        out("        accepted run did not exercise everything.")
+        return 3
+    out("RESULT: PASS -- the evidence survived a real restart.")
+    return 0
+
+
 def main():
     mode = (sys.argv[1] if len(sys.argv) > 1 else "").strip().lower()
-    if mode not in ("preflight", "capture", "verify"):
+    if mode not in ("preflight", "capture", "verify", "restart-verify"):
         print(__doc__)
         return 2
     g = gates()
@@ -648,7 +800,12 @@ def main():
         print("Could not read the trip from %s" % API)
         print("  %s" % exc)
         return 2
-    rc = do_capture(g, now) if mode == "capture" else do_verify(g, now)
+    if mode == "capture":
+        rc = do_capture(g, now)
+    elif mode == "restart-verify":
+        rc = do_restart_verify(g, now)
+    else:
+        rc = do_verify(g, now)
     flush(mode)
     return rc
 

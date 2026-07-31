@@ -226,8 +226,9 @@ class CandidateCorrelationTest(unittest.TestCase):
 
     def tearDown(self):
         import os
-        if self._tmp and os.path.exists(self._tmp):
-            os.unlink(self._tmp)
+        for p in (self._tmp, getattr(self, "_acc", None)):
+            if p and os.path.exists(p):
+                os.unlink(p)
 
     # -- the canned API -------------------------------------------------
 
@@ -242,9 +243,15 @@ class CandidateCorrelationTest(unittest.TestCase):
         # non-story turn: without it these tests would fail on a check
         # about conversation COUNT while claiming to be about candidate
         # correlation, and the failure would point at the wrong thing.
-        convs = list(self.convs) + [
-            _conv("f11e5000-ffff", "It was good to be back there again.",
-                  u=102, a=103)]
+        # Read at CALL time, not install time. RestartVerifyTest mutates
+        # self.convs between the accepted verify and the restart check --
+        # a list snapshotted here would never see the change, and four
+        # tests would report a passing restart on a world that had been
+        # altered underneath them.
+        def convs():
+            return list(self.convs) + [
+                _conv("f11e5000-ffff", "It was good to be back there again.",
+                      u=102, a=103)]
 
         def fake_get(path):
             if "/calendar" in path:
@@ -253,11 +260,11 @@ class CandidateCorrelationTest(unittest.TestCase):
                         "days": [{"id": DAY1}, {"id": DAY2}],
                         "preserved": []}
             if "/timeline/unplaced" in path:
-                return {"items": [c for c in convs
+                return {"items": [c for c in convs()
                                   if not c["trip_day_id"]]}
             if "/timeline" in path:
                 did = path.split("/days/")[1].split("/")[0]
-                return {"items": [c for c in convs
+                return {"items": [c for c in convs()
                                   if c["trip_day_id"] == did]}
             if "/location-notes" in path:
                 return {"notes": list(self.notes)}
@@ -285,6 +292,15 @@ class CandidateCorrelationTest(unittest.TestCase):
                    "family_truth_rows": 0}, fh)
         fh.close()
         m.STATE = self._tmp
+
+        # The accepted record must go somewhere writable. Left at the
+        # module default it targets Chris's repo, which is how the first
+        # run of this class failed: PermissionError on /mnt/c.
+        acc = tempfile.NamedTemporaryFile(suffix=".json", delete=False,
+                                          mode="w", encoding="utf-8")
+        acc.close()
+        self._acc = acc.name
+        m.ACCEPTED = self._acc
 
     def _run(self):
         m = self.m
@@ -395,6 +411,145 @@ class CandidateCorrelationTest(unittest.TestCase):
         rc, log, p, f, s = self._run()
         for fragment in ("gravesite", "Melanie", "elementary", "bismarck",
                          "Bismarck"):
+            self.assertNotIn(fragment, log, fragment)
+
+
+@unittest.skipUnless(_SCRIPT.exists(), "harness not in this checkout")
+class RestartVerifyTest(CandidateCorrelationTest):
+    """The persistence check, against the ids the first verify accepted.
+
+    Re-running `verify` after a restart proves rows survived. It cannot
+    prove they are the SAME rows: its baseline predates the walkthrough
+    and knows nothing of what the walkthrough made. So a clean verify
+    writes down what it accepted, and this mode checks that.
+    """
+
+    def _accept_then(self, mutate=None):
+        """Run a clean verify -- which writes the accepted record through
+        the REAL writer -- then optionally change the world, then run
+        restart-verify against it.
+
+        Deliberately not reimplementing the writer's inputs here. A test
+        that recomputed what do_verify accepted would be asserting
+        against its own copy of the logic, and would keep passing after
+        the two drifted apart."""
+        import os
+        import tempfile
+        m = self.m
+        rc1, log1, p1, f1, s1 = self._run()
+        self.assertEqual(f1, 0, "the accepted run must be clean:\n" + log1)
+        self.assertTrue(os.path.exists(m.ACCEPTED),
+                        "a clean verify must write the accepted record")
+        if mutate:
+            mutate()
+        m.PASS[0] = m.FAIL[0] = m.SKIP[0] = 0
+        del m.LINES[:]
+        gates = dict((k, True) for k in m.REQUIRED_GATES)
+        rc2 = m.do_restart_verify(gates, m.snapshot())
+        log2 = "\n".join(m.LINES)
+        try:
+            os.unlink(m.ACCEPTED)
+        except OSError:
+            pass
+        return rc2, log2, m.FAIL[0]
+
+    def _base(self):
+        self.convs = [_conv("c75350cd-aaaa", STORY)]
+        self.notes = [_note("shelf-01", STORY)]
+
+    def test_an_untouched_restart_passes(self):
+        self._base()
+        rc, log, f = self._accept_then()
+        self.assertEqual(f, 0, log)
+        self.assertEqual(rc, 0)
+        self.assertIn("transcript is byte-identical", log)
+        self.assertIn("survived a real restart", log)
+
+    def test_a_vanished_conversation_fails(self):
+        self._base()
+
+        def drop():
+            self.convs = []
+        rc, log, f = self._accept_then(drop)
+        self.assertGreaterEqual(f, 1, log)
+        self.assertEqual(rc, 1)
+
+    def test_a_changed_transcript_fails(self):
+        """The transcript is what a family reads. If a restart can
+        change it, nothing else here matters."""
+        self._base()
+
+        def edit():
+            self.convs = [_conv("c75350cd-aaaa", STORY + " And then we left.")]
+        rc, log, f = self._accept_then(edit)
+        self.assertGreaterEqual(f, 1, log)
+
+    def test_a_duplicated_conversation_fails(self):
+        """A replayed hook ADDS a row rather than changing one, so the
+        per-link checks cannot see it. Only the totals can."""
+        self._base()
+
+        def dupe():
+            self.convs = self.convs + [
+                _conv("dddddddd-dupe", STORY, u=200, a=201)]
+        rc, log, f = self._accept_then(dupe)
+        self.assertGreaterEqual(f, 1, log)
+        self.assertIn("no conversation was duplicated", log)
+
+    def test_a_moved_placement_fails(self):
+        self._base()
+
+        def moved():
+            self.convs = [_conv("c75350cd-aaaa", STORY, day=DAY1,
+                                src="active_trip_day", st="confirmed")]
+        rc, log, f = self._accept_then(moved)
+        self.assertGreaterEqual(f, 1, log)
+
+    def test_a_vanished_candidate_fails(self):
+        self._base()
+
+        def drop():
+            self.notes = []
+        rc, log, f = self._accept_then(drop)
+        self.assertGreaterEqual(f, 1, log)
+
+    def test_a_candidate_promoted_during_the_restart_fails(self):
+        """Review-only is not a one-time property. A restart that
+        silently promoted a candidate into the memoir is exactly the
+        thing this whole lane exists to prevent."""
+        self._base()
+
+        def promote():
+            n = _note("shelf-01", STORY)
+            n["include_in_memoir"] = 1
+            self.notes = [n]
+        rc, log, f = self._accept_then(promote)
+        self.assertGreaterEqual(f, 1, log)
+
+    def test_a_duplicated_candidate_fails(self):
+        self._base()
+
+        def dupe():
+            self.notes = self.notes + [
+                _note("shelf-02", STORY, ref="turn:t-2")]
+        rc, log, f = self._accept_then(dupe)
+        self.assertGreaterEqual(f, 1, log)
+        self.assertIn("no story candidate was duplicated", log)
+
+    def test_it_refuses_to_run_without_an_accepted_record(self):
+        """A restart check with nothing to check against must not look
+        like a pass."""
+        self._base()
+        self._install()
+        self.m.ACCEPTED = "/nonexistent/accepted.json"
+        gates = dict((k, True) for k in self.m.REQUIRED_GATES)
+        rc = self.m.do_restart_verify(gates, self.m.snapshot())
+        self.assertEqual(rc, 2)
+
+    def test_it_still_prints_no_narrative_text(self):
+        self._base()
+        rc, log, f = self._accept_then()
+        for fragment in ("gravesite", "Melanie", "elementary"):
             self.assertNotIn(fragment, log, fragment)
 
 

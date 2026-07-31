@@ -155,6 +155,7 @@ docs/reports/trip_2019_france_italy_*.txt
 # deliberately:  git add -f docs/reports/WO-NARRATOR-BRIDGE_ACCEPTANCE_verify.console.txt
 docs/reports/WO-NARRATOR-BRIDGE_ACCEPTANCE_*.console.txt
 docs/reports/WO-NARRATOR-BRIDGE_ACCEPTANCE_state.json
+docs/reports/WO-NARRATOR-BRIDGE_ACCEPTANCE_accepted.json
 docs/reports/WO-02_ACCEPTANCE_*.console.txt
 docs/reports/WO-02_ACCEPTANCE_state.json
 
