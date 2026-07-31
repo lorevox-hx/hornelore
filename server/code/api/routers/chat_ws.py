@@ -760,6 +760,15 @@ async def ws_chat(ws: WebSocket):
                 turn_id=str(params.get("turn_id") or ""),
                 turn_mode=turn_mode,
                 source="chat_ws",
+                # BUG-TRIP-SYSTEM-DIRECTIVE-PLACED-AS-NARRATOR-TURN-01.
+                # A BOOLEAN, not the text. The service stays blind to
+                # what the narrator said -- it holds identifiers only,
+                # and handing it a transcript to sniff would give it a
+                # second thing to be wrong about. The boundary read the
+                # payload and already knows the answer; it passes the
+                # answer.
+                is_system_directive=bool(
+                    params.get("_is_system_directive")),
                 # Unwrapped HERE, at the boundary, so the placement
                 # service never learns the browser's field names and
                 # has only one thing to be wrong about. Two fields,
@@ -977,6 +986,22 @@ async def ws_chat(ws: WebSocket):
         # story_candidate row.
         _ut_lstrip = (user_text or "").lstrip()
         _is_system_directive = _ut_lstrip.startswith("[SYSTEM")
+
+        # BUG-TRIP-SYSTEM-DIRECTIVE-PLACED-AS-NARRATOR-TURN-01
+        # (live, 2026-07-31). The completed-turn trip-placement hook runs
+        # later with only `params` in hand -- user_text is a sibling of
+        # params in the WS payload, not a member of it -- so the decision
+        # made on this line is recorded here, where it is made, rather
+        # than re-derived from a text the hook cannot see.
+        #
+        # Without it, three of the four conversations placed on the
+        # Bismarck Trip were `[SYSTEM: The ...]` directives, and the day
+        # timeline rendered that operator text as `narrator_said`: the
+        # narrator appeared to have said 740 characters of instructions
+        # to himself. The story-capture lane already refuses these, and
+        # has since Patch A on 2026-04-30 for the same reason -- they are
+        # not narrator-authored content. Placement did not inherit it.
+        params["_is_system_directive"] = _is_system_directive
 
         # ── WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 (2026-07-24) ──
         # DETERMINISTIC SAFETY PREFLIGHT — runs ONCE, before EVERY narrator

@@ -161,8 +161,10 @@ PLACEMENT_EVENTS: tuple = (
 #                day is unanswered.
 #   duplicate -- this turn was already placed; nothing changed
 #   noop      -- correctly skipped (no active trip, ineligible mode,
-#                no committed row id). The overwhelming majority of
-#                turns in normal family interviewing land here.
+#                an in-band [SYSTEM: ...] directive rather than the
+#                narrator, no committed row id). The overwhelming
+#                majority of turns in normal family interviewing land
+#                here.
 #   failed    -- something broke. The turn is untouched.
 PLACEMENT_STATUSES: tuple = (
     "linked",
@@ -445,6 +447,7 @@ def link_completed_turn(
     captured_at: str = "",
     source: str = _SOURCE_CHAT_WS,
     shelf_scope: Optional[Dict[str, Any]] = None,
+    is_system_directive: bool = False,
 ) -> PlacementOutcome:
     """Place one completed, persisted turn on the narrator's active trip.
 
@@ -452,6 +455,10 @@ def link_completed_turn(
 
     Preconditions, all checked here rather than assumed:
       * an eligible turn mode
+      * a turn the NARRATOR authored. An in-band `[SYSTEM: ...]`
+        directive arrives as a user-role payload with an ordinary turn
+        mode and persists an ordinary row, so nothing further down can
+        tell it apart -- and the timeline would show it as his words.
       * a committed assistant row id -- the idempotency key. Without a
         persisted row there is nothing stable to key on and nothing
         for the timeline to read text back out of, so the answer is
@@ -504,6 +511,30 @@ def link_completed_turn(
     try:
         if not placement_eligible(mode):
             return _out("noop", reason="ineligible_turn_mode")
+        if is_system_directive:
+            # BUG-TRIP-SYSTEM-DIRECTIVE-PLACED-AS-NARRATOR-TURN-01
+            # (live, 2026-07-31). ui/js/session-loop.js sends
+            # `[SYSTEM: ...]` guidance to Lori as a USER-role WS payload.
+            # It carries turn_mode='interview' and it persists a `turns`
+            # row like any other, so every precondition below said yes
+            # and the directive was placed on the trip. The timeline
+            # reads narrator text back out of `turns` by row id, so the
+            # operator's own instructions were then displayed as the
+            # narrator's words -- 740 characters of them on the Bismarck
+            # Trip, in the surface a family goes to read what he said.
+            #
+            # Nothing downstream could have caught this. The link table
+            # holds identifiers only, so the row was structurally
+            # perfect; it was the turn that was never his.
+            #
+            # The story-capture lane learned this on 2026-04-30 and its
+            # comment is still the clearest statement of the rule:
+            # directives "are not narrator-authored content and must not
+            # be classified". A turn mode says what KIND of turn it is;
+            # it does not say who authored it. That is why this is a
+            # separate precondition and not another entry in
+            # PLACEMENT_ELIGIBLE_TURN_MODES.
+            return _out("noop", reason="system_directive")
         if not nid:
             return _out("noop", reason="no_narrator")
 

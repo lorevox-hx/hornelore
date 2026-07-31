@@ -930,6 +930,118 @@ class TravelsShelfPlacementCase(_PlacementCase):
         self.assertEqual(out.reason, "ineligible_turn_mode")
 
 
+class SystemDirectiveIsNotNarratorSpeechCase(_PlacementCase):
+    """BUG-TRIP-SYSTEM-DIRECTIVE-PLACED-AS-NARRATOR-TURN-01 (live).
+
+    ui/js/session-loop.js feeds Lori in-band guidance by sending
+    `[SYSTEM: ...]` as a USER-role WS payload. It carries
+    turn_mode='interview', it persists an ordinary `turns` row, and
+    every precondition placement had said yes to it.
+
+    On 2026-07-31 that put three directives on the Bismarck Trip --
+    740, 541 and 541 characters -- and because the timeline reads
+    narrator text back out of `turns` by row id, the operator's own
+    instructions were displayed as the narrator's words. Of the four
+    conversations the acceptance run counted as "narrator interactions
+    persisted", exactly one was a narrator.
+
+    Nothing downstream could have caught it. The link table holds
+    identifiers only, so every row was structurally perfect. The turn
+    was simply never his.
+    """
+
+    def _link_directive(self, arow, urow=None, directive=True):
+        return trip_placement.link_completed_turn(
+            narrator_id=self.person_id,
+            assistant_turn_row_id=arow,
+            user_turn_row_id=urow,
+            conv_id="conv-directive",
+            turn_id="t-" + str(arow),
+            turn_mode="interview",
+            source="chat_ws",
+            is_system_directive=directive)
+
+    def test_a_system_directive_is_not_placed_on_a_live_trip(self):
+        trip_repository.trip_live_state_set(self.trip_id, "active")
+        urow, arow = self._persist_turn(
+            user="[SYSTEM: The narrator has opened the Bismarck Trip. "
+                 "Greet them warmly and ask one question about it.]",
+            assistant="What stands out from that trip?")
+        out = self._link_directive(arow, urow)
+        self.assertEqual(out.status, "noop")
+        self.assertEqual(out.reason, "system_directive")
+        self.assertEqual(out.link_id, "")
+
+    def test_it_writes_no_link_row_at_all(self):
+        """A noop that still wrote would be the whole bug again."""
+        trip_repository.trip_live_state_set(self.trip_id, "active")
+        before = self._table_counts().get("trip_turn_links", 0)
+        urow, arow = self._persist_turn(
+            user="[SYSTEM: continue the interview]",
+            assistant="Go on.")
+        self._link_directive(arow, urow)
+        self.assertEqual(self._table_counts().get("trip_turn_links", 0),
+                         before)
+
+    def test_the_same_turn_links_when_the_narrator_authored_it(self):
+        """The non-vacuity control. Without this, a gate that refused
+        everything would look identical to a gate that works."""
+        trip_repository.trip_live_state_set(self.trip_id, "active")
+        urow, arow = self._persist_turn(
+            user="We drove out to the cemetery on the second morning.",
+            assistant="What was the weather like?")
+        out = self._link_directive(arow, urow, directive=False)
+        self.assertIn(out.status, ("linked", "needs_day"))
+        self.assertNotEqual(out.link_id, "")
+
+    def test_the_refusal_outranks_the_shelf_fallback_too(self):
+        """Priority 2 must not become a second door for a directive.
+        The shelf path is reached only after the database says no, so a
+        gate placed after it would have let every completed-trip
+        directive straight through -- which is exactly the shape the
+        live failure took."""
+        os.environ["HORNELORE_TRIP_SHELF_TURN_LINK"] = "1"
+        try:
+            trip_repository.trip_live_state_set(self.trip_id, "completed")
+            urow, arow = self._persist_turn(
+                user="[SYSTEM: The narrator opened a trip from Travels.]",
+                assistant="Tell me about it.")
+            out = trip_placement.link_completed_turn(
+                narrator_id=self.person_id,
+                assistant_turn_row_id=arow,
+                user_turn_row_id=urow,
+                conv_id="conv-directive",
+                turn_id="t-" + str(arow),
+                turn_mode="interview",
+                source="chat_ws",
+                is_system_directive=True,
+                shelf_scope={"travels_shelf_open": True,
+                             "active_trip_id": self.trip_id})
+            self.assertEqual(out.status, "noop")
+            self.assertEqual(out.reason, "system_directive")
+        finally:
+            os.environ.pop("HORNELORE_TRIP_SHELF_TURN_LINK", None)
+
+    def test_the_default_is_false_so_no_caller_is_silently_changed(self):
+        """Every existing caller omits the argument. If it defaulted to
+        True, placement would stop entirely and every suite above would
+        fail -- but a reader deserves the guarantee stated once."""
+        import inspect
+        sig = inspect.signature(trip_placement.link_completed_turn)
+        self.assertIs(sig.parameters["is_system_directive"].default, False)
+
+    def test_the_service_is_not_given_the_text_to_judge(self):
+        """It receives a boolean the boundary already computed. A
+        service that sniffed transcripts would be a second place for
+        'what counts as a directive' to drift from the first."""
+        import inspect
+        names = set(inspect.signature(
+            trip_placement.link_completed_turn).parameters)
+        for forbidden in ("user_text", "narrator_text", "message",
+                          "transcript", "text"):
+            self.assertNotIn(forbidden, names)
+
+
 class _ChatWsHookCase(unittest.TestCase):
     """The hook is glue; these assertions are about where it sits."""
 
@@ -961,6 +1073,44 @@ class _ChatWsHookCase(unittest.TestCase):
             "await _run_completed_turn_trip_link(conv_id, params, ev)")
         self.assertGreater(extract_at, 0)
         self.assertGreater(link_at, extract_at)
+
+    def test_the_boundary_hands_the_service_the_directive_verdict(self):
+        """BUG-TRIP-SYSTEM-DIRECTIVE-PLACED-AS-NARRATOR-TURN-01.
+
+        The service gate is inert unless the boundary passes the flag,
+        and the boundary is the only place that can: `user_text` is a
+        sibling of `params` in the WS payload, so the hook -- which
+        receives params alone -- cannot see the text at all. Two halves,
+        both asserted, because either one alone silently does nothing.
+        """
+        # Half one: the verdict is recorded where it is computed.
+        self.assertIn('params["_is_system_directive"] = _is_system_directive',
+                      self.src)
+        # Half two: the hook forwards it.
+        node = self._find("_run_completed_turn_trip_link")
+        self.assertIsNotNone(node)
+        body = ast.get_source_segment(self.src, node) or ""
+        self.assertIn("is_system_directive=", body)
+        self.assertIn("_is_system_directive", body)
+
+    def test_the_directive_test_is_the_one_the_capture_lane_uses(self):
+        """One definition of 'this is a directive', not two drifting
+        apart. The story-capture lane has refused these since 2026-04-30
+        on the same test; placement now reads that same verdict rather
+        than re-deriving it."""
+        self.assertIn('_is_system_directive = _ut_lstrip.startswith('
+                      '"[SYSTEM")', self.src)
+        # And it is computed once.
+        self.assertEqual(
+            self.src.count('_is_system_directive = _ut_lstrip.startswith'), 1)
+
+    def test_the_hook_is_not_given_the_narrator_text_to_sniff(self):
+        """The hook takes (conv_id, params, ev). Adding user_text to it
+        would let placement grow its own opinion about what a directive
+        is -- the drift the test above exists to prevent."""
+        node = self._find("_run_completed_turn_trip_link")
+        args = [a.arg for a in node.args.args]
+        self.assertEqual(args, ["conv_id", "params", "ev"])
 
     def test_the_hook_writes_no_truth_and_touches_no_projection(self):
         node = self._find("_run_completed_turn_trip_link")
