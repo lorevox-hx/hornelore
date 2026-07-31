@@ -2074,6 +2074,12 @@
     var prevMain = root.querySelector(".tdl-main");
     if (prevMain) st.mainScroll = prevMain.scrollTop;
 
+    // Same reason, for the timeline's own scrolling pane: saving an
+    // inline row repaints the whole app, and the day must not jump back
+    // to the top under the operator.
+    var prevTl = root.querySelector(".tdl-cal-timeline");
+    if (prevTl && st.tripCal) st.tripCal.scroll = prevTl.scrollTop;
+
     root.innerHTML = "";
     var app = el("div", "tdl-app");
 
@@ -2195,6 +2201,11 @@
 
     root.appendChild(app);
     main.scrollTop = st.mainScroll || 0;
+    if (st.tripCal) {
+      var tlPane = root.querySelector(".tdl-cal-timeline");
+      if (tlPane) tlPane.scrollTop = st.tripCal.scroll || 0;
+      restoreTimelineEditFocus();
+    }
   }
 
   // ── left rail: trip list + route navigator (collapsible) ─────────────
@@ -8116,19 +8127,40 @@
 
   function openTripCalendar(dayId) {
     if (!st.trip) return;
+    // WO-LIVE-TRIP-COMPANION-02 step 1. Every other overlay opener asks
+    // this first --- openLoriOverlay, openLoriOverlayForPhoto, the day
+    // card, the route selectors --- and Trip timeline was the one that
+    // did not. Opening it calls renderAll(), which rebuilds the day
+    // inspector from st.days and throws away whatever the operator had
+    // typed into it, with no warning and nothing to undo with. The text
+    // was never saved, so nothing in the database is wrong afterwards;
+    // it is still the operator's writing, destroyed by a button that
+    // gave no sign it would do that. Fix the loss before adding a
+    // second place to type.
+    if (dayFormDirtyBlocks()) return;
     st.tripCal = {
       dayId: dayId || tripSelectedDayId() || st.selectedDayId || null,
       days: [], preserved: [], items: [], unplaced: [],
       unplacedCount: 0, showUnplaced: false,
       busy: true, error: "",
+      // Step 3 state: the one open inline row, the timeline pane's own
+      // scroll position, and whether the panel has taken focus yet.
+      edit: null, scroll: 0, focused: false,
     };
     renderAll();
     loadTripCalendar();
   }
 
+  // Every way out of the modal --- Close, the scrim, "Open this day",
+  // "Open this conversation", Escape on the panel --- comes through
+  // here, so the dirty guard only has to be written once. Returns false
+  // when the close was refused, and callers that were going somewhere
+  // afterwards must check it.
   function closeTripCalendar() {
+    if (timelineEditDirtyBlocks()) return false;
     st.tripCal = null;
     renderAll();
+    return true;
   }
 
   function loadTripCalendar() {
@@ -8236,6 +8268,497 @@
       });
   }
 
+  // ── inline row editing in the timeline ────────────────────────────────
+  // WO-LIVE-TRIP-COMPANION-02 step 3.
+  //
+  // The rule this whole section obeys: the timeline edits the records it
+  // displays; it never becomes the owner of copied trip content. There
+  // is no timeline-edit table, no draft store, no second copy of
+  // anybody's words. An expanded row writes straight back to the record
+  // the projection read from, through the PATCH endpoint that already
+  // owns it, and then re-reads the day.
+  //
+  // What it deliberately cannot edit, and why:
+  //   * a conversation's words. Placement can change; the narrator and
+  //     Lori turn rows are the record of what was actually said, and a
+  //     viewer does not get to rewrite them.
+  //   * Places visited and Meals on the day card. Those are lists, not
+  //     prose. A text box over them would quietly flatten structure into
+  //     a sentence, and the day inspector already edits them properly.
+  //   * approval for Lori. Editing a caption and approving a caption are
+  //     two different operator decisions; this surface only does the
+  //     first one.
+  var TL_EDIT_FIELDS = {
+    photo: [{ name: "caption", label: "Photo caption", rows: 2 }],
+    note: [
+      { name: "note_title", label: "Title", rows: 1 },
+      { name: "note_text", label: "Note", rows: 5 },
+    ],
+    source: [
+      { name: "title", label: "Title", rows: 1 },
+      { name: "summary", label: "Summary", rows: 4 },
+    ],
+    day_text: [{ name: "text", label: "", rows: 3 }],
+    // WO-LIVE-TRIP-COMPANION-02 step 5. Quick capture rides the same
+    // editor as the edits: one dirty guard, one Escape rule, one Save,
+    // one place where a mistake can be made. The only difference is
+    // that it POSTs a new row instead of PATCHing an existing one, and
+    // it is the one editor here that creates anything at all.
+    new_note: [
+      { name: "note_title", label: "Title (optional)", rows: 1 },
+      { name: "note_text", label: "Note", rows: 4 },
+    ],
+  };
+
+  // The day-card columns that are plain prose. places_visited_json and
+  // meals_json are absent on purpose --- see above.
+  var TL_DAY_TEXT_FIELDS = [
+    "main_location", "lodging_base",
+    "morning_notes", "afternoon_notes", "evening_notes",
+  ];
+
+  function photoLinkById(linkId) {
+    var rows = st.photoLinks || [];
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i] && rows[i].id === linkId) return rows[i];
+    }
+    return null;
+  }
+
+  // Which record does this row own, and may it be typed into? Returns
+  // null for everything the timeline is not allowed to rewrite.
+  function timelineEditTarget(item) {
+    if (!item) return null;
+    var kind = String(item.kind || "");
+    if (kind === "photo") {
+      if (!item.link_id) return null;
+      return {
+        kind: kind, key: "photo:" + item.link_id, ownerId: item.link_id,
+        field: null, label: "Photo caption",
+        values: { caption: item.caption || "" },
+      };
+    }
+    if (kind === "note") {
+      if (!item.note_id) return null;
+      return {
+        kind: kind, key: "note:" + item.note_id, ownerId: item.note_id,
+        field: null, label: "Story note",
+        values: { note_title: item.title || "", note_text: item.text || "" },
+      };
+    }
+    if (kind === "source") {
+      if (!item.source_id) return null;
+      return {
+        kind: kind, key: "source:" + item.source_id, ownerId: item.source_id,
+        field: null, label: "Source",
+        values: { title: item.title || "", summary: item.summary || "" },
+      };
+    }
+    if (kind === "day_text") {
+      var f = String(item.field || "");
+      if (TL_DAY_TEXT_FIELDS.indexOf(f) < 0) return null;
+      var dayId = String(item.id || "").split(":")[0];
+      if (!dayId) return null;
+      return {
+        kind: kind, key: "day_text:" + dayId + ":" + f, ownerId: dayId,
+        field: f, label: item.label || "On the day card",
+        values: { text: item.text || "" },
+      };
+    }
+    return null;
+  }
+
+  function timelineEdit() {
+    return (st.tripCal && st.tripCal.edit) || null;
+  }
+
+  function tlOpenEditorFor(item) {
+    var ed = timelineEdit();
+    if (!ed) return null;
+    var t = timelineEditTarget(item);
+    return (t && t.key === ed.key) ? ed : null;
+  }
+
+  // Same contract as dayFormDirtyBlocks(): returns true when the caller
+  // must ABORT. No native dialog --- lab doctrine forbids confirm() ---
+  // and nothing typed is discarded. The row's own Save/Cancel is
+  // flashed and scrolled to, and the operator decides.
+  function timelineEditDirtyBlocks() {
+    var ed = timelineEdit();
+    if (!ed || !ed.dirty) return false;
+    (ed.badges || []).forEach(function (b) {
+      b.classList.add("tdl-dirty-on");
+      b.classList.add("tdl-dirty-flash");
+      b.textContent = "Unsaved changes — Save or Cancel first";
+    });
+    (ed.saveButtons || []).forEach(function (b) { b.disabled = false; });
+    var sb = (ed.saveButtons || [])[0];
+    if (sb && sb.scrollIntoView) {
+      try { sb.scrollIntoView({ block: "center" }); } catch (e) {}
+    }
+    return true;
+  }
+
+  // One active editor at a time. Opening a second row while the first
+  // one holds unsaved text is blocked, not silently resolved.
+  function openTimelineEdit(item) {
+    if (!st.tripCal) return;
+    var t = timelineEditTarget(item);
+    if (!t) return;
+    var cur = timelineEdit();
+    if (cur && cur.key === t.key) return;
+    if (timelineEditDirtyBlocks()) return;
+    var vals = {};
+    var orig = {};
+    Object.keys(t.values).forEach(function (k) {
+      vals[k] = t.values[k];
+      orig[k] = t.values[k];
+    });
+    var first = (TL_EDIT_FIELDS[t.kind] || [])[0];
+    st.tripCal.edit = {
+      key: t.key, kind: t.kind, ownerId: t.ownerId, field: t.field,
+      label: t.label, values: vals, original: orig,
+      dirty: false, saving: false, error: "",
+      focus: first ? first.name : null,
+      saveButtons: [], badges: [],
+    };
+    renderAll();
+  }
+
+  // Quick capture: a note written where the operator already is,
+  // filed on the day they are already looking at. Save is off until
+  // something has been typed, so an accidental click captures nothing.
+  function openTimelineNewNote(dayId) {
+    if (!st.tripCal || !dayId) return;
+    var cur = timelineEdit();
+    if (cur && cur.key === "new_note:" + dayId) return;
+    if (timelineEditDirtyBlocks()) return;
+    st.tripCal.edit = {
+      key: "new_note:" + dayId, kind: "new_note", ownerId: dayId,
+      field: null, label: "New note", method: "POST",
+      values: { note_title: "", note_text: "" },
+      original: { note_title: "", note_text: "" },
+      dirty: false, saving: false, error: "",
+      focus: "note_text", saveButtons: [], badges: [],
+    };
+    renderAll();
+  }
+
+  function cancelTimelineEdit() {
+    if (!st.tripCal) return;
+    st.tripCal.edit = null;
+    renderAll();
+  }
+
+  // In place, never renderAll(): renderAll() empties the root, so a
+  // repaint per keystroke would take the caret out of the box the
+  // operator is typing into and lose the word they were mid-way through.
+  function markTimelineEditDirty(ed) {
+    var d = false;
+    Object.keys(ed.values).forEach(function (k) {
+      if (String(ed.values[k]) !== String(ed.original[k])) d = true;
+    });
+    ed.dirty = d;
+    (ed.badges || []).forEach(function (b) {
+      b.textContent = "Unsaved changes";
+      b.classList.remove("tdl-dirty-flash");
+      if (d) b.classList.add("tdl-dirty-on");
+      else b.classList.remove("tdl-dirty-on");
+    });
+    (ed.saveButtons || []).forEach(function (b) { b.disabled = !d; });
+  }
+
+  // The PATCH body, or a refusal the row shows without closing itself.
+  function timelineEditBody(ed) {
+    var v = ed.values;
+    function t(k) { return String(v[k] == null ? "" : v[k]).trim(); }
+    if (ed.kind === "photo") {
+      // caption ONLY. caption_approved_for_lori is never sent from here,
+      // in either direction: approval is a separate decision, made on
+      // the photo, about words somebody actually read.
+      return { body: { caption: t("caption") } };
+    }
+    if (ed.kind === "note") {
+      if (!t("note_text")) return { error: "A note needs some text." };
+      var b = { note_text: t("note_text") };
+      if (t("note_title")) b.note_title = t("note_title");
+      else b.clear_title = true;
+      return { body: b };
+    }
+    if (ed.kind === "source") {
+      if (!t("title")) return { error: "A source needs a title." };
+      return { body: { title: t("title"), summary: t("summary") } };
+    }
+    if (ed.kind === "day_text") {
+      var out = {};
+      if (t("text")) out[ed.field] = t("text");
+      else out["clear_" + ed.field] = true;
+      return { body: out };
+    }
+    if (ed.kind === "new_note") {
+      if (!t("note_text")) return { error: "A note needs some text." };
+      // Scoped to the day it was written on, and to that day's region
+      // and stop if it has them --- the same shape the note drawer
+      // already writes, so a note captured here is not a second kind of
+      // note with a different provenance.
+      var day = dayById(ed.ownerId) || {};
+      return { body: {
+        note_text: t("note_text"),
+        note_title: t("note_title") || null,
+        trip_day_id: ed.ownerId,
+        trip_region_id: day.trip_region_id || null,
+        trip_stop_id: day.trip_stop_id || null,
+        source_type: "operator",
+      } };
+    }
+    return { error: "This row cannot be edited here." };
+  }
+
+  function timelineEditPath(ed) {
+    var id = encodeURIComponent(ed.ownerId);
+    if (ed.kind === "photo") return "/api/trips/photo-links/" + id;
+    if (ed.kind === "note") return "/api/trips/location-notes/" + id;
+    if (ed.kind === "source") return "/api/trips/sources/" + id;
+    if (ed.kind === "day_text") return "/api/trips/days/" + id;
+    if (ed.kind === "new_note") {
+      if (!st.trip) return null;
+      return "/api/trips/" + encodeURIComponent(st.trip.id) +
+        "/location-notes";
+    }
+    return null;
+  }
+
+  // The workspace behind the modal reads the same records. Refresh the
+  // owning list too, or closing the timeline shows the old words on the
+  // day card and the operator cannot tell which one is true.
+  function timelineOwnerReload(kind) {
+    if (kind === "photo") return reloadPhotoLinks();
+    if (kind === "note") return reloadNotes();
+    if (kind === "source") return reloadSources();
+    if (kind === "day_text") return reloadDays();
+    // A new note changes both the note list and the day's own counts.
+    if (kind === "new_note") {
+      return Promise.all([reloadNotes(), reloadDays()]);
+    }
+    return Promise.resolve();
+  }
+
+  function saveTimelineEdit() {
+    var ed = timelineEdit();
+    if (!ed || ed.saving) return;
+    var made = timelineEditBody(ed);
+    if (made.error) {
+      ed.error = made.error;
+      renderAll();
+      return;
+    }
+    var path = timelineEditPath(ed);
+    if (!path) return;
+    ed.saving = true;
+    ed.error = "";
+    renderAll();
+    // PATCH is the rule --- this surface edits records that already
+    // exist. POST appears once, for quick capture, and only because the
+    // row it writes does not exist yet.
+    api(path, { method: ed.method || "PATCH", body: made.body })
+      .then(function () { return timelineOwnerReload(ed.kind); })
+      .then(function () {
+        if (!st.tripCal) return null;
+        st.tripCal.edit = null;
+        // One call refreshes the day-rail counts and the selected day's
+        // timeline, and it keeps the selected day: nothing else moves.
+        return loadTripCalendar();
+      })
+      .catch(function (e) {
+        // The editor stays open with the typed text still in it. A save
+        // that fails and also loses the writing is two problems.
+        if (!st.tripCal || st.tripCal.edit !== ed) return;
+        ed.saving = false;
+        ed.error = e.message || "That did not save.";
+        renderAll();
+      });
+  }
+
+  function tlEditButton(item) {
+    return btn("tdl-btn tdl-btn-small tdl-tl-edit", "Edit", function () {
+      openTimelineEdit(item);
+    });
+  }
+
+  function renderTimelineEditor(ed) {
+    var form = el("form", "tdl-tl-editor");
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      saveTimelineEdit();
+    });
+    // Escape closes the row, not the modal. stopPropagation() is what
+    // makes that ordering true: the panel's own Escape handler never
+    // sees the key while a row is open.
+    form.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      e.preventDefault();
+      cancelTimelineEdit();
+    });
+
+    ed.saveButtons = [];
+    ed.badges = [];
+
+    if (ed.kind === "new_note") {
+      form.appendChild(el("h4", "tdl-tl-title", "New note on this day"));
+    }
+
+    (TL_EDIT_FIELDS[ed.kind] || []).forEach(function (spec) {
+      var input;
+      if (spec.rows > 1) {
+        input = el("textarea");
+        input.rows = spec.rows;
+      } else {
+        input = el("input");
+        input.type = "text";
+      }
+      input.value = ed.values[spec.name] == null ? "" : ed.values[spec.name];
+      input.setAttribute("data-tl-field", spec.name);
+      input.disabled = !!ed.saving;
+      input.addEventListener("input", function () {
+        ed.values[spec.name] = input.value;
+        markTimelineEditDirty(ed);
+      });
+      input.addEventListener("focus", function () { ed.focus = spec.name; });
+      form.appendChild(field(spec.label || ed.label, input));
+    });
+
+    if (ed.kind === "photo") {
+      // Said out loud, every time. The endpoint takes approval off when
+      // the caption text changes --- approval always refers to the words
+      // that were actually reviewed --- and the operator should not
+      // discover that afterwards.
+      var link = photoLinkById(ed.ownerId);
+      var approved = !!(link && link.caption_approved_for_lori);
+      form.appendChild(el("p", "tdl-muted tdl-tl-approval", approved ?
+        "This caption is approved for Lori. Saving a change takes that " +
+        "approval off, because approval is for the words that were " +
+        "actually read." :
+        "Saving the caption does not approve it for Lori. That is a " +
+        "separate step on the photo."));
+    }
+
+    // Above the buttons, and it stays until the operator acts: an error
+    // that closes the editor takes the evidence away with it.
+    if (ed.error) form.appendChild(el("div", "tdl-error", ed.error));
+
+    var foot = el("div", "tdl-tl-editor-foot");
+    var badge = el("span", "tdl-dirty-badge", "Unsaved changes");
+    if (ed.dirty) badge.classList.add("tdl-dirty-on");
+    ed.badges.push(badge);
+    foot.appendChild(badge);
+    var save = btn("tdl-btn tdl-btn-primary tdl-btn-small",
+      ed.saving ? "Saving…" : "Save", saveTimelineEdit);
+    save.disabled = !!ed.saving || !ed.dirty;
+    ed.saveButtons.push(save);
+    foot.appendChild(save);
+    var cancel = btn("tdl-btn tdl-btn-small", "Cancel", cancelTimelineEdit);
+    cancel.disabled = !!ed.saving;
+    foot.appendChild(cancel);
+    form.appendChild(foot);
+    return form;
+  }
+
+  // Called at the end of renderAll(). A repaint that came from anywhere
+  // else must not take the caret out of an open row.
+  function restoreTimelineEditFocus() {
+    if (!st.tripCal) return;
+    var panel = root.querySelector(".tdl-cal-panel");
+    if (!panel) return;
+    var ed = st.tripCal.edit;
+    if (!ed) {
+      if (!st.tripCal.focused && panel.focus) {
+        st.tripCal.focused = true;
+        try { panel.focus(); } catch (e) {}
+      }
+      return;
+    }
+    var sel = ed.focus ?
+      panel.querySelector('.tdl-tl-editor [data-tl-field="' + ed.focus + '"]') :
+      panel.querySelector(".tdl-tl-editor [data-tl-field]");
+    if (!sel || !sel.focus) return;
+    try {
+      sel.focus();
+      var n = String(sel.value == null ? "" : sel.value).length;
+      if (sel.setSelectionRange) sel.setSelectionRange(n, n);
+    } catch (e) {}
+  }
+
+  // ── placement editing (WO-LIVE-TRIP-COMPANION-02 step 4) ─────────────
+  //
+  // Putting a thing on the right day is the edit that actually gets made
+  // during a trip: the clock guessed, or the operator is filing an hour
+  // later from the truck. Photographs and conversations move for the
+  // same reasons, so they move the same way and with the same words.
+  //
+  // Neither one deletes. "Take off this day" leaves the record on the
+  // trip --- a conversation returns to the reconciliation list, a
+  // photograph stays in the Photos tab --- because a wrong day is not a
+  // reason to lose the thing.
+  function tlMovePicker(o) {
+    var pick = el("select", "tdl-tl-move");
+    var none = el("option", "", o.placeholder || "Move to…");
+    none.value = "";
+    pick.appendChild(none);
+    (st.tripCal ? st.tripCal.days : []).forEach(function (d) {
+      var op = el("option", "",
+        "Day " + d.day_index + " · " + prettyDate(d.date));
+      op.value = d.id;
+      if (d.id === o.currentDayId) op.selected = true;
+      pick.appendChild(op);
+    });
+    if (o.allowOff) {
+      var off = el("option", "", "Take off this day");
+      off.value = "__none__";
+      pick.appendChild(off);
+    }
+    pick.addEventListener("change", function () {
+      var v = pick.value;
+      if (!v) return;
+      // A move reloads the day and repaints, so it would discard an open
+      // row's typed text exactly the way opening the timeline used to.
+      if (timelineEditDirtyBlocks()) {
+        pick.value = o.currentDayId || "";
+        return;
+      }
+      o.onPick(v === "__none__" ? null : v);
+    });
+    return pick;
+  }
+
+  // A photograph moves by updating the ONE trip_photo_links row it
+  // already has. No second placement record, and no "also show on
+  // another day" here: a photograph on two days is a claim that it was
+  // taken twice, and this surface is not where that gets decided.
+  function moveTripPhotoLink(linkId, fromDayId, toDayId) {
+    if (!st.trip || !st.tripCal) return Promise.resolve();
+    var t = encodeURIComponent(st.trip.id);
+    // Detach names the day it is coming off; attach names the day it is
+    // going to. Both are the existing day-photo routes.
+    var onDay = toDayId || fromDayId || st.tripCal.dayId;
+    if (!onDay) return Promise.resolve();
+    var path = "/api/trips/" + t + "/days/" + encodeURIComponent(onDay) +
+      "/photos/" + (toDayId ? "link" : "unlink");
+    return api(path, { method: "POST", body: { photo_link_ids: [linkId] } })
+      .then(function () { return reloadPhotoLinks(); })
+      .then(function () {
+        if (!st.tripCal) return null;
+        // Refreshes the rail counts on both days and the open day's
+        // timeline, and keeps the selected day where it was.
+        return loadTripCalendar();
+      })
+      .catch(function (e) {
+        if (!st.tripCal) return;
+        st.tripCal.error = e.message;
+        renderAll();
+      });
+  }
+
   function clockOf(iso) {
     var s = String(iso || "");
     var m = s.match(/T(\d{2}):(\d{2})/);
@@ -8280,7 +8803,7 @@
   // timeline sends the operator there rather than growing a second
   // place to look at a photograph.
   function openTripDayCard(dayId) {
-    closeTripCalendar();
+    if (!closeTripCalendar()) return;
     setTab("plan");
     st.selectedDayId = dayId;
     renderAll();
@@ -8298,8 +8821,27 @@
         false));
       row.appendChild(fig);
     }
-    if (item.caption) row.appendChild(el("p", "tdl-tl-said", item.caption));
+    // Expand in place. The rest of the timeline stays where it is ---
+    // no drawer, no second navigation layer, no new Escape ladder.
+    var edP = tlOpenEditorFor(item);
+    if (edP) {
+      row.appendChild(renderTimelineEditor(edP));
+    } else if (item.caption) {
+      row.appendChild(el("p", "tdl-tl-said", item.caption));
+    }
     var acts = el("div", "tdl-tl-actions");
+    if (!edP && timelineEditTarget(item)) acts.appendChild(tlEditButton(item));
+    if (!edP && item.link_id) {
+      var onDay = item.trip_day_id || (st.tripCal && st.tripCal.dayId) || null;
+      acts.appendChild(tlMovePicker({
+        currentDayId: onDay,
+        placeholder: "Move to…",
+        allowOff: !!onDay,
+        onPick: function (dayId) {
+          moveTripPhotoLink(item.link_id, onDay, dayId);
+        },
+      }));
+    }
     acts.appendChild(btn("tdl-btn tdl-btn-small", "Open this day",
       function () {
         var target = item.trip_day_id || (st.tripCal && st.tripCal.dayId);
@@ -8312,9 +8854,15 @@
   function renderTimelineNote(item) {
     var row = el("article", "tdl-tl-item tdl-tl-note");
     row.appendChild(tlHead(item, TL_KIND_LABEL.note));
-    if (item.title) row.appendChild(el("h4", "tdl-tl-title", item.title));
-    if (item.text) row.appendChild(el("p", "tdl-tl-said", item.text));
+    var edN = tlOpenEditorFor(item);
+    if (edN) {
+      row.appendChild(renderTimelineEditor(edN));
+    } else {
+      if (item.title) row.appendChild(el("h4", "tdl-tl-title", item.title));
+      if (item.text) row.appendChild(el("p", "tdl-tl-said", item.text));
+    }
     var acts = el("div", "tdl-tl-actions");
+    if (!edN && timelineEditTarget(item)) acts.appendChild(tlEditButton(item));
     acts.appendChild(btn("tdl-btn tdl-btn-small", "Open this day",
       function () {
         var target = item.trip_day_id || (st.tripCal && st.tripCal.dayId);
@@ -8327,9 +8875,15 @@
   function renderTimelineSource(item) {
     var row = el("article", "tdl-tl-item tdl-tl-source");
     row.appendChild(tlHead(item, TL_KIND_LABEL.source));
-    if (item.title) row.appendChild(el("h4", "tdl-tl-title", item.title));
-    if (item.summary) row.appendChild(el("p", "tdl-tl-said", item.summary));
+    var edS = tlOpenEditorFor(item);
+    if (edS) {
+      row.appendChild(renderTimelineEditor(edS));
+    } else {
+      if (item.title) row.appendChild(el("h4", "tdl-tl-title", item.title));
+      if (item.summary) row.appendChild(el("p", "tdl-tl-said", item.summary));
+    }
     var acts = el("div", "tdl-tl-actions");
+    if (!edS && timelineEditTarget(item)) acts.appendChild(tlEditButton(item));
     acts.appendChild(btn("tdl-btn tdl-btn-small", "Open this day",
       function () {
         var target = item.trip_day_id || (st.tripCal && st.tripCal.dayId);
@@ -8345,7 +8899,20 @@
     head.appendChild(el("span", "tdl-tl-when", "—"));
     head.appendChild(el("span", "tdl-tl-kind", item.label || "On the day card"));
     row.appendChild(head);
-    if (item.text) row.appendChild(el("p", "tdl-tl-said", item.text));
+    // This row had no actions at all until now. It is the operator's own
+    // writing about the day, so it is the first thing they will want to
+    // fix from here --- number one on the list of useful edits.
+    var edD = tlOpenEditorFor(item);
+    if (edD) {
+      row.appendChild(renderTimelineEditor(edD));
+    } else if (item.text) {
+      row.appendChild(el("p", "tdl-tl-said", item.text));
+    }
+    if (!edD && timelineEditTarget(item)) {
+      var actsD = el("div", "tdl-tl-actions");
+      actsD.appendChild(tlEditButton(item));
+      row.appendChild(actsD);
+    }
     return row;
   }
 
@@ -8391,35 +8958,21 @@
       acts.appendChild(btn("tdl-btn tdl-btn-small", "Open this conversation",
         function () {
           var target = item.trip_day_id;
-          closeTripCalendar();
+          if (!closeTripCalendar()) return;
           st.selectedDayId = target;
           openLoriOverlay(target);
         }));
     }
 
-    var pick = el("select", "tdl-tl-move");
-    var none = el("option", "", opts.unplaced ? "Put on a day…" :
-      "Move to…");
-    none.value = "";
-    pick.appendChild(none);
-    (st.tripCal ? st.tripCal.days : []).forEach(function (d) {
-      var o = el("option", "", "Day " + d.day_index + " · " +
-        prettyDate(d.date));
-      o.value = d.id;
-      if (d.id === item.trip_day_id) o.selected = true;
-      pick.appendChild(o);
-    });
-    if (item.trip_day_id) {
-      var off = el("option", "", "Take off this day");
-      off.value = "__none__";
-      pick.appendChild(off);
-    }
-    pick.addEventListener("change", function () {
-      var v = pick.value;
-      if (!v) return;
-      moveTripTurnLink(item.link_id, v === "__none__" ? null : v);
-    });
-    acts.appendChild(pick);
+    // Same control the photographs get. Only the placement record
+    // changes: the narrator and Lori turn rows are not touched, here or
+    // in the endpoint behind it.
+    acts.appendChild(tlMovePicker({
+      currentDayId: item.trip_day_id || null,
+      placeholder: opts.unplaced ? "Put on a day…" : "Move to…",
+      allowOff: !!item.trip_day_id,
+      onPick: function (dayId) { moveTripTurnLink(item.link_id, dayId); },
+    }));
     row.appendChild(acts);
     return row;
   }
@@ -8431,6 +8984,15 @@
       if (e.target === wrap) closeTripCalendar();
     });
     var panel = el("section", "tdl-cal-panel");
+    // Focusable so the panel can hear Escape at all. An open row stops
+    // the key before it gets here, which is what makes "Escape cancels
+    // the row before it closes the modal" true.
+    panel.tabIndex = -1;
+    panel.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      closeTripCalendar();
+    });
 
     var head = el("header", "tdl-cal-head");
     var ht = el("div");
@@ -8478,7 +9040,14 @@
       if (d.id === tripSelectedDayId()) {
         b.appendChild(el("span", "tdl-cal-day-here", "You are here"));
       }
-      b.addEventListener("click", function () { loadTripDayTimeline(d.id); });
+      b.addEventListener("click", function () {
+        // Changing the day rebuilds the pane the open row lives in, so
+        // ask first and then close the row rather than leaving an
+        // editor attached to a record that is no longer on screen.
+        if (timelineEditDirtyBlocks()) return;
+        if (st.tripCal) st.tripCal.edit = null;
+        loadTripDayTimeline(d.id);
+      });
       return b;
     }
     cal.days.forEach(function (d) { list.appendChild(dayButton(d, false)); });
@@ -8504,6 +9073,7 @@
       if (cal.dayId !== tripSelectedDayId()) {
         th.appendChild(btn("tdl-btn tdl-btn-small", "Talk about this day",
           function () {
+            if (timelineEditDirtyBlocks()) return;
             setTripSelectedDay(cal.dayId).then(function () {
               if (st.tripCal) loadTripCalendar();
             });
@@ -8512,6 +9082,35 @@
         th.appendChild(el("span", "tdl-cal-day-here", "You are here"));
       }
       pane.appendChild(th);
+
+      // Quick capture. During a trip this modal is where the operator
+      // already is, so the three things they do most often start from
+      // here instead of from a screen they have to go and find. The
+      // note is written in place; photographs and Lori need the whole
+      // workspace, so those hand over to it rather than pretending to
+      // fit inside a panel.
+      var qc = el("div", "tdl-cal-quick");
+      qc.appendChild(btn("tdl-btn tdl-btn-small", "+ Note", function () {
+        openTimelineNewNote(cal.dayId);
+      }));
+      qc.appendChild(btn("tdl-btn tdl-btn-small", "+ Photos", function () {
+        var d = cal.dayId;
+        if (!closeTripCalendar()) return;
+        setTab("plan");
+        openPhotoPicker(d);
+      }));
+      qc.appendChild(btn("tdl-btn tdl-btn-small", "Talk with Lori",
+        function () {
+          var d = cal.dayId;
+          if (!closeTripCalendar()) return;
+          openLoriOverlay(d);
+        }));
+      pane.appendChild(qc);
+      if (cal.edit && cal.edit.kind === "new_note" &&
+          cal.edit.ownerId === cal.dayId) {
+        pane.appendChild(renderTimelineEditor(cal.edit));
+      }
+
       if (cal.busy) {
         pane.appendChild(el("p", "tdl-muted", "Loading…"));
       } else if (!cal.items.length) {

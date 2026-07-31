@@ -1069,3 +1069,30 @@
   display: block; max-width: 190px; max-height: 150px; width: auto; height: auto;
   border: 1px solid var(--tdl-line); border-radius: 8px; background: var(--tdl-paper2);
 }
+
+/* WO-LIVE-TRIP-COMPANION-02 step 3 (2026-07-30) — inline row editing.
+   The row expands where it sits; the rest of the timeline stays put and
+   stays readable. Deliberately not a drawer: a drawer inside the modal
+   would add a second navigation layer and a second Escape meaning. */
+.tdl-tl-edit { margin-right: auto; }
+.tdl-tl-editor {
+  display: grid; gap: .4rem; margin: .35rem 0 .1rem;
+  padding: .5rem .6rem; border: 1px solid var(--tdl-gold2);
+  border-radius: 10px; background: var(--tdl-paper2);
+}
+.tdl-tl-editor .tdl-label { display: grid; gap: .18rem; font-size: .72rem; font-weight: 900;
+  text-transform: uppercase; letter-spacing: .04em; color: var(--tdl-muted); }
+.tdl-tl-editor input[type="text"], .tdl-tl-editor textarea {
+  width: 100%; box-sizing: border-box; font: inherit; font-size: .86rem;
+  font-family: var(--tdl-serif); color: var(--tdl-ink);
+  border: 1px solid var(--tdl-line); border-radius: 8px;
+  background: white; padding: .35rem .45rem; text-transform: none; letter-spacing: 0;
+}
+.tdl-tl-editor textarea { resize: vertical; line-height: 1.45; }
+.tdl-tl-approval { margin: 0; font-size: .74rem; line-height: 1.35; }
+.tdl-tl-editor-foot { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+.tdl-tl-editor-foot .tdl-dirty-badge { margin-right: auto; }
+
+/* Step 5 — quick capture. A row of three, at the top of the day the
+   operator is looking at, above everything that already happened. */
+.tdl-cal-quick { display: flex; flex-wrap: wrap; gap: .4rem; margin: 0 0 .5rem; }

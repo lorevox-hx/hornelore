@@ -3021,5 +3021,518 @@ class LazyThumbnailScrollportTest(unittest.TestCase):
         self.assertIn("overflow: auto", dbody.group(0))
 
 
+class TimelineUnsavedEditGuardTest(unittest.TestCase):
+    """WO-LIVE-TRIP-COMPANION-02 step 1 — opening Trip timeline must not
+    destroy typed-but-unsaved day-inspector text.
+
+    THE DEFECT. `openTripCalendar` called `renderAll()` without first
+    calling `dayFormDirtyBlocks()`. `renderAll` rebuilds the inspector
+    from `st.days`, so every character the operator had typed and not yet
+    saved was gone, silently, with no undo. Nothing in the database was
+    wrong afterwards --- which is exactly why it was easy to miss, and
+    exactly why it mattered: the loss was invisible to every check that
+    looks at stored data. It was the operator's own writing, destroyed by
+    a button that gave no sign it would do that.
+
+    WHY THIS CLASS EXISTS RATHER THAN ONE LINE IN AN EXISTING ONE. The
+    M5 fixpack established the rule that every destructive re-render
+    asks first, and `renderDayCard` got its own regression test when it
+    was found to be the last unguarded path into the day workspace. It
+    was not the last one. Trip timeline was added afterwards and did not
+    inherit the rule, because the rule lived in reviewers' heads and in
+    a comment, not in a test that new openers have to pass. So this
+    class tests the INVARIANT --- every opener that re-renders over the
+    inspector guards first --- and not merely the one function that was
+    broken today. A test that named only `openTripCalendar` would be
+    green on the day the next overlay is written.
+    """
+
+    def setUp(self):
+        self.src = _stripped_js()
+
+    def _fn(self, name: str) -> str:
+        i = self.src.index(name)
+        j = self.src.find("\n  function ", i + len(name))
+        return self.src[i:(len(self.src) if j == -1 else j)]
+
+    def test_opening_the_timeline_asks_before_discarding_edits(self):
+        fn = self._fn("function openTripCalendar(")
+        self.assertIn("if (dayFormDirtyBlocks()) return;", fn)
+
+    def test_the_guard_runs_before_any_state_change_or_render(self):
+        # After `st.tripCal = {...}` the modal is already open in state,
+        # and after renderAll() the typed text is already gone --- the
+        # question would be asked about a loss that had happened.
+        fn = self._fn("function openTripCalendar(")
+        g = fn.index("dayFormDirtyBlocks")
+        self.assertLess(g, fn.index("st.tripCal = {"))
+        self.assertLess(g, fn.index("renderAll()"))
+
+    def test_every_opener_that_rerenders_over_the_inspector_guards_first(self):
+        # The invariant, not the instance. Add an overlay opener without
+        # the guard and this fails, which is the whole point.
+        for name in ("function openTripCalendar(",
+                     "function openLoriOverlay(",
+                     "function openLoriOverlayForPhoto("):
+            fn = self._fn(name)
+            self.assertIn("if (dayFormDirtyBlocks()) return;", fn, name)
+            self.assertLess(fn.index("dayFormDirtyBlocks"),
+                            fn.index("renderAll()") if "renderAll()" in fn
+                            else len(fn),
+                            name)
+
+    def test_the_guard_is_not_a_native_dialog(self):
+        # Lab doctrine: no confirm()/alert()/prompt() anywhere. The
+        # existing guard flashes the Save/Cancel affordance instead, and
+        # this path must not be the exception that reintroduces one.
+        fn = self._fn("function dayFormDirtyBlocks(")
+        for banned in ("window.confirm", "window.alert", "window.prompt",
+                       "confirm(", "alert(", "prompt("):
+            self.assertNotIn(banned, fn, banned)
+
+    def test_cancelling_the_open_leaves_the_typed_text_untouched(self):
+        # dayFormDirtyBlocks returns true to ABORT. It must not clear
+        # `dayForm`, re-render, or write any state --- if it did, the
+        # "keep editing" answer would itself discard the edits it just
+        # protected. It may only re-enable and flash the affordance.
+        fn = self._fn("function dayFormDirtyBlocks(")
+        self.assertNotIn("renderAll()", fn)
+        self.assertNotIn("dayForm = null", fn)
+        self.assertIn("return true;", fn)
+
+
+class TimelineInlineEditingTest(unittest.TestCase):
+    """WO-LIVE-TRIP-COMPANION-02 step 3 — the timeline can be typed into.
+
+    THE RULE THIS PINS, in the work order's words: "The timeline edits
+    the records it displays; it never becomes the owner of copied trip
+    content." Everything below exists to keep that true as the surface
+    grows. An expanded row writes back through the PATCH endpoint that
+    already owns the record; there is no timeline-edit table, no draft
+    store, and no second copy of anybody's words.
+
+    WHY SO MANY OF THESE ARE ABOUT WHAT THE EDITOR REFUSES TO DO. The
+    dangerous version of this feature is not one that fails to save. It
+    is one that saves something nobody asked it to: a caption edit that
+    also grants Lori approval, a text box over Places visited that turns
+    a list into a sentence, a transcript that becomes editable because
+    the row rendered the same way as the others. Those do not announce
+    themselves in a browser --- they look like success --- so they are
+    pinned here instead.
+    """
+
+    def setUp(self):
+        self.src = _stripped_js()
+
+    def _fn(self, name: str) -> str:
+        i = self.src.index(name)
+        j = self.src.find("\n  function ", i + len(name))
+        return self.src[i:(len(self.src) if j == -1 else j)]
+
+    def _var(self, name: str) -> str:
+        i = self.src.index("var " + name + " =")
+        return self.src[i:self.src.index("};", i) + 2]
+
+    # ── it edits the owner, and owns nothing ──────────────────────────
+
+    def test_each_kind_saves_through_the_endpoint_that_already_owns_it(self):
+        fn = self._fn("function timelineEditPath(")
+        for path in ('"/api/trips/photo-links/"',
+                     '"/api/trips/location-notes/"',
+                     '"/api/trips/sources/"',
+                     '"/api/trips/days/"'):
+            self.assertIn(path, fn, path)
+
+    def test_saving_is_one_write_to_that_endpoint_and_nothing_else(self):
+        fn = self._fn("function saveTimelineEdit(")
+        self.assertIn('api(path, { method: ed.method || "PATCH", '
+                      'body: made.body })', fn)
+        # One request per Save, and nothing may delete from here.
+        self.assertEqual(1, fn.count("api("))
+        self.assertNotIn("DELETE", fn)
+
+    def test_post_is_used_for_creation_only_and_editing_stays_a_patch(self):
+        # The default is PATCH because this surface edits records that
+        # already exist. Quick capture is the single exception, and it
+        # has to say so on the editor it opens --- a kind that quietly
+        # acquired a method would be a new writer nobody reviewed.
+        posts = [k for k in ("photo", "note", "source", "day_text",
+                             "new_note")
+                 if 'method: "POST"' in self._open_editor_for(k)]
+        self.assertEqual(["new_note"], posts)
+
+    def _open_editor_for(self, kind: str) -> str:
+        if kind == "new_note":
+            return self._fn("function openTimelineNewNote(")
+        return self._fn("function openTimelineEdit(")
+
+    def test_there_is_no_timeline_owned_copy_of_the_content(self):
+        # The editor's working values are seeded from the projection and
+        # discarded on Cancel. Nothing in this lane may persist them
+        # anywhere else --- not a browser store, not a new endpoint.
+        # (Scoped to the editing functions: the module uses localStorage
+        # elsewhere for its own view preferences, which is not this.)
+        lane = "".join(self._fn("function " + n + "(") for n in (
+            "timelineEditTarget", "openTimelineEdit", "cancelTimelineEdit",
+            "markTimelineEditDirty", "timelineEditBody", "timelineEditPath",
+            "timelineOwnerReload", "saveTimelineEdit", "renderTimelineEditor",
+        ))
+        for banned in ("localStorage", "sessionStorage", "timeline-edits",
+                       "timelineEdits"):
+            self.assertNotIn(banned, lane, banned)
+        self.assertIn("st.tripCal.edit = null;",
+                      self._fn("function cancelTimelineEdit("))
+
+    # ── what it refuses ───────────────────────────────────────────────
+
+    def test_a_conversation_row_is_not_editable(self):
+        # "Moving a conversation must not modify the underlying narrator
+        # or Lori turn rows." The target resolver is the single gate: if
+        # it will not name a conversation, no editor can open on one.
+        fn = self._fn("function timelineEditTarget(")
+        self.assertNotIn("conversation", fn)
+        self.assertNotIn("narrator_said", fn)
+        self.assertNotIn("lori_said", fn)
+        self.assertIn("return null;", fn)
+
+    def test_the_conversation_row_renders_no_edit_control(self):
+        fn = self._fn("function renderTimelineConversation(")
+        self.assertNotIn("tlEditButton", fn)
+        self.assertNotIn("renderTimelineEditor", fn)
+
+    def test_places_and_meals_are_not_offered_as_a_text_box(self):
+        # They are lists. A textarea over them would silently flatten
+        # structure into prose, and the day inspector already edits them
+        # as lists two clicks away.
+        block = self.src[self.src.index("var TL_DAY_TEXT_FIELDS"):]
+        block = block[:block.index("];") + 2]
+        for banned in ("places_visited", "meals"):
+            self.assertNotIn(banned, block, banned)
+        for wanted in ("main_location", "lodging_base", "morning_notes",
+                       "afternoon_notes", "evening_notes"):
+            self.assertIn(wanted, block, wanted)
+
+    def test_only_a_listed_day_field_can_be_opened(self):
+        # The projection supplies item.field. It is a browser-side value
+        # and it becomes a column name in the PATCH body, so it is
+        # checked against the list rather than trusted.
+        fn = self._fn("function timelineEditTarget(")
+        self.assertIn("TL_DAY_TEXT_FIELDS.indexOf(f) < 0", fn)
+
+    # ── approval stays a separate decision ────────────────────────────
+
+    def test_saving_a_caption_never_writes_the_approval_flag(self):
+        # "Editing a caption must not silently set
+        # caption_approved_for_lori = true." The body builder is where
+        # that could happen, so it must not mention the field at all ---
+        # in either direction.
+        self.assertNotIn("caption_approved_for_lori",
+                         self._fn("function timelineEditBody("))
+        self.assertNotIn("caption_approved_for_lori",
+                         self._fn("function saveTimelineEdit("))
+
+    def test_the_caption_body_carries_the_caption_and_nothing_more(self):
+        fn = self._fn("function timelineEditBody(")
+        i = fn.index('ed.kind === "photo"')
+        self.assertIn('return { body: { caption: t("caption") } };',
+                      fn[i:i + 400])
+
+    def test_the_caption_editor_states_what_saving_does_to_approval(self):
+        # The endpoint takes approval off when the caption text changes.
+        # That is the safe direction, and it is still a thing the
+        # operator must be told before they press Save, not after.
+        fn = self._fn("function renderTimelineEditor(")
+        self.assertIn("caption_approved_for_lori", fn)  # read, to decide
+        self.assertIn("approved for Lori", fn)
+        self.assertIn("does not approve it for Lori", fn)
+
+    # ── interaction rules from the work order ─────────────────────────
+
+    def test_one_editor_at_a_time_and_the_first_one_is_asked_first(self):
+        fn = self._fn("function openTimelineEdit(")
+        self.assertIn("if (timelineEditDirtyBlocks()) return;", fn)
+        self.assertLess(fn.index("timelineEditDirtyBlocks"),
+                        fn.index("st.tripCal.edit = {"))
+
+    def test_nothing_rerenders_while_the_operator_types(self):
+        # renderAll() empties the root. A repaint per keystroke takes the
+        # caret out of the box mid-word, which is the bug this whole
+        # in-place update exists to avoid.
+        self.assertNotIn("renderAll", self._fn("function markTimelineEditDirty("))
+        fn = self._fn("function renderTimelineEditor(")
+        i = fn.index('addEventListener("input"')
+        self.assertNotIn("renderAll", fn[i:i + 260])
+
+    def test_save_and_cancel_are_explicit_controls(self):
+        fn = self._fn("function renderTimelineEditor(")
+        self.assertIn('"Save", saveTimelineEdit', fn)
+        self.assertIn('"Cancel", cancelTimelineEdit', fn)
+        # Save is off until something actually changed.
+        self.assertIn("save.disabled = !!ed.saving || !ed.dirty;", fn)
+
+    def test_escape_cancels_the_row_before_it_closes_the_modal(self):
+        ed = self._fn("function renderTimelineEditor(")
+        i = ed.index('e.key !== "Escape"')
+        window = ed[i:i + 220]
+        self.assertIn("e.stopPropagation();", window)
+        self.assertIn("cancelTimelineEdit();", window)
+        # And the panel does have its own Escape, which the row's
+        # stopPropagation is what shields it from.
+        panel = self._fn("function renderTripCalendarModal(")
+        j = panel.index('e.key !== "Escape"')
+        self.assertIn("closeTripCalendar();", panel[j:j + 200])
+
+    def test_closing_the_modal_is_blocked_while_a_row_is_dirty(self):
+        fn = self._fn("function closeTripCalendar(")
+        self.assertIn("if (timelineEditDirtyBlocks()) return false;", fn)
+        self.assertLess(fn.index("timelineEditDirtyBlocks"),
+                        fn.index("st.tripCal = null"))
+
+    def test_every_exit_that_navigates_checks_the_refusal(self):
+        # closeTripCalendar() can now say no. A caller that ignores the
+        # answer keeps navigating and the typed text is gone anyway,
+        # which is the exact failure the guard was added to prevent.
+        self.assertIn("if (!closeTripCalendar()) return;",
+                      self._fn("function openTripDayCard("))
+        self.assertIn("if (!closeTripCalendar()) return;",
+                      self._fn("function renderTimelineConversation("))
+
+    def test_switching_days_asks_before_it_rebuilds_the_pane(self):
+        fn = self._fn("function renderTripCalendarModal(")
+        i = fn.index("loadTripDayTimeline(d.id)")
+        window = fn[max(0, i - 300):i]
+        self.assertIn("if (timelineEditDirtyBlocks()) return;", window)
+        self.assertIn("st.tripCal.edit = null;", window)
+
+    def test_the_dirty_guard_is_not_a_native_dialog(self):
+        fn = self._fn("function timelineEditDirtyBlocks(")
+        for banned in ("window.confirm", "window.alert", "window.prompt",
+                       "confirm(", "alert(", "prompt("):
+            self.assertNotIn(banned, fn, banned)
+
+    def test_the_dirty_guard_discards_nothing_it_protects(self):
+        # Returns true to ABORT. If it cleared the editor or re-rendered,
+        # the "keep editing" answer would destroy the edits it just
+        # defended --- the same shape as the bug fixed in step 1.
+        fn = self._fn("function timelineEditDirtyBlocks(")
+        self.assertNotIn("renderAll()", fn)
+        self.assertNotIn("edit = null", fn)
+        self.assertIn("return true;", fn)
+
+    # ── what a save does, and does not, disturb ───────────────────────
+
+    def test_a_save_refreshes_the_day_and_the_rail_and_moves_nothing(self):
+        fn = self._fn("function saveTimelineEdit(")
+        self.assertIn("loadTripCalendar()", fn)
+        for banned in ("setTripSelectedDay", "setTab(", "closeTripCalendar",
+                       "st.tripCal = null"):
+            self.assertNotIn(banned, fn, banned)
+
+    def test_a_save_refreshes_the_owner_list_behind_the_modal(self):
+        # Otherwise the day card still shows the old words after the
+        # timeline closes, and two surfaces disagree about one record.
+        fn = self._fn("function timelineOwnerReload(")
+        for r in ("reloadPhotoLinks()", "reloadNotes()", "reloadSources()",
+                  "reloadDays()"):
+            self.assertIn(r, fn, r)
+        self.assertIn("timelineOwnerReload(ed.kind)",
+                      self._fn("function saveTimelineEdit("))
+
+    def test_a_failed_save_keeps_the_editor_open_with_the_typed_text(self):
+        fn = self._fn("function saveTimelineEdit(")
+        i = fn.index(".catch(")
+        window = fn[i:]
+        self.assertIn("ed.saving = false;", window)
+        self.assertIn("ed.error =", window)
+        self.assertNotIn("st.tripCal.edit = null", window)
+
+    def test_the_timeline_scroll_position_survives_a_repaint(self):
+        fn = self._fn("function renderAll(")
+        self.assertIn("st.tripCal.scroll = prevTl.scrollTop;", fn)
+        self.assertIn("tlPane.scrollTop = st.tripCal.scroll || 0;", fn)
+
+    def test_an_open_row_keeps_the_caret_across_a_repaint(self):
+        self.assertIn("restoreTimelineEditFocus();",
+                      self._fn("function renderAll("))
+        fn = self._fn("function restoreTimelineEditFocus(")
+        self.assertIn("data-tl-field", fn)
+        self.assertIn("setSelectionRange", fn)
+
+    # ── the kinds line up ─────────────────────────────────────────────
+
+    def test_every_editable_kind_has_fields_a_path_and_a_reload(self):
+        fields = self._var("TL_EDIT_FIELDS")
+        path = self._fn("function timelineEditPath(")
+        reload_ = self._fn("function timelineOwnerReload(")
+        target = self._fn("function timelineEditTarget(")
+        for kind in ("photo", "note", "source", "day_text", "new_note"):
+            self.assertIn(kind + ":", fields, kind)
+            self.assertIn('=== "' + kind + '"', path, kind)
+            self.assertIn('=== "' + kind + '"', reload_, kind)
+        # timelineEditTarget answers one question: given a row that is
+        # already on the timeline, which record owns it? Quick capture has
+        # no such row --- the note does not exist yet --- so it is opened
+        # directly by openTimelineNewNote(dayId) from the capture bar.
+        # "new_note" must NOT gain an arm here; if it ever does, something
+        # has started treating an unwritten note as a projected item.
+        for kind in ("photo", "note", "source", "day_text"):
+            self.assertIn('=== "' + kind + '"', target, kind)
+        self.assertNotIn('"new_note"', target)
+
+    def test_a_note_cannot_be_emptied_by_accident(self):
+        fn = self._fn("function timelineEditBody(")
+        self.assertIn("A note needs some text.", fn)
+        self.assertIn("A source needs a title.", fn)
+
+    def test_clearing_a_field_uses_the_endpoint_clear_flag(self):
+        # Empty string is not "unchanged" and it is not NULL either. The
+        # PATCH models say so with clear_<field>, and the editor has to
+        # speak that language or a cleared field silently comes back.
+        fn = self._fn("function timelineEditBody(")
+        self.assertIn("b.clear_title = true;", fn)
+        self.assertIn('out["clear_" + ed.field] = true;', fn)
+
+    def test_every_editable_row_offers_the_control(self):
+        for name in ("function renderTimelinePhoto(",
+                     "function renderTimelineNote(",
+                     "function renderTimelineSource(",
+                     "function renderTimelineDayText("):
+            fn = self._fn(name)
+            self.assertIn("tlEditButton(item)", fn, name)
+            self.assertIn("renderTimelineEditor(", fn, name)
+            # Expanded in place, not in a drawer or a second overlay.
+            self.assertNotIn("Drawer", fn, name)
+
+
+class TimelinePlacementAndCaptureTest(unittest.TestCase):
+    """WO-LIVE-TRIP-COMPANION-02 steps 4 and 5.
+
+    Step 4 is the edit the work order calls the most useful one during a
+    real trip: putting a thing on the right day. Step 5 is what turns
+    the modal into the place the trip is actually worked from rather
+    than a viewer with editing bolted on.
+
+    The invariant underneath both: moving a record changes where it is
+    filed and nothing else. A conversation that moves does not have its
+    words rewritten, a photograph that moves keeps the one link row it
+    already had, and nothing that comes off a day is deleted.
+    """
+
+    def setUp(self):
+        self.src = _stripped_js()
+
+    def _fn(self, name: str) -> str:
+        i = self.src.index(name)
+        j = self.src.find("\n  function ", i + len(name))
+        return self.src[i:(len(self.src) if j == -1 else j)]
+
+    def test_a_photo_moves_by_updating_its_existing_link_row(self):
+        # "update the existing trip_photo_links row rather than creating
+        # a second placement". The day-photo routes set trip_day_id on
+        # the link that is already there; no row is created and none is
+        # removed.
+        fn = self._fn("function moveTripPhotoLink(")
+        self.assertIn('"/photos/" + (toDayId ? "link" : "unlink")', fn)
+        self.assertIn("photo_link_ids: [linkId]", fn)
+        self.assertNotIn("DELETE", fn)
+
+    def test_taking_a_photo_off_a_day_does_not_remove_it_from_the_trip(self):
+        fn = self._fn("function moveTripPhotoLink(")
+        # Detach names the day it is coming off, which is the only way
+        # the unlink route will accept it. It NULLs trip_day_id; the
+        # trip link survives and the Photos tab still has the picture.
+        self.assertIn("var onDay = toDayId || fromDayId", fn)
+        self.assertIn("unlink", fn)
+
+    def test_a_move_refreshes_the_rail_and_keeps_the_selected_day(self):
+        for name in ("function moveTripPhotoLink(",
+                     "function moveTripTurnLink("):
+            fn = self._fn(name)
+            self.assertIn("loadTripCalendar()", fn, name)
+            self.assertNotIn("setTripSelectedDay", fn, name)
+
+    def test_moving_a_conversation_touches_only_the_placement(self):
+        fn = self._fn("function moveTripTurnLink(")
+        self.assertIn("/api/trips/trip-turn-links/", fn)
+        self.assertIn("trip_day_id: dayId || null", fn)
+        # Nothing in the request names a turn, a row of narrative, or a
+        # word of it.
+        for banned in ("narrator_said", "lori_said", "turn_row_id",
+                       "transcript"):
+            self.assertNotIn(banned, fn, banned)
+
+    def test_both_movable_kinds_use_the_same_control(self):
+        # Same words, same order, same "Take off this day". Two pickers
+        # drifting apart is how one of them ends up meaning something
+        # different from the other.
+        for name in ("function renderTimelinePhoto(",
+                     "function renderTimelineConversation("):
+            self.assertIn("tlMovePicker({", self._fn(name), name)
+        self.assertNotIn("tdl-tl-move",
+                         self._fn("function renderTimelineNote("))
+
+    def test_moving_asks_before_it_discards_an_open_rows_text(self):
+        fn = self._fn("function tlMovePicker(")
+        self.assertIn("if (timelineEditDirtyBlocks()) {", fn)
+        # And it puts the select back where it was, so the control does
+        # not sit there showing a day the record is not on.
+        self.assertIn("pick.value = o.currentDayId", fn)
+
+    def test_taking_something_off_a_day_is_never_worded_as_delete(self):
+        fn = self._fn("function tlMovePicker(")
+        self.assertIn('"Take off this day"', fn)
+        for banned in ("Delete", "delete", "Remove"):
+            self.assertNotIn(banned, fn, banned)
+
+    # ── step 5 ────────────────────────────────────────────────────────
+
+    def test_quick_capture_offers_the_three_things_and_no_more(self):
+        fn = self._fn("function renderTripCalendarModal(")
+        i = fn.index("tdl-cal-quick")
+        window = fn[i:i + 900]
+        self.assertIn('"+ Note"', window)
+        self.assertIn('"+ Photos"', window)
+        self.assertIn('"Talk with Lori"', window)
+
+    def test_quick_capture_files_on_the_day_that_is_open(self):
+        fn = self._fn("function renderTripCalendarModal(")
+        i = fn.index("tdl-cal-quick")
+        window = fn[i:i + 900]
+        self.assertIn("openTimelineNewNote(cal.dayId)", window)
+        self.assertIn("var d = cal.dayId;", window)
+
+    def test_handing_over_to_the_workspace_respects_the_refusal(self):
+        # Both hand-offs close the modal first, and a close that was
+        # refused because a row is dirty must stop them.
+        fn = self._fn("function renderTripCalendarModal(")
+        i = fn.index("tdl-cal-quick")
+        window = fn[i:i + 900]
+        self.assertEqual(2, window.count("if (!closeTripCalendar()) return;"))
+
+    def test_a_captured_note_is_the_same_kind_of_note_as_any_other(self):
+        # Same endpoint, same day/region/stop scoping, same
+        # source_type as the note drawer writes. A second provenance for
+        # notes captured "quickly" would be a second kind of record.
+        fn = self._fn("function timelineEditBody(")
+        i = fn.index('ed.kind === "new_note"')
+        window = fn[i:i + 700]
+        for wanted in ("trip_day_id: ed.ownerId", "trip_region_id",
+                       "trip_stop_id", 'source_type: "operator"'):
+            self.assertIn(wanted, window, wanted)
+
+    def test_an_empty_quick_note_cannot_be_saved(self):
+        fn = self._fn("function timelineEditBody(")
+        i = fn.index('ed.kind === "new_note"')
+        self.assertIn("A note needs some text.", fn[i:i + 200])
+        # And Save is disabled until something is typed at all.
+        self.assertIn("dirty: false,", self._fn("function openTimelineNewNote("))
+
+    def test_quick_capture_obeys_the_one_editor_rule(self):
+        fn = self._fn("function openTimelineNewNote(")
+        self.assertIn("if (timelineEditDirtyBlocks()) return;", fn)
+        self.assertLess(fn.index("timelineEditDirtyBlocks"),
+                        fn.index("st.tripCal.edit = {"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -93,9 +93,24 @@ class M5DirtyGuardTest(unittest.TestCase):
             "return;", self.src)
 
     def test_tab_switch_is_guarded(self):
+        # WO-LIVE-TRIP-COMPANION-02: this used to read a fixed 160-char
+        # window after the function opening, and it went red the day two
+        # legacy tab-id redirects were added ahead of the guard --- with
+        # the guard still in place, still correctly ordered, and nothing
+        # about the behaviour changed. A window measured in characters
+        # is a test of how much explanation the function carries, which
+        # is not a thing worth failing a build over.
+        #
+        # What actually matters is the ORDER: the guard has to run before
+        # st.tab is written, because after that the tab has changed in
+        # state and the re-render that discards the typed edits is
+        # already on its way. So slice the real body and assert that.
         i = self.src.index("function setTab(tab) {")
-        window = self.src[i:i + 160]
-        self.assertIn("if (dayFormDirtyBlocks()) return;", window)
+        j = self.src.find("\n  function ", i)
+        body = self.src[i:(len(self.src) if j == -1 else j)]
+        self.assertIn("if (dayFormDirtyBlocks()) return;", body)
+        self.assertLess(body.index("dayFormDirtyBlocks"),
+                        body.index("st.tab = tab;"))
 
     def test_route_rail_selection_is_guarded(self):
         # The stop route-rail click must guard before mutating routeSel.
