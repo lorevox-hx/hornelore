@@ -296,6 +296,189 @@ class _ServiceCase(unittest.TestCase):
             con.close()
 
 
+# ══ 0. A directive is not the narrator ═══════════════════════════════════
+
+# The four in-band directives ui/js/session-loop.js actually sent during
+# the 2026-07-31 Bismarck session, copied from api.log. They arrive as
+# USER-role WebSocket payloads carrying turn_mode='interview' and they
+# persist an ordinary `turns` row, so every guard in _begin() said yes to
+# them and the extractor was handed an operator instruction to mine for
+# biography. One came back as
+#
+#   fieldPath="system.message"  value="The narrator has been quiet..."
+#
+# rejected by EXTRACTABLE_FIELDS -- after the model call had been paid
+# for, on a GPU the narrator was waiting on.
+JULY_31_DIRECTIVES = {
+    "trip_opened": (
+        "[SYSTEM: The narrator just opened their trip 'Bismarck Trip' "
+        "(2026-07-14 to 2026-07-19) from the Travels shelf on the Life "
+        "Map. Ask ONE warm question inviting them to begin telling the "
+        "story of this journey wherever they'd like.]"
+    ),
+    "quiet_invitation": (
+        "[SYSTEM: The narrator has been quiet for a while. Offer a "
+        "gentle, warm invitation to continue their life story — one "
+        "short sentence only.]"
+    ),
+    "photo_added": (
+        "[SYSTEM: The narrator just added 1 photo to their trip "
+        "'Bismarck Trip'. Invite them, in ONE short warm question, to "
+        "tell you about it.]"
+    ),
+    "photo_selected": (
+        "[SYSTEM: The narrator is looking at a photo from their trip "
+        "'Bismarck Trip'. Invite them to tell you about this photo in "
+        "their own words.]"
+    ),
+}
+
+
+class SystemDirectiveIsNotExtractedTest(_ServiceCase):
+    """WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 1.
+
+    Required of a directive payload: zero ledger claims, zero extractor
+    model calls, zero projection writes, zero Shadow Review claims. The
+    first two are asserted here directly; the second two follow, because
+    a projection write and a Shadow Review claim are both built from
+    extracted items and there are none.
+    """
+
+    def _schedule(self, turn_key, user_text, directive):
+        return asyncio.run(self._sched(turn_key, user_text, directive))
+
+    async def _sched(self, turn_key, user_text, directive):
+        out = tx.schedule_completed_turn_extraction(
+            narrator_id=self.narrator_id,
+            turn_id="t-directive",
+            user_text=user_text,
+            session_id=self.conv_id,
+            turn_key=turn_key,
+            turn_mode="interview",
+            is_system_directive=directive,
+        )
+        await tx.drain_pending_extractions()
+        return out
+
+    def _ledger_rows(self):
+        return self._count("turn_extraction_ledger",
+                           "narrator_id", self.narrator_id)
+
+    # -- the four real ones ------------------------------------------
+
+    def test_the_july_31_directives_are_never_extracted(self):
+        for name, text in JULY_31_DIRECTIVES.items():
+            with self.subTest(directive=name):
+                self.calls[:] = []
+                row_id, key = self._save_turn(user_text=text)
+                before = self._ledger_rows()
+                out = self._schedule(key, text, True)
+                self.assertEqual(out.status, "noop", name)
+                self.assertEqual(out.method, "system_directive", name)
+                self.assertEqual(self.calls, [], "extractor was called")
+                self.assertEqual(self._ledger_rows(), before,
+                                 "a ledger claim was written")
+                self.assertIsNone(out.ledger_id, name)
+                self.assertEqual(out.items, [], name)
+                self.assertEqual(out.item_count, 0, name)
+
+    def test_the_narrator_turn_beside_them_still_extracts(self):
+        """The non-vacuity control. A gate that refused everything would
+        look identical to a gate that works."""
+        self.calls[:] = []
+        row_id, key = self._save_turn(
+            user_text="I added a picture of the Lewis and Clark Visitor "
+                      "Center north of Bismarck.")
+        before = self._ledger_rows()
+        out = self._schedule(key, "I added a picture...", False)
+        self.assertEqual(out.status, "scheduled")
+        self.assertEqual(len(self.calls), 1, "extractor should have run")
+        self.assertEqual(self._ledger_rows(), before + 1)
+
+    def test_the_default_is_false_so_no_caller_changes_silently(self):
+        import inspect
+        for fn in (tx.schedule_completed_turn_extraction,
+                   tx.extract_completed_turn,
+                   tx.begin_completed_turn_extraction):
+            sig = inspect.signature(fn)
+            self.assertIn("is_system_directive", sig.parameters, fn.__name__)
+            self.assertIs(sig.parameters["is_system_directive"].default,
+                          False, fn.__name__)
+
+    def test_the_await_entry_point_refuses_them_too(self):
+        """schedule_* is the chat_ws door; extract_completed_turn is the
+        replay door. Both reach _begin, so both must refuse."""
+        self.calls[:] = []
+        text = JULY_31_DIRECTIVES["trip_opened"]
+        row_id, key = self._save_turn(user_text=text)
+        before = self._ledger_rows()
+        out = self._extract(key, user_text=text, is_system_directive=True)
+        self.assertEqual(out.status, "noop")
+        self.assertEqual(out.method, "system_directive")
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self._ledger_rows(), before)
+
+
+class SystemDirectiveDecisionLivesAtTheBoundaryTest(unittest.TestCase):
+    """The service is handed a verdict; it does not form one.
+
+    Two definitions of "this is a directive" is one more than the system
+    can keep in agreement. chat_ws already computes it for story capture
+    and trip placement, and this reads that same value.
+    """
+
+    def setUp(self):
+        self.svc = (_SERVER_CODE / "api" / "services"
+                    / "turn_extraction.py").read_text(encoding="utf-8")
+        self.ws = (_SERVER_CODE / "api" / "routers"
+                   / "chat_ws.py").read_text(encoding="utf-8")
+
+    @staticmethod
+    def _executable(src):
+        """The module's CODE, with every docstring removed.
+
+        The first version of this test scanned raw source and failed --
+        on the comment inside _begin() that exists to explain the rule,
+        which necessarily quotes the directive marker it forbids. That
+        is the fifth time in this repository that a guard written
+        against a WORD has fired on the prose about the word. A guard
+        has to match what the interpreter executes.
+        """
+        tree = ast.parse(src)
+        for node in ast.walk(tree):
+            body = getattr(node, "body", None)
+            if not isinstance(body, list) or not body:
+                continue
+            first = body[0]
+            if (isinstance(first, ast.Expr)
+                    and isinstance(getattr(first, "value", None), ast.Constant)
+                    and isinstance(first.value.value, str)):
+                body.pop(0)
+                if not body:
+                    body.append(ast.Pass())
+        return ast.unparse(ast.fix_missing_locations(tree))
+
+    def test_the_service_never_sniffs_the_transcript(self):
+        """It receives a verdict. It does not look for one."""
+        code = self._executable(self.svc)
+        self.assertNotIn("[SYSTEM", code)
+        self.assertNotIn("startswith", code)
+        # Non-vacuity: the walker really is reading this module's code.
+        self.assertIn("is_system_directive", code)
+
+    def test_the_boundary_computes_it_once_and_forwards_it(self):
+        self.assertEqual(
+            self.ws.count('_is_system_directive = _ut_lstrip.startswith'), 1)
+        self.assertIn('params["_is_system_directive"] = _is_system_directive',
+                      self.ws)
+        self.assertIn("is_system_directive=bool(", self.ws)
+
+    def test_extraction_and_placement_read_the_same_verdict(self):
+        """If these ever diverge, a directive lands on one lane and not
+        the other, which is worse than it landing on both."""
+        self.assertEqual(self.ws.count('params.get("_is_system_directive")'), 2)
+
+
 # ══ 1. The HTTP endpoint still behaves as before ═════════════════════════
 class HttpEndpointUnchangedTest(_ServiceCase):
     """Acceptance item 1.

@@ -597,6 +597,15 @@ async def ws_chat(ws: WebSocket):
                 current_era=(params.get("current_era") or None),
                 current_pass=(params.get("current_pass") or None),
                 current_mode=(params.get("current_mode") or None),
+                # WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 1.
+                # The same verdict the story-capture and trip-placement
+                # lanes already read, computed once where the payload is
+                # seen. A BOOLEAN, not the text: the extraction service
+                # does not inspect transcripts, and a second definition
+                # of "this is a directive" would be a second thing to
+                # drift.
+                is_system_directive=bool(
+                    params.get("_is_system_directive")),
             )
             logger.info(
                 "[extract-turn][chat_ws] conv=%s %s",

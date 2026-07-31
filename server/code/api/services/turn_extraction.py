@@ -499,6 +499,7 @@ def _begin(
     current_era: Optional[str],
     current_pass: Optional[str],
     current_mode: Optional[str],
+    is_system_directive: bool = False,
 ) -> Tuple[Optional[ExtractionOutcome], Optional[_Claim]]:
     """The inline half: decide, claim, mark the probe. Never raises.
 
@@ -525,6 +526,39 @@ def _begin(
         "narrator_id": narrator_id, "session_id": session_id or "",
         "turn_mode": turn_mode, "source": source,
     }
+
+    # ── The turn must be the NARRATOR'S ──────────────────────────────
+    # WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 1.
+    #
+    # ui/js/session-loop.js sends `[SYSTEM: ...]` guidance to Lori as a
+    # user-role WebSocket payload. It carries turn_mode='interview' and
+    # persists an ordinary `turns` row, so every guard below said yes to
+    # it and the extractor was handed an operator instruction to mine
+    # for biography. On 2026-07-31 that ran four times in one session
+    # and one of them came back
+    #
+    #     fieldPath="system.message"  value="The narrator has been quiet
+    #                                        for a while. Offer a gentle
+    #                                        warm invitation..."
+    #
+    # rejected by EXTRACTABLE_FIELDS -- but only after the model call was
+    # paid for, twice, on a GPU the narrator was waiting on.
+    #
+    # FIRST, ahead of the requested log and every other guard, because
+    # the work order requires zero ledger claims for a directive and the
+    # claim is taken a few lines below. A directive is not a turn that
+    # was declined; it is a turn that was never his.
+    #
+    # A BOOLEAN, never the text. This service does not inspect
+    # transcripts -- the boundary that read the payload already knows the
+    # answer and passes it, the same shape trip_placement uses. Giving
+    # this module its own opinion about what a directive looks like would
+    # create a second definition to drift from the first.
+    if is_system_directive:
+        out = _outcome_for(ident, "noop", started=started,
+                           method="system_directive")
+        logger.info("[extract-turn] extract_fields_noop %s", out.as_log_fields())
+        return out, None
 
     logger.info(
         "[extract-turn] extract_fields_requested turn_id=%s turn_key=%s "
@@ -776,6 +810,9 @@ def begin_completed_turn_extraction(
     current_era: Optional[str] = None,
     current_pass: Optional[str] = None,
     current_mode: Optional[str] = None,
+    # WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 1. Decided at
+    # the request boundary and passed as a boolean; see _begin().
+    is_system_directive: bool = False,
 ) -> Tuple[Optional[ExtractionOutcome], Optional[_Claim]]:
     """Public name for the inline half. See _begin()."""
     return _begin(
@@ -784,6 +821,7 @@ def begin_completed_turn_extraction(
         source=source, current_section=current_section,
         current_target_path=current_target_path, current_era=current_era,
         current_pass=current_pass, current_mode=current_mode,
+        is_system_directive=is_system_directive,
     )
 
 
@@ -823,6 +861,9 @@ def schedule_completed_turn_extraction(
     current_era: Optional[str] = None,
     current_pass: Optional[str] = None,
     current_mode: Optional[str] = None,
+    # WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 1. Decided at
+    # the request boundary and passed as a boolean; see _begin().
+    is_system_directive: bool = False,
 ) -> ExtractionOutcome:
     """The chat_ws entry point. Claim inline, extract on a held task.
 
@@ -846,6 +887,7 @@ def schedule_completed_turn_extraction(
         source=source, current_section=current_section,
         current_target_path=current_target_path, current_era=current_era,
         current_pass=current_pass, current_mode=current_mode,
+        is_system_directive=is_system_directive,
     )
     if claim is None:
         return outcome  # type: ignore[return-value]
@@ -899,6 +941,9 @@ async def extract_completed_turn(
     current_era: Optional[str] = None,
     current_pass: Optional[str] = None,
     current_mode: Optional[str] = None,
+    # WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 1. Decided at
+    # the request boundary and passed as a boolean; see _begin().
+    is_system_directive: bool = False,
 ) -> ExtractionOutcome:
     """Request field extraction for one completed turn and await it.
 
@@ -927,6 +972,7 @@ async def extract_completed_turn(
         source=source, current_section=current_section,
         current_target_path=current_target_path, current_era=current_era,
         current_pass=current_pass, current_mode=current_mode,
+        is_system_directive=is_system_directive,
     )
     if claim is None:
         return outcome  # type: ignore[return-value]
