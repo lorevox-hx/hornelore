@@ -8603,6 +8603,14 @@ def extraction_results_pending(
                 "method": r.get("method") or "",
                 "items": r.get("items") or [],
                 "clarification_required": r.get("clarification_required") or [],
+                # THE SAME SOURCE TEXT THE LIVE FRAME CARRIES, resolved
+                # from the canonical turn rather than stored twice. Both
+                # delivery paths must give Shadow Review the exact words
+                # that produced these claims -- the live path takes it
+                # from the claim, this takes it from `turns`, and
+                # neither reads "whatever the browser typed last".
+                "answer_text": _db.turn_source_text_for_key(
+                    r.get("turn_key") or ""),
                 "created_at": r.get("created_at") or "",
             }
             for r in rows

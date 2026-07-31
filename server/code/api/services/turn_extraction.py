@@ -833,8 +833,10 @@ async def _complete_claim(claim: _Claim) -> ExtractionOutcome:
     # ── Interpret the result ─────────────────────────────────────────
     items: List[Dict[str, Any]] = []
     method = ""
+    _raw_count = 0
     try:
         raw_items = getattr(resp, "items", None) or []
+        _raw_count = len(raw_items)
         method = str(getattr(resp, "method", "") or "")
         for it in raw_items:
             if hasattr(it, "model_dump"):
@@ -843,6 +845,13 @@ async def _complete_claim(claim: _Claim) -> ExtractionOutcome:
                 items.append(it.dict())
             elif isinstance(it, dict):
                 items.append(it)
+            # Anything else falls through and is COUNTED as dropped
+            # below. It used to fall through silently, which meant an
+            # extractor returning three unusable objects reported
+            # "found nothing" -- indistinguishable from a narrator turn
+            # with no facts in it. Those are different events and the
+            # operator surfaces built on this cannot tell them apart
+            # afterwards.
     except Exception as shape_exc:
         # The extractor returned something unexpected. That is a failure
         # of this integration, not of the turn.
@@ -855,6 +864,38 @@ async def _complete_claim(claim: _Claim) -> ExtractionOutcome:
         logger.error(
             "[extract-turn] extract_fields_failed %s (result shape)",
             out.as_log_fields(),
+        )
+        return out
+
+    # ── The payload must be the shape the browser is promised ────────
+    # WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 2.
+    #
+    # Until Phase 2 this result went straight into the HTTP response and
+    # the browser dealt with whatever arrived. It now becomes a durable
+    # row AND a WebSocket frame, so a malformed payload would be stored,
+    # replayed on every reconnect, and handed to Projection Sync -- a
+    # bad shape that persists is worse than one that fails once.
+    #
+    # A malformed result is a FAILURE, not a smaller success. Silently
+    # dropping the bad items and delivering the rest would write a
+    # partial biography and report it as complete.
+    _clar = _clarifications(resp)
+    _dropped = _raw_count - len(items)
+    if _dropped > 0 or not isinstance(items, list) \
+            or not all(isinstance(i, dict) for i in items) \
+            or not isinstance(_clar, list):
+        out = _outcome_for(ident, "failed", started=started,
+                           error_class="MalformedExtractionPayload",
+                           ledger_id=ledger_id)
+        _finish_ledger(ledger_id, "failed",
+                       error_class="MalformedExtractionPayload",
+                       duration_ms=out.duration_ms)
+        logger.error(
+            "[extract-turn] extract_fields_failed %s (payload shape: "
+            "raw=%d usable=%d dropped=%d clarifications=%s -- nothing "
+            "stored, nothing sent)",
+            out.as_log_fields(), _raw_count, len(items), _dropped,
+            type(_clar).__name__,
         )
         return out
 
@@ -884,10 +925,10 @@ async def _complete_claim(claim: _Claim) -> ExtractionOutcome:
     #
     # Stored here, before any send is attempted, so that a send which
     # never lands costs a round trip rather than the extraction.
-    _store_result(claim, items, _clarifications(resp), method)
+    _store_result(claim, items, _clar, method)
 
     logger.info("[extract-turn] extract_fields_succeeded %s", out.as_log_fields())
-    await _offer_result(claim, out, _clarifications(resp))
+    await _offer_result(claim, out, _clar)
     return out
 
 

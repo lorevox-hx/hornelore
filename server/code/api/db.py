@@ -7318,6 +7318,46 @@ def turn_extraction_results_pending(
         con.close()
 
 
+def turn_source_text_for_key(turn_key: str) -> str:
+    """The narrator's words for the turn this result came from.
+
+    WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 2. Catch-up must
+    show Shadow Review the SAME source text the live path shows, and the
+    live frame carries it from the claim. Rather than store a second copy
+    of the transcript in turn_extraction_results, this reads the one that
+    already exists.
+
+    turn_key is 'turnrow:<turns.id>' and that id is the ASSISTANT row.
+    persist_turn_transaction writes the user turn first, so the narrator
+    utterance is the nearest preceding user row in the same conversation.
+
+    Returns "" when the key is unparseable or the row is gone. A missing
+    source echo costs a display detail; guessing would cost attribution.
+    """
+    key = (turn_key or "").strip()
+    if not key.startswith("turnrow:"):
+        return ""
+    try:
+        assistant_id = int(key.split(":", 1)[1])
+    except (ValueError, IndexError):
+        return ""
+    init_db()
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT content FROM turns "
+            " WHERE conv_id = (SELECT conv_id FROM turns WHERE id = ?) "
+            "   AND role = 'user' AND id < ? "
+            " ORDER BY id DESC LIMIT 1;",
+            (assistant_id, assistant_id),
+        ).fetchone()
+        return (row[0] if row else "") or ""
+    except sqlite3.OperationalError:
+        return ""
+    finally:
+        con.close()
+
+
 def turn_extraction_result_mark_delivered(
     narrator_id: str, turn_key: str,
 ) -> bool:
