@@ -297,6 +297,20 @@ class _Claim:
     current_pass: Optional[str] = None
     current_mode: Optional[str] = None
 
+    # WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 2. An awaitable
+    # the completion half calls once, with the terminal outcome, after
+    # the result is durable.
+    #
+    # A CALLBACK RATHER THAN AN IMPORT. The result has to reach the
+    # socket the turn arrived on, and this module may not import
+    # chat_ws -- the dependency runs the other way and reversing it
+    # would put a router inside a service. chat_ws supplies a closure
+    # over its own `ws`; this module never learns what a WebSocket is.
+    #
+    # Delivery is best-effort BY DESIGN. The durable row is the promise;
+    # this is only the fast path to a browser that is still listening.
+    on_result: Optional[Any] = None
+
 
 # ── The test seam ────────────────────────────────────────────────────────
 def forced_failure_mode() -> str:
@@ -664,6 +678,73 @@ def _begin(
     )
 
 
+def _clarifications(resp: Any) -> List[Dict[str, Any]]:
+    """The fragile-fact clarification envelope, if the extractor built one.
+
+    WO-STT-LIVE-02 added `clarification_required` to
+    ExtractFieldsResponse so a dictated answer touching an identity
+    field is confirmed rather than silently written. The browser is what
+    surfaces it, so it has to travel with the items rather than be
+    recomputed on the far side.
+    """
+    try:
+        raw = getattr(resp, "clarification_required", None) or []
+        out: List[Dict[str, Any]] = []
+        for c in raw:
+            if hasattr(c, "model_dump"):
+                out.append(c.model_dump())
+            elif hasattr(c, "dict"):
+                out.append(c.dict())
+            elif isinstance(c, dict):
+                out.append(c)
+        return out
+    except Exception:
+        # A missing or odd envelope costs the clarification prompt, not
+        # the extraction.
+        return []
+
+
+def _store_result(
+    claim: _Claim,
+    items: List[Dict[str, Any]],
+    clarification_required: List[Dict[str, Any]],
+    method: str,
+) -> None:
+    """Persist an applicable result. Never raises.
+
+    IDENTITY IS BOUND HERE, FROM THE CLAIM -- not read from whoever is
+    active when the result is eventually applied. An operator can switch
+    narrator while extraction is running, and a result that learned its
+    owner at delivery time would attach one man's biography to whoever
+    happened to be on screen.
+
+    A storage failure costs catch-up, never the turn: the caller is a
+    turn the narrator already watched complete.
+    """
+    if not items:
+        return
+    try:
+        from .. import db as _db
+        _db.turn_extraction_result_store(
+            narrator_id=claim.narrator_id,
+            turn_key=claim.turn_key,
+            turn_id=claim.turn_id,
+            session_id=claim.session_id,
+            status="succeeded",
+            method=method or "",
+            items=items,
+            clarification_required=clarification_required,
+            ledger_id=claim.ledger_id,
+        )
+    except Exception as store_exc:
+        logger.error(
+            "[extract-turn] result store failed turn_key=%s err=%s "
+            "(extraction succeeded; the browser will not get a catch-up "
+            "copy of this one)",
+            claim.turn_key, store_exc.__class__.__name__,
+        )
+
+
 async def _complete_claim(claim: _Claim) -> ExtractionOutcome:
     """The working half: run the extractor, close the ledger row.
 
@@ -792,8 +873,63 @@ async def _complete_claim(claim: _Claim) -> ExtractionOutcome:
                        ledger_id=ledger_id, items=items)
     _finish_ledger(ledger_id, "succeeded", item_count=len(items),
                    method=method, duration_ms=out.duration_ms)
+
+    # DURABLE BEFORE DELIVERABLE. The browser still owns projection,
+    # Shadow Review, repeatable grouping and fragile-fact clarification,
+    # so this result has to cross a process boundary to be of any use --
+    # and the narrator can close the tab, reload, lose the socket or
+    # switch narrator while the extraction that produced it was still
+    # running. A result that exists only inside a WebSocket frame is a
+    # result those four ordinary things destroy.
+    #
+    # Stored here, before any send is attempted, so that a send which
+    # never lands costs a round trip rather than the extraction.
+    _store_result(claim, items, _clarifications(resp), method)
+
     logger.info("[extract-turn] extract_fields_succeeded %s", out.as_log_fields())
+    await _offer_result(claim, out, _clarifications(resp))
     return out
+
+
+async def _offer_result(
+    claim: _Claim,
+    out: ExtractionOutcome,
+    clarification_required: List[Dict[str, Any]],
+) -> None:
+    """Hand the finished result to whoever asked to be told. Never raises.
+
+    Runs AFTER the durable write and AFTER the ledger close, so a
+    browser that vanished mid-send costs a round trip and nothing else --
+    the row is already sitting in the outbox for catch-up.
+
+    Delivery is stamped only if the callback returns without raising,
+    and `delivered_at` is explicitly NOT the end of the obligation:
+    a frame leaving this process says nothing about a browser that was
+    closing as it arrived. Only the browser's acknowledgment sets
+    applied_at.
+    """
+    cb = claim.on_result
+    if cb is None:
+        return
+    try:
+        await cb(out, clarification_required)
+    except asyncio.CancelledError:
+        raise
+    except Exception as send_exc:
+        logger.info(
+            "[extract-turn] result not delivered live turn_key=%s err=%s "
+            "(durable copy stands; the browser will catch up)",
+            claim.turn_key, send_exc.__class__.__name__,
+        )
+        return
+    try:
+        from .. import db as _db
+        _db.turn_extraction_result_mark_delivered(
+            claim.narrator_id, claim.turn_key)
+    except Exception:
+        # Losing the delivered stamp costs one redundant re-offer on
+        # reconnect, which the browser deduplicates by turn_key anyway.
+        pass
 
 
 def begin_completed_turn_extraction(
@@ -864,6 +1000,10 @@ def schedule_completed_turn_extraction(
     # WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 1. Decided at
     # the request boundary and passed as a boolean; see _begin().
     is_system_directive: bool = False,
+    # Phase 2. Awaited once with (outcome, clarification_required) after
+    # the result is durable. Optional: a caller with no live socket --
+    # the replay path, the suite -- simply does not pass one.
+    on_result: Optional[Any] = None,
 ) -> ExtractionOutcome:
     """The chat_ws entry point. Claim inline, extract on a held task.
 
@@ -891,6 +1031,11 @@ def schedule_completed_turn_extraction(
     )
     if claim is None:
         return outcome  # type: ignore[return-value]
+
+    # Attached after the claim is won rather than threaded through
+    # _begin(): the inline half decides whether there is work, and only
+    # then does it matter who wants telling about it.
+    claim.on_result = on_result
 
     ident = {
         "turn_key": claim.turn_key, "turn_id": claim.turn_id,

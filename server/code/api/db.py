@@ -7187,3 +7187,179 @@ def turn_extraction_count_for_narrator(narrator_id: str) -> int:
         return int(row[0]) if row else 0
     finally:
         con.close()
+
+
+# ── Durable extraction results (migration 0041) ──────────────────────────
+#
+# WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 2. The backend now
+# owns extraction and the browser still owns projection and Shadow
+# Review, so a result has to survive the gap between them. A WebSocket
+# frame does not: the narrator can close the tab, reload, lose the
+# socket, or switch narrator while extraction is still running.
+#
+# These four functions are the whole lifecycle. Stored when the work is
+# done, delivered when it goes on a socket, applied only when the
+# browser says so. The gap between the last two is deliberate -- a send
+# that did not raise is not evidence that anything was applied.
+
+
+def turn_extraction_result_store(
+    *,
+    narrator_id: str,
+    turn_key: str,
+    turn_id: str = "",
+    session_id: str = "",
+    status: str = "succeeded",
+    method: str = "",
+    items: Optional[List[Dict[str, Any]]] = None,
+    clarification_required: Optional[List[Dict[str, Any]]] = None,
+    ledger_id: Optional[int] = None,
+) -> Optional[int]:
+    """Persist one applicable result. Idempotent on (narrator, turn_key).
+
+    Returns the row id, or None when there was nothing to store or the
+    key is missing. A replayed turn re-reaches the existing row rather
+    than minting a second one, so the browser can never be handed the
+    same turn's fields twice.
+
+    `items` and `clarification_required` are the structured extractor
+    output the browser already knows how to apply. No narrator prose is
+    written here.
+    """
+    narrator_id = (narrator_id or "").strip()
+    turn_key = (turn_key or "").strip()
+    if not narrator_id or not turn_key:
+        return None
+    status = (status or "").strip() or "succeeded"
+    if status not in ("succeeded", "noop", "failed"):
+        raise ValueError(
+            "turn_extraction_result_store status must be "
+            f"succeeded|noop|failed; got {status!r}"
+        )
+    payload = items or []
+    clar = clarification_required or []
+    init_db()
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT id FROM turn_extraction_results "
+            " WHERE narrator_id = ? AND turn_key = ?;",
+            (narrator_id, turn_key),
+        ).fetchone()
+        if row:
+            # Already stored. Do NOT overwrite: the first result for a
+            # committed turn is the real one, and a replay must not
+            # reopen work the browser may already have applied.
+            return int(row[0])
+        cur = con.execute(
+            """
+            INSERT INTO turn_extraction_results
+                (ledger_id, narrator_id, turn_key, turn_id, session_id,
+                 status, method, items, clarification_required,
+                 item_count, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                int(ledger_id) if ledger_id else None,
+                narrator_id, turn_key, turn_id or "", session_id or "",
+                status, method or "",
+                _json_dump(payload), _json_dump(clar),
+                len(payload), _now_iso(),
+            ),
+        )
+        con.commit()
+        return int(cur.lastrowid)
+    except sqlite3.OperationalError:
+        # Pre-0041 database. Losing the durable copy costs catch-up, not
+        # the turn, and the caller is a completed turn that must not be
+        # disturbed.
+        return None
+    finally:
+        con.close()
+
+
+def turn_extraction_results_pending(
+    narrator_id: str,
+    session_id: str = "",
+    limit: int = 50,
+) -> List[Dict[str, Any]]:
+    """Results this narrator has not applied yet, oldest first.
+
+    Scoped by narrator BY REQUIRED ARGUMENT rather than by optional
+    filter: a catch-up read with no narrator is a cross-person read, and
+    the boundary is easier to keep as a signature than as a caller's
+    discipline. ``session_id`` narrows further when supplied.
+    """
+    narrator_id = (narrator_id or "").strip()
+    if not narrator_id:
+        return []
+    init_db()
+    con = _connect()
+    try:
+        sql = ("SELECT * FROM turn_extraction_results "
+               " WHERE narrator_id = ? AND applied_at IS NULL ")
+        args: List[Any] = [narrator_id]
+        if session_id:
+            sql += " AND session_id = ? "
+            args.append(session_id)
+        sql += " ORDER BY created_at, id LIMIT ?;"
+        args.append(max(1, min(int(limit or 50), 500)))
+        rows = con.execute(sql, tuple(args)).fetchall()
+        out: List[Dict[str, Any]] = []
+        for r in rows:
+            d = dict(r)
+            for key in ("items", "clarification_required"):
+                d[key] = _json_load(d.get(key), []) or []
+            out.append(d)
+        return out
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        con.close()
+
+
+def turn_extraction_result_mark_delivered(
+    narrator_id: str, turn_key: str,
+) -> bool:
+    """Stamp that the result went onto a socket. NOT that it was applied.
+
+    Deliberately does not retire the obligation. ws.send() returning
+    without raising says the frame left this process; it says nothing
+    about a browser that was closing at the time.
+    """
+    return _turn_extraction_result_stamp(narrator_id, turn_key, "delivered_at")
+
+
+def turn_extraction_result_mark_applied(
+    narrator_id: str, turn_key: str,
+) -> bool:
+    """Retire the obligation. Only the browser's acknowledgment gets here."""
+    return _turn_extraction_result_stamp(narrator_id, turn_key, "applied_at")
+
+
+def _turn_extraction_result_stamp(
+    narrator_id: str, turn_key: str, column: str,
+) -> bool:
+    if column not in ("delivered_at", "applied_at"):
+        raise ValueError("stamp column must be delivered_at|applied_at")
+    narrator_id = (narrator_id or "").strip()
+    turn_key = (turn_key or "").strip()
+    if not narrator_id or not turn_key:
+        return False
+    # `column` is whitelisted immediately above, so this interpolation
+    # cannot carry caller input into SQL. The values stay parameterised.
+    sql = (
+        "UPDATE turn_extraction_results"
+        "   SET " + column + " = ?"
+        " WHERE narrator_id = ? AND turn_key = ? AND " + column + " IS NULL;"
+    )
+    init_db()
+    con = _connect()
+    try:
+        cur = con.execute(sql, (_now_iso(), narrator_id, turn_key))
+        con.commit()
+        return bool(cur.rowcount)
+    except sqlite3.OperationalError:
+        return False
+    finally:
+        con.close()

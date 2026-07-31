@@ -8546,6 +8546,96 @@ def run_field_extraction(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
 
 # ── Diagnostic endpoint ─────────────────────────────────────────────────────
 
+# ── Durable result catch-up (WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01
+#    Phase 2) ─────────────────────────────────────────────────────────────
+#
+# The connected path is the WebSocket `field_extraction_result` frame.
+# These two routes are the DISCONNECTED path, and they exist because the
+# four ordinary things a narrator does -- close the tab, reload, lose the
+# socket, switch narrator -- all happen while an extraction is still
+# running, and a result that lives only in a frame does not survive any
+# of them.
+#
+# Neither route runs a model. Neither route extracts. They read and
+# retire rows that a completed extraction already wrote.
+
+
+class ExtractionResultAck(BaseModel):
+    person_id: str
+    # Pydantic deep-copies model defaults per instance, so a literal
+    # here is not the shared-mutable-default trap it would be on a
+    # plain dataclass. Matches the style of the models above, which
+    # import no Field helper.
+    turn_keys: List[str] = []
+
+
+@router.get("/extraction-results/pending")
+def extraction_results_pending(
+    person_id: str,
+    session_id: Optional[str] = None,
+    limit: int = 50,
+):
+    """Results this narrator has not applied yet, oldest first.
+
+    ``person_id`` is REQUIRED, and required as an argument rather than
+    offered as a filter: a catch-up read with no narrator is a
+    cross-person read of one man's extracted biography, and that
+    boundary is easier to keep in a signature than in every caller's
+    discipline.
+
+    Oldest first because the browser applies them in order and an
+    out-of-order pair must still land on the right turns -- each row
+    carries its own turn_key, so ordering is a convenience here, not the
+    correctness mechanism.
+    """
+    from .. import db as _db
+    rows = _db.turn_extraction_results_pending(
+        narrator_id=person_id, session_id=session_id or "", limit=limit)
+    return {
+        "person_id": person_id,
+        "pending": [
+            {
+                "turn_key": r.get("turn_key") or "",
+                "turn_id": r.get("turn_id") or "",
+                "person_id": r.get("narrator_id") or "",
+                "conv_id": r.get("session_id") or "",
+                "status": r.get("status") or "",
+                "method": r.get("method") or "",
+                "items": r.get("items") or [],
+                "clarification_required": r.get("clarification_required") or [],
+                "created_at": r.get("created_at") or "",
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.post("/extraction-results/ack")
+def extraction_results_ack(req: ExtractionResultAck):
+    """Retire results the browser says it applied.
+
+    THE ONLY THING THAT SETS applied_at. A frame leaving the server is
+    not evidence that a projection was written; the browser saying so
+    is. Until this is called the row stays pending and will be offered
+    again on the next reconnect, which is the behaviour that makes a
+    dropped socket cost nothing.
+
+    Idempotent: acknowledging a turn_key twice retires it once.
+    """
+    from .. import db as _db
+    pid = (req.person_id or "").strip()
+    if not pid:
+        raise HTTPException(status_code=400, detail="person_id is required")
+    applied = 0
+    for key in (req.turn_keys or []):
+        # Narrator-scoped by argument: an ack cannot retire another
+        # person's row even if the caller supplies its key.
+        if _db.turn_extraction_result_mark_applied(pid, str(key or "")):
+            applied += 1
+    return {"person_id": pid, "acknowledged": applied,
+            "requested": len(req.turn_keys or [])}
+
+
 @router.get("/extract-diag")
 def extract_diag():
     """Diagnostic: check whether the LLM extraction stack is available."""

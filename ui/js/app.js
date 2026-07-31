@@ -6639,6 +6639,33 @@ function handleWsMessage(j){
       if (_crInner) _crInner.scrollTop = _crInner.scrollHeight;
     }
   }
+  // WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 2.
+  //
+  // The server-owned extraction result. It arrives AFTER the `done`
+  // frame — seconds after, on its own task — because Lori's visible
+  // reply must never wait for a field extraction. Before Phase 2 the
+  // browser paid for a SECOND model call to get this same data.
+  //
+  // Everything that decides whether to apply it lives in
+  // applyExtractionResultFrame(): narrator binding, turn_key dedup, and
+  // the acknowledgment that retires the durable row. Nothing here.
+  if(j.type==="field_extraction_result"){
+    try {
+      if (typeof applyExtractionResultFrame === "function") {
+        // _lastUserTurn is the narrator's most recent words (app.js:5818).
+        // Used ONLY to give Shadow Review something to show the claims
+        // against, and deliberately not used to decide anything: a
+        // result that finished out of order belongs to its own turn_key,
+        // not to whatever was typed most recently.
+        applyExtractionResultFrame(j, { answerText: (_lastUserTurn || "") });
+      }
+    } catch (e) {
+      // A result that cannot be applied is still on the server, still
+      // unacknowledged, and will be offered again on the next catch-up.
+      console.warn("[extract][result] apply failed:", e && e.message);
+    }
+    return;
+  }
   if(j.type==="error"){
     // Backend sent an error (e.g. model load failure, CUDA OOM)
     console.error("[WS] backend error:", j.message);

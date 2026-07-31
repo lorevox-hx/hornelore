@@ -493,6 +493,65 @@ async def ws_chat(ws: WebSocket):
                         "unaffected): %s", _tp_err,
                     )
 
+    async def _deliver_extraction_result(
+        outcome: Any,
+        clarification_required: Any = None,
+    ) -> None:
+        """Send one finished extraction back to the browser that caused it.
+
+        WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 2.
+
+        AFTER THE `done` FRAME, ALWAYS. Extraction finishes on a task of
+        its own, seconds after the narrator has read Lori's reply. That
+        is the point: Lori's visible response must never wait for a
+        field extraction, and before Phase 2 the browser paid for a
+        second one to get this data.
+
+        WHAT THE FRAME CARRIES. Identity first -- person_id, conv_id,
+        turn_key -- because the browser must be able to refuse a result
+        that belongs to a narrator it is no longer showing. turn_key is
+        the dedup key and the only one: not elapsed time, not the input
+        text, not "the last extraction was recent". Two turns a second
+        apart are two turns.
+
+        RAISING IS THE CONTRACT, AND THAT IS WHY THIS DOES NOT USE
+        _ws_send(). That helper wraps every send in `except Exception:
+        pass`, which is right for the turn itself -- a narrator must not
+        lose a reply because one frame failed -- and exactly wrong here.
+        The service stamps `delivered_at` only when this returns
+        cleanly, so a swallowed failure would record every result as
+        delivered, including to a socket that closed while the narrator
+        walked away. `delivered_at` has to mean what it says.
+
+        Deliberate deviation from the file's convention. Do not
+        "restore symmetry" by routing this through _ws_send().
+
+        Losing the send is cheap either way: the durable row is written
+        before this runs, and the catch-up read filters on applied_at,
+        not delivered_at, so an undelivered result is still offered on
+        reconnect regardless of what this stamp says.
+        """
+        st = str(getattr(outcome, "status", "") or "")
+        await ws.send_text(json.dumps({
+            "type": "field_extraction_result",
+            "turn_key": getattr(outcome, "turn_key", "") or "",
+            "turn_id": getattr(outcome, "turn_id", "") or "",
+            # narrator_id is the same identity the photos table calls
+            # narrator_id and the trip lane calls person_id. The browser
+            # compares it against its active person before applying.
+            "person_id": getattr(outcome, "narrator_id", "") or "",
+            "conv_id": getattr(outcome, "session_id", "") or "",
+            "status": st,
+            "method": getattr(outcome, "method", "") or "",
+            # Only a succeeded result may carry work. noop and failed
+            # travel so the browser can tell "nothing found" from
+            # "never ran", and carry nothing to apply.
+            "items": (list(getattr(outcome, "items", []) or [])
+                      if st == "succeeded" else []),
+            "clarification_required": (list(clarification_required or [])
+                                       if st == "succeeded" else []),
+        }, ensure_ascii=False))
+
     async def _run_completed_turn_extraction(
         conv_id: str,
         user_text: str,
@@ -606,6 +665,17 @@ async def ws_chat(ws: WebSocket):
                 # drift.
                 is_system_directive=bool(
                     params.get("_is_system_directive")),
+                # WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 2.
+                # The backend is now the sole automatic extractor, but
+                # the BROWSER still owns projection, Shadow Review,
+                # repeatable-section grouping and fragile-fact
+                # clarification. So the result has to get back to it.
+                #
+                # A closure, not an import: turn_extraction must not
+                # import a router, and this way it never learns what a
+                # WebSocket is. It is handed something awaitable and
+                # calls it once.
+                on_result=_deliver_extraction_result,
             )
             logger.info(
                 "[extract-turn][chat_ws] conv=%s %s",

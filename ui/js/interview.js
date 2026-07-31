@@ -1171,6 +1171,29 @@ function _projectAnswerToField(answerText, turnId) {
 ═══════════════════════════════════════════════════════════════ */
 
 async function _runDeferredInterviewExtraction() {
+  // WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 2.
+  //
+  // THE AUTOMATIC BROWSER EXTRACTION IS RETIRED FOR WEBSOCKET TURNS.
+  // The backend now claims and runs exactly one extraction per completed
+  // turn and delivers the result to applyExtractionResultFrame(). Before
+  // this, a single narrator turn ran the model TWICE — once here and
+  // once on the server — and on 2026-07-31 that was a third of the
+  // concurrent GPU work that took free VRAM to about 2 GB and pushed two
+  // extractions past their 90-second ceiling.
+  //
+  // Gated at the flush rather than at the two queue producers: this is
+  // the single chokepoint both roads pass through, so it is one switch
+  // to reason about and one to reverse.
+  if (_BACKEND_OWNS_EXTRACTION) {
+    var q = state && state.interviewProjection && state.interviewProjection._pendingExtraction;
+    if (q) {
+      state.interviewProjection._pendingExtraction = null;
+      console.log("[extract][server-owned] browser extraction skipped for turnId="
+                  + q.turnId + " — the backend owns this turn");
+    }
+    return;
+  }
+
   var pending = state && state.interviewProjection && state.interviewProjection._pendingExtraction;
   if (!pending || !pending.answerText) return;
 
@@ -1226,7 +1249,7 @@ async function _runDeferredInterviewExtraction() {
 var _lastExtractionTurnId = null;
 var _lastExtractionTimestamp = 0;
 
-function _extractAndProjectMultiField(answerText, turnId) {
+function requestLegacyFieldExtraction(answerText, turnId) {
   if (typeof LorevoxProjectionSync === "undefined") return;
   if (typeof LorevoxProjectionMap === "undefined") return;
   if (!state.interviewProjection) return;
@@ -1323,6 +1346,68 @@ function _extractAndProjectMultiField(answerText, turnId) {
 
   Promise.all(chunkPromises)
   .then(function () {
+    // TRANSPORT ENDS HERE. Everything below this line used to be inline
+    // and is now applyCompletedTurnExtractionResult() — the same code,
+    // reached by two different roads. See that function's header.
+    applyCompletedTurnExtractionResult(
+      {
+        items: allItems,
+        method: extractMethod,
+        clarification_required: allClarifications,
+      },
+      { answerText: answerText, turnId: turnId, chunks: chunks.length }
+    );
+  })
+  .catch(function (err) {
+    // Non-fatal: backend extraction is supplementary
+    console.warn("[extract] Backend extraction unavailable:", err.message);
+  });
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 2
+   applyCompletedTurnExtractionResult — the RESULT CONSUMER
+
+   This is the second half of what used to be one function. It is
+   everything the browser does with extracted fields and NOTHING about
+   how they were obtained: repeatable-section grouping, index
+   assignment, duplicate suppression, projection through the sync
+   layer, persistence, Shadow Review, and fragile-fact clarification.
+
+   WHY IT WAS SPLIT. The backend now owns the extraction model call
+   (one per completed turn, claimed and idempotent), but the browser
+   still owns everything in this function. Deleting the browser's HTTP
+   call without first separating these two jobs would have deleted all
+   of the above with it — which is exactly what the work order warned
+   against.
+
+   IT MUST NOT: call a model, POST /api/extract-fields, apply a
+   one-second cooldown, or guess which narrator a result belongs to.
+
+   TWO ROADS IN, ONE BEHAVIOUR:
+     requestLegacyFieldExtraction()  — harness / replay / dev
+     the WebSocket field_extraction_result frame — production
+
+   `context.answerText` is the narrator's own words, used only to give
+   Shadow Review something to show the claims against. It is OPTIONAL:
+   a result caught up after a reload has no local copy of the text, and
+   a claim panel without the source echo is better than no panel.
+═══════════════════════════════════════════════════════════════ */
+function applyCompletedTurnExtractionResult(result, context) {
+  if (typeof LorevoxProjectionSync === "undefined") return false;
+  if (typeof LorevoxProjectionMap === "undefined") return false;
+  if (!state.interviewProjection) return false;
+
+  var res = result || {};
+  var ctx = context || {};
+  var allItems = res.items || [];
+  var extractMethod = res.method || "";
+  var allClarifications = res.clarification_required || [];
+  var answerText = ctx.answerText || "";
+  var turnId = ctx.turnId || res.turn_id || "";
+
+  {
     // WO-9: Deduplicate items across chunks (same fieldPath + value = skip)
     var seen = {};
     var data = { items: [], method: extractMethod };
@@ -1336,9 +1421,10 @@ function _extractAndProjectMultiField(answerText, turnId) {
 
     if (!data.items || data.items.length === 0) {
       console.log("[extract] No additional fields extracted (method: " + data.method + ")");
-      return;
+      return false;
     }
-    console.log("[extract] Backend returned " + data.items.length + " items via " + data.method + (chunks.length > 1 ? " (" + chunks.length + " chunks)" : ""));
+    console.log("[extract] Applying " + data.items.length + " item(s) via " + data.method
+      + (ctx.chunks > 1 ? " (" + ctx.chunks + " chunks)" : ""));
 
     // Track repeatable section indices for grouping
     var repeatableCounters = {};
@@ -1496,11 +1582,148 @@ function _extractAndProjectMultiField(answerText, turnId) {
         window.TranscriptGuard.clearStagedTranscript();
       }
     } catch (_) {}
-  })
-  .catch(function (err) {
-    // Non-fatal: backend extraction is supplementary
-    console.warn("[extract] Backend extraction unavailable:", err.message);
+  }
+  return true;
+}
+
+/* Back-compat alias. app.js and test-harness.js still reference the old
+   name; renaming the transport must not break a call site that only
+   wanted "extract this text now". */
+var _extractAndProjectMultiField = requestLegacyFieldExtraction;
+
+
+/* ═══════════════════════════════════════════════════════════════
+   WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 2
+   The server-owned result path.
+
+   THE BACKEND IS NOW THE SOLE AUTOMATIC EXTRACTOR. One completed
+   narrator turn, one claimed extraction, one durable result, delivered
+   here. The browser's own HTTP extraction is retired for normal
+   WebSocket turns — it stays reachable by explicit call for the
+   harness, replay, and dev.
+═══════════════════════════════════════════════════════════════ */
+
+/* When true, _runDeferredInterviewExtraction() does not fire. The queue
+   producers are left alone deliberately: they write a small object that
+   nobody reads, which is cheaper and far less risky than unpicking two
+   producers and two flush sites, and it leaves one switch to flip if
+   this ever has to be reversed in a hurry. */
+var _BACKEND_OWNS_EXTRACTION = true;
+
+/* Which turn_keys this browser has already applied.
+
+   THE ONLY DEDUP KEY. Not elapsed time, not the input text, not "the
+   last extraction was less than a second ago" — two different completed
+   turns a second apart are two turns and both must apply, while a
+   replay of one turn_key must not apply twice.
+
+   This deliberately REPLACES _lastExtractionTurnId/_lastExtractionTimestamp
+   for the server path. Those two were doing three jobs at once — "have I
+   extracted this", "which turn is current", and "was that too recent" —
+   and the three stop agreeing the moment results arrive out of order.
+   They remain in place on requestLegacyFieldExtraction(), where the
+   cooldown was actually earned: it existed to stop the BROWSER
+   double-POSTing, a problem the server path does not have. */
+var _appliedExtractionKeys = Object.create(null);
+var _appliedExtractionOrder = [];
+var _APPLIED_KEYS_CAP = 200;
+
+function _markExtractionKeyApplied(turnKey) {
+  if (!turnKey) return;
+  if (_appliedExtractionKeys[turnKey]) return;
+  _appliedExtractionKeys[turnKey] = true;
+  _appliedExtractionOrder.push(turnKey);
+  while (_appliedExtractionOrder.length > _APPLIED_KEYS_CAP) {
+    delete _appliedExtractionKeys[_appliedExtractionOrder.shift()];
+  }
+}
+
+/* Apply one server-delivered result. Returns true when it was applied.
+
+   REFUSES A RESULT THAT IS NOT THIS NARRATOR'S. An operator can switch
+   from Chris to someone else while an extraction is still running. A
+   late result carries the person it was claimed for, and if that is not
+   who is on screen it is left pending on the server rather than written
+   into the wrong biography — the catch-up read will offer it again when
+   Chris is active. */
+function applyExtractionResultFrame(msg, opts) {
+  var m = msg || {};
+  var turnKey = m.turn_key || "";
+  if (!turnKey) return false;
+
+  if (m.status !== "succeeded" || !(m.items && m.items.length)) {
+    // noop / failed / duplicate carry nothing to apply. Acknowledge
+    // anyway so the server stops offering them.
+    _markExtractionKeyApplied(turnKey);
+    _ackExtractionResults([turnKey], m.person_id);
+    return false;
+  }
+
+  var active = (state && state.person_id) || "";
+  if (m.person_id && active && m.person_id !== active) {
+    console.log("[extract][result] held: belongs to " + m.person_id.slice(0, 8)
+      + ", active narrator is " + active.slice(0, 8));
+    return false;   // deliberately NOT acknowledged — stays pending
+  }
+
+  if (_appliedExtractionKeys[turnKey]) {
+    console.log("[extract][result] already applied " + turnKey);
+    return false;
+  }
+
+  var ok = applyCompletedTurnExtractionResult(m, {
+    answerText: (opts && opts.answerText) || "",
+    turnId: m.turn_id || "",
   });
+  _markExtractionKeyApplied(turnKey);
+  _ackExtractionResults([turnKey], m.person_id || active);
+  return ok;
+}
+
+function _ackExtractionResults(turnKeys, personId) {
+  var pid = personId || (state && state.person_id) || "";
+  if (!pid || !turnKeys || !turnKeys.length) return;
+  try {
+    fetch((window.LOREVOX_API || "http://localhost:8000")
+          + "/api/extraction-results/ack", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ person_id: pid, turn_keys: turnKeys }),
+    }).catch(function (e) {
+      // An unacknowledged result is offered again on the next catch-up
+      // and deduplicated by turn_key, so a failed ack costs one extra
+      // round trip and nothing else.
+      console.log("[extract][ack] deferred:", e && e.message);
+    });
+  } catch (e) {
+    console.log("[extract][ack] skipped:", e && e.message);
+  }
+}
+
+/* Catch-up. Called after a reload or a narrator switch: the socket that
+   would have carried these results is gone, but the rows are not. */
+function fetchPendingExtractionResults() {
+  var pid = (state && state.person_id) || "";
+  if (!pid) return Promise.resolve(0);
+  return fetch((window.LOREVOX_API || "http://localhost:8000")
+        + "/api/extraction-results/pending?person_id=" + encodeURIComponent(pid))
+    .then(function (r) { return r.ok ? r.json() : { pending: [] }; })
+    .then(function (data) {
+      var rows = (data && data.pending) || [];
+      var applied = 0;
+      for (var i = 0; i < rows.length; i++) {
+        if (applyExtractionResultFrame(rows[i])) applied++;
+      }
+      if (rows.length) {
+        console.log("[extract][catch-up] " + applied + " of " + rows.length
+                    + " pending result(s) applied");
+      }
+      return applied;
+    })
+    .catch(function (e) {
+      console.log("[extract][catch-up] unavailable:", e && e.message);
+      return 0;
+    });
 }
 
 
