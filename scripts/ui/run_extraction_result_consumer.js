@@ -21,15 +21,33 @@
  * narrator, Projection Sync, forcePersist, Shadow Review, the
  * acknowledgment transport and the pending catch-up transport.
  *
- * TWO RUNNERS, ONE BODY
- * ---------------------
- * installStubs() and runCases() are plain functions with no closure over
- * this module, so the identical text runs in both places:
+ * TWO RUNNERS, ONE BODY, ONE REALM
+ * --------------------------------
+ * The functions below are never HANDED to a runner. They are stringified
+ * into a bundle and that bundle is injected as source, in one order, into
+ * a single realm — the page's main world in Chromium, one vm context in
+ * Node. Both runners then call the same named entry point.
  *
  *   Chromium (default)  — Playwright 1.58.2, the environment the browser
  *                         code actually ships into.
- *   plain Node (--node-only) — the same functions in a vm context, for a
+ *   plain Node (--node-only) — the same source in a vm context, for a
  *                         machine with no browser binaries.
+ *
+ * WHY IT IS BUILT THAT WAY, learned the hard way on 2026-07-31:
+ * an earlier cut used page.addInitScript(installStubs) followed by
+ * page.evaluate(runCases). A function passed to page.evaluate arrives as
+ * SOURCE TEXT with its Node closure stripped, and the two calls are not
+ * guaranteed to share the world the stubs were installed in. runCases
+ * read a lexical `H` that plain Node resolved from this module's scope
+ * and Chromium could not resolve at all, so the Node arm passed for a
+ * reason that could never hold in a browser and the Chromium arm died
+ * with `Cannot set properties of undefined` before a single case ran.
+ *
+ * Two rules follow, and both are load-bearing:
+ *   1. NOTHING in the bundle may close over this module. State is reached
+ *      only through harnessState(), which reads one named global.
+ *   2. Stubs, production code and cases are injected into ONE realm in
+ *      order. No function object crosses the boundary.
  *
  * They are not two copies of the assertions. A second copy would drift,
  * and a drifted test is worse than one runner.
@@ -50,7 +68,16 @@ const path = require("path");
 const fs = require("fs");
 
 const REPO = path.resolve(__dirname, "..", "..");
-const INTERVIEW_JS = path.join(REPO, "ui", "js", "interview.js");
+
+// Defaults to the real production file. The override exists so negative
+// mutations can be driven against a COPY rather than by editing the
+// shipped file in place -- a mutation run that dies partway would
+// otherwise leave a corrupted production module in the working tree, and
+// the person who finds it next has no way to tell it from a real edit.
+// It is a testing seam and nothing reads it in normal use.
+const INTERVIEW_JS = process.env.HARNESS_INTERVIEW_JS
+  ? path.resolve(process.env.HARNESS_INTERVIEW_JS)
+  : path.join(REPO, "ui", "js", "interview.js");
 
 /* ─────────────────────────────────────────────────────────────────────
    THE BOUNDARY STUBS
@@ -58,10 +85,23 @@ const INTERVIEW_JS = path.join(REPO, "ui", "js", "interview.js");
    Installed BEFORE interview.js loads. Everything here is a boundary the
    work order lists; nothing here is production logic.
    ───────────────────────────────────────────────────────────────────── */
+function harnessState() {
+  // The ONLY route to harness state, from stubs and cases alike. A
+  // lexical variable would be resolved differently by the two runners;
+  // one named global is resolved identically by both. Throwing by name
+  // beats returning undefined — an undefined here surfaces four frames
+  // later as a property error on something unrelated.
+  var h = globalThis.__extractionResultHarness;
+  if (!h) throw new Error("extraction harness state not installed");
+  return h;
+}
+
 function installStubs() {
-  const H = {
-    projected: [],        // every projectValue call
+  globalThis.__extractionResultHarness = {
+    projected: [],        // every projectValue CALL (call count)
+    logical: {},          // fieldPath -> {value, turnId, writes} (STATE)
     persisted: 0,         // every forcePersist call
+    persistAttempts: 0,   // including the ones that threw
     shadow: [],           // every showInlineClaims call
     acked: [],            // every turn_key acknowledged
     posts: [],            // every fetch URL (proves no /api/extract-fields)
@@ -70,7 +110,6 @@ function installStubs() {
     failShadow: false,    // make Shadow Review throw
     pending: [],          // what the catch-up endpoint returns
   };
-  window.__H = H;
 
   window.state = {
     person_id: "chris",
@@ -90,14 +129,34 @@ function installStubs() {
     buildRepeatablePath: function (s, i, f) { return s + "[" + i + "]." + f; },
   };
 
+  // Every stub below reaches state through harnessState() and never
+  // through a captured variable. That is the whole repair: a captured
+  // variable is resolved by whichever scope chain the runner happened to
+  // build, and the two runners build different ones.
   window.LorevoxProjectionSync = {
     projectValue: function (fieldPath, value, meta) {
+      var H = harnessState();
+      // TWO RECORDS, DELIBERATELY. `projected` counts CALLS; `logical`
+      // is the STATE those calls produce. A retry after a failed persist
+      // could plausibly re-call projectValue and still land the same
+      // scalar, and "the value is right" is not the same claim as "the
+      // narrator's biography was written once". Only keeping both lets a
+      // case tell a duplicate call from a duplicate write.
       H.projected.push({ fieldPath: fieldPath, value: value, meta: meta || {} });
+      var slot = H.logical[fieldPath];
+      H.logical[fieldPath] = {
+        value: value, turnId: (meta || {}).turnId,
+        writes: (slot ? slot.writes : 0) + 1,
+      };
+      // Mirrors what projection-sync.js:155 actually writes, in the two
+      // fields the production dedup guard at interview.js reads back.
       window.state.interviewProjection.fields[fieldPath] =
         { value: value, turnId: (meta || {}).turnId };
       return true;
     },
     forcePersist: function () {
+      var H = harnessState();
+      H.persistAttempts += 1;
       if (H.failPersist) throw new Error("persist failed");
       H.persisted += 1;
     },
@@ -106,14 +165,18 @@ function installStubs() {
 
   window.HorneloreShadowReview = {
     showInlineClaims: function (items, answerText) {
+      var H = harnessState();
       if (H.failShadow) throw new Error("shadow review display failed");
       H.shadow.push({ n: items.length, answerText: answerText || "" });
     },
   };
 
-  window.HorneloreClarifyFragile = function (list) { H.clarified.push(list.length); };
+  window.HorneloreClarifyFragile = function (list) {
+    harnessState().clarified.push(list.length);
+  };
 
   window.fetch = function (url, opts) {
+    var H = harnessState();
     H.posts.push(String(url));
     if (String(url).indexOf("/api/extraction-results/ack") !== -1) {
       try {
@@ -142,26 +205,130 @@ function installStubs() {
 }
 
 /* ─────────────────────────────────────────────────────────────────────
+   PREFLIGHT — proves the harness is wired before it claims anything
+
+   Returns a list of problem strings; empty means wired. This runs BEFORE
+   the counted cases and is not one of them.
+
+   It exists because of the 2026-07-31 failure: forty-nine assertions
+   were reporting PASS in one runner while, in the other, the state
+   object they all read did not exist. Every check below therefore
+   EXERCISES the boundary rather than inspecting it — it calls the stub
+   and looks for the effect in the one named global. A stub wired to a
+   different object passes an inspection and fails this.
+   ───────────────────────────────────────────────────────────────────── */
+function preflight() {
+  const problems = [];
+  const need = (label, cond) => { if (!cond) problems.push(label); };
+
+  const H = globalThis.__extractionResultHarness;
+  need("globalThis.__extractionResultHarness exists", !!H);
+  if (!H) return problems;               // nothing below can mean anything
+
+  need("harnessState is a function", typeof harnessState === "function");
+  need("harnessState returns THAT object", (function () {
+    try { return harnessState() === H; } catch (e) { return false; }
+  })());
+  need("reset is a function", typeof reset === "function");
+
+  // Probed by BARE IDENTIFIER, which is how the cases reach them —
+  // deliberately not `globalThis[name]`. All seven are top-level
+  // `function` declarations today and so land on globalThis in a classic
+  // script, but a later change to `const` would keep the cases working
+  // (script scope is shared across script tags) while a globalThis probe
+  // began reporting a production function missing. That failure would
+  // look like a real defect and would not be one.
+  [
+    ["applyCompletedTurnExtractionResult",
+     function () { return typeof applyCompletedTurnExtractionResult; }],
+    ["applyExtractionResultFrame",
+     function () { return typeof applyExtractionResultFrame; }],
+    ["fetchPendingExtractionResults",
+     function () { return typeof fetchPendingExtractionResults; }],
+    ["applyExtractionCapabilities",
+     function () { return typeof applyExtractionCapabilities; }],
+    ["clientExtractionCapabilities",
+     function () { return typeof clientExtractionCapabilities; }],
+    ["requestLegacyFieldExtraction",
+     function () { return typeof requestLegacyFieldExtraction; }],
+    ["_projectAnswerToField",
+     function () { return typeof _projectAnswerToField; }],
+  ].forEach(function (pair) {
+    let kind;
+    try { kind = pair[1](); } catch (e) { kind = "unresolvable"; }
+    need("production function " + pair[0] + " is loaded (saw: " + kind + ")",
+         kind === "function");
+  });
+
+  // Exercise each boundary and look for the effect in H itself.
+  const before = {
+    p: H.projected.length, s: H.shadow.length, a: H.acked.length,
+    posts: H.posts.length,
+  };
+  try {
+    window.LorevoxProjectionSync.projectValue("preflight.probe", "x", {});
+  } catch (e) { problems.push("Projection Sync stub threw: " + e.message); }
+  need("Projection Sync stub writes to the shared state object",
+       H.projected.length === before.p + 1);
+
+  try {
+    window.HorneloreShadowReview.showInlineClaims([{}], "probe");
+  } catch (e) { problems.push("Shadow Review stub threw: " + e.message); }
+  need("Shadow Review stub writes to the shared state object",
+       H.shadow.length === before.s + 1);
+
+  try {
+    window.fetch("/api/extraction-results/ack",
+                 { body: JSON.stringify({ turn_keys: ["__preflight__"] }) });
+  } catch (e) { problems.push("ack stub threw: " + e.message); }
+  need("acknowledgment stub writes to the shared state object",
+       H.acked.indexOf("__preflight__") !== -1);
+  need("fetch stub records every URL", H.posts.length === before.posts + 1);
+
+  // Guarded like every other probe. An unguarded call here would abort
+  // the preflight with a stack trace, which is precisely the outcome
+  // this function exists to replace: a harness that aborts reports
+  // nothing, and nothing reads identically to "never run".
+  try {
+    reset();                              // leave no probe residue
+  } catch (e) { problems.push("reset threw: " + e.message); }
+  need("reset clears the shared state object",
+       H.projected.length === 0 && H.shadow.length === 0
+       && H.acked.length === 0 && H.posts.length === 0);
+  return problems;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   SHARED CASE HELPERS
+
+   Hoisted out of runCases so preflight can call reset() too. Both reach
+   state the one legal way.
+   ───────────────────────────────────────────────────────────────────── */
+function reset() {
+  const H = harnessState();
+  H.projected = []; H.logical = {};
+  H.persisted = 0; H.persistAttempts = 0;
+  H.shadow = []; H.acked = [];
+  H.posts = []; H.clarified = []; H.pending = [];
+  H.failPersist = false; H.failShadow = false;
+  window.state.person_id = "chris";
+  window.state.chat.conv_id = "conv-1";
+  window.state.interviewProjection.fields = {};
+  // The applied-set is module state inside interview.js and there is
+  // deliberately no reset hook in production — a browser that could be
+  // told to forget what it applied could be told to apply it twice. So
+  // each case uses fresh turn_keys instead.
+}
+
+/* ─────────────────────────────────────────────────────────────────────
    THE CASES
 
    Returns [[label, ok], ...]. Every case drives the REAL functions.
    ───────────────────────────────────────────────────────────────────── */
 async function runCases() {
-  const H = window.__H;
+  const H = harnessState();
   const out = [];
   const ok = (label, cond) => out.push([label, !!cond]);
-  const reset = () => {
-    H.projected = []; H.persisted = 0; H.shadow = []; H.acked = [];
-    H.posts = []; H.clarified = []; H.pending = [];
-    H.failPersist = false; H.failShadow = false;
-    window.state.person_id = "chris";
-    window.state.chat.conv_id = "conv-1";
-    window.state.interviewProjection.fields = {};
-    // The applied-set is module state inside interview.js and there is
-    // deliberately no reset hook in production — a browser that could be
-    // told to forget what it applied could be told to apply it twice. So
-    // each case uses fresh turn_keys instead.
-  };
   const frame = (k, over) => Object.assign({
     type: "field_extraction_result",
     turn_key: k, turn_id: "t-" + k, person_id: "chris", conv_id: "conv-1",
@@ -272,8 +439,11 @@ async function runCases() {
      ((H.projected[0] || {}).meta || {}).convId === "conv-1");
   ok("E acknowledged, so it cannot strand", H.acked.indexOf("E1") !== -1);
 
-  /* ── F. non-actionable statuses ──────────────────────────────────── */
-  for (const st of ["noop", "failed", "duplicate", "resource_deferred"]) {
+  /* ── F. non-actionable statuses THE PROTOCOL DEFINES ─────────────────
+     Acknowledged on purpose: the server has a real answer for this turn
+     and it carries nothing to apply, so retiring the row is correct.
+     `resource_deferred` is deliberately NOT in this list — see F2. */
+  for (const st of ["noop", "failed", "duplicate"]) {
     reset();
     applyExtractionResultFrame(frame("F_" + st, { status: st, items: [] }));
     await new Promise((r) => setTimeout(r, 20));
@@ -281,6 +451,42 @@ async function runCases() {
     ok("F " + st + " does not reach Shadow Review", H.shadow.length === 0);
     ok("F " + st + " is acknowledged so it stops being offered",
        H.acked.length === 1);
+  }
+
+  /* ── F2. the impossible frame ────────────────────────────────────────
+     A deferral is a SCHEDULING state, and 0041 refuses to store one by
+     CHECK, so the server cannot legitimately send this. The Python suite
+     is authoritative that no row is written and no frame is sent; this
+     case is the browser's defence for the day something upstream is
+     wrong anyway.
+
+     The wrong answer here is to acknowledge it. Acknowledgment tells the
+     server to stop offering the row, so acknowledging a status we do not
+     understand would discard a narrator's extraction on the strength of
+     a bug. Applying nothing and acknowledging nothing leaves the real
+     result free to arrive later.
+
+     An earlier cut of this harness asserted the opposite — that
+     resource_deferred SHOULD be acknowledged — which contradicted a
+     ruling already made. It is recorded here so the reversal is visible
+     rather than looking like the test was always this way. */
+  for (const bogus of ["resource_deferred", "scheduled", "", "SUCCEEDED"]) {
+    reset();
+    const rv = applyExtractionResultFrame(frame("F2_" + bogus, {
+      status: bogus,
+      items: [{ fieldPath: "personal.placeOfBirth", value: "should not land" }],
+      clarification_required: [{ fieldPath: "personal.dateOfBirth" }],
+    }));
+    await new Promise((r) => setTimeout(r, 20));
+    const lbl = "F2 " + (bogus || "(empty)") + " ";
+    ok(lbl + "is rejected, not applied", rv === false);
+    ok(lbl + "zero projection calls", H.projected.length === 0);
+    ok(lbl + "zero logical writes", Object.keys(H.logical).length === 0);
+    ok(lbl + "zero persistence", H.persistAttempts === 0);
+    ok(lbl + "zero Shadow Review", H.shadow.length === 0);
+    ok(lbl + "zero clarification", H.clarified.length === 0);
+    ok(lbl + "NOT acknowledged, so the real result can still arrive",
+       H.acked.length === 0);
   }
 
   /* ── G. persistence relative to acknowledgment ───────────────────── */
@@ -291,6 +497,49 @@ async function runCases() {
   await new Promise((r) => setTimeout(r, 30));
   ok("G a persistence failure is visible rather than silently acknowledged",
      threw || H.acked.length === 0);
+  ok("G the failed turn is NOT marked applied, so a retry is possible",
+     H.acked.length === 0);
+
+  /* ── K. retry after a failed persist is idempotent ───────────────────
+     G proves a failed persist is not silently swallowed. It does not
+     prove the retry is safe, and those are different claims: a result
+     that can never be retried loses the extraction, while one that
+     retries carelessly writes the narrator's biography twice.
+
+     Asserted on LOGICAL WRITES as well as call counts. "The final value
+     is right" is a weaker claim than "it was written once" — a second
+     write with the same scalar still means a second entry in the record
+     an operator audits. */
+  reset();
+  const kFrame = frame("K1");
+  H.failPersist = true;
+  let kThrew = false;
+  try { applyExtractionResultFrame(kFrame); } catch (e) { kThrew = true; }
+  await new Promise((r) => setTimeout(r, 30));
+
+  ok("K attempt 1 projected the value", H.projected.length === 1);
+  ok("K attempt 1 surfaced the persistence failure", kThrew);
+  ok("K attempt 1 did not acknowledge", H.acked.length === 0);
+  ok("K attempt 1 did not reach Shadow Review", H.shadow.length === 0);
+
+  // Same frame, same turn_key. This is the retry, not a new result.
+  H.failPersist = false;
+  applyExtractionResultFrame(kFrame);
+  await new Promise((r) => setTimeout(r, 30));
+
+  const kPath = "personal.placeOfBirth";
+  const kSlot = H.logical[kPath] || { writes: 0 };
+  ok("K the retry persisted successfully", H.persisted === 1);
+  ok("K exactly one logical field value exists",
+     Object.keys(H.logical).length === 1);
+  ok("K that value was written exactly once, not overwritten with itself",
+     kSlot.writes === 1);
+  ok("K exactly one projectValue call across both attempts",
+     H.projected.length === 1);
+  ok("K exactly one Shadow Review claim", H.shadow.length === 1);
+  ok("K exactly one acknowledgment", H.acked.length === 1);
+  ok("K the acknowledgment names the retried turn",
+     H.acked[0] === "K1");
 
   /* ── H. Shadow Review is presentation-only ───────────────────────── */
   reset();
@@ -346,6 +595,55 @@ function report(checks) {
   return failed.length === 0;
 }
 
+/* THE BUNDLE — the single source of truth both runners inject.
+ *
+ * Three fragments, one order. Fragment 1 must precede interview.js
+ * because interview.js reads these globals at load; fragment 3 must
+ * follow it because the cases call its functions. Nothing is passed as a
+ * function object, so nothing can lose a closure in transit. */
+function harnessSourceBefore() {
+  return [
+    harnessState.toString(),
+    installStubs.toString(),
+    reset.toString(),
+    preflight.toString(),
+    "installStubs();",
+  ].join("\n");
+}
+
+function harnessSourceAfter() {
+  return [
+    runCases.toString(),
+    // Named entry points. Both runners evaluate these by NAME, never by
+    // handing a function across the boundary.
+    "globalThis.__harnessPreflight = preflight;",
+    "globalThis.__runHarnessCases = runCases;",
+  ].join("\n");
+}
+
+async function safePreflight(evaluate) {
+  // The preflight guards its own probes, but a wiring failure severe
+  // enough to break the preflight must still arrive as a named failure
+  // rather than as a stack trace. Two layers, deliberately.
+  try {
+    return await evaluate();
+  } catch (e) {
+    return ["the preflight itself could not run: "
+            + String((e && e.message) || e)];
+  }
+}
+
+function reportPreflight(problems) {
+  if (!problems.length) return true;
+  console.log("PREFLIGHT FAILED — the harness is not wired, so its");
+  console.log("assertions would prove nothing. Not running the cases.");
+  console.log("");
+  problems.forEach((p) => console.log("  FAIL preflight: " + p));
+  console.log("");
+  console.log("RESULT           : FAIL");
+  return false;
+}
+
 async function runInNode() {
   const vm = require("vm");
   const src = fs.readFileSync(INTERVIEW_JS, "utf8");
@@ -361,9 +659,14 @@ async function runInNode() {
   sandbox.window = sandbox;
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
-  vm.runInContext("(" + installStubs.toString() + ")()", sandbox);
+  vm.runInContext(harnessSourceBefore(), sandbox, { filename: "harness-pre.js" });
   vm.runInContext(src, sandbox, { filename: "interview.js" });
-  return await vm.runInContext("(" + runCases.toString() + ")()", sandbox);
+  vm.runInContext(harnessSourceAfter(), sandbox, { filename: "harness-post.js" });
+
+  const problems = await safePreflight(
+    () => vm.runInContext("__harnessPreflight()", sandbox));
+  if (!reportPreflight(problems)) return null;
+  return await vm.runInContext("__runHarnessCases()", sandbox);
 }
 
 async function runInChromium() {
@@ -420,11 +723,31 @@ async function runInChromium() {
     if (m.type() === "error") errs.push("CONSOLE: " + m.text());
   });
 
-  await page.addInitScript(installStubs);
+  // The document FIRST, then three script tags into that one document's
+  // main world. addScriptTag injects source; nothing here is a function
+  // object, so nothing arrives without its scope. addInitScript is
+  // deliberately not used: it runs against every new document, and a
+  // later setContent gave us two worlds and a state object visible in
+  // only one of them.
   await page.setContent("<!doctype html><meta charset=utf-8><title>x</title>");
+  await page.addScriptTag({ content: harnessSourceBefore() });
   await page.addScriptTag({ content: fs.readFileSync(INTERVIEW_JS, "utf8") });
+  await page.addScriptTag({ content: harnessSourceAfter() });
 
-  const checks = await page.evaluate(runCases);
+  // Evaluated as an EXPRESSION STRING, not a function.
+  const problems = await safePreflight(
+    () => page.evaluate("__harnessPreflight()"));
+  if (!reportPreflight(problems)) {
+    await browser.close();
+    if (errs.length) {
+      console.log("");
+      console.log("browser errors:");
+      errs.forEach((e) => console.log("  " + e));
+    }
+    return { checks: null, degraded: false };
+  }
+
+  const checks = await page.evaluate("__runHarnessCases()");
   await browser.close();
 
   if (errs.length) {
@@ -448,6 +771,11 @@ async function runInChromium() {
   } else {
     ({ checks, degraded } = await runInChromium());
   }
+
+  // A null checks list means the preflight refused. It has already
+  // printed its named failures; exiting 1 here is the whole point --
+  // an unwired harness must never look like a run that has not happened.
+  if (checks === null) process.exit(1);
 
   const ok = report(checks);
   if (ok && degraded) {

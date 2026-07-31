@@ -1704,6 +1704,17 @@ var _appliedExtractionKeys = Object.create(null);
 var _appliedExtractionOrder = [];
 var _APPLIED_KEYS_CAP = 200;
 
+/* The complete result vocabulary this browser understands, mirroring the
+   CHECK on turn_extraction_results.status in migration 0041. Anything
+   outside it is refused rather than acknowledged — see the gate in
+   applyExtractionResultFrame for why that direction is the safe one.
+   `duplicate` is here because the server reports it to a caller even
+   though it never STORES it: it describes a second attempt at a turn
+   already owned. */
+var _KNOWN_RESULT_STATUSES = {
+  succeeded: true, noop: true, failed: true, duplicate: true,
+};
+
 function _markExtractionKeyApplied(turnKey) {
   if (!turnKey) return;
   if (_appliedExtractionKeys[turnKey]) return;
@@ -1726,6 +1737,28 @@ function applyExtractionResultFrame(msg, opts) {
   var m = msg || {};
   var turnKey = m.turn_key || "";
   if (!turnKey) return false;
+
+  // THE STATUS MUST BE ONE THIS PROTOCOL DEFINES.
+  //
+  // Acknowledging is a destructive act: it tells the server to stop
+  // offering the row. Doing that for a status we do not understand means
+  // retiring something on the strength of not recognising it, which is
+  // exactly backwards.
+  //
+  // `resource_deferred` is the concrete case and the reason this gate
+  // exists. A deferral is a SCHEDULING state -- work claimed and not yet
+  // done -- and migration 0041 refuses to store it by CHECK, so the
+  // server cannot legitimately send one. If a frame carrying it ever
+  // reaches this browser, something upstream is wrong, and the safe
+  // response is to apply nothing and acknowledge nothing so the real
+  // result can still arrive later. Acknowledging it would discard a
+  // narrator's extraction on the basis of a bug.
+  if (!_KNOWN_RESULT_STATUSES[m.status]) {
+    console.log("[extract][result] refused: unrecognised status "
+      + JSON.stringify(m.status) + " for " + turnKey
+      + " — applied nothing and acknowledged nothing");
+    return false;
+  }
 
   if (m.status !== "succeeded" || !(m.items && m.items.length)) {
     // noop / failed / duplicate carry nothing to apply. Acknowledge

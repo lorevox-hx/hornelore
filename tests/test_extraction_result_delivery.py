@@ -429,17 +429,51 @@ class DeferLifecycleTest(_ResultCase):
     Chris ruled that `resource_deferred` belongs to scheduling, not to
     the result queue, and 0041's CHECK enforces that -- the status is
     absent from the result table by construction. So there is no defer
-    outcome to drive here yet. What CAN be driven today is the shape a
-    defer will take: a claim that exists and has produced no result.
-    Every assertion below is written against that shape, which is the
-    same shape a deferred extraction leaves behind.
+    STATUS to drive here. What can be driven is the shape a defer takes:
+    a claim that exists and has produced no result.
 
     The distinction that makes this worth writing early: a defer is not
     a failure and not an empty answer. It is work that has been claimed
-    and not yet done. If a deferred turn ever reaches the pending queue,
+    and not yet done. If a deferred turn ever reached the pending queue,
     Projection Sync and Shadow Review would show an operator a proposal
     that no extractor ever produced.
+
+    A CORRECTION TO WHAT THIS CLASS FIRST REPORTED (2026-07-31)
+    ----------------------------------------------------------
+    An earlier cut of this file claimed a Phase 3 BLOCKER: that a claimed
+    turn could never be re-attempted, so any scheduler yield would lose
+    the extraction permanently. That was over-stated. It is true of ONE
+    mechanism -- calling extract_completed_turn() again, which re-enters
+    _begin() and is correctly refused as `duplicate` -- and it is not
+    true of the mechanism the coordinator should actually use.
+
+    The right shape, and it works on today's code:
+
+        terminal, claim = _begin(...)      # ONCE. The claim is durable.
+        ...                                # yield the model to chat
+        await _complete_claim(claim)       # resume the SAME claim
+
+    Do not call _begin() a second time and do not try to re-claim the
+    ledger row. _store_result is idempotent on (narrator_id, turn_key)
+    and _finish_ledger updates the row already owned, so resuming a held
+    claim converges on exactly one ledger row and one result row.
+    test_resuming_a_held_claim_... below is the proof and is the
+    acceptance for the Phase 3 change.
     """
+
+    _BEGIN_DEFAULTS = dict(
+        turn_mode="interview", source="chat_ws",
+        current_section=None, current_target_path=None,
+        current_era=None, current_pass=None, current_mode=None,
+    )
+
+    def _claim(self, turn_key, user_text="I was born in Mandan."):
+        """One claim, held. This is the Phase 3 entry point."""
+        terminal, claim = tx._begin(
+            narrator_id=self.narrator_id, turn_id="t-1", user_text=user_text,
+            session_id=self.conv_id, turn_key=turn_key,
+            **self._BEGIN_DEFAULTS)
+        return terminal, claim
 
     def _ledger(self, narrator=None):
         con = sqlite3.connect(str(self.db_path))
@@ -468,13 +502,14 @@ class DeferLifecycleTest(_ResultCase):
                          "as a result an operator can review")
         self.assertEqual(out.status, "failed")
 
-    def test_a_retry_after_a_yield_opens_no_second_claim(self):
-        """Half of the invariant, and the half that holds today.
+    def test_re_entering_begin_is_refused_which_is_why_the_claim_is_held(self):
+        """The reason the coordinator must hold the claim.
 
-        A second attempt at one turn_key never opens a second ledger
-        row -- the UNIQUE index is the mechanism. The OTHER half (that
-        the retry actually re-runs) does not hold; see the skipped test
-        below, which is the Phase 3 blocker this class found.
+        Re-entering through extract_completed_turn() is refused as
+        `duplicate` -- correctly, because that is what the ledger's
+        UNIQUE index is for and a genuine replay must not extract twice.
+        The consequence is simply that re-entry is not the retry path.
+        Retry resumes the held claim instead; see the test below.
         """
         _row, key = self._turn()
 
@@ -485,18 +520,64 @@ class DeferLifecycleTest(_ResultCase):
         self.assertEqual(len(first), 1)
         first_id = first[0]["id"]
 
-        # The retry the scheduler will perform once the model is free.
         tx._call_extractor = lambda _r: self._response
         out = self._extract(key)
 
         after = self._ledger()
         self.assertEqual(len(after), 1,
                          "a retried turn must not open a second claim")
-        self.assertEqual(after[0]["id"], first_id,
-                         "the retry must land on the original claim")
-        # Recorded rather than asserted-as-desirable: the retry is
-        # currently refused as a duplicate. That is the gap.
-        self.assertEqual(out.status, "duplicate")
+        self.assertEqual(after[0]["id"], first_id)
+        self.assertEqual(out.status, "duplicate",
+                         "re-entry is refused -- hold the claim instead")
+        self.assertEqual(self._rows(), [],
+                         "and a refused re-entry writes no result")
+
+    def test_resuming_a_held_claim_neither_loses_nor_duplicates_it(self):
+        """THE PHASE 3 ACCEPTANCE. A new chat turn can take the model
+        mid-extraction. The claim must survive that exactly once: not
+        vanish (the turn would silently never extract) and not double
+        (the operator would review the same facts twice).
+
+        Drives the mechanism the coordinator must use -- one _begin(),
+        then _complete_claim() on the SAME claim object when the model
+        frees up. No second _begin(), no re-claim of the ledger row.
+        """
+        _row, key = self._turn()
+        calls = {"n": 0}
+
+        def _yield_once_then_succeed(_req):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise _Deferred("chat took the model")
+            return self._response
+
+        tx._call_extractor = _yield_once_then_succeed
+
+        terminal, claim = self._claim(key)
+        self.assertIsNone(terminal, "the claim should have been acquired")
+        self.assertIsNotNone(claim)
+
+        first = asyncio.run(tx._complete_claim(claim))     # yields
+        self.assertEqual(first.status, "failed")
+        self.assertEqual(self._rows(), [],
+                         "a yield must not leave a reviewable result")
+
+        second = asyncio.run(tx._complete_claim(claim))    # resumes
+        self.assertEqual(second.status, "succeeded")
+
+        self.assertEqual(calls["n"], 2, "the retry must actually re-run")
+        led = self._ledger()
+        self.assertEqual(len(led), 1, "one turn, one claim")
+        self.assertEqual(led[0]["outcome"], "succeeded",
+                         "the resumed claim closes on its real outcome")
+
+        rows = self._rows()
+        self.assertEqual(len(rows), 1,
+                         "one turn, one reviewable result, however many "
+                         "times the scheduler had to yield")
+        self.assertEqual(rows[0]["turn_key"], key)
+        self.assertEqual(rows[0]["status"], "succeeded")
+        self.assertEqual(rows[0]["item_count"], 1)
 
     def test_a_terminal_resource_failure_closes_the_claim_with_no_result(self):
         _row, key = self._turn()
@@ -531,58 +612,6 @@ class DeferLifecycleTest(_ResultCase):
         self.assertNotIn(key_a, keys,
                          "a deferred turn must never be offered to Projection "
                          "Sync or Shadow Review as a reviewable proposal")
-
-    def test_a_yield_mid_flight_neither_loses_nor_duplicates_the_claim(self):
-        """PHASE 3 BLOCKER, FOUND BY THIS TEST -- SKIPPED, NOT PASSING.
-
-        A new chat turn can cause a yield. The claim must survive it
-        exactly once: not vanish (the turn would silently never extract)
-        and not double (the operator would review it twice).
-
-        It vanishes. `_begin()` at turn_extraction.py:633 returns
-        `duplicate` for ANY second attempt at a turn_key that already
-        owns a ledger row, regardless of how the first attempt ended.
-        There is no retryable state. So the second call below never
-        reaches the extractor at all, and the turn's extraction is lost
-        permanently.
-
-        This is unreachable in Phase 2 because nothing yields yet --
-        extraction either runs or fails terminally, and a terminal
-        failure SHOULD stay closed. It becomes reachable the moment the
-        Phase 3 coordinator hands the model to chat.
-
-        Written now rather than after Phase 3 so the requirement is
-        inherited rather than remembered. Whoever opens the retry door
-        removes this skip, and this test is what proves the fix.
-        """
-        self.skipTest(
-            "Phase 3 blocker: a claimed turn cannot be re-attempted. "
-            "_begin() refuses every second attempt as `duplicate` with no "
-            "retryable state, so a scheduler yield loses the extraction. "
-            "Remove this skip when Phase 3 introduces a re-claimable "
-            "outcome; the body below is the acceptance for that change.")
-
-        _row, key = self._turn()
-        calls = {"n": 0}
-
-        def _yield_once_then_succeed(_req):
-            calls["n"] += 1
-            if calls["n"] == 1:
-                raise _Deferred("chat took the model")
-            return self._response
-
-        tx._call_extractor = _yield_once_then_succeed
-
-        self._extract(key)          # yields
-        self._extract(key)          # scheduler retries
-
-        self.assertEqual(calls["n"], 2)
-        self.assertEqual(len(self._ledger()), 1)
-        rows = self._rows()
-        self.assertEqual(len(rows), 1,
-                         "one turn, one reviewable result, however many "
-                         "times the scheduler had to yield")
-        self.assertEqual(rows[0]["turn_key"], key)
 
 
 class _Deferred(RuntimeError):
@@ -641,6 +670,100 @@ class NegotiationTest(unittest.TestCase):
         self.assertGreater(cap, 0)
         self.assertGreater(sched, cap,
                            "the capability check must run before scheduling")
+
+
+class HarnessStructureGuardTest(unittest.TestCase):
+    """Pins the shape of the executing harness itself.
+
+    On 2026-07-31 the Chromium arm died with `Cannot set properties of
+    undefined` before a single case ran, while the plain-Node arm had
+    been reporting 49/49 PASS. The cause was that the two runners used
+    DIFFERENT mechanisms: Node injected source into one vm context, and
+    Chromium handed function OBJECTS to addInitScript and evaluate. A
+    function passed to page.evaluate arrives as source with its Node
+    closure stripped, so a lexical `H` that Node resolved from module
+    scope was unresolvable in the browser -- and the two calls are not
+    guaranteed to share the world the stubs were installed in either.
+
+    Everything below guards against that returning. It reads
+    COMMENT-STRIPPED source: the prose above the runners quotes
+    `addInitScript` and `page.evaluate(runCases)` by name to explain why
+    they are banned, and a raw scan would fire on the explanation. That
+    is the eighth time this session; it is a rule, not an accident.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from tests.source_scan_helpers import strip_js_comments
+        p = Path(__file__).resolve().parents[1] / "scripts" / "ui" \
+            / "run_extraction_result_consumer.js"
+        cls.raw = p.read_text(encoding="utf-8")
+        cls.src = strip_js_comments(cls.raw)
+
+    def test_no_function_object_is_handed_to_the_browser(self):
+        self.assertNotIn("addInitScript", self.src,
+                         "addInitScript runs against every new document; a "
+                         "later setContent gave us two worlds and state "
+                         "visible in only one. Inject source instead.")
+        for banned in ("page.evaluate(runCases", "page.evaluate(preflight",
+                       "page.evaluate(installStubs"):
+            self.assertNotIn(banned, self.src,
+                             banned + " passes a function object; it loses "
+                             "its closure in transit.")
+
+    def test_the_browser_is_driven_by_named_expression_strings(self):
+        self.assertIn('page.evaluate("__harnessPreflight()")', self.src)
+        self.assertIn('page.evaluate("__runHarnessCases()")', self.src)
+
+    def test_both_runners_inject_the_same_three_fragments_in_order(self):
+        for runner_marker in ("addScriptTag", "runInContext"):
+            self.assertIn(runner_marker, self.src)
+        # Same bundle builders feed both runners -- two calls each.
+        self.assertEqual(self.src.count("harnessSourceBefore()"), 3,
+                         "one definition plus one call per runner")
+        self.assertEqual(self.src.count("harnessSourceAfter()"), 3,
+                         "one definition plus one call per runner")
+
+    def test_state_is_reached_only_through_the_named_accessor(self):
+        # installStubs installs it; harnessState reads it; nothing else
+        # may name the global directly.
+        hits = self.src.count("__extractionResultHarness")
+        self.assertEqual(hits, 4,
+                         "Exactly four are legitimate:\n"
+                         "  1. the install in installStubs()\n"
+                         "  2. the read in harnessState()\n"
+                         "  3. the preflight's existence read -- deliberate, "
+                         "it must run BEFORE harnessState() would throw\n"
+                         "  4. that check's label string\n"
+                         "Found %d. A fifth means a stub or a case is "
+                         "reaching the global directly instead of through "
+                         "harnessState(), which is what broke on "
+                         "2026-07-31." % hits)
+        self.assertNotIn("window.__H", self.src,
+                         "the old ad-hoc handle is gone; it is what broke")
+
+    def test_the_preflight_runs_before_the_cases_in_both_runners(self):
+        for runner in ("runInNode", "runInChromium"):
+            i = self.src.index("function " + runner) if ("function " + runner)\
+                in self.src else self.src.index(runner + "(")
+            body = self.src[i:i + 2600]
+            pre = body.find("__harnessPreflight()")
+            run = body.find("__runHarnessCases()")
+            self.assertNotEqual(pre, -1, runner + " skips the preflight")
+            self.assertNotEqual(run, -1, runner + " never runs the cases")
+            self.assertLess(pre, run,
+                            runner + " runs cases before proving it is wired")
+
+    def test_an_unwired_harness_cannot_report_success(self):
+        self.assertIn("PREFLIGHT FAILED", self.src)
+        self.assertIn("if (checks === null) process.exit(1);", self.src,
+                      "a refused preflight must exit non-zero, not fall "
+                      "through to a report of zero checks")
+
+    def test_the_mutation_seam_defaults_to_the_real_production_file(self):
+        self.assertIn("process.env.HARNESS_INTERVIEW_JS", self.src)
+        self.assertIn('path.join(REPO, "ui", "js", "interview.js")', self.src,
+                      "the override must fall back to the shipped file")
 
 
 class BrowserArchitectureGuardTest(unittest.TestCase):
