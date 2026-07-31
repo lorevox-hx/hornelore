@@ -25,6 +25,15 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from . import trip_repository
 from . import trip_story_capture
+# WO-TRIP-NARRATOR-BRIDGE-01 §1D. Imported for exactly two pure
+# functions -- the photo-capability classifier and its composer -- so
+# that both Lori surfaces answer "can you see my photos?" from ONE set
+# of rules. LAW 3 is intact: neither function reads runtime71 or shelf
+# state, and the module they live in imports only trip_repository and
+# evidence_text, so there is no cycle and no runtime reached through it.
+# The shelf-coupled entry point in that module, context_block_for_turn,
+# is deliberately not called here.
+from . import trip_interview_context as _tic
 from .evidence_text import sanitize_for_prompt
 
 SOURCE_SURFACE = "travel_doc_modal"
@@ -361,6 +370,41 @@ def answer_modal_direct_question(
     if not pkt.get("photo_link_id") and sc.get("active_photo_link_id"):
         pkt = _photo_packet(sc.get("active_trip_id"),
                             sc.get("active_photo_link_id"))
+    # WO-TRIP-NARRATOR-BRIDGE-01 §1D. "can you see any of the photos I
+    # added to my trip?" -- the plural, whole-trip capability question.
+    #
+    # The two patterns below are about ONE photograph: _DATE_Q_RX wants
+    # "when was THIS taken", _ABOUT_Q_RX wants "tell me about THIS
+    # photo". Neither matches the plural form, so the live modal sent it
+    # to the model, which answered "I'm a listener, not a viewer" -- true
+    # about vision, silent about the two photographs actually sitting on
+    # the trip, and it closed by asking him what he wanted to discuss.
+    # He asked a question with a number for an answer and got a question
+    # back.
+    #
+    # The classifier and the composer are the narrator side's, not copies
+    # of them. Two surfaces answering the same question from two sets of
+    # rules is how one of them quietly becomes wrong: the divergence
+    # would show up as Lori being honest in the Narrator Room and vague
+    # in Travel Doc, which is exactly the shape nobody would think to
+    # test for.
+    #
+    # Ordered first, and safely: a capability question needs second-person
+    # phrasing plus a reaching verb, or an inventory opener, and neither
+    # single-photo pattern can supply either. A test asserts that
+    # disjointness rather than leaving it to be re-derived.
+    if _tic.is_photo_capability_question(text):
+        ctx = _tic.build_trip_interview_context(
+            person_id,
+            sc.get("active_trip_id"),
+            active_trip_stop_id=sc.get("active_trip_stop_id"),
+            active_photo_link_id=sc.get("active_photo_link_id"))
+        # A trip that is missing or not his yields None, and falling
+        # through is the honest response: better an unanswered question
+        # than a confident count of somebody else's photographs.
+        if ctx:
+            return _tic.compose_photo_capability_answer(ctx)
+
     if _DATE_Q_RX.search(text):
         if pkt.get("approved_taken_date"):
             return ("The approved taken date for this photo is "
