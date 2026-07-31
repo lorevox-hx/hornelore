@@ -1516,7 +1516,11 @@ function applyCompletedTurnExtractionResult(result, context) {
       var projected = LorevoxProjectionSync.projectValue(fieldPath, item.value, {
         source: "backend_extract",
         turnId: turnId,
-        confidence: item.confidence || 0.8
+        confidence: item.confidence || 0.8,
+        // The conversation this fact CAME FROM, not the one open now.
+        // A delayed result would otherwise be logged against whatever
+        // session happened to be on screen when it landed.
+        convId: (ctx.convId || res.conv_id || null)
       });
 
       if (projected) {
@@ -1603,12 +1607,84 @@ var _extractAndProjectMultiField = requestLegacyFieldExtraction;
    harness, replay, and dev.
 ═══════════════════════════════════════════════════════════════ */
 
-/* When true, _runDeferredInterviewExtraction() does not fire. The queue
-   producers are left alone deliberately: they write a small object that
-   nobody reads, which is cheaper and far less risky than unpicking two
-   producers and two flush sites, and it leaves one switch to flip if
-   this ever has to be reversed in a hurry. */
-var _BACKEND_OWNS_EXTRACTION = true;
+/* WHO OWNS EXTRACTION — ANSWERED BY THE RUNNING SERVER, NOT BY THIS FILE.
+
+   `_BACKEND_OWNS_EXTRACTION` is the implementation default and an
+   emergency switch. It is NOT the evidence. The evidence is the
+   versioned capability the server sends on connect:
+
+       status.capabilities.field_extraction_owner === "backend_result_v1"
+
+   Why it cannot be a constant here: this JavaScript is cached, and the
+   backend is deployed separately. A stale page against a newer server
+   would keep double-extracting; a newer page against an older server
+   would stop extracting and receive nothing back, so Shadow Review
+   would just go quiet. Both failures are silent, and losing the
+   narrator's extracted facts silently is the worst version of this.
+
+   The default is FALSE — the legacy behaviour, which is the one that
+   has always worked — and only a live server saying otherwise turns it
+   off. An unreachable or older server therefore degrades to the known
+   path rather than to no path.
+
+   Set _BACKEND_OWNS_EXTRACTION_OVERRIDE = true|false to force either
+   side by hand; the override wins over negotiation for exactly the
+   emergency the work order allows for. */
+var _BACKEND_OWNS_EXTRACTION = false;
+var _BACKEND_OWNS_EXTRACTION_OVERRIDE = null;
+var _FIELD_EXTRACTION_OWNER = null;   // what the server last advertised
+
+/* What THIS browser can receive. Sent on every start_turn.
+
+   The server schedules backend extraction only for a client that
+   declares this. Without it, an old page against a new server would
+   POST /api/extract-fields while the server also extracted — the exact
+   duplicate this phase removes. One end advertising is not negotiation. */
+var CLIENT_FIELD_EXTRACTION_PROTOCOL = "v1";
+
+function clientExtractionCapabilities() {
+  // An operator who has forced the legacy path must ALSO stop claiming
+  // support, or the server would keep extracting for a browser that has
+  // gone back to doing it itself. The override participates in the
+  // per-connection decision rather than sitting outside it.
+  if (_BACKEND_OWNS_EXTRACTION_OVERRIDE === false) return {};
+  return { field_extraction_result: CLIENT_FIELD_EXTRACTION_PROTOCOL };
+}
+
+/* Decide who owns extraction, from the running server's status frame.
+
+   Named and exported so the Node harness can execute the real decision
+   rather than source-scan it, and so app.js only has to delegate. */
+function applyExtractionCapabilities(statusFrame) {
+  var caps = (statusFrame && statusFrame.capabilities) || {};
+  var owner = caps.field_extraction_owner || null;
+  _FIELD_EXTRACTION_OWNER = owner;
+  var backend = (owner === "backend_result_v1");
+
+  if (_BACKEND_OWNS_EXTRACTION_OVERRIDE !== null) {
+    // The override can only ever REDUCE to the legacy path. It cannot
+    // claim backend ownership from a server that never offered it --
+    // that combination is the one with no extractor at all, and an
+    // override must not be able to create it.
+    _BACKEND_OWNS_EXTRACTION =
+      (_BACKEND_OWNS_EXTRACTION_OVERRIDE === true) ? backend : false;
+    console.log("[extract][ownership] OVERRIDE: backend="
+                + _BACKEND_OWNS_EXTRACTION + " (server offered " + owner + ")");
+    return _BACKEND_OWNS_EXTRACTION;
+  }
+
+  _BACKEND_OWNS_EXTRACTION = backend;
+  console.log("[extract][ownership] server offers " + (owner || "nothing")
+              + " — " + (backend
+                ? "backend owns extraction; browser transport idle"
+                : "no backend owner; browser keeps the legacy path"));
+  return _BACKEND_OWNS_EXTRACTION;
+}
+
+/* Retained name for older callers. */
+function noteServerCapabilities(caps) {
+  return applyExtractionCapabilities({ capabilities: caps });
+}
 
 /* Which turn_keys this browser has already applied.
 
@@ -1666,13 +1742,50 @@ function applyExtractionResultFrame(msg, opts) {
     return false;   // deliberately NOT acknowledged — stays pending
   }
 
+  // SAME PERSON, DIFFERENT CONVERSATION — APPLIED, NOT REFUSED.
+  //
+  // RULE B, chosen after tracing what this consumer actually writes.
+  // Everything it touches is narrator-scoped: projection-sync persists
+  // with person_id alone (projection-sync.js:546), resets per narrator
+  // (resetForNarrator), and state.interviewProjection.fields is the
+  // narrator's. Nothing downstream is keyed by conversation.
+  //
+  // So a strict active-conversation gate would buy no safety and would
+  // strand results permanently: close the browser mid-extraction, come
+  // back, get a fresh conv_id, and a correct fact about this narrator
+  // could never be applied again. "Pending forever" is a worse outcome
+  // than applying a fact to the person it demonstrably belongs to.
+  //
+  // conv_id stays IMMUTABLE PROVENANCE. It is recorded with the write
+  // (below) so the audit log says which conversation produced the fact
+  // -- it is never used to decide the target field, the section, or the
+  // source text, all of which come bound to the result.
+  var activeConv = (state && state.chat && state.chat.conv_id) || "";
+  if (m.conv_id && activeConv && m.conv_id !== activeConv) {
+    console.log("[extract][result] cross-conversation apply: from "
+      + m.conv_id + " while " + activeConv + " is open — same narrator, "
+      + "provenance preserved");
+  }
+
   if (_appliedExtractionKeys[turnKey]) {
     console.log("[extract][result] already applied " + turnKey);
     return false;
   }
 
+  // THE RESULT'S OWN TEXT, never the browser's latest input.
+  //
+  // _lastUserTurn names whatever was typed most recently, which is a
+  // DIFFERENT turn whenever two extractions finish out of order. Using
+  // it would show Turn A's extracted fields beside Turn B's words in
+  // Shadow Review -- the fields would be attributed correctly and the
+  // evidence beside them would be wrong, in the one surface an operator
+  // uses to check exactly that.
+  //
+  // A catch-up result carries no text (the transcript is not duplicated
+  // into the result table), so Shadow Review shows the claims without a
+  // source echo. That is a smaller loss than a confident wrong one.
   var ok = applyCompletedTurnExtractionResult(m, {
-    answerText: (opts && opts.answerText) || "",
+    answerText: m.answer_text || "",
     turnId: m.turn_id || "",
   });
   _markExtractionKeyApplied(turnKey);

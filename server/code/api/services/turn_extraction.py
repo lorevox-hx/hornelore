@@ -912,7 +912,18 @@ async def _offer_result(
     if cb is None:
         return
     try:
-        await cb(out, clarification_required)
+        # The claim's OWN text travels with the result. The browser needs
+        # it to show Shadow Review what these claims came from, and the
+        # only other source it has is "whatever was typed most recently"
+        # -- which is a different turn whenever two extractions finish
+        # out of order. Turn B's words beside Turn A's extracted fields
+        # is a quiet mis-attribution in the one surface an operator uses
+        # to check attribution.
+        #
+        # Carried on the FRAME, not stored in the result table: the work
+        # order forbids duplicating the transcript for convenience, and
+        # `turns` already holds it.
+        await cb(out, clarification_required, claim.user_text)
     except asyncio.CancelledError:
         raise
     except Exception as send_exc:

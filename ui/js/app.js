@@ -6017,6 +6017,22 @@ async function sendUserMessage(){
         turn_id:_audioTurnId,
         transcript_language:_transcript_language,
         transcript_language_probability:_transcript_language_probability,
+        // WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 2 —
+        // THE CLIENT HALF OF THE NEGOTIATION.
+        //
+        // A server capability alone cannot prevent double extraction: an
+        // OLD page has never heard of it, keeps POSTing
+        // /api/extract-fields, and a new server would schedule its own
+        // backend extraction alongside — reproducing the exact
+        // regression this phase exists to remove. The server therefore
+        // schedules backend extraction only for a client that says it
+        // can receive the result.
+        //
+        // Sent per turn rather than per connection so a reconnect,
+        // a socket swap or a mid-session reload cannot leave the two
+        // ends disagreeing about who is extracting.
+        client_capabilities: (typeof clientExtractionCapabilities === "function")
+          ? clientExtractionCapabilities() : undefined,
       }}));
     // Safety timeout: if no response within 30s, unstick the UI
     // WO-S3: Guard against stacked unavailable messages — only show once
@@ -6078,7 +6094,14 @@ async function sendSystemPrompt(instruction){
     const _llmTs = (window._lv10dLlmParams && window._lv10dLlmParams.temperature) || 0.7;
     const _llmMs = (window._lv10dLlmParams && window._lv10dLlmParams.max_new_tokens) || 512;
     ws.send(JSON.stringify({type:"start_turn",session_id:state.chat.conv_id||"default",
-      message:instruction,params:{person_id:state.person_id,temperature:_llmTs,max_new_tokens:_llmMs,runtime71:_rt71sys}}));
+      message:instruction,params:{person_id:state.person_id,temperature:_llmTs,max_new_tokens:_llmMs,runtime71:_rt71sys,
+        // Declared here too. This path sends [SYSTEM: ...] directives,
+        // which Phase 1 already excludes from extraction — but the
+        // declaration must be on every start_turn, not on the ones we
+        // happen to expect extraction from, or the two ends can
+        // disagree on a turn nobody predicted.
+        client_capabilities: (typeof clientExtractionCapabilities === "function")
+          ? clientExtractionCapabilities() : undefined}}));
     // Safety timeout: if no response within 120s, unstick the UI
     // WO-11: Only show unavailable if WS is genuinely disconnected
     //
@@ -6652,12 +6675,12 @@ function handleWsMessage(j){
   if(j.type==="field_extraction_result"){
     try {
       if (typeof applyExtractionResultFrame === "function") {
-        // _lastUserTurn is the narrator's most recent words (app.js:5818).
-        // Used ONLY to give Shadow Review something to show the claims
-        // against, and deliberately not used to decide anything: a
-        // result that finished out of order belongs to its own turn_key,
-        // not to whatever was typed most recently.
-        applyExtractionResultFrame(j, { answerText: (_lastUserTurn || "") });
+        // NOTHING FROM THIS SCOPE IS PASSED IN. The frame carries its
+        // own person, conversation, turn_key and source text, because a
+        // result that finished out of order belongs to its own turn --
+        // not to whatever this browser most recently typed, sent or
+        // displayed. _lastUserTurn deliberately does not appear here.
+        applyExtractionResultFrame(j);
       }
     } catch (e) {
       // A result that cannot be applied is still on the server, still
@@ -6751,7 +6774,18 @@ function handleWsMessage(j){
     if(ci){ ci.disabled=false; ci.placeholder="Type a message…"; }
     console.log("[WO-2] Session verified for person_id:", j.person_id);
   }
-  if(j.type==="status") pill("pillWs", j.state==="connected"||j.state==="generating");
+  if(j.type==="status") {
+    pill("pillWs", j.state==="connected"||j.state==="generating");
+    // WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 2.
+    // The running server tells us who owns field extraction. The
+    // browser does not decide this from a constant in its own cached
+    // JavaScript — see noteServerCapabilities() for why that failure
+    // would be silent in both directions.
+    if (j.capabilities && typeof noteServerCapabilities === "function") {
+      try { noteServerCapabilities(j.capabilities); }
+      catch (e) { console.warn("[extract][ownership] negotiation failed:", e && e.message); }
+    }
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════

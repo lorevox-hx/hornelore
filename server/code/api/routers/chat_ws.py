@@ -356,7 +356,27 @@ def _normalized_modal_scope(
 @router.websocket("/ws")
 async def ws_chat(ws: WebSocket):
     await ws.accept()
-    await _ws_send(ws, {"type": "status", "state": "connected"})
+    # WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 2 — CAPABILITY
+    # NEGOTIATION, advertised by the process that will actually do the
+    # work.
+    #
+    # The browser must not decide who owns extraction from a constant
+    # compiled into its own JavaScript. A cached page against a newer
+    # server would stop extracting and never be told; a newer page
+    # against an older server would stop extracting and get nothing back
+    # -- Shadow Review would simply go quiet. Both are silent, and a
+    # silent loss of the narrator's extracted facts is the worst shape
+    # this failure can take.
+    #
+    # VERSIONED, because the next owner change must be distinguishable
+    # from this one rather than inferred from its absence.
+    await _ws_send(ws, {
+        "type": "status",
+        "state": "connected",
+        "capabilities": {
+            "field_extraction_owner": "backend_result_v1",
+        },
+    })
 
     # ── WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §3.2 (2026-07-24) ──
     # PER-TURN cancellation event. The old socket-wide pattern was
@@ -496,6 +516,7 @@ async def ws_chat(ws: WebSocket):
     async def _deliver_extraction_result(
         outcome: Any,
         clarification_required: Any = None,
+        source_text: str = "",
     ) -> None:
         """Send one finished extraction back to the browser that caused it.
 
@@ -550,6 +571,19 @@ async def ws_chat(ws: WebSocket):
                       if st == "succeeded" else []),
             "clarification_required": (list(clarification_required or [])
                                        if st == "succeeded" else []),
+            # THE TEXT THIS RESULT CAME FROM, carried with it.
+            #
+            # Shadow Review shows extracted claims beside the words that
+            # produced them. The browser's only other source for those
+            # words is its "most recent input" variable, which names a
+            # DIFFERENT turn whenever two extractions finish out of
+            # order -- and mis-attributed provenance in the surface an
+            # operator uses to check attribution is worse than no
+            # provenance at all.
+            #
+            # Sent, not stored: `turns` already holds the transcript and
+            # the result table must not become a second copy of it.
+            "answer_text": (source_text or "") if st == "succeeded" else "",
         }, ensure_ascii=False))
 
     async def _run_completed_turn_extraction(
@@ -612,6 +646,31 @@ async def ws_chat(ws: WebSocket):
             # Cheapest gate first — most short-circuit modes exit here
             # without importing db or touching the ledger at all.
             if not _eligible(turn_mode):
+                return
+
+            # WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 2 —
+            # THE SERVER HALF OF THE NEGOTIATION.
+            #
+            # Extract only for a browser that said it can receive the
+            # result. A page that predates this protocol still runs its
+            # own POST to /api/extract-fields; if this ran anyway, that
+            # turn would be extracted TWICE -- which is the whole defect
+            # this phase exists to remove, reappearing the moment a
+            # stale tab reconnects to a fresh server.
+            #
+            # Declining is safe in a way that proceeding is not: the old
+            # browser is already extracting, so the narrator loses
+            # nothing. Neither end may assume the other has been
+            # upgraded.
+            _client_caps = params.get("client_capabilities")
+            _client_caps = _client_caps if isinstance(_client_caps, dict) else {}
+            if _client_caps.get("field_extraction_result") != "v1":
+                logger.info(
+                    "[extract-turn] skipped conv=%s — client did not declare "
+                    "field_extraction_result=v1; it owns extraction on this "
+                    "turn (declared=%s)",
+                    conv_id, _client_caps.get("field_extraction_result") or "-",
+                )
                 return
 
             # A cancelled turn did not complete for the narrator. Its

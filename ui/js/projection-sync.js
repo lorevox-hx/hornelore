@@ -660,7 +660,19 @@
       resultBucket: meta.resultBucket || null,
       confidence:   meta.confidence != null ? meta.confidence : null,
       personId: (typeof state !== "undefined" ? state.person_id : null),
-      convId:   (typeof state !== "undefined" && state.chat ? state.chat.conv_id : null)
+      // WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 2.
+      // meta.convId FIRST, falling back to the current conversation.
+      //
+      // A backend extraction result can arrive seconds late and out of
+      // order, so `state.chat.conv_id` is not necessarily the
+      // conversation the fact came from. Reading it unconditionally
+      // stamped the audit log with whatever was open at write time --
+      // the one field in this record whose entire job is to say where a
+      // value originated.
+      convId:   (meta && meta.convId)
+                  ? meta.convId
+                  : ((typeof state !== "undefined" && state.chat)
+                      ? state.chat.conv_id : null)
     });
 
     if (proj.syncLog.length > SYNC_LOG_CAP) {
