@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import re
+from collections import OrderedDict as _OrderedDict
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from fastapi import APIRouter, HTTPException
@@ -603,11 +604,12 @@ def _mark_llm_unavailable(reason: str = "unknown") -> None:
 def _build_extraction_prompt(answer: str, current_section: Optional[str], current_target: Optional[str]) -> tuple[str, str]:
     """Build system + user prompts for multi-field extraction."""
 
-    # Build field catalog for the prompt
-    field_lines = []
-    for path, meta in EXTRACTABLE_FIELDS.items():
-        field_lines.append(f'  "{path}": "{meta["label"]}" [{meta["writeMode"]}]')
-    field_catalog = "\n".join(field_lines)
+    # NOTE (Phase 5, 2026-07-31): a `field_catalog` string of the form
+    #   "path": "Label" [writeMode]
+    # was assembled here on every call and then never used -- ~8,500 chars
+    # built and discarded per extraction. Removed. The string that is
+    # actually sent is `compact_catalog` below, which carries no writeMode
+    # at all, so nothing the model could see has changed by deleting it.
 
     # Build a COMPACT field list — only fields relevant to the current section
     # to reduce prompt size for small context windows
@@ -1525,6 +1527,129 @@ def _promptshrink_enabled() -> bool:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 5 — bounded extraction
+# ─────────────────────────────────────────────────────────────────────────────
+def _extraction_bounded_enabled() -> bool:
+    """ONE flag for 5A and 5B together, default OFF.
+
+    They are deliberately not separable. 5A (raw_ephemeral + fail-closed
+    budget) against the CURRENT ~12,300-token prompt would correctly
+    refuse every single extraction, because the prompt genuinely does not
+    fit. 5B (the bounded prompt) without 5A would still be wrapped in
+    ~18,000 chars of Lori persona by the chat composer and would still
+    not fit. Either alone is a worse state than today; together they are
+    the fix. Chris, 2026-07-31: "land behind the Phase 5 flag or
+    atomically with 5B."
+
+    OFF reproduces the historical path byte-for-byte, which is what makes
+    eval arm A runnable for comparison.
+    """
+    return os.getenv("HORNELORE_EXTRACTION_BOUNDED", "0").lower() in (
+        "1", "true", "yes", "on")
+
+
+def _compact_field_catalog() -> str:
+    """All 140 field paths, grouped by section.
+
+    COMPACTED, NOT FILTERED. Every path in EXTRACTABLE_FIELDS is present
+    and reconstructable as "<section>.<field>"; nothing is omitted and no
+    section is dropped. That is Chris's Phase 5 constraint, and the
+    reason for it is that the historical baseline was measured with the
+    catalog possibly missing altogether -- changing catalog VISIBILITY
+    and catalog COVERAGE in the same commit would leave an eval nobody
+    could interpret. Filtering is arm D, later, and only once B has
+    established a clean baseline.
+
+    What is dropped is the human-readable label ("personal.fullName" no
+    longer carries "=Full Name"). The path is self-describing and the
+    label was costing ~5,200 chars to restate it. 8,456 -> ~2,100 chars.
+    """
+    by_section: "OrderedDict[str, list[str]]" = _OrderedDict()
+    for path in EXTRACTABLE_FIELDS:
+        section, _, field = path.partition(".")
+        by_section.setdefault(section, []).append(field or path)
+    return "\n".join(f"{s}: " + ", ".join(f) for s, f in by_section.items())
+
+
+def _build_extraction_prompt_bounded(
+    answer: str,
+    current_section: Optional[str],
+    current_target: Optional[str],
+) -> tuple[str, str]:
+    """Phase 5 candidate B. Same (system, user) interface as the others.
+
+    Assembles only what an extraction call actually needs:
+      preamble + compact 140-field catalog + routing distinctions
+      + <=8 topic-matched few-shots + the four rule blocks
+      (+ narrative few-shots when HORNELORE_NARRATIVE=1, preserving
+        current live behaviour rather than quietly removing a block that
+        earned its place in the r5e1 lift)
+
+    Not included, on purpose: Lori's persona, the safety directives, RAG
+    and chat history. Those arrive only via compose_system_prompt, which
+    the bounded path does not call -- an extraction request has no use
+    for any of them, and they were 52% of the prompt.
+    """
+    topics = _promptshrink_topics_for_target(current_target)
+    topics |= _promptshrink_topics_for_section(current_section)
+    max_n = int(os.getenv("HORNELORE_EXTRACTION_MAX_EXAMPLES", "8"))
+    fewshots = _promptshrink_select_fewshots(topics, max_examples=max_n)
+
+    system = (
+        _PROMPTSHRINK_PREAMBLE
+        + _compact_field_catalog()
+        + "\n"
+        + _PROMPTSHRINK_ROUTING_DISTINCTIONS
+        + "\n"
+        + "".join(fewshots)
+        + _PROMPTSHRINK_NEGATION_RULE
+        + _PROMPTSHRINK_SUBJECT_RULE
+        + _PROMPTSHRINK_SAME_ENTITY_RULE
+        + _PROMPTSHRINK_FIELD_ROUTING_RULES
+    )
+    if _narrative_field_enabled():
+        system += _NARRATIVE_FIELD_FEWSHOTS
+        if _attribution_boundary_enabled():
+            system += _ATTRIBUTION_BOUNDARY_FEWSHOT
+
+    # current_section / current_target REORDER emphasis via topic-matched
+    # few-shots; they never remove a field from the catalog above.
+    context_note = ""
+    if current_section:
+        context_note += f"\nCurrent interview section: {current_section}"
+    if current_target:
+        context_note += f"\nPrimary question target: {current_target}"
+
+    # The narrator's answer is carried WHOLE. It is the one component that
+    # can never be abbreviated to make a budget: abbreviating it changes
+    # what is true about the person.
+    user = (
+        f"Narrator's answer:{context_note}\n\n"
+        f"\"{answer}\"\n\n"
+        "Extract all facts as a JSON array:"
+    )
+    return system, user
+
+
+def _extraction_budget_components(system: str, user: str,
+                                  fewshot_n: int) -> Dict[str, int]:
+    """Character counts per component, for the structured budget log.
+
+    Characters, not tokens: only the tokenizer knows tokens and it lives
+    at the generation chokepoint. These are reported alongside the real
+    token total so an operator can see WHICH part grew. Counts only --
+    never the prompt text and never the narrator's words.
+    """
+    return {
+        "chars_system": len(system),
+        "chars_user": len(user),
+        "chars_catalog": len(_compact_field_catalog()),
+        "fewshot_n": fewshot_n,
+        "field_paths": len(EXTRACTABLE_FIELDS),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # WO-EX-NARRATIVE-FIELD-01 — narrative-target catchment few-shots (env-gated)
 #
 # Phase 1 diagnostic (cg01) showed the LLM emits narrative-field content but
@@ -1764,9 +1889,13 @@ def _extract_via_singlepass(answer: str, current_section: Optional[str], current
     except ImportError:
         return [], None
 
-    # WO-EX-PROMPTSHRINK-01: dispatch on env flag. Default OFF → legacy monolith.
-    # HORNELORE_PROMPTSHRINK=1 → topic-scoped prompt via _build_extraction_prompt_shrunk.
-    if _promptshrink_enabled():
+    # Phase 5 (bounded) wins over PROMPTSHRINK wins over the legacy monolith.
+    # All three default OFF, so an untouched checkout is byte-identical to
+    # the historical path and eval arm A stays runnable.
+    _bounded = _extraction_bounded_enabled()
+    if _bounded:
+        system, user = _build_extraction_prompt_bounded(answer, current_section, current_target)
+    elif _promptshrink_enabled():
         system, user = _build_extraction_prompt_shrunk(answer, current_section, current_target)
     else:
         system, user = _build_extraction_prompt(answer, current_section, current_target)
@@ -1787,9 +1916,39 @@ def _extract_via_singlepass(answer: str, current_section: Optional[str], current
     _extract_cap = _compound_cap if _is_compound_answer(answer) else _base_cap
     _extract_temp = float(os.getenv("EXTRACTION_TEMP", "0.15"))
     _extract_top_p = float(os.getenv("EXTRACTION_TOP_P", "0.9"))
-    logger.info("[extract][WO-10M] calling LLM max_new=%d temp=%.2f top_p=%.2f conv=%s",
-                _extract_cap, _extract_temp, _extract_top_p, ephemeral_conv_id)
-    raw = _try_call_llm(system, user, max_new=_extract_cap, temp=_extract_temp, top_p=_extract_top_p, conv_id=ephemeral_conv_id)
+    if _bounded:
+        # PHASE 5A: raw_ephemeral, and conv_id DELIBERATELY DROPPED.
+        #
+        # The composed path prepends Lori's persona/safety/RAG (~18,000
+        # chars, 52% on top of the extraction prompt) and, because it is
+        # handed a conv_id, calls add_turn twice per extraction. That is
+        # how 464 turns rows across 232 `_extract_*` conversations came
+        # to exist. raw_ephemeral sends the prompt verbatim and persists
+        # nothing; _try_call_llm REFUSES raw_ephemeral together with a
+        # conv_id, which is the contract making that structural rather
+        # than a habit.
+        #
+        # Dropping the ephemeral conv_id does not reopen what FIX-3
+        # closed. FIX-3 minted a unique conv_id per call to stop
+        # cross-narrator contamination through shared session/RAG state;
+        # raw_ephemeral reads no session and no RAG at all, so there is
+        # no shared state left to contaminate. The workaround is
+        # obsolete, not discarded.
+        logger.info(
+            "[extract][phase5] bounded prompt via raw_ephemeral "
+            "max_new=%d temp=%.2f top_p=%.2f fewshots=%d chars_sys=%d",
+            _extract_cap, _extract_temp, _extract_top_p,
+            system.count("Example"), len(system))
+        raw = _try_call_llm(
+            system, user, max_new=_extract_cap, temp=_extract_temp,
+            top_p=_extract_top_p, conv_id=None,
+            prompt_mode="raw_ephemeral", request_kind="extraction",
+            budget_components=_extraction_budget_components(
+                system, user, system.count("Example")))
+    else:
+        logger.info("[extract][WO-10M] calling LLM max_new=%d temp=%.2f top_p=%.2f conv=%s",
+                    _extract_cap, _extract_temp, _extract_top_p, ephemeral_conv_id)
+        raw = _try_call_llm(system, user, max_new=_extract_cap, temp=_extract_temp, top_p=_extract_top_p, conv_id=ephemeral_conv_id)
     if not raw:
         # Empty response: mark temporarily unavailable so we retry soon,
         # but do not get stuck for 2 minutes.

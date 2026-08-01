@@ -17,7 +17,20 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import List, Optional
+from typing import Dict, List, Optional
+
+# WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 5.
+#
+# Module scope, NOT a local import inside _try_call_llm. The whole point
+# of this class here is to be named in an `except` clause that runs
+# ahead of the blanket handler; a lazy import could fail at exactly the
+# moment the refusal needed catching, and the blanket clause would then
+# swallow it -- reintroducing the fail-open this was written to close.
+#
+# Safe to import eagerly even in USE_TTS=1 mode, which is why the module
+# docstring's warning about the LLM stack does not apply: services.
+# extraction_budget is pure stdlib and pulls in no model machinery.
+from .services.extraction_budget import ExtractionPromptBudgetExceeded
 
 # WO-10M: Summary / memoir token cap is launcher-tunable via env var.
 # Used by draft_section_summary() and draft_final_memoir(). Extraction has
@@ -25,7 +38,7 @@ from typing import List, Optional
 _WO10M_SUMMARY_CAP = int(os.getenv("MAX_NEW_TOKENS_SUMMARY", "1024"))
 
 
-def _try_call_llm(system_prompt: str, user_prompt: str, *, max_new: int, temp: float, top_p: float, conv_id: Optional[str] = None, prompt_mode: str = "composed") -> Optional[str]:
+def _try_call_llm(system_prompt: str, user_prompt: str, *, max_new: int, temp: float, top_p: float, conv_id: Optional[str] = None, prompt_mode: str = "composed", request_kind: str = "chat", budget_components: Optional[Dict[str, int]] = None) -> Optional[str]:
     """Return model text, or None if the LLM stack is unavailable.
 
     FIX-3: Accept optional conv_id to isolate extraction calls from shared
@@ -70,7 +83,9 @@ def _try_call_llm(system_prompt: str, user_prompt: str, *, max_new: int, temp: f
 
             txt = (_generate_raw_ephemeral(
                 system_prompt, user_prompt,
-                temp=temp, top_p=top_p, max_new=max_new) or "").strip()
+                temp=temp, top_p=top_p, max_new=max_new,
+                request_kind=request_kind,
+                budget_components=budget_components) or "").strip()
         else:
             # Local import so the server can still boot in USE_TTS=1 mode.
             from .api import chat, _ChatReq, ChatTurn  # type: ignore
@@ -94,6 +109,31 @@ def _try_call_llm(system_prompt: str, user_prompt: str, *, max_new: int, temp: f
         if not txt:
             logger.warning("[llm] LLM returned empty text for extraction request")
         return txt or None
+    except ExtractionPromptBudgetExceeded:
+        # WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 5.
+        #
+        # THIS RE-RAISE IS LOAD-BEARING. Without it the blanket handler
+        # below returns None, the caller reads that as "the LLM produced
+        # nothing", marks the LLM unavailable and falls through to the
+        # rules extractor -- so a prompt that was refused for being too
+        # big would come back as an ordinary empty result and the
+        # narrator's turn would be extracted by a weaker path with
+        # nobody told. That is fail-OPEN, and Chris's Phase 5 ruling
+        # forbids it: a budget violation must reach the ledger as
+        # error_class=ExtractionPromptBudgetExceeded.
+        #
+        # It sits ABOVE `except Exception` because ordering is the whole
+        # mechanism -- Python takes the first matching clause. This is
+        # the same shape as the raw_ephemeral/conv_id contract check
+        # above, which is deliberately outside the try block for the
+        # same reason, and the same lesson as INC-2026-07-09: a
+        # defensive except around a structural failure is a silencer,
+        # not a safety net.
+        #
+        # Deliberately narrow. Every OTHER extraction error keeps its
+        # existing degrade-to-None behaviour; widening that is a
+        # separate decision with its own evidence.
+        raise
     except ImportError as e:
         logger.warning("[llm] LLM stack not available (import failed): %s", e)
         return None

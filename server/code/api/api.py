@@ -69,6 +69,31 @@ TORCH_DTYPE = (os.getenv("TORCH_DTYPE", "bfloat16") or "bfloat16").strip().lower
 MAX_NEW_TOKENS = int(os.getenv("MAX_NEW_TOKENS", "3072"))
 MAX_CONTEXT_WINDOW = int(os.getenv("MAX_CONTEXT_WINDOW", "8192"))
 
+# WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 5.
+#
+# This module OWNS the window; extraction_budget owns the reserve policy
+# and the arithmetic. Keeping the window in exactly one place is what
+# stops the enforcement from ever disagreeing with the guard about how
+# big the window is -- a second os.getenv("MAX_CONTEXT_WINDOW") over
+# there would work today and silently diverge the first time one of them
+# was changed.
+#
+# Imported at module scope on purpose. extraction_budget is pure stdlib
+# and imports nothing from this package, so there is no cycle, and a
+# broken budget module must fail the BOOT rather than be caught by some
+# per-call handler and leave extraction running unguarded. That is the
+# standing lesson from INC-2026-07-09.
+from .services.extraction_budget import (            # noqa: E402
+    ExtractionPromptBudgetExceeded,
+    budget_for as _budget_for,
+)
+
+
+def _extraction_budget_for(*, max_new: int, prompt_tokens: int,
+                           components: Optional[Dict[str, int]] = None):
+    return _budget_for(window=MAX_CONTEXT_WINDOW, max_new=max_new,
+                       prompt_tokens=prompt_tokens, components=components)
+
 # session transcript folder exports (optional, still handy)
 MEMO_DIR = DATA_DIR / "memory" / "agents"
 SESSION_FS_DIR = MEMO_DIR / "sessions"
@@ -235,18 +260,53 @@ def _apply_chat_template(messages: List[Dict[str, str]]) -> str:
     return "\n".join(fmt(m) for m in messages) + "\nASSISTANT:\n"
 
 # ---------------- Non-streaming generation ----------------
-def _generate_text(model, tok, prompt: str, req: _ChatReq) -> str:
+def _generate_text(model, tok, prompt: str, req: _ChatReq,
+                   *, request_kind: str = "chat",
+                   budget_components: Optional[Dict[str, int]] = None) -> str:
     """Tokenize → VRAM-guard → generate → decode for the non-streaming path.
 
     WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01: single generation entry
     for chat() (composed) AND _generate_raw_ephemeral (internal raw mode) so
     tests can stub it and exercise routing/persistence contracts without
     loading the model.
+
+    WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 5: `request_kind`
+    decides what happens when the prompt does not fit.
+
+      "extraction" -- REFUSE. Never truncated. See the branch below.
+      "chat"       -- the historical tail-slice, now tagged as chat so the
+                      log says which lane spent the budget. Phase 4 replaces
+                      it with message-boundary trimming; until then it stays,
+                      but extraction must reach it ZERO times.
+
+    Measuring here rather than at the prompt builder is deliberate and is
+    Chris's requirement: this is the only place that sees the FINAL string
+    after _apply_chat_template, so the count includes the template's own
+    tokens. A builder-side estimate misses those and was, in the recon that
+    produced this phase, wrong by a wide margin.
     """
     inputs = tok(prompt, return_tensors="pt").to(model.device)
-    # WO-1 VRAM guard: truncate input to MAX_CONTEXT_WINDOW to prevent KV cache OOM
-    if inputs["input_ids"].shape[-1] > MAX_CONTEXT_WINDOW:
-        print(f"[VRAM-GUARD] Truncating input from {inputs['input_ids'].shape[-1]} to {MAX_CONTEXT_WINDOW} tokens")
+    n_tokens = int(inputs["input_ids"].shape[-1])
+
+    if request_kind == "extraction":
+        # FAIL CLOSED. There is no safe subset of an extraction prompt to
+        # discard: losing the front costs the field catalog and the model
+        # invents field paths; losing the tail costs the narrator's own
+        # words. So an oversized prompt is refused and the claim that owns
+        # it closes as failed, which an operator can see -- rather than
+        # producing candidates from a prompt that was quietly mutilated.
+        budget = _extraction_budget_for(
+            max_new=int(req.max_new), prompt_tokens=n_tokens,
+            components=budget_components)
+        print(f"[EXTRACT-BUDGET] {budget.as_log_fields()}")
+        if budget.exceeded:
+            raise ExtractionPromptBudgetExceeded(budget)
+    elif n_tokens > MAX_CONTEXT_WINDOW:
+        # WO-1 VRAM guard: keep the LAST MAX_CONTEXT_WINDOW tokens.
+        # NOTE it cuts the FRONT, where a system prompt lives. That is the
+        # defect Phase 4 exists to fix; it is tagged kind=chat here so the
+        # two lanes are distinguishable in api.log while both still appear.
+        print(f"[VRAM-GUARD] kind=chat Truncating input from {n_tokens} to {MAX_CONTEXT_WINDOW} tokens")
         inputs = {k: v[:, -MAX_CONTEXT_WINDOW:] for k, v in inputs.items()}
     # WO-S1: Centralized generation parameter guard — temp≤0 → greedy
     _temp = float(req.temp)
@@ -275,7 +335,10 @@ def _generate_text(model, tok, prompt: str, req: _ChatReq) -> str:
 
 def _generate_raw_ephemeral(system_prompt: str, user_prompt: str, *,
                             temp: float = 0.5, top_p: float = 0.9,
-                            max_new: int = 512) -> str:
+                            max_new: int = 512,
+                            request_kind: str = "chat",
+                            budget_components: Optional[Dict[str, int]] = None
+                            ) -> str:
     """WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 — raw ephemeral
     generation. INTERNAL Python API only, deliberately NOT an HTTP surface:
     /api/chat and /api/chat/stream reject any request that tries to reach
@@ -309,7 +372,9 @@ def _generate_raw_ephemeral(system_prompt: str, user_prompt: str, *,
         messages=[ChatTurn(role="system", content=system_prompt),
                   ChatTurn(role="user", content=user_prompt or "")],
         temp=temp, top_p=top_p, max_new=max_new)
-    return _generate_text(model, tok, prompt, req)
+    return _generate_text(model, tok, prompt, req,
+                          request_kind=request_kind,
+                          budget_components=budget_components)
 
 
 def _reject_smuggled_raw_mode(req: _ChatReq) -> None:
@@ -490,7 +555,11 @@ def chat_stream(req: _ChatReq):
             inputs = tok(prompt, return_tensors="pt").to(model.device)
             # WO-1 VRAM guard: truncate input to MAX_CONTEXT_WINDOW to prevent KV cache OOM
             if inputs["input_ids"].shape[-1] > MAX_CONTEXT_WINDOW:
-                print(f"[VRAM-GUARD] Truncating stream input from {inputs['input_ids'].shape[-1]} to {MAX_CONTEXT_WINDOW} tokens")
+                # Tagged kind=chat (Phase 5): this streaming path is chat-only
+                # — extraction is non-streaming and cannot reach it — but the
+                # tag is what makes "zero extraction truncations" provable by
+                # grep rather than by argument. Phase 4 replaces the slice.
+                print(f"[VRAM-GUARD] kind=chat Truncating stream input from {inputs['input_ids'].shape[-1]} to {MAX_CONTEXT_WINDOW} tokens")
                 inputs = {k: v[:, -MAX_CONTEXT_WINDOW:] for k, v in inputs.items()}
             streamer = TextIteratorStreamer(tok, skip_prompt=True, skip_special_tokens=True)
             # WO-S1: Centralized generation parameter guard — temp≤0 → greedy

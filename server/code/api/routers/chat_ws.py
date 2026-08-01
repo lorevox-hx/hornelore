@@ -4030,7 +4030,11 @@ async def ws_chat(ws: WebSocket):
         inputs = tok(prompt, return_tensors="pt").to(model.device)
         # WO-1 VRAM guard: truncate input to MAX_CONTEXT_WINDOW to prevent KV cache OOM
         if inputs["input_ids"].shape[-1] > MAX_CONTEXT_WINDOW:
-            logger.warning("[VRAM-GUARD] WS truncating input from %d to %d tokens",
+            # Tagged kind=chat (Phase 5). This is the narrator's own turn, so
+            # the front-cut here is removing Lori's system prompt — the defect
+            # Phase 4 exists to fix. Extraction never reaches this path; the
+            # tag is what lets that be proved by grep instead of asserted.
+            logger.warning("[VRAM-GUARD] kind=chat WS truncating input from %d to %d tokens",
                            inputs["input_ids"].shape[-1], MAX_CONTEXT_WINDOW)
             inputs = {k: v[:, -MAX_CONTEXT_WINDOW:] for k, v in inputs.items()}
         streamer = TextIteratorStreamer(tok, skip_prompt=True, skip_special_tokens=True)
