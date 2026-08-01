@@ -166,3 +166,20 @@ docs/reports/WO-02_ACCEPTANCE_state.json
 # Code-review transfer artifacts (2026-07-24) — never commit archives
 _to_delete/
 *.tar.gz
+
+# ── Raw extraction-eval reports (2026-08-01) ────────────────────────────
+# They contain narrator prose, family detail, raw model output and
+# rejected values. Keep them — they are how a future extractor change is
+# compared case by case — but keep them OUT of ordinary git history,
+# where they cannot be removed once committed.
+#
+# Committed instead: docs/reports/evals/manifests/ (configuration,
+# versions, scores, SHA-256 of each raw report) and
+# docs/reports/evals/summaries/. A raw report may be committed only after
+# it has been reviewed and confirmed free of sensitive prose.
+docs/reports/evals/raw/
+docs/reports/master_loop01_p5-*.json
+docs/reports/master_loop01_p5-*.console.txt
+docs/reports/master_loop01_p5-*.failure_pack.json
+docs/reports/master_loop01_p5-*.failure_pack.console.txt
+docs/reports/p5_delta_pack.txt

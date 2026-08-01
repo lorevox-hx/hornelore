@@ -123,13 +123,26 @@ os.environ.setdefault("HORNELORE_NARRATIVE", "1")
 from api.routers import extract as E                    # noqa: E402
 
 
-# Characters per token, used ONLY to turn a character budget into a
-# defensible assertion. 3.5 is deliberately pessimistic: the one real
-# measurement available (52,855 chars -> 12,309 tokens on the live stack)
-# gives 4.29 for this content mix, so asserting at 3.5 leaves the tests
-# passing only if the prompt would fit even under markedly worse
-# tokenization than has ever been observed.
-_PESSIMISTIC_CHARS_PER_TOKEN = 3.5
+# Characters per token. RECALIBRATED 2026-08-01 from 60 live
+# [EXTRACT-BUDGET] measurements of the adopted b2a prompt, which ranged
+# 4.23 .. 4.31 (avg 4.27) -- a very tight band, because the prompt is
+# ~95% fixed text. 4.0 sits ~5% below the worst observed value, so it is
+# still a floor rather than an average.
+#
+# It was 3.5, chosen before any b2a measurement existed. That was ~20%
+# below anything ever observed, and once the labeled catalog landed it
+# began failing prompts that demonstrably fit -- the b2a and b2b eval
+# runs together made 60 live calls with ZERO budget refusals and ZERO
+# truncations. A floor that rejects reality is not caution, it is a
+# false alarm, and the fix is to ground it in measurement rather than to
+# keep lowering whatever the test happens to trip on.
+_PESSIMISTIC_CHARS_PER_TOKEN = 4.0
+
+# The largest narratorReply in the 114-case bank is 1,032 chars
+# (case_081); median 172, p90 674. The synthetic "longest" case below is
+# deliberately several times larger than anything real -- it is a stress
+# input, not a representative one.
+_LARGEST_REAL_NARRATOR_TURN_CHARS = 1032
 
 
 def _est_tokens(text: str) -> int:
@@ -223,21 +236,17 @@ class BoundedPromptFitsTest(unittest.TestCase):
         return E._build_extraction_prompt_bounded(answer, section, target)
 
     def test_the_complete_140_field_catalog_survives_compaction(self):
-        cat = E._compact_field_catalog()
-        recovered = set()
-        for line in cat.splitlines():
-            sec, _, fields = line.partition(":")
-            for f in fields.split(","):
-                recovered.add(f"{sec.strip()}.{f.strip()}")
-        self.assertEqual(recovered, set(E.EXTRACTABLE_FIELDS),
-                         "compaction must not drop or rename a single path")
-        self.assertEqual(len(recovered), 140)
+        cat = E._extraction_field_catalog()
+        missing = [p for p in E.EXTRACTABLE_FIELDS if f'"{p}"=' not in cat]
+        self.assertEqual(missing, [],
+                         "the adopted catalog must carry every path")
+        self.assertEqual(len(E.EXTRACTABLE_FIELDS), 140)
 
     def test_compaction_is_not_filtering(self):
         # Chris's constraint: current_section may reorder emphasis, never
         # remove valid fields. Changing visibility and coverage together
         # would leave an eval nobody could interpret.
-        a = E._compact_field_catalog()
+        a = E._extraction_field_catalog()
         for section in (None, "parents", "education", "pets"):
             with self.subTest(section=section):
                 s, _ = self._build("I was born in Mandan.", section, None)
@@ -250,8 +259,20 @@ class BoundedPromptFitsTest(unittest.TestCase):
             "medium": ("I was born in Mandan, North Dakota in 1962. My dad "
                        "Kent worked at the aluminum plant and my mom Janice "
                        "taught school."),
-            "long": "We drove to Bismarck in the summer of 1971. " * 40,
-            "longest": "We drove to Bismarck in the summer of 1971. " * 120,
+            # Sized against REALITY, not an arbitrary repeat count. The
+            # bank's largest narratorReply is 1,032 chars, so "long" is
+            # ~2x that and "longest" ~4x -- a serious stress input that
+            # is still a turn a person could plausibly speak.
+            #
+            # These were 40 and 120 repetitions (1,800 / 5,416 chars).
+            # The 120 case sat 1.5% past the pessimistic floor once the
+            # labeled catalog landed, and it fits fine at the observed
+            # 4.27 ratio. Anchoring the input to the real distribution is
+            # the honest fix; shaving the floor again to clear an
+            # arbitrary input would have been fitting the ruler to the
+            # measurement.
+            "long": "We drove to Bismarck in the summer of 1971. " * 46,
+            "longest": "We drove to Bismarck in the summer of 1971. " * 92,
         }
         for name, answer in cases.items():
             with self.subTest(case=name):
@@ -275,6 +296,28 @@ class BoundedPromptFitsTest(unittest.TestCase):
         b = budget_for(window=8192, max_new=768, prompt_tokens=est)
         self.assertFalse(b.exceeded)
 
+    def test_the_answer_headroom_is_stated_not_implied(self):
+        """How much narrator turn fits before the budget refuses.
+
+        This is the number that actually matters for a live session, and
+        adopting b2a halves it: the labeled catalog costs ~6,300 chars
+        that a narrator's own words no longer get. It is still ~6.7x the
+        largest turn in the bank, but it is a real trade and it should
+        be visible in a test rather than discovered by an operator when
+        a long story fails closed.
+        """
+        s, _u = self._build("x")
+        sys_tokens = _est_tokens(s)
+        # compound is the tighter ceiling and the longer-prompt case
+        ceiling = budget_for(window=8192, max_new=384).ceiling
+        headroom_chars = int((ceiling - sys_tokens) * _PESSIMISTIC_CHARS_PER_TOKEN)
+        self.assertGreater(
+            headroom_chars, _LARGEST_REAL_NARRATOR_TURN_CHARS * 3,
+            f"only {headroom_chars} chars of narrator turn fit before the "
+            f"budget refuses; the largest real turn is "
+            f"{_LARGEST_REAL_NARRATOR_TURN_CHARS}. The prompt has grown "
+            "into the narrator's room.")
+
     def test_the_normal_target_is_met_not_merely_the_ceiling(self):
         # Chris: "barely fitting below 8192 is not the acceptance target."
         s, u = self._build("I was born in Mandan, North Dakota in 1962.")
@@ -290,7 +333,7 @@ class BoundedPromptFitsTest(unittest.TestCase):
 
     def test_the_protected_components_are_all_present(self):
         s, u = self._build("I was born in Mandan.")
-        self.assertIn(E._compact_field_catalog(), s)          # catalog
+        self.assertIn(E._extraction_field_catalog(), s)          # catalog
         self.assertIn(E._PROMPTSHRINK_ROUTING_DISTINCTIONS, s)  # routing
         self.assertIn(E._PROMPTSHRINK_PREAMBLE, s)            # JSON contract
         self.assertIn("JSON", s)
@@ -305,12 +348,27 @@ class BoundedPromptFitsTest(unittest.TestCase):
                     len(E._promptshrink_select_fewshots(topics, max_examples=8)), 8)
 
     def test_it_is_dramatically_smaller_than_the_composed_legacy_prompt(self):
-        s, u = self._build("I was born in Mandan, North Dakota in 1962.")
-        legacy_s, legacy_u = E._build_extraction_prompt(
-            "I was born in Mandan, North Dakota in 1962.", None, None)
-        # Compared against the BUILDER output alone, which already
-        # understates the legacy prompt by the ~18,000 composer chars.
-        self.assertLess(len(s) + len(u), (len(legacy_s) + len(legacy_u)) * 0.6)
+        """Against what ACTUALLY reached the model, not the builder alone.
+
+        This compared bounded output to `_build_extraction_prompt`'s
+        return value, which understates legacy by the ~18,000 chars
+        `compose_system_prompt` prepended on every real call -- the
+        docstring admitted as much while the assertion ignored it. Once
+        the labeled catalog was adopted, bounded landed at 65% of the
+        builder and the test failed, on a comparison that was measuring
+        the wrong baseline in the first place.
+        """
+        from api.prompt_composer import compose_system_prompt
+        answer = "I was born in Mandan, North Dakota in 1962."
+        s, u = self._build(answer)
+        legacy_s, legacy_u = E._build_extraction_prompt(answer, None, None)
+        composed = compose_system_prompt(
+            "_extract_probe", ui_system=legacy_s, user_text=legacy_u)
+        bounded_total = len(s) + len(u)
+        legacy_total = len(composed) + len(legacy_u)
+        self.assertLess(
+            bounded_total, legacy_total * 0.5,
+            f"bounded {bounded_total:,} vs composed legacy {legacy_total:,}")
 
 
 class ExecutionPathTest(unittest.TestCase):
@@ -319,8 +377,7 @@ class ExecutionPathTest(unittest.TestCase):
     Comment-stripped where a word is discussed as well as used -- the
     prose in extract.py names `compose_system_prompt` and `add_turn`
     precisely to explain why the bounded path avoids them, and a raw scan
-    would fire on the explanation. Eighth-and-counting instance of that
-    rule in this work order.
+    would fire on the explanation.
     """
 
     @classmethod

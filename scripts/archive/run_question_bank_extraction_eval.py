@@ -272,10 +272,25 @@ def _capture_discipline_header(
     except Exception:
         header["git_dirty"] = None
 
-    # Flag state — exact runtime env-var values at harness spawn.
-    header["flags"] = {
+    # ── FLAG STATE: TWO SOURCES, NEVER CONFLATED ────────────────────────
+    #
+    # `runner_environment_flags` is THIS PROCESS's env. It was previously
+    # printed as "[discipline] flags:" with no qualifier, which read as
+    # the configuration under measurement and was WRONG on the
+    # p5-armB-bounded-v1 run: it reported HORNELORE_NARRATIVE=0 while the
+    # server had it =1 and was emitting the narrative few-shots. The eval
+    # shell and the uvicorn process are different processes and the
+    # server sources .env; there is no reason they would agree.
+    #
+    # `server_effective_flags` is read from the SERVER over HTTP and is
+    # the only one that describes what produced the numbers below.
+    header["runner_environment_flags"] = {
         name: os.environ.get(name, "0") for name in _DISCIPLINE_FLAG_NAMES
     }
+    # Back-compat: older readers look for header["flags"].
+    header["flags"] = header["runner_environment_flags"]
+    header["server_effective_flags"] = None      # filled in live mode below
+    header["prompt_variant"] = None
 
     # API endpoint + live-only probes.
     header["api_endpoint"] = api_base if mode == "live" else "(offline mode)"
@@ -336,6 +351,26 @@ def _capture_discipline_header(
                 )
         except Exception:
             header["api_log_last_line_age_seconds"] = None
+
+        # Server-effective flags — the configuration that actually produces
+        # the numbers. GET /api/extract-diag reports the server's own view.
+        # Read BEFORE the warmup probe so a report exists even if warmup
+        # fails, and recorded as UNAVAILABLE rather than silently defaulted
+        # if the read fails: an absent value is honest, a guessed one is not.
+        if _have_requests:
+            import requests as _req_flags
+            try:
+                _d = _req_flags.get(
+                    f"{api_base.rstrip('/')}/api/extract-diag", timeout=180)
+                if _d.ok:
+                    _sef = (_d.json() or {}).get("server_effective_flags")
+                    if isinstance(_sef, dict):
+                        header["server_effective_flags"] = _sef
+                        header["prompt_variant"] = _sef.get(
+                            "HORNELORE_EXTRACTION_VARIANT")
+            except Exception as _e:
+                header["server_effective_flags"] = None
+                header["prompt_variant"] = f"(unreadable: {type(_e).__name__})"
 
         # Warmup probe — one trivial /api/extract-fields call. RTT classifies
         # the stack per CLAUDE.md cold-boot rule. Uses a janice person_id
@@ -419,11 +454,24 @@ def _capture_discipline_header(
         f"git_dirty={header['git_dirty']} "
         f"branch={header['branch']}"
     )
-    lines.append("[discipline] flags:")
+    lines.append("[discipline] runner_environment_flags "
+                 "(THIS SHELL — not what produced the numbers):")
     for name in _DISCIPLINE_FLAG_NAMES:
-        v = header["flags"][name]
-        suffix = " (default)" if v == "0" else ""
+        v = header["runner_environment_flags"][name]
+        suffix = " (unset here)" if v == "0" else ""
         lines.append(f"  {name}={v}{suffix}")
+    sef = header.get("server_effective_flags")
+    if isinstance(sef, dict) and sef:
+        lines.append("[discipline] server_effective_flags "
+                     "(READ FROM THE SERVER — authoritative):")
+        for k in sorted(sef):
+            lines.append(f"  {k}={sef[k]}")
+        lines.append(
+            f"[discipline] prompt_variant={header.get('prompt_variant')}")
+    else:
+        lines.append("[discipline] server_effective_flags=UNAVAILABLE "
+                     "— the flag state under measurement is UNKNOWN; do not "
+                     "attribute this run to a configuration")
     lines.append(f"[discipline] api_endpoint={header['api_endpoint']}")
     lines.append(
         f"[discipline] api_model={header['api_model']}  "

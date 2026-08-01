@@ -21,7 +21,6 @@ import json
 import logging
 import os
 import re
-from collections import OrderedDict as _OrderedDict
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from fastapi import APIRouter, HTTPException
@@ -1548,27 +1547,35 @@ def _extraction_bounded_enabled() -> bool:
         "1", "true", "yes", "on")
 
 
-def _compact_field_catalog() -> str:
-    """All 140 field paths, grouped by section.
+def _extraction_field_catalog() -> str:
+    """All 140 field paths, each with its human-readable label.
 
-    COMPACTED, NOT FILTERED. Every path in EXTRACTABLE_FIELDS is present
-    and reconstructable as "<section>.<field>"; nothing is omitted and no
-    section is dropped. That is Chris's Phase 5 constraint, and the
-    reason for it is that the historical baseline was measured with the
-    catalog possibly missing altogether -- changing catalog VISIBILITY
-    and catalog COVERAGE in the same commit would leave an eval nobody
-    could interpret. Filtering is arm D, later, and only once B has
-    established a clean baseline.
+    SELECTED BY MEASUREMENT, 2026-08-01. This is the "B2a" encoding and
+    it is now the only one -- the temporary HORNELORE_EXTRACTION_VARIANT
+    selector that chose between encodings has been removed, because a
+    prompt with more than one definition is what made arm B's result
+    impossible to attribute in the first place.
 
-    What is dropped is the human-readable label ("personal.fullName" no
-    longer carries "=Full Name"). The path is self-describing and the
-    label was costing ~5,200 chars to restate it. 8,456 -> ~2,100 chars.
+    The measurement, on the 29-case delta pack (see
+    docs/reports/evals/summaries/PHASE5_SELECTION.md):
+
+        arm B  grouped catalog + topic few-shots      13/29
+        b2b    grouped catalog + LEGACY few-shots     16/29
+        b2a    LABELED catalog + topic few-shots      17/29   <- adopted
+
+    The labels cost ~6,300 chars over the grouped form and recovered
+    four of the five cases arm B had lost. Restoring the 33 legacy
+    few-shots instead recovered three and cost more elsewhere. So the
+    labels were carrying the weight, not the examples -- which is worth
+    stating plainly because the opposite was the obvious guess, and it
+    was the guess this work started from.
+
+    COMPLETE, NEVER FILTERED. Every path in EXTRACTABLE_FIELDS appears.
+    current_section may reorder emphasis through topic-matched few-shots;
+    it never removes a field.
     """
-    by_section: "OrderedDict[str, list[str]]" = _OrderedDict()
-    for path in EXTRACTABLE_FIELDS:
-        section, _, field = path.partition(".")
-        by_section.setdefault(section, []).append(field or path)
-    return "\n".join(f"{s}: " + ", ".join(f) for s, f in by_section.items())
+    return ", ".join(
+        f'"{p}"={m["label"]}' for p, m in EXTRACTABLE_FIELDS.items())
 
 
 def _build_extraction_prompt_bounded(
@@ -1597,7 +1604,7 @@ def _build_extraction_prompt_bounded(
 
     system = (
         _PROMPTSHRINK_PREAMBLE
-        + _compact_field_catalog()
+        + _extraction_field_catalog()
         + "\n"
         + _PROMPTSHRINK_ROUTING_DISTINCTIONS
         + "\n"
@@ -1643,7 +1650,7 @@ def _extraction_budget_components(system: str, user: str,
     return {
         "chars_system": len(system),
         "chars_user": len(user),
-        "chars_catalog": len(_compact_field_catalog()),
+        "chars_catalog": len(_extraction_field_catalog()),
         "fewshot_n": fewshot_n,
         "field_paths": len(EXTRACTABLE_FIELDS),
     }
@@ -8831,6 +8838,28 @@ def extract_diag():
         _mark_llm_unavailable(f"diag-exception:{type(e).__name__}")
 
     return {
+        # Phase 5: the SERVER's effective extraction configuration.
+        #
+        # The eval runner used to print its own shell's env as the flag
+        # state, which is read from a different process and was wrong on
+        # the p5-armB-bounded-v1 run: the header said NARRATIVE=0 while
+        # the server had it =1 and was demonstrably emitting the
+        # narrative few-shots. A report that misstates the configuration
+        # it measured is worse than one that omits it, because the
+        # omission is visible and the misstatement is not.
+        "server_effective_flags": {
+            "HORNELORE_EXTRACTION_BOUNDED": _extraction_bounded_enabled(),
+            "extraction_prompt": "b2a (labeled catalog + topic few-shots)",
+            "HORNELORE_NARRATIVE": _narrative_field_enabled(),
+            "HORNELORE_PROMPTSHRINK": _promptshrink_enabled(),
+            "HORNELORE_SPANTAG": _spantag_enabled() if "_spantag_enabled" in globals() else None,
+            "HORNELORE_ATTRIB_BOUNDARY": _attribution_boundary_enabled(),
+            "MAX_NEW_TOKENS_EXTRACT": os.getenv("MAX_NEW_TOKENS_EXTRACT", "128"),
+            "MAX_NEW_TOKENS_EXTRACT_COMPOUND": os.getenv("MAX_NEW_TOKENS_EXTRACT_COMPOUND", "768"),
+            "HORNELORE_EXTRACTION_MAX_EXAMPLES": os.getenv("HORNELORE_EXTRACTION_MAX_EXAMPLES", "8"),
+            "HORNELORE_EXTRACTION_RESERVE_TOKENS": os.getenv("HORNELORE_EXTRACTION_RESERVE_TOKENS", "512"),
+            "extractable_field_count": len(EXTRACTABLE_FIELDS),
+        },
         "llm_available": llm_available,
         "llm_error": llm_error,
         "llm_cache_available": _llm_available_cache["available"],

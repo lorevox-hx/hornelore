@@ -1,0 +1,51 @@
+{
+  "eval_tag": "r5h-followup-guard-v1",
+  "description": "historical baseline (composed path, pre-Phase-5)",
+  "raw_report": {
+    "filename": "master_loop01_r5h-followup-guard-v1.json",
+    "bytes": 382225,
+    "sha256": "46b1d4fad849bde358cea22569929698b32eab05300c5f1d67f57ace11da1465",
+    "private_archive": "docs/reports/evals/raw/ (gitignored)"
+  },
+  "run": {
+    "generated": "2026-05-03T05:57:44",
+    "mode": "live",
+    "started_at": "2026-05-03T10:54:13Z",
+    "command": "./scripts/archive/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000 --output docs/reports/master_loop01_r5h-followup-guard-v1.json"
+  },
+  "versions": {
+    "scorer_version": "cc7dd27507b4",
+    "case_bank_version": "b487e54cd84d",
+    "git_sha": "7c2b1f1",
+    "git_dirty": true
+  },
+  "runner_environment_flags": {
+    "HORNELORE_NARRATIVE": "0",
+    "HORNELORE_ATTRIB_BOUNDARY": "0",
+    "HORNELORE_PROMPTSHRINK": "0",
+    "HORNELORE_SILENT_DEBUG": "0",
+    "HORNELORE_SPANTAG": "0",
+    "HORNELORE_INTAKE_MINIMAL": "0"
+  },
+  "server_effective_flags": null,
+  "prompt_variant": null,
+  "metrics": {
+    "total_cases": 114,
+    "passed": 78,
+    "pass_rate": 0.684,
+    "avg_overall_score": 0.784,
+    "v3_passed": 49,
+    "v2_passed": 43,
+    "contract_total": 72,
+    "must_not_write_violations": 2,
+    "invalid_fieldpath_offenders": 49,
+    "invalid_fieldpath_cases": 16,
+    "method_rates": {
+      "parse_success_rate": 0.956,
+      "parse_failure_rate": 0.0,
+      "rules_fallback_rate": 0.044,
+      "truncation_rate": 0.0
+    }
+  },
+  "privacy": "Counts and configuration only. No narrator prose, no extracted values, no field values. The raw report DOES contain narrator text and is gitignored."
+}
