@@ -103,10 +103,28 @@ VISUAL_CLAIMS = (
 # would run the photo-answer checks against the gravesite story and fail
 # a turn that was never the photo turn. Merely saying the word photo is
 # not asking this question.
+# WIDENED 2026-08-01 after a live false negative. The operator asked
+# "how many pictures can you see from this trip" and this pattern did not
+# match, so a check that the PRODUCT passed was reported as not exercised.
+# Two separate gaps, both in the harness and neither in the product:
+#
+#   * only the literal word "photo" was accepted -- "picture" was not;
+#   * the verb phrase had to come BEFORE the media word, so
+#     "<media> can you see" could not match while "can you see <media>"
+#     could.
+#
+# Widened to a media-word alternation and to either order. Deliberately
+# still requires an interrogative cue, so ordinary narration that merely
+# mentions a photograph is not mistaken for the question.
+_MEDIA = r"(?:photo(?:graph)?|picture|image|pic)s?"
+_ASK = r"(?:can you (?:see|access|read|view)|do(?:es)? (?:this trip |you )?have|how many|what|which|are there|have you got)"
+
 PHOTO_QUESTION = re.compile(
-    r"\b(?:can you (?:see|access|read|view)|do(?:es)? (?:this trip |you )?"
-    r"have)\b.{0,40}\bphoto"
-    r"|\bwhat photos?\b.{0,40}\b(?:do you have|have you got|are there)\b",
+    # verb/interrogative first:  "can you see any photos", "what photos do you have"
+    r"\b" + _ASK + r"\b.{0,40}\b" + _MEDIA + r"\b"
+    # media first:               "how many pictures can you see"
+    r"|\b" + _MEDIA + r"\b.{0,40}\b(?:can you (?:see|access|read|view)"
+    r"|do you have|have you got|are there)\b",
     re.I | re.S)
 
 NUM_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven",
@@ -315,6 +333,74 @@ def snapshot():
     except requests.RequestException:
         snap["family_truth_rows"] = -1
     return snap
+
+
+# ── BUG-DETERMINISTIC-TURN-ARCHIVE-MISSING-01 ────────────────────────
+# Four-way outcome for the photo question, and the reason it exists.
+#
+# On 2026-08-01 this harness reported SKIP -- "the photo question was
+# not asked" -- on a session where Chris HAD asked it and Lori HAD
+# answered correctly in the browser. The harness was looking only at
+# completed TRIP CONVERSATION LINKS, and the deterministic meta_question
+# branch never created one (it discarded the persisted row id). So a
+# real product defect appeared as an operator who had skipped a step,
+# and I argued with the harness for two rounds instead of believing it.
+#
+# A check that can only say "found" or "not found" cannot tell those
+# apart. This one reads three independent sources and reports which:
+#
+#   absent          the question is in no fresh user turn        -> SKIP
+#   unanswered      user turn exists, no assistant turn          -> FAIL
+#   archive_missing answered in `turns`, absent from the archive -> FAIL
+#   present         in both -> run the count and visual-claim checks
+#
+# Still read-only. /api/session/turns and /api/memory-archive/session
+# are both GETs.
+def session_turn_evidence(conv_ids):
+    """Raw turns and archive rows per session id. Never printed."""
+    out = {}
+    for cid in conv_ids:
+        if not cid:
+            continue
+        turns, archive = [], []
+        try:
+            turns = get("/api/session/turns?conv_id=%s" % cid).get("turns") or []
+        except Exception:
+            turns = []
+        try:
+            archive = (get("/api/memory-archive/session/%s?person_id=%s"
+                           % (cid, PERSON)).get("turns") or [])
+        except Exception:
+            # A 404 here means no archive directory for the session --
+            # which is itself the archive_missing signal, not an error.
+            archive = []
+        out[cid] = {"turns": turns, "archive": archive}
+    return out
+
+
+def classify_photo_question(evidence):
+    """absent | unanswered | archive_missing | present, plus the pair."""
+    for cid, ev in (evidence or {}).items():
+        rows = ev.get("turns") or []
+        for i, row in enumerate(rows):
+            if str(row.get("role") or "").lower() != "user":
+                continue
+            if not PHOTO_QUESTION.search(str(row.get("content") or "")):
+                continue
+            # The question is here. Is the next turn Lori answering it?
+            nxt = rows[i + 1] if i + 1 < len(rows) else None
+            if not nxt or str(nxt.get("role") or "").lower() != "assistant":
+                return "unanswered", cid, str(row.get("content") or ""), ""
+            answer = str(nxt.get("content") or "")
+            # And did that answer reach the exported archive?
+            in_archive = any(
+                str(a.get("role") or "").lower() == "assistant"
+                and str(a.get("content") or "").strip() == answer.strip()
+                for a in (ev.get("archive") or []))
+            if not in_archive:
+                return "archive_missing", cid, str(row.get("content") or ""), answer
+            return "present", cid, str(row.get("content") or ""), answer
+    return "absent", "", "", ""
 
 
 def live_conversations():
@@ -564,37 +650,68 @@ def do_verify(g, now):
                       "has no durable selected day (live_state=%s day=%s)"
                       % (k[:8], now["live_state"], (n["day"] or "none")[:8]))
 
-    # -- B: the photo answer
-    asked = [k for k in fresh
-             if PHOTO_QUESTION.search(rows.get(k, {}).get("narrator_said")
-                                      or "")]
-    if not asked:
+    # -- B: the photo answer ----------------------------------------
+    # Four-way, not two. See classify_photo_question() for why: on
+    # 2026-08-01 a two-way check reported SKIP on a session where the
+    # question WAS asked and answered, because the answer never became a
+    # trip conversation link. "Not found here" and "did not happen" are
+    # different facts and must not share an outcome.
+    _sessions = sorted({(rows.get(k) or {}).get("session_id")
+                        or (rows.get(k) or {}).get("conv_id")
+                        for k in fresh} - {None, ""})
+    _verdict, _cid, _q, _a = "absent", "", "", ""
+    try:
+        _verdict, _cid, _q, _a = classify_photo_question(
+            session_turn_evidence(_sessions))
+    except Exception as _cls_exc:
+        out("      (photo-question classification failed: %s)"
+            % _cls_exc.__class__.__name__)
+
+    if _verdict == "absent":
         skip("the photo question was not asked -- step 4 not done")
+        for k in fresh:
+            said = rows.get(k, {}).get("narrator_said")
+            out("      (conv %s: narrator_said %s, %d word(s), match=%s)"
+                % (k[:8],
+                   "absent" if said is None else
+                   ("empty" if not str(said).strip() else "present"),
+                   len(str(said or "").split()),
+                   bool(said and PHOTO_QUESTION.search(str(said)))))
+        out("      (sessions inspected: %d)" % len(_sessions))
+    elif _verdict == "unanswered":
+        check(False,
+              "the photo question was asked but Lori never answered it "
+              "(session %s: a user turn with no assistant turn after it)"
+              % _cid[:12])
+    elif _verdict == "archive_missing":
+        # THE 2026-08-01 DEFECT, named. Answered in `turns`, absent from
+        # the exported archive -- so the browser showed it and the
+        # transcript did not.
+        check(False,
+              "photo_question_archive_missing: Lori answered (%d chars, "
+              "sha %s) but the reply is NOT in the exported archive "
+              "transcript for session %s" % (len(_a), h(_a), _cid[:12]))
     else:
         approved, withheld = approved_and_unapproved_text()
         inv = now["photo_inventory"]
-        for k in asked:
-            ans = rows[k].get("lori_said") or ""
-            out("      (answer %s, %d chars, sha %s)"
-                % (k[:8], len(ans), h(ans)))
-            hits = [p for p in VISUAL_CLAIMS
-                    if re.search(p, ans, re.I)]
-            check(not hits,
-                  "answer %s makes no visual claim (%d matched pattern(s))"
-                  % (k[:8], len(hits)))
-            check(bool(ans.strip()) and not ans.strip().endswith("?"),
-                  "answer %s does not answer the question with a question"
-                  % k[:8])
-            check(says_count(ans, inv.get("attached", 0)),
-                  "answer %s states the real photo count (%d attached)"
-                  % (k[:8], inv.get("attached", 0)))
-            leaked = [c for c in withheld if c and c.lower() in ans.lower()]
-            check(not leaked,
-                  "answer %s quotes no unapproved caption (%d of %d withheld "
-                  "captions appear)" % (k[:8], len(leaked), len(withheld)))
-            if approved:
-                out("      (%d approved caption(s) were available to quote)"
-                    % len(approved))
+        out("      (answer in session %s, %d chars, sha %s -- present in "
+            "both `turns` and the archive)" % (_cid[:12], len(_a), h(_a)))
+        hits = [pat for pat in VISUAL_CLAIMS if re.search(pat, _a, re.I)]
+        check(not hits,
+              "the answer makes no visual claim (%d matched pattern(s))"
+              % len(hits))
+        check(bool(_a.strip()) and not _a.strip().endswith("?"),
+              "the answer does not answer the question with a question")
+        check(says_count(_a, inv.get("attached", 0)),
+              "the answer states the real photo count (%d attached)"
+              % inv.get("attached", 0))
+        leaked = [c for c in withheld if c and c.lower() in _a.lower()]
+        check(not leaked,
+              "the answer quotes no unapproved caption (%d of %d withheld "
+              "captions appear)" % (len(leaked), len(withheld)))
+        if approved:
+            out("      (%d approved caption(s) were available to quote)"
+                % len(approved))
 
     # -- E: the capture lane logged something it can name
     try:
