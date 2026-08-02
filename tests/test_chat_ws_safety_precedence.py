@@ -30,6 +30,7 @@ import sys
 import tempfile
 import threading
 import time
+import types
 import unittest
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -49,6 +50,67 @@ os.environ["HORNELORE_SAFETY_LLM_LAYER"] = "0"
 os.environ.pop("LV_ENABLE_SAFETY", None)  # default-ON kill-switch
 
 from fastapi import WebSocketDisconnect  # noqa: E402  (real fastapi)
+
+# ── serving-stack stubs, conditional ────────────────────────────────────
+# `api/routers/chat_ws.py:141` imports `..api`, and `api/api.py:22` does
+# `from peft import PeftModel` at module scope. `.venv` is the TEST venv
+# and deliberately does not carry the GPU serving packages, so importing
+# this suite there fails at collection with ModuleNotFoundError and the
+# whole module never runs -- which reads in the output as three failing
+# suites when in fact zero assertions were evaluated.
+#
+# THE FIX BELONGS HERE, NOT IN THE ENVIRONMENT AND NOT IN PRODUCTION.
+# Installing peft into `.venv` to satisfy an import would pull a
+# torch-family dependency into the venv that exists precisely to be
+# light, and `tests/test_llm_raw_ephemeral.py` already records that
+# decision. Editing api.py to make the import lazy would be changing
+# production to suit a test.
+#
+# ONLY GENUINE GAPS ARE FILLED. Where the real module imports -- as in
+# `.venv-gpu`, the serving venv -- the real one is used and these stubs
+# never load, so this suite cannot start passing because of a fake.
+#
+# The stub is deliberately a LOCAL COPY of the helper in
+# test_llm_raw_ephemeral.py rather than an import from it. That module
+# also stubs `fastapi` and `pydantic`, which THIS suite needs to be REAL
+# (see the WebSocketDisconnect import above), and whichever module
+# installs a stub first wins for the entire process. Importing across
+# test modules to save a dozen lines is exactly the stub race CLAUDE.md
+# records from 2026-07-27.
+def _stub_serving_module_if_missing(name, build):
+    if name in sys.modules:
+        return False
+    try:
+        __import__(name)
+        return False                       # the real one is here; use it
+    except Exception:
+        pass
+    sys.modules[name] = build()
+    return True
+
+
+def _build_peft_stub():
+    p = types.ModuleType("peft")
+
+    class _PeftModel:
+        @classmethod
+        def from_pretrained(cls, *a, **k):
+            # Loud, not silent. These tests must never load an adapter;
+            # if one is reached, the suite is exercising something it was
+            # never meant to and the failure should say so rather than
+            # quietly return a mock.
+            raise AssertionError(
+                "stubbed peft must never load an adapter — this suite "
+                "does not serve a model")
+
+    p.PeftModel = _PeftModel
+    return p
+
+
+_STUBBED_SERVING = [
+    n for n, build in (("peft", _build_peft_stub),)
+    if _stub_serving_module_if_missing(n, build)
+]
 
 from api import db as _db  # noqa: E402
 from api.routers import chat_ws as _chat_ws  # noqa: E402
