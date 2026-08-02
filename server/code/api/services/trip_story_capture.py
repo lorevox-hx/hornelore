@@ -34,7 +34,26 @@ from typing import Any, Dict, List, Optional
 from . import trip_repository
 
 # ── Tunables ────────────────────────────────────────────────────────────────
-_MIN_MEANINGFUL_WORDS = 3      # shorter than this = an acknowledgment, skip
+# ── PRODUCT DECISION, Chris, 2026-08-01: raised 3 -> 6 ──────────────────
+# Shorter than this is an acknowledgment or a fragment, not a memory
+# worth putting in front of an operator for Travel Doc review.
+#
+# WHAT THIS IS NOT. There are two other word limits nearby and they were
+# confused for each other during the discussion that produced this
+# change, so they are named here:
+#
+#   _MAX_COMMAND_WORDS (below, 6)  a ceiling, not a floor -- a turn
+#       LONGER than this cannot be a conversation command like
+#       "say that again". Same number, opposite direction, unrelated.
+#
+#   story_trigger.STORY_TRIGGER_RICH_SHORT_MIN_WORDS (15)  a different
+#       module governing LIFE-STORY capture, not trip-story capture.
+#       Changing one does not change the other.
+#
+# Measured effect on the 2026-08-01 Bismarck session: none. The gravesite
+# turn (10 words) and the image-description turn (30 words) both stay
+# above the floor. What it excludes is 1-5 word fragments.
+_MIN_MEANINGFUL_WORDS = 6      # shorter than this = a fragment, skip
 _MAX_NOTE_CHARS = 4000         # generous cap; we store faithfully, don't rewrite
 _MAX_TITLE_CHARS = 80          # clipped question snippet, operator-review context
 
@@ -427,13 +446,36 @@ def capture_trip_story_answer(
     if _is_conversation_command(narrator_text or ""):
         return _result(False, "conversation_command")
 
-    # 4a. Skip trivial acknowledgments.
-    if _is_trivial(narrator_text or ""):
-        return _result(False, "trivial_reply")
-
-    # 4b. Skip questions to Lori / info requests / meta-comments — not memoir.
+    # 4a. Skip questions to Lori / info requests / meta-comments — not
+    #     memoir.
+    #
+    #     MOVED ABOVE THE TRIVIAL CHECK, 2026-08-01, for exactly the
+    #     reason given for the conversation-control check three lines up:
+    #     both answers refuse the note, so the row is identical either
+    #     way, and what differs is what the operator's log says happened.
+    #     "The narrator asked me a question" and "the narrator said
+    #     something too short to keep" are not the same event.
+    #
+    #     Raising _MIN_MEANINGFUL_WORDS from 3 to 6 is what exposed this.
+    #     "Can you explain that?" is four words: at a floor of 3 it
+    #     cleared the length check and reached the question classifier; at
+    #     6 the trivial check claimed it first and the log started calling
+    #     a question a fragment. The existing suite caught it
+    #     (test_skips_direct_questions_and_meta), which is what running it
+    #     was for.
+    #
+    #     Chris's ruling: "'Can you explain that?' is a question, not
+    #     merely a reply that was too short to retain. The candidate
+    #     outcome remains unchanged, but the operator log stays accurate."
+    #
+    #     STILL BELOW the safety precedence and the conversation-control
+    #     check above. Reordering these two does not touch either.
     if _is_question_or_meta(narrator_text or ""):
         return _result(False, "direct_question_or_command")
+
+    # 4b. Skip trivial acknowledgments.
+    if _is_trivial(narrator_text or ""):
+        return _result(False, "trivial_reply")
 
     # 4c. Validate the day attachment (0028) — same never-cross-trip
     # posture as _resolve_scope; invalid ids drop to None.
