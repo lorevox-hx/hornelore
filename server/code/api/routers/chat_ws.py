@@ -3387,8 +3387,51 @@ async def ws_chat(ws: WebSocket):
         # archive, transcript, and operator visibility all see the turn
         # cleanly.
         if turn_mode == "meta_question" and _meta_question_answer is not None:
+            # ── BUG-DETERMINISTIC-TURN-ARCHIVE-MISSING-01 (2026-08-01) ────
+            # LIVE EVIDENCE. Chris asked "how many pictures can you see
+            # from this trip" at 15:22:42. Lori answered correctly in the
+            # browser -- "There are three photos attached to Bismarck
+            # Trip, two of them placed on a day" -- and the exported
+            # transcript jumps straight from his question to his NEXT
+            # message at 15:24:25. The answer is missing.
+            #
+            # This branch persisted the turn and returned. The USER
+            # archive event is written unconditionally ~1,500 lines above
+            # (chat_ws.py:1888), so the transcript got the question and
+            # never the answer. That asymmetry is what made it invisible
+            # for so long: the export looks like an unanswered turn
+            # rather than a missing write.
+            #
+            # Four things followed from the one omission, and the
+            # transcript was only the visible one:
+            #   * the exported transcript loses every deterministic reply
+            #   * NO trip conversation link is created -- the placement
+            #     hook is gated on params["_persisted_turn_row_id"]
+            #   * completed-turn extraction never sees the turn -- same
+            #     gate plus params["_archive_event_persisted"]
+            #   * the Operator Log's "No transcript turns yet" is very
+            #     likely a symptom of this rather than its own defect
+            #
+            # THE REPAIR IS NARROW BY INSTRUCTION. The same gap exists in
+            # floor_hold, witness, memory_echo, age_recall and correction,
+            # measured from the AST, and a shared finaliser is the right
+            # architecture -- but that is five unrelated Lori behaviours
+            # and belongs to WO-DETERMINISTIC-TURN-FINALIZATION-01. Only
+            # meta_question is repaired here, which is the path the trip
+            # photo-capability answer and the trip-direct answer both
+            # take.
+            #
+            # NOTHING IS DUPLICATED. The user archive event is NOT written
+            # here -- 1888 already did it. persist_turn_transaction is
+            # called ONCE, exactly as before; the only change is that its
+            # return value and row ids are now kept instead of discarded.
+            # The trip link and extraction hooks are not called here
+            # either: they run in the outer body after this function
+            # returns, and read these two params flags. Setting the flags
+            # is the whole wiring.
             assistant_text = _meta_question_answer.text
-            persist_turn_transaction(
+            _mq_row_ids: Dict[str, Any] = {}
+            _mq_turn_row_id = persist_turn_transaction(
                 conv_id=conv_id,
                 user_message=user_text,
                 assistant_message=assistant_text,
@@ -3399,7 +3442,50 @@ async def ws_chat(ws: WebSocket):
                     "meta_question_category": _meta_question_answer.primary_category,
                     "meta_question_lang": _meta_question_answer.language,
                 },
+                row_ids_out=_mq_row_ids,
             )
+            try:
+                params["_persisted_turn_row_id"] = _mq_turn_row_id
+                params["_persisted_user_turn_row_id"] = (
+                    _mq_row_ids.get("user_row_id"))
+            except Exception:
+                pass
+
+            # Assistant archive event + transcript rebuild. Same surface
+            # gate and same reasoning as the main path at 5238: a modal
+            # reply must not land in the narrator's life story, and the
+            # gate is RECOMPUTED rather than inherited because the
+            # user-turn gate is ~1,500 lines up and an early return could
+            # leave it unbound (BUG-MODAL-TURNS-ARCHIVED-AS-LIFE-STORY-01).
+            _mq_skip_modal_archive = (
+                (params.get("surface") or "narrator").strip().lower()
+                == "travel_doc_modal")
+            if person_id and not _mq_skip_modal_archive:
+                try:
+                    archive_append_event(
+                        person_id=person_id,
+                        session_id=conv_id,
+                        role="assistant",
+                        content=assistant_text,
+                        meta={"ws": True, "turn_mode": "meta_question"},
+                        current_era=_current_era_for_archive,
+                    )
+                    archive_rebuild_txt(person_id=person_id,
+                                        session_id=conv_id)
+                    # Set INSIDE the try and AFTER the append returns, so
+                    # a raising archive write leaves this False and the
+                    # downstream hooks skip rather than run against a turn
+                    # whose archive is incomplete. Same discipline as the
+                    # main path.
+                    try:
+                        params["_archive_event_persisted"] = True
+                    except Exception:
+                        pass
+                except Exception as _mq_arch_err:
+                    logger.error(
+                        "[chat_ws][meta-question] archive write failed "
+                        "conv=%s — %s", conv_id, _mq_arch_err)
+
             await _ws_send(ws, {"type": "token", "delta": assistant_text})
             await _ws_send(ws, {
                 "type": "done",
