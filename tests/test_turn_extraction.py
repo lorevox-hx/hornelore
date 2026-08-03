@@ -764,44 +764,138 @@ class FailureIsolationTest(_ServiceCase):
         The hook refuses to run unless the archive append actually
         returned — the flag is set inside the try, after the call — so
         a raising archive write skips extraction rather than the reverse.
+
+        RESCOPED 2026-08-03, and the reason matters more than the fix.
+        This test used to locate the archive write with a whole-file text
+        search that asserted `archive_rebuild_txt(person_id=person_id`
+        appeared EXACTLY ONCE in chat_ws.py. That was never the property
+        under test; it was a way of finding the main path when there was
+        only one. BUG-DETERMINISTIC-TURN-ARCHIVE-MISSING-01 gave
+        meta_question a second, legitimate archive write, and this test
+        went red at `2 != 1` — reporting a uniqueness fact about the file
+        while the ordering it exists to protect was untouched.
+
+        Two wrong fixes were available and are named so nobody reaches
+        for them: taking the first match, or taking the last. Both pick a
+        site by position, which is a guess that happens to be right today
+        and silently attaches the assertion to the wrong branch the next
+        time a deterministic path gains an archive write.
+
+        The anchor is now the thing the property is actually about: the
+        ONE `params["_archive_event_persisted"] = True` assignment, whose
+        uniqueness IS a real invariant — it is the flag the extraction
+        hook keys on, and a second writer would be a second way to admit
+        extraction. From that anchor the test walks outward to the `try`
+        that owns it and asserts both archive calls sit earlier inside
+        that same try. Other branches may write the archive freely; they
+        just may not set this flag.
         """
-        lines = _CHAT_WS.read_text(encoding="utf-8").splitlines()
+        tree = _tree(_CHAT_WS)
 
-        def _line_of(needle: str) -> int:
-            hits = [i for i, l in enumerate(lines, 1) if needle in l]
-            self.assertEqual(
-                len(hits), 1,
-                f"expected exactly one site for {needle!r}, found {hits}",
-            )
-            return hits[0]
-
-        # Ordering INSIDE the persistence function: the flag may only be
-        # set after the archive append has returned.
-        n_append = _line_of("archive_rebuild_txt(person_id=person_id")
-        n_flag = _line_of('params["_archive_event_persisted"] = True')
-        self.assertLess(
-            n_append, n_flag,
-            "the archive-persisted flag is set before the append returns, "
-            "so a raising archive write would still admit extraction.",
-        )
+        # ── the anchor: exactly one writer of the flag ────────────────
+        flags = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign):
+                continue
+            for tgt in node.targets:
+                if (isinstance(tgt, ast.Subscript)
+                        and isinstance(tgt.value, ast.Name)
+                        and tgt.value.id == "params"
+                        and ast.unparse(tgt.slice).strip("'\"")
+                        == "_archive_event_persisted"):
+                    flags.append(node)
         self.assertEqual(
-            _enclosing_function(_tree(_CHAT_WS), n_append),
-            _enclosing_function(_tree(_CHAT_WS), n_flag),
-            "the append and its flag drifted into different functions, so "
-            "the append's own exception no longer guards the flag.",
+            1, len(flags),
+            "expected exactly one writer of _archive_event_persisted, "
+            f"found {[f.lineno for f in flags]}. A second writer is a "
+            "second way to admit completed-turn extraction, and each "
+            "would need its own archive-ordering proof.",
         )
+        flag = flags[0]
+
+        self.assertEqual(
+            "_generate_and_stream_inner",
+            _enclosing_function(tree, flag.lineno),
+            "the archive-persisted flag left the main persistence "
+            "function. Its guarantee is that the archive append in the "
+            "SAME try already returned; somewhere else it guarantees "
+            "nothing.",
+        )
+
+        # ── the try whose failure must prevent the flag ───────────────
+        # NOT simply the innermost try containing the flag. The flag sits
+        # in its own two-line `try: ... except Exception: pass` — a belt
+        # for the dict write itself — nested inside the archive try. The
+        # innermost rule picks that inner one, which contains no archive
+        # call, and the test then fails claiming the archive write is not
+        # guarded when it is. The property is "the try that owns BOTH",
+        # so that is what is selected: innermost among the candidates
+        # that contain the flag AND both archive calls.
+        def _calls_in(node) -> set:
+            out = set()
+            for n in ast.walk(node):
+                if isinstance(n, ast.Call):
+                    nm = (getattr(n.func, "attr", None)
+                          or getattr(n.func, "id", None))
+                    if nm:
+                        out.add(nm)
+            return out
+
+        owner = None
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Try):
+                continue
+            if not any(a is flag for a in ast.walk(node)
+                       if isinstance(a, ast.Assign)):
+                continue
+            if not {"archive_append_event", "archive_rebuild_txt"} <= _calls_in(node):
+                continue
+            if owner is None or node.lineno > owner.lineno:
+                owner = node
+        self.assertIsNotNone(
+            owner,
+            "no try contains BOTH the archive writes and the "
+            "archive-persisted flag. Outside such a try, an archive write "
+            "that raises still leaves the turn marked archived and "
+            "extraction runs against an incomplete archive.",
+        )
+
+        # ── both archive calls precede it, inside that try ────────────
+        seen = {}
+        for node in ast.walk(owner):
+            if isinstance(node, ast.Call):
+                name = (getattr(node.func, "attr", None)
+                        or getattr(node.func, "id", None))
+                if name in ("archive_append_event", "archive_rebuild_txt"):
+                    seen.setdefault(name, node.lineno)
+        for name in ("archive_append_event", "archive_rebuild_txt"):
+            with self.subTest(call=name):
+                self.assertIn(
+                    name, seen,
+                    f"{name} is not inside the try that sets the "
+                    "archive-persisted flag, so its failure cannot "
+                    "prevent the flag being set.",
+                )
+                self.assertLess(
+                    seen[name], flag.lineno,
+                    f"the flag is set before {name} returns, so a raising "
+                    "archive write would still admit extraction.",
+                )
 
         # And the hook REFUSES to run without it. Runtime order between
         # the two functions is asserted by
         # test_the_completed_response_is_sent_before_extraction; file
         # order says nothing about it, because the hook is defined near
         # the top of the module and the persistence path lives far below.
+        gate = [
+            i for i, l in enumerate(
+                _CHAT_WS.read_text(encoding="utf-8").splitlines(), 1)
+            if 'if not params.get("_archive_event_persisted"):' in l
+        ]
+        self.assertEqual(1, len(gate), f"expected one archive gate, {gate}")
         self.assertEqual(
-            _enclosing_function(
-                _tree(_CHAT_WS),
-                _line_of('if not params.get("_archive_event_persisted"):'),
-            ),
             "_run_completed_turn_extraction",
+            _enclosing_function(tree, gate[0]),
             "the archive gate is not inside the extraction hook.",
         )
 
