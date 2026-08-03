@@ -3402,16 +3402,6 @@ async def ws_chat(ws: WebSocket):
             # for so long: the export looks like an unanswered turn
             # rather than a missing write.
             #
-            # Four things followed from the one omission, and the
-            # transcript was only the visible one:
-            #   * the exported transcript loses every deterministic reply
-            #   * NO trip conversation link is created -- the placement
-            #     hook is gated on params["_persisted_turn_row_id"]
-            #   * completed-turn extraction never sees the turn -- same
-            #     gate plus params["_archive_event_persisted"]
-            #   * the Operator Log's "No transcript turns yet" is very
-            #     likely a symptom of this rather than its own defect
-            #
             # THE REPAIR IS NARROW BY INSTRUCTION. The same gap exists in
             # floor_hold, witness, memory_echo, age_recall and correction,
             # measured from the AST, and a shared finaliser is the right
@@ -3421,17 +3411,54 @@ async def ws_chat(ws: WebSocket):
             # photo-capability answer and the trip-direct answer both
             # take.
             #
+            # ── CORRECTED 2026-08-03. THE FIRST CUT OF THIS REPAIR ALSO
+            # OPENED THE TWO COMPLETED-TURN HOOKS, AND THAT WAS A BUG. ───
+            # It captured row_ids_out, set params["_persisted_turn_row_id"]
+            # and params["_persisted_user_turn_row_id"], and set
+            # params["_archive_event_persisted"]. The retired comment here
+            # claimed:
+            #
+            #     "NO trip conversation link is created -- the placement
+            #      hook is gated on params['_persisted_turn_row_id']"
+            #     "completed-turn extraction never sees the turn -- same
+            #      gate plus params['_archive_event_persisted']"
+            #     "Setting the flags is the whole wiring."
+            #
+            # Each sentence described a gate correctly and stopped one
+            # level too early. BOTH hooks ALSO gate on turn mode --
+            # PLACEMENT_ELIGIBLE_TURN_MODES and
+            # EXTRACTION_ELIGIBLE_TURN_MODES are each frozenset({"interview"})
+            # -- and both read it from **params**, at :836 and :648. But the
+            # dispatcher resolves the deterministic mode into a LOCAL
+            # `turn_mode` and never writes it back: the only three writes to
+            # params["turn_mode"] in this file are :5480 (whatever the
+            # browser sent, "interview" for an ordinary turn) and :1247 and
+            # :2909, which both force "interview". So on a turn the server
+            # resolved to meta_question, params["turn_mode"] is still
+            # "interview" and BOTH mode gates pass.
+            #
+            # A deterministic branch's `return` does not skip the hooks
+            # either. `_generate_and_stream_body` is awaited at :481; an
+            # early return from it is a normal return, and :490 and :502
+            # run next. What was actually holding the hooks out was the
+            # ABSENCE of these two flags -- so setting them fired an
+            # extraction generation and a trip conversation link against
+            # Lori's own deterministic capability answer.
+            #
+            # The flags are therefore NOT set here. This branch writes the
+            # turn, the assistant archive event and the transcript rebuild,
+            # and exposes nothing to the completed-turn hooks. That is the
+            # whole of the transcript repair; the hooks were never part of
+            # it. Repairing the effective-mode handoff itself is a separate
+            # concern for WO-LEAN-LORI-RUNTIME-01 Phase 0/1A and must not
+            # be attempted from inside one branch -- five other branches
+            # reach the same seam.
+            #
             # NOTHING IS DUPLICATED. The user archive event is NOT written
             # here -- 1888 already did it. persist_turn_transaction is
-            # called ONCE, exactly as before; the only change is that its
-            # return value and row ids are now kept instead of discarded.
-            # The trip link and extraction hooks are not called here
-            # either: they run in the outer body after this function
-            # returns, and read these two params flags. Setting the flags
-            # is the whole wiring.
+            # called ONCE, exactly as it was before any of this.
             assistant_text = _meta_question_answer.text
-            _mq_row_ids: Dict[str, Any] = {}
-            _mq_turn_row_id = persist_turn_transaction(
+            persist_turn_transaction(
                 conv_id=conv_id,
                 user_message=user_text,
                 assistant_message=assistant_text,
@@ -3442,14 +3469,7 @@ async def ws_chat(ws: WebSocket):
                     "meta_question_category": _meta_question_answer.primary_category,
                     "meta_question_lang": _meta_question_answer.language,
                 },
-                row_ids_out=_mq_row_ids,
             )
-            try:
-                params["_persisted_turn_row_id"] = _mq_turn_row_id
-                params["_persisted_user_turn_row_id"] = (
-                    _mq_row_ids.get("user_row_id"))
-            except Exception:
-                pass
 
             # Assistant archive event + transcript rebuild. Same surface
             # gate and same reasoning as the main path at 5238: a modal
@@ -3472,15 +3492,17 @@ async def ws_chat(ws: WebSocket):
                     )
                     archive_rebuild_txt(person_id=person_id,
                                         session_id=conv_id)
-                    # Set INSIDE the try and AFTER the append returns, so
-                    # a raising archive write leaves this False and the
-                    # downstream hooks skip rather than run against a turn
-                    # whose archive is incomplete. Same discipline as the
-                    # main path.
-                    try:
-                        params["_archive_event_persisted"] = True
-                    except Exception:
-                        pass
+                    # `params["_archive_event_persisted"] = True` WAS set
+                    # here and was REMOVED 2026-08-03. Its only consumer is
+                    # the completed-turn extraction gate at :688, and per
+                    # the correction above that gate's companion mode check
+                    # does not hold on this path -- so setting it fired an
+                    # extraction generation against a deterministic answer.
+                    # The transcript repair does not need it. Do not
+                    # reinstate it here; reinstate it only when the
+                    # effective-mode handoff is fixed and a deliberate
+                    # decision has been made about which deterministic
+                    # modes are extraction-eligible.
                 except Exception as _mq_arch_err:
                     logger.error(
                         "[chat_ws][meta-question] archive write failed "
