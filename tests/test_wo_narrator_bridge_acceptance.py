@@ -306,12 +306,19 @@ class LatestCompletePairTest(unittest.TestCase):
 
     @staticmethod
     def _ev(pairs, archived=None, cid="switch_mseorb11_acy7"):
-        """pairs: [(ts, question, answer)] -> the evidence shape."""
+        """pairs: [(ts, question, answer)] -> the evidence shape.
+
+        `timestamp` is the REAL key. /api/session/turns returns
+        export_turns() (db.py:1529), which emits `timestamp`; `ts` never
+        appears on the wire. These fixtures used to supply `ts`, which
+        made them agree with a harness bug rather than with the server.
+        """
         turns, archive = [], []
         for ts, q, a in pairs:
-            turns.append({"role": "user", "content": q, "ts": ts})
+            turns.append({"role": "user", "content": q, "timestamp": ts})
             if a is not None:
-                turns.append({"role": "assistant", "content": a, "ts": ts})
+                turns.append({"role": "assistant", "content": a,
+                              "timestamp": ts})
         for a in (archived if archived is not None
                   else [p[2] for p in pairs]):
             if a is not None:
@@ -348,10 +355,10 @@ class LatestCompletePairTest(unittest.TestCase):
         ev = self._ev([("2026-08-04T13:24:17", self.Q, None)])
         self.assertEqual("unanswered", self.m.classify_photo_question(ev)[0])
 
-    def test_a_complete_pair_outranks_an_earlier_unanswered_one(self):
-        """Asked twice, ignored once, answered once. That is an answered
-        question -- which is exactly what happened live at 13:23 and
-        13:24, when the first ask ran as an ordinary interview turn."""
+    def test_asked_twice_ignored_then_answered_is_present(self):
+        """Exactly what happened live at 13:23 and 13:24: the first ask
+        ran as an ordinary interview turn, the second reached the
+        deterministic branch. The latest question was answered."""
         ev = self._ev([
             ("2026-08-04T13:23:49", self.Q, None),
             ("2026-08-04T13:24:17", self.Q, SHIPPED_ANSWER),
@@ -359,6 +366,57 @@ class LatestCompletePairTest(unittest.TestCase):
         verdict, _cid, _q, a = self.m.classify_photo_question(ev)
         self.assertEqual("present", verdict)
         self.assertEqual(SHIPPED_ANSWER, a)
+
+    def test_asked_twice_answered_then_ignored_is_unanswered(self):
+        """The direction the first cut of this repair got wrong.
+
+        It collected only COMPLETE pairs, so an earlier answer outranked
+        a later silence and the run reported `present` -- hiding the fact
+        that the operator asked again and got nothing. The latest
+        question is selected first, then resolved.
+        """
+        ev = self._ev([
+            ("2026-08-04T13:24:17", self.Q, SHIPPED_ANSWER),
+            ("2026-08-04T13:31:15", self.Q, None),
+        ])
+        verdict, _cid, _q, a = self.m.classify_photo_question(ev)
+        self.assertEqual("unanswered", verdict)
+        self.assertEqual("", a)
+
+    def test_a_duplicated_archive_event_is_not_present(self):
+        """`any()` cannot see a duplicate. Two archive copies of one
+        reply is a write defect, not a pass."""
+        ev = self._ev([("2026-08-04T13:24:17", self.Q, SHIPPED_ANSWER)],
+                      archived=[SHIPPED_ANSWER, SHIPPED_ANSWER])
+        self.assertEqual("archive_missing",
+                         self.m.classify_photo_question(ev)[0])
+
+    def test_the_real_api_time_key_is_timestamp_not_ts(self):
+        """/api/session/turns returns export_turns(), which emits
+        `timestamp` (db.py:1529). There is no `ts` key on the wire.
+
+        The first cut read `ts` only, so ordering silently fell back to
+        position on every real run -- and these fixtures supplied `ts`,
+        so the tests agreed with the bug. Here the rows carry ONLY
+        `timestamp`, and they are supplied out of order so position
+        cannot produce the right answer by accident.
+        """
+        ev = {"c": {"turns": [
+            {"role": "user", "content": self.Q,
+             "timestamp": "2026-08-04T13:31:15"},
+            {"role": "assistant", "content": SHIPPED_ANSWER_FOUR,
+             "timestamp": "2026-08-04T13:31:15"},
+            {"role": "user", "content": self.Q,
+             "timestamp": "2026-08-04T13:24:17"},
+            {"role": "assistant", "content": SHIPPED_ANSWER,
+             "timestamp": "2026-08-04T13:24:17"},
+        ], "archive": [
+            {"role": "assistant", "content": SHIPPED_ANSWER_FOUR},
+            {"role": "assistant", "content": SHIPPED_ANSWER},
+        ]}}
+        _v, _c, _q, a = self.m.classify_photo_question(ev)
+        self.assertEqual(SHIPPED_ANSWER_FOUR, a,
+                         "graded by position, not by timestamp")
 
     def test_archive_missing_is_decided_on_the_graded_pair(self):
         """The 2026-08-01 defect. It must survive the reordering: the
@@ -387,43 +445,6 @@ class LatestCompletePairTest(unittest.TestCase):
         self.assertEqual(SHIPPED_ANSWER_FOUR, a)
 
 
-# ---------------------------------------------------------------------
-# Which note is the story?
-#
-# Both the Travels shelf and the Travel Doc modal write
-# source_type='lori' rows into trip_location_notes. The harness used to
-# take "every new Lori note in the window" and grade it as the shelf
-# story, which on 2026-07-31 graded a modal Day 1 note -- correctly day-
-# scoped -- as a placement defect, and reported FAIL on a run that had
-# proved nothing about the thing it named. These tests pin the
-# correlation instead of the count.
-
-STORY = ("I had a chance to visit my mom's parents' gravesite, my old "
-         "elementary school, the two middle schools I attended, my high "
-         "school and junior college—the outsides anyway—with my wife "
-         "Melanie.")
-MODAL_TEXT = "hi, i went to bismarck to do some work"
-TRIP = "9538cd88-5c8b-4da4-b2a9-2a03f8db32a3"
-DAY1 = "day-1-11111111"
-DAY2 = "day-2-22222222"
-
-
-def _conv(link_id, said, day=None, src="travels_shelf_trip",
-          st="needs_day", u=100, a=101):
-    return {"kind": "conversation", "link_id": link_id, "trip_day_id": day,
-            "conv_id": "switch_test", "placement_source": src,
-            "placement_status": st, "user_turn_row_id": u,
-            "assistant_turn_row_id": a, "narrator_said": said,
-            "lori_said": "That sounds like a full day."}
-
-
-def _note(nid, text, surface=None, ref="turn:t-1", day=None):
-    return {"id": nid, "source_type": "lori", "source_ref": ref,
-            "source_surface": surface, "created_at": "2026-07-31T02:00:00Z",
-            "trip_day_id": day, "include_in_memoir": 0,
-            "include_in_interview_context": 0, "hidden": 0,
-            "note_text": text}
-
 
 @unittest.skipUnless(_SCRIPT.exists(), "harness not in this checkout")
 class CandidateCorrelationTest(unittest.TestCase):
@@ -435,6 +456,9 @@ class CandidateCorrelationTest(unittest.TestCase):
         self.selected_day = None
         self.convs = []
         self.notes = []
+        self.turns = []          # /api/session/turns, real API shape
+        self.archive = []        # /api/memory-archive/session/<cid>
+        self.attached = 2
         self._tmp = None
 
     def tearDown(self):
@@ -450,21 +474,25 @@ class CandidateCorrelationTest(unittest.TestCase):
         import tempfile
         m = self.m
 
-        # The walkthrough always produces at least two shelf turns (the
-        # story and the photo question), and do_verify checks for that.
-        # Every fixture therefore carries a second, deliberately
-        # non-story turn: without it these tests would fail on a check
-        # about conversation COUNT while claiming to be about candidate
-        # correlation, and the failure would point at the wrong thing.
+        # REMOVED 2026-08-04: the unconditional second conversation.
+        #
+        # This used to append a fabricated non-story link on every
+        # fixture, because do_verify required `len(fresh) >= 2` -- "both
+        # completed narrator interactions persisted". That expectation is
+        # wrong at current HEAD: the story links once and the photo
+        # question resolves to turn_mode="meta_question", which exposes
+        # no committed row id and must link ZERO times. The fixture was
+        # manufacturing the very row the harness should now reject, so
+        # every test in this class ran against a world that could not
+        # happen and the clean run could never be exercised.
+        #
         # Read at CALL time, not install time. RestartVerifyTest mutates
         # self.convs between the accepted verify and the restart check --
         # a list snapshotted here would never see the change, and four
         # tests would report a passing restart on a world that had been
         # altered underneath them.
         def convs():
-            return list(self.convs) + [
-                _conv("f11e5000-ffff", "It was good to be back there again.",
-                      u=102, a=103)]
+            return list(self.convs)
 
         def fake_get(path):
             if "/calendar" in path:
@@ -481,8 +509,15 @@ class CandidateCorrelationTest(unittest.TestCase):
                                   if c["trip_day_id"] == did]}
             if "/location-notes" in path:
                 return {"notes": list(self.notes)}
+            # The real API shape, both of them. /api/session/turns returns
+            # export_turns(), whose time key is `timestamp` -- see db.py.
+            if "/api/session/turns" in path:
+                return {"turns": list(self.turns), "items": list(self.turns)}
+            if "/api/memory-archive/session/" in path:
+                return {"turns": list(self.archive)}
             if "/photo-inventory" in path:
-                return {"attached": 2, "on_a_day": 2, "cleared_for_lori": 0}
+                return {"attached": self.attached, "on_a_day": 2,
+                        "cleared_for_lori": 0}
             if "/capture-status" in path:
                 return {"last": {"reason": "meaningful_trip_answer"}}
             if "/family-truth/rows" in path:
@@ -501,7 +536,7 @@ class CandidateCorrelationTest(unittest.TestCase):
         json.dump({"live_state": self.live_state,
                    "selected_day_id": self.selected_day,
                    "day_ids": [DAY1, DAY2], "convs": {}, "notes": {},
-                   "photo_inventory": {"attached": 2},
+                   "photo_inventory": {"attached": self.attached},
                    "family_truth_rows": 0}, fh)
         fh.close()
         m.STATE = self._tmp
@@ -812,3 +847,123 @@ class TurnCorrelationHelperTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(_SCRIPT.exists(), "harness not in this checkout")
+class CleanRunTest(unittest.TestCase):
+    """The whole of do_verify, on the shape the walkthrough produces.
+
+    Two messages, in the order the operator sends them:
+
+        1. the story          -> ordinary interview turn -> ONE trip link
+        2. the photo question -> turn_mode="meta_question" -> NO trip link
+
+    Nothing in this class fabricates a second conversation link. The old
+    fixture did, unconditionally, because do_verify used to require two;
+    that manufactured exactly the row the harness must now reject, so
+    this run could not previously be expressed at all.
+
+    It must come out PASS, 0 failed, 0 not exercised. And re-linking the
+    meta_question answer must break it -- otherwise the check is
+    decoration and the 2026-08-03 regression could return unseen.
+    """
+
+    Q = "can you see any of the photos I added to my trip?"
+
+    def setUp(self):
+        CandidateCorrelationTest.setUp(self)
+
+    def tearDown(self):
+        CandidateCorrelationTest.tearDown(self)
+
+    _install = CandidateCorrelationTest._install
+    _run = CandidateCorrelationTest._run
+
+    def _clean_world(self):
+        """One story link, one unlinked meta_question pair, four photos."""
+        self.attached = 4
+        self.convs = [_conv("c75350cd-aaaa", STORY)]
+        self.notes = [_note("shelf-01", STORY)]
+        self.turns = [
+            {"role": "user", "content": STORY,
+             "timestamp": "2026-08-04T14:10:00"},
+            {"role": "assistant", "content": "That sounds like a full day.",
+             "timestamp": "2026-08-04T14:10:04"},
+            {"role": "user", "content": self.Q,
+             "timestamp": "2026-08-04T14:11:00"},
+            {"role": "assistant", "content": SHIPPED_ANSWER_FOUR,
+             "timestamp": "2026-08-04T14:11:06"},
+        ]
+        self.archive = [
+            {"role": "user", "content": STORY},
+            {"role": "assistant", "content": "That sounds like a full day."},
+            {"role": "user", "content": self.Q},
+            {"role": "assistant", "content": SHIPPED_ANSWER_FOUR},
+        ]
+
+    def test_the_two_message_walkthrough_passes_cleanly(self):
+        self._clean_world()
+        rc, log, p, f, s = self._run()
+        self.assertEqual(0, f, log)
+        self.assertEqual(0, s, "a clean run must exercise every check\n" + log)
+        self.assertEqual(0, rc, log)
+        self.assertIn("the story turn persisted and reached the trip", log)
+        self.assertIn("created no trip conversation link", log)
+        self.assertIn("answers before it asks", log)
+        self.assertIn("states the real photo count (4 attached)", log)
+
+    def test_linking_the_meta_answer_fails_the_run(self):
+        """The regression guard. If the meta_question branch starts
+        exposing a committed row id again, its answer becomes a trip
+        conversation and this must go red."""
+        self._clean_world()
+        self.convs.append(_conv("f11e5000-ffff", self.Q, u=102, a=103))
+        rc, log, p, f, s = self._run()
+        self.assertGreaterEqual(f, 1, log)
+        self.assertIn("created no trip conversation link", log)
+        self.assertIn("FAIL", log)
+
+    def test_a_story_that_never_linked_fails_the_run(self):
+        """The other half of the pair. One link is required, not zero."""
+        self._clean_world()
+        self.convs = []
+        rc, log, _p, f, _s = self._run()
+        self.assertNotEqual(0, rc, log)
+
+
+# ---------------------------------------------------------------------
+# Which note is the story?
+#
+# Both the Travels shelf and the Travel Doc modal write
+# source_type='lori' rows into trip_location_notes. The harness used to
+# take "every new Lori note in the window" and grade it as the shelf
+# story, which on 2026-07-31 graded a modal Day 1 note -- correctly day-
+# scoped -- as a placement defect, and reported FAIL on a run that had
+# proved nothing about the thing it named. These tests pin the
+# correlation instead of the count.
+
+STORY = ("I had a chance to visit my mom's parents' gravesite, my old "
+         "elementary school, the two middle schools I attended, my high "
+         "school and junior college—the outsides anyway—with my wife "
+         "Melanie.")
+MODAL_TEXT = "hi, i went to bismarck to do some work"
+TRIP = "9538cd88-5c8b-4da4-b2a9-2a03f8db32a3"
+DAY1 = "day-1-11111111"
+DAY2 = "day-2-22222222"
+
+
+def _conv(link_id, said, day=None, src="travels_shelf_trip",
+          st="needs_day", u=100, a=101):
+    return {"kind": "conversation", "link_id": link_id, "trip_day_id": day,
+            "conv_id": "switch_test", "placement_source": src,
+            "placement_status": st, "user_turn_row_id": u,
+            "assistant_turn_row_id": a, "narrator_said": said,
+            "lori_said": "That sounds like a full day."}
+
+
+def _note(nid, text, surface=None, ref="turn:t-1", day=None):
+    return {"id": nid, "source_type": "lori", "source_ref": ref,
+            "source_surface": surface, "created_at": "2026-07-31T02:00:00Z",
+            "trip_day_id": day, "include_in_memoir": 0,
+            "include_in_interview_context": 0, "hidden": 0,
+            "note_text": text}

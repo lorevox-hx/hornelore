@@ -492,8 +492,25 @@ def classify_photo_question(evidence):
     The four outcomes stay distinct. `archive_missing` is decided on the
     graded pair, so a reply that reached `turns` and not the archive is
     still reported as the write defect it is rather than as a bad answer.
+
+    THE LATEST QUESTION IS SELECTED FIRST, THEN ASKED WHETHER IT WAS
+    ANSWERED -- corrected again 2026-08-04. The first cut of this repair
+    collected only COMPLETE pairs and let any pair outrank an unanswered
+    question, which is wrong in one direction: a run where the operator
+    asked, was answered, asked again and was ignored would have reported
+    `present` on the earlier answer and hidden the silence. Selecting the
+    last matching question and then resolving it keeps the useful case
+    (asked twice, ignored then answered -> present, which is what
+    happened live at 13:23 and 13:24) and stops hiding the harmful one.
+
+    The turn timestamp key is `timestamp`. `/api/session/turns` returns
+    `export_turns()` (db.py:1529), which emits `timestamp`; there is no
+    `ts` key on the wire. The first cut read `ts`, so ordering silently
+    fell back to position on every real run -- and the unit fixtures
+    supplied `ts`, so the tests agreed with the bug. `ts` is still
+    accepted as a fallback, but the real key is read first.
     """
-    pairs, unanswered = [], None
+    asks = []
     for s_idx, (cid, ev) in enumerate(sorted((evidence or {}).items())):
         rows = ev.get("turns") or []
         for i, row in enumerate(rows):
@@ -503,29 +520,30 @@ def classify_photo_question(evidence):
             if not PHOTO_QUESTION.search(question):
                 continue
             nxt = rows[i + 1] if i + 1 < len(rows) else None
-            if not nxt or str(nxt.get("role") or "").lower() != "assistant":
-                if unanswered is None:
-                    unanswered = ("unanswered", cid, question, "")
-                continue
-            answer = str(nxt.get("content") or "")
-            in_archive = any(
-                str(a.get("role") or "").lower() == "assistant"
-                and str(a.get("content") or "").strip() == answer.strip()
-                for a in (ev.get("archive") or []))
-            # Timestamp first, position as the tiebreak and the fallback.
-            # A missing ts must not silently reorder the run, so it sorts
-            # as "" and the (session, index) pair decides.
-            ts = str(nxt.get("ts") or row.get("ts") or "")
-            pairs.append(((ts, s_idx, i), cid, question, answer, in_archive))
+            answered = bool(nxt) and str(
+                nxt.get("role") or "").lower() == "assistant"
+            answer = str(nxt.get("content") or "") if answered else ""
+            # Exactly one archive copy, not merely "at least one": a
+            # duplicated archive event is a write defect too, and `any()`
+            # cannot see it.
+            n_arch = sum(
+                1 for a in (ev.get("archive") or [])
+                if str(a.get("role") or "").lower() == "assistant"
+                and str(a.get("content") or "").strip() == answer.strip())
+            ts = str((nxt or {}).get("timestamp") or row.get("timestamp")
+                     or (nxt or {}).get("ts") or row.get("ts") or "")
+            asks.append(((ts, s_idx, i), cid, question, answer,
+                         answered, n_arch))
 
-    if pairs:
-        pairs.sort(key=lambda p: p[0])
-        _key, cid, question, answer, in_archive = pairs[-1]
-        return (("present" if in_archive else "archive_missing"),
-                cid, question, answer)
-    if unanswered is not None:
-        return unanswered
-    return "absent", "", "", ""
+    if not asks:
+        return "absent", "", "", ""
+    asks.sort(key=lambda a: a[0])
+    _key, cid, question, answer, answered, n_arch = asks[-1]
+    if not answered:
+        return "unanswered", cid, question, ""
+    if n_arch != 1:
+        return "archive_missing", cid, question, answer
+    return "present", cid, question, answer
 
 
 def live_conversations():
@@ -645,24 +663,54 @@ def do_verify(g, now):
     out("")
 
     fresh = [k for k in now["convs"] if k not in old["convs"]]
+    rows = live_conversations()
 
     # -- C: the shelf must not promote a finished trip back to live
     check(now["live_state"] == old["live_state"],
           "trip live_state unchanged by the narrator session (%s)"
           % now["live_state"])
 
-    # -- E: both interactions persisted, and each is on the trip once
+    # -- E: the two interactions, proved SEPARATELY
+    #
+    # CORRECTED 2026-08-04. This block used to require `len(fresh) >= 2`
+    # -- "both completed narrator interactions persisted" -- on the
+    # assumption that the story and the photo question each become a trip
+    # conversation link. At current HEAD they must not.
+    #
+    #   * the story is an ordinary interview turn. It links once.
+    #   * the photo question resolves to turn_mode="meta_question", which
+    #     deliberately exposes neither _persisted_turn_row_id nor
+    #     _archive_event_persisted, so the completed-turn trip-link hook
+    #     declines it. Zero links, by design.
+    #
+    # A two-link expectation therefore fails a correct run, and worse, it
+    # would PASS the run in which the meta_question branch started
+    # opening the hooks again -- the exact regression removed at
+    # 2026-08-03. So the count check is replaced by two separate proofs,
+    # and the second is the one that would catch that regression coming
+    # back.
     if not fresh:
         skip("no new trip conversation -- the walkthrough was not done "
              "(or nothing reached the trip)")
     else:
         out("      (%d new trip conversation(s))" % len(fresh))
-        check(len(fresh) >= 2,
-              "both completed narrator interactions persisted (%d)"
-              % len(fresh))
+
+        def _said(k):
+            return str((rows.get(k) or {}).get("narrator_said") or "")
+
+        photo_linked = [k for k in fresh if PHOTO_QUESTION.search(_said(k))]
+        story_linked = [k for k in fresh if k not in photo_linked]
+
+        check(len(story_linked) >= 1,
+              "the story turn persisted and reached the trip (%d story "
+              "conversation(s))" % len(story_linked))
         turns = [now["convs"][k]["a"] for k in fresh]
         check(len(set(turns)) == len(turns),
               "each assistant turn is linked to the trip exactly once")
+        check(not photo_linked,
+              "the photo capability answer created no trip conversation "
+              "link (%d found -- a meta_question turn must expose no "
+              "committed row id)" % len(photo_linked))
 
         # -- C: placement obeys the priority rules, or it is Needs a day
         for k in fresh:
@@ -697,7 +745,7 @@ def do_verify(g, now):
     # row as a placement defect. An unrelated modal note is now named
     # and ignored, which is the only honest thing to do with it: it is
     # not this run's evidence and it is not this run's failure.
-    rows = live_conversations()
+    # (`rows` is fetched once, above, where section E also needs it.)
     notes_live = live_notes()
     new_notes = [k for k in now["notes"] if k not in old["notes"]]
     new_lori = [k for k in new_notes if now["notes"][k]["src"] == "lori"]
