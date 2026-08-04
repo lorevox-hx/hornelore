@@ -57,8 +57,17 @@ class HarnessJudgmentTest(unittest.TestCase):
         cls.m = _load()
 
     def _visual(self, text):
-        import re
-        return [p for p in self.m.VISUAL_CLAIMS if re.search(p, text, re.I)]
+        """Routed through the real seam, not a private re-implementation.
+
+        CHANGED 2026-08-04. This used to be
+        `[p for p in VISUAL_CLAIMS if re.search(p, text)]` -- a second
+        copy of the harness's logic, which meant every test in this class
+        graded the tuple rather than the function the harness calls. The
+        invitation exemption added on 2026-08-04 lives in
+        `visual_claim_hits`, so a private copy would now pass while the
+        harness failed.
+        """
+        return self.m.visual_claim_hits(text)
 
     # -- the question -----------------------------------------------------
 
@@ -172,6 +181,210 @@ class HarnessJudgmentTest(unittest.TestCase):
         h = self.m.h("my moms parents gravesite")
         self.assertEqual(len(h), 16)
         self.assertNotIn("gravesite", h)
+
+
+# ---------------------------------------------------------------------
+# The three false negatives from the 2026-08-04 live run at HEAD 7139644.
+#
+# That run produced RESULT: FAIL with 19 passed and 3 failed. All three
+# failures were the harness misreading a correct answer, and all three
+# concerned the SAME reply -- the one below, reproduced here byte-exact
+# rather than transcribed: 498 characters, sha16 a7d8bb9afffadb56, which
+# is what the failing run itself printed.
+#
+# Keeping the real bytes matters more than it looks. The apostrophes are
+# curly and the dash is an em dash; retyping it with straight quotes
+# gives 498 characters and a DIFFERENT hash (b2de1a16a6481f89), so a
+# hand-typed fixture would have looked right, hashed wrong, and quietly
+# stopped being the shipped answer.
+
+SHIPPED_ANSWER = (
+    "There are three photos attached to Bismarck Trip, two of them "
+    "placed on a day. I should be straight with you about what that "
+    "means for me, though: I don’t look at the images themselves. "
+    "What I can work from is the captions and notes that have been "
+    "written about a photo and approved for me. They’re cleared for "
+    "me, but no one has written a caption or a note on them yet, so I "
+    "have no words to work from. Describe them to me instead — "
+    "what’s in the picture, and what was happening when it was taken?"
+)
+
+# The same answer after a fourth photograph was uploaded mid-session.
+SHIPPED_ANSWER_FOUR = SHIPPED_ANSWER.replace(
+    "There are three photos", "There are four photos")
+
+
+@unittest.skipUnless(_SCRIPT.exists(), "harness not in this checkout")
+class ShippedAnswerRegressionTest(unittest.TestCase):
+    """The exact reply that was graded wrong, graded right."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.m = _load()
+
+    def test_the_fixture_is_the_answer_the_failing_run_reported(self):
+        """Pinned by length and hash. If either moves, the fixture has
+        drifted and every assertion below is about a different string."""
+        self.assertEqual(498, len(SHIPPED_ANSWER))
+        self.assertEqual("a7d8bb9afffadb56", self.m.h(SHIPPED_ANSWER))
+
+    # -- defect 1: the invitation read as a claim ----------------------
+    def test_asking_what_is_in_the_picture_is_not_a_visual_claim(self):
+        """'what's in the picture' asks the NARRATOR to describe it. The
+        sentence before it says she does not look at the images."""
+        self.assertEqual([], self.m.visual_claim_hits(SHIPPED_ANSWER))
+
+    def test_real_visual_claims_are_still_caught(self):
+        """The exemption is scoped to the invitation frame. Every claim
+        the work order names must still fire -- including the declarative
+        form of the very phrase that was over-matching."""
+        for bad in (
+            "In the picture you are standing by the headstone.",
+            "In the image I can make out a low brick building.",
+            "The image shows a cemetery on a hill.",
+            "I can see the church behind you.",
+            "From what I can see, it was a bright day.",
+        ):
+            with self.subTest(bad=bad[:40]):
+                self.assertTrue(self.m.visual_claim_hits(bad), bad)
+
+    def test_a_claim_elsewhere_in_the_reply_is_not_excused_by_the_ending(self):
+        """The exemption subtracts a SPAN, not the whole answer. A reply
+        that claims to see and then invites a description still fails."""
+        bad = ("In the picture you are standing by the headstone. "
+               "Describe them to me instead — what’s in the picture?")
+        self.assertTrue(self.m.visual_claim_hits(bad))
+
+    # -- defect 2: answered, then asked -------------------------------
+    def test_answering_then_inviting_is_not_a_deflection(self):
+        self.assertTrue(self.m.answered_before_asking(SHIPPED_ANSWER))
+
+    def test_a_question_only_reply_is_still_rejected(self):
+        """The check still has to bite. These are the real deflections
+        from the same session's later turns."""
+        for deflection in (
+            "What do you remember about the people and activities that "
+            "accompanied you during each of these moments?",
+            "What do you remember about where you were living or staying "
+            "during that time in your life?",
+            "How did that visit make you feel?",
+        ):
+            with self.subTest(d=deflection[:40]):
+                self.assertFalse(self.m.answered_before_asking(deflection))
+
+    def test_an_empty_reply_is_rejected(self):
+        for empty in ("", "   ", None):
+            self.assertFalse(self.m.answered_before_asking(empty))
+
+    def test_a_declarative_only_reply_is_accepted(self):
+        self.assertTrue(self.m.answered_before_asking(
+            "There are four photos attached to Bismarck Trip."))
+
+    # -- defect 3: the count was right when it was given ---------------
+    def test_the_three_photo_answer_states_three(self):
+        self.assertTrue(self.m.says_count(SHIPPED_ANSWER, 3))
+        self.assertFalse(self.m.says_count(SHIPPED_ANSWER, 4))
+
+    def test_the_four_photo_answer_states_four(self):
+        self.assertTrue(self.m.says_count(SHIPPED_ANSWER_FOUR, 4))
+
+
+@unittest.skipUnless(_SCRIPT.exists(), "harness not in this checkout")
+class LatestCompletePairTest(unittest.TestCase):
+    """Defect 3, as the sequence that produced it.
+
+    three-photo answer -> upload -> four-photo answer. Both were correct
+    when given. The harness must grade the LAST one, because the
+    inventory it compares against is the inventory now.
+    """
+
+    Q = "can you see any of the photos I added to my trip?"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.m = _load()
+
+    @staticmethod
+    def _ev(pairs, archived=None, cid="switch_mseorb11_acy7"):
+        """pairs: [(ts, question, answer)] -> the evidence shape."""
+        turns, archive = [], []
+        for ts, q, a in pairs:
+            turns.append({"role": "user", "content": q, "ts": ts})
+            if a is not None:
+                turns.append({"role": "assistant", "content": a, "ts": ts})
+        for a in (archived if archived is not None
+                  else [p[2] for p in pairs]):
+            if a is not None:
+                archive.append({"role": "assistant", "content": a})
+        return {cid: {"turns": turns, "archive": archive}}
+
+    def test_the_three_then_upload_then_four_sequence_grades_the_four(self):
+        ev = self._ev([
+            ("2026-08-04T13:24:17", self.Q, SHIPPED_ANSWER),
+            ("2026-08-04T13:31:15", "can you see the image i just uploaded",
+             SHIPPED_ANSWER_FOUR),
+        ])
+        verdict, cid, q, a = self.m.classify_photo_question(ev)
+        self.assertEqual("present", verdict)
+        self.assertEqual(SHIPPED_ANSWER_FOUR, a)
+        self.assertTrue(self.m.says_count(a, 4))
+        # and the historical answer is NOT what gets graded
+        self.assertNotEqual(SHIPPED_ANSWER, a)
+
+    def test_a_single_pair_is_unaffected(self):
+        ev = self._ev([("2026-08-04T13:24:17", self.Q, SHIPPED_ANSWER)])
+        verdict, _cid, _q, a = self.m.classify_photo_question(ev)
+        self.assertEqual("present", verdict)
+        self.assertEqual(SHIPPED_ANSWER, a)
+
+    # -- the four outcomes stay distinct ------------------------------
+    def test_absent_when_the_question_was_never_asked(self):
+        ev = self._ev([("2026-08-04T13:22:00",
+                        "we went to the catholic cemetary on a hill.",
+                        "That sounds like a full day.")])
+        self.assertEqual("absent", self.m.classify_photo_question(ev)[0])
+
+    def test_unanswered_when_no_assistant_turn_follows(self):
+        ev = self._ev([("2026-08-04T13:24:17", self.Q, None)])
+        self.assertEqual("unanswered", self.m.classify_photo_question(ev)[0])
+
+    def test_a_complete_pair_outranks_an_earlier_unanswered_one(self):
+        """Asked twice, ignored once, answered once. That is an answered
+        question -- which is exactly what happened live at 13:23 and
+        13:24, when the first ask ran as an ordinary interview turn."""
+        ev = self._ev([
+            ("2026-08-04T13:23:49", self.Q, None),
+            ("2026-08-04T13:24:17", self.Q, SHIPPED_ANSWER),
+        ])
+        verdict, _cid, _q, a = self.m.classify_photo_question(ev)
+        self.assertEqual("present", verdict)
+        self.assertEqual(SHIPPED_ANSWER, a)
+
+    def test_archive_missing_is_decided_on_the_graded_pair(self):
+        """The 2026-08-01 defect. It must survive the reordering: the
+        LATEST pair reached `turns` and not the archive, so the write
+        defect is reported even though an earlier reply archived fine."""
+        ev = self._ev(
+            [("2026-08-04T13:24:17", self.Q, SHIPPED_ANSWER),
+             ("2026-08-04T13:31:15", self.Q, SHIPPED_ANSWER_FOUR)],
+            archived=[SHIPPED_ANSWER])          # the later one never landed
+        verdict, _cid, _q, a = self.m.classify_photo_question(ev)
+        self.assertEqual("archive_missing", verdict)
+        self.assertEqual(SHIPPED_ANSWER_FOUR, a)
+
+    def test_ordering_falls_back_to_position_when_there_is_no_timestamp(self):
+        """A missing ts must not silently reorder the run."""
+        ev = {"c": {"turns": [
+            {"role": "user", "content": self.Q},
+            {"role": "assistant", "content": SHIPPED_ANSWER},
+            {"role": "user", "content": self.Q},
+            {"role": "assistant", "content": SHIPPED_ANSWER_FOUR},
+        ], "archive": [
+            {"role": "assistant", "content": SHIPPED_ANSWER},
+            {"role": "assistant", "content": SHIPPED_ANSWER_FOUR},
+        ]}}
+        _v, _c, _q, a = self.m.classify_photo_question(ev)
+        self.assertEqual(SHIPPED_ANSWER_FOUR, a)
 
 
 # ---------------------------------------------------------------------

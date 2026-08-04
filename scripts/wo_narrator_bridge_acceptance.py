@@ -93,6 +93,90 @@ VISUAL_CLAIMS = (
     r"\bi viewed\b", r"\bi can view\b", r"\bfrom what i can see\b",
 )
 
+# CORRECTED 2026-08-04 after a live FALSE NEGATIVE at HEAD 7139644.
+#
+# The shipped answer ended:
+#
+#     "Describe them to me instead — what's in the picture, and what was
+#      happening when it was taken?"
+#
+# `\bin the (?:image|photo|picture)\b` matched "in the picture" there and
+# the harness reported a visual claim. It is the opposite of one: the
+# sentence asks the NARRATOR to describe the photograph, in a reply whose
+# previous sentence says "I don't look at the images themselves".
+#
+# The phrase is genuinely a claim in a declarative -- "In the picture you
+# are standing by the headstone" -- and genuinely not one inside a
+# request for a description. The distinguishing feature is the
+# interrogative or imperative frame around it, not the phrase, so the
+# claim patterns are LEFT ALONE and their hits are subtracted where they
+# fall inside one of these invitation spans. Widening the claim pattern
+# instead would have weakened detection of the real form.
+INVITATION_SPANS = (
+    # "what's in the picture", "what is in the image", "what was in the photo"
+    r"\bwhat(?:'|’)?s?\b(?:\s+\w+){0,3}\s+in the (?:image|photo|picture)\b",
+    # "describe ... the picture", "tell me what's in the photo"
+    r"\bdescribe\b(?:\s+\S+){0,8}?\s+(?:image|photo|picture)s?\b",
+    r"\btell me\b(?:\s+\S+){0,8}?\s+in the (?:image|photo|picture)\b",
+    # "what do you see in the photo" -- asking the narrator, not claiming
+    r"\bwhat\b(?:\s+\S+){0,4}\s+see in the (?:image|photo|picture)\b",
+)
+
+
+def visual_claim_hits(answer):
+    """Claim patterns that fire OUTSIDE any invitation span.
+
+    Returns the list of pattern strings, so the caller can keep
+    reporting a count and never the sentence that hit.
+    """
+    text = answer or ""
+    spans = []
+    for pat in INVITATION_SPANS:
+        for m in re.finditer(pat, text, re.I | re.S):
+            spans.append((m.start(), m.end()))
+
+    def _inside(a, b):
+        return any(s <= a and b <= e for s, e in spans)
+
+    hits = []
+    for pat in VISUAL_CLAIMS:
+        for m in re.finditer(pat, text, re.I | re.S):
+            if not _inside(m.start(), m.end()):
+                hits.append(pat)
+                break
+    return hits
+
+
+# CORRECTED 2026-08-04, same live run. The old rule was
+# `not answer.strip().endswith("?")`, which fails every reply that
+# answers and then offers a way forward -- which is the shape the work
+# order actually wants. The shipped answer states the count in its FIRST
+# sentence and closes with an invitation, and was graded as a deflection.
+#
+# The property is "did she answer before she asked", not "does it end in
+# a question mark". A reply made only of questions is still rejected.
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+
+
+def answered_before_asking(answer):
+    """True when at least one declarative precedes the first question.
+
+    A pure deflection -- "What do you remember about that day?" -- has no
+    declarative at all and is rejected. A reply that answers and then
+    invites is accepted, however it ends.
+    """
+    text = (answer or "").strip()
+    if not text:
+        return False
+    for part in _SENTENCE_SPLIT.split(text):
+        part = part.strip()
+        if not part:
+            continue
+        if part.endswith("?"):
+            return False        # a question came first
+        return True             # a declarative came first
+    return False
+
 # The exact wording from the work order, plus the variants it names.
 # Two shapes, because the noun does not always follow the verb: "can you
 # see ... photos" and "what photos do you have". One pattern that only
@@ -379,27 +463,68 @@ def session_turn_evidence(conv_ids):
 
 
 def classify_photo_question(evidence):
-    """absent | unanswered | archive_missing | present, plus the pair."""
-    for cid, ev in (evidence or {}).items():
+    """absent | unanswered | archive_missing | present, plus the pair.
+
+    GRADES THE LATEST COMPLETE PAIR, corrected 2026-08-04.
+
+    The first version returned the FIRST question/answer pair it found,
+    which is wrong whenever the inventory changed during the session --
+    and it did, live, at HEAD 7139644:
+
+        13:24  "can you see any of the photos I added to my trip?"
+               "There are THREE photos attached ..."      <- correct then
+        13:31  (a fourth photo is uploaded)
+        13:31  "can you see the image i just uploaded"
+               "There are FOUR photos attached ..."       <- correct now
+
+    Both answers were right when given. The harness graded the 13:24
+    answer against the inventory as it stood at verify time and reported
+    that Lori had miscounted. She had not; the harness had compared a
+    historical answer to a later fact.
+
+    So: every complete pair is collected, ordered by the turn's own
+    timestamp where the API supplies one and by position otherwise, and
+    the LAST one is graded. `unanswered` survives as an outcome for the
+    case where a question exists and no assistant turn follows it, but a
+    complete pair anywhere outranks it -- a question asked twice, once
+    unanswered and once answered, is an answered question.
+
+    The four outcomes stay distinct. `archive_missing` is decided on the
+    graded pair, so a reply that reached `turns` and not the archive is
+    still reported as the write defect it is rather than as a bad answer.
+    """
+    pairs, unanswered = [], None
+    for s_idx, (cid, ev) in enumerate(sorted((evidence or {}).items())):
         rows = ev.get("turns") or []
         for i, row in enumerate(rows):
             if str(row.get("role") or "").lower() != "user":
                 continue
-            if not PHOTO_QUESTION.search(str(row.get("content") or "")):
+            question = str(row.get("content") or "")
+            if not PHOTO_QUESTION.search(question):
                 continue
-            # The question is here. Is the next turn Lori answering it?
             nxt = rows[i + 1] if i + 1 < len(rows) else None
             if not nxt or str(nxt.get("role") or "").lower() != "assistant":
-                return "unanswered", cid, str(row.get("content") or ""), ""
+                if unanswered is None:
+                    unanswered = ("unanswered", cid, question, "")
+                continue
             answer = str(nxt.get("content") or "")
-            # And did that answer reach the exported archive?
             in_archive = any(
                 str(a.get("role") or "").lower() == "assistant"
                 and str(a.get("content") or "").strip() == answer.strip()
                 for a in (ev.get("archive") or []))
-            if not in_archive:
-                return "archive_missing", cid, str(row.get("content") or ""), answer
-            return "present", cid, str(row.get("content") or ""), answer
+            # Timestamp first, position as the tiebreak and the fallback.
+            # A missing ts must not silently reorder the run, so it sorts
+            # as "" and the (session, index) pair decides.
+            ts = str(nxt.get("ts") or row.get("ts") or "")
+            pairs.append(((ts, s_idx, i), cid, question, answer, in_archive))
+
+    if pairs:
+        pairs.sort(key=lambda p: p[0])
+        _key, cid, question, answer, in_archive = pairs[-1]
+        return (("present" if in_archive else "archive_missing"),
+                cid, question, answer)
+    if unanswered is not None:
+        return unanswered
     return "absent", "", "", ""
 
 
@@ -696,12 +821,13 @@ def do_verify(g, now):
         inv = now["photo_inventory"]
         out("      (answer in session %s, %d chars, sha %s -- present in "
             "both `turns` and the archive)" % (_cid[:12], len(_a), h(_a)))
-        hits = [pat for pat in VISUAL_CLAIMS if re.search(pat, _a, re.I)]
+        hits = visual_claim_hits(_a)
         check(not hits,
               "the answer makes no visual claim (%d matched pattern(s))"
               % len(hits))
-        check(bool(_a.strip()) and not _a.strip().endswith("?"),
-              "the answer does not answer the question with a question")
+        check(answered_before_asking(_a),
+              "the answer answers before it asks (not a question-only "
+              "deflection)")
         check(says_count(_a, inv.get("attached", 0)),
               "the answer states the real photo count (%d attached)"
               % inv.get("attached", 0))
