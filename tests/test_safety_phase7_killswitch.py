@@ -42,11 +42,20 @@ class KillSwitchPresenceTest(unittest.TestCase):
 
     def test_safety_enabled_flag_used_in_gate(self):
         # The gate condition must include _safety_enabled.
-        self.assertIn(
-            "_safety_enabled = os.getenv(",
-            self.text,
-            "Phase 7 _safety_enabled flag declaration missing.",
-        )
+        # UPDATED 2026-08-04 (Phase 3B). The retired assertion was
+        #     assertIn("_safety_enabled = os.getenv(", self.text)
+        # which stopped matching when the gate became a multi-line
+        # expression: PARKED now outranks the kill-switch, so the flag
+        # is ANDed with `not _safety_parked`. The property under test is
+        # unchanged -- LV_ENABLE_SAFETY is still read and still gates --
+        # and is now asserted in two parts so a future reformat of the
+        # expression cannot break it again.
+        self.assertIn("_safety_enabled = (", self.text,
+                      "Phase 7 _safety_enabled flag declaration missing.")
+        self.assertIn('os.getenv("LV_ENABLE_SAFETY", "1")', self.text,
+                      "the kill-switch env read disappeared")
+        self.assertIn("not _safety_parked", self.text,
+                      "parked must outrank the kill-switch")
         # 2026-06-14 loosened from a literal-AND-chain match to a regex
         # that asserts the SEMANTIC intent — `_safety_enabled` is the
         # first clause, `user_text.strip()` is somewhere later in the
@@ -83,7 +92,7 @@ class KillSwitchPresenceTest(unittest.TestCase):
         # state on every turn during incident investigation.
         # Verify the warning sits inside the `if not _safety_enabled`
         # branch (per-turn), not above it (session-level).
-        gate_idx = self.text.find('_safety_enabled = os.getenv(')
+        gate_idx = self.text.find('_safety_enabled = (')
         warn_idx = self.text.find('[chat_ws][safety][KILL-SWITCH]')
         self.assertGreater(gate_idx, 0)
         self.assertGreater(warn_idx, 0)

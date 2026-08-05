@@ -3191,6 +3191,70 @@ def _era_spoken_phrase(current_era: str, era_label: str) -> str:
 
 
 
+
+# ── WO-LEAN-LORI-RUNTIME-01 Phase 3B — DEFAULT_CORE is two things ─────
+# 2026-08-04. `DEFAULT_CORE` has always carried two unrelated documents
+# in one string: who Lori is and how she conducts an oral history, and
+# a complete emergency-response manual.
+#
+# THE SPLIT IS TAKEN AT THE MARKER, NOT TRANSCRIBED. Retyping 17,859
+# characters of safety-critical text into two literals is an invitation
+# to lose a line, and losing a line here is not a cosmetic defect. The
+# cut is made at the first occurrence of "ACUTE SAFETY RULE:", which is
+# where the identity text ends mid-line, and the two halves provably
+# reconstitute the original -- there is a test that concatenates them
+# and compares.
+#
+# MEASURED at the cut: identity 9,926 chars (56%), safety protocol
+# 7,933 chars (44%, ~1,800 tokens). The protocol travelled inside every
+# ordinary prompt, which is both why the window overran and why Lori
+# recited part of the 988 instruction during a cemetery conversation.
+#
+# DEFAULT_CORE ITSELF IS UNCHANGED and still exported. It is the
+# reactivation artifact and several tests and readers reference it by
+# name; parking a feature must not make its source unfindable.
+_SAFETY_PROTOCOL_MARKER = "ACUTE SAFETY RULE:"
+
+if _SAFETY_PROTOCOL_MARKER not in DEFAULT_CORE:  # pragma: no cover
+    # Fail the BOOT rather than silently shipping the manual inside the
+    # identity half. The standing lesson from INC-2026-07-09 is that a
+    # structural failure must be loud; a defensive fallback here would
+    # quietly restore the 1,800 tokens this phase exists to remove.
+    raise RuntimeError(
+        "prompt_composer: DEFAULT_CORE no longer contains "
+        f"{_SAFETY_PROTOCOL_MARKER!r} — the identity/safety split cannot "
+        "be taken. Fix the marker before starting.")
+
+_SAFETY_SPLIT_AT = DEFAULT_CORE.index(_SAFETY_PROTOCOL_MARKER)
+
+#: Who Lori is, what the Life Archive is for, the turn-type taxonomy and
+#: the interview rules. ALWAYS present. Never droppable, in any state.
+LORI_CORE_IDENTITY = DEFAULT_CORE[:_SAFETY_SPLIT_AT].rstrip()
+
+#: The emergency-response manual. Present only when safety is ACTIVE.
+#: Preserved verbatim for reactivation.
+LORI_SAFETY_PROTOCOL = DEFAULT_CORE[_SAFETY_SPLIT_AT:].strip()
+
+
+def _system_head_core() -> str:
+    """The identity text that ships on every turn, in every state.
+
+    When safety is ACTIVE this is identity + protocol, byte-identical to
+    the historical DEFAULT_CORE. When PARKED it is identity alone, and
+    the ~1,800-token manual contributes nothing.
+    """
+    try:
+        from . import flags as _flags
+        if _flags.safety_parked():
+            return LORI_CORE_IDENTITY
+    except Exception:
+        # An unreadable flag module must not silently strip safety text
+        # from a deployment that wanted it. Unknown resolves to the
+        # historical behaviour, which is the conservative direction here
+        # even though it is the expensive one.
+        pass
+    return DEFAULT_CORE
+
 # ── WO-LEAN-LORI-RUNTIME-01 Phase 2A — named prompt sections ───────────
 # 2026-08-04. Step one of prompt restoration, and deliberately the step
 # that changes NOTHING about the output.
@@ -3368,11 +3432,12 @@ def compose_system_prompt(
 
     # Prefer UI base prompt when present, but always anchor with DEFAULT_CORE.
     base = (ui_base or "").strip()
+    _core = _system_head_core()   # identity, plus the safety manual only when ACTIVE
     if base:
         # If UI already contains a role declaration, we still prepend our stable core.
-        system_head = DEFAULT_CORE + "\n\n" + base
+        system_head = _core + "\n\n" + base
     else:
-        system_head = DEFAULT_CORE
+        system_head = _core
 
     # Build a compact context JSON block.
     context: Dict[str, Any] = {}

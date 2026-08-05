@@ -213,3 +213,63 @@ def truth_pipeline_log_enabled() -> bool:
     deferred and is not gated here either.
     """
     return _truthy(os.environ.get("HORNELORE_TRUTH_PIPELINE_LOG"))
+
+# ─────────────────────────────────────────────────────────────────────
+# WO-LEAN-LORI-RUNTIME-01 Phase 3B — the safety feature is PARKED
+# ─────────────────────────────────────────────────────────────────────
+# 2026-08-04, Chris's decision. Lean Lori is a family oral-history
+# system. It is NOT monitored emergency support, it is not staffed, and
+# nobody is watching it. Shipping an always-on emergency apparatus into
+# that context bought a real cost and a false impression at the same
+# time.
+#
+# WHAT IT COST, MEASURED:
+#   * 7,933 characters — 44% of DEFAULT_CORE, roughly 1,800 tokens — of
+#     emergency protocol inside EVERY ordinary prompt, competing with
+#     Lori's identity for a window that was already overrunning on
+#     60.6% of turns. It also leaked: Lori recited part of the 988
+#     instruction during an ordinary cemetery conversation, because the
+#     script was sitting in her prompt.
+#   * one extra full generation before Lori answers on most eligible
+#     turns — 1,392 tokens, ~1.52 s, ~0.55 GB transient VRAM even after
+#     the raw-ephemeral repair.
+#
+# PARKED IS A STATE, NOT A DELETION. Every line of safety code, its
+# tests, the 48-phrase corpus, the 192-generation measurement and the
+# raw-ephemeral repair are kept exactly as they are, the way Companion
+# mode is kept. Reactivation is one setting plus Chris's decision, and
+# it must come with its own efficacy and specificity acceptance --
+# because the measured behaviour today includes routing "I've had a
+# good run. I'm not afraid of the ending." to a crisis line.
+#
+# WHY A STATE AND NOT `LV_ENABLE_SAFETY=0`. That switch disables the
+# backend cascade only. The 1,800-token manual would still ship inside
+# DEFAULT_CORE on every turn and the browser latch would still arm.
+# Three separate mechanisms need one authority, and the server is it --
+# the browser must be TOLD, not trusted to agree.
+_SAFETY_STATES: Final = ("parked", "active")
+
+
+def safety_state() -> str:
+    """'parked' or 'active'. Default PARKED. Server-authoritative.
+
+    Anything unrecognised resolves to 'parked'. A typo must not
+    silently switch an entire feature family back on, and parked is the
+    state that costs nothing and surprises nobody.
+    """
+    raw = str(os.getenv("HORNELORE_SAFETY_STATE", "parked") or "").strip().lower()
+    return raw if raw in _SAFETY_STATES else "parked"
+
+
+def safety_parked() -> bool:
+    """True when the whole safety feature is inactive.
+
+    ONE question with ONE answer. Every consumer -- prompt composer,
+    LLM classifier, deterministic scanner, operator cascade, softened
+    mode, and the browser via the runtime payload -- asks this and
+    nothing else. Legacy LV_ENABLE_SAFETY and HORNELORE_SAFETY_LLM_LAYER
+    are SUBORDINATE: when parked they are not consulted at all, so no
+    combination of stale env values can bring a piece of the feature
+    back on its own.
+    """
+    return safety_state() == "parked"

@@ -48,6 +48,32 @@ except Exception as _exc:
     _IMPORT_ERR = repr(_exc)
 
 
+# ── WO-LEAN-LORI-RUNTIME-01 Phase 3B, 2026-08-04 ──────────────────────
+# The safety feature is PARKED by default in Lean Lori, so these tests
+# opt back into the ACTIVE state. That is the point of parking rather
+# than deleting: the feature and its whole test surface are preserved
+# and still exercised, the way Companion mode is, and reactivation is a
+# setting rather than an archaeology exercise.
+#
+# Setting it per-module rather than per-test is deliberate: a suite that
+# exists to prove the safety feature works should be entirely in the
+# state where the feature exists. The PARKED behaviour has its own
+# suite, tests/test_safety_parked.py.
+def setUpModule():  # noqa: N802
+    import os
+    global _SAVED_SAFETY_STATE
+    _SAVED_SAFETY_STATE = os.environ.get("HORNELORE_SAFETY_STATE")
+    os.environ["HORNELORE_SAFETY_STATE"] = "active"
+
+
+def tearDownModule():  # noqa: N802
+    import os
+    if _SAVED_SAFETY_STATE is None:
+        os.environ.pop("HORNELORE_SAFETY_STATE", None)
+    else:
+        os.environ["HORNELORE_SAFETY_STATE"] = _SAVED_SAFETY_STATE
+
+
 def _skip_if_no_import():
     if not _IMPORT_OK:
         raise unittest.SkipTest(f"safety_classifier import failed: {_IMPORT_ERR}")

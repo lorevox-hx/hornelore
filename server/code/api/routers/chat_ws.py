@@ -1320,8 +1320,32 @@ async def ws_chat(ws: WebSocket):
         _safety_result = None  # type: ignore[assignment]
         _safety_scan_failed = False
         _safety_pattern_triggered = False
-        _safety_enabled = os.getenv("LV_ENABLE_SAFETY", "1") in ("1", "true", "True")
-        if not _safety_enabled:
+        # ── WO-LEAN-LORI-RUNTIME-01 Phase 3B ──────────────────────────
+        # PARKED outranks the kill-switch. `LV_ENABLE_SAFETY` is a
+        # developer kill-switch whose own comment says never to use it
+        # in a real narrator session; parked is a deployment state, and
+        # it is the server's single authority over the whole feature.
+        # Checked first so no combination of stale legacy env values can
+        # re-arm one piece of a parked feature.
+        _safety_parked = False
+        try:
+            from .. import flags as _lean_flags
+            _safety_parked = _lean_flags.safety_parked()
+        except Exception:
+            _safety_parked = False   # unknown -> historical behaviour
+        _safety_enabled = (
+            (not _safety_parked)
+            and os.getenv("LV_ENABLE_SAFETY", "1") in ("1", "true", "True"))
+        if _safety_parked:
+            # INFO, not WARNING. The kill-switch warns on every turn
+            # because it means something is wrong; parked is a decision
+            # Chris made, recorded in docs/decisions, and a warning per
+            # turn would train an operator to ignore the warning colour.
+            logger.info(
+                "[chat_ws][safety] PARKED — deterministic scan, LLM "
+                "classifier, cascade, softened mode and notifications "
+                "are inactive for this deployment. conv=%s", conv_id)
+        elif not _safety_enabled:
             # Emit a per-turn WARNING — chosen over a session-only one-shot
             # because operators looking at api.log mid-incident need to see
             # this on every turn. Quiet noise on a normal session is the

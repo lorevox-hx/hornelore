@@ -436,6 +436,35 @@ def classify_safety_llm(text: str) -> SafetyClassification:
     triggers (e.g. only call on non-trivial text, or only when
     pattern layer didn't already detect a positive).
     """
+    # ── WO-LEAN-LORI-RUNTIME-01 Phase 3B — PARKED means zero work ─────
+    # THE FIRST STATEMENT of this function, before the legacy layer
+    # flag. A parked deployment performs no LLM call at all: no
+    # tokens, no ~1.52 s, no ~0.55 GB transient VRAM.
+    #
+    # It sat lower down in the first cut of this phase, after the
+    # HORNELORE_SAFETY_LLM_LAYER check. No generation happened either
+    # way, so the bug was invisible in behaviour -- but with the layer
+    # off it returned reason='flag_off', and an operator reading a log
+    # could not tell a PARKED deployment from a merely switched-off
+    # second layer. Parked is the authority; it answers first.
+    #
+    # It is a SEPARATE question from HORNELORE_SAFETY_LLM_LAYER. That
+    # flag asks "is the second layer switched on"; this asks "does the
+    # safety feature exist in this deployment at all". When parked the
+    # layer flag is not consulted, so a stale =1 in someone's .env
+    # cannot bring generations back on its own.
+    try:
+        from . import flags as _lean_flags
+        if _lean_flags.safety_parked():
+            return SafetyClassification(
+                category="none", confidence=0.0, parse_ok=True,
+                reason="safety_parked")
+    except Exception:
+        # An unreadable flag module must not silently disable safety in a
+        # deployment that wanted it. Unknown falls through to the
+        # historical behaviour.
+        pass
+
     if os.getenv("HORNELORE_SAFETY_LLM_LAYER", "0") not in ("1", "true", "True"):
         return SafetyClassification(
             category="none",
