@@ -140,6 +140,7 @@ from ..db import (
 import torch
 from ..api import (_load_model, _apply_chat_template, StopOnEvent,
                    _normalize_role, MAX_CHAT_PROMPT_TOKENS)
+from ..services.prompt_budget import fit_chat_messages
 from ..prompt_composer import compose_system_prompt
 
 # BUG-GUARDS-DEAD-ON-PY311-INLINE-FLAG-01 (2026-07-14) — FAIL LOUD, AT BOOT.
@@ -4200,6 +4201,45 @@ async def ws_chat(ws: WebSocket):
             ]
         )
         msgs.append({"role": "user", "content": user_text})
+
+        # ── WO-LEAN-LORI-RUNTIME-01 Phase 4A ───────────────────────────
+        # Fit the prompt HERE, where messages still exist, instead of
+        # slicing tokens after the template. The slice below at :4294
+        # kept the LAST N tokens, so it removed the FRONT -- Lori's
+        # identity, purpose and interview discipline -- on 382 of 630
+        # measured chat turns. That is the cemetery answer: she was not
+        # ignoring her instructions, she was never shown them.
+        #
+        # Counted through the real `_apply_chat_template` + the real
+        # tokenizer, because the template adds tokens of its own and a
+        # builder-side estimate measures a prompt nobody sends.
+        _budget = fit_chat_messages(
+            msgs, limit=MAX_CHAT_PROMPT_TOKENS,
+            count_tokens=lambda m: len(tok.encode(_apply_chat_template(m))))
+        if not _budget.fits:
+            # Honest refusal rather than a mutilated prompt. The
+            # extraction lane already works this way; the same reasoning
+            # holds here, and the narrator is told something true.
+            logger.error("[chat_ws][prompt-budget] REFUSING turn — %s",
+                         _budget.as_log_fields())
+            await _ws_send(ws, {
+                "type": "error",
+                "code": "PROMPT_TOO_LARGE",
+                "message": ("That message is too long for me to take in all "
+                            "at once. Could you tell me a little at a time?"),
+                "prompt_tokens": _budget.tokens,
+                "limit": _budget.limit,
+            })
+            await _ws_send(ws, {"type": "done", "final_text": "",
+                                "blocked": "prompt_too_large"})
+            return
+        if _budget.dropped_turns:
+            # INFO, not WARNING: dropping old conversation is the budget
+            # working as designed. The WARNING is reserved for the
+            # refusal above, which is the condition that needs someone.
+            logger.info("[chat_ws][prompt-budget] %s", _budget.as_log_fields())
+        msgs = _budget.messages
+
         prompt = _apply_chat_template(msgs)
 
         # ── WO-10M: Cap enforcement + pre-generation VRAM guard ────────────
@@ -4292,13 +4332,36 @@ async def ws_chat(ws: WebSocket):
         inputs = tok(prompt, return_tensors="pt").to(model.device)
         # WO-1 VRAM guard: truncate input to MAX_CONTEXT_WINDOW to prevent KV cache OOM
         if inputs["input_ids"].shape[-1] > MAX_CHAT_PROMPT_TOKENS:
-            # Tagged kind=chat (Phase 5). This is the narrator's own turn, so
-            # the front-cut here is removing Lori's system prompt — the defect
-            # Phase 4 exists to fix. Extraction never reaches this path; the
-            # tag is what lets that be proved by grep instead of asserted.
-            logger.warning("[VRAM-GUARD] kind=chat WS truncating input from %d to %d tokens",
-                           inputs["input_ids"].shape[-1], MAX_CHAT_PROMPT_TOKENS)
-            inputs = {k: v[:, -MAX_CHAT_PROMPT_TOKENS:] for k, v in inputs.items()}
+            # ── Phase 4A: this is now a BACKSTOP, and it should never fire.
+            #
+            # The blind front-slice that used to live here is gone. It kept
+            # the LAST N tokens, so it removed the FRONT -- Lori's identity
+            # -- on 382 of 630 measured turns. `fit_chat_messages` above now
+            # guarantees the prompt fits before we get here.
+            #
+            # Reaching this line means the budget's count and the real
+            # tokenizer disagreed, which is a defect in the budget rather
+            # than an oversized prompt. So it is logged at ERROR with a
+            # name that says so, and the turn is REFUSED rather than
+            # silently mutilated: a disagreement of unknown size could be
+            # one token or two thousand, and there is no way to tell from
+            # here which part of Lori's prompt would be lost.
+            logger.error(
+                "[chat_ws][prompt-budget] BACKSTOP FIRED — budget said this "
+                "prompt fit and the tokenizer disagrees (%d > %d). Refusing "
+                "rather than cutting Lori's instructions.",
+                inputs["input_ids"].shape[-1], MAX_CHAT_PROMPT_TOKENS)
+            await _ws_send(ws, {
+                "type": "error",
+                "code": "PROMPT_TOO_LARGE",
+                "message": ("Something went wrong preparing that turn. "
+                            "Please try again."),
+                "prompt_tokens": int(inputs["input_ids"].shape[-1]),
+                "limit": MAX_CHAT_PROMPT_TOKENS,
+            })
+            await _ws_send(ws, {"type": "done", "final_text": "",
+                                "blocked": "prompt_budget_backstop"})
+            return
         streamer = TextIteratorStreamer(tok, skip_prompt=True, skip_special_tokens=True)
 
         # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §3.2: NO

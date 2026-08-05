@@ -148,6 +148,12 @@ from .services.extraction_budget import (            # noqa: E402
     ExtractionPromptBudgetExceeded,
     budget_for as _budget_for,
 )
+# WO-LEAN-LORI-RUNTIME-01 Phase 4A. Sibling of the extraction budget
+# above, deliberately a separate module: extraction REFUSES an oversized
+# prompt outright because no subset of it is safe to lose, while chat can
+# drop old conversation and carry on. Same shape, opposite policy, and
+# one module doing both would blur which policy applied where.
+from .services.prompt_budget import fit_chat_messages   # noqa: E402
 
 
 def _extraction_budget_for(*, max_new: int, prompt_tokens: int,
@@ -312,6 +318,66 @@ def _normalize_role(r: str) -> str:
         return r
     return "user"
 
+class _BackstopOutcome:
+    """Minimal outcome for the two token-level backstops.
+
+    They see a token count and a limit and nothing else -- the messages
+    are long gone by then -- so they cannot build a real BudgetOutcome.
+    This carries the same `as_log_fields()` surface so the error reads
+    identically wherever it came from.
+    """
+
+    def __init__(self, tokens: int, limit: int):
+        self.tokens, self.limit = tokens, limit
+        self.fits, self.reason = False, "budget_backstop"
+        self.dropped_turns = self.kept_turns = -1   # unknown at this depth
+
+    def as_log_fields(self) -> str:
+        return (f"reason={self.reason} tokens={self.tokens} "
+                f"limit={self.limit} kept_turns=? dropped_turns=?")
+
+
+class ChatPromptTooLarge(RuntimeError):
+    """The system prompt plus the current turn alone exceed the window.
+
+    Raised instead of slicing. See `services/prompt_budget` for why:
+    there is no safe subset to discard once the mandatory content is the
+    thing that does not fit, and a reply generated from a mutilated
+    prompt is worse than an error somebody can read.
+    """
+
+    def __init__(self, outcome):
+        self.outcome = outcome
+        super().__init__(f"chat prompt too large: {outcome.as_log_fields()}")
+
+
+def _fit_chat_prompt(msgs: List[Dict[str, str]], tok, *, where: str
+                     ) -> List[Dict[str, str]]:
+    """WO-LEAN-LORI-RUNTIME-01 Phase 4A — shared by both REST chat paths.
+
+    Drops the oldest conversation at turn boundaries until the prompt
+    fits, and never touches the system message or the narrator's current
+    words. Counted through the real template and the real tokenizer,
+    because the template adds tokens of its own.
+
+    `tok` may be None in tests that stub generation; in that case there
+    is nothing to count with, so the messages pass through unchanged
+    rather than being trimmed against a guess.
+    """
+    if tok is None:
+        return msgs
+    outcome = fit_chat_messages(
+        msgs, limit=MAX_CHAT_PROMPT_TOKENS,
+        count_tokens=lambda m: len(tok.encode(_apply_chat_template(m))))
+    if not outcome.fits:
+        print(f"[PROMPT-BUDGET] where={where} REFUSING — "
+              f"{outcome.as_log_fields()}")
+        raise ChatPromptTooLarge(outcome)
+    if outcome.dropped_turns:
+        print(f"[PROMPT-BUDGET] where={where} {outcome.as_log_fields()}")
+    return outcome.messages
+
+
 def _apply_chat_template(messages: List[Dict[str, str]]) -> str:
     model, tok = _load_model()
     if hasattr(tok, "apply_chat_template"):
@@ -363,12 +429,25 @@ def _generate_text(model, tok, prompt: str, req: _ChatReq,
         if budget.exceeded:
             raise ExtractionPromptBudgetExceeded(budget)
     elif n_tokens > MAX_CHAT_PROMPT_TOKENS:
-        # WO-1 VRAM guard: keep the LAST MAX_CONTEXT_WINDOW tokens.
-        # NOTE it cuts the FRONT, where a system prompt lives. That is the
-        # defect Phase 4 exists to fix; it is tagged kind=chat here so the
-        # two lanes are distinguishable in api.log while both still appear.
-        print(f"[VRAM-GUARD] kind=chat Truncating input from {n_tokens} to {MAX_CHAT_PROMPT_TOKENS} tokens")
-        inputs = {k: v[:, -MAX_CHAT_PROMPT_TOKENS:] for k, v in inputs.items()}
+        # ── Phase 4A: BACKSTOP. This should never fire.
+        #
+        # The blind front-slice that lived here is gone. It kept the LAST
+        # N tokens, so it cut the FRONT, where the system prompt lives --
+        # the defect Phase 4 existed to fix. `_fit_chat_prompt` now
+        # guarantees the prompt fits before generation is reached.
+        #
+        # Arriving here means the budget's count and the tokenizer
+        # disagreed, which is a defect in the budget rather than an
+        # oversized prompt, so it refuses rather than cutting: a
+        # disagreement of unknown size could cost one token or two
+        # thousand, and nothing here can tell which part of Lori's
+        # instructions would be lost.
+        print(f"[PROMPT-BUDGET] kind=chat BACKSTOP FIRED — budget said this "
+              f"prompt fit and the tokenizer disagrees "
+              f"({n_tokens} > {MAX_CHAT_PROMPT_TOKENS}). Refusing rather "
+              f"than cutting Lori's instructions.")
+        raise ChatPromptTooLarge(
+            _BackstopOutcome(n_tokens, MAX_CHAT_PROMPT_TOKENS))
     # WO-S1: Centralized generation parameter guard — temp≤0 → greedy
     _temp = float(req.temp)
     _do_sample = _temp > 0
@@ -536,6 +615,10 @@ def chat(req: _ChatReq) -> Dict[str, Any]:
         for m in (req.messages or [])
         if _normalize_role(m.role) != 'system'
     ]
+    # WO-LEAN-LORI-RUNTIME-01 Phase 4A — see prompt_budget for why the
+    # fit happens on MESSAGES here rather than on tokens after the
+    # template. This path's blind front-slice at :371 becomes a backstop.
+    msgs = _fit_chat_prompt(msgs, tok, where="rest-chat")
     prompt = _apply_chat_template(msgs)
     text = _generate_text(model, tok, prompt, req)
     # Phase G: Only persist profile + turns AFTER generation succeeds (fail-closed)
@@ -649,6 +732,9 @@ def chat_stream(req: _ChatReq):
         for m in (req.messages or [])
         if _normalize_role(m.role) != 'system'
     ]
+    # Phase 4A — same fit as the other two chat paths. The streaming
+    # slice at :677 becomes a backstop.
+    msgs = _fit_chat_prompt(msgs, tok, where="rest-stream")
     prompt = _apply_chat_template(msgs)
 
     # ── Diagnostic logging ──
@@ -669,12 +755,24 @@ def chat_stream(req: _ChatReq):
             inputs = tok(prompt, return_tensors="pt").to(model.device)
             # WO-1 VRAM guard: truncate input to MAX_CONTEXT_WINDOW to prevent KV cache OOM
             if inputs["input_ids"].shape[-1] > MAX_CHAT_PROMPT_TOKENS:
-                # Tagged kind=chat (Phase 5): this streaming path is chat-only
-                # — extraction is non-streaming and cannot reach it — but the
-                # tag is what makes "zero extraction truncations" provable by
-                # grep rather than by argument. Phase 4 replaces the slice.
-                print(f"[VRAM-GUARD] kind=chat Truncating stream input from {inputs['input_ids'].shape[-1]} to {MAX_CHAT_PROMPT_TOKENS} tokens")
-                inputs = {k: v[:, -MAX_CHAT_PROMPT_TOKENS:] for k, v in inputs.items()}
+                # ── Phase 4A: BACKSTOP. Should never fire; `_fit_chat_prompt`
+                # already guaranteed this prompt fits. Reaching here means
+                # the budget and the tokenizer disagreed, so it refuses
+                # rather than cutting the front of Lori's instructions.
+                #
+                # This is inside the streaming generator, so the refusal
+                # surfaces as the stream ending immediately rather than as
+                # an HTTP status — the response has already begun. The log
+                # line is what an operator has to go on, so it says what
+                # happened rather than naming a guard.
+                print(f"[PROMPT-BUDGET] kind=chat BACKSTOP FIRED on the stream "
+                      f"path — budget said this prompt fit and the tokenizer "
+                      f"disagrees ({inputs['input_ids'].shape[-1]} > "
+                      f"{MAX_CHAT_PROMPT_TOKENS}). Refusing rather than "
+                      f"cutting Lori's instructions.")
+                raise ChatPromptTooLarge(
+                    _BackstopOutcome(int(inputs["input_ids"].shape[-1]),
+                                     MAX_CHAT_PROMPT_TOKENS))
             streamer = TextIteratorStreamer(tok, skip_prompt=True, skip_special_tokens=True)
             # WO-S1: Centralized generation parameter guard — temp≤0 → greedy
             _temp = float(req.temp)
