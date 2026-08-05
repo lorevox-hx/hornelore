@@ -40,6 +40,35 @@ from server.code.api.safety import (
 )
 
 
+# ── WO-LEAN-LORI-RUNTIME-01 Phase 3B ──────────────────────────────────
+# This suite tests the ACTIVE deterministic safety layer, which as of
+# 2026-08-04 is not the default: `HORNELORE_SAFETY_STATE` defaults to
+# "parked" and `safety.scan_answer()` returns None for every caller.
+#
+# Opting in explicitly, rather than relaxing the assertions, is the point
+# of parking rather than deleting: reactivation must land on suites that
+# still hold the feature to its original contract. Restored afterwards so
+# the parked default is what every other module sees, and set on
+# os.environ (not just locally) because parts of this suite run in a
+# subprocess that inherits it.
+_SAVED_SAFETY_STATE = None
+
+
+def setUpModule():  # noqa: N802
+    import os
+    global _SAVED_SAFETY_STATE
+    _SAVED_SAFETY_STATE = os.environ.get("HORNELORE_SAFETY_STATE")
+    os.environ["HORNELORE_SAFETY_STATE"] = "active"
+
+
+def tearDownModule():  # noqa: N802
+    import os
+    if _SAVED_SAFETY_STATE is None:
+        os.environ.pop("HORNELORE_SAFETY_STATE", None)
+    else:
+        os.environ["HORNELORE_SAFETY_STATE"] = _SAVED_SAFETY_STATE
+
+
 def _check(text: str):
     """Convenience: normalise and run the compound check."""
     return _check_compound_child_abuse(_normalise(text))

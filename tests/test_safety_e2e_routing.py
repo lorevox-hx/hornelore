@@ -286,8 +286,66 @@ sys.exit(0 if all(ok for _, ok in checks) else 1)
 '''
 
 
+# ── WO-LEAN-LORI-RUNTIME-01 Phase 3B, corrected 2026-08-04 ────────────
+# THIS MODULE ALREADY CONTAINED A `setUpModule` OPTING INTO THE ACTIVE
+# STATE, AND IT WAS DEAD CODE.
+#
+# It sits at line ~122, which is INSIDE the `_E2E_SUBPROCESS` triple-
+# quoted string — the source text handed to the child interpreter, where
+# unittest never runs and nothing calls it. So the parent never set the
+# variable, the child inherited a parked environment, and every one of
+# the eleven routing checks failed.
+#
+# It went unnoticed because this suite could not run at all in the
+# sandbox until pydantic was installed, so it reported ENV-SKIP rather
+# than a failure. It would have failed on Chris's .venv, which has
+# pydantic. That is the lesson worth keeping: a suite that cannot run is
+# not a suite that passes, and an ENV-SKIP hides a red just as well as a
+# green does.
+#
+# The dead copy is deliberately left where it is rather than deleted: it
+# is inside a string that reproduces a module's setup, and removing lines
+# from that string risks changing what the child does for a reason
+# unrelated to this fix.
+_SAVED_SAFETY_STATE = None
+
+
+def setUpModule():  # noqa: N802
+    """Opt into ACTIVE safety for the parent AND the child.
+
+    `subprocess.run` inherits `os.environ`, so setting it here is what
+    actually reaches the child interpreter that drives the chain.
+    """
+    import os
+    global _SAVED_SAFETY_STATE
+    _SAVED_SAFETY_STATE = os.environ.get("HORNELORE_SAFETY_STATE")
+    os.environ["HORNELORE_SAFETY_STATE"] = "active"
+
+
+def tearDownModule():  # noqa: N802
+    import os
+    if _SAVED_SAFETY_STATE is None:
+        os.environ.pop("HORNELORE_SAFETY_STATE", None)
+    else:
+        os.environ["HORNELORE_SAFETY_STATE"] = _SAVED_SAFETY_STATE
+
+
 class SafetyEndToEndRoutingTest(unittest.TestCase):
     """Drives the real safety chain against a real temp DB, in a subprocess."""
+
+    def test_the_active_opt_in_actually_reaches_this_process(self):
+        """Non-vacuity guard for the correction above.
+
+        The previous opt-in was syntactically perfect and had no effect
+        because of where it lived. This fails loudly if that happens
+        again, instead of the eleven downstream checks failing for a
+        reason nobody can see from their names.
+        """
+        import os
+        self.assertEqual("active", os.environ.get("HORNELORE_SAFETY_STATE"),
+                         "setUpModule did not run in the parent process — "
+                         "check it is at module level and not inside the "
+                         "_E2E_SUBPROCESS string")
 
     def test_full_chain_and_no_false_escalation(self):
         out = subprocess.run(
