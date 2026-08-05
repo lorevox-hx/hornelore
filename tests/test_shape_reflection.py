@@ -220,5 +220,63 @@ class ShapeReflectionTests(unittest.TestCase):
         self.assertIsNotNone(shaped)
 
 
+_CURLY = "\u2019"  # U+2019 RIGHT SINGLE QUOTATION MARK
+
+
+class OmittedApostropheKinshipAnchorTest(unittest.TestCase):
+    """BUG-PERSON-ANCHOR-OMITTED-APOSTROPHE-01, reflection side.
+    WO-LEAN-LORI-RUNTIME-01 Phase 1B, 2026-08-04.
+
+    The same defect `story_trigger` had, in the module that decides what
+    Lori echoes back. "my dad's shop" and the curly form both produced
+    an anchor; "my dads shop" produced none, so Lori lost her grip on
+    the one concrete thing the narrator had just said.
+
+    The suffix deliberately sits OUTSIDE the `noun` capture group. If it
+    were inside, the anchor for "my dads shop" would be "dads" and the
+    possessive flip would have Lori open with "Your dads." -- which is
+    a worse failure than the one being fixed, because it is audible.
+    """
+
+    PAIRS = [
+        ("my dad's shop was on the corner", "my dads shop was on the corner"),
+        ("my mom's kitchen was warm", "my moms kitchen was warm"),
+        ("my grandmother's farm was north", "my grandmothers farm was north"),
+        ("my brother's truck broke down", "my brothers truck broke down"),
+    ]
+
+    def test_all_three_forms_find_the_same_anchor(self):
+        for straight, omitted in self.PAIRS:
+            curly = straight.replace("'", _CURLY)
+            with self.subTest(text=omitted):
+                a = extract_concrete_anchor(straight)
+                b = extract_concrete_anchor(curly)
+                c = extract_concrete_anchor(omitted)
+                self.assertTrue(a, f"no anchor for straight: {straight}")
+                self.assertEqual(a, b, "curly disagrees with straight")
+                self.assertEqual(a, c, "omitted disagrees with straight")
+
+    def test_the_anchor_never_carries_the_possessive_suffix(self):
+        """The audible failure. Lori must say "Your dad", never
+        "Your dads" or "Your dad's"."""
+        for _straight, omitted in self.PAIRS:
+            with self.subTest(text=omitted):
+                anchor = (extract_concrete_anchor(omitted) or "").lower()
+                self.assertTrue(anchor)
+                self.assertFalse(anchor.endswith("s'"), anchor)
+                self.assertFalse(anchor.endswith(_CURLY + "s"), anchor)
+                self.assertFalse(anchor.endswith("'s"), anchor)
+                for bad in ("dads", "moms", "grandmothers", "brothers"):
+                    self.assertNotIn(bad, anchor, f"suffix leaked: {anchor}")
+
+    def test_non_kinship_words_still_produce_no_kinship_anchor(self):
+        for t in ("my mask was itchy", "my maps were old",
+                  "my popsicle melted"):
+            with self.subTest(text=t):
+                a = (extract_concrete_anchor(t) or "").lower()
+                for kin in ("dad", "mom", "father", "mother"):
+                    self.assertNotIn(kin, a)
+
+
 if __name__ == "__main__":
     unittest.main()

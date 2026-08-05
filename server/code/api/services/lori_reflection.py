@@ -474,6 +474,22 @@ _PROPER_NOUN_BLOCKLIST = frozenset({
 # context (caller decides). For now we keep the kinship anchor
 # possessive-flipped because it reads more naturally in an echo opener:
 # "Your dad. ..." vs "Father. ..."
+#
+# ── BUG-PERSON-ANCHOR-OMITTED-APOSTROPHE-01, 2026-08-04 ──────────────
+# The identical defect this module's sibling `story_trigger.py` had,
+# found by probing rather than by reading: "my dad's shop" and "my
+# dad’s shop" both matched, "my dads shop" did not, and neither did
+# "my moms kitchen" or "my grandmothers farm". An apostrophe is a
+# non-word character so \b already held after the noun; only the
+# OMITTED apostrophe fell through, which is exactly the form speech
+# recognition produces.
+#
+# The suffix sits OUTSIDE the `noun` group on purpose. The caller
+# reads `noun` to build Lori's echo opener -- possessive-flipped, "my
+# dad" -> "Your dad" -- and capturing the trailing "s"/"'s" would make
+# her say "Your dads." to a narrator who said "my dads shop".
+_KINSHIP_POSSESSIVE_OR_PLURAL = r"(?:['’]s|s)?"
+
 _KINSHIP_ANCHOR_RX = re.compile(
     r"\b(?P<poss>my|our)\s+"
     r"(?P<noun>dad|daddy|papa|pop|"
@@ -482,7 +498,8 @@ _KINSHIP_ANCHOR_RX = re.compile(
     r"grandma|granny|nana|grandmother|"
     r"grandpa|gramps|grandfather|"
     r"sister|sis|brother|bro|"
-    r"aunt|uncle|cousin)\b",
+    r"aunt|uncle|cousin)"
+    + _KINSHIP_POSSESSIVE_OR_PLURAL + r"\b",
     re.IGNORECASE,
 )
 

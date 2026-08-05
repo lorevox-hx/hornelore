@@ -286,15 +286,47 @@ _RELATIVE_TIME_PATTERNS = (
 # Person-relation phrasing — narrators referencing the people who
 # populated the scene. "my dad", "my mother", "my grandmother". Bare
 # pronouns and common names don't fire.
+#
+# ── BUG-PERSON-ANCHOR-OMITTED-APOSTROPHE-01, 2026-08-04 ──────────────
+# WO-LEAN-LORI-RUNTIME-01 Phase 1B. Speech-to-text and quick typing
+# drop the possessive apostrophe: "my moms parents", "my dads brother".
+#
+# MEASURED BEFORE THE REPAIR, so the fix is aimed at what was actually
+# broken rather than at all three forms indiscriminately: the straight
+# ("my mom's") and curly ("my mom’s") apostrophes ALREADY matched, and
+# they always did -- an apostrophe is a non-word character, so the
+# trailing \b holds after the noun. Only the OMITTED form failed. It
+# failed on every noun group that did not already happen to carry a
+# trailing `s?`: 9 of 29 probe cases, including "my mothers kitchen",
+# "my grandfathers farm", "my husbands job" and "my sons school",
+# while "my brothers came home" passed purely because that one line
+# had an `s?` for the plural.
+#
+# So the suffix is applied UNIFORMLY rather than by sprinkling another
+# `s?` on the lines that were noticed -- the inconsistency is what
+# produced the bug, and a noun added to any group later inherits the
+# handling instead of re-creating it. One group covers all four
+# surface forms:
+#
+#     my mom      ->  (empty)
+#     my mom's    ->  's
+#     my mom’s    ->  ’s
+#     my moms     ->  s
+#
+# It cannot widen a match past a word boundary: "my mask", "my
+# popsicle" and "my maps" still do not fire, because \b follows the
+# optional suffix and those words continue with a word character.
+_POSSESSIVE_OR_PLURAL = r"(?:['’]s|s)?"
+
 _PERSON_RELATION_PATTERNS = (
-    re.compile(r"\bmy (?:dad|father|papa|pop)\b", re.IGNORECASE),
-    re.compile(r"\bmy (?:mom|mother|mama|ma)\b", re.IGNORECASE),
-    re.compile(r"\bmy (?:brother|sister|sibling)s?\b", re.IGNORECASE),
-    re.compile(r"\bmy (?:grandmother|grandma|granny|nana)\b", re.IGNORECASE),
-    re.compile(r"\bmy (?:grandfather|grandpa|granddad|papa)\b", re.IGNORECASE),
-    re.compile(r"\bmy (?:aunt|uncle|cousin)s?\b", re.IGNORECASE),
-    re.compile(r"\bmy (?:husband|wife|spouse)\b", re.IGNORECASE),
-    re.compile(r"\bmy (?:son|daughter|kids?|children)\b", re.IGNORECASE),
+    re.compile(r"\bmy (?:dad|father|papa|pop)" + _POSSESSIVE_OR_PLURAL + r"\b", re.IGNORECASE),
+    re.compile(r"\bmy (?:mom|mother|mama|ma)" + _POSSESSIVE_OR_PLURAL + r"\b", re.IGNORECASE),
+    re.compile(r"\bmy (?:brother|sister|sibling)" + _POSSESSIVE_OR_PLURAL + r"\b", re.IGNORECASE),
+    re.compile(r"\bmy (?:grandmother|grandma|granny|nana)" + _POSSESSIVE_OR_PLURAL + r"\b", re.IGNORECASE),
+    re.compile(r"\bmy (?:grandfather|grandpa|granddad|papa)" + _POSSESSIVE_OR_PLURAL + r"\b", re.IGNORECASE),
+    re.compile(r"\bmy (?:aunt|uncle|cousin)" + _POSSESSIVE_OR_PLURAL + r"\b", re.IGNORECASE),
+    re.compile(r"\bmy (?:husband|wife|spouse)" + _POSSESSIVE_OR_PLURAL + r"\b", re.IGNORECASE),
+    re.compile(r"\bmy (?:son|daughter|kid|child|children)" + _POSSESSIVE_OR_PLURAL + r"\b", re.IGNORECASE),
 )
 
 # 2026-04-30 polish: bare-capital relation usage. English convention is
@@ -306,9 +338,17 @@ _PERSON_RELATION_PATTERNS = (
 # regex (no IGNORECASE) so we only fire on the proper-noun form, which
 # protects against false positives like "MOM" in caps-lock or "pop" in
 # the verb sense. Word boundary at start prevents matching "Madame".
+#
+# 2026-08-04, Phase 1B: the same omitted-apostrophe suffix. "Dad's
+# shift ended late" already matched and "Dads shift ended late" did
+# not, for the identical reason as the possessive patterns above. The
+# regex stays case-SENSITIVE, so widening it cannot admit lowercase
+# "dads" here -- that form is covered by the `my dad` patterns, which
+# require the possessive pronoun and are the safer of the two lanes.
 _BARE_CAPITAL_RELATION_RE = re.compile(
     r"\b(?:Dad|Mom|Mama|Mother|Father|Papa|Pop|Mommy|Daddy|"
-    r"Grandma|Grandpa|Granny|Nana|Gramps|Granddad)\b"
+    r"Grandma|Grandpa|Granny|Nana|Gramps|Granddad)"
+    + _POSSESSIVE_OR_PLURAL + r"\b"
 )
 
 # Proper-noun place pattern: capitalized word(s) that look like a place

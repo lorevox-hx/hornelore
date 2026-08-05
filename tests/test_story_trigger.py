@@ -1181,6 +1181,115 @@ class ChainDetectionTriggerTest(unittest.TestCase):
         self.assertIsNone(diag.get("chain_is_factual"))
         self.assertIsNone(diag.get("trigger"))
 
+_CURLY = "\u2019"  # U+2019 RIGHT SINGLE QUOTATION MARK
+
+
+class OmittedApostrophePersonAnchorTest(unittest.TestCase):
+    """BUG-PERSON-ANCHOR-OMITTED-APOSTROPHE-01 — WO-LEAN-LORI-RUNTIME-01
+    Phase 1B, 2026-08-04.
+
+    Speech-to-text and quick typing drop the possessive apostrophe. The
+    narrator says "my mom's parents lived there", the transcript reads
+    "my moms parents lived there", and the person anchor that made it a
+    preservable memory has vanished.
+
+    MEASURED BEFORE THE FIX, which is why the repair is narrow: the
+    straight and curly apostrophes ALWAYS worked, because an apostrophe
+    is a non-word character so the trailing word boundary already held.
+    Only the omitted form failed, and only on the noun groups that did
+    not happen to carry an optional trailing "s" -- so "my brothers
+    came home" passed while "my mothers kitchen" did not. That
+    inconsistency was the bug, and it is why the suffix is now applied
+    uniformly rather than added to the lines somebody noticed.
+    """
+
+    FORMS = [
+        ("my mom's parents lived there", "my moms parents lived there"),
+        ("my dad's brother came by", "my dads brother came by"),
+        ("my mother's kitchen was warm", "my mothers kitchen was warm"),
+        ("my grandfather's farm was north", "my grandfathers farm was north"),
+        ("my grandma's house smelled of bread", "my grandmas house smelled of bread"),
+        ("my husband's job took us away", "my husbands job took us away"),
+        ("my son's school was close", "my sons school was close"),
+    ]
+
+    def test_all_three_apostrophe_forms_agree(self):
+        """The requirement is not "the omitted form works" -- it is that
+        all three forms produce the SAME answer. Asserting only the
+        omitted form would pass on a change that broke the other two."""
+        for straight, omitted in self.FORMS:
+            curly = straight.replace("'", _CURLY)
+            with self.subTest(text=omitted):
+                got = [bool(story_trigger._matches_person_relation(t))
+                       for t in (straight, curly, omitted)]
+                self.assertEqual([True, True, True], got,
+                                 f"straight/curly/omitted disagree: {got}")
+
+    def test_the_bare_capital_form_too(self):
+        for t in ("Dad walked nights at the plant",
+                  "Dad's shift ended late",
+                  "Dad" + _CURLY + "s shift ended late",
+                  "Dads shift ended late"):
+            with self.subTest(text=t):
+                self.assertTrue(story_trigger._matches_person_relation(t))
+
+    def test_legitimate_plural_kinship_is_still_a_person_reference(self):
+        """"my brothers came home" is plural, not possessive. It was a
+        person reference before this change and must remain one."""
+        for t in ("my brothers came home", "my sisters were there",
+                  "my kids were small", "my children were small",
+                  "my aunts visited every summer"):
+            with self.subTest(text=t):
+                self.assertTrue(story_trigger._matches_person_relation(t))
+
+    def test_ordinary_and_plural_non_kinship_words_gain_nothing(self):
+        """The negative controls are the point. A suffix group that ate
+        a word boundary would light up half of ordinary speech, and
+        "my mask" / "my popsicle" / "my maps" are the near misses of
+        "my ma", "my pop" and "my ma"."""
+        for t in ("my hands were cold", "my boots were muddy",
+                  "my mask was itchy", "my popsicle melted",
+                  "my maps were old", "my marbles rolled away",
+                  "my papers blew away", "my pockets were empty",
+                  "the mothers of the town met"):
+            with self.subTest(text=t):
+                self.assertFalse(story_trigger._matches_person_relation(t))
+
+    def test_a_realistic_rich_short_memory_survives_the_missing_apostrophe(self):
+        """The whole point, end to end. A compact place-plus-person
+        memory is rich_short_narrative-eligible; before the fix the STT
+        rendering of the same sentence lost its person anchor, fell out
+        of the gate, and the memory was simply never kept."""
+        spoken = ("We drove out to Spokane every summer and my moms "
+                  "parents would be waiting on the porch for us")
+        typed = spoken.replace("my moms", "my mom's")
+        for label, text in (("omitted", spoken), ("straight", typed)):
+            with self.subTest(form=label):
+                self.assertIsNotNone(
+                    story_trigger.classify_story_candidate(
+                        audio_duration_sec=18.0, transcript=text),
+                    f"{label} form produced no story candidate")
+        self.assertEqual(
+            story_trigger.classify_story_candidate(
+                audio_duration_sec=18.0, transcript=spoken),
+            story_trigger.classify_story_candidate(
+                audio_duration_sec=18.0, transcript=typed),
+            "two renderings of one sentence took different paths")
+
+    def test_the_narrator_text_is_never_rewritten(self):
+        """The repair is a matcher change. Nothing may insert an
+        apostrophe into what the narrator said -- the transcript and the
+        archive keep their own words."""
+        spoken = "my moms parents lived there"
+        before = spoken
+        story_trigger.classify_story_candidate(
+            audio_duration_sec=18.0, transcript=spoken)
+        diag = story_trigger.trigger_diagnostic(
+            audio_duration_sec=18.0, transcript=spoken)
+        self.assertEqual(before, spoken)
+        self.assertNotIn("mom's", str(diag))
+        self.assertNotIn("mom" + _CURLY + "s", str(diag))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
