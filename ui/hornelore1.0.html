@@ -7302,7 +7302,65 @@ const _LV80_SAFETY_PATTERNS = [
   /\b(no pulse|heart (stopped|attack))\b/i,
 ];
 
+// ── WO-LEAN-LORI-RUNTIME-01 Phase 3B: the browser half of parking ────
+// The server is authoritative. The browser asks it once, at load, and
+// gates detection on the answer.
+//
+// WHY THE GATE IS HERE AND NOT AT FIVE CALL SITES
+// `_lv80ScanSafety` is the single entry to browser-side detection. Its
+// result becomes `safetyMatched`, which arms the latch, which sets
+// `_lv80SafetyModeActive`, which makes `_lv80GetInteractionMode()`
+// return "safety", which selects the `[SAFETY MODE: ACTIVE]` WS
+// context. One gate at the source closes detection, latch, posture
+// badge, idle suppression and the outgoing directive together. Gating
+// each consumer separately would mean five chances to miss one.
+//
+// WHY UNKNOWN MEANS PARKED
+// `null` is the state before the answer arrives, or if it never does.
+// It resolves to parked, which is the direction that costs least:
+//   * server parked, browser thinks active -- the narrator gets a
+//     safety posture with no backend behind it, and the turn carries a
+//     directive referring to emergency instructions the parked prompt
+//     no longer contains. An unanchored directive is worse than none,
+//     and the appearance of monitoring is the thing being removed.
+//   * server active, browser thinks parked -- the BACKEND deterministic
+//     scan is untouched and still fires. What is lost is a posture hint
+//     and idle suppression, not the detection itself.
+// The browser has always been a hint on top of the server, never the
+// detector, which is what makes this direction affordable.
+let _lv80SafetyStateFromServer = null;   // null = not answered yet
+
+function _lv80SafetyParked() {
+  return _lv80SafetyStateFromServer !== "active";
+}
+
+async function _lv80LoadSafetyPosture() {
+  const base = (typeof window !== "undefined" && window.API_BASE)
+    ? window.API_BASE : "http://localhost:8000";
+  try {
+    const resp = await fetch(base + "/api/runtime-posture", { method: "GET" });
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const data = await resp.json();
+    const state = data && data.safety && data.safety.state;
+    _lv80SafetyStateFromServer = (state === "active") ? "active" : "parked";
+  } catch (err) {
+    // Left as null. Reported rather than swallowed: an operator who has
+    // deliberately set the state to active needs to know the browser
+    // did not hear it.
+    _lv80SafetyStateFromServer = null;
+    console.warn("[Lori 9.0] Safety posture unavailable — treating as PARKED.", err);
+  }
+  console.log("[Lori 9.0] Safety posture: " +
+    (_lv80SafetyParked() ? "PARKED" : "ACTIVE") +
+    " (server said " + String(_lv80SafetyStateFromServer) + ").");
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("DOMContentLoaded", _lv80LoadSafetyPosture);
+}
+
 function _lv80ScanSafety(text) {
+  if (_lv80SafetyParked()) return false;
   return _LV80_SAFETY_PATTERNS.some(rx => rx.test(text));
 }
 
@@ -7629,7 +7687,18 @@ function _lv80InstallSafetyHook() {
       return _wsPosture;
     })();
 
-    const _wsContextBlock = _WS_CONTEXT[_wsContextKey] ?? null;
+    // Phase 3B second gate, deliberately redundant. Parking the scanner
+    // already makes "safety" unreachable as a posture, so in today's code
+    // this can never fire. It exists because the cost of being wrong is
+    // asymmetric: a future path that sets `_lv80SafetyModeActive` directly
+    // -- a restored session, a debug control, an operator tool -- would
+    // otherwise ship an emergency directive to a model whose parked prompt
+    // has no emergency instructions to anchor it. A redundant `if` is
+    // cheaper than that.
+    const _wsContextBlock =
+      (_wsContextKey === "safety" && _lv80SafetyParked())
+        ? null
+        : (_WS_CONTEXT[_wsContextKey] ?? null);
 
     if (_wsContextBlock && typeof ws !== "undefined" && ws && ws.readyState === 1) {
       const _origWsSend = ws.send.bind(ws);
