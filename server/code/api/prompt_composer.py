@@ -3336,9 +3336,33 @@ def compose_system_prompt(
     if profile_obj is not None:
         context.setdefault("ui_profile", profile_obj)
 
-    # Optional: include user_text for future dynamic prompt policies.
-    if user_text:
-        context.setdefault("last_user_text", user_text[:800])
+    # ── WO-LEAN-LORI-RUNTIME-01 Phase 2B, 2026-08-04 ────────────────────
+    # `last_user_text` REMOVED. The retired line was:
+    #
+    #     # Optional: include user_text for future dynamic prompt policies.
+    #     if user_text:
+    #         context.setdefault("last_user_text", user_text[:800])
+    #
+    # It put up to 800 characters of the narrator's CURRENT message into
+    # PROFILE_JSON, inside the SYSTEM prompt -- while the same text is
+    # already sent as the user message on the very next turn of the
+    # template. Every turn paid for the narrator's own words twice.
+    #
+    # It was write-only. `last_user_text` had exactly one reference in
+    # the whole repository: this assignment. Nothing read it, in Python,
+    # in JavaScript, or in any fixture. The comment promised "future
+    # dynamic prompt policies" and that future never arrived, so what
+    # shipped was a duplicate paid for on every turn for no consumer.
+    #
+    # Deleting it does not restore Lori's instructions on its own -- 800
+    # characters is roughly 200 tokens against a median prompt of 8,861
+    # tokens that needs to lose about 670 to fit the window. It is the
+    # cheapest of those tokens, and the only ones that were pure
+    # duplication rather than content someone chose.
+    #
+    # `_PROFILE_RE` (:448) parses the INCOMING ui_system blob and feeds
+    # `profile_obj` -> `context["ui_profile"]`. It never looked at this
+    # key, so the round trip is unaffected.
 
     ctx_block = ""
     if context:

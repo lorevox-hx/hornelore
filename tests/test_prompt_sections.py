@@ -255,3 +255,118 @@ class TheComposerUsesItEverywhereTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class NarratorTextIsNotDuplicatedTest(unittest.TestCase):
+    """WO-LEAN-LORI-RUNTIME-01 Phase 2B — `last_user_text` removed.
+
+    The retired line put up to 800 characters of the narrator's CURRENT
+    message into PROFILE_JSON, inside the SYSTEM prompt, while the same
+    text is already sent as the user message. Every turn paid for the
+    narrator's own words twice.
+
+    It was write-only: `last_user_text` had exactly ONE reference in the
+    whole repository, the assignment itself. Nothing read it in Python,
+    in JavaScript, or in any fixture. The comment promised "future
+    dynamic prompt policies"; that future never arrived.
+
+    HONEST SCALE: 800 characters is roughly 200 tokens against a median
+    prompt of 8,861 that must lose about 670 to fit the window. This
+    does not fix the cemetery failure. It removes the only tokens that
+    were pure duplication rather than content somebody chose.
+    """
+
+    def test_the_composer_no_longer_writes_it(self):
+        """AST, not substring -- the retirement comment quotes the
+        retired line verbatim, so a text scan would match the
+        explanation and pass on code that still wrote it. That trap has
+        fired repeatedly in this repository."""
+        tree = ast.parse(_SRC)
+        live = [n.lineno for n in ast.walk(tree)
+                if isinstance(n, ast.Constant) and n.value == "last_user_text"]
+        self.assertEqual([], live,
+                         f"last_user_text is still written at {live}")
+
+    def test_the_retirement_is_recorded_not_silently_deleted(self):
+        self.assertIn("last_user_text", _SRC,
+                      "the retired line should be quoted in place")
+        self.assertIn("Phase 2B", _SRC)
+
+    def test_nothing_anywhere_reads_it(self):
+        """The removal is only safe because it had no consumer. If a
+        reader ever appears, this fails and the removal is revisited."""
+        roots = [_REPO / "server", _REPO / "ui", _REPO / "scripts"]
+        hits = []
+        for root in roots:
+            if not root.exists():
+                continue
+            for f in root.rglob("*"):
+                if f.suffix not in (".py", ".js", ".html", ".json"):
+                    continue
+                if f == _COMPOSER:
+                    continue
+                try:
+                    if "last_user_text" in f.read_text(encoding="utf-8",
+                                                       errors="ignore"):
+                        hits.append(str(f.relative_to(_REPO)))
+                except OSError:
+                    continue
+        self.assertEqual([], hits, f"a reader appeared: {hits}")
+
+    def test_the_context_block_still_carries_everything_else(self):
+        """No other profile field changes. Rebuilt the way the composer
+        builds it, minus the removed key."""
+        payload = {"conv_id": "drop", "title": "drop", "updated_at": "drop",
+                   "era": "building_years", "session_style": "oral_history"}
+        profile_obj = {"basics": {"fullName": "Kent James Horne"},
+                       "family": {"children": 3}}
+        context: Dict[str, Any] = {}
+        for k, v in payload.items():
+            if k in ("conv_id", "title", "updated_at"):
+                continue
+            context[k] = v
+        context.setdefault("ui_profile", profile_obj)
+
+        self.assertEqual({"era", "session_style", "ui_profile"}, set(context))
+        self.assertNotIn("last_user_text", context)
+        self.assertEqual(profile_obj, context["ui_profile"],
+                         "the UI profile round trip must be untouched")
+
+    def test_the_json_is_still_valid_and_excludes_the_narrator_turn(self):
+        import json
+        narrator = ("My grandparents Peter Zarr and Josie Zarr are buried "
+                    "in the cemetery outside Mandan and I used to go every "
+                    "Memorial Day with my mother.")
+        context = {"era": "building_years",
+                   "ui_profile": {"basics": {"fullName": "Kent James Horne"}}}
+        block = "PROFILE_JSON: " + json.dumps(context, ensure_ascii=False)
+        parsed = json.loads(block[len("PROFILE_JSON: "):])
+        self.assertEqual(context, parsed, "the block no longer round-trips")
+        self.assertNotIn(narrator, block)
+        self.assertNotIn("Peter Zarr", block,
+                         "the narrator's current message reached the system prompt")
+
+    def test_the_narrator_message_occurs_once_across_the_whole_request(self):
+        """The point of the phase, stated as a count. The system prompt
+        must not contain the text that the user message already carries."""
+        import json
+        narrator = "We drove out to Spokane every summer to see my mom's parents."
+        context = {"era": "earliest_years"}
+        system_prompt = "DEFAULT_CORE...\n\nPROFILE_JSON: " + json.dumps(context)
+        msgs = [{"role": "system", "content": system_prompt},
+                {"role": "user", "content": narrator}]
+        occurrences = sum(m["content"].count(narrator) for m in msgs)
+        self.assertEqual(1, occurrences,
+                         f"the narrator's message appears {occurrences} times")
+
+    def test_the_surrounding_prompt_structure_is_untouched(self):
+        """Interview, trip, language and safety structures must survive a
+        change that only removed one context key."""
+        tree = ast.parse(_SRC)
+        fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                  and n.name == "compose_system_prompt")
+        body = "\n".join(ast.unparse(b) for b in fn.body)
+        for survivor in ("ui_profile", "ctx_block", "PROFILE_JSON: ",
+                         "system_head", "pinned", "_looks_spanish",
+                         "identity_facts", "directives_interview"):
+            self.assertIn(survivor, body, f"{survivor} disappeared")
