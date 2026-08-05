@@ -97,6 +97,45 @@ def _branch_body(mode: str) -> str:
     raise AssertionError(f"no `if turn_mode == {mode!r}` branch found")
 
 
+def _function_body(name: str) -> str:
+    """Executable body of a module-level (async) def, no docstring."""
+    tree = ast.parse(_CHAT_WS.read_text(encoding="utf-8"))
+    for n in tree.body:
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name:
+            stmts = n.body
+            first = stmts[0]
+            if (isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant)
+                    and isinstance(first.value.value, str)):
+                stmts = stmts[1:]
+            return "\n".join(ast.unparse(b) for b in stmts)
+    raise AssertionError(f"no module-level function {name!r}")
+
+
+_FINALISER = "_finalize_deterministic_turn"
+
+
+def _effective_body(mode: str) -> str:
+    """Branch body PLUS the finaliser it delegates to.
+
+    ADDED 2026-08-04, R3 Phase 1A. Until this date every deterministic
+    branch wrote its own persist/archive/frames inline, so slicing the
+    branch was the whole story. Five branches needed the identical
+    finalisation and the flag-absence contract that keeps them out of the
+    completed-turn hooks is far safer held in ONE place than remembered
+    in six -- so the calls moved into `_finalize_deterministic_turn`.
+
+    The counts these tests assert are properties of the DELIVERED TURN,
+    not of a source region, so they are asserted over the effective path.
+    Delegation itself is asserted separately: a branch that stopped
+    calling the finaliser would produce an effective body of one, and
+    `test_the_branch_delegates_to_the_finaliser_exactly_once` fails.
+    """
+    branch = _branch_body(mode)
+    if _FINALISER not in branch:
+        return branch
+    return branch + "\n" + _function_body(_FINALISER)
+
+
 def _calls(body: str) -> list:
     out = []
     for n in ast.walk(ast.parse(body)):
@@ -112,7 +151,11 @@ class MetaQuestionFinalizationTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.body = _branch_body("meta_question")
+        # `branch` is what this dispatcher arm itself does; `body` is the
+        # delivered turn, branch + finaliser. See _effective_body.
+        cls.branch = _branch_body("meta_question")
+        cls.branch_calls = _calls(cls.branch)
+        cls.body = _effective_body("meta_question")
         cls.calls = _calls(cls.body)
 
     # -- persist exactly once -----------------------------------------
@@ -231,11 +274,20 @@ class MetaQuestionFinalizationTest(unittest.TestCase):
         """The repair is bookkeeping. What the narrator sees must be
         byte-identical: one token frame, one done frame, same fields."""
         self.assertEqual(2, self.calls.count("_ws_send"))
+        # REWRITTEN 2026-08-04. The retired form asserted the literal
+        # "'turn_mode': 'meta_question'" in the branch source. That
+        # stopped being reachable when the frames moved into the
+        # finaliser, which sends the mode it was HANDED -- so the check
+        # is now split: the finaliser owns the frame shape, and the
+        # branch owns which mode goes into it. Loosening it to a
+        # presence check over the concatenation would have passed on a
+        # branch that sent the wrong mode.
         for needle in ("'type': 'token'", "'delta': assistant_text",
                        "'type': 'done'", "'final_text': assistant_text",
-                       "'turn_mode': 'meta_question'",
-                       "meta_question_category"):
+                       "'turn_mode': turn_mode"):
             self.assertIn(needle, self.body, needle)
+        self.assertIn("turn_mode='meta_question'", self.branch)
+        self.assertIn("meta_question_category", self.branch)
 
     def test_the_modal_surface_is_still_excluded_from_life_story(self):
         """BUG-MODAL-TURNS-ARCHIVED-AS-LIFE-STORY-01. A Travel Doc modal
@@ -244,6 +296,16 @@ class MetaQuestionFinalizationTest(unittest.TestCase):
         ~1,500 lines up and an early return could leave it unbound."""
         self.assertIn("travel_doc_modal", self.body)
         self.assertIn("surface", self.body)
+
+    def test_the_branch_delegates_to_the_finaliser_exactly_once(self):
+        """One delegation, and the branch does none of the writing
+        itself. Two calls would double the turn AND the archive event."""
+        self.assertEqual(1, self.branch_calls.count(_FINALISER))
+        for owned_by_the_finaliser in ("persist_turn_transaction",
+                                       "archive_append_event",
+                                       "archive_rebuild_txt", "_ws_send"):
+            self.assertNotIn(owned_by_the_finaliser, self.branch_calls,
+                             owned_by_the_finaliser)
 
     # -- what must NOT have been added --------------------------------
     def test_the_branch_does_not_call_the_downstream_hooks_itself(self):
@@ -492,7 +554,15 @@ class EffectiveTurnModeSeamTest(unittest.TestCase):
     def test_the_transcript_repair_itself_survived_the_removal(self):
         """Removing the flags must not have removed the thing the repair
         was for. One archive append, one rebuild, one persist."""
-        calls = _calls(_branch_body("meta_question"))
+        # RESCOPED 2026-08-04 to the EFFECTIVE path. The retired form
+        # read `_calls(_branch_body("meta_question"))`, which was the
+        # whole story while the branch wrote inline. R3 Phase 1A moved
+        # the writes into `_finalize_deterministic_turn`, so a branch
+        # slice now finds zero -- and the property under test is about
+        # the DELIVERED TURN, not about which source region performs it.
+        # Delegation is asserted separately, so this cannot pass on a
+        # branch that quietly stopped calling the finaliser.
+        calls = _calls(_effective_body("meta_question"))
         self.assertEqual(1, calls.count("archive_append_event"))
         self.assertEqual(1, calls.count("archive_rebuild_txt"))
         self.assertEqual(1, calls.count("persist_turn_transaction"))
@@ -512,18 +582,221 @@ class TheOtherFiveAreDeliberatelyUntouchedTest(unittest.TestCase):
     and should be retired with its reason quoted, not deleted.
     """
 
-    def test_the_other_five_still_lack_the_finalisation(self):
+    def test_the_other_five_are_now_finalised_too(self):
+        """RETIRED AND INVERTED 2026-08-04 — WO-LEAN-LORI-RUNTIME-01
+        Phase 1A landed, which is the event the retired test named as
+        its own expiry condition. It used to read:
+
+            def test_the_other_five_still_lack_the_finalisation:
+                for mode in (floor_hold, witness, memory_echo,
+                             age_recall, correction):
+                    assertEqual(0, calls.count("archive_append_event"))
+
+        and its docstring said: "When the follow-up work order lands,
+        this test is expected to fail and should be retired with its
+        reason quoted, not deleted."
+
+        It is inverted rather than removed so the record shows the gap
+        was deliberate and then closed, rather than never having
+        existed. What it guards now is the same property from the other
+        side: all five reach the archive, via the finaliser, exactly
+        once each."""
         for mode in ("floor_hold", "witness", "memory_echo",
                      "age_recall", "correction"):
             with self.subTest(mode=mode):
-                body = _branch_body(mode)
-                calls = _calls(body)
-                self.assertEqual(
-                    0, calls.count("archive_append_event"),
-                    f"{mode} gained the archive write -- if that is "
-                    "WO-DETERMINISTIC-TURN-FINALIZATION-01 landing, "
-                    "retire this test with the date and reason")
+                calls = _calls(_effective_body(mode))
+                self.assertEqual(1, calls.count("archive_append_event"))
+                self.assertEqual(1, calls.count("archive_rebuild_txt"))
 
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class DeterministicFinaliserContractTest(unittest.TestCase):
+    """`_finalize_deterministic_turn` — the one place the contract lives.
+
+    ADDED 2026-08-04, WO-LEAN-LORI-RUNTIME-01 Phase 1A.
+
+    Under LLR-22 the completed-turn hooks are NOT held out by their mode
+    gates. Both read `params["turn_mode"]`, which on a server-resolved
+    deterministic turn still says "interview", and both eligibility sets
+    are frozenset({"interview"}) -- so both gates PASS. The only thing
+    keeping extraction and trip placement off Lori's own deterministic
+    answers is the ABSENCE of three keys.
+
+    Six branches each independently remembering not to set them is a
+    guarantee that lasts until someone adds a seventh by copying a sixth.
+    This class asserts it once, over the finaliser's own AST, which is
+    why the finaliser exists.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.body = _function_body(_FINALISER)
+        cls.calls = _calls(cls.body)
+
+    def test_it_exposes_no_hook_plumbing(self):
+        """The docstring of the finaliser DISCUSSES all three names at
+        length, deliberately. `_function_body` strips the docstring and
+        unparses from the AST for exactly that reason -- a raw substring
+        scan would pass on the prose that explains the rule while missing
+        a real assignment. That trap has fired repeatedly in this
+        repository; here the explanation and the guard sit in the same
+        file, so it was guaranteed."""
+        for forbidden in ("_persisted_turn_row_id",
+                          "_persisted_user_turn_row_id",
+                          "_archive_event_persisted",
+                          "row_ids_out"):
+            self.assertNotIn(forbidden, self.body, forbidden)
+
+    def test_it_writes_each_thing_exactly_once(self):
+        self.assertEqual(1, self.calls.count("persist_turn_transaction"))
+        self.assertEqual(1, self.calls.count("archive_append_event"))
+        self.assertEqual(1, self.calls.count("archive_rebuild_txt"))
+        self.assertEqual(2, self.calls.count("_ws_send"))
+
+    def test_the_rebuild_follows_a_SUCCESSFUL_append(self):
+        """Rebuilding after a failed append would rewrite the transcript
+        to assert the turn is absent -- worse than not rebuilding."""
+        self.assertLess(self.body.index("archive_append_event"),
+                        self.body.index("archive_rebuild_txt"))
+        guarded = False
+        for n in ast.walk(ast.parse(self.body)):
+            if isinstance(n, ast.Try):
+                inner = "\n".join(ast.unparse(b) for b in n.body)
+                if ("archive_append_event" in inner
+                        and "archive_rebuild_txt" in inner):
+                    guarded = True
+        self.assertTrue(guarded,
+                        "append and rebuild must share one try, so a "
+                        "failed append cannot reach the rebuild")
+
+    def test_the_writes_precede_delivery(self):
+        self.assertLess(self.body.index("persist_turn_transaction"),
+                        self.body.index("_ws_send"))
+
+    def test_the_modal_gate_is_recomputed_here(self):
+        """BUG-MODAL-TURNS-ARCHIVED-AS-LIFE-STORY-01: an operator's
+        workspace question came back to the narrator as their own words.
+        Recomputed rather than inherited -- the user-turn gate is ~1,500
+        lines up and an early return can leave its binding unreached,
+        which would NameError the archive write for every narrator."""
+        self.assertIn("travel_doc_modal", self.body)
+        self.assertIn("surface", self.body)
+
+    def test_the_archive_write_cannot_take_the_turn_down(self):
+        guarded = False
+        for n in ast.walk(ast.parse(self.body)):
+            if isinstance(n, ast.Try) and "archive_append_event" in "\n".join(
+                    ast.unparse(b) for b in n.body):
+                guarded = True
+        self.assertTrue(guarded)
+
+    def test_it_writes_no_truth_and_calls_no_hook(self):
+        for banned in ("_run_completed_turn_trip_link",
+                       "_run_completed_turn_extraction",
+                       "ft_add_note", "ft_add_row", "apply_correction",
+                       "story_candidate_insert", "preserve_turn"):
+            self.assertNotIn(banned, self.calls, banned)
+
+
+class AllDeterministicBranchesFinalizeTest(unittest.TestCase):
+    """R3 Phase 1A, the required per-branch shape:
+
+        incoming mode: interview
+        server resolves: <deterministic mode>
+        hook receives: interview  (params is never rewritten -- LLR-22)
+        result: zero trip links and zero extraction claims
+
+    The last line holds because both hooks additionally require a flag
+    that neither the branch nor the finaliser ever sets. That is asserted
+    here per branch rather than once globally, because the failure this
+    guards against is a single branch drifting.
+    """
+
+    MODES = ("floor_hold", "meta_question", "witness",
+             "memory_echo", "age_recall", "correction")
+
+    def test_every_deterministic_branch_delegates_exactly_once(self):
+        for mode in self.MODES:
+            with self.subTest(mode=mode):
+                self.assertEqual(
+                    1, _calls(_branch_body(mode)).count(_FINALISER),
+                    f"{mode} does not delegate exactly once")
+
+    def test_no_branch_does_its_own_persisting_or_archiving(self):
+        for mode in self.MODES:
+            with self.subTest(mode=mode):
+                calls = _calls(_branch_body(mode))
+                for owned in ("persist_turn_transaction",
+                              "archive_append_event", "archive_rebuild_txt"):
+                    self.assertNotIn(owned, calls, f"{mode}: {owned}")
+
+    def test_the_delivered_turn_is_written_exactly_once_per_branch(self):
+        for mode in self.MODES:
+            with self.subTest(mode=mode):
+                calls = _calls(_effective_body(mode))
+                self.assertEqual(1, calls.count("persist_turn_transaction"))
+                self.assertEqual(1, calls.count("archive_append_event"))
+                self.assertEqual(1, calls.count("archive_rebuild_txt"))
+                # CORRECTED 2026-08-04. The first cut asserted exactly 2
+                # frames for every branch and FAILED on `correction`,
+                # which sends three. That was the test being wrong, not
+                # the branch: `correction` emits a structured
+                # `correction_payload` frame BEFORE the ack so the
+                # browser can write back the parsed correction while the
+                # ack is still being delivered. Flattening it to 2 would
+                # have demanded the removal of a real frame. The
+                # invariant is TWO CLOSING frames from the finaliser plus
+                # whatever documented extra the branch itself sends.
+                own = _calls(_branch_body(mode)).count("_ws_send")
+                expected_own = 1 if mode == "correction" else 0
+                self.assertEqual(expected_own, own,
+                                 f"{mode} sends {own} frame(s) of its own")
+                self.assertEqual(2 + expected_own, calls.count("_ws_send"))
+
+    def test_no_branch_sets_a_flag_that_would_open_the_hooks(self):
+        """This is the whole extraction/placement ineligibility contract,
+        asserted at every branch. If any one of them sets a flag, that
+        branch's deterministic answer gets an extraction generation and a
+        trip conversation link run against it."""
+        for mode in self.MODES:
+            with self.subTest(mode=mode):
+                body = _effective_body(mode)
+                for forbidden in ("_persisted_turn_row_id",
+                                  "_persisted_user_turn_row_id",
+                                  "_archive_event_persisted",
+                                  "row_ids_out"):
+                    self.assertNotIn(forbidden, body, f"{mode}: {forbidden}")
+
+    def test_each_branch_passes_its_own_mode_to_the_finaliser(self):
+        """A copy-paste that left the previous branch's mode in place
+        would mislabel the turn in `turns.meta_json`, in the archive
+        event, and in the browser's done frame -- all three at once, and
+        all three silently."""
+        for mode in self.MODES:
+            with self.subTest(mode=mode):
+                self.assertIn(f"turn_mode='{mode}'", _branch_body(mode))
+
+    def test_the_correction_branch_still_applies_the_projection(self):
+        """The finaliser must not have absorbed or displaced the
+        correction write. BUG-LORI-CORRECTION-ABSORBED-NOT-APPLIED-01:
+        Melanie Zollner's 'we only had two children, not three' was
+        acknowledged in prose and never reached family.children.count."""
+        branch = _branch_body("correction")
+        # CORRECTED 2026-08-04, caught by mutation M6. The retired form
+        # was `self.assertIn("apply_correction", branch)` -- a SUBSTRING
+        # scan, which passed happily when the call was renamed to
+        # `noop_correction`, because the branch also contains the log
+        # line "[chat_ws][correction-apply] apply_correction threw (chat
+        # continues)". The guard matched the prose about the call
+        # instead of the call. That is the same trap this file's own
+        # module docstring warns about, and it fired here anyway; the
+        # only reliable fix is to ask the AST which functions are
+        # CALLED, not which words appear.
+        self.assertIn("apply_correction", _calls(branch))
+        self.assertIn("correction_payload", branch)
+        self.assertLess(branch.index("_projection_writer.apply_correction("),
+                        branch.index(_FINALISER),
+                        "the projection write must precede finalisation")

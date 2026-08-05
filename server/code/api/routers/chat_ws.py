@@ -240,6 +240,125 @@ async def _ws_send(ws: WebSocket, obj: Dict[str, Any]) -> None:
         pass
 
 
+async def _finalize_deterministic_turn(
+    ws: WebSocket,
+    *,
+    params: Dict[str, Any],
+    conv_id: str,
+    person_id: Optional[str],
+    user_text: str,
+    assistant_text: str,
+    turn_mode: str,
+    model_name: str,
+    meta: Optional[Dict[str, Any]] = None,
+    current_era: Optional[str] = None,
+    done_extra: Optional[Dict[str, Any]] = None,
+    archive: bool = True,
+) -> None:
+    """Finish a server-resolved deterministic turn: persist, archive, deliver.
+
+    WO-LEAN-LORI-RUNTIME-01 Phase 1A, 2026-08-04. Six branches
+    (floor_hold, meta_question, witness, memory_echo, age_recall,
+    correction) each answered the narrator, persisted the turn and
+    returned. Only `meta_question` wrote the assistant archive event, and
+    only because BUG-DETERMINISTIC-TURN-ARCHIVE-MISSING-01 repaired it on
+    2026-08-01. The USER archive event is written unconditionally ~1,500
+    lines above (`chat_ws.py:1888`), so on the other five the exported
+    transcript showed the narrator speaking and Lori silent. That
+    asymmetry is why it stayed invisible: the export reads as an
+    unanswered turn rather than as a missing write.
+
+    THE FLAGS ARE THE WHOLE SAFETY PROPERTY OF THIS FUNCTION, so it is
+    worth saying plainly why it exists at all rather than five inline
+    copies. Under LLR-22 the completed-turn hooks are NOT held out by
+    their mode gates: the dispatcher resolves the deterministic mode into
+    a LOCAL `turn_mode` and never writes it back, the only three writes to
+    `params["turn_mode"]` (`:5480`, `:1247`, `:2909`) all yield
+    "interview", both hooks read the mode from **params** (`:648`, `:836`),
+    and both eligibility sets are `frozenset({"interview"})`. So both mode
+    gates PASS on a deterministic turn. A branch's `return` does not skip
+    them either -- `_generate_and_stream_body` is awaited at `:481` and the
+    hooks run at `:490`/`:502` immediately after a normal return.
+
+    What actually holds the hooks out is the ABSENCE of three keys:
+    `_persisted_turn_row_id`, `_persisted_user_turn_row_id` and
+    `_archive_event_persisted`. Five branches each independently
+    remembering not to set them is a guarantee that survives exactly
+    until the next person adds a sixth branch by copying a fifth. Here it
+    is structural: this function never captures `row_ids_out` and never
+    writes those keys, and one test asserts that over this function's own
+    AST. Deterministic turns therefore stay extraction-ineligible and
+    trip-placement-ineligible, per R3 Phase 1A, and they will stay that
+    way without anyone having to remember.
+
+    Do NOT add row-id plumbing here to "complete" it. Reinstating those
+    keys fires an extraction generation and a trip conversation link
+    against Lori's own deterministic answer -- which is precisely what the
+    first cut of the meta_question repair did on 2026-08-01 and what the
+    2026-08-03 correction removed. That contract changes only when the
+    effective-mode handoff is repaired and a deliberate decision is made
+    about which deterministic modes are extraction-eligible.
+
+    `archive=False` is offered for a branch whose reply must not enter the
+    life story. No branch passes it today; it exists so that decision can
+    be made per branch, as R3 requires, rather than by editing this body.
+    """
+    turn_meta: Dict[str, Any] = {"ws": True, "turn_mode": turn_mode}
+    if meta:
+        turn_meta.update(meta)
+
+    # ONE user turn and ONE assistant turn. No `row_ids_out` -- see above.
+    persist_turn_transaction(
+        conv_id=conv_id,
+        user_message=user_text,
+        assistant_message=assistant_text,
+        model_name=model_name,
+        meta=turn_meta,
+    )
+
+    # The modal-surface gate is RECOMPUTED here rather than inherited.
+    # The user-turn gate sits ~1,500 lines up and an early return can
+    # leave its binding unreached, which would NameError the archive write
+    # for every narrator (BUG-MODAL-TURNS-ARCHIVED-AS-LIFE-STORY-01: an
+    # operator's workspace question came back to the narrator as their own
+    # words, so a modal reply must never land in the life story).
+    _skip_modal_archive = (
+        (params.get("surface") or "narrator").strip().lower()
+        == "travel_doc_modal")
+
+    if archive and person_id and not _skip_modal_archive:
+        try:
+            archive_append_event(
+                person_id=person_id,
+                session_id=conv_id,
+                role="assistant",
+                content=assistant_text,
+                meta={"ws": True, "turn_mode": turn_mode},
+                current_era=current_era,
+            )
+            # Rebuild only AFTER a successful append, so a failed append
+            # cannot rewrite the transcript to assert the turn is absent.
+            archive_rebuild_txt(person_id=person_id, session_id=conv_id)
+        except Exception as _arch_err:
+            # Never raise into the chat path. Losing the archive event
+            # costs a transcript line; raising costs the narrator's turn.
+            logger.error(
+                "[chat_ws][deterministic-finalize] archive write failed "
+                "mode=%s conv=%s — %s", turn_mode, conv_id, _arch_err)
+
+    # Delivered AFTER the writes, so a persistence failure cannot leave the
+    # narrator looking at an answer the system has no record of.
+    await _ws_send(ws, {"type": "token", "delta": assistant_text})
+    done: Dict[str, Any] = {
+        "type": "done",
+        "final_text": assistant_text,
+        "turn_mode": turn_mode,
+    }
+    if done_extra:
+        done.update(done_extra)
+    await _ws_send(ws, done)
+
+
 async def _safety_notify_operator(
     *,
     conv_id: str,
@@ -3354,27 +3473,27 @@ async def ws_chat(ws: WebSocket):
             except Exception:
                 _floor_idx = 0
             assistant_text = _floor_acks[_floor_idx]
-            persist_turn_transaction(
-                conv_id=conv_id,
-                user_message=user_text,
-                assistant_message=assistant_text,
-                model_name="floor-hold-deterministic",
-                meta={
-                    "ws": True,
-                    "turn_mode": "floor_hold",
-                    "floor_ack_idx": _floor_idx,
-                },
-            )
             logger.info(
                 "[chat_ws][floor-hold] deterministic conv=%s ack=%r",
                 conv_id, assistant_text,
             )
-            await _ws_send(ws, {"type": "token", "delta": assistant_text})
-            await _ws_send(ws, {
-                "type": "done",
-                "final_text": assistant_text,
-                "turn_mode": "floor_hold",
-            })
+            # Archived like any other delivered reply. It is three words,
+            # but the narrator heard it, and a transcript that shows them
+            # speaking into silence misrepresents the conversation. Memoir
+            # surfaces can filter on meta.turn_mode; they cannot recover a
+            # line that was never written.
+            await _finalize_deterministic_turn(
+                ws,
+                params=params,
+                conv_id=conv_id,
+                person_id=person_id,
+                user_text=user_text,
+                assistant_text=assistant_text,
+                turn_mode="floor_hold",
+                model_name="floor-hold-deterministic",
+                meta={"floor_ack_idx": _floor_idx},
+                current_era=_current_era_for_archive,
+            )
             return
 
         # ── BUG-LORI-IDENTITY-META-QUESTION-DETERMINISTIC-ROUTE-01 ──────
@@ -3457,64 +3576,38 @@ async def ws_chat(ws: WebSocket):
             # NOTHING IS DUPLICATED. The user archive event is NOT written
             # here -- 1888 already did it. persist_turn_transaction is
             # called ONCE, exactly as it was before any of this.
+            #
+            # ── MOVED INTO `_finalize_deterministic_turn` 2026-08-04, R3
+            # Phase 1A. ────────────────────────────────────────────────
+            # The persist + surface-gated archive + rebuild + frames that
+            # used to be written out here inline are now the shared
+            # finaliser, because the other five branches needed exactly
+            # the same thing and the flag-absence contract described above
+            # is far safer held in ONE place than remembered in six. The
+            # behaviour is unchanged: same single persist, same
+            # recomputed modal gate, same try-wrapped archive, same
+            # rebuild-after-append, same two browser frames, and still
+            # NO `_persisted_turn_row_id`, `_persisted_user_turn_row_id`
+            # or `_archive_event_persisted`.
             assistant_text = _meta_question_answer.text
-            persist_turn_transaction(
+            await _finalize_deterministic_turn(
+                ws,
+                params=params,
                 conv_id=conv_id,
-                user_message=user_text,
-                assistant_message=assistant_text,
+                person_id=person_id,
+                user_text=user_text,
+                assistant_text=assistant_text,
+                turn_mode="meta_question",
                 model_name="meta-question-deterministic",
                 meta={
-                    "ws": True,
-                    "turn_mode": "meta_question",
                     "meta_question_category": _meta_question_answer.primary_category,
                     "meta_question_lang": _meta_question_answer.language,
                 },
+                current_era=_current_era_for_archive,
+                done_extra={
+                    "meta_question_category": _meta_question_answer.primary_category,
+                },
             )
-
-            # Assistant archive event + transcript rebuild. Same surface
-            # gate and same reasoning as the main path at 5238: a modal
-            # reply must not land in the narrator's life story, and the
-            # gate is RECOMPUTED rather than inherited because the
-            # user-turn gate is ~1,500 lines up and an early return could
-            # leave it unbound (BUG-MODAL-TURNS-ARCHIVED-AS-LIFE-STORY-01).
-            _mq_skip_modal_archive = (
-                (params.get("surface") or "narrator").strip().lower()
-                == "travel_doc_modal")
-            if person_id and not _mq_skip_modal_archive:
-                try:
-                    archive_append_event(
-                        person_id=person_id,
-                        session_id=conv_id,
-                        role="assistant",
-                        content=assistant_text,
-                        meta={"ws": True, "turn_mode": "meta_question"},
-                        current_era=_current_era_for_archive,
-                    )
-                    archive_rebuild_txt(person_id=person_id,
-                                        session_id=conv_id)
-                    # `params["_archive_event_persisted"] = True` WAS set
-                    # here and was REMOVED 2026-08-03. Its only consumer is
-                    # the completed-turn extraction gate at :688, and per
-                    # the correction above that gate's companion mode check
-                    # does not hold on this path -- so setting it fired an
-                    # extraction generation against a deterministic answer.
-                    # The transcript repair does not need it. Do not
-                    # reinstate it here; reinstate it only when the
-                    # effective-mode handoff is fixed and a deliberate
-                    # decision has been made about which deterministic
-                    # modes are extraction-eligible.
-                except Exception as _mq_arch_err:
-                    logger.error(
-                        "[chat_ws][meta-question] archive write failed "
-                        "conv=%s — %s", conv_id, _mq_arch_err)
-
-            await _ws_send(ws, {"type": "token", "delta": assistant_text})
-            await _ws_send(ws, {
-                "type": "done",
-                "final_text": assistant_text,
-                "turn_mode": "meta_question",
-                "meta_question_category": _meta_question_answer.primary_category,
-            })
             return
 
         # ── BUG-LORI-FACTUAL-OVER-SENSORY-PROBE-01 ──────────────────────
@@ -3527,28 +3620,27 @@ async def ws_chat(ws: WebSocket):
         # feeling probes, scenery questions, or topic shifts.
         if turn_mode == "witness" and _witness_answer is not None:
             assistant_text = _witness_answer.text
-            persist_turn_transaction(
+            await _finalize_deterministic_turn(
+                ws,
+                params=params,
                 conv_id=conv_id,
-                user_message=user_text,
-                assistant_message=assistant_text,
+                person_id=person_id,
+                user_text=user_text,
+                assistant_text=assistant_text,
+                turn_mode="witness",
                 model_name="witness-deterministic",
                 meta={
-                    "ws": True,
-                    "turn_mode": "witness",
                     "witness_detection_type": _witness_answer.detection_type,
                     "witness_sub_type": _witness_answer.sub_type,
                     "witness_anchor": _witness_answer.factual_anchor,
                     "witness_lang": _witness_answer.language,
                 },
+                current_era=_current_era_for_archive,
+                done_extra={
+                    "witness_detection_type": _witness_answer.detection_type,
+                    "witness_sub_type": _witness_answer.sub_type,
+                },
             )
-            await _ws_send(ws, {"type": "token", "delta": assistant_text})
-            await _ws_send(ws, {
-                "type": "done",
-                "final_text": assistant_text,
-                "turn_mode": "witness",
-                "witness_detection_type": _witness_answer.detection_type,
-                "witness_sub_type": _witness_answer.sub_type,
-            })
             return
 
         if turn_mode == "memory_echo":
@@ -3765,15 +3857,17 @@ async def ws_chat(ws: WebSocket):
                 "[chat_ws][WO-ARCH-07A] memory_echo turn conv=%s lang=%s",
                 conv_id, _memory_echo_lang,
             )
-            persist_turn_transaction(
+            await _finalize_deterministic_turn(
+                ws,
+                params=params,
                 conv_id=conv_id,
-                user_message=user_text,
-                assistant_message=assistant_text,
+                person_id=person_id,
+                user_text=user_text,
+                assistant_text=assistant_text,
+                turn_mode="memory_echo",
                 model_name="memory-echo",
-                meta={"ws": True, "turn_mode": "memory_echo"},
+                current_era=_current_era_for_archive,
             )
-            await _ws_send(ws, {"type": "token", "delta": assistant_text})
-            await _ws_send(ws, {"type": "done", "final_text": assistant_text, "turn_mode": "memory_echo"})
             return
         # BUG-LORI-LATE-AGE-RECALL-01 (2026-05-06): deterministic age-recall
         # branch. Mirrors memory_echo: bypasses LLM, reads age_years +
@@ -3807,15 +3901,18 @@ async def ws_chat(ws: WebSocket):
                 "[chat_ws][age-recall] turn for conv=%s lang=%s",
                 conv_id, _age_lang,
             )
-            persist_turn_transaction(
+            await _finalize_deterministic_turn(
+                ws,
+                params=params,
                 conv_id=conv_id,
-                user_message=user_text,
-                assistant_message=assistant_text,
+                person_id=person_id,
+                user_text=user_text,
+                assistant_text=assistant_text,
+                turn_mode="age_recall",
                 model_name="age-recall",
-                meta={"ws": True, "turn_mode": "age_recall"},
+                meta={"age_recall_lang": _age_lang},
+                current_era=_current_era_for_archive,
             )
-            await _ws_send(ws, {"type": "token", "delta": assistant_text})
-            await _ws_send(ws, {"type": "done", "final_text": assistant_text, "turn_mode": "age_recall"})
             return
         if turn_mode == "correction":
             from ..prompt_composer import compose_correction_ack
@@ -3870,20 +3967,28 @@ async def ws_chat(ws: WebSocket):
                 text=user_text,
                 runtime=runtime71,
             )
-            persist_turn_transaction(
+            # The `correction_payload` frame above is sent BEFORE this on
+            # purpose and stays where it is: it carries the structured
+            # parse for client write-back, and the browser applies it
+            # while the ack is still being delivered. The finaliser owns
+            # only the turn, the archive event and the two closing frames.
+            # The projection write already happened above via
+            # `apply_correction`; nothing here repeats it.
+            await _finalize_deterministic_turn(
+                ws,
+                params=params,
                 conv_id=conv_id,
-                user_message=user_text,
-                assistant_message=assistant_text,
+                person_id=person_id,
+                user_text=user_text,
+                assistant_text=assistant_text,
+                turn_mode="correction",
                 model_name="correction-ack",
                 meta={
-                    "ws": True,
-                    "turn_mode": "correction",
                     "parsed_corrections": parsed,
                     "apply_summary": apply_summary,
                 },
+                current_era=_current_era_for_archive,
             )
-            await _ws_send(ws, {"type": "token", "delta": assistant_text})
-            await _ws_send(ws, {"type": "done", "final_text": assistant_text, "turn_mode": "correction"})
             return
 
         # ── LLM-path setup — only reached for turn_mode='interview' ─────────
