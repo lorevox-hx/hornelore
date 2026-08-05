@@ -102,6 +102,25 @@ mechanisms — prompt, server, browser — need **one** authority, and the
 server is it. The browser is *told* the state rather than trusted to
 agree with it.
 
+Concretely: the browser asks `GET /api/runtime-posture` once at load and
+gates detection at `_lv80ScanSafety`, which is its single entry point.
+One gate there closes detection, the latch, the posture badge, idle
+suppression and the outgoing `[SAFETY MODE: ACTIVE]` directive together;
+gating each consumer separately would have been five chances to miss
+one. A second, deliberately redundant gate sits on the outgoing
+directive, for a future path that sets the posture some other way.
+
+An unanswered or failed fetch resolves to **parked**, and that direction
+is chosen rather than defaulted into. Server parked with the browser
+believing otherwise gives the narrator a safety posture with nothing
+behind it and sends an emergency directive to a model whose parked
+prompt has no emergency instructions to anchor it — an unanchored
+directive is worse than none. Server active with the browser believing
+otherwise loses a posture hint and idle suppression; the backend
+deterministic scan is untouched and still fires. The browser has always
+been a hint on top of the server, never the detector, which is what
+makes that direction affordable.
+
 `LV_ENABLE_SAFETY` and `HORNELORE_SAFETY_LLM_LAYER` are now
 **subordinate**: when the state is parked they are not consulted at all,
 so no combination of stale values in someone's `.env` can bring one piece

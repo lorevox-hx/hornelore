@@ -25,6 +25,30 @@
 
 ---
 
+## Amendment — 2026-08-04, Phase 3B: the safety feature is PARKED
+
+Gate A ran. Chris's decision was **PARK**, applied to the whole runtime
+safety feature rather than to the LLM classifier alone. Decision record:
+`docs/decisions/2026-08-04-park-safety-feature.md`.
+
+**Lean Lori is not an emergency-monitoring service.** It is a family
+oral-history system: nobody is watching it, nobody is on call, and it
+makes no promise of response.
+
+This document was written on the assumption that active safety would be
+preserved through every disposition. That assumption is withdrawn. Every
+sentence it produced is **corrected in place, with the retired wording
+quoted and dated**, rather than deleted — a reader who remembers the old
+rule needs to see that it was withdrawn and why. Search for
+`AMENDED 2026-08-04` to find them; the substantive ones are Phase 3C,
+live-sequence steps 7 and 10, and the absolute pass criteria.
+
+Parked means inactive at runtime and fully preserved in the repository.
+All safety code, tests, corpus, reports and evidence are kept, and the
+safety suites still pass by opting into `HORNELORE_SAFETY_STATE=active`.
+Reactivation is Chris's decision plus its own efficacy and specificity
+acceptance, not a configuration convenience.
+
 ## What changed from R2
 
 R2's Pre-Gate is gone: WO1E closed on 2026-08-04 and is recorded below as
@@ -768,31 +792,83 @@ the Whisper saving as recovered or preventive, per Phase 0.6.
 
 #### 3C — evidence-gated LLM safety disposition
 
-Keep deterministic safety and softened persistence active in every outcome.
-Apply only the disposition Chris selected after Gate A:
+> **DECIDED 2026-08-04, AND WIDER THAN THIS SECTION ANTICIPATED.**
+> Chris chose **PARK**, and applied it to the **whole runtime safety
+> feature** rather than to the LLM classifier alone. Decision record:
+> `docs/decisions/2026-08-04-park-safety-feature.md`. Implemented as
+> Phase 3B.
+>
+> This section's framing is retired, and the retired sentences are
+> quoted below rather than deleted so a reader who remembers the rule
+> can see that it was withdrawn and why.
+>
+> **Retired:** *"Keep deterministic safety and softened persistence
+> active in every outcome."* — false from 2026-08-04. PARK was
+> available in the list above but was scoped to the classifier; the
+> constraint sentence assumed the deterministic layer would survive any
+> disposition. Gate A's evidence removed that assumption. The clearest
+> instance is deterministic, not model-driven: the pattern layer
+> classifies *"I've had a good run. I'm not afraid of the ending."* as
+> `domestic_abuse` and routes it acute, overruling an LLM that read it
+> correctly as mortality reflection. A layer that does that is not the
+> trustworthy baseline the sentence took it for.
+>
+> **Retired:** the operator-surface block asserting
+> `Deterministic safety: active`. When parked, every layer is inactive
+> and the surface must say so rather than assert a floor that is not
+> there.
+>
+> **Retired:** *"Do not silently modify the classifier prompt, switch it
+> to raw-ephemeral mode..."* — the prohibition on *silent* change stands
+> and was honoured. The raw-ephemeral switch was made openly in Phase
+> 3A, measured, reported, and shipped alongside guidance strengthening
+> because the mode change **alone** made mortality escalation worse
+> (3 cases → 4). It is preserved so reactivation lands on the cheap
+> stateless call rather than the composed one.
+>
+> **Still binding, unweakened:** every safety suite must stay green.
+> They do, by opting into `HORNELORE_SAFETY_STATE=active`. That is what
+> makes reactivation a decision rather than a rewrite.
 
-- **KEEP ACTIVE:** preserve the current classifier state and report its
-  measured incremental efficacy, generation/retry cost, and effective call
-  mode. Profile selection alone does not turn it off.
-- **PARK:** make it effectively off, preserve its code/configuration, and show
-  the measured coverage consequence and Chris's decision on the operator
-  surface.
-- **SEPARATE SAFETY REPAIR:** make no classifier behavior change in this WO.
-  Open a distinct safety work order for any prompt, call-mode, threshold,
-  parsing, or routing repair, followed by a repeat live efficacy gate.
+**Parked state — the disposition actually implemented.** One
+server-authoritative setting, `HORNELORE_SAFETY_STATE`, default
+`parked`. Zero classifier generations; zero safety-protocol tokens in
+the assembled prompt; deterministic scanning, the operator cascade,
+softened mode, notifications, and the browser detection/latch/posture
+all inactive. `LV_ENABLE_SAFETY` and `HORNELORE_SAFETY_LLM_LAYER` are
+subordinate and not consulted while parked. All code, tests, corpus,
+reports and historical evidence are preserved.
 
-Do not choose a disposition because `lean_lori` exists. Do not silently modify
-the classifier prompt, switch it to raw-ephemeral mode, change thresholds, or
-claim formal equivalence. Keep safety precedence, acute positives,
-mortality/past-tense negatives, ambiguity, parse-failure, and scan-failure
-default-safe tests green.
+**Lean Lori is not an emergency-monitoring service.** It is a family
+oral-history system. Nobody is watching it, nobody is on call, and it
+makes no promise of response. The work order states this as a product
+fact, not as a caveat.
 
-The operator surface always states:
+**Reactivation requirements.** `HORNELORE_SAFETY_STATE=active` is
+mechanically sufficient and deliberately not sufficient on its own.
+Before safety runs against a real narrator again it needs its own
+efficacy and specificity acceptance, resolving at minimum:
+
+1. the deterministic `domestic_abuse` false positive quoted above;
+2. mortality-reflection escalation — the Phase 3A guidance addresses it
+   and it has not been re-measured;
+3. `"It will be a relief when I go, honestly."`, escalated by both call
+   modes. Passive death wish is not acute ideation; the right response
+   is softened presence plus an operator flag, not 988 and not silence.
+   This is the shape `WO-LORI-SAFETY-PASSIVE-DEATH-WISH-01` was parked
+   for.
+
+If Lean Lori is ever put in front of narrators outside the family, or if
+anyone comes to rely on it as support, this decision must be revisited
+**before** that happens, not after.
+
+The operator surface states:
 
 ```text
-Deterministic safety: active
-LLM classifier: active | parked | unchanged pending separate repair
-Decision basis: Gate A evidence and Chris approval
+Safety feature: parked | active   (HORNELORE_SAFETY_STATE)
+Deterministic safety: inactive when parked
+LLM classifier: inactive when parked
+Decision basis: Gate A evidence and Chris approval, 2026-08-04
 Coverage/cost note: <redacted measured summary>
 ```
 
@@ -1026,8 +1102,12 @@ decision; bounded b2a remains sole automatic extraction; one eligible bounded
 extraction performs one extraction generation and no composed availability
 generation; passive status has zero resource side effects; the LLM safety
 classifier state matches Chris's Gate A decision and its live efficacy/cost
-evidence remains reproducible; the safety posture clears and cannot be latched
-by a narrator's correction; reset/cross-narrator isolation remains correct.
+evidence remains reproducible; **AMENDED 2026-08-04 (Phase 3B)** — retired:
+*"the safety posture clears and cannot be latched by a narrator's
+correction"*, replaced by **the safety posture cannot arm at all while
+parked**; the Phase 1D latch exit stays in code and stays green because it
+is what reactivation lands on; reset/cross-narrator isolation remains
+correct.
 
 Use targeted negative controls for each named defect. Do not run an unrelated
 mutation campaign.
@@ -1043,16 +1123,27 @@ Chris controls stack lifecycle. WO1E is **not** repeated.
 4. Run Building Years and `memory_exercise`.
 5. Run active-trip and selected-photo cases without a raw-image claim.
 6. Run realistic recent history and a long valid narrator turn.
-7. Run deterministic acute safety positive and the approved LLM-classifier
-   representative sensitivity/mortality cases. **Synthetic rows are permitted
-   in an isolated test database; family-narrator persistence is not. External
-   notification delivery must be intercepted — prove a notification would have
-   been requested exactly once, and that none was sent.**
+7. **AMENDED 2026-08-04 (Phase 3B).** Retired: *"Run deterministic acute
+   safety positive and the approved LLM-classifier representative
+   sensitivity/mortality cases."* There is no safety routing to exercise
+   while the feature is parked, and running one would require switching
+   the feature on for the duration of the acceptance — which is not the
+   configuration being accepted. Replaced by the parked assertions:
+   prove an acute phrase produces an ordinary Lori turn with **zero**
+   classifier generations, **zero** safety-protocol text in the prompt,
+   **no** browser latch armed, and **no** notification requested. The
+   original step returns verbatim if and when the feature is
+   reactivated, together with its efficacy and specificity acceptance.
 8. Exercise every deterministic response branch and export the transcript.
 9. Ask a capability question that previously produced the instruction recital;
    prove no system-prompt text appears in the reply.
-10. Trigger the safety posture, then clear it within the session; prove a
-    correction containing the trigger word does not re-latch it.
+10. **AMENDED 2026-08-04 (Phase 3B).** Retired: *"Trigger the safety
+    posture, then clear it within the session."* A posture that cannot
+    arm has no exit to demonstrate. The Phase 1D latch exit is kept in
+    code and kept green, because it is what reactivation lands on.
+    Replaced by: prove a trigger phrase arms **no** posture, sets no
+    badge, suppresses no idle, and adds no `[SAFETY MODE: ACTIVE]`
+    directive to the outgoing turn.
 11. Use the selected lean speech input and CPU TTS.
 12. Attempt camera/affect/preview enable; prove no stream/model/frame work.
 13. Attempt Whisper transcription/status; prove no engine load.
@@ -1071,8 +1162,14 @@ missing required prompt markers; **zero narrator-visible system-prompt text**;
 zero parked-feature initialization or prompt sections; zero passive-status
 loads/generations; zero duplicate/missing transcript rows or archive events;
 zero duplicate trip links, story candidates, extraction claims/results; zero
-hidden `_extract_*` conversations from bounded mode; deterministic safety active
-and green; **a safety posture that clears**; LLM safety effective state matches
+hidden `_extract_*` conversations from bounded mode;
+**AMENDED 2026-08-04 (Phase 3B)** — retired: *"deterministic safety active
+and green; a safety posture that clears"*. Replaced by **zero classifier
+generations, zero safety-protocol prompt tokens, and a browser latch that
+cannot arm** while parked. The safety **suites** stay green by opting into
+`HORNELORE_SAFETY_STATE=active`, which is the sense in which "green" still
+binds and is what makes reactivation a decision rather than a rewrite;
+LLM safety effective state matches
 Chris's evidence decision with truthful coverage/cost wording visible; zero
 missing person anchors caused solely by straight, curly, or omitted apostrophes;
 zero truncated compound values in reflections; zero composed availability

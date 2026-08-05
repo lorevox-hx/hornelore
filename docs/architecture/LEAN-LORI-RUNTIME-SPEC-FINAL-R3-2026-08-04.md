@@ -47,6 +47,33 @@ and is repeated here without weakening.
 
 ---
 
+## Amendment — 2026-08-04, Phase 3B: the safety feature is PARKED
+
+The evidence-gated decision named above was taken. Chris chose **PARK**,
+and applied it to the whole runtime safety feature rather than to the LLM
+classifier alone. Record: `docs/decisions/2026-08-04-park-safety-feature.md`.
+
+**Lean Lori is not an emergency-monitoring service.** It is a family
+oral-history system: nobody is watching it, nobody is on call, and it
+makes no promise of response. An always-on emergency apparatus in that
+context bought a real cost and a false impression at the same time, and
+the false impression is the more serious half.
+
+This document assumed throughout that deterministic safety and the
+browser latch would survive any disposition. That assumption is
+withdrawn. The affected passages are **corrected in place with the
+retired wording quoted and dated** rather than deleted — search
+`AMENDED 2026-08-04`. The substantive ones are the capability table, the
+effective-profile contract, the Safety contract section, and acceptance
+items 3, 7 and 8.
+
+Parked means inactive at runtime and fully preserved. All safety code,
+tests, corpus, reports and evidence are kept, and the safety suites still
+pass by opting into `HORNELORE_SAFETY_STATE=active`. Reactivation is
+Chris's decision plus its own efficacy and specificity acceptance.
+
+---
+
 ## Locked decision
 
 Lean Lori parks features that overload or compete for the present laptop. It
@@ -402,9 +429,10 @@ Lean implementation may not alter these outcomes incidentally.
 |---|---|---|
 | Current production LLM | **Active, locked** | No model/configuration change. |
 | Lori identity and deterministic runtime | **Active** | Non-parkable. |
-| Deterministic safety | **Active** | Runs before short-circuits; cannot be disabled by Lean. |
-| LLM second-layer safety classifier | **Active pending evidence decision** | Gate A measures live incremental sensitivity, mortality specificity, parse/retry behavior, prompt cost and latency **in both composed and raw-ephemeral mode**. Chris then chooses active, parked, or separate repair; Lean does not predetermine it. |
-| Browser safety posture latch | **Active, defective** | Repaired in Gate B; must not be parked or disabled. Deterministic safety is unaffected. |
+| Deterministic safety | **Parked** (was "Active") | **AMENDED 2026-08-04, Phase 3B.** Retired: *"Runs before short-circuits; cannot be disabled by Lean."* Gate A's evidence withdrew the assumption that this layer was a trustworthy floor — it classifies *"I've had a good run. I'm not afraid of the ending."* as `domestic_abuse` and routes it acute. Inactive while `HORNELORE_SAFETY_STATE=parked`; code and suites preserved. |
+| LLM second-layer safety classifier | **Parked** (was "Active pending evidence decision") | Gate A ran; Chris chose PARK on 2026-08-04. Zero generations while parked. The Phase 3A raw-ephemeral repair is preserved so reactivation lands on the cheap stateless call. |
+| Safety protocol in the assembled prompt | **Parked** | Split out of `DEFAULT_CORE` as `LORI_SAFETY_PROTOCOL` — 7,933 chars, 44%, ~1,800 tokens. Contributes zero tokens while parked. Lori's identity half stays a **required** section. |
+| Browser safety posture latch | **Parked** (was "Active, defective") | Retired: *"must not be parked or disabled."* The Phase 1D latch exit shipped and stays green, but while parked the latch cannot **arm**: the browser is told the state by `GET /api/runtime-posture` and gates detection at `_lv80ScanSafety`. |
 | Normal oral-history conversation | **Active** | Primary narrator function. |
 | `memory_exercise` | **Active** | Retained per its ADR. |
 | Exact two-sided archive | **Active** | Required for every delivered response, including deterministic branches. |
@@ -443,9 +471,19 @@ For each capability report:
 requested | effective | reason | source | initialized | device
 ```
 
-The profile cannot override `LV_ENABLE_SAFETY=1`. An invalid or unknown profile
-fails visibly to the operator. It must not silently fall back to a more
-resource-intensive configuration.
+**AMENDED 2026-08-04 (Phase 3B).** Retired: *"The profile cannot override
+`LV_ENABLE_SAFETY=1`."* Safety state is no longer a profile question and
+is no longer `LV_ENABLE_SAFETY`'s to answer. `HORNELORE_SAFETY_STATE` is
+the single authority, default `parked`, and `LV_ENABLE_SAFETY` is
+subordinate to it — not consulted at all while parked. The intent behind
+the retired sentence survives and is strengthened: **selecting a profile
+still cannot change the safety state.** Only Chris changes it, and only
+deliberately.
+
+An invalid or unknown profile fails visibly to the operator. It must not
+silently fall back to a more resource-intensive configuration. An
+unrecognised **safety state** resolves to `parked` rather than failing,
+for the opposite reason: a typo must not switch a feature family on.
 
 ## Instruction recovery contract
 
@@ -570,6 +608,33 @@ concurrency must equal one. Whisper and TTS remain outside this coordinator
 unless separately measured and separately approved.
 
 ## Safety contract
+
+> **AMENDED 2026-08-04 — THE FEATURE IS PARKED.** Chris's decision after
+> Gate A. Record: `docs/decisions/2026-08-04-park-safety-feature.md`.
+>
+> **Lean Lori is not an emergency-monitoring service.** It is a family
+> oral-history system. Nobody is watching it, nobody is on call, and it
+> makes no promise of response. A system that produces crisis-line
+> scripts can read, to the person using it, as a system that is watching
+> over them. This one is not, and it should not imply that it is.
+>
+> **Retired:** *"Deterministic safety is always first and cannot wait for
+> GPU coordination."* While `HORNELORE_SAFETY_STATE=parked` there is no
+> deterministic safety pass to order. The sentence returns verbatim on
+> reactivation, and the precedence suites that enforce it stay green
+> under `active` — which is the point of parking rather than deleting.
+>
+> Everything below this box describes the **active** contract and is
+> retained for reactivation. It is not the running behaviour.
+>
+> **Reactivation requires more than the setting.** Three defects must be
+> resolved first: the deterministic `domestic_abuse` false positive
+> above; mortality-reflection escalation, which the Phase 3A guidance
+> addresses and which has not been re-measured; and
+> `"It will be a relief when I go, honestly."`, escalated by both call
+> modes — passive death wish is not acute ideation, and the right
+> answer is softened presence plus an operator flag, not 988 and not
+> silence.
 
 Deterministic safety is always first and cannot wait for GPU coordination. It
 keeps precedence over floor buffering, meta questions, trip routes, witness,
@@ -711,20 +776,37 @@ Lean Lori is accepted only when evidence proves:
 
 1. the current production model and serving configuration are unchanged;
 2. final templated prompts fit their real budget without blind slicing;
-3. Lori's required identity, purpose, boundaries, language, and safety markers
-   are present for every tested runtime state, **and no system-prompt
-   instruction text appears in a narrator-visible reply**;
+3. Lori's required identity, purpose, boundaries and language markers are
+   present for every tested runtime state, **and no system-prompt
+   instruction text appears in a narrator-visible reply**.
+   **AMENDED 2026-08-04 (Phase 3B):** *"and safety markers"* is retired
+   while parked — the safety protocol is required to be **absent**, not
+   present, and asserting its presence would fail a correct build. Its
+   presence is asserted instead against `LORI_SAFETY_PROTOCOL`, so a
+   marker that goes missing is still caught;
 4. a normal `hi` generates, persists, reaches the browser, and survives restart;
 5. Building Years, active trip, selected photo, recent history, safety, language,
    and `memory_exercise` work with realistic production-sized fixtures;
 6. parked features perform zero initialization, GPU work, background work, and
    prompt injection;
-7. deterministic safety remains active and its precedence suite stays green;
-8. the browser safety posture clears when the triggering condition passes, and
-   a narrator's correction cannot latch it;
-9. the LLM safety classifier's effective state matches Chris's post-evidence
-   decision, and the operator sees its state, measured contribution/cost, and
-   coverage meaning;
+7. **AMENDED 2026-08-04 (Phase 3B).** Retired: *"deterministic safety
+   remains active and its precedence suite stays green"*. Replaced by:
+   the safety feature is inactive in all three of its mechanisms —
+   **zero** classifier generations, **zero** safety-protocol prompt
+   tokens, no deterministic route — and every safety suite still passes
+   under `HORNELORE_SAFETY_STATE=active`, including the precedence
+   suite, which is what makes reactivation a decision and not a rewrite;
+8. **AMENDED 2026-08-04 (Phase 3B).** Retired: *"the browser safety
+   posture clears when the triggering condition passes, and a narrator's
+   correction cannot latch it"*. A posture that cannot arm has no exit
+   to demonstrate. Replaced by: a trigger phrase arms no posture, sets
+   no badge, suppresses no idle, and adds no `[SAFETY MODE: ACTIVE]`
+   directive to the outgoing turn. The Phase 1D exit stays in code and
+   stays tested, because reactivation lands on it;
+9. the operator can see the safety state, and it matches Chris's
+   post-evidence decision. The state, the measured contribution and cost,
+   and the coverage meaning are all stated truthfully — including, while
+   parked, that there is no coverage;
 10. every delivered deterministic and LLM response has an exact two-sided
     transcript/archive entry exactly once — **this requires WO Phase 1A, which
     is inside this work order and precedes final acceptance**;
