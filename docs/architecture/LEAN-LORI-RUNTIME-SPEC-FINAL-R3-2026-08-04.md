@@ -275,7 +275,7 @@ It sampled at one second and may have missed short peaks.
 | Bounded extraction | `HORNELORE_EXTRACTION_BOUNDED=1` in the real `.env`. |
 | Whisper | `large-v3`, `STT_GPU=1`. **`/api/stt/status` calls `_load_engine()` at `stt.py:96`**, so a default-off frontend does not keep the engine unloaded — any status poll can load it onto CUDA. |
 | TTS | `.env` requests CPU; the Kokoro adapter accepts `device: Optional[str] = None` and never forwards it, so it cannot prove it honors CPU. |
-| LLM safety classifier | `HORNELORE_SAFETY_LLM_LAYER=1` in the real `.env`. `safety_classifier.py:461` passes `conv_id=None`, `:453` retries once, `:458` `max_new=128`. The call defaults to **composed** mode, so `api.py:417` resolves `conv_for_prompt` to `"default"` and the ~200-token classifier instruction rides on top of `default_core`. Live sensitivity, specificity, parse reliability and cost are unmeasured. |
+| LLM safety classifier | `HORNELORE_SAFETY_LLM_LAYER=1` in the real `.env`. `safety_classifier.py:461` passes `conv_id=None`, `:453` retries once, `:458` `max_new=128`. The call defaults to **composed** mode, so `api.py:417` resolves `conv_for_prompt` to `"default"` and the classifier instruction -- `_SYSTEM_PROMPT`, **measured 5,699 chars ≈ 1,400 tokens**, not the ~200 assumed at R3 drafting -- rides on top of `default_core`. Live sensitivity, specificity, parse reliability and cost are unmeasured. |
 | Camera/affect | Browser-local FaceMesh; no backend facial-recognition model. `TARGET_FPS = 15` at `emotion.js:39` is the only occurrence in `ui/` — declared, never read. Browser GPU placement unmeasured. |
 
 Configured, loaded, resident, running, and formally verified are different
@@ -581,7 +581,7 @@ default-safe route into interview composition.
 `_try_call_llm` defaults to `prompt_mode="composed"`, which routes through
 `api.chat()`, and `api.py:417` sets
 `conv_for_prompt = (req.conv_id or 'default')`. So the classifier's
-~200-token instruction is composed **on top of** `default_core` and pinned
+instruction (`_SYSTEM_PROMPT`, measured 5,699 chars ≈ 1,400 tokens) is composed **on top of** `default_core` and pinned
 RAG, under the shared `default` session.
 
 `raw_ephemeral` exists, sends system and user verbatim with no composition,

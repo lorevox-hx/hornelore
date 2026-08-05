@@ -405,7 +405,7 @@ writable database from the outset. Compare row **contents, hashes and
 timestamps**, not counts.
 
 **Measure both call modes.** `_try_call_llm` defaults to
-`prompt_mode="composed"`, so the ~200-token classifier instruction rides on
+`prompt_mode="composed"`, so the classifier instruction (`_SYSTEM_PROMPT`, measured 5,699 chars ≈ 1,400 tokens) rides on
 top of `default_core`. `raw_ephemeral` sends system and user verbatim and
 forbids a `conv_id`, which this call site already satisfies. Report prompt
 tokens, classifier-instruction marker survival, parse failures, retries,
