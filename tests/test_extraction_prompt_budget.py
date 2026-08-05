@@ -373,9 +373,32 @@ class BoundedPromptFitsTest(unittest.TestCase):
             "_extract_probe", ui_system=legacy_s, user_text=legacy_u)
         bounded_total = len(s) + len(u)
         legacy_total = len(composed) + len(legacy_u)
-        self.assertLess(
-            bounded_total, legacy_total * 0.5,
-            f"bounded {bounded_total:,} vs composed legacy {legacy_total:,}")
+
+        # ── RATIO RETIRED 2026-08-04, and NOT because extraction moved.
+        #
+        # The retired assertion was:
+        #     self.assertLess(bounded_total, legacy_total * 0.5, ...)
+        #
+        # It failed at 22,497 vs 44,628 -- 50.4%. Bounded output did not
+        # change by a character. What moved is the BASELINE: parking the
+        # safety feature removed 7,933 characters from
+        # `compose_system_prompt`, so the legacy prompt this is measured
+        # against got smaller and the fixed ratio tightened by itself.
+        #
+        # Nudging 0.5 to 0.55 would have hidden that, and would drift
+        # again the next time the composed prompt changes size for a
+        # reason unrelated to extraction. A ratio against a moving
+        # baseline is not a measurement of the thing it claims to
+        # measure. So the claim is restated as what it actually is: a
+        # magnitude, in characters, plus the ordering.
+        self.assertLess(bounded_total, legacy_total,
+                        f"bounded {bounded_total:,} is not smaller than "
+                        f"composed legacy {legacy_total:,}")
+        saving = legacy_total - bounded_total
+        self.assertGreaterEqual(
+            saving, 20_000,
+            f"bounding no longer saves a meaningful amount: {saving:,} chars "
+            f"(bounded {bounded_total:,} vs composed legacy {legacy_total:,})")
 
 
 class ExecutionPathTest(unittest.TestCase):
@@ -463,33 +486,57 @@ class ExecutionPathTest(unittest.TestCase):
             f"{self.api_src[:standalone.start()].count(chr(10)) + 1 if standalone else '?'}"
             " -- extraction could fall through into the tail-slice")
 
-    def test_every_surviving_truncation_site_is_tagged_as_chat(self):
-        """Chris: the generic path may remain until Phase 4, but every use
-        must say which lane it is. There are three sites, not one --
-        _generate_text, chat_stream's gen(), and chat_ws. Extraction can
-        only reach the first, but an untagged log line elsewhere makes
-        `zero extraction truncations` unverifiable by grep."""
+    def test_no_chat_truncation_site_survives(self):
+        """REWRITTEN by Phase 4A, 2026-08-04. Retired assertion:
+
+            for label, src, n in (("api.py", self.api_src, 2),
+                                  ("chat_ws.py", ws_src, 1)):
+                self.assertEqual(src.count("[VRAM-GUARD] kind=chat"), n)
+
+        It required the chat truncations to EXIST and be tagged, so that
+        "zero extraction truncations" stayed provable by grep while the
+        chat slices were still there. Phase 4A removes all three, which
+        makes the grep argument stronger rather than weaker: there are
+        now no VRAM-GUARD truncations of a chat prompt at all, so any
+        such line in api.log is by definition not a chat lane.
+
+        Extraction's own refusal path is untouched and is asserted
+        elsewhere in this suite.
+        """
         ws_src = (_SERVER / "api" / "routers" / "chat_ws.py").read_text(
             encoding="utf-8")
-        for label, src, n in (("api.py", self.api_src, 2),
-                              ("chat_ws.py", ws_src, 1)):
+        for label, src in (("api.py", self.api_src), ("chat_ws.py", ws_src)):
             with self.subTest(file=label):
                 self.assertEqual(
-                    src.count("[VRAM-GUARD] kind=chat"), n,
-                    f"{label}: every VRAM-GUARD truncation must carry "
-                    f"kind=chat so extraction's absence is greppable")
+                    0, src.count("[VRAM-GUARD] kind=chat Truncating"),
+                    f"{label}: a chat prompt is still being truncated")
 
-    def test_the_surviving_truncation_is_tagged_as_chat(self):
-        self.assertIn("[VRAM-GUARD] kind=chat Truncating", self.api_src)
+    def test_the_tail_slice_is_gone_from_the_chat_lanes(self):
+        """RENAMED AND INVERTED by Phase 4A. The retired name said it
+        outright -- `test_the_tail_slice_still_exists_for_chat_until_
+        phase_4` -- and the retired assertion was:
 
-    def test_the_tail_slice_still_exists_for_chat_until_phase_4(self):
-        # UPDATED 2026-08-04 (Phase 2C). Retired assertion:
-        #     self.assertIn("v[:, -MAX_CONTEXT_WINDOW:]", self.api_src)
-        # The slice is unchanged; only the constant it reads was renamed
-        # when the chat and extraction windows were separated. Phase 4
-        # is still the phase that removes it.
-        self.assertIn("v[:, -MAX_CHAT_PROMPT_TOKENS:]", self.api_src,
-                      "Phase 5 does not change chat behaviour; Phase 4 does")
+            self.assertIn("v[:, -MAX_CHAT_PROMPT_TOKENS:]", self.api_src)
+
+        This is Phase 4. The slice kept the LAST N tokens and therefore
+        cut the FRONT, where Lori's identity lives, on 382 of 630
+        measured turns.
+        """
+        ws_src = (_SERVER / "api" / "routers" / "chat_ws.py").read_text(
+            encoding="utf-8")
+        for label, src in (("api.py", self.api_src), ("chat_ws.py", ws_src)):
+            with self.subTest(file=label):
+                self.assertNotIn("v[:, -MAX_CHAT_PROMPT_TOKENS:]", src,
+                                 f"{label}: the blind front-slice is back")
+
+    def test_extraction_still_refuses_rather_than_truncating(self):
+        """Non-vacuity for the two above. Without it, they would pass on
+        a build where the whole guard had been deleted rather than
+        replaced -- and extraction's fail-closed behaviour is the thing
+        that must not have moved."""
+        self.assertIn("raise ExtractionPromptBudgetExceeded(budget)",
+                      self.api_src)
+        self.assertIn('if request_kind == "extraction":', self.api_src)
 
     def test_one_flag_gates_both_the_builder_and_the_execution_mode(self):
         """Structural half of atomicity; FlagAtomicityTest drives the

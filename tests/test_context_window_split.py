@@ -170,13 +170,45 @@ class EachLaneUsesItsOwnWindowTest(unittest.TestCase):
         self.assertNotIn("MAX_CHAT_PROMPT_TOKENS", body,
                          "the extraction budget must not read the chat window")
 
-    def test_every_chat_truncation_site_reads_the_chat_window(self):
-        """Three sites: _generate_text, chat_stream's gen(), and chat_ws.
-        Extraction can only reach the first, and must not."""
-        self.assertEqual(2, _API_SRC.count("MAX_CHAT_PROMPT_TOKENS:] for k, v"),
-                         "api.py should slice on the chat window twice")
-        self.assertEqual(1, _WS_SRC.count("MAX_CHAT_PROMPT_TOKENS:] for k, v"),
-                         "chat_ws should slice on the chat window once")
+    def test_no_chat_lane_slices_tokens_any_more(self):
+        """REWRITTEN by Phase 4A, 2026-08-04.
+
+        The retired assertion was:
+
+            self.assertEqual(2, _API_SRC.count("MAX_CHAT_PROMPT_TOKENS:] for k, v"))
+            self.assertEqual(1, _WS_SRC.count("MAX_CHAT_PROMPT_TOKENS:] for k, v"))
+
+        It counted the blind front-slices and required them to be
+        present, which was correct while they were the mechanism. Phase
+        4A removes all three: the prompt is now fitted on MESSAGES before
+        the template, so no chat lane cuts tokens at all.
+
+        Inverting rather than deleting, because the property still worth
+        holding is which window each lane spends -- and now the strongest
+        statement of that is that the chat lanes spend it by fitting
+        rather than by cutting.
+        """
+        self.assertEqual(0, _API_SRC.count("MAX_CHAT_PROMPT_TOKENS:] for k, v"),
+                         "api.py still blind-slices a chat prompt")
+        self.assertEqual(0, _WS_SRC.count("MAX_CHAT_PROMPT_TOKENS:] for k, v"),
+                         "chat_ws still blind-slices a chat prompt")
+
+    def test_every_chat_lane_fits_against_the_chat_window(self):
+        """The replacement mechanism, and it must name the CHAT window.
+
+        This is the same property the retired test protected -- a chat
+        lane must not spend extraction's budget -- restated against the
+        code that now does the work.
+        """
+        for label, src, needle in (
+                ("api.py", _API_SRC, "limit=MAX_CHAT_PROMPT_TOKENS"),
+                ("chat_ws.py", _WS_SRC, "limit=MAX_CHAT_PROMPT_TOKENS")):
+            with self.subTest(file=label):
+                self.assertIn(needle, src,
+                              f"{label} does not fit against the chat window")
+                self.assertNotIn("limit=MAX_EXTRACTION_CONTEXT_WINDOW", src,
+                                 f"{label} fits a chat prompt against "
+                                 f"extraction's window")
 
     def test_the_truncation_CONDITION_reads_the_chat_window_too(self):
         """ADDED after mutation M2 survived. The original test asserted
