@@ -17,10 +17,69 @@ In the parked state:
 
 - the LLM safety classifier performs **zero generations**;
 - the detailed safety protocol contributes **zero prompt tokens**;
-- deterministic safety scanning and the operator cascade are inactive;
+- deterministic safety scanning and the operator cascade are inactive on
+  the WebSocket chat path **and on the legacy `POST /api/interview/answer`
+  REST path**;
 - browser safety detection, the keyword latch and the safety posture are
   inactive;
-- softened mode and safety notifications are inactive.
+- softened mode and safety notifications are inactive — including
+  **reads of softened rows written before parking**, on both paths.
+
+### The gate sits at the entrance, not at the call sites
+
+`safety.scan_answer()` and `safety.set_softened()` consult the state
+themselves. The first pass gated them at the call sites, which was the
+wrong shape twice over: it missed the legacy REST interview route
+entirely, and even once that was fixed, a call-site gate only protects
+the call sites somebody remembered. A caller written next month
+inherits the gate now.
+
+`scan_answer()` returns `None` while parked rather than raising. `None`
+already means "nothing triggered", every caller handles it, and a parked
+feature should be quiet rather than a new source of exceptions on a
+narrator's turn. The patterns, `detect_crisis` and every threshold are
+untouched — parking suppresses the answer, not the detector, because
+reactivation and any future red-team run against the preserved corpus
+depend on the detector still working.
+
+Softened mode is refused at three depths, deliberately redundantly: the
+read is suppressed on both paths, the `runtime71` handoff refuses on its
+own terms, and the composer refuses the directive even if a caller hands
+it stale state. The composer is the last thing between a stale row and
+Lori's prompt, and *"the caller will have checked"* is exactly the
+assumption that let the REST route run a full safety cascade on a parked
+deployment.
+
+### Two seams found on review, after the first pass
+
+The first pass followed the chat path and left two doors open. Recording
+them because the shape is the lesson: a *feature*-level park has to close
+every entrance, and the ones that get missed are the paths nobody was
+looking at.
+
+**The legacy REST interview route.** `POST /api/interview/answer` called
+`scan_answer()`, wrote a segment flag, set softened mode and returned
+crisis resources without consulting the state. A deployment that was
+parked everywhere else was still fully armed here.
+
+**Stored softened state does not expire.** Softened rows written before
+parking would still have been read afterwards, so a narrator who
+triggered softened mode last week would have met a softened Lori today —
+produced by a switched-off feature, from a prompt that no longer carries
+the protocol softened mode was written to accompany. Both paths now
+suppress the **read**.
+
+The rows are deliberately **not** deleted, cleared or expired. They are
+preserved evidence, and reactivation must find each session exactly as it
+was left. **Parking is not a data migration.**
+
+The operator surface (`GET /api/safety-events/softened/{conv_id}`) still
+reports the stored value, because an operator asking what is in the
+database deserves the answer. But it now returns the *effective* value in
+the field the banner keys on, plus `safety_parked` and
+`stored_interview_softened` alongside. A true row under an untrue caption
+— "softened mode is on for N more turns", when no softened directive can
+reach Lori — is still a lie to the reader.
 
 One server-authoritative setting governs all of it:
 `HORNELORE_SAFETY_STATE`, defaulting to `parked`.
