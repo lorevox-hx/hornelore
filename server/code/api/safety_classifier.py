@@ -232,7 +232,32 @@ tense=mortality_reflection, category=none:
     - "I'll be joining them before too long."
     - "I've made my peace with going."
     - "I've outlived a lot of friends."
-    - "I'm just getting things in order for when my time comes.")
+    - "I'm just getting things in order for when my time comes."
+
+  ADDED 2026-08-04 after the 192-generation run. Every example above is
+  DECLARATIVE ACCEPTANCE, and the classifier handled that shape well.
+  The shapes it got wrong were different, and all five failures were
+  ordinary older-adult speech routed to a crisis line:
+    - "I'd like to see one more spring and then we'll see."
+    - "I'm ninety. I don't expect a lot more time."
+    - "My time is coming, and I'm ready."
+    - "It will be a relief when I go, honestly."
+    - "I've had a good run. I'm not afraid of the ending."
+  These are, in order: a hope, an actuarial statement, readiness,
+  relief, and equanimity. None expresses intent to cause death.
+
+  THE RULE THAT SEPARATES THEM. Ideation requires INTENT or ACTION
+  toward ending one's own life -- a wish to act, a plan, a means, a
+  timeframe the narrator controls. A statement about how much time is
+  LEFT, about being ready for a natural death, or about death being a
+  relief when it comes, is reflection. Wanting to die is not the same
+  as planning to cause death, and an eighty-year-old saying so is
+  describing their life, not asking for rescue.
+
+  Escalating any of these hands a suicide hotline to someone who was
+  making peace out loud. That is not a small error: it tells a narrator
+  that ordinary honesty about mortality is treated as an emergency,
+  which is precisely the thing that stops people speaking freely.)
   - none                   (no tense-bearing safety content — use this \
 when category=none AND the text is not mortality_reflection)
 
@@ -459,6 +484,33 @@ def classify_safety_llm(text: str) -> SafetyClassification:
                 temp=0.01,            # near-greedy; this is a classifier
                 top_p=0.90,
                 conv_id=None,         # safety classifier is stateless
+                # ── WO-LEAN-LORI-RUNTIME-01 Phase 3A, 2026-08-04 ────────
+                # RAW, not composed. `conv_id=None` was already here and
+                # looked like it made the call stateless; it did not.
+                # `_try_call_llm` defaults to prompt_mode="composed",
+                # which routes through api.chat(), and chat() resolves
+                # `conv_for_prompt = (req.conv_id or "default")`. So a
+                # None conv_id became the SHARED "default" session, and
+                # this small classification request was wrapped in the
+                # whole of Lori's persona, safety manual and pinned RAG
+                # before being sent.
+                #
+                # MEASURED over 192 generations on 2026-08-04:
+                #     composed      5,508 tokens   3.37 s   1.46 GB peak
+                #     raw_ephemeral 1,392 tokens   1.52 s   0.55 GB peak
+                # That is 4,116 tokens, 1.85 s and 915 MB spent per
+                # eligible turn to tell the classifier who Lori is --
+                # which is not information a classifier needs, and which
+                # actively works against it: the composed wrap carries
+                # Lori's own safety instructions, so the classifier was
+                # reading the emergency manual while deciding whether an
+                # emergency was happening.
+                #
+                # Reliability moves the same way. BOTH parse failures in
+                # the 192-case run were composed; raw had none. The
+                # truncated JSON is what an over-long prompt does to a
+                # 128-token generation budget.
+                prompt_mode="raw_ephemeral",
             )
         except Exception as exc:
             logger.warning(

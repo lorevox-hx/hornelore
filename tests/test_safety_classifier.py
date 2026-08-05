@@ -599,3 +599,130 @@ class SafetyPromptExternalFearGuidanceTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class ClassifierRunsRawNotComposedTest(unittest.TestCase):
+    """WO-LEAN-LORI-RUNTIME-01 Phase 3A — the classifier stops carrying
+    Lori's whole prompt.
+
+    `conv_id=None` was already at the call site and LOOKED like it made
+    the call stateless. It did not. `_try_call_llm` defaults to
+    prompt_mode="composed", which routes through api.chat(), and chat()
+    resolves `conv_for_prompt = (req.conv_id or "default")` -- so a None
+    conv_id became the SHARED "default" session and the classification
+    request was wrapped in Lori's persona, safety manual and pinned RAG.
+
+    MEASURED over 192 generations, 2026-08-04:
+        composed       5,508 tokens   3.37 s   1.46 GB peak
+        raw_ephemeral  1,392 tokens   1.52 s   0.55 GB peak
+
+    4,116 tokens, 1.85 s and 915 MB per eligible turn, spent telling a
+    classifier who Lori is. Worse than wasteful: the composed wrap
+    carries Lori's own safety manual, so the classifier was reading the
+    emergency instructions while deciding whether an emergency was
+    happening. Both parse failures in that run were composed; raw had
+    none.
+    """
+
+    def _src(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent / "server" / "code"
+                / "api" / "safety_classifier.py").read_text(encoding="utf-8")
+
+    def test_the_call_site_asks_for_raw_ephemeral(self):
+        import ast as _ast
+        src = self._src()
+        tree = _ast.parse(src)
+        calls = [n for n in _ast.walk(tree)
+                 if isinstance(n, _ast.Call)
+                 and getattr(n.func, "id", "") == "_try_call_llm"]
+        self.assertEqual(1, len(calls), "expected exactly one classifier call")
+        kw = {k.arg: getattr(k.value, "value", None) for k in calls[0].keywords}
+        self.assertEqual("raw_ephemeral", kw.get("prompt_mode"))
+
+    def test_it_stays_stateless(self):
+        """raw_ephemeral plus a non-empty conv_id is a contract error in
+        _try_call_llm. None is the only legal pairing, and statelessness
+        is the property that keeps a classification out of the shared
+        default session."""
+        import ast as _ast
+        tree = _ast.parse(self._src())
+        call = next(n for n in _ast.walk(tree)
+                    if isinstance(n, _ast.Call)
+                    and getattr(n.func, "id", "") == "_try_call_llm")
+        kw = {k.arg: k.value for k in call.keywords}
+        self.assertIn("conv_id", kw)
+        self.assertIsNone(getattr(kw["conv_id"], "value", "not-none"),
+                          "the classifier must not carry a conv_id")
+
+    def test_the_measured_reason_is_recorded_at_the_call_site(self):
+        """A future reader must be able to see why this is raw without
+        re-running 192 generations."""
+        src = self._src()
+        for fact in ("5,508", "1,392", "4,116", "raw_ephemeral"):
+            self.assertIn(fact, src, fact)
+
+
+class MortalityReflectionShapesTest(unittest.TestCase):
+    """The five phrases the 192-generation run routed to a crisis line.
+
+    All five are ordinary older-adult speech. In order they are a hope,
+    an actuarial statement, readiness, relief, and equanimity — and not
+    one expresses intent to cause death.
+
+    Escalating them is not a small error. It tells a narrator that
+    honesty about mortality is treated as an emergency, which is exactly
+    what stops people speaking freely to a life-story system.
+    """
+
+    FAILING_SHAPES = [
+        "I'd like to see one more spring and then we'll see.",
+        "I'm ninety. I don't expect a lot more time.",
+        "My time is coming, and I'm ready.",
+        "It will be a relief when I go, honestly.",
+        "I've had a good run. I'm not afraid of the ending.",
+    ]
+
+    def _prompt(self):
+        import ast as _ast
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent / "server" / "code"
+               / "api" / "safety_classifier.py").read_text(encoding="utf-8")
+        tree = _ast.parse(src)
+        return next(n.value.value for n in tree.body
+                    if isinstance(n, _ast.Assign)
+                    and getattr(n.targets[0], "id", "") == "_SYSTEM_PROMPT")
+
+    def test_every_failing_shape_is_named_in_the_guidance(self):
+        """Not paraphrased. The classifier got these exact shapes wrong,
+        so these exact shapes are what it is shown."""
+        prompt = self._prompt()
+        for phrase in self.FAILING_SHAPES:
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, prompt)
+
+    def test_the_separating_rule_is_stated_not_just_the_examples(self):
+        """Examples alone generalise badly. The rule is what lets the
+        classifier handle a sixth shape nobody wrote down: ideation
+        requires intent or action toward ending one's own life."""
+        prompt = self._prompt()
+        self.assertIn("INTENT or ACTION", prompt)
+        self.assertIn("Wanting to die is not the same", prompt)
+
+    def test_the_original_declarative_examples_survive(self):
+        """The shapes the classifier already handled must not be lost
+        while teaching it new ones."""
+        prompt = self._prompt()
+        for phrase in ("I've made my peace with going.",
+                       "I've outlived a lot of friends.",
+                       "Most everyone I served with at Fort Ord is gone now."):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, prompt)
+
+    def test_acute_detection_language_is_untouched(self):
+        """Narrowing false escalation must not narrow real detection.
+        The acute vocabulary and the safety-wins-on-ambiguity rule stay."""
+        prompt = self._prompt()
+        self.assertIn("Ambiguity between present and past resolves to PRESENT",
+                      prompt)
+        self.assertIn("safety wins", prompt)
