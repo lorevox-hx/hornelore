@@ -67,7 +67,68 @@ LOAD_IN_4BIT = (os.getenv("LOAD_IN_4BIT", "1").strip().lower() in ("1", "true", 
 ATTN_IMPL = (os.getenv("ATTN_IMPL", "flash_attention_2") or "flash_attention_2").strip()
 TORCH_DTYPE = (os.getenv("TORCH_DTYPE", "bfloat16") or "bfloat16").strip().lower()
 MAX_NEW_TOKENS = int(os.getenv("MAX_NEW_TOKENS", "3072"))
-MAX_CONTEXT_WINDOW = int(os.getenv("MAX_CONTEXT_WINDOW", "8192"))
+# ── WO-LEAN-LORI-RUNTIME-01 Phase 2C — the two windows are separate ────
+# 2026-08-04. ONE constant used to govern TWO unrelated policies:
+#
+#   * how much of a CHAT prompt survives before the front is sliced off
+#     (api.py:304/610, chat_ws.py:4245), and
+#   * the fail-closed ceiling the bounded EXTRACTION budget refuses
+#     against (api.py:94 -> extraction_budget).
+#
+# They are not the same question. Chat truncates and keeps going;
+# extraction refuses and records a failure. Coupling them meant that
+# raising the chat window to give Lori her instructions back would
+# silently loosen extraction's refusal threshold -- a behaviour change
+# on a lane nobody was working on, invisible in the diff, and directly
+# contrary to Phase 5, whose whole premise was making the extraction
+# prompt fit a fixed window.
+#
+# WHY THE OLD NUMBER WAS NOT A CEILING. `.env.example` asserted that
+# "MAX_CONTEXT_WINDOW stays 8192 and is NOT a tuning option -- Hornelore
+# must operate within the tested VRAM envelope of the existing machine."
+# That reads as a measurement and is not one. The envelope it appeals to
+# (WO-OPS-VRAM-VISIBILITY-01, 2026-05-03) was measured WITH the 8,192 cap
+# already in force; nothing above 8,192 has ever been run on this
+# machine. Llama 3.1 8B is designed for 128,000 tokens. 8,192 was a
+# conservative deployment choice that a comment later froze into a rule.
+#
+# The guard's own arithmetic prices the increase honestly: KV cache for
+# this model is 8 KV heads x 128 dim x 32 layers x 2 x 2 bytes = 128 KB
+# per token, which is what VRAM_GUARD_PER_TOKEN_MB=0.14 encodes. Going
+# from 8,192 to 12,288 costs about 573 MB against 7,305 MB free at the
+# worst moment observed during a live turn.
+#
+# BOTH DEFAULT TO 8,192 HERE. This commit changes no behaviour; it only
+# makes the two numbers separately nameable so the chat one can be
+# evaluated on its own evidence -- VRAM *and* latency, since prefill
+# attention is quadratic and nobody has timed a 12K turn.
+_LEGACY_CONTEXT_WINDOW_ENV = (os.getenv("MAX_CONTEXT_WINDOW") or "").strip()
+
+MAX_CHAT_PROMPT_TOKENS = int(
+    os.getenv("MAX_CHAT_PROMPT_TOKENS")
+    or _LEGACY_CONTEXT_WINDOW_ENV
+    or "8192")
+
+MAX_EXTRACTION_CONTEXT_WINDOW = int(
+    os.getenv("MAX_EXTRACTION_CONTEXT_WINDOW")
+    or _LEGACY_CONTEXT_WINDOW_ENV
+    or "8192")
+
+if _LEGACY_CONTEXT_WINDOW_ENV:
+    # Honoured as a fallback so an existing .env keeps working unchanged,
+    # but named as deprecated so it cannot quietly go on governing both
+    # lanes once someone tunes one of them.
+    print("[config] DEPRECATED: MAX_CONTEXT_WINDOW=%s is being used as the "
+          "default for BOTH MAX_CHAT_PROMPT_TOKENS (%d) and "
+          "MAX_EXTRACTION_CONTEXT_WINDOW (%d). Set those two directly; "
+          "the single ambiguous setting will stop being read."
+          % (_LEGACY_CONTEXT_WINDOW_ENV, MAX_CHAT_PROMPT_TOKENS,
+             MAX_EXTRACTION_CONTEXT_WINDOW))
+
+# The ambiguous name is deliberately NOT rebound as a module constant.
+# Leaving `MAX_CONTEXT_WINDOW` in scope would let any future line reach
+# for it and be silently wrong about which lane it meant -- which is the
+# defect this phase exists to remove, not to rename.
 
 # WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 5.
 #
@@ -91,7 +152,7 @@ from .services.extraction_budget import (            # noqa: E402
 
 def _extraction_budget_for(*, max_new: int, prompt_tokens: int,
                            components: Optional[Dict[str, int]] = None):
-    return _budget_for(window=MAX_CONTEXT_WINDOW, max_new=max_new,
+    return _budget_for(window=MAX_EXTRACTION_CONTEXT_WINDOW, max_new=max_new,
                        prompt_tokens=prompt_tokens, components=components)
 
 # session transcript folder exports (optional, still handy)
@@ -301,13 +362,13 @@ def _generate_text(model, tok, prompt: str, req: _ChatReq,
         print(f"[EXTRACT-BUDGET] {budget.as_log_fields()}")
         if budget.exceeded:
             raise ExtractionPromptBudgetExceeded(budget)
-    elif n_tokens > MAX_CONTEXT_WINDOW:
+    elif n_tokens > MAX_CHAT_PROMPT_TOKENS:
         # WO-1 VRAM guard: keep the LAST MAX_CONTEXT_WINDOW tokens.
         # NOTE it cuts the FRONT, where a system prompt lives. That is the
         # defect Phase 4 exists to fix; it is tagged kind=chat here so the
         # two lanes are distinguishable in api.log while both still appear.
-        print(f"[VRAM-GUARD] kind=chat Truncating input from {n_tokens} to {MAX_CONTEXT_WINDOW} tokens")
-        inputs = {k: v[:, -MAX_CONTEXT_WINDOW:] for k, v in inputs.items()}
+        print(f"[VRAM-GUARD] kind=chat Truncating input from {n_tokens} to {MAX_CHAT_PROMPT_TOKENS} tokens")
+        inputs = {k: v[:, -MAX_CHAT_PROMPT_TOKENS:] for k, v in inputs.items()}
     # WO-S1: Centralized generation parameter guard — temp≤0 → greedy
     _temp = float(req.temp)
     _do_sample = _temp > 0
@@ -607,13 +668,13 @@ def chat_stream(req: _ChatReq):
                 torch.cuda.empty_cache()
             inputs = tok(prompt, return_tensors="pt").to(model.device)
             # WO-1 VRAM guard: truncate input to MAX_CONTEXT_WINDOW to prevent KV cache OOM
-            if inputs["input_ids"].shape[-1] > MAX_CONTEXT_WINDOW:
+            if inputs["input_ids"].shape[-1] > MAX_CHAT_PROMPT_TOKENS:
                 # Tagged kind=chat (Phase 5): this streaming path is chat-only
                 # — extraction is non-streaming and cannot reach it — but the
                 # tag is what makes "zero extraction truncations" provable by
                 # grep rather than by argument. Phase 4 replaces the slice.
-                print(f"[VRAM-GUARD] kind=chat Truncating stream input from {inputs['input_ids'].shape[-1]} to {MAX_CONTEXT_WINDOW} tokens")
-                inputs = {k: v[:, -MAX_CONTEXT_WINDOW:] for k, v in inputs.items()}
+                print(f"[VRAM-GUARD] kind=chat Truncating stream input from {inputs['input_ids'].shape[-1]} to {MAX_CHAT_PROMPT_TOKENS} tokens")
+                inputs = {k: v[:, -MAX_CHAT_PROMPT_TOKENS:] for k, v in inputs.items()}
             streamer = TextIteratorStreamer(tok, skip_prompt=True, skip_special_tokens=True)
             # WO-S1: Centralized generation parameter guard — temp≤0 → greedy
             _temp = float(req.temp)

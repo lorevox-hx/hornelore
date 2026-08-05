@@ -191,8 +191,15 @@ class BudgetArithmeticTest(unittest.TestCase):
         # defending different numbers.
         src = (_SERVER / "api" / "services" / "extraction_budget.py").read_text(
             encoding="utf-8")
-        self.assertNotIn('getenv("MAX_CONTEXT_WINDOW"', src)
-        self.assertNotIn("getenv('MAX_CONTEXT_WINDOW'", src)
+        # WIDENED 2026-08-04 (Phase 2C): there are now three names it
+        # must not read, not one. A second reader of ANY of them could
+        # disagree with api.py, and the guard and the enforcement would
+        # be defending different numbers -- which is the whole reason
+        # this test exists.
+        for _name in ("MAX_CONTEXT_WINDOW", "MAX_CHAT_PROMPT_TOKENS",
+                      "MAX_EXTRACTION_CONTEXT_WINDOW"):
+            self.assertNotIn(f'getenv("{_name}"', src)
+            self.assertNotIn(f"getenv('{_name}'", src)
 
 
 class RefusalCarriesCountsOnlyTest(unittest.TestCase):
@@ -440,13 +447,19 @@ class ExecutionPathTest(unittest.TestCase):
         """
         import re as _re
         i_kind = self.api_src.index('if request_kind == "extraction":')
-        i_trunc = self.api_src.index("elif n_tokens > MAX_CONTEXT_WINDOW:")
+        # UPDATED 2026-08-04 (Phase 2C). The retired form read
+        # `elif n_tokens > MAX_CONTEXT_WINDOW:` -- one constant governed
+        # both lanes. The assertion is unchanged in intent and STRONGER
+        # in effect: the chat slice now names a chat-only constant, so
+        # extraction falling into it would be visible in the source, not
+        # merely in the ordering.
+        i_trunc = self.api_src.index("elif n_tokens > MAX_CHAT_PROMPT_TOKENS:")
         self.assertLess(i_kind, i_trunc)
-        standalone = _re.search(r"^\s*if\s+n_tokens\s*>\s*MAX_CONTEXT_WINDOW",
+        standalone = _re.search(r"^\s*if\s+n_tokens\s*>\s*MAX_CHAT_PROMPT_TOKENS",
                                 self.api_src, _re.M)
         self.assertIsNone(
             standalone,
-            "found a standalone `if n_tokens > MAX_CONTEXT_WINDOW` at line "
+            "found a standalone `if n_tokens > MAX_CHAT_PROMPT_TOKENS` at line "
             f"{self.api_src[:standalone.start()].count(chr(10)) + 1 if standalone else '?'}"
             " -- extraction could fall through into the tail-slice")
 
@@ -470,7 +483,12 @@ class ExecutionPathTest(unittest.TestCase):
         self.assertIn("[VRAM-GUARD] kind=chat Truncating", self.api_src)
 
     def test_the_tail_slice_still_exists_for_chat_until_phase_4(self):
-        self.assertIn("v[:, -MAX_CONTEXT_WINDOW:]", self.api_src,
+        # UPDATED 2026-08-04 (Phase 2C). Retired assertion:
+        #     self.assertIn("v[:, -MAX_CONTEXT_WINDOW:]", self.api_src)
+        # The slice is unchanged; only the constant it reads was renamed
+        # when the chat and extraction windows were separated. Phase 4
+        # is still the phase that removes it.
+        self.assertIn("v[:, -MAX_CHAT_PROMPT_TOKENS:]", self.api_src,
                       "Phase 5 does not change chat behaviour; Phase 4 does")
 
     def test_one_flag_gates_both_the_builder_and_the_execution_mode(self):

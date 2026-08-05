@@ -138,7 +138,8 @@ from ..db import (
     get_session_softened_state,  # WO-LORI-SOFTENED-RESPONSE-01
 )
 import torch
-from ..api import _load_model, _apply_chat_template, StopOnEvent, _normalize_role, MAX_CONTEXT_WINDOW
+from ..api import (_load_model, _apply_chat_template, StopOnEvent,
+                   _normalize_role, MAX_CHAT_PROMPT_TOKENS)
 from ..prompt_composer import compose_system_prompt
 
 # BUG-GUARDS-DEAD-ON-PY311-INLINE-FLAG-01 (2026-07-14) — FAIL LOUD, AT BOOT.
@@ -4179,7 +4180,7 @@ async def ws_chat(ws: WebSocket):
         # plus per-token activation overhead. If free VRAM is below this
         # threshold we refuse the turn cleanly instead of calling generate()
         # and crashing mid-forward-pass.
-        _planned_seq = min(_prompt_tokens, MAX_CONTEXT_WINDOW) + max_new
+        _planned_seq = min(_prompt_tokens, MAX_CHAT_PROMPT_TOKENS) + max_new
         _required_mb = _WO10M_GUARD_BASE_MB + _planned_seq * _WO10M_GUARD_PER_TOKEN_MB
         _guard_blocked = False
         _guard_decision = "disabled"
@@ -4242,14 +4243,14 @@ async def ws_chat(ws: WebSocket):
                 pass
         inputs = tok(prompt, return_tensors="pt").to(model.device)
         # WO-1 VRAM guard: truncate input to MAX_CONTEXT_WINDOW to prevent KV cache OOM
-        if inputs["input_ids"].shape[-1] > MAX_CONTEXT_WINDOW:
+        if inputs["input_ids"].shape[-1] > MAX_CHAT_PROMPT_TOKENS:
             # Tagged kind=chat (Phase 5). This is the narrator's own turn, so
             # the front-cut here is removing Lori's system prompt — the defect
             # Phase 4 exists to fix. Extraction never reaches this path; the
             # tag is what lets that be proved by grep instead of asserted.
             logger.warning("[VRAM-GUARD] kind=chat WS truncating input from %d to %d tokens",
-                           inputs["input_ids"].shape[-1], MAX_CONTEXT_WINDOW)
-            inputs = {k: v[:, -MAX_CONTEXT_WINDOW:] for k, v in inputs.items()}
+                           inputs["input_ids"].shape[-1], MAX_CHAT_PROMPT_TOKENS)
+            inputs = {k: v[:, -MAX_CHAT_PROMPT_TOKENS:] for k, v in inputs.items()}
         streamer = TextIteratorStreamer(tok, skip_prompt=True, skip_special_tokens=True)
 
         # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §3.2: NO

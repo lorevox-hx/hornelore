@@ -4,8 +4,9 @@ the extraction prompt budget, and the refusal that enforces it.
 WHY THIS EXISTS
 ---------------
 Extraction prompts were reaching the model at ~12,300 tokens against a
-MAX_CONTEXT_WINDOW of 8,192. The generic guard in api._generate_text
-handled that with `v[:, -MAX_CONTEXT_WINDOW:]` -- it keeps the LAST
+MAX_EXTRACTION_CONTEXT_WINDOW of 8,192. The generic chat guard in
+api._generate_text
+handled that with `v[:, -MAX_CHAT_PROMPT_TOKENS:]` -- it keeps the LAST
 8,192 tokens, so it cuts the FRONT, where the extraction preamble, the
 "use ONLY these exact fieldPath values" rule and the 140-field catalog
 all live. Nothing reported which of those a given call had lost, so an
@@ -25,7 +26,7 @@ cannot be parsed. A refusal is legible. A quiet truncation is not.
 THE WINDOW IS A FIXED CONSTRAINT, NOT A TUNING KNOB
 ---------------------------------------------------
 Also Chris's ruling: "Hornelore must operate within the tested VRAM
-envelope of the existing computer." MAX_CONTEXT_WINDOW stays 8192 and
+envelope of the existing computer." MAX_EXTRACTION_CONTEXT_WINDOW stays 8192 and
 the model, quantization, offload and serving configuration stay as they
 are. This module therefore never proposes a larger window; it exists to
 make the prompt fit the machine that was actually tested. Raising the
@@ -34,7 +35,7 @@ into Phase 3 before the inference coordinator exists.
 
 WHO OWNS WHICH NUMBER
 ---------------------
-The window belongs to api.py, which reads MAX_CONTEXT_WINDOW and passes
+The window belongs to api.py, which reads MAX_EXTRACTION_CONTEXT_WINDOW and passes
 it in. This module owns the RESERVE POLICY and the arithmetic. Splitting
 it that way means the two cannot drift into disagreeing about the window,
 which is the failure a second os.getenv here would eventually produce.
