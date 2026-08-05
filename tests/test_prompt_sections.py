@@ -49,7 +49,7 @@ import logging
 import random
 import unittest
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple  # noqa: F401  (used by exec'd source)
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple  # noqa: F401  (used by exec'd source)
 
 _REPO = Path(__file__).resolve().parent.parent
 _COMPOSER = _REPO / "server" / "code" / "api" / "prompt_composer.py"
@@ -66,13 +66,21 @@ def _load_assembly():
     dragging in torch.
     """
     tree = ast.parse(_SRC)
-    cls = next(n for n in tree.body
-               if isinstance(n, ast.ClassDef) and n.name == "_PromptAssembly")
+    # `_PromptAssembly` now builds `_Section` records, so BOTH classes
+    # are exec'd. Loading only the assembly gave 17 NameErrors the
+    # moment Phase 2D added the record type -- a loader that extracts a
+    # class by name has to follow that class's dependencies too.
+    wanted = ("_Section", "_PromptAssembly")
+    nodes = [n for n in tree.body
+             if isinstance(n, ast.ClassDef) and n.name in wanted]
+    assert {n.name for n in nodes} == set(wanted), \
+        f"expected {wanted}, found {[n.name for n in nodes]}"
     ns: Dict[str, Any] = {
         "List": List, "Tuple": Tuple, "Optional": Optional,
+        "NamedTuple": NamedTuple,
         "logger": logging.getLogger("test_prompt_sections"),
     }
-    exec(compile(ast.Module(body=[cls], type_ignores=[]), "<composer>", "exec"), ns)
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), "<composer>", "exec"), ns)
     return ns["_PromptAssembly"]
 
 
@@ -370,3 +378,122 @@ class NarratorTextIsNotDuplicatedTest(unittest.TestCase):
                          "system_head", "pinned", "_looks_spanish",
                          "identity_facts", "directives_interview"):
             self.assertIn(survivor, body, f"{survivor} disappeared")
+
+
+class SectionClassificationTest(unittest.TestCase):
+    """WO-LEAN-LORI-RUNTIME-01 Phase 2D — what Lori may lose.
+
+    CLASSIFICATION ONLY. Nothing drops in this commit; enforcement
+    belongs at api.py's tokenize point, the only place that sees the
+    final string after _apply_chat_template.
+
+    The classification is the safety property. Once a budget starts
+    dropping sections, `required=True` is the difference between a
+    shorter prompt and a prompt with Lori's identity cut out of it --
+    which is what the blind front slice has been doing on 60.6% of
+    turns.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tree = ast.parse(_SRC)
+        cls.fn = next(n for n in cls.tree.body
+                      if isinstance(n, ast.FunctionDef)
+                      and n.name == "compose_system_prompt")
+        cls.spec = {}
+        for n in ast.walk(cls.fn):
+            if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                    and n.func.attr == "add"
+                    and getattr(n.func.value, "id", "") == "parts"
+                    and n.args and isinstance(n.args[0], ast.Constant)):
+                kw = {k.arg: getattr(k.value, "value", None) for k in n.keywords}
+                cls.spec[n.args[0].value] = (bool(kw.get("required", False)),
+                                             kw.get("drop_order", 0))
+
+    REQUIRED = ("identity_facts", "identity_grounding",
+                "directives_interview", "directives_bio_builder",
+                "directives_questionnaire")
+    DROPPABLE = {"memory_context": 5, "factual_chain": 10,
+                 "english_first": 20, "ui_context": 30, "pinned_facts": 40}
+
+    def test_lori_can_never_lose_her_identity_or_her_discipline(self):
+        for name in self.REQUIRED:
+            with self.subTest(section=name):
+                self.assertIn(name, self.spec)
+                self.assertTrue(self.spec[name][0],
+                                f"{name} is droppable; it must not be")
+
+    def test_the_system_head_is_required(self):
+        """It is seeded through the constructor, not `add`, so it needs
+        its own check -- the constructor is where identity, purpose and
+        the entire safety protocol enter the prompt."""
+        # Checked against the RAW source, not ast.unparse output: unparse
+        # normalises string quotes to single, so a double-quoted needle
+        # silently never matches -- and the failure prints the entire
+        # 1,200-line function, which buries the one line that matters.
+        self.assertIn('_PromptAssembly("system_head", system_head)', _SRC,
+                      "the head is no longer seeded through the constructor")
+        self.assertIn("self.add(name, text, required=True)", _SRC,
+                      "the seeded head is not marked required")
+
+    def test_the_droppable_sections_have_the_intended_order(self):
+        for name, order in self.DROPPABLE.items():
+            with self.subTest(section=name):
+                required, got = self.spec[name]
+                self.assertFalse(required, f"{name} became required")
+                self.assertEqual(order, got)
+
+    def test_pinned_operator_truth_is_the_last_optional_to_go(self):
+        """It is the closest thing in the optional set to something a
+        human deliberately chose, so it outranks every other droppable
+        section."""
+        orders = {n: o for n, (req, o) in self.spec.items() if not req}
+        self.assertEqual("pinned_facts", max(orders, key=orders.get))
+
+    def test_every_section_is_classified_one_way_or_the_other(self):
+        self.assertEqual(set(self.REQUIRED) | set(self.DROPPABLE),
+                         set(self.spec),
+                         "a section is neither required nor ordered")
+
+    def test_no_drop_order_is_shared(self):
+        """Ties would make the drop sequence depend on composition
+        order, which is not where that decision should live."""
+        orders = [o for n, (req, o) in self.spec.items() if not req]
+        self.assertEqual(len(orders), len(set(orders)), f"duplicate: {orders}")
+
+    def test_nothing_actually_drops_yet(self):
+        """The enforcement point is api.py, after templating. If the
+        composer starts dropping sections it will be deciding with an
+        estimate, and Phase 0 measured builder-side estimates wrong by a
+        wide margin."""
+        body = ast.unparse(self.fn)
+        for banned in ("drop_optional", "fit_within", "budget(", "_trim_to_"):
+            self.assertNotIn(banned, body, banned)
+
+    def test_the_assembly_exposes_the_classification(self):
+        """The budget cannot enforce what it cannot see, and it lives in
+        another module."""
+        cls = _load_assembly()
+        asm = cls("head", "identity")
+        asm.add("opt", "droppable", required=False, drop_order=7)
+        secs = asm.sections()
+        self.assertEqual(["head", "opt"], [s.name for s in secs])
+        self.assertTrue(secs[0].required)
+        self.assertFalse(secs[1].required)
+        self.assertEqual(7, secs[1].drop_order)
+
+    def test_a_section_record_still_unpacks_like_the_old_pair(self):
+        """`for name, text in ...` predates the classification and must
+        keep working for any reader that has not caught up."""
+        cls = _load_assembly()
+        asm = cls("head", "text")
+        name, text, required, order = asm.sections()[0]
+        self.assertEqual(("head", "text", True, 0), (name, text, required, order))
+
+    def test_classification_did_not_change_the_rendered_output(self):
+        """Phase 2A's guarantee must survive Phase 2D."""
+        cls = _load_assembly()
+        asm = cls("head", "AAA")
+        asm.add("mid", "", required=False, drop_order=1)
+        asm.add("tail", "BBB", required=True)
+        self.assertEqual(_historical_join(["AAA", "", "BBB"]), asm.render("c"))

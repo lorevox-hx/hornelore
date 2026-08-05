@@ -17,7 +17,7 @@ import json
 import logging
 import os
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 from . import db
 from .lv_eras import (
@@ -3221,6 +3221,19 @@ def _era_spoken_phrase(current_era: str, era_label: str) -> str:
 # reconnaissance that produced this phase, and a wrong number here would
 # be worse than none -- it is the number the compaction work will steer
 # by.
+class _Section(NamedTuple):
+    """One named prompt section and what it would cost to lose it.
+
+    A NamedTuple rather than a dataclass so the pairs the assembly used
+    to hold remain iterable in the same shape -- `for name, text in ...`
+    keeps working for any reader that predates the classification.
+    """
+    name: str
+    text: str
+    required: bool = False
+    drop_order: int = 0
+
+
 class _PromptAssembly:
     """Ordered, named sections that render to the historical string."""
 
@@ -3229,24 +3242,62 @@ class _PromptAssembly:
     def __init__(self, name: str = "", text: str = ""):
         self._sections: List[Tuple[str, str]] = []
         if text:
-            self.add(name, text)
+            self.add(name, text, required=True)
 
-    def add(self, name: str, text: Optional[str]) -> None:
-        """Record a section. `None`/empty is kept, exactly as the bare
-        list kept it -- the render-time `if p.strip()` filter is what
-        removed empties before, and moving that decision earlier would
-        change behaviour."""
-        self._sections.append((name, text if text is not None else ""))
+    def add(self, name: str, text: Optional[str], *,
+            required: bool = False, drop_order: int = 0) -> None:
+        """Record a section, with what it would cost to lose it.
+
+        `None`/empty is kept, exactly as the bare list kept it -- the
+        render-time `if p.strip()` filter is what removed empties
+        before, and moving that decision earlier would change behaviour.
+
+        WO-LEAN-LORI-RUNTIME-01 Phase 2D, 2026-08-04 — the two new
+        keywords. They classify only; NOTHING drops yet. Enforcement
+        belongs at api.py's tokenize point, because Phase 0 established
+        that the only honest token count is taken after
+        _apply_chat_template, where the template's own tokens are
+        visible. A builder-side estimate was wrong by a wide margin in
+        the reconnaissance that produced this work.
+
+        `required=True` means the section may never be dropped to make
+        room. If the prompt still does not fit once only required
+        sections remain, the correct answer is an honest failure, not a
+        prompt with Lori's identity cut out of it -- which is what the
+        blind front slice has been doing on 60.6% of turns.
+
+        `drop_order` is ascending: the lowest-numbered droppable section
+        goes first. Ties keep composition order. It is a number rather
+        than a category because the useful question at the boundary is
+        never "is this optional" but "which of these two do I lose
+        first", and a boolean cannot answer that.
+        """
+        self._sections.append(
+            _Section(name=name,
+                     text=text if text is not None else "",
+                     required=bool(required),
+                     drop_order=int(drop_order)))
 
     def measure(self) -> List[Tuple[str, int]]:
-        return [(n, len(t or "")) for n, t in self._sections]
+        return [(sec.name, len(sec.text or "")) for sec in self._sections]
+
+    def sections(self) -> List["_Section"]:
+        """The classified sections, in composition order.
+
+        Exposed so the budget can decide what to drop with the real
+        post-template token count in hand. The composer cannot make that
+        decision itself; it cannot see the tokenizer.
+        """
+        return list(self._sections)
 
     def render(self, conv_id: str = "") -> str:
-        parts = [t for _, t in self._sections]
+        parts = [sec.text for sec in self._sections]
         out = "\n\n".join([q for q in parts if q.strip()]).strip()
         try:
-            kept = [(n, len(t)) for n, t in self._sections if (t or "").strip()]
-            dropped = [n for n, t in self._sections if not (t or "").strip()]
+            kept = [(sec.name, len(sec.text)) for sec in self._sections
+                    if (sec.text or "").strip()]
+            dropped = [sec.name for sec in self._sections
+                       if not (sec.text or "").strip()]
             logger.info(
                 "[prompt][sections] conv=%s total_chars=%d sections=%d "
                 "dropped_empty=%d %s",
@@ -3368,19 +3419,56 @@ def compose_system_prompt(
     if context:
         ctx_block = "PROFILE_JSON: " + _safe_json(context)
 
+
+    # ── WO-LEAN-LORI-RUNTIME-01 Phase 2D — what Lori may lose ──────────
+    # 2026-08-04. CLASSIFICATION ONLY: nothing drops in this commit.
+    # Enforcement belongs at api.py's tokenize point, which is the only
+    # place that sees the final string after _apply_chat_template.
+    #
+    # required=True — never dropped to make room:
+    #   system_head          Lori's identity, purpose and the whole
+    #                        safety protocol. Losing it is the cemetery
+    #                        failure; it is what the blind front slice
+    #                        has been discarding on 60.6% of turns.
+    #   identity_facts       verified narrator facts (BUG-LG-01). Losing
+    #                        them does not make Lori quieter, it makes
+    #                        her invent -- worse than saying less.
+    #   identity_grounding   the anti-hallucination rules that govern
+    #                        those facts. Dropping one without the other
+    #                        would be the worst of both.
+    #   directives_*         the interview discipline. Without it Lori
+    #                        reverts to a generic assistant, which is
+    #                        the behaviour every LORI bug fix undoes.
+    #
+    # droppable, lowest first:
+    #    5 memory_context    adaptive recall. Costs continuity, and the
+    #                        narrator can always be asked again.
+    #   10 factual_chain     a per-turn hint; the next turn rebuilds it.
+    #   20 english_first     language steering. Real cost, but the
+    #                        deterministic guards catch drift after the
+    #                        fact, so it degrades rather than breaks.
+    #   30 ui_context        PROFILE_JSON. High value, dropped late.
+    #   40 pinned_facts      operator-pinned truth. Dropped LAST of the
+    #                        optional set, because it is the closest
+    #                        thing here to something a human chose.
+    #
+    # A number, not a boolean: at the boundary the useful question is
+    # never "is this optional" but "which of these two do I lose first".
     parts = _PromptAssembly("system_head", system_head)
     if ctx_block:
-        parts.add("ui_context", ctx_block)
+        parts.add("ui_context", ctx_block, required=False, drop_order=30)
     if pinned:
-        parts.add("pinned_facts", pinned)
+        parts.add("pinned_facts", pinned, required=False, drop_order=40)
 
     # v7.1 — inject runtime directive block when the UI supplies runtime context
     if runtime71:
         # BUG-LG-01 — Identity grounding: inject verified narrator facts and
         # anti-hallucination rules BEFORE any role/pass directives so the model
         # sees them first and treats them as ground truth.
-        parts.add("identity_facts", _known_identity_facts_block(runtime71))
-        parts.add("identity_grounding", _identity_grounding_rules_block(runtime71))
+        parts.add("identity_facts", _known_identity_facts_block(runtime71),
+                  required=True)
+        parts.add("identity_grounding", _identity_grounding_rules_block(runtime71),
+                  required=True)
 
         # WO-LORI-ENGLISH-FIRST-NARRATION-01 (2026-06-24, product call
         # from Spring 2026 trip canary): always-on English-first rule
@@ -3488,7 +3576,8 @@ def compose_system_prompt(
             except Exception:
                 pass
         if _narrator_is_english:
-            parts.add("english_first", _english_first_block)
+            parts.add("english_first", _english_first_block,
+                          required=False, drop_order=20)
 
         # WO-LORI-FACTUAL-CHAIN-CAPTURE-01 Phase 2 (2026-06-24): high-
         # priority directive threaded through runtime71 by chat_ws when
@@ -3500,7 +3589,8 @@ def compose_system_prompt(
         # legacy runtime71 dicts, tests).
         _chain_directive = (runtime71.get("factual_chain_directive") or "").strip()
         if _chain_directive:
-            parts.add("factual_chain", "[FACTUAL_CHAIN_DIRECTIVE]\n" + _chain_directive)
+            parts.add("factual_chain", "[FACTUAL_CHAIN_DIRECTIVE]\n" + _chain_directive,
+                          required=False, drop_order=10)
 
         current_pass   = runtime71.get("current_pass", "pass1") or "pass1"
         # WO-CANONICAL-LIFE-SPINE-01 Step 4: normalize current_era at the
@@ -3707,7 +3797,8 @@ def compose_system_prompt(
                 "  - Voice command 'send': also sends your current message.\n"
                 "  - Save confirmation: appears briefly after a successful profile save."
             )
-            parts.add("directives_bio_builder", "\n".join(directive_lines).strip())
+            parts.add("directives_bio_builder", "\n".join(directive_lines).strip(),
+                              required=True)
             return parts.render(conv_id)
 
         if assistant_role == "onboarding":
@@ -3763,7 +3854,8 @@ def compose_system_prompt(
                 "  - Do NOT ask about memories, childhood, family, or life events.\n"
                 "  - Be warm, patient, and conversational — one question at a time."
             )
-            parts.add("directives_questionnaire", "\n".join(directive_lines).strip())
+            parts.add("directives_questionnaire", "\n".join(directive_lines).strip(),
+                              required=True)
             return parts.render(conv_id)
 
         # ── Standard interview directives (only when role = "interviewer") ────
@@ -4491,7 +4583,8 @@ def compose_system_prompt(
                 "Make it easy to answer. Signal that there is no rush."
             )
 
-        parts.add("directives_interview", "\n".join(directive_lines).strip())
+        parts.add("directives_interview", "\n".join(directive_lines).strip(),
+                      required=True)
 
     # WO-9/WO-10 — Inject adaptive conversation memory context
     if runtime71:
@@ -4504,6 +4597,7 @@ def compose_system_prompt(
                 cognitive_support_mode=cognitive_support_mode,
             )
             if memory_block:
-                parts.add("memory_context", memory_block)
+                parts.add("memory_context", memory_block,
+                              required=False, drop_order=5)
 
     return parts.render(conv_id)
