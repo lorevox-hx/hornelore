@@ -2408,9 +2408,24 @@ async def ws_chat(ws: WebSocket):
         # normal interview prompt but the wrapper would treat the
         # output as safety-exempt. Match composer + wrapper to the same
         # gate so flag-off means "do nothing softened anywhere."
-        _softened_response_enabled = os.environ.get(
-            "HORNELORE_SOFTENED_RESPONSE", "0"
-        ).strip().lower() in ("1", "true", "yes", "on")
+        #
+        # WO-LEAN-LORI-RUNTIME-01 Phase 3B: parked outranks this flag too.
+        # Softened mode is a SAFETY state, and rows written before parking
+        # do not expire when the feature is switched off -- a narrator who
+        # triggered softened mode last week would still be met by a
+        # softened Lori today, produced by a feature that is supposed to be
+        # inactive, from a prompt that no longer carries the safety
+        # protocol that softened mode was written to accompany.
+        #
+        # This suppresses the READ. It deliberately does not delete, clear
+        # or expire the stored rows: they are part of the preserved
+        # evidence, and reactivation must find the session state exactly as
+        # it was left. Parking is not a data migration.
+        _softened_response_enabled = (
+            (not _safety_parked)
+            and os.environ.get(
+                "HORNELORE_SOFTENED_RESPONSE", "0"
+            ).strip().lower() in ("1", "true", "yes", "on"))
         try:
             ensure_interview_session(conv_id, person_id)
             _session_turn_count = increment_session_turn(conv_id)
@@ -4032,8 +4047,17 @@ async def ws_chat(ws: WebSocket):
         # either the freshly-read DB row (flag ON) or the safe default
         # zero-state (flag OFF). So the if-check below is just "did
         # we actually find a softened session?" — not a flag check.
+        #
+        # Phase 3B: and never while parked. `_softened_state` is already
+        # zero-defaulted upstream when parked, so this is redundant --
+        # deliberately. This is the handoff itself, the one line that
+        # puts a safety state into Lori's prompt, and it should be
+        # readable as refusing on its own terms rather than relying on a
+        # value set 1,600 lines earlier.
         try:
-            if _softened_state and _softened_state.get("interview_softened"):
+            if (not _safety_parked
+                    and _softened_state
+                    and _softened_state.get("interview_softened")):
                 runtime71 = dict(runtime71) if isinstance(runtime71, dict) else {}
                 runtime71["softened_state"] = dict(_softened_state)
         except Exception as _rt_exc:

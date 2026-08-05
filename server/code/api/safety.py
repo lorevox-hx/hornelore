@@ -339,9 +339,37 @@ def scan_answer(answer_text: str) -> Optional[SafetyResult]:
     """
     Split an answer into sentences and scan each one.
     Returns the highest-confidence result that triggered, or None.
+
+    WO-LEAN-LORI-RUNTIME-01 Phase 3B: returns None while the safety
+    feature is PARKED, for EVERY caller.
+
+    The first parking pass gated this at the call sites, and that was
+    the wrong shape twice over. It missed `POST /api/interview/answer`
+    outright -- a parked deployment still scanned, still wrote a segment
+    flag, still set softened mode and still returned crisis resources
+    there -- and even once fixed, a call-site gate protects only the
+    call sites somebody remembered. The gate belongs at the entrance a
+    caller cannot avoid.
+
+    Returning None rather than raising is deliberate. None already means
+    "nothing triggered", every caller handles it, and a parked feature
+    should be quiet rather than a new source of exceptions on a
+    narrator's turn.
+
+    The pattern set, `detect_crisis` and every threshold are untouched.
     """
     if not answer_text or not answer_text.strip():
         return None
+
+    try:
+        from . import flags as _lean_flags
+        if _lean_flags.safety_parked():
+            return None
+    except Exception:
+        # Unknown -> historical behaviour. Silently stripping safety from
+        # a deployment that wanted it, because a flag module failed to
+        # import, is the worse of the two errors.
+        pass
 
     sentences = split_sentences(answer_text)
     best: Optional[SafetyResult] = None
@@ -365,7 +393,19 @@ SOFTENED_TURNS = 3  # Lori stays gentle for this many turns after a disclosure
 
 
 def set_softened(session_id: str, current_turn: int) -> None:
-    """Mark a session as softened for the next SOFTENED_TURNS turns."""
+    """Mark a session as softened for the next SOFTENED_TURNS turns.
+
+    Phase 3B: a no-op while parked. Softened mode is a safety state, and
+    a parked feature must not create new ones. Existing records are left
+    exactly as they are -- suppressing a write is not the same as
+    erasing history, and reactivation must find each session as it was.
+    """
+    try:
+        from . import flags as _lean_flags
+        if _lean_flags.safety_parked():
+            return
+    except Exception:
+        pass
     _softened_sessions[session_id] = current_turn + SOFTENED_TURNS
 
 

@@ -4138,11 +4138,29 @@ def compose_system_prompt(
         # enforcement is downstream in lori_communication_control's
         # safety-path branch (the wrapper sees safety_triggered=True
         # for the duration of the softened window).
+        #
+        # WO-LEAN-LORI-RUNTIME-01 Phase 3B: refuse the injection while
+        # parked, EVEN IF a caller supplies softened state.
+        #
+        # Upstream already zero-defaults the state when parked, so in
+        # today's code this cannot fire. It is here because this function
+        # is the last thing between a stale dict and Lori's prompt, and
+        # "the caller will have checked" is exactly the assumption that
+        # let the legacy REST interview route run a full safety cascade
+        # on a parked deployment. A directive that shapes Lori's voice
+        # around a disclosure must not arrive from a switched-off
+        # feature, and least of all out of a row written weeks ago.
         try:
             _softened_state = (
                 runtime71.get("softened_state") if isinstance(runtime71, dict) else None
             )
-            if _softened_state:
+            _softened_parked = False
+            try:
+                from . import flags as _lean_flags
+                _softened_parked = _lean_flags.safety_parked()
+            except Exception:
+                _softened_parked = False   # unknown -> historical behaviour
+            if _softened_state and not _softened_parked:
                 from .services.lori_softened_response import (
                     build_softened_response_directive,
                 )
