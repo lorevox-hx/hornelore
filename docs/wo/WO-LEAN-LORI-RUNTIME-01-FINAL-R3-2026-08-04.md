@@ -571,6 +571,20 @@ Chris must be able to determine from the report:
 Begin only after Gate A approval. Separate from prompt work and feature
 parking. Each phase is its own commit and its own acceptance.
 
+**TESTING POSTURE FOR EVERY PHASE BELOW — locked 2026-08-04, stated in full
+in `CLAUDE.md` under "TTS-aware testing rule".** Every acceptance in this
+gate validates Lori's **text** response. None of them waits through spoken
+playback unless speech is the feature under test. TTS gets **one** dedicated
+acceptance case per milestone and **one** real spoken turn in the final
+combined acceptance — Chris is not asked to listen to the same acceptance
+twice. Browser instructions must say *"Wait until Lori finishes speaking
+before continuing"* in those words, timeouts must include the audio's
+playback duration, and performance reporting must keep LLM response time,
+TTS time-to-first-audio, TTS synthesis time, audio playback duration and
+complete narrator-visible turn time as five separate numbers. **Playback is
+never reported as LLM latency.** Phase 7's CPU Kokoro timing is warm, with
+the cold-start figure reported separately.
+
 ### Phase 1A — deterministic turn finalization
 
 For each of `floor_hold`, `witness`, `memory_echo`, `age_recall`, and

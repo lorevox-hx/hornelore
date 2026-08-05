@@ -824,6 +824,14 @@ recorded `-shm`'s mtime as it stood and its own connection touched the file
 114 ms later; `fam_after`, twenty-five minutes on, read back the mark left
 by the first read. The 114 ms gap across a 25-minute run is the tell.
 
+**VERDICT: INSTRUMENT FALSE POSITIVE. Resolved statically from the saved
+JSON on 2026-08-04, with no re-run.** All 66 table row counts unchanged,
+all 66 content hashes unchanged, 3,259 rows both sides, both archive fields
+unchanged, `db_size` and `db_mtime_ns` unchanged, `-wal` 0 bytes with a
+byte-identical mtime. The sole difference is `-shm`'s mtime, and `-shm`
+carries no durable content. **No family content changed. PHASE 0 IS
+CLOSED.**
+
 **With that artefact set aside, `gate_failures` is empty and the evidence
 is complete.** `kokoro_cpu.ok` is true and all 192 case rows are present,
 so the family comparison was the sole obstacle. `evidence_complete: False`

@@ -135,6 +135,36 @@ to be built without Chris explicitly opening that work order. Full statement:
 - **Cold boot takes ~4 minutes** — the HTTP listener comes up in ~60–70s but the LLM weights + extractor warmup continue for another 2–3 minutes after that. A `curl /` health check is NOT sufficient; it only proves the socket is listening, not that the extractor can serve a real request in <30s. This is why Chris owns start/stop: the agent-run combined blocks that restart the stack and immediately kick off evals cold-start the first case into a 90s read-timeout (observed on cg_001 during narrative-field r5c, 2026-04-21).
 - If Chris ever explicitly asks for a combined restart+eval block, gate the eval behind an extractor-warmup probe (POST a trivial extract and loop until round-trip is <30s), not a bare `curl /` loop.
 
+## Sandbox hazard: stale `__pycache__` on `/mnt/c` (recorded 2026-08-04)
+
+**A test run from the agent sandbox can execute code that is not the code on disk.** The `__pycache__` directories under `server/` are **not deletable from the sandbox** — `rm` returns `Operation not permitted` — and they hold `.pyc` for both `cpython-310` and `cpython-312`. Python's mtime-based invalidation is unreliable across the 9p `/mnt/c` mount, so an edited module can keep loading its previous bytecode.
+
+The symptom is bewildering rather than obvious, and it burned real time before it was named: `_extraction_bounded_enabled()` returned `True` when called directly, immediately before *and* after the call, while the same function inside the same module evaluated `False` — because the caller was the new source and the callee was a stale `.pyc`.
+
+**Always run sandbox tests with the bytecode cache redirected out of the repository:**
+
+```bash
+PYTHONPYCACHEPREFIX=/tmp/pyc python3 -m unittest tests.<module>
+```
+
+`-B` is NOT sufficient — it stops Python *writing* bytecode, not reading a stale `.pyc`. This is the same family as the existing rule about not inferring process state from mtime or size on a `/mnt/c` path. **A green sandbox run without the prefix is not evidence.** `.venv` on the laptop remains the verification.
+
+## TTS-aware testing rule (locked 2026-08-04)
+
+**Speech is a feature, not a transport for every other feature's evidence.** Testing Lori's text behaviour by listening to Lori say it is slow, it burns Chris's attention on repeat playback of things already proven, and it silently corrupts every latency number by folding synthesis and playback into what gets reported as model time.
+
+- **Most automated and browser checks validate Lori's TEXT response** and must not wait through spoken playback when speech is not the feature under test.
+- **TTS gets ONE dedicated acceptance case per milestone.** It does not replay every test response.
+- **The final combined acceptance tests real TTS with playback enabled** — once, at the end, as the representative spoken turn.
+- **Never send the next browser message while Lori is still speaking.** Browser instructions must say so in those words: *"Wait until Lori finishes speaking before continuing."*
+- **Test timeouts must include the generated audio's playback duration.** A timeout sized for text will fail a working spoken turn.
+- **Performance reports must separate five numbers and never merge them:** LLM response time · TTS time-to-first-audio · TTS synthesis time · audio playback duration · complete narrator-visible turn time.
+- **TTS playback must never be reported as LLM latency.** This is the rule the other four exist to protect: a 9.9-second utterance attributed to the model makes the model look broken and hides the real cost.
+- **CPU Kokoro must be warmed before it is timed**, and its cold-start figure is reported separately. Measured 2026-08-04: cold 27.558 s for 39 characters (RTF 10.30) against warm 1.752 s for 9.875 s of audio (RTF 0.177). Reporting those as one number describes neither.
+- **Chris is not asked to listen to the same acceptance twice.**
+
+This strengthens the no-testing-loop rule rather than replacing it: **text-only verification for behaviour, then one representative spoken turn once the milestone is implemented.**
+
 ## Git hygiene gate
 
 **Before any code-changing work starts, the tree must be clean** (`git status` shows nothing uncommitted). "Code-changing work" = edits to `server/`, `scripts/`, `ui/`, or any file the extractor / eval harness reads at runtime. Docs-only sessions are exempt but should still commit before EOD.
