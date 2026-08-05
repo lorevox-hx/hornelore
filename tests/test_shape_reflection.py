@@ -20,6 +20,7 @@ from __future__ import annotations
 import unittest
 
 from server.code.api.services.lori_reflection import (
+    _expand_anchor_over_compound,
     extract_concrete_anchor,
     shape_reflection,
     SHAPER_ECHO_WORD_BUDGET,
@@ -276,6 +277,105 @@ class OmittedApostropheKinshipAnchorTest(unittest.TestCase):
                 a = (extract_concrete_anchor(t) or "").lower()
                 for kin in ("dad", "mom", "father", "mother"):
                     self.assertNotIn(kin, a)
+
+
+class CompoundNameTrimmingTest(unittest.TestCase):
+    """LLR-21 — WO-LEAN-LORI-RUNTIME-01 Phase 1E, 2026-08-04.
+
+    LIVE EVIDENCE, 2026-08-04 13:26:
+        actions=shaped_echo_trimmed_to_anchor before_words=52
+        "Peter Zarr and Josie Zarr are laid to rest there"
+          -> "Peter Zarr. are laid to rest there."
+
+    Two failures in one line, and the second is much the worse. Broken
+    grammar is embarrassing. Silently deleting a grandmother from a
+    reply about her own grave is the thing this system exists not to do.
+
+    Case C1 assumed the anchor was a self-contained opener. It is not:
+    "Peter Zarr" is half of a compound subject, so cutting there both
+    dropped Josie and stranded the verb.
+    """
+
+    NARRATOR = ("My grandparents Peter Zarr and Josie Zarr are buried in "
+                "the cemetery outside Mandan.")
+    LONG_TAIL = ("are laid to rest there in the little cemetery outside of "
+                 "town where the family plot has been since the eighteen "
+                 "nineties")
+
+    def test_the_second_person_is_not_dropped(self):
+        """The one that matters. Josie must survive."""
+        text = f"Peter Zarr and Josie Zarr {self.LONG_TAIL}. What do you remember about visiting?"
+        shaped, actions = shape_reflection(text, self.NARRATOR)
+        self.assertIn("shaped_echo_trimmed_to_anchor", actions)
+        self.assertIn("Josie", shaped, f"Josie was dropped: {shaped!r}")
+        self.assertIn("Peter", shaped)
+
+    def test_no_headless_clause_is_emitted(self):
+        """The verbatim broken shape must not be producible."""
+        text = f"Peter Zarr and Josie Zarr {self.LONG_TAIL} and nobody has moved it since."
+        shaped, _ = shape_reflection(text, self.NARRATOR)
+        self.assertNotRegex(
+            shaped, r"\.\s+(are|were|is|was|and|has|have)\b",
+            f"a sentence begins with a verb: {shaped!r}")
+
+    def test_the_question_still_survives_the_trim(self):
+        text = f"Peter Zarr and Josie Zarr {self.LONG_TAIL}. What do you remember about visiting?"
+        shaped, _ = shape_reflection(text, self.NARRATOR)
+        self.assertIn("What do you remember about visiting?", shaped)
+
+    def test_a_single_name_is_unaffected(self):
+        """The repair must not reach turns that were never broken."""
+        text = ("Peter Zarr is laid to rest there in the little cemetery "
+                "outside of town where the plot has been since the "
+                "eighteen nineties. What do you remember about it?")
+        shaped, actions = shape_reflection(text, self.NARRATOR)
+        self.assertEqual(["shaped_no_change"], actions)
+        self.assertEqual(text, shaped)
+
+
+class ExpandAnchorOverCompoundTest(unittest.TestCase):
+    """The expander in isolation, including what it must REFUSE to do."""
+
+    def test_it_grows_forward_across_the_conjunction(self):
+        self.assertEqual(
+            "Peter Zarr and Josie Zarr",
+            _expand_anchor_over_compound(
+                "Peter Zarr", "Peter Zarr and Josie Zarr are laid to rest"))
+
+    def test_it_grows_backward_when_the_anchor_is_the_second_conjunct(self):
+        self.assertEqual(
+            "Peter and Josie Zarr",
+            _expand_anchor_over_compound(
+                "Josie Zarr", "Peter and Josie Zarr are laid to rest"))
+
+    def test_it_stops_at_the_verb(self):
+        """The first cut used re.IGNORECASE, which makes [A-Z] match
+        lowercase, so the "capitalised run" swallowed the verb and
+        produced "Peter Zarr and Josie Zarr are laid." -- Josie rescued,
+        sentence still broken. The anchor is located case-insensitively
+        but the compound is matched case-SENSITIVELY."""
+        got = _expand_anchor_over_compound(
+            "Peter Zarr", "Peter Zarr and Josie Zarr are laid to rest")
+        for verb in (" are", " were", " laid", " is"):
+            self.assertNotIn(verb, got, f"ran past the subject: {got!r}")
+
+    def test_it_does_not_expand_across_a_lowercase_continuation(self):
+        """"Peter Zarr and his brother" is not a compound of two names."""
+        self.assertEqual(
+            "Peter Zarr",
+            _expand_anchor_over_compound(
+                "Peter Zarr", "Peter Zarr and his brother went west"))
+
+    def test_it_leaves_ordinary_nouns_alone(self):
+        self.assertEqual(
+            "the barn",
+            _expand_anchor_over_compound(
+                "the barn", "the barn and the milking shed burned down"))
+
+    def test_an_absent_anchor_is_returned_unchanged(self):
+        self.assertEqual(
+            "Peter Zarr",
+            _expand_anchor_over_compound("Peter Zarr", "a different sentence"))
 
 
 if __name__ == "__main__":

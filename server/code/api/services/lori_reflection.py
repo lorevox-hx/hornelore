@@ -659,6 +659,62 @@ def _split_first_sentence(text: str) -> Tuple[str, str]:
     return text[: m.end()].strip(), text[m.end():].strip()
 
 
+# ── LLR-21 helpers, 2026-08-04 ────────────────────────────────────────
+# A capitalised run: "Josie", "Josie Zarr", "Mary Ellen Zarr". Bounded at
+# four words so a whole sentence of Title Case cannot be swallowed.
+_PROPER_RUN = r"[A-Z][\w'’\-]*(?:\s+[A-Z][\w'’\-]*){0,3}"
+
+# The conjunction that binds a compound subject. Deliberately just `and`
+# and `&`: `or` does not bind a compound the way this repair means, and
+# a comma-series ("Peter, Josie and Anna") is left alone because
+# expanding across commas can run past the subject into a list of
+# unrelated nouns.
+_COMPOUND_AFTER_RX_T = r"(?:\s+(?:and|&)\s+" + _PROPER_RUN + r")"
+
+def _expand_anchor_over_compound(anchor: str, echo_span: str) -> str:
+    """Grow `anchor` to cover a compound subject it is only half of.
+
+    "Peter Zarr" inside "Peter Zarr and Josie Zarr" becomes the whole
+    pair. Returns the span AS IT APPEARS in the echo, so the original
+    capitalisation and spacing survive -- Lori must not re-case a name.
+
+    Looks both ways: the anchor may be the first conjunct ("Peter Zarr
+    and Josie Zarr") or the second ("Peter and Josie Zarr" anchors on
+    "Josie Zarr"). Returns `anchor` unchanged when it is not part of a
+    compound, which is the common case.
+    """
+    if not anchor or not echo_span:
+        return anchor
+
+    # The anchor is located case-INSENSITIVELY (it may have been
+    # normalised on the way out of extract_concrete_anchor), but the
+    # compound is matched case-SENSITIVELY from that offset. Those two
+    # cannot be one regex with re.IGNORECASE: the flag makes `[A-Z]`
+    # match lowercase, so "capitalised run" stops meaning anything and
+    # the match runs straight through the verb. The first cut of this
+    # helper did exactly that and produced
+    # "Peter Zarr and Josie Zarr are laid." -- Josie rescued, sentence
+    # still broken.
+    low = echo_span.lower()
+    idx = low.find(anchor.lower())
+    if idx < 0:
+        return anchor
+    end = idx + len(anchor)
+
+    # forward: <anchor> and <Name>
+    m = re.match(r"\s+(?:and|&)\s+" + _PROPER_RUN, echo_span[end:])
+    if m:
+        return echo_span[idx:end + m.end()].strip()
+
+    # backward: <Name> and <anchor>
+    head = echo_span[:end]
+    m = re.search(_PROPER_RUN + r"\s+(?:and|&)\s+" + re.escape(echo_span[idx:end]) + r"$",
+                  head)
+    if m:
+        return m.group(0).strip()
+    return anchor
+
+
 def shape_reflection(
     assistant_text: str,
     narrator_text: str,
@@ -732,9 +788,47 @@ def shape_reflection(
         echo_word_count = len(echo_span.split())
         if echo_word_count > SHAPER_ECHO_WORD_BUDGET:
             if anchor and anchor.lower() in echo_span.lower():
-                # C1: anchor inside echo → trim echo to just the anchor
+                # C1: anchor inside echo → trim echo to just the anchor.
+                #
+                # ── LLR-21, 2026-08-04 ──────────────────────────────────
+                # This assumed the anchor is a self-contained opener. It
+                # is not. On 2026-08-04 13:26 the anchor was "Peter Zarr"
+                # inside "Peter Zarr and Josie Zarr are laid to rest
+                # there", and trimming to it produced
+                #
+                #     "Peter Zarr. are laid to rest there."
+                #
+                # -- ungrammatical, and a grandmother dropped from a
+                # reply about her own grave. Both halves of that are
+                # failures, and the second is the worse one: broken
+                # grammar is embarrassing, silently deleting a person
+                # from their own family's story is the thing this system
+                # exists not to do.
+                #
+                # ONE repair ships: the anchor is EXPANDED across a
+                # coordinating conjunction, so a compound subject
+                # survives whole and Josie is not deleted.
+                #
+                # A SECOND guard was written and then REMOVED the same
+                # day, deliberately. It tried to suppress a "headless
+                # clause" tail, on the theory that the broken grammar
+                # came from `_split_echo_and_question` tearing a clause
+                # into the question slot. Two attempts to characterise
+                # that shape both failed: the first keyed on any tail
+                # ending in "?", which is every tail the stem regex can
+                # produce, so it disabled itself; the second keyed on a
+                # lowercase opener, which also matches a legitimate
+                # question after a comma ("...in Mandan, are they still
+                # there?"). A mutation deleting the guard changed no
+                # test in either version -- it was unreachable defence
+                # against a shape not reproducible from the evidence.
+                # Shipping it would have meant dead code carrying a
+                # comment that claimed to protect something. If the
+                # fragment recurs, capture the assistant text verbatim
+                # and the shape can be characterised properly.
+                expanded = _expand_anchor_over_compound(anchor, echo_span)
                 tail = question_span if question_span else ""
-                shaped = f"{anchor}. {tail}".strip()
+                shaped = f"{expanded}. {tail}".strip()
                 return shaped, ["shaped_echo_trimmed_to_anchor"]
             # C2: no anchor or anchor not in echo → drop echo entirely
             if question_span:
