@@ -7306,14 +7306,117 @@ function _lv80ScanSafety(text) {
   return _LV80_SAFETY_PATTERNS.some(rx => rx.test(text));
 }
 
+// ── LLR-20, WO-LEAN-LORI-RUNTIME-01 Phase 1D (2026-08-04) ──────────────
+// THE SAFETY LATCH HAD NO WAY OUT FROM INSIDE THE SESSION.
+//
+// `_lv80SafetyModeActive` was set by any single pattern match and was
+// cleared in exactly one place: narrator switch (`:5863`). Until then
+// `_lv80GetInteractionMode()` returned "safety" on every turn and
+// `[chat_ws][ui-posture] posture=safety` entered every later system
+// prompt. The companion override sitting beside it has always had an
+// exit -- `_lv80IsLikelyMemoirAnswer` clears it the moment the narrator
+// returns to memoir content -- and safety, the one posture that changes
+// how Lori speaks to a distressed person, had none.
+//
+// It fired on Chris's own CORRECTION, which contained the word
+// "suicide". `/\bsuicide\b/i` is in the pattern list on its own, as is
+// `/\bpoison(ed|ing)?\b/i`, so a narrator saying "my grandmother
+// poisoned the rats in the barn" latches the session too. And objecting
+// to the false alarm re-armed it, because the objection necessarily
+// repeats the word that caused it.
+//
+// TWO EXITS, AND DETECTION IS NOT WEAKENED.
+//
+// 1. DECAY. The latch survives `_LV80_SAFETY_MAX_CLEAR_TURNS` narrator
+//    turns with no fresh trigger and then clears itself. It is not a
+//    timer: a person in crisis who keeps saying so re-triggers on every
+//    turn and the counter resets, so the latch holds for exactly as
+//    long as the narrator keeps giving a reason. Three turns is chosen
+//    to be long enough that a distressed narrator's quieter follow-up
+//    ("...I don't know") stays inside the posture, and short enough
+//    that a false alarm does not colour the rest of an hour.
+//
+// 2. QUOTE / OBJECTION GUARD. A turn whose only trigger is the narrator
+//    talking ABOUT the alarm does not re-latch. This is deliberately
+//    asymmetric: it applies ONLY when the latch is already active, so
+//    it can never suppress a FIRST detection. "I never said I wanted to
+//    die" cannot arm safety mode; it can only decline to re-arm what
+//    the previous turn already armed. A genuine restatement -- "I still
+//    want to die" -- carries a direct pattern and no objection marker,
+//    so it re-triggers normally.
+//
+// The backend deterministic layer is untouched, the acute response and
+// resource cards are unchanged, and softened-mode persistence is not
+// bypassed -- this clears a BROWSER posture hint, not a safety record.
+const _LV80_SAFETY_MAX_CLEAR_TURNS = 3;
+
+// Markers for "the narrator is discussing the false alarm", not
+// disclosing. Each one is about the CONVERSATION rather than about the
+// narrator's own present state.
+const _LV80_SAFETY_OBJECTION_PATTERNS = [
+  /\bi (did\s?n'?t|do\s?n'?t|never)\s+(say|said|mean|meant)\b/i,
+  /\b(that'?s|thats|this is)\s+not\s+what\s+i\s+(meant|said)\b/i,
+  /\bwhy\s+(did|are|would)\s+you\s+(bring|bringing|say|saying|mention|ask)/i,
+  /\bi'?m\s+not\s+(suicidal|in danger|at risk|going to hurt)/i,
+  /\bfalse\s+alarm\b/i,
+  /\bi\s+was\s+(just\s+)?(quoting|asking about|talking about|reading|correcting)/i,
+  /\bstop\s+(talking about|bringing up|asking about)\b/i,
+  /\b(no|nope),?\s+i'?m\s+(fine|ok|okay|alright)\b/i,
+];
+
+function _lv80ScanSafetyObjection(text) {
+  return _LV80_SAFETY_OBJECTION_PATTERNS.some(rx => rx.test(text));
+}
+
+// Operator-visible latch state. `requested` is what the pattern scan
+// asked for on the most recent turn; `active` is what the session is
+// actually in. When they differ, `reason` says why -- which is the
+// "requested and effective posture and why" R3 asks for.
+let _lv80SafetyLatch = {
+  active: false,
+  clearTurns: 0,
+  requestedThisTurn: false,
+  reason: null,
+  armedAtIso: null,
+};
+
 function _lv80OnSafetyDetected() {
   const prev = _lv80GetInteractionMode();
   _lv80SafetyModeActive = true;
+  _lv80SafetyLatch.active = true;
+  _lv80SafetyLatch.clearTurns = 0;
+  _lv80SafetyLatch.reason = "safety_pattern";
+  if (!_lv80SafetyLatch.armedAtIso) {
+    _lv80SafetyLatch.armedAtIso = new Date().toISOString();
+  }
   lv80ClearIdle();
   _lv80IdleWasThinking = false;
   lv80LogModeTransition(prev, "safety", "safety_pattern");
   lv80UpdatePostureBadge();
   console.log("[Lori 9.0] Safety mode ACTIVE — idle suppressed.");
+}
+
+// Called once per narrator turn that did NOT re-trigger safety.
+// Returns true when this turn cleared the latch.
+function _lv80SafetyNoteClearTurn(why) {
+  if (!_lv80SafetyModeActive) return false;
+  _lv80SafetyLatch.clearTurns += 1;
+  if (_lv80SafetyLatch.clearTurns < _LV80_SAFETY_MAX_CLEAR_TURNS) {
+    console.log("[Lori 9.0] Safety latch holding — " +
+      _lv80SafetyLatch.clearTurns + "/" + _LV80_SAFETY_MAX_CLEAR_TURNS +
+      " clear turns (" + why + ").");
+    return false;
+  }
+  const prev = _lv80GetInteractionMode();
+  _lv80SafetyModeActive = false;
+  _lv80SafetyLatch.active = false;
+  _lv80SafetyLatch.clearTurns = 0;
+  _lv80SafetyLatch.reason = why;
+  _lv80SafetyLatch.armedAtIso = null;
+  lv80LogModeTransition(prev, _lv80GetInteractionMode(), "safety_latch_" + why);
+  lv80UpdatePostureBadge();
+  console.log("[Lori 9.0] Safety latch CLEARED — " + why + ".");
+  return true;
 }
 
 function _lv80SafetyClearIdle() {
@@ -7336,13 +7439,33 @@ function _lv80InstallSafetyHook() {
     const text  = input ? input.value.trim() : "";
 
     // ── Scan order: safety first, then non-memoir concern ────────
-    const safetyTriggered    = text && _lv80ScanSafety(text);
-    const nonMemoirPattern   = (!safetyTriggered && text) ? _lv80ScanNonMemoir(text) : null;
+    const safetyMatched      = !!(text && _lv80ScanSafety(text));
+    _lv80SafetyLatch.requestedThisTurn = safetyMatched;
+
+    // LLR-20 Phase 1D: the quote/objection guard. ONLY consulted when the
+    // latch is ALREADY active, so a first detection can never be
+    // suppressed by it -- "I never said I wanted to die" cannot arm
+    // safety mode, it can only decline to re-arm what a previous turn
+    // armed. Objecting to a false alarm necessarily repeats the word
+    // that caused it, which is precisely how the latch became
+    // inescapable.
+    const objectingToTheAlarm =
+      safetyMatched && _lv80SafetyModeActive && _lv80ScanSafetyObjection(text);
+
+    const safetyTriggered  = safetyMatched && !objectingToTheAlarm;
+    const nonMemoirPattern = (!safetyTriggered && text) ? _lv80ScanNonMemoir(text) : null;
 
     if (safetyTriggered) {
       _lv80OnSafetyDetected();
       _lv80NonMemoirModeActive = false; // safety takes full precedence
-    } else if (nonMemoirPattern) {
+    } else if (text && _lv80SafetyModeActive) {
+      // A narrator turn that did not re-trigger. Counts toward the decay
+      // that gives the latch a defined exit.
+      _lv80SafetyNoteClearTurn(
+        objectingToTheAlarm ? "objection" : "no_trigger");
+    }
+
+    if (!safetyTriggered && nonMemoirPattern) {
       _lv80OnNonMemoirDetected(nonMemoirPattern);
     } else if (text && _lv80NonMemoirModeActive && _lv80IsLikelyMemoirAnswer(text)) {
       // User has returned to memoir content — clear companion override
@@ -7407,6 +7530,17 @@ function _lv80InstallSafetyHook() {
       matched_safety_pattern: safetyTriggered ? "(see safety patterns)" : null,
       matched_non_memoir:     nonMemoirPattern,
       safety_mode_active:     _lv80SafetyModeActive,
+      // LLR-20 Phase 1D: REQUESTED vs EFFECTIVE, and why they differ.
+      // `safety_requested_this_turn` true with `safety_mode_active`
+      // false is the objection guard declining to re-arm; a non-zero
+      // `safety_clear_turns` is the latch decaying toward its exit.
+      // Without these an operator sees only the effective posture and
+      // cannot tell a held latch from a re-triggered one.
+      safety_requested_this_turn: _lv80SafetyLatch.requestedThisTurn,
+      safety_clear_turns:     _lv80SafetyLatch.clearTurns,
+      safety_clear_turns_max: _LV80_SAFETY_MAX_CLEAR_TURNS,
+      safety_latch_reason:    _lv80SafetyLatch.reason,
+      safety_armed_at:        _lv80SafetyLatch.armedAtIso,
       non_memoir_mode_active: _lv80NonMemoirModeActive,
       interaction_mode:       _lv80InteractionMode,
       effective_posture:      _lv80GetInteractionMode(),
