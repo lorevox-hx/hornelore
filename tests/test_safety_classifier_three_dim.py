@@ -56,6 +56,35 @@ from code.api.safety_acknowledgments import (  # noqa: E402
 )
 
 
+# ── WO-LEAN-LORI-RUNTIME-01 Phase 3B ──────────────────────────────────
+# This suite tests the ACTIVE safety feature, which as of 2026-08-04 is
+# not the default: `HORNELORE_SAFETY_STATE` defaults to "parked" and the
+# classifier returns before generating. Four tests in ParseFailureTest
+# began reporting `safety_parked` instead of `flag_off` / `empty_input`,
+# which is the park working correctly, not a regression.
+#
+# Opting in explicitly, rather than relaxing the assertions, is the whole
+# point of parking rather than deleting: reactivation must land on a
+# suite that still holds the feature to its original contract. Restored
+# afterwards so the parked default is what every other module sees.
+_SAVED_SAFETY_STATE = None
+
+
+def setUpModule():  # noqa: N802
+    import os
+    global _SAVED_SAFETY_STATE
+    _SAVED_SAFETY_STATE = os.environ.get("HORNELORE_SAFETY_STATE")
+    os.environ["HORNELORE_SAFETY_STATE"] = "active"
+
+
+def tearDownModule():  # noqa: N802
+    import os
+    if _SAVED_SAFETY_STATE is None:
+        os.environ.pop("HORNELORE_SAFETY_STATE", None)
+    else:
+        os.environ["HORNELORE_SAFETY_STATE"] = _SAVED_SAFETY_STATE
+
+
 # ──────────────────────────────────────────────────────────────────────
 # #5 + enum vocabulary
 # ──────────────────────────────────────────────────────────────────────

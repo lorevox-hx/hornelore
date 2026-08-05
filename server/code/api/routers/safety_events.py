@@ -174,12 +174,37 @@ def softened_state(
         remaining = turns_remaining(state)
     except Exception:
         remaining = 0
+
+    # ── WO-LEAN-LORI-RUNTIME-01 Phase 3B ─────────────────────────────
+    # This is an OPERATOR surface, so the stored state is still reported
+    # rather than blanked -- the rows are preserved evidence and an
+    # operator asking what is in the database deserves the answer.
+    #
+    # But the banner this feeds says "softened mode is on for N more
+    # turns", and while parked that is false: no softened directive
+    # reaches Lori from either the chat path or the REST interview path.
+    # A truthful row rendered under an untrue caption is still a lie to
+    # the reader. So the effective answer and the stored answer are
+    # reported as two separate fields, and `interview_softened` -- the
+    # one the banner keys on -- carries the EFFECTIVE value.
+    _parked = False
+    try:
+        from .. import flags as _lean_flags
+        _parked = _lean_flags.safety_parked()
+    except Exception:
+        _parked = False   # unknown -> historical behaviour
+
+    _stored = bool(state.get("interview_softened", False))
     return {
         "conv_id": conv_id,
-        "interview_softened": bool(state.get("interview_softened", False)),
+        "interview_softened": (False if _parked else _stored),
         "softened_until_turn": int(state.get("softened_until_turn", 0) or 0),
         "turn_count": int(state.get("turn_count", 0) or 0),
-        "turns_remaining": int(remaining),
+        "turns_remaining": (0 if _parked else int(remaining)),
+        # Preserved state, visible but clearly labelled as not in effect.
+        "safety_parked": _parked,
+        "stored_interview_softened": _stored,
+        "stored_turns_remaining": int(remaining),
     }
 
 

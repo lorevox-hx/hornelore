@@ -276,7 +276,29 @@ def answer_interview(req: AnswerInterviewRequest) -> AnswerInterviewResponse:
     safety_confidence: float = 0.0
     safety_resources: list = []
 
-    if not req.skipped and req.answer.strip():
+    # ── WO-LEAN-LORI-RUNTIME-01 Phase 3B ─────────────────────────────────
+    # The parked state governs THIS route too. It was missed on the first
+    # pass because the parking work followed the chat path, and this is
+    # the legacy REST path -- which is exactly the kind of second door a
+    # feature-level park has to close. A deployment that is parked
+    # everywhere else would still have scanned here, written a segment
+    # flag, set softened mode and returned crisis resources.
+    #
+    # Resolved once and reused below, rather than re-read at each site: a
+    # single turn must not see the state change halfway through and write
+    # a segment flag under one answer while reporting under the other.
+    _safety_parked = False
+    try:
+        _safety_parked = flags.safety_parked()
+    except Exception:
+        _safety_parked = False   # unknown -> historical behaviour
+    if _safety_parked:
+        logger.info(
+            "[interview][safety] PARKED — deterministic scan, segment "
+            "flags, softened mode and resources are inactive for this "
+            "deployment. session=%s", req.session_id)
+
+    if not _safety_parked and not req.skipped and req.answer.strip():
         safety_result = scan_answer(req.answer)
         if safety_result and safety_result.triggered:
             safety_triggered = True
@@ -312,9 +334,21 @@ def answer_interview(req: AnswerInterviewRequest) -> AnswerInterviewResponse:
     if not safety_triggered:
         db.increment_session_turn(req.session_id)
 
-    # Check softened state for response
-    softened_state = db.get_session_softened_state(req.session_id)
-    interview_softened = softened_state.get("interview_softened", False)
+    # Check softened state for response.
+    #
+    # Phase 3B: suppress the READ while parked. Softened rows written
+    # before parking do not expire on their own, so without this a
+    # narrator who triggered softened mode last week would still be met
+    # by a softened interview today, produced by a feature that is
+    # supposed to be inactive. The rows are deliberately NOT deleted,
+    # cleared or expired -- they are preserved evidence, and reactivation
+    # must find the session exactly as it was left. Parking is not a data
+    # migration.
+    if _safety_parked:
+        interview_softened = False
+    else:
+        softened_state = db.get_session_softened_state(req.session_id)
+        interview_softened = softened_state.get("interview_softened", False)
     # ── End safety scan ──────────────────────────────────────────────────────
 
     # Memory Archive — append question prompt + user answer
