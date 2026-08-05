@@ -3189,6 +3189,76 @@ def _era_spoken_phrase(current_era: str, era_label: str) -> str:
     return "that time in your life"
 
 
+
+
+# ── WO-LEAN-LORI-RUNTIME-01 Phase 2A — named prompt sections ───────────
+# 2026-08-04. Step one of prompt restoration, and deliberately the step
+# that changes NOTHING about the output.
+#
+# THE PROBLEM THIS EXISTS TO MAKE MEASURABLE. `compose_system_prompt` is
+# 1,223 lines that append into a bare list and join it in three places.
+# Nobody could say which section costs what, so nobody could compact the
+# expensive ones -- and the composed prompt now overruns the model's
+# 8,192-token window on the MEDIAN narrator turn. Measured from api.log
+# over 630 real turns: p50 8,861 tokens, and 382 of 630 (60.6%) over the
+# window. The slice at api.py:310 keeps the LAST 8,192 tokens, so what
+# gets discarded is the FRONT -- which is exactly where Lori's identity,
+# purpose and instructions sit. That is the cemetery answer: she was not
+# ignoring her instructions, she was never shown them.
+#
+# `_PromptAssembly` records a NAME beside every section and renders with
+# the identical join the three exits already used:
+#     "\n\n".join([p for p in parts if p.strip()]).strip()
+# Same strings, same order, same filter, same strip. Byte-identical
+# output is a property of construction here, not of a passing test --
+# though there is a test for it too.
+#
+# Sizes are reported in CHARACTERS, which are exact. They are NOT
+# reported in tokens: Phase 0 established that the only honest token
+# count is taken at api.py:288, after _apply_chat_template, because that
+# is the only place that sees the final string including the template's
+# own tokens. A builder-side estimate was wrong by a wide margin in the
+# reconnaissance that produced this phase, and a wrong number here would
+# be worse than none -- it is the number the compaction work will steer
+# by.
+class _PromptAssembly:
+    """Ordered, named sections that render to the historical string."""
+
+    __slots__ = ("_sections",)
+
+    def __init__(self, name: str = "", text: str = ""):
+        self._sections: List[Tuple[str, str]] = []
+        if text:
+            self.add(name, text)
+
+    def add(self, name: str, text: Optional[str]) -> None:
+        """Record a section. `None`/empty is kept, exactly as the bare
+        list kept it -- the render-time `if p.strip()` filter is what
+        removed empties before, and moving that decision earlier would
+        change behaviour."""
+        self._sections.append((name, text if text is not None else ""))
+
+    def measure(self) -> List[Tuple[str, int]]:
+        return [(n, len(t or "")) for n, t in self._sections]
+
+    def render(self, conv_id: str = "") -> str:
+        parts = [t for _, t in self._sections]
+        out = "\n\n".join([q for q in parts if q.strip()]).strip()
+        try:
+            kept = [(n, len(t)) for n, t in self._sections if (t or "").strip()]
+            dropped = [n for n, t in self._sections if not (t or "").strip()]
+            logger.info(
+                "[prompt][sections] conv=%s total_chars=%d sections=%d "
+                "dropped_empty=%d %s",
+                conv_id or "-", len(out), len(kept), len(dropped),
+                " ".join("%s=%d" % (n, c) for n, c in
+                         sorted(kept, key=lambda x: -x[1])),
+            )
+        except Exception:
+            # Measurement must never be able to break a narrator's turn.
+            pass
+        return out
+
 def compose_system_prompt(
     conv_id: str,
     ui_system: Optional[str] = None,
@@ -3274,19 +3344,19 @@ def compose_system_prompt(
     if context:
         ctx_block = "PROFILE_JSON: " + _safe_json(context)
 
-    parts = [system_head]
+    parts = _PromptAssembly("system_head", system_head)
     if ctx_block:
-        parts.append(ctx_block)
+        parts.add("ui_context", ctx_block)
     if pinned:
-        parts.append(pinned)
+        parts.add("pinned_facts", pinned)
 
     # v7.1 — inject runtime directive block when the UI supplies runtime context
     if runtime71:
         # BUG-LG-01 — Identity grounding: inject verified narrator facts and
         # anti-hallucination rules BEFORE any role/pass directives so the model
         # sees them first and treats them as ground truth.
-        parts.append(_known_identity_facts_block(runtime71))
-        parts.append(_identity_grounding_rules_block(runtime71))
+        parts.add("identity_facts", _known_identity_facts_block(runtime71))
+        parts.add("identity_grounding", _identity_grounding_rules_block(runtime71))
 
         # WO-LORI-ENGLISH-FIRST-NARRATION-01 (2026-06-24, product call
         # from Spring 2026 trip canary): always-on English-first rule
@@ -3394,7 +3464,7 @@ def compose_system_prompt(
             except Exception:
                 pass
         if _narrator_is_english:
-            parts.append(_english_first_block)
+            parts.add("english_first", _english_first_block)
 
         # WO-LORI-FACTUAL-CHAIN-CAPTURE-01 Phase 2 (2026-06-24): high-
         # priority directive threaded through runtime71 by chat_ws when
@@ -3406,7 +3476,7 @@ def compose_system_prompt(
         # legacy runtime71 dicts, tests).
         _chain_directive = (runtime71.get("factual_chain_directive") or "").strip()
         if _chain_directive:
-            parts.append("[FACTUAL_CHAIN_DIRECTIVE]\n" + _chain_directive)
+            parts.add("factual_chain", "[FACTUAL_CHAIN_DIRECTIVE]\n" + _chain_directive)
 
         current_pass   = runtime71.get("current_pass", "pass1") or "pass1"
         # WO-CANONICAL-LIFE-SPINE-01 Step 4: normalize current_era at the
@@ -3613,8 +3683,8 @@ def compose_system_prompt(
                 "  - Voice command 'send': also sends your current message.\n"
                 "  - Save confirmation: appears briefly after a successful profile save."
             )
-            parts.append("\n".join(directive_lines).strip())
-            return "\n\n".join([p for p in parts if p.strip()]).strip()
+            parts.add("directives_bio_builder", "\n".join(directive_lines).strip())
+            return parts.render(conv_id)
 
         if assistant_role == "onboarding":
             # v7.4E — Phase-aware onboarding: tell the model EXACTLY which step it is on.
@@ -3669,8 +3739,8 @@ def compose_system_prompt(
                 "  - Do NOT ask about memories, childhood, family, or life events.\n"
                 "  - Be warm, patient, and conversational — one question at a time."
             )
-            parts.append("\n".join(directive_lines).strip())
-            return "\n\n".join([p for p in parts if p.strip()]).strip()
+            parts.add("directives_questionnaire", "\n".join(directive_lines).strip())
+            return parts.render(conv_id)
 
         # ── Standard interview directives (only when role = "interviewer") ────
 
@@ -4397,7 +4467,7 @@ def compose_system_prompt(
                 "Make it easy to answer. Signal that there is no rush."
             )
 
-        parts.append("\n".join(directive_lines).strip())
+        parts.add("directives_interview", "\n".join(directive_lines).strip())
 
     # WO-9/WO-10 — Inject adaptive conversation memory context
     if runtime71:
@@ -4410,6 +4480,6 @@ def compose_system_prompt(
                 cognitive_support_mode=cognitive_support_mode,
             )
             if memory_block:
-                parts.append(memory_block)
+                parts.add("memory_context", memory_block)
 
-    return "\n\n".join([p for p in parts if p.strip()]).strip()
+    return parts.render(conv_id)
