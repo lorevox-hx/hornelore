@@ -1886,8 +1886,52 @@ def _extract_via_singlepass(answer: str, current_section: Optional[str], current
     unavailable, preventing the blocking model.generate() call from tying
     up the single uvicorn worker and causing 503 errors.
     """
-    # Quick availability gate — cached for LLM_CHECK_TTL seconds
-    if not _is_llm_available():
+    # Phase 5 (bounded) wins over PROMPTSHRINK wins over the legacy monolith.
+    # All three default OFF, so an untouched checkout is byte-identical to
+    # the historical path and eval arm A stays runnable.
+    #
+    # NOTE the ORDER. This used to sit BELOW the availability gate; it was
+    # lifted above it by Phase 1C so the gate can ask which path it is on.
+    _bounded = _extraction_bounded_enabled()
+
+    # ── WO-LEAN-LORI-RUNTIME-01 Phase 1C, 2026-08-04 ────────────────────
+    # THE BOUNDED PATH NO LONGER PINGS THE MODEL BEFORE EXTRACTING.
+    #
+    # `_is_llm_available()` is not a status read. It performs a real
+    # COMPOSED generation -- `_try_call_llm("Return exactly: {...}",
+    # "ping", max_new=20)` -- and because it is handed a conv_id it goes
+    # through chat(), which composes Lori's full persona and calls
+    # ensure_session("ping"). So every eligible completed turn cost TWO
+    # generations: a composed ping, then the real bounded raw_ephemeral
+    # extraction. `HORNELORE_EXTRACTION_BOUNDED=1` is live, so this was
+    # the production path, not a hypothetical one.
+    #
+    # THE REAL CALL IS THE READINESS TEST. It always was: the code
+    # thirty lines below already calls `_mark_llm_unavailable(
+    # "empty-response")` on a falsy result and `_mark_llm_available()`
+    # on success. Those two lines make the extraction itself refresh the
+    # cache, which is exactly what the ping was for. The ping only ever
+    # answered a question the next statement was about to answer
+    # properly, and answered it about a DIFFERENT prompt on a DIFFERENT
+    # call mode -- a 20-token composed ping succeeding tells you very
+    # little about whether a bounded extraction will fit its budget.
+    #
+    # Deliberately NOT replaced with a cached boolean read. R3 forbids
+    # "a free-floating Boolean that can disagree with the actual call",
+    # and that is precisely the failure this had: a cached "available"
+    # from up to `_LLM_CHECK_TTL` seconds ago could green-light a turn
+    # whose extraction then failed, or a cached "unavailable" could skip
+    # a turn the model would have served.
+    #
+    # THE LEGACY COMPOSED PATH KEEPS THE GATE. Its own generation is
+    # unbounded and goes through chat(); the pre-check is load-bearing
+    # there for the v8.0 reason recorded in this function's docstring --
+    # a blocking model.generate() on the single uvicorn worker. It is
+    # not this phase's business to change a path Chris is not running.
+    # The other three `_is_llm_available()` call sites (two-pass at
+    # :2142/:2501, SPANTAG at :4061) are on lanes whose flags are 0, and
+    # are likewise left alone rather than deleted blindly.
+    if not _bounded and not _is_llm_available():
         logger.info("[extract] LLM unavailable (cached) — skipping to rules fallback")
         return [], None
 
@@ -1896,10 +1940,6 @@ def _extract_via_singlepass(answer: str, current_section: Optional[str], current
     except ImportError:
         return [], None
 
-    # Phase 5 (bounded) wins over PROMPTSHRINK wins over the legacy monolith.
-    # All three default OFF, so an untouched checkout is byte-identical to
-    # the historical path and eval arm A stays runnable.
-    _bounded = _extraction_bounded_enabled()
     if _bounded:
         system, user = _build_extraction_prompt_bounded(answer, current_section, current_target)
     elif _promptshrink_enabled():
@@ -8811,33 +8851,93 @@ def extraction_results_ack(req: ExtractionResultAck):
 
 
 @router.get("/extract-diag")
-def extract_diag():
-    """Diagnostic: check whether the LLM extraction stack is available."""
+def extract_diag(probe: int = 0):
+    """Diagnostic: REPORT the extraction stack's state. Generates nothing.
+
+    ── WO-LEAN-LORI-RUNTIME-01 Phase 1C, 2026-08-04 ────────────────────
+    THIS ROUTE USED TO GENERATE ON EVERY GET. It called
+    `_try_call_llm("Return exactly: {...}", "ping", max_new=20)` -- a
+    real composed generation, with a conv_id, so it also ran through
+    chat() and ensure_session("ping").
+
+    That is the wrong shape for a diagnostic, and the wrongness is not
+    theoretical: operator surfaces poll status routes. A dashboard on a
+    refresh timer was firing model generations behind the operator's
+    back, competing with the narrator's own turn for the single worker,
+    and mutating the availability cache that extraction reads. A GET
+    that says "diag" in its name should be safe to call while an
+    86-year-old is mid-sentence.
+
+    It now reports the CACHED state and the server's effective
+    configuration, and performs no inference at all. The cache is
+    already refreshed by real extractions (`_mark_llm_available` /
+    `_mark_llm_unavailable`), so the number it reports is evidence from
+    actual work rather than from a synthetic ping.
+
+    `llm_cache_age_sec` is the honesty field: it says how old the
+    reading is, so nobody mistakes a stale cache for a live check.
+
+    AN ACTIVE PROBE IS STILL AVAILABLE, as an explicit maintenance
+    action requiring TWO deliberate acts -- `?probe=1` on the request
+    AND `HORNELORE_ALLOW_DIAG_PROBE=1` in the server environment, which
+    is absent by default. Neither a dashboard poll nor a curl out of
+    habit can reach it.
+
+    LIMIT, STATED RATHER THAN IMPLIED: this is not yet a live-narration
+    interlock. R3 asks that an active probe cannot run during
+    narration, and the honest position is that the signal to enforce
+    that does not exist yet -- there is no inference coordinator (see
+    `services/extraction_budget.py:33`, "into Phase 3 before the
+    inference coordinator exists"). The two-key requirement makes the
+    probe unreachable by accident, which is what is achievable today.
+    When the coordinator lands, this is where it gets asked.
+    """
     llm_available = False
     llm_error = None
+    probe_ran = False
     cache_age = _time.time() - _llm_available_cache["checked_at"]
-    try:
-        from ..llm_interview import _try_call_llm
-        # Quick ping: tiny extraction to see if LLM responds
-        result = _try_call_llm(
-            "Return exactly: {\"status\":\"ok\"}",
-            "ping",
-            max_new=20, temp=0.01, top_p=1.0,
-        )
-        if result:
-            llm_available = True
-            _mark_llm_available()
-        else:
-            llm_error = "LLM returned None (likely ImportError or empty response)"
-            _mark_llm_unavailable("diag-empty-response")
-    except ImportError as e:
-        llm_error = f"ImportError: {e}"
-        _mark_llm_unavailable(f"diag-import-error:{e}")
-    except Exception as e:
-        llm_error = f"{type(e).__name__}: {e}"
-        _mark_llm_unavailable(f"diag-exception:{type(e).__name__}")
+
+    _probe_allowed = os.getenv("HORNELORE_ALLOW_DIAG_PROBE", "0").lower() in (
+        "1", "true", "yes")
+    if probe and not _probe_allowed:
+        llm_error = ("active probe refused: set HORNELORE_ALLOW_DIAG_PROBE=1 "
+                     "to permit it as a maintenance action")
+        logger.info("[extract][diag] active probe requested and refused "
+                    "(HORNELORE_ALLOW_DIAG_PROBE is not set)")
+    elif probe and _probe_allowed:
+        probe_ran = True
+        logger.warning(
+            "[extract][diag] ACTIVE PROBE — generating. This competes with "
+            "narrator turns for the worker; it is a maintenance action.")
+        try:
+            from ..llm_interview import _try_call_llm
+            result = _try_call_llm(
+                "Return exactly: {\"status\":\"ok\"}",
+                "ping",
+                max_new=20, temp=0.01, top_p=1.0,
+            )
+            if result:
+                llm_available = True
+                _mark_llm_available()
+            else:
+                llm_error = "LLM returned None (likely ImportError or empty response)"
+                _mark_llm_unavailable("diag-empty-response")
+        except ImportError as e:
+            llm_error = f"ImportError: {e}"
+            _mark_llm_unavailable(f"diag-import-error:{e}")
+        except Exception as e:
+            llm_error = f"{type(e).__name__}: {e}"
+            _mark_llm_unavailable(f"diag-exception:{type(e).__name__}")
+    else:
+        # The observational default. `llm_available` reports what the
+        # last REAL piece of work found, and is None when nothing has
+        # been observed yet -- which is different from "unavailable" and
+        # must not be flattened into False.
+        llm_available = _llm_available_cache["available"]
 
     return {
+        "observational": not probe_ran,
+        "probe_ran": probe_ran,
         # Phase 5: the SERVER's effective extraction configuration.
         #
         # The eval runner used to print its own shell's env as the flag
