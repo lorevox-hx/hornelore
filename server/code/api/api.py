@@ -326,11 +326,63 @@ def _generate_text(model, tok, prompt: str, req: _ChatReq,
         pad_token_id=tok.eos_token_id,
         eos_token_id=tok.eos_token_id,
     )
+    _mark_generation()
     out = model.generate(
         **inputs,
         generation_config=gen_config,
     )
     return tok.decode(out[0][inputs["input_ids"].shape[-1]:], skip_special_tokens=True).strip()
+
+
+
+# ── WO-LEAN-LORI-RUNTIME-01 Phase 1C guard, 2026-08-04 ──────────────────
+# NARRATION-ACTIVITY MARKER. R3 requires that the explicit extraction
+# diagnostic probe "cannot run during live narration". Code inspection on
+# 2026-08-04 confirmed it could: `GET /api/extract-diag?probe=1` needed
+# two deliberate acts to reach, but nothing stopped an operator reaching
+# them while a narrator was mid-sentence, and nothing in the tree carried
+# a "a turn is happening" signal -- there is no inference coordinator
+# (`services/extraction_budget.py:33`).
+#
+# This is the marker, placed at the model itself rather than in chat_ws,
+# because the thing worth protecting is the single worker and EVERY
+# generation competes for it -- chat turns, automatic drafting,
+# follow-ups, summaries. A marker in the chat path would have missed
+# three of those.
+#
+# Recency, not just concurrency. Under a single sync worker a chat
+# generation can finish before the probe's HTTP request is even handled,
+# so an in-flight counter alone would read zero and wave the probe
+# through. `seconds_since_generation()` answers the question that
+# actually matters: was somebody talking to Lori just now.
+_LAST_GENERATION_AT: Optional[float] = None
+
+
+def _mark_generation() -> None:
+    """Record that the model is being asked to generate, right now."""
+    global _LAST_GENERATION_AT
+    _LAST_GENERATION_AT = time.monotonic()
+
+
+def seconds_since_generation() -> Optional[float]:
+    """Seconds since any generation was last started. None = never.
+
+    RECENCY, NOT AN IN-FLIGHT COUNTER. A counter was written first and
+    removed the same day: it incremented at each generate call site and
+    had no matching decrement, so it would have climbed forever and the
+    guard that reads it would have jammed permanently refusing. Adding
+    try/finally at three sites to fix that would have been more surgery
+    on the generation path than this guard is worth.
+
+    Recency is also the better question. Under a single sync worker a
+    chat generation can finish before a diagnostic HTTP request is even
+    handled, so an in-flight count would read zero and wave the probe
+    through at exactly the wrong moment. "Was somebody talking to Lori
+    a few seconds ago" is what the caller actually needs to know.
+    """
+    if _LAST_GENERATION_AT is None:
+        return None
+    return time.monotonic() - _LAST_GENERATION_AT
 
 
 def _generate_raw_ephemeral(system_prompt: str, user_prompt: str, *,
@@ -472,6 +524,7 @@ def warmup_endpoint():
             gc.collect()
         inputs = tok(prompt, return_tensors="pt").to(model.device)
         with torch.no_grad():
+            _mark_generation()
             out = model.generate(
                 **inputs,
                 max_new_tokens=8,
@@ -578,6 +631,7 @@ def chat_stream(req: _ChatReq):
                 pad_token_id=tok.eos_token_id,
                 eos_token_id=tok.eos_token_id,
             )
+            _mark_generation()
             th = threading.Thread(
                 target=model.generate,
                 kwargs=dict(

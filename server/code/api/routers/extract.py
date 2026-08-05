@@ -8899,11 +8899,46 @@ def extract_diag(probe: int = 0):
 
     _probe_allowed = os.getenv("HORNELORE_ALLOW_DIAG_PROBE", "0").lower() in (
         "1", "true", "yes")
+    # ── the live-narration interlock, added 2026-08-04 ──────────────────
+    # The two-key requirement stops the probe being reached by ACCIDENT.
+    # It does not stop an operator reaching it deliberately while a
+    # narrator is mid-sentence, which is what R3 actually asks for, and
+    # code inspection confirmed nothing prevented that: no in-flight
+    # signal existed anywhere in the tree.
+    #
+    # `api.seconds_since_generation()` is marked at all three
+    # `model.generate` sites, so it covers chat turns, automatic
+    # drafting, follow-ups and summaries alike -- every one of which
+    # competes for the same single worker. A marker in the chat path
+    # would have missed three of the four.
+    _quiet_for = None
+    try:
+        from .. import api as _api_mod
+        _quiet_for = _api_mod.seconds_since_generation()
+    except Exception:
+        # A guard that cannot read its signal must not silently permit
+        # the thing it guards. None here means "unknown", and unknown is
+        # treated as busy below.
+        _quiet_for = -1.0
+    _quiet_required = float(os.getenv("HORNELORE_DIAG_PROBE_QUIET_SEC", "60"))
+    # None means no generation has EVER run: genuinely idle, allow.
+    _narration_live = (_quiet_for is not None and _quiet_for < _quiet_required)
+
     if probe and not _probe_allowed:
         llm_error = ("active probe refused: set HORNELORE_ALLOW_DIAG_PROBE=1 "
                      "to permit it as a maintenance action")
         logger.info("[extract][diag] active probe requested and refused "
                     "(HORNELORE_ALLOW_DIAG_PROBE is not set)")
+    elif probe and _probe_allowed and _narration_live:
+        llm_error = (
+            f"active probe refused: the model generated "
+            f"{_quiet_for:.1f}s ago and this probe would compete with a "
+            f"narrator's turn. Retry after "
+            f"{_quiet_required:.0f}s of quiet.")
+        logger.warning(
+            "[extract][diag] active probe REFUSED — narration is live "
+            "(last generation %.1fs ago, quiet window %.0fs)",
+            _quiet_for, _quiet_required)
     elif probe and _probe_allowed:
         probe_ran = True
         logger.warning(
@@ -8938,6 +8973,11 @@ def extract_diag(probe: int = 0):
     return {
         "observational": not probe_ran,
         "probe_ran": probe_ran,
+        # The interlock, reported so an operator can see WHY a probe was
+        # refused rather than guessing.
+        "seconds_since_generation": _quiet_for,
+        "probe_quiet_window_sec": _quiet_required,
+        "narration_live": _narration_live,
         # Phase 5: the SERVER's effective extraction configuration.
         #
         # The eval runner used to print its own shell's env as the flag

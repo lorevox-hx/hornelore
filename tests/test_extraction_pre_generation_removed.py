@@ -63,7 +63,36 @@ _SERVER = _REPO / "server" / "code"
 if str(_SERVER) not in sys.path:
     sys.path.insert(0, str(_SERVER))
 
-# Same offline stub convention as tests/test_extraction_prompt_budget.py.
+# Offline stubs for `pydantic` and `fastapi`, with one deliberate
+# difference from the convention the other twenty test modules use.
+#
+# THEY STUB UNCONDITIONALLY WHEN THE NAME IS ABSENT FROM sys.modules.
+# In a single-process batch that poisons every module loaded after them:
+# the stub is registered as the real `fastapi`, and a later suite that
+# needs a name the stub does not define fails on an import that would
+# have worked. That is not hypothetical -- it is exactly how
+# `tests.test_trip_placement` failed on 2026-08-04 with
+# `cannot import name 'File' from 'fastapi' (unknown location)`, while
+# passing alone. CLAUDE.md records the same class from 2026-07-27:
+# "whichever file loads first wins for the whole process, so suites
+# passed alone and failed in batch on alphabetical load order."
+#
+# So this module PREFERS THE REAL PACKAGE and only falls back to a stub
+# when it is genuinely unavailable. In `.venv`, where fastapi and
+# pydantic are installed, importing them here puts the real modules into
+# sys.modules -- which every other suite's `if "fastapi" not in
+# sys.modules` guard then sees, so they skip their stubs too. One
+# module's fix improves the whole batch rather than only itself.
+#
+# This is NOT the shared `tests/_offline_stubs.py` refactor, which is
+# ~30 files and out of scope here. It is the same idea applied to the
+# one file this work order owns.
+try:  # noqa: SIM105
+    import fastapi as _real_fastapi  # noqa: F401
+    import pydantic as _real_pydantic  # noqa: F401
+except Exception:
+    pass
+
 if "pydantic" not in sys.modules:
     _pyd = types.ModuleType("pydantic")
 
@@ -341,6 +370,19 @@ class ExtractDiagIsObservationalTest(unittest.TestCase):
 
     def test_the_probe_runs_once_when_explicitly_permitted(self):
         os.environ["HORNELORE_ALLOW_DIAG_PROBE"] = "1"
+        # AMENDED 2026-08-04. The flag alone stopped being sufficient when
+        # the live-narration interlock landed, and this test caught that
+        # correctly: `api.api` is unimportable in an offline test process
+        # (no torch), so the guard read "unknown" and refused -- which is
+        # the deliberate fail-safe, since a guard that cannot read its
+        # signal must not permit the thing it guards. The quiet reading is
+        # forced here so this test still asks its own question, which is
+        # "does the permitted probe generate exactly once".
+        _mod = sys.modules.get("api.api")
+        if _mod is None:
+            _mod = types.ModuleType("api.api")
+            sys.modules["api.api"] = _mod
+        _mod.seconds_since_generation = lambda: 9999.0
         rec = _Recorder(result='{"status":"ok"}')
         self._li._try_call_llm = rec
         out = E.extract_diag(probe=1)
@@ -362,3 +404,141 @@ class ExtractDiagIsObservationalTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TheProbeCannotRunDuringLiveNarrationTest(unittest.TestCase):
+    """R3: an active probe "cannot run during live narration".
+
+    The two-key requirement (?probe=1 plus HORNELORE_ALLOW_DIAG_PROBE=1)
+    stops the probe being reached by ACCIDENT. It does not stop an
+    operator reaching it deliberately mid-session, and code inspection on
+    2026-08-04 confirmed nothing did: no in-flight or activity signal
+    existed anywhere in the tree.
+
+    `api._mark_generation()` now runs at all three `model.generate` call
+    sites, so the signal covers chat turns, automatic drafting,
+    follow-ups and summaries -- every path that competes for the single
+    worker, not just the chat one.
+    """
+
+    def setUp(self):
+        self._env = dict(os.environ)
+        os.environ["HORNELORE_ALLOW_DIAG_PROBE"] = "1"
+        self._li = sys.modules.get("api.llm_interview")
+        if self._li is None:
+            self._li = types.ModuleType("api.llm_interview")
+            sys.modules["api.llm_interview"] = self._li
+        self._orig_call = getattr(self._li, "_try_call_llm", None)
+        self._api = sys.modules.get("api.api")
+        self._orig_secs = getattr(self._api, "seconds_since_generation", None) \
+            if self._api else None
+
+    def tearDown(self):
+        if self._orig_call is not None:
+            self._li._try_call_llm = self._orig_call
+        if self._api is not None and self._orig_secs is not None:
+            self._api.seconds_since_generation = self._orig_secs
+        os.environ.clear()
+        os.environ.update(self._env)
+
+    def _with_quiet(self, seconds):
+        """Force the narration-activity reading."""
+        mod = sys.modules.get("api.api")
+        if mod is None:
+            mod = types.ModuleType("api.api")
+            sys.modules["api.api"] = mod
+        mod.seconds_since_generation = lambda: seconds
+        return mod
+
+    def test_a_probe_is_refused_while_narration_is_live(self):
+        self._with_quiet(2.0)
+        rec = _Recorder()
+        self._li._try_call_llm = rec
+        out = E.extract_diag(probe=1)
+        self.assertEqual(0, rec.n, "the probe generated during live narration")
+        self.assertFalse(out["probe_ran"])
+        self.assertTrue(out["narration_live"])
+        self.assertIn("narrator", (out["llm_error"] or "").lower())
+
+    def test_a_probe_is_permitted_after_the_quiet_window(self):
+        self._with_quiet(999.0)
+        rec = _Recorder(result='{"status":"ok"}')
+        self._li._try_call_llm = rec
+        out = E.extract_diag(probe=1)
+        self.assertEqual(1, rec.n)
+        self.assertTrue(out["probe_ran"])
+        self.assertFalse(out["narration_live"])
+
+    def test_a_model_that_has_never_generated_is_idle_not_busy(self):
+        """None means nothing has ever run. That is genuinely idle and
+        must not be confused with 'unknown'."""
+        self._with_quiet(None)
+        rec = _Recorder(result='{"status":"ok"}')
+        self._li._try_call_llm = rec
+        out = E.extract_diag(probe=1)
+        self.assertEqual(1, rec.n)
+        self.assertFalse(out["narration_live"])
+
+    def test_the_quiet_window_is_operator_tunable(self):
+        os.environ["HORNELORE_DIAG_PROBE_QUIET_SEC"] = "1"
+        self._with_quiet(5.0)
+        rec = _Recorder(result='{"status":"ok"}')
+        self._li._try_call_llm = rec
+        out = E.extract_diag(probe=1)
+        self.assertEqual(1, rec.n, "a 5s-quiet model should pass a 1s window")
+        self.assertEqual(1.0, out["probe_quiet_window_sec"])
+
+    def test_a_plain_get_is_never_blocked_by_the_interlock(self):
+        """The observational read must stay safe to call at any moment.
+        Blocking it would defeat the purpose of making it passive."""
+        self._with_quiet(0.1)
+        out = E.extract_diag()
+        self.assertTrue(out["observational"])
+        self.assertIn("llm_cache_age_sec", out)
+
+    def test_the_marker_is_at_every_generate_site(self):
+        """A marker on the chat path alone would miss drafting,
+        follow-ups and summaries -- three of the four competitors."""
+        api_src = (_SERVER / "api" / "api.py").read_text(encoding="utf-8")
+        tree = ast.parse(api_src)
+        gens = sum(1 for n in ast.walk(tree)
+                   if isinstance(n, ast.Call)
+                   and isinstance(n.func, ast.Attribute)
+                   and n.func.attr == "generate"
+                   and getattr(n.func.value, "id", "") == "model")
+        marks = sum(1 for n in ast.walk(tree)
+                    if isinstance(n, ast.Call)
+                    and getattr(n.func, "id", "") == "_mark_generation")
+        self.assertGreaterEqual(gens, 2)
+        self.assertGreaterEqual(
+            marks, 3,
+            f"{gens} model.generate call(s) but only {marks} marker(s); "
+            "the threaded streaming site is easy to miss because its "
+            "generate is a `target=` argument, not a statement")
+
+    def test_an_unreadable_signal_is_treated_as_BUSY_not_idle(self):
+        """The fail-safe direction, and the one that matters.
+
+        Added after mutation M2 survived: flipping the except-branch
+        default from "busy" to "idle" broke nothing, because no test
+        exercised the case where the activity signal cannot be read at
+        all. A guard that silently permits the thing it guards whenever
+        it cannot see is worse than no guard, because it looks like one.
+        """
+        mod = sys.modules.get("api.api")
+        if mod is None:
+            mod = types.ModuleType("api.api")
+            sys.modules["api.api"] = mod
+
+        def _boom():
+            raise RuntimeError("activity signal unavailable")
+
+        mod.seconds_since_generation = _boom
+        rec = _Recorder(result='{"status":"ok"}')
+        self._li._try_call_llm = rec
+        out = E.extract_diag(probe=1)
+        self.assertEqual(0, rec.n,
+                         "the probe generated while its guard was blind")
+        self.assertFalse(out["probe_ran"])
+        self.assertTrue(out["narration_live"],
+                        "an unreadable signal must report as live, not idle")
