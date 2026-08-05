@@ -88,11 +88,22 @@ const runner = new Function(
   prelude + patternsSrc + scanSrc + latchSrc + decide +
   "return { turn, state: () => ({ active: _lv80SafetyModeActive, " +
   "latch: JSON.parse(JSON.stringify(_lv80SafetyLatch)), transitions }), " +
+  // Phase 3B: the parked gate defaults to PARKED, which would make every
+  // latch check below vacuous -- `_lv80ScanSafety` would return false and
+  // "the latch did not arm" would pass for the wrong reason. The latch
+  // sequence is what REACTIVATION lands on, so it is driven under
+  // "active"; section 8 then drives the parked case explicitly.
+  "setSafetyState: (s) => { _lv80SafetyStateFromServer = s; }, " +
+  "parked: () => _lv80SafetyParked(), " +
+  "scan: (t) => _lv80ScanSafety(t), " +
   "reset: () => { _lv80SafetyModeActive = false; " +
   "_lv80SafetyLatch = { active:false, clearTurns:0, requestedThisTurn:false, " +
   "reason:null, armedAtIso:null }; transitions.length = 0; }, " +
   "MAX: _LV80_SAFETY_MAX_CLEAR_TURNS };"
 )();
+
+// Everything from here to section 8 exercises the ACTIVE feature.
+runner.setSafetyState("active");
 
 let pass = 0, fail = 0;
 function check(name, cond, detail) {
@@ -172,6 +183,68 @@ for (const needle of [
   check(`the shipped hook still contains: ${needle.slice(0, 46)}…`,
         hook.includes(needle));
 }
+
+// ── 8. Phase 3B: parked means the latch cannot ARM at all ─────────────
+// Sections 1-7 proved the latch has an exit. That exit is what
+// reactivation lands on. While the feature is PARKED there is no posture
+// to exit, and the property is stronger: the browser never detects.
+console.log("\nPhase 3B — parked: the latch cannot arm\n");
+
+runner.setSafetyState("parked");
+runner.reset();
+check("parked: the disclosure that armed safety in section 1 arms nothing",
+      runner.turn("I don't want to live anymore") === "life_story");
+check("parked: no posture, no latch, nothing requested",
+      runner.state().active === false &&
+      runner.state().latch.active === false &&
+      runner.state().latch.requestedThisTurn === false,
+      JSON.stringify(runner.state().latch));
+check("parked: no mode transition is logged either",
+      runner.state().transitions.length === 0,
+      JSON.stringify(runner.state().transitions));
+
+// The unknown case. This is the one worth being explicit about: an
+// unanswered or failed /api/runtime-posture leaves the state null, and
+// null must behave as parked. A browser posture with no backend behind
+// it, carrying a [SAFETY MODE: ACTIVE] directive into a prompt that no
+// longer contains any emergency instructions, is worse than none.
+runner.setSafetyState(null);
+runner.reset();
+check("unknown state (fetch failed / not yet answered) behaves as parked",
+      runner.parked() === true && runner.turn("I want to kill myself") === "life_story");
+
+for (const junk of ["", "  ", "on", "1", "enabled", "Active", "ACTIVE", "yes"]) {
+  runner.setSafetyState(junk);
+  check(`only the exact string "active" un-parks the browser (tried ${JSON.stringify(junk)})`,
+        runner.parked() === true,
+        "the server sends a normalised value; the browser must not " +
+        "second-guess it with fuzzy matching");
+}
+
+// Non-vacuity. Without this, every check above would also pass against a
+// scanner that had simply been deleted.
+runner.setSafetyState("active");
+check("the gate is the ONLY thing suppressing detection (patterns intact)",
+      runner.scan("I don't want to live anymore") === true &&
+      runner.scan("we drove to Bismarck for the funeral") === false);
+
+// The endpoint the browser is told the state by.
+const posture = HTML.slice(HTML.indexOf("async function _lv80LoadSafetyPosture"),
+                           HTML.indexOf("function _lv80ScanSafety(text) {"));
+check("the browser asks the server rather than reading an env var",
+      posture.includes("/api/runtime-posture"));
+check("the browser only accepts the server's own normalised answer",
+      posture.includes('(state === "active") ? "active" : "parked"'));
+check("a failed fetch is reported, not swallowed",
+      posture.includes("console.warn"));
+
+// The redundant second gate on the outgoing directive.
+const wsGate = HTML.slice(HTML.indexOf("const _wsContextBlock ="),
+                          HTML.indexOf("if (_wsContextBlock &&"));
+check("a parked session cannot send [SAFETY MODE: ACTIVE] even if the " +
+      "posture were set by some other path",
+      wsGate.includes('_wsContextKey === "safety"') &&
+      wsGate.includes("_lv80SafetyParked()"));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

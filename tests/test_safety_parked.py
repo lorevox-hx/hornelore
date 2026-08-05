@@ -53,6 +53,8 @@ _FLAGS_SRC = (_SERVER / "api" / "flags.py").read_text(encoding="utf-8")
 _COMPOSER_SRC = (_SERVER / "api" / "prompt_composer.py").read_text(encoding="utf-8")
 _CLASSIFIER_SRC = (_SERVER / "api" / "safety_classifier.py").read_text(encoding="utf-8")
 _WS_SRC = (_SERVER / "api" / "routers" / "chat_ws.py").read_text(encoding="utf-8")
+_PING_SRC = (_SERVER / "api" / "routers" / "ping.py").read_text(encoding="utf-8")
+_HTML_SRC = (_REPO / "ui" / "hornelore1.0.html").read_text(encoding="utf-8")
 
 
 def _flags_module():
@@ -254,6 +256,144 @@ class ZeroDeterministicCascadeWhenParkedTest(unittest.TestCase):
         self.assertGreater(i, 0)
         i2 = _COMPOSER_SRC.index("An unreadable flag module must not silently strip")
         self.assertGreater(i2, 0)
+
+
+class TheBrowserIsToldNotTrustedTest(unittest.TestCase):
+    """The third mechanism. Prompt and server are not enough.
+
+    Before Phase 3B the browser carried its OWN copy of the safety
+    patterns and its own latch, so a parked deployment would still arm a
+    safety posture in the UI and still attach a [SAFETY MODE: ACTIVE]
+    directive to the outgoing turn -- a posture with nothing behind it,
+    pointing at emergency instructions the parked prompt no longer
+    contains.
+
+    The functional proof lives in
+    `scripts/ui/run_safety_latch_exit_check.js`, which executes the real
+    extracted browser functions across turn sequences and was checked
+    against three mutants. These are the structural claims that harness
+    depends on.
+    """
+
+    def test_the_server_publishes_the_state(self):
+        self.assertIn('@router.get("/runtime-posture")', _PING_SRC)
+        self.assertIn("flags.safety_parked()", _PING_SRC)
+        self.assertIn("flags.safety_state()", _PING_SRC)
+
+    def test_the_endpoint_answers_one_question_not_the_flag_table(self):
+        """Handing the browser the whole flag table would make every
+        future server-side default part of the client contract."""
+        tree = ast.parse(_PING_SRC)
+        fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                  and n.name == "runtime_posture")
+        body = ast.unparse(fn)
+        for leaked in ("truth_v2", "age_validator", "os.environ", "os.getenv"):
+            with self.subTest(leaked=leaked):
+                self.assertNotIn(leaked, body)
+
+    def test_the_endpoint_states_it_is_not_emergency_monitoring(self):
+        self.assertIn('"emergency_monitoring": False', _PING_SRC)
+
+    def test_the_browser_gates_detection_at_its_single_entry(self):
+        """One gate at the source closes detection, latch, posture badge,
+        idle suppression and the outgoing directive together. Gating each
+        consumer separately would be five chances to miss one."""
+        i = _HTML_SRC.index("function _lv80ScanSafety(text) {")
+        body = _HTML_SRC[i:i + 200]
+        self.assertIn("if (_lv80SafetyParked()) return false;", body)
+
+    def test_unknown_resolves_to_parked_in_the_browser_too(self):
+        self.assertIn('return _lv80SafetyStateFromServer !== "active";', _HTML_SRC)
+
+    def test_the_outgoing_directive_has_its_own_redundant_gate(self):
+        """Deliberately unreachable today. It exists because a future
+        path that sets `_lv80SafetyModeActive` directly would otherwise
+        ship an emergency directive to a model whose parked prompt has no
+        emergency instructions to anchor it."""
+        i = _HTML_SRC.index("const _wsContextBlock =")
+        block = _HTML_SRC[i:i + 400]
+        self.assertIn('_wsContextKey === "safety"', block)
+        self.assertIn("_lv80SafetyParked()", block)
+
+    def test_the_functional_harness_is_present_and_covers_parking(self):
+        """A structural test can see the gate exists; only the harness
+        can see that a disclosure produces no posture across a turn."""
+        harness = _REPO / "scripts" / "ui" / "run_safety_latch_exit_check.js"
+        self.assertTrue(harness.exists())
+        text = harness.read_text(encoding="utf-8")
+        for claim in ("Phase 3B", "cannot arm", "runtime-posture",
+                      "setSafetyState"):
+            with self.subTest(claim=claim):
+                self.assertIn(claim, text)
+
+
+class TheDocumentationSaysParkedTest(unittest.TestCase):
+    """Item 7: the spec and work order no longer say active safety must
+    be preserved -- corrected in place, with the retired wording quoted,
+    because a reader who remembers the old rule has to be able to see
+    that it was withdrawn and why."""
+
+    WO = _REPO / "docs" / "wo" / "WO-LEAN-LORI-RUNTIME-01-FINAL-R3-2026-08-04.md"
+    SPEC = (_REPO / "docs" / "architecture"
+            / "LEAN-LORI-RUNTIME-SPEC-FINAL-R3-2026-08-04.md")
+
+    def test_both_documents_carry_the_amendment(self):
+        for doc in (self.WO, self.SPEC):
+            with self.subTest(doc=doc.name):
+                text = doc.read_text(encoding="utf-8")
+                self.assertIn("AMENDED 2026-08-04", text)
+                self.assertIn("not an emergency-monitoring service", text)
+
+    def test_the_retired_claims_are_quoted_not_deleted(self):
+        wo = self.WO.read_text(encoding="utf-8")
+        self.assertIn("Keep deterministic safety and softened persistence", wo)
+        self.assertIn("Retired:", wo)
+        spec = self.SPEC.read_text(encoding="utf-8")
+        self.assertIn("must not be parked or disabled", spec)
+
+    def test_the_reactivation_conditions_are_recorded_in_both(self):
+        for doc in (self.WO, self.SPEC):
+            with self.subTest(doc=doc.name):
+                text = doc.read_text(encoding="utf-8")
+                self.assertIn("domestic_abuse", text)
+                self.assertIn("relief when I go", text)
+
+    def test_env_example_documents_the_setting_and_the_subordination(self):
+        env = (_REPO / ".env.example").read_text(encoding="utf-8")
+        # assertTrue with a short message, not assertIn: a failed assertIn
+        # against a 40KB file dumps the whole file into the report and
+        # buries the one line that matters.
+        self.assertTrue("HORNELORE_SAFETY_STATE=parked" in env,
+                        "the setting is not documented in .env.example")
+        # Case-insensitive on purpose: .env.example states it in capitals
+        # as a section heading, the docs in sentence case. The claim is
+        # what is being pinned, not its typography.
+        self.assertTrue("not an emergency-monitoring service" in env.lower(),
+                        ".env.example does not say Lean Lori is not an "
+                        "emergency-monitoring service")
+        # Both legacy switches must be marked subordinate in THEIR OWN
+        # comment block, not only in a paragraph somewhere above them --
+        # an operator reading `LV_ENABLE_SAFETY=1` in isolation must not
+        # conclude it still governs anything.
+        #
+        # The block is found by walking back over contiguous comment
+        # lines rather than by slicing a fixed number of characters. A
+        # fixed window is the recurring bug in this repository's guards:
+        # the first cut of this used 900 and failed at 984 because the
+        # note sits at the top of a long block, which is exactly where it
+        # belongs. The test was wrong, not the file.
+        lines = env.splitlines()
+        for legacy in ("LV_ENABLE_SAFETY=1", "HORNELORE_SAFETY_LLM_LAYER=0"):
+            with self.subTest(flag=legacy):
+                idx = next(n for n, ln in enumerate(lines)
+                           if ln.strip() == legacy)
+                start = idx
+                while start > 0 and lines[start - 1].lstrip().startswith("#"):
+                    start -= 1
+                block = "\n".join(lines[start:idx])
+                self.assertTrue("SUBORDINATE" in block,
+                                f"{legacy} is not marked subordinate in its "
+                                f"own comment block")
 
 
 class TheFeatureIsPreservedNotDeletedTest(unittest.TestCase):
