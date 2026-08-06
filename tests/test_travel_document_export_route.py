@@ -140,12 +140,17 @@ class ExportRouteExecutesTest(unittest.TestCase):
         self.assertGreater(len(body), 5000)
         self.assertEqual(b"PK", body[:2])
 
-    def test_the_body_contains_the_approved_photo_caption(self):
+    def test_the_body_is_a_document_word_can_open(self):
+        """[Asserted the caption "Peter and Josie" and the line
+        "Approved photos in appendix: 1". Both belonged to the Part III
+        photo appendix, retired 2026-08-06 when the timeline began
+        printing each photograph once under its own day. The caption
+        contract is proved end to end against a real .docx in
+        tests/test_travel_document_day_lane.py::MachineCaptionTest.]"""
         import io
         body = self._body(self._call())
-        text = "\n".join(p.text for p in Document(io.BytesIO(body)).paragraphs)
-        self.assertIn("Peter and Josie", text)
-        self.assertIn("Approved photos in appendix: 1", text)
+        doc = Document(io.BytesIO(body))
+        self.assertTrue(doc.paragraphs)
 
     def test_no_retired_variable_survives_on_the_response_path(self):
         """Executing the route is the only instrument that can see this.
@@ -163,26 +168,21 @@ class ExportRouteExecutesTest(unittest.TestCase):
         self.assertNotIn("photo_rows", code)
 
     # ── one projection, both consumers ────────────────────────────────
-    def test_the_same_projection_object_reaches_the_preview(self):
-        self._call()
-        self.assertTrue(
-            self.captured["preview_appendix_is_same_object"],
-            "the preview was built from a different read than the document")
-
-    def test_the_projection_is_built_once(self):
-        calls = []
-        orig = self.fakes["proj"]
-
-        def counting(trip_id=None, rows=None):
-            calls.append(trip_id)
-            return orig(trip_id=trip_id, rows=rows)
-        self.fakes["proj"] = counting
-        try:
-            self._call()
-        finally:
-            self.fakes["proj"] = orig
-        self.assertEqual(1, len(calls),
-                         f"the photo table was read {len(calls)} times")
+    def test_the_route_builds_no_second_projection(self):
+        """[Two tests here asserted the route passed ONE
+        `photo_appendix_projection` object to both the preview and the
+        builder, and built it exactly once. The appendix is retired and
+        the route no longer builds anything: `trip_memoir_preview`
+        carries the timeline in the dict the builder already receives,
+        so "one shared projection" is now a property of the data rather
+        than of this route's discipline. The surviving claim is that
+        the route does not reach for a projection of its own.]"""
+        import inspect, re as _re
+        src = inspect.getsource(self.trips.export_docx)
+        code = _re.sub(r"#.*$", "", src, flags=_re.M)
+        code = _re.sub(r'"""[\s\S]*?"""', "", code)
+        self.assertNotIn("photo_appendix_projection", code)
+        self.assertIn("trip_memoir_preview", code)
 
     # ── headers, which the browser actually consumes ──────────────────
     def test_both_filename_forms_are_present(self):
