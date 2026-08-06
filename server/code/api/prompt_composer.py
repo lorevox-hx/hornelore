@@ -3357,18 +3357,40 @@ class _PromptAssembly:
     def render(self, conv_id: str = "") -> str:
         parts = [sec.text for sec in self._sections]
         out = "\n\n".join([q for q in parts if q.strip()]).strip()
+        # ── WO-LEAN-LORI-RUNTIME-01, logging level corrected 2026-08-05 ──
+        # This was `logger.info`, unconditional, once per narrator turn.
+        # That was right while Phase 2A was MEASURING which sections cost
+        # what -- the whole point of the phase was to make the sizes
+        # visible -- and wrong to leave behind, because a per-turn line
+        # nobody is reading is how the signal in api.log gets buried.
+        #
+        # It is now DEBUG plus an explicit opt-in, and both matter for
+        # different readers: `HORNELORE_PROMPT_SECTION_LOG=1` turns it on
+        # without touching the global log level, which is what an
+        # operator diagnosing one narrator's prompt actually wants;
+        # raising the whole logger to DEBUG also works, for anyone
+        # already doing that.
+        #
+        # `isEnabledFor` is checked FIRST so the sizes are not computed
+        # on a turn that will not print them. The work is small, but it
+        # is per-turn and it is on the narrator's own latency path.
         try:
-            kept = [(sec.name, len(sec.text)) for sec in self._sections
-                    if (sec.text or "").strip()]
-            dropped = [sec.name for sec in self._sections
-                       if not (sec.text or "").strip()]
-            logger.info(
-                "[prompt][sections] conv=%s total_chars=%d sections=%d "
-                "dropped_empty=%d %s",
-                conv_id or "-", len(out), len(kept), len(dropped),
-                " ".join("%s=%d" % (n, c) for n, c in
-                         sorted(kept, key=lambda x: -x[1])),
-            )
+            _explicit = os.environ.get(
+                "HORNELORE_PROMPT_SECTION_LOG", "0"
+            ).strip().lower() in ("1", "true", "yes", "on")
+            if _explicit or logger.isEnabledFor(logging.DEBUG):
+                kept = [(sec.name, len(sec.text)) for sec in self._sections
+                        if (sec.text or "").strip()]
+                dropped = [sec.name for sec in self._sections
+                           if not (sec.text or "").strip()]
+                _emit = logger.info if _explicit else logger.debug
+                _emit(
+                    "[prompt][sections] conv=%s total_chars=%d sections=%d "
+                    "dropped_empty=%d %s",
+                    conv_id or "-", len(out), len(kept), len(dropped),
+                    " ".join("%s=%d" % (n, c) for n, c in
+                             sorted(kept, key=lambda x: -x[1])),
+                )
         except Exception:
             # Measurement must never be able to break a narrator's turn.
             pass

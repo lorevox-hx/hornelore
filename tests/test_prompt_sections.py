@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import ast
 import logging
+import os
 import random
 import unittest
 from pathlib import Path
@@ -75,9 +76,18 @@ def _load_assembly():
              if isinstance(n, ast.ClassDef) and n.name in wanted]
     assert {n.name for n in nodes} == set(wanted), \
         f"expected {wanted}, found {[n.name for n in nodes]}"
+    # `os` and `logging` were MISSING here until 2026-08-05, and the
+    # omission was invisible: `render()` wraps its measurement in
+    # `except Exception: pass`, so the NameError was swallowed and every
+    # test passed while the logging path never executed at all. The
+    # swallow is correct in production -- measurement must never break a
+    # narrator's turn -- which is exactly why the harness has to supply
+    # what the real module has, or it tests a branch that always throws.
     ns: Dict[str, Any] = {
         "List": List, "Tuple": Tuple, "Optional": Optional,
         "NamedTuple": NamedTuple,
+        "os": os,
+        "logging": logging,
         "logger": logging.getLogger("test_prompt_sections"),
     }
     exec(compile(ast.Module(body=nodes, type_ignores=[]), "<composer>", "exec"), ns)
@@ -160,6 +170,125 @@ class RenderIsByteIdenticalTest(unittest.TestCase):
                 asm.add(f"s{i}", t)
             self.assertEqual(_historical_join(parts), asm.render(""),
                              f"diverged on {parts!r}")
+
+
+class TheSectionLogIsQuietByDefaultTest(unittest.TestCase):
+    """Corrected 2026-08-05.
+
+    `render()` logged the section sizes at INFO on EVERY narrator turn.
+    That was right while Phase 2A was measuring which sections cost what
+    -- making the sizes visible was the phase -- and wrong to leave
+    behind: a per-turn line nobody reads is how the signal in api.log
+    gets buried.
+
+    Now DEBUG, with `HORNELORE_PROMPT_SECTION_LOG=1` as an explicit
+    opt-in that does not require raising the global log level, which is
+    what an operator diagnosing one narrator's prompt actually wants.
+    """
+
+    def setUp(self):
+        self._saved = os.environ.get("HORNELORE_PROMPT_SECTION_LOG")
+        self.logger = logging.getLogger("test_prompt_sections")
+        self._saved_level = self.logger.level
+
+    def tearDown(self):
+        if self._saved is None:
+            os.environ.pop("HORNELORE_PROMPT_SECTION_LOG", None)
+        else:
+            os.environ["HORNELORE_PROMPT_SECTION_LOG"] = self._saved
+        self.logger.setLevel(self._saved_level)
+
+    def _render_and_capture(self, level=logging.DEBUG):
+        """Capture with a plain handler, NOT `assertLogs`.
+
+        `assertLogs` sets the logger's level to the one it is given for
+        the duration of the block, so `isEnabledFor(DEBUG)` inside the
+        code under test is True no matter what the caller configured.
+        The first cut used it and could not tell the two cases apart:
+        "silent at INFO" failed because the harness had quietly raised
+        the level the test was trying to hold down. A test that changes
+        the condition it is measuring measures nothing.
+        """
+        records = []
+
+        class _Collect(logging.Handler):
+            def emit(self, record):
+                records.append(record)
+
+        handler = _Collect(level=logging.NOTSET)
+        self.logger.addHandler(handler)
+        self.logger.setLevel(level)
+        try:
+            asm = _PromptAssembly("system_head", "IDENTITY")
+            asm.add("body", "SOME BODY TEXT")
+            asm.render("conv-1")
+        finally:
+            self.logger.removeHandler(handler)
+        return [r for r in records if "[prompt][sections]" in r.getMessage()]
+
+    def test_silent_at_info_level_with_the_flag_off(self):
+        os.environ.pop("HORNELORE_PROMPT_SECTION_LOG", None)
+        self.assertEqual([], self._render_and_capture(level=logging.INFO))
+
+    def test_emitted_when_the_logger_is_at_debug(self):
+        os.environ.pop("HORNELORE_PROMPT_SECTION_LOG", None)
+        recs = self._render_and_capture(level=logging.DEBUG)
+        self.assertEqual(1, len(recs), recs)
+        self.assertEqual(logging.DEBUG, recs[0].levelno)
+
+    def test_the_explicit_flag_emits_without_raising_the_log_level(self):
+        os.environ["HORNELORE_PROMPT_SECTION_LOG"] = "1"
+        recs = self._render_and_capture(level=logging.INFO)
+        self.assertEqual(1, len(recs), recs)
+        self.assertEqual(logging.INFO, recs[0].levelno,
+                         "the explicit opt-in should be visible at INFO — an "
+                         "operator who asked for it should not also have to "
+                         "raise the global level to see it")
+
+    def test_the_line_still_carries_the_section_sizes(self):
+        """The flag changes WHEN it prints, not WHAT. If the content
+        degraded, the opt-in would be worthless to the operator who
+        turned it on."""
+        os.environ["HORNELORE_PROMPT_SECTION_LOG"] = "1"
+        msg = self._render_and_capture(level=logging.INFO)[0].getMessage()
+        for token in ("conv=conv-1", "total_chars=", "sections=",
+                      "system_head=", "body="):
+            with self.subTest(token=token):
+                self.assertIn(token, msg)
+
+    def test_the_sizes_are_not_computed_when_nothing_will_print_them(self):
+        """Per-turn work on the narrator's own latency path. Small, but
+        it should not happen at all on a turn that discards it.
+
+        AST, not string offsets. The first cut compared
+        `src.index("isEnabledFor")` against `src.index("kept = ")` and a
+        mutant that hoisted the size computation ABOVE the level check
+        survived it -- because the explanatory comment directly above the
+        code contains the sentence "`isEnabledFor` is checked FIRST", so
+        the offset being compared was the PROSE, not the guard. Same trap
+        as every other word-matching guard in this repository: the
+        explanation contains the word.
+
+        The structural claim is stronger anyway: the assignment must live
+        INSIDE the guard's body, not merely after it in the file.
+        """
+        fn = next(n for n in ast.walk(ast.parse(_SRC))
+                  if isinstance(n, ast.FunctionDef) and n.name == "render")
+        guards = [n for n in ast.walk(fn)
+                  if isinstance(n, ast.If) and "isEnabledFor" in ast.unparse(n.test)]
+        self.assertEqual(1, len(guards), "expected exactly one level check")
+        inside = any(isinstance(n, ast.Assign)
+                     and any(getattr(t, "id", "") == "kept" for t in n.targets)
+                     for n in ast.walk(guards[0]))
+        self.assertTrue(inside,
+                        "the section sizes are computed outside the level "
+                        "check, so every turn pays for a line most turns "
+                        "will not print")
+
+    def test_the_measurement_still_cannot_break_a_turn(self):
+        """The property that must survive the level change."""
+        src = _SRC[_SRC.index("def render(self"):]
+        self.assertIn("except Exception:", src[:src.index("return out") + 400])
 
 
 class MeasurementTest(unittest.TestCase):
