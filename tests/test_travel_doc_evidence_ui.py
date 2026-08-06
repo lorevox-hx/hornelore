@@ -63,13 +63,40 @@ class EvidenceUiTest(unittest.TestCase):
         for label in ("Approve for Lori", "Reject / Hide"):
             self.assertIn(label, self.src, label)
 
-    def test_the_retired_memoir_control_stays_retired(self):
-        """An absence worth asserting: without this, the control can come
-        back and be a no-op again."""
+    def test_the_retired_memoir_claims_stay_retired(self):
+        """An absence worth asserting: without this the claim comes back.
+
+        WIDENED 2026-08-05. The first cut checked only the BUTTON's
+        wording, and two mutants walked straight past it: restoring the
+        `evBadge("In memoir", ...)` badge, and restoring the editor hint
+        "removes it from the memoir". Removing a false claim's button
+        while leaving its badge and its explanatory sentence keeps the
+        same false claim in a quieter form.
+
+        Scoped to the evidence row and its editor, because "In memoir"
+        is a TRUE label elsewhere -- on notes, sources and photo links,
+        which do reach the document.
+        """
         stripped = re.sub(r"^\s*//.*$", "", self.src, flags=re.M)
-        self.assertNotIn("Include in memoir", stripped,
-                         "the no-op memoir control is back on evidence rows")
-        self.assertNotIn("Remove from memoir", stripped)
+        i = stripped.index("function renderEvidenceRow(")
+        block = stripped[i:stripped.index("\n  function ", i + 10)]
+        for claim in ("Include in memoir", "Remove from memoir",
+                      'evBadge("In memoir"', "from the memoir",
+                      "into the memoir"):
+            with self.subTest(claim=claim):
+                self.assertNotIn(claim, block,
+                                 f"{claim!r} is back on an evidence row, and "
+                                 f"build_trip_docx still never reads these "
+                                 f"rows")
+
+    def test_the_evidence_editor_no_longer_promises_the_memoir(self):
+        stripped = re.sub(r"^\s*//.*$", "", self.src, flags=re.M)
+        i = stripped.index('title: "Edit evidence text"')
+        block = stripped[i - 200:i + 600]
+        self.assertNotIn("memoir", block,
+                         "the editor still describes a memoir consequence "
+                         "that cannot happen")
+        self.assertIn("revokes approval", block)
 
     def test_badges_present(self):
         # "In memoir" remains as a BADGE on sources, which is a real

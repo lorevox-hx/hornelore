@@ -125,6 +125,15 @@ def build_trip_docx(
     _story_notes(preview.get("story_notes"))
     _sources(preview.get("sources"))
 
+    # Approved photographs per stop, from the export set itself, so the
+    # per-stop counts in Part I and the appendix in Part III are two
+    # views of one list rather than two independent tallies.
+    _approved_by_stop: Dict[str, int] = {}
+    for _r in photo_rows or []:
+        _sid = _r.get("trip_stop_id")
+        if _sid:
+            _approved_by_stop[_sid] = _approved_by_stop.get(_sid, 0) + 1
+
     # ── Part I — The Journey in Order ────────────────────────────────
     doc.add_heading("Part I — The Journey in Order", level=1)
 
@@ -139,7 +148,13 @@ def build_trip_docx(
         stype = stop.get("stop_type")
         if stype and stype not in ("sight",):
             bits.append(f"[{stype}]")
-        n_photos = stop.get("photo_count") or 0
+        # Phase closeout: the APPROVED count for this stop, not the trip
+        # tree's `photo_count`. That field counts every link on the stop
+        # -- unapproved, hidden, and links whose photograph has been
+        # soft-deleted -- so a stop could read "· 3 photos" in a document
+        # that contains one of them. Derived from `photo_rows`, which is
+        # the export set, so the line cannot disagree with the appendix.
+        n_photos = _approved_by_stop.get(stop.get("id"), 0)
         if n_photos:
             bits.append(f"· {n_photos} photo{'s' if n_photos != 1 else ''}")
         style = "List Bullet" if depth == 0 else "List Bullet 2"
@@ -185,11 +200,27 @@ def build_trip_docx(
 
     # ── Part III — Photo Appendix ────────────────────────────────────
     doc.add_heading("Part III — Photo Appendix", level=1)
-    appendix = preview.get("part_three_photo_appendix") or {}
-    doc.add_paragraph(
-        f"Photos assigned to stops: {appendix.get('assigned_photos', 0)} · "
-        f"awaiting assignment: {appendix.get('unassigned_photos', 0)}"
-    )
+    # ── WO-TRAVEL-DOC-CLOSEOUT-01: the document contradicted itself ──
+    #
+    # This printed "Photos assigned to stops: N · awaiting assignment: M"
+    # and then, at the foot of the same section, "(1 photo embedded)".
+    # `assigned_photos` is the trip tree's own tally of EVERY link on a
+    # stop -- unapproved ones, links whose photograph has since been
+    # soft-deleted, and links hidden from review. The appendix embeds
+    # only memoir-approved, visible, undeleted photographs. So the
+    # section opened with 4 and closed with 1, in the artefact a family
+    # reads as the record.
+    #
+    # The opening line now counts the rows the appendix was actually
+    # given. `photo_rows` IS the export set -- `photo_links_with_photo_
+    # paths(trip_id, memoir_only=True)` -- so it cannot drift from what
+    # follows it.
+    #
+    # The all-link inventory is not printed at all. It is a workspace
+    # number, useful to an operator deciding what to approve, and
+    # meaningless to a reader holding the finished document.
+    _approved = len(photo_rows or [])
+    doc.add_paragraph(f"Approved photos in appendix: {_approved}")
     embedded = 0
     skipped = 0
     # Group photos under their stop instead of a single flat list. Rows with
@@ -225,6 +256,10 @@ def build_trip_docx(
                     "[trip-docx] photo embed failed path=%s: %s", path, exc,
                 )
     if photo_rows is not None:
+        # After file access, because until every path has been tried we
+        # do not know how many photographs the document actually holds.
+        # A missing file is reported rather than quietly dropped: the
+        # reader should not have to count pictures to notice.
         doc.add_paragraph(
             f"({embedded} photo{'s' if embedded != 1 else ''} embedded"
             + (f"; {skipped} unavailable" if skipped else "")

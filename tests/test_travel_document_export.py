@@ -307,6 +307,149 @@ class ThePreviewReadsTheKeysTheBackendEmitsTest(unittest.TestCase):
         self.assertIn("stopBlock(child, (depth || 0) + 1)", self.body)
 
 
+class EveryExportedWordIsReviewableTest(unittest.TestCase):
+    """An operator must not be able to export text they never saw.
+
+    The preview need not reproduce Word's formatting, but every field
+    the DOCX turns into words has to appear in "What is in the
+    document". Four were missing after the first repair: a stop's own
+    `notes`, a source's `pasted_text`/`link_url` fallback when it has no
+    summary, theme `description`, and the trip/region date and base
+    lines.
+    """
+
+    #: Fields `build_trip_docx` renders as prose, by the scope they sit
+    #: on. Hand-written so the intent is readable, and pinned against the
+    #: builder below so it cannot rot when the builder gains a field.
+    EXPORTED_TEXT = {
+        "preview": ["title", "date_range", "summary", "story_notes",
+                    "sources", "part_one_journey_in_order",
+                    "part_two_themes", "part_three_photo_appendix"],
+        "note": ["note_title", "note_text"],
+        "source": ["title", "filename", "source_type", "summary",
+                   "pasted_text", "link_url"],
+        "stop": ["title", "location_name", "date_start", "date_end",
+                 "stop_type", "notes", "story_notes", "sources",
+                 "day_trips"],
+        "region": ["region", "date_range", "base_address", "summary",
+                   "story_notes", "sources", "stops"],
+        "theme": ["theme", "description", "stops"],
+    }
+
+    def setUp(self):
+        self.js = _strip_js_comments(_JS)
+        i = self.js.index("function renderTravelDocument(")
+        self.body = self.js[i:self.js.index("function renderDraft()", i)]
+        self.docx = (_SERVER / "api" / "services"
+                     / "trip_memoir_docx.py").read_text(encoding="utf-8")
+
+    def test_every_exported_text_field_is_previewed(self):
+        for scope, fields in self.EXPORTED_TEXT.items():
+            for f in fields:
+                with self.subTest(scope=scope, field=f):
+                    self.assertIn(f, self.body,
+                                  f"{scope}.{f} is exported to the DOCX but "
+                                  f"never rendered in the preview, so an "
+                                  f"operator can export text they have not "
+                                  f"reviewed")
+
+    def test_the_field_list_still_matches_the_builder(self):
+        """Non-vacuity, and rot protection. If the builder starts reading
+        a field this list does not name, the list is stale and the test
+        above is quietly weaker than it looks."""
+        # Every `.get("x")` inside the builder, minus the photo-row and
+        # bookkeeping reads, which are not prose the operator reviews.
+        reads = set(re.findall(r'\.get\(\s*"(\w+)"', self.docx))
+        photo_row_only = {
+            "photo_image_path", "photo_description", "photo_date_value",
+            "narrator_caption", "caption", "caption_approved_for_lori",
+            "taken_at", "stop_location_name", "region_title",
+            "trip_stop_id", "id", "assigned_photos", "unassigned_photos",
+            "start", "end", "embedded_photos",
+        }
+        named = {f for fields in self.EXPORTED_TEXT.values() for f in fields}
+        unnamed = reads - photo_row_only - named
+        self.assertEqual(set(), unnamed,
+                         f"the builder reads fields this test does not "
+                         f"track: {sorted(unnamed)}")
+
+    def test_the_source_detail_fallback_matches_the_builder(self):
+        """The exact chain, in the exact order. A source with pasted
+        text and no summary exported a paragraph the preview did not
+        show."""
+        self.assertIn(
+            's.get("summary") or s.get("pasted_text") or', self.docx)
+        self.assertIn(
+            "srow.summary || srow.pasted_text || srow.link_url", self.body)
+
+    def test_the_stop_notes_field_is_previewed(self):
+        self.assertIn('stop.get("notes")', self.docx)
+        self.assertIn("stop.notes", self.body)
+
+    def test_theme_descriptions_are_previewed(self):
+        self.assertIn('theme.get("description")', self.docx)
+        self.assertIn("t.description", self.body)
+
+
+class ThePhotoCountsAgreeWithTheDocumentTest(unittest.TestCase):
+    """The document contradicted itself.
+
+    Part III opened with "Photos assigned to stops: 4" and closed with
+    "(1 photo embedded)". `assigned_photos` is the trip tree's tally of
+    every link on a stop -- unapproved, hidden, and links whose
+    photograph has been soft-deleted. The appendix embeds only
+    memoir-approved, visible, undeleted photographs.
+    """
+
+    def setUp(self):
+        self.docx = (_SERVER / "api" / "services"
+                     / "trip_memoir_docx.py").read_text(encoding="utf-8")
+
+    def test_the_appendix_counts_the_rows_it_was_given(self):
+        self.assertIn("_approved = len(photo_rows or [])", self.docx)
+        self.assertIn("Approved photos in appendix", self.docx)
+
+    def test_the_all_link_inventory_is_no_longer_printed(self):
+        """It is a workspace number -- useful when deciding what to
+        approve, meaningless to a reader holding the document.
+
+        Scanned over comment-stripped source. The retirement comment in
+        the builder QUOTES the retired line, which is exactly what this
+        repository requires of a correction in place -- and a raw scan
+        therefore fires on the explanation rather than on any code. Same
+        trap as every other word-matching guard here.
+        """
+        code = re.sub(r"^\s*#.*$", "", self.docx, flags=re.M)
+        self.assertNotIn("Photos assigned to stops", code)
+        self.assertNotIn("awaiting assignment", code)
+        # Positive half: something IS printed there.
+        self.assertIn('doc.add_paragraph(f"Approved photos in appendix', code)
+
+    def test_the_embedded_count_is_reported_after_file_access(self):
+        """Approved and embedded are different numbers when a file is
+        missing from disk, and the reader should not have to count
+        pictures to notice."""
+        i_emb = self.docx.index("photo{'s' if embedded != 1 else ''} embedded")
+        i_loop = self.docx.index("if not path or not os.path.isfile")
+        self.assertLess(i_loop, i_emb)
+        self.assertIn("unavailable", self.docx)
+
+    def test_per_stop_counts_come_from_the_export_set(self):
+        """`photo_count` counts every link on the stop, so a stop could
+        read "· 3 photos" in a document containing one of them."""
+        self.assertIn("_approved_by_stop", self.docx)
+        self.assertIn("n_photos = _approved_by_stop.get(stop.get(\"id\"), 0)",
+                      self.docx)
+        self.assertNotIn('n_photos = stop.get("photo_count")', self.docx)
+
+    def test_the_two_tallies_share_one_source(self):
+        """Part I's per-stop counts and Part III's appendix are two views
+        of `photo_rows`, so they cannot drift apart."""
+        i = self.docx.index("_approved_by_stop: Dict[str, int] = {}")
+        block = self.docx[i:i + 400]
+        self.assertIn("for _r in photo_rows or []:", block)
+
+
 class OnlyNarratorSafeCaptionsAreExportedTest(unittest.TestCase):
     """P0. Unapproved operator or generated text was reaching a family
     document.

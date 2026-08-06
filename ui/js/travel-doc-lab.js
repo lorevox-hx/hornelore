@@ -5122,7 +5122,8 @@
 
   // ── WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 Phase 1/2: photo evidence panel ──
   // Operator-only: OCR / public-lookup draft context + the approval ladder
-  // (Draft -> Approve for Lori -> Include in memoir). All text is rendered
+  // (Draft -> Approve for Lori). Retired third rung: "-> Include in
+  // memoir" — evidence rows never reach the travel document.
   // via el() (textContent) so OCR/lookup output can never inject markup.
   var photoEvidence = { linkId: null, loading: false, pc: [], pub: [], note: "",
                         lookupUrl: "", busy: null };
@@ -5302,7 +5303,13 @@
     var badges = el("span", "tdl-ev-badges");
     badges.appendChild(evBadge("Draft", !r.approved_for_lori && !r.rejected));
     badges.appendChild(evBadge("Approved for Lori", !!r.approved_for_lori));
-    badges.appendChild(evBadge("In memoir", !!r.include_in_memoir));
+    // WO-TRAVEL-DOC-CLOSEOUT-01: the "In memoir" BADGE is retired
+    // alongside its button. Retired line:
+    //   badges.appendChild(evBadge("In memoir", !!r.include_in_memoir));
+    // `build_trip_docx` never reads photo-context or public-context
+    // rows, so the badge reported a document membership that does
+    // not exist. Removing the button and keeping the badge would
+    // have left the same false claim in a quieter form.
     if (r.rejected) badges.appendChild(evBadge("Rejected", true));
     head.appendChild(badges);
     row.appendChild(head);
@@ -5315,16 +5322,21 @@
     if (r.source_url) row.appendChild(el("div", "tdl-ev-src", r.source_url));
     var ctrls = el("div", "tdl-ev-ctrls");
     var patch = isPublic ? patchPublicContext : patchPhotoContext;
-    // Edit text — backend PATCH result_summary REVOKES approval + clears memoir
-    // inclusion (edit-revokes-approval doctrine). Live testing already depends
-    // on that; the Lab should make it reachable. OCR text is editable too — an
+    // Edit text — backend PATCH result_summary REVOKES approval
+    // (edit-revokes-approval doctrine). OCR text is editable too: an
     // operator can hand-correct a noisy read.
+    //
+    // The retired half of this comment said the PATCH also "clears
+    // memoir inclusion". The column is still cleared, but that has
+    // no effect on any document — these rows never reach the DOCX —
+    // so describing it as a memoir consequence overstated what the
+    // edit does.
     ctrls.appendChild(btn("tdl-btn tdl-btn-small", "Edit text", function () {
       openEvidenceEditor({
         mode: "edit",
         title: "Edit evidence text",
-        hint: "Saving revokes approval and removes it from the memoir until you "
-          + "approve again. Stays draft.",
+        hint: "Saving revokes approval, so Lori stops using it until "
+          + "you approve it again. Stays draft.",
         value: r.result_summary || "",
         saveLabel: "Save (revokes approval)",
         save: function (t) { patch(r.id, { result_summary: t }); },
@@ -7996,6 +8008,13 @@
     // the top level would under-report a real trip.
     wrap.appendChild(el("h2", "", "What is in the document"));
 
+    // The document's own opening: title, date line, trip summary. All
+    // three are exported; only the title was previewed.
+    var dr = p.date_range || {};
+    var dateLine = [dr.start, dr.end].filter(Boolean).join(" \u2014 ");
+    if (dateLine) wrap.appendChild(el("p", "tdl-doc-dateline", dateLine));
+    if (p.summary) wrap.appendChild(el("p", "tdl-doc-note", p.summary));
+
     function noteBlock(parent, rows, cls) {
       (rows || []).forEach(function (n) {
         var t = (n.note_text || "").trim();
@@ -8008,21 +8027,38 @@
 
     function sourceBlock(parent, rows) {
       (rows || []).forEach(function (srow) {
-        var label = srow.title || srow.filename || srow.link_url
-          || srow.source_type || "source";
-        var line = el("div", "tdl-doc-source", label);
-        if (srow.summary) line.appendChild(el("span", "tdl-muted",
-          " \u2014 " + srow.summary));
-        parent.appendChild(line);
+        // Mirrors the DOCX exactly: label falls back title -> filename ->
+        // source_type, and the DETAIL line falls back summary ->
+        // pasted_text -> link_url. The first cut showed only the label
+        // and `summary`, so a source with pasted text and no summary
+        // exported a paragraph the operator had never seen in review.
+        var label = srow.title || srow.filename || srow.source_type
+          || "Source";
+        parent.appendChild(el("div", "tdl-doc-source", "Source \u2014 " + label));
+        var detail = (srow.summary || srow.pasted_text || srow.link_url
+          || "").trim();
+        if (detail) parent.appendChild(el("p", "tdl-doc-source-detail", detail));
       });
     }
 
     function stopBlock(stop, depth) {
       var sc = el("div", depth ? "tdl-doc-stop tdl-doc-stop-nested"
         : "tdl-doc-stop");
-      sc.appendChild(el("div", "tdl-doc-stop-name",
-        (stop.location_name || stop.title || "(unnamed stop)")
-        + (stop.date_start ? " \u00b7 " + stop.date_start : "")));
+      // Heading mirrors the DOCX bullet: name, date range, type.
+      var head = stop.title || stop.location_name || "(unnamed stop)";
+      if (stop.date_start && stop.date_end && stop.date_start !== stop.date_end) {
+        head += " (" + stop.date_start + " \u2013 " + stop.date_end + ")";
+      } else if (stop.date_start) {
+        head += " (" + stop.date_start + ")";
+      }
+      if (stop.stop_type && stop.stop_type !== "sight") {
+        head += " [" + stop.stop_type + "]";
+      }
+      sc.appendChild(el("div", "tdl-doc-stop-name", head));
+      // The stop's OWN notes field. Exported as its own paragraph and
+      // previously invisible here, so an operator could export a
+      // paragraph they had never reviewed.
+      if (stop.notes) sc.appendChild(el("p", "tdl-doc-note", stop.notes));
       noteBlock(sc, stop.story_notes);
       sourceBlock(sc, stop.sources);
       (stop.day_trips || []).forEach(function (child) {
@@ -8044,8 +8080,16 @@
     var regions = p.part_one_journey_in_order || [];
     regions.forEach(function (region) {
       var card = el("div", "tdl-doc-region");
-      card.appendChild(el("h3", "", region.region || "(untitled region)"));
-      if (region.summary) card.appendChild(el("p", "tdl-muted",
+      var rdr = region.date_range || {};
+      var rHead = region.region || "(untitled region)";
+      if (rdr.start) {
+        rHead += " (" + rdr.start + " \u2013 " + (rdr.end || "") + ")";
+      }
+      card.appendChild(el("h3", "", rHead));
+      // Exported as "Base: ..." and previously not previewed.
+      if (region.base_address) card.appendChild(el("p", "tdl-doc-note",
+        "Base: " + region.base_address));
+      if (region.summary) card.appendChild(el("p", "tdl-doc-note",
         region.summary));
       noteBlock(card, region.story_notes);
       sourceBlock(card, region.sources);
@@ -8063,12 +8107,15 @@
     if (themes.length) {
       wrap.appendChild(el("h2", "", "Themes"));
       themes.forEach(function (t) {
-        var line = el("p", "tdl-doc-theme", t.theme || "(untitled theme)");
+        wrap.appendChild(el("h3", "tdl-doc-theme",
+          t.theme || "(untitled theme)"));
+        // Exported and previously not previewed.
+        if (t.description) wrap.appendChild(el("p", "tdl-doc-note",
+          t.description));
         if (t.stops && t.stops.length) {
-          line.appendChild(el("span", "tdl-muted",
-            " \u2014 " + t.stops.join(", ")));
+          wrap.appendChild(el("p", "tdl-muted",
+            "Across: " + t.stops.join(", ")));
         }
-        wrap.appendChild(line);
       });
     }
 
@@ -8080,7 +8127,7 @@
           ? "Photo count unavailable."
           : (app.embedded_photos
             + (app.embedded_photos === 1 ? " photograph" : " photographs")
-            + " will be embedded. Captions are the narrator\u2019s own "
+            + " approved for the appendix. Captions are the narrator\u2019s own "
             + "words, or an operator caption you have approved \u2014 "
             + "never an unapproved description.")));
     }
