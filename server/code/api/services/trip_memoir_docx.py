@@ -43,9 +43,15 @@ logger = logging.getLogger("code.api.services.trip_memoir_docx")
 def build_trip_docx(
     preview: Dict[str, Any],
     photo_rows: Optional[List[Dict[str, Any]]] = None,
+    appendix: Optional[Dict[str, Any]] = None,
 ) -> bytes:
-    """Render the memoir-preview dict (trip_repository.trip_memoir_preview
-    shape) + joined photo rows into DOCX bytes."""
+    """Render the memoir-preview dict + the photo-appendix projection.
+
+    `appendix` is the projection the caller already built, so an export
+    reads the photo-link table ONCE and the document describes exactly
+    the appendix the operator reviewed. `photo_rows` remains for callers
+    that have rows and no projection; it is built from them.
+    """
     try:
         from docx import Document
         from docx.shared import Pt, Inches
@@ -111,8 +117,11 @@ def build_trip_docx(
     # browser preview (which reads the same projection out of
     # `trip_memoir_preview`) shows the operator exactly what the document
     # will contain.
-    from .trip_repository import photo_appendix_projection as _proj_fn
-    appendix_proj = _proj_fn(rows=list(photo_rows or []))
+    if appendix is not None:
+        appendix_proj = appendix
+    else:
+        from .trip_repository import photo_appendix_projection as _proj_fn
+        appendix_proj = _proj_fn(rows=list(photo_rows or []))
     _approved_by_stop: Dict[str, int] = appendix_proj.get(
         "approved_by_stop", {})
 
@@ -219,8 +228,21 @@ def build_trip_docx(
     embedded = 0
     skipped = 0
     for group in appendix_proj.get("groups", []):
+        photos = group.get("photos", [])
+        # #9: a group whose every photograph is missing from disk used to
+        # print a heading with nothing under it -- a section in a family
+        # memoir that looks like a mistake or a deletion. It says what
+        # happened instead.
+        usable = [ph for ph in photos if ph.get("available")]
         doc.add_heading(str(group.get("label") or "Unplaced"), level=2)
-        for ph in group.get("photos", []):
+        if not usable:
+            n = len(photos)
+            doc.add_paragraph(
+                f"({n} photograph{'s' if n != 1 else ''} approved here could "
+                f"not be found on disk and are not shown.)")
+            skipped += n
+            continue
+        for ph in photos:
             path = ph.get("image_path")
             if not ph.get("available") or not path:
                 skipped += 1
@@ -235,21 +257,23 @@ def build_trip_docx(
                     cp.runs[0].font.size = Pt(9)
                 embedded += 1
             except Exception as exc:
+                # #7: THIS is why "embedded" is only knowable here. Word
+                # can refuse an image that exists and is readable, so a
+                # count taken before this point would be a promise.
                 skipped += 1
                 logger.warning(
                     "[trip-docx] photo embed failed path=%s: %s", path, exc,
                 )
 
-    if photo_rows is not None:
-        # After file access, because until every path has been tried we
-        # do not know how many photographs the document actually holds.
-        # A missing file is reported rather than quietly dropped: the
-        # reader should not have to count pictures to notice.
-        doc.add_paragraph(
-            f"({embedded} photo{'s' if embedded != 1 else ''} embedded"
-            + (f"; {skipped} unavailable" if skipped else "")
-            + ")"
-        )
+    # #7: reported AFTER every image has been attempted, because
+    # "embedded" is not "approved" and is not "on disk" either -- Word
+    # can refuse a file that exists. Only this line knows what the
+    # document actually holds.
+    doc.add_paragraph(
+        f"({embedded} photo{'s' if embedded != 1 else ''} embedded"
+        + (f"; {skipped} not included" if skipped else "")
+        + ")"
+    )
 
     buf = io.BytesIO()
     doc.save(buf)

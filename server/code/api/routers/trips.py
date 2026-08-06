@@ -2211,15 +2211,21 @@ def export_docx(trip_id: str):
     of the same canonical rows the preview shows, with the clustered
     photo appendix embedded (include_in_memoir=1 links only)."""
     _require_trips_enabled()
-    preview = trip_repository.trip_memoir_preview(trip_id)
+    # ── WO-TRAVEL-DOC-CLOSEOUT-01 #3: ONE read, ONE projection ───────
+    #
+    # This used to read the photo-link table four times per export --
+    # once inside the preview, once for `_all_photos`, once here, and
+    # once more inside the builder -- and the counts printed in the
+    # document came from a different read than the appendix the operator
+    # had reviewed. Same object to both consumers now, so there is no
+    # window in which they can disagree.
+    appendix = trip_repository.photo_appendix_projection(trip_id)
+    preview = trip_repository.trip_memoir_preview(trip_id, appendix=appendix)
     if not preview:
         raise HTTPException(status_code=404, detail="trip not found")
     from ..services.trip_memoir_docx import build_trip_docx
-    photo_rows = trip_repository.photo_links_with_photo_paths(
-        trip_id, memoir_only=True,
-    )
     try:
-        docx_bytes = build_trip_docx(preview, photo_rows)
+        docx_bytes = build_trip_docx(preview, appendix=appendix)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     import io
@@ -2243,8 +2249,12 @@ def export_docx(trip_id: str):
         for c in raw_title
     )[:60].strip("_") or "trip"
     filename = f"lorevox_trip_memoir_{ascii_safe}.docx"
-    utf8_name = quote(f"lorevox_trip_memoir_{raw_title}.docx"[:120],
-                      safe="")
+    # TRUNCATE THE TITLE, NOT THE FILENAME. Slicing the assembled string
+    # at 120 characters cuts the extension off a long title, so the
+    # operator saves a file Word will not open by double-click. The title
+    # is bounded first and `.docx` is appended afterwards, so the
+    # extension is never the thing that gets dropped.
+    utf8_name = quote(f"lorevox_trip_memoir_{raw_title[:80]}.docx", safe="")
     logger.info(
         "[trips][docx] export trip=%s photos=%d", trip_id, len(photo_rows),
     )

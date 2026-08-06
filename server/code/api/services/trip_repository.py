@@ -2102,6 +2102,32 @@ def trip_tree(trip_id: str) -> Optional[Dict[str, Any]]:
     return trip
 
 
+def _hidden_approved_photo_count(trip_id: str) -> int:
+    """Hidden links that are ticked for the memoir AND still have a photo.
+
+    A hidden link whose photograph has been soft-deleted cannot be
+    restored into the document, so counting it would send the operator
+    looking for something that is gone. `photo_links_list` does not join
+    `photos`, so the check is made here.
+    """
+    con = _connect()
+    try:
+        if not _table_has_column(con, "trip_photo_links", "hidden"):
+            return 0
+        row = con.execute(
+            """SELECT COUNT(*) AS n
+                 FROM trip_photo_links l
+                 JOIN photos p ON p.id = l.photo_id
+                WHERE l.trip_id = ? AND l.hidden = 1
+                  AND l.include_in_memoir = 1
+                  AND p.deleted_at IS NULL""",
+            (trip_id,),
+        ).fetchone()
+        return int(row["n"] if row else 0)
+    finally:
+        con.close()
+
+
 def photo_appendix_projection(
     trip_id: Optional[str] = None,
     rows: Optional[List[Dict[str, Any]]] = None,
@@ -2217,7 +2243,10 @@ def _safe_photo_caption(row: Dict[str, Any]) -> str:
     return ""
 
 
-def trip_memoir_preview(trip_id: str) -> Optional[Dict[str, Any]]:
+def trip_memoir_preview(
+    trip_id: str,
+    appendix: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
     """Deterministic dual-axis memoir preview per WO-TRIP-MEMOIR-01:
     Part I chronological (regions -> nested stops), Part II thematic
     (themes with their matching stops), Part III photo appendix
@@ -2360,29 +2389,42 @@ def trip_memoir_preview(trip_id: str) -> Optional[Dict[str, Any]]:
     # second query that could drift from it -- it already excludes hidden
     # links and soft-deleted photos, both of which the browser's own
     # count got wrong.
-    _appendix: Dict[str, Any] = {"groups": [], "approved": 0, "available": 0,
-                                 "unavailable": 0, "approved_by_stop": {}}
+    # ── WO-TRAVEL-DOC-CLOSEOUT-01 #3: ONE read per export ────────────
+    #
+    # `appendix` lets the export route build the projection once and hand
+    # the same object to this function AND to the DOCX builder. Before
+    # that, an export read the photo-link table four times and the counts
+    # printed in the document came from a DIFFERENT read than the
+    # appendix the operator had reviewed. The window was small and the
+    # whole point of a shared projection is that there is no window.
+    #
+    # ── #5: FAILURE STAYS UNKNOWN ────────────────────────────────────
+    #
+    # `_appendix` is deliberately None until it is really built. The old
+    # default was an empty projection, which turns "we could not find
+    # out" into "0 photographs" and "No photographs approved" — an
+    # authoritative-sounding nothing. -1 and `unknown` travel all the way
+    # to the operator instead.
+    _appendix: Optional[Dict[str, Any]] = None
+    _appendix_unknown = False
     try:
-        _appendix = photo_appendix_projection(trip_id)
+        _appendix = appendix if appendix is not None else \
+            photo_appendix_projection(trip_id)
         _all_photos = photo_links_with_photo_paths(trip_id, memoir_only=False)
         _counts["photos_in"] = _appendix["approved"]
         _counts["photos_out"] = max(0, len(_all_photos) - _appendix["approved"])
-        # Hidden-but-approved PHOTO links, the third lane. Notes and
-        # sources already reported theirs; a hidden approved photograph
-        # simply vanished, and the Photos tab could not even show it.
-        _hidden_links = photo_links_list(trip_id, include_hidden=True)
-        _counts["photos_hidden_approved"] = sum(
-            1 for _l in _hidden_links
-            if _l.get("hidden") and _l.get("include_in_memoir"))
+        # ── #6: hidden-but-approved PHOTO links, counted only when the
+        # photograph behind them still exists. A hidden link whose photo
+        # has been soft-deleted is not something the operator can restore
+        # into the document, so counting it would send them looking for a
+        # photograph that is gone.
+        _counts["photos_hidden_approved"] = _hidden_approved_photo_count(trip_id)
     except Exception:            # pragma: no cover - counting must not fail a preview
-        # -1 means "unknown", NOT zero. This module has no logger, and
-        # adding one for a counting fallback is not worth the import; the
-        # sentinel is what the client renders, and it renders it as
-        # unknown rather than as an authoritative nothing. Reporting 0
-        # here would tell the operator the document has no photographs
-        # when the truth is that we could not find out.
+        _appendix = None
+        _appendix_unknown = True
         _counts["photos_in"] = -1
         _counts["photos_out"] = -1
+        _counts["photos_hidden_approved"] = -1
 
     return {
         "trip_id": trip_id,
@@ -2396,34 +2438,47 @@ def trip_memoir_preview(trip_id: str) -> Optional[Dict[str, Any]]:
         "sources": _src_trip,
         "part_one_journey_in_order": part_one,
         "part_two_themes": part_two,
-        "part_three_photo_appendix": {
-            # Retained under its original name for existing readers, but
-            # it is the count of photographs ASSIGNED to stops, which is
-            # not what the appendix contains. `export_summary.photos_in`
-            # is the number that will actually be embedded.
-            "assigned_photos": total_photos,
-            "unassigned_photos": tree.get("unassigned_photo_count", 0),
-            "embedded_photos": _counts["photos_in"],
-            # The projection, with `image_path` STRIPPED. A filesystem
-            # path is not a thing to hand a browser; `photo_id` is what a
-            # thumbnail needs, and `available` is what the operator needs
-            # to know before they are surprised by a gap in the document.
-            "approved": _appendix["approved"],
-            "available": _appendix["available"],
-            "unavailable": _appendix["unavailable"],
-            "groups": [
-                {
-                    "key": g["key"], "scope": g["scope"],
-                    "scope_id": g["scope_id"], "label": g["label"],
-                    "photos": [
-                        {k: v for k, v in ph.items() if k != "image_path"}
-                        for ph in g["photos"]
-                    ],
-                }
-                for g in _appendix["groups"]
-            ],
-            "approved_by_stop": _appendix["approved_by_stop"],
-        },
+        "part_three_photo_appendix": (
+            {
+                # #5: no counts at all rather than zeroes. A client that
+                # sees `unknown` must not print a number.
+                "unknown": True,
+            }
+            if _appendix_unknown or _appendix is None else
+            {
+                # Retained under its original name for existing readers,
+                # but it is the count of photographs ASSIGNED to stops,
+                # which is not what the appendix contains.
+                "assigned_photos": total_photos,
+                "unassigned_photos": tree.get("unassigned_photo_count", 0),
+                "unknown": False,
+                # #7: three separate numbers, never conflated. `approved`
+                # is what the operator ticked; `available` is what is on
+                # disk right now; the EMBEDDED count is knowable only
+                # after Word has accepted each image, so it is not
+                # promised here at all.
+                "approved": _appendix["approved"],
+                "available": _appendix["available"],
+                "unavailable": _appendix["unavailable"],
+                # #4: the browser needs these to show per-stop totals the
+                # way the document does.
+                "approved_by_stop": _appendix["approved_by_stop"],
+                # The projection, with `image_path` STRIPPED. A
+                # filesystem path is not a thing to hand a browser;
+                # `photo_id` is what a thumbnail needs.
+                "groups": [
+                    {
+                        "key": g["key"], "scope": g["scope"],
+                        "scope_id": g["scope_id"], "label": g["label"],
+                        "photos": [
+                            {k: v for k, v in ph.items() if k != "image_path"}
+                            for ph in g["photos"]
+                        ],
+                    }
+                    for g in _appendix["groups"]
+                ],
+            }
+        ),
         # Server-authoritative export membership. The client displays
         # this; it must not derive document membership itself.
         "export_summary": _counts,

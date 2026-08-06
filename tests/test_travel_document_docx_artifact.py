@@ -181,11 +181,27 @@ class DocxArtifactTest(unittest.TestCase):
     # ── missing files ─────────────────────────────────────────────────
     def test_a_missing_file_is_reported_not_silently_dropped(self):
         self.assertEqual(1, self.projection["unavailable"])
-        self.assertIn("unavailable", self.text)
+        self.assertIn("could not be found on disk", self.text)
 
-    def test_the_embedded_count_matches_what_was_embeddable(self):
+    def test_an_unavailable_only_group_is_not_an_empty_heading(self):
+        """A section in a family memoir with a heading and nothing under
+        it looks like a mistake or a deletion. It says what happened."""
+        i = self.paras.index("Hotel", self.paras.index("Part III — Photo Appendix"))
+        # The region group (all of whose photographs are missing) must be
+        # followed by an explanation, not by the next heading.
+        tail = "\n".join(self.paras[i:])
+        self.assertIn("approved here could not be found on disk", tail)
+
+    def test_approved_available_and_embedded_are_three_numbers(self):
+        """#7. `approved` is what was ticked; `available` is what is on
+        disk; `embedded` is knowable only after Word accepts each image,
+        so it is reported last and promised nowhere earlier."""
+        self.assertIn(f"Approved photos in appendix: {len(self.rows)}",
+                      self.text)
         self.assertIn(f"({self.projection['available']} photos embedded",
                       self.text)
+        self.assertNotIn("will be embedded", self.text)
+        self.assertNotIn("The rest will be embedded", self.text)
 
     def test_the_approved_count_is_the_row_count(self):
         self.assertIn(f"Approved photos in appendix: {len(self.rows)}",
@@ -236,6 +252,35 @@ class DocxArtifactTest(unittest.TestCase):
             for ph in g["photos"]:
                 self.assertNotIn("photo_description", ph)
                 self.assertNotIn("description", ph)
+
+    def test_a_stop_with_no_approved_photograph_prints_no_count(self):
+        """s2 has one approved photograph and s3 (the nested Cemetery day
+        trip) has none. A bare "· 0 photos" on every empty stop is noise,
+        and the absence is what proves the count comes from the export
+        set rather than from the trip tree."""
+        self.assertNotIn("· 0 photo", self.text)
+        cem = [t for t in self.paras if t.startswith("Cemetery")]
+        self.assertTrue(cem, "the nested day trip is missing from Part I")
+        self.assertNotIn("photo", cem[0])
+
+    def test_the_projection_can_be_built_from_rows_or_a_trip(self):
+        """One implementation. The builder reuses the caller's rows; the
+        preview builds from a trip id. A second grouping implementation
+        would drift, and the whole point is that they cannot."""
+        from api.services.trip_repository import photo_appendix_projection
+        again = photo_appendix_projection(rows=list(self.rows))
+        self.assertEqual([g["key"] for g in self.projection["groups"]],
+                         [g["key"] for g in again["groups"]])
+
+    def test_passing_the_projection_gives_the_same_document(self):
+        """#3: the route builds it once and hands the same object to
+        both consumers. That must produce byte-comparable text to the
+        rows path, or "one read" would be changing the output."""
+        from api.services.trip_memoir_docx import build_trip_docx as build
+        import io as _io
+        blob = build(self.preview, appendix=self.projection)
+        paras = [p.text for p in Document(_io.BytesIO(blob)).paragraphs]
+        self.assertEqual(self.paras, paras)
 
     def test_the_document_is_a_real_openable_docx(self):
         """Non-vacuity for everything above: if the bytes were not a
