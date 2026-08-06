@@ -1127,3 +1127,12 @@
 .tdl-doc-count-hidden { font-size: .88rem; color: var(--tdl-muted);
   padding-top: .35rem; border-top: 1px dashed var(--tdl-line);
   margin-top: .35rem; }
+.tdl-doc-photo-group { margin-top: 1rem; }
+.tdl-doc-photo { display: flex; gap: .7rem; align-items: flex-start;
+  margin: .5rem 0; }
+.tdl-doc-photo-meta { flex: 1; }
+.tdl-doc-photo-caption { line-height: 1.5; }
+.tdl-doc-source-detail { margin: .2rem 0 .5rem; line-height: 1.5; }
+.tdl-doc-note-title { font-weight: 600; margin-top: .4rem; }
+.tdl-doc-dateline { color: var(--tdl-muted); margin: 0 0 .6rem; }
+.tdl-doc-unavailable { color: var(--tdl-red); font-size: .9rem; }

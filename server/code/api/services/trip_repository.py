@@ -2102,6 +2102,121 @@ def trip_tree(trip_id: str) -> Optional[Dict[str, Any]]:
     return trip
 
 
+def photo_appendix_projection(
+    trip_id: Optional[str] = None,
+    rows: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """WO-TRAVEL-DOC-CLOSEOUT-01 — ONE narrator-safe view of Part III.
+
+    The preview and the DOCX were each deciding, separately, what the
+    photo appendix contains: the builder grouped rows and chose captions
+    while the preview printed a number. So the operator reviewed a count
+    and the family received captions, dates and group headings nobody had
+    seen. Both now consume this.
+
+    WHAT IT GUARANTEES
+
+    * `photo_description` is NEVER in the output. It is operator- or
+      machine-written text nobody approved for a narrator to hear, and
+      under a photograph in a memoir it is indistinguishable, to the
+      reader, from something the narrator said. The caption is
+      `_safe_caption`'s answer: narrator's own words, else an approved
+      operator caption, else nothing.
+    * Groups are keyed by STOP OR REGION ID, never by display text. Two
+      stops both called "Hotel", or a stop and a region sharing a name,
+      were merged into one appendix section by the old
+      `str(stop_location_name or region_title or "Unplaced")` key -- the
+      photographs of two different places silently became one.
+    * File availability is resolved HERE, once. The builder skipped
+      missing files and reported the shortfall only at the foot of the
+      document; the preview promised the full count. Now both know.
+    * `image_path` is present for the builder, which has to embed the
+      bytes, and is stripped before the projection reaches the browser
+      (see `trip_memoir_preview`). A filesystem path is not a thing to
+      hand a browser, and `photo_id` is what a thumbnail needs.
+
+    Rows come from `photo_links_with_photo_paths(memoir_only=True)`, so
+    unapproved links, hidden links and soft-deleted photographs are
+    already excluded upstream.
+    """
+    import os as _os
+
+    # `rows` lets a caller that already holds the export set reuse it --
+    # the DOCX builder does. ONE implementation of the grouping, because
+    # two would drift and the whole point is that the preview and the
+    # document describe the same appendix.
+    if rows is None:
+        rows = photo_links_with_photo_paths(trip_id, memoir_only=True)
+
+    groups: List[Dict[str, Any]] = []
+    index: Dict[str, int] = {}
+    per_stop: Dict[str, int] = {}
+    available = 0
+    unavailable = 0
+
+    for r in rows:
+        stop_id = r.get("trip_stop_id")
+        region_id = r.get("trip_region_id")
+        if stop_id:
+            key, scope, label = (f"stop:{stop_id}", "stop",
+                                 r.get("stop_location_name") or "(unnamed stop)")
+        elif region_id:
+            key, scope, label = (f"region:{region_id}", "region",
+                                 r.get("region_title") or "(unnamed region)")
+        else:
+            key, scope, label = ("unplaced", "unplaced", "Unplaced")
+
+        if key not in index:
+            index[key] = len(groups)
+            groups.append({"key": key, "scope": scope, "scope_id":
+                           stop_id or region_id, "label": label,
+                           "photos": []})
+
+        path = r.get("photo_image_path")
+        is_available = bool(path) and _os.path.isfile(str(path))
+        if is_available:
+            available += 1
+        else:
+            unavailable += 1
+        if stop_id:
+            per_stop[stop_id] = per_stop.get(stop_id, 0) + 1
+
+        groups[index[key]]["photos"].append({
+            "photo_id": r.get("photo_id"),
+            "link_id": r.get("id"),
+            "caption": _safe_photo_caption(r),
+            "taken_at": r.get("taken_at") or r.get("photo_date_value") or "",
+            "available": is_available,
+            # Builder-only. Stripped before this reaches a browser.
+            "image_path": path,
+        })
+
+    return {
+        "groups": groups,
+        "approved": len(rows),
+        "available": available,
+        "unavailable": unavailable,
+        "approved_by_stop": per_stop,
+    }
+
+
+def _safe_photo_caption(row: Dict[str, Any]) -> str:
+    """Narrator caption, else an APPROVED operator caption, else nothing.
+
+    The same rule `_NARRATOR_PHOTO_LINK_COLS` states for the narrator
+    read. It lives here as well because the export query is a
+    `SELECT l.*` and would otherwise hand the raw column onward -- which
+    is exactly how unapproved text reached the document once already.
+    `photo_description` is deliberately not consulted at all.
+    """
+    narrator = (row.get("narrator_caption") or "").strip()
+    if narrator:
+        return narrator
+    if row.get("caption_approved_for_lori"):
+        return (row.get("caption") or "").strip()
+    return ""
+
+
 def trip_memoir_preview(trip_id: str) -> Optional[Dict[str, Any]]:
     """Deterministic dual-axis memoir preview per WO-TRIP-MEMOIR-01:
     Part I chronological (regions -> nested stops), Part II thematic
@@ -2127,7 +2242,7 @@ def trip_memoir_preview(trip_id: str) -> Optional[Dict[str, Any]]:
     _counts = {
         "notes_in": 0, "notes_out": 0, "notes_hidden_approved": 0,
         "sources_in": 0, "sources_out": 0, "sources_hidden_approved": 0,
-        "photos_in": 0, "photos_out": 0,
+        "photos_in": 0, "photos_out": 0, "photos_hidden_approved": 0,
     }
     # Hidden rows are excluded from the document, so a hidden row still
     # carrying its In-memoir tick is reported separately rather than
@@ -2245,11 +2360,20 @@ def trip_memoir_preview(trip_id: str) -> Optional[Dict[str, Any]]:
     # second query that could drift from it -- it already excludes hidden
     # links and soft-deleted photos, both of which the browser's own
     # count got wrong.
+    _appendix: Dict[str, Any] = {"groups": [], "approved": 0, "available": 0,
+                                 "unavailable": 0, "approved_by_stop": {}}
     try:
-        _memoir_photos = photo_links_with_photo_paths(trip_id, memoir_only=True)
+        _appendix = photo_appendix_projection(trip_id)
         _all_photos = photo_links_with_photo_paths(trip_id, memoir_only=False)
-        _counts["photos_in"] = len(_memoir_photos)
-        _counts["photos_out"] = max(0, len(_all_photos) - len(_memoir_photos))
+        _counts["photos_in"] = _appendix["approved"]
+        _counts["photos_out"] = max(0, len(_all_photos) - _appendix["approved"])
+        # Hidden-but-approved PHOTO links, the third lane. Notes and
+        # sources already reported theirs; a hidden approved photograph
+        # simply vanished, and the Photos tab could not even show it.
+        _hidden_links = photo_links_list(trip_id, include_hidden=True)
+        _counts["photos_hidden_approved"] = sum(
+            1 for _l in _hidden_links
+            if _l.get("hidden") and _l.get("include_in_memoir"))
     except Exception:            # pragma: no cover - counting must not fail a preview
         # -1 means "unknown", NOT zero. This module has no logger, and
         # adding one for a counting fallback is not worth the import; the
@@ -2280,6 +2404,25 @@ def trip_memoir_preview(trip_id: str) -> Optional[Dict[str, Any]]:
             "assigned_photos": total_photos,
             "unassigned_photos": tree.get("unassigned_photo_count", 0),
             "embedded_photos": _counts["photos_in"],
+            # The projection, with `image_path` STRIPPED. A filesystem
+            # path is not a thing to hand a browser; `photo_id` is what a
+            # thumbnail needs, and `available` is what the operator needs
+            # to know before they are surprised by a gap in the document.
+            "approved": _appendix["approved"],
+            "available": _appendix["available"],
+            "unavailable": _appendix["unavailable"],
+            "groups": [
+                {
+                    "key": g["key"], "scope": g["scope"],
+                    "scope_id": g["scope_id"], "label": g["label"],
+                    "photos": [
+                        {k: v for k, v in ph.items() if k != "image_path"}
+                        for ph in g["photos"]
+                    ],
+                }
+                for g in _appendix["groups"]
+            ],
+            "approved_by_stop": _appendix["approved_by_stop"],
         },
         # Server-authoritative export membership. The client displays
         # this; it must not derive document membership itself.

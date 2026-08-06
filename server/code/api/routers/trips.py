@@ -2223,12 +2223,28 @@ def export_docx(trip_id: str):
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     import io
+    from urllib.parse import quote
     from fastapi.responses import StreamingResponse
-    safe = "".join(
-        c if c.isalnum() or c in "-_" else "_"
-        for c in (preview.get("title") or "trip")
+
+    # ── WO-TRAVEL-DOC-CLOSEOUT-01: filenames safe for non-Latin titles ──
+    #
+    # `c.isalnum()` is True for 'é', 'Ж' and '京'. Those survived into a
+    # bare `filename="..."` header, which is latin-1 only — so a trip
+    # called "Königsberg" or "京都 2019" could make the whole export fail
+    # at the header, not at the document. The family whose trip it is are
+    # exactly the people who would hit it.
+    #
+    # Two forms, per RFC 6266: an ASCII-only `filename` every client can
+    # read, and `filename*` carrying the real UTF-8 title for those that
+    # can. The ASCII form is a fallback, not a downgrade of the name.
+    raw_title = (preview.get("title") or "trip").strip() or "trip"
+    ascii_safe = "".join(
+        c if (c.isalnum() and c.isascii()) or c in "-_" else "_"
+        for c in raw_title
     )[:60].strip("_") or "trip"
-    filename = f"lorevox_trip_memoir_{safe}.docx"
+    filename = f"lorevox_trip_memoir_{ascii_safe}.docx"
+    utf8_name = quote(f"lorevox_trip_memoir_{raw_title}.docx"[:120],
+                      safe="")
     logger.info(
         "[trips][docx] export trip=%s photos=%d", trip_id, len(photo_rows),
     )
@@ -2239,7 +2255,10 @@ def export_docx(trip_id: str):
             ".wordprocessingml.document"
         ),
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Disposition": (
+                f'attachment; filename="{filename}"; '
+                f"filename*=UTF-8''{utf8_name}"
+            ),
         },
     )
 

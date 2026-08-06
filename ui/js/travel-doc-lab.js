@@ -309,6 +309,11 @@
     // only (never fetched from render) — no auto-load loop possible.
     showHiddenNotes: false,
     showHiddenSources: false,
+    // WO-TRAVEL-DOC-CLOSEOUT-01: photo links have a hidden flag and
+    // the API has always supported ?include_hidden=1, but this tab
+    // never asked. A hidden-but-approved photograph therefore
+    // vanished with no way to see or restore it.
+    showHiddenPhotos: false,
     publicContext: [],   // /public-context rows
     travelogue: null,    // /travelogue-preview (lazy)
     draft: null,         // Draft tab: {scopeKey, preview, result, instruction, status, busy}
@@ -899,6 +904,7 @@
     // per-trip review choice — reset it on trip switch.
     st.showHiddenNotes = false;
     st.showHiddenSources = false;
+    st.showHiddenPhotos = false;
     // WO-2 Phase 2: the review queue is person-scoped, but its default
     // filter is the selected trip, so the page it holds describes a trip
     // the operator is no longer looking at. Drop the page and any open
@@ -1102,7 +1108,8 @@
       api("/api/trips/" + t + "/tree"),
       api("/api/trips/" + t + "/days").catch(
         _captureLoadError("Day cards failed to load", { days: [] })),
-      api("/api/trips/" + t + "/photo-links"),
+      api("/api/trips/" + t + "/photo-links"
+        + (st.showHiddenPhotos ? "?include_hidden=1" : "")),
       // WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: honor the Show-hidden
       // toggles on a bundle reload (e.g. cross-tab BroadcastChannel)
       // so hidden rows don't silently vanish mid-review.
@@ -1217,15 +1224,25 @@
   // dropping the cache is enough: the tab-switch handler fetches when it
   // finds nothing cached, so a background refetch would be a request for
   // a surface nobody is looking at.
+  // Monotonic request token. The trip guard below rejects a response
+  // for a DIFFERENT trip, and that is not enough: two refreshes of the
+  // SAME trip can complete out of order — approve a note, approve a
+  // photo, and the first response can land second and put the older
+  // preview back on screen, under counts that have already moved. Only
+  // the newest request may write.
+  var memoirPreviewToken = 0;
+
   function invalidateMemoirPreview() {
     st.memoirPreview = null;
     if (destroyed || st.tab !== "document" || !st.trip) return Promise.resolve();
     var tripId = st.trip.id;
+    var token = ++memoirPreviewToken;
     return api("/api/trips/" + encodeURIComponent(tripId) + "/memoir-preview")
       .then(function (out) {
         // The operator can switch trips while this is in flight; a
         // preview for the previous trip must not land on the new one.
         if (destroyed || !st.trip || st.trip.id !== tripId) return;
+        if (token !== memoirPreviewToken) return;   // superseded
         st.memoirPreview = out;
         renderAll();
       })
@@ -1258,7 +1275,8 @@
 
   function reloadPhotoLinks() {
     if (!st.trip) return Promise.resolve();
-    return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/photo-links")
+    return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/photo-links"
+      + (st.showHiddenPhotos ? "?include_hidden=1" : ""))
       .then(function (out) { st.photoLinks = out.photo_links || []; })
       .then(invalidateMemoirPreview);
   }
@@ -2099,8 +2117,16 @@
     // Same lazy shape as the travelogue above, for the same reason: a
     // fetch from render() would re-render, which would fetch again.
     if (tab === "document" && !st.memoirPreview && st.trip) {
-      api("/api/trips/" + encodeURIComponent(st.trip.id) + "/memoir-preview")
-        .then(function (out) { st.memoirPreview = out; renderAll(); })
+      // Same token discipline as invalidateMemoirPreview: this fetch and
+      // an approval-triggered one can be in flight together.
+      var _docTripId = st.trip.id;
+      var _docToken = ++memoirPreviewToken;
+      api("/api/trips/" + encodeURIComponent(_docTripId) + "/memoir-preview")
+        .then(function (out) {
+          if (destroyed || !st.trip || st.trip.id !== _docTripId) return;
+          if (_docToken !== memoirPreviewToken) return;
+          st.memoirPreview = out; renderAll();
+        })
         .catch(function (e) { st.error = e.message; renderAll(); });
     }
     // WO-2 Phase 2 — same lazy shape as the travelogue: fetched on the tab
@@ -5607,6 +5633,16 @@
     var ws = el("div", "tdl-photo-workspace");
 
     var rail = el("div", "tdl-filter-rail");
+    // Show hidden — parity with Story Notes and Sources. Without it a
+    // hidden-but-approved photograph is invisible AND uncounted, so the
+    // operator cannot tell it from one that was never approved.
+    rail.appendChild(btn(
+      "tdl-btn tdl-btn-small" + (st.showHiddenPhotos ? " tdl-active" : ""),
+      st.showHiddenPhotos ? "Show hidden \u2713" : "Show hidden",
+      function () {
+        st.showHiddenPhotos = !st.showHiddenPhotos;
+        reloadPhotoLinks().then(function () { renderAll(); });
+      }));
     PHOTO_FILTERS.forEach(function (f) {
       var n = st.photoLinks.filter(function (l) {
         if (f[0] === "unplaced") return !l.trip_stop_id;
@@ -5709,8 +5745,20 @@
       });
       memLab.appendChild(memCb);
       memLab.appendChild(el("span", "",
-        "In memoir — embed this photograph in the travel document"));
+        "In memoir \u2014 embed this photograph in the travel document"));
       detail.appendChild(memLab);
+      // Hide / Restore, the same reversible lane notes and sources use.
+      // A hidden link stays out of the document whatever its In-memoir
+      // tick says, so the state has to be visible and undoable here.
+      if (sel.hidden) {
+        detail.appendChild(el("p", "tdl-doc-unavailable",
+          "Hidden \u2014 stays out of the travel document until restored."));
+        detail.appendChild(btn("tdl-btn tdl-btn-small", "Restore",
+          function () { setPhotoLinkHidden(sel.id, false); }));
+      } else {
+        detail.appendChild(btn("tdl-btn tdl-btn-small", "Hide",
+          function () { setPhotoLinkHidden(sel.id, true); }));
+      }
       detail.appendChild(btn("tdl-btn tdl-btn-gold",
         "💬 Talk with Lori about this photo", function () {
           // SAME in-context overlay drawer the day cards use — never
@@ -5737,6 +5785,14 @@
   // pin that.) Restore is PATCH {hidden:false}. The server excludes
   // hidden rows from list responses (unless include_hidden=1) and from
   // evidence assembly, so the Draft tab needs no change.
+
+  function setPhotoLinkHidden(linkId, hidden) {
+    api("/api/trips/photo-links/" + encodeURIComponent(linkId),
+      { method: "PATCH", body: { hidden: !!hidden } })
+      .then(function () { return reloadPhotoLinks(); })
+      .then(function () { st.error = ""; renderAll(); })
+      .catch(function (e) { st.error = e.message; renderAll(); });
+  }
 
   function hideNote(noteId) {
     api("/api/trips/location-notes/" + encodeURIComponent(noteId),
@@ -8017,11 +8073,14 @@
 
     function noteBlock(parent, rows, cls) {
       (rows || []).forEach(function (n) {
-        var t = (n.note_text || "").trim();
-        if (!t) return;
-        if (n.note_title) parent.appendChild(el("div", "tdl-doc-note-title",
-          n.note_title));
-        parent.appendChild(el("p", cls || "tdl-doc-note", t));
+        // The DOCX prints the title and the body INDEPENDENTLY, so a
+        // note with a title and no body still reaches the document. The
+        // first cut returned early when the body was empty and hid that
+        // title from review.
+        var title = (n.note_title || "").trim();
+        var body = (n.note_text || "").trim();
+        if (title) parent.appendChild(el("div", "tdl-doc-note-title", title));
+        if (body) parent.appendChild(el("p", cls || "tdl-doc-note", body));
       });
     }
 
@@ -8119,17 +8178,52 @@
       });
     }
 
+    // ── Part III, from the SAME projection the DOCX consumes ─────────
+    //
+    // The document prints group headings, a caption and a date under
+    // every photograph, and a line naming any file it could not open.
+    // The first cut of this preview printed a single number, so the
+    // operator reviewed a count while the family received captions and
+    // headings nobody had seen.
     var app = p.part_three_photo_appendix || {};
-    if (typeof app.embedded_photos === "number") {
-      wrap.appendChild(el("h2", "", "Photo appendix"));
+    var groups = app.groups || [];
+    wrap.appendChild(el("h2", "", "Photo appendix"));
+    wrap.appendChild(el("p", "tdl-muted",
+      (app.approved || 0)
+      + ((app.approved === 1) ? " photograph" : " photographs")
+      + " approved. Captions are the narrator\u2019s own words, or an "
+      + "operator caption you have approved \u2014 never an unapproved "
+      + "description."));
+    if (app.unavailable) {
+      wrap.appendChild(el("p", "tdl-doc-unavailable",
+        app.unavailable + " of them "
+        + (app.unavailable === 1 ? "cannot be found on disk and will be "
+           : "cannot be found on disk and will be ")
+        + "left out of the document. The rest will be embedded."));
+    }
+    groups.forEach(function (g) {
+      var gc = el("div", "tdl-doc-photo-group");
+      gc.appendChild(el("h3", "", g.label || "Unplaced"));
+      (g.photos || []).forEach(function (ph) {
+        var row = el("div", "tdl-doc-photo");
+        if (ph.photo_id) row.appendChild(thumbImg(ph.photo_id, ph.caption, true));
+        var meta = el("div", "tdl-doc-photo-meta");
+        var bits = [ph.caption, ph.taken_at].filter(Boolean);
+        meta.appendChild(el("div", "tdl-doc-photo-caption",
+          bits.length ? bits.join(" \u2014 ") : "(no caption)"));
+        if (!ph.available) {
+          meta.appendChild(el("div", "tdl-doc-unavailable",
+            "File not found \u2014 this one will be missing from the "
+            + "document."));
+        }
+        row.appendChild(meta);
+        gc.appendChild(row);
+      });
+      wrap.appendChild(gc);
+    });
+    if (!groups.length) {
       wrap.appendChild(el("p", "tdl-muted",
-        app.embedded_photos < 0
-          ? "Photo count unavailable."
-          : (app.embedded_photos
-            + (app.embedded_photos === 1 ? " photograph" : " photographs")
-            + " approved for the appendix. Captions are the narrator\u2019s own "
-            + "words, or an operator caption you have approved \u2014 "
-            + "never an unapproved description.")));
+        "No photographs are approved for this trip yet."));
     }
     return wrap;
   }

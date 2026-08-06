@@ -360,12 +360,21 @@ class EveryExportedWordIsReviewableTest(unittest.TestCase):
         # Every `.get("x")` inside the builder, minus the photo-row and
         # bookkeeping reads, which are not prose the operator reviews.
         reads = set(re.findall(r'\.get\(\s*"(\w+)"', self.docx))
+        # Not prose the operator reviews in Part I / II: photo-row
+        # columns, and the appendix PROJECTION's own structure. The
+        # appendix's text -- group labels, captions, dates and the
+        # unavailable-file line -- is proved end to end against a real
+        # opened .docx in tests/test_travel_document_docx_artifact.py,
+        # which is a stronger instrument than a field-name list.
         photo_row_only = {
             "photo_image_path", "photo_description", "photo_date_value",
             "narrator_caption", "caption", "caption_approved_for_lori",
             "taken_at", "stop_location_name", "region_title",
             "trip_stop_id", "id", "assigned_photos", "unassigned_photos",
             "start", "end", "embedded_photos",
+            # projection structure
+            "groups", "photos", "label", "available", "image_path",
+            "approved_by_stop", "approved",
         }
         named = {f for fields in self.EXPORTED_TEXT.values() for f in fields}
         unnamed = reads - photo_row_only - named
@@ -381,6 +390,28 @@ class EveryExportedWordIsReviewableTest(unittest.TestCase):
             's.get("summary") or s.get("pasted_text") or', self.docx)
         self.assertIn(
             "srow.summary || srow.pasted_text || srow.link_url", self.body)
+
+    def test_a_title_only_note_is_previewed(self):
+        """The DOCX prints a note's title and its body INDEPENDENTLY, so
+        a note with a title and no body still reaches the document. The
+        preview returned early when the body was empty and hid that title
+        from review.
+
+        Added after a surviving mutant: reinstating `if (title && body)`
+        left the whole suite green, because nothing asserted the two are
+        rendered independently.
+        """
+        i = self.js.index("function noteBlock(")
+        body = self.js[i:self.js.index("\n    }", i)]
+        self.assertIn("if (title) parent.appendChild", body)
+        self.assertIn("if (body) parent.appendChild", body)
+        self.assertNotIn("if (!t) return;", body)
+        self.assertNotIn("title && body", body)
+        # And the builder really does print them independently.
+        i2 = self.docx.index("def _story_notes(")
+        dbody = self.docx[i2:self.docx.index("\n    def ", i2)]
+        self.assertIn("if t:", dbody)
+        self.assertIn("if body:", dbody)
 
     def test_the_stop_notes_field_is_previewed(self):
         self.assertIn('stop.get("notes")', self.docx)
@@ -405,8 +436,8 @@ class ThePhotoCountsAgreeWithTheDocumentTest(unittest.TestCase):
         self.docx = (_SERVER / "api" / "services"
                      / "trip_memoir_docx.py").read_text(encoding="utf-8")
 
-    def test_the_appendix_counts_the_rows_it_was_given(self):
-        self.assertIn("_approved = len(photo_rows or [])", self.docx)
+    def test_the_appendix_counts_the_projection_it_was_given(self):
+        self.assertIn("appendix_proj.get('approved', 0)", self.docx)
         self.assertIn("Approved photos in appendix", self.docx)
 
     def test_the_all_link_inventory_is_no_longer_printed(self):
@@ -423,14 +454,14 @@ class ThePhotoCountsAgreeWithTheDocumentTest(unittest.TestCase):
         self.assertNotIn("Photos assigned to stops", code)
         self.assertNotIn("awaiting assignment", code)
         # Positive half: something IS printed there.
-        self.assertIn('doc.add_paragraph(f"Approved photos in appendix', code)
+        self.assertIn("Approved photos in appendix", code)
 
     def test_the_embedded_count_is_reported_after_file_access(self):
         """Approved and embedded are different numbers when a file is
         missing from disk, and the reader should not have to count
         pictures to notice."""
         i_emb = self.docx.index("photo{'s' if embedded != 1 else ''} embedded")
-        i_loop = self.docx.index("if not path or not os.path.isfile")
+        i_loop = self.docx.index('if not ph.get("available")')
         self.assertLess(i_loop, i_emb)
         self.assertIn("unavailable", self.docx)
 
@@ -438,16 +469,19 @@ class ThePhotoCountsAgreeWithTheDocumentTest(unittest.TestCase):
         """`photo_count` counts every link on the stop, so a stop could
         read "· 3 photos" in a document containing one of them."""
         self.assertIn("_approved_by_stop", self.docx)
-        self.assertIn("n_photos = _approved_by_stop.get(stop.get(\"id\"), 0)",
+        self.assertIn('n_photos = _approved_by_stop.get(stop.get("id"), 0)',
                       self.docx)
         self.assertNotIn('n_photos = stop.get("photo_count")', self.docx)
 
     def test_the_two_tallies_share_one_source(self):
         """Part I's per-stop counts and Part III's appendix are two views
         of `photo_rows`, so they cannot drift apart."""
-        i = self.docx.index("_approved_by_stop: Dict[str, int] = {}")
-        block = self.docx[i:i + 400]
-        self.assertIn("for _r in photo_rows or []:", block)
+        # Both come out of ONE projection call now, which is a stronger
+        # form of the same claim than two loops over the same list.
+        self.assertEqual(1, self.docx.count("_proj_fn(rows="),
+                         "the projection is built more than once")
+        i = self.docx.index("_approved_by_stop: Dict[str, int] = appendix_proj")
+        self.assertGreater(i, self.docx.index("appendix_proj = _proj_fn("))
 
 
 class OnlyNarratorSafeCaptionsAreExportedTest(unittest.TestCase):
@@ -469,15 +503,21 @@ class OnlyNarratorSafeCaptionsAreExportedTest(unittest.TestCase):
     """
 
     def setUp(self):
-        self.src = (_SERVER / "api" / "services"
-                    / "trip_memoir_docx.py").read_text(encoding="utf-8")
+        # MOVED 2026-08-05: the rule now lives beside the appendix
+        # grouping, in trip_repository, so the preview and the DOCX apply
+        # ONE implementation. A second copy in the builder would drift,
+        # and the direction it drifts in is unapproved text reaching a
+        # family document.
+        self.src = _REPO_SVC
+        self.docx_src = (_SERVER / "api" / "services"
+                         / "trip_memoir_docx.py").read_text(encoding="utf-8")
 
     def _caption(self, row):
         ns = {}
-        i = self.src.index("def _safe_caption(")
+        i = self.src.index("def _safe_photo_caption(")
         exec(compile(self.src[i:self.src.index("\ndef ", i + 10)],
-                     "<docx>", "exec"), ns)
-        return ns["_safe_caption"](row)
+                     "<repo>", "exec"), ns)
+        return ns["_safe_photo_caption"](row)
 
     def test_the_narrator_caption_always_wins(self):
         self.assertEqual("Peter and Josie", self._caption({
@@ -509,10 +549,13 @@ class OnlyNarratorSafeCaptionsAreExportedTest(unittest.TestCase):
         with words nobody sanctioned is not."""
         self.assertEqual("", self._caption({}))
 
-    def test_the_builder_has_no_other_caption_path(self):
-        self.assertNotIn('row.get("photo_description")',
-                         self.src[self.src.index("def build_trip_docx("):])
-        self.assertIn("_safe_caption(row)", self.src)
+    def test_the_builder_has_no_caption_rule_of_its_own(self):
+        """One implementation. The builder reads the projection's
+        caption; it does not choose one."""
+        code = re.sub(r"^\s*#.*$", "", self.docx_src, flags=re.M)
+        self.assertNotIn("photo_description", code)
+        self.assertNotIn("def _safe_caption", code)
+        self.assertIn('ph.get("caption")', code)
 
 
 class TheApprovalControlsExistWhereTheTabSaysTest(unittest.TestCase):
@@ -672,9 +715,9 @@ class HiddenRowsAreNotInTheDocumentTest(unittest.TestCase):
         # guards, and a function boundary is what was meant all along.
         i = _REPO_SVC.index("def trip_memoir_preview(")
         body = _REPO_SVC[i:_REPO_SVC.index("\ndef ", i + 10)]
-        self.assertIn("photo_links_with_photo_paths(trip_id, memoir_only=True)",
-                      body)
+        self.assertIn("photo_appendix_projection(trip_id)", body)
         self.assertIn('"embedded_photos": _counts["photos_in"]', body)
+        self.assertIn('_counts["photos_in"] = _appendix["approved"]', body)
 
     def test_the_export_query_still_excludes_deleted_and_hidden(self):
         """Non-vacuity: the counts are only right because this is."""
@@ -719,6 +762,159 @@ class SequentialExportsCleanUpTest(unittest.TestCase):
 def _destroy_body(src: str) -> str:
     i = src.index("destroy: function () {")
     return src[i:src.index("\n    }", i)]
+
+
+class ThePhotoAppendixIsOneProjectionTest(unittest.TestCase):
+    """P0/P1. The preview printed a number; the DOCX printed group
+    headings, captions, dates and a missing-file line. The operator
+    reviewed one and the family received the other.
+    """
+
+    def setUp(self):
+        self.js = _strip_js_comments(_JS)
+        self.docx = (_SERVER / "api" / "services"
+                     / "trip_memoir_docx.py").read_text(encoding="utf-8")
+
+    def test_there_is_one_projection_function(self):
+        self.assertIn("def photo_appendix_projection(", _REPO_SVC)
+        self.assertEqual(1, _REPO_SVC.count("def photo_appendix_projection("))
+
+    def test_both_consumers_read_it(self):
+        self.assertIn("photo_appendix_projection(trip_id)", _REPO_SVC)
+        self.assertIn("photo_appendix_projection as _proj_fn", self.docx)
+
+    def test_the_builder_no_longer_groups_by_display_text(self):
+        """Two stops called "Hotel", or a stop and a region sharing a
+        name, collapsed into one appendix section -- the photographs of
+        two different places silently became one."""
+        code = re.sub(r"^\s*#.*$", "", self.docx, flags=re.M)
+        self.assertNotIn('row.get("stop_location_name")', code)
+        self.assertNotIn("_groups[key]", code)
+
+    def test_groups_are_keyed_by_scope_id(self):
+        i = _REPO_SVC.index("def photo_appendix_projection(")
+        body = _REPO_SVC[i:_REPO_SVC.index("\ndef ", i + 10)]
+        self.assertIn('f"stop:{stop_id}"', body)
+        self.assertIn('f"region:{region_id}"', body)
+
+    def test_the_projection_never_carries_photo_description(self):
+        """Read as an AST with the docstring dropped.
+
+        The docstring explains, at length, why `photo_description` must
+        never appear -- so a text scan fires on the explanation. Stripping
+        `#` comments was not enough for the same reason it never is: the
+        prose that documents a rule contains the word the rule forbids.
+        """
+        fn = next(n for n in ast.walk(ast.parse(_REPO_SVC))
+                  if isinstance(n, ast.FunctionDef)
+                  and n.name == "photo_appendix_projection")
+        stmts = fn.body
+        first = stmts[0]
+        if (isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant)
+                and isinstance(first.value.value, str)):
+            stmts = stmts[1:]
+        code = "\n".join(ast.unparse(n) for n in stmts)
+        self.assertNotIn("photo_description", code)
+        # Positive half: it DOES read the caption fields it is allowed to.
+        self.assertIn("_safe_photo_caption", code)
+
+    def test_the_browser_copy_has_no_filesystem_path(self):
+        """A path is not a thing to hand a browser; `photo_id` is what a
+        thumbnail needs."""
+        i = _REPO_SVC.index('"part_three_photo_appendix": {')
+        block = _REPO_SVC[i:i + 1400]
+        self.assertIn('if k != "image_path"', block)
+
+    def test_the_preview_renders_the_appendix_not_a_number(self):
+        i = self.js.index("function renderTravelDocument(")
+        body = self.js[i:self.js.index("function renderDraft()", i)]
+        for token in ("app.groups", "g.label", "ph.caption", "ph.taken_at",
+                      "ph.available", "app.unavailable"):
+            with self.subTest(token=token):
+                self.assertIn(token, body, token)
+
+
+class HiddenPhotosAreVisibleAndRestorableTest(unittest.TestCase):
+    """P1. Hidden-approved photographs disappeared with no way to see or
+    restore them: the hidden-approved counts covered notes and sources
+    only, and the Photos reload never asked for hidden rows even though
+    the API has always supported it."""
+
+    def setUp(self):
+        self.js = _strip_js_comments(_JS)
+
+    def test_the_server_counts_hidden_approved_photos(self):
+        self.assertIn('"photos_hidden_approved"', _REPO_SVC)
+        self.assertIn("photo_links_list(trip_id, include_hidden=True)",
+                      _REPO_SVC)
+
+    def test_the_photos_reload_can_ask_for_hidden(self):
+        i = self.js.index("function reloadPhotoLinks(")
+        body = self.js[i:self.js.index("\n  }", i)]
+        self.assertIn("st.showHiddenPhotos", body)
+        self.assertIn("include_hidden=1", body)
+
+    def test_the_photos_tab_has_show_hidden_and_restore(self):
+        self.assertIn("st.showHiddenPhotos = !st.showHiddenPhotos", self.js)
+        self.assertIn("setPhotoLinkHidden(sel.id, false)", self.js)
+        self.assertIn("setPhotoLinkHidden(sel.id, true)", self.js)
+
+    def test_restoring_is_a_patch_never_a_delete(self):
+        i = self.js.index("function setPhotoLinkHidden(")
+        body = self.js[i:self.js.index("\n  }", i)]
+        self.assertIn('method: "PATCH"', body)
+        self.assertNotIn("DELETE", body)
+
+
+class ThePreviewCannotBeOverwrittenByAnOlderResponseTest(unittest.TestCase):
+    """P1. The trip guard rejects a response for a DIFFERENT trip, and
+    that is not enough: two refreshes of the SAME trip can complete out
+    of order, so an older preview can land second and reappear under
+    counts that have already moved."""
+
+    def setUp(self):
+        self.js = _strip_js_comments(_JS)
+
+    def test_there_is_a_monotonic_token(self):
+        self.assertIn("var memoirPreviewToken = 0;", self.js)
+        self.assertIn("++memoirPreviewToken", self.js)
+
+    def test_both_fetch_sites_take_a_token(self):
+        """The invalidation refetch and the tab-switch fetch can be in
+        flight together, so guarding only one leaves the race open."""
+        self.assertEqual(2, self.js.count("++memoirPreviewToken"))
+
+    def test_a_superseded_response_does_not_write(self):
+        for guard in ("if (token !== memoirPreviewToken) return;",
+                      "if (_docToken !== memoirPreviewToken) return;"):
+            with self.subTest(guard=guard):
+                self.assertIn(guard, self.js)
+
+
+class ExportFilenamesSurviveNonLatinTitlesTest(unittest.TestCase):
+    """P2. `c.isalnum()` is True for 'é', 'Ж' and '京'. Those reached a
+    bare `filename="..."` header, which is latin-1 only, so a trip called
+    "Königsberg" or "京都 2019" could fail at the header rather than at
+    the document -- and the family whose trip it is are exactly the
+    people who would hit it."""
+
+    def test_the_ascii_fallback_is_ascii(self):
+        self.assertIn("c.isalnum() and c.isascii()", _TRIPS)
+
+    def test_a_utf8_filename_star_is_also_sent(self):
+        self.assertIn("filename*=UTF-8''", _TRIPS)
+        self.assertIn("from urllib.parse import quote", _TRIPS)
+
+    def test_the_header_carries_both_forms(self):
+        i = _TRIPS.index("Content-Disposition")
+        block = _TRIPS[i:i + 300]
+        self.assertIn('filename="{filename}"', block)
+        self.assertIn("filename*=UTF-8", block)
+
+    def test_the_ascii_form_never_empties_out(self):
+        """A title of only non-Latin characters must still produce a
+        usable name rather than `lorevox_trip_memoir_.docx`."""
+        self.assertIn('.strip("_") or "trip"', _TRIPS)
 
 
 class NarratorStoriesAreNotSweptInTest(unittest.TestCase):

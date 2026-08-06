@@ -26,38 +26,18 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger("code.api.services.trip_memoir_docx")
 
 
-def _safe_caption(row: dict) -> str:
-    """WO-TRAVEL-DOC-CLOSEOUT-01 — only narrator-safe caption text.
-
-    THE RULE ALREADY EXISTED AND THIS PATH BYPASSED IT.
-    `trip_repository._NARRATOR_PHOTO_LINK_COLS` states it plainly:
-    narrator_caption first, else the operator caption ONLY when
-    `caption_approved_for_lori = 1`, else nothing. That constant guards
-    the narrator READ, but `photo_links_with_photo_paths` is a
-    `SELECT l.*` for the export, so the raw `caption` column and the
-    photo's own `description` arrived unfiltered and the caption chain
-    fell straight through both.
-
-    The consequence is not cosmetic. `photo_description` is operator- or
-    machine-written text that nobody approved for a narrator to hear,
-    and this document is the artefact a family reads as the record. An
-    unapproved description printed under a photograph in a memoir is
-    indistinguishable, to the reader, from something the narrator said.
-
-    Editing an operator caption REVOKES its approval (WO-TRIP-PHOTO-
-    CONTEXT-ENRICHMENT Ph5), so an edited-but-unre-approved caption
-    correctly disappears from the document until it is approved again.
-
-    No caption is the right answer when nothing is approved. A
-    photograph with a date and no words is honest; a photograph with
-    words nobody sanctioned is not.
-    """
-    narrator = (row.get("narrator_caption") or "").strip()
-    if narrator:
-        return narrator
-    if row.get("caption_approved_for_lori"):
-        return (row.get("caption") or "").strip()
-    return ""
+# WO-TRAVEL-DOC-CLOSEOUT-01 — `_safe_caption` MOVED, not deleted.
+#
+# It lived here and chose the caption for the document. The browser
+# preview had no equivalent, so the operator reviewed a count while the
+# family received captions. The rule now lives beside the grouping, in
+# `trip_repository._safe_photo_caption`, and BOTH consumers read the one
+# projection that applies it.
+#
+# Deliberately not left here as a second copy. Two implementations of
+# "which caption is safe to print" would drift, and the direction they
+# drift in is unapproved text reaching a family document -- which has
+# already happened once on this path.
 
 
 def build_trip_docx(
@@ -125,14 +105,16 @@ def build_trip_docx(
     _story_notes(preview.get("story_notes"))
     _sources(preview.get("sources"))
 
-    # Approved photographs per stop, from the export set itself, so the
-    # per-stop counts in Part I and the appendix in Part III are two
-    # views of one list rather than two independent tallies.
-    _approved_by_stop: Dict[str, int] = {}
-    for _r in photo_rows or []:
-        _sid = _r.get("trip_stop_id")
-        if _sid:
-            _approved_by_stop[_sid] = _approved_by_stop.get(_sid, 0) + 1
+    # ONE projection for the whole appendix -- grouping, captions, file
+    # availability and the per-stop counts. Built once, here, so Part I's
+    # "· N photos" and Part III's sections cannot disagree, and so the
+    # browser preview (which reads the same projection out of
+    # `trip_memoir_preview`) shows the operator exactly what the document
+    # will contain.
+    from .trip_repository import photo_appendix_projection as _proj_fn
+    appendix_proj = _proj_fn(rows=list(photo_rows or []))
+    _approved_by_stop: Dict[str, int] = appendix_proj.get(
+        "approved_by_stop", {})
 
     # ── Part I — The Journey in Order ────────────────────────────────
     doc.add_heading("Part I — The Journey in Order", level=1)
@@ -219,33 +201,35 @@ def build_trip_docx(
     # The all-link inventory is not printed at all. It is a workspace
     # number, useful to an operator deciding what to approve, and
     # meaningless to a reader holding the finished document.
-    _approved = len(photo_rows or [])
-    doc.add_paragraph(f"Approved photos in appendix: {_approved}")
+    # ── WO-TRAVEL-DOC-CLOSEOUT-01: ONE projection, two consumers ─────
+    #
+    # This used to group rows itself, keyed by
+    # `str(stop_location_name or region_title or "Unplaced")` -- DISPLAY
+    # TEXT. Two stops both called "Hotel", or a stop and a region
+    # sharing a name, collapsed into one appendix section, so the
+    # photographs of two different places silently became one. Keys are
+    # stop/region IDs now, and the grouping happens once, in the
+    # repository, where the preview reads it too.
+    #
+    # It also chose its own caption and resolved its own file
+    # availability, which is why the preview could promise photographs
+    # the document did not contain.
+    doc.add_paragraph(
+        f"Approved photos in appendix: {appendix_proj.get('approved', 0)}")
     embedded = 0
     skipped = 0
-    # Group photos under their stop instead of a single flat list. Rows with
-    # no stop fall under "Unplaced".
-    _groups: Dict[str, List[Dict[str, Any]]] = {}
-    _order: List[str] = []
-    for row in photo_rows or []:
-        key = str(row.get("stop_location_name")
-                  or row.get("region_title") or "Unplaced")
-        if key not in _groups:
-            _groups[key] = []
-            _order.append(key)
-        _groups[key].append(row)
-    for key in _order:
-        doc.add_heading(key, level=2)
-        for row in _groups[key]:
-            path = row.get("photo_image_path")
-            if not path or not os.path.isfile(str(path)):
+    for group in appendix_proj.get("groups", []):
+        doc.add_heading(str(group.get("label") or "Unplaced"), level=2)
+        for ph in group.get("photos", []):
+            path = ph.get("image_path")
+            if not ph.get("available") or not path:
                 skipped += 1
                 continue
             try:
                 doc.add_picture(str(path), width=Inches(4.5))
-                caption = _safe_caption(row)
-                when = row.get("taken_at") or row.get("photo_date_value") or ""
-                cap_bits = [b for b in (str(caption).strip(), str(when).strip()) if b]
+                cap_bits = [b for b in (str(ph.get("caption") or "").strip(),
+                                        str(ph.get("taken_at") or "").strip())
+                            if b]
                 if cap_bits:
                     cp = doc.add_paragraph(" — ".join(cap_bits))
                     cp.runs[0].font.size = Pt(9)
@@ -255,6 +239,7 @@ def build_trip_docx(
                 logger.warning(
                     "[trip-docx] photo embed failed path=%s: %s", path, exc,
                 )
+
     if photo_rows is not None:
         # After file access, because until every path has been tried we
         # do not know how many photographs the document actually holds.
