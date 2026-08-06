@@ -596,6 +596,18 @@
           throw err;
         });
       }
+      // WO-TRAVEL-DOC-CLOSEOUT-01 — `opts.raw` returns the Response
+      // instead of parsed JSON, for the one route that answers with a
+      // .docx byte stream rather than a document of facts.
+      //
+      // Added HERE rather than as a second `fetch()` elsewhere in the
+      // module. The whole async-safety design of this file rests on
+      // there being exactly one fetch with exactly one set of destroyed
+      // guards -- `test_the_only_fetch_is_guarded_on_every_arm` exists
+      // to hold that, and it caught the second fetch the moment it
+      // appeared. A caller must opt in explicitly, so no existing call
+      // site can be handed a Response by surprise.
+      if (opts.raw) return r;
       return r.json();
     }, function (err) {
       if (destroyed) return abandoned();
@@ -845,6 +857,8 @@
     st.routeBusy = null;
     st.routeError = "";
     st.travelogue = null;
+    st.memoirPreview = null;   // WO-TRAVEL-DOC-CLOSEOUT-01
+    st.docExport = null;      // {busy, error, status}
     st.draft = null;
     st.loriOverlay = false;
     st.loriReturnTab = "plan";
@@ -989,6 +1003,8 @@
     st.sources = [];
     st.publicContext = [];
     st.travelogue = null;
+    st.memoirPreview = null;   // WO-TRAVEL-DOC-CLOSEOUT-01
+    st.docExport = null;      // {busy, error, status}
     st.draft = null;
     st.selectedDayId = null;
     st.selectedPhotoLinkId = null;
@@ -2005,6 +2021,7 @@
     ["notes", "Story Notes"],
     ["sources", "Sources"],
     ["travelogue", "Travelogue"],
+    ["document", "Travel Document"],
     ["draft", "Draft"],
     ["captured", "Captured Notes"],
   ];
@@ -2032,6 +2049,14 @@
     if (tab === "travelogue" && !st.travelogue && st.trip) {
       api("/api/trips/" + encodeURIComponent(st.trip.id) + "/travelogue-preview")
         .then(function (out) { st.travelogue = out; renderAll(); })
+        .catch(function (e) { st.error = e.message; renderAll(); });
+    }
+    // WO-TRAVEL-DOC-CLOSEOUT-01 — the finished document's own surface.
+    // Same lazy shape as the travelogue above, for the same reason: a
+    // fetch from render() would re-render, which would fetch again.
+    if (tab === "document" && !st.memoirPreview && st.trip) {
+      api("/api/trips/" + encodeURIComponent(st.trip.id) + "/memoir-preview")
+        .then(function (out) { st.memoirPreview = out; renderAll(); })
         .catch(function (e) { st.error = e.message; renderAll(); });
     }
     // WO-2 Phase 2 — same lazy shape as the travelogue: fetched on the tab
@@ -2316,6 +2341,7 @@
       case "captured": return renderCaptured();
       case "sources": return renderSources();
       case "travelogue": return renderTravelogue();
+      case "document": return renderTravelDocument();
       case "draft": return renderDraft();
       default: return el("div");
     }
@@ -7601,6 +7627,213 @@
     return card;
   }
 
+  // ── Travel Document (WO-TRAVEL-DOC-CLOSEOUT-01) ────────────────────
+  //
+  // The finished deliverable. Everything else in this workspace gathers
+  // evidence; this is where the operator sees what the document will
+  // actually contain and exports it.
+  //
+  // WHY IT SHOWS WHAT IS LEFT OUT
+  // The backend already filters on `include_in_memoir` in three places
+  // (story notes, sources, and the photo appendix via memoir_only=True).
+  // That filtering is correct, and it is also invisible: an operator who
+  // cannot see the excluded count has no way to tell "the gravesite story
+  // is not approved yet" from "the export is broken". Showing both sides
+  // is what makes the approval gate legible instead of merely enforced.
+  //
+  // ONE EXPORTER. This calls the existing GET /export-docx and renders
+  // the existing memoir-preview. It builds no document of its own.
+  function _docCounts() {
+    var notes = st.notes || [];
+    var sources = st.sources || [];
+    var links = st.photoLinks || [];
+    function inMemoir(r) { return !!r.include_in_memoir; }
+    return {
+      notesIn: notes.filter(inMemoir).length,
+      notesOut: notes.length - notes.filter(inMemoir).length,
+      sourcesIn: sources.filter(inMemoir).length,
+      sourcesOut: sources.length - sources.filter(inMemoir).length,
+      photosIn: links.filter(inMemoir).length,
+      photosOut: links.length - links.filter(inMemoir).length,
+    };
+  }
+
+  function _docLine(label, inCount, outCount, whereToApprove) {
+    var row = el("div", "tdl-doc-count");
+    row.appendChild(el("span", "tdl-doc-count-in",
+      String(inCount) + " " + label + (inCount === 1 ? "" : "s")
+      + " in the document"));
+    if (outCount > 0) {
+      row.appendChild(el("span", "tdl-doc-count-out",
+        outCount + " not approved — " + whereToApprove));
+    }
+    return row;
+  }
+
+  // Handle + URL for the export's object-URL cleanup, so destroy() can
+  // clear a pending revoke rather than leaving a timer and a blob alive.
+  var docExportRevokeTimer = null;
+  var docExportRevokeUrl = null;
+
+  function docExportRevokeNow() {
+    if (docExportRevokeTimer) {
+      clearTimeout(docExportRevokeTimer);
+      docExportRevokeTimer = null;
+    }
+    if (docExportRevokeUrl) {
+      try { URL.revokeObjectURL(docExportRevokeUrl); } catch (_) {}
+      docExportRevokeUrl = null;
+    }
+  }
+
+  function _exportTravelDocument() {
+    if (!st.trip) return;
+    var d = st.docExport || (st.docExport = {});
+    if (d.busy) return;                       // no double-download
+    d.busy = true; d.error = null; d.status = "Building the document…";
+    renderAll();
+
+    // Through `api()` with `raw`, so this download inherits the module's
+    // one set of destroyed guards and its structured error handling. A
+    // non-ok response is already turned into an Error carrying .status
+    // and .body before it reaches here.
+    //
+    // Deliberately NOT a plain <a download>: a 503 (python-docx missing
+    // on the server) would be saved to disk AS the document, and the
+    // operator would open a Word file containing an error page.
+    api("/api/trips/" + encodeURIComponent(st.trip.id) + "/export-docx",
+        { raw: true }).then(function (r) {
+      if (destroyed || !r) return null;
+      // The filename the server chose, so the saved file matches what an
+      // operator would see if they hit the route directly.
+      var name = "travel-document.docx";
+      var cd = r.headers.get("Content-Disposition") || "";
+      var hit = /filename="([^"]+)"/.exec(cd);
+      if (hit) name = hit[1];
+      return r.blob().then(function (blob) { return { blob: blob, name: name }; });
+    }).then(function (got) {
+      if (destroyed || !got) return;
+      var href = URL.createObjectURL(got.blob);
+      var a = document.createElement("a");
+      a.href = href; a.download = got.name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // Revoked on a timer rather than immediately: some browsers have
+      // not finished reading the blob when click() returns, and revoking
+      // too early produces an empty file with no error anywhere.
+      //
+      // The handle is STORED, so destroy() can clear it and revoke at
+      // once. That is the stronger of the two timer shapes this module
+      // uses -- a handle nobody stores cannot be cleared -- and it also
+      // frees a multi-megabyte blob on teardown instead of holding it
+      // for the rest of the minute.
+      docExportRevokeUrl = href;
+      docExportRevokeTimer = setTimeout(function () {
+        if (destroyed) return;
+        docExportRevokeTimer = null;
+        docExportRevokeUrl = null;
+        URL.revokeObjectURL(href);
+      }, 60000);
+      d.busy = false;
+      d.status = "Saved " + got.name;
+      renderAll();
+    }).catch(function (e) {
+      if (destroyed) return;
+      d.busy = false; d.status = null;
+      d.error = e && e.message ? e.message : String(e);
+      renderAll();
+    });
+  }
+
+  function renderTravelDocument() {
+    // Reuses `.tdl-document` so the finished write-up looks like the
+    // page it is, the same as the travelogue surface; `tdl-doc` carries
+    // only this tab's own hooks.
+    var wrap = el("div", "tdl-document tdl-doc");
+    if (!st.trip) {
+      wrap.appendChild(el("div", "tdl-empty", "Select a trip first."));
+      return wrap;
+    }
+    var d = st.docExport || (st.docExport = {});
+    var c = _docCounts();
+    var p = st.memoirPreview;
+
+    wrap.appendChild(el("p", "tdl-doc-kicker",
+      "Travel document · the finished, shareable write-up of this trip"));
+    wrap.appendChild(el("h1", "", st.trip.title || "Travel document"));
+    wrap.appendChild(el("p", "tdl-muted",
+      "This is built from what you have approved. Anything you have not "
+      + "ticked for the memoir stays out of it."));
+
+    // What is in, and what is not.
+    var counts = el("div", "tdl-doc-counts");
+    counts.appendChild(_docLine("story note", c.notesIn, c.notesOut,
+      "tick “In memoir” on the Story Notes tab"));
+    counts.appendChild(_docLine("source", c.sourcesIn, c.sourcesOut,
+      "tick “In memoir” on the Sources tab"));
+    counts.appendChild(_docLine("photo", c.photosIn, c.photosOut,
+      "tick “In memoir” on the Photos tab"));
+    wrap.appendChild(counts);
+
+    if (c.notesIn === 0 && c.sourcesIn === 0 && c.photosIn === 0) {
+      wrap.appendChild(el("div", "tdl-doc-empty-note",
+        "Nothing is approved for the memoir yet, so the document would "
+        + "contain only the trip outline — the regions, stops and dates. "
+        + "That is a valid document; it just has no stories in it yet."));
+    }
+
+    // Export.
+    var bar = el("div", "tdl-doc-actions");
+    var exportBtn = btn("tdl-btn tdl-btn-primary",
+      d.busy ? "Building…" : "Export Travel Document",
+      _exportTravelDocument);
+    exportBtn.disabled = !!d.busy;
+    bar.appendChild(exportBtn);
+    if (d.status) bar.appendChild(el("span", "tdl-doc-status", d.status));
+    wrap.appendChild(bar);
+    if (d.error) {
+      var err = el("div", "tdl-error", d.error);
+      err.appendChild(btn("tdl-btn", "Dismiss", function () {
+        d.error = null; renderAll();
+      }));
+      wrap.appendChild(err);
+    }
+
+    // The preview: exactly the rows the DOCX renders, from the same route.
+    if (!p) {
+      wrap.appendChild(el("div", "tdl-muted", "Loading the document…"));
+      return wrap;
+    }
+    wrap.appendChild(el("h2", "", "What is in the document"));
+    (p.part_one || []).forEach(function (region) {
+      var card = el("div", "tdl-doc-region");
+      card.appendChild(el("h3", "", region.region || "(untitled region)"));
+      (region.story_notes || []).forEach(function (n) {
+        card.appendChild(el("p", "tdl-doc-note", n.note_text || ""));
+      });
+      (region.stops || []).forEach(function (stop) {
+        var sc = el("div", "tdl-doc-stop");
+        sc.appendChild(el("div", "tdl-doc-stop-name",
+          stop.location_name || "(unnamed stop)"));
+        (stop.story_notes || []).forEach(function (n) {
+          sc.appendChild(el("p", "tdl-doc-note", n.note_text || ""));
+        });
+        card.appendChild(sc);
+      });
+      wrap.appendChild(card);
+    });
+    if ((p.part_two || []).length) {
+      wrap.appendChild(el("h2", "", "Themes"));
+      (p.part_two || []).forEach(function (t) {
+        wrap.appendChild(el("p", "tdl-doc-theme",
+          (t.theme || "") + (t.stops && t.stops.length
+            ? " — " + t.stops.join(", ") : "")));
+      });
+    }
+    return wrap;
+  }
+
   function renderDraft() {
     var wrap = el("div", "tdl-draft");
     if (!st.trip) {
@@ -9353,6 +9586,12 @@
       // pending at all, instead of one timer that will wake up and
       // return.
       try { pickerPollStop(); } catch (e) {}
+      // WO-TRAVEL-DOC-CLOSEOUT-01 -- the export's object-URL cleanup.
+      // Same shape and same reason: the callback checks `destroyed`, and
+      // clearing the handle here means teardown leaves nothing pending.
+      // It also revokes immediately, which frees a multi-megabyte blob
+      // rather than holding it for the rest of the minute.
+      try { docExportRevokeNow(); } catch (e) {}
       try { if (_tdlUpdateChannel) _tdlUpdateChannel.close(); } catch (e) {}
       _tdlUpdateChannel = null;
       try { loriPane.reset(); } catch (e) {}

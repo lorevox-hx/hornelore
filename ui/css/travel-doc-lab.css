@@ -1096,3 +1096,31 @@
 /* Step 5 — quick capture. A row of three, at the top of the day the
    operator is looking at, above everything that already happened. */
 .tdl-cal-quick { display: flex; flex-wrap: wrap; gap: .4rem; margin: 0 0 .5rem; }
+
+/* ── Travel Document tab (WO-TRAVEL-DOC-CLOSEOUT-01) ─────────────────
+   Structural only; every colour reuses an existing --tdl-* variable so
+   this block cannot drift from the rest of the workspace's palette.
+
+   The in/out counts are the load-bearing part. The backend has always
+   filtered on include_in_memoir; what was missing was any way for the
+   operator to SEE that filtering, which is the difference between "the
+   story is not approved yet" and "the export is broken". */
+.tdl-doc-counts { display: flex; flex-direction: column; gap: .3rem;
+  margin: 1rem 0; padding: .85rem 1rem; border: 1px solid var(--tdl-line);
+  border-radius: 14px; background: #fffdf7; }
+.tdl-doc-count { display: flex; flex-wrap: wrap; gap: .6rem;
+  align-items: baseline; }
+.tdl-doc-count-in { font-weight: 600; color: var(--tdl-ink); }
+.tdl-doc-count-out { font-size: .88rem; color: var(--tdl-muted); }
+.tdl-doc-empty-note { margin: .8rem 0; padding: .8rem 1rem;
+  border: 1px dashed var(--tdl-line); border-radius: 14px;
+  color: var(--tdl-muted); background: transparent; }
+.tdl-doc-actions { display: flex; flex-wrap: wrap; gap: .7rem;
+  align-items: center; margin: 1.1rem 0 .4rem; }
+.tdl-doc-status { font-size: .9rem; color: var(--tdl-muted); }
+.tdl-doc-region { border-top: 1px solid var(--tdl-line);
+  padding-top: .9rem; margin-top: 1.1rem; }
+.tdl-doc-stop { margin: .5rem 0 .5rem 1rem; }
+.tdl-doc-stop-name { font-family: var(--tdl-font); font-weight: 600; }
+.tdl-doc-note { margin: .25rem 0; line-height: 1.55; }
+.tdl-doc-theme { margin: .3rem 0; color: var(--tdl-ink); }

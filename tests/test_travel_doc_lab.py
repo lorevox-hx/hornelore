@@ -488,11 +488,30 @@ class MountLivenessTest(unittest.TestCase):
 
         The count stays exact. A third timer must fail here and be
         described, the same way this one was.
+
+        MOVED FORWARD AGAIN 2026-08-05, exactly as this docstring asked.
+        WO-TRAVEL-DOC-CLOSEOUT-01 added a THIRD timer -- the export's
+        object-URL revoke -- and the count caught it before any human
+        read the diff, with the failure message again being the
+        instruction. Retired assertion:
+
+            self.assertEqual(
+                len(re.findall(r"\bsetTimeout\(|\bsetInterval\(", src)), 2,
+                "a third timer appeared; it needs its own destroyed guard")
+
+        The third timer takes the STRONGER of the two shapes: it stores
+        its handle in `docExportRevokeTimer`, checks `destroyed` in its
+        callback, AND is cleared by `docExportRevokeNow()` in destroy(),
+        which also revokes the URL at once so teardown frees a
+        multi-megabyte blob instead of holding it for the rest of the
+        minute.
+
+        A fourth timer must fail here and be described, the same way.
         """
         src = _stripped_js()
         self.assertEqual(
-            len(re.findall(r"\bsetTimeout\(|\bsetInterval\(", src)), 2,
-            "a third timer appeared; it needs its own destroyed guard",
+            len(re.findall(r"\bsetTimeout\(|\bsetInterval\(", src)), 3,
+            "a fourth timer appeared; it needs its own destroyed guard",
         )
 
         # Both are checked by slicing the real body and reading its FIRST
@@ -539,6 +558,17 @@ class MountLivenessTest(unittest.TestCase):
         self.assertIn("pickerPollStop()", _destroy_body())
         self.assertIn("clearTimeout(_pickerPollTimer)",
                       src[src.index("function pickerPollStop("):])
+
+        # 3. The export object-URL revoke (WO-TRAVEL-DOC-CLOSEOUT-01).
+        #    Unguarded it wakes up to 60s past teardown holding a
+        #    multi-megabyte blob. Guarded twice, like the poll.
+        k = src.index("docExportRevokeTimer = setTimeout(")
+        revoke_cb = src[k:src.index("}, 60000);", k)]
+        self.assertIn("if (destroyed) return;", revoke_cb,
+                      "the revoke callback does not check destroyed")
+        self.assertIn("docExportRevokeNow()", _destroy_body())
+        self.assertIn("clearTimeout(docExportRevokeTimer)",
+                      src[src.index("function docExportRevokeNow("):])
 
     def test_document_level_listener_is_named_and_unbound_on_destroy(self):
         # This is the only listener bound outside the host element, so
@@ -842,9 +872,21 @@ class TripPlanAsHubTest(unittest.TestCase):
         prim = re.search(r"var PRIMARY_TABS = \[[\s\S]*?\];", self.src).group(0)
         self.assertEqual(re.findall(r'\["(\w+)"', prim), ["plan", "photos"])
         rev = re.search(r"var REVIEW_TABS = \[[\s\S]*?\];", self.src).group(0)
+        # WIDENED 2026-08-05 by WO-TRAVEL-DOC-CLOSEOUT-01. Retired list:
+        #   ["evidence", "notes", "sources", "travelogue", "draft", "captured"]
+        # `document` is the finished deliverable's own surface -- the
+        # memoir preview plus the export control -- and it belongs in
+        # Review rather than as a third primary tab, because the 2026-07-28
+        # instruction was that the primary bar is the trip and its days,
+        # and exporting is something you do once the trip is built.
+        #
+        # The list stays EXACT rather than becoming a subset check: the
+        # point of this assertion is that the menu's contents are a
+        # decision, so a tab arriving without one has to fail here.
         self.assertEqual(
             re.findall(r'\["(\w+)"', rev),
-            ["evidence", "notes", "sources", "travelogue", "draft", "captured"],
+            ["evidence", "notes", "sources", "travelogue", "document",
+             "draft", "captured"],
             "Review menu contents drifted from the 2026-07-28 instruction")
 
     def test_trip_plan_is_the_default_entry_page(self):
