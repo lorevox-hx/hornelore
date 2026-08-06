@@ -1132,6 +1132,7 @@
       // above the calendar so operators don't mistake zero counts
       // for verified absence of evidence.
       st.countsWarning = outs[1].counts_warning || "";
+      st.memoirPreview = null;   // whole-trip refresh: drop the cache
       st.photoLinks = outs[2].photo_links || [];
       st.notes = outs[3].notes || [];
       st.sources = outs[4].sources || [];
@@ -1195,6 +1196,46 @@
     st.daysNotice = "";
   }
 
+  // ── WO-TRAVEL-DOC-CLOSEOUT-01: memoir-preview invalidation ─────────
+  //
+  // The preview is cached on the first visit to the Travel Document tab.
+  // Without this, approving a note, source or photo moved the COUNTS
+  // (which read live `st`) while the rendered preview stayed as it was
+  // — so the tab showed "3 story notes in the document" above a preview
+  // containing two, and the exported DOCX matched neither of the things
+  // on screen. Counts, preview and export must describe one state.
+  //
+  // Placed inside the RELOAD functions rather than at each approval call
+  // site. There are seven writes that can change eligibility today —
+  // notes, captured notes, sources, evidence rows, photo links, hide and
+  // restore — and every one of them ends in a reload. A seam at the
+  // reload is one that a write added next month inherits for free; a
+  // list of call sites is one that the next write is quietly missing
+  // from, which is exactly how this defect arrived.
+  //
+  // Refetches immediately only when the tab is OPEN. On any other tab
+  // dropping the cache is enough: the tab-switch handler fetches when it
+  // finds nothing cached, so a background refetch would be a request for
+  // a surface nobody is looking at.
+  function invalidateMemoirPreview() {
+    st.memoirPreview = null;
+    if (destroyed || st.tab !== "document" || !st.trip) return Promise.resolve();
+    var tripId = st.trip.id;
+    return api("/api/trips/" + encodeURIComponent(tripId) + "/memoir-preview")
+      .then(function (out) {
+        // The operator can switch trips while this is in flight; a
+        // preview for the previous trip must not land on the new one.
+        if (destroyed || !st.trip || st.trip.id !== tripId) return;
+        st.memoirPreview = out;
+        renderAll();
+      })
+      .catch(function (e) {
+        if (destroyed) return;
+        st.error = e.message;
+        renderAll();
+      });
+  }
+
   function reloadDays() {
     if (!st.trip) return Promise.resolve();
     return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/days")
@@ -1211,13 +1252,15 @@
     // while the Story Notes "Show hidden" toggle is on.
     return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/location-notes" +
       (st.showHiddenNotes ? "?include_hidden=1" : ""))
-      .then(function (out) { st.notes = out.notes || []; });
+      .then(function (out) { st.notes = out.notes || []; })
+      .then(invalidateMemoirPreview);
   }
 
   function reloadPhotoLinks() {
     if (!st.trip) return Promise.resolve();
     return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/photo-links")
-      .then(function (out) { st.photoLinks = out.photo_links || []; });
+      .then(function (out) { st.photoLinks = out.photo_links || []; })
+      .then(invalidateMemoirPreview);
   }
 
   function reloadSources() {
@@ -1226,7 +1269,8 @@
     // while the Sources "Show hidden" toggle is on.
     return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/sources" +
       (st.showHiddenSources ? "?include_hidden=1" : ""))
-      .then(function (out) { st.sources = out.sources || []; });
+      .then(function (out) { st.sources = out.sources || []; })
+      .then(invalidateMemoirPreview);
   }
 
   function reloadReconcile() {
@@ -7137,6 +7181,9 @@
         st.capturedError = "";
         st.capturedBusy = false;
       })
+      // A captured note IS a trip_location_notes row, so promoting one
+      // changes what the document contains -- same table, same preview.
+      .then(invalidateMemoirPreview)
       .catch(function (e) {
         st.capturedBusy = false;
         if (e && e.status === 404) {
@@ -7643,10 +7690,31 @@
   //
   // ONE EXPORTER. This calls the existing GET /export-docx and renders
   // the existing memoir-preview. It builds no document of its own.
+  // HIDDEN ROWS ARE NOT IN THE DOCUMENT, and the counts must say so.
+  //
+  // `trip_memoir_preview` reads `location_notes_list(trip_id)` and
+  // `sources_list(trip_id)` with the DEFAULT include_hidden=False, so
+  // the export drops hidden rows server-side. But `st.notes` and
+  // `st.sources` carry hidden rows whenever the "Show hidden" toggle is
+  // on -- the list fetch adds ?include_hidden=1 -- so counting them
+  // as "in the document" told the operator a hidden-but-approved note
+  // would be in a file that will not contain it.
+  //
+  // Hidden rows are reported SEPARATELY rather than silently dropped.
+  // An operator looking at a hidden row with its "In memoir" tick still
+  // set needs to know the hide is what is keeping it out, not wonder
+  // why the tick appears to do nothing.
+  function _visible(r) { return !r.hidden; }
+
   function _docCounts() {
-    var notes = st.notes || [];
-    var sources = st.sources || [];
-    var links = st.photoLinks || [];
+    var notes = (st.notes || []).filter(_visible);
+    var sources = (st.sources || []).filter(_visible);
+    var links = (st.photoLinks || []).filter(_visible);
+    var hiddenApproved =
+      (st.notes || []).filter(function (r) {
+        return r.hidden && r.include_in_memoir; }).length
+      + (st.sources || []).filter(function (r) {
+        return r.hidden && r.include_in_memoir; }).length;
     function inMemoir(r) { return !!r.include_in_memoir; }
     return {
       notesIn: notes.filter(inMemoir).length,
@@ -7655,6 +7723,7 @@
       sourcesOut: sources.length - sources.filter(inMemoir).length,
       photosIn: links.filter(inMemoir).length,
       photosOut: links.length - links.filter(inMemoir).length,
+      hiddenApproved: hiddenApproved,
     };
   }
 
@@ -7728,6 +7797,14 @@
       // uses -- a handle nobody stores cannot be cleared -- and it also
       // frees a multi-megabyte blob on teardown instead of holding it
       // for the rest of the minute.
+      // Retire the PREVIOUS export's cleanup before taking ownership of
+      // this one. Two exports inside the same minute otherwise overwrote
+      // both module vars, and the first blob URL was left with no timer
+      // pointing at it and no way to reach it -- leaked for the life of
+      // the page, holding a multi-megabyte buffer. Revoking first also
+      // means the pending timer cannot fire later and revoke a URL that
+      // by then belongs to a different download.
+      docExportRevokeNow();
       docExportRevokeUrl = href;
       docExportRevokeTimer = setTimeout(function () {
         if (destroyed) return;
@@ -7775,6 +7852,14 @@
     counts.appendChild(_docLine("photo", c.photosIn, c.photosOut,
       "tick “In memoir” on the Photos tab"));
     wrap.appendChild(counts);
+
+    if (c.hiddenApproved > 0) {
+      counts.appendChild(el("div", "tdl-doc-count-hidden",
+        c.hiddenApproved + " hidden "
+        + (c.hiddenApproved === 1 ? "row is" : "rows are")
+        + " ticked for the memoir but stay out of the document while "
+        + "hidden. Restore them if they belong in it."));
+    }
 
     if (c.notesIn === 0 && c.sourcesIn === 0 && c.photosIn === 0) {
       wrap.appendChild(el("div", "tdl-doc-empty-note",

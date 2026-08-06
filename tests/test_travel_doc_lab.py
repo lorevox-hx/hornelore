@@ -1955,11 +1955,31 @@ class EvidenceReviewQueueTest(unittest.TestCase):
         # same reason the evidence queue is. This assertion is pinned to
         # the literal so a third exemption cannot be added by accident:
         # every OTHER tab in this file describes one trip.
-        self.assertIn(
-            'if (!st.trip && st.tab !== "evidence" && st.tab !== "captured") {',
-            self.src)
-        exempt = re.findall(r'st\.tab !== "(\w+)"', self.src)
+        #
+        # NARROWED 2026-08-05 (WO-TRAVEL-DOC-CLOSEOUT-01). The retired
+        # second assertion was a FILE-WIDE scan:
+        #
+        #     exempt = re.findall(r'st\.tab !== "(\w+)"', self.src)
+        #     self.assertEqual(sorted(set(exempt)), ["captured", "evidence"])
+        #
+        # It assumed every `st.tab !== "x"` in the module is a trip-gate
+        # exemption. The memoir-preview invalidation added one that is
+        # not: `st.tab !== "document"` there means "only refetch while
+        # the operator is looking at that tab", which has nothing to do
+        # with rendering without a trip. The scan reported a third
+        # exemption that does not exist.
+        #
+        # The claim being protected is unchanged and is now read off the
+        # gate itself, so an actual third exemption still fails here
+        # while an unrelated tab comparison elsewhere does not.
+        gate = 'if (!st.trip && st.tab !== "evidence" && st.tab !== "captured") {'
+        self.assertIn(gate, self.src)
+        exempt = re.findall(r'st\.tab !== "(\w+)"', gate)
         self.assertEqual(sorted(set(exempt)), ["captured", "evidence"])
+        # And exactly one such gate exists, so a second one cannot be
+        # added beside it with its own exemption list.
+        self.assertEqual(1, len(re.findall(r"if \(!st\.trip && st\.tab !==",
+                                           self.src)))
 
     def test_queue_drawers_add_no_native_dialogs(self):
         sec = self._section()

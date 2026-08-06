@@ -228,6 +228,148 @@ class ApprovalDecidesWhatIsInTheDocumentTest(unittest.TestCase):
         self.assertIn("not approved", src)
 
 
+class ThePreviewCannotGoStaleTest(unittest.TestCase):
+    """Pre-acceptance defect 1.
+
+    The preview was cached on the first visit and never invalidated, so
+    approving the gravesite note moved the COUNTS (which read live `st`)
+    while the rendered preview stayed as it was. The tab could show
+    "3 story notes in the document" above a preview containing two, and
+    the exported DOCX matched neither.
+    """
+
+    def setUp(self):
+        self.src = _strip_js_comments(_JS)
+
+    def test_there_is_one_invalidation_seam(self):
+        self.assertIn("function invalidateMemoirPreview(", self.src)
+        self.assertIn("st.memoirPreview = null;", self.src)
+
+    def test_every_eligibility_reload_invalidates(self):
+        """The seam is inside the RELOADS, not at each approval call
+        site. Seven writes can change eligibility today and all of them
+        end in a reload; a seam at the reload is inherited by the write
+        somebody adds next month, which is exactly what a list of call
+        sites is not."""
+        for fn in ("reloadNotes", "reloadSources", "reloadPhotoLinks",
+                   "reloadCaptured"):
+            with self.subTest(reload=fn):
+                i = self.src.index("function " + fn + "(")
+                body = self.src[i:self.src.index("\n  }", i)]
+                self.assertIn("invalidateMemoirPreview", body,
+                              f"{fn} can change what is in the document "
+                              f"without invalidating the preview")
+
+    def test_a_whole_trip_refresh_drops_the_cache(self):
+        i = self.src.index("st.photoLinks = outs[2].photo_links")
+        self.assertIn("st.memoirPreview = null", self.src[i - 200:i])
+
+    def test_it_refetches_only_while_the_tab_is_open(self):
+        """On any other tab, dropping the cache is enough — the
+        tab-switch handler fetches when it finds nothing cached. A
+        background refetch would be a request for a surface nobody is
+        looking at."""
+        i = self.src.index("function invalidateMemoirPreview(")
+        body = self.src[i:self.src.index("\n  }\n", i)]
+        self.assertIn('st.tab !== "document"', body)
+        self.assertIn("return Promise.resolve();", body)
+
+    def test_a_late_preview_cannot_land_on_a_different_trip(self):
+        """The operator can switch trips while the refetch is in flight."""
+        i = self.src.index("function invalidateMemoirPreview(")
+        body = self.src[i:self.src.index("\n  }\n", i)]
+        self.assertIn("st.trip.id !== tripId", body)
+
+    def test_the_refetch_is_guarded_on_a_destroyed_mount(self):
+        i = self.src.index("function invalidateMemoirPreview(")
+        body = self.src[i:self.src.index("\n  }\n", i)]
+        self.assertGreaterEqual(body.count("destroyed"), 2)
+
+
+class HiddenRowsAreNotInTheDocumentTest(unittest.TestCase):
+    """Pre-acceptance defect 2.
+
+    `trip_memoir_preview` reads the note and source lists with the
+    default `include_hidden=False`, so the export drops hidden rows
+    server-side. But `st.notes` and `st.sources` carry hidden rows
+    whenever "Show hidden" is on, and counting them as "in the document"
+    told the operator a hidden-but-approved note would be in a file that
+    will not contain it.
+    """
+
+    def setUp(self):
+        self.src = _strip_js_comments(_JS)
+
+    def test_the_counts_exclude_hidden_rows(self):
+        i = self.src.index("function _docCounts(")
+        body = self.src[i:self.src.index("\n  }", i)]
+        for coll in ("st.notes", "st.sources", "st.photoLinks"):
+            with self.subTest(collection=coll):
+                self.assertIn(f"({coll} || []).filter(_visible)", body,
+                              f"{coll} is counted without excluding hidden")
+        self.assertIn("function _visible(r) { return !r.hidden; }", self.src)
+
+    def test_hidden_but_approved_rows_are_reported_separately(self):
+        """Not silently dropped. An operator looking at a hidden row with
+        its In-memoir tick still set needs to know the hide is what keeps
+        it out, rather than wondering why the tick does nothing."""
+        i = self.src.index("function _docCounts(")
+        body = self.src[i:self.src.index("\n  }", i)]
+        self.assertIn("r.hidden && r.include_in_memoir", body)
+        # The RETURNED value must be the computed one. A mutant that kept
+        # the computation and returned a literal 0 survived the first
+        # cut of this test -- the same shape that got past the notesOut
+        # check -- and a permanently-zero hidden count is exactly the
+        # silence this defect was about.
+        self.assertIn("hiddenApproved: hiddenApproved,", body,
+                      "the reported hidden count is not the computed one")
+        self.assertIn("stay out of the document while", self.src)
+
+    def test_the_backend_really_does_exclude_hidden(self):
+        """Non-vacuity: if the export started including hidden rows, the
+        UI counts above would become the wrong fix."""
+        i = _REPO_SVC.index("def trip_memoir_preview(")
+        body = _REPO_SVC[i:i + 4000]
+        self.assertIn("location_notes_list(trip_id)", body)
+        self.assertNotIn("include_hidden=True", body)
+
+
+class SequentialExportsCleanUpTest(unittest.TestCase):
+    """Pre-acceptance defect 3.
+
+    Two exports inside the same minute overwrote both module vars, so
+    the first blob URL was left with no timer pointing at it and no way
+    to reach it — leaked for the life of the page, holding a
+    multi-megabyte buffer.
+    """
+
+    def setUp(self):
+        self.src = _strip_js_comments(_JS)
+
+    def test_the_previous_url_is_revoked_before_the_new_one_is_stored(self):
+        i = self.src.index("docExportRevokeUrl = href;")
+        before = self.src[i - 400:i]
+        self.assertIn("docExportRevokeNow();", before,
+                      "a second export takes ownership without retiring "
+                      "the first blob's cleanup")
+
+    def test_the_helper_clears_both_the_timer_and_the_url(self):
+        i = self.src.index("function docExportRevokeNow(")
+        body = self.src[i:self.src.index("\n  }", i)]
+        self.assertIn("clearTimeout(docExportRevokeTimer)", body)
+        self.assertIn("revokeObjectURL(docExportRevokeUrl)", body)
+        self.assertIn("docExportRevokeTimer = null", body)
+        self.assertIn("docExportRevokeUrl = null", body)
+
+    def test_destroy_still_runs_the_same_cleanup(self):
+        self.assertIn("docExportRevokeNow()", _destroy_body(self.src))
+
+
+def _destroy_body(src: str) -> str:
+    i = src.index("destroy: function () {")
+    return src[i:src.index("\n    }", i)]
+
+
 class NarratorStoriesAreNotSweptInTest(unittest.TestCase):
     """Chris's explicit boundary, pinned so it cannot erode quietly.
 

@@ -1124,3 +1124,6 @@
 .tdl-doc-stop-name { font-family: var(--tdl-font); font-weight: 600; }
 .tdl-doc-note { margin: .25rem 0; line-height: 1.55; }
 .tdl-doc-theme { margin: .3rem 0; color: var(--tdl-ink); }
+.tdl-doc-count-hidden { font-size: .88rem; color: var(--tdl-muted);
+  padding-top: .35rem; border-top: 1px dashed var(--tdl-line);
+  margin-top: .35rem; }
