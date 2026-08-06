@@ -2256,7 +2256,17 @@ def export_docx(trip_id: str):
     # extension is never the thing that gets dropped.
     utf8_name = quote(f"lorevox_trip_memoir_{raw_title[:80]}.docx", safe="")
     logger.info(
-        "[trips][docx] export trip=%s photos=%d", trip_id, len(photo_rows),
+        # `len(photo_rows)` -- a variable retired when the route moved to
+        # the shared projection, and left behind here. It raised
+        # NameError AFTER the document was built and before the response
+        # was returned, so every export died at the last step.
+        #
+        # Both numbers, because they are different questions and the
+        # gap between them is the interesting one in a log: `approved`
+        # is what the operator ticked, `available` is how many of those
+        # files were actually on disk.
+        "[trips][docx] export trip=%s approved=%d available=%d",
+        trip_id, appendix.get("approved", 0), appendix.get("available", 0),
     )
     return StreamingResponse(
         io.BytesIO(docx_bytes),

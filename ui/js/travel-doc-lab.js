@@ -1154,6 +1154,13 @@
       memoirPreviewToken += 1;   // and supersede anything in flight
       st.memoirPreview = null;   // whole-trip refresh: drop the cache
       st.photoLinks = outs[2].photo_links || [];
+      // A whole-trip refresh reloaded the VISIBLE photos and left
+      // `hiddenPhotoLinks` as it was, so with Show hidden active the
+      // review gallery kept rows from the previous trip state after a
+      // cross-tab refresh. Cleared here and refetched below when the
+      // toggle is on -- cleared FIRST, so a failed refetch leaves an
+      // empty list rather than a stale one.
+      st.hiddenPhotoLinks = [];
       st.notes = outs[3].notes || [];
       st.sources = outs[4].sources || [];
       st.publicContext = outs[5].public_context || [];
@@ -1161,6 +1168,24 @@
       st.travelogue = outs[7];
       st.error = "";
       renderAll();
+      // ── #4: refetch the hidden rows when the toggle is on.
+      //
+      // Clearing alone would have been a different bug: the operator has
+      // Show hidden active, a cross-tab save refreshes the bundle, and
+      // the hidden rows silently disappear from the gallery until they
+      // toggle it off and on again. Reloaded here so the review surface
+      // is refreshed rather than emptied.
+      if (st.showHiddenPhotos && st.trip && st.trip.id === tripId) {
+        api("/api/trips/" + encodeURIComponent(tripId)
+            + "/photo-links?include_hidden=1")
+          .then(function (out) {
+            if (destroyed || !st.trip || st.trip.id !== tripId) return;
+            st.hiddenPhotoLinks = (out.photo_links || []).filter(
+              function (l) { return !!l.hidden; });
+            renderAll();
+          })
+          .catch(function () { /* already cleared; stale is the worse state */ });
+      }
     }).catch(function (e) {
       st.error = e.message;
       renderAll();
@@ -7952,9 +7977,13 @@
         label + " count unavailable"));
       return row;
     }
+    // "approved for the document", not "in" it. `photos_in` is the
+    // APPROVED count; a file can be missing from disk or refused by
+    // Word, and neither is known until the export runs. Saying "in the
+    // document" promises an outcome this number cannot guarantee.
     row.appendChild(el("span", "tdl-doc-count-in",
       String(inCount) + " " + label + (inCount === 1 ? "" : "s")
-      + " in the document"));
+      + " approved for the document"));
     if (outCount > 0) {
       row.appendChild(el("span", "tdl-doc-count-out",
         outCount + " not approved — " + whereToApprove));

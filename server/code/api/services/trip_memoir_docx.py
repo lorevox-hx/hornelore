@@ -147,7 +147,11 @@ def build_trip_docx(
         # the export set, so the line cannot disagree with the appendix.
         n_photos = _approved_by_stop.get(stop.get("id"), 0)
         if n_photos:
-            bits.append(f"· {n_photos} photo{'s' if n_photos != 1 else ''}")
+            # "approved photos", matching the preview. `approved` is not
+            # `embedded`: a file can be missing or refused by Word, and
+            # the foot of Part III is the only line that knows.
+            bits.append(
+                f"· {n_photos} approved photo{'s' if n_photos != 1 else ''}")
         style = "List Bullet" if depth == 0 else "List Bullet 2"
         doc.add_paragraph(" ".join(bits), style=style)
         if stop.get("notes"):

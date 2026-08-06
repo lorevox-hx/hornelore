@@ -1189,6 +1189,90 @@ class PerStopApprovedCountsAreShownTest(unittest.TestCase):
         self.assertIn("if (nStop) {", self.js[i:i + 120])
 
 
+class ApprovedIsNotInTheDocumentTest(unittest.TestCase):
+    """`photos_in` is the APPROVED count. A file can be missing from disk
+    or refused by Word, so "N photos in the document" promises an outcome
+    the number cannot guarantee."""
+
+    def setUp(self):
+        self.js = _strip_js_comments(_JS)
+        self.docx = (_SERVER / "api" / "services"
+                     / "trip_memoir_docx.py").read_text(encoding="utf-8")
+
+    def test_the_top_counts_say_approved_for_the_document(self):
+        self.assertIn("approved for the document", self.js)
+        i = self.js.index("function _docLine(")
+        body = self.js[i:self.js.index("\n  }", i)]
+        self.assertNotIn('" in the document"', body)
+
+    def test_the_docx_per_stop_bullet_says_approved(self):
+        self.assertIn("approved photo{'s' if n_photos != 1 else ''}",
+                      self.docx)
+
+    def test_only_the_foot_of_part_three_claims_embedded(self):
+        """The one line that has actually tried every image.
+
+        Counted as PARAGRAPHS the document emits, not as occurrences of
+        the word: "embedded" also appears in the log line and in the
+        comments explaining why the count cannot be taken earlier. My
+        first cut counted the word and failed at 3 on its own prose.
+        """
+        # `add_paragraph(` and the f-string are on separate LINES, so a
+        # per-line scan finds neither together. Comment-stripped source,
+        # then count the emitted f-strings — the word also appears in the
+        # log line and in the comments explaining why the count cannot be
+        # taken earlier, and my first two cuts fired on that prose.
+        code = re.sub(r"^\s*#.*$", "", self.docx, flags=re.M)
+        emitting = re.findall(r'f"\([^"]*embedded', code)
+        self.assertEqual(1, len(emitting),
+                         f"{len(emitting)} paragraphs claim an embedded "
+                         f"count: {emitting}")
+
+
+class TheBundleRefreshesHiddenPhotosTest(unittest.TestCase):
+    """A whole-trip refresh reloaded the visible photos and left
+    `hiddenPhotoLinks` alone, so with Show hidden active the review
+    gallery kept rows from the previous trip state after a cross-tab
+    save."""
+
+    def setUp(self):
+        self.js = _strip_js_comments(_JS)
+        # Anchored on the hidden-photo block itself. `include_hidden=1`
+        # also appears in the bundle's NOTES and SOURCES calls, so a
+        # slice of the whole function found the wrong occurrence and the
+        # ordering assertion below compared two unrelated offsets.
+        i = self.js.index("function loadTripBundle(")
+        self.body = self.js[i:self.js.index("function refreshTripsPreserving", i)]
+        j = self.body.index("st.hiddenPhotoLinks = [];")
+        self.hidden_block = self.body[j:]
+
+    def test_the_bundle_clears_the_stale_hidden_snapshot(self):
+        self.assertIn("st.hiddenPhotoLinks = [];", self.body)
+
+    def test_it_clears_before_it_refetches(self):
+        """A failed refetch must leave an empty list, not a stale one."""
+        self.assertIn("include_hidden=1", self.hidden_block,
+                      "the refetch does not follow the clear")
+
+    def test_it_refetches_when_show_hidden_is_active(self):
+        """Clearing alone would be a different bug: the hidden rows
+        vanish from the gallery until the operator toggles twice."""
+        self.assertIn("if (st.showHiddenPhotos && st.trip",
+                      self.hidden_block)
+        self.assertIn("photo-links?include_hidden=1", self.hidden_block)
+
+    def test_the_refetch_is_guarded_by_trip_and_mount(self):
+        i = self.hidden_block.index("photo-links?include_hidden=1")
+        block = self.hidden_block[i:i + 400]
+        self.assertIn("if (destroyed || !st.trip || st.trip.id !== tripId)",
+                      block)
+
+    def test_a_failed_refetch_leaves_it_empty(self):
+        i = self.hidden_block.index("photo-links?include_hidden=1")
+        block = self.hidden_block[i:i + 500]
+        self.assertIn("catch", block)
+
+
 class NarratorStoriesAreNotSweptInTest(unittest.TestCase):
     """Chris's explicit boundary, pinned so it cannot erode quietly.
 

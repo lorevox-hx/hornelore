@@ -210,7 +210,11 @@ class DocxArtifactTest(unittest.TestCase):
     def test_per_stop_counts_match_the_appendix(self):
         # s1 has two approved photographs; the Part I bullet must say so.
         self.assertEqual(2, self.projection["approved_by_stop"]["s1"])
-        self.assertIn("· 2 photos", self.text)
+        # "approved photos", matching the preview. The bullet used to say
+        # "· 2 photos", which reads as a promise the count cannot make:
+        # a file can be missing from disk or refused by Word.
+        self.assertIn("· 2 approved photos", self.text)
+        self.assertNotIn("· 2 photos", self.text)
 
     # ── every exported word is in the preview projection ──────────────
     def test_every_exported_text_field_appears(self):
@@ -258,7 +262,7 @@ class DocxArtifactTest(unittest.TestCase):
         trip) has none. A bare "· 0 photos" on every empty stop is noise,
         and the absence is what proves the count comes from the export
         set rather than from the trip tree."""
-        self.assertNotIn("· 0 photo", self.text)
+        self.assertNotIn("· 0 approved photo", self.text)
         cem = [t for t in self.paras if t.startswith("Cemetery")]
         self.assertTrue(cem, "the nested day trip is missing from Part I")
         self.assertNotIn("photo", cem[0])
