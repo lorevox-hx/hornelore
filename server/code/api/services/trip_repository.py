@@ -73,6 +73,12 @@ def _new_id() -> str:
 _KNOWN_TABLES = (
     "trip_location_notes", "trip_sources", "trip_photo_links",
     "trips",
+    # WO-TRAVEL-DOC-CLOSEOUT-01: probed for include_in_memoir, which
+    # arrives in migration 0042. day_projection has to answer
+    # "unsupported" on a pre-0042 database rather than "0 days
+    # approved" -- those are different facts and one of them would
+    # send the operator hunting for a tick they cannot yet make.
+    "trip_days",
 )
 
 
@@ -2014,17 +2020,38 @@ def photo_links_with_photo_paths(
             where += " AND l.hidden = 0"
         if memoir_only:
             where += " AND l.include_in_memoir = 1"
+        # WO-TRAVEL-DOC-CLOSEOUT-01 -- day-timeline lane. The day join is
+        # here so photo_appendix_projection can group a day-placed
+        # photograph under its day. Without it, a link carrying
+        # trip_day_id and no stop or region fell to the "unplaced"
+        # bucket, and the exported document printed the heading
+        # "Unplaced" over photographs the operator had placed on a day
+        # BY HAND (assignment_method='operator'). That is not a thin
+        # document; it is a false statement in the artefact.
+        #
+        # LEFT JOIN and not INNER: a link whose day row has since been
+        # removed must still reach the appendix as unplaced rather than
+        # vanish from it.
+        _day_cols = ""
+        if _table_has_column(con, "trip_photo_links", "trip_day_id"):
+            _day_cols = (",\n                       d.date AS day_date,"
+                         "\n                       d.title AS day_title,"
+                         "\n                       d.day_index AS day_index")
+            _day_join = ("LEFT JOIN trip_days d ON d.id = l.trip_day_id")
+        else:
+            _day_join = ""
         rows = con.execute(
             f"""SELECT l.*, p.image_path AS photo_image_path,
                        p.description AS photo_description,
                        p.date_value AS photo_date_value,
                        p.narrator_ready AS photo_narrator_ready,
                        s.location_name AS stop_location_name,
-                       r.title AS region_title
+                       r.title AS region_title{_day_cols}
                 FROM trip_photo_links l
                 JOIN photos p ON p.id = l.photo_id
                 LEFT JOIN trip_stops s ON s.id = l.trip_stop_id
                 LEFT JOIN trip_regions r ON r.id = l.trip_region_id
+                {_day_join}
                 WHERE {where}
                 ORDER BY l.taken_at, l.ord""",
             (trip_id,),
@@ -2102,13 +2129,19 @@ def trip_tree(trip_id: str) -> Optional[Dict[str, Any]]:
     return trip
 
 
-def _hidden_approved_photo_count(trip_id: str) -> int:
-    """Hidden links that are ticked for the memoir AND still have a photo.
+def _hidden_photo_count(trip_id: str) -> int:
+    """Hidden photo links whose photograph still exists.
 
-    A hidden link whose photograph has been soft-deleted cannot be
-    restored into the document, so counting it would send the operator
-    looking for something that is gone. `photo_links_list` does not join
-    `photos`, so the check is made here.
+    [Was `_hidden_approved_photo_count` and required
+    `include_in_memoir = 1`. Renamed and widened 2026-08-06: the
+    document no longer asks whether anything was approved, so a count
+    conditioned on approval described a gate that is not there. What
+    the operator needs to know is unchanged in kind -- these rows are
+    kept out BECAUSE THEY ARE HIDDEN, and un-hiding brings them back.
+
+    A hidden link whose photograph has been soft-deleted is still
+    excluded: un-hiding it would not restore anything, so counting it
+    would send the operator looking for something that is gone.]
     """
     con = _connect()
     try:
@@ -2119,7 +2152,6 @@ def _hidden_approved_photo_count(trip_id: str) -> int:
                  FROM trip_photo_links l
                  JOIN photos p ON p.id = l.photo_id
                 WHERE l.trip_id = ? AND l.hidden = 1
-                  AND l.include_in_memoir = 1
                   AND p.deleted_at IS NULL""",
             (trip_id,),
         ).fetchone()
@@ -2177,25 +2209,43 @@ def photo_appendix_projection(
     groups: List[Dict[str, Any]] = []
     index: Dict[str, int] = {}
     per_stop: Dict[str, int] = {}
+    per_day: Dict[str, int] = {}
     available = 0
     unavailable = 0
 
     for r in rows:
         stop_id = r.get("trip_stop_id")
         region_id = r.get("trip_region_id")
+        day_id = r.get("trip_day_id")
+        # ── WO-TRAVEL-DOC-CLOSEOUT-01: stop -> region -> DAY -> unplaced ─
+        #
+        # The day case is the addition, and it goes LAST among the real
+        # scopes on purpose. Stop and region are where a photograph was
+        # taken; a day is when. A link that carries both has already been
+        # given a place by a human, and demoting it to a date would throw
+        # that away -- so every photograph that grouped under a stop or a
+        # region before this change still groups there, byte for byte.
+        #
+        # What changes is only the case that used to be a lie: a link
+        # with a trip_day_id and no stop or region fell to "Unplaced",
+        # which the operator reads as "the system does not know where
+        # this goes" about a placement they made themselves.
         if stop_id:
             key, scope, label = (f"stop:{stop_id}", "stop",
                                  r.get("stop_location_name") or "(unnamed stop)")
         elif region_id:
             key, scope, label = (f"region:{region_id}", "region",
                                  r.get("region_title") or "(unnamed region)")
+        elif day_id:
+            key, scope, label = (f"day:{day_id}", "day",
+                                 _day_scope_label(r))
         else:
             key, scope, label = ("unplaced", "unplaced", "Unplaced")
 
         if key not in index:
             index[key] = len(groups)
             groups.append({"key": key, "scope": scope, "scope_id":
-                           stop_id or region_id, "label": label,
+                           stop_id or region_id or day_id, "label": label,
                            "photos": []})
 
         path = r.get("photo_image_path")
@@ -2206,6 +2256,13 @@ def photo_appendix_projection(
             unavailable += 1
         if stop_id:
             per_stop[stop_id] = per_stop.get(stop_id, 0) + 1
+        # Counted by the SAME pass that builds the groups, so the "· N
+        # approved photos" line on a day in Part I cannot disagree with
+        # the number of images under that day in Part III. A photograph
+        # that carries a day AND a stop counts for both: the stop line
+        # says where it was taken, the day line says the day held it.
+        if day_id:
+            per_day[day_id] = per_day.get(day_id, 0) + 1
 
         groups[index[key]]["photos"].append({
             "photo_id": r.get("photo_id"),
@@ -2223,7 +2280,29 @@ def photo_appendix_projection(
         "available": available,
         "unavailable": unavailable,
         "approved_by_stop": per_stop,
+        "approved_by_day": per_day,
     }
+
+
+def _day_scope_label(row: Dict[str, Any]) -> str:
+    """Heading for a day group in the photo appendix.
+
+    Prefers what the operator typed, because that is what they will
+    recognise: "Day 1 — Santa Fe to Bismarck" reads as their own trip;
+    a bare uuid or a bare ISO date does not. Falls back through the
+    date to a plain "A day on this trip" rather than to "Unplaced",
+    which would re-introduce the exact false statement this grouping
+    exists to remove -- the photograph IS placed; we merely could not
+    read the day row.
+    """
+    idx = row.get("day_index")
+    title = str(row.get("day_title") or "").strip()
+    date = str(row.get("day_date") or "").strip()
+    head = f"Day {idx}" if idx not in (None, "") else ""
+    tail = title or date
+    if head and tail:
+        return f"{head} — {tail}"
+    return head or tail or "A day on this trip"
 
 
 def _safe_photo_caption(row: Dict[str, Any]) -> str:
@@ -2241,6 +2320,210 @@ def _safe_photo_caption(row: Dict[str, Any]) -> str:
     if row.get("caption_approved_for_lori"):
         return (row.get("caption") or "").strip()
     return ""
+
+
+# WO-TRAVEL-DOC-CLOSEOUT-01, rewritten 2026-08-06 after Chris's ruling.
+#
+# [This block previously held `day_projection()` and the constants
+# DAY_MEMOIR_TEXT_FIELDS / DAY_MEMOIR_LIST_FIELDS. That version gated
+# the export on `trip_days.include_in_memoir` and projected only the
+# day card's own six text fields. It is retired, not refined: the
+# product rule is now
+#
+#     the visible trip timeline is the editable source of truth, and
+#     Export Travel Document produces a DOCX snapshot of THAT timeline
+#
+# so an approval gate on the day is the wrong shape, and a projection
+# that reads six fields off the day row is "a second reduced
+# interpretation of a day" -- exactly what rule 4 forbids. Migration
+# 0042 stays applied so fresh installations match Chris's database, and
+# the column is DORMANT: nothing below reads it.]
+#
+# What replaces it reads the SAME projection the operator is looking at.
+
+
+def _strip_timeline_for_browser(days, unplaced):
+    """Remove builder-only keys before a projection reaches a browser.
+
+    Only `image_path` today. It exists so the DOCX can embed the file;
+    the interface fetches by `/api/photos/{id}/thumb` and has never
+    needed a storage path, and shipping one would be an operator-surface
+    leak for no gain -- the rule `_day_photo_items` already states.
+    """
+    for bucket in (days, [unplaced]):
+        for group in bucket or []:
+            for item in (group or {}).get("items", []) or []:
+                item.pop("image_path", None)
+
+
+def trip_timeline_projection(trip_id: str,
+                             with_image_paths: bool = False) -> Dict[str, Any]:
+    """The visible trip timeline, day by day, as ONE projection.
+
+    This is what the Travel Document tab renders and what the DOCX is
+    built from. There is deliberately no second reading: rule 9 says the
+    preview and the document consume one projection, and the cheapest
+    way to guarantee that is to have only one.
+
+    WHAT IS IN IT: every day of the trip in day_index/date order, each
+    carrying its timeline items -- the day's own typed text, the
+    conversations placed on it, its notes, its sources and its
+    photographs -- in the order `trip_day_timeline_items` already sorts
+    them for the operator. Then `unplaced`: the material that has no day
+    yet, which the document prints under "Needs a day".
+
+    WHAT IS EXCLUDED, and nothing else (rule 7): hidden rows, which
+    every underlying read already drops; soft-deleted photographs;
+    rejected placements; and other trips, which is the trip_id filter.
+    `include_in_memoir` is NOT consulted anywhere in this function. An
+    unticked note, source or photograph is visible on the timeline, so
+    it is in the document.
+
+    NO APPROVAL, NO SECOND INTERPRETATION, NO COPY. Every item is read
+    live from the table that owns it, so an edit on the timeline changes
+    the next export with nothing to keep in step.
+    """
+    days_out: List[Dict[str, Any]] = []
+    item_count = 0
+    for row in trip_days_list(trip_id):
+        did = str(row.get("id") or "")
+        items = trip_day_timeline_items(trip_id, did) if did else []
+        item_count += len(items)
+        days_out.append({
+            "id": did,
+            "day_index": row.get("day_index"),
+            "date": row.get("date"),
+            "title": str(row.get("title") or "").strip() or None,
+            "items": items,
+        })
+
+    # ── "Needs a day" ────────────────────────────────────────────────
+    #
+    # Rule 6. Material with no day is still the operator's material and
+    # still belongs in the snapshot; leaving it out would make the
+    # document quieter than the screen.
+    #
+    # Rule 10 decides the boundary. A note or source that carries a STOP
+    # or a REGION is already printed by the region walk in Part I, so
+    # including it here as well would print it twice. The partition is
+    # therefore: has a day -> the day; no day but a place -> the region
+    # walk; neither -> here. A photograph has no such second home, so
+    # every dayless photograph comes here.
+    unplaced_items: List[Dict[str, Any]] = []
+    unplaced_items.extend(trip_day_conversation_items(trip_id, None))
+    con = _connect()
+    try:
+        for _n in location_notes_list(trip_id):
+            if _n.get("trip_day_id") or _n.get("trip_stop_id") \
+                    or _n.get("trip_region_id"):
+                continue
+            unplaced_items.append({
+                "kind": "note", "id": _n.get("id"),
+                "at": _n.get("created_at") or "", "ord": _n.get("ord") or 0,
+                "title": _n.get("note_title") or "",
+                "text": _n.get("note_text") or "",
+                "source_type": _n.get("source_type") or "",
+            })
+        for _s in sources_list(trip_id):
+            if _s.get("trip_day_id") or _s.get("trip_stop_id") \
+                    or _s.get("trip_region_id"):
+                continue
+            unplaced_items.append({
+                "kind": "source", "id": _s.get("id"),
+                "at": _s.get("source_date") or _s.get("created_at") or "",
+                "ord": _s.get("ord") or 0,
+                "title": _s.get("title") or "",
+                "source_type": _s.get("source_type") or "",
+                "summary": _s.get("summary") or "",
+                "link_url": _s.get("link_url") or "",
+            })
+        if _table_has_column(con, "trip_photo_links", "trip_day_id"):
+            sql = ("SELECT l.id AS link_id, l.photo_id, l.taken_at, l.ord, "
+                   "       l.caption, l.narrator_caption, "
+                   "       p.description AS photo_description "
+                   "  FROM trip_photo_links l "
+                   "  LEFT JOIN photos p ON p.id = l.photo_id "
+                   " WHERE l.trip_id = ? AND l.trip_day_id IS NULL "
+                   "   AND p.deleted_at IS NULL "
+                   + _timeline_hidden_clause(con, "trip_photo_links", "l") +
+                   " ORDER BY l.taken_at, l.ord")
+            for r in con.execute(sql, (trip_id,)):
+                row = _row_to_dict(r)
+                _narr = str(row.get("narrator_caption") or "").strip()
+                _oper = str(row.get("caption") or "").strip()
+                _mach = str(row.get("photo_description") or "").strip()
+                if _narr:
+                    _cap, _src = _narr, "narrator"
+                elif _oper:
+                    _cap, _src = _oper, "operator"
+                elif _mach:
+                    _cap, _src = _mach, "machine"
+                else:
+                    _cap, _src = "", ""
+                unplaced_items.append({
+                    "kind": "photo", "id": row.get("link_id"),
+                    "link_id": row.get("link_id"),
+                    "photo_id": row.get("photo_id"),
+                    "at": row.get("taken_at") or "", "ord": row.get("ord") or 0,
+                    "caption": _cap, "caption_source": _src,
+                })
+    finally:
+        con.close()
+
+    # Same sort the day timeline uses, so the two read alike: undated
+    # items after dated ones rather than pretending to be midnight.
+    _rank = {k: i for i, k in enumerate(DAY_TIMELINE_KINDS)}
+    unplaced_items.sort(key=lambda i: (
+        1 if not str(i.get("at") or "").strip() else 0,
+        str(i.get("at") or ""),
+        _rank.get(str(i.get("kind") or ""), 99),
+        int(i.get("ord") or 0),
+        str(i.get("id") or ""),
+    ))
+    unplaced = {"id": None, "day_index": None, "date": None,
+                "title": "Needs a day", "items": unplaced_items}
+    item_count += len(unplaced_items)
+
+    # ── PATHS ARE OPT-IN, AND THEY ARE NOT IN THE TIMELINE ───────────
+    #
+    # `_day_photo_items` deliberately projects no storage path: it feeds
+    # the LIVE day-timeline endpoint that the operator interface reads,
+    # and `test_trip_placement` has a standing guard that no path,
+    # coordinate or provider reference crosses that boundary. Putting
+    # the path there for the DOCX's benefit broke that guard, and the
+    # guard was right -- stripping at the memoir-preview route would
+    # have left the day-timeline route still leaking.
+    #
+    # So the document asks for paths explicitly and nothing else ever
+    # gets them. One query for the whole trip rather than one per
+    # photograph.
+    if with_image_paths:
+        _paths: Dict[str, str] = {}
+        _con = _connect()
+        try:
+            for _r in _con.execute(
+                "SELECT p.id, p.image_path FROM photos p "
+                "JOIN trip_photo_links l ON l.photo_id = p.id "
+                "WHERE l.trip_id = ? AND p.deleted_at IS NULL",
+                    (trip_id,)):
+                _paths[str(_r["id"])] = str(_r["image_path"] or "")
+        except sqlite3.Error:            # pragma: no cover
+            _paths = {}
+        finally:
+            _con.close()
+        for _group in list(days_out) + [unplaced]:
+            for _it in _group.get("items", []):
+                if _it.get("kind") == "photo":
+                    _it["image_path"] = _paths.get(
+                        str(_it.get("photo_id") or ""), "")
+
+    return {
+        "days": days_out,
+        "unplaced": unplaced,
+        "day_count": len(days_out),
+        "days_with_items": sum(1 for d in days_out if d["items"]),
+        "item_count": item_count,
+    }
 
 
 def trip_memoir_preview(
@@ -2268,61 +2551,94 @@ def trip_memoir_preview(
     # decided HERE. The counts are therefore computed from the same
     # filtered walks the document itself is built from, and the client
     # displays them rather than deriving them.
+    # ── VISIBLE counts, not approval counts ──────────────────────────
+    #
+    # [Held notes_in / notes_out / sources_in / sources_out / photos_in
+    # / photos_out until 2026-08-06, where "_in" meant include_in_memoir
+    # = 1. That word no longer decides anything about this export, and a
+    # review screen reporting a gate that is not there is worse than one
+    # reporting nothing. The `_hidden_approved` counters stay: a hidden
+    # row IS still withheld, and the operator needs to know the hide is
+    # what is doing it.]
     _counts = {
-        "notes_in": 0, "notes_out": 0, "notes_hidden_approved": 0,
-        "sources_in": 0, "sources_out": 0, "sources_hidden_approved": 0,
-        "photos_in": 0, "photos_out": 0, "photos_hidden_approved": 0,
+        "notes": 0, "notes_hidden": 0,
+        "sources": 0, "sources_hidden": 0,
+        "photos": 0, "photos_hidden": 0,
+        # [Held "days_in" / "days_out" / "days_approved_empty" on
+        # 2026-08-06. Those counted an approval that no longer gates
+        # this export; a review screen must not report a gate that is
+        # not there. Plain day and item counts come off the timeline
+        # projection instead.]
+        "days": 0, "day_items": 0,
     }
     # Hidden rows are excluded from the document, so a hidden row still
     # carrying its In-memoir tick is reported separately rather than
     # silently: the operator needs to know the HIDE is what keeps it out.
+    # [Required `include_in_memoir` as well until 2026-08-06, when the
+    # counters were named `*_hidden_approved`. Approval decides nothing
+    # about this document, so the only true statement left is the one
+    # that always mattered: these rows are held back BY THE HIDE.]
     for _hn in location_notes_list(trip_id, include_hidden=True):
-        if _hn.get("hidden") and _hn.get("include_in_memoir"):
-            _counts["notes_hidden_approved"] += 1
+        if _hn.get("hidden"):
+            _counts["notes_hidden"] += 1
     for _hs in sources_list(trip_id, include_hidden=True):
-        if _hs.get("hidden") and _hs.get("include_in_memoir"):
-            _counts["sources_hidden_approved"] += 1
+        if _hs.get("hidden"):
+            _counts["sources_hidden"] += 1
 
     # Promoted story notes (include_in_memoir=1) grouped by scope. Notes
     # NOT flagged never reach the memoir (WO-TRAVEL-DOC-STORY-LAYER-01).
     _notes_stop: Dict[str, List[Dict[str, Any]]] = {}
     _notes_region: Dict[str, List[Dict[str, Any]]] = {}
-    _notes_trip: List[Dict[str, Any]] = []
+    # Kept as empty lists so existing readers of `story_notes` /
+    # `sources` do not break. Placeless material is the timeline's, and
+    # printing it here as well was a duplication (rule 10).
+    _notes_trip_placeless: List[Dict[str, Any]] = []
     for _n in location_notes_list(trip_id):
-        if not _n.get("include_in_memoir"):
-            _counts["notes_out"] += 1
-            continue
-        _counts["notes_in"] += 1
+        # Rule 1: no include_in_memoir filter. A note visible on the
+        # timeline is in the document.
+        _counts["notes"] += 1
         _entry = {"note_title": _n.get("note_title"),
                   "note_text": _n.get("note_text"),
                   "source_type": _n.get("source_type")}
+        # ── RULE 10: each item is printed exactly once ───────────────
+        #
+        # A note that carries a day is rendered by the timeline, under
+        # that day, so it must not also be rendered here. `continue`
+        # rather than a fourth bucket: the day lane reads the note
+        # itself from the same table, and a second copy of the text
+        # here would be the duplication rule 10 forbids.
+        #
+        # A note with no day but a stop or region still belongs to the
+        # region walk; one with neither is printed under "Needs a day".
         _sid, _rid = _n.get("trip_stop_id"), _n.get("trip_region_id")
+        if _n.get("trip_day_id"):
+            continue
         if _sid:
             _notes_stop.setdefault(_sid, []).append(_entry)
         elif _rid:
             _notes_region.setdefault(_rid, []).append(_entry)
-        else:
-            _notes_trip.append(_entry)
+        # else: no day, no stop, no region -- the timeline prints it
+        # under "Needs a day". Collecting it here as well printed all
+        # eleven of Christopher's Bismarck notes twice in the same
+        # document, once at the top and once at the back.
 
     # Promoted sources (include_in_memoir=1) grouped by scope.
     _src_stop: Dict[str, List[Dict[str, Any]]] = {}
     _src_region: Dict[str, List[Dict[str, Any]]] = {}
-    _src_trip: List[Dict[str, Any]] = []
+    _src_trip_placeless: List[Dict[str, Any]] = []
     for _s in sources_list(trip_id):
-        if not _s.get("include_in_memoir"):
-            _counts["sources_out"] += 1
-            continue
-        _counts["sources_in"] += 1
+        _counts["sources"] += 1
         _se = {"title": _s.get("title"), "summary": _s.get("summary"),
                "pasted_text": _s.get("pasted_text"), "link_url": _s.get("link_url"),
                "filename": _s.get("filename"), "source_type": _s.get("source_type")}
         _ssid, _srid = _s.get("trip_stop_id"), _s.get("trip_region_id")
+        if _s.get("trip_day_id"):        # printed by the timeline
+            continue
         if _ssid:
             _src_stop.setdefault(_ssid, []).append(_se)
         elif _srid:
             _src_region.setdefault(_srid, []).append(_se)
-        else:
-            _src_trip.append(_se)
+        # else: printed under "Needs a day", once. See the notes above.
 
     def _stop_line(stop: Dict[str, Any]) -> Dict[str, Any]:
         return {
@@ -2398,33 +2714,64 @@ def trip_memoir_preview(
     # appendix the operator had reviewed. The window was small and the
     # whole point of a shared projection is that there is no window.
     #
-    # ── #5: FAILURE STAYS UNKNOWN ────────────────────────────────────
+    # ── The timeline, built ONCE and carried in the preview dict ─────
     #
-    # `_appendix` is deliberately None until it is really built. The old
-    # default was an empty projection, which turns "we could not find
-    # out" into "0 photographs" and "No photographs approved" — an
-    # authoritative-sounding nothing. -1 and `unknown` travel all the way
-    # to the operator instead.
-    _appendix: Optional[Dict[str, Any]] = None
+    # It lives in the preview because the DOCX builder already receives
+    # this dict, which makes rule 9 -- one shared projection -- a
+    # property of the data rather than a discipline the export route
+    # has to keep. There is no second read for them to disagree about.
+    #
+    # Failure is contained: a preview must not die because the timeline
+    # could not be read.
+    try:
+        _timeline = trip_timeline_projection(trip_id, with_image_paths=True)
+    except Exception:            # pragma: no cover - reading must not fail a preview
+        _timeline = {"days": [], "unplaced": {"title": "Needs a day",
+                                              "items": []},
+                     "day_count": -1, "days_with_items": -1,
+                     "item_count": -1, "unknown": True}
+    _counts["days"] = _timeline.get("day_count", 0)
+    _counts["day_items"] = _timeline.get("item_count", 0)
+
+    # The narrator's own name, for the conversation speaker labels. A
+    # transcript that said "Narrator:" over a man's account of visiting
+    # his mother's parents' graves would read as a system log rather
+    # than as his trip. First token only -- "Chris:", the way Lori
+    # addresses him -- and "Narrator" only when there is nothing to use.
+    _narrator_label = "Narrator"
+    try:
+        _con = _connect()
+        try:
+            _pid = tree.get("person_id")
+            if _pid:
+                _r = _con.execute(
+                    "SELECT display_name FROM people WHERE id = ?",
+                    (_pid,)).fetchone()
+                _dn = str((_r["display_name"] if _r else "") or "").strip()
+                if _dn:
+                    _narrator_label = _dn.split()[0]
+        finally:
+            _con.close()
+    except Exception:            # pragma: no cover - a label must not fail a preview
+        pass
+
+    # Visible photographs on this trip, counted from the same unfiltered
+    # read the timeline projects.
+    #
+    # [`_appendix` held the grouped photo-appendix projection. Retired
+    # 2026-08-06 with Part III: photographs print once, under their own
+    # day. `_appendix_unknown` survives as the "we could not count"
+    # signal, because -1 reaching the operator is still better than a
+    # confident zero.]
     _appendix_unknown = False
     try:
-        _appendix = appendix if appendix is not None else \
-            photo_appendix_projection(trip_id)
-        _all_photos = photo_links_with_photo_paths(trip_id, memoir_only=False)
-        _counts["photos_in"] = _appendix["approved"]
-        _counts["photos_out"] = max(0, len(_all_photos) - _appendix["approved"])
-        # ── #6: hidden-but-approved PHOTO links, counted only when the
-        # photograph behind them still exists. A hidden link whose photo
-        # has been soft-deleted is not something the operator can restore
-        # into the document, so counting it would send them looking for a
-        # photograph that is gone.
-        _counts["photos_hidden_approved"] = _hidden_approved_photo_count(trip_id)
+        _counts["photos"] = len(
+            photo_links_with_photo_paths(trip_id, memoir_only=False))
+        _counts["photos_hidden"] = _hidden_photo_count(trip_id)
     except Exception:            # pragma: no cover - counting must not fail a preview
-        _appendix = None
         _appendix_unknown = True
-        _counts["photos_in"] = -1
-        _counts["photos_out"] = -1
-        _counts["photos_hidden_approved"] = -1
+        _counts["photos"] = -1
+        _counts["photos_hidden"] = -1
 
     return {
         "trip_id": trip_id,
@@ -2434,53 +2781,26 @@ def trip_memoir_preview(
             "end": tree.get("end_date"),
         },
         "summary": tree.get("summary"),
-        "story_notes": _notes_trip,
-        "sources": _src_trip,
+        "story_notes": _notes_trip_placeless,
+        "sources": _src_trip_placeless,
         "part_one_journey_in_order": part_one,
+        "part_one_timeline": _timeline,
+        "narrator_label": _narrator_label,
         "part_two_themes": part_two,
-        "part_three_photo_appendix": (
-            {
-                # #5: no counts at all rather than zeroes. A client that
-                # sees `unknown` must not print a number.
-                "unknown": True,
-            }
-            if _appendix_unknown or _appendix is None else
-            {
-                # Retained under its original name for existing readers,
-                # but it is the count of photographs ASSIGNED to stops,
-                # which is not what the appendix contains.
-                "assigned_photos": total_photos,
-                "unassigned_photos": tree.get("unassigned_photo_count", 0),
-                "unknown": False,
-                # #7: three separate numbers, never conflated. `approved`
-                # is what the operator ticked; `available` is what is on
-                # disk right now; the EMBEDDED count is knowable only
-                # after Word has accepted each image, so it is not
-                # promised here at all.
-                "approved": _appendix["approved"],
-                "available": _appendix["available"],
-                "unavailable": _appendix["unavailable"],
-                # #4: the browser needs these to show per-stop totals the
-                # way the document does.
-                "approved_by_stop": _appendix["approved_by_stop"],
-                # The projection, with `image_path` STRIPPED. A
-                # filesystem path is not a thing to hand a browser;
-                # `photo_id` is what a thumbnail needs.
-                "groups": [
-                    {
-                        "key": g["key"], "scope": g["scope"],
-                        "scope_id": g["scope_id"], "label": g["label"],
-                        "photos": [
-                            {k: v for k, v in ph.items() if k != "image_path"}
-                            for ph in g["photos"]
-                        ],
-                    }
-                    for g in _appendix["groups"]
-                ],
-            }
-        ),
-        # Server-authoritative export membership. The client displays
-        # this; it must not derive document membership itself.
+        # ── part_three_photo_appendix: RETIRED 2026-08-06 ────────────
+        #
+        # [Carried the grouped appendix projection -- approved /
+        # available / unavailable, approved_by_stop and the groups
+        # themselves -- so the browser could preview the photo
+        # appendix the document embedded.]
+        #
+        # The appendix is gone: the timeline prints each photograph
+        # once, under the day it is placed on, and rule 10 forbids a
+        # second copy. The key stays, always `unknown`, so an older
+        # client that still reads it prints nothing rather than
+        # printing a confident zero about a section that no longer
+        # exists.
+        "part_three_photo_appendix": {"unknown": True},
         "export_summary": _counts,
     }
 
@@ -3389,6 +3709,13 @@ def trip_day_update(
     if meals is not None:
         sets.append("meals_json = ?")
         args.append(json.dumps([str(m) for m in meals], ensure_ascii=False))
+    # [Took an `include_in_memoir` argument and wrote the column, for
+    # the "Include this day in the travel document" tick. Removed
+    # 2026-08-06 with that design. Migration 0042 stays applied so a
+    # fresh installation matches Chris's database, and the column is
+    # DORMANT -- nothing reads it and nothing writes it. Leaving the
+    # writer in place would have kept a control alive with no reader,
+    # which is how a dead field comes back to life by accident.]
     if not sets:
         return False
     sets.append("updated_at = ?"); args.append(_now())
@@ -4344,14 +4671,21 @@ def trip_turn_links_list(trip_id: str,
     """Placement rows for a trip, optionally narrowed to one day."""
     con = _connect()
     try:
+        # WO-TRAVEL-DOC-CLOSEOUT-01: 'rejected' is the placement the
+        # operator threw away. It was already invisible in practice
+        # because nothing rendered it, but the export is built from this
+        # read now, so the exclusion has to be real rather than
+        # incidental.
+        _live = " AND placement_status != 'rejected' "
         if trip_day_id:
             sql = ("SELECT * FROM trip_turn_links WHERE trip_id=? AND "
-                   "trip_day_id=? ORDER BY captured_at, assistant_turn_row_id;")
+                   "trip_day_id=?" + _live +
+                   "ORDER BY captured_at, assistant_turn_row_id;")
             rows = con.execute(sql, (trip_id, trip_day_id)).fetchall()
         elif include_unplaced:
             rows = con.execute(
                 "SELECT * FROM trip_turn_links WHERE trip_id=? AND "
-                "trip_day_id IS NULL "
+                "trip_day_id IS NULL" + _live +
                 "ORDER BY captured_at, assistant_turn_row_id;",
                 (trip_id,)).fetchall()
         else:
@@ -4442,6 +4776,28 @@ def trip_day_conversation_items(trip_id: str,
                 or (user or {}).get("ts")
                 or (assistant or {}).get("ts")
                 or "")
+        # ── A DIRECTIVE IS NOT SOMETHING THE NARRATOR SAID ───────────
+        #
+        # `[SYSTEM: ...]` turns are instructions this system sends to
+        # Lori through the user channel -- "the narrator has been quiet
+        # for a while", "the narrator just opened their trip". They are
+        # stored in `turns` with role='user', so a projection that reads
+        # the column and stops there attributes them to the narrator.
+        # In the exported document that appeared as
+        #
+        #     Christopher: [SYSTEM: The narrator has been quiet for a
+        #     while. Offer a gentle, warm invitation...]
+        #
+        # which puts words in a man's mouth in the artefact his family
+        # reads. Same class as the directive-concatenation bug of
+        # 2026-07-14, one layer further out.
+        #
+        # The narrator half is dropped and the fact is recorded rather
+        # than hidden: Lori's reply is real and stays, and
+        # `narrator_directive` lets any surface say why there is nothing
+        # above it. The text is NOT rendered anywhere.
+        _said = str((user or {}).get("content") or "")
+        _is_directive = _said.lstrip().startswith("[SYSTEM")
         items.append({
             "kind": "conversation",
             "link_id": link.get("id"),
@@ -4454,7 +4810,8 @@ def trip_day_conversation_items(trip_id: str,
             # underlying conversation at the right turn.
             "user_turn_row_id": u_id,
             "assistant_turn_row_id": a_id,
-            "narrator_said": (user or {}).get("content") or "",
+            "narrator_said": "" if _is_directive else _said,
+            "narrator_directive": _is_directive,
             "lori_said": (assistant or {}).get("content") or "",
         })
     items.sort(key=lambda i: (str(i.get("at") or ""),
@@ -4519,17 +4876,47 @@ def _day_photo_items(con: sqlite3.Connection, trip_id: str,
     """
     if not _table_has_column(con, "trip_photo_links", "trip_day_id"):
         return []
+    # WO-TRAVEL-DOC-CLOSEOUT-01 (2026-08-06): a soft-deleted photograph
+    # is not visible material and must not reach the timeline or the
+    # document. `p.deleted_at IS NULL` is TRUE for a LEFT JOIN miss, so
+    # a link whose photo row is absent entirely still comes through as
+    # it did before -- only genuinely deleted photographs are dropped.
     sql = ("SELECT l.id AS link_id, l.photo_id, l.taken_at, l.ord, "
            "       l.caption, l.narrator_caption, "
            "       p.description AS photo_description "
            "  FROM trip_photo_links l "
            "  LEFT JOIN photos p ON p.id = l.photo_id "
            " WHERE l.trip_id = ? AND l.trip_day_id = ? "
+           "   AND p.deleted_at IS NULL "
            + _timeline_hidden_clause(con, "trip_photo_links", "l") +
            " ORDER BY l.taken_at, l.ord")
     out: List[Dict[str, Any]] = []
     for r in con.execute(sql, (trip_id, day_id)):
         row = _row_to_dict(r)
+        # ── CAPTION PROVENANCE ───────────────────────────────────────
+        #
+        # This used to collapse three different things into one string:
+        # `narrator_caption or caption or photo_description`. The third
+        # is MACHINE text -- a vision description this system generated
+        # -- and once flattened it was indistinguishable from something
+        # Chris had written about his own photograph, on the timeline
+        # and in anything built from it.
+        #
+        # The choice is unchanged; what is added is a name for which of
+        # the three won, so both the timeline and the document can say
+        # "draft, machine-written" where that is the truth. A caption is
+        # never silently attributed to a person who did not write it.
+        _narr = str(row.get("narrator_caption") or "").strip()
+        _oper = str(row.get("caption") or "").strip()
+        _mach = str(row.get("photo_description") or "").strip()
+        if _narr:
+            _cap, _src = _narr, "narrator"
+        elif _oper:
+            _cap, _src = _oper, "operator"
+        elif _mach:
+            _cap, _src = _mach, "machine"
+        else:
+            _cap, _src = "", ""
         out.append({
             "kind": "photo",
             "id": row.get("link_id"),
@@ -4537,9 +4924,8 @@ def _day_photo_items(con: sqlite3.Connection, trip_id: str,
             "photo_id": row.get("photo_id"),
             "at": row.get("taken_at") or "",
             "ord": row.get("ord") or 0,
-            "caption": (row.get("narrator_caption")
-                        or row.get("caption")
-                        or row.get("photo_description") or ""),
+            "caption": _cap,
+            "caption_source": _src,
         })
     return out
 

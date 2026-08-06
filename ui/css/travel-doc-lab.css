@@ -1136,3 +1136,24 @@
 .tdl-doc-note-title { font-weight: 600; margin-top: .4rem; }
 .tdl-doc-dateline { color: var(--tdl-muted); margin: 0 0 .6rem; }
 .tdl-doc-unavailable { color: var(--tdl-red); font-size: .9rem; }
+
+/* ── WO-TRAVEL-DOC-CLOSEOUT-01 — the timeline in the document view ──
+   Structural only; every colour reuses an existing --tdl-* variable.
+   [.tdl-day-memoir and .tdl-chip-in-doc lived here for the day
+   approval checkbox and its card chip. Both removed 2026-08-06 with
+   the approval gate.] */
+
+.tdl-doc-daypart {
+  margin: 10px 0 2px;
+  font-size: 13px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--tdl-muted);
+}
+.tdl-doc-photocount { font-size: 12px; color: var(--tdl-muted); }
+.tdl-doc-photo { margin: 10px 0; }
+.tdl-doc-photo img {
+  max-width: 320px;
+  border: 1px solid var(--tdl-line);
+  border-radius: 4px;
+}

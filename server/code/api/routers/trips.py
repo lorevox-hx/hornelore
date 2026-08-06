@@ -930,6 +930,14 @@ def memoir_preview(trip_id: str) -> Dict[str, Any]:
     preview = trip_repository.trip_memoir_preview(trip_id)
     if not preview:
         raise HTTPException(status_code=404, detail="trip not found")
+    # A filesystem path is not a thing to hand a browser. The timeline
+    # carries `image_path` so the DOCX builder can embed the file; the
+    # interface fetches by `/api/photos/{id}/thumb` and has never needed
+    # one. Stripped HERE and not in the projection, because the export
+    # route consumes the same function and does need it.
+    _tl = preview.get("part_one_timeline") or {}
+    trip_repository._strip_timeline_for_browser(
+        _tl.get("days") or [], _tl.get("unplaced") or {})
     return preview
 
 
@@ -2207,25 +2215,24 @@ def delete_source(source_id: str, purge: bool = False,
 
 @router.get("/{trip_id}/export-docx")
 def export_docx(trip_id: str):
-    """Standalone trip memoir DOCX — deterministic Part I/II/III render
-    of the same canonical rows the preview shows, with the clustered
-    photo appendix embedded (include_in_memoir=1 links only)."""
+    """A DOCX snapshot of the visible trip timeline.
+
+    2026-08-06: this used to render a Part I/II/III memoir of the rows
+    an operator had ticked for the memoir. The product rule is now that
+    the visible timeline IS the editable source of truth and this is a
+    snapshot of it, so nothing here filters on approval.
+    """
     _require_trips_enabled()
-    # ── WO-TRAVEL-DOC-CLOSEOUT-01 #3: ONE read, ONE projection ───────
-    #
-    # This used to read the photo-link table four times per export --
-    # once inside the preview, once for `_all_photos`, once here, and
-    # once more inside the builder -- and the counts printed in the
-    # document came from a different read than the appendix the operator
-    # had reviewed. Same object to both consumers now, so there is no
-    # window in which they can disagree.
-    appendix = trip_repository.photo_appendix_projection(trip_id)
-    preview = trip_repository.trip_memoir_preview(trip_id, appendix=appendix)
+    # ONE projection, and the way that is guaranteed is that there is
+    # only one: `trip_memoir_preview` builds the timeline and carries it
+    # in the dict the builder already receives. No appendix is built --
+    # photographs print under their own day now.
+    preview = trip_repository.trip_memoir_preview(trip_id)
     if not preview:
         raise HTTPException(status_code=404, detail="trip not found")
     from ..services.trip_memoir_docx import build_trip_docx
     try:
-        docx_bytes = build_trip_docx(preview, appendix=appendix)
+        docx_bytes = build_trip_docx(preview)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     import io
@@ -2261,12 +2268,15 @@ def export_docx(trip_id: str):
         # NameError AFTER the document was built and before the response
         # was returned, so every export died at the last step.
         #
-        # Both numbers, because they are different questions and the
-        # gap between them is the interesting one in a log: `approved`
-        # is what the operator ticked, `available` is how many of those
-        # files were actually on disk.
-        "[trips][docx] export trip=%s approved=%d available=%d",
-        trip_id, appendix.get("approved", 0), appendix.get("available", 0),
+        # [Read `approved=%d available=%d` off the appendix projection
+        # until 2026-08-06. Approval no longer decides what is exported
+        # and the appendix is retired, so the log reports what the
+        # snapshot actually contains: how many days and how many
+        # timeline items went into it.]
+        "[trips][docx] export trip=%s days=%d items=%d",
+        trip_id,
+        (preview.get("part_one_timeline") or {}).get("day_count", 0),
+        (preview.get("part_one_timeline") or {}).get("item_count", 0),
     )
     return StreamingResponse(
         io.BytesIO(docx_bytes),
@@ -3138,6 +3148,11 @@ class TripDayPatch(BaseModel):
     evening_notes: Optional[str] = None
     places_visited: Optional[List[str]] = None
     meals: Optional[List[str]] = None
+    # [Carried `include_in_memoir` for the "Include this day in the
+    # travel document" tick. Removed 2026-08-06: the export is a
+    # snapshot of the visible timeline, so a day has no approval to
+    # give. `trip_days.include_in_memoir` exists (migration 0042 has
+    # run) and is dormant -- no route writes it.]
     clear_title: bool = False
     clear_main_location: bool = False
     clear_lodging_base: bool = False

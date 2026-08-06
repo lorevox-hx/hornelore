@@ -4229,6 +4229,12 @@
     ov.appendChild(labeled("Day title", fTitle));
     ov.appendChild(labeled("Main location", fMain));
     ov.appendChild(labeled("Lodging", fLodging));
+
+    // [Held the "Include this day in the travel document" checkbox and
+    // its explanatory line. Removed 2026-08-06: the visible timeline is
+    // the source of truth and the export is a snapshot of it, so a day
+    // has no approval to give. The migrated column stays dormant.]
+
     body.appendChild(ov);
 
     // ── Section: Photos (day-linked first, then date matches) ──
@@ -7954,40 +7960,42 @@
     // out" into "there are none", which is the more confident and the
     // more wrong of the two.
     function n(v) { return (typeof v === "number") ? v : -1; }
-    var hiddenParts = [s.notes_hidden_approved, s.sources_hidden_approved,
-                       s.photos_hidden_approved].map(n);
+    // [Read the `*_hidden_approved` counters, which required a memoir
+    // tick as well. Renamed 2026-08-06: rows are held back BY THE HIDE
+    // and approval decides nothing here.]
+    var hiddenParts = [s.notes_hidden, s.sources_hidden,
+                       s.photos_hidden].map(n);
     return {
-      notesIn: n(s.notes_in), notesOut: n(s.notes_out),
-      sourcesIn: n(s.sources_in), sourcesOut: n(s.sources_out),
-      photosIn: n(s.photos_in), photosOut: n(s.photos_out),
+      // [Held notesIn/notesOut/sourcesIn/sourcesOut/photosIn/photosOut
+      // and the three day-approval counts. Retired 2026-08-06: "_in"
+      // meant include_in_memoir, which no longer decides what is
+      // exported, and a screen reporting a gate that is not there is
+      // worse than one reporting nothing.]
+      notes: n(s.notes), sources: n(s.sources), photos: n(s.photos),
+      days: n(s.days), dayItems: n(s.day_items),
       // #6: photos join the hidden-approved warning. Unknown lanes are
       // excluded from the sum rather than counted as zero.
-      hiddenApproved: hiddenParts.filter(function (v) { return v > 0; })
+      hidden: hiddenParts.filter(function (v) { return v > 0; })
         .reduce(function (a, b) { return a + b; }, 0),
       hiddenUnknown: hiddenParts.some(function (v) { return v < 0; }),
     };
   }
 
-  function _docLine(label, inCount, outCount, whereToApprove) {
+  function _docLine(label, count) {
+    // [Took (label, inCount, outCount, whereToApprove) and rendered
+    // "N approved for the document -- M not approved -- tick ... ".
+    // Rewritten 2026-08-06: the export is a snapshot of the visible
+    // timeline, so there is one number and it is a plain count.]
     var row = el("div", "tdl-doc-count");
-    if (inCount < 0) {
+    if (count < 0) {
       // The server could not count. Say so rather than printing a zero
       // that reads as an authoritative "none".
       row.appendChild(el("span", "tdl-doc-count-in",
         label + " count unavailable"));
       return row;
     }
-    // "approved for the document", not "in" it. `photos_in` is the
-    // APPROVED count; a file can be missing from disk or refused by
-    // Word, and neither is known until the export runs. Saying "in the
-    // document" promises an outcome this number cannot guarantee.
     row.appendChild(el("span", "tdl-doc-count-in",
-      String(inCount) + " " + label + (inCount === 1 ? "" : "s")
-      + " approved for the document"));
-    if (outCount > 0) {
-      row.appendChild(el("span", "tdl-doc-count-out",
-        outCount + " not approved — " + whereToApprove));
-    }
+      String(count) + " " + label + (count === 1 ? "" : "s")));
     return row;
   }
 
@@ -8039,7 +8047,14 @@
       //
       // RFC 6266: `filename*=UTF-8''<percent-encoded>`, optionally with
       // a language tag between the two apostrophes.
-      var name = "travel-document.docx";
+      // 2026-08-06 — this used to initialise `name` to the fallback and
+      // then guard the ASCII branch with `if (!name)`, which could
+      // never be true unless decodeURIComponent had thrown. The ASCII
+      // form was therefore dead code, and the fallback was reached by
+      // the ONE path nobody had considered: the header not being
+      // readable at all. `name` starts empty now, so each source is
+      // consulted in turn and the hardcoded default is genuinely last.
+      var name = "";
       var cd = r.headers.get("Content-Disposition") || "";
       var star = /filename\*\s*=\s*([^']*)'([^']*)'([^;]+)/i.exec(cd);
       if (star) {
@@ -8053,7 +8068,17 @@
       }
       if (!name) {
         var hit = /filename="([^"]+)"/.exec(cd);
-        name = hit ? hit[1] : "travel-document.docx";
+        name = hit ? hit[1] : "";
+      }
+      if (!name) {
+        // Reached when the server sent no Content-Disposition, or when
+        // the browser could not read it. The second is what happened
+        // live: the API is cross-origin (:8000 vs the page's :8082) and
+        // CORS did not expose the header, so `cd` was the empty string
+        // and every trip downloaded as the fallback. Fixed server-side
+        // in main.py with expose_headers; this stays as a real last
+        // resort rather than as the silent usual outcome.
+        name = "travel-document.docx";
       }
       return r.blob().then(function (blob) { return { blob: blob, name: name }; });
     }).then(function (got) {
@@ -8117,27 +8142,28 @@
     wrap.appendChild(el("h1", "", (p && p.title) || st.trip.title
       || "Travel document"));
     wrap.appendChild(el("p", "tdl-muted",
-      "This is built from what you have approved. Anything you have not "
-      + "ticked for the memoir stays out of it."));
+      "A Word snapshot of this trip\u2019s timeline, exactly as it is "
+      + "below. Edit the timeline and export again to change it."));
 
     // Counts come from the server, so they are unavailable until the
     // preview lands. Showing browser-derived numbers in the meantime is
     // what produced four separate wrong counts, so nothing is shown.
     if (c) {
       var counts = el("div", "tdl-doc-counts");
-      counts.appendChild(_docLine("story note", c.notesIn, c.notesOut,
-        "tick \u201cIn memoir\u201d on the Story Notes tab"));
-      counts.appendChild(_docLine("source", c.sourcesIn, c.sourcesOut,
-        "tick \u201cIn memoir\u201d on the Sources tab"));
-      counts.appendChild(_docLine("photo", c.photosIn, c.photosOut,
-        "tick \u201cIn memoir\u201d on the Photos tab"));
-      if (c.hiddenApproved > 0) {
+      // Plain visible counts. [This was three "N approved for the
+      // document / M not approved" lines plus three day-approval lines.
+      // Retired with the approval gate on 2026-08-06.]
+      counts.appendChild(_docLine("day", c.days));
+      counts.appendChild(_docLine("timeline item", c.dayItems));
+      counts.appendChild(_docLine("photograph", c.photos));
+      counts.appendChild(_docLine("note", c.notes));
+      counts.appendChild(_docLine("source", c.sources));
+      if (c.hidden > 0) {
         counts.appendChild(el("div", "tdl-doc-count-hidden",
-          c.hiddenApproved + " hidden "
-          + (c.hiddenApproved === 1 ? "row is" : "rows are")
-          + " ticked for the memoir \u2014 notes, sources or photographs "
-          + "\u2014 but stay out of the document while hidden. Restore "
-          + "them if they belong in it."));
+          c.hidden + " hidden "
+          + (c.hidden === 1 ? "row is" : "rows are")
+          + " kept out of the document. Restore them if they belong "
+          + "in it."));
       }
       if (c.hiddenUnknown) {
         counts.appendChild(el("div", "tdl-doc-count-hidden",
@@ -8148,13 +8174,9 @@
       // to include -1, so an unknown photo count produced "Nothing is
       // approved for the memoir yet" — an authoritative claim built on a
       // failure to find out.
-      if (c.notesIn === 0 && c.sourcesIn === 0 && c.photosIn === 0) {
-        wrap.appendChild(el("div", "tdl-doc-empty-note",
-          "Nothing is approved for the memoir yet, so the document would "
-          + "contain only the trip outline \u2014 the regions, stops and "
-          + "dates. That is a valid document; it just has no stories in "
-          + "it yet."));
-      }
+      // [Held a "Nothing is approved for the memoir yet" note.
+      // Retired: nothing is approved-or-not any more, and an empty
+      // trip says so through the timeline's own empty state below.]
     }
 
     // Export.
@@ -8246,12 +8268,6 @@
       // preview did not, so the operator could not check it. Labelled
       // "approved" rather than "embedded" — whether each file opens is
       // not known until Word has tried.
-      var byStop = (p.part_three_photo_appendix || {}).approved_by_stop || {};
-      var nStop = byStop[stop.id] || 0;
-      if (nStop) {
-        head += " \u00b7 " + nStop
-          + (nStop === 1 ? " approved photo" : " approved photos");
-      }
       sc.appendChild(el("div", "tdl-doc-stop-name", head));
       // The stop's OWN notes field. Exported as its own paragraph and
       // previously invisible here, so an operator could export a
@@ -8296,9 +8312,94 @@
       });
       wrap.appendChild(card);
     });
-    if (!regions.length) {
+
+    // ── The timeline — WO-TRAVEL-DOC-CLOSEOUT-01, 2026-08-06 ─────────
+    //
+    // [Rendered `part_one_days`, the approved-only day projection.
+    // Retired with the approval gate: this reads `part_one_timeline`,
+    // which is the same projection the DOCX is built from, so rule 9
+    // holds by construction rather than by discipline.]
+    var tl = p.part_one_timeline || {};
+    var speaker = p.narrator_label || "Narrator";
+
+    function timelineItems(host, items) {
+      (items || []).forEach(function (it) {
+        var kind = it.kind || "";
+        if (kind === "day_text") {
+          host.appendChild(el("p", "tdl-doc-note",
+            (it.label || "") + ": " + (it.text || "")));
+        } else if (kind === "conversation") {
+          [[speaker, it.narrator_said], ["Lori", it.lori_said]]
+            .forEach(function (pair) {
+              var body = (pair[1] || "").trim();
+              if (!body) return;
+              var line = el("p", "tdl-doc-note");
+              line.appendChild(el("strong", "", pair[0] + ": "));
+              line.appendChild(document.createTextNode(body));
+              host.appendChild(line);
+            });
+        } else if (kind === "note") {
+          noteBlock(host, [{ note_title: it.title, note_text: it.text }]);
+        } else if (kind === "source") {
+          sourceBlock(host, [{
+            title: it.title, source_type: it.source_type,
+            summary: it.summary, link_url: it.link_url }]);
+        } else if (kind === "photo") {
+          var cell = el("div", "tdl-doc-photo");
+          if (it.photo_id) cell.appendChild(thumbImg(it.photo_id,
+            it.caption || "", true));
+          var cap = (it.caption || "").trim();
+          if (cap && it.caption_source === "machine") {
+            // Rule 8. Machine text is never allowed to look like a
+            // caption Chris wrote about his own photograph.
+            cap = "Draft description (machine-written, not reviewed): " + cap;
+          }
+          var bits = [cap, (it.at || "").trim()].filter(Boolean);
+          if (bits.length) cell.appendChild(el("p", "tdl-doc-photocount",
+            bits.join(" \u2014 ")));
+          host.appendChild(cell);
+        }
+      });
+    }
+
+    // Every projected day. [Filtered on items-or-title, which was a
+    // second definition of "a day worth printing" living in a second
+    // language. The projection decides; this renders what it is given,
+    // so the preview and the document cannot disagree about which days
+    // exist.]
+    var tlDays = tl.days || [];
+    if (tlDays.length) {
+      wrap.appendChild(el("h2", "", "Day by day"));
+      tlDays.forEach(function (d) {
+        var card = el("div", "tdl-doc-region");
+        var head = [];
+        if (d.day_index !== null && d.day_index !== undefined) {
+          head.push("Day " + d.day_index);
+        }
+        if (d.date) head.push(d.date);
+        var line = head.join(" \u00b7 ");
+        if (d.title) line = line ? (line + " \u2014 " + d.title) : d.title;
+        card.appendChild(el("h3", "", line || "A day on this trip"));
+        timelineItems(card, d.items);
+        wrap.appendChild(card);
+      });
+    }
+
+    var unplaced = (tl.unplaced || {}).items || [];
+    if (unplaced.length) {
+      wrap.appendChild(el("h2", "", "Needs a day"));
+      var uCard = el("div", "tdl-doc-region");
+      uCard.appendChild(el("p", "tdl-muted",
+        "Recorded on this trip but not yet placed on a day."));
+      timelineItems(uCard, unplaced);
+      wrap.appendChild(uCard);
+    }
+
+    if (!regions.length && !tlDays.length && !unplaced.length) {
       wrap.appendChild(el("div", "tdl-muted",
-        "This trip has no regions yet, so Part I is empty."));
+        tl.unknown
+          ? "The timeline could not be read."
+          : "Nothing has been recorded on this trip yet."));
     }
 
     var themes = p.part_two_themes || [];
@@ -8324,63 +8425,11 @@
     // The first cut of this preview printed a single number, so the
     // operator reviewed a count while the family received captions and
     // headings nobody had seen.
-    var app = p.part_three_photo_appendix || {};
-    wrap.appendChild(el("h2", "", "Photo appendix"));
-
-    // #5: unknown is not zero. When the server could not build the
-    // projection it says so, and this prints nothing numeric at all.
-    if (app.unknown) {
-      wrap.appendChild(el("p", "tdl-doc-unavailable",
-        "Photo information is unavailable for this trip, so the appendix "
-        + "cannot be previewed. The export may still work; the counts "
-        + "above are unknown rather than zero."));
-      return wrap;
-    }
-
-    var groups = app.groups || [];
-    // #7: THREE separate numbers. `approved` is what you ticked.
-    // `available` is what is on disk right now. The EMBEDDED count is
-    // knowable only after Word has accepted each image, so it is not
-    // promised here — the document reports it at the foot of Part III.
-    wrap.appendChild(el("p", "tdl-muted",
-      (app.approved || 0)
-      + ((app.approved === 1) ? " photograph" : " photographs")
-      + " approved. Captions are the narrator\u2019s own words, or an "
-      + "operator caption you have approved \u2014 never an unapproved "
-      + "description."));
-    if (app.unavailable) {
-      wrap.appendChild(el("p", "tdl-doc-unavailable",
-        app.unavailable + " of them "
-        + (app.unavailable === 1 ? "cannot be found" : "cannot be found")
-        + " on disk and will not appear in the document."));
-    }
-    groups.forEach(function (g) {
-      var gc = el("div", "tdl-doc-photo-group");
-      var n = (g.photos || []).length;
-      var head = (g.label || "Unplaced") + " \u00b7 " + n
-        + (n === 1 ? " approved photo" : " approved photos");
-      gc.appendChild(el("h3", "", head));
-      (g.photos || []).forEach(function (ph) {
-        var row = el("div", "tdl-doc-photo");
-        if (ph.photo_id) row.appendChild(thumbImg(ph.photo_id, ph.caption, true));
-        var meta = el("div", "tdl-doc-photo-meta");
-        var bits = [ph.caption, ph.taken_at].filter(Boolean);
-        meta.appendChild(el("div", "tdl-doc-photo-caption",
-          bits.length ? bits.join(" \u2014 ") : "(no caption)"));
-        if (!ph.available) {
-          meta.appendChild(el("div", "tdl-doc-unavailable",
-            "File not found \u2014 this one will not appear in the "
-            + "document."));
-        }
-        row.appendChild(meta);
-        gc.appendChild(row);
-      });
-      wrap.appendChild(gc);
-    });
-    if (!groups.length) {
-      wrap.appendChild(el("p", "tdl-muted",
-        "No photographs are approved for this trip yet."));
-    }
+    // [Rendered the Part III photo appendix preview -- group headings,
+    // thumbnails, "N photographs approved", and an unavailable-file
+    // warning. Removed 2026-08-06 with the appendix itself: each
+    // photograph is now shown once, under the day it sits on, in the
+    // "Day by day" section above.]
     return wrap;
   }
 

@@ -77,6 +77,27 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    # WO-TRAVEL-DOC-CLOSEOUT-01 (2026-08-06): allow_headers governs the
+    # REQUEST direction. Nothing here governed the RESPONSE direction,
+    # and the CORS default for that is an empty list -- so a page on
+    # :8082 reading a response from :8000 could see only the safelisted
+    # headers. Measured from the live page rather than assumed:
+    # `r.headers` enumerated exactly ["content-length", "content-type"],
+    # and `r.headers.get("server")` -- which uvicorn certainly sends --
+    # came back null.
+    #
+    # The consequence reached the operator. The trip export sets
+    # Content-Disposition with both a `filename=` and an RFC 6266
+    # `filename*=`, the browser could read NEITHER, and every trip
+    # downloaded under the hardcoded fallback name
+    # `travel-document.docx`. This was tested twice and missed twice:
+    # once on the server, which emits the header correctly, and once on
+    # the parsing regex, which is fed a header string directly. Neither
+    # test crossed an origin, which is where the header disappears.
+    #
+    # Exposed by name rather than with a wildcard: `*` is ignored for
+    # credentialed requests and is a broader promise than this needs.
+    expose_headers=["Content-Disposition"],
 )
 
 ROOT = Path(__file__).resolve().parents[2]

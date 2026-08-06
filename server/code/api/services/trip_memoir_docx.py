@@ -111,19 +111,12 @@ def build_trip_docx(
     _story_notes(preview.get("story_notes"))
     _sources(preview.get("sources"))
 
-    # ONE projection for the whole appendix -- grouping, captions, file
-    # availability and the per-stop counts. Built once, here, so Part I's
-    # "· N photos" and Part III's sections cannot disagree, and so the
-    # browser preview (which reads the same projection out of
-    # `trip_memoir_preview`) shows the operator exactly what the document
-    # will contain.
-    if appendix is not None:
-        appendix_proj = appendix
-    else:
-        from .trip_repository import photo_appendix_projection as _proj_fn
-        appendix_proj = _proj_fn(rows=list(photo_rows or []))
-    _approved_by_stop: Dict[str, int] = appendix_proj.get(
-        "approved_by_stop", {})
+    # [`appendix` / `photo_rows` built the Part III photo appendix and
+    # the per-stop "· N approved photos" line. Both are retired: the
+    # timeline prints each photograph once under its own day, so there
+    # is no appendix to describe and no approval to count. The
+    # parameters are still accepted, and ignored, so an existing caller
+    # that passes them keeps working rather than raising.]
 
     # ── Part I — The Journey in Order ────────────────────────────────
     doc.add_heading("Part I — The Journey in Order", level=1)
@@ -139,19 +132,11 @@ def build_trip_docx(
         stype = stop.get("stop_type")
         if stype and stype not in ("sight",):
             bits.append(f"[{stype}]")
-        # Phase closeout: the APPROVED count for this stop, not the trip
-        # tree's `photo_count`. That field counts every link on the stop
-        # -- unapproved, hidden, and links whose photograph has been
-        # soft-deleted -- so a stop could read "· 3 photos" in a document
-        # that contains one of them. Derived from `photo_rows`, which is
-        # the export set, so the line cannot disagree with the appendix.
-        n_photos = _approved_by_stop.get(stop.get("id"), 0)
-        if n_photos:
-            # "approved photos", matching the preview. `approved` is not
-            # `embedded`: a file can be missing or refused by Word, and
-            # the foot of Part III is the only line that knows.
-            bits.append(
-                f"· {n_photos} approved photo{'s' if n_photos != 1 else ''}")
+        # [Read "· N approved photos" from the appendix projection.
+        # Retired 2026-08-06 with the appendix: a count of approved
+        # photographs, in a document where approval decides nothing and
+        # the photographs themselves print under their day, pointed at
+        # a section that no longer exists.]
         style = "List Bullet" if depth == 0 else "List Bullet 2"
         doc.add_paragraph(" ".join(bits), style=style)
         if stop.get("notes"):
@@ -178,6 +163,132 @@ def build_trip_docx(
         for stop in region.get("stops", []):
             _stop_paragraph(stop, 0)
 
+    # ── The timeline — WO-TRAVEL-DOC-CLOSEOUT-01, 2026-08-06 ─────────
+    #
+    # [This block projected `part_one_days`, which carried only the
+    # APPROVED days and only the day card's own six text fields.
+    # Retired with that design: the product rule is that the visible
+    # trip timeline is the editable source of truth and this document
+    # is a snapshot of it, so nothing here filters on approval and
+    # nothing here re-interprets a day. `part_one_timeline` is the same
+    # projection the operator is looking at on screen.]
+    #
+    # It renders AFTER the region walk: a trip that has both keeps its
+    # planned route first and its lived days second, and a trip with no
+    # regions -- the case that produced the empty Part I -- starts here.
+    _timeline = preview.get("part_one_timeline") or {}
+    _speaker = str(preview.get("narrator_label") or "Narrator").strip() \
+        or "Narrator"
+
+    def _photo_caption(item):
+        """Caption plus, where it is machine text, a label saying so.
+
+        Rule 8. `caption_source` distinguishes the narrator's own words
+        from an operator caption from a description this system
+        generated. Flattening them is how a machine sentence comes to
+        sit under a family photograph looking like something Chris
+        wrote about his own trip.
+        """
+        cap = str(item.get("caption") or "").strip()
+        src = str(item.get("caption_source") or "").strip()
+        if cap and src == "machine":
+            return "Draft description (machine-written, not reviewed): " + cap
+        return cap
+
+    def _render_items(items, indent=0.25):
+        for item in items or []:
+            kind = str(item.get("kind") or "")
+            if kind == "day_text":
+                para = doc.add_paragraph()
+                r = para.add_run(str(item.get("label") or "") + ": ")
+                r.bold = True; r.font.size = Pt(10)
+                r2 = para.add_run(str(item.get("text") or ""))
+                r2.font.size = Pt(10)
+                para.paragraph_format.left_indent = Inches(indent)
+            elif kind == "conversation":
+                # Rule 5: both speakers, labelled, in one item -- a link
+                # row is one exchange, so printing it once with two
+                # labels is what makes rule 10 hold here.
+                for who, text in ((_speaker, item.get("narrator_said")),
+                                  ("Lori", item.get("lori_said"))):
+                    body = str(text or "").strip()
+                    if not body:
+                        continue
+                    para = doc.add_paragraph()
+                    r = para.add_run(who + ": ")
+                    r.bold = True; r.font.size = Pt(10)
+                    r2 = para.add_run(body); r2.font.size = Pt(10)
+                    para.paragraph_format.left_indent = Inches(indent)
+            elif kind == "note":
+                _story_notes([{"note_title": item.get("title"),
+                               "note_text": item.get("text")}], indent=indent)
+            elif kind == "source":
+                _sources([{"title": item.get("title"),
+                           "source_type": item.get("source_type"),
+                           "summary": item.get("summary"),
+                           "link_url": item.get("link_url")}], indent=indent)
+            elif kind == "photo":
+                path = str(item.get("image_path") or "")
+                placed = False
+                if path and os.path.isfile(path):
+                    try:
+                        doc.add_picture(path, width=Inches(4.5))
+                        placed = True
+                    except Exception as exc:
+                        logger.warning(
+                            "[trip-docx] photo embed failed path=%s: %s",
+                            path, exc)
+                bits = [b for b in (_photo_caption(item),
+                                    str(item.get("at") or "").strip()) if b]
+                if not placed:
+                    # Said rather than skipped: a photograph the operator
+                    # can see on the timeline and cannot find in the
+                    # document reads as a lost photograph.
+                    bits.append("(photograph could not be found on disk)")
+                if bits:
+                    cp = doc.add_paragraph(" — ".join(bits))
+                    cp.runs[0].font.size = Pt(9)
+                    cp.paragraph_format.left_indent = Inches(indent)
+
+    # EVERY projected day, with no second filter here.
+    #
+    # [Filtered on `items or title`. A day row is visible on the
+    # timeline when it exists -- its number and its date are content,
+    # and an operator looking at "Day 2 - 15 July" with nothing under it
+    # is looking at a real day of the trip. Two filters also meant two
+    # definitions of "a day worth printing", in two languages, which is
+    # the second-interpretation problem this whole rewrite is about.
+    # The projection decides; the builder renders what it is given.]
+    _days = list(_timeline.get("days") or [])
+    if _days:
+        doc.add_heading("Day by day", level=2)
+    for day in _days:
+        bits = []
+        if day.get("day_index") not in (None, ""):
+            bits.append(f"Day {day['day_index']}")
+        if day.get("date"):
+            bits.append(str(day["date"]))
+        head = " · ".join(bits)
+        if day.get("title"):
+            head = f"{head} — {day['title']}" if head else str(day["title"])
+        doc.add_heading(head or "A day on this trip", level=3)
+        _render_items(day.get("items"))
+
+    # Rule 6. Material with no day is still the operator's material.
+    _unplaced = (_timeline.get("unplaced") or {}).get("items") or []
+    if _unplaced:
+        doc.add_heading("Needs a day", level=2)
+        doc.add_paragraph(
+            "Recorded on this trip but not yet placed on a day.")
+        _render_items(_unplaced)
+
+    # A heading with nothing under it reads as a deletion, so the empty
+    # case says what happened instead.
+    if (not _days and not _unplaced
+            and not preview.get("part_one_journey_in_order")):
+        doc.add_paragraph(
+            "(Nothing has been recorded on this trip yet.)")
+
     # ── Part II — Themes That Ran Through the Trip ───────────────────
     doc.add_heading("Part II — Themes That Ran Through the Trip", level=1)
     themes = preview.get("part_two_themes", [])
@@ -193,91 +304,26 @@ def build_trip_docx(
                 "Across: " + ", ".join(str(s) for s in stops)
             )
 
-    # ── Part III — Photo Appendix ────────────────────────────────────
-    doc.add_heading("Part III — Photo Appendix", level=1)
-    # ── WO-TRAVEL-DOC-CLOSEOUT-01: the document contradicted itself ──
+    # ── Part III — Photo Appendix: RETIRED 2026-08-06 ────────────────
     #
-    # This printed "Photos assigned to stops: N · awaiting assignment: M"
-    # and then, at the foot of the same section, "(1 photo embedded)".
-    # `assigned_photos` is the trip tree's own tally of EVERY link on a
-    # stop -- unapproved ones, links whose photograph has since been
-    # soft-deleted, and links hidden from review. The appendix embeds
-    # only memoir-approved, visible, undeleted photographs. So the
-    # section opened with 4 and closed with 1, in the artefact a family
-    # reads as the record.
+    # [This heading embedded every memoir-approved photograph, grouped
+    # by stop, region or day, and closed with "(N photos embedded)".]
     #
-    # The opening line now counts the rows the appendix was actually
-    # given. `photo_rows` IS the export set -- `photo_links_with_photo_
-    # paths(trip_id, memoir_only=True)` -- so it cannot drift from what
-    # follows it.
+    # Removed because the timeline now prints each photograph under the
+    # day it is placed on, and rule 10 is absolute: every visible
+    # timeline item appears exactly once. Keeping the appendix as well
+    # would embed the same image twice -- once where it happened and
+    # once in a list at the back -- which is both a duplication and, at
+    # roughly 5 MB a photograph, a doubling of the file.
     #
-    # The all-link inventory is not printed at all. It is a workspace
-    # number, useful to an operator deciding what to approve, and
-    # meaningless to a reader holding the finished document.
-    # ── WO-TRAVEL-DOC-CLOSEOUT-01: ONE projection, two consumers ─────
+    # Rule 11 permits an appendix ("if the appendix remains") on two
+    # conditions: it must not be the only place the photograph appears,
+    # and it must not contradict the day placement. Printing inline
+    # satisfies the first by construction and cannot contradict the
+    # second, because the placement IS the heading it sits under.
     #
-    # This used to group rows itself, keyed by
-    # `str(stop_location_name or region_title or "Unplaced")` -- DISPLAY
-    # TEXT. Two stops both called "Hotel", or a stop and a region
-    # sharing a name, collapsed into one appendix section, so the
-    # photographs of two different places silently became one. Keys are
-    # stop/region IDs now, and the grouping happens once, in the
-    # repository, where the preview reads it too.
-    #
-    # It also chose its own caption and resolved its own file
-    # availability, which is why the preview could promise photographs
-    # the document did not contain.
-    doc.add_paragraph(
-        f"Approved photos in appendix: {appendix_proj.get('approved', 0)}")
-    embedded = 0
-    skipped = 0
-    for group in appendix_proj.get("groups", []):
-        photos = group.get("photos", [])
-        # #9: a group whose every photograph is missing from disk used to
-        # print a heading with nothing under it -- a section in a family
-        # memoir that looks like a mistake or a deletion. It says what
-        # happened instead.
-        usable = [ph for ph in photos if ph.get("available")]
-        doc.add_heading(str(group.get("label") or "Unplaced"), level=2)
-        if not usable:
-            n = len(photos)
-            doc.add_paragraph(
-                f"({n} photograph{'s' if n != 1 else ''} approved here could "
-                f"not be found on disk and are not shown.)")
-            skipped += n
-            continue
-        for ph in photos:
-            path = ph.get("image_path")
-            if not ph.get("available") or not path:
-                skipped += 1
-                continue
-            try:
-                doc.add_picture(str(path), width=Inches(4.5))
-                cap_bits = [b for b in (str(ph.get("caption") or "").strip(),
-                                        str(ph.get("taken_at") or "").strip())
-                            if b]
-                if cap_bits:
-                    cp = doc.add_paragraph(" — ".join(cap_bits))
-                    cp.runs[0].font.size = Pt(9)
-                embedded += 1
-            except Exception as exc:
-                # #7: THIS is why "embedded" is only knowable here. Word
-                # can refuse an image that exists and is readable, so a
-                # count taken before this point would be a promise.
-                skipped += 1
-                logger.warning(
-                    "[trip-docx] photo embed failed path=%s: %s", path, exc,
-                )
-
-    # #7: reported AFTER every image has been attempted, because
-    # "embedded" is not "approved" and is not "on disk" either -- Word
-    # can refuse a file that exists. Only this line knows what the
-    # document actually holds.
-    doc.add_paragraph(
-        f"({embedded} photo{'s' if embedded != 1 else ''} embedded"
-        + (f"; {skipped} not included" if skipped else "")
-        + ")"
-    )
+    # Photographs with no day are not lost: they print under "Needs a
+    # day" above, which is where the operator will go to place them.
 
     buf = io.BytesIO()
     doc.save(buf)
