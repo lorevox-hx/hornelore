@@ -41,11 +41,40 @@ class EvidenceUiTest(unittest.TestCase):
             self.assertIn(path, self.src, path)
 
     def test_approval_ladder_controls_present(self):
-        for label in ("Approve for Lori", "Include in memoir",
-                      "Reject / Hide"):
+        """NARROWED 2026-08-05 (WO-TRAVEL-DOC-CLOSEOUT-01). Retired:
+
+            for label in ("Approve for Lori", "Include in memoir",
+                          "Reject / Hide"):
+
+        The "Include in memoir" control on evidence rows was a NO-OP:
+        `build_trip_docx` has never read photo-context or public-context
+        rows, so the tick promised an outcome that could not happen.
+        Chris's decision was to retire the control rather than build the
+        promise, because these rows are OCR text, vision descriptions,
+        draft observations and web context -- working evidence, not
+        memoir content.
+
+        "Approve for Lori" stays and is asserted below, because it IS
+        consumed: approved photo context reaches Lori's prompt
+        (WO-TRIP-PHOTO-CONTEXT-ENRICHMENT Ph5). It is deliberately NOT
+        renamed, since a rename would be a second promise about a
+        boundary rather than a description of what the control does.
+        """
+        for label in ("Approve for Lori", "Reject / Hide"):
             self.assertIn(label, self.src, label)
 
+    def test_the_retired_memoir_control_stays_retired(self):
+        """An absence worth asserting: without this, the control can come
+        back and be a no-op again."""
+        stripped = re.sub(r"^\s*//.*$", "", self.src, flags=re.M)
+        self.assertNotIn("Include in memoir", stripped,
+                         "the no-op memoir control is back on evidence rows")
+        self.assertNotIn("Remove from memoir", stripped)
+
     def test_badges_present(self):
+        # "In memoir" remains as a BADGE on sources, which is a real
+        # state that does reach the document; only the evidence-row
+        # control was retired.
         for badge in ("Draft", "Approved", "In memoir", "Rejected"):
             self.assertIn(badge, self.src, badge)
 

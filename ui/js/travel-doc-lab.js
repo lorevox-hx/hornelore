@@ -5333,11 +5333,35 @@
     ctrls.appendChild(btn("tdl-btn tdl-btn-small",
       r.approved_for_lori ? "Unapprove" : "Approve for Lori",
       function () { patch(r.id, { approved_for_lori: !r.approved_for_lori }); }));
-    if (r.approved_for_lori) {
-      ctrls.appendChild(btn("tdl-btn tdl-btn-small",
-        r.include_in_memoir ? "Remove from memoir" : "Include in memoir",
-        function () { patch(r.id, { include_in_memoir: !r.include_in_memoir }); }));
-    }
+    // ── WO-TRAVEL-DOC-CLOSEOUT-01: the "In memoir" control is RETIRED
+    // from evidence rows. Chris's decision, 2026-08-05. The retired
+    // control was:
+    //
+    //     if (r.approved_for_lori) {
+    //       ctrls.appendChild(btn("tdl-btn tdl-btn-small",
+    //         r.include_in_memoir ? "Remove from memoir" : "Include in memoir",
+    //         function () { patch(r.id, {include_in_memoir: !r.include_in_memoir}); }));
+    //     }
+    //
+    // It was a NO-OP. These rows are OCR text, vision descriptions,
+    // draft observations and web/public context, and `build_trip_docx`
+    // has never read any of them — so the tick promised an outcome that
+    // could not happen. That is worse than an absent control, because an
+    // operator who ticks it believes the work is done.
+    //
+    // They are working evidence, not memoir content. Approved public
+    // information reaches the document by being promoted into a real
+    // trip source and approved there; a photograph reaches it through
+    // the link's own In-memoir tick with a narrator or approved caption.
+    //
+    // "Approve for Lori" above STAYS and is untouched: it is consumed —
+    // approved photo context reaches Lori's prompt (WO-TRIP-PHOTO-
+    // CONTEXT-ENRICHMENT Ph5). It is deliberately NOT renamed to
+    // "Approve for Lori only", which would be a second promise about a
+    // boundary rather than a description of what the control does.
+    //
+    // The column, the rows and the schema are all preserved; only the
+    // control is gone.
     // Preflight review-follow-up (2026-07-11): public-context rows
     // also get Reject / Hide (migration 0032 added trip_public_context
     // .rejected). Hide-don't-delete parity across both lanes.
@@ -5646,6 +5670,35 @@
       if (linkNeedsReview(sel)) {
         detail.appendChild(el("span", "tdl-needs-review", "needs review"));
       }
+      // ── WO-TRAVEL-DOC-CLOSEOUT-01 — the missing approval control.
+      //
+      // `include_in_memoir` on the LINK decides whether this photograph
+      // is embedded in the travel document, and this tab only ever
+      // displayed the approval flags read-only. The Travel Document tab
+      // sends the operator here to tick it, so it has to be tickable
+      // here.
+      //
+      // Deliberately separate from the "→ Lori" flags above, which stay
+      // read-only: those govern what LORI may say, and are a different
+      // decision from what goes in the family document.
+      var memLab = el("label", "tdl-flag-row tdl-note-toggle");
+      var memCb = document.createElement("input");
+      memCb.type = "checkbox";
+      memCb.checked = !!sel.include_in_memoir;
+      memCb.addEventListener("change", function () {
+        api("/api/trips/photo-links/" + encodeURIComponent(sel.id),
+          { method: "PATCH", body: { include_in_memoir: memCb.checked } })
+          .then(function () { return reloadPhotoLinks(); })
+          .then(function () { renderAll(); })
+          .catch(function (e) {
+            memCb.checked = !memCb.checked;
+            st.error = e.message; renderAll();
+          });
+      });
+      memLab.appendChild(memCb);
+      memLab.appendChild(el("span", "",
+        "In memoir — embed this photograph in the travel document"));
+      detail.appendChild(memLab);
       detail.appendChild(btn("tdl-btn tdl-btn-gold",
         "💬 Talk with Lori about this photo", function () {
           // SAME in-context overlay drawer the day cards use — never
@@ -7433,6 +7486,31 @@
       // WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01: reversible hide / restore
       // (PATCH hidden — never a DELETE).
       var acts = el("div", "tdl-note-toggles");
+      // WO-TRAVEL-DOC-CLOSEOUT-01 — the missing approval control.
+      // `include_in_memoir` decides whether this source reaches the
+      // travel document, and until now this tab only DISPLAYED it as a
+      // badge. The Travel Document tab tells the operator to tick it
+      // here, so it has to be tickable here. Same endpoint the note
+      // toggle uses, one field.
+      if (!s.hidden) {
+        var srcLab = el("label", "tdl-note-toggle");
+        var srcCb = document.createElement("input");
+        srcCb.type = "checkbox";
+        srcCb.checked = !!s.include_in_memoir;
+        srcCb.addEventListener("change", function () {
+          api("/api/trips/sources/" + encodeURIComponent(s.id),
+            { method: "PATCH", body: { include_in_memoir: srcCb.checked } })
+            .then(function () { return reloadSources(); })
+            .then(function () { renderAll(); })
+            .catch(function (e) {
+              srcCb.checked = !srcCb.checked;
+              st.error = e.message; renderAll();
+            });
+        });
+        srcLab.appendChild(srcCb);
+        srcLab.appendChild(el("span", "", "In memoir"));
+        acts.appendChild(srcLab);
+      }
       if (s.hidden) {
         acts.appendChild(btn("tdl-btn tdl-btn-small", "Restore",
           function () { restoreSource(s.id); }));
@@ -7704,31 +7782,41 @@
   // An operator looking at a hidden row with its "In memoir" tick still
   // set needs to know the hide is what is keeping it out, not wonder
   // why the tick appears to do nothing.
-  function _visible(r) { return !r.hidden; }
-
+  // COUNTS COME FROM THE SERVER. The browser must not derive document
+  // membership from its own cached arrays -- the first cut did, and got
+  // four things wrong at once: it counted hidden rows (the export drops
+  // them), counted every trip photo rather than the memoir-approved ones
+  // the appendix embeds, counted links whose photo had since been
+  // soft-deleted, and went stale the moment anything was approved.
+  //
+  // None of that was fixable here, because membership is decided by the
+  // same filtered walks that build the document. `export_summary` is
+  // computed there and displayed here.
+  //
+  // -1 means UNKNOWN, not zero: the server could not count. Rendering it
+  // as 0 would tell the operator the document has no photographs when
+  // the truth is that we could not find out.
   function _docCounts() {
-    var notes = (st.notes || []).filter(_visible);
-    var sources = (st.sources || []).filter(_visible);
-    var links = (st.photoLinks || []).filter(_visible);
-    var hiddenApproved =
-      (st.notes || []).filter(function (r) {
-        return r.hidden && r.include_in_memoir; }).length
-      + (st.sources || []).filter(function (r) {
-        return r.hidden && r.include_in_memoir; }).length;
-    function inMemoir(r) { return !!r.include_in_memoir; }
+    var s = (st.memoirPreview && st.memoirPreview.export_summary) || null;
+    if (!s) return null;
     return {
-      notesIn: notes.filter(inMemoir).length,
-      notesOut: notes.length - notes.filter(inMemoir).length,
-      sourcesIn: sources.filter(inMemoir).length,
-      sourcesOut: sources.length - sources.filter(inMemoir).length,
-      photosIn: links.filter(inMemoir).length,
-      photosOut: links.length - links.filter(inMemoir).length,
-      hiddenApproved: hiddenApproved,
+      notesIn: s.notes_in, notesOut: s.notes_out,
+      sourcesIn: s.sources_in, sourcesOut: s.sources_out,
+      photosIn: s.photos_in, photosOut: s.photos_out,
+      hiddenApproved: (s.notes_hidden_approved || 0)
+        + (s.sources_hidden_approved || 0),
     };
   }
 
   function _docLine(label, inCount, outCount, whereToApprove) {
     var row = el("div", "tdl-doc-count");
+    if (inCount < 0) {
+      // The server could not count. Say so rather than printing a zero
+      // that reads as an authoritative "none".
+      row.appendChild(el("span", "tdl-doc-count-in",
+        label + " count unavailable"));
+      return row;
+    }
     row.appendChild(el("span", "tdl-doc-count-in",
       String(inCount) + " " + label + (inCount === 1 ? "" : "s")
       + " in the document"));
@@ -7833,45 +7921,49 @@
       return wrap;
     }
     var d = st.docExport || (st.docExport = {});
-    var c = _docCounts();
     var p = st.memoirPreview;
+    var c = _docCounts();
 
     wrap.appendChild(el("p", "tdl-doc-kicker",
-      "Travel document · the finished, shareable write-up of this trip"));
-    wrap.appendChild(el("h1", "", st.trip.title || "Travel document"));
+      "Travel document \u00b7 the finished, shareable write-up of this trip"));
+    wrap.appendChild(el("h1", "", (p && p.title) || st.trip.title
+      || "Travel document"));
     wrap.appendChild(el("p", "tdl-muted",
       "This is built from what you have approved. Anything you have not "
       + "ticked for the memoir stays out of it."));
 
-    // What is in, and what is not.
-    var counts = el("div", "tdl-doc-counts");
-    counts.appendChild(_docLine("story note", c.notesIn, c.notesOut,
-      "tick “In memoir” on the Story Notes tab"));
-    counts.appendChild(_docLine("source", c.sourcesIn, c.sourcesOut,
-      "tick “In memoir” on the Sources tab"));
-    counts.appendChild(_docLine("photo", c.photosIn, c.photosOut,
-      "tick “In memoir” on the Photos tab"));
-    wrap.appendChild(counts);
-
-    if (c.hiddenApproved > 0) {
-      counts.appendChild(el("div", "tdl-doc-count-hidden",
-        c.hiddenApproved + " hidden "
-        + (c.hiddenApproved === 1 ? "row is" : "rows are")
-        + " ticked for the memoir but stay out of the document while "
-        + "hidden. Restore them if they belong in it."));
-    }
-
-    if (c.notesIn === 0 && c.sourcesIn === 0 && c.photosIn === 0) {
-      wrap.appendChild(el("div", "tdl-doc-empty-note",
-        "Nothing is approved for the memoir yet, so the document would "
-        + "contain only the trip outline — the regions, stops and dates. "
-        + "That is a valid document; it just has no stories in it yet."));
+    // Counts come from the server, so they are unavailable until the
+    // preview lands. Showing browser-derived numbers in the meantime is
+    // what produced four separate wrong counts, so nothing is shown.
+    if (c) {
+      var counts = el("div", "tdl-doc-counts");
+      counts.appendChild(_docLine("story note", c.notesIn, c.notesOut,
+        "tick \u201cIn memoir\u201d on the Story Notes tab"));
+      counts.appendChild(_docLine("source", c.sourcesIn, c.sourcesOut,
+        "tick \u201cIn memoir\u201d on the Sources tab"));
+      counts.appendChild(_docLine("photo", c.photosIn, c.photosOut,
+        "tick \u201cIn memoir\u201d on the Photos tab"));
+      if (c.hiddenApproved > 0) {
+        counts.appendChild(el("div", "tdl-doc-count-hidden",
+          c.hiddenApproved + " hidden "
+          + (c.hiddenApproved === 1 ? "row is" : "rows are")
+          + " ticked for the memoir but stay out of the document while "
+          + "hidden. Restore them if they belong in it."));
+      }
+      wrap.appendChild(counts);
+      if (c.notesIn === 0 && c.sourcesIn === 0 && c.photosIn <= 0) {
+        wrap.appendChild(el("div", "tdl-doc-empty-note",
+          "Nothing is approved for the memoir yet, so the document would "
+          + "contain only the trip outline \u2014 the regions, stops and "
+          + "dates. That is a valid document; it just has no stories in "
+          + "it yet."));
+      }
     }
 
     // Export.
     var bar = el("div", "tdl-doc-actions");
     var exportBtn = btn("tdl-btn tdl-btn-primary",
-      d.busy ? "Building…" : "Export Travel Document",
+      d.busy ? "Building\u2026" : "Export Travel Document",
       _exportTravelDocument);
     exportBtn.disabled = !!d.busy;
     bar.appendChild(exportBtn);
@@ -7885,36 +7977,112 @@
       wrap.appendChild(err);
     }
 
-    // The preview: exactly the rows the DOCX renders, from the same route.
     if (!p) {
-      wrap.appendChild(el("div", "tdl-muted", "Loading the document…"));
+      wrap.appendChild(el("div", "tdl-muted", "Loading the document\u2026"));
       return wrap;
     }
+
+    // ── The preview: the same rows the DOCX renders ──────────────────
+    //
+    // KEY NAMES. The backend returns `part_one_journey_in_order` and
+    // `part_two_themes`. The first cut of this renderer read `part_one`
+    // and `part_two`, which do not exist, so every region silently
+    // rendered as nothing and the preview looked empty while the
+    // exported document was full. `undefined || []` is a silent empty
+    // list, which is why nothing failed loudly.
+    //
+    // Nested stops are rendered too. `_stop_line` recurses into
+    // `day_trips`, and the DOCX walks them, so a preview that stopped at
+    // the top level would under-report a real trip.
     wrap.appendChild(el("h2", "", "What is in the document"));
-    (p.part_one || []).forEach(function (region) {
+
+    function noteBlock(parent, rows, cls) {
+      (rows || []).forEach(function (n) {
+        var t = (n.note_text || "").trim();
+        if (!t) return;
+        if (n.note_title) parent.appendChild(el("div", "tdl-doc-note-title",
+          n.note_title));
+        parent.appendChild(el("p", cls || "tdl-doc-note", t));
+      });
+    }
+
+    function sourceBlock(parent, rows) {
+      (rows || []).forEach(function (srow) {
+        var label = srow.title || srow.filename || srow.link_url
+          || srow.source_type || "source";
+        var line = el("div", "tdl-doc-source", label);
+        if (srow.summary) line.appendChild(el("span", "tdl-muted",
+          " \u2014 " + srow.summary));
+        parent.appendChild(line);
+      });
+    }
+
+    function stopBlock(stop, depth) {
+      var sc = el("div", depth ? "tdl-doc-stop tdl-doc-stop-nested"
+        : "tdl-doc-stop");
+      sc.appendChild(el("div", "tdl-doc-stop-name",
+        (stop.location_name || stop.title || "(unnamed stop)")
+        + (stop.date_start ? " \u00b7 " + stop.date_start : "")));
+      noteBlock(sc, stop.story_notes);
+      sourceBlock(sc, stop.sources);
+      (stop.day_trips || []).forEach(function (child) {
+        sc.appendChild(stopBlock(child, (depth || 0) + 1));
+      });
+      return sc;
+    }
+
+    // Trip-level notes and sources — scoped to the whole trip rather
+    // than to a region or stop, and rendered by the DOCX before Part I.
+    if ((p.story_notes || []).length || (p.sources || []).length) {
+      var tripCard = el("div", "tdl-doc-region");
+      tripCard.appendChild(el("h3", "", "About this trip"));
+      noteBlock(tripCard, p.story_notes);
+      sourceBlock(tripCard, p.sources);
+      wrap.appendChild(tripCard);
+    }
+
+    var regions = p.part_one_journey_in_order || [];
+    regions.forEach(function (region) {
       var card = el("div", "tdl-doc-region");
       card.appendChild(el("h3", "", region.region || "(untitled region)"));
-      (region.story_notes || []).forEach(function (n) {
-        card.appendChild(el("p", "tdl-doc-note", n.note_text || ""));
-      });
+      if (region.summary) card.appendChild(el("p", "tdl-muted",
+        region.summary));
+      noteBlock(card, region.story_notes);
+      sourceBlock(card, region.sources);
       (region.stops || []).forEach(function (stop) {
-        var sc = el("div", "tdl-doc-stop");
-        sc.appendChild(el("div", "tdl-doc-stop-name",
-          stop.location_name || "(unnamed stop)"));
-        (stop.story_notes || []).forEach(function (n) {
-          sc.appendChild(el("p", "tdl-doc-note", n.note_text || ""));
-        });
-        card.appendChild(sc);
+        card.appendChild(stopBlock(stop, 0));
       });
       wrap.appendChild(card);
     });
-    if ((p.part_two || []).length) {
+    if (!regions.length) {
+      wrap.appendChild(el("div", "tdl-muted",
+        "This trip has no regions yet, so Part I is empty."));
+    }
+
+    var themes = p.part_two_themes || [];
+    if (themes.length) {
       wrap.appendChild(el("h2", "", "Themes"));
-      (p.part_two || []).forEach(function (t) {
-        wrap.appendChild(el("p", "tdl-doc-theme",
-          (t.theme || "") + (t.stops && t.stops.length
-            ? " — " + t.stops.join(", ") : "")));
+      themes.forEach(function (t) {
+        var line = el("p", "tdl-doc-theme", t.theme || "(untitled theme)");
+        if (t.stops && t.stops.length) {
+          line.appendChild(el("span", "tdl-muted",
+            " \u2014 " + t.stops.join(", ")));
+        }
+        wrap.appendChild(line);
       });
+    }
+
+    var app = p.part_three_photo_appendix || {};
+    if (typeof app.embedded_photos === "number") {
+      wrap.appendChild(el("h2", "", "Photo appendix"));
+      wrap.appendChild(el("p", "tdl-muted",
+        app.embedded_photos < 0
+          ? "Photo count unavailable."
+          : (app.embedded_photos
+            + (app.embedded_photos === 1 ? " photograph" : " photographs")
+            + " will be embedded. Captions are the narrator\u2019s own "
+            + "words, or an operator caption you have approved \u2014 "
+            + "never an unapproved description.")));
     }
     return wrap;
   }

@@ -337,7 +337,21 @@ class _BackstopOutcome:
                 f"limit={self.limit} kept_turns=? dropped_turns=?")
 
 
-class ChatPromptTooLarge(RuntimeError):
+class ChatPromptTooLarge(Exception):
+    # NOT a RuntimeError, and that is the whole point of the base class.
+    #
+    # It was one, and `chat_stream`'s generator catches
+    # `(torch.cuda.OutOfMemoryError, RuntimeError)` and answers
+    # `{"error": "CUDA_OOM", "message": "GPU out of memory..."}`. So an
+    # oversized prompt was reported to the operator as GPU exhaustion --
+    # sending them to look at VRAM for a problem that is entirely about
+    # prompt size, on a machine where VRAM pressure is a real and
+    # separate failure they have chased before.
+    #
+    # There is an explicit `except ChatPromptTooLarge` before that catch
+    # as well. Two guards, because the base class protects against
+    # broad handlers nobody has written yet and the explicit clause
+    # documents the intent at the site that had the bug.
     """The system prompt plus the current turn alone exceed the window.
 
     Raised instead of slicing. See `services/prompt_budget` for why:
@@ -618,9 +632,24 @@ def chat(req: _ChatReq) -> Dict[str, Any]:
     # WO-LEAN-LORI-RUNTIME-01 Phase 4A — see prompt_budget for why the
     # fit happens on MESSAGES here rather than on tokens after the
     # template. This path's blind front-slice at :371 becomes a backstop.
-    msgs = _fit_chat_prompt(msgs, tok, where="rest-chat")
-    prompt = _apply_chat_template(msgs)
-    text = _generate_text(model, tok, prompt, req)
+    # A refusal is an answer the caller can act on. Without this the
+    # exception escaped as a bare 500, which tells a client nothing and
+    # looks identical to a crash.
+    try:
+        msgs = _fit_chat_prompt(msgs, tok, where="rest-chat")
+        prompt = _apply_chat_template(msgs)
+        text = _generate_text(model, tok, prompt, req)
+    except ChatPromptTooLarge as too_large:
+        raise HTTPException(
+            status_code=413,
+            detail={
+                "error": "PROMPT_TOO_LARGE",
+                "message": ("That message is too long to take in all at "
+                            "once. Could you send a little at a time?"),
+                "prompt_tokens": getattr(too_large.outcome, "tokens", None),
+                "limit": getattr(too_large.outcome, "limit", None),
+            },
+        )
     # Phase G: Only persist profile + turns AFTER generation succeeds (fail-closed)
     if req.conv_id:
         if _deferred_profile is not None:
@@ -734,7 +763,23 @@ def chat_stream(req: _ChatReq):
     ]
     # Phase 4A — same fit as the other two chat paths. The streaming
     # slice at :677 becomes a backstop.
-    msgs = _fit_chat_prompt(msgs, tok, where="rest-stream")
+    # This runs BEFORE the StreamingResponse is constructed, so a refusal
+    # here can still be an HTTP status rather than an error frame inside
+    # a 200 body. The in-generator clause further down exists for the
+    # backstop only, where the response has already begun.
+    try:
+        msgs = _fit_chat_prompt(msgs, tok, where="rest-stream")
+    except ChatPromptTooLarge as too_large:
+        raise HTTPException(
+            status_code=413,
+            detail={
+                "error": "PROMPT_TOO_LARGE",
+                "message": ("That message is too long to take in all at "
+                            "once. Could you send a little at a time?"),
+                "prompt_tokens": getattr(too_large.outcome, "tokens", None),
+                "limit": getattr(too_large.outcome, "limit", None),
+            },
+        )
     prompt = _apply_chat_template(msgs)
 
     # ── Diagnostic logging ──
@@ -824,6 +869,19 @@ def chat_stream(req: _ChatReq):
                 try:
                     _save_chat_memory_fs(conv_id, msgs + [{"role":"assistant","content":full}])
                 except Exception: pass
+        except ChatPromptTooLarge as too_large:
+            # WO-TRAVEL-DOC-CLOSEOUT-01 review: this used to fall into the
+            # OOM clause below and be reported as CUDA_OOM, sending the
+            # operator to look at VRAM for a problem that is entirely
+            # about prompt size. It is its own answer, with its own code.
+            print(f"[PROMPT-BUDGET] stream refused: {too_large}")
+            yield json.dumps({
+                "error": "PROMPT_TOO_LARGE",
+                "message": ("That message is too long to take in all at "
+                            "once. Could you send a little at a time?"),
+                "prompt_tokens": getattr(too_large.outcome, "tokens", None),
+                "limit": getattr(too_large.outcome, "limit", None),
+            }, ensure_ascii=False) + "\n"
         except (torch.cuda.OutOfMemoryError, RuntimeError) as oom_err:
             # CUDA OOM — free what we can and report cleanly
             if torch.cuda.is_available():

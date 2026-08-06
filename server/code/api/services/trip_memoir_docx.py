@@ -26,6 +26,40 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger("code.api.services.trip_memoir_docx")
 
 
+def _safe_caption(row: dict) -> str:
+    """WO-TRAVEL-DOC-CLOSEOUT-01 — only narrator-safe caption text.
+
+    THE RULE ALREADY EXISTED AND THIS PATH BYPASSED IT.
+    `trip_repository._NARRATOR_PHOTO_LINK_COLS` states it plainly:
+    narrator_caption first, else the operator caption ONLY when
+    `caption_approved_for_lori = 1`, else nothing. That constant guards
+    the narrator READ, but `photo_links_with_photo_paths` is a
+    `SELECT l.*` for the export, so the raw `caption` column and the
+    photo's own `description` arrived unfiltered and the caption chain
+    fell straight through both.
+
+    The consequence is not cosmetic. `photo_description` is operator- or
+    machine-written text that nobody approved for a narrator to hear,
+    and this document is the artefact a family reads as the record. An
+    unapproved description printed under a photograph in a memoir is
+    indistinguishable, to the reader, from something the narrator said.
+
+    Editing an operator caption REVOKES its approval (WO-TRIP-PHOTO-
+    CONTEXT-ENRICHMENT Ph5), so an edited-but-unre-approved caption
+    correctly disappears from the document until it is approved again.
+
+    No caption is the right answer when nothing is approved. A
+    photograph with a date and no words is honest; a photograph with
+    words nobody sanctioned is not.
+    """
+    narrator = (row.get("narrator_caption") or "").strip()
+    if narrator:
+        return narrator
+    if row.get("caption_approved_for_lori"):
+        return (row.get("caption") or "").strip()
+    return ""
+
+
 def build_trip_docx(
     preview: Dict[str, Any],
     photo_rows: Optional[List[Dict[str, Any]]] = None,
@@ -178,12 +212,7 @@ def build_trip_docx(
                 continue
             try:
                 doc.add_picture(str(path), width=Inches(4.5))
-                caption = (
-                    row.get("narrator_caption")
-                    or row.get("caption")
-                    or row.get("photo_description")
-                    or ""
-                )
+                caption = _safe_caption(row)
                 when = row.get("taken_at") or row.get("photo_date_value") or ""
                 cap_bits = [b for b in (str(caption).strip(), str(when).strip()) if b]
                 if cap_bits:

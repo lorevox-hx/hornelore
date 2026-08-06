@@ -2111,6 +2111,34 @@ def trip_memoir_preview(trip_id: str) -> Optional[Dict[str, Any]]:
     if not tree:
         return None
 
+    # ── WO-TRAVEL-DOC-CLOSEOUT-01: server-authoritative export counts ──
+    #
+    # The browser used to reconstruct "what is in the document" from its
+    # own cached arrays, and got four things wrong at once: it counted
+    # hidden rows (which this function drops), counted every trip photo
+    # rather than the memoir-approved ones the appendix embeds, counted
+    # links whose photo has since been soft-deleted, and went stale the
+    # moment anything was approved.
+    #
+    # None of that is fixable in the browser, because membership is
+    # decided HERE. The counts are therefore computed from the same
+    # filtered walks the document itself is built from, and the client
+    # displays them rather than deriving them.
+    _counts = {
+        "notes_in": 0, "notes_out": 0, "notes_hidden_approved": 0,
+        "sources_in": 0, "sources_out": 0, "sources_hidden_approved": 0,
+        "photos_in": 0, "photos_out": 0,
+    }
+    # Hidden rows are excluded from the document, so a hidden row still
+    # carrying its In-memoir tick is reported separately rather than
+    # silently: the operator needs to know the HIDE is what keeps it out.
+    for _hn in location_notes_list(trip_id, include_hidden=True):
+        if _hn.get("hidden") and _hn.get("include_in_memoir"):
+            _counts["notes_hidden_approved"] += 1
+    for _hs in sources_list(trip_id, include_hidden=True):
+        if _hs.get("hidden") and _hs.get("include_in_memoir"):
+            _counts["sources_hidden_approved"] += 1
+
     # Promoted story notes (include_in_memoir=1) grouped by scope. Notes
     # NOT flagged never reach the memoir (WO-TRAVEL-DOC-STORY-LAYER-01).
     _notes_stop: Dict[str, List[Dict[str, Any]]] = {}
@@ -2118,7 +2146,9 @@ def trip_memoir_preview(trip_id: str) -> Optional[Dict[str, Any]]:
     _notes_trip: List[Dict[str, Any]] = []
     for _n in location_notes_list(trip_id):
         if not _n.get("include_in_memoir"):
+            _counts["notes_out"] += 1
             continue
+        _counts["notes_in"] += 1
         _entry = {"note_title": _n.get("note_title"),
                   "note_text": _n.get("note_text"),
                   "source_type": _n.get("source_type")}
@@ -2136,7 +2166,9 @@ def trip_memoir_preview(trip_id: str) -> Optional[Dict[str, Any]]:
     _src_trip: List[Dict[str, Any]] = []
     for _s in sources_list(trip_id):
         if not _s.get("include_in_memoir"):
+            _counts["sources_out"] += 1
             continue
+        _counts["sources_in"] += 1
         _se = {"title": _s.get("title"), "summary": _s.get("summary"),
                "pasted_text": _s.get("pasted_text"), "link_url": _s.get("link_url"),
                "filename": _s.get("filename"), "source_type": _s.get("source_type")}
@@ -2203,6 +2235,31 @@ def trip_memoir_preview(trip_id: str) -> Optional[Dict[str, Any]]:
         })
 
     total_photos = sum(s.get("photo_count", 0) for s in all_stops_flat)
+
+    # THE APPENDIX EMBEDS ONLY MEMOIR-APPROVED PHOTOS, so the appendix
+    # block must count those and not every photo assigned to the trip.
+    # `assigned_photos` said 4 while the DOCX embedded 1, which reads as
+    # a broken export rather than as three unapproved photographs.
+    #
+    # Counted through the SAME call the exporter makes, rather than by a
+    # second query that could drift from it -- it already excludes hidden
+    # links and soft-deleted photos, both of which the browser's own
+    # count got wrong.
+    try:
+        _memoir_photos = photo_links_with_photo_paths(trip_id, memoir_only=True)
+        _all_photos = photo_links_with_photo_paths(trip_id, memoir_only=False)
+        _counts["photos_in"] = len(_memoir_photos)
+        _counts["photos_out"] = max(0, len(_all_photos) - len(_memoir_photos))
+    except Exception:            # pragma: no cover - counting must not fail a preview
+        # -1 means "unknown", NOT zero. This module has no logger, and
+        # adding one for a counting fallback is not worth the import; the
+        # sentinel is what the client renders, and it renders it as
+        # unknown rather than as an authoritative nothing. Reporting 0
+        # here would tell the operator the document has no photographs
+        # when the truth is that we could not find out.
+        _counts["photos_in"] = -1
+        _counts["photos_out"] = -1
+
     return {
         "trip_id": trip_id,
         "title": tree.get("title"),
@@ -2216,9 +2273,17 @@ def trip_memoir_preview(trip_id: str) -> Optional[Dict[str, Any]]:
         "part_one_journey_in_order": part_one,
         "part_two_themes": part_two,
         "part_three_photo_appendix": {
+            # Retained under its original name for existing readers, but
+            # it is the count of photographs ASSIGNED to stops, which is
+            # not what the appendix contains. `export_summary.photos_in`
+            # is the number that will actually be embedded.
             "assigned_photos": total_photos,
             "unassigned_photos": tree.get("unassigned_photo_count", 0),
+            "embedded_photos": _counts["photos_in"],
         },
+        # Server-authoritative export membership. The client displays
+        # this; it must not derive document membership itself.
+        "export_summary": _counts,
     }
 
 
