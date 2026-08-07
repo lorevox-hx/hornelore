@@ -66,6 +66,82 @@
 
 ---
 
+## WO-TRAVEL-DOC-CLOSEOUT-01 (✅ **CLOSED 2026-08-06 — live export verified on the running stack**)
+
+**The rule this settled:** the visible trip timeline is the editable source
+of truth, and Export Travel Document produces a Word snapshot of that
+timeline. Not an approval-gated memoir. An approval-gated design was built
+first, reviewed, and **rejected before commit**; it was replaced rather than
+layered over.
+
+**The defect.** The Bismarck export came out with Part I — "The Journey in
+Order" — empty while the day cards held "Santa Fe to Bismarck", "Downtown
+Bismarck" and "Radisson Hotel on Main Street". A transitive read of
+`trip_memoir_preview`'s call graph found the cause: it reached trips,
+trip_regions, trip_stops, trip_themes, trip_location_notes, trip_sources,
+trip_photo_links and photos, and **never trip_days**. 463 tests were green
+throughout, because not one of them had a day row.
+
+**Commits:** `c804705` (product), `55c9a42` (tests).
+
+### Live acceptance, 2026-08-06 17:56 — the observed result
+
+Verified the running process carried the committed code BEFORE spending the
+export: `part_one_timeline` present, `part_three_photo_appendix` reporting
+`unknown`, counters reading `notes_hidden`/`sources_hidden`/`photos_hidden`,
+zero `image_path` keys reaching the browser.
+
+```
+2026-08-06 17:56:16,411 [code.api.routers.trips] INFO:
+  [trips][docx] export trip=9538cd88-... days=6 items=33
+```
+
+No traceback, no `NameError`, one export.
+
+**Observed filename — and it is not the one predicted:**
+
+```
+lorevox_trip_memoir_Bismarck Trip.docx
+```
+
+A SPACE, not `Bismarck_Trip.docx`. The underscore form is the ASCII
+`filename=` fallback, where the sanitiser replaces non-alphanumerics. What
+arrived is the RFC 6266 `filename*=UTF-8''` form carrying the real trip
+title. **That is the proof the fix deployed**: the browser could only
+produce that string by reading `filename*`, which it could only do because
+`expose_headers=["Content-Disposition"]` is live on the running process.
+Without it the download would have been `travel-document.docx` again.
+
+**Artifact, read from the file Chris downloaded** (22,405,987 bytes — byte-
+identical in size to an independent rebuild from a read-only DB copy):
+
+| Check | Observed |
+|---|---|
+| Days | 1–6, chronological, all six present |
+| Day 1 content | "Santa Fe to Bismarck", "Downtown Bismarck", "Radisson Hotel on Main Street" |
+| Speaker labels | 13 × `Christopher:`, 16 × `Lori:` |
+| `[SYSTEM:` attributed to narrator | **absent** |
+| Photographs | 4, each embedded once |
+| Photo placement | Day 1 → `day_index=1`; Day 3 → `day_index=3`; 2 under "Needs a day" → `day_index=NULL` |
+| Part III / photo appendix | absent (retired — an appendix would embed every image twice) |
+
+**Not exercised by real data:** the machine-caption label. None of these four
+photographs carries a machine description, so `Draft description
+(machine-written, not reviewed)` has never fired in production. Covered by
+`MachineCaptionTest` against a fixture only.
+
+**Schema debt, deliberate.** Migration 0042 stays applied because it already
+ran on the live database. `trip_days.include_in_memoir` is **DORMANT** — no
+reader, no writer, no UI control. Do not revive it for another purpose;
+document it as historical schema if it is ever formally deprecated.
+
+**Follow-up opened by this work, NOT part of the closeout:** a system
+directive is persisted with `role='user'`. Three separate readers now filter
+`[SYSTEM:` defensively — the narrator transcript render (`app.js` WO-9), the
+timeline placement projection, and the export. Three filters for one storage
+defect is the argument for fixing it at persistence time, or giving it a
+distinct role/type. Its own work order; do not fold it back into Travel Doc.
+
 ## Status legend (locked 2026-07-11)
 
 Three distinct dimensions — do NOT conflate them:
