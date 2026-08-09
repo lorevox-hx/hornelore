@@ -226,6 +226,94 @@ progression, era-appropriate questions, `pass2a` era handling, Today — all sta
 thing at issue is shipping the seven-era *dictionary* on turns where nobody asked what an era
 means. When someone does ask, Lori still gets it.
 
+## 6d. ERA structural trace — end to end, read-only, no code
+
+Answering the seven questions before proposing an implementation. **The conclusion reverses
+my earlier `turn_mode` recommendation.**
+
+**Q1 — what happens to an unknown/new `turn_mode`?** It stays on the normal LLM interview
+path. `chat_ws.py:5803` reads
+`params["turn_mode"] = (msg.get("turn_mode") or "interview").strip() or "interview"` — a
+missing or blank mode becomes `interview`, and an unknown non-empty string passes through
+verbatim. None of the six deterministic branches fires, because each is an exact `==`
+comparison. **But it silently fails both eligibility allow-lists — see Q3.**
+
+**Q2 — which modes bypass the LLM?** Six, each its own `==` branch in `chat_ws`:
+`floor_hold` (`:3585`), `meta_question` (`:3624`), `witness` (`:3737`), `memory_echo`
+(`:3762`), `age_recall` (`:4001`), `correction` (`:4039`). The same six R3 Phase 1A repaired.
+
+**Q3 — extraction / placement / ledger / finalization.** This is the finding.
+
+| gate | mechanism | value |
+|---|---|---|
+| extraction | `EXTRACTION_ELIGIBLE_TURN_MODES` (`turn_extraction.py:194`) | `frozenset({"interview"})` |
+| trip placement | `PLACEMENT_ELIGIBLE_TURN_MODES` (`trip_placement.py:189`) | `frozenset({"interview"})` |
+| extraction ledger | keyed on `turnrow:<turns.id>` | **not** keyed on `turn_mode` |
+| deterministic finalization | takes `turn_mode` as a label written into `meta` | does not gate on it |
+
+**Both eligibility gates are allow-lists containing exactly one string.** Executed, not
+inferred:
+
+```text
+EXTRACTION allow-list: {'interview'}      PLACEMENT allow-list: {'interview'}
+  interview        extraction=True   placement=True
+  era_definition   extraction=False  placement=False
+  memory_echo      extraction=False  placement=False
+```
+
+**Q4 — does `prompt_composer` receive `turn_mode`?** **No — not directly, not through
+`runtime71`, not at all.** `compose_system_prompt(conv_id, ui_system, user_text, runtime71)`;
+the string `turn_mode` appears twice in the whole 4,700-line file and **both are comments**.
+Gating the glossary on `turn_mode` would require adding a parameter to the composer that no
+other section needs.
+
+**Q5 — what would adding `era_definition` change besides composition?** Two things, both
+silent, because allow-lists exclude by construction rather than by decision:
+
+1. the turn becomes **extraction-ineligible**;
+2. the turn becomes **placement-ineligible**;
+3. and the composer would need a new parameter.
+
+**The case that makes this unacceptable is one sentence:** *"What do you mean by Coming of
+Age? I moved to Denver when I was 22."* That is one turn carrying both a question about the
+system and a real piece of biography. Under a new `turn_mode` it becomes extraction-
+ineligible and **Denver is never captured** — a truth-capture loss, traded for 272 tokens.
+This is the same class of defect as `BUG-TRIP-SYSTEM-DIRECTIVE-PLACED-AS-NARRATOR-TURN-01`
+and the `meta_question` repair at `7139644`: a classification made for one purpose quietly
+changing turn ownership.
+
+**Q6 — is a narrower flag safer?** **Yes, decisively.** With
+`runtime71["era_definition_requested"] = True` and `turn_mode` left `"interview"`:
+
+- extraction eligible — unchanged;
+- placement eligible — unchanged;
+- ledger unaffected (keyed on the row id);
+- no deterministic branch reads `runtime71` for routing;
+- **`runtime71` already reaches the composer** (`chat_ws.py:4223`) and the composer already
+  reads ~34 keys from it, so no new parameter and no new plumbing.
+
+**Q7 — proof that ordinary era interviewing is untouched.** The era system runs on
+`current_era`, `current_pass` and `current_mode`, all read independently. An unknown
+`runtime71` key is **inert**, demonstrated rather than asserted:
+
+```text
+compose(current_era=coming_of_age, pass2a, grounding)                    len 24,995
+compose(same + era_definition_requested=True)                            byte-identical: True
+  'coming of age' present   'Coming of Age' present   'pass2a' present
+```
+
+Adding the key changes nothing until something reads it. Era selection, `pass2a`,
+era-specific questions, Today, Life Map progression, archive, extraction and finalization all
+continue exactly as now — because none of them consults it, and the era vocabulary is still
+in the prompt.
+
+**Recommended carrier: `runtime71.era_definition_requested`, with `turn_mode` left
+`"interview"`.** The upstream intent decision still happens once, in `lvRouteTurn`'s
+neighbourhood where the other four intent checks live — what changes is that it is carried as
+a *fact about the turn* rather than as the turn's *identity*, so it cannot alter ownership.
+
+**I am not implementing this.** Reported for the ownership decision, per the agreed stop.
+
 ## 7. What this means for Phase 8, honestly
 
 **Gating alone buys about 272 tokens.** That is the whole `ERA EXPLAINER` opportunity, and
