@@ -396,8 +396,8 @@ At session start:
 ```text
 Google Picker       GREEN / banked
 Travel Document     GREEN / closed on live evidence
-Lean Lori           active; Phases 6 + 7 LANDED, Phase 8 MEASURED (matrix, no edit)
-                    composed prompt 7,205 -> 5,878 tok
+Lean Lori           active; Phases 6 + 7 LANDED, Phase 8 first gate LANDED (ERA)
+                    ordinary interview turn 7,205 -> 5,410 tok
 Safety              PARKED, preserved, not active
 System-directive
 persistence         CLOSED 2026-08-09 (provenance declared by the send path)

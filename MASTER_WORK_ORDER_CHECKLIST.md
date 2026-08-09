@@ -337,7 +337,11 @@ Priority order for what to build next. Items 1 + 2 (migration/trip verification,
 > **Phase 7 LANDED** — English-first 850 → 108 tok. Cumulative: composed prompt
 > **7,205 → 5,878 tok**, and the 60-pair fixture retains **3 → 17** narrator/Lori pairs.
 > **`WO-SYSTEM-DIRECTIVE-PERSISTENCE-01` is CLOSED** (provenance declared by the send path;
-> zero undeclared senders in-tree). **Phase 8 state gating is next.** Carried debts, folded
+> zero undeclared senders in-tree). **Phase 8's first gate is LANDED** (`ce5e636`): the ERA
+> EXPLAINER glossary now ships only when the narrator asks what an era means — 5,681 → 5,410
+> tok on an ordinary turn, with the era system, Life Map progression and `pass2a` untouched.
+> **The remaining Phase 8 scope is blocked on the Profile Seed ownership question**, which
+> needs one live `runtime71` capture, not more measurement. Carried debts, folded
 > into the next live run rather than given their own harness: Phase 6 LLR-19 and Phase 10
 > broad live acceptance. The original ordering below is kept for the trail.
 >

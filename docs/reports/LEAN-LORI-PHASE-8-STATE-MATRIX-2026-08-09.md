@@ -1,6 +1,7 @@
 # Lean Lori Phase 8 — state matrix
 
-**Date:** 2026-08-09 · **Measurement only. No code was changed.**
+**Date:** 2026-08-09 · **Measurement only when written. See the addendum: the ERA gate
+has since LANDED in `ce5e636`, and everything below is the BEFORE evidence.**
 Real tokenizer (`Meta-Llama-3.1-8B-Instruct/tokenizer.json`), real `compose_system_prompt`,
 budget limit 7,552 (R3 Phase 9: 8192 − 512 response − 128 margin).
 
@@ -204,8 +205,17 @@ intents — `_looksLikeMemoryEchoRequest` → `memory_echo`, `_looksLikeAgeQuest
 `age_recall`, `_looksLikeStrongCorrection` → `correction`, else `interview` — and
 `app.js:6011` already sends `turn_mode` with every `start_turn`.
 
-**Recommended seam:** a `_looksLikeEraDefinitionQuestion(text)` beside its four siblings,
-producing a routed mode the composer *consumes*. The glossary ships when the mode says so.
+> **⚠️ SUPERSEDED 2026-08-09 by §6d and by the landed implementation.** The recommendation
+> in this paragraph — a routed `turn_mode` — is **withdrawn**. The end-to-end trace in §6d
+> found that `EXTRACTION_ELIGIBLE_TURN_MODES` and `PLACEMENT_ELIGIBLE_TURN_MODES` are both
+> `frozenset({"interview"})`, so a new mode would have silently stripped extraction and
+> placement from any turn that both asks about an era and tells a story. The detector was
+> kept; what changed is that its result travels as `runtime71.era_definition_requested`,
+> a fact about the turn, while `turn_mode` stays `"interview"`. Retired text follows.
+
+**Recommended seam (RETIRED):** a `_looksLikeEraDefinitionQuestion(text)` beside its four
+siblings, producing a routed mode the composer *consumes*. The glossary ships when the mode
+says so.
 
 A second candidate exists and is **not** recommended: `services/lori_meta_question.py`
 already classifies narrator-asks-about-the-system questions into categories. It would fit —
@@ -371,3 +381,46 @@ run, folded in beside the Phase 6 LLR-19 and Phase 10 debts rather than given a 
   conditionally gated, which is why neither is a Phase 8 target.
 - Retention figures use one fixture shape; see the note in §6.
 - No edit has been made. Nothing in this report has been acted on.
+
+
+---
+
+## 9. ADDENDUM — the ERA gate LANDED, 2026-08-09 (`ce5e636`)
+
+Everything above is the **before** evidence and is deliberately left as written. The
+29-state matrix has **not** been re-run to make its pre-edit numbers look current; it is the
+record of what the prompt was when the decision was made.
+
+**What shipped**
+
+| | tokens | ERA EXPLAINER |
+|---|---:|---|
+| ordinary interview turn (`era_definition_requested=false`) | **5,410** | absent |
+| era-definition request (`true`) | 5,681 | **present** |
+| client that never sends the field | 5,410 | absent |
+
+**271 tokens recovered on the measured ordinary turn.** The glossary remains fully available
+whenever the narrator asks what an era means.
+
+**Carrier, as decided in §6d:** `runtime71.era_definition_requested`, sent explicitly as
+`true` or `false` on every narrator turn. **`turn_mode` remains `"interview"`**, so extraction
+and trip-placement eligibility are untouched — which is what keeps *"What do you mean by
+Coming of Age? I moved to Denver when I was 22."* an ordinary interview turn whose biography
+is still captured.
+
+**The era system is unchanged.** Era selection, `current_era`, `pass2a`, era-specific
+questions, Today and Life Map progression all behave exactly as before, and the era
+vocabulary is still in Lori's prompt. Only the seven-entry dictionary stopped travelling on
+turns where nobody asked for it.
+
+**Coverage:** `tests/test_era_explainer_gating.py` (16) and
+`tests/test_era_definition_detector.js` (16 truth-table cases, run with `node`). Five
+mutations killed by their intended guard.
+
+**One thing this gate does that is worth knowing:** removing the glossary also removes one
+newline at its seam, because the block's own trailing newline merged with the join
+separator. It is whitespace between two directives, it is asserted to be whitespace-only,
+and it is named in the test rather than absorbed by a loose comparison.
+
+**Still not started, and unchanged by this:** the Profile Seed ownership question in §6b.
+`LORI_INTERVIEW_DISCIPLINE` has not been touched.
