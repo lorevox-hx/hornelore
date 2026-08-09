@@ -26,7 +26,7 @@ Of the 51, **8 are unconditional** once `runtime71` exists. The rest are gated o
 | state | tok | core | disciplin | oralhist | era_expl | ident_md | eng_first | transpar | helper | cog_supp |
 |---|---:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
 | fresh unidentified `hi` | 5878 | Y | Y | Y | Y | Y | Y | Y | · | · |
-| identified ready `hi` *(corrected)* | **5975** | Y | Y | Y | **·** | Y | Y | Y | · | · |
+| identified ready `hi` *(corrected)* | **5975** | Y | Y | Y | Y | **·** | Y | Y | · | · |
 | active era, building years | 5877 | Y | Y | Y | Y | Y | Y | Y | · | · |
 | era-definition question | 5878 | Y | Y | Y | Y | Y | Y | Y | · | · |
 | oral-history story turn | 5878 | Y | Y | Y | Y | Y | Y | Y | · | · |
@@ -42,9 +42,12 @@ Of the 51, **8 are unconditional** once `runtime71` exists. The rest are gated o
 > because a table that disagrees with the prose two sections below it is exactly how a
 > reader ends up believing the opposite of what was proved.
 
-**The interviewer path is very nearly state-invariant.** Eight of ten states sit within
-**±1 token** of 5,878. Only three things move it at all: Spanish correctly drops
-English-first (−107), cognitive support adds its block (+583), and photos add a line (+56).
+**The interviewer path is very nearly state-invariant.** **Four of ten** states sit within
+**±1 token** of 5,878 — and the count is worth flagging because this sentence read *"eight of
+ten"* until 2026-08-09 and was wrong **in both versions**: it was five before the row-2
+correction and is four after it. Four things move the prompt at all: completing identity
+(**+97**, the identity block replaced by larger post-identity directives), Spanish correctly
+dropping English-first (−107), cognitive support (+583), and photos (+56).
 `helper` and `onboarding` return early and are less than half the size — the heavy path is
 the interviewer path, and it barely responds to state.
 
@@ -137,6 +140,7 @@ rows: identity complete, interviewer, `user_text="we bought the house then"`.
 | style `questionnaire_first` | 5703 | Y | · | Y | · | Y | · | · | · | · |
 | factual-chain active | 5991 | Y | Y | Y | · | Y | **Y** | · | · | · |
 | **witness active** | **6986** | Y | Y | Y | · | Y | · | **Y** | · | · |
+| affect distressed + gaze *(inconclusive)* | 5975 | Y | Y | Y | · | Y | · | · | · | · |
 | fatigue 75 | 6046 | Y | Y | Y | · | Y | · | · | · | · |
 | fatigue 55 | 6014 | Y | Y | Y | · | Y | · | · | · | · |
 | **stale `softened_state` while safety PARKED** | 5975 | Y | Y | Y | · | Y | · | · | **·** | · |
@@ -148,8 +152,18 @@ softened block while safety is parked — the park holds at composition, not jus
 classifier. And `witness active` is the single most expensive state in the system at
 **+1,011 tokens**, which was previously unmeasured.
 
-**`ERA EXPLAINER` is `Y` in all nineteen rows of this table and all ten of the first.** Its
-unconditional status is now established across every state either matrix can produce.
+**`ERA EXPLAINER` is `Y` in all 19 rows of this table and all 10 of the first — 29 measured
+states.** Its unconditional status is established across every state either matrix produces.
+
+*(Count history, because it moved twice and both moves matter. This claimed "nineteen rows"
+against a table that held **18**: the affect row had been dropped in transcription, so the
+number was right for the measurement and wrong for the document — the worst combination,
+since it looks consistent with the run. Supervisor review caught the 18/28 discrepancy;
+restoring the missing row returns the table to 19 and the combined total to 29. The restored
+row is marked **inconclusive**: the `visual_signals` fixture shape did not activate the
+affect branch, so it measures the absence of my fixture, not the absence of the block. Kept
+visible rather than deleted, because a silently dropped inconclusive row is exactly how a
+measurement gap becomes a claim.)*
 
 ## 6b. THE FINDING: three behavioural authorities on the default turn
 
@@ -264,7 +278,8 @@ run, folded in beside the Phase 6 LLR-19 and Phase 10 debts rather than given a 
 
 - Fixtures are synthetic `runtime71` dicts against a temp database; a live narrator carries
   profile, memory and pinned-fact content these do not.
-- `factual_chain` and `witness` never fired in these fixtures, so their cost is unmeasured
-  here. Both are already conditionally gated.
+- ~~`factual_chain` and `witness` never fired in these fixtures~~ — **retired 2026-08-09**:
+  §6a fires and measures both. `factual_chain` costs +16, `witness` **+1,011**. Both remain
+  conditionally gated, which is why neither is a Phase 8 target.
 - Retention figures use one fixture shape; see the note in §6.
 - No edit has been made. Nothing in this report has been acted on.
