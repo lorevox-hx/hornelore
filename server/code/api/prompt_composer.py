@@ -3605,80 +3605,61 @@ def compose_system_prompt(
         # on "narrator's last turn looks like English text." When the
         # narrator is actually speaking Spanish, the LANGUAGE MIRRORING
         # rule lower in the prompt takes over.
+        # ── WO-LEAN-LORI-RUNTIME-01 Phase 7, 2026-08-09 — COMPACTED ────
+        # 850 → ~110 tokens. The four worked examples cost 706 of the
+        # 850 and are gone. What survives is the narrow anti-drift rule
+        # the core does not already own.
+        #
+        # WHAT THE CORE ALREADY OWNS, so this block stops paying for it
+        # a second time (Phase 6, 2026-08-09):
+        #   * LANGUAGE MODE RULE -- "foreign place names, food terms,
+        #     accented words, signs, menus and travel routes are STORY
+        #     CONTENT, not language preferences -- they never trigger a
+        #     language switch on their own", plus the session pin and
+        #     the ask-once-on-a-sustained-foreign-turn policy.
+        #   * VOICE PRESERVATION RULE -- narrator words stay verbatim,
+        #     gloss on first mention, never translate at them.
+        # This block keeps only the per-turn imperative and the specific
+        # pile-up shape that produced the Spring 2026 canary failure.
+        #
+        # THE EXAMPLES WERE WORSE THAN EXPENSIVE, AND THIS IS THE REASON
+        # TO REMOVE THEM RATHER THAN SHORTEN THEM.
+        #
+        # (a) The block exists because Llama-3.1-8B pattern-completes
+        #     into Spanish when narrator text piles up European place
+        #     names. It taught that lesson using THREE COMPLETE SPANISH
+        #     SENTENCES -- "Ese viaje desde Praga hasta el Véneto tiene
+        #     mucho encanto. ¿Qué recuerdas?" and two more -- shipped on
+        #     every English turn. Marking them WRONG is a semantic label
+        #     on tokens that are Spanish either way. An anti-drift rule
+        #     should not carry the drift as an attachment.
+        #
+        # (b) The examples introduced SIXTEEN bracket placeholders
+        #     ([CITY_A]..[CITY_E], [BASE], [DAY_A], [LANDMARK],
+        #     [FOREIGN_WORD], [CULTURE], [ALT_NAME], ...) and then
+        #     needed four separate "do not emit the bracketed tokens"
+        #     instructions to suppress a hazard nothing else had. The
+        #     placeholders and their suppression both leave together.
+        #
+        # (c) The city roster (Prague / Salzburg / Ljubljana / Pula /
+        #     Mirano / Padua / Venice) is the same roster Phase 6
+        #     removed from the core hours earlier. It had simply grown
+        #     back in a second block. Rosters recur; that is why the
+        #     Phase 6 test pins their absence.
+        #
+        # NO NEW LANGUAGE BEHAVIOUR IS INTRODUCED. Every clause below
+        # restates something the previous block already said.
         _english_first_block = (
             "[ENGLISH_FIRST_RULE]\n"
-            "If the narrator's last message is in English, you MUST "
-            "respond in English. Foreign place names (Prague, Salzburg, "
-            "Ljubljana, Pula, Mirano, Padua, Venice, Roma, etc.), "
-            "European food terms, accented words, and travel routes "
-            "are still ENGLISH narration when they appear in an English "
-            "sentence — they do not imply a language switch. Do not "
-            "respond in Spanish, Italian, French, or any other language "
-            "just because the narrator mentioned a foreign place. You "
-            "may translate, pronounce, or explain a specific foreign "
-            "word ONLY when the narrator explicitly asks (\"what does "
-            "X mean\" / \"how do I pronounce X\").\n"
-            "\n"
-            "EXAMPLES — study the shape, do not echo verbatim:\n"
-            "\n"
-            "(1) Long European route — narrator stays English, Lori "
-            "stays English, Lori echoes 3 route anchors and asks a "
-            "next-link factual question.\n"
-            "  Narrator: \"On the outbound we flew into Prague, then "
-            "drove to Salzburg, then Graz, then crossed into Slovenia "
-            "at Ljubljana, then down to Pula, then over to Trieste, "
-            "and finally settled outside Venice at Mirano.\"\n"
-            "  Lori (CORRECT, English shape — replace [CITY_A]..[CITY_E] "
-            "with the ACTUAL cities the narrator said, do not "
-            "emit the bracketed tokens): \"From [CITY_A] to "
-            "[CITY_B] to [CITY_C], then down to [CITY_D] and "
-            "[CITY_E] — that's a real arc through the region. What "
-            "stood out about the drive between [CITY_B] and "
-            "[CITY_C]?\"\n"
-            "  Lori (WRONG, do NOT do this): \"Ese viaje desde Praga "
-            "hasta el Véneto tiene mucho encanto. ¿Qué recuerdas?\"\n"
-            "\n"
-            "(2) Sensory European setting — narrator gives an English "
-            "memory of a European place, Lori stays English and asks an "
-            "English memoir-grade follow-up. No Italian or Spanish.\n"
-            "  Narrator: \"We stood on a balcony in Venice at sunset. "
-            "The lagoon was glassy and the bells were ringing across "
-            "the water.\"\n"
-            "  Lori (CORRECT, English shape — replace [PLACE] with the "
-            "ACTUAL place the narrator said, do not emit the "
-            "bracketed token): \"[PLACE] at that hour with the "
-            "sounds around you — that's a moment to hold onto. Who "
-            "was beside you there?\"\n"
-            "  Lori (WRONG, do NOT do this): \"Ese momento en el balcón "
-            "de Venecia tiene mucha belleza. ¿Recuerdas qué hora del "
-            "día era?\"\n"
-            "\n"
-            "(3) Hub-and-spoke day trips — narrator names a base plus "
-            "day-trip towns, Lori stays English, echoes 2-3 anchors, "
-            "asks one next-link question.\n"
-            "  Narrator: \"Mirano was our base in the Veneto. From "
-            "there we went to Treviso, then Padua for the Scrovegni "
-            "Chapel, then Cittadella for the medieval walls.\"\n"
-            "  Lori (CORRECT, English shape — replace [BASE] / [DAY_A..C] "
-            "/ [LANDMARK] with the ACTUAL places the narrator "
-            "said, do not emit the bracketed tokens): \"From "
-            "[BASE] you reached [DAY_A], [DAY_B] and [LANDMARK], "
-            "then the walled town at [DAY_C]. Which of those "
-            "stayed with you most?\"\n"
-            "  Lori (WRONG, do NOT do this): \"Esa conexión entre "
-            "Mirano, Padua y Cittadella tiene mucha profundidad.\"\n"
-            "\n"
-            "(4) Explicit single-word translation request — narrator "
-            "ASKS for a meaning, Lori IS allowed to give the foreign "
-            "word and explain it; the response overall stays English.\n"
-            "  Narrator: \"What does svíčková mean?\"\n"
-            "  Lori (CORRECT shape — replace [FOREIGN_WORD] with the "
-            "ACTUAL word the narrator asked about; keep the "
-            "original word intact and give a brief English "
-            "explanation. Do not emit the bracketed token): "
-            "\"[FOREIGN_WORD] is a [CULTURE] [DISH_OR_ITEM_TYPE] "
-            "— sometimes called [ALT_NAME]. Did you have it on "
-            "this trip?\""
+            "The narrator's last message is in English, so respond in "
+            "English. A pile-up of foreign place names, food terms, "
+            "accented words or travel routes inside an English sentence "
+            "is still English narration — however many of them appear, "
+            "it is never a request to change language. Do not answer in "
+            "Spanish, Italian, French or any other language because the "
+            "narrator named a foreign place. Translate, pronounce or "
+            "explain a specific foreign word only when the narrator asks "
+            "you to, and stay in English when you do."
         )
         # Detect narrator language from user_text. Light check — if the
         # text has Spanish accent chars or 2+ Spanish-only function
