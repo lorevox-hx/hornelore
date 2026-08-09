@@ -333,6 +333,14 @@ Priority order for what to build next. Items 1 + 2 (migration/trip verification,
 > - **Model and the 8,192-token window verified UNCHANGED.** Still locked; a change request
 >   here is a stop-and-report condition.
 >
+> **STATUS 2026-08-09 (evening).** **Phase 6 LANDED** — always-on core 2,217 → 1,632 tok.
+> **Phase 7 LANDED** — English-first 850 → 108 tok. Cumulative: composed prompt
+> **7,205 → 5,878 tok**, and the 60-pair fixture retains **3 → 17** narrator/Lori pairs.
+> **`WO-SYSTEM-DIRECTIVE-PERSISTENCE-01` is CLOSED** (provenance declared by the send path;
+> zero undeclared senders in-tree). **Phase 8 state gating is next.** Carried debts, folded
+> into the next live run rather than given their own harness: Phase 6 LLR-19 and Phase 10
+> broad live acceptance. The original ordering below is kept for the trail.
+>
 > **Next product work, in this order:** (1) history-drop measurement, reported in **bands**
 > — no drop / light 1–2 pairs / heavy 3+ pairs with max and retained count — because *"a
 > turn dropping one old pair is very different from a turn dropping ten"*; (2) **Phase 6**,

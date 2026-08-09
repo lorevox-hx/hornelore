@@ -352,9 +352,16 @@ class ProvenanceIsDeclaredNotSniffedTest(unittest.TestCase):
     def test_the_prefix_survives_only_as_a_fallback(self):
         """Undeclared senders keep exactly the behaviour they had.
 
-        Two travel-doc modules still send `start_turn` without declaring.
-        Falling back is not a defect for them -- it is the status quo,
-        and changing it is not this work order's business.
+        As of the 2026-08-09 closeout there are NO undeclared senders
+        left in the tree -- the two travel-doc modals were the last, and
+        they now declare `narrator`. This sentence previously read "Two
+        travel-doc modules still send `start_turn` without declaring",
+        which was true when it was written and stopped being true within
+        the hour.
+
+        The fallback is kept anyway, for the 120 pre-Phase-1 rows and for
+        any client that predates the declaration. What it must never
+        become again is the primary classifier.
         """
         after = self.ws[self.ws.index(self._n('_declared_kind = str(')):]
         branch = after[:after.index(self._n('params["_is_system_directive"]'))]
