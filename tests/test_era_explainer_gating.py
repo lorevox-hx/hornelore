@@ -124,19 +124,68 @@ class TheEraSystemItselfIsUntouchedTest(_ComposerCase):
             self.assertIn(era, p, f"era {era} no longer reaches the prompt")
 
     def test_the_flag_alone_changes_nothing_else(self):
-        """Byte-identical apart from the glossary.
+        """Genuine full equality after removing only the glossary.
 
-        Gating a block must not perturb anything around it; if these two
-        differ anywhere else, the edit did more than it claimed.
+        STRENGTHENED 2026-08-09, and the previous version is worth
+        naming because it looked like this test. It compared a 400-char
+        prefix and a 200-char slice of the tail, and called that
+        "byte-identical apart from the glossary" — a claim it could not
+        make. Anything altered in the middle of the prompt, or beyond
+        200 characters after the glossary, passed silently.
+
+        The real property is: remove exactly the glossary section from
+        the ON prompt and what remains must equal the OFF prompt
+        EXACTLY. That is what proves the gate perturbs nothing around
+        it, and it is cheap to assert properly.
         """
         off = self.compose(self.STORY, era_definition_requested=False)
         on = self.compose(self.STORY, era_definition_requested=True)
-        head, _, tail = on.partition("ERA EXPLAINER")
-        rest = tail.split("\n\n", 1)[1] if "\n\n" in tail else ""
-        self.assertTrue(off.startswith(head.rstrip("\n")[:400]),
-                        "text BEFORE the glossary changed")
-        self.assertIn(rest.strip()[:200], off,
-                      "text AFTER the glossary changed")
+        self.assertNotEqual(off, on, "the flag did nothing at all")
+
+        off_blocks = off.split("\n\n")
+        on_blocks = on.split("\n\n")
+        glossary = [b for b in on_blocks
+                    if b.lstrip().startswith("ERA EXPLAINER")]
+        self.assertEqual(1, len(glossary),
+                         f"expected exactly one ERA EXPLAINER block, found "
+                         f"{len(glossary)}")
+        remainder = [b for b in on_blocks if b not in glossary]
+
+        # (a) Every directive survives, in order, with identical content.
+        self.assertEqual(
+            len(off_blocks), len(remainder),
+            "the gate added or removed a section other than the glossary")
+        self.assertEqual(
+            [b.strip() for b in off_blocks], [b.strip() for b in remainder],
+            "a directive other than the glossary changed")
+
+        # (b) And the whole prompt is identical once whitespace is
+        # ignored — so nothing moved between blocks either.
+        self.assertEqual(
+            re.sub(r"\s+", "", off), re.sub(r"\s+", "", "\n\n".join(remainder)),
+            "the gate changed prompt CONTENT, not only the glossary")
+
+        # (c) THE ONE TOLERATED DIFFERENCE, named rather than hidden.
+        #
+        # Exact string equality fails by a single character: the block
+        # after the glossary position reads "\nDIRECTIVE: You are in
+        # Pass 2A…" in the OFF prompt and "DIRECTIVE: …" in the
+        # remainder. The glossary's own trailing newline merges with the
+        # join separator when it is present, so removing it leaves one
+        # fewer newline at that seam.
+        #
+        # It is whitespace between two directives, it is asserted to be
+        # whitespace by (b), and it is bounded by (a) — but it is real
+        # output, so it is written down instead of being absorbed by a
+        # loose comparison. The earlier version of this test compared a
+        # 400-character prefix and a 200-character tail slice and called
+        # that "byte-identical"; it would not have found this, and it
+        # would not have found a genuine change either.
+        diff = len(off) - len("\n\n".join(remainder))
+        self.assertEqual(
+            1, diff,
+            f"the seam difference is {diff} characters, not the single "
+            f"newline this gate is known to produce — something else moved")
 
 
 class TheMixedCaseKeepsItsBiographyTest(_ComposerCase):
