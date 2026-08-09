@@ -38,14 +38,81 @@
 >   classified required vs droppable; per-section diagnostics moved out of routine `INFO`
 >   noise; the LLM safety classifier stopped carrying Lori's full composed prompt.
 >
-> **WHAT THIS CORRECTION DELIBERATELY DOES NOT DO.** It does not walk every numbered phase
-> below against the tree and mark each one. The sub-phase lettering used in the
-> implementation commits (2A–2D, 3A/3B, 4A) **does not map one-to-one onto the Phase 0–12
-> numbering in this document**, and inventing that mapping from a summary would replace one
-> false status line with a more convincing one. **Reconciling the remaining phases against
-> landed commits is the first unit of the next Lean Lori session, and it is a code-reading
-> task, not a document-editing task.** Until it is done, treat every individual phase marker
-> below as unverified and check the code.
+> **THE PHASE WALK WAS DONE ON 2026-08-09.** The paragraph that stood here said the mapping
+> had not been established and that *"until it is done, treat every individual phase marker
+> below as unverified."* That was true for one day. The requirement-by-requirement trace is
+> `docs/reports/LEAN-LORI-R3-PHASE-RECONCILIATION-2026-08-09.md`, and its result is the two
+> tables below.
+>
+> ### ⚠️ R3 phase numbers and implementation commit labels are TWO DIFFERENT SCHEMES
+>
+> They overlap, they collide, and reading either as the other produces wrong conclusions in
+> both directions. The implementation ran its own numbering and recorded it in code comments
+> — `prompt_composer.py:3316` says `WO-LEAN-LORI-RUNTIME-01 Phase 2D` on work that is **R3
+> Phase 4**, not R3 Phase 2.
+>
+> | Commit / code label | What it actually did | R3 phase it satisfies |
+> |---|---|---|
+> | `Phase 1A`–`1E` | as named | **R3 1A–1E** — the one range where the labels correspond |
+> | `Phase 2A` | named prompt sections, byte-identical output | **R3 Phase 4** |
+> | `Phase 2B` | removed `PROFILE_JSON.last_user_text` | **R3 Phase 5** |
+> | `Phase 2C` | split the chat window from the extraction window | *no R3 phase* — enabling work for R3 9/11 |
+> | `Phase 2D` | `required` / `drop_order` classification | **R3 Phase 4** (attributes) + prep for R3 9 |
+> | `Phase 3A` | classifier stopped carrying the composed prompt | inside **R3 §3C** |
+> | `Phase 3B` | **parked the safety feature** | **R3 §3C** — *not* R3 §3B, which is speech |
+> | `Phase 4A` | `prompt_budget.py`, killed the blind slice | **R3 Phase 10** + partial **R3 Phase 9** |
+>
+> §3C already said *"Implemented as Phase 3B"*, so the collision was recorded — in one
+> direction, in one place. **And the labels are not unique across this repository:**
+> `ui/js/narrator-intake.js` carries `Phase 2B`/`Phase 2C` belonging to
+> `WO-OPERATOR-NEW-NARRATOR-INTAKE-FORM-01`, and `ui/js/travel-doc-lab.js` carries `Phase 3A`
+> belonging to the Travel Doc unification. **A bare phase label is not an identifier here.
+> Cite a commit or a file.**
+>
+> ### Phase status as of 2026-08-09
+>
+> | Gate / phase | Status | Note |
+> |---|---|---|
+> | **Gate A** (0.1–0.10) | ✅ **COMPLETE** | `LEAN-LORI-PHASE-0-REVIEW-2026-08-04.md`; `lean_lori_safety_gate.json` (192 cases). Its output *was* the safety-park decision. |
+> | 1A deterministic turn finalization | 🟡 **LANDED, LIVE SMOKE OWED** | `082d3cc`. Six branches, not the five named below. The browser/export smoke this phase requires has not been run. |
+> | 1B apostrophe person-anchor | ✅ **LANDED** | `c155719` |
+> | 1C remove bounded-extraction pre-generation | ✅ **LANDED** | `c6d0fdf` |
+> | 1D safety-latch exit | ✅ **LANDED**, acceptance amended | `85c1bd6`. **Keep it — it is what reactivation lands on. Not dead code.** |
+> | 1E compound-value reflection trim | ✅ **LANDED** | `385c71d` |
+> | **2 — profile resolver `HORNELORE_RUNTIME_PROFILE=lean_lori`** | 🔴 **NOT STARTED** | **Zero occurrences** of `HORNELORE_RUNTIME_PROFILE`, `lean_lori` or `effective_profile` in `server/` or `ui/`. See the Phase 2 note below. |
+> | 3A camera / preview / affect | 🔴 **NOT STARTED** | |
+> | 3B speech (Whisper, one STT lane) | 🔴 **NOT STARTED** | **the commits labelled `Phase 3B` are the safety work, not this** |
+> | **3C safety disposition** | ⏸️ **PARKED + VERIFIED** | `flags.py:260`, default `parked`, absent from `.env`; `tests/test_safety_parked.py` **54 tests** |
+> | 3D optional Llama / derivative | 🟡 **PARTIAL** | one-bounded-extraction-is-one-call landed via 1C; the rest ungated |
+> | **4 structured composer** | 🟡 **PARTIAL** | `_Section` has **4** of the **9** attributes this phase specifies. Token counts deliberately absent — see the phase text. |
+> | 5 remove duplicated current-turn text | ✅ **COMPLETE** | `53a2cad`. `last_user_text` survives only in its own retirement comment. |
+> | 6 compact `default_core` | 🔴 **NOT STARTED** | **the next product work** |
+> | 7 compact English-first | 🔴 **NOT STARTED** | its own commit, never combined with 6 |
+> | 8 split directives by active state | 🔴 **NOT STARTED** | no state matrix exists |
+> | **9 real-token budget** | 🟡 **PARTIAL** | history trimming landed; optional-section dropping, priority tiers and section reporting did not. See the retired ordering constraint in the phase text. |
+> | 10 remove blind slicing | 🟡 **LANDED, LIVE ACCEPTANCE OWED** | all three chat paths: `chat_ws.py:4216`, `api.py:639`, `api.py:771`. R3's case list has not been run live. |
+> | 11 preserve bounded extraction | 🟡 **PARTIAL** | window split landed; the 384/768 cap is **already** reconciled — do not redo it |
+> | 12 passive diagnostics | 🟡 **PARTIAL** | the operator manifest depends on Phase 2 and is not started |
+> | Conditional coordinator | 🔴 **NOT STARTED, CORRECTLY** | no collision evidence exists. **Do not open.** |
+> | **Gate F** | 🔴 **NOT STARTABLE** | it asserts a `lean_lori` manifest and parked camera/Whisper, none of which exist |
+>
+> **GATE D IS THE ACTIVE GATE.** The next product work is the history-drop measurement, then
+> Phase 6, then Phase 7 as its own commit.
+>
+> ### Requirements already satisfied elsewhere — DO NOT REBUILD
+>
+> 1. **`meta_question` exactly-once, extraction- and placement-ineligible** — a Gate F
+>    criterion, satisfied by `7139644`, which lands **before `b5dc03f`**, i.e. before this
+>    document was written.
+> 2. **Six-word trip-story floor and reason ordering** — a Gate F criterion, satisfied by
+>    `09de0dc`, also pre-R3.
+> 3. **The 384-vs-768 compound cap** (Phase 11) — already one source of truth at
+>    `extract.py:1962`, reason recorded at `:1956` (LOOP-01 R3, from api.log evidence).
+> 4. **Extraction idempotency ledger, strong task refs, shutdown drain, catch-up** (Phase 11
+>    says *preserve*, not build) — landed 2026-07-30 under WO-TRUTH-PIPELINE-01 Phase 2,
+>    migration `0038`.
+> 5. **Archive-before-extraction ordering** (Phase 11) — asserted by `0d87717`.
+> 6. **WO1E** — closed 2026-08-04. This document already says it is not repeated.
 >
 > **Unchanged and still binding:** the absolute model lock, and the 8,192-token operating
 > window. Neither may be moved as a shortcut. Work that appears to require either is a
@@ -672,6 +739,21 @@ the cold-start figure reported separately.
 
 ### Phase 1A — deterministic turn finalization
 
+> **LANDED 2026-08-09 REVIEW: `082d3cc`, and it covers SIX branches, not the five named
+> here.** The implementation adds **`meta_question`**, and the code comment records why: only
+> `meta_question` was already writing the assistant archive event, because
+> `BUG-DETERMINISTIC-TURN-ARCHIVE-MISSING-01` had repaired it on 2026-08-01. The user archive
+> event is written unconditionally ~1,500 lines earlier, so on the other five *"the exported
+> transcript showed the narrator speaking and Lori silent"* — an asymmetry that reads as an
+> unanswered turn rather than a missing write, which is why it stayed invisible.
+> **`meta_question`'s exactly-once, extraction- and placement-ineligible behaviour was
+> therefore satisfied BEFORE this document was written** (`7139644`, pre-`b5dc03f`). Do not
+> rebuild it.
+>
+> **STILL OWED:** the browser/export smoke this phase requires — *"proving each delivered
+> deterministic reply appears exactly once."* It has not been run. This is the only
+> outstanding item in Gate B.
+
 For each of `floor_hold`, `witness`, `memory_echo`, `age_recall`, and
 `correction`, determine the intended persistence/archive behavior separately.
 Do not mechanically make them identical if one has a deliberate projection,
@@ -796,6 +878,24 @@ HORNELORE_RUNTIME_PROFILE=lean_lori
 ```
 
 Phase 2 only resolves and reports state. Do not park features yet.
+
+> **STATUS 2026-08-09: NOT STARTED — and Gate C was built around it anyway.**
+> `HORNELORE_RUNTIME_PROFILE`, `lean_lori` and `effective_profile` appear **nowhere** in
+> `server/` or `ui/`. Every subsection of Phase 3 below is written as *"When `lean_lori` is
+> effective: …"*, so on paper nothing in Gate C could proceed without this. **§3C proceeded
+> anyway**, through a dedicated server-authoritative `HORNELORE_SAFETY_STATE` (`flags.py:260`).
+>
+> That was the right call for a decision that had to land the same day, it is well tested
+> (54 tests), and it defaults to `parked` by being absent from `.env` — which is the correct
+> posture for a machine nobody configured. **But it means this phase's stated dependency is
+> now false**, and §3A (camera) and §3B (speech) inherit an unmade decision: build the unified
+> resolver first, or add a second bespoke setting and abandon this design.
+>
+> **Deferred by Chris, 2026-08-09, with the reasoning recorded so it is not re-litigated:**
+> the resolver is architectural housekeeping and improves no narrator turn, while Gate D
+> compaction improves conversational continuity immediately. **Do not stop improving Lori to
+> normalise feature-flag architecture.** The decision above is taken when camera or Whisper
+> parking is actually opened — not before, because nothing needs it before.
 
 For every capability expose:
 
@@ -989,6 +1089,55 @@ truth and session identity.
 
 ### Phase 6 — compact `default_core`
 
+> **NEXT PRODUCT WORK, opened by Chris 2026-08-09 — and the goal is not "make the prompt
+> short."** It is **recover tokens while preserving Lori's behaviour and identity.**
+>
+> **Why this phase and not another.** Phase 4A did not remove the over-window failure; it
+> changed its shape. Before 4A the front was cut and Lori lost her identity and instructions.
+> After 4A she keeps them and the cost moves to **history**, dropped oldest-first. For an
+> oral-history system that is the second-worst failure available: Lori now remembers who she
+> is and can forget what the narrator just told her. **Compaction is the only work that
+> reduces how often history has to be dropped at all**, and `DEFAULT_CORE` plus the
+> English-first library (Phase 7) are the two largest always-on blocks. Neither has been
+> touched — `DEFAULT_CORE` is explicitly unchanged at `prompt_composer.py:3213`; Phase 3B only
+> *split* it for the safety marker.
+>
+> **Gated on measurement first.** A history-drop measurement using the existing
+> `BudgetOutcome` data establishes the post-4A baseline against the pre-4A figure of 382/630
+> turns. R3 forbids inventing thresholds from the May report, and this is the same rule.
+>
+> **The measurement must report BANDS, not one percentage — Chris, 2026-08-09.** *"A turn
+> dropping one old pair is very different from a turn dropping ten."* Report:
+>
+> | Band | Definition |
+> |---|---|
+> | **No drop** | all available conversation history fit |
+> | **Light drop** | 1–2 completed narrator/Lori pairs removed |
+> | **Heavy drop** | 3+ pairs removed — report max dropped **and pairs retained** |
+>
+> The distinction decides whether this phase is urgent. *"40% of turns drop something"* can
+> be benign if nearly every case loses one ancient pair; **10% is serious if those turns
+> routinely lose most of a long oral-history conversation.** The number that matters is how
+> much **useful recent history remained**, not how often anything was removed. Also report
+> total turns, total pairs dropped, median/max, pre-fit prompt size where available, whether
+> `mandatory_too_large` ever occurred, and which runtime shapes account for the worst cases.
+> **IDs, counts and hashes only — no narrator prose.**
+>
+> **If the distribution turns out to be dominated by heavy drops on state-heavy turns rather
+> than by a large always-on core, Phase 8 (state gating) may be the larger and safer token
+> recovery and should be reconsidered ahead of this phase.** That is Chris's call on the
+> measurement, not a foregone conclusion.
+>
+> **LLR-19 is the acceptance item that makes this phase worth more than its token count.**
+> Lori has previously recited her own instruction text at a narrator. Compaction must prove
+> that no instruction block — including the ACUTE SAFETY RULE template — can surface as a
+> narrator-visible reply in any tested runtime state. **Saving tokens without proving that is
+> a failed Phase 6.**
+>
+> **Phase 7 is a separate commit, never combined with this one.** If language behaviour
+> regresses, a combined commit cannot tell you whether the core or the language block caused
+> it.
+
 Use real tokenizer deltas. Preserve, verbatim in meaning: Lori identity/name and
 Life Archive purpose; narrator dignity and author ownership; fact humility and
 anti-invention; direct-answer-first and one-question discipline; oral-history
@@ -1031,8 +1180,25 @@ with included/absent section IDs and real-token totals.
 
 ### Phase 9 — real-token budget after compaction
 
-Do not start until required sections plus realistic current-turn context fit
-with measured headroom.
+> **THIS ORDERING CONSTRAINT IS RETIRED, 2026-08-09 — deliberately, not by accident.**
+> It read: *"Do not start until required sections plus realistic current-turn context fit
+> with measured headroom."* Phase 4A inverted it and started the budget work before Phases
+> 6–8 had compacted anything, because the blind front-slice was removing Lori's identity on
+> **382 of 630 measured production turns** and the argument is stated in the module itself:
+> *"a phase that fixes the live defect is worth more than a phase that fixes it more
+> elegantly later."* That reasoning holds and the inversion stands. It is marked retired
+> rather than left standing-and-violated, because a constraint the code openly disobeys
+> teaches the next reader that constraints here are decorative.
+>
+> **What actually landed** (`services/prompt_budget.py`, `test_prompt_budget` 22 tests): the
+> system message is never trimmed; history is dropped oldest-first at whole turn-pair
+> boundaries; `mandatory_too_large` is reported and the caller refuses the turn.
+>
+> **What did NOT land, and the module says so itself under `NOT IN THIS PHASE`:** dropping
+> optional SYSTEM sections whole — they are classified by Phase 2D and never dropped — plus
+> the priority tiers and the section ID / count / decision / hash reporting below. **This
+> phase is PARTIAL.** Completing it is a candidate for after Phases 6–7, and it is strictly
+> narrower than compaction: it only helps once dropping history has already failed.
 
 ```text
 8192 context - 512 response - 128 margin = 7552 final prompt tokens
@@ -1056,6 +1222,20 @@ system/token jargon.
 Tests whose prompt fixtures are smaller than the production floor are invalid.
 
 ### Phase 10 — remove blind slicing from every chat path
+
+> **CODE LANDED 2026-08-09 REVIEW (`fdda330`, commit-labelled "Phase 4A"); BROAD LIVE
+> ACCEPTANCE STILL OWED.** All three chat paths now fit through the budget before
+> tokenizing — `chat_ws.py:4216`, `api.py:639` (`rest-chat`), `api.py:771` (`rest-stream`).
+> The blind front-slice is gone from every one of them; what remains at each site is a
+> **backstop that refuses** (`PROMPT_TOO_LARGE` / `prompt_budget_backstop`) rather than cuts,
+> on the reasoning that a disagreement between the budget and the tokenizer *"could be one
+> token or two thousand, and there is no way to tell from here which part of Lori's prompt
+> would be lost."* **The backstop firing is a budget defect, not an oversized prompt** — it
+> is logged at ERROR saying exactly that.
+>
+> What is owed is the case list in this phase, live: every measured narrator across plain
+> `hi`, Building Years, active trip, selected photo, realistic history, a long valid turn,
+> each style, and the mandatory-core-cannot-fit path.
 
 After Phase 9 acceptance: remove generic `[:, -MAX_CONTEXT_WINDOW:]` behavior
 from WebSocket chat, REST non-streaming, and REST streaming chat; prevent any

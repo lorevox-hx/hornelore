@@ -310,11 +310,50 @@ Priority order for what to build next. Items 1 + 2 (migration/trip verification,
 > list and are deliberately **not** renumbered into it — the numbering carries its own trail
 > and renumbering it would break every reference to it.
 >
-> **0a. Resume Lean Lori from its real state.** Reconcile the remaining R3 phases against
-> landed commits **before** changing code. Phase 4A (`prompt_budget.py`) is landed; the
-> R3 header said `Phase 0 not started` until 2026-08-09 and the phase list has not been
-> walked against the tree. Read the code, not the status line. Model and the 8,192-token
-> window stay **locked** — work that appears to need either is a stop-and-report condition.
+> **0a. Lean Lori — RECONCILED 2026-08-09.** This item read *"Reconcile the remaining R3
+> phases against landed commits before changing code… the phase list has not been walked
+> against the tree."* That walk is done:
+> [`docs/reports/LEAN-LORI-R3-PHASE-RECONCILIATION-2026-08-09.md`](docs/reports/LEAN-LORI-R3-PHASE-RECONCILIATION-2026-08-09.md).
+> The result, in one line each:
+>
+> - **Gate A COMPLETE.** Its output was the safety-park decision.
+> - **Gate B COMPLETE except one item** — the Phase 1A browser/export smoke has not been run.
+> - **R3 Phase 2 (the `lean_lori` profile resolver) is NOT STARTED** — zero occurrences in
+>   `server/` or `ui/`. Gate C was written to depend on it; **§3C was parked anyway** through
+>   its own server-authoritative `HORNELORE_SAFETY_STATE` (PARKED + VERIFIED, 54 tests).
+>   3A camera and 3B speech are **not started** and inherit that unmade decision. **Deferred
+>   deliberately:** the resolver improves no narrator turn, and normalising feature-flag
+>   architecture must not stall work that improves Lori.
+> - **GATE D IS THE ACTIVE GATE.** Phase 5 complete · Phases 4 and 9 partial · **Phases 6, 7
+>   and 8 not started** · Phase 10 landed on all three chat paths with broad live acceptance
+>   still owed.
+> - **R3 phase numbers and the commit phase labels are two different schemes**, and phase
+>   labels are not unique across work orders in this repository. **Cite a commit or a file,
+>   never a bare phase number.**
+> - **Model and the 8,192-token window verified UNCHANGED.** Still locked; a change request
+>   here is a stop-and-report condition.
+>
+> **Next product work, in this order:** (1) history-drop measurement, reported in **bands**
+> — no drop / light 1–2 pairs / heavy 3+ pairs with max and retained count — because *"a
+> turn dropping one old pair is very different from a turn dropping ten"*; (2) **Phase 6**,
+> compact `DEFAULT_CORE`, whose real acceptance item is **LLR-19** (no instruction block can
+> surface as a narrator-visible reply), not a token count; (3) **Phase 7** as its own commit,
+> never combined with 6, or a regression cannot be attributed. Phase 8 may displace Phase 6
+> if the measurement says the pressure is state-heavy rather than always-on.
+>
+> **Why this matters, stated plainly:** Phase 4A did not remove the over-window failure, it
+> **changed its shape**. Lori no longer loses her identity; she now loses **conversational
+> history**, dropped oldest-first. For an oral-history system that is the second-worst
+> failure available.
+>
+> **DO NOT REBUILD — already satisfied under other work blocks:** `meta_question`
+> exactly-once and extraction/placement-ineligible (`7139644`, **pre-R3**); the six-word
+> trip-story floor and reason ordering (`09de0dc`, **pre-R3**); the 384-vs-768 compound cap,
+> already one source of truth at `extract.py:1962`; the extraction idempotency ledger, strong
+> task refs, shutdown drain and catch-up (WO-TRUTH-PIPELINE-01 Phase 2, migration `0038`);
+> archive-before-extraction ordering (`0d87717`); WO1E, closed 2026-08-04. **Also keep the
+> Phase 1D safety-latch exit** — it looks like dead code while safety is parked and it is
+> what reactivation lands on.
 >
 > **0b. `WO-SYSTEM-DIRECTIVE-PERSISTENCE-01`** — spec written 2026-08-09 at
 > [`docs/wo/WO-SYSTEM-DIRECTIVE-PERSISTENCE-01_Spec.md`](docs/wo/WO-SYSTEM-DIRECTIVE-PERSISTENCE-01_Spec.md),
