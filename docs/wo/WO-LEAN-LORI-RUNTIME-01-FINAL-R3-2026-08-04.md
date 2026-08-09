@@ -86,9 +86,9 @@
 > | 3D optional Llama / derivative | 🟡 **PARTIAL** | one-bounded-extraction-is-one-call landed via 1C; the rest ungated |
 > | **4 structured composer** | 🟡 **PARTIAL** | `_Section` has **4** of the **9** attributes this phase specifies. Token counts deliberately absent — see the phase text. |
 > | 5 remove duplicated current-turn text | ✅ **COMPLETE** | `53a2cad`. `last_user_text` survives only in its own retirement comment. |
-> | 6 compact `default_core` | 🔴 **NOT STARTED** | **the next product work** |
-> | 7 compact English-first | 🔴 **NOT STARTED** | its own commit, never combined with 6 |
-> | 8 split directives by active state | 🔴 **NOT STARTED** | no state matrix exists |
+> | 6 compact `default_core` | ✅ **LANDED 2026-08-09** (`2829517`) | always-on core 2,217 → 1,632 tok |
+> | 7 compact English-first | ✅ **LANDED 2026-08-09** (`3065cfc`) | 850 → 108 tok; kept a separate commit from 6 |
+> | 8 split directives by active state | 🟡 **MATRIX MEASURED 2026-08-09, NO EDIT** | [`docs/reports/LEAN-LORI-PHASE-8-STATE-MATRIX-2026-08-09.md`](docs/reports/LEAN-LORI-PHASE-8-STATE-MATRIX-2026-08-09.md) |
 > | **9 real-token budget** | 🟡 **PARTIAL** | history trimming landed; optional-section dropping, priority tiers and section reporting did not. See the retired ordering constraint in the phase text. |
 > | 10 remove blind slicing | 🟡 **LANDED, LIVE ACCEPTANCE OWED** | all three chat paths: `chat_ws.py:4216`, `api.py:639`, `api.py:771`. R3's case list has not been run live. |
 > | 11 preserve bounded extraction | 🟡 **PARTIAL** | window split landed; the 384/768 cap is **already** reconciled — do not redo it |
@@ -96,8 +96,10 @@
 > | Conditional coordinator | 🔴 **NOT STARTED, CORRECTLY** | no collision evidence exists. **Do not open.** |
 > | **Gate F** | 🔴 **NOT STARTABLE** | it asserts a `lean_lori` manifest and parked camera/Whisper, none of which exist |
 >
-> **GATE D IS THE ACTIVE GATE.** The next product work is the history-drop measurement, then
-> Phase 6, then Phase 7 as its own commit.
+> **GATE D IS THE ACTIVE GATE.** Phases 6 and 7 are LANDED (cumulative: composed prompt
+> 7,205 → 5,878 tok). **Phase 8 is measured, not edited** — the matrix found that the default
+> post-identity turn carries three conflicting behavioural authorities, so ownership is
+> resolved before any compaction. See the Phase 8 report.
 >
 > ### Requirements already satisfied elsewhere — DO NOT REBUILD
 >

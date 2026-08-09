@@ -396,12 +396,21 @@ At session start:
 ```text
 Google Picker       GREEN / banked
 Travel Document     GREEN / closed on live evidence
-Lean Lori           active technical line; advanced through Phase 4A
+Lean Lori           active; Phases 6 + 7 LANDED, Phase 8 MEASURED (matrix, no edit)
+                    composed prompt 7,205 -> 5,878 tok
 Safety              PARKED, preserved, not active
 System-directive
-persistence         known correctness issue; separate WO needed
-Docs/checklist      stale and need reconciliation
+persistence         CLOSED 2026-08-09 (provenance declared by the send path)
+Docs/checklist      reconciled 2026-08-09
 Model               locked
 ```
+
+**Next decision (2026-08-09):** the Phase 8 matrix
+([`docs/reports/LEAN-LORI-PHASE-8-STATE-MATRIX-2026-08-09.md`](docs/reports/LEAN-LORI-PHASE-8-STATE-MATRIX-2026-08-09.md))
+found that the DEFAULT post-identity turn ships three conflicting behavioural authorities —
+interview discipline, oral-history posture, and a ten-question Profile Seed walk that
+`current_pass` reaches by default. Resolve that ownership before compacting anything. One
+live `runtime71` capture settles whether the browser sends `current_pass`; fold it into the
+next live run alongside the Phase 6 LLR-19 and Phase 10 acceptance debts.
 
 The immediate goal is not to rebuild finished features. It is to make the repository’s control documents accurately describe the system that already exists, then continue from the real code state.
