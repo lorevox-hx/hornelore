@@ -18,6 +18,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
+from ..db import turn_is_system_directive as _turn_is_system_directive
 from ..archive import (
     read_transcript,
     list_sessions as archive_list_sessions,
@@ -449,7 +450,14 @@ def get_session_timeline(person_id: str = Query(...)):
         sid = sess.get("session_id", "")
         anchor = read_thread_anchor(person_id=person_id, session_id=sid)
         turns = read_transcript(person_id=person_id, session_id=sid)
-        turn_count = len([t for t in turns if not (t.get("content") or "").startswith("[SYSTEM:")])
+        # WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 Phase 3 (2026-08-09).
+        # NOTE: these are ARCHIVE events, not `turns` rows, so they
+        # carry no recorded flag and the helper falls back to the
+        # prefix here. The win is one definition of the question, not
+        # new information. Giving the archive store its own flag is a
+        # separate boundary and is NOT in this work order.
+        turn_count = len([t for t in turns
+                          if not _turn_is_system_directive(t)])
         timeline.append({
             "session_id": sid,
             "started_at": sess.get("started_at", ""),

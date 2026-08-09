@@ -23,6 +23,10 @@ Rules enforced here:
 
 from __future__ import annotations
 
+# WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 Phase 3 (2026-08-09):
+# one definition of "is this internal guidance", shared.
+from .db import turn_is_system_directive as _turn_is_system_directive
+
 import json
 import os
 from datetime import datetime, timezone
@@ -1184,7 +1188,9 @@ def load_recent_archive_turns(
     meaningful = [
         e for e in events
         if (e.get("content") or "").strip()
-        and not (e.get("content") or "").strip().startswith("[SYSTEM:")
+        # Phase 3, 2026-08-09: archive events carry no flag; the
+        # helper falls back to the prefix. See transcript.py.
+        and not _turn_is_system_directive(e)
     ]
     return meaningful[-limit:]
 
