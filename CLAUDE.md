@@ -15,14 +15,62 @@ Interview default is moving from questionnaire-first to **oral-history-as-defaul
 - [`docs/architecture/MEMORY-EXERCISE-DECISION.md`](docs/architecture/MEMORY-EXERCISE-DECISION.md) — memory_exercise style is kept; implementation WO is parked
 - [`docs/architecture/COWORK-HANDOFF.md`](docs/architecture/COWORK-HANDOFF.md) — the operational brief that landed the pivot
 
-Active WO specs live in `docs/wo/`. The 6 live WO specs for the next build sessions:
+Active WO specs live in `docs/wo/`.
 
-1. `WO-LORI-SAFETY-LLM-CLASSIFIER-01_Spec.md` — closes Gate 5 (build first)
-2. `WO-LORI-SOFTENED-MODE-PERSISTENCE-01_Spec.md` — closes Gate 6
-3. `WO-LORI-PHASE-9-DISCLOSURE-UPDATE-01_Spec.md`
-4. `WO-LORI-STORY-FIRST-PHASE-1-01_Spec.md`
-5. `WO-LORI-ORAL-HISTORY-DEFAULT-01_Spec.md` — introduces `oral_history` style
-6. `WO-LORI-BIO-BUILDER-UNIVERSAL-01_Spec.md`
+### Current work pointers — corrected 2026-08-09
+
+> **This section was stale and that made it an operational bug.** Because this file opens
+> with *"Read this first at the start of every session,"* a wrong current-work list here is
+> not a documentation blemish — it is a standing instruction to rebuild finished work. From
+> 2026-06-14 to 2026-08-09 it read:
+>
+> > *"The 6 live WO specs for the next build sessions:*
+> > *1. `WO-LORI-SAFETY-LLM-CLASSIFIER-01_Spec.md` — closes Gate 5 (build first)*
+> > *2. `WO-LORI-SOFTENED-MODE-PERSISTENCE-01_Spec.md` — closes Gate 6*
+> > *3. `WO-LORI-PHASE-9-DISCLOSURE-UPDATE-01_Spec.md`*
+> > *4. `WO-LORI-STORY-FIRST-PHASE-1-01_Spec.md`*
+> > *5. `WO-LORI-ORAL-HISTORY-DEFAULT-01_Spec.md` — introduces `oral_history` style*
+> > *6. `WO-LORI-BIO-BUILDER-UNIVERSAL-01_Spec.md`"*
+>
+> **All six were verified landed in-tree on 2026-07-02**, so the list was already historical
+> a fortnight before it was retired. Worse, its item 1 said **build first** about the safety
+> classifier, and the whole runtime safety feature was **PARKED on 2026-08-04**. An agent
+> obeying this file literally would have started by rebuilding a parked feature. Quoted
+> rather than deleted, per this file's own correct-in-place rule.
+
+**Read `HANDOFF.md` first for orientation.** It is the current-state document and it outranks
+this section, the master checklist, and every WO status line. The governing order is:
+**current code → current tests and live evidence → accepted reports / ADRs / closeout
+records → `MASTER_WORK_ORDER_CHECKLIST.md` → old WO status lines → archived design history.**
+Before changing product code in a lane: read recent commits, read that lane's implementation
+and tests, check for a later closeout, *then* reconcile the documents. **Never reimplement
+landed work from a stale status line.**
+
+**State as of 2026-08-09:**
+
+| Lane | State |
+|---|---|
+| Google Photos Picker | 🟢 **BANKED** — live end-to-end. Do not reopen for polish without a demonstrated defect. |
+| Travel Document | 🟢 **CLOSED on live evidence** (`WO-TRAVEL-DOC-CLOSEOUT-01`, live export 2026-08-06). |
+| **Lean Lori runtime** | 🔵 **ACTIVE — the current technical line**, advanced through Phase 4A. Canonical WO: [`docs/wo/WO-LEAN-LORI-RUNTIME-01-FINAL-R3-2026-08-04.md`](docs/wo/WO-LEAN-LORI-RUNTIME-01-FINAL-R3-2026-08-04.md). Resume by reconciling remaining phases against landed commits — **not** from a status line. |
+| Runtime safety | ⏸️ **PARKED 2026-08-04**, server-authoritative, code+corpus+tests preserved. [`docs/decisions/2026-08-04-park-safety-feature.md`](docs/decisions/2026-08-04-park-safety-feature.md). **Never reactivate through an environment value** — it takes Chris's explicit decision. |
+| System-directive persistence | 🔴 **Known defect, WO written, NOT implemented**: [`docs/wo/WO-SYSTEM-DIRECTIVE-PERSISTENCE-01_Spec.md`](docs/wo/WO-SYSTEM-DIRECTIVE-PERSISTENCE-01_Spec.md). |
+| Model + 8,192-token window | 🔒 **LOCKED.** A change request here is a stop-and-report condition, not a task. |
+
+**Deferred — do not quietly promote to active:** Picker orphan reconciliation; multi-operator
+Google auth; generalized import-destination framework; three-source chooser; safety
+reactivation; model replacement; context-window expansion; a broad inference coordinator;
+framework rewrite; mass migration cleanup; automatic historical rewrite of stored `[SYSTEM:]`
+rows. *Deferred is not forgotten. Deferred means intentionally not active.*
+
+**The six specs above remain in `docs/wo/` as landed-design history.** Read them to
+understand why a subsystem behaves as it does; do not read them as a build queue.
+
+**Everything in this file above this section is durable doctrine and is NOT superseded by
+it** — the universal narrator framing, the eight design principles, the Travel Doc evidence
+rule, the Google Picker identity boundary, the environment and stack-ownership rules, the
+sandbox `__pycache__` hazard, the TTS-aware testing rule, and the git hygiene gate all still
+bind. This section governs *what to work on next*, and nothing else.
 
 Pre-pivot WO/BUG specs (114 files) are archived at `docs/archive/workorders-pre-pivot/` for design-history traceability. They are NOT the active source of truth. The changelog below references them by their old root paths; if a path doesn't resolve, look under the archive.
 

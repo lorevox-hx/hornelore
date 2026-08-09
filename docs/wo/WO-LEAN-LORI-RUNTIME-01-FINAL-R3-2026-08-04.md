@@ -1,6 +1,55 @@
 # WO-LEAN-LORI-RUNTIME-01 — Restore Core Lori and Park Overloading Features
 
-**Status:** SPEC — WO1E CLOSED; Phase 0 not started
+**Status:** 🔵 **ACTIVE — IMPLEMENTATION IN PROGRESS, ADVANCED THROUGH PHASE 4A** (status corrected 2026-08-09)
+
+> **STATUS CORRECTION, 2026-08-09 — read this before trusting any phase marker in this file.**
+>
+> This line read **`SPEC — WO1E CLOSED; Phase 0 not started`** from 2026-08-04 until
+> 2026-08-09. It stopped being true almost immediately: Phase 0 ran, the safety-park
+> amendment recorded directly below was written *because* Gate A ran, and implementation
+> continued from there. The retired wording is quoted here rather than deleted, per the
+> standing rule in `CLAUDE.md` — a reader who remembers this document as an unstarted spec
+> needs to be able to see that the claim was retired and why, and "not started" is exactly
+> the kind of sentence that invites an agent to rebuild landed work.
+>
+> **VERIFIED LANDED, by reading the tree rather than a status line:**
+>
+> - **Phase 0 / Gate A** — ran. Its own output is the safety-park decision below, plus
+>   `docs/reports/LEAN-LORI-PHASE-0-REVIEW-2026-08-04.md`,
+>   `docs/reports/lean_lori_safety_gate.json` and
+>   `docs/reports/lean_lori_safety_corpus_2026-08-04.json`.
+> - **Safety — PARKED, whole feature.** `docs/decisions/2026-08-04-park-safety-feature.md`.
+>   Server-authoritative: `server/code/api/safety.py` gates on
+>   `_lean_flags.safety_parked()`. The browser posture latch is parked with the backend so
+>   the UI cannot imply an active safety system where none is running. Code, corpus and
+>   tests are **preserved for a future explicit reactivation decision** — and reactivation
+>   is Chris's word, **never** a stale environment value.
+> - **Phase 4A — chat history fitting.** `server/code/api/services/prompt_budget.py` exists
+>   and implements the corrected policy, stated in its own module docstring: *"The system
+>   message is untouchable"* · *"History is dropped at turn boundaries, oldest first"* ·
+>   `mandatory_too_large` reported to the caller, which refuses the turn, rather than
+>   silently truncating. Public surface: `BudgetOutcome`, `fit_chat_messages`,
+>   `history_segments`. **The defect this repaired is worth restating** — the previous path
+>   kept the *tail* of the token stream, which meant an over-window turn silently discarded
+>   the *front*: Lori's identity and her interview instructions. **Do not recreate this from
+>   an older prompt-architecture plan.**
+> - Prompt sections named without changing rendered output; current narrator text removed
+>   from the duplicated `PROFILE_JSON`; chat and extraction token limits separated; sections
+>   classified required vs droppable; per-section diagnostics moved out of routine `INFO`
+>   noise; the LLM safety classifier stopped carrying Lori's full composed prompt.
+>
+> **WHAT THIS CORRECTION DELIBERATELY DOES NOT DO.** It does not walk every numbered phase
+> below against the tree and mark each one. The sub-phase lettering used in the
+> implementation commits (2A–2D, 3A/3B, 4A) **does not map one-to-one onto the Phase 0–12
+> numbering in this document**, and inventing that mapping from a summary would replace one
+> false status line with a more convincing one. **Reconciling the remaining phases against
+> landed commits is the first unit of the next Lean Lori session, and it is a code-reading
+> task, not a document-editing task.** Until it is done, treat every individual phase marker
+> below as unverified and check the code.
+>
+> **Unchanged and still binding:** the absolute model lock, and the 8,192-token operating
+> window. Neither may be moved as a shortcut. Work that appears to require either is a
+> stop-and-report condition.
 
 **Priority:** P0 when Chris opens Lean Lori implementation
 
@@ -14,7 +63,19 @@
 
 **Supersedes:** `FINAL-R2-2026-08-03`
 
-**Canonical repository target:** `docs/wo/WO-LEAN-LORI-RUNTIME-01_Spec.md`
+**Canonical repository target:** **this file** —
+`docs/wo/WO-LEAN-LORI-RUNTIME-01-FINAL-R3-2026-08-04.md`
+
+> **Broken pointer corrected 2026-08-09.** This line read
+> **`docs/wo/WO-LEAN-LORI-RUNTIME-01_Spec.md`** from 2026-08-04 until 2026-08-09. **That
+> path does not exist and never has** — `ls docs/wo/` returns no such file. The intended
+> destination was presumably a rename that was never carried out. Left standing, it sends
+> the next agent to look for a canonical Lean Lori document, fail to find one, and either
+> guess or create a second one — which is how a lane ends up with two specs and no
+> authority. **This file is the canonical Lean Lori work order.** No alias file has been
+> created, because an empty pointer file is a second thing to keep in sync; if Chris wants
+> the `_Spec.md` name instead, that is a rename plus a pointer update, and it is his call
+> rather than an agent's.
 
 **Paired architecture delivery:**
 `LEAN-LORI-RUNTIME-SPEC-FINAL-R3-2026-08-04.md`
