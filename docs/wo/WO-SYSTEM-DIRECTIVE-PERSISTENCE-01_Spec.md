@@ -1,9 +1,74 @@
 # WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 — Stop persisting internal directives as narrator speech
 
-**Status:** 📝 **SPEC ONLY — NOT IMPLEMENTED.** Written 2026-08-09. No code was changed.
-**Representation ruled 2026-08-09: Option A** (see §5). **Queued behind Lean Lori Phases 6
-and 7**, as its own commit/test/acceptance sequence — deliberately not combined with prompt
-compaction.
+**Status:** ✅ **IMPLEMENTED AND ACCEPTED 2026-08-09** — Phase 0 (evidence), Phase 1
+(boundary), **Phase 1b (provenance correction)**, Phases 2–3 (readers), acceptance run.
+Representation: **Option A**, ruled by Chris. Ran after Lean Lori Phases 6 and 7 as its own
+commit sequence, deliberately not combined with prompt compaction.
+
+> **This status line read "SPEC ONLY — NOT IMPLEMENTED" until 2026-08-09.**
+>
+> ### Acceptance, six cases, run through the shipped resolver and the real boundary
+>
+> | Case | classified | `meta_json` | role | content |
+> |---|---|---|---|---|
+> | narrator literally types `[SYSTEM:` | narrator | `{}` | `user` | preserved |
+> | **directive with no `[SYSTEM` in its text** | **directive** | `{"origin": "system_directive"}` | `user` | preserved |
+> | ordinary narrator turn | narrator | `{}` | `user` | preserved |
+> | ordinary directive | directive | `{"origin": "system_directive"}` | `user` | preserved |
+> | undeclared legacy sender | directive *(fallback)* | `{"origin": "system_directive"}` | `user` | preserved |
+> | travel-doc human types `[SYSTEM:` | narrator | `{}` | `user` | preserved |
+>
+> Model-visible replay unchanged: `export_turns` still yields
+> `[('user', '[SYSTEM: d]'), ('assistant', 'ok')]`. Row 2 is the one that matters — it
+> proves **provenance, not the prefix, owns the decision**.
+>
+> ### Every `start_turn` sender in the tree is classified
+>
+> | Sender | Kind |
+> |---|---|
+> | `app.js:6010` (`sendUserMessage`) | `narrator` |
+> | `app.js:6102` (`sendSystemPrompt`) | `internal_directive` |
+> | `travel-doc-lab.js:8703` | `narrator` |
+> | `travel-documenter.js:2570` | `narrator` |
+>
+> **Zero undeclared senders remain in-tree.** The two travel-doc modals were found
+> undeclared during closeout: they carry text a *human* typed, so a person typing
+> `[SYSTEM:` into that box would have been recorded as machinery — the same defect, in a
+> surface nobody had looked at. `narrator` there is the classification (*a person wrote
+> this*), not a claim about which hat they were wearing; in that modal the human is usually
+> the operator.
+>
+> Every internal directive still routes through `sendSystemPrompt`: `session-loop.js`
+> dispatches the whole `[SYSTEM_QF:` family there (`:367`, `:464`, `:509`),
+> `wo9SendOrQueueSystemPrompt` routes there on both its immediate and drained-queue paths,
+> and neither travel-doc module contains a single `[SYSTEM` string.
+>
+> ### ⚠️ LEGACY LIMITATION — stated, not fixed, and not fixable
+>
+> **New rows are authorship-correct. Historical unflagged rows remain best-effort.**
+>
+> The 120 pre-existing directive rows carry no `origin`, so `turn_is_system_directive()`
+> falls back to the prefix for them. That means **an old narrator row that genuinely began
+> `[SYSTEM:` is indistinguishable from an old directive row, permanently.** It cannot be
+> repaired algorithmically, because the provenance that would settle it was never stored —
+> the whole reason this work order exists.
+>
+> No historical rewrite is authorised (`HANDOFF.md` §9 lists it as deferred), and none was
+> performed. The fallback therefore stays until those rows age out or a separate approved
+> migration removes them. **This is a bounded, known, documented ambiguity in old data, not
+> an open defect in new behaviour** — and the distinction belongs in any future closeout
+> wording about this lane.
+>
+> ### The general rule this lane earned
+>
+> **When the producer knows provenance, state or ownership, transmit it explicitly. Never
+> reconstruct it later from prose the system already understood structurally.**
+>
+> This family of bugs — story capture (2026-04-30), trip placement (2026-07-31), the Travel
+> Document export (2026-08-06), and this one — all have the same shape: the system knew the
+> answer at an earlier boundary, discarded it, and tried to recover it from text. It is the
+> same failure the extractor architecture names as *causal attribution lost at the binding
+> layer*. The information was never missing; only the wire to carry it was.
 
 **Priority:** P1 — the clearest known data-semantics defect in the system as of 2026-08-09.
 
