@@ -8704,6 +8704,14 @@
         session_id: "tdlab_" + st.trip.id,
         message: text,
         params: {
+          // WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 closeout (2026-08-09).
+          // A HUMAN typed this. `narrator` is the classification, not a
+          // claim about which hat they are wearing -- in this modal the
+          // human is usually the operator, and the only question this
+          // field answers is "did a person write this, or did Hornelore
+          // generate it". Undeclared, a person typing "[SYSTEM: ..."
+          // into this box would have been recorded as machinery.
+          message_kind: "narrator",
           person_id: st.personId,
           surface: "travel_doc_modal",
           modal_scope: this.scope(),

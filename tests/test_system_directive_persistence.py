@@ -471,11 +471,49 @@ class ProvenanceIsDeclaredNotSniffedTest(unittest.TestCase):
     def test_the_directive_frame_declares_itself(self):
         self.assertIn(self._n('message_kind:"internal_directive"'), self.app)
 
-    def test_exactly_two_frames_declare_and_they_are_the_two_expected(self):
-        kinds = re.findall(r'message_kind:"(\w+)"', self.app_raw)
-        self.assertEqual(["narrator", "internal_directive"], kinds,
-                         "expected exactly the two declaring frames, "
-                         "narrator first")
+    def test_every_start_turn_sender_in_the_tree_declares(self):
+        """Closeout guard, 2026-08-09. Stronger than counting app.js.
+
+        The first version of this test asserted "exactly two frames
+        declare", which was true of `app.js` and blind to the rest of
+        the tree. There are FOUR `start_turn` constructions:
+        `app.js` twice, plus the two travel-doc modals -- and those two
+        send text a HUMAN typed. Undeclared, a person typing
+        "[SYSTEM: ..." into the Travel Doc modal would have been
+        recorded as machinery, which is the same defect this work order
+        exists to close, in a surface nobody had looked at.
+
+        So the guard now enumerates senders rather than declarations: a
+        NEW sender added without a `message_kind` fails here, which is
+        the only version of this test that keeps working as the UI
+        grows.
+        """
+        js = sorted((self._ROOT / "ui" / "js").glob("*.js"))
+        senders, undeclared = [], []
+        for path in js:
+            lines = path.read_text(encoding="utf-8").split("\n")
+            for i, line in enumerate(lines):
+                if re.search(r'type:\s*"start_turn"', line):
+                    window = "\n".join(lines[i:i + 20])
+                    kind = re.search(r'message_kind:\s*"(\w+)"', window)
+                    senders.append((path.name, i + 1,
+                                    kind.group(1) if kind else None))
+                    if not kind:
+                        undeclared.append(f"{path.name}:{i + 1}")
+        self.assertEqual(
+            [], undeclared,
+            f"start_turn sender(s) with no message_kind: {undeclared}. "
+            f"An undeclared sender falls back to the [SYSTEM prefix, so a "
+            f"human typing that prefix there loses their words.")
+        self.assertEqual(
+            4, len(senders),
+            f"the number of start_turn senders changed: {senders}. That is "
+            f"not a failure by itself -- classify the new one and update "
+            f"this count deliberately.")
+        self.assertEqual(
+            1, sum(1 for _, _, k in senders if k == "internal_directive"),
+            "exactly one sender should build internal directives; every "
+            "other producer routes through sendSystemPrompt")
 
     def test_the_directive_text_itself_is_unchanged(self):
         """Provenance travels beside the message, never inside it.
