@@ -424,3 +424,71 @@ and it is named in the test rather than absorbed by a loose comparison.
 
 **Still not started, and unchanged by this:** the Profile Seed ownership question in §6b.
 `LORI_INTERVIEW_DISCIPLINE` has not been touched.
+
+---
+
+## 10. LIVE CAPTURE — 2026-08-09, and it sharpens §6b rather than closing it
+
+One ordinary turn from Chris's running session, `person_id a4b2f07a`:
+
+```text
+current_pass       "pass2a"        session_style      "clear_direct"
+effective_pass     "pass2a"        current_era        null
+identity_complete  true            current_mode       "open"
+era_definition_requested  false
+```
+
+**The three-authority conflict is NOT occurring in this session**, and it fails on two
+independent counts: `pass2a` means no Profile Seed block, and `clear_direct` is in
+`_KNOWN_NON_ORAL_STYLES` so there is no oral-history posture either. Only the interview
+discipline is speaking. **The composer's `pass1` default is not being reached here.**
+
+**Deployment confirmed independently.** The served `ui/js/app.js` (473,094 bytes, read
+directly rather than from the repo) contains the detector, sends
+`era_definition_requested`, declares `message_kind` on both frames, and keeps the detector
+**out of `lvRouteTurn`**. Its truth table passes 10/10 *as deployed*. And `runtime71` above
+carries `era_definition_requested: false`, which the field could not do unless Chris's tab
+were running the new code. This repo has previously spent a day on a stack serving
+pre-change code, so this was worth confirming rather than assuming.
+
+### But `pass1` is not a startup race — it is a durable state for some narrators
+
+Tracing where the browser sets and clears it:
+
+- `app.js:3497` sets `state.session.currentPass = "pass1"` when narrator-specific runtime
+  signals are cleared — i.e. on narrator switch/reset.
+- `app.js:3394` promotes it: `if (state.session.currentPass === "pass1") setPass("pass2a")`.
+
+**That promotion sits inside `if (_cachedSpine)`**, and `_cachedSpine = loadSpineLocal(pid)`
+reads **`localStorage`**. So a narrator with no locally cached timeline spine — a new
+narrator, a cleared browser, a different machine — skips the block entirely and **stays on
+`pass1`** until something else calls `setPass`. `getEffectivePass74` defaults to `"pass1"`
+for the same reason, so the browser and the composer agree; the default is consistent, not
+accidental.
+
+The session style compounds it: `_KNOWN_NON_ORAL_STYLES` does **not** contain `""` or
+`oral_history`, so an unset style takes the oral-history posture. **A new narrator on the
+default style, on a machine with no cached spine, receives all three authorities on every
+turn.**
+
+### What this does and does not settle
+
+**Settled:** the conflict is reachable in production, not only in the composer, and it is
+reachable in exactly the situation the system most cares about — **a narrator's first
+sessions**. It is not reachable in Chris's own session, which is why it has gone unnoticed.
+
+**Not settled, and it is a product question rather than a code one:** for a brand-new
+narrator with no spine, *should* Lori run the ten-question Profile Seed walk? If yes, then
+the discipline and oral-history blocks should not simultaneously be telling her she is not a
+questionnaire. If no, then `pass1` should not carry the seed walk on the narrator-facing
+path at all — which is what `WO-QUESTIONNAIRE-FIRST-RETIRE-LIVE-01` and design principle 8
+already decided for the questionnaire lane.
+
+**Either way the fix is ownership, not compaction: exactly one of the three should be
+speaking on that turn.** `LORI_INTERVIEW_DISCIPLINE` stays untouched until that is decided,
+because part of its 2,899 tokens may exist only to argue with a block that should not be
+there.
+
+**Suggested confirmation, cheap and read-only:** open the app for a narrator with no cached
+spine (or clear `localStorage` for one) and read `current_pass` off the same
+`[Lori 7.1] runtime71 → model:` line. If it reads `pass1`, this is confirmed end-to-end.
