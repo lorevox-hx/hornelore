@@ -2549,6 +2549,51 @@ function _looksLikeCorrection(text){
 // like "I was old enough to know better". Requires explicit age-asking
 // pattern: "how old", "what is my age", "when was I born", "what's my
 // birthday", or DOB-asking variants.
+/* ── WO-LEAN-LORI-RUNTIME-01 Phase 8 — era-definition intent ──────────
+   Sibling of _looksLikeMemoryEchoRequest / _looksLikeAgeQuestion /
+   _looksLikeStrongCorrection, and deliberately NOT wired into
+   lvRouteTurn().
+
+   WHY THIS IS NOT A turn_mode. Extraction and trip placement are
+   allow-lists holding exactly {"interview"}
+   (turn_extraction.py:194, trip_placement.py:189), so a new mode would
+   SILENTLY make the turn extraction- and placement-ineligible. The
+   case that settles it: "What do you mean by Coming of Age? I moved to
+   Denver when I was 22." One turn, a question AND a piece of
+   biography. Reclassifying it would lose Denver for good -- a
+   truth-capture loss traded for 272 tokens.
+
+   So this is a FACT ABOUT the turn, carried in runtime71, not the
+   turn's identity. turn_mode stays "interview" and every ownership
+   rule is untouched.
+
+   It is deliberately narrow. A false positive costs 272 tokens on one
+   turn; a false negative means Lori answers an era question without
+   the glossary, which she can still do from the era vocabulary already
+   in her prompt. Neither failure loses anything a narrator said. */
+function _looksLikeEraDefinitionQuestion(text){
+  const t = _lvText(text).toLowerCase();
+  if (!t) return false;
+  // The seven canonical eras, matched as spoken rather than as ids.
+  const ERA_WORDS = /(earliest\s+years|early\s+school(?:\s+years)?|adolescence|coming\s+of\s+age|building\s+years|later\s+years|\bera\b|\beras\b)/;
+  if (!ERA_WORDS.test(t)) return false;
+  // A definition REQUEST, not a mere mention. "I was in my building
+  // years then" must not fire; "what are the building years?" must.
+  // "what/what's/whats" followed, within one clause, by a word that
+  // asks for a definition. Widened 2026-08-09 after a truth-table run:
+  // the first cut required whitespace straight after "what", so it
+  // missed "whats adolescence again?", and it expected "is" adjacent to
+  // "what", so it missed "what era is that" -- both plainly requests.
+  // Widening is safe because ERA_WORDS above is a REQUIRED conjunct and
+  // every negative case lacks "what" entirely.
+  const ASK = /\bwhat(?:'s|s)?\b[^?.!]{0,30}?\b(?:mean|means|meant|is|are|was|were|again|count|counts)\b/;
+  return (
+    ASK.test(t) ||
+    /\bwhich\s+years\b/.test(t) ||
+    /\b(?:explain|define|remind\s+me\s+what)\b/.test(t)
+  );
+}
+
 function _looksLikeAgeQuestion(text){
   const t = _lvText(text).toLowerCase();
   if (!t) return false;
@@ -5962,6 +6007,11 @@ async function sendUserMessage(){
     // v7.1: capture runtime71 BEFORE setLoriState("thinking") so transitional
     // badge updates never wipe semantic state (fatigue, cognitive mode, etc.)
     const _rt71 = buildRuntime71();
+    // WO-LEAN-LORI-RUNTIME-01 Phase 8. EXPLICIT on every turn -- true or
+    // false, never absent. Absence would mean "this client does not
+    // know", which is a different fact from "the narrator did not ask",
+    // and the server should not have to tell them apart by guessing.
+    _rt71.era_definition_requested = _looksLikeEraDefinitionQuestion(text);
     setLoriState("thinking");
     currentAssistantBubble=null;
     // v7.1 — auto cognitive mode detection before send

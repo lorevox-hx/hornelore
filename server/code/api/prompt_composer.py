@@ -4116,31 +4116,63 @@ def compose_system_prompt(
         # unprompted; this is a glossary Lori reaches for if asked.
         # Source of truth for the labels: server/code/api/lv_eras.py
         # (mirrored at ui/js/lv-eras.js).
-        directive_lines.append(
-            "ERA EXPLAINER — If the narrator asks what an era label means, "
-            "answer warmly in one sentence drawn from this glossary, then "
-            "return to the question at hand:\n"
-            "  - Earliest Years: the first memories you have, before school "
-            "started — birth, first home, the people who held you.\n"
-            "  - Early School Years: roughly age six to twelve — primary "
-            "school, the neighborhood, the routines of a young child's "
-            "world.\n"
-            "  - Adolescence: the teen years, around thirteen to "
-            "seventeen — middle school and early high school, growing "
-            "independence, the friends who shaped you.\n"
-            "  - Coming of Age: late teens through your twenties — leaving "
-            "home, first work or service, finding your adult self.\n"
-            "  - Building Years: adulthood from your thirties through your "
-            "fifties — career, family, responsibility, the years you were "
-            "building a life.\n"
-            "  - Later Years: from sixty onward — what you've learned, "
-            "what you've kept, what matters most after a long life.\n"
-            "  - Today: right now, current life — the room you're in, the "
-            "people you see most, the unfinished stories you carry.\n"
-            "RULES: Use these only when the narrator asks. Keep your answer "
-            "brief — one or two sentences. Never list all seven unprompted. "
-            "After answering, gently return to the era you were asking "
-            "about."
+        # ── WO-LEAN-LORI-RUNTIME-01 Phase 8, 2026-08-09 — STATE-GATED ──
+        # This block was appended UNCONDITIONALLY from 2026-05-04 until
+        # today, while its own first sentence said to use it only when
+        # asked. 272 tokens on every interviewer turn to define seven
+        # eras and then say not to bring them up. Measured present in
+        # all 29 states across both Phase 8 matrices.
+        #
+        # THE ERA SYSTEM IS NOT CHANGED BY THIS. Era selection,
+        # `current_era`, `pass2a`, era-specific questions, Today and the
+        # Life Map progression are untouched, and the era vocabulary is
+        # still in Lori's prompt. The only thing that stops travelling
+        # on every turn is the seven-entry DICTIONARY.
+        #
+        # THE FLAG IS A FACT ABOUT THE TURN, NOT THE TURN'S IDENTITY.
+        # The browser decides once, beside the other intent checks, and
+        # sends `era_definition_requested` explicitly -- true or false --
+        # on every narrator turn. It is deliberately NOT a `turn_mode`:
+        # extraction and placement are allow-lists holding exactly
+        # {"interview"}, so a new mode would silently strip a turn of
+        # extraction and placement. "What do you mean by Coming of Age?
+        # I moved to Denver when I was 22" has to stay an ordinary
+        # interview turn, or the biography in it is lost.
+        #
+        # ABSENT is treated as FALSE, and the two are not the same
+        # thing: absent means a client that predates this field, false
+        # means a client that looked and the narrator did not ask.
+        # Both correctly withhold the glossary, so they resolve
+        # identically here -- but the browser sends the boolean
+        # explicitly so the distinction survives on the wire.
+        _era_definition_requested = bool(
+            runtime71.get("era_definition_requested"))
+        if _era_definition_requested:
+            directive_lines.append(
+                "ERA EXPLAINER — If the narrator asks what an era label means, "
+                "answer warmly in one sentence drawn from this glossary, then "
+                "return to the question at hand:\n"
+                "  - Earliest Years: the first memories you have, before school "
+                "started — birth, first home, the people who held you.\n"
+                "  - Early School Years: roughly age six to twelve — primary "
+                "school, the neighborhood, the routines of a young child's "
+                "world.\n"
+                "  - Adolescence: the teen years, around thirteen to "
+                "seventeen — middle school and early high school, growing "
+                "independence, the friends who shaped you.\n"
+                "  - Coming of Age: late teens through your twenties — leaving "
+                "home, first work or service, finding your adult self.\n"
+                "  - Building Years: adulthood from your thirties through your "
+                "fifties — career, family, responsibility, the years you were "
+                "building a life.\n"
+                "  - Later Years: from sixty onward — what you've learned, "
+                "what you've kept, what matters most after a long life.\n"
+                "  - Today: right now, current life — the room you're in, the "
+                "people you see most, the unfinished stories you carry.\n"
+                "RULES: Use these only when the narrator asks. Keep your answer "
+                "brief — one or two sentences. Never list all seven unprompted. "
+                "After answering, gently return to the era you were asking "
+                "about."
         )
         directive_lines.append("")
 
