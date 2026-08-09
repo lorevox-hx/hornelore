@@ -6009,6 +6009,12 @@ async function sendUserMessage(){
 
     ws.send(JSON.stringify({type:"start_turn",session_id:state.chat.conv_id||"default",
       message:payload,turn_mode:routedMode,params:{
+        // WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 Phase 1b (2026-08-09).
+        // This is the NARRATOR path. Declaring it is what lets a
+        // narrator type "[SYSTEM: that's how the computer showed it
+        // to me]" and still have their own words recorded as theirs.
+        // The server believes this declaration over the text.
+        message_kind:"narrator",
         person_id:state.person_id,
         temperature:_llmT,
         max_new_tokens:_llmM,
@@ -6094,7 +6100,15 @@ async function sendSystemPrompt(instruction){
     const _llmTs = (window._lv10dLlmParams && window._lv10dLlmParams.temperature) || 0.7;
     const _llmMs = (window._lv10dLlmParams && window._lv10dLlmParams.max_new_tokens) || 512;
     ws.send(JSON.stringify({type:"start_turn",session_id:state.chat.conv_id||"default",
-      message:instruction,params:{person_id:state.person_id,temperature:_llmTs,max_new_tokens:_llmMs,runtime71:_rt71sys,
+      message:instruction,params:{
+        // WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 Phase 1b (2026-08-09).
+        // This path builds internal guidance, not narrator speech --
+        // the comment below has said so since it was written. It now
+        // says so on the wire as well, so the server does not have to
+        // guess from the text and cannot get a narrator's literal
+        // "[SYSTEM:" wrong.
+        message_kind:"internal_directive",
+        person_id:state.person_id,temperature:_llmTs,max_new_tokens:_llmMs,runtime71:_rt71sys,
         // Declared here too. This path sends [SYSTEM: ...] directives,
         // which Phase 1 already excludes from extraction — but the
         // declaration must be on every start_turn, not on the ones we

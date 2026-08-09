@@ -1249,8 +1249,71 @@ async def ws_chat(ws: WebSocket):
         # Without this guard, a directive that happens to mention a relative,
         # a place noun, AND a time phrase would write a false-positive
         # story_candidate row.
+        # ── WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 Phase 1b, 2026-08-09 ────
+        # PROVENANCE IS DECLARED BY THE SENDER; THE PREFIX IS THE LEGACY
+        # FALLBACK.
+        #
+        # This line read, from 2026-04-30 to 2026-08-09:
+        #
+        #     _is_system_directive = _ut_lstrip.startswith("[SYSTEM")
+        #
+        # That was adequate while the answer was only used to SKIP work
+        # (story capture, trip placement). It stopped being adequate the
+        # moment Phase 1 began writing the answer down, because a
+        # persisted guess is a durable one -- and the work order's own
+        # acceptance requires that a narrator who genuinely types
+        # "[SYSTEM: ..." is recorded as narrator speech. A prefix test
+        # cannot satisfy that; it is the very thing that gets it wrong.
+        #
+        # THE BROWSER ALREADY KNEW, IN THREE WAYS, AND TRANSMITTED NONE
+        # OF THEM. Directives are built by `sendSystemPrompt()` in
+        # `ui/js/app.js` -- a different function from `sendUserMessage()`,
+        # sending a differently-shaped frame (no `turn_mode`), under a
+        # comment that says in words "This path sends [SYSTEM: ...]
+        # directives". Forty-three call sites use it. The knowledge was
+        # thrown away at the wire exactly as it was later thrown away at
+        # the row, one layer up and for the same reason: nobody had asked
+        # the question at a point where the answer could be recorded.
+        #
+        # So both frames now declare `params.message_kind`, and this is
+        # where the declaration is believed. The prefix survives ONLY for
+        # senders that have not declared -- older clients, the two
+        # travel-doc senders, and any path not yet updated -- which is
+        # the current behaviour, unchanged, for exactly those.
+        #
+        # PRODUCERS VERIFIED 2026-08-09: every internal directive reaches
+        # the wire through `sendSystemPrompt()`. `session-loop.js` builds
+        # the `[SYSTEM_QF: ...]` family and dispatches all of it there
+        # (`:367`, `:464`, `:509`); `wo9SendOrQueueSystemPrompt` routes
+        # there on both its immediate and drained-queue paths; and the
+        # two travel-doc senders contain zero `[SYSTEM` strings, so they
+        # produce no directives to misclassify.
+        #
+        # TRUST BOUNDARY, STATED SO NOBODY LATER MISTAKES IT FOR
+        # AUTHENTICATION. `message_kind` is ordinary browser JSON. A
+        # hostile client could set it, and this code does not stop that.
+        # It is not trying to: Hornelore is a local, single-operator
+        # family system, and the question here is not "who is allowed to
+        # speak" but "which of our own two send paths built this
+        # message". Signing it would add key management to a system whose
+        # threat model does not include a hostile browser, and the cost
+        # of a forged value is bounded -- a directive recorded as
+        # narrator speech, or the reverse, which is the state the whole
+        # repository was already in before today.
+        #
+        # An UNRECOGNISED declared value resolves to NOT-a-directive. It
+        # fails toward narrator speech deliberately: a typo must never be
+        # able to erase a narrator's words from their own memoir, and the
+        # opposite failure -- a directive surviving into a transcript --
+        # is one the readers already tolerate.
         _ut_lstrip = (user_text or "").lstrip()
-        _is_system_directive = _ut_lstrip.startswith("[SYSTEM")
+        _declared_kind = str(params.get("message_kind") or "").strip().lower()
+        if _declared_kind:
+            _is_system_directive = (_declared_kind == "internal_directive")
+        else:
+            # Legacy fallback. Not a classification anybody is proud of;
+            # it is what the undeclared senders have always got.
+            _is_system_directive = _ut_lstrip.startswith("[SYSTEM")
 
         # BUG-TRIP-SYSTEM-DIRECTIVE-PLACED-AS-NARRATOR-TURN-01
         # (live, 2026-07-31). The completed-turn trip-placement hook runs
