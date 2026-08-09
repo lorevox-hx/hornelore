@@ -431,7 +431,55 @@ class NarratorTextIsNotDuplicatedTest(unittest.TestCase):
 
     def test_nothing_anywhere_reads_it(self):
         """The removal is only safe because it had no consumer. If a
-        reader ever appears, this fails and the removal is revisited."""
+        reader ever appears, this fails and the removal is revisited.
+
+        MADE COMMENT-AWARE 2026-08-09, and the reason is a pattern this
+        repository has now hit at least four times: a guard written
+        against a WORD fires on prose that quotes the word.
+
+        It fired on `server/code/api/db.py` when
+        WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 Phase 1 explained, in a
+        docstring, why its new parameter is a boolean rather than a
+        metadata dict -- citing `PROFILE_JSON.last_user_text` as the
+        precedent for how a dict parameter ends up carrying the
+        narrator's text. That is exactly the institutional memory this
+        repository wants written down, and a raw substring scan punishes
+        writing it.
+
+        The property being protected is that no code READS the field, so
+        the scan now looks at code with comments and docstrings removed.
+        This is the same correction `tests/source_scan_helpers` already
+        makes for JavaScript; Python gets it here via `ast`, which is
+        stronger than a regex because it cannot be fooled by a `#` inside
+        a string literal.
+        """
+        import io as _io
+        import tokenize as _tokenize
+
+        def _strip_py(text: str) -> str:
+            """Source minus comments and docstrings, via the tokenizer."""
+            out, prev_type = [], None
+            try:
+                toks = list(_tokenize.generate_tokens(
+                    _io.StringIO(text).readline))
+            except (SyntaxError, _tokenize.TokenError, IndentationError):
+                return text  # unparseable: fall back to the raw scan
+            for tok in toks:
+                if tok.type == _tokenize.COMMENT:
+                    continue
+                # A bare string expression is a docstring; keep real
+                # string VALUES, which is what a reader would use.
+                if (tok.type == _tokenize.STRING
+                        and prev_type in (_tokenize.INDENT, _tokenize.NEWLINE,
+                                          _tokenize.NL, None)):
+                    continue
+                out.append(tok.string)
+                if tok.type not in (_tokenize.NL, _tokenize.NEWLINE):
+                    prev_type = tok.type
+                else:
+                    prev_type = tok.type
+            return " ".join(out)
+
         roots = [_REPO / "server", _REPO / "ui", _REPO / "scripts"]
         hits = []
         for root in roots:
@@ -443,11 +491,16 @@ class NarratorTextIsNotDuplicatedTest(unittest.TestCase):
                 if f == _COMPOSER:
                     continue
                 try:
-                    if "last_user_text" in f.read_text(encoding="utf-8",
-                                                       errors="ignore"):
-                        hits.append(str(f.relative_to(_REPO)))
+                    text = f.read_text(encoding="utf-8", errors="ignore")
                 except OSError:
                     continue
+                if "last_user_text" not in text:
+                    continue
+                if f.suffix == ".py":
+                    text = _strip_py(text)
+                    if "last_user_text" not in text:
+                        continue  # it was only ever discussed, not read
+                hits.append(str(f.relative_to(_REPO)))
         self.assertEqual([], hits, f"a reader appeared: {hits}")
 
     def test_the_context_block_still_carries_everything_else(self):
