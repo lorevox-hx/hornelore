@@ -1,6 +1,9 @@
 # WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 — Stop persisting internal directives as narrator speech
 
 **Status:** 📝 **SPEC ONLY — NOT IMPLEMENTED.** Written 2026-08-09. No code was changed.
+**Representation ruled 2026-08-09: Option A** (see §5). **Queued behind Lean Lori Phases 6
+and 7**, as its own commit/test/acceptance sequence — deliberately not combined with prompt
+compaction.
 
 **Priority:** P1 — the clearest known data-semantics defect in the system as of 2026-08-09.
 
@@ -127,10 +130,28 @@ non-vacuous regression test at that boundary.
 
 ---
 
-## 5. DECISION REQUIRED FROM CHRIS — the representation
+## 5. The representation — ✅ **DECIDED BY CHRIS, 2026-08-09: OPTION A**
 
-This is an architecture ruling and it is deliberately not being made by an agent. Three
-options, with the honest cost of each.
+> **RULING.** *"Choose Option A: `meta_json` classification. The classifier already exists
+> immediately above the persistence write. The user-row `meta_json` is currently `{}`, so
+> Option A records `{"origin":"system_directive"}` while keeping `role='user'` for model
+> replay compatibility. That closes the authorship defect with no migration and avoids the
+> dangerous Option B behavior where changing the role might quietly prevent the directive
+> from reaching Lori."*
+>
+> **QUEUE POSITION — also ruled 2026-08-09: this WO runs AFTER Lean Lori Phases 6 and 7, and
+> is NOT combined with them.** *"It is its own correctness WO and deserves its own
+> commit/test/acceptance sequence."* The reasoning is worth keeping: the active
+> **narrator-facing** problem is history pressure in the prompt; `[SYSTEM:]` is a separate
+> **persistence/authorship correctness** problem. Mixing a correctness fix into prompt
+> compaction would make any behavioural regression unattributable — the same argument that
+> keeps Phase 6 and Phase 7 in separate commits.
+>
+> Options B and C below are **not selected**. They are kept because §5's whole value is that
+> the cost of each was stated before one was chosen, and because Option B is the one a future
+> reader is most likely to think is obviously better.
+
+The original framing follows. Three options, with the honest cost of each.
 
 ### Option A — mark the row in `meta_json`, keep `role='user'` *(RECOMMENDED)*
 
