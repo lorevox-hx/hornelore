@@ -1097,12 +1097,45 @@ class _ChatWsHookCase(unittest.TestCase):
         """One definition of 'this is a directive', not two drifting
         apart. The story-capture lane has refused these since 2026-04-30
         on the same test; placement now reads that same verdict rather
-        than re-deriving it."""
-        self.assertIn('_is_system_directive = _ut_lstrip.startswith('
-                      '"[SYSTEM")', self.src)
-        # And it is computed once.
+        than re-deriving it.
+
+        NARROWED 2026-08-09 by WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 Phase
+        1b, and the property it protects is unchanged: there is still
+        exactly ONE place where the question is answered, and placement
+        still reads that answer rather than forming its own.
+
+        What changed is the answer's SOURCE. It read:
+
+            _is_system_directive = _ut_lstrip.startswith("[SYSTEM")
+
+        and asserted that line appears exactly once. The prefix test is
+        now the FALLBACK inside a branch that prefers `params
+        ["message_kind"]`, because persisting a prefix-derived guess
+        would have made it durable -- and a narrator who types
+        "[SYSTEM: ..." must stay narrator speech.
+
+        Two mechanical corrections came with it. The count is taken over
+        COMMENT-STRIPPED source, because the retirement note above the
+        new code quotes the retired line verbatim, per this repository's
+        correct-in-place rule -- the sixth time in one day that a guard
+        has fired on prose quoting the thing it guards. And the
+        single-definition claim is now made about the ASSIGNMENT to
+        `_is_system_directive`, which is the thing that must not
+        proliferate, rather than about one particular right-hand side.
+        """
+        from source_scan_helpers import strip_py_comments
+        code = strip_py_comments(self.src)
+        # The declared kind is preferred; the prefix survives as fallback.
+        self.assertIn('params . get ( "message_kind" )'.replace(" ", ""),
+                      code.replace(" ", ""))
+        self.assertIn('_ut_lstrip.startswith("[SYSTEM")'.replace(" ", ""),
+                      code.replace(" ", ""))
+        # Still answered in exactly one place: two assignments, both
+        # inside the single if/else that resolves it, and nowhere else.
         self.assertEqual(
-            self.src.count('_is_system_directive = _ut_lstrip.startswith'), 1)
+            2, code.replace(" ", "").count("_is_system_directive="),
+            "the directive verdict is being formed in more than the one "
+            "if/else that resolves it")
 
     def test_the_hook_is_not_given_the_narrator_text_to_sniff(self):
         """The hook takes (conv_id, params, ev). Adding user_text to it

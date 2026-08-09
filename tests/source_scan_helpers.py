@@ -353,6 +353,56 @@ _REGEX_PRECEDER_KEYWORDS = {
 _TRAILING_WORD_RX = re.compile(r"([A-Za-z_$][A-Za-z0-9_$]*)\s*$")
 
 
+def strip_py_comments(py: str) -> str:
+    """Python source with comments and docstrings removed, via `tokenize`.
+
+    The Python sibling of `strip_js_comments`, added 2026-08-09 for the
+    same reason and after the same failure — repeatedly.
+
+    THE PATTERN THIS EXISTS TO END. A guard written against a WORD fires
+    on prose that quotes the word, and this repository's own conventions
+    guarantee the prose exists: retired code must be quoted in place, so
+    every retired string is still in the file. Instances by 2026-08-09:
+    a `renderLoriTab` guard matching its own retirement comment; a CSS
+    declaration guard matching the comment quoting it; an empty-state
+    guard matching a fortnight-old comment; a `last_user_text` guard
+    matching a docstring that cited it as precedent; and an ordering
+    assertion in the system-directive suite matching its own quotation
+    of the line it retired.
+
+    `tokenize` rather than a regex, because a regex cannot tell a `#`
+    inside a string literal from a comment — the exact mistake
+    `strip_js_comments` was written to fix on the JavaScript side.
+
+    A bare string expression (module, class or function docstring) is
+    dropped; string VALUES assigned or passed are KEPT, because those are
+    what running code actually contains.
+
+    Unparseable input is returned unchanged: a scanner that silently
+    returns nothing would turn every assertion vacuously green.
+    """
+    import io as _io
+    import tokenize as _tokenize
+
+    try:
+        toks = list(_tokenize.generate_tokens(_io.StringIO(py).readline))
+    except (SyntaxError, _tokenize.TokenError, IndentationError):
+        return py
+
+    out: List[str] = []
+    prev = None
+    for tok in toks:
+        if tok.type == _tokenize.COMMENT:
+            continue
+        if (tok.type == _tokenize.STRING
+                and prev in (None, _tokenize.INDENT, _tokenize.DEDENT,
+                             _tokenize.NEWLINE, _tokenize.NL)):
+            continue  # docstring
+        out.append(tok.string)
+        prev = tok.type
+    return " ".join(out)
+
+
 def strip_js_comments(js: str) -> str:
     """Remove real // and /* */ comments from JS source, preserving the
     contents of string literals ('…', "…", `…`), template literals, and

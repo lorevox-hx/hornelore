@@ -453,32 +453,12 @@ class NarratorTextIsNotDuplicatedTest(unittest.TestCase):
         stronger than a regex because it cannot be fooled by a `#` inside
         a string literal.
         """
-        import io as _io
-        import tokenize as _tokenize
-
-        def _strip_py(text: str) -> str:
-            """Source minus comments and docstrings, via the tokenizer."""
-            out, prev_type = [], None
-            try:
-                toks = list(_tokenize.generate_tokens(
-                    _io.StringIO(text).readline))
-            except (SyntaxError, _tokenize.TokenError, IndentationError):
-                return text  # unparseable: fall back to the raw scan
-            for tok in toks:
-                if tok.type == _tokenize.COMMENT:
-                    continue
-                # A bare string expression is a docstring; keep real
-                # string VALUES, which is what a reader would use.
-                if (tok.type == _tokenize.STRING
-                        and prev_type in (_tokenize.INDENT, _tokenize.NEWLINE,
-                                          _tokenize.NL, None)):
-                    continue
-                out.append(tok.string)
-                if tok.type not in (_tokenize.NL, _tokenize.NEWLINE):
-                    prev_type = tok.type
-                else:
-                    prev_type = tok.type
-            return " ".join(out)
+        # Consolidated 2026-08-09: this stripper was written inline
+        # here first, then needed again by the system-directive suite
+        # within the hour. Two copies of a comment-stripper is how the
+        # JS side ended up with a broken regex in several files, so it
+        # moved next to `strip_js_comments`.
+        from source_scan_helpers import strip_py_comments as _strip_py
 
         roots = [_REPO / "server", _REPO / "ui", _REPO / "scripts"]
         hits = []
