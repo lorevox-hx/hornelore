@@ -57,6 +57,55 @@ literally the two characters `{}`.
 **So the truth about authorship survives only as a string prefix**, and every consumer
 re-derives it by sniffing that prefix.
 
+### 2.0 TWO PREMISES OF THIS SPEC WERE WRONG — corrected 2026-08-09 during execution
+
+**(a) `meta_json` is not an unused field.** §5's Option A said *"the field exists and is
+empty."* True of `persist_turn_transaction`, which hardcodes `"{}"` on the user row — and
+false of the column. `add_turn()` takes a `meta` dict and serialises it, and the live
+database carries **232 user rows with non-empty `meta_json`** (a `section` key), the most
+recent written **2026-07-31**, four days before the newest turn. None of them is a
+directive, so nothing merges today. The consequence for implementation is small and real:
+**the user-row metadata is built as a dict, never hardcoded, and `origin` is one key in an
+object rather than ownership of it.**
+
+**(b) The classification named in §2.1 was itself derived from the text, so persisting it
+would have failed this spec's own acceptance criterion 4.** §2.1 called
+`_is_system_directive` *"the classification… in the right place"*. It was in the right
+place and it was the wrong answer: `chat_ws` computed it as
+`user_text.lstrip().startswith("[SYSTEM")`. Writing that down would have made the guess
+**durable**, and a narrator who types `[SYSTEM: I saw this on the screen]` would have had
+their own words recorded as machinery — permanently, in their memoir. Caught in supervisor
+review after Phase 1 had already been pushed.
+
+**The repair is Phase 1b, and the seam already existed.** Directives are built by
+`sendSystemPrompt()` in `ui/js/app.js` — a *different function* from `sendUserMessage()`,
+sending a differently-shaped frame (no `turn_mode`), under a comment that says in words
+*"This path sends [SYSTEM: ...] directives"*. **The browser knew, in three ways, and
+transmitted none of them.** Both frames now declare `params.message_kind`
+(`"narrator"` / `"internal_directive"`); the server believes the declaration and keeps the
+prefix only as a fallback for undeclared senders.
+
+**Producers verified**, because "43 call sites" was not the question — *"is any directive
+sent by some other path"* was: `session-loop.js` builds the `[SYSTEM_QF:` family and
+dispatches all of it through `sendSystemPrompt` (`:367`, `:464`, `:509`);
+`wo9SendOrQueueSystemPrompt` routes there on both its immediate and drained-queue paths;
+`travel-doc-lab.js` and `travel-documenter.js` contain **zero** `[SYSTEM` strings.
+
+**The two boundaries are not the same place, and conflating them is what produced (b).**
+
+| Boundary | Where it is | What it decides |
+|---|---|---|
+| **Provenance** | `ui/js/app.js` — which of the two send paths built the message | whether this is internal guidance |
+| **Recording** | `db.persist_turn_transaction` | writing that answer down, durably |
+
+**Trust boundary — not authentication.** `message_kind` is ordinary browser JSON and a
+hostile client could set it. That is accepted: Hornelore is a local single-operator family
+system, the question is *which of our own send paths built this*, not *who is allowed to
+speak*, and signing it would add key management to a threat model that does not include a
+hostile browser. An **unrecognised** declared value resolves to **not-a-directive** — it
+fails toward narrator speech, because a typo must never erase a narrator's words, while the
+opposite failure is one the readers already tolerate.
+
 ### 2.1 The finding that makes this WO small
 
 **The classification already exists, in the right place, one function above the write, and is
