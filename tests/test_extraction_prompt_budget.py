@@ -391,14 +391,45 @@ class BoundedPromptFitsTest(unittest.TestCase):
         # baseline is not a measurement of the thing it claims to
         # measure. So the claim is restated as what it actually is: a
         # magnitude, in characters, plus the ordering.
+        # ── MAGNITUDE RETIRED 2026-08-09, second instance of the SAME
+        # coupling, and this time the pattern is the finding.
+        #
+        # The retired assertion was:
+        #     saving = legacy_total - bounded_total
+        #     self.assertGreaterEqual(saving, 20_000, ...)
+        #
+        # It failed at 19,571 (bounded 22,497 vs composed legacy 42,068).
+        # Bounded output did not change by a character. WO-LEAN-LORI-
+        # RUNTIME-01 Phase 6 compacted the always-on identity core by
+        # 2,560 characters, so once again the BASELINE moved and an
+        # assertion about the gap moved with it.
+        #
+        # The note above this one retired a RATIO for exactly this
+        # reason and replaced it with a MAGNITUDE. Both are functions of
+        # `legacy_total`, so both inherit its drift; the replacement
+        # bought one phase of stability. And the drift is not noise --
+        # Phases 6, 7 and 8 of that work order exist precisely to make
+        # the composed prompt smaller, so this assertion is scheduled to
+        # fail again at Phase 7 and again at Phase 8. A test that a
+        # planned improvement is guaranteed to break is measuring the
+        # wrong thing.
+        #
+        # What this test actually protects is that bounded extraction
+        # does NOT send the composed narrator prompt to the extractor.
+        # That is an ordering claim plus a property of bounded output
+        # ALONE, so it is restated as those two things. The ceiling
+        # below moves only when extraction itself changes, which is the
+        # event this suite exists to notice.
         self.assertLess(bounded_total, legacy_total,
                         f"bounded {bounded_total:,} is not smaller than "
                         f"composed legacy {legacy_total:,}")
-        saving = legacy_total - bounded_total
-        self.assertGreaterEqual(
-            saving, 20_000,
-            f"bounding no longer saves a meaningful amount: {saving:,} chars "
-            f"(bounded {bounded_total:,} vs composed legacy {legacy_total:,})")
+        self.assertLessEqual(
+            bounded_total, 25_000,
+            f"bounded extraction has grown to {bounded_total:,} chars "
+            f"(it was 22,497 on 2026-08-09). This ceiling is about "
+            f"BOUNDED output only and does not move when the composed "
+            f"narrator prompt is compacted -- so a failure here means "
+            f"extraction itself grew.")
 
 
 class ExecutionPathTest(unittest.TestCase):

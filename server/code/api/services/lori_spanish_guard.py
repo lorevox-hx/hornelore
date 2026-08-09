@@ -257,7 +257,12 @@ def _quote_span_indices(text: str) -> List[Tuple[int, int]]:
     """Return list of (start, end) tuples for spans inside quotation
     marks. The repair guards skip any match whose start position falls
     inside one of these spans — that's narrator-quoted content that
-    must stay verbatim per the SPANISH PERSPECTIVE RULE exception.
+    must stay verbatim per the SPANISH KINSHIP PERSPECTIVE RULE
+    exception. (Renamed from "SPANISH PERSPECTIVE RULE" by
+    WO-LEAN-LORI-RUNTIME-01 Phase 6, 2026-08-09, when the rule was
+    narrowed to the kinship constraint and its active-listening half was
+    lifted out to apply in every language. The exception this comment
+    cites is unchanged.)
     """
     return [(m.start(), m.end()) for m in _QUOTE_SPAN_RX.finditer(text)]
 
