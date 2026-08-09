@@ -141,6 +141,7 @@ import torch
 from ..api import (_load_model, _apply_chat_template, StopOnEvent,
                    _normalize_role, MAX_CHAT_PROMPT_TOKENS)
 from ..services.prompt_budget import fit_chat_messages
+from ..db import turn_is_system_directive as _turn_is_system_directive
 from ..prompt_composer import compose_system_prompt
 
 # BUG-GUARDS-DEAD-ON-PY311-INLINE-FLAG-01 (2026-07-14) — FAIL LOUD, AT BOOT.
@@ -310,12 +311,17 @@ async def _finalize_deterministic_turn(
         turn_meta.update(meta)
 
     # ONE user turn and ONE assistant turn. No `row_ids_out` -- see above.
+    # WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 Phase 1 (2026-08-09). The
+    # classification was already made at `:1247` and carried in `params`
+    # at `:1263` -- it is passed on rather than re-derived, because the
+    # point of the work order is that authorship is decided once.
     persist_turn_transaction(
         conv_id=conv_id,
         user_message=user_text,
         assistant_message=assistant_text,
         model_name=model_name,
         meta=turn_meta,
+        is_system_directive=bool(params.get("_is_system_directive")),
     )
 
     # The modal-surface gate is RECOMPUTED here rather than inherited.
@@ -1504,6 +1510,8 @@ async def ws_chat(ws: WebSocket):
                     user_message=user_text,
                     assistant_message=_buffer_ack,
                     model_name="floor-buffer-deterministic",
+                    # WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 Phase 1 (2026-08-09).
+                    is_system_directive=bool(params.get("_is_system_directive")),
                     meta={
                         "ws": True,
                         "turn_mode": "floor_buffer",
@@ -2878,6 +2886,8 @@ async def ws_chat(ws: WebSocket):
                                     user_message=user_text,
                                     assistant_message=_ack_text,
                                     model_name="past-tense-acknowledgment",
+                                    # WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 Phase 1.
+                                    is_system_directive=bool(params.get("_is_system_directive")),
                                     meta={
                                         "ws": True,
                                         "turn_mode": "past_tense_acknowledge",
@@ -3420,6 +3430,8 @@ async def ws_chat(ws: WebSocket):
                                 user_message=user_text,
                                 assistant_message=_flush_text,
                                 model_name="bank-flush-deterministic",
+                                # WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 Phase 1.
+                                is_system_directive=bool(params.get("_is_system_directive")),
                                 meta={
                                     "ws": True,
                                     "turn_mode": "bank_flush",
@@ -3775,11 +3787,17 @@ async def ws_chat(ws: WebSocket):
                 _hist_me = _export_turns_me(conv_id) or []
                 # Walk backwards for last user turn that's NOT the
                 # current memory-echo question.
+                # WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 Phase 2 pilot
+                # (2026-08-09). Was `.startswith("[SYSTEM")`. These are
+                # real `turns` rows via `export_turns()`, so the recorded
+                # flag is available; the helper prefers it and falls back
+                # to the prefix for pre-Phase-1 rows, of which 120 exist
+                # and which this work order does not rewrite.
                 for _t in reversed(_hist_me):
                     if (
                         isinstance(_t, dict)
                         and _t.get("role") == "user"
-                        and not (_t.get("content") or "").startswith("[SYSTEM")
+                        and not _turn_is_system_directive(_t)
                     ):
                         _candidate = (_t.get("content") or "").strip()
                         if _candidate and _candidate != (user_text or "").strip():
@@ -5332,7 +5350,8 @@ async def ws_chat(ws: WebSocket):
                 for t in _hist:
                     if isinstance(t, dict) and t.get("role") == "user":
                         _ut = t.get("content") or ""
-                        if _ut and not _ut.startswith("[SYSTEM"):
+                        # Phase 3, same reasoning as the pilot above.
+                        if _ut and not _turn_is_system_directive(t):
                             _recent_narr.append(_ut)
                 _recent_narr = _recent_narr[-3:]
             except Exception:
@@ -5529,6 +5548,8 @@ async def ws_chat(ws: WebSocket):
                 model_name="local-llm-ws",
                 meta={"ws": True, "cancelled": ev.is_set()},
                 row_ids_out=_persisted_row_ids,
+                # WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 Phase 1 (2026-08-09).
+                is_system_directive=bool(params.get("_is_system_directive")),
             )
             # WO-TRUTH-PIPELINE-01 Phase 2 (Gate 7, 2026-07-30) — hand the
             # committed assistant rowid to the post-response extraction

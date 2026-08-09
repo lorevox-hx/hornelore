@@ -104,6 +104,76 @@ def _json_dump(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False)
 
 
+# ── WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 Phase 1, 2026-08-09 ──────────────
+# Internal guidance the browser composes for Lori travels in the user
+# message slot and was written down as if the narrator had said it.
+# Authorship is now decided ONCE, at the persistence boundary, and
+# recorded on the row. Readers ask the row; they do not re-read the prose.
+#
+# `role` deliberately stays `'user'` (Option A) so the directive still
+# replays to the model, which is the entire point of in-band guidance.
+
+#: Value stored at `turns.meta_json["origin"]` for an internal directive.
+TURN_ORIGIN_SYSTEM_DIRECTIVE = "system_directive"
+
+#: Content prefixes the browser emits. Kept ONLY for the legacy fallback
+#: below -- rows written before Phase 1 carry no flag, and this WO does
+#: not rewrite history. New code must not use this to classify.
+_LEGACY_DIRECTIVE_PREFIXES = ("[SYSTEM:", "[SYSTEM_QF:", "[SYSTEM")
+
+
+def turn_is_system_directive(row: Any) -> bool:
+    """True when this `turns` row is internal guidance, not narrator speech.
+
+    ONE function so that eighteen modules stop each inventing their own
+    version of the question. Takes a mapping or a sqlite3.Row with
+    `meta_json` and `content`.
+
+    THE FLAG WINS; THE PREFIX IS A FALLBACK WITH AN END DATE. Rows
+    written from 2026-08-09 carry `origin`. Rows written before it carry
+    nothing, there are 120 of them, and no historical rewrite is
+    authorised -- so the prefix check remains for those and is marked as
+    what it is. Once the pre-Phase-1 rows are gone or migrated by a
+    separate approved decision, the fallback can go with them.
+
+    A row that carries the flag is NOT re-checked against its text. That
+    ordering is the fix: a narrator who genuinely types "[SYSTEM: ..."
+    gets a row with no flag, falls to the fallback, and is misread only
+    until their turn ages out -- whereas under the old scheme they were
+    misread forever.
+    """
+    # `turns` rows spell it `meta_json` (a JSON string); `export_turns()`
+    # hands back the same fact parsed, under `meta`. Both are accepted so
+    # that a caller does not have to know which side of that mapping it
+    # is on -- which is the mistake eighteen separate prefix checks were
+    # already making about `content`.
+    meta = None
+    for key in ("meta_json", "meta"):
+        try:
+            meta = row[key] if not hasattr(row, "get") else row.get(key)
+        except Exception:
+            meta = None
+        if meta:
+            break
+    if meta:
+        try:
+            parsed = json.loads(meta) if isinstance(meta, str) else meta
+            if isinstance(parsed, dict):
+                if parsed.get("origin") == TURN_ORIGIN_SYSTEM_DIRECTIVE:
+                    return True
+                # An explicit flag of any other origin is still an
+                # answer: this row was classified and is not a directive.
+                if "origin" in parsed:
+                    return False
+        except Exception:
+            pass  # unparseable meta is no worse than the pre-Phase-1 state
+    try:
+        content = row["content"] if not hasattr(row, "get") else row.get("content")
+    except Exception:
+        content = None
+    return str(content or "").lstrip().startswith("[SYSTEM")
+
+
 # -----------------------------------------------------------------------------
 # WO-13 Phase 1 — Legacy facts → family_truth_rows backfill
 #
@@ -1552,6 +1622,8 @@ def persist_turn_transaction(
     model_name: str = "",
     meta: Optional[dict] = None,
     row_ids_out: Optional[dict] = None,
+    *,
+    is_system_directive: bool = False,
 ) -> Optional[int]:
     """Commit one user+assistant turn pair. Returns the assistant rowid.
 
@@ -1600,6 +1672,39 @@ def persist_turn_transaction(
     timeline would then attribute one narrator's words to another
     narrator's turn, which is the one class of error a family memoir
     must never make. So it is captured, not computed.
+
+    WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 Phase 1 (2026-08-09) -- the
+    keyword-only ``is_system_directive``. Internal guidance composed by
+    the browser (``[SYSTEM: ...]`` / ``[SYSTEM_QF: ...]``) travels in
+    the user message slot, because in-band guidance is how Lori is
+    steered. It was then written down as if the narrator had said it,
+    and **eighteen modules** grew a defensive check on the text prefix
+    to undo that. Measured on the live database the day this landed:
+    **120 of 794 user rows (15.1%) are directives, across 39 of 335
+    conversations**, the worst carrying ten apiece.
+
+    THE CLASSIFICATION IS AN ARGUMENT, NOT A RE-READING. The caller
+    already knows -- ``chat_ws`` computes ``_is_system_directive`` at
+    :1247 and carries it in ``params`` at :1263 -- and this function
+    deliberately does NOT look at ``user_message`` to decide. Sniffing
+    the prefix here would rebuild the nineteenth copy of the guess
+    inside the one place that is supposed to end the guessing. It would
+    also mean a narrator who types "[SYSTEM: ..." has their own words
+    reclassified as machinery, which is the failure the prefix approach
+    already has and this one must not inherit.
+
+    IT IS A BOOLEAN RATHER THAN A METADATA DICT ON PURPOSE. A dict
+    parameter invites a future caller to attach "just a bit" of turn
+    context, and the nearest thing to hand is always the narrator's
+    text -- which is how the duplicate ``PROFILE_JSON.last_user_text``
+    happened. A flag cannot carry prose.
+
+    ``role`` STAYS ``'user'``. Option A of the work order, ruled by
+    Chris on 2026-08-09. The column is doing two jobs at once -- who
+    authored this, and how it replays to the model -- and only the
+    first is wrong. Changing ``role`` would silently stop directives
+    reaching Lori, which is a behaviour change wearing a storage
+    change's clothes.
     """
     init_db()
     ensure_session(conv_id)
@@ -1611,9 +1716,23 @@ def persist_turn_transaction(
     cur = con.cursor()
     cur.execute("BEGIN")
     try:
+        # WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 Phase 1. `"{}"` was written
+        # here unconditionally, so within THIS writer the field was free.
+        # That is not true of the column: measured 2026-08-09, 232 user
+        # rows already carry `meta_json` (a `section` key, written by the
+        # sibling `add_turn`). None of them is a directive, so nothing
+        # merges today -- but the dict is built rather than hardcoded so
+        # that adding a second user-row fact later is an edit here and not
+        # a silent overwrite of someone else's.
+        #
+        # `_json_dump({})` is exactly `"{}"`, so a non-directive turn
+        # writes the identical bytes it always did.
+        user_meta: Dict[str, Any] = {}
+        if is_system_directive:
+            user_meta["origin"] = TURN_ORIGIN_SYSTEM_DIRECTIVE
         cur.execute(
             "INSERT INTO turns(conv_id,role,content,ts,anchor_id,meta_json) VALUES(?,?,?,?,?,?);",
-            (conv_id, "user", user_message, ts, "", "{}"),
+            (conv_id, "user", user_message, ts, "", _json_dump(user_meta)),
         )
         # Captured here, inside the transaction, while it is still the
         # last row inserted. One statement later it is unrecoverable
