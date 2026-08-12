@@ -18,7 +18,13 @@ fi
 # ── Defaults (only apply if not already set by Hornelore .env) ───────────
 export USE_TTS=${USE_TTS:-0}
 export DATA_DIR=${DATA_DIR:-/mnt/c/hornelore_data}
-export HOST=${HOST:-0.0.0.0}
+# SECURITY-REVIEW-2026-08-12: default bind moved 0.0.0.0 -> 127.0.0.1.
+# The API has no authentication, so a LAN bind exposed every endpoint
+# (including hard person-delete and the chat websocket) to any device on
+# the network.  WSL2 localhost forwarding still reaches this from the
+# Windows browser.  Set HOST=0.0.0.0 in .env only if you deliberately
+# want LAN exposure.
+export HOST=${HOST:-127.0.0.1}
 export PORT=${PORT:-8000}
 
 # LLM

@@ -62,9 +62,15 @@ USE_TTS = os.getenv("USE_TTS", "0").strip().lower() in ("1", "true", "yes", "y")
 
 app = FastAPI(title="Lorevox API", version=APP_VERSION)
 
+from .net_guard import allowed_origins as _allowed_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    # SECURITY-REVIEW-2026-08-12: was allow_origins=["*"] on an
+    # unauthenticated API holding narrator data.  Now an explicit local
+    # allowlist (see net_guard.py); override with HORNELORE_ALLOWED_ORIGINS
+    # (comma-separated; a literal * restores the wildcard deliberately).
+    allow_origins=_allowed_origins(),
     # BUG-PHOTO-CORS-01 (2026-04-25 night):
     # MUST be False whenever allow_origins=["*"] -- the CORS spec explicitly
     # forbids the wildcard combined with credentials, and modern browsers

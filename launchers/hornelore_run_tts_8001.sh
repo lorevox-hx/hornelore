@@ -17,7 +17,9 @@ fi
 # ── Defaults (only apply if not already set by Hornelore .env) ───────────
 export USE_TTS=${USE_TTS:-1}
 export DATA_DIR=${DATA_DIR:-/mnt/c/hornelore_data}
-export HOST=${HOST:-0.0.0.0}
+# SECURITY-REVIEW-2026-08-12: default bind moved 0.0.0.0 -> 127.0.0.1
+# (see hornelore_run_gpu_8000.sh for rationale).  Override via HOST in .env.
+export HOST=${HOST:-127.0.0.1}
 export TTS_PORT=${TTS_PORT:-8001}
 
 # TTS — default GPU=0 to keep VRAM free for LLM + STT

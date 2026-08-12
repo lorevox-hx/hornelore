@@ -124,5 +124,8 @@ if __name__ == "__main__":
     print(f"Hornelore UI -> http://localhost:{PORT}/ui/hornelore1.0.html")
     print(f"Serving from: {ROOT}")
     print("Press Ctrl+C to stop.\n")
-    with ReusableTCPServer(("0.0.0.0", PORT), HorneloreHandler) as httpd:
+    # SECURITY-REVIEW-2026-08-12: bind loopback only (was 0.0.0.0).
+    # Override with HORNELORE_UI_HOST=0.0.0.0 for deliberate LAN exposure.
+    _host = os.getenv("HORNELORE_UI_HOST", "127.0.0.1")
+    with ReusableTCPServer((_host, PORT), HorneloreHandler) as httpd:
         httpd.serve_forever()

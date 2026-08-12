@@ -482,6 +482,22 @@ def _normalized_modal_scope(
 
 @router.websocket("/ws")
 async def ws_chat(ws: WebSocket):
+    # SECURITY-REVIEW-2026-08-12: websockets are NOT subject to CORS, and
+    # this socket accepts destructive commands (sync_session ->
+    # clear_turns on a client-named conversation).  A hostile web page on
+    # any device that can reach this port could previously open it.  A
+    # browser always sends an Origin header on cross-origin WS; local
+    # non-browser clients (harnesses, eval scripts) send none and are
+    # still permitted.  Allowlist lives in net_guard.py, override with
+    # HORNELORE_ALLOWED_ORIGINS.
+    from ..net_guard import origin_permitted as _origin_permitted
+    _ws_origin = ws.headers.get("origin")
+    if not _origin_permitted(_ws_origin):
+        logger.warning(
+            "[chat_ws][origin-guard] refused websocket from origin=%r "
+            "(set HORNELORE_ALLOWED_ORIGINS to permit)", _ws_origin)
+        await ws.close(code=4403)
+        return
     await ws.accept()
     # WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 2 — CAPABILITY
     # NEGOTIATION, advertised by the process that will actually do the
