@@ -14,6 +14,7 @@ so it never touches a real database.
 
 from __future__ import annotations
 
+import gc
 import os
 import sqlite3
 import sys
@@ -90,23 +91,50 @@ class LockReleaseTest(unittest.TestCase):
     def test_negative_control_unwrapped_leak_does_hold_the_lock(self):
         """Non-vacuity: without the wrap, the same shape DOES block the
         next writer while the traceback keeps the frame (and connection)
-        alive — proving the guard is load-bearing, not decorative."""
+        alive — proving the guard is load-bearing, not decorative.
+
+        CLEANUP IS DELIBERATE AND EXPLICIT (fixed 2026-08-12 after this
+        test poisoned the NEXT test's setUp with `database is locked` in
+        .venv).  This test's whole point is to leak a connection that
+        holds the write lock; `del held` only drops a name, and the
+        traceback->frame->connection reference cycle survives until the
+        garbage collector happens to run.  Relying on gc timing to
+        release a lock is exactly the flakiness this suite exists to
+        rule out, so the leaked connection is captured in `leaked` and
+        closed in a finally.  The assertion still runs while it is open,
+        so the negative control is unweakened.
+        """
+        leaked = []
+
         def bad_unwrapped():
             con = db._connect()
+            leaked.append(con)          # for cleanup only, after asserting
             con.execute("INSERT INTO conn_guard_scratch VALUES (3)")
             raise RuntimeError("boom")
         try:
-            bad_unwrapped()
-        except RuntimeError as e:
-            held = e  # traceback -> frame -> con stays alive and locked
-            con2 = sqlite3.connect(str(db.DB_PATH), timeout=0.2)
             try:
-                with self.assertRaises(sqlite3.OperationalError):
-                    con2.execute(
-                        "INSERT INTO conn_guard_scratch VALUES (4)")
-            finally:
-                con2.close()
-            del held
+                bad_unwrapped()
+            except RuntimeError as e:
+                held = e  # traceback -> frame -> con stays alive and locked
+                con2 = sqlite3.connect(str(db.DB_PATH), timeout=0.2)
+                try:
+                    with self.assertRaises(sqlite3.OperationalError):
+                        con2.execute(
+                            "INSERT INTO conn_guard_scratch VALUES (4)")
+                finally:
+                    con2.close()
+                del held
+        finally:
+            for _con in leaked:
+                try:
+                    _con.rollback()
+                except Exception:
+                    pass
+                try:
+                    _con.close()
+                except Exception:
+                    pass
+            gc.collect()  # belt-and-braces: drop the traceback cycle too
 
     def test_success_path_unchanged(self):
         # A normal wrapped call still works and still closes its own
