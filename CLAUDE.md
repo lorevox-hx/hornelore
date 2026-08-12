@@ -170,7 +170,7 @@ to be built without Chris explicitly opening that work order. Full statement:
 - **OS**: Windows 11 + WSL2 (Ubuntu). Chris works from WSL.
 - **Repo path (WSL)**: `/mnt/c/Users/chris/hornelore` — NOT `~/hornelore`.
 - **Agent workspace mount**: `/sessions/<session-id>/mnt/hornelore`. Edits here are live on Chris's repo.
-- **Git is NOT accessible from the sandbox mount.** `git status`, `git add`, `git commit`, `git diff --stat`, `git log` from the sandbox either fault with "not a git repository" or "unable to read <oid>". This is permanent — do not retry. File reads and edits work; only the git tooling is broken. All commit/branch/log operations must be handed to Chris as copy-paste blocks that he runs from `/mnt/c/Users/chris/hornelore`.
+- **Agents do NOT run git. Hand Chris copy-paste blocks instead.** *Corrected 2026-08-12 — the reason changed, the rule did not.* This bullet used to read: **"Git is NOT accessible from the sandbox mount.** `git status`, `git add`, `git commit`, `git diff --stat`, `git log` from the sandbox either fault with 'not a git repository' or 'unable to read <oid>'. This is permanent — do not retry." That is no longer true: on the current Cowork mount git **does** work from the sandbox, and a session on 2026-08-12 committed twelve times from it successfully. **The rule stands anyway, for a different and worse reason: the sandbox takes `.git/index.lock` for the duration of every git command, and a command that hits the agent's timeout on the `/mnt/c` 9p mount leaves that lock behind — silently blocking GitHub Desktop and Chris's own WSL git.** The symptom is deliberately confusing and cost real time twice in one day: **`git add` appears to succeed, `git commit` then reports nothing to commit, and Desktop keeps showing N changed files after a "successful" push.** If that happens the fix is `cd /mnt/c/Users/chris/hornelore && rm -f .git/index.lock`. An agent that must inspect state may run READ-ONLY git (`log`, `status`, `rev-parse`, `ls-remote`) and must confirm no `.git/*.lock` survives afterwards; `add`/`commit`/`push`/branch operations belong to Chris.
 - **Chris commits from the WSL command line, then pushes from GitHub Desktop.** DO produce copy-paste `git add` + `git commit` blocks that he runs from `/mnt/c/Users/chris/hornelore` — this is the intended workflow. Rules for those blocks: stage with specific file paths only (NEVER `git add -A` or `git add .`), one `git add` + `git commit` pair per logical commit, and use `-m` for the subject plus a second `-m` for the body when the change wants one. Do NOT include `git push` in the block — after committing, Chris checks GitHub Desktop for a clean tree and pushes from there. `git status` / `git diff --stat` / `git log` copy-paste blocks are also fine (read-only inspection). Do NOT suggest SSH key swaps, `gh auth setup-git`, PAT entry, or any other auth dance — his auth is already wired through GitHub Desktop and is none of the agent's business.
 - **Work directly on main; do NOT create feature branches.** Chris is the only developer on this repo and the branch/PR workflow is overkill. Going forward, every commit lands on `main` directly via GitHub Desktop. Do NOT suggest creating a new branch, opening a PR, or any branch-rename workflow. (Branches created earlier — e.g. `feat/operator-narrator-intake-form` from 2026-06-15 — can be deleted locally after they're merged. New work commits straight to main.)
 - **GPU**: NVIDIA RTX 50-series (Blackwell). Local LLM serves from this machine.
@@ -227,6 +227,39 @@ Agent action when tree is dirty:
 4. Wait for Chris to confirm clean state before starting the next code change.
 
 Exception: throwaway probe outputs under `.runtime/` that regenerate on every run. If in doubt, commit.
+
+## Every copy-paste block starts with the `cd` (locked 2026-08-12)
+
+**Any command block handed to Chris — tests, evals, git, probes, one-liners — must open with:**
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+```
+
+No exceptions, even for a single-line command, and even when the previous block already `cd`-ed there. Chris runs these from a fresh `wsl` prompt that lands in `/mnt/c/Users/chris`, so a block without the `cd` fails with `No such file or directory` and he has to go and look the path up. Blocks are copied whole and out of order; each one has to stand alone.
+
+## Standard test command (copy-paste ready)
+
+Per-module, never whole-tree discovery (cross-suite state contamination is documented in `HANDOFF.md` §7). `.venv` is the test venv and is the verification — a green agent-sandbox run is evidence only:
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+PYTHONPATH=server/code .venv/bin/python -m unittest tests.<module>
+```
+
+Several modules in one run, when they are related:
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+PYTHONPATH=server/code .venv/bin/python -m unittest \
+  tests.<module_a> tests.<module_b>
+```
+
+For sandbox-side runs only, redirect the bytecode cache out of the repository (`-B` is NOT sufficient — it stops Python writing bytecode, not reading a stale `.pyc` across the `/mnt/c` mount):
+
+```bash
+PYTHONPYCACHEPREFIX=/tmp/pyc PYTHONPATH=server/code python3 -m unittest tests.<module>
+```
 
 ## Standard eval command (copy-paste ready)
 
