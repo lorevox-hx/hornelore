@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import re
 import json
 import shutil
 import sqlite3
+import threading
+import types
 import uuid
 from pathlib import Path
 from datetime import datetime, timezone
@@ -62,6 +65,52 @@ logger.info("Lorevox DB: %s", DB_PATH)
 _BIO_SEED_LOADED: bool = False
 
 
+# Thread-local registry for the connection-hygiene wrap (module bottom).
+# A thread with no wrapper active has no ``open`` attribute and _connect()
+# behaves exactly as before.
+_CONN_TRACK = threading.local()
+
+
+def _closes_connections_on_error(fn):
+    """Guarantee close-on-exception for every connection ``fn`` opens.
+
+    On success the wrapped function's own close discipline applies,
+    unchanged.  On ANY exception, every connection opened during the call
+    (registered by _connect) is rolled back and closed before the
+    exception propagates, so a leaked connection can never keep holding
+    the SQLite write lock — the 2026-07-22 incident class.
+
+    Nested wrapped calls each track their own connections; on exit the
+    child's list is folded into the parent's so tracking survives the
+    whole call chain (closing an already-closed connection is a no-op
+    here because both cleanup calls swallow ProgrammingError).
+    """
+    @functools.wraps(fn)
+    def _wrapper(*args, **kwargs):
+        prev = getattr(_CONN_TRACK, "open", None)
+        mine: list = []
+        _CONN_TRACK.open = mine
+        try:
+            return fn(*args, **kwargs)
+        except BaseException:
+            for _con in mine:
+                try:
+                    _con.rollback()
+                except Exception:
+                    pass
+                try:
+                    _con.close()
+                except Exception:
+                    pass
+            raise
+        finally:
+            _CONN_TRACK.open = prev
+            if prev is not None:
+                prev.extend(mine)
+    _wrapper.__hornelore_conn_guard__ = True
+    return _wrapper
+
+
 def _connect() -> sqlite3.Connection:
     con = sqlite3.connect(str(DB_PATH), check_same_thread=False)
     con.row_factory = sqlite3.Row
@@ -80,6 +129,20 @@ def _connect() -> sqlite3.Connection:
     # WAL-serialized writers enough time to queue cleanly without affecting
     # the latency of well-behaved single-writer turns.
     con.execute("PRAGMA busy_timeout=5000;")
+    # SECURITY/STABILITY-REVIEW-2026-08-12 — connection-hygiene tracking.
+    # 74 of ~142 call sites in this module open a connection with no
+    # try/finally, so an exception anywhere in the function body leaks the
+    # connection *while it may hold the write lock* — the documented root
+    # cause of the 2026-07-22 "database is locked" live incident (see
+    # add_timeline_event, which was fixed individually).  Rather than
+    # hand-editing every function, _connect() registers each connection in
+    # a thread-local list and every public function in this module is
+    # wrapped (see module bottom) so that on ANY exception every
+    # connection the call opened is rolled back and closed before the
+    # exception propagates.  Success paths are untouched.
+    _reg = getattr(_CONN_TRACK, "open", None)
+    if _reg is not None:
+        _reg.append(con)
     return con
 
 
@@ -7522,3 +7585,35 @@ def _turn_extraction_result_stamp(
         return False
     finally:
         con.close()
+
+
+# ── Connection-hygiene wrap (SECURITY/STABILITY-REVIEW-2026-08-12) ──────────
+# Applied LAST, after every function is defined.  Wraps every PUBLIC
+# module-level function with _closes_connections_on_error so that an
+# exception anywhere in a db call closes the connections that call opened
+# (see the rationale comment inside _connect()).  Explicit facts this
+# relies on, verified 2026-08-12: this module contains no generator
+# functions and no async functions, so a plain wrapper preserves
+# semantics.  Private helpers (leading underscore) are NOT wrapped — they
+# run inside a wrapped public caller and their connections register to
+# that caller's list.
+def _wrap_module_functions_for_connection_hygiene() -> int:
+    g = globals()
+    wrapped = 0
+    for _name, _obj in list(g.items()):
+        if _name.startswith("_"):
+            continue
+        if not isinstance(_obj, types.FunctionType):
+            continue
+        if _obj.__module__ != __name__:
+            continue  # names imported from elsewhere are not ours to wrap
+        if getattr(_obj, "__hornelore_conn_guard__", False):
+            continue
+        g[_name] = _closes_connections_on_error(_obj)
+        wrapped += 1
+    return wrapped
+
+
+_CONN_GUARD_WRAPPED_COUNT = _wrap_module_functions_for_connection_hygiene()
+logger.info("db connection-hygiene wrap active on %d functions",
+            _CONN_GUARD_WRAPPED_COUNT)
