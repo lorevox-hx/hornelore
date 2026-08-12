@@ -281,6 +281,18 @@ After every eval that follows a code change, report this exact block before decl
 
 ## Where files live
 
+**`docs/reports/` is GITIGNORED as of 2026-08-12 — reports are LOCAL-ONLY while the
+repository is public.** Commit `a87e865` untracked all 767 report files because they
+carry live narrator data (transcripts, family names, runtime captures) and the public
+repo was serving them to the open internet. Agents keep WRITING reports to
+`docs/reports/` exactly as before — every path in the table below stays correct — but
+**do not `git add` anything under `docs/reports/`, and do not "fix" the .gitignore rule
+when a report refuses to stage; the refusal is the feature.** The same applies to the
+other paths untracked in that commit (`wo12b_evidence/`, `wo13_phase*_proof/`,
+`transfer/hornelore_data.zip`, the three real-person `ui/templates/*-horne.json`).
+Re-publishing reports requires the redaction plan in
+`docs/wo/WO-PRIVACY-CANON-EXTRACTION-01_Spec.md`, not a .gitignore edit.
+
 | Kind | Path |
 |---|---|
 | API log | `/mnt/c/Users/chris/hornelore/.runtime/logs/api.log` |
