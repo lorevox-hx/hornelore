@@ -6193,12 +6193,16 @@ function lv80ShowIncompleteNarratorUi(personId) {
   const card = document.createElement("div");
   card.className = "bubble bubble-sys";
   card.style.cssText = "text-align:center; padding:1.5rem; margin:2rem auto; max-width:420px;";
+  // SECURITY-REVIEW-2026-08-12: `label` is the narrator's free-text
+  // profile name (server data) and was injected raw into innerHTML.
+  const _escIncomplete = (s) => String(s ?? "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   card.innerHTML = `
     <div style="font-size:1.1rem; font-weight:600; margin-bottom:.6rem;">
       Narrator record incomplete
     </div>
     <div style="margin-bottom:1rem; opacity:.85;">
-      ${hasName ? `<strong>${label}</strong> is` : "This narrator is"} missing:
+      ${hasName ? `<strong>${_escIncomplete(label)}</strong> is` : "This narrator is"} missing:
       <strong>${missing.join(" and ")}</strong>.
       <br>Lori can't start a session until identity basics are set.
     </div>
@@ -9335,7 +9339,16 @@ function saveAndCloseModal() {
     .split("\n\n")
     .filter(p => p.trim() !== "");
 
-  scrollContent.innerHTML = paragraphs.map(p => `<p>${p}</p>`).join("");
+  // SECURITY-REVIEW-2026-08-12: textarea content (dictated/typed memoir
+  // text) was injected raw — stored XSS, and any literal "<" broke
+  // rendering.  Escaped per paragraph.  KNOWN REMAINING ISSUE (design,
+  // not escaping): this replacement still discards the structured
+  // <section>/<mark data-narrative-role> DOM that
+  // _lv80AssembleNarrativeStructure() builds, so one save drops
+  // narrative-role metadata — needs its own work order.
+  const _escMemoir = (s) => String(s ?? "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  scrollContent.innerHTML = paragraphs.map(p => `<p>${_escMemoir(p)}</p>`).join("");
   modal.close();
   _memoirEvaluateState();
 }

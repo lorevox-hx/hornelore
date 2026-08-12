@@ -7939,7 +7939,7 @@ async function wo10LoadTranscriptViewer() {
 
       // Session divider
       const dateStr = sess.started_at ? new Date(sess.started_at).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : "";
-      html += `<div class="wo10-divider">${sess.title || "Session"} ${dateStr ? " — " + dateStr : ""}</div>`;
+      html += `<div class="wo10-divider">${esc(sess.title || "Session")} ${dateStr ? " — " + dateStr : ""}</div>`;
 
       for (const evt of events) {
         const cls = wo10ClassifyEvent(evt);
@@ -7952,14 +7952,14 @@ async function wo10LoadTranscriptViewer() {
         }
         const content = (evt.content || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
         html += `<div class="wo10-event ${cls}${_wo10ShowSystem && cls === "system" ? " show-system" : ""}">`;
-        html += `<div class="wo10-event-role">${roleName}${tsStr ? `<span class="wo10-event-ts">${tsStr}</span>` : ""}</div>`;
+        html += `<div class="wo10-event-role">${esc(roleName)}${tsStr ? `<span class="wo10-event-ts">${tsStr}</span>` : ""}</div>`;
         html += `<div class="wo10-event-text">${content}</div></div>`;
       }
     }
 
     container.innerHTML = html || '<p style="color:#64748b">No transcript events found.</p>';
   } catch (e) {
-    container.innerHTML = `<p style="color:#f87171">Failed to load transcript: ${e.message}</p>`;
+    container.innerHTML = `<p style="color:#f87171">Failed to load transcript: ${esc(e.message)}</p>`;
   }
 }
 
@@ -7993,7 +7993,7 @@ async function wo10LoadResumePreview() {
     html += `<div class="wo10-resume-label">Resume Confidence</div>`;
     html += `<span class="wo10-confidence ${confLevel}">${confLevel.toUpperCase()} (${confScore}%)</span>`;
     if (conf.reasons) {
-      html += `<div style="margin-top:8px;font-size:12px;color:#64748b">${conf.reasons.join(", ")}</div>`;
+      html += `<div style="margin-top:8px;font-size:12px;color:#64748b">${esc(conf.reasons.join(", "))}</div>`;
     }
     html += '</div>';
 
@@ -8001,10 +8001,10 @@ async function wo10LoadResumePreview() {
     if (thread) {
       html += '<div class="wo10-resume-card">';
       html += '<div class="wo10-resume-label">Selected Thread</div>';
-      html += `<div class="wo10-resume-value">${thread.topic_label || "General"}</div>`;
-      if (thread.subtopic_label) html += `<div style="font-size:12px;color:#94a3b8">Subtopic: ${thread.subtopic_label}</div>`;
-      if (thread.related_era) html += `<div style="font-size:12px;color:#94a3b8">Era: ${thread.related_era}</div>`;
-      if (thread.summary) html += `<div style="margin-top:6px;font-size:13px;color:#e2e8f0">${thread.summary.slice(0, 250)}</div>`;
+      html += `<div class="wo10-resume-value">${esc(thread.topic_label || "General")}</div>`;
+      if (thread.subtopic_label) html += `<div style="font-size:12px;color:#94a3b8">Subtopic: ${esc(thread.subtopic_label)}</div>`;
+      if (thread.related_era) html += `<div style="font-size:12px;color:#94a3b8">Era: ${esc(thread.related_era)}</div>`;
+      if (thread.summary) html += `<div style="margin-top:6px;font-size:13px;color:#e2e8f0">${esc(thread.summary.slice(0, 250))}</div>`;
       html += '</div>';
     }
 
@@ -8014,10 +8014,17 @@ async function wo10LoadResumePreview() {
       html += '<div class="wo10-resume-label">Active Threads</div>';
       for (const t of threads) {
         const isSelected = thread && t.thread_id === thread.thread_id;
-        html += `<span class="wo10-thread-chip ${t.status || 'active'}"`;
-        html += ` onclick="wo10SelectThread('${t.thread_id}')"`;
-        html += ` title="${t.summary ? t.summary.slice(0, 100) : ''}"`;
-        html += `>${isSelected ? "▶ " : ""}${t.topic_label || "?"} (${(t.score || 0).toFixed(1)})</span>`;
+        // SECURITY-REVIEW-2026-08-12: server data reached class/onclick/
+        // title attributes unescaped (attribute + JS-string injection).
+        // status/thread_id are sanitized to a safe charset because they
+        // land in class and inline-JS contexts where entity escaping is
+        // not sufficient; free text goes through esc/escAttr.
+        const safeStatus = String(t.status || "active").replace(/[^A-Za-z0-9_-]/g, "");
+        const safeThreadId = String(t.thread_id || "").replace(/[^A-Za-z0-9_.:-]/g, "");
+        html += `<span class="wo10-thread-chip ${safeStatus}"`;
+        html += ` onclick="wo10SelectThread('${safeThreadId}')"`;
+        html += ` title="${escAttr(t.summary ? t.summary.slice(0, 100) : '')}"`;
+        html += `>${isSelected ? "▶ " : ""}${esc(t.topic_label || "?")} (${(t.score || 0).toFixed(1)})</span>`;
       }
       html += '</div>';
     }
@@ -8028,7 +8035,7 @@ async function wo10LoadResumePreview() {
       html += '<div class="wo10-resume-label">Key Memory</div>';
       for (const item of scoredItems.slice(0, 6)) {
         const kind = item.kind || "fact";
-        html += `<div style="font-size:13px;margin-bottom:4px;color:#e2e8f0">[${kind}] ${(item.text || "").slice(0, 120)}</div>`;
+        html += `<div style="font-size:13px;margin-bottom:4px;color:#e2e8f0">[${esc(kind)}] ${esc((item.text || "").slice(0, 120))}</div>`;
       }
       html += '</div>';
     }
@@ -8039,7 +8046,10 @@ async function wo10LoadResumePreview() {
       html += '<div class="wo10-resume-label">Recent Exchange</div>';
       for (const t of recentTurns) {
         const role = (t.role || "").toLowerCase() === "user" ? narName : "Lori";
-        html += `<div style="font-size:13px;margin-bottom:4px"><strong>${role}:</strong> ${(t.content || "").slice(0, 150)}</div>`;
+        // SECURITY-REVIEW-2026-08-12: narrator speech + LLM output were
+        // interpolated unescaped — a narrator sentence containing markup
+        // executed in the operator panel.
+        html += `<div style="font-size:13px;margin-bottom:4px"><strong>${esc(role)}:</strong> ${esc((t.content || "").slice(0, 150))}</div>`;
       }
       html += '</div>';
     }
@@ -8053,7 +8063,7 @@ async function wo10LoadResumePreview() {
 
     container.innerHTML = html;
   } catch (e) {
-    container.innerHTML = `<p style="color:#f87171">Failed to load resume preview: ${e.message}</p>`;
+    container.innerHTML = `<p style="color:#f87171">Failed to load resume preview: ${esc(e.message)}</p>`;
   }
 }
 
@@ -8121,13 +8131,13 @@ async function wo10LoadSessionTimeline() {
       const era = s.active_era ? ` [${s.active_era.replace(/_/g, " ")}]` : "";
       html += `<div class="wo10-timeline-row">`;
       html += `<div class="wo10-timeline-date">${dateStr}</div>`;
-      html += `<div class="wo10-timeline-topic">${topic}${era}</div>`;
+      html += `<div class="wo10-timeline-topic">${esc(topic)}${esc(era)}</div>`;
       html += `<div class="wo10-timeline-turns">${s.turn_count || 0} turns</div>`;
       html += `</div>`;
     }
     container.innerHTML = html;
   } catch (e) {
-    container.innerHTML = `<p style="color:#f87171">Failed to load timeline: ${e.message}</p>`;
+    container.innerHTML = `<p style="color:#f87171">Failed to load timeline: ${esc(e.message)}</p>`;
   }
 }
 
