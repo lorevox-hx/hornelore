@@ -188,6 +188,11 @@
 .tdl-inspector-head-row { display: flex; justify-content: space-between; align-items: center; gap: .8rem; }
 .tdl-ins-actions { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; }
 .tdl-dirty-badge { display: none; background: #fdf0d8; border: 1px solid #eccf96; color: #8a5a10; border-radius: 999px; padding: .14rem .5rem; font-size: .74rem; font-weight: 900; }
+/* 2026-08-12 — Save Day used to confirm itself only by the amber chip
+   above DISAPPEARING. Green, same pill shape, so "saved" and "not saved
+   yet" read as two states of one control rather than two unrelated
+   things. Rendered only when a save actually succeeded (savedBadge()). */
+.tdl-saved-badge { display: inline-block; background: #e4f4e4; border: 1px solid #a9d5a9; color: #1f6b2a; border-radius: 999px; padding: .14rem .5rem; font-size: .74rem; font-weight: 900; }
 .tdl-dirty-badge.tdl-dirty-on { display: inline-block; }
 .tdl-inspector-body { flex: 1; overflow: auto; padding: .6rem 1rem 1rem; min-height: 0; }
 .tdl-inspector-footer { flex: none; display: flex; align-items: center; gap: .8rem; border-top: 1px solid var(--tdl-line); padding: .8rem 1rem; background: var(--tdl-paper); position: sticky; bottom: 0; z-index: 3; }

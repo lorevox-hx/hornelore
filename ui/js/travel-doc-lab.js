@@ -2255,6 +2255,17 @@
     var prevTl = root.querySelector(".tdl-cal-timeline");
     if (prevTl && st.tripCal) st.tripCal.scroll = prevTl.scrollTop;
 
+    // Same reason again, for the day workspace's own scrolling body.
+    // 2026-08-12: this pane was the one that was never added to this
+    // list, and it is the pane the operator does their typing in. Saving
+    // a day sets dayForm = null and repaints, so the panel jumped back
+    // to the top every time -- measured live at scrollTop 288 of 647
+    // before a save and 0 after. Editing a field near the bottom of a
+    // long day and pressing Save moved the viewport out from under the
+    // operator, which is most of why saving felt like it had not worked.
+    var prevIns = root.querySelector(".tdl-inspector-body");
+    if (prevIns) st.insScroll = prevIns.scrollTop;
+
     root.innerHTML = "";
     var app = el("div", "tdl-app");
 
@@ -2376,6 +2387,8 @@
 
     root.appendChild(app);
     main.scrollTop = st.mainScroll || 0;
+    var insPane = root.querySelector(".tdl-inspector-body");
+    if (insPane) insPane.scrollTop = st.insScroll || 0;
     if (st.tripCal) {
       var tlPane = root.querySelector(".tdl-cal-timeline");
       if (tlPane) tlPane.scrollTop = st.tripCal.scroll || 0;
@@ -4044,6 +4057,16 @@
     dayForm.dirty = true;
     dayForm.badges.forEach(function (b) { b.classList.add("tdl-dirty-on"); });
     dayForm.saveButtons.forEach(function (b) { b.disabled = false; });
+    // The "✓ Saved" chip describes the LAST save. The moment the
+    // operator types again it is describing a state that no longer
+    // holds, so it is retired in place rather than left to contradict
+    // the amber chip appearing beside it.
+    st.daySavedAt = null;
+    st.daySavedDayId = null;
+    (dayForm.savedBadges || []).forEach(function (b) {
+      if (b.parentNode) b.parentNode.removeChild(b);
+    });
+    dayForm.savedBadges = [];
   }
 
   function cancelDayEdits() {
@@ -4108,7 +4131,18 @@
     api("/api/trips/days/" + encodeURIComponent(day.id),
       { method: "PATCH", body: body_ })
       .then(function () { return reloadDays(); })
-      .then(function () { st.error = ""; dayForm = null; renderAll(); })
+      .then(function () {
+        st.error = "";
+        // Stamped only HERE -- inside the success branch, after the
+        // PATCH and the reload have both resolved. A save that fails
+        // keeps its dirty state and shows st.error, and must never also
+        // claim to have saved.
+        st.daySavedAt = new Date().toLocaleTimeString([],
+          { hour: "numeric", minute: "2-digit" });
+        st.daySavedDayId = day.id;
+        dayForm = null;
+        renderAll();
+      })
       .catch(function (e) { st.error = e.message; renderAll(); });
   }
 
@@ -4136,6 +4170,25 @@
     return el("span", "tdl-dirty-badge", "Unsaved changes");
   }
 
+  function savedBadge(dayId) {
+    // 2026-08-12: Save Day used to confirm itself only by an ABSENCE --
+    // the amber "Unsaved changes" chip disappearing. A DOM scan of the
+    // open panel found no success text at all, while the same module
+    // says "Saved as an operator story note on this day" and "Saved
+    // <name>" for other actions. An operator who saved, was returned to
+    // the top of the form and shown a greyed-out button had no way to
+    // tell a save that worked from one they never made -- which is what
+    // made re-saving feel ambiguous.
+    //
+    // Deliberately NO timer: this module carries a timer inventory test
+    // because an unguarded timer outlives destroy(). The chip persists
+    // until the operator edits again (the dirty chip replaces it) or
+    // opens another day, which is also better for an operator who looks
+    // away mid-task than a message that fades before they look back.
+    if (!st.daySavedAt || st.daySavedDayId !== dayId) return null;
+    return el("span", "tdl-saved-badge", "✓ Saved " + st.daySavedAt);
+  }
+
   function saveBtn(extraCls) {
     var b = btn("tdl-btn tdl-btn-primary " + (extraCls || ""), "✓ Save Day",
       saveDayEdits);
@@ -4148,7 +4201,7 @@
     var ins = el("aside", "tdl-inspector");
     if (!day) return ins;
 
-    dayForm = { day: day, dirty: false, badges: [], saveButtons: [] };
+    dayForm = { day: day, dirty: false, badges: [], savedBadges: [], saveButtons: [] };
 
     // ── fixed header: nav + top mini action row ──
     var head = el("div", "tdl-inspector-head");
@@ -4180,6 +4233,8 @@
     var topBadge = dirtyBadge();
     actRow.appendChild(topBadge);
     dayForm.badges.push(topBadge);
+    var topSaved = savedBadge(day.id);
+    if (topSaved) { actRow.appendChild(topSaved); dayForm.savedBadges.push(topSaved); }
     var topSave = saveBtn("tdl-btn-small");
     actRow.appendChild(topSave);
     dayForm.saveButtons.push(topSave);
@@ -4474,6 +4529,8 @@
     var footBadge = dirtyBadge();
     foot.appendChild(footBadge);
     dayForm.badges.push(footBadge);
+    var footSaved = savedBadge(day.id);
+    if (footSaved) { foot.appendChild(footSaved); dayForm.savedBadges.push(footSaved); }
     var footSave = saveBtn("");
     foot.appendChild(footSave);
     dayForm.saveButtons.push(footSave);
@@ -5211,6 +5268,20 @@
       Number(l.cluster_confidence) < 0.5 && l.assignment_method !== "operator";
   }
 
+  function linkIsUnplaced(l) {
+    // ONE definition, because there were two. The chip count and the
+    // gallery contents each carried their own copy of this rule, so
+    // correcting the filter alone left the label still reporting the old
+    // number — the count and the list it labels could disagree with each
+    // other. Both call this now.
+    //
+    // Unplaced means filed nowhere: no stop AND no day. The old rule was
+    // `!l.trip_stop_id` alone, which on a trip with no stops reported
+    // every photo as unplaced while the Trip Plan showed those same
+    // photos sitting on day cards.
+    return !l.trip_stop_id && !l.trip_day_id;
+  }
+
   function linkSharedWithLori(l) {
     return !!(l.caption_approved_for_lori || l.operator_context_approved_for_lori ||
       l.photo_date_approved_for_lori || l.photo_location_approved_for_lori);
@@ -5226,7 +5297,17 @@
   function filteredLinks() {
     // The review gallery is the one surface that may see hidden links.
     return photoLinksForReview().filter(function (l) {
-      if (st.photoFilter === "unplaced") return !l.trip_stop_id;
+      // 2026-08-12: this read `return !l.trip_stop_id;` -- it counted a
+      // photo as Unplaced whenever it had no STOP, ignoring the day it
+      // was sitting on. On a trip with no stops (the common case: the
+      // Bismarck trip has 0 regions and 0 stops) that made the filter
+      // report EVERY photo as unplaced while the Trip Plan showed those
+      // same photos attached to day cards. The two tabs of one workspace
+      // disagreed about the same word, and the tab an operator would
+      // naturally check to confirm a placement was the one that could
+      // never reflect it -- so day placements looked like they had not
+      // saved. Unplaced now means what it says: filed nowhere at all.
+      if (st.photoFilter === "unplaced") return linkIsUnplaced(l);
       if (st.photoFilter === "review") return linkNeedsReview(l);
       if (st.photoFilter === "lori") return linkSharedWithLori(l);
       return true;
@@ -5671,8 +5752,13 @@
       (idx + 1) + " of " + links.length));
     var stop = sel.trip_stop_id && findStop(sel.trip_stop_id);
     var region = sel.trip_region_id && findRegion(sel.trip_region_id);
+    // Same correction as the filter: a photo sitting on a day is not
+    // "Unplaced" just because the trip has no stops. Day is the last
+    // fallback before the word is used.
+    var lbDay = sel.trip_day_id ? dayById(sel.trip_day_id) : null;
     head.appendChild(el("span", "tdl-lb-title",
-      (stop && stop.location_name) || (region && region.title) || "Unplaced"));
+      (stop && stop.location_name) || (region && region.title) ||
+      (lbDay ? dayChipText(lbDay) : null) || "Unplaced"));
     head.appendChild(el("span", "tdl-lb-date",
       "Taken " + (linkTakenDate(sel) || "unknown")));
     head.appendChild(btn("tdl-btn tdl-btn-small tdl-lb-close", "✕ Close",
@@ -5733,7 +5819,7 @@
     var reviewLinks = photoLinksForReview();
     PHOTO_FILTERS.forEach(function (f) {
       var n = reviewLinks.filter(function (l) {
-        if (f[0] === "unplaced") return !l.trip_stop_id;
+        if (f[0] === "unplaced") return linkIsUnplaced(l);
         if (f[0] === "review") return linkNeedsReview(l);
         if (f[0] === "lori") return linkSharedWithLori(l);
         return true;
