@@ -702,63 +702,118 @@ def build_chronology_accordion_payload(
     # even if the trip tables are absent (pre-0015 DB) or the trips
     # feature is off; trips data, once present, is canonical rows, so
     # it renders regardless of the HORNELORE_TRIPS API gate.
+    # S8 (SECURITY/STABILITY-REVIEW-2026-08-12): this block used to
+    # swallow every failure silently — `except Exception: trip_items = []`
+    # with no log line — so a trips-schema problem, a missing migration or
+    # a bad JSON column rendered as "this narrator has no trips", which is
+    # indistinguishable from the truth. An operator debugging a missing
+    # trip had nothing to look at. Failures are now logged and, where
+    # possible, isolated to the trip that caused them.
     trip_items: List[Dict[str, Any]] = []
     try:
         from ..services import trip_repository as _trips_repo
         for _t in _trips_repo.trip_list(person_id):
-            _yr_src = _t.get("start_date") or _t.get("end_date") or ""
+            # S8: per-trip isolation. One malformed trip row used to take
+            # the WHOLE lane down (and discard the trips already
+            # collected); now it costs only itself.
+            #
+            # `_tid` is read INSIDE the try and defaulted here, because
+            # the handler below must not touch the row again: a row that
+            # raises on .get() would make the error log itself raise,
+            # the exception would escape to the outer handler, and the
+            # loop would stop — losing every trip after the bad one,
+            # which is the failure this isolation exists to prevent.
+            # (Caught by the regression test, not by reading the code.)
+            _tid = None
             try:
-                _yr = int(str(_yr_src)[:4])
-            except (TypeError, ValueError):
+                _tid = _t.get("id")
+                _yr_src = _t.get("start_date") or _t.get("end_date") or ""
+                try:
+                    _yr = int(str(_yr_src)[:4])
+                except (TypeError, ValueError):
+                    continue
+                # Photo strip (2026-07-05, per Chris): up to 6 memoir-
+                # included photo links ride on the timeline item so the
+                # accordion can render thumbnails; each carries what the
+                # narrator lightbox needs (caption, date, stop name). The
+                # FE composes /api/photos/{id}/thumb and /image URLs.
+                _photos: List[Dict[str, Any]] = []
+                try:
+                    # Review fix 2026-07-05 (N+1): stop names come from the
+                    # photo-links join (LEFT JOIN trip_stops) instead of a
+                    # full trip_tree walk per trip — one query per trip.
+                    for _link in _trips_repo.photo_links_with_photo_paths(
+                            _t["id"], memoir_only=True):
+                        # BUG-238 precedent: the narrator room shows ONLY
+                        # curator-vetted photos (narrator_ready=1) — the
+                        # accordion is narrator-visible, so unvetted intake
+                        # photos must not leak here.
+                        if not _link.get("photo_narrator_ready"):
+                            continue
+                        if len(_photos) >= 6:
+                            break
+                        _photos.append({
+                            "photo_id": _link.get("photo_id"),
+                            "caption": (
+                                _link.get("narrator_caption")
+                                or _link.get("caption")
+                                or _link.get("photo_description")
+                                or ""
+                            ),
+                            "taken_at": (
+                                _link.get("taken_at")
+                                or _link.get("photo_date_value")
+                                or ""
+                            ),
+                            "stop_name": _link.get("stop_location_name") or "",
+                        })
+                except Exception as exc:
+                    # S8: was silent. A broken photo strip now costs the
+                    # thumbnails for THIS trip and says so; the trip
+                    # itself still renders.
+                    logger.warning(
+                        "chronology: trip photo strip failed for trip=%s "
+                        "person=%s: %s", _tid, person_id, exc,
+                    )
+                    _photos = []
+                trip_items.append({
+                    "year": _yr,
+                    "label": f"Trip — {_t.get('title') or 'Journey'}",
+                    "lane": "personal",
+                    "event_kind": "trip",
+                    "dedup_key": f"trip:{_t.get('id')}",
+                    "source": "trip",
+                    "photos": _photos,
+                })
+            except Exception as exc:
+                logger.warning(
+                    "chronology: skipping malformed trip row trip=%s "
+                    "person=%s: %s", _tid or "<unreadable>", person_id, exc,
+                )
                 continue
-            # Photo strip (2026-07-05, per Chris): up to 6 memoir-
-            # included photo links ride on the timeline item so the
-            # accordion can render thumbnails; each carries what the
-            # narrator lightbox needs (caption, date, stop name). The
-            # FE composes /api/photos/{id}/thumb and /image URLs.
-            _photos: List[Dict[str, Any]] = []
-            try:
-                # Review fix 2026-07-05 (N+1): stop names come from the
-                # photo-links join (LEFT JOIN trip_stops) instead of a
-                # full trip_tree walk per trip — one query per trip.
-                for _link in _trips_repo.photo_links_with_photo_paths(
-                        _t["id"], memoir_only=True):
-                    # BUG-238 precedent: the narrator room shows ONLY
-                    # curator-vetted photos (narrator_ready=1) — the
-                    # accordion is narrator-visible, so unvetted intake
-                    # photos must not leak here.
-                    if not _link.get("photo_narrator_ready"):
-                        continue
-                    if len(_photos) >= 6:
-                        break
-                    _photos.append({
-                        "photo_id": _link.get("photo_id"),
-                        "caption": (
-                            _link.get("narrator_caption")
-                            or _link.get("caption")
-                            or _link.get("photo_description")
-                            or ""
-                        ),
-                        "taken_at": (
-                            _link.get("taken_at")
-                            or _link.get("photo_date_value")
-                            or ""
-                        ),
-                        "stop_name": _link.get("stop_location_name") or "",
-                    })
-            except Exception:
-                _photos = []
-            trip_items.append({
-                "year": _yr,
-                "label": f"Trip — {_t.get('title') or 'Journey'}",
-                "lane": "personal",
-                "event_kind": "trip",
-                "dedup_key": f"trip:{_t.get('id')}",
-                "source": "trip",
-                "photos": _photos,
-            })
-    except Exception:
-        trip_items = []
+    except ImportError as exc:
+        # Expected on a checkout without the trips service — not a defect.
+        logger.info(
+            "chronology: trips lane unavailable (module not importable) "
+            "for %s: %s", person_id, exc,
+        )
+    except Exception as exc:
+        # S8: keep whatever was collected before the failure instead of
+        # discarding it, and SAY that the lane is incomplete. A pre-0015
+        # database legitimately has no trip tables; anything else is a
+        # defect that used to render as "this narrator has no trips".
+        _msg = str(exc).lower()
+        if "no such table" in _msg or "no such column" in _msg:
+            logger.info(
+                "chronology: trips lane skipped for %s (schema not present: "
+                "%s)", person_id, exc,
+            )
+        else:
+            logger.warning(
+                "chronology: trips lane FAILED for %s after %d item(s) — the "
+                "accordion will render incomplete: %s",
+                person_id, len(trip_items), exc, exc_info=True,
+            )
     lane_b_with_spine = lane_b_with_spine + trip_items
 
     lane_c = build_band_ghosts(birth_year, periods, lane_b_with_spine)
