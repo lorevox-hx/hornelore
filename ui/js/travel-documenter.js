@@ -232,6 +232,11 @@
 
   window.lvTravelDocumenterMount = function (hostEl, opts) {
     opts = opts || {};
+    // U7 (SECURITY/STABILITY-REVIEW-2026-08-12): per-mount liveness flag,
+    // ported from travel-doc-lab.js. Scoped INSIDE the mount factory (not
+    // module scope) so two concurrent mounts cannot mark each other dead.
+    // Set true by destroy(); read by the Lori socket handler.
+    var _destroyed = false;
     var st = {
       apiBase: (opts.apiBase || window.LOREVOX_API || "http://localhost:8000")
         .replace(/\/$/, ""),
@@ -2513,6 +2518,22 @@
         }
       },
       _connect: function () {
+        // U7 (SECURITY/STABILITY-REVIEW-2026-08-12): ported from
+        // travel-doc-lab.js:8645-8676, which fixed this race in the
+        // successor module and left it live here. This module is retired
+        // from the shell but still served, and ui/travel-documenter.html
+        // still mounts it, so the defect was reachable.
+        //
+        // Two guards, and they cover different failures:
+        //   `destroyed` \u2014 never open a socket for, or deliver a frame to,
+        //     a mount that has been torn down (narrator switch, tab exit).
+        //   socket identity \u2014 close() does NOT retract already-queued
+        //     message events, and close() nulls this.ws while the old
+        //     socket may still deliver one more frame. Comparing identity
+        //     means a token from a socket that is no longer the pane's
+        //     current one is dropped, so a Trip A token can never append
+        //     into Trip B's transcript.
+        if (_destroyed) return;
         if (this.ws && this.ws.readyState === 1) return;
         var url = st.apiBase.replace(/^http/, "ws") + "/api/chat/ws";
         try { this.ws = new WebSocket(url); } catch (e) {
@@ -2520,7 +2541,9 @@
           return;
         }
         var self = this;
+        var sock = this.ws;
         this.ws.onmessage = function (ev) {
+          if (_destroyed || self.ws !== sock) return;
           var j = {};
           try { j = JSON.parse(ev.data); } catch (_) { return; }
           if (j.type === "token" && j.delta) self._append(j.delta);
@@ -2529,6 +2552,9 @@
             clearTimeout(self._busyTimer);
             self._finish(j.final_text);
             reloadNotes && reloadNotes().catch(function () {});
+            // Re-check after the await: the drawer must not be repainted
+            // into a mount that was torn down while notes were loading.
+            if (_destroyed || self.ws !== sock) return;
             self._refreshDrawer();
           }
         };
@@ -2731,6 +2757,13 @@
       person_id: st.personId,
       reload: loadTrips,
       destroy: function () {
+        // U7 (2026-08-12): raise the liveness flag FIRST, before any
+        // teardown step — each step below can run script that re-enters
+        // the module, and a pending socket frame or fetch must find the
+        // mount already marked dead. Same ordering rule as
+        // travel-doc-lab.js's destroy(). Idempotent: a second call is a
+        // no-op for the flag and every step is individually guarded.
+        _destroyed = true;
         document.removeEventListener("keydown", onKeydown);
         // WO-TRIP-LANE-AUDIT-FIXPACK-01 (M6): close the modal Lori
         // WebSocket so narrator-switch remounts don't leak open sockets

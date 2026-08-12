@@ -612,3 +612,86 @@ class EvidenceLifecycleTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RetiredModuleSocketRaceTest(unittest.TestCase):
+    """U7 (SECURITY/STABILITY-REVIEW-2026-08-12) — the cross-trip token race.
+
+    travel-doc-lab.js:8645-8676 fixed this race in the successor module
+    and left it live in this one. This module is retired from the shell
+    but still served, and ui/travel-documenter.html still mounts it, so
+    the defect was reachable: close() nulls this.ws while the old socket
+    may still deliver a queued frame, and a Trip A token could append
+    into Trip B's transcript.
+
+    Source-shape assertions, matching how the same guards are pinned for
+    the successor in test_travel_doc_lab.py (357-444). They are scanned
+    over COMMENT-STRIPPED source because the comment explaining each
+    guard necessarily quotes the token the guard is written in.
+
+    NOTE FOR A LATER PHASE: if this module is finally deleted, delete
+    this class in the same commit, deliberately — the same instruction
+    LegacyModuleStillExistsTest carries.
+    """
+
+    def test_the_mount_declares_a_per_mount_liveness_flag(self):
+        body = _stripped_js()
+        self.assertIn("var _destroyed = false;", body)
+        # Per-mount, not module-scope: two concurrent mounts must not be
+        # able to mark each other dead.
+        mount_at = body.index("window.lvTravelDocumenterMount = function")
+        self.assertGreater(
+            body.index("var _destroyed = false;"), mount_at,
+            "_destroyed is declared outside the mount factory; two mounts "
+            "would share one flag")
+
+    def test_destroy_raises_the_flag_before_any_teardown_step(self):
+        body = _stripped_js()
+        head = body[body.index("destroy: function ()"):]
+        head = head[:2000]
+        self.assertIn("_destroyed = true;", head)
+        flag_at = head.index("_destroyed = true;")
+        for later in ("removeEventListener", "modalLori.close()",
+                      "hostEl.innerHTML"):
+            if later in head:
+                self.assertLess(
+                    flag_at, head.index(later),
+                    f"destroy() touches {later} before setting _destroyed; a "
+                    f"re-entrant frame would find the mount still 'alive'")
+
+    def test_socket_open_is_refused_for_a_destroyed_mount(self):
+        body = _stripped_js()
+        head = body[body.index("_connect: function ()"):]
+        head = head[:1200]
+        self.assertIn("if (_destroyed) return;", head)
+        self.assertLess(
+            head.index("if (_destroyed) return;"),
+            head.index("new WebSocket"),
+            "the destroyed check must precede opening the socket")
+
+    def test_frames_are_pinned_to_the_socket_that_delivered_them(self):
+        """The half a destroyed-flag alone does NOT cover.
+
+        reset/close on a trip switch nulls this.ws while the OLD socket
+        can still deliver one more queued frame. The mount is not
+        destroyed in that case, so only identity comparison drops it.
+        """
+        body = _stripped_js()
+        head = body[body.index("_connect: function ()"):]
+        head = head[:1600]
+        self.assertIn("var sock = this.ws;", head)
+        self.assertIn("self.ws !== sock", head)
+        self.assertLess(
+            head.index("var sock = this.ws;"),
+            head.index("onmessage"),
+            "the socket must be pinned before the handler closes over it")
+
+    def test_the_post_await_repaint_is_guarded_too(self):
+        """A guard on entry is not enough: _refreshDrawer runs after an
+        awaited reload, by which time the mount may be gone."""
+        body = _stripped_js()
+        head = body[body.index("_connect: function ()"):]
+        head = head[:1800]
+        self.assertGreaterEqual(
+            head.count("_destroyed || self.ws !== sock"), 2,
+            "the drawer repaint after reloadNotes() has no liveness guard")
