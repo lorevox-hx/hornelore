@@ -183,3 +183,23 @@ docs/reports/master_loop01_p5-*.console.txt
 docs/reports/master_loop01_p5-*.failure_pack.json
 docs/reports/master_loop01_p5-*.failure_pack.console.txt
 docs/reports/p5_delta_pack.txt
+
+# ============================================================
+# Private Hornelore family data — never commit or publish
+# Added after public-repository privacy audit, 2026-08-12
+# Full plan: docs/wo/WO-PRIVACY-CANON-EXTRACTION-01_Spec.md
+# ============================================================
+transfer/hornelore_data.zip
+wo12b_evidence/
+wo13_phase5_proof/
+wo13_phase6_proof/
+wo13_phase7_proof/
+wo13_phase8_plan/
+docs/reports/
+docs/wo13_phase8_proof/
+docs/wo13_phase9_plan/
+test/live test one no camera.docx
+data/timeline_context_events/janice_germans_from_russia_nd_prairie.json
+ui/templates/christopher-todd-horne.json
+ui/templates/janice-josephine-horne.json
+ui/templates/kent-james-horne.json
