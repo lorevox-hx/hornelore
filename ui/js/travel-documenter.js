@@ -2551,11 +2551,27 @@
             self._busy = false;
             clearTimeout(self._busyTimer);
             self._finish(j.final_text);
-            reloadNotes && reloadNotes().catch(function () {});
-            // Re-check after the await: the drawer must not be repainted
-            // into a mount that was torn down while notes were loading.
-            if (_destroyed || self.ws !== sock) return;
-            self._refreshDrawer();
+            // The repaint guard MUST live inside the completion callback.
+            // Corrected 2026-08-12 after review: the first cut of this
+            // port read
+            //     reloadNotes && reloadNotes().catch(function () {});
+            //     if (_destroyed || self.ws !== sock) return;
+            //     self._refreshDrawer();
+            // whose comment claimed to "re-check after the await". It did
+            // not: .catch() attaches a handler, it does not block, so the
+            // guard ran synchronously three lines below the identical
+            // check at the top of this handler — a moment when the mount
+            // is still alive by definition — and the repaint still landed
+            // in a torn-down mount. The window this guard exists for is
+            // exactly the time notes are loading. Matches
+            // travel-doc-lab.js:8669-8674, which puts the guard in .then().
+            var notesReload = reloadNotes ? reloadNotes() : Promise.resolve();
+            notesReload
+              .then(function () {
+                if (_destroyed || self.ws !== sock) return;
+                self._refreshDrawer();
+              })
+              .catch(function () {});
           }
         };
       },

@@ -686,12 +686,55 @@ class RetiredModuleSocketRaceTest(unittest.TestCase):
             head.index("onmessage"),
             "the socket must be pinned before the handler closes over it")
 
-    def test_the_post_await_repaint_is_guarded_too(self):
-        """A guard on entry is not enough: _refreshDrawer runs after an
-        awaited reload, by which time the mount may be gone."""
+    def test_the_repaint_guard_runs_INSIDE_the_reload_callback(self):
+        """The guard must fire when the reload COMPLETES, not when it starts.
+
+        REWRITTEN 2026-08-12 after review caught this test passing on
+        wrong code. It previously asserted only that the guard string
+        appeared at least twice:
+
+            self.assertGreaterEqual(
+                head.count("_destroyed || self.ws !== sock"), 2, ...)
+
+        A count is satisfied by a guard in the wrong place. The shipped
+        code was `reloadNotes && reloadNotes().catch(...)` followed by a
+        bare guard — which does not wait, so the guard ran synchronously
+        three lines under the identical check at the top of onmessage and
+        the repaint still landed in a torn-down mount. The test agreed
+        with the code instead of with the requirement; this is the
+        token-counting trap the repo's own testing doctrine names.
+
+        Now asserts CONTAINMENT: both the guard and the repaint sit
+        inside the .then() callback, and the reload is not fire-and-forget.
+        """
         body = _stripped_js()
         head = body[body.index("_connect: function ()"):]
-        head = head[:1800]
-        self.assertGreaterEqual(
-            head.count("_destroyed || self.ws !== sock"), 2,
-            "the drawer repaint after reloadNotes() has no liveness guard")
+        head = head[:2400]
+
+        # The reload result must be held, not fired and dropped.
+        self.assertIn("var notesReload =", head,
+                      "the reload promise is not captured")
+        self.assertNotIn("reloadNotes && reloadNotes().catch", head,
+                         "fire-and-forget reload is back; the repaint guard "
+                         "below it cannot be waiting for anything")
+
+        # Slice the .then() callback body and require BOTH inside it.
+        then_at = head.index("notesReload")
+        then_at = head.index(".then(function () {", then_at)
+        cb = head[then_at:head.index(".catch(", then_at)]
+        self.assertIn("_destroyed || self.ws !== sock", cb,
+                      "the liveness guard is not inside the completion "
+                      "callback")
+        self.assertIn("self._refreshDrawer();", cb,
+                      "the repaint is not inside the completion callback")
+        self.assertLess(
+            cb.index("_destroyed || self.ws !== sock"),
+            cb.index("self._refreshDrawer();"),
+            "the guard must precede the repaint inside the callback")
+
+        # ...and nowhere else: a stray copy outside the callback would
+        # restore the defect while keeping this test green.
+        self.assertNotIn("self._refreshDrawer();",
+                         head[:then_at],
+                         "a repaint call survives outside the completion "
+                         "callback")
