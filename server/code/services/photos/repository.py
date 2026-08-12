@@ -956,8 +956,53 @@ def find_photo_by_hash(
     return _photo_row_to_model(row) if row else None
 
 
+def find_any_photo_by_hash(file_hash: str) -> Optional[Dict[str, Any]]:
+    """Find a photo with this content hash ANYWHERE in the table.
+
+    Companion to ``find_photo_by_hash``, which answers the *product*
+    question ("does this narrator already have this picture, live?") and
+    is deliberately scoped to one narrator's live rows.  This answers the
+    *schema* question: ``photos.file_hash`` carries a table-wide UNIQUE
+    constraint (migration 0001), and soft-deleted rows keep their hash —
+    so an insert can still collide with a row the narrator-scoped query
+    cannot see.
+
+    S2 (SECURITY/STABILITY-REVIEW-2026-08-12): before this existed, the
+    upload path checked only the narrator-scoped live query, so
+    re-uploading a soft-deleted photo — the exact recovery workflow
+    BUG-PHOTO-DEDUP-IGNORES-SOFTDELETE was fixed to allow — fell through
+    to an unhandled IntegrityError (HTTP 500), *after* the bytes had
+    already been moved into the archive, leaving an orphan file behind.
+    The same shape occurs when a second narrator uploads a file the first
+    one already has.  ``import_repository.candidate_promote`` already
+    answered this correctly with a named refusal; this function lets the
+    upload path do the same instead of re-implementing the SQL.
+
+    Returns the raw id / narrator_id / deleted_at (not a full model), so
+    the caller can name *why* it is refusing.  ``None`` means the insert
+    is free to proceed.
+    """
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT id, narrator_id, deleted_at FROM photos "
+            " WHERE file_hash = ?;",
+            (file_hash,),
+        ).fetchone()
+    finally:
+        con.close()
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "narrator_id": row["narrator_id"],
+        "deleted_at": row["deleted_at"],
+    }
+
+
 __all__ = [
     "create_photo",
+    "find_any_photo_by_hash",
     "get_photo",
     "list_photos",
     "mark_photo_ready",

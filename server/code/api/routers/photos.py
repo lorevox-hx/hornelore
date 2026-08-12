@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil  # S2 2026-08-12 — orphaned-archive cleanup on failed row insert
 import sqlite3  # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §3.4 — classified fail-closed errors
 import tempfile
 import uuid
@@ -435,6 +436,44 @@ async def preview_photo(
 # ---------------------------------------------------------------------------
 
 
+def _discard_orphaned_archive_dir(
+    stored: Dict[str, Any], narrator_id: str, cause: BaseException
+) -> None:
+    """Remove archive bytes whose ``photos`` row was never created.
+
+    S2 (SECURITY/STABILITY-REVIEW-2026-08-12). ``store_photo_file``
+    MOVES the upload into ``.../photos/<narrator>/<photo_id>/`` before
+    the row is inserted, so any failure at insert time used to strand a
+    complete image on disk that nothing referenced and no operator
+    surface could see or delete.
+
+    Only the per-photo directory is removed, and only when it is the one
+    this request just created (``photo_id`` is a fresh uuid, so the
+    directory is exclusively ours). Never raises: losing the cleanup is
+    a disk-space problem, but losing the original error would be a
+    debugging one.
+    """
+    image_path = stored.get("image_path")
+    if not image_path:
+        return
+    photo_dir = Path(str(image_path)).parent
+    try:
+        if photo_dir.name != str(stored.get("photo_id")):
+            log.warning(
+                "[photos][orphan-cleanup] refusing to remove %s — does not "
+                "match photo_id %s", photo_dir, stored.get("photo_id"))
+            return
+        shutil.rmtree(photo_dir, ignore_errors=True)
+        log.warning(
+            "[photos][orphan-cleanup] removed archive dir %s after failed "
+            "row insert for narrator=%s: %s",
+            photo_dir, narrator_id, type(cause).__name__)
+    except Exception as cleanup_exc:  # pragma: no cover — defensive
+        log.warning(
+            "[photos][orphan-cleanup] could not remove %s: %s",
+            photo_dir, cleanup_exc)
+
+
 @router.post("")
 async def upload_photo(
     file: UploadFile = File(...),
@@ -484,6 +523,49 @@ async def upload_photo(
                 content={
                     "error": "duplicate_file",
                     "photo": existing,
+                },
+            )
+
+        # S2 (SECURITY/STABILITY-REVIEW-2026-08-12): the check above is
+        # narrator-scoped and live-rows-only, but photos.file_hash is
+        # UNIQUE across the WHOLE table and soft-deleted rows keep their
+        # hash. So two real operator workflows fell straight through it
+        # into an unhandled IntegrityError -- a 500 with no explanation,
+        # AND an orphaned archive file, because store_photo_file() below
+        # has already MOVED the bytes by then:
+        #   (a) re-uploading a photo that was soft-deleted -- the very
+        #       recovery path BUG-PHOTO-DEDUP-IGNORES-SOFTDELETE was
+        #       fixed to enable;
+        #   (b) a second narrator uploading a file the first one has.
+        # import_repository.candidate_promote already refuses both by
+        # name (CrossPersonError); this is that guard ported to the
+        # upload lane, and it runs BEFORE any bytes move.
+        clash = photo_repo.find_any_photo_by_hash(file_hash)
+        if clash is not None:
+            if clash["narrator_id"] != narrator_id:
+                return JSONResponse(
+                    status_code=409,
+                    content={
+                        "error": "duplicate_file_other_narrator",
+                        "photo_id": clash["id"],
+                        "detail": (
+                            "those bytes are already stored as photo %s under "
+                            "another narrator; saving them here would file one "
+                            "person's picture as another person's memory"
+                            % clash["id"]
+                        ),
+                    },
+                )
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "error": "duplicate_file_deleted",
+                    "photo_id": clash["id"],
+                    "detail": (
+                        "those bytes are already stored as photo %s for this "
+                        "narrator, but that photo is deleted; restore it "
+                        "instead of uploading a second copy" % clash["id"]
+                    ),
                 },
             )
 
@@ -609,24 +691,50 @@ async def upload_photo(
             )
 
     # Normalise empty Optional enum fields back to the repository defaults.
-    row = photo_repo.create_photo(
-        photo_id=stored["photo_id"],
-        narrator_id=narrator_id,
-        uploaded_by_user_id=uploaded_by_user_id,
-        file_hash=stored["file_hash"],
-        image_path=stored["image_path"],
-        thumbnail_path=stored.get("thumbnail_path"),
-        description=description,
-        date_value=effective_date_value,
-        date_precision=(effective_date_precision or "unknown"),
-        location_label=location_label,
-        location_source=(effective_location_source or "unknown"),
-        latitude=effective_latitude,
-        longitude=effective_longitude,
-        narrator_ready=ready_flag,
-        needs_confirmation=derived_needs_confirmation,
-        metadata=metadata_payload,
-    )
+    #
+    # S2 (SECURITY/STABILITY-REVIEW-2026-08-12): the clash guard above
+    # closes the two known workflows, but the check and this insert are
+    # separate statements, so a concurrent upload of identical bytes can
+    # still lose the race on the table-wide UNIQUE(file_hash). Without
+    # this net the loser 500s AND leaves the bytes it already moved
+    # sitting in the archive forever, referenced by nothing. The
+    # per-photo directory is exclusively ours (fresh uuid), so removing
+    # it on failure cannot touch another photo's bytes.
+    try:
+        row = photo_repo.create_photo(
+            photo_id=stored["photo_id"],
+            narrator_id=narrator_id,
+            uploaded_by_user_id=uploaded_by_user_id,
+            file_hash=stored["file_hash"],
+            image_path=stored["image_path"],
+            thumbnail_path=stored.get("thumbnail_path"),
+            description=description,
+            date_value=effective_date_value,
+            date_precision=(effective_date_precision or "unknown"),
+            location_label=location_label,
+            location_source=(effective_location_source or "unknown"),
+            latitude=effective_latitude,
+            longitude=effective_longitude,
+            narrator_ready=ready_flag,
+            needs_confirmation=derived_needs_confirmation,
+            metadata=metadata_payload,
+        )
+    except Exception as exc:
+        _discard_orphaned_archive_dir(stored, narrator_id, exc)
+        if isinstance(exc, sqlite3.IntegrityError) and "file_hash" in str(exc):
+            # Lost the race: someone else stored these exact bytes between
+            # our clash check and this insert.
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "error": "duplicate_file_race",
+                    "detail": (
+                        "those bytes were saved by another request while this "
+                        "upload was in flight; nothing was written twice"
+                    ),
+                },
+            )
+        raise
 
     # Phase C1: persist trust to its column (defensive — tolerates DBs
     # that haven't applied migration 0016 yet; metadata_json above is
