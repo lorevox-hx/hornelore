@@ -1,10 +1,12 @@
 # HORNELORE — FULL REPOSITORY REVIEW & HANDOFF
 
-> **STATUS UPDATE (same day, later):** the top code fixes are now APPLIED — see §11.
-> Chris ruled the GitHub repo must stay public (ChatGPT reads it over the web), so
-> C1 (published family PII) is now the single most urgent open item: untrack the
-> PII paths (block in §11.4) and purge history. ChatGPT does not need those data
-> directories to read code.
+> **STATUS UPDATE (end of day 2026-08-12):** the top code fixes are APPLIED and
+> COMMITTED (§11), and the PII untracking is DONE — commit `a87e865` removed 838
+> files (databases zip, evidence/proof dirs, 767 docs/reports files, real-person
+> templates) from the public tree, with .gitignore rules so they cannot return.
+> Remaining privacy work (canon extraction, prose redaction, history purge) is
+> PARKED as `docs/wo/WO-PRIVACY-CANON-EXTRACTION-01_Spec.md` by explicit decision:
+> product work — Travel Doc — takes priority. §12 lists what to deal with now.
 
 **Date:** 2026-08-12
 **Scope:** Complete review — server (`server/code`), UI (`ui/`), tests, scripts, config, docs, git/secrets hygiene.
@@ -233,3 +235,43 @@ git add HANDOFF_CODE_REVIEW_2026-08-12.md
 git commit -m "docs: full repo review handoff + applied-fixes record (2026-08-12)"
 ```
 After committing: **restart the stack** (server changes are inert until then) and hard-reload the browser (`app.js`/`hornelore1.0.html` have no cache-buster). Then verify in `.venv`: `PYTHONPATH=server/code .venv/bin/python -m unittest tests.test_db_connection_hygiene`.
+
+---
+
+## 12. Session close-out (2026-08-12, end of day) — what landed, what to deal with now
+
+### 12.1 Landed this session (all committed on main)
+```
+2fea934 docs: park WO-PRIVACY-CANON-EXTRACTION-01
+a87e865 privacy: untrack family data from public repository   (838 files, git rm --cached only)
+4a43a11 docs: full repository review + applied-fixes handoff
+2009df0 security(ui): escape six innerHTML sites
+cd74377 fix(db): close-on-exception guarantee for all public db functions
+d828650 security: loopback bind + CORS/WS origin allowlist
+```
+Also done outside git: hornelore_data audit + cleanup (`C:\hornelore_data\_review_2026-08-12\` holds 28 moved orphan archive dirs + REPORT.md + restore manifest; ~10MB verified-secret-free scratch deleted).
+
+**Incident worth recording:** a stale `.git/index.lock` created by an agent-side `git status` silently blocked every `git add` Chris ran (twice), while `git commit` then reported nothing to commit — the "14 changed files after pushing" mystery. If commits ever appear to no-op again, check for `.git/index.lock` first (known GitHub Desktop ↔ WSL/agent collision class, previously seen 2026-07-06).
+
+### 12.2 Deal with NOW (before/at next session start)
+1. **Push the 6 commits** from GitHub Desktop if not already pushed.
+2. **Restart the stack** — every server fix (origin guard, loopback bind, db wrap) is inert until restart. Then **hard-reload the browser** (app.js / hornelore1.0.html carry no cache-buster).
+3. **First-turn smoke after restart:** open the UI from `http://localhost:8082/...` and send one chat turn. If the websocket refuses (close 4403 / `[chat_ws][origin-guard]` in api.log), the UI is being served from an origin outside the default allowlist — fix by adding it to `HORNELORE_ALLOWED_ORIGINS` in `.env`, not by reverting the guard.
+4. **Verify in the real venv:** `PYTHONPATH=server/code .venv/bin/python -m unittest tests.test_db_connection_hygiene` (5 tests; green in the sandbox, doctrine requires .venv confirmation).
+5. **Doctrine conflict to acknowledge:** `docs/reports/` is now gitignored, but CLAUDE.md still instructs agents to commit eval reports there. Decision made: reports stay local-only while the repo is public. A one-line note in CLAUDE.md's "Where files live" section will stop a future agent from fighting the ignore rule.
+
+### 12.3 Product-lane fixes worth doing next (Travel-Doc-adjacent, from the review)
+- **S2 (HIGH):** photo upload hash-clash → 500 + orphaned archive file on re-upload of a soft-deleted photo. The correct guard already exists in `import_repository.py:2043-2066`; port it to `routers/photos.py:478-497`. Small, high-value, directly in the photo/trip workflow.
+- **S8 (MED):** `chronology_accordion.py:749-761` silently renders "narrator has no trips" on any trips-lane error — add logging so a Travel Doc data problem is visible instead of invisible.
+- **U7 (MED):** legacy `travel-documenter.js` still live via its standalone page without the cross-trip socket race fixes its successor got — delete it or port the `destroyed`/socket-pin pattern (deletion was already the plan per WO-TRAVEL-DOC-UNIFY-01 backlog).
+- **S3/S4 (MED):** WS receive-loop catch-all + cancel-in-finally; wire-or-delete the dead REST stop event. GPU hygiene, ~1 hour together.
+- **U9 (MED):** production shell unconditionally polls `/api/test-lab/*` every 2-3s for every operator session — gate `initTestNarratorLab()`.
+
+### 12.4 Parked / deferred (decided, not forgotten)
+- `WO-PRIVACY-CANON-EXTRACTION-01` — canon extraction to `C:\hornelore_data\canon\`, prose redaction, single history purge. Until Phase 3 runs, old commits remain publicly fetchable.
+- Shared-token authentication (origin+loopback closed the browser/LAN classes; token adds defense-in-depth).
+- `hard_delete_person` archive residue root-cause fix (orphans cleaned; delete path still doesn't remove `memory/archive/people/<id>`).
+- Memoir-save structural DOM loss (escaping fixed; `<section>/<mark>` replacement needs its own WO).
+- hornelore_data backup strategy (93MB memory archive has no backup at all).
+- `.env.bak*` deletion + Google refresh-token rotation (C2).
+- Everything in §5 (test runner, E2E plumbing, ESLint) and §8 steps 4-5.
