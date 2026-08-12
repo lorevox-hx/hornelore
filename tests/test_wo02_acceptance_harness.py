@@ -278,6 +278,96 @@ class AttestationTest(_HarnessCase):
                          ["dirty-guard", "modal-reopen"])
 
 
+class MainDispatchAttestationTest(_HarnessCase):
+    """`verify --attest` must report the attestation it records.
+
+    THE GAP THIS CLOSES, stated plainly: the 16 tests written with the
+    harness all called the do_* functions DIRECTLY and none exercised
+    main(). The defect lived in main()'s wiring -- attestation handling
+    sat at the call site, after `rc = do_verify(now)` had returned, and
+    do_verify returns _verdict(), which prints the summary. So the
+    attestation was saved (restore-verify could see it) while the run
+    reported "0 attested" and printed its ATTEST line BELOW the verdict
+    meant to count it. Testing the decision logic and leaving the mode
+    dispatch untested is what allowed that.
+
+    These tests therefore go through main() with real argv, doubling
+    only snapshot() -- the single network boundary.
+    """
+
+    def _run_main(self, argv, snapshot):
+        wo02._reset()
+        saved_argv, saved_snap = sys.argv, wo02.snapshot
+        sys.argv = ["wo02_acceptance.py"] + argv
+        wo02.snapshot = lambda: snapshot
+        try:
+            rc = wo02.main()
+        finally:
+            sys.argv, wo02.snapshot = saved_argv, saved_snap
+        return rc, "\n".join(wo02.LINES), {
+            "pass": wo02.PASS[0], "fail": wo02.FAIL[0],
+            "skip": wo02.SKIP[0], "attest": wo02.ATTEST[0]}
+
+    def _seed_checkpoint(self):
+        cp = _baseline()
+        cp["stage_a"] = {"removed_photo_links": [], "new_notes": [],
+                         "edited_kinds": []}
+        with open(wo02.STATE_CP, "w", encoding="utf-8") as fh:
+            json.dump(cp, fh)
+
+    def test_verify_attest_reports_the_attestation_it_records(self):
+        self.write_baseline()
+        self._seed_checkpoint()
+        rc, logs, n = self._run_main(
+            ["verify", "--attest", "modal-reopen"], _baseline())
+
+        # 1. persisted where restore-verify will look for it
+        with open(wo02.STATE_CP, encoding="utf-8") as fh:
+            cp = json.load(fh)
+        self.assertIn("modal-reopen", cp.get("attestations") or {})
+        self.assertEqual(cp["attestations"]["modal-reopen"]["mode"], "verify")
+
+        # 2. the ATTEST line precedes the summary/verdict it is counted in.
+        # Anchor on " passed," -- the summary's own text. "=== " matches
+        # the "=== WO-02 VERIFY ===" HEADER at index 0, which made this
+        # assertion compare against the top of the run and fail on
+        # correct code.
+        attest_at = logs.index("ATTEST")
+        summary_at = logs.index(" passed,")
+        self.assertLess(attest_at, summary_at,
+                        "the ATTEST line printed after the verdict that "
+                        "counts it")
+        self.assertLess(attest_at, logs.index("RESULT:"))
+
+        # 3. the summary reports it
+        self.assertEqual(n["attest"], 1)
+        self.assertIn("1 attested", logs)
+        self.assertNotIn("0 attested", logs)
+
+    def test_an_attestation_never_inflates_the_pass_count(self):
+        """The rule the whole mechanism exists to protect."""
+        self.write_baseline()
+        self._seed_checkpoint()
+        _, _, without = self._run_main(["verify"], _baseline())
+        self.write_baseline()
+        self._seed_checkpoint()
+        _, logs, with_attest = self._run_main(
+            ["verify", "--attest", "modal-reopen"], _baseline())
+        self.assertEqual(with_attest["pass"], without["pass"],
+                         "an operator attestation was counted as a machine "
+                         "PASS")
+        self.assertEqual(with_attest["attest"], 1)
+        self.assertIn("operator-attested, not machine-verified", logs)
+
+    def test_verify_without_a_checkpoint_says_so_before_the_verdict(self):
+        self.write_baseline()  # no checkpoint state written
+        rc, logs, n = self._run_main(
+            ["verify", "--attest", "modal-reopen"], _baseline())
+        self.assertIn("--attest ignored", logs)
+        self.assertLess(logs.index("--attest ignored"), logs.index("RESULT:"))
+        self.assertEqual(n["attest"], 0)
+
+
 class ModeValidationTest(_HarnessCase):
     """Recorded because an agent misread this in review: an unknown mode
     has ALWAYS been rejected, never silently treated as `verify`."""

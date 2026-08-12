@@ -432,7 +432,7 @@ def do_restore_verify(now, attests, now_iso):
     return _verdict("PASS -- WO-02 acceptance met, Gate 3 complete.")
 
 
-def do_verify(now):
+def do_verify(now, attests=None, now_iso=None):
     if not os.path.exists(STATE):
         out("No baseline at %s -- run 'capture' first." % STATE)
         return 2
@@ -522,6 +522,32 @@ def do_verify(now):
         check(bool(changed),
               "day counts changed on %d day(s)" % len(changed))
 
+    # Attestations are recorded HERE, before the verdict is computed.
+    #
+    # CORRECTED 2026-08-12 after review. This handling used to sit in
+    # main(), at the call site AFTER `rc = do_verify(now)` had already
+    # returned -- and do_verify returns _verdict(), which prints the
+    # summary. So `verify --attest modal-reopen` saved the attestation
+    # correctly and restore-verify could see it, but the run reported
+    # "0 attested" and printed its ATTEST line BELOW the verdict that
+    # was supposed to count it. checkpoint and restore-verify were
+    # always right; verify was the odd one out precisely because it is
+    # the only mode that owns no state file of its own, so its
+    # attestation folds into the checkpoint and I put that at the call
+    # site instead of inside the function. An instrument that
+    # under-reports its own evidence is the same species of fault as a
+    # green test over a wrong product, so all three modes now record
+    # before they judge.
+    if attests:
+        if os.path.exists(STATE_CP):
+            with open(STATE_CP, encoding="utf-8") as fh:
+                st = json.load(fh)
+            record_attestations(st, attests, "verify", now_iso)
+            with open(STATE_CP, "w", encoding="utf-8") as fh:
+                json.dump(st, fh, indent=1)
+        else:
+            out("(--attest ignored: no checkpoint state to record it in)")
+
     return _verdict("PASS -- Stage B held and survived the restart.\n"
                     "        Now restore Day 1 and run restore-verify.")
 
@@ -566,18 +592,10 @@ def main():
     elif mode == "restore-verify":
         rc = do_restore_verify(now, attests, now_iso)
     else:
-        rc = do_verify(now)
-        if attests:
-            # verify does not own a state file; fold the attestation into
-            # the checkpoint so restore-verify can still see it.
-            if os.path.exists(STATE_CP):
-                with open(STATE_CP, encoding="utf-8") as fh:
-                    st = json.load(fh)
-                record_attestations(st, attests, "verify", now_iso)
-                with open(STATE_CP, "w", encoding="utf-8") as fh:
-                    json.dump(st, fh, indent=1)
-            else:
-                out("(--attest ignored: no checkpoint state to record it in)")
+        # Attestation handling lives INSIDE do_verify (see the comment
+        # there): doing it here, after the call, put it after the verdict
+        # the summary is computed from.
+        rc = do_verify(now, attests, now_iso)
     flush(mode)
     return rc
 
