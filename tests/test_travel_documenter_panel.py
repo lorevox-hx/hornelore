@@ -732,9 +732,17 @@ class RetiredModuleSocketRaceTest(unittest.TestCase):
             cb.index("self._refreshDrawer();"),
             "the guard must precede the repaint inside the callback")
 
-        # ...and nowhere else: a stray copy outside the callback would
-        # restore the defect while keeping this test green.
-        self.assertNotIn("self._refreshDrawer();",
-                         head[:then_at],
-                         "a repaint call survives outside the completion "
-                         "callback")
+        # ...and nowhere else. TIGHTENED 2026-08-12 after review: this
+        # read `assertNotIn(..., head[:then_at])`, which only scanned the
+        # source BEFORE .then(). Its comment claimed "nowhere else", so
+        # an unguarded repaint added AFTER the promise chain would have
+        # kept it green while the wording said otherwise. Counting over
+        # the whole _connect region covers both sides, and the count is
+        # the honest form of the claim: exactly one repaint call exists,
+        # and the containment assertions above prove it is the one inside
+        # the callback.
+        self.assertEqual(
+            head.count("self._refreshDrawer();"), 1,
+            "there must be exactly ONE _refreshDrawer() call in _connect "
+            "(the guarded one inside the completion callback); a second "
+            "call anywhere in this region is an unguarded repaint")
