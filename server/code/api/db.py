@@ -1416,6 +1416,55 @@ def init_db() -> None:
                 "(non-fatal — proceeding with migration)")
 
         run_pending_migrations(con)
+
+        # WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01 Phase 1 — post-0043
+        # backfill preflight, the counterpart to the pre-0034 check
+        # above and written to the same rule: report, never block boot.
+        #
+        # 0043 backfills one placement per legacy trip_photo_links.
+        # trip_day_id, but refuses to copy a value pointing at a missing
+        # day or a day in another trip -- copying the first would fail
+        # the new foreign key and take the migration down, the second
+        # would propagate corruption SQLite cannot forbid. It records
+        # every such row in trip_photo_day_placement_skips. A migration
+        # is SQL run through executescript and cannot log for itself, so
+        # this is where the skip becomes something an operator can see:
+        # without it, a photograph that had a day in the old column
+        # would have no day in the new table and nothing anywhere would
+        # say why.
+        try:
+            _cur_skip = con.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name='trip_photo_day_placement_skips';"
+            )
+            if _cur_skip.fetchone() is not None:
+                _rows = con.execute(
+                    "SELECT reason, COUNT(*) AS n, "
+                    "       GROUP_CONCAT(photo_link_id) AS ids "
+                    "  FROM trip_photo_day_placement_skips "
+                    " GROUP BY reason;"
+                ).fetchall()
+                _total = sum(int(r[1]) for r in _rows)
+                if _total:
+                    logger.warning(
+                        "[migrations] 0043 backfill: %d legacy photo-day "
+                        "value(s) NOT carried into "
+                        "trip_photo_day_placements. By reason: %s. Those "
+                        "photographs are on no day in the new model until "
+                        "an operator places them.",
+                        _total,
+                        "; ".join("%s=%d (%s)" % (r[0], int(r[1]),
+                                                  str(r[2] or "")[:200])
+                                  for r in _rows),
+                    )
+                else:
+                    logger.info(
+                        "[migrations] 0043 backfill: every legacy "
+                        "photo-day value carried over cleanly.")
+        except Exception:
+            logger.exception(
+                "[migrations] 0043 backfill preflight failed "
+                "(non-fatal — migrations already applied)")
     except Exception:
         logger.exception("Post-legacy migrations failed")
         con.close()

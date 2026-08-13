@@ -107,6 +107,56 @@ CREATE INDEX IF NOT EXISTS idx_trip_photo_day_placements_day_ord
 CREATE INDEX IF NOT EXISTS idx_trip_photo_day_placements_link
     ON trip_photo_day_placements(photo_link_id);
 
+-- SKIP LEDGER — corruption is SURFACED, never silently omitted.
+--
+-- Added 2026-08-12 after review. The backfill below deliberately does
+-- not copy a legacy scalar that points at a missing day or at a day in
+-- a different trip. Not copying it is right -- the first would fail
+-- the new foreign key and take the whole migration down, the second
+-- would propagate corruption SQLite cannot forbid. But quietly
+-- dropping it is wrong: a placement the operator can see in the old
+-- column would simply stop existing, and nothing would say so. The
+-- work order requires such rows to be rejected or surfaced.
+--
+-- They are surfaced here, durably, with a reason per row. The ledger
+-- is written BEFORE the backfill so its contents describe the state
+-- the migration found, and a repository preflight logs a WARNING
+-- naming the count at startup (trip_repository.placement_backfill_
+-- preflight). Non-fatal by choice: refusing to start the stack over a
+-- historical row would take the whole product down to report a
+-- problem the operator can neither see nor fix at that moment.
+CREATE TABLE IF NOT EXISTS trip_photo_day_placement_skips (
+    id TEXT PRIMARY KEY,
+    photo_link_id TEXT NOT NULL,
+    trip_id TEXT,
+    legacy_trip_day_id TEXT,
+    reason TEXT NOT NULL,
+    detected_at TEXT NOT NULL
+);
+
+INSERT INTO trip_photo_day_placement_skips
+    (id, photo_link_id, trip_id, legacy_trip_day_id, reason, detected_at)
+SELECT
+    lower(hex(randomblob(16))),
+    l.id,
+    l.trip_id,
+    l.trip_day_id,
+    CASE
+        WHEN d.id IS NULL THEN 'dangling_day'
+        ELSE 'cross_trip_day'
+    END,
+    strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+  FROM trip_photo_links l
+  LEFT JOIN trip_days d
+    ON d.id = l.trip_day_id
+ WHERE l.trip_day_id IS NOT NULL
+   AND (d.id IS NULL OR d.trip_id <> l.trip_id)
+   AND NOT EXISTS (
+        SELECT 1 FROM trip_photo_day_placement_skips s
+         WHERE s.photo_link_id = l.id
+           AND s.legacy_trip_day_id = l.trip_day_id
+   );
+
 -- Backfill: exactly one placement per non-null legacy scalar.
 --
 -- The NOT EXISTS guard makes this idempotent against the UNIQUE pair,
@@ -119,9 +169,9 @@ CREATE INDEX IF NOT EXISTS idx_trip_photo_day_placements_link
 -- carry one. Backfilling it would create a placement pointing at a
 -- day that is not there, and the FK on the new table would reject
 -- the row and fail the whole migration. Selecting through trip_days
--- means such a row is skipped rather than fatal, and the Phase 1
--- migration test asserts the resulting count so a skip is visible
--- rather than silent.
+-- means such a row is skipped rather than fatal -- and every row it
+-- skips is recorded in the ledger above, so the skip is a fact on
+-- record rather than an absence.
 --
 -- d.trip_id = l.trip_id is the cross-trip rule SQLite cannot declare.
 -- A link and day from different trips is corruption; it is excluded

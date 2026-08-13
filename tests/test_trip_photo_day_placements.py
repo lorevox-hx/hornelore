@@ -463,3 +463,193 @@ class PrimitivesTest(_Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MoveRequiresAnExistingSourceTest(_Base):
+    """Correction 2026-08-12: a move with a missing source was an ADD.
+
+    The first version added the destination and then removed the source,
+    returning moved=True with removed=0 when the source was not there.
+    "Move this occurrence" silently became "add another occurrence" --
+    creating exactly the multi-day data Phase 1 must not be able to
+    produce.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.migrate()
+        self.con = sqlite3.connect(self.path)
+        self.con.row_factory = sqlite3.Row
+
+    def tearDown(self):
+        self.con.close()
+
+    def test_a_missing_source_performs_zero_writes(self):
+        before = self.placements()
+        out = repo.placement_move(self.con, "L1", "d3", "d2", self.TRIP)
+        self.con.commit()
+        self.assertFalse(out["moved"])
+        self.assertEqual(out["reason"], "source_placement_not_found")
+        self.assertEqual(out["created"], [])
+        self.assertEqual(out["removed"], 0)
+        self.assertEqual(self.placements(), before,
+                         "a move with no source wrote something")
+
+    def test_a_missing_source_does_not_create_the_destination(self):
+        """The precise regression: the add must not happen."""
+        repo.placement_move(self.con, "L1", "d3", "d2", self.TRIP)
+        self.con.commit()
+        self.assertNotIn("d2", self.days_of("L1"),
+                         "a move with no source created the destination")
+        self.assertEqual(self.days_of("L1"), ["d1"])
+
+    def test_a_normal_move_still_works(self):
+        out = repo.placement_move(self.con, "L1", "d1", "d3", self.TRIP)
+        self.con.commit()
+        self.assertTrue(out["moved"])
+        self.assertEqual(out["removed"], 1)
+        self.assertEqual(self.days_of("L1"), ["d3"])
+
+    def test_destination_already_existing_still_removes_the_source(self):
+        """A real operator situation: the photo is on both days and they
+        want the source occurrence gone."""
+        repo.placement_add_many(self.con, ["L1"], "d2", self.TRIP)
+        self.con.commit()
+        out = repo.placement_move(self.con, "L1", "d1", "d2", self.TRIP)
+        self.con.commit()
+        self.assertTrue(out["moved"])
+        self.assertTrue(out["destination_existed"])
+        self.assertEqual(out["removed"], 1)
+        self.assertEqual(self.days_of("L1"), ["d2"])
+
+    def test_injected_destination_failure_preserves_the_source(self):
+        real = repo.placement_add_many
+
+        def boom(con, link_ids, day_id, trip_id, method="operator"):
+            raise RuntimeError("injected destination failure")
+
+        repo.placement_add_many = boom
+        try:
+            with self.assertRaises(RuntimeError):
+                repo.placement_move(self.con, "L1", "d1", "d3", self.TRIP)
+        finally:
+            repo.placement_add_many = real
+        self.con.rollback()
+        self.assertEqual(self.days_of("L1"), ["d1"],
+                         "a failed destination lost the source placement")
+
+
+class CorruptionIsSurfacedTest(_Base):
+    """Correction 2026-08-12: skipping is right; SILENT skipping is not.
+
+    0043 must not copy a legacy scalar pointing at a missing day (the
+    new FK would fail the whole migration) or at another trip's day
+    (propagating corruption SQLite cannot forbid). But a placement the
+    operator can see in the old column must not simply stop existing
+    with nothing saying so.
+    """
+
+    def _corrupt(self, link_id, day_id):
+        con = sqlite3.connect(self.path)
+        con.execute("PRAGMA foreign_keys=OFF")
+        con.execute("UPDATE trip_photo_links SET trip_day_id=? WHERE id=?",
+                    (day_id, link_id))
+        con.commit(); con.close()
+
+    def skips(self):
+        return self.q("SELECT * FROM trip_photo_day_placement_skips"
+                      " ORDER BY photo_link_id")
+
+    def test_a_dangling_day_is_recorded_with_its_reason(self):
+        self._corrupt("L1", "ghost")
+        self.migrate()
+        rows = self.skips()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["photo_link_id"], "L1")
+        self.assertEqual(rows[0]["reason"], "dangling_day")
+        self.assertEqual(rows[0]["legacy_trip_day_id"], "ghost")
+        self.assertTrue(rows[0]["detected_at"])
+
+    def test_a_cross_trip_day_is_recorded_with_its_reason(self):
+        self._corrupt("L1", "x1")          # trip-1 link, trip-2 day
+        self.migrate()
+        rows = self.skips()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["reason"], "cross_trip_day")
+
+    def test_a_healthy_database_records_nothing(self):
+        self.migrate()
+        self.assertEqual(self.skips(), [],
+                         "a clean database produced skip rows")
+
+    def test_the_ledger_is_idempotent(self):
+        self._corrupt("L1", "ghost")
+        self.migrate()
+        self.migrate()
+        self.assertEqual(len(self.skips()), 1,
+                         "re-running 0043 duplicated the skip record")
+
+    def test_the_preflight_reports_the_skip_out_loud(self):
+        """The migration cannot log for itself; this is where the skip
+        reaches an operator."""
+        import logging
+        self._corrupt("L1", "ghost")
+        self.migrate()
+        with self.assertLogs("lorevox.trips", level="WARNING") as cap:
+            out = repo.placement_backfill_preflight()
+        self.assertEqual(out["count"], 1)
+        self.assertEqual(out["by_reason"], {"dangling_day": 1})
+        joined = "\n".join(cap.output)
+        self.assertIn("L1", joined)
+        self.assertIn("dangling_day", joined)
+
+    def test_the_preflight_is_quiet_on_a_clean_database(self):
+        self.migrate()
+        out = repo.placement_backfill_preflight()
+        self.assertEqual(out["count"], 0)
+        self.assertTrue(out["supported"])
+
+    def test_the_preflight_is_safe_before_0043(self):
+        out = repo.placement_backfill_preflight()   # no migrate()
+        self.assertEqual(out["count"], 0)
+        self.assertFalse(out["supported"])
+
+
+class SoftDeletedPhotoDeletionSafetyTest(_Base):
+    """A soft-deleted photo's placement still protects its day.
+
+    Same rule as hidden links: what a card DISPLAYS is governed by
+    honest counts; what a DELETE would detach is not. A soft delete is
+    reversible, so a day still holding one is not empty -- destroying
+    the day row would make that restore land nowhere.
+    """
+
+    def setUp(self):
+        super().setUp()
+        con = sqlite3.connect(self.path)
+        con.executescript("""
+            CREATE TABLE IF NOT EXISTS photos(
+                id TEXT PRIMARY KEY, narrator_id TEXT, deleted_at TEXT);
+            INSERT INTO photos(id, narrator_id, deleted_at)
+                VALUES ('ph1','p1',NULL);
+        """)
+        con.commit(); con.close()
+        self.migrate()
+
+    def _is_empty(self, day_id):
+        con = sqlite3.connect(self.path)
+        con.row_factory = sqlite3.Row
+        try:
+            attached = repo._day_attachment_counts(con, self.TRIP)
+        finally:
+            con.close()
+        return repo._day_is_empty({"id": day_id}, attached)
+
+    def test_a_soft_deleted_photos_placement_still_protects_its_day(self):
+        con = sqlite3.connect(self.path)
+        con.execute("UPDATE photos SET deleted_at='2026-08-12T00:00:00Z'"
+                    " WHERE id='ph1'")
+        con.commit(); con.close()
+        self.assertFalse(
+            self._is_empty("d1"),
+            "a soft-deleted photo's day read as empty and could be deleted")

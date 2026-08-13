@@ -19,10 +19,18 @@ Design rules:
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+# WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01 Phase 1: this module had no
+# logger. It needs one so migration 0043's skip ledger can be reported
+# out loud (placement_backfill_preflight) -- a migration cannot log for
+# itself, and a skipped placement that nothing announces is exactly the
+# silent omission the work order forbids.
+logger = logging.getLogger("lorevox.trips")
 
 # WO-TRIP-LANE-AUDIT-FIXPACK-01 (H1): single source of truth for the
 # trip_stops.stop_type CHECK enum (migration 0015). API + import
@@ -79,6 +87,9 @@ _KNOWN_TABLES = (
     # code-before-migration failure, and this table's absence is
     # exactly the case where the LEGACY scalar is still the truth.
     "trip_photo_day_placements",
+    # Its skip ledger: 0043 records here the legacy scalars it refused
+    # to copy, so a skip is a fact on record rather than an absence.
+    "trip_photo_day_placement_skips",
     # WO-TRAVEL-DOC-CLOSEOUT-01: probed for include_in_memoir, which
     # arrives in migration 0042. day_projection has to answer
     # "unsupported" on a pre-0042 database rather than "0 days
@@ -274,15 +285,45 @@ def placement_move(con: sqlite3.Connection, link_id: str, from_day_id: str,
     The source must be named. A photograph on three days cannot be
     moved correctly from a bare link id -- "move it" would have three
     possible readings and the code would silently pick one.
+
+    THE SOURCE MUST ALSO EXIST. Corrected 2026-08-12 after review: the
+    first version added the destination and then removed the source,
+    and returned ``moved: True`` with ``removed: 0`` when the named
+    source was not there. A command meaning "move THIS occurrence"
+    had quietly become "add another occurrence" -- the operator asked
+    for one placement to change days and got a second placement
+    instead, which is the multi-day data Phase 1 is specifically not
+    supposed to be able to create yet.
+
+    The source is therefore checked BEFORE any write, and a missing one
+    is a refusal with zero writes rather than a silent add. Deliberately
+    still supported: the destination already existing. That is a real
+    operator situation (the photo is on both days and they want the
+    source occurrence gone), so it removes the source and says so.
     """
     if not _placements_supported(con):
-        return {"moved": False, "reason": "placements_unsupported"}
+        return {"moved": False, "reason": "placements_unsupported",
+                "created": [], "removed": 0}
     _assert_link_in_trip(con, link_id, trip_id)
     _assert_day_in_trip(con, to_day_id, trip_id)
     _assert_day_in_trip(con, from_day_id, trip_id)
+
+    source = con.execute(
+        "SELECT id FROM trip_photo_day_placements"
+        " WHERE photo_link_id = ? AND trip_day_id = ?",
+        (link_id, from_day_id),
+    ).fetchone()
+    if source is None:
+        # Zero writes. Not an exception: "that occurrence is not on that
+        # day" is an answer the caller can act on, not a programmer
+        # error like a cross-trip id.
+        return {"moved": False, "reason": "source_placement_not_found",
+                "created": [], "removed": 0}
+
     created = placement_add_many(con, [link_id], to_day_id, trip_id)
     removed = placement_remove_from_day(con, [link_id], from_day_id)
-    return {"moved": True, "created": created, "removed": removed}
+    return {"moved": True, "created": created, "removed": removed,
+            "destination_existed": not created}
 
 
 def placement_reorder(con: sqlite3.Connection, day_id: str,
@@ -300,6 +341,67 @@ def placement_reorder(con: sqlite3.Connection, day_id: str,
         )
         updated += cur.rowcount
     return updated
+
+
+def placement_backfill_skips(con: sqlite3.Connection) -> List[Dict[str, Any]]:
+    """Legacy scalars migration 0043 refused to copy, with the reason.
+
+    Empty on a healthy database and on a pre-0043 one.
+    """
+    if not _table_exists(con, "trip_photo_day_placement_skips"):
+        return []
+    rows = con.execute(
+        "SELECT * FROM trip_photo_day_placement_skips"
+        " ORDER BY detected_at, id"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def placement_backfill_preflight() -> Dict[str, Any]:
+    """Report 0043's skipped rows to the operator's log.
+
+    Added 2026-08-12 after review. The migration cannot log -- it is
+    SQL run through executescript -- so it records what it skipped and
+    this names it out loud afterwards. Without this the operator would
+    have a photograph that was on a day in the old column and is on no
+    day in the new table, with nothing anywhere saying why.
+
+    Non-fatal by choice, and the choice is worth stating: refusing to
+    start over a historical corrupt row would take the whole product
+    down to report something the operator can neither see nor fix at
+    that moment. A loud WARNING carrying the count, the reasons and the
+    link ids is the honest middle -- it cannot be missed by anyone
+    reading api.log, and it does not hold the family's archive hostage.
+
+    Returns {"supported", "count", "by_reason", "rows"} so tests can
+    assert on it rather than on log text.
+    """
+    con = _connect()
+    try:
+        rows = placement_backfill_skips(con)
+        supported = _table_exists(con, "trip_photo_day_placement_skips")
+    finally:
+        con.close()
+
+    by_reason: Dict[str, int] = {}
+    for r in rows:
+        key = str(r.get("reason") or "unknown")
+        by_reason[key] = by_reason.get(key, 0) + 1
+
+    if rows:
+        logger.warning(
+            "[trips][0043-backfill] %d legacy photo-day value(s) were NOT "
+            "backfilled into trip_photo_day_placements because they point "
+            "at a missing day or a day in another trip: %s. Affected photo "
+            "links: %s. These photographs are on no day in the new model "
+            "until an operator places them.",
+            len(rows),
+            ", ".join("%s=%d" % kv for kv in sorted(by_reason.items())),
+            ", ".join(str(r.get("photo_link_id")) for r in rows[:20])
+            + (" (+%d more)" % (len(rows) - 20) if len(rows) > 20 else ""),
+        )
+    return {"supported": supported, "count": len(rows),
+            "by_reason": by_reason, "rows": rows}
 
 
 def _placement_day_tally(con: sqlite3.Connection,
