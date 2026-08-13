@@ -211,15 +211,49 @@ class RealChainBackfillTest(_Chain):
     def test_foreign_key_check_still_clean_after_backfill(self):
         self.assertEqual(self.q("PRAGMA foreign_key_check"), [])
 
-    def test_the_bridge_works_on_the_real_schema(self):
-        """End to end on production table shapes, not a stand-in."""
-        repo.photo_links_set_day(["PL1"], "D2", "T1")
-        days = [r["trip_day_id"] for r in self.q(
-            "SELECT trip_day_id FROM %s WHERE photo_link_id='PL1'" % _TABLE)]
-        self.assertEqual(days, ["D2"], "bridge left the old placement behind")
+    def test_the_placement_api_works_on_the_real_schema(self):
+        """End to end on production table shapes, not a stand-in.
+
+        REWRITTEN 2026-08-13. This drove the Phase 1 dual-write bridge
+        and asserted that a move left no old placement behind AND that
+        the legacy scalar followed. Phase 2 retired the bridge: placing
+        a second day ADDS, and the scalar is not written at all. Both
+        of those are asserted here, against the real forty-three
+        migration chain rather than the minimal-schema stand-in.
+        """
+        before_scalar = self.q(
+            "SELECT trip_day_id FROM trip_photo_links WHERE id='PL1'"
+        )[0]["trip_day_id"]
+
+        repo.day_placements_add(["PL1"], "D2", "T1")
+        days = sorted(r["trip_day_id"] for r in self.q(
+            "SELECT trip_day_id FROM %s WHERE photo_link_id='PL1'" % _TABLE))
+        self.assertEqual(days, ["D1", "D2"],
+                         "adding a day removed the one already there")
         self.assertEqual(
             self.q("SELECT trip_day_id FROM trip_photo_links WHERE id='PL1'"
-                   )[0]["trip_day_id"], "D2")
+                   )[0]["trip_day_id"], before_scalar,
+            "a placement operation wrote the retired legacy column")
+
+    def test_the_move_operation_works_on_the_real_schema(self):
+        out = repo.day_placement_move("PL1", "D1", "D2", "T1")
+        self.assertTrue(out["moved"])
+        days = [r["trip_day_id"] for r in self.q(
+            "SELECT trip_day_id FROM %s WHERE photo_link_id='PL1'" % _TABLE)]
+        self.assertEqual(days, ["D2"])
+
+    def test_serialized_reads_derive_the_scalar_from_placements(self):
+        """The compatibility rule against real tables: one placement may
+        speak for the row, several may not."""
+        one = repo.photo_link_get("PL1")
+        self.assertEqual(one["trip_day_id"], "D1")
+        self.assertEqual(one["trip_day_ids"], ["D1"])
+
+        repo.day_placements_add(["PL1"], "D2", "T1")
+        many = repo.photo_link_get("PL1")
+        self.assertIsNone(many["trip_day_id"])
+        self.assertEqual(sorted(many["trip_day_ids"]), ["D1", "D2"])
+        self.assertEqual(len(many["day_placements"]), 2)
 
     def test_the_deletion_tally_reads_placements_on_the_real_schema(self):
         con = sqlite3.connect(self.path)

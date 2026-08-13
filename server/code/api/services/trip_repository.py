@@ -150,8 +150,48 @@ def _table_exists(con: sqlite3.Connection, table: str) -> bool:
 # operation rolls BOTH representations back.
 
 
+class PlacementTableMissingError(sqlite3.OperationalError):
+    """0043 was applied and its table is gone. That is corruption."""
+
+
 def _placements_supported(con: sqlite3.Connection) -> bool:
-    return _table_exists(con, "trip_photo_day_placements")
+    """Is the placement table here -- and if not, is that legitimate?
+
+    Every reader in this module branches on this, so it is the one
+    place that can tell the two absences apart, and they are not alike:
+
+      * a database that never ran migration 0043 has no placements and
+        never had any. Reading the legacy scalar is the correct answer
+        and returning False gives it.
+
+      * a database whose ledger RECORDS 0043 and whose table is missing
+        has lost its placements. Every day would report zero
+        photographs -- and zero attachments is exactly what licenses
+        ``drop_empty_out_of_range`` to delete a day row. Degrading
+        quietly here would turn a damaged database into a destroyed
+        one, through an operator action as unrelated as correcting an
+        end date.
+
+    Added 2026-08-13 after a Phase 2 test asked for an honest failure
+    and got a silent legacy fallback instead. The ledger check runs
+    ONLY on the absent branch, so the normal path is still one query.
+    """
+    if _table_exists(con, "trip_photo_day_placements"):
+        return True
+    try:
+        applied = con.execute(
+            "SELECT 1 FROM schema_migrations WHERE filename = ?",
+            ("0043_trip_photo_day_placements.sql",)).fetchone()
+    except sqlite3.OperationalError:
+        # No ledger at all: a hand-built or very old database. Nothing
+        # here can claim corruption, so the legacy reading stands.
+        return False
+    if applied:
+        raise PlacementTableMissingError(
+            "trip_photo_day_placements is missing but migration 0043 is "
+            "recorded as applied; refusing to report this database as "
+            "having no photo placements")
+    return False
 
 
 def _assert_link_in_trip(con: sqlite3.Connection, link_id: str,
@@ -423,6 +463,99 @@ def _placement_day_tally(con: sqlite3.Connection,
         (trip_id,),
     ).fetchall()
     return {str(r["d"]): int(r["n"]) for r in rows if r["d"]}
+
+
+# ── Phase 2: authoritative reads and compatibility serialization ─────────
+
+
+def placements_by_link_for_trip(
+        con: sqlite3.Connection, trip_id: str) -> Dict[str, List[Dict[str, Any]]]:
+    """Every placement in one trip, grouped by photo link. ONE query.
+
+    The alternative -- asking placements_for_link() per row while
+    serializing a photo list -- is an N+1 that grows with the trip. A
+    trip with 400 photographs would issue 401 queries to answer one
+    request, and §11 forbids exactly that.
+
+    Ordered by the DAY's position in the trip, then by the placement's
+    own ord. A link's placement list therefore reads chronologically
+    ("this photograph is on the 4th and the 9th"), while a DAY's list
+    reads in the operator's chosen order -- two different questions,
+    two different orders, which is why placements_for_day() sorts
+    differently and deliberately.
+    """
+    return _placements_grouped(con, "l.trip_id = ?", (trip_id,))
+
+
+# One projection, two callers (whole trip, single link), so a
+# `day_placements` object never has two different shapes depending on
+# which read produced it.
+_PLACEMENT_SELECT = (
+    "SELECT p.id, p.photo_link_id, p.trip_day_id, p.ord,"
+    "       p.placement_method, p.placement_note,"
+    "       d.day_index AS day_index, d.date AS day_date,"
+    "       d.title AS day_title"
+    "  FROM trip_photo_day_placements p"
+    "  JOIN trip_photo_links l ON l.id = p.photo_link_id"
+    "  LEFT JOIN trip_days d ON d.id = p.trip_day_id"
+    " WHERE ")
+
+
+def _placements_grouped(con: sqlite3.Connection, where: str,
+                        params: tuple) -> Dict[str, List[Dict[str, Any]]]:
+    if not _placements_supported(con):
+        return {}
+    rows = con.execute(
+        _PLACEMENT_SELECT + where + " ORDER BY d.day_index, d.date, p.ord,"
+        " p.id", params).fetchall()
+    out: Dict[str, List[Dict[str, Any]]] = {}
+    for r in rows:
+        out.setdefault(str(r["photo_link_id"]), []).append(dict(r))
+    return out
+
+
+def placements_for_link_detailed(
+        con: sqlite3.Connection, link_id: str) -> List[Dict[str, Any]]:
+    """One link's placements, in the same shape the trip-wide read uses."""
+    return _placements_grouped(
+        con, "p.photo_link_id = ?", (link_id,)).get(str(link_id), [])
+
+
+def apply_placement_serialization(
+        rows: List[Dict[str, Any]],
+        by_link: Dict[str, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """Attach authoritative day placement to serialized photo-link rows.
+
+    THE COMPATIBILITY SCALAR IS DERIVED HERE, NOT READ FROM THE COLUMN,
+    and that is the whole point. From Phase 2 nothing writes
+    ``trip_photo_links.trip_day_id`` any more, so the stored value is a
+    fossil: correct for rows last touched before this phase, silently
+    wrong for everything after. A consumer reading the column directly
+    would get yesterday's answer with no indication it was stale.
+    Overwriting it from the placements makes the fossil unreachable
+    through every serialized read, which is what lets the column be
+    dropped in Phase 6 without a second audit.
+
+    The rule (work order §5.3-5.4):
+
+        0 placements  -> trip_day_id = None
+        1 placement   -> trip_day_id = that day
+        2 or more     -> trip_day_id = None, ALWAYS
+
+    The last line is the one that matters. Picking the first of several
+    days would hand an old single-day consumer a confident, arbitrary
+    answer -- the photograph would appear to be on Day 1 and not on Day
+    3, which is worse than saying nothing, because nothing is at least
+    visibly a gap. ``trip_day_ids`` and ``day_placements`` carry the
+    complete truth for anyone who has been migrated.
+    """
+    for row in rows:
+        placements = by_link.get(str(row.get("id") or ""), [])
+        row["day_placements"] = placements
+        row["trip_day_ids"] = [str(p["trip_day_id"]) for p in placements]
+        row["trip_day_id"] = (str(placements[0]["trip_day_id"])
+                              if len(placements) == 1 else None)
+    return rows
 
 
 def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
@@ -1761,13 +1894,26 @@ def photo_link_upsert(
 
 def photo_link_get(link_id: str) -> Optional[Dict[str, Any]]:
     """Single link row — BUG-TRIP-PHOTO-LINK-CROSS-TRIP-STOP-ASSIGNMENT-01:
-    patch callers need the link's trip_id to validate the target stop."""
+    patch callers need the link's trip_id to validate the target stop.
+
+    Phase 2: this is a `SELECT *`, so it would otherwise hand back the
+    stored ``trip_day_id`` -- a column nothing writes any more. A
+    caller asking "what day is this photograph on?" would get the value
+    it had before the migration and no sign it was stale. The
+    placements decide, exactly as they do for the list reads. This gap
+    was found by an existing test rather than by reading the code, which
+    is the argument for having had one.
+    """
     con = _connect()
     try:
         row = con.execute(
             "SELECT * FROM trip_photo_links WHERE id = ?", (link_id,),
         ).fetchone()
-        return _row_to_dict(row) if row else None
+        if not row:
+            return None
+        out = _row_to_dict(row)
+        return apply_placement_serialization(
+            [out], {link_id: placements_for_link_detailed(con, link_id)})[0]
     finally:
         con.close()
 
@@ -1882,9 +2028,20 @@ def trip_photo_inventory(trip_id: str) -> Dict[str, int]:
     con = _connect()
     try:
         has_hidden = _table_has_column(con, "trip_photo_links", "hidden")
-        has_day = _table_has_column(con, "trip_photo_links", "trip_day_id")
-        day_expr = ("SUM(CASE WHEN l.trip_day_id IS NOT NULL THEN 1 ELSE 0 END)"
-                    if has_day else "0")
+        # Phase 2: "on a day" is now "has at least one placement", not
+        # "the legacy scalar is not null". Counting the scalar would
+        # report 0 for a photograph the operator placed on three days,
+        # because nothing writes that column any more -- and this count
+        # is what tells Lori a photograph is placed at all.
+        if _placements_supported(con):
+            day_expr = ("SUM(CASE WHEN EXISTS (SELECT 1 FROM"
+                        " trip_photo_day_placements pl"
+                        " WHERE pl.photo_link_id = l.id) THEN 1 ELSE 0 END)")
+        elif _table_has_column(con, "trip_photo_links", "trip_day_id"):
+            day_expr = ("SUM(CASE WHEN l.trip_day_id IS NOT NULL"
+                        " THEN 1 ELSE 0 END)")
+        else:
+            day_expr = "0"
         row = con.execute(
             "SELECT COUNT(*), " + day_expr + ", "
             "       SUM(CASE WHEN p.narrator_ready = 1 THEN 1 ELSE 0 END) "
@@ -2002,7 +2159,12 @@ def photo_links_list(
                     "AS link_gps_present"
                 )
                 rows = _run("", safe_link_cols=_LEGACY_LINK_COLS)
-        return [_row_to_dict(r) for r in rows]
+        out = [_row_to_dict(r) for r in rows]
+        # Phase 2: day placement is authoritative and the compatibility
+        # scalar is derived, never the stored column. See
+        # apply_placement_serialization.
+        return apply_placement_serialization(
+            out, placements_by_link_for_trip(con, trip_id))
     finally:
         con.close()
 
@@ -2353,34 +2515,42 @@ def photo_links_with_photo_paths(
         # BY HAND (assignment_method='operator'). That is not a thin
         # document; it is a false statement in the artefact.
         #
-        # LEFT JOIN and not INNER: a link whose day row has since been
-        # removed must still reach the appendix as unplaced rather than
-        # vanish from it.
-        _day_cols = ""
-        if _table_has_column(con, "trip_photo_links", "trip_day_id"):
-            _day_cols = (",\n                       d.date AS day_date,"
-                         "\n                       d.title AS day_title,"
-                         "\n                       d.day_index AS day_index")
-            _day_join = ("LEFT JOIN trip_days d ON d.id = l.trip_day_id")
-        else:
-            _day_join = ""
+        # PHASE 2 REMOVED THE SQL DAY JOIN. It read
+        # `LEFT JOIN trip_days d ON d.id = l.trip_day_id`, and from this
+        # phase nothing writes that column, so the join would have gone
+        # on answering with whatever day the photograph was last on
+        # before the migration -- a stale answer indistinguishable from
+        # a current one. The day columns are now derived from the
+        # placements below, which also means a photograph on several
+        # days no longer has to pretend it is on one.
         rows = con.execute(
             f"""SELECT l.*, p.image_path AS photo_image_path,
                        p.description AS photo_description,
                        p.date_value AS photo_date_value,
                        p.narrator_ready AS photo_narrator_ready,
                        s.location_name AS stop_location_name,
-                       r.title AS region_title{_day_cols}
+                       r.title AS region_title
                 FROM trip_photo_links l
                 JOIN photos p ON p.id = l.photo_id
                 LEFT JOIN trip_stops s ON s.id = l.trip_stop_id
                 LEFT JOIN trip_regions r ON r.id = l.trip_region_id
-                {_day_join}
                 WHERE {where}
                 ORDER BY l.taken_at, l.ord""",
             (trip_id,),
         ).fetchall()
-        return [_row_to_dict(r) for r in rows]
+        out = apply_placement_serialization(
+            [_row_to_dict(r) for r in rows],
+            placements_by_link_for_trip(con, trip_id))
+        for row in out:
+            # The single-day compatibility columns, under the same rule
+            # as the scalar: one placement may speak for the row, and
+            # none or several may not.
+            placements = row.get("day_placements") or []
+            one = placements[0] if len(placements) == 1 else {}
+            row["day_date"] = one.get("day_date")
+            row["day_title"] = one.get("day_title")
+            row["day_index"] = one.get("day_index")
+        return out
     finally:
         con.close()
 
@@ -2761,13 +2931,28 @@ def trip_timeline_projection(trip_id: str,
                 "summary": _s.get("summary") or "",
                 "link_url": _s.get("link_url") or "",
             })
-        if _table_has_column(con, "trip_photo_links", "trip_day_id"):
+        # ── "Needs a day" means ZERO PLACEMENTS (work order §6.5) ─────
+        #
+        # It used to mean `l.trip_day_id IS NULL`, and under many-to-many
+        # that reading is actively wrong rather than merely outdated: a
+        # photograph placed on Day 1 and Day 3 serializes its
+        # compatibility scalar as null BY RULE, so the old query would
+        # have printed it under "Needs a day" in the same document that
+        # already printed it under both days. The operator would see one
+        # photograph three times and be told it was unplaced.
+        _unplaced_where = "l.trip_day_id IS NULL"
+        if _placements_supported(con):
+            _unplaced_where = (
+                "NOT EXISTS (SELECT 1 FROM trip_photo_day_placements pl"
+                "            WHERE pl.photo_link_id = l.id)")
+        if (_placements_supported(con)
+                or _table_has_column(con, "trip_photo_links", "trip_day_id")):
             sql = ("SELECT l.id AS link_id, l.photo_id, l.taken_at, l.ord, "
                    "       l.caption, l.narrator_caption, "
                    "       p.description AS photo_description "
                    "  FROM trip_photo_links l "
                    "  LEFT JOIN photos p ON p.id = l.photo_id "
-                   " WHERE l.trip_id = ? AND l.trip_day_id IS NULL "
+                   " WHERE l.trip_id = ? AND " + _unplaced_where +
                    "   AND p.deleted_at IS NULL "
                    + _timeline_hidden_clause(con, "trip_photo_links", "l") +
                    " ORDER BY l.taken_at, l.ord")
@@ -4058,84 +4243,184 @@ def trip_day_update(
         con.close()
 
 
-def photo_links_set_day(
-    link_ids: List[str],
-    day_id: Optional[str],
-    trip_id: str,
-) -> int:
-    """Attach (or detach, day_id=None) trip photo links to a day card
-    (WO-TRAVEL-DOC-UI-LAB-02). Validates that the day AND every link
-    belong to ``trip_id`` — cross-trip ids raise ValueError and nothing
-    is written (one transaction). Returns the number of links updated."""
-    ids = [str(l) for l in (link_ids or []) if l]
+# ── Day placement, the operator-facing transactional API (Phase 2) ───────
+#
+# RETIRED HERE: photo_links_set_day(link_ids, day_id, trip_id).
+#
+# It was the single writer of trip_photo_links.trip_day_id, and in Phase
+# 1 it became the dual-write bridge that kept the scalar and the
+# placement rows in step. Phase 2 removes it rather than migrating it,
+# because its signature IS the defect this work order exists to fix: a
+# function whose destination is one nullable day cannot express "also on
+# Day 3", and every caller shaped itself around that limit. Keeping it
+# as a placement-only "set to exactly this day" helper would have left
+# the old shape available and made it the path of least resistance for
+# the next feature.
+#
+# The three functions below replace it and say what they do:
+# day_placements_add (a photograph gains a day), day_placements_remove
+# (loses THAT day, keeps the others), day_placement_move (one named
+# occurrence changes days). No new code writes the legacy scalar; the
+# column keeps its historical values until Phase 6 drops it, and every
+# serialized read derives the compatibility scalar from placements
+# instead -- see apply_placement_serialization.
+
+
+def _is_placement_unique_violation(exc: Exception) -> bool:
+    """Did this IntegrityError come from UNIQUE(photo_link_id, day)?
+
+    Classified rather than caught wholesale, following the pattern the
+    photo-upload lane uses for its file_hash race
+    (routers/photos.py:724). A bare `except IntegrityError` here would
+    also swallow a foreign-key failure -- a placement pointing at a day
+    or a link that does not exist -- and report it to the operator as
+    "already on that day", which is a lie about a corrupt write.
+    """
+    if not isinstance(exc, sqlite3.IntegrityError):
+        return False
+    msg = str(exc).lower()
+    return ("unique" in msg
+            and "photo_link_id" in msg
+            and "trip_day_id" in msg)
+
+
+def day_placements_add(link_ids: List[str], day_id: str, trip_id: str,
+                       method: str = "operator") -> Dict[str, Any]:
+    """Place photographs on a day. One transaction. Idempotent per pair.
+
+    Returns created placement ids, the links that were already there,
+    and the day's resulting placement list. "Already there" is reported
+    rather than silently folded into success because the interface has
+    to be able to say *nothing changed* -- an operator who adds a photo
+    twice and sees "added" both times has been told something false.
+
+    The UNIQUE race (§6.1): two requests adding the same pair at the
+    same instant both pass the pre-check and one loses at the INSERT.
+    That loss means the pair now exists, which is what the caller asked
+    for, so it is reported as already-present rather than as an error.
+    Only a violation of THAT constraint is treated this way.
+    """
+    ids: List[str] = []
+    for raw in (link_ids or []):
+        sid = str(raw)
+        if sid and sid not in ids:
+            ids.append(sid)
     if not ids:
-        return 0
+        return {"created": [], "already_present": [], "placements": []}
+
     con = _connect()
     try:
-        # WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01 Phase 1 — validation moved
-        # INSIDE the write transaction. This used to call trip_day_get()
-        # before _connect(), so the destination day was checked on a
-        # different connection than the one that then wrote to it. That
-        # was survivable while only a scalar was written; it is not once
-        # a placement ROW is written too, because a day removed between
-        # the check and the write leaves a placement pointing at a day
-        # that no longer exists.
-        if day_id:
-            _assert_day_in_trip(con, day_id, trip_id)
+        if not _placements_supported(con):
+            raise RuntimeError(
+                "trip_photo_day_placements is missing; migration 0043 has "
+                "not been applied to this database")
+        _assert_day_in_trip(con, day_id, trip_id)
         for lid in ids:
             _assert_link_in_trip(con, lid, trip_id)
 
-        # ── The dual-write bridge (Phase 1 only) ──────────────────────
-        #
-        # This MIRRORS the scalar. It does not add multi-day behaviour:
-        # the UI still says "Move to this day", and Phase 1 changes
-        # storage, not product semantics. Transition for transition —
-        #
-        #     null -> B   placements become {B}
-        #     A    -> B   placements become {B}  (delete A, insert B)
-        #     A    -> null placements become {}
-        #     A    -> A   unchanged, no duplicate
-        #
-        # The failure this rules out is inserting B while leaving A
-        # behind. That would produce two-day data from an action the
-        # operator performed as a MOVE, before any control exists to
-        # see or undo the second placement. Phase 2 turns move into
-        # add; Phase 1 must not anticipate it.
-        #
-        # Deletion is scoped to (this link, its OWN previous day) — read
-        # per link below. Deleting by day would clear the day; deleting
-        # by link would clear every day.
-        bridge = _placements_supported(con)
-        prev_days: Dict[str, Optional[str]] = {}
-        if bridge:
-            for lid in ids:
-                row = con.execute(
-                    "SELECT trip_day_id FROM trip_photo_links WHERE id = ?",
-                    (lid,),
-                ).fetchone()
-                prev_days[lid] = (row["trip_day_id"] if row else None)
+        existing = {
+            str(r["photo_link_id"]) for r in con.execute(
+                "SELECT photo_link_id FROM trip_photo_day_placements"
+                " WHERE trip_day_id = ?", (day_id,)).fetchall()
+        }
+        already = [lid for lid in ids if lid in existing]
+        wanted = [lid for lid in ids if lid not in existing]
 
-        updated = 0
-        for lid in ids:
-            cur = con.execute(
-                "UPDATE trip_photo_links SET trip_day_id = ?, "
-                "updated_at = ? WHERE id = ?",
-                (day_id, _now(), lid),
-            )
-            updated += cur.rowcount
+        created: List[str] = []
+        for lid in wanted:
+            try:
+                created.extend(
+                    placement_add_many(con, [lid], day_id, trip_id, method))
+            except sqlite3.IntegrityError as exc:
+                if not _is_placement_unique_violation(exc):
+                    raise
+                logger.info(
+                    "[trips][placement] lost the UNIQUE race for link=%s "
+                    "day=%s; the pair exists, reporting already-present",
+                    lid, day_id)
+                already.append(lid)
 
-        if bridge:
-            for lid in ids:
-                was = prev_days.get(lid)
-                if was and was != day_id:
-                    placement_remove_from_day(con, [lid], was)
-            if day_id:
-                # Idempotent per pair, so A -> A adds nothing.
-                placement_add_many(con, ids, day_id, trip_id,
-                                   method="operator")
-
+        placements = placements_for_day(con, day_id)
         con.commit()
-        return updated
+        return {"created": created, "already_present": already,
+                "placements": placements}
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def day_placements_remove(link_ids: List[str], day_id: str,
+                          trip_id: str) -> Dict[str, Any]:
+    """Take photographs off ONE day. One transaction.
+
+    Removes nothing else: the other placements of the same photograph,
+    its trip membership, the photos row, the original file, the
+    thumbnail, the caption, the approval flags and the shared context
+    all survive. This function issues exactly one DELETE, against
+    trip_photo_day_placements, scoped by (link, day).
+    """
+    ids: List[str] = []
+    for raw in (link_ids or []):
+        sid = str(raw)
+        if sid and sid not in ids:
+            ids.append(sid)
+    if not ids:
+        return {"removed": 0, "not_present": [], "placements": []}
+
+    con = _connect()
+    try:
+        if not _placements_supported(con):
+            raise RuntimeError(
+                "trip_photo_day_placements is missing; migration 0043 has "
+                "not been applied to this database")
+        _assert_day_in_trip(con, day_id, trip_id)
+        for lid in ids:
+            _assert_link_in_trip(con, lid, trip_id)
+
+        present = {
+            str(r["photo_link_id"]) for r in con.execute(
+                "SELECT photo_link_id FROM trip_photo_day_placements"
+                " WHERE trip_day_id = ?", (day_id,)).fetchall()
+        }
+        not_present = [lid for lid in ids if lid not in present]
+        removed = placement_remove_from_day(con, ids, day_id)
+        placements = placements_for_day(con, day_id)
+        con.commit()
+        return {"removed": removed, "not_present": not_present,
+                "placements": placements}
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def day_placement_move(link_id: str, from_day_id: str, to_day_id: str,
+                       trip_id: str) -> Dict[str, Any]:
+    """Move one named occurrence between days. One transaction.
+
+    Both days are validated before either write, and a destination that
+    fails rolls the source removal back with it -- a photograph cannot
+    end up on neither day. A source that is not there is a refusal with
+    zero writes, not a silent add; see placement_move for why that
+    distinction is load-bearing.
+    """
+    con = _connect()
+    try:
+        if not _placements_supported(con):
+            raise RuntimeError(
+                "trip_photo_day_placements is missing; migration 0043 has "
+                "not been applied to this database")
+        result = placement_move(con, str(link_id), str(from_day_id),
+                                str(to_day_id), trip_id)
+        if not result.get("moved"):
+            con.rollback()
+            return result
+        result["placements"] = placements_for_day(con, to_day_id)
+        con.commit()
+        return result
     except Exception:
         con.rollback()
         raise
@@ -4146,10 +4431,12 @@ def photo_links_set_day(
 def trip_day_counts(trip_id: str) -> Dict[str, Dict[str, int]]:
     """Honest per-day evidence counts keyed by day id.
 
-    - photos: links attached to the day (trip_day_id, migration 0028)
-      count on THAT day first; links without a day attachment fall back
-      to the taken-date match (COALESCE(link.taken_at, photos.date_value)
-      date prefix). Undated, unattached links count nowhere.
+    - photos: EXPLICIT, live, visible placements on that day, and
+      nothing else (work order §7). See below for what that changed and
+      why it had to.
+    - photo_suggestions: photographs whose taken date falls on this day
+      and which the operator has NOT placed here. A separate number, in
+      a separate key, never folded into ``photos``.
     - notes: rows attached to the day (trip_day_id) count on that day;
       unattached rows count only via the day's linked stop/region scope.
     - sources: rows attached to the day (trip_sources.trip_day_id,
@@ -4165,6 +4452,24 @@ def trip_day_counts(trip_id: str) -> Dict[str, Dict[str, int]]:
     if not days:
         return {}
 
+    # ── WHAT PHASE 2 CHANGED HERE, AND WHY IT IS NOT COSMETIC ────────
+    #
+    # ``photos`` used to be day-attached links PLUS a taken-date match
+    # for links attached to no day. One number, two meanings: "the
+    # operator put this here" and "the camera says this was probably
+    # taken here". A day card reading 12 could mean twelve deliberate
+    # placements, twelve guesses, or any mixture, and the operator had
+    # no way to tell which -- while the same card's delete-protection
+    # counted only the deliberate ones. The card and the safety rule
+    # disagreed about what the day held.
+    #
+    # From Phase 2 ``photos`` counts explicit placements only, and the
+    # date match becomes ``photo_suggestions``, computed per day and
+    # excluding anything already placed on THAT day (a photograph on
+    # Day 1 whose taken date is Day 3 is still a legitimate suggestion
+    # for Day 3 -- excluding it merely because it is placed somewhere
+    # would hide the most likely thing the operator wants to do next).
+    #
     # Photo counts: day-attached links first (0028), then date-prefix
     # fallback for unattached links only.
     #
@@ -4184,7 +4489,6 @@ def trip_day_counts(trip_id: str) -> Dict[str, Dict[str, int]]:
     # date-only query does NOT reference trip_day_id, so a failure
     # there is a real error (never a legacy signal) and re-raises
     # too.
-    by_date: Dict[str, int] = {}
     by_day: Dict[str, int] = {}
     con = _connect()
     try:
@@ -4196,33 +4500,69 @@ def trip_day_counts(trip_id: str) -> Dict[str, Dict[str, int]]:
                          if _table_has_column(
                              con, "trip_photo_links", "hidden")
                          else "")
+        _placements = _placements_supported(con)
+        # {link_id: date10} and {link_id: {day_id, ...}} for the
+        # suggestion pass, which has to be per-day and therefore cannot
+        # be a GROUP BY: "already placed on THIS day" is a different
+        # question for every day.
+        dated_links: Dict[str, str] = {}
+        placed_days: Dict[str, set] = {}
         try:
+            if _placements:
+                rows = con.execute(
+                    """SELECT pl.trip_day_id AS d, COUNT(*) AS n
+                       FROM trip_photo_day_placements pl
+                       JOIN trip_photo_links l ON l.id = pl.photo_link_id
+                       LEFT JOIN photos p ON p.id = l.photo_id
+                       WHERE l.trip_id = ?
+                         AND (p.id IS NULL OR p.deleted_at IS NULL)
+                    """ + _hidden_where + """
+                       GROUP BY pl.trip_day_id""",
+                    (trip_id,),
+                ).fetchall()
+                by_day = {str(r["d"]): int(r["n"]) for r in rows if r["d"]}
+                for r in con.execute(
+                        "SELECT pl.photo_link_id AS l, pl.trip_day_id AS d"
+                        "  FROM trip_photo_day_placements pl"
+                        "  JOIN trip_photo_links l ON l.id = pl.photo_link_id"
+                        " WHERE l.trip_id = ?", (trip_id,)).fetchall():
+                    placed_days.setdefault(str(r["l"]), set()).add(str(r["d"]))
+            else:
+                rows = con.execute(
+                    """SELECT l.trip_day_id AS d, COUNT(*) AS n
+                       FROM trip_photo_links l
+                       LEFT JOIN photos p ON p.id = l.photo_id
+                       WHERE l.trip_id = ?
+                         AND l.trip_day_id IS NOT NULL
+                         AND (p.id IS NULL OR p.deleted_at IS NULL)
+                    """ + _hidden_where + """
+                       GROUP BY l.trip_day_id""",
+                    (trip_id,),
+                ).fetchall()
+                by_day = {str(r["d"]): int(r["n"]) for r in rows if r["d"]}
+                for r in con.execute(
+                        "SELECT l.id AS l, l.trip_day_id AS d"
+                        "  FROM trip_photo_links l"
+                        " WHERE l.trip_id = ? AND l.trip_day_id IS NOT NULL",
+                        (trip_id,)).fetchall():
+                    placed_days.setdefault(str(r["l"]), set()).add(str(r["d"]))
+            # Every dated, live, visible link is a suggestion candidate.
+            # Placement is NOT filtered here: it is filtered per day
+            # below, because a photo placed on Day 1 may still be the
+            # right suggestion for Day 3.
             rows = con.execute(
-                """SELECT l.trip_day_id AS d, COUNT(*) AS n
+                """SELECT l.id AS lid,
+                          substr(COALESCE(l.taken_at, p.date_value), 1, 10)
+                          AS d
                    FROM trip_photo_links l
                    LEFT JOIN photos p ON p.id = l.photo_id
                    WHERE l.trip_id = ?
-                     AND l.trip_day_id IS NOT NULL
-                     AND (p.id IS NULL OR p.deleted_at IS NULL)
-                """ + _hidden_where + """
-                   GROUP BY l.trip_day_id""",
-                (trip_id,),
-            ).fetchall()
-            by_day = {str(r["d"]): int(r["n"]) for r in rows if r["d"]}
-            rows = con.execute(
-                """SELECT substr(COALESCE(l.taken_at, p.date_value), 1, 10)
-                          AS d, COUNT(*) AS n
-                   FROM trip_photo_links l
-                   LEFT JOIN photos p ON p.id = l.photo_id
-                   WHERE l.trip_id = ?
-                     AND l.trip_day_id IS NULL
                      AND (p.id IS NULL OR p.deleted_at IS NULL)
                      AND COALESCE(l.taken_at, p.date_value) IS NOT NULL
-                """ + _hidden_where + """
-                   GROUP BY d""",
+                """ + _hidden_where,
                 (trip_id,),
             ).fetchall()
-            by_date = {str(r["d"]): int(r["n"]) for r in rows if r["d"]}
+            dated_links = {str(r["lid"]): str(r["d"]) for r in rows if r["d"]}
         except sqlite3.OperationalError as exc:
             # Pre-0028 DB fallback: swallow ONLY the exact "no such
             # column" for the trip_day_id column. Anything else — a
@@ -4237,19 +4577,21 @@ def trip_day_counts(trip_id: str) -> Dict[str, Dict[str, int]]:
                 # any failure there is a REAL error, not a legacy
                 # signal, so it re-raises unchecked.
                 by_day = {}
+                placed_days = {}
                 rows = con.execute(
-                    """SELECT substr(COALESCE(l.taken_at, p.date_value), 1, 10)
-                              AS d, COUNT(*) AS n
+                    """SELECT l.id AS lid,
+                              substr(COALESCE(l.taken_at, p.date_value), 1, 10)
+                              AS d
                        FROM trip_photo_links l
                        LEFT JOIN photos p ON p.id = l.photo_id
                        WHERE l.trip_id = ?
                          AND (p.id IS NULL OR p.deleted_at IS NULL)
                          AND COALESCE(l.taken_at, p.date_value) IS NOT NULL
-                    """ + _hidden_where + """
-                       GROUP BY d""",
+                    """ + _hidden_where,
                     (trip_id,),
                 ).fetchall()
-                by_date = {str(r["d"]): int(r["n"]) for r in rows if r["d"]}
+                dated_links = {str(r["lid"]): str(r["d"])
+                               for r in rows if r["d"]}
             else:
                 # Not the legacy signal — real failure, re-raise so
                 # the router can classify + surface counts_warning.
@@ -4280,11 +4622,20 @@ def trip_day_counts(trip_id: str) -> Dict[str, Dict[str, int]]:
         return sum(1 for r in rows
                    if str(r.get("trip_day_id") or "") == did)
 
+    def _suggestions(day: Dict[str, Any]) -> int:
+        """Dated photographs matching this day that are NOT placed here."""
+        date10 = str(day.get("date") or "")[:10]
+        if not date10:
+            return 0
+        did = str(day.get("id"))
+        return sum(1 for lid, d in dated_links.items()
+                   if d == date10 and did not in placed_days.get(lid, ()))
+
     out: Dict[str, Dict[str, int]] = {}
     for day in days:
         out[str(day["id"])] = {
-            "photos": by_day.get(str(day["id"]), 0)
-            + by_date.get(str(day.get("date") or "")[:10], 0),
+            "photos": by_day.get(str(day["id"]), 0),
+            "photo_suggestions": _suggestions(day),
             "notes": _day_attached_count(notes, day)
             + _scoped_count(notes, day),
             "sources": _day_attached_count(sources, day)
@@ -4403,12 +4754,18 @@ def _day_attachment_counts(con: sqlite3.Connection,
     # placements that reported zero here would be silently destroyed by
     # an operator action as unrelated as correcting an end date.
     #
-    # The ordering rule this depends on: the dual-write bridge in
-    # photo_links_set_day lands BEFORE this switch. While both exist,
-    # every scalar write also writes a placement, so the two agree. If
-    # this switch had landed first, any write through the still-live
-    # legacy path would have been invisible here — the hazard, reopened
-    # inside one commit.
+    # The ordering rule this depended on: the Phase 1 dual-write bridge
+    # in photo_links_set_day landed BEFORE this switch, so while both
+    # existed every scalar write also wrote a placement and the two
+    # agreed. Had this switch landed first, any write through the
+    # still-live legacy path would have been invisible here — the
+    # hazard, reopened inside one commit.
+    #
+    # Phase 2 retired that bridge along with photo_links_set_day
+    # itself, so placements are now the only representation anything
+    # writes and the ordering concern is historical. The legacy branch
+    # below survives for a database that predates 0043, and for nothing
+    # else.
     #
     # Pre-0043 the table is absent and the legacy tally is still the
     # truth, which is why this is a runtime probe and not an assumption.
@@ -5264,23 +5621,57 @@ def _day_photo_items(con: sqlite3.Connection, trip_id: str,
     /api/photos/{id}/thumb, so a photo_id is the whole of what it
     needs, and a storage path here would be an operator-surface leak
     for no gain.
+
+    PHASE 2: driven by trip_photo_day_placements, so a photograph the
+    operator placed on Day 1 and Day 3 appears in BOTH days' timelines
+    -- once each -- and the document built from this projection embeds
+    it under both headings. That is the visible product change this
+    work order exists for.
+
+    Each item carries its own ``placement_id`` as well as the shared
+    ``link_id``. Without it the interface could not say which
+    occurrence to remove: three placements of one photograph share a
+    link id, and "remove this one" would be ambiguous.
+
+    ``ord`` is the PLACEMENT's ord, not the link's. The day's items are
+    still merged with notes, sources and conversations in the trip's
+    chronological order, so a photograph carrying a distinct taken_at
+    sorts by that first -- unchanged, and not this work order's to
+    change. Placement ord decides between photographs whose timestamps
+    tie or are absent, which is every photograph the operator ordered
+    by hand.
     """
-    if not _table_has_column(con, "trip_photo_links", "trip_day_id"):
+    if not (_placements_supported(con)
+            or _table_has_column(con, "trip_photo_links", "trip_day_id")):
         return []
     # WO-TRAVEL-DOC-CLOSEOUT-01 (2026-08-06): a soft-deleted photograph
     # is not visible material and must not reach the timeline or the
     # document. `p.deleted_at IS NULL` is TRUE for a LEFT JOIN miss, so
     # a link whose photo row is absent entirely still comes through as
     # it did before -- only genuinely deleted photographs are dropped.
-    sql = ("SELECT l.id AS link_id, l.photo_id, l.taken_at, l.ord, "
-           "       l.caption, l.narrator_caption, "
-           "       p.description AS photo_description "
-           "  FROM trip_photo_links l "
-           "  LEFT JOIN photos p ON p.id = l.photo_id "
-           " WHERE l.trip_id = ? AND l.trip_day_id = ? "
-           "   AND p.deleted_at IS NULL "
-           + _timeline_hidden_clause(con, "trip_photo_links", "l") +
-           " ORDER BY l.taken_at, l.ord")
+    if _placements_supported(con):
+        sql = ("SELECT pl.id AS placement_id, pl.ord AS placement_ord, "
+               "       l.id AS link_id, l.photo_id, l.taken_at, "
+               "       l.caption, l.narrator_caption, "
+               "       p.description AS photo_description "
+               "  FROM trip_photo_day_placements pl "
+               "  JOIN trip_photo_links l ON l.id = pl.photo_link_id "
+               "  LEFT JOIN photos p ON p.id = l.photo_id "
+               " WHERE l.trip_id = ? AND pl.trip_day_id = ? "
+               "   AND p.deleted_at IS NULL "
+               + _timeline_hidden_clause(con, "trip_photo_links", "l") +
+               " ORDER BY pl.ord, pl.id")
+    else:
+        sql = ("SELECT NULL AS placement_id, l.ord AS placement_ord, "
+               "       l.id AS link_id, l.photo_id, l.taken_at, "
+               "       l.caption, l.narrator_caption, "
+               "       p.description AS photo_description "
+               "  FROM trip_photo_links l "
+               "  LEFT JOIN photos p ON p.id = l.photo_id "
+               " WHERE l.trip_id = ? AND l.trip_day_id = ? "
+               "   AND p.deleted_at IS NULL "
+               + _timeline_hidden_clause(con, "trip_photo_links", "l") +
+               " ORDER BY l.taken_at, l.ord")
     out: List[Dict[str, Any]] = []
     for r in con.execute(sql, (trip_id, day_id)):
         row = _row_to_dict(r)
@@ -5310,11 +5701,16 @@ def _day_photo_items(con: sqlite3.Connection, trip_id: str,
             _cap, _src = "", ""
         out.append({
             "kind": "photo",
+            # `id` stays the LINK id: it is what every existing consumer
+            # of this timeline reads, and changing it to the placement
+            # id would silently repoint them. The placement id is added
+            # beside it, named for what it is.
             "id": row.get("link_id"),
             "link_id": row.get("link_id"),
+            "placement_id": row.get("placement_id"),
             "photo_id": row.get("photo_id"),
             "at": row.get("taken_at") or "",
-            "ord": row.get("ord") or 0,
+            "ord": int(row.get("placement_ord") or 0),
             "caption": _cap,
             "caption_source": _src,
         })
@@ -5497,11 +5893,29 @@ def trip_day_item_counts(trip_id: str) -> Dict[str, Dict[str, int]]:
     out.pop("", None)
     con = _connect()
     try:
-        for table, alias, bucket in (
-            ("trip_photo_links", "l", "photos"),
-            ("trip_location_notes", "l", "notes"),
-            ("trip_sources", "l", "sources"),
-        ):
+        # Phase 2: photographs come from the placement table, so the
+        # rail agrees with the day timeline it is a preview of. Counting
+        # the legacy scalar here would have shown 0 photos on a day
+        # whose timeline then rendered three.
+        if _placements_supported(con):
+            for r in con.execute(
+                    "SELECT pl.trip_day_id AS d, COUNT(*) AS n"
+                    "  FROM trip_photo_day_placements pl"
+                    "  JOIN trip_photo_links l ON l.id = pl.photo_link_id"
+                    " WHERE l.trip_id = ?"
+                    + _timeline_hidden_clause(con, "trip_photo_links", "l") +
+                    " GROUP BY pl.trip_day_id", (trip_id,)):
+                did = str(r["d"] or "")
+                if not did:
+                    continue
+                out.setdefault(did, {
+                    "photos": 0, "notes": 0, "sources": 0,
+                    "conversations": 0})["photos"] = int(r["n"])
+        _tables = (("trip_location_notes", "l", "notes"),
+                   ("trip_sources", "l", "sources"))
+        if not _placements_supported(con):
+            _tables = (("trip_photo_links", "l", "photos"),) + _tables
+        for table, alias, bucket in _tables:
             if not _table_has_column(con, table, "trip_day_id"):
                 continue
             sql = ("SELECT " + alias + ".trip_day_id AS d, COUNT(*) AS n "

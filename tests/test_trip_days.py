@@ -370,7 +370,23 @@ class CountsTest(_TripDaysCase):
         finally:
             con.close()
 
-    def test_photo_counts_match_taken_date(self):
+    # ── REWRITTEN 2026-08-13, WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01 §7 ──
+    #
+    # These two asserted that a taken-date match counted in
+    # ``counts["photos"]``. Until Phase 2 that was the product: one
+    # number meaning either "the operator put this here" or "the camera
+    # says it was probably taken here", with no way for the operator to
+    # tell which, and with the day's own delete-protection counting only
+    # the first kind. The card and the safety rule disagreed.
+    #
+    # ``photos`` now counts explicit placements only, and the date match
+    # is its own ``photo_suggestions``. The tests are rewritten rather
+    # than deleted because the date matching still has to WORK -- it is
+    # the "Taken on this date" section -- it simply must not be added
+    # into the placement count. Each one now asserts both halves, so a
+    # regression that folded them back together would fail here.
+
+    def test_photo_taken_date_is_a_suggestion_not_a_placement(self):
         pid = str(uuid.uuid4())
         self._photo_row(pid)
         trip_repository.photo_link_upsert(
@@ -379,10 +395,16 @@ class CountsTest(_TripDaysCase):
             assignment_method="exif_time", cluster_confidence=0.9)
         out = trips.list_trip_days(self.trip_id)
         by_date = {d["date"]: d for d in out["days"]}
-        self.assertEqual(by_date["2026-05-02"]["counts"]["photos"], 1)
+        self.assertEqual(by_date["2026-05-02"]["counts"]["photos"], 0,
+                         "a taken-date match is not a placement")
+        self.assertEqual(
+            by_date["2026-05-02"]["counts"]["photo_suggestions"], 1,
+            "the date match must still be offered, in its own count")
         self.assertEqual(by_date["2026-05-01"]["counts"]["photos"], 0)
+        self.assertEqual(
+            by_date["2026-05-01"]["counts"]["photo_suggestions"], 0)
 
-    def test_photo_counts_fall_back_to_photo_date_value(self):
+    def test_photo_date_value_fallback_is_also_a_suggestion(self):
         pid = str(uuid.uuid4())
         self._photo_row(pid, date_value="2026-05-04")
         trip_repository.photo_link_upsert(
@@ -390,7 +412,9 @@ class CountsTest(_TripDaysCase):
             assignment_method="exif_time", cluster_confidence=0.6)
         out = trips.list_trip_days(self.trip_id)
         by_date = {d["date"]: d for d in out["days"]}
-        self.assertEqual(by_date["2026-05-04"]["counts"]["photos"], 1)
+        self.assertEqual(by_date["2026-05-04"]["counts"]["photos"], 0)
+        self.assertEqual(
+            by_date["2026-05-04"]["counts"]["photo_suggestions"], 1)
 
     def test_scoped_counts_zero_without_day_link(self):
         # Notes/sources/public-context are NOT date-scoped in schema:
@@ -587,16 +611,28 @@ class DayPhotoLinkTest(_TripDaysCase):
         self.assertEqual(by_date["2026-05-01"]["counts"]["photos"], 1)
         self.assertEqual(by_date["2026-05-02"]["counts"]["photos"], 0)
 
-    def test_counts_fall_back_to_date_match_for_unattached(self):
-        self._link(taken_at="2026-05-03T09:00:00Z")   # unattached
+    def test_placements_and_date_matches_are_counted_separately(self):
+        """REWRITTEN 2026-08-13 (§7). Was
+        ``test_counts_fall_back_to_date_match_for_unattached``, which
+        asserted the two were ADDED: one placed photo plus one
+        date-matched photo made ``photos == 2``. The operator could not
+        tell that only one of the two had actually been put there.
+
+        The date matching still works and still fires on exactly the
+        same photograph; it is reported in its own key. The placed one
+        is excluded from its own day's suggestions, because suggesting
+        something already done is noise.
+        """
+        self._link(taken_at="2026-05-03T09:00:00Z")   # unplaced
         lid = self._link(taken_at="2026-05-03T12:00:00Z")
         day3 = self.days[2]   # 2026-05-03
         trips.link_day_photos(self.trip_id, day3["id"],
                               _PhotoLinksReq([lid]))
         out = trips.list_trip_days(self.trip_id)
-        by_date = {d["date"]: d for d in out["days"]}
-        # attached (1) + date-matched unattached (1) on the same day.
-        self.assertEqual(by_date["2026-05-03"]["counts"]["photos"], 2)
+        counts = {d["date"]: d for d in out["days"]}["2026-05-03"]["counts"]
+        self.assertEqual(counts["photos"], 1, "one photo was placed here")
+        self.assertEqual(counts["photo_suggestions"], 1,
+                         "the other matches by date and is not placed here")
 
     def test_day_scoped_note_counts_on_its_day(self):
         day2 = self.days[1]

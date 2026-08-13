@@ -1365,6 +1365,20 @@ class _DayTimelineProjectionCase(_PlacementCase):
                 "'2026-07-30', '2026-07-30');",
                 (link_id, self.trip_id, photo_id, day_id, taken_at,
                  caption, hidden))
+            # 2026-08-13, WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01: a
+            # photograph is on a day because a PLACEMENT says so. The
+            # legacy column above is kept in the fixture so these rows
+            # still look like the ones already in the live database,
+            # but it no longer places anything -- nothing writes it and
+            # every read derives its value from the placement table.
+            if day_id:
+                con.execute(
+                    "INSERT INTO trip_photo_day_placements (id,"
+                    " photo_link_id, trip_day_id, ord, placement_method,"
+                    " created_at, updated_at)"
+                    " VALUES (?, ?, ?, 0, 'operator',"
+                    " '2026-07-30', '2026-07-30');",
+                    (str(uuid.uuid4()), link_id, day_id))
             con.commit()
         finally:
             con.close()

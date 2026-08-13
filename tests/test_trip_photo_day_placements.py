@@ -205,53 +205,203 @@ class MigrationAndBackfillTest(_Base):
         self.assertEqual(self.days_of("L1"), [])
 
 
-class BridgeMirrorsTheScalarTest(_Base):
-    """The four transitions, exactly as the work order specifies."""
+class TheBridgeIsRetiredTest(_Base):
+    """RETIRED HERE 2026-08-13, and the retirement is itself a gate.
+
+    This class used to be ``BridgeMirrorsTheScalarTest`` and it asserted
+    the four Phase 1 transitions of ``photo_links_set_day`` --
+
+        null -> B   placements become {B}
+        A    -> B   placements become {B}
+        A    -> null placements become {}
+        A    -> A   unchanged, no duplicate
+
+    Every one of those was correct for Phase 1, whose whole point was
+    that storage changed and product semantics did not. Phase 2 changes
+    the semantics: placing a second day is now an ADD, so a test
+    demanding that the first placement disappear would now be demanding
+    the defect back.
+
+    The tests are replaced rather than deleted, and what replaces them
+    is the stronger claim: the function is GONE and nothing writes the
+    legacy column any more. A silent reappearance of either -- a
+    convenience helper here, a stray UPDATE there -- is exactly how a
+    retired representation comes back to life and starts disagreeing
+    with the real one.
+    """
 
     def setUp(self):
         super().setUp()
         self.migrate()
 
-    def test_null_to_B(self):
-        repo.photo_links_set_day(["L2"], "d2", self.TRIP)
-        self.assertEqual(self.scalar_of("L2"), "d2")
-        self.assertEqual(self.days_of("L2"), ["d2"])
+    def test_photo_links_set_day_no_longer_exists(self):
+        self.assertFalse(
+            hasattr(repo, "photo_links_set_day"),
+            "the Phase 1 dual-write bridge is back; placements are the "
+            "only representation Phase 2 writes")
 
-    def test_A_to_B_moves_and_does_not_leave_A_behind(self):
-        """The failure the bridge exists to prevent: two-day data
-        produced by an action the UI calls a move."""
-        repo.photo_links_set_day(["L1"], "d2", self.TRIP)
-        self.assertEqual(self.scalar_of("L1"), "d2")
-        self.assertEqual(self.days_of("L1"), ["d2"],
-                         "the old placement survived a move")
+    def test_no_production_module_writes_the_legacy_photo_day_column(self):
+        """Source scan, and deliberately so.
 
-    def test_A_to_null(self):
-        repo.photo_links_set_day(["L1"], None, self.TRIP)
-        self.assertIsNone(self.scalar_of("L1"))
-        self.assertEqual(self.days_of("L1"), [])
+        A behavioural test can only prove that the paths it happens to
+        drive leave the column alone. The claim being made is about
+        every path, including ones nobody has written yet, so it is
+        asserted against the text: no UPDATE of trip_photo_links may
+        name trip_day_id anywhere under server/code.
+        """
+        import re
+        server = _REPO_ROOT / "server" / "code"
+        offenders = []
+        for path in server.rglob("*.py"):
+            src = path.read_text(encoding="utf-8", errors="replace")
+            # Comments and docstrings discuss the retired column by
+            # name on purpose; only executable UPDATEs are forbidden.
+            for match in re.finditer(
+                    r"UPDATE\s+trip_photo_links\s+SET\s+([^\"']*)", src,
+                    re.IGNORECASE):
+                if "trip_day_id" in match.group(1):
+                    offenders.append("%s: %s" % (path.name, match.group(0)))
+        self.assertEqual(offenders, [],
+                         "something writes the legacy scalar again: %r"
+                         % (offenders,))
 
-    def test_A_to_A_is_idempotent(self):
-        repo.photo_links_set_day(["L1"], "d1", self.TRIP)
-        repo.photo_links_set_day(["L1"], "d1", self.TRIP)
-        self.assertEqual(self.days_of("L1"), ["d1"])
-        self.assertEqual(len(self.placements("L1")), 1)
+    def test_a_hand_written_scalar_is_never_resurrected_as_a_placement(self):
+        """The state Phase 2 will not invent its way out of.
 
-    def test_a_move_only_touches_its_own_links_placements(self):
-        """Deletion is scoped by (link, its prior day) -- not by day,
-        which would clear the day, and not by link, which would clear
-        every day."""
-        repo.photo_links_set_day(["L2"], "d1", self.TRIP)   # d1 now L1+L2
-        repo.photo_links_set_day(["L1"], "d3", self.TRIP)   # move L1 only
-        self.assertEqual(self.days_of("L1"), ["d3"])
-        self.assertEqual(self.days_of("L2"), ["d1"],
-                         "moving one photo cleared another off the day")
+        Review caution, 2026-08-13: it is too strong to say a populated
+        scalar with no placement cannot happen. Nothing in the PRODUCT
+        creates it -- 0043 backfilled every live scalar and no code
+        writes the column afterwards -- but manual SQL, an old external
+        script, or a restored malformed backup can, for as long as the
+        column physically exists.
 
-    def test_batch_of_links_each_leaves_its_own_prior_day(self):
-        repo.photo_links_set_day(["L1", "L3"], "d3", self.TRIP)
-        self.assertEqual(self.days_of("L1"), ["d3"])
-        self.assertEqual(self.days_of("L3"), ["d3"])
+        The correct answer to finding one is to treat it as
+        non-authoritative, which is what every read here does. The
+        answer this test forbids is the tempting one: quietly promoting
+        it into a placement on the next read. That would resurrect a
+        value nobody can date, from a column the system has stopped
+        believing, and make it indistinguishable from an operator's
+        deliberate choice.
+        """
+        con = sqlite3.connect(self.path)
+        con.execute("PRAGMA foreign_keys=OFF")
+        con.execute("UPDATE trip_photo_links SET trip_day_id='d3'"
+                    " WHERE id='L2'")
+        con.commit(); con.close()
+
+        # Read it every way a consumer can.
+        self.assertEqual(self.days_of("L2"), [],
+                         "a hand-written scalar became a placement")
+        row = repo.photo_link_get("L2")
+        self.assertIsNone(row["trip_day_id"],
+                          "the fossil scalar was served as authority")
+        self.assertEqual(row["trip_day_ids"], [])
+        # (photo_links_list needs the real `photos` table, which this
+        # suite's minimal schema does not build; the same assertion
+        # against the list read lives in
+        # tests.test_trip_photo_placement_api, on the full chain.)
+        # And it still is not a placement afterwards: reading did not
+        # write.
+        self.assertEqual(self.days_of("L2"), [])
         self.assertEqual(
-            [p["trip_day_id"] for p in self.placements()].count("d1"), 0)
+            self.q("SELECT trip_day_id FROM trip_photo_links WHERE id='L2'"
+                   )[0]["trip_day_id"], "d3",
+            "the read erased the stray value instead of ignoring it")
+
+    def test_the_stored_scalar_is_left_exactly_as_the_migration_found_it(self):
+        """Not written, and not cleaned up either.
+
+        Phase 6 drops the column. Until then its historical values are
+        the only record of what the pre-placement world believed, and
+        blanking them now would destroy evidence to tidy a column that
+        is about to be deleted anyway.
+        """
+        before = self.q("SELECT id, trip_day_id FROM trip_photo_links"
+                        " ORDER BY id")
+        repo.day_placements_add(["L2"], "d2", self.TRIP)
+        repo.day_placements_remove(["L1"], "d1", self.TRIP)
+        self.assertEqual(
+            self.q("SELECT id, trip_day_id FROM trip_photo_links ORDER BY id"),
+            before, "a placement operation touched the legacy column")
+
+
+class PlacementApiTest(_Base):
+    """The Section 6 contracts, at the repository boundary the router
+    calls. Route-level behaviour is asserted in
+    tests.test_trip_photo_placement_api."""
+
+    def setUp(self):
+        super().setUp()
+        self.migrate()
+
+    def test_adding_a_second_day_keeps_the_first(self):
+        """The product ruling, in one assertion."""
+        repo.day_placements_add(["L1"], "d2", self.TRIP)
+        self.assertEqual(self.days_of("L1"), ["d1", "d2"])
+
+    def test_add_is_idempotent_and_says_so(self):
+        first = repo.day_placements_add(["L2"], "d2", self.TRIP)
+        second = repo.day_placements_add(["L2"], "d2", self.TRIP)
+        self.assertEqual(len(first["created"]), 1)
+        self.assertEqual(second["created"], [])
+        self.assertEqual(second["already_present"], ["L2"])
+        self.assertEqual(len(self.placements("L2")), 1)
+
+    def test_add_many_assigns_increasing_ord_in_request_order(self):
+        repo.day_placements_add(["L3", "L2"], "d3", self.TRIP)
+        rows = self.q("SELECT photo_link_id, ord FROM"
+                      " trip_photo_day_placements WHERE trip_day_id='d3'"
+                      " ORDER BY ord")
+        self.assertEqual([r["photo_link_id"] for r in rows], ["L3", "L2"])
+        self.assertEqual([r["ord"] for r in rows], [0, 1])
+
+    def test_add_many_continues_after_the_days_existing_maximum(self):
+        """Leaving every new row at 0 and relying on the id tie-breaker
+        would order a day by random uuid."""
+        repo.day_placements_add(["L2"], "d1", self.TRIP)
+        rows = self.q("SELECT photo_link_id, ord FROM"
+                      " trip_photo_day_placements WHERE trip_day_id='d1'"
+                      " ORDER BY ord")
+        self.assertEqual([r["ord"] for r in rows], [0, 1])
+        self.assertEqual(rows[-1]["photo_link_id"], "L2")
+
+    def test_remove_takes_only_that_occurrence(self):
+        repo.day_placements_add(["L1"], "d2", self.TRIP)
+        repo.day_placements_remove(["L1"], "d1", self.TRIP)
+        self.assertEqual(self.days_of("L1"), ["d2"],
+                         "removing one day removed the other too")
+
+    def test_remove_preserves_the_link_and_the_photo(self):
+        before = self.q("SELECT * FROM trip_photo_links WHERE id='L1'")
+        repo.day_placements_remove(["L1"], "d1", self.TRIP)
+        self.assertEqual(
+            self.q("SELECT * FROM trip_photo_links WHERE id='L1'"), before,
+            "taking a photo off a day changed its trip membership")
+
+    def test_remove_reports_what_was_not_there(self):
+        out = repo.day_placements_remove(["L2"], "d1", self.TRIP)
+        self.assertEqual(out["removed"], 0)
+        self.assertEqual(out["not_present"], ["L2"])
+
+    def test_move_changes_one_occurrence_and_leaves_the_other(self):
+        repo.day_placements_add(["L1"], "d2", self.TRIP)
+        out = repo.day_placement_move("L1", "d1", "d3", self.TRIP)
+        self.assertTrue(out["moved"])
+        self.assertEqual(self.days_of("L1"), ["d2", "d3"])
+
+    def test_move_from_a_day_it_is_not_on_writes_nothing(self):
+        before = self.placements()
+        out = repo.day_placement_move("L1", "d3", "d2", self.TRIP)
+        self.assertFalse(out["moved"])
+        self.assertEqual(out["reason"], "source_placement_not_found")
+        self.assertEqual(self.placements(), before)
+
+    def test_move_onto_a_day_it_already_occupies_removes_the_source(self):
+        repo.day_placements_add(["L1"], "d2", self.TRIP)
+        out = repo.day_placement_move("L1", "d1", "d2", self.TRIP)
+        self.assertTrue(out["moved"])
+        self.assertTrue(out["destination_existed"])
+        self.assertEqual(self.days_of("L1"), ["d2"])
 
 
 class RefusalsWriteNothingTest(_Base):
@@ -261,41 +411,101 @@ class RefusalsWriteNothingTest(_Base):
         self.migrate()
 
     def test_cross_trip_day_writes_nothing(self):
-        before = (self.placements(), self.scalar_of("L2"))
+        before = self.placements()
         with self.assertRaises(ValueError):
-            repo.photo_links_set_day(["L2"], "x1", self.TRIP)
-        self.assertEqual((self.placements(), self.scalar_of("L2")), before)
+            repo.day_placements_add(["L2"], "x1", self.TRIP)
+        self.assertEqual(self.placements(), before)
 
     def test_cross_trip_link_writes_nothing(self):
-        before = (self.placements(), self.scalar_of("LX"))
+        before = self.placements()
         with self.assertRaises(ValueError):
-            repo.photo_links_set_day(["LX"], "d1", self.TRIP)
-        self.assertEqual((self.placements(), self.scalar_of("LX")), before)
+            repo.day_placements_add(["LX"], "d1", self.TRIP)
+        self.assertEqual(self.placements(), before)
 
     def test_missing_day_writes_nothing(self):
         before = self.placements()
         with self.assertRaises(ValueError):
-            repo.photo_links_set_day(["L2"], "no-such-day", self.TRIP)
+            repo.day_placements_add(["L2"], "no-such-day", self.TRIP)
         self.assertEqual(self.placements(), before)
 
-    def test_injected_failure_rolls_back_BOTH_representations(self):
-        """Scalar and placement move together or not at all."""
-        before_scalar, before_days = self.scalar_of("L1"), self.days_of("L1")
+    def test_a_batch_with_one_bad_link_writes_none_of_it(self):
+        """Partial application is the failure mode that is hardest to
+        see afterwards: some photographs moved, some did not, and the
+        response said 400."""
+        before = self.placements()
+        with self.assertRaises(ValueError):
+            repo.day_placements_add(["L2", "LX"], "d2", self.TRIP)
+        self.assertEqual(self.placements(), before)
+
+    def test_injected_failure_rolls_the_whole_add_back(self):
+        before = self.placements()
         real = repo.placement_add_many
 
         def boom(con, link_ids, day_id, trip_id, method="operator"):
             con.execute("SELECT 1")          # prove we are mid-transaction
-            raise RuntimeError("injected failure after the scalar UPDATE")
+            raise RuntimeError("injected failure mid-add")
 
         repo.placement_add_many = boom
         try:
             with self.assertRaises(RuntimeError):
-                repo.photo_links_set_day(["L1"], "d3", self.TRIP)
+                repo.day_placements_add(["L2", "L3"], "d3", self.TRIP)
         finally:
             repo.placement_add_many = real
-        self.assertEqual(self.scalar_of("L1"), before_scalar,
-                         "scalar survived a rolled-back transaction")
-        self.assertEqual(self.days_of("L1"), before_days)
+        self.assertEqual(self.placements(), before)
+
+    def test_a_failed_destination_leaves_the_source_placement(self):
+        """Move is one transaction: a photograph cannot end up on
+        neither day."""
+        before = self.days_of("L1")
+        real = repo.placement_add_many
+
+        def boom(con, link_ids, day_id, trip_id, method="operator"):
+            raise RuntimeError("destination add failed")
+
+        repo.placement_add_many = boom
+        try:
+            with self.assertRaises(RuntimeError):
+                repo.day_placement_move("L1", "d1", "d3", self.TRIP)
+        finally:
+            repo.placement_add_many = real
+        self.assertEqual(self.days_of("L1"), before)
+
+    def test_the_unique_race_is_classified_not_a_500(self):
+        """A concurrent duplicate loses at the INSERT. The pair exists
+        afterwards, which is what the caller wanted, so it is reported
+        as already-present -- and only for THAT constraint."""
+        real = repo.placement_add_many
+
+        def racer(con, link_ids, day_id, trip_id, method="operator"):
+            raise sqlite3.IntegrityError(
+                "UNIQUE constraint failed: "
+                "trip_photo_day_placements.photo_link_id, "
+                "trip_photo_day_placements.trip_day_id")
+
+        repo.placement_add_many = racer
+        try:
+            out = repo.day_placements_add(["L2"], "d2", self.TRIP)
+        finally:
+            repo.placement_add_many = real
+        self.assertEqual(out["created"], [])
+        self.assertEqual(out["already_present"], ["L2"])
+
+    def test_a_foreign_key_violation_is_not_swallowed_as_already_present(self):
+        """The reason the race check is classified rather than a bare
+        `except IntegrityError`: a placement pointing at a row that does
+        not exist is corruption, and reporting it as 'already on that
+        day' would be a lie about a failed write."""
+        real = repo.placement_add_many
+
+        def broken(con, link_ids, day_id, trip_id, method="operator"):
+            raise sqlite3.IntegrityError("FOREIGN KEY constraint failed")
+
+        repo.placement_add_many = broken
+        try:
+            with self.assertRaises(sqlite3.IntegrityError):
+                repo.day_placements_add(["L2"], "d2", self.TRIP)
+        finally:
+            repo.placement_add_many = real
 
 
 class DeletionSafetyTest(_Base):
@@ -324,12 +534,22 @@ class DeletionSafetyTest(_Base):
     def test_a_day_with_nothing_is_empty(self):
         self.assertTrue(self._is_empty("d3"))
 
-    def test_a_legacy_path_move_protects_the_destination_and_frees_the_source(self):
-        """§9.11, both halves. The bridge is what makes this true."""
-        repo.photo_links_set_day(["L1"], "d3", self.TRIP)
+    def test_a_move_protects_the_destination_and_frees_the_source(self):
+        """§9.11, both halves. Was driven through the Phase 1 bridge;
+        driven through the Phase 2 move operation since 2026-08-13,
+        which is now the only way a photograph changes days."""
+        repo.day_placement_move("L1", "d1", "d3", self.TRIP)
         self.assertFalse(self._is_empty("d3"), "destination unprotected")
         self.assertTrue(self._is_empty("d1"),
                         "source still counts a photo it no longer holds")
+
+    def test_a_second_day_protects_BOTH_days_from_a_date_shrink(self):
+        """New in Phase 2, and the reason the deletion gate had to be
+        re-checked: a photograph on two days makes two days non-empty,
+        and shrinking the trip's dates must refuse to delete either."""
+        repo.day_placements_add(["L1"], "d3", self.TRIP)
+        self.assertFalse(self._is_empty("d1"))
+        self.assertFalse(self._is_empty("d3"))
 
     def test_a_hidden_links_placement_still_protects_its_day(self):
         """Honest counts govern what a card DISPLAYS; they have no
@@ -369,9 +589,20 @@ class DeletionSafetyTest(_Base):
 class PreMigrationCompatibilityTest(_Base):
     """A pre-0043 database must keep working, unchanged."""
 
-    def test_legacy_scalar_behaviour_survives_without_the_table(self):
-        repo.photo_links_set_day(["L2"], "d2", self.TRIP)   # no migrate()
-        self.assertEqual(self.scalar_of("L2"), "d2")
+    def test_the_placement_api_refuses_a_database_without_the_table(self):
+        """REWRITTEN 2026-08-13. This asserted that the Phase 1 bridge
+        still wrote the scalar on a pre-0043 database. That function is
+        gone, and the honest Phase 2 answer to "place this photograph"
+        on a database with no placement table is a refusal, not a
+        silent write to a column the rest of the system has stopped
+        reading. Refusing is also what makes the WRITE path fail loudly
+        while the READ paths below keep degrading gracefully -- a
+        half-migrated database can still be looked at, and cannot be
+        written into a shape it cannot represent."""
+        with self.assertRaises(RuntimeError):
+            repo.day_placements_add(["L2"], "d2", self.TRIP)
+        self.assertIsNone(self.scalar_of("L2"),
+                          "the refusal wrote the legacy column anyway")
 
     def test_legacy_tally_is_used_when_the_table_is_absent(self):
         con = sqlite3.connect(self.path)

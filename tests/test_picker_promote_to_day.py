@@ -569,15 +569,40 @@ class DayPlacementTests(_Base):
         self.assertEqual(len([l for l in self._links()
                               if l["photo_id"] == photo_id]), 1)
 
-    def test_moving_the_same_photo_to_another_day_moves_it(self):
-        """The correction path. One link, one day at a time -- a photo
-        filed on the wrong day should be re-filed, not duplicated."""
+    def test_placing_the_same_photo_on_a_second_day_adds_it(self):
+        """REWRITTEN 2026-08-13, WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01.
+
+        This was ``test_moving_the_same_photo_to_another_day_moves_it``
+        and it asserted the defect: 'a photo filed on the wrong day
+        should be re-filed, not duplicated'. That was a true reading of
+        the OLD data model, where one nullable column could hold one
+        day, so placing a second day necessarily erased the first --
+        and the interface said 'Move to this day' because the storage
+        left it no other option.
+
+        The product ruling reverses it: a photograph taken on one day
+        can belong to the story of several, and the route is now an
+        ADD. The half of the old test that is still true and still
+        worth guarding is kept and asserted first: the photograph
+        joins the trip exactly ONCE however many days it sits on. One
+        asset, one membership, many placements.
+
+        Correcting a wrong day is no longer a side effect of placing a
+        right one; it is the move operation, which names the day it is
+        moving FROM. That is tested where it belongs, against the move
+        route.
+        """
         _cid, photo_id = self._promoted()
         self._link_day(self.day_ids[0], photo_ids=[photo_id])
         self._link_day(self.day_ids[2], photo_ids=[photo_id])
         rows = [l for l in self._links() if l["photo_id"] == photo_id]
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["trip_day_id"], self.day_ids[2])
+        self.assertEqual(len(rows), 1, "trip membership must stay singular")
+        self.assertEqual(sorted(rows[0]["trip_day_ids"]),
+                         sorted([self.day_ids[0], self.day_ids[2]]),
+                         "the photograph is on both days it was placed on")
+        self.assertIsNone(
+            rows[0]["trip_day_id"],
+            "the compatibility scalar must not pick one of several days")
 
     def test_a_day_from_another_trip_is_refused(self):
         """Behaviour 8. Asserted through the route the browser calls,

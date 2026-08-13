@@ -974,9 +974,18 @@ class LookupQueryDayLabelTest(_DbCase):
             "title, created_at, updated_at) VALUES "
             "('day1', ?, 1, '2026-05-14', 'Munich museums walk', "
             "'2026-07-11', '2026-07-11')", (self.trip_id,))
+        # 2026-08-13, WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01: this used to
+        # be `UPDATE trip_photo_links SET trip_day_id='day1'`. That
+        # column is retired -- nothing writes it and every read derives
+        # its value from trip_photo_day_placements -- so setting it by
+        # hand no longer places the photograph anywhere and the day cues
+        # correctly stopped appearing. The fixture now anchors the photo
+        # the way the product does.
         con.execute(
-            "UPDATE trip_photo_links SET trip_day_id='day1' WHERE id=?",
-            (self.link_id,))
+            "INSERT INTO trip_photo_day_placements (id, photo_link_id,"
+            " trip_day_id, ord, placement_method, created_at, updated_at)"
+            " VALUES ('pl-day1', ?, 'day1', 0, 'operator',"
+            " '2026-07-11', '2026-07-11')", (self.link_id,))
         con.commit()
         con.close()
         q = trips._build_photo_lookup_query(self.link_id, self.trip_id)

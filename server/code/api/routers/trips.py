@@ -3007,8 +3007,23 @@ def _build_photo_lookup_query(link_id: str, trip_id: str) -> Optional[str]:
         # (2026-07-11): repo function is trip_day_get, not day_get —
         # the earlier `hasattr(trip_repository, "day_get")` guard was
         # always False so day labels never reached the query.
-        day_id = link_row.get("trip_day_id")
-        if day_id and hasattr(trip_repository, "trip_day_get"):
+        #
+        # PHASE 2 (WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01): read EVERY day
+        # the photograph is placed on, not the single compatibility
+        # scalar. A photograph on two days serializes that scalar as
+        # null by rule, so the old single-id read would have dropped
+        # the day cues entirely for exactly the photographs the operator
+        # has thought hardest about. Cues from several days are a
+        # feature here rather than noise: this list is deduplicated
+        # below and feeds a public-context search, so a second day
+        # label is another true thing to search for.
+        # `trip_day_ids` and not `trip_day_id`: link_row comes from
+        # photo_links_list, which always serializes placements, so the
+        # scalar here is derived and a fallback to it would be
+        # unreachable code pretending to be a safety net.
+        for day_id in list(link_row.get("trip_day_ids") or []):
+            if not (day_id and hasattr(trip_repository, "trip_day_get")):
+                continue
             try:
                 day = trip_repository.trip_day_get(day_id)
                 if day:
@@ -3542,6 +3557,38 @@ class TripDayPhotoLinksReq(BaseModel):
     photo_ids: List[str] = []
 
 
+class TripPlacementMoveReq(BaseModel):
+    """All three ids, named. See move_photo_placement for why."""
+    photo_link_id: str
+    from_day_id: str
+    to_day_id: str
+
+
+# WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01 §6.1. A transport/UI batching
+# limit, NOT a cap on how many photographs a day may hold: the schema
+# has no such cap and the product must not grow one by accident.
+PLACEMENT_BATCH_MAX = 50
+
+
+def _reject_oversized_batch(n: int) -> None:
+    """Refuse a batch of 51 or more in full, before any write.
+
+    Rejected rather than truncated, and rejected BEFORE the membership
+    upserts rather than after, because both alternatives lie to the
+    operator in a way they cannot see. Truncating at 50 reports success
+    for a request that dropped the rest on the floor; validating after
+    creating trip links leaves those links behind on a request that
+    then returns 400, so a "rejected" call has quietly changed the
+    trip. Zero writes is the only honest answer.
+    """
+    if n > PLACEMENT_BATCH_MAX:
+        raise HTTPException(
+            status_code=400,
+            detail=("this request names %d photographs; the limit is %d per "
+                    "call. Nothing was written -- send them in smaller "
+                    "batches." % (n, PLACEMENT_BATCH_MAX)))
+
+
 def _require_day_in_trip(trip_id: str, day_id: str) -> Dict[str, Any]:
     """2026-07-23 (Bucket B) — SQLite failures on either existence
     check now go through _classified_sqlite_500 so ops don't see a
@@ -3597,6 +3644,8 @@ def link_day_photos(trip_id: str, day_id: str,
     if not ids and not photo_ids:
         raise HTTPException(status_code=422,
                             detail="no photo_link_ids and no photo_ids")
+    # BEFORE the upserts below. See _reject_oversized_batch.
+    _reject_oversized_batch(len(ids) + len(photo_ids))
 
     created: List[str] = []
     if photo_ids:
@@ -3635,23 +3684,36 @@ def link_day_photos(trip_id: str, day_id: str,
                 ids.append(link_id)
 
     try:
-        updated = trip_repository.photo_links_set_day(ids, day_id, trip_id)
+        result = trip_repository.day_placements_add(ids, day_id, trip_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except sqlite3.Error as exc:
         raise _classified_sqlite_500(
             exc, "[trips][day-photo-link]", trip_id) from exc
-    logger.info("[trips][days] photo-link trip=%s day=%s n=%d new=%d",
-                trip_id, day_id, updated, len(created))
-    return {"ok": True, "updated": updated, "trip_day_id": day_id,
-            "photo_link_ids": ids, "created_link_ids": created}
+    logger.info(
+        "[trips][days] photo-link trip=%s day=%s added=%d already=%d new=%d",
+        trip_id, day_id, len(result["created"]),
+        len(result["already_present"]), len(created))
+    return {
+        "ok": True,
+        # `updated` is kept and means what it always meant to a caller:
+        # how many photographs this call put on the day. It is now the
+        # number of placements created, so an idempotent repeat reports
+        # 0 rather than claiming to have done the work twice.
+        "updated": len(result["created"]),
+        "trip_day_id": day_id,
+        "photo_link_ids": ids,
+        "created_link_ids": created,
+        "placement_ids": result["created"],
+        "already_present": result["already_present"],
+        "day_placements": result["placements"],
+    }
 
 
 @router.post("/{trip_id}/days/{day_id}/photos/unlink")
 def unlink_day_photos(trip_id: str, day_id: str,
                       req: TripDayPhotoLinksReq) -> Dict[str, Any]:
-    """Detach photo links from a day card (trip_day_id -> NULL). The
-    photos keep their trip link; counts fall back to date match.
+    """Take photo links off THIS day, and off nothing else.
 
     2026-07-23 (Bucket B) — classified SQLite errors.
 
@@ -3660,7 +3722,17 @@ def unlink_day_photos(trip_id: str, day_id: str,
     rather than ignoring them: the attach direction can invent a link
     that does not exist yet, the detach direction never can, and a
     request that quietly did nothing would read to the operator as a
-    photo that refused to come off a day."""
+    photo that refused to come off a day.
+
+    PHASE 2 — WHAT "UNLINK" NOW MEANS. It used to set the link's single
+    day to NULL, so with one day per photograph "off this day" and "off
+    every day" were the same statement and the route could not tell
+    them apart. It now deletes exactly the placements naming
+    ``day_id``. A photograph on Day 1 and Day 3, unlinked from Day 1,
+    is still on Day 3 -- and its trip membership, photo row, original,
+    thumbnail, caption, approval flags and shared context are all
+    untouched either way. The word "unlink" is kept because the route
+    is public; the docstring is where the change is recorded."""
     _require_trips_enabled()
     _require_day_in_trip(trip_id, day_id)
     if req.photo_ids:
@@ -3671,16 +3743,85 @@ def unlink_day_photos(trip_id: str, day_id: str,
     ids = list(req.photo_link_ids or [])
     if not ids:
         raise HTTPException(status_code=422, detail="no photo_link_ids")
+    _reject_oversized_batch(len(ids))
     try:
-        updated = trip_repository.photo_links_set_day(ids, None, trip_id)
+        result = trip_repository.day_placements_remove(ids, day_id, trip_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except sqlite3.Error as exc:
         raise _classified_sqlite_500(
             exc, "[trips][day-photo-unlink]", trip_id) from exc
-    logger.info("[trips][days] photo-unlink trip=%s day=%s n=%d",
-                trip_id, day_id, updated)
-    return {"ok": True, "updated": updated, "trip_day_id": None}
+    logger.info("[trips][days] photo-unlink trip=%s day=%s removed=%d "
+                "not_present=%d", trip_id, day_id, result["removed"],
+                len(result["not_present"]))
+    return {
+        "ok": True,
+        "updated": result["removed"],
+        "removed": result["removed"],
+        "not_present": result["not_present"],
+        # The day this call operated on. It used to return null, which
+        # meant "the photo now has no day" -- a claim this route can no
+        # longer make about a photograph that may still be on others.
+        "trip_day_id": day_id,
+        "day_placements": result["placements"],
+    }
+
+
+@router.post("/{trip_id}/photos/placement-move")
+def move_photo_placement(trip_id: str,
+                         req: TripPlacementMoveReq) -> Dict[str, Any]:
+    """Move ONE occurrence of a photograph from one day to another.
+
+    Trip-scoped rather than day-scoped, and it names all three ids in
+    the body, because a move has two days and a route can only put one
+    in its path. Repeating the source day in both the path and the body
+    would create a mismatch that has to be validated and reported --
+    ceremony that exists only to be checked.
+
+    WHY THE SOURCE MUST BE NAMED: a photograph placed on three days has
+    three occurrences that share one ``photo_link_id``. "Move it to Day
+    5" has three readings, and any implementation taking a bare link id
+    would silently pick one. A source that is not on ``from_day_id`` is
+    a 409 with zero writes, not a quiet add -- otherwise "move" would
+    become "add" exactly when the operator's mental model was already
+    wrong about where the photograph was.
+    """
+    _require_trips_enabled()
+    _require_day_in_trip(trip_id, req.from_day_id)
+    _require_day_in_trip(trip_id, req.to_day_id)
+    if req.from_day_id == req.to_day_id:
+        raise HTTPException(
+            status_code=400,
+            detail="from_day_id and to_day_id are the same day")
+    try:
+        result = trip_repository.day_placement_move(
+            req.photo_link_id, req.from_day_id, req.to_day_id, trip_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][photo-placement-move]", trip_id) from exc
+    if not result.get("moved"):
+        raise HTTPException(
+            status_code=409,
+            detail=("that photograph is not placed on the day it was said to "
+                    "be moved from; nothing was changed (%s)"
+                    % result.get("reason", "unknown")))
+    logger.info("[trips][days] placement-move trip=%s link=%s %s -> %s",
+                trip_id, req.photo_link_id, req.from_day_id, req.to_day_id)
+    return {
+        "ok": True,
+        "moved": True,
+        "photo_link_id": req.photo_link_id,
+        "from_day_id": req.from_day_id,
+        "to_day_id": req.to_day_id,
+        # True when the photograph was ALREADY on the destination: the
+        # source occurrence was still removed, which is what the
+        # operator asked for, and saying so stops "moved" from implying
+        # a new placement that was not created.
+        "destination_existed": bool(result.get("destination_existed")),
+        "day_placements": result.get("placements", []),
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════════

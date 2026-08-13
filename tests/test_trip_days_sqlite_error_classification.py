@@ -311,10 +311,14 @@ class CountsWarningResponseTest(_LiveStyleBase):
         warning only means "counts could not be verified," not
         "counts happen to be zero." """
         out = trips.list_trip_days(self.trip_id)
-        # All zero counts (fresh trip)
+        # All zero counts (fresh trip). `photo_suggestions` joined the
+        # shape on 2026-08-13 (WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01 §7)
+        # when the taken-date match was split out of `photos`; asserting
+        # the WHOLE dict rather than the keys it cares about is what
+        # makes this test notice, which is the behaviour to keep.
         for d in out["days"]:
             self.assertEqual(d["counts"], {
-                "photos": 0, "notes": 0,
+                "photos": 0, "photo_suggestions": 0, "notes": 0,
                 "sources": 0, "public_context": 0,
             })
         # But no warning
