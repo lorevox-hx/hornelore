@@ -60,7 +60,23 @@ const TYPES = {
   ".json": "application/json", ".svg": "image/svg+xml",
 };
 
-const TOTAL_ON_DAY = 327;   // deliberately not a multiple of the page size
+// Deliberately not multiples of the page size, and deliberately two
+// separate populations.
+//
+// CORRECTED 2026-08-13 after the first laptop run. The fixture placed
+// ALL 327 photographs on Day 1, which is exactly right for the
+// inspector's reachability checks and leaves the Day 1 PICKER correctly
+// empty — the picker excludes what is already on the day. The selection
+// scenario then dereferenced a checkbox that could not exist and the
+// harness died with a TypeError instead of reporting a failed check.
+//
+// That was a fixture bug and a harness-discipline bug at once: the data
+// did not support the question, and no guard said so. Both are fixed —
+// a second population gives the picker real candidates, and every
+// selector below is checked before it is used.
+const TOTAL_ON_DAY = 327;      // placed on Day 1: the inspector's list
+const TOTAL_ELSEWHERE = 240;   // placed on Day 2 only: the Day 1 picker's
+                               // candidates, deliberately above the 200 bound
 
 function serveRepo() {
   return new Promise((resolve) => {
@@ -80,7 +96,9 @@ function serveRepo() {
 }
 
 // Runs in the page before any app script.
-function installHarness(total) {
+function installHarness(counts) {
+  var total = counts.onDay;
+  var elsewhere = counts.elsewhere;
   window.__unhandled = [];
   window.addEventListener("unhandledrejection", function (e) {
     window.__unhandled.push(String((e.reason && e.reason.message) || e.reason));
@@ -131,6 +149,30 @@ function installHarness(total) {
         : [{ id: "pl" + i, trip_day_id: "d1", ord: i,
              placement_method: "operator", placement_note: null,
              day_index: 1, day_date: "2026-05-01" }],
+    });
+  }
+
+  // The Day 1 picker's candidates: placed on Day 2 only, so they are
+  // eligible for Day 1 and the picker has something to page through.
+  // Without these the picker is correctly empty and the selection
+  // scenario has nothing to select — which is how the first version of
+  // this harness died.
+  for (var j = 0; j < elsewhere; j++) {
+    links.push({
+      id: "E" + j,
+      trip_id: "t1",
+      photo_id: "Q" + j,
+      caption: "elsewhere " + j,
+      ord: j,
+      taken_at: null,
+      hidden: 0,
+      trip_stop_id: null,
+      trip_region_id: null,
+      trip_day_ids: ["d2"],
+      trip_day_id: "d2",
+      day_placements: [{ id: "ep" + j, trip_day_id: "d2", ord: j,
+                         placement_method: "operator", placement_note: null,
+                         day_index: 2, day_date: "2026-05-02" }],
     });
   }
 
@@ -194,7 +236,8 @@ function check(name, ok, detail) {
   }
   const browser = await chromium.launch(launchOpts);
   const page = await browser.newPage();
-  await page.addInitScript(installHarness, TOTAL_ON_DAY);
+  await page.addInitScript(installHarness,
+    { onDay: TOTAL_ON_DAY, elsewhere: TOTAL_ELSEWHERE });
   await page.goto(url, { waitUntil: "domcontentloaded" });
 
   // Driven through the REAL DOM — click the trip, click the day card,
@@ -202,11 +245,20 @@ function check(name, ok, detail) {
   // for this: a hook is production code that exists to be lied to, and
   // the route into the inspector is exactly the route the operator
   // takes.
-  await page.waitForSelector(".tdl-trip-list button", { timeout: 10000 });
-  await page.click(".tdl-trip-list button");
-  await page.waitForSelector(".tdl-day-card", { timeout: 10000 });
-  await page.click(".tdl-day-card");
-  await page.waitForSelector(".tdl-ins-sec", { timeout: 10000 });
+  // Wrapped: a selector that never appears is a FAILED CHECK with a
+  // verdict, not a thrown timeout that ends the run silently.
+  let reachedInspector = true;
+  try {
+    await page.waitForSelector(".tdl-trip-list button", { timeout: 10000 });
+    await page.click(".tdl-trip-list button");
+    await page.waitForSelector(".tdl-day-card", { timeout: 10000 });
+    await page.click(".tdl-day-card");
+    await page.waitForSelector(".tdl-ins-sec", { timeout: 10000 });
+  } catch (e) {
+    reachedInspector = false;
+    check("the day inspector opens", false, String(e.message).slice(0, 120));
+  }
+  check("reached the day inspector", reachedInspector);
   // The Photos section is collapsed by default; <details> renders its
   // children either way, but opening it is what the operator does and
   // keeps the measurements about what they can see.
@@ -221,6 +273,10 @@ function check(name, ok, detail) {
 
   const tiles = () => page.evaluate(() => {
     var root = document.querySelector(".tdl-root");
+    if (!root) {
+      return { onDay: 0, allImgs: 0, pager: "", firstCaption: "",
+               lastCaption: "", lazyImgs: 0, mounted: false };
+    }
     var onDay = root.querySelectorAll(".tdl-photo-row .tdl-photo-cell");
     return {
       onDay: onDay.length,
@@ -233,6 +289,7 @@ function check(name, ok, detail) {
       lastCaption: onDay.length
         ? onDay[onDay.length - 1].querySelector("img").alt : "",
       lazyImgs: root.querySelectorAll('img[loading="lazy"]').length,
+      mounted: true,
     };
   });
 
@@ -247,9 +304,17 @@ function check(name, ok, detail) {
 
   // ── initial ──────────────────────────────────────────────────────
   let t = await tiles();
+  check("the workspace mounted", t.mounted);
   check("initial mounts exactly one page", t.onDay === 50, "onDay=" + t.onDay);
-  check("the pager states the true total",
-    /of 327/.test(t.pager), t.pager.slice(0, 80));
+  // The count is the day's PLACEMENTS, not the trip's photographs: the
+  // fixture also holds TOTAL_ELSEWHERE links placed on Day 2 only, and
+  // they must not appear here.
+  check("the day shows exactly its own placements",
+    new RegExp("of " + TOTAL_ON_DAY + "\\b").test(t.pager),
+    t.pager.slice(0, 80));
+  check("photographs placed on another day are not on this one",
+    !new RegExp("of " + (TOTAL_ON_DAY + TOTAL_ELSEWHERE)).test(t.pager),
+    t.pager.slice(0, 80));
   check("the pager does not present the batch as a cap",
     !/maximum|cap|limit/i.test(t.pager), t.pager.slice(0, 80));
 
@@ -314,48 +379,134 @@ function check(name, ok, detail) {
   check("the last photograph is reachable at the end",
     end.lastCaption === "photo 326", end.lastCaption);
   check("the pager still reports the true total",
-    /of 327/.test(end.pager), end.pager.slice(0, 80));
+    new RegExp("of " + TOTAL_ON_DAY + "\\b").test(end.pager),
+    end.pager.slice(0, 80));
 
   // ── eager ────────────────────────────────────────────────────────
   check("no mounted thumbnail uses native lazy loading",
     end.lazyImgs === 0, "lazy=" + end.lazyImgs);
 
-  // ── selection survives a window slide (picker) ────────────────────
-  // "＋ Add photos" at the foot of the Photos section, clicked as the
-  // operator clicks it.
-  await page.evaluate(() => {
+  // ── the Day 1 picker ─────────────────────────────────────────────
+  //
+  // Every read below is null-safe and reports a FAILED CHECK rather
+  // than throwing. The first version of this harness dereferenced a
+  // checkbox that could not exist and died with a TypeError, so the run
+  // ended with no verdict at all — a harness that crashes tells you
+  // less than one that fails.
+  const opened = await page.evaluate(() => {
     var b = Array.prototype.slice.call(document.querySelectorAll("button"))
       .filter(function (x) { return /Add photos/.test(x.textContent); })[0];
-    if (b) b.click();
+    if (!b) return false;
+    b.click();
+    return true;
   });
-  await page.waitForTimeout(300);
-  const pick0 = await page.evaluate(() => ({
-    cells: document.querySelectorAll(".tdl-picker-cell").length,
-  }));
-  check("the picker mounts at most one page", pick0.cells <= 50,
-    "cells=" + pick0.cells);
+  check("the Add photos control exists", opened);
 
-  await page.evaluate(() => {
-    var cb = document.querySelector(".tdl-picker-cell input[type=checkbox]");
+  await page.waitForTimeout(350);
+
+  const pickState = () => page.evaluate(() => {
+    // Always the full shape, defaults included. Returning a short
+    // object on the absent branch would push the null-dereference one
+    // level out into the check() arguments, which is the same crash in
+    // a place harder to see.
+    var drawer = document.querySelector(".tdl-drawer");
+    if (!drawer) {
+      return { present: false, cells: 0, ticked: 0, firstAlt: "",
+               lastAlt: "", label: "", pager: "", boxes: 0, lazy: 0 };
+    }
+    var cells = drawer.querySelectorAll(".tdl-picker-cell");
+    var boxes = drawer.querySelectorAll(".tdl-picker-cell input[type=checkbox]");
+    var primary = drawer.querySelector(".tdl-btn-primary");
+    var pager = drawer.querySelector(".tdl-photo-pager");
+    return {
+      present: true,
+      cells: cells.length,
+      ticked: drawer.querySelectorAll(
+        ".tdl-picker-cell input[type=checkbox]:checked").length,
+      firstAlt: cells.length ? cells[0].querySelector("img").alt : "",
+      lastAlt: cells.length
+        ? cells[cells.length - 1].querySelector("img").alt : "",
+      label: primary ? primary.textContent : "",
+      pager: pager ? pager.textContent : "",
+      boxes: boxes.length,
+      lazy: drawer.querySelectorAll('img[loading="lazy"]').length,
+    };
+  });
+
+  const slidePicker = (dir) => page.evaluate((d) => {
+    var drawer = document.querySelector(".tdl-drawer");
+    if (!drawer) return false;
+    var want = d > 0 ? /Load more/ : /Earlier/;
+    var b = Array.prototype.slice.call(
+      drawer.querySelectorAll(".tdl-photo-pager button"))
+      .filter(function (x) { return want.test(x.textContent); })[0];
+    if (!b) return false;
+    b.click();
+    return true;
+  }, dir);
+
+  let p = await pickState();
+  check("the picker drawer opened", p.present);
+  check("the picker has eligible candidates", p.present && p.cells > 0,
+    "cells=" + (p.cells || 0));
+  check("the picker mounts exactly one page",
+    p.present && p.cells === 50, "cells=" + p.cells);
+  check("the picker states its own true total",
+    p.present && new RegExp("of " + TOTAL_ELSEWHERE).test(p.pager),
+    p.pager.slice(0, 80));
+  check("picker thumbnails are eager", p.present && p.lazy === 0,
+    "lazy=" + p.lazy);
+
+  const firstAlt = p.firstAlt;
+  const ticked = await page.evaluate(() => {
+    var cb = document.querySelector(
+      ".tdl-drawer .tdl-picker-cell input[type=checkbox]");
+    if (!cb) return false;
     cb.checked = true;
     cb.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
   });
-  const beforeSlide = await page.evaluate(() =>
-    document.querySelector(".tdl-drawer .tdl-btn-primary").textContent);
-  await page.evaluate(() => {
-    var b = Array.prototype.slice.call(
-      document.querySelectorAll(".tdl-drawer .tdl-photo-pager button"))
-      .filter(function (x) { return /Load more/.test(x.textContent); })[0];
-    if (b) b.click();
-  });
-  await page.waitForTimeout(250);
-  const afterSlide = await page.evaluate(() => ({
-    label: document.querySelector(".tdl-drawer .tdl-btn-primary").textContent,
-    ticked: document.querySelectorAll(
-      ".tdl-picker-cell input[type=checkbox]:checked").length,
-  }));
-  check("the selection survives a window change",
-    /Add 1 /.test(afterSlide.label), beforeSlide + " -> " + afterSlide.label);
+  check("a candidate can be selected", ticked);
+  await page.waitForTimeout(150);
+  p = await pickState();
+  check("the Add button reports the selection",
+    /Add 1 /.test(p.label), p.label);
+
+  // Slide forward past the bound so the ticked cell leaves the window.
+  let pSteps = 0;
+  let pPeak = p.cells;
+  while (await slidePicker(1)) {
+    await page.waitForTimeout(120);
+    p = await pickState();
+    pPeak = Math.max(pPeak, p.cells);
+    if (++pSteps > 20) break;
+  }
+  check("paging the picker terminates", pSteps <= 20, "clicks=" + pSteps);
+  check("one picker click exposes one page at a time", pSteps === 4,
+    "clicks=" + pSteps + " for " + TOTAL_ELSEWHERE + " candidates");
+  check("mounted picker cells never exceed the bound", pPeak <= 200,
+    "peak=" + pPeak);
+  check("the picker reaches its last candidate",
+    p.lastAlt === "elsewhere " + (TOTAL_ELSEWHERE - 1), p.lastAlt);
+  check("the window slid past the selected cell",
+    p.firstAlt !== firstAlt, firstAlt + " -> " + p.firstAlt);
+  check("the selected checkbox is outside the current window",
+    p.ticked === 0, "ticked=" + p.ticked);
+  check("the Add button still reports the stored selection",
+    /Add 1 /.test(p.label), p.label);
+
+  // And back again: the tick must reappear on the very same cell.
+  while (await slidePicker(-1)) {
+    await page.waitForTimeout(120);
+    p = await pickState();
+    if (p.firstAlt === firstAlt) break;
+  }
+  check("sliding back returns to the first window",
+    p.firstAlt === firstAlt, p.firstAlt);
+  check("the selection survived the round trip", p.ticked === 1,
+    "ticked=" + p.ticked);
+  check("the Add button is unchanged by the round trip",
+    /Add 1 /.test(p.label), p.label);
 
   // ── hygiene ──────────────────────────────────────────────────────
   const noise = await page.evaluate(() => ({

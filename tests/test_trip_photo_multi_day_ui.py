@@ -344,6 +344,24 @@ class SelectionSurvivesARepaintTest(unittest.TestCase):
         body = _fn("renderPhotoPicker")
         self.assertIn("cb.checked = !!checked[l.id];", body)
 
+    def test_the_footer_is_painted_from_the_stored_selection_on_render(self):
+        """The checkbox is only half of it.
+
+        paintAttach used to be reachable ONLY from a checkbox's change
+        handler — fine while the grid never repainted mid-selection,
+        because ticking was the only way to change the count. Load more
+        repaints, so without a call at the end of the render the button
+        reset to "Add selected to …" and disabled itself while the
+        selection was still held in st: the footer contradicting the
+        state it describes.
+        """
+        body = _fn("renderPhotoPicker")
+        # Called at the end of the render, after the footer exists.
+        self.assertIn("\n    paintAttach();\n", body)
+        i = body.index("\n    paintAttach();\n")
+        self.assertIn("foot.appendChild(attach);", body[:i],
+                      "paintAttach runs before the button it paints exists")
+
     def test_it_is_cleared_when_the_picker_opens_and_closes(self):
         for fn in ("openPhotoPicker", "closePhotoPicker"):
             self.assertIn("st.photoPickerChecked = {};", _fn(fn),

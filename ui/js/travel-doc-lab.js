@@ -5415,6 +5415,21 @@
     foot.appendChild(btn("tdl-btn", "Cancel", closePhotoPicker));
     drawer.appendChild(foot);
 
+    // Paint the footer from the STORED selection, once, at the end of
+    // the render. paintAttach used to be reachable only from a
+    // checkbox's change handler, which was fine while the grid never
+    // repainted mid-selection: the only way to change the count was to
+    // tick something. Load more repaints, so without this the button
+    // would reset to "Add selected to …" and disable itself while the
+    // operator's selection was still held in st — the footer
+    // contradicting the state it describes, on exactly the photographs
+    // they had just chosen.
+    //
+    // Found by writing the test for the requirement, not by reading the
+    // code: the selection SURVIVED the slide all along; the button
+    // simply stopped saying so.
+    paintAttach();
+
     wrap.appendChild(drawer);
     return wrap;
   }
