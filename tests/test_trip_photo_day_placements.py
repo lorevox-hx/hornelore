@@ -33,11 +33,14 @@ for _p in (str(_REPO_ROOT / "server" / "code"), str(_REPO_ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-_TMP = tempfile.mkdtemp(prefix="hl-0043-")
-os.environ["DATA_DIR"] = _TMP
+from tests import trip_db_binding as _binding  # noqa: E402
 
-for _m in [m for m in list(sys.modules) if m.endswith("api.db") or m == "api.db"]:
-    del sys.modules[_m]
+_TMP = tempfile.mkdtemp(prefix="hl-0043-")
+# NEVER delete api.db from sys.modules here. Doing so forks the
+# module object; trip_repository._connect() late-imports api.db and
+# would then read a DIFFERENT database than the one this suite set
+# up. See tests/trip_db_binding.py for the measured failure.
+_binding.temp_data_dir(_TMP)
 
 import api.db as db  # noqa: E402
 from api.services import trip_repository as repo  # noqa: E402
@@ -79,7 +82,6 @@ class _Base(unittest.TestCase):
         self.path = os.path.join(_TMP, "t_%s.sqlite3" % self.id().split(".")[-1])
         if os.path.exists(self.path):
             os.remove(self.path)
-        db.DB_PATH = Path(self.path)
         con = sqlite3.connect(self.path)
         con.row_factory = sqlite3.Row
         _minimal_schema(con)
@@ -101,6 +103,10 @@ class _Base(unittest.TestCase):
         """)
         con.commit()
         con.close()
+        # Bind EVERY production connection path to this test's database
+        # and prove the repository actually opens it. Restored on
+        # cleanup, so this suite cannot leak its temp db into the next.
+        _binding.bind_db(self, repo, self.path)
 
     def migrate(self):
         con = sqlite3.connect(self.path)

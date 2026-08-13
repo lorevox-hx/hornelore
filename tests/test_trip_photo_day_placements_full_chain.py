@@ -33,11 +33,14 @@ for _p in (str(_REPO_ROOT / "server" / "code"), str(_REPO_ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-_TMP = tempfile.mkdtemp(prefix="hl-0043-chain-")
-os.environ["DATA_DIR"] = _TMP
+from tests import trip_db_binding as _binding  # noqa: E402
 
-for _m in [m for m in list(sys.modules) if m.endswith("api.db") or m == "api.db"]:
-    del sys.modules[_m]
+_TMP = tempfile.mkdtemp(prefix="hl-0043-chain-")
+# NEVER delete api.db from sys.modules here. Doing so forks the
+# module object; trip_repository._connect() late-imports api.db and
+# would then read a DIFFERENT database than the one this suite set
+# up. See tests/trip_db_binding.py for the measured failure.
+_binding.temp_data_dir(_TMP)
 
 import api.db as db  # noqa: E402
 from api.services import trip_repository as repo  # noqa: E402
@@ -56,7 +59,9 @@ class _Chain(unittest.TestCase):
             p = self.path + suffix
             if os.path.exists(p):
                 os.remove(p)
-        db.DB_PATH = Path(self.path)
+        # Bind before init_db so the migration chain builds THIS file,
+        # and prove the repository resolves the same one.
+        _binding.bind_db(self, repo, self.path)
         db.init_db()
 
     def q(self, sql, args=()):
