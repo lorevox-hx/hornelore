@@ -73,6 +73,12 @@ def _new_id() -> str:
 _KNOWN_TABLES = (
     "trip_location_notes", "trip_sources", "trip_photo_links",
     "trips",
+    # WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01 Phase 1: probed for its own
+    # existence, because every reader must still work on a pre-0043
+    # database. Code that assumes its migration has run is a
+    # code-before-migration failure, and this table's absence is
+    # exactly the case where the LEGACY scalar is still the truth.
+    "trip_photo_day_placements",
     # WO-TRAVEL-DOC-CLOSEOUT-01: probed for include_in_memoir, which
     # arrives in migration 0042. day_projection has to answer
     # "unsupported" on a pre-0042 database rather than "0 days
@@ -99,6 +105,222 @@ def _table_has_column(con: sqlite3.Connection, table: str,
     except sqlite3.OperationalError:
         return False
     return any(r["name"] == column for r in rows)
+
+
+def _table_exists(con: sqlite3.Connection, table: str) -> bool:
+    """True when ``table`` exists on this database.
+
+    WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01 Phase 1. Companion to
+    _table_has_column for a table that may not exist at all yet: on a
+    pre-0043 database trip_photo_day_placements is absent, and every
+    reader must fall back to the legacy scalar rather than raise.
+    ``table`` must be in _KNOWN_TABLES (fail-loud on programmer error),
+    same rule as the column probe.
+    """
+    if table not in _KNOWN_TABLES:
+        raise ValueError("unknown table for existence probe: %r" % table)
+    row = con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table,),
+    ).fetchone()
+    return row is not None
+
+
+# ── Photo day placements (WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01) ──────────
+#
+# One photograph is stored once (photos), belongs to a trip once
+# (trip_photo_links), and may be PLACED on any number of that trip's
+# days (trip_photo_day_placements, migration 0043).
+#
+# Everything below takes an open connection and does NOT commit: these
+# are primitives, and the caller owns the transaction. That is what lets
+# photo_links_set_day mutate the legacy scalar and the placement rows
+# atomically, and it is why an injected failure anywhere in a compound
+# operation rolls BOTH representations back.
+
+
+def _placements_supported(con: sqlite3.Connection) -> bool:
+    return _table_exists(con, "trip_photo_day_placements")
+
+
+def _assert_link_in_trip(con: sqlite3.Connection, link_id: str,
+                         trip_id: str) -> None:
+    row = con.execute(
+        "SELECT trip_id FROM trip_photo_links WHERE id = ?", (link_id,),
+    ).fetchone()
+    if not row or row["trip_id"] != trip_id:
+        raise ValueError("photo link not in this trip: %s" % link_id)
+
+
+def _assert_day_in_trip(con: sqlite3.Connection, day_id: str,
+                        trip_id: str) -> None:
+    """Validate a day INSIDE the caller's write transaction.
+
+    Phase 0 review finding: photo_links_set_day used to validate the
+    destination day with trip_day_get(), which opens its OWN connection
+    BEFORE the write connection exists (L3750 vs L3753 at e691105). The
+    day was therefore checked against a snapshot taken outside the
+    transaction that then wrote to it. That was survivable while only a
+    scalar was written; it is not once a placement ROW is written too,
+    because a day deleted in between leaves a placement pointing at a
+    day that is gone.
+    """
+    row = con.execute(
+        "SELECT trip_id FROM trip_days WHERE id = ?", (day_id,),
+    ).fetchone()
+    if not row or row["trip_id"] != trip_id:
+        raise ValueError("day not in this trip: %s" % day_id)
+
+
+def placements_for_link(con: sqlite3.Connection,
+                        link_id: str) -> List[Dict[str, Any]]:
+    """Every placement of one trip photo, in display order."""
+    if not _placements_supported(con):
+        return []
+    rows = con.execute(
+        "SELECT * FROM trip_photo_day_placements"
+        " WHERE photo_link_id = ? ORDER BY ord, id", (link_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def placements_for_day(con: sqlite3.Connection,
+                       day_id: str) -> List[Dict[str, Any]]:
+    """Every placement on one day, in operator order."""
+    if not _placements_supported(con):
+        return []
+    rows = con.execute(
+        "SELECT * FROM trip_photo_day_placements"
+        " WHERE trip_day_id = ? ORDER BY ord, id", (day_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def placement_add_many(con: sqlite3.Connection, link_ids: List[str],
+                       day_id: str, trip_id: str,
+                       method: str = "operator") -> List[str]:
+    """Place several trip photos on one day. Returns ids created.
+
+    Idempotent per pair: a link already placed on this day is left
+    exactly as it is and contributes no new row, because
+    UNIQUE(photo_link_id, trip_day_id) is the product rule (the same
+    photograph twice on one day is nonsense) rather than an error the
+    operator should have to think about.
+
+    ``ord`` continues after the day's current maximum, in request
+    order, so a photo added later appears later. Leaving every new row
+    at the default 0 and relying on the id tie-breaker would order a
+    day by random uuid.
+    """
+    if not _placements_supported(con) or not link_ids:
+        return []
+    _assert_day_in_trip(con, day_id, trip_id)
+    row = con.execute(
+        "SELECT COALESCE(MAX(ord), -1) AS m FROM trip_photo_day_placements"
+        " WHERE trip_day_id = ?", (day_id,),
+    ).fetchone()
+    nxt = int(row["m"]) + 1
+    now = _now()
+    created: List[str] = []
+    for link_id in link_ids:
+        _assert_link_in_trip(con, link_id, trip_id)
+        existing = con.execute(
+            "SELECT id FROM trip_photo_day_placements"
+            " WHERE photo_link_id = ? AND trip_day_id = ?",
+            (link_id, day_id),
+        ).fetchone()
+        if existing:
+            continue
+        pid = _new_id()
+        con.execute(
+            "INSERT INTO trip_photo_day_placements"
+            " (id, photo_link_id, trip_day_id, placement_note, ord,"
+            "  placement_method, created_at, updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            (pid, link_id, day_id, None, nxt, method, now, now),
+        )
+        created.append(pid)
+        nxt += 1
+    return created
+
+
+def placement_remove_from_day(con: sqlite3.Connection, link_ids: List[str],
+                              day_id: str) -> int:
+    """Remove the placement of these links FROM THIS DAY only.
+
+    Scoped by (photo_link_id, trip_day_id) on purpose. A delete keyed
+    on the day alone would clear every photograph off it, and a delete
+    keyed on the link alone would remove that photograph from every
+    day -- both are destructive answers to "take this one off this
+    day".
+    """
+    if not _placements_supported(con) or not link_ids:
+        return 0
+    removed = 0
+    for link_id in link_ids:
+        cur = con.execute(
+            "DELETE FROM trip_photo_day_placements"
+            " WHERE photo_link_id = ? AND trip_day_id = ?",
+            (link_id, day_id),
+        )
+        removed += cur.rowcount
+    return removed
+
+
+def placement_move(con: sqlite3.Connection, link_id: str, from_day_id: str,
+                   to_day_id: str, trip_id: str) -> Dict[str, Any]:
+    """Move ONE placement between days, in the caller's transaction.
+
+    The source must be named. A photograph on three days cannot be
+    moved correctly from a bare link id -- "move it" would have three
+    possible readings and the code would silently pick one.
+    """
+    if not _placements_supported(con):
+        return {"moved": False, "reason": "placements_unsupported"}
+    _assert_link_in_trip(con, link_id, trip_id)
+    _assert_day_in_trip(con, to_day_id, trip_id)
+    _assert_day_in_trip(con, from_day_id, trip_id)
+    created = placement_add_many(con, [link_id], to_day_id, trip_id)
+    removed = placement_remove_from_day(con, [link_id], from_day_id)
+    return {"moved": True, "created": created, "removed": removed}
+
+
+def placement_reorder(con: sqlite3.Connection, day_id: str,
+                      placement_ids: List[str]) -> int:
+    """Set explicit order for a day's placements. Unlisted rows keep
+    their relative order after the listed ones."""
+    if not _placements_supported(con) or not placement_ids:
+        return 0
+    now = _now()
+    updated = 0
+    for i, pid in enumerate(placement_ids):
+        cur = con.execute(
+            "UPDATE trip_photo_day_placements SET ord = ?, updated_at = ?"
+            " WHERE id = ? AND trip_day_id = ?", (i, now, pid, day_id),
+        )
+        updated += cur.rowcount
+    return updated
+
+
+def _placement_day_tally(con: sqlite3.Connection,
+                         trip_id: str) -> Dict[str, int]:
+    """Photo attachments per day, counted from PLACEMENTS.
+
+    Deletion-safety counting, not display counting. Hidden links are
+    deliberately INCLUDED: honest-counts governs what a day card shows,
+    and has no bearing on what a delete would detach. A hidden
+    photograph is still the operator's photograph, and a day holding
+    one is not empty.
+    """
+    rows = con.execute(
+        "SELECT p.trip_day_id AS d, COUNT(*) AS n"
+        "  FROM trip_photo_day_placements p"
+        "  JOIN trip_photo_links l ON l.id = p.photo_link_id"
+        " WHERE l.trip_id = ?"
+        " GROUP BY p.trip_day_id",
+        (trip_id,),
+    ).fetchall()
+    return {str(r["d"]): int(r["n"]) for r in rows if r["d"]}
 
 
 def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
@@ -3746,19 +3968,51 @@ def photo_links_set_day(
     ids = [str(l) for l in (link_ids or []) if l]
     if not ids:
         return 0
-    if day_id:
-        day = trip_day_get(day_id)
-        if not day or day.get("trip_id") != trip_id:
-            raise ValueError("day not in this trip")
     con = _connect()
     try:
+        # WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01 Phase 1 — validation moved
+        # INSIDE the write transaction. This used to call trip_day_get()
+        # before _connect(), so the destination day was checked on a
+        # different connection than the one that then wrote to it. That
+        # was survivable while only a scalar was written; it is not once
+        # a placement ROW is written too, because a day removed between
+        # the check and the write leaves a placement pointing at a day
+        # that no longer exists.
+        if day_id:
+            _assert_day_in_trip(con, day_id, trip_id)
         for lid in ids:
-            row = con.execute(
-                "SELECT trip_id FROM trip_photo_links WHERE id = ?",
-                (lid,),
-            ).fetchone()
-            if not row or row["trip_id"] != trip_id:
-                raise ValueError("photo link not in this trip: %s" % lid)
+            _assert_link_in_trip(con, lid, trip_id)
+
+        # ── The dual-write bridge (Phase 1 only) ──────────────────────
+        #
+        # This MIRRORS the scalar. It does not add multi-day behaviour:
+        # the UI still says "Move to this day", and Phase 1 changes
+        # storage, not product semantics. Transition for transition —
+        #
+        #     null -> B   placements become {B}
+        #     A    -> B   placements become {B}  (delete A, insert B)
+        #     A    -> null placements become {}
+        #     A    -> A   unchanged, no duplicate
+        #
+        # The failure this rules out is inserting B while leaving A
+        # behind. That would produce two-day data from an action the
+        # operator performed as a MOVE, before any control exists to
+        # see or undo the second placement. Phase 2 turns move into
+        # add; Phase 1 must not anticipate it.
+        #
+        # Deletion is scoped to (this link, its OWN previous day) — read
+        # per link below. Deleting by day would clear the day; deleting
+        # by link would clear every day.
+        bridge = _placements_supported(con)
+        prev_days: Dict[str, Optional[str]] = {}
+        if bridge:
+            for lid in ids:
+                row = con.execute(
+                    "SELECT trip_day_id FROM trip_photo_links WHERE id = ?",
+                    (lid,),
+                ).fetchone()
+                prev_days[lid] = (row["trip_day_id"] if row else None)
+
         updated = 0
         for lid in ids:
             cur = con.execute(
@@ -3767,6 +4021,17 @@ def photo_links_set_day(
                 (day_id, _now(), lid),
             )
             updated += cur.rowcount
+
+        if bridge:
+            for lid in ids:
+                was = prev_days.get(lid)
+                if was and was != day_id:
+                    placement_remove_from_day(con, [lid], was)
+            if day_id:
+                # Idempotent per pair, so A -> A adds nothing.
+                placement_add_many(con, ids, day_id, trip_id,
+                                   method="operator")
+
         con.commit()
         return updated
     except Exception:
@@ -4026,7 +4291,31 @@ def _day_attachment_counts(con: sqlite3.Connection,
                 did, {"photos": 0, "notes": 0, "sources": 0})
             slot[bucket] = int(r["n"])
 
-    _tally("trip_photo_links", "photos")
+    # WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01 Phase 1 — photographs are
+    # counted from PLACEMENTS once migration 0043 has run, and from the
+    # legacy scalar before that.
+    #
+    # This is the blocking gate of the whole work order. The tally feeds
+    # _day_is_empty, which gates drop_empty_out_of_range, which DELETES
+    # day rows when a trip's dates shrink. A day holding only new-style
+    # placements that reported zero here would be silently destroyed by
+    # an operator action as unrelated as correcting an end date.
+    #
+    # The ordering rule this depends on: the dual-write bridge in
+    # photo_links_set_day lands BEFORE this switch. While both exist,
+    # every scalar write also writes a placement, so the two agree. If
+    # this switch had landed first, any write through the still-live
+    # legacy path would have been invisible here — the hazard, reopened
+    # inside one commit.
+    #
+    # Pre-0043 the table is absent and the legacy tally is still the
+    # truth, which is why this is a runtime probe and not an assumption.
+    if _placements_supported(con):
+        for did, n in _placement_day_tally(con, trip_id).items():
+            slot = out.setdefault(did, {"photos": 0, "notes": 0, "sources": 0})
+            slot["photos"] = n
+    else:
+        _tally("trip_photo_links", "photos")
     _tally("trip_location_notes", "notes")
     _tally("trip_sources", "sources")
     return out
