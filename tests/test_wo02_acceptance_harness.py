@@ -124,6 +124,28 @@ class _HarnessCase(unittest.TestCase):
             "pass": wo02.PASS[0], "fail": wo02.FAIL[0],
             "skip": wo02.SKIP[0], "attest": wo02.ATTEST[0]}
 
+    def assertFailed(self, log, needle):
+        """That LINE failed — not merely that the words appeared.
+
+        Added 2026-08-13 after a mutation survived. `check()` prints its
+        message on both branches, so `assertIn("no photo link
+        disappeared", log)` passes on a run where the check was forced
+        true. The run had other genuine failures, so `fail > 0` passed
+        too, and a removed assertion looked exactly like a present one.
+
+        Asserting the PASS/FAIL prefix is what distinguishes them.
+        """
+        for line in log.split("\n"):
+            if line.startswith("FAIL") and needle in line:
+                return
+        self.fail("expected a FAIL line containing %r.\n%s" % (needle, log))
+
+    def assertPassed(self, log, needle):
+        for line in log.split("\n"):
+            if line.startswith("PASS") and needle in line:
+                return
+        self.fail("expected a PASS line containing %r.\n%s" % (needle, log))
+
 
 class CheckpointTest(_HarnessCase):
 
@@ -864,8 +886,7 @@ class PlacementIdentityIsProvedTest(_HarnessCase):
         bad["counts"] = dict(base["counts"])
         bad["counts"]["d1"] = {"row_count": 3}
         rc, log, n = self.run_mode(wo02.do_checkpoint, bad, [], "T")
-        self.assertGreater(n["fail"], 0, log)
-        self.assertIn("kept the SAME placement row", log)
+        self.assertFailed(log, "kept the SAME placement row")
 
     def test_the_same_shape_with_ids_preserved_passes(self):
         """Non-vacuity for the test above."""
@@ -932,8 +953,8 @@ class PlacementIdentityIsProvedTest(_HarnessCase):
                     "pids": {"d1": "pl-capA-d1", "d3": "pl-NEW"},
                     "ch": "capA", "approved": 0}})
         self.assertEqual(n["fail"], 0, log)
-        self.assertIn("created exactly one placement", log)
-        self.assertIn("created a NEW placement row", log)
+        self.assertPassed(log, "created exactly one placement")
+        self.assertPassed(log, "created a NEW placement row")
 
     def test_an_add_that_reused_an_existing_row_id_fails(self):
         """ADDED after a mutation survived.
@@ -953,8 +974,7 @@ class PlacementIdentityIsProvedTest(_HarnessCase):
             {"p1": {"days": ["d1", "d3"],
                     "pids": {"d1": "pl-capA-d1", "d3": "pl-capA-d1"},
                     "ch": "capA", "approved": 0}})
-        self.assertGreater(n["fail"], 0, log)
-        self.assertIn("created a NEW placement row", log)
+        self.assertFailed(log, "created a NEW placement row")
 
     def test_a_move_that_kept_the_source_row_id_fails(self):
         """Same shape for Move: the destination must be a new row, and
@@ -963,8 +983,7 @@ class PlacementIdentityIsProvedTest(_HarnessCase):
             {"p1": link(["d1"])},
             {"p1": {"days": ["d2"], "pids": {"d2": "pl-capA-d1"},
                     "ch": "capA", "approved": 0}})
-        self.assertGreater(n["fail"], 0, log)
-        self.assertIn("removed the named source placement", log)
+        self.assertFailed(log, "removed the named source placement")
 
     def test_an_add_that_rewrote_the_existing_row_fails(self):
         rc, log, n = self._verify_pair(
@@ -972,8 +991,7 @@ class PlacementIdentityIsProvedTest(_HarnessCase):
             {"p1": {"days": ["d1", "d3"],
                     "pids": {"d1": "pl-REWRITTEN", "d3": "pl-NEW"},
                     "ch": "capA", "approved": 0}})
-        self.assertGreater(n["fail"], 0, log)
-        self.assertIn("left every untouched placement's row alone", log)
+        self.assertFailed(log, "left every untouched placement's row alone")
 
     def test_move_removes_the_source_and_creates_the_destination(self):
         rc, log, n = self._verify_pair(
@@ -981,8 +999,8 @@ class PlacementIdentityIsProvedTest(_HarnessCase):
             {"p1": {"days": ["d2"], "pids": {"d2": "pl-NEW"},
                     "ch": "capA", "approved": 0}})
         self.assertEqual(n["fail"], 0, log)
-        self.assertIn("removed the named source placement", log)
-        self.assertIn("created the destination placement", log)
+        self.assertPassed(log, "removed the named source placement")
+        self.assertPassed(log, "created the destination placement")
 
     def test_an_operation_that_disturbs_an_unrelated_photo_fails(self):
         rc, log, n = self._verify_pair(
@@ -993,9 +1011,103 @@ class PlacementIdentityIsProvedTest(_HarnessCase):
              # p2 was not touched by the operator and must not have moved.
              "p2": {"days": ["d2"], "pids": {"d2": "pl-SOMETHING-ELSE"},
                     "ch": "capB", "approved": 0}})
-        self.assertGreater(n["fail"], 0, log)
-        self.assertIn("no unrelated photograph's placement rows were "
-                      "rewritten", log)
+        self.assertFailed(log,
+                          "no unrelated photograph's placement rows were "
+                          "rewritten")
+
+    def test_a_current_entry_listing_a_day_with_no_id_fails(self):
+        """Review correction, 2026-08-13.
+
+        `rekeyed_days` skipped any day whose id was absent on either
+        side, which was right for a HISTORICAL entry and wrong for a
+        current one: a set-format entry claiming a photograph is on d1
+        while recording no placement row for d1 is malformed, and
+        passing it silently is how a snapshot that lost its ids reports
+        success.
+        """
+        rc, log, n = self._verify_pair(
+            {"p1": link(["d1"])},
+            {"p1": {"days": ["d1", "d3"],
+                    "pids": {"d3": "pl-NEW"},        # d1's id is gone
+                    "ch": "capA", "approved": 0}})
+        self.assertFailed(log, "lists day d1 with no placement id")
+
+    def test_a_surviving_day_that_lost_its_id_fails_as_a_rewrite_too(self):
+        """The direct comparison, not the truthiness one: `id -> None`
+        is a change like any other."""
+        self.assertEqual(
+            wo02.rekeyed_days(link(["d1"]),
+                              {"days": ["d1"], "pids": {}, "ch": "capA",
+                               "approved": 0},
+                              ["d1"]),
+            [("d1", "pl-capA-d1", "(none)")])
+
+    def test_add_from_zero_days_still_requires_a_destination_id(self):
+        """The guard used to be `if b_ids and a_ids`, and `b_ids` is
+        empty for a photograph that had NO placements — so the whole
+        check was skipped for the commonest Add there is."""
+        rc, log, n = self._verify_pair(
+            {"p1": link([])},
+            {"p1": {"days": ["d1"], "pids": {}, "ch": "capA",
+                    "approved": 0}})
+        self.assertFailed(log, "recorded a placement row for the new day d1")
+
+    def test_add_from_zero_days_with_an_id_passes(self):
+        """Non-vacuity for the test above."""
+        rc, log, n = self._verify_pair(
+            {"p1": link([])},
+            {"p1": {"days": ["d1"], "pids": {"d1": "pl-NEW"},
+                    "ch": "capA", "approved": 0}})
+        self.assertEqual(n["fail"], 0, log)
+
+    def test_move_with_no_destination_id_fails(self):
+        """Pinned to the LINE, not to the run's failure count.
+
+        A missing destination id also trips `missing_pids`, so
+        `fail > 0` was satisfied even with the Move-specific check
+        forced true — the mutation survived because the test was
+        watching the wrong signal.
+        """
+        rc, log, n = self._verify_pair(
+            {"p1": link(["d1"])},
+            {"p1": {"days": ["d2"], "pids": {}, "ch": "capA",
+                    "approved": 0}})
+        self.assertFailed(
+            log, "recorded a placement row for the destination day d2")
+
+    def test_two_days_sharing_one_placement_id_fails(self):
+        """Impossible in the database — a placement row has one day — so
+        seeing it means the reader collapsed two rows into one, and
+        every per-day identity check downstream is comparing a value
+        that does not mean what it says."""
+        rc, log, n = self._verify_pair(
+            {"p1": link(["d1"])},
+            {"p1": {"days": ["d1", "d3"],
+                    "pids": {"d1": "pl-SAME", "d3": "pl-SAME"},
+                    "ch": "capA", "approved": 0}})
+        self.assertFailed(log, "same placement id")
+
+    def test_a_vanished_photo_link_is_a_failure_not_a_skip(self):
+        """The loudest failure had the quietest answer.
+
+        The classification loop skips anything absent from the
+        checkpoint and the unrelated-link sweep iterates `now`, so a
+        link DELETED during Stage B appeared in neither: no Add, no
+        Remove, no Move, and the run reported SKIP / INCOMPLETE.
+        """
+        rc, log, n = self._verify_pair(
+            {"p1": link(["d1"]), "p2": link(["d2"], ch="capB")},
+            {"p1": link(["d1"])})            # p2 deleted outright
+        self.assertFailed(log, "no photo link disappeared during Stage B")
+        self.assertNotIn("INCOMPLETE", log)
+
+    def test_a_new_trip_membership_is_reported_not_counted_as_an_Add(self):
+        rc, log, n = self._verify_pair(
+            {"p1": link(["d1"])},
+            {"p1": link(["d1"]), "p9": link(["d2"], ch="capC")})
+        self.assertIn("new trip membership(s) since the checkpoint", log)
+        self.assertFailed(log, "created no second trip link")
+        self.assertNotIn("Add operation(s) seen", log)
 
     def test_a_legacy_snapshot_without_ids_makes_no_identity_claim(self):
         """A pre-migration baseline recorded no placement ids. The

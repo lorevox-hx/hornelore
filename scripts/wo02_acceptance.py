@@ -283,8 +283,59 @@ def pids_of(entry):
     return dict(entry.get("pids") or {})
 
 
+def is_set_format(entry):
+    """True for a snapshot entry written on or after 2026-08-13.
+
+    The presence of `days` is what distinguishes a CURRENT entry from a
+    historical scalar one, and the distinction decides whether a missing
+    placement id is unknowable or malformed.
+    """
+    return isinstance(entry, dict) and "days" in entry
+
+
+def missing_pids(entry):
+    """Days a CURRENT entry lists without a placement id.
+
+    CORRECTED 2026-08-13 after review. The id checks used to skip any
+    day whose id was absent on either side, on the reasoning that the
+    pre-migration state files record no ids at all. That exemption was
+    right for HISTORICAL entries and wrong for current ones: a
+    set-format entry claiming a photograph is on `d1` while recording no
+    placement row for `d1` is malformed, and silently passing it is how
+    a snapshot that lost its ids reports success.
+
+    Historical entries are exempt here and warned about once, by
+    warn_if_legacy, rather than producing a failure per day.
+    """
+    if not is_set_format(entry):
+        return []
+    pids = pids_of(entry)
+    return [d for d in (entry.get("days") or []) if not pids.get(d)]
+
+
+def duplicate_pids(entry):
+    """One placement id claimed by two different days.
+
+    Impossible in the database — a placement row has one day — so seeing
+    it in a snapshot means the reader collapsed two rows into one, and
+    every per-day identity check downstream is then comparing a value
+    that does not mean what it says.
+    """
+    if not is_set_format(entry):
+        return []
+    seen, dup = {}, []
+    for d, pid in sorted(pids_of(entry).items()):
+        if not pid:
+            continue
+        if pid in seen:
+            dup.append((seen[pid], d, pid))
+        else:
+            seen[pid] = d
+    return dup
+
+
 def rekeyed_days(before, after, days):
-    """Days present in BOTH snapshots whose placement id changed.
+    """Days present in BOTH snapshots whose placement id changed or went.
 
     ADDED 2026-08-13 after review. The set assertions compare day NAMES,
     which cannot tell "this placement was preserved" from "this
@@ -294,16 +345,33 @@ def rekeyed_days(before, after, days):
     file while having preserved nothing — and the operator's ordering,
     and anything later keyed on a placement id, would be silently gone.
 
-    A day with no recorded id on either side is skipped rather than
-    counted as a change: absence of evidence is not evidence of a
-    rewrite, and the pre-migration state files have no ids at all.
+    TIGHTENED the same day, after a second review. This read
+
+        if b.get(d) and a.get(d) and b[d] != a[d]
+
+    which passes silently when EITHER id disappears — so a surviving day
+    that lost its placement row read as "preserved". The comparison is
+    now direct, so `id -> None` is a change like any other. The
+    historical exemption is applied by format rather than by
+    truthiness: it holds only when a side is not in set format.
     """
     bad = []
+    if not (is_set_format(before) and is_set_format(after)):
+        return bad          # historical: identity was never recorded
     b, a = pids_of(before), pids_of(after)
     for d in days:
-        if b.get(d) and a.get(d) and b[d] != a[d]:
-            bad.append((d, b[d], a[d]))
+        if b.get(d) != a.get(d):
+            bad.append((d, b.get(d) or "(none)", a.get(d) or "(none)"))
     return bad
+
+
+def id_health(entry, label):
+    """Malformed-id problems on one entry, as readable strings."""
+    problems = ["%s lists day %s with no placement id" % (label, d)
+                for d in missing_pids(entry)]
+    problems += ["%s gives days %s and %s the same placement id %s"
+                 % (label, x, y, pid) for x, y, pid in duplicate_pids(entry)]
+    return problems
 
 
 def _snapshot_is_legacy(snap):
@@ -463,6 +531,11 @@ def do_checkpoint(now, attests, now_iso):
                   % (k[:8], len(lost), before, after))
             check(sorted(after) == sorted(kept),
                   "photo %s kept every other placement (%s)" % (k[:8], kept))
+            for problem in (id_health(old["photo_links"].get(k) or {},
+                                      "photo %s before" % k[:8])
+                            + id_health(now["photo_links"][k],
+                                        "photo %s after" % k[:8])):
+                check(False, problem)
             # IDENTITY, not just the day name. Without this, code that
             # deleted every placement and re-created the survivors would
             # pass the line above having preserved nothing.
@@ -764,6 +837,38 @@ def do_verify(now, attests=None, now_iso=None):
     # Remove from this day, and one that changed while staying the same
     # size is a Move. Reporting all three as "moved" would make a
     # walkthrough that added a second day read as a successful move.
+    # ── A LINK THAT VANISHED IS DATA LOSS, NOT A SKIPPED STEP ─────────
+    #
+    # ADDED 2026-08-13 after review. The classification loop below skips
+    # anything absent from `old`, and the unrelated-link sweep iterates
+    # `now` — so a photo link DELETED during Stage B appeared in
+    # neither. It contributed no Add, no Remove, no Move, and the run
+    # reported SKIP / INCOMPLETE: the harness's quietest possible
+    # answer for its loudest possible failure.
+    #
+    # Checked before the classification so the readout leads with it.
+    vanished = [k for k in old["photo_links"]
+                if k not in now["photo_links"]]
+    check(not vanished,
+          "no photo link disappeared during Stage B (n=%d%s)"
+          % (len(vanished),
+             ": " + ", ".join(k[:8] for k in vanished[:5]) if vanished
+             else ""))
+
+    # New trip memberships are reported on their own line and take no
+    # part in the Add/Remove/Move classification below — a link that did
+    # not exist at the checkpoint has no `before` to compare against, so
+    # counting it as an Add would satisfy a walkthrough step nobody
+    # performed.
+    fresh_links = [k for k in now["photo_links"]
+                   if k not in old["photo_links"]]
+    if fresh_links:
+        out("      (%d new trip membership(s) since the checkpoint: %s)"
+            % (len(fresh_links), ", ".join(k[:8] for k in fresh_links[:5])))
+    check(len(now["photo_links"]) == len(old["photo_links"]),
+          "Stage B created no second trip link (%d -> %d)"
+          % (len(old["photo_links"]), len(now["photo_links"])))
+
     added, dropped, moved_photo = [], [], []
     for k, v in now["photo_links"].items():
         if k not in old["photo_links"]:
@@ -818,19 +923,38 @@ def do_verify(now, attests=None, now_iso=None):
                   % (label, k[:8], len(rekeyed),
                      ", ".join("%s %s->%s" % r for r in rekeyed[:3])))
 
+            # Malformed ids, on both sides. A current entry that lists a
+            # day without a placement row, or gives two days one row, is
+            # not evidence about anything — every identity check above
+            # and below is reading a value that does not mean what it
+            # says.
+            for problem in (id_health(old["photo_links"][k],
+                                      "photo %s before" % k[:8])
+                            + id_health(now["photo_links"][k],
+                                        "photo %s after" % k[:8])):
+                check(False, problem)
+
             b_ids, a_ids = (pids_of(old["photo_links"][k]),
                             pids_of(now["photo_links"][k]))
             fresh = [d for d in after if d not in before]
-            if label == "Add" and b_ids and a_ids:
+            # GUARDED ON FORMAT, NOT ON TRUTHINESS. `b_ids` is empty for
+            # a photograph that had NO placements, so `if b_ids` skipped
+            # the whole check for an Add from zero days — the commonest
+            # Add there is.
+            current = (is_set_format(old["photo_links"][k])
+                       and is_set_format(now["photo_links"][k]))
+            if label == "Add" and current:
                 check(len(fresh) == 1,
                       "Add on photo %s created exactly one placement (%s)"
                       % (k[:8], fresh))
                 for d in fresh:
-                    if a_ids.get(d):
-                        check(a_ids[d] not in b_ids.values(),
-                              "Add on photo %s created a NEW placement row "
-                              "rather than moving an existing one" % k[:8])
-            if label == "Move" and b_ids and a_ids:
+                    check(bool(a_ids.get(d)),
+                          "Add on photo %s recorded a placement row for the "
+                          "new day %s" % (k[:8], d))
+                    check(a_ids.get(d) not in b_ids.values(),
+                          "Add on photo %s created a NEW placement row "
+                          "rather than moving an existing one" % k[:8])
+            if label == "Move" and current:
                 src = [d for d in before if d not in after]
                 for d in src:
                     if b_ids.get(d):
@@ -838,14 +962,19 @@ def do_verify(now, attests=None, now_iso=None):
                               "Move on photo %s removed the named source "
                               "placement" % k[:8])
                 for d in fresh:
-                    if a_ids.get(d):
-                        check(a_ids[d] not in b_ids.values(),
-                              "Move on photo %s created the destination "
-                              "placement" % k[:8])
+                    check(bool(a_ids.get(d)),
+                          "Move on photo %s recorded a placement row for the "
+                          "destination day %s" % (k[:8], d))
+                    check(a_ids.get(d) not in b_ids.values(),
+                          "Move on photo %s created the destination "
+                          "placement" % k[:8])
 
-        check(len(now["photo_links"]) == len(old["photo_links"]),
-              "%s created no second trip link (%d -> %d)"
-              % (label, len(old["photo_links"]), len(now["photo_links"])))
+    # [The per-label "%s created no second trip link" check stood here
+    # and was removed 2026-08-13. It asked the same question up to three
+    # times in one run — once per operation kind — and the answer never
+    # depended on the label. It is now asserted once, unconditionally,
+    # above the classification, where it also covers the case no label
+    # could reach: a link that vanished entirely.]
 
     # EVERY OTHER PHOTOGRAPH's placements are untouched. The per-link
     # checks above only look at links that changed; this is the one that
