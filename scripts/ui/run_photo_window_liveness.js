@@ -309,8 +309,17 @@ function check(name, ok, detail) {
   // The count is the day's PLACEMENTS, not the trip's photographs: the
   // fixture also holds TOTAL_ELSEWHERE links placed on Day 2 only, and
   // they must not appear here.
+  //
+  // `(?!\d)` and NOT `\b`. The pager is read with textContent, which
+  // concatenates its spans without spaces — "…of 327Load more (277
+  // left)". `\b` after 327 asks for a word boundary between "7" and
+  // "L", and both are word characters, so there is none: the assertion
+  // failed on a pager that said exactly what it was asked to say. The
+  // sibling check below passed only because its next character happened
+  // to be "↑". A negative lookahead for a digit is what was meant all
+  // along — it still tells 327 from 3270 and from the combined 567.
   check("the day shows exactly its own placements",
-    new RegExp("of " + TOTAL_ON_DAY + "\\b").test(t.pager),
+    new RegExp("of " + TOTAL_ON_DAY + "(?!\\d)").test(t.pager),
     t.pager.slice(0, 80));
   check("photographs placed on another day are not on this one",
     !new RegExp("of " + (TOTAL_ON_DAY + TOTAL_ELSEWHERE)).test(t.pager),
@@ -379,7 +388,7 @@ function check(name, ok, detail) {
   check("the last photograph is reachable at the end",
     end.lastCaption === "photo 326", end.lastCaption);
   check("the pager still reports the true total",
-    new RegExp("of " + TOTAL_ON_DAY + "\\b").test(end.pager),
+    new RegExp("of " + TOTAL_ON_DAY + "(?!\\d)").test(end.pager),
     end.pager.slice(0, 80));
 
   // ── eager ────────────────────────────────────────────────────────
@@ -452,7 +461,7 @@ function check(name, ok, detail) {
   check("the picker mounts exactly one page",
     p.present && p.cells === 50, "cells=" + p.cells);
   check("the picker states its own true total",
-    p.present && new RegExp("of " + TOTAL_ELSEWHERE).test(p.pager),
+    p.present && new RegExp("of " + TOTAL_ELSEWHERE + "(?!\\d)").test(p.pager),
     p.pager.slice(0, 80));
   check("picker thumbnails are eager", p.present && p.lazy === 0,
     "lazy=" + p.lazy);
