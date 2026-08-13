@@ -4413,9 +4413,23 @@ def day_placements_add_with_promotion(
     link is therefore part of placing it, not a separate act that
     happens to precede it, and the transaction boundary has to agree.
 
-    Ownership is checked HERE, on the same connection, before any write:
-    without it a caller who knew two ids could hang one person's picture
+    OWNERSHIP IS CHECKED HERE, on the same connection, before any write.
+    Without it a caller who knew two ids could hang one person's picture
     on another person's day.
+
+    It is read straight from ``photos`` rather than through the photo
+    lane because this is a boundary check, not a photo feature: placing
+    a photograph on a day has to be able to answer "is this even this
+    trip's narrator's picture" without depending on a module that could
+    later widen what it returns. Soft-deleted rows are excluded on
+    purpose — a deleted photograph is not something to hang on a day
+    card.
+
+    That reasoning used to live in ``trips._read_photo_owner``, which
+    ran the check on its OWN connection before the route's writes began.
+    A boundary check outside the transaction it protects is a check
+    against a snapshot; the helper was deleted on 2026-08-13 and its
+    argument kept here, where the rule is actually enforced.
     """
     ids: List[str] = []
     for raw in (link_ids or []):

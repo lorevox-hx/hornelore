@@ -359,38 +359,17 @@ def _photos_for_narrator(narrator_id: str) -> List[Dict[str, Any]]:
         con.close()
 
 
-def _read_photo_owner(photo_id: str) -> Optional[Dict[str, Any]]:
-    """The narrator and the placement signal of one live photo, or None.
-
-    Read here rather than through the photo lane because this is a
-    boundary check, not a photo feature: the day-attach route has to be
-    able to answer "is this even this trip's narrator's picture" without
-    depending on a module that could later decide to widen what it
-    returns. Soft-deleted rows are excluded on purpose -- a deleted
-    photo is not something to hang on a day card.
-
-    KEPT DELIBERATELY THOUGH THE DAY-ATTACH ROUTE NO LONGER CALLS IT
-    (2026-08-13). That check moved into
-    trip_repository.day_placements_add_with_promotion so it runs on the
-    same connection as the writes it guards -- a boundary check outside
-    the transaction it protects is a check against a snapshot. This
-    helper is left in place because the reasoning above is still the
-    right reasoning for the next route that needs it, and because
-    deleting it would take that reasoning with it. It is dead code
-    today; if it is still dead when Phase 6 opens, delete it then."""
-    from .. import db as _db
-    con = sqlite3.connect(str(_db.DB_PATH))
-    con.row_factory = sqlite3.Row
-    con.execute("PRAGMA busy_timeout = 5000;")
-    try:
-        row = con.execute(
-            "SELECT id, narrator_id, date_value, latitude, longitude "
-            "FROM photos WHERE id = ? AND deleted_at IS NULL",
-            (photo_id,),
-        ).fetchone()
-        return dict(row) if row is not None else None
-    finally:
-        con.close()
+# [_read_photo_owner lived here. It answered "is this even this trip's
+# narrator's picture" for the day-attach route, on its own connection,
+# before that route's writes began. Deleted 2026-08-13: the check now
+# runs inside trip_repository.day_placements_add_with_promotion, on the
+# same connection as the writes it guards, because a boundary check
+# outside the transaction it protects is a check against a snapshot.
+# Its reasoning — read straight from `photos` rather than through the
+# photo lane, exclude soft-deleted rows — is preserved in that
+# function's docstring, where the rule is enforced. Nothing calls this
+# helper; keeping executable dead code to hold a comment is not a
+# reason to keep executable dead code.]
 
 
 def _flat_stops(trip_id: str) -> List[Dict[str, Any]]:
@@ -3623,9 +3602,14 @@ def _require_day_in_trip(trip_id: str, day_id: str) -> Dict[str, Any]:
 @router.post("/{trip_id}/days/{day_id}/photos/link")
 def link_day_photos(trip_id: str, day_id: str,
                     req: TripDayPhotoLinksReq) -> Dict[str, Any]:
-    """Attach trip photo links to a day card (0028). Links must belong
-    to this trip; the day must belong to this trip. Attached photos
-    count on their day first (see trip_day_counts).
+    """Place trip photographs on a day. Links must belong to this trip;
+    the day must belong to this trip.
+
+    2026-08-13 (WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01 Phase 2) — this is
+    an ADD, not a move: a photograph already on another day stays there
+    and gains this one. Placements are what put a photograph on a day;
+    the legacy ``trip_photo_links.trip_day_id`` is not written by
+    anything.
 
     2026-07-23 (Bucket B) — classified SQLite errors.
 
@@ -3640,13 +3624,19 @@ def link_day_photos(trip_id: str, day_id: str,
     chooses the day, and stamped ``operator``: a person picked this day,
     so re-clustering must not move it later.
 
-    Creating the link and setting its day are two writes and this route
-    is not one transaction across them. That is survivable in the only
-    way it can fail: a link created and not dayed is a photo attached to
-    the trip but to no day, which is a state the trip lane already has a
-    name and a UI for, and repeating the request finishes the job
-    without duplicating anything (the link upsert is keyed on
-    UNIQUE(trip_id, photo_id))."""
+    Creating that link and placing the photograph are ONE repository
+    transaction (``day_placements_add_with_promotion``). A failure in
+    either half rolls back both, so a request that returns an error has
+    written nothing — no membership, no placement.
+
+    [This paragraph said the opposite until 2026-08-13: that the two
+    writes were separate transactions and a link created without a day
+    was "survivable" because the trip lane has a name and a UI for that
+    state. It was survivable only in the sense that the resulting rows
+    were not corrupt. They were unexplained — photographs attached to
+    the trip by a request the operator had been told failed, with
+    nothing to send them looking. Review of `b0197fe` called it, and
+    `f5747ee` made the two writes atomic.]"""
     _require_trips_enabled()
     _require_day_in_trip(trip_id, day_id)
     ids = list(req.photo_link_ids or [])
@@ -3654,7 +3644,8 @@ def link_day_photos(trip_id: str, day_id: str,
     if not ids and not photo_ids:
         raise HTTPException(status_code=422,
                             detail="no photo_link_ids and no photo_ids")
-    # BEFORE the upserts below. See _reject_oversized_batch.
+    # Before any write, including the promotions inside the repository
+    # call below. See _reject_oversized_batch.
     _reject_oversized_batch(len(ids) + len(photo_ids))
 
     # ONE repository transaction for the promotions AND the placements.
