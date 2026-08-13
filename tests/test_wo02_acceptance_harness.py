@@ -102,6 +102,21 @@ class _HarnessCase(unittest.TestCase):
         with open(wo02.STATE, "w", encoding="utf-8") as fh:
             json.dump(s or _baseline(), fh)
 
+    def write_checkpoint(self, s=None):
+        """Stage B is measured against THIS, not against capture.
+
+        Added 2026-08-13: do_verify used to read the capture baseline,
+        so Stage A's work was reported as Stage B's. Every verify test
+        now has to supply the checkpoint the real workflow would have
+        written.
+        """
+        cp = dict(s or _baseline())
+        cp.setdefault("stage_a", {"removed_placements": [], "new_notes": [],
+                                  "edited_kinds": []})
+        with open(wo02.STATE_CP, "w", encoding="utf-8") as fh:
+            json.dump(cp, fh)
+        return cp
+
     def run_mode(self, fn, *a):
         wo02._reset()
         rc = fn(*a)
@@ -378,13 +393,31 @@ class MainDispatchAttestationTest(_HarnessCase):
         self.assertEqual(with_attest["attest"], 1)
         self.assertIn("operator-attested, not machine-verified", logs)
 
-    def test_verify_without_a_checkpoint_says_so_before_the_verdict(self):
+    def test_verify_without_a_checkpoint_refuses_rather_than_falling_back(
+            self):
+        """REWRITTEN 2026-08-13.
+
+        This asserted that a missing checkpoint printed "--attest
+        ignored" and carried on verifying against the ORIGINAL capture.
+        That fallback was the defect: comparing Stage B against the
+        beginning reports Stage A's work as Stage B's, so a walkthrough
+        where Stage B never happened could pass on Stage A alone.
+
+        Verify now refuses, with exit 2 and the command to run. The
+        attestation is not recorded either — there is no checkpoint to
+        record it in, and inventing one would fabricate the very
+        baseline whose absence stopped the run.
+        """
         self.write_baseline()  # no checkpoint state written
         rc, logs, n = self._run_main(
             ["verify", "--attest", "modal-reopen"], _baseline())
-        self.assertIn("--attest ignored", logs)
-        self.assertLess(logs.index("--attest ignored"), logs.index("RESULT:"))
+        self.assertEqual(rc, 2, logs)
+        self.assertIn("No checkpoint at", logs)
+        self.assertIn("run 'checkpoint'", logs.replace(
+            "./scripts/wo02_acceptance.py checkpoint", "run 'checkpoint'"))
         self.assertEqual(n["attest"], 0)
+        self.assertEqual(n["pass"], 0,
+                         "a refused verify must not report passes")
 
 
 class ModeValidationTest(_HarnessCase):
@@ -694,7 +727,11 @@ class WalkthroughNamesTheThreeOperationsTest(_HarnessCase):
         return cp
 
     def _run_verify(self, before, after):
-        self.write_baseline(self._cp(before))
+        # `before` is the CHECKPOINT — the state Stage A left behind —
+        # because Stage B is measured against it and not against the
+        # original capture.
+        self.write_baseline()
+        self.write_checkpoint(self._cp(before))
         rc, log, n = self.run_mode(wo02.do_verify, self._cp(after), [], "T")
         return log, n
 
@@ -727,6 +764,273 @@ class WalkthroughNamesTheThreeOperationsTest(_HarnessCase):
             self.assertIn(phrase, src)
 
 
+class VerifyMeasuresAgainstTheCheckpointTest(_HarnessCase):
+    """Review correction, 2026-08-13.
+
+    do_verify loaded STATE — the `capture` baseline — so Stage B was
+    compared against the world as it was BEFORE Stage A. Every Stage A
+    edit therefore read as Stage B evidence, and a walkthrough where
+    Stage B never happened could report PASS on Stage A alone.
+    """
+
+    def _stage_a(self):
+        """What the checkpoint holds: Stage A already done."""
+        s = _baseline()
+        s["photo_links"]["p1"] = link([])
+        s["items"]["d1"] = [["conversation", "c1", ""],
+                            ["day_text", "t1", "txtB"],
+                            ["note", "n9", "newnote"]]
+        s["counts"]["d1"] = {"row_count": 3}
+        return s
+
+    def test_stage_a_alone_does_not_satisfy_stage_b(self):
+        """THE NON-VACUITY CASE. Capture, then Stage A, then verify with
+        Stage B never performed. The world differs from `capture` in
+        every way Stage A changed it — and none of that is Stage B.
+        Against the checkpoint the correct answer is INCOMPLETE."""
+        self.write_baseline()                    # capture
+        self.write_checkpoint(self._stage_a())   # after Stage A
+        # `now` is unchanged from the checkpoint: Stage B did nothing.
+        rc, log, n = self.run_mode(wo02.do_verify, self._stage_a(), [], "T")
+        self.assertEqual(n["fail"], 0, log)
+        self.assertIn("INCOMPLETE", log)
+        self.assertIn("no photo placement changed", log)
+        self.assertIn("no note was added", log)
+
+    def test_the_same_run_would_have_looked_like_stage_b_against_capture(self):
+        """The defect, demonstrated rather than asserted.
+
+        Feeding the SAME two states to the old comparison — capture as
+        the baseline — reports Stage A's removal and Stage A's note as
+        Stage B's work. This drives do_verify with the capture state
+        written into the checkpoint slot, which is exactly what the old
+        code did by reading STATE.
+        """
+        self.write_baseline()
+        self.write_checkpoint(_baseline())       # the OLD (wrong) baseline
+        rc, log, n = self.run_mode(wo02.do_verify, self._stage_a(), [], "T")
+        self.assertIn("Remove from this day operation(s) seen", log)
+        self.assertIn("quick capture created a note", log)
+
+    def test_a_missing_checkpoint_refuses_and_reports_nothing(self):
+        self.write_baseline()
+        rc, log, n = self.run_mode(wo02.do_verify, _baseline(), [], "T")
+        self.assertEqual(rc, 2)
+        self.assertEqual(n["pass"], 0)
+        self.assertEqual(n["fail"], 0)
+        self.assertIn("No checkpoint at", log)
+        self.assertIn("checkpoint", log)
+
+    def test_restore_verify_still_measures_against_the_original_capture(self):
+        """The other half of the correction: `restore-verify` asks
+        whether the ORIGINAL world came back, which is a question about
+        capture and not about the checkpoint. It must NOT have been
+        repointed."""
+        src = _SCRIPT.read_text(encoding="utf-8")
+        i = src.index("def do_restore_verify(")
+        j = src.index("def do_verify(")
+        body = src[i:j] if i < j else src[i:]
+        self.assertIn("with open(STATE, encoding=", body,
+                      "restore-verify stopped reading the capture state")
+
+
+class PlacementIdentityIsProvedTest(_HarnessCase):
+    """Review correction, 2026-08-13. The day-set assertions compare day
+    NAMES. Code that deleted every placement and re-created the
+    survivors would satisfy all of them while preserving nothing."""
+
+    def _two_days(self, pids=None):
+        e = link(["d1", "d3"])
+        if pids:
+            e["pids"] = pids
+        return e
+
+    def test_a_surviving_placement_that_was_rekeyed_fails(self):
+        """The exact hole: Day 3 is still there, with a different row."""
+        base = _baseline()
+        base["photo_links"]["p1"] = self._two_days()
+        base["items"]["d3"] = [["photo", "p1", "pl-capA-d3", "capA"]]
+        base["counts"]["d3"] = {"row_count": 1}
+        self.write_baseline(base)
+
+        bad = dict(base)
+        bad["photo_links"] = {"p1": {"days": ["d3"],
+                                     "pids": {"d3": "pl-RECREATED"},
+                                     "ch": "capA", "approved": 0}}
+        bad["items"] = dict(base["items"])
+        bad["items"]["d1"] = [["conversation", "c1", ""],
+                              ["day_text", "t1", "txtB"],
+                              ["note", "n9", "newnote"]]
+        bad["counts"] = dict(base["counts"])
+        bad["counts"]["d1"] = {"row_count": 3}
+        rc, log, n = self.run_mode(wo02.do_checkpoint, bad, [], "T")
+        self.assertGreater(n["fail"], 0, log)
+        self.assertIn("kept the SAME placement row", log)
+
+    def test_the_same_shape_with_ids_preserved_passes(self):
+        """Non-vacuity for the test above."""
+        base = _baseline()
+        base["photo_links"]["p1"] = self._two_days()
+        base["items"]["d3"] = [["photo", "p1", "pl-capA-d3", "capA"]]
+        base["counts"]["d3"] = {"row_count": 1}
+        self.write_baseline(base)
+
+        good = dict(base)
+        good["photo_links"] = {"p1": {"days": ["d3"],
+                                      "pids": {"d3": "pl-capA-d3"},
+                                      "ch": "capA", "approved": 0}}
+        good["items"] = dict(base["items"])
+        good["items"]["d1"] = [["conversation", "c1", ""],
+                               ["day_text", "t1", "txtB"],
+                               ["note", "n9", "newnote"]]
+        good["counts"] = dict(base["counts"])
+        good["counts"]["d1"] = {"row_count": 3}
+        rc, log, n = self.run_mode(wo02.do_checkpoint, good, [], "T")
+        self.assertEqual(n["fail"], 0, log)
+
+    def _state(self, links):
+        """A whole snapshot whose timeline rows and rail counts AGREE
+        with its photo links.
+
+        Built rather than hand-written after the first version moved a
+        photograph between days without moving its timeline row — and
+        the harness correctly failed on `day counts changed on 0 day(s)`.
+        That was the instrument working; a fixture that contradicts
+        itself tests nothing but the fixture.
+        """
+        items = {}
+        for d in _DAYS:
+            rows = []
+            if d["id"] == "d1":
+                rows.append(["conversation", "c1", ""])
+                rows.append(["day_text", "t1", "txtA"])
+            items[d["id"]] = rows
+        for lid, entry in links.items():
+            for day in entry.get("days") or []:
+                items.setdefault(day, []).append(
+                    ["photo", lid,
+                     (entry.get("pids") or {}).get(day), entry.get("ch")])
+        return snap(_DAYS, links,
+                    {"c1": {"day": "d1", "u": 10, "a": 11, "nh": "nA",
+                            "lh": "lA", "src": "active_trip_day",
+                            "st": "needs_day"}},
+                    items)
+
+    def _verify_pair(self, before_links, after_links):
+        cp = self._state(before_links)
+        cp["stage_a"] = {"removed_placements": [], "new_notes": [],
+                         "edited_kinds": []}
+        self.write_baseline()
+        self.write_checkpoint(cp)
+        return self.run_mode(wo02.do_verify, self._state(after_links),
+                             [], "T")
+
+    def test_add_creates_one_new_row_and_keeps_the_old_one(self):
+        rc, log, n = self._verify_pair(
+            {"p1": link(["d1"])},
+            {"p1": {"days": ["d1", "d3"],
+                    "pids": {"d1": "pl-capA-d1", "d3": "pl-NEW"},
+                    "ch": "capA", "approved": 0}})
+        self.assertEqual(n["fail"], 0, log)
+        self.assertIn("created exactly one placement", log)
+        self.assertIn("created a NEW placement row", log)
+
+    def test_an_add_that_reused_an_existing_row_id_fails(self):
+        """ADDED after a mutation survived.
+
+        `test_add_creates_one_new_row_and_keeps_the_old_one` asserted
+        that the message appears — and it appears whether the check
+        passed or failed, so forcing that check to True killed no test.
+        Asserting a line is present proves the line is reachable, not
+        that the assertion behind it bites.
+
+        This drives the case the assertion exists for: the new day
+        carries an id that already belonged to another day, i.e. the row
+        was re-pointed rather than created.
+        """
+        rc, log, n = self._verify_pair(
+            {"p1": link(["d1"])},
+            {"p1": {"days": ["d1", "d3"],
+                    "pids": {"d1": "pl-capA-d1", "d3": "pl-capA-d1"},
+                    "ch": "capA", "approved": 0}})
+        self.assertGreater(n["fail"], 0, log)
+        self.assertIn("created a NEW placement row", log)
+
+    def test_a_move_that_kept_the_source_row_id_fails(self):
+        """Same shape for Move: the destination must be a new row, and
+        the named source must be gone rather than re-pointed."""
+        rc, log, n = self._verify_pair(
+            {"p1": link(["d1"])},
+            {"p1": {"days": ["d2"], "pids": {"d2": "pl-capA-d1"},
+                    "ch": "capA", "approved": 0}})
+        self.assertGreater(n["fail"], 0, log)
+        self.assertIn("removed the named source placement", log)
+
+    def test_an_add_that_rewrote_the_existing_row_fails(self):
+        rc, log, n = self._verify_pair(
+            {"p1": link(["d1"])},
+            {"p1": {"days": ["d1", "d3"],
+                    "pids": {"d1": "pl-REWRITTEN", "d3": "pl-NEW"},
+                    "ch": "capA", "approved": 0}})
+        self.assertGreater(n["fail"], 0, log)
+        self.assertIn("left every untouched placement's row alone", log)
+
+    def test_move_removes_the_source_and_creates_the_destination(self):
+        rc, log, n = self._verify_pair(
+            {"p1": link(["d1"])},
+            {"p1": {"days": ["d2"], "pids": {"d2": "pl-NEW"},
+                    "ch": "capA", "approved": 0}})
+        self.assertEqual(n["fail"], 0, log)
+        self.assertIn("removed the named source placement", log)
+        self.assertIn("created the destination placement", log)
+
+    def test_an_operation_that_disturbs_an_unrelated_photo_fails(self):
+        rc, log, n = self._verify_pair(
+            {"p1": link(["d1"]), "p2": link(["d2"], ch="capB")},
+            {"p1": {"days": ["d1", "d3"],
+                    "pids": {"d1": "pl-capA-d1", "d3": "pl-NEW"},
+                    "ch": "capA", "approved": 0},
+             # p2 was not touched by the operator and must not have moved.
+             "p2": {"days": ["d2"], "pids": {"d2": "pl-SOMETHING-ELSE"},
+                    "ch": "capB", "approved": 0}})
+        self.assertGreater(n["fail"], 0, log)
+        self.assertIn("no unrelated photograph's placement rows were "
+                      "rewritten", log)
+
+    def test_a_legacy_snapshot_without_ids_makes_no_identity_claim(self):
+        """A pre-migration baseline recorded no placement ids. The
+        harness must treat that as 'cannot tell', not as 'rewritten' —
+        otherwise a historical comparison manufactures failures about a
+        field that never existed."""
+        self.assertEqual(
+            wo02.rekeyed_days({"day": "d1"}, link(["d1"]), ["d1"]), [])
+        self.assertEqual(
+            wo02.rekeyed_days(link(["d1"]), {"day": "d1"}, ["d1"]), [])
+
+    def test_restoration_does_not_require_the_original_row_ids(self):
+        """Explicitly NOT asserted: the product never promised that
+        restoring a photograph to a day reuses the deleted placement
+        row. Demanding it would fail a correct restore."""
+        base = _baseline()
+        base["photo_links"]["p1"] = link(["d1"])
+        self.write_baseline(base)
+        cp = dict(base)
+        cp["stage_a"] = {"removed_placements": [], "new_notes": [],
+                         "edited_kinds": []}
+        cp["attestations"] = {"dirty-guard": {"mode": "checkpoint", "at": "T"},
+                              "modal-reopen": {"mode": "verify", "at": "T"}}
+        with open(wo02.STATE_CP, "w", encoding="utf-8") as fh:
+            json.dump(cp, fh)
+
+        restored = dict(base)
+        restored["photo_links"] = {"p1": {"days": ["d1"],
+                                          "pids": {"d1": "pl-BRAND-NEW"},
+                                          "ch": "capA", "approved": 0}}
+        rc, log, n = self.run_mode(wo02.do_restore_verify, restored, [], "T")
+        self.assertEqual(n["fail"], 0, log)
+        self.assertIn("complete original day set", log)
+
+
 class LegacyEvidenceIsMarkedHistoricalTest(_HarnessCase):
     """Requirement 9: a pre-migration capture is still readable, and is
     never presented as current acceptance evidence."""
@@ -738,6 +1042,7 @@ class LegacyEvidenceIsMarkedHistoricalTest(_HarnessCase):
 
     def test_verify_says_the_baseline_is_historical(self):
         self.write_baseline(self._legacy())
+        self.write_checkpoint(self._legacy())
         rc, log, n = self.run_mode(wo02.do_verify, _baseline(), [], "T")
         self.assertIn("HISTORICAL BASELINE", log)
         self.assertIn("SINGLE-DAY product", log)
@@ -750,6 +1055,7 @@ class LegacyEvidenceIsMarkedHistoricalTest(_HarnessCase):
     def test_a_current_baseline_says_nothing_of_the_sort(self):
         """Non-vacuity: the notice must not print on every run."""
         self.write_baseline(_baseline())
+        self.write_checkpoint(_baseline())
         rc, log, n = self.run_mode(wo02.do_verify, _baseline(), [], "T")
         self.assertNotIn("HISTORICAL", log)
 

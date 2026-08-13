@@ -272,6 +272,40 @@ def days_of(entry):
     return [str(legacy)] if legacy else []
 
 
+def pids_of(entry):
+    """{day_id: placement_id} for a photo-link snapshot entry.
+
+    Empty for a pre-2026-08-13 snapshot, which carried no placement ids
+    at all. Callers therefore treat a missing id as "cannot tell" rather
+    than as "changed" — a historical baseline must not manufacture
+    failures about a field it never recorded.
+    """
+    return dict(entry.get("pids") or {})
+
+
+def rekeyed_days(before, after, days):
+    """Days present in BOTH snapshots whose placement id changed.
+
+    ADDED 2026-08-13 after review. The set assertions compare day NAMES,
+    which cannot tell "this placement was preserved" from "this
+    placement was destroyed and an identical-looking one was created in
+    its place". Broken code that deleted every placement on a link and
+    re-created the survivors would satisfy every day-set check in this
+    file while having preserved nothing — and the operator's ordering,
+    and anything later keyed on a placement id, would be silently gone.
+
+    A day with no recorded id on either side is skipped rather than
+    counted as a change: absence of evidence is not evidence of a
+    rewrite, and the pre-migration state files have no ids at all.
+    """
+    bad = []
+    b, a = pids_of(before), pids_of(after)
+    for d in days:
+        if b.get(d) and a.get(d) and b[d] != a[d]:
+            bad.append((d, b[d], a[d]))
+    return bad
+
+
 def _snapshot_is_legacy(snap):
     """True when the state file predates set semantics."""
     for entry in (snap.get("photo_links") or {}).values():
@@ -429,6 +463,22 @@ def do_checkpoint(now, attests, now_iso):
                   % (k[:8], len(lost), before, after))
             check(sorted(after) == sorted(kept),
                   "photo %s kept every other placement (%s)" % (k[:8], kept))
+            # IDENTITY, not just the day name. Without this, code that
+            # deleted every placement and re-created the survivors would
+            # pass the line above having preserved nothing.
+            rekeyed = rekeyed_days(old["photo_links"].get(k) or {},
+                                   now["photo_links"][k], kept)
+            check(not rekeyed,
+                  "photo %s kept the SAME placement row on each surviving "
+                  "day (%d rewritten)" % (k[:8], len(rekeyed)))
+            # And the day that went really went: its id is gone.
+            gone = pids_of(old["photo_links"].get(k) or {})
+            still = pids_of(now["photo_links"][k])
+            for d in lost:
+                if gone.get(d):
+                    check(gone[d] not in still.values(),
+                          "photo %s: the removed day's placement row is "
+                          "gone, not re-pointed" % k[:8])
         out("      (removed from a day: %s)"
             % ", ".join("%s %s->%s" % (k[:8], b, a) for k, b, a in shrunk))
     if grew:
@@ -544,6 +594,28 @@ def do_restore_verify(now, attests, now_iso):
           "the trip holds the same number of placements as before "
           "(%d -> %d)" % (want_total, got_total))
 
+    # PLACEMENT IDS ARE DELIBERATELY NOT COMPARED HERE.
+    #
+    # Restoring means the operator put the photograph back on the day.
+    # Nothing in the product promises that doing so reuses the deleted
+    # placement row — it creates a new one, which is the correct
+    # behaviour for a row whose `created_at` records when this placement
+    # was made. Demanding id equality would fail a perfectly correct
+    # restore, and demanding it of a product that never promised it is
+    # how a harness starts dictating implementation.
+    #
+    # The DAY SET is the promise, and it is asserted above. Identity is
+    # asserted where the product does promise it: on the placements an
+    # operation did NOT name (see do_checkpoint and do_verify).
+    reused = 0
+    for k, was in old["photo_links"].items():
+        cur = now["photo_links"].get(k) or {}
+        b, a = pids_of(was), pids_of(cur)
+        reused += sum(1 for d in a if b.get(d) and b[d] == a[d])
+    if reused:
+        out("      (%d restored placement(s) happen to reuse their original "
+            "row id; not required)" % reused)
+
     for lid, was in old["turns"].items():
         cur = now["turns"].get(lid)
         if not cur:
@@ -608,15 +680,49 @@ def do_restore_verify(now, attests, now_iso):
 
 
 def do_verify(now, attests=None, now_iso=None):
-    if not os.path.exists(STATE):
-        out("No baseline at %s -- run 'capture' first." % STATE)
+    # ── STAGE B IS MEASURED AGAINST THE CHECKPOINT ────────────────────
+    #
+    # CORRECTED 2026-08-13 after review. This loaded STATE — the
+    # `capture` baseline — and compared Stage B against the world as it
+    # was BEFORE Stage A. Every Stage A edit therefore looked like Stage
+    # B evidence: a photograph the operator removed from a day in Stage
+    # A was reported here as a Stage B "Remove from this day", a note
+    # added in Stage A satisfied "quick capture created a note", and a
+    # walkthrough where Stage B was never performed at all could report
+    # PASS on the strength of Stage A alone.
+    #
+    # That contradicted the harness's own stated design, four lines from
+    # the top of this file: "Each mode measures against the state the
+    # PREVIOUS one wrote". `checkpoint` writes STATE_CP for exactly this
+    # reason, and `verify` was the one mode not reading it.
+    #
+    # STATE remains the authority for `restore-verify`, which asks
+    # whether the ORIGINAL world came back — a question about capture,
+    # not about the checkpoint.
+    if not os.path.exists(STATE_CP):
+        out("=== WO-02 VERIFY ===")
+        out("")
+        out("No checkpoint at %s." % STATE_CP)
+        out("")
+        out("Stage B is measured against the state 'checkpoint' wrote, not "
+            "against the")
+        out("original capture. Without it this run could only compare Stage "
+            "A + Stage B")
+        out("together against the beginning, and would report Stage A's work "
+            "as Stage B's.")
+        out("")
+        out("Run:  ./scripts/wo02_acceptance.py checkpoint    (after Stage "
+            "A, before Stage B)")
+        out("      ./scripts/wo02_acceptance.py verify        (after Stage "
+            "B + restart)")
         return 2
 
-    with open(STATE, encoding="utf-8") as fh:
+    with open(STATE_CP, encoding="utf-8") as fh:
         old = json.load(fh)
 
     out("=== WO-02 VERIFY ===")
     out("")
+    out("(measured against the checkpoint: %s)" % os.path.basename(STATE_CP))
     warn_if_legacy(old, "verify")
 
     # point 7 -- a move never rewrites a transcript
@@ -696,9 +802,65 @@ def do_verify(now, attests=None, now_iso=None):
                 ok = len(before) == len(after) and before != after
             check(ok, "%s on photo %s: %s (%s -> %s)"
                   % (label, k[:8], rule, before, after))
+
+            # ── PLACEMENT IDENTITY ────────────────────────────────────
+            #
+            # The day-set assertion above proves the right DAYS are
+            # there. It cannot tell a preserved placement from a
+            # destroyed-and-recreated one, and every operation here is
+            # supposed to leave the placements it did not name alone.
+            kept = [d for d in before if d in after]
+            rekeyed = rekeyed_days(old["photo_links"][k],
+                                   now["photo_links"][k], kept)
+            check(not rekeyed,
+                  "%s on photo %s left every untouched placement's row "
+                  "alone (%d rewritten: %s)"
+                  % (label, k[:8], len(rekeyed),
+                     ", ".join("%s %s->%s" % r for r in rekeyed[:3])))
+
+            b_ids, a_ids = (pids_of(old["photo_links"][k]),
+                            pids_of(now["photo_links"][k]))
+            fresh = [d for d in after if d not in before]
+            if label == "Add" and b_ids and a_ids:
+                check(len(fresh) == 1,
+                      "Add on photo %s created exactly one placement (%s)"
+                      % (k[:8], fresh))
+                for d in fresh:
+                    if a_ids.get(d):
+                        check(a_ids[d] not in b_ids.values(),
+                              "Add on photo %s created a NEW placement row "
+                              "rather than moving an existing one" % k[:8])
+            if label == "Move" and b_ids and a_ids:
+                src = [d for d in before if d not in after]
+                for d in src:
+                    if b_ids.get(d):
+                        check(b_ids[d] not in a_ids.values(),
+                              "Move on photo %s removed the named source "
+                              "placement" % k[:8])
+                for d in fresh:
+                    if a_ids.get(d):
+                        check(a_ids[d] not in b_ids.values(),
+                              "Move on photo %s created the destination "
+                              "placement" % k[:8])
+
         check(len(now["photo_links"]) == len(old["photo_links"]),
               "%s created no second trip link (%d -> %d)"
               % (label, len(old["photo_links"]), len(now["photo_links"])))
+
+    # EVERY OTHER PHOTOGRAPH's placements are untouched. The per-link
+    # checks above only look at links that changed; this is the one that
+    # notices an operation on one photograph disturbing a different one.
+    touched = set(k for k, _b, _a in added + dropped + moved_photo)
+    disturbed = []
+    for k, v in now["photo_links"].items():
+        if k in touched or k not in old["photo_links"]:
+            continue
+        both = [d for d in days_of(old["photo_links"][k]) if d in days_of(v)]
+        disturbed.extend(
+            (k, r) for r in rekeyed_days(old["photo_links"][k], v, both))
+    check(not disturbed,
+          "no unrelated photograph's placement rows were rewritten (%d)"
+          % len(disturbed))
 
     # points 2/4/5 -- edits survived the operator's restart
     edited = []
@@ -754,14 +916,17 @@ def do_verify(now, attests=None, now_iso=None):
     # green test over a wrong product, so all three modes now record
     # before they judge.
     if attests:
-        if os.path.exists(STATE_CP):
-            with open(STATE_CP, encoding="utf-8") as fh:
-                st = json.load(fh)
-            record_attestations(st, attests, "verify", now_iso)
-            with open(STATE_CP, "w", encoding="utf-8") as fh:
-                json.dump(st, fh, indent=1)
-        else:
-            out("(--attest ignored: no checkpoint state to record it in)")
+        # The existence branch that used to guard this is gone: since
+        # 2026-08-13 verify REFUSES to run without a checkpoint, so by
+        # the time control reaches here the file is present. Re-reading
+        # it rather than writing `old` back is deliberate — `old` is the
+        # comparison baseline and this function must not be able to
+        # rewrite the thing it was judged against.
+        with open(STATE_CP, encoding="utf-8") as fh:
+            st = json.load(fh)
+        record_attestations(st, attests, "verify", now_iso)
+        with open(STATE_CP, "w", encoding="utf-8") as fh:
+            json.dump(st, fh, indent=1)
 
     return _verdict("PASS -- Stage B held and survived the restart.\n"
                     "        Now restore Day 1 and run restore-verify.")
