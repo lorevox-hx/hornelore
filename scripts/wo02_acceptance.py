@@ -872,7 +872,9 @@ STAGE_B_STEPS = [
      "Edit the caption of photo A, from one of its two days. The other "
      "day must show the same caption -- a caption belongs to the "
      "photograph, not to a placement -- and it must stay withheld from "
-     "Lori."),
+     "Lori. If Stage A also captioned A, this REPLACES that text: a "
+     "caption has one value, and superseding it here is the step "
+     "working, not Stage A's edit being lost."),
     ("conversation_move", "Move the conversation",
      "Drag or send the existing conversation to a different day. Its "
      "transcript must not change, and the placement must record itself "
@@ -1649,21 +1651,55 @@ def do_verify(now, attests=None, now_iso=None):
     for rec in changes["new_notes"]:
         _still_there(rec, "note", "quick-capture note")
 
+    base_links = (base or {}).get("photo_links") or {}
     for rec in changes["captions"]:
         cur = now["photo_links"].get(rec["link"])
         check(cur is not None,
               "captioned photo %s still has its trip membership"
               % rec["link"][:8])
-        if cur is not None:
-            check(cur.get("ch") == rec["ch"],
-                  "photo %s still holds its Stage A caption on every day "
-                  "it appears" % rec["link"][:8])
-            # A caption belongs to the LINK, so consistency across days is
-            # structural rather than something the operator maintains --
-            # which is exactly why it must be asserted rather than assumed.
-            check(not cur.get("approved"),
-                  "photo %s caption is still withheld from Lori"
+        if cur is None:
+            continue
+        # ── STAGE B IS TOLD TO EDIT THIS EXACT CAPTION ────────────────
+        #
+        # CORRECTED 2026-08-13, from the live Stage B run. This asserted
+        # the caption still equalled its checkpoint value -- while
+        # walkthrough step 6 instructs the operator to edit the caption
+        # of photo A, and photo A is the photograph Stage A captioned.
+        # The two cannot both be satisfied, so following the printed
+        # steps exactly produced a FAIL on a correct system. Same class
+        # as the Add-placement contradiction: an assertion that forbids
+        # what the instructions require.
+        #
+        # Reassigning step 6 to a different photograph is NOT the fix.
+        # The point of that step is that a caption is shared across the
+        # days a photograph occupies, so it has to be edited on the
+        # multi-day photograph -- which is A by construction.
+        #
+        # What must still hold is that Stage A's edit was SUPERSEDED
+        # rather than LOST. A caption that came back to its pre-Stage-A
+        # value means Stage A's work was undone, and that is still a
+        # failure.
+        was = (base_links.get(rec["link"]) or {}).get("ch")
+        if cur.get("ch") == rec["ch"]:
+            check(True, "photo %s still holds the caption Stage A gave it"
+                        % rec["link"][:8])
+        else:
+            check(cur.get("ch") != was,
+                  "photo %s: Stage A's caption was superseded by the Stage B "
+                  "edit, not reverted to what it said before Stage A"
                   % rec["link"][:8])
+        # Kept whichever branch ran. Editing words and approving them
+        # are separate decisions, and neither Stage A's caption nor
+        # Stage B's replacement may quietly grant Lori access to them.
+        # The 2026-08-13 rewrite of this block left this check stranded
+        # inside the `else:` arm, so it ran ONLY when the caption had
+        # changed -- an unchanged caption was never checked for approval
+        # at all. It is unconditional again. The end-to-end walkthrough
+        # test is what noticed, which is the case that exercises the
+        # unchanged branch.
+        check(not cur.get("approved"),
+              "photo %s caption is still withheld from Lori"
+              % rec["link"][:8])
 
     # Placements Stage B DELIBERATELY changed are exempt from the Stage A
     # persistence assertion and are proved by the classification loop

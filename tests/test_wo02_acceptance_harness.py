@@ -1419,7 +1419,7 @@ class StageAPersistenceIsDerivedTest(_HarnessCase):
         rc, logs, n = self.run_mode(wo02.do_verify, json.loads(json.dumps(cp)))
         self.assertPassed(logs, "day text t1 on day d1 survived the restart")
         self.assertPassed(logs, "quick-capture note n9")
-        self.assertPassed(logs, "still holds its Stage A caption")
+        self.assertPassed(logs, "still holds the caption Stage A gave it")
         self.assertPassed(logs, "is still off day d1")
         self.assertEqual(n["fail"], 0)
 
@@ -1461,6 +1461,52 @@ class StageAPersistenceIsDerivedTest(_HarnessCase):
         self.assertEqual(rc, 1)
         self.assertFailed(logs, "exactly once (found 2)")
 
+    def test_stage_b_may_edit_the_caption_stage_a_wrote(self):
+        """The contradiction the live Stage B run exposed.
+
+        Walkthrough step 6 tells the operator to edit photo A's
+        caption, and photo A is the photograph Stage A captioned. This
+        assertion used to demand the checkpoint caption survive
+        unchanged, so obeying the instructions produced a FAIL on a
+        correct system — 82 passed, 1 failed, and the one failure was
+        the instrument.
+        """
+        cap, cp = self._write()
+        now = json.loads(json.dumps(cp))
+        now["photo_links"]["p1"]["ch"] = "capB_stageB_edit"
+        now["items"]["d3"] = [["photo", "p1", "pl-capA-d3",
+                               "capB_stageB_edit"]]
+        rc, logs, n = self.run_mode(wo02.do_verify, now)
+        self.assertPassed(logs, "superseded by the Stage B edit")
+        self.assertEqual(n["fail"], 0, logs)
+
+    def test_a_caption_reverted_to_its_pre_stage_a_value_still_fails(self):
+        """Superseded is fine; undone is not.
+
+        The exemption above must not become a blanket licence for the
+        caption to be anything at all. Coming back to what it said
+        BEFORE Stage A means Stage A's edit was lost.
+        """
+        cap, cp = self._write()
+        now = json.loads(json.dumps(cp))
+        now["photo_links"]["p1"]["ch"] = "capA"   # the pre-Stage-A value
+        now["items"]["d3"] = [["photo", "p1", "pl-capA-d3", "capA"]]
+        rc, logs, n = self.run_mode(wo02.do_verify, now)
+        self.assertEqual(rc, 1)
+        self.assertFailed(logs, "not reverted to what it said before Stage A")
+
+    def test_an_unchanged_caption_is_still_reported_as_held(self):
+        cap, cp = self._write()
+        rc, logs, n = self.run_mode(wo02.do_verify, json.loads(json.dumps(cp)))
+        self.assertPassed(logs, "still holds the caption Stage A gave it")
+
+    def test_the_walkthrough_warns_that_step_6_supersedes_stage_a(self):
+        wo02._reset()
+        wo02.print_stage_b_walkthrough()
+        text = "\n".join(wo02.LINES)
+        self.assertIn("REPLACES that text", text)
+        self.assertIn("not Stage A's edit being lost", text)
+
     def test_a_reverted_caption_fails(self):
         cap, cp = self._write()
         now = json.loads(json.dumps(cp))
@@ -1468,7 +1514,7 @@ class StageAPersistenceIsDerivedTest(_HarnessCase):
         now["items"]["d3"] = [["photo", "p1", "pl-capA-d3", "capA"]]
         rc, logs, n = self.run_mode(wo02.do_verify, now)
         self.assertEqual(rc, 1)
-        self.assertFailed(logs, "still holds its Stage A caption")
+        self.assertFailed(logs, "not reverted to what it said before Stage A")
 
     def test_a_destroyed_placement_row_that_is_resurrected_fails(self):
         """Stage B may re-add the photograph; it may not reuse the row.
@@ -1893,7 +1939,7 @@ class TheWalkthroughCanActuallyBeCompletedTest(_HarnessCase):
         self.assertPassed(log, "moving changed the day and kept the count")
         self.assertPassed(log, "recorded as confirmed operator placement")
         self.assertPassed(log, "Stage B quick capture created a note")
-        self.assertPassed(log, "still holds its Stage A caption")
+        self.assertPassed(log, "still holds the caption Stage A gave it")
         self.assertPassed(log, "caption is still withheld from Lori")
         self.assertPassed(log, "photo_count moved by")
 
