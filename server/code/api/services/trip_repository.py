@@ -1848,41 +1848,12 @@ def photo_link_upsert(
     overwritten by re-clustering."""
     con = _connect()
     try:
-        existing = con.execute(
-            "SELECT id, assignment_method FROM trip_photo_links "
-            "WHERE trip_id = ? AND photo_id = ?",
-            (trip_id, photo_id),
-        ).fetchone()
-        if existing:
-            if (existing["assignment_method"] or "") in ("operator", "manual"):
-                return existing["id"]  # operator truth wins
-            con.execute(
-                """UPDATE trip_photo_links
-                   SET trip_region_id = ?, trip_stop_id = ?, taken_at = ?,
-                       latitude = ?, longitude = ?, assignment_method = ?,
-                       cluster_confidence = ?, updated_at = ?
-                   WHERE id = ?""",
-                (
-                    trip_region_id, trip_stop_id, taken_at, latitude,
-                    longitude, assignment_method, cluster_confidence,
-                    _now(), existing["id"],
-                ),
-            )
-            con.commit()
-            return existing["id"]
-        lid = _new_id()
-        con.execute(
-            """INSERT INTO trip_photo_links
-               (id, trip_id, trip_region_id, trip_stop_id, photo_id,
-                taken_at, latitude, longitude, assignment_method,
-                cluster_confidence, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                lid, trip_id, trip_region_id, trip_stop_id, photo_id,
-                taken_at, latitude, longitude, assignment_method,
-                cluster_confidence, _now(), _now(),
-            ),
-        )
+        lid, _created = _photo_link_upsert_txn(
+            con, trip_id=trip_id, photo_id=photo_id,
+            trip_region_id=trip_region_id, trip_stop_id=trip_stop_id,
+            taken_at=taken_at, latitude=latitude, longitude=longitude,
+            assignment_method=assignment_method,
+            cluster_confidence=cluster_confidence)
         con.commit()
         return lid
     except Exception:
@@ -1890,6 +1861,68 @@ def photo_link_upsert(
         raise
     finally:
         con.close()
+
+
+def _photo_link_upsert_txn(
+    con: sqlite3.Connection,
+    trip_id: str,
+    photo_id: str,
+    trip_region_id: Optional[str] = None,
+    trip_stop_id: Optional[str] = None,
+    taken_at: Optional[str] = None,
+    latitude: Optional[float] = None,
+    longitude: Optional[float] = None,
+    assignment_method: str = "exif_time",
+    cluster_confidence: Optional[float] = None,
+) -> tuple:
+    """The upsert body, in the CALLER's transaction. Does not commit.
+
+    Extracted 2026-08-13 after review found the Phase 2 transactional
+    gap: link_day_photos created trip memberships through the
+    committing wrapper above and THEN called day_placements_add in a
+    separate transaction, so a placement that failed left the new
+    memberships behind on a request that returned an error.
+
+    Returns ``(link_id, created)`` -- the flag matters because rollback
+    is not the only thing a caller needs to know. An idempotent retry
+    must be able to report that it created nothing without inferring it
+    from a count.
+    """
+    existing = con.execute(
+        "SELECT id, assignment_method FROM trip_photo_links "
+        "WHERE trip_id = ? AND photo_id = ?",
+        (trip_id, photo_id),
+    ).fetchone()
+    if existing:
+        if (existing["assignment_method"] or "") in ("operator", "manual"):
+            return existing["id"], False       # operator truth wins
+        con.execute(
+            """UPDATE trip_photo_links
+               SET trip_region_id = ?, trip_stop_id = ?, taken_at = ?,
+                   latitude = ?, longitude = ?, assignment_method = ?,
+                   cluster_confidence = ?, updated_at = ?
+               WHERE id = ?""",
+            (
+                trip_region_id, trip_stop_id, taken_at, latitude,
+                longitude, assignment_method, cluster_confidence,
+                _now(), existing["id"],
+            ),
+        )
+        return existing["id"], False
+    lid = _new_id()
+    con.execute(
+        """INSERT INTO trip_photo_links
+           (id, trip_id, trip_region_id, trip_stop_id, photo_id,
+            taken_at, latitude, longitude, assignment_method,
+            cluster_confidence, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            lid, trip_id, trip_region_id, trip_stop_id, photo_id,
+            taken_at, latitude, longitude, assignment_method,
+            cluster_confidence, _now(), _now(),
+        ),
+    )
+    return lid, True
 
 
 def photo_link_get(link_id: str) -> Optional[Dict[str, Any]]:
@@ -4344,6 +4377,143 @@ def day_placements_add(link_ids: List[str], day_id: str, trip_id: str,
         con.commit()
         return {"created": created, "already_present": already,
                 "placements": placements}
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+class PhotoNotFoundError(Exception):
+    """A photo_id names no live photograph."""
+
+
+class PhotoOwnerMismatchError(Exception):
+    """That photograph belongs to a different narrator."""
+
+
+def day_placements_add_with_promotion(
+        link_ids: List[str], photo_ids: List[str], day_id: str,
+        trip_id: str, method: str = "operator") -> Dict[str, Any]:
+    """Create any missing trip memberships AND the day placements, in
+    ONE transaction (work order §6.1).
+
+    WHY THIS EXISTS AS ONE FUNCTION. The first Phase 2 cut left the two
+    halves in the router: photo_link_upsert() committed each new
+    membership, then day_placements_add() opened its own transaction for
+    the placements. A cross-trip link id, a vanished day or an I/O
+    failure in the second half returned an error to the operator while
+    the memberships from the first half stayed in the database. The
+    photographs were then attached to the trip, on no day, from a
+    request that had been reported as failed -- and the operator had no
+    reason to go looking for them.
+
+    A photograph promoted out of the evidence queue has no trip link, so
+    the only thing the operator can name is the PHOTO. Creating that
+    link is therefore part of placing it, not a separate act that
+    happens to precede it, and the transaction boundary has to agree.
+
+    Ownership is checked HERE, on the same connection, before any write:
+    without it a caller who knew two ids could hang one person's picture
+    on another person's day.
+    """
+    ids: List[str] = []
+    for raw in (link_ids or []):
+        sid = str(raw)
+        if sid and sid not in ids:
+            ids.append(sid)
+    pids: List[str] = []
+    for raw in (photo_ids or []):
+        sid = str(raw)
+        if sid and sid not in pids:
+            pids.append(sid)
+    if not ids and not pids:
+        return {"created": [], "already_present": [], "placements": [],
+                "created_link_ids": [], "photo_link_ids": []}
+
+    con = _connect()
+    try:
+        if not _placements_supported(con):
+            raise RuntimeError(
+                "trip_photo_day_placements is missing; migration 0043 has "
+                "not been applied to this database")
+        _assert_day_in_trip(con, day_id, trip_id)
+
+        owner = ""
+        if pids:
+            trip_row = con.execute(
+                "SELECT person_id FROM trips WHERE id = ?", (trip_id,),
+            ).fetchone()
+            if not trip_row:
+                raise ValueError("no such trip: %s" % trip_id)
+            owner = str(trip_row["person_id"] or "")
+
+        created_links: List[str] = []
+        for photo_id in pids:
+            row = con.execute(
+                "SELECT id, narrator_id, date_value, latitude, longitude"
+                "  FROM photos WHERE id = ? AND deleted_at IS NULL",
+                (photo_id,),
+            ).fetchone()
+            if row is None:
+                raise PhotoNotFoundError(photo_id)
+            if str(row["narrator_id"] or "") != owner:
+                raise PhotoOwnerMismatchError(photo_id)
+            lid, was_created = _photo_link_upsert_txn(
+                con, trip_id=trip_id, photo_id=photo_id,
+                taken_at=row["date_value"], latitude=row["latitude"],
+                longitude=row["longitude"],
+                assignment_method="operator", cluster_confidence=1.0)
+            if was_created:
+                created_links.append(lid)
+            if lid not in ids:
+                ids.append(lid)
+
+        # Link validation. THE ORDER OF THIS BLOCK IS NOT WHAT MAKES THE
+        # MIXED REQUEST SAFE -- the single transaction is.
+        #
+        # An earlier comment here claimed the opposite: that validating
+        # after the promotions was what let a cross-trip link id roll
+        # them back. A mutation that moved this block ABOVE the
+        # promotion loop killed no test, which is the evidence that the
+        # claim was decorative. With one connection and one commit,
+        # either order performs zero writes on failure, because the
+        # rollback covers both halves regardless.
+        #
+        # What the order does decide is which error the operator sees
+        # when a request is wrong in two ways at once, and after is the
+        # better answer: a stranger's photograph or a photograph that
+        # does not exist is a more specific and more actionable
+        # complaint than "one of these link ids is not in this trip".
+        for lid in ids:
+            _assert_link_in_trip(con, lid, trip_id)
+
+        existing = {
+            str(r["photo_link_id"]) for r in con.execute(
+                "SELECT photo_link_id FROM trip_photo_day_placements"
+                " WHERE trip_day_id = ?", (day_id,)).fetchall()
+        }
+        already = [lid for lid in ids if lid in existing]
+        created: List[str] = []
+        for lid in [i for i in ids if i not in existing]:
+            try:
+                created.extend(
+                    placement_add_many(con, [lid], day_id, trip_id, method))
+            except sqlite3.IntegrityError as exc:
+                if not _is_placement_unique_violation(exc):
+                    raise
+                logger.info(
+                    "[trips][placement] lost the UNIQUE race for link=%s "
+                    "day=%s; the pair exists, reporting already-present",
+                    lid, day_id)
+                already.append(lid)
+
+        placements = placements_for_day(con, day_id)
+        con.commit()
+        return {"created": created, "already_present": already,
+                "placements": placements,
+                "created_link_ids": created_links,
+                "photo_link_ids": ids}
     except Exception:
         con.rollback()
         raise

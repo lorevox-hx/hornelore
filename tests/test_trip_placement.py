@@ -1123,7 +1123,15 @@ class _ChatWsHookCase(unittest.TestCase):
         `_is_system_directive`, which is the thing that must not
         proliferate, rather than about one particular right-hand side.
         """
-        from source_scan_helpers import strip_py_comments
+        # Imported through the package, not as a top-level module.
+        # `PYTHONPATH=server/code` -- the documented command -- does not
+        # put tests/ on the top-level import path, so the bare
+        # `from source_scan_helpers import ...` raised
+        # ModuleNotFoundError and this test ERRORED on every ordinary
+        # run. It passed only when someone happened to add tests/ to
+        # PYTHONPATH, which made a real guard look like a flaky one.
+        # Corrected 2026-08-13.
+        from tests.source_scan_helpers import strip_py_comments
         code = strip_py_comments(self.src)
         # The declared kind is preferred; the prefix survives as fallback.
         self.assertIn('params . get ( "message_kind" )'.replace(" ", ""),

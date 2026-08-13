@@ -178,11 +178,43 @@ class ClusteringConsumesTrustTest(unittest.TestCase):
         self.assertEqual(out[0]["trip_stop_id"], "s1")
         self.assertFalse(out[0]["needs_review"])
 
-    def test_missing_trust_is_legacy_trusted(self):
-        # Pre-0016 rows carry no trust — behavior must not change.
+    def test_missing_trust_fails_closed_and_lands_in_review(self):
+        """REWRITTEN 2026-08-13. Was
+        ``test_missing_trust_is_legacy_trusted``, asserting that a photo
+        with no ``metadata_trust`` still clustered onto the stop by date
+        -- 'Pre-0016 rows carry no trust, behavior must not change.'
+
+        Commit `741243c` (WO-TRIP-LANE-AUDIT-FIXPACK-02, M3)
+        deliberately reversed that. `_TRUSTED_DATE_LEVELS` is now an
+        allowlist of `full` and `time_only`, and its comment names this
+        exact case: an ABSENT metadata_trust key 'must fail CLOSED so a
+        scan/unknown date can never confidently mis-cluster a
+        decades-old print onto yesterday's stop.' The test was never
+        updated, so it has been red ever since -- a stale assertion
+        arguing with a dated safety ruling, which is worse than no test,
+        because a permanently red suite stops being read.
+
+        The ruling is kept and the test now asserts it. The cost is
+        real and worth stating: a genuine pre-0016 row no longer
+        clusters by its date and always lands in review. That is the
+        safe direction -- review is recoverable, a scanned print filed
+        onto the wrong day of the wrong trip is not.
+        """
         photo = {"id": "p3", "date_value": "2026-05-28"}
         out = trip_photo_clustering.cluster_photos_to_stops([photo], [self.STOP])
+        self.assertIsNone(out[0]["trip_stop_id"],
+                          "an untrusted date was used for confident placement")
+        self.assertTrue(out[0]["needs_review"])
+
+    def test_the_allowlist_is_what_makes_that_true(self):
+        """Non-vacuity: the same photo WITH trust does cluster, so the
+        test above is about the trust value and not about the fixture
+        being unplaceable for some other reason."""
+        photo = {"id": "p3b", "date_value": "2026-05-28",
+                 "metadata_trust": "full"}
+        out = trip_photo_clustering.cluster_photos_to_stops([photo], [self.STOP])
         self.assertEqual(out[0]["trip_stop_id"], "s1")
+        self.assertFalse(out[0]["needs_review"])
 
     def test_suspect_scan_with_gps_still_uses_gps(self):
         # Hypothetical: scan-suspect date but GPS present (edge) — GPS

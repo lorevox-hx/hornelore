@@ -367,7 +367,17 @@ def _read_photo_owner(photo_id: str) -> Optional[Dict[str, Any]]:
     able to answer "is this even this trip's narrator's picture" without
     depending on a module that could later decide to widen what it
     returns. Soft-deleted rows are excluded on purpose -- a deleted
-    photo is not something to hang on a day card."""
+    photo is not something to hang on a day card.
+
+    KEPT DELIBERATELY THOUGH THE DAY-ATTACH ROUTE NO LONGER CALLS IT
+    (2026-08-13). That check moved into
+    trip_repository.day_placements_add_with_promotion so it runs on the
+    same connection as the writes it guards -- a boundary check outside
+    the transaction it protects is a check against a snapshot. This
+    helper is left in place because the reasoning above is still the
+    right reasoning for the next route that needs it, and because
+    deleting it would take that reasoning with it. It is dead code
+    today; if it is still dead when Phase 6 opens, delete it then."""
     from .. import db as _db
     con = sqlite3.connect(str(_db.DB_PATH))
     con.row_factory = sqlite3.Row
@@ -3647,49 +3657,31 @@ def link_day_photos(trip_id: str, day_id: str,
     # BEFORE the upserts below. See _reject_oversized_batch.
     _reject_oversized_batch(len(ids) + len(photo_ids))
 
-    created: List[str] = []
-    if photo_ids:
-        trip = trip_repository.trip_get(trip_id)
-        if not trip:
-            raise HTTPException(status_code=404, detail="no such trip")
-        owner = str(trip.get("person_id") or "")
-        for photo_id in photo_ids:
-            # The photo must be this trip's narrator's. Without this a
-            # caller could hang one person's picture on another
-            # person's day just by knowing two ids.
-            row = _read_photo_owner(photo_id)
-            if row is None:
-                raise HTTPException(
-                    status_code=404, detail="no photo with id %r" % photo_id)
-            if str(row.get("narrator_id") or "") != owner:
-                raise HTTPException(
-                    status_code=409,
-                    detail="photo %s belongs to another narrator and cannot "
-                           "be filed on this trip" % photo_id)
-            try:
-                link_id = trip_repository.photo_link_upsert(
-                    trip_id=trip_id,
-                    photo_id=photo_id,
-                    taken_at=row.get("date_value"),
-                    latitude=row.get("latitude"),
-                    longitude=row.get("longitude"),
-                    assignment_method="operator",
-                    cluster_confidence=1.0,
-                )
-            except sqlite3.Error as exc:
-                raise _classified_sqlite_500(
-                    exc, "[trips][day-photo-link][upsert]", trip_id) from exc
-            created.append(link_id)
-            if link_id not in ids:
-                ids.append(link_id)
-
+    # ONE repository transaction for the promotions AND the placements.
+    # Until 2026-08-13 this loop lived here and committed each new trip
+    # membership through photo_link_upsert() before day_placements_add()
+    # opened its own transaction, so a placement failure returned an
+    # error while leaving those memberships behind -- photographs
+    # attached to the trip, on no day, from a request reported as
+    # failed. The router no longer holds a write boundary.
     try:
-        result = trip_repository.day_placements_add(ids, day_id, trip_id)
+        result = trip_repository.day_placements_add_with_promotion(
+            ids, photo_ids, day_id, trip_id)
+    except trip_repository.PhotoNotFoundError as exc:
+        raise HTTPException(status_code=404,
+                            detail="no photo with id %r" % str(exc))
+    except trip_repository.PhotoOwnerMismatchError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="photo %s belongs to another narrator and cannot "
+                   "be filed on this trip" % str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except sqlite3.Error as exc:
         raise _classified_sqlite_500(
             exc, "[trips][day-photo-link]", trip_id) from exc
+    ids = result["photo_link_ids"]
+    created = result["created_link_ids"]
     logger.info(
         "[trips][days] photo-link trip=%s day=%s added=%d already=%d new=%d",
         trip_id, day_id, len(result["created"]),

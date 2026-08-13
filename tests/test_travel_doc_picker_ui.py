@@ -380,7 +380,28 @@ class PickerUiTest(unittest.TestCase):
         self.assertIn("!st.pickerHealth", block)
         self.assertIn("!st.pickerOff", block)
         # And it adds no third exemption to the trip gate.
-        exempt = re.findall(r'st\.tab !== "(\w+)"', self.src)
+        #
+        # CORRECTED 2026-08-13. This scanned the WHOLE file for
+        # `st.tab !== "..."` and had been failing since `f2bd4af`
+        # (WO-TRAVEL-DOC-CLOSEOUT-01), which added
+        #
+        #     if (destroyed || st.tab !== "document" || !st.trip) return ...
+        #
+        # to the memoir-preview loader. That line is not an exemption
+        # from anything -- it is the opposite sense, "only load the
+        # preview while we are ON the document tab" -- but it uses the
+        # same words, so the file-wide regex reported a third exemption
+        # that does not exist. A red test about a property that was
+        # still true, which is the fourth time this repository has been
+        # bitten by a guard written against a word rather than against
+        # the construct it appears in.
+        #
+        # The gate is one condition. Scan THAT, and the assertion gets
+        # stronger rather than merely quieter: it now describes the
+        # thing it is guarding.
+        gate = re.search(r"if \(!st\.trip && ([^)]*)\) \{", self.src)
+        self.assertIsNotNone(gate, "the trip gate has moved or changed shape")
+        exempt = re.findall(r'st\.tab !== "(\w+)"', gate.group(1))
         self.assertEqual(sorted(set(exempt)), ["captured", "evidence"])
 
     def test_max_items_is_not_sent(self):

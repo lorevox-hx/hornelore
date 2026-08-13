@@ -341,6 +341,186 @@ class BatchLimitTest(_Case):
         self.assertEqual(self.link_rows(), before_links)
 
 
+class PromotionAndPlacementAreOneTransactionTest(_Case):
+    """Review correction, 2026-08-13 (work order §6.1).
+
+    The pushed Phase 2 (`b0197fe`) created trip memberships from
+    ``photo_ids`` through ``photo_link_upsert()``, which COMMITS, and
+    only then called ``day_placements_add()`` in a second transaction.
+    A cross-trip link id later in the same request, a day that vanished
+    between the two, or an I/O failure in the second half returned an
+    error to the operator and left the new memberships in the database:
+    photographs attached to the trip, on no day, from a request that had
+    been reported as failed -- with nothing to tell the operator to go
+    looking for them.
+
+    Every test here measures BOTH tables, because the defect was
+    invisible in either one alone: the placements were correctly absent,
+    and that was the half everyone looked at.
+    """
+
+    def state(self):
+        return (self.link_rows(), self.placements())
+
+    def test_a_successful_mixed_request_creates_exactly_what_it_should(self):
+        existing = self._link()
+        fresh = self._photo()
+        out = trips.link_day_photos(
+            self.trip_id, self.day1,
+            _LinkReq(photo_link_ids=[existing], photo_ids=[fresh]))
+        self.assertEqual(len(out["created_link_ids"]), 1,
+                         "one NEW membership, for the promoted photo only")
+        self.assertEqual(len(self.link_rows()), 2)
+        self.assertEqual(len(self.placements(self.day1)), 2)
+        self.assertEqual(sorted(out["photo_link_ids"]),
+                         sorted([existing, out["created_link_ids"][0]]))
+
+    def test_an_injected_placement_failure_leaves_no_new_membership(self):
+        """The exact defect. The membership write must roll back with
+        the placement write that failed after it."""
+        fresh = self._photo()
+        before = self.state()
+        real = repo.placement_add_many
+
+        def boom(con, link_ids, day_id, trip_id, method="operator"):
+            con.execute("SELECT 1")        # prove we are mid-transaction
+            raise RuntimeError("injected placement failure")
+
+        repo.placement_add_many = boom
+        try:
+            with self.assertRaises(RuntimeError):
+                trips.link_day_photos(self.trip_id, self.day1,
+                                      _LinkReq(photo_ids=[fresh]))
+        finally:
+            repo.placement_add_many = real
+        self.assertEqual(self.state(), before,
+                         "a failed placement left the trip membership behind")
+
+    def test_a_mixed_request_with_a_cross_trip_link_writes_nothing(self):
+        """Valid new photo + invalid link in one call. The promotion
+        happens first in program order, so this is the ordering the
+        transaction has to survive."""
+        other = repo.trip_create(person_id=self.person_id, title="Other",
+                                 start_date="2026-06-01", end_date="2026-06-02")
+        foreign = self._link(trip_id=other)
+        fresh = self._photo()
+        before = self.state()
+        with self.assertRaises(HTTPException) as ctx:
+            trips.link_day_photos(
+                self.trip_id, self.day1,
+                _LinkReq(photo_link_ids=[foreign], photo_ids=[fresh]))
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertEqual(self.state(), before)
+
+    def test_a_stranger_photo_among_valid_ones_writes_nothing(self):
+        stranger = str(uuid.uuid4())
+        self._exec(
+            "INSERT INTO people (id, display_name, created_at, updated_at)"
+            " VALUES (?, 'Stranger', '2026-08-13', '2026-08-13')", (stranger,))
+        mine = self._photo()
+        theirs = self._photo(person=stranger)
+        before = self.state()
+        with self.assertRaises(HTTPException) as ctx:
+            trips.link_day_photos(self.trip_id, self.day1,
+                                  _LinkReq(photo_ids=[mine, theirs]))
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertEqual(self.state(), before,
+                         "the valid photo's membership survived the refusal")
+
+    def test_a_missing_photo_among_valid_ones_writes_nothing(self):
+        mine = self._photo()
+        before = self.state()
+        with self.assertRaises(HTTPException) as ctx:
+            trips.link_day_photos(
+                self.trip_id, self.day1,
+                _LinkReq(photo_ids=[mine, str(uuid.uuid4())]))
+        self.assertEqual(ctx.exception.status_code, 404)
+        self.assertEqual(self.state(), before)
+
+    def test_a_fifty_one_item_request_still_writes_nothing(self):
+        photo_ids = [self._photo() for _ in range(51)]
+        before = self.state()
+        with self.assertRaises(HTTPException) as ctx:
+            trips.link_day_photos(self.trip_id, self.day1,
+                                  _LinkReq(photo_ids=photo_ids))
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertEqual(self.state(), before)
+
+    def test_an_idempotent_retry_duplicates_neither(self):
+        fresh = self._photo()
+        first = trips.link_day_photos(self.trip_id, self.day1,
+                                      _LinkReq(photo_ids=[fresh]))
+        after_first = self.state()
+        second = trips.link_day_photos(self.trip_id, self.day1,
+                                       _LinkReq(photo_ids=[fresh]))
+        self.assertEqual(len(first["created_link_ids"]), 1)
+        self.assertEqual(second["created_link_ids"], [],
+                         "the retry created a second trip membership")
+        self.assertEqual(second["updated"], 0)
+        self.assertEqual(second["already_present"],
+                         first["photo_link_ids"])
+        self.assertEqual(self.state(), after_first)
+
+    def test_an_existing_membership_is_not_rewritten_by_promotion(self):
+        """UNIQUE(trip_id, photo_id) plus 'operator truth wins': naming
+        an already-linked photo by PHOTO id must not disturb the row."""
+        lid = self._link()
+        photo_id = self.q("SELECT photo_id FROM trip_photo_links WHERE id=?",
+                          (lid,))[0]["photo_id"]
+        before = self.link_rows()
+        trips.link_day_photos(self.trip_id, self.day1,
+                              _LinkReq(photo_ids=[photo_id]))
+        self.assertEqual(self.link_rows(), before,
+                         "promoting an existing photo rewrote its link row")
+        self.assertEqual(self.days_of(lid), [self.day1])
+
+    def test_the_more_specific_complaint_wins_when_a_request_is_wrong_twice(
+            self):
+        """Pins the ordering for the reason it actually has one.
+
+        A mutation moving link validation above the promotion loop
+        killed NO test, which proved the ordering is not what makes the
+        mixed request atomic -- the single transaction is. What the
+        ordering does decide is which error an operator sees when they
+        get two things wrong at once, and a stranger's photograph is a
+        more actionable complaint than a bad link id.
+        """
+        other = repo.trip_create(person_id=self.person_id, title="Other",
+                                 start_date="2026-06-01", end_date="2026-06-02")
+        foreign = self._link(trip_id=other)
+        stranger = str(uuid.uuid4())
+        self._exec(
+            "INSERT INTO people (id, display_name, created_at, updated_at)"
+            " VALUES (?, 'Stranger', '2026-08-13', '2026-08-13')", (stranger,))
+        theirs = self._photo(person=stranger)
+        before = self.state()
+        with self.assertRaises(HTTPException) as ctx:
+            trips.link_day_photos(
+                self.trip_id, self.day1,
+                _LinkReq(photo_link_ids=[foreign], photo_ids=[theirs]))
+        self.assertEqual(ctx.exception.status_code, 409,
+                         "the vaguer link-id complaint won")
+        self.assertEqual(self.state(), before,
+                         "and either way it must still write nothing")
+
+    def test_the_router_holds_no_write_boundary_of_its_own(self):
+        """Source gate. The behavioural tests above prove the CURRENT
+        route is atomic; this one fails if the committing upsert is
+        reintroduced beside the placement call, which is how the defect
+        was written the first time."""
+        import ast
+        src = (_REPO_ROOT / "server" / "code" / "api" / "routers"
+               / "trips.py").read_text(encoding="utf-8")
+        tree = ast.parse(src)
+        fn = next(n for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef)
+                  and n.name == "link_day_photos")
+        body = ast.dump(fn)
+        self.assertNotIn("photo_link_upsert", body,
+                         "link_day_photos calls the committing upsert again")
+        self.assertIn("day_placements_add_with_promotion", body)
+
+
 class RemoveRouteTest(_Case):
 
     def test_removing_one_day_leaves_the_other(self):
