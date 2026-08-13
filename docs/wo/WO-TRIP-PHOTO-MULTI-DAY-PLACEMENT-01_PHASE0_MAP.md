@@ -18,7 +18,10 @@ Every count below is from the tree at `e691105`. Where the work order's own text
 | `trip_location_notes` | 0028 | a note on a day | no |
 | `trip_sources` | 0029 | a source on a day | no |
 | `trip_turn_links` | 0039 | a conversation on a day | no |
-| `import_candidate` | 0037 | (proposed destination) | no |
+
+**Corrected 2026-08-12 after review.** An earlier revision of this table listed a fifth row, `import_candidate` (0037), as a `trip_day_id` column. That is wrong. `0037_import_provenance_foundation.sql` gives `import_candidate` a **`trip_id`** only — `trip_id TEXT REFERENCES trips(id) ON DELETE SET NULL` — and no day column at all. The absence is deliberate and documented in the import lane: placement granularity is trip-level at intake because no importer exists to propose a finer answer, and `proposed_trip_day_id` was explicitly not added.
+
+`import_candidate` remains an **audited related surface** — the promote-to-day path reaches day placement through `link_day_photos`, not through a column of its own — but it is not a fifth instance of this column and must not be migrated as one.
 
 156 occurrences of the string `trip_day_id` exist in `server/code`. Most are not about photographs. Treating the string as the unit of work would migrate three unrelated lanes; treating the *photo* column as the unit is correct.
 
@@ -39,7 +42,16 @@ Migrating those five would be scope creep with real regression risk. They stay u
 ### 1.1 The one writer
 
 `trip_repository.photo_links_set_day(link_ids, day_id, trip_id)` — `trip_repository.py:3742-3781`.
-Sole mutator of `trip_photo_links.trip_day_id`. Already transactional and cross-trip validated (raises `ValueError`, writes nothing). `day_id=None` is detach. Returns rows updated.
+Sole mutator of `trip_photo_links.trip_day_id`. `day_id=None` is detach. Returns rows updated.
+
+**Transaction boundary, corrected 2026-08-12 after review.** An earlier revision of this map called the function "already transactional and cross-trip validated." That overstates it, and the difference matters for Phase 1:
+
+- **Day validation is OUTSIDE the write transaction.** `trip_day_get(day_id)` runs at **L3750**, on its own connection, *before* `con = _connect()` at **L3753**.
+- **Link validation and the writes are inside** the transaction — `SELECT trip_id FROM trip_photo_links` at L3757, `UPDATE` at L3765, with `commit()` / `rollback()` / `close()`.
+
+So the destination day is checked against a snapshot taken before the write connection exists. A day deleted or re-parented between those two statements would not be caught.
+
+**Phase 1 requirement:** validate the destination day **and** every link inside the *same* write transaction that performs the scalar and placement mutations. Do not rely on the pre-connection `trip_day_get`. This is a strengthening of an existing weakness, not a regression introduced by this WO — but the bridge writes two representations, so a stale day check now risks a placement row pointing at a day that no longer exists, which is worse than a stale scalar.
 
 **This is the function the Phase 1 dual-write bridge attaches to.** There is exactly one, which is why the bridge is a small, containable change.
 
@@ -186,7 +198,22 @@ Ordered so that the deletion hazard is never open, not even between two statemen
 1. **Migration `0043`** — create `trip_photo_day_placements` + both indexes. Additive only; legacy column untouched.
 2. **Backfill inside the same migration** — one placement per live `trip_photo_links.trip_day_id`, `placement_method` recording that it came from backfill, `ord` 0. Assert exact counts and uniqueness.
 3. **Repository primitives** — list / add-many / remove-from-day / move / reorder / attachment tally. Cross-trip validated transactionally (SQLite cannot express the rule with two FKs).
-4. **Dual-write bridge in `photo_links_set_day`** — the scalar `UPDATE` and the placement insert/delete in **one existing transaction** (the function already has `con.commit()` / `con.rollback()`; extend, do not re-plumb). Attach writes both; detach (`day_id=None`) removes the placement for that day and nulls the scalar.
+4. **Dual-write bridge in `photo_links_set_day`** — the scalar `UPDATE` and the placement mutation in **one transaction** (the function already has `con.commit()` / `con.rollback()`; extend it, and pull day validation inside per §1.1).
+
+   **The bridge MIRRORS the scalar exactly. It does not add multi-day behaviour.** Phase 1 changes storage, not product semantics: while the UI still says "Move to this day", the placement set must say what the scalar says, transition for transition:
+
+   | Scalar transition | Placement set must become | Atomic? |
+   |---|---|---|
+   | `null` → Day B | `{Day B}` — insert | yes |
+   | Day A → Day B | `{Day B}` — **delete A and insert B** | yes, one transaction |
+   | Day A → `null` | `{}` — delete A | yes |
+   | Day A → Day A (no-op) | `{Day A}` — unchanged, no duplicate | yes |
+
+   **The failure to avoid:** inserting Day B while leaving Day A behind. That would silently produce a two-day placement from an operator action the UI describes as a *move*, creating multi-day data before the product offers multi-day controls — and the operator would have no way to see or undo the second placement. Phase 2 is what turns "move" into "add"; Phase 1 must not anticipate it.
+
+   A `photo_links_set_day` call carries a *list* of link ids, so each link's own prior placement is the one deleted — the delete is scoped to `(photo_link_id, previous day)`, never "all placements for this day".
+
+   §9.11's test therefore needs both halves: after a legacy-path move, the destination day is protected from date-shrink deletion **and** the source day no longer counts that photo.
 5. **Switch `_day_attachment_counts`** to the placement table, keeping the `_table_has_column` legacy-DB guard so a pre-0043 database still behaves.
 6. **§9 tests**, including §9.11: a placement made *through the legacy path* creates a placement row and its day then refuses date-shrink deletion; injected failure rolls back both writes.
 
