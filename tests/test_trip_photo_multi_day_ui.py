@@ -274,11 +274,23 @@ class BatchingRespectsTheServerLimitTest(unittest.TestCase):
         self.assertIn("added: added", body)
 
     def test_the_picker_keeps_the_unadded_selection_after_a_partial_add(self):
+        """RETARGETED 2026-08-13 after review.
+
+        This pinned `if (!r.error) st.photoPickerDayId = null;`, which
+        closes the drawer whenever no ERROR came back -- including a
+        dirty-form refusal, where nothing was sent and every tick is
+        still wanted. The condition now also requires that nothing is
+        outstanding, which is the property the test was after.
+        """
         body = _fn("renderPhotoPicker")
         self.assertIn("delete st.photoPickerChecked[id]", body)
-        self.assertIn("if (!r.error) st.photoPickerDayId = null;", body,
+        self.assertIn("if (!r.error && !(r.unsent || []).length)", body,
                       "the drawer must stay open when part of the "
                       "selection did not land")
+        self.assertIn("if (r.blocked) { renderAll(); return; }", body,
+                      "a refusal must not clear ticks or close the drawer")
+        self.assertIn("if (!r || !Array.isArray(r.added))", body,
+                      "an unrecognisable result must not be read as success")
 
 
 class DirtyDayEditsAreProtectedFromPhotoControlsTest(unittest.TestCase):
@@ -325,11 +337,68 @@ class DirtyDayEditsAreProtectedFromPhotoControlsTest(unittest.TestCase):
 
         Returning undefined from the guarded path would throw inside
         the picker's Add handler rather than block it quietly.
+
+        CORRECTED 2026-08-13 after review. This asserted the literal
+        `dayFormDirtyBlocks()) return Promise.resolve()` on all three,
+        which was true of addPhotosToDay only while its blocked path
+        resolved with NOTHING -- and the picker reads `r.added` off
+        that. The blocked path now resolves with the same result object
+        every other path answers, so the assertion is split: the two
+        that need only a promise, and the one that needs the shape.
         """
-        for name in ("addPhotosToDay", "unlinkDayPhoto", "movePlacement"):
+        for name in ("unlinkDayPhoto", "movePlacement"):
             with self.subTest(fn=name):
                 self.assertIn("dayFormDirtyBlocks()) return Promise.resolve()",
                               _fn(name))
+        body = _fn("addPhotosToDay")
+        self.assertIn("if (dayFormDirtyBlocks()) {", body)
+        self.assertIn("return Promise.resolve(result({ unsent: ids, "
+                      "blocked: true }));", body,
+                      "the blocked path must answer the shape the picker "
+                      "reads, and report the selection as outstanding")
+
+    def test_every_exit_answers_the_same_result_shape(self):
+        """ADDED 2026-08-13. Proved behaviourally by
+        `node scripts/ui/run_photo_placement_safety.js`, which drives
+        all six paths; pinned here so a rewrite that drops one is
+        caught by the build too."""
+        body = _fn("addPhotosToDay")
+        self.assertIn("function result(o) {", body)
+        self.assertIn("blocked: !!o.blocked", body)
+        self.assertIn("reloadError: o.reloadError || null", body)
+        # FOUR code exits, covering six outcomes: blocked, empty, the
+        # chain's own return (success / partial / reload-failure all
+        # share it, because only the MESSAGE differs between them), and
+        # the outer catch.
+        #
+        # Counting exits is honest here; walking `return` statements is
+        # not, because the batch reducer and the reload each `return`
+        # inside a nested closure and neither is an exit of this
+        # function. The behaviour is proved by driving all six outcomes
+        # in run_photo_placement_safety.js; this fails the build only if
+        # a rewrite starts answering something other than result().
+        self.assertEqual(body.count("result({"), 4,
+                         "an exit that does not go through result(), or a "
+                         "new one nobody drove in the safety runner")
+        self.assertNotIn("return Promise.resolve();", body,
+                         "an exit answering nothing at all is what the "
+                         "picker's `r.added` used to crash on")
+
+    def test_a_failed_reload_does_not_erase_a_known_write(self):
+        """ADDED 2026-08-13 after review.
+
+        The reload used to sit inside the same chain as the writes, so
+        the outer catch replaced "Added 50 of 120" with the refresh
+        error -- telling the operator the add failed while 50
+        photographs sat on the day.
+        """
+        body = _fn("addPhotosToDay")
+        self.assertIn("var reloadError = null;", body)
+        self.assertIn(".catch(function (e) { reloadError = e; });", body,
+                      "the reload must fail on its own, not abort the run")
+        self.assertIn("could not be refreshed", body)
+        self.assertLess(body.index("var reloadError"),
+                        body.index("could not be refreshed"))
 
 
 class EveryItemIsReachableTest(unittest.TestCase):

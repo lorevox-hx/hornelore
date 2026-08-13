@@ -4,6 +4,7 @@
     ./scripts/wo02_acceptance.py capture         # before Stage A
     ./scripts/wo02_acceptance.py checkpoint      # after Stage A, before Stage B
     ./scripts/wo02_acceptance.py verify          # after Stage B + restart
+    ./scripts/wo02_acceptance.py plan            # what Stage B should do (read-only)
     ./scripts/wo02_acceptance.py restore-verify  # after restoring to Day 1
 
 The execution plan (docs/wo/HORNELORE_CORRECTED_EXECUTION_PLAN_2026-08-01.md)
@@ -160,8 +161,31 @@ def check(ok, msg):
         out("FAIL  " + msg)
 
 
-def skip(msg):
-    """The operator did not exercise this step. Not a defect."""
+def skip(msg, step=None, environmental=False):
+    """The operator did not exercise this step. Not a defect.
+
+    ADDED 2026-08-13, `step` and `environmental`. A SKIP is the harness
+    saying *you did not do this*, and that is only fair when the
+    walkthrough asked for it. Two of them — moving a conversation and
+    adding a Stage B quick note — were being reported against
+    instructions that had stopped mentioning either, so following the
+    printed walkthrough exactly could not reach PASS.
+
+    Every skip waiting on a STAGE B action therefore names the
+    walkthrough step it wants. `environmental=True` means the skip is
+    not a Stage B step — either a fact about the environment (no
+    checkpoint, no count lane served) or a different stage's business
+    (Stage A's own edits, an attestation).
+    `WalkthroughCoversEverySkipTest` walks this module's AST and fails
+    the build on a skip that does neither, which is what stops the
+    instructions and the checks drifting apart again.
+    """
+    if step is None and not environmental:
+        raise AssertionError(
+            "skip() must name a walkthrough step or declare itself "
+            "environmental: %r" % msg)
+    if step is not None and step not in STAGE_B_STEP_KEYS:
+        raise AssertionError("unknown walkthrough step %r" % step)
     SKIP[0] += 1
     out("SKIP  " + msg)
 
@@ -508,7 +532,8 @@ def check_count_contract(snap, label):
         if not any(k in counts for k in known):
             skip("day %s served no recognised count lane (%s) -- its rail "
                  "arithmetic was not checked"
-                 % (did[:8], ", ".join(sorted(counts)) or "empty"))
+                 % (did[:8], ", ".join(sorted(counts)) or "empty"),
+                 environmental=True)
             continue
         for kind, key in _COUNT_LANES:
             if key not in counts:
@@ -688,7 +713,8 @@ def do_checkpoint(now, attests, now_iso):
     check(not vanished,
           "no photo link disappeared during Stage A (n=%d)" % len(vanished))
     if not shrunk:
-        skip("no photo was removed from a day -- Stage A step not done")
+        skip("no photo was removed from a day -- Stage A step not done",
+              environmental=True)
     else:
         check(len(now["photo_links"]) == len(old["photo_links"]),
               "removing a photo from a day created no second link (%d -> %d)"
@@ -751,11 +777,13 @@ def do_checkpoint(now, attests, now_iso):
             if r[0] == "note" and key not in old_ids:
                 new_notes.append(r[1])
     if not edited:
-        skip("no row text changed -- Stage A edit steps not done")
+        skip("no row text changed -- Stage A edit steps not done",
+             environmental=True)
     else:
         check(True, "Stage A edits landed (%s)" % ", ".join(sorted(set(edited))))
     if not new_notes:
-        skip("no note was added -- Stage A quick-capture step not done")
+        skip("no note was added -- Stage A quick-capture step not done",
+             environmental=True)
     else:
         check(len(new_notes) == 1,
               "quick capture wrote the note exactly once (n=%d)"
@@ -789,38 +817,73 @@ def do_checkpoint(now, attests, now_iso):
 #: performed" about a step no walkthrough had ever mentioned, and the
 #: operator had no way to know which of a dozen gestures the instrument
 #: was waiting for.
+#
+# CORRECTED 2026-08-13 after review, in three ways that together make
+# the printed walkthrough ACHIEVABLE. It was not:
+#
+#   * two operator actions `verify` still checks for -- moving a
+#     conversation, and adding a Stage B quick note -- had dropped out
+#     of the instructions entirely, so following them exactly always
+#     produced SKIP and never PASS;
+#   * step 1 told the operator to add ONE photograph to TWO days, and
+#     the Add assertion demanded exactly one fresh placement, so
+#     obeying the instructions produced a FAIL;
+#   * every step reused "a photograph", but Add, Remove and Move are
+#     classified from the checkpoint-to-final day SET. One photograph
+#     added to two days and then removed from one of them has a net set
+#     that GREW, so it reads as an Add and the Remove is unprovable.
+#     Each net operation needs its own photograph.
+#
+# Hence photo A / B / C / D below, and `plan` mode, which reads the
+# checkpoint and names the actual links and days rather than leaving
+# the operator to work out which photograph can play which part.
 STAGE_B_STEPS = [
-    ("Add to two days",
-     "Put ONE photograph on two different days. Add it to the first, "
-     "then add the same photograph to the second -- it must end up on "
-     "both, not move from one to the other."),
-    ("Several photographs on one day",
+    ("add_two_days", "Photo A -- one photograph, two days",
+     "Take the photograph the plan calls A. Add it to the first day, "
+     "then add the SAME photograph to the second. Leave it on both. It "
+     "must end up on two days, not move from one to the other. This is "
+     "the whole point of the work order, so A is touched by nothing "
+     "else."),
+    ("add_several", "Photo D -- several photographs, one day",
      "Select several photographs at once and add them to a single day. "
      "If any of them fail, the panel must say how many landed; the "
      "ones that did not stay selected so Add can be pressed again."),
-    ("Remove, preserving the other day",
-     "On one of the two days from step 1, press Remove from this day. "
-     "The photograph must stay on the OTHER day, keep its caption, and "
-     "keep its trip membership."),
-    ("Move, explicitly",
-     "Use Move... on a photograph that is on one day, and send it to a "
-     "day it is NOT already on. Moving is a separate gesture from Add "
-     "and names the day it moves from."),
-    ("Shared caption",
-     "Edit the caption of a photograph that is on two days, from one "
-     "of them. The other day must show the same caption -- a caption "
-     "belongs to the photograph, not to a placement -- and it must "
-     "stay withheld from Lori."),
-    ("A deliberate date suggestion",
+    ("remove", "Photo B -- remove one placement",
+     "Take the photograph the plan calls B and press Remove from this "
+     "day on the day named. Its trip membership, its caption and its "
+     "approvals must all survive; only that one placement goes."),
+    ("move", "Photo C -- move one placement",
+     "Use Move... on the photograph the plan calls C, from the day it "
+     "is on to a day it is NOT on. Moving is a separate gesture from "
+     "Add and names the day it moves from."),
+    ("caption", "A shared caption",
+     "Edit the caption of photo A, from one of its two days. The other "
+     "day must show the same caption -- a caption belongs to the "
+     "photograph, not to a placement -- and it must stay withheld from "
+     "Lori."),
+    ("date_suggestion", "A deliberate date suggestion",
      "Find a photograph under 'Taken on this date' and press Add to "
-     "this day. A suggestion is not a placement until you accept it."),
+     "this day. A suggestion is not a placement until you accept it. "
+     "Photo D is a good candidate."),
+    ("conversation_move", "Move the conversation",
+     "Drag or send the existing conversation to a different day. Its "
+     "transcript must not change, and the placement must record itself "
+     "as an operator's confirmed choice rather than a guess."),
+    ("quick_note", "One Stage B quick note",
+     "Add exactly one quick note, on any day. One, so that 'the note "
+     "Stage B created' names something unambiguous."),
 ]
 
+STAGE_B_STEP_KEYS = tuple(k for k, _t, _d in STAGE_B_STEPS)
 
-def print_stage_b_walkthrough():
+
+def print_stage_b_walkthrough(plan=None):
     out(">>> STAGE A IS RECORDED. NOW DO STAGE B, IN THIS ORDER:")
     out("")
-    for i, (title, detail) in enumerate(STAGE_B_STEPS, 1):
+    if plan is not None:
+        print_plan_assignments(plan)
+        out("")
+    for i, (_key, title, detail) in enumerate(STAGE_B_STEPS, 1):
         out("  %d. %s" % (i, title))
         for line in _wrap(detail, 66):
             out("     " + line)
@@ -844,6 +907,168 @@ def print_stage_b_walkthrough():
     out("  Stage A's results are proved by comparing the capture and the")
     out("  checkpoint, so `verify` needs NO further edit and NO second")
     out("  quick note. Leaving Stage A's work untouched is the pass.")
+
+
+def build_stage_b_plan(cp):
+    """Which photograph plays which part, derived from the checkpoint.
+
+    ADDED 2026-08-13 after review. Add, Remove and Move are classified
+    from the checkpoint-to-final day SET, so they are only independently
+    observable if they happen to DIFFERENT photographs — one photograph
+    added to two days and then removed from one has a set that grew, and
+    the Remove cannot be seen at all.
+
+    Returns {"ok": bool, "problems": [...], "a"/"b"/"c"/"d": ...}. It
+    reads and writes nothing: the operator finds out the fixture cannot
+    prove something BEFORE changing any data, not after.
+    """
+    days = [{"id": str(d.get("id")), "n": d.get("n")}
+            for d in (cp.get("days") or []) if d.get("id")]
+    links = cp.get("photo_links") or {}
+    plan = {"ok": False, "problems": [], "days": days,
+            "a": None, "b": None, "c": None, "d": []}
+
+    if len(days) < 2:
+        plan["problems"].append(
+            "the trip has %d day(s); Add-to-two-days and Move both need "
+            "at least two" % len(days))
+        return plan
+
+    unplaced, placed = [], []
+    for lid in sorted(links):
+        (placed if days_of(links[lid]) else unplaced).append(lid)
+
+    taken = set()
+
+    # A: an unplaced photograph, so its two new days are unambiguous.
+    for lid in unplaced:
+        plan["a"] = {"link": lid, "days": [days[0], days[1]]}
+        taken.add(lid)
+        break
+    if plan["a"] is None:
+        plan["problems"].append(
+            "no photograph is unplaced at the checkpoint, so none can "
+            "cleanly gain two days (photo A)")
+
+    # B: remove one placement. Any placed photograph will do.
+    for lid in placed:
+        if lid in taken:
+            continue
+        plan["b"] = {"link": lid, "day": _day_by_id(days,
+                                                    days_of(links[lid])[0])}
+        taken.add(lid)
+        break
+    if plan["b"] is None:
+        plan["problems"].append(
+            "no spare placed photograph to remove a placement from "
+            "(photo B)")
+
+    # C: move one placement to a day it is not on.
+    for lid in placed:
+        if lid in taken:
+            continue
+        on = days_of(links[lid])
+        elsewhere = [d for d in days if d["id"] not in on]
+        if not elsewhere:
+            continue
+        plan["c"] = {"link": lid, "from": _day_by_id(days, on[0]),
+                     "to": elsewhere[0]}
+        taken.add(lid)
+        break
+    if plan["c"] is None:
+        plan["problems"].append(
+            "no spare photograph that is on one day and off another, so "
+            "a Move cannot be told apart from an Add (photo C)")
+
+    # D: the multi-photograph add.
+    #
+    # A may be IN this batch. Selecting A and a spare together and
+    # adding them to one day gives A its first day and the spare its
+    # only one -- two independently observable Adds from one gesture --
+    # so a trip with a single spare can still demonstrate "several
+    # photographs at once". Requiring D to be wholly disjoint from A
+    # would have declared the live Bismarck fixture unusable over a
+    # photograph it did not actually need.
+    spares = [lid for lid in sorted(links) if lid not in taken]
+    if len(spares) >= 2:
+        plan["d"] = spares[:3]
+        plan["d_day"] = days[0]
+        plan["d_includes_a"] = False
+    elif len(spares) == 1 and plan["a"]:
+        plan["d"] = [plan["a"]["link"], spares[0]]
+        plan["d_day"] = plan["a"]["days"][0]
+        plan["d_includes_a"] = True
+    else:
+        plan["d"] = spares
+        plan["d_day"] = None
+        plan["d_includes_a"] = False
+        plan["problems"].append(
+            "only %d photograph(s) are free for a multi-select Add, and "
+            "'several photographs at once' needs two (photo D). Add "
+            "another photograph to the trip first."
+            % (len(spares) + (1 if plan["a"] else 0)))
+
+    plan["ok"] = not plan["problems"]
+    return plan
+
+
+def _day_by_id(days, day_id):
+    for d in days:
+        if d["id"] == str(day_id):
+            return d
+    return {"id": str(day_id), "n": "?"}
+
+
+def _day_label(d):
+    return "Day %s (%s)" % (d.get("n"), str(d.get("id"))[:8])
+
+
+def print_plan_assignments(plan):
+    if not plan.get("ok"):
+        out("  !! THIS TRIP CANNOT PROVE STAGE B AS WRITTEN:")
+        for p in plan.get("problems") or []:
+            for line in _wrap("- " + p, 64):
+                out("     " + line)
+        out("")
+        out("  Fix the fixture before changing any data. Adding an")
+        out("  unplaced photograph to the trip is usually enough.")
+        return
+    out("  YOUR ASSIGNMENTS FOR THIS TRIP:")
+    a, b, c = plan["a"], plan["b"], plan["c"]
+    out("     photo A  %s   add to %s and %s"
+        % (a["link"][:8], _day_label(a["days"][0]), _day_label(a["days"][1])))
+    out("     photo B  %s   remove from %s"
+        % (b["link"][:8], _day_label(b["day"])))
+    out("     photo C  %s   move %s -> %s"
+        % (c["link"][:8], _day_label(c["from"]), _day_label(c["to"])))
+    out("     photo D  %s   select together, add to %s"
+        % (", ".join(l[:8] for l in plan["d"]),
+           _day_label(plan["d_day"]) if plan.get("d_day") else "one day"))
+    if plan.get("d_includes_a"):
+        out("              (photo A is in that batch -- it gets its FIRST")
+        out("               day from it, then add its second separately)")
+    out("")
+    out("  Each net operation belongs to its OWN photograph. Add,")
+    out("  Remove and Move are read from the day set at the end, so a")
+    out("  photograph that both gained and lost a day proves neither.")
+
+
+def do_plan(now):
+    """Read-only: what Stage B should do, given the checkpoint."""
+    out("=== WO-02 STAGE B PLAN ===")
+    out("")
+    if not os.path.exists(STATE_CP):
+        out("No checkpoint at %s." % STATE_CP)
+        out("Run `checkpoint` after Stage A first.")
+        return 2
+    with open(STATE_CP, encoding="utf-8") as fh:
+        cp = json.load(fh)
+    warn_if_legacy(cp, "plan")
+    plan = build_stage_b_plan(cp)
+    print_stage_b_walkthrough(plan)
+    out("")
+    out("Read-only. Nothing was written; the checkpoint is untouched.")
+    return 0 if plan["ok"] else 2
 
 
 def _wrap(text, width):
@@ -976,7 +1201,8 @@ def do_restore_verify(now, attests, now_iso):
               "the Stage A note still exists exactly once (%d of %d)"
               % (len(seen), len(want)))
     else:
-        skip("no Stage A note recorded -- run checkpoint before restoring")
+        skip("no Stage A note recorded -- run checkpoint before restoring",
+             environmental=True)
 
     # ── Rail counts agree with the rows now on each day ───────────────
     #
@@ -1010,7 +1236,7 @@ def do_restore_verify(now, attests, now_iso):
         out("")
         for k in missing:
             skip("not attested: %s (pass --attest %s on the run where you "
-                 "saw it)" % (ATTESTABLE[k], k))
+                 "saw it)" % (ATTESTABLE[k], k), environmental=True)
 
     return _verdict("PASS -- WO-02 acceptance met, Gate 3 complete.")
 
@@ -1075,7 +1301,7 @@ def do_verify(now, attests=None, now_iso=None):
     moved_conv = [k for k, v in now["turns"].items()
                   if k in old["turns"] and v["day"] != old["turns"][k]["day"]]
     if not moved_conv:
-        skip("no conversation was moved -- walkthrough step 7 not done")
+        skip("no conversation was moved -- Stage B step 'Move the conversation' not done", step="conversation_move")
     else:
         out("      (%d conversation move(s) seen)" % len(moved_conv))
         for k in moved_conv:
@@ -1147,18 +1373,18 @@ def do_verify(now, attests=None, now_iso=None):
             moved_photo.append((k, before, after))
 
     if not (added or dropped or moved_photo):
-        skip("no photo placement changed -- walkthrough steps 6/6a/6b "
-             "not done")
-    for label, rows, rule in (
+        skip("no photo placement changed -- the Add, Remove and Move "
+             "steps were all skipped", step="add_two_days")
+    for label, rows, rule, step_key in (
             ("Add", added,
-             "adding a day kept every day it already had"),
+             "adding a day kept every day it already had", "add_two_days"),
             ("Remove from this day", dropped,
-             "removing a day kept every other day"),
+             "removing a day kept every other day", "remove"),
             ("Move", moved_photo,
-             "moving changed the day and kept the count")):
+             "moving changed the day and kept the count", "move")):
         if not rows:
-            skip("no %s was performed -- that walkthrough step not done"
-                 % label)
+            skip("no %s was performed -- that Stage B step not done"
+                 % label, step=step_key)
             continue
         out("      (%d %s operation(s) seen)" % (len(rows), label))
         for k, before, after in rows:
@@ -1207,16 +1433,40 @@ def do_verify(now, attests=None, now_iso=None):
             current = (is_set_format(old["photo_links"][k])
                        and is_set_format(now["photo_links"][k]))
             if label == "Add" and current:
-                check(len(fresh) == 1,
-                      "Add on photo %s created %d placement(s); exactly one "
-                      "was expected (%s)" % (k[:8], len(fresh), fresh))
-                for d in fresh:
-                    check(bool(a_ids.get(d)),
-                          "Add on photo %s recorded a placement row for the "
-                          "new day %s" % (k[:8], d))
-                    check(a_ids.get(d) not in b_ids.values(),
-                          "Add on photo %s created a NEW placement row "
-                          "rather than moving an existing one" % k[:8])
+                # ── ONE ADD MAY PLACE A PHOTOGRAPH ON SEVERAL DAYS ────
+                #
+                # CORRECTED 2026-08-13 after review. This asserted
+                # `len(fresh) == 1`, which is the single-day product's
+                # rule wearing set-shaped clothes — and it directly
+                # contradicted the walkthrough's own first instruction,
+                # *add one photograph to two days*. An operator who
+                # followed the printed steps produced a FAIL.
+                #
+                # The real invariants are that every new day got its OWN
+                # new row, and that nothing already there was disturbed.
+                # `PLACEMENT_BATCH_MAX` caps a REQUEST, not how many
+                # days a photograph may occupy between two snapshots.
+                check(len(fresh) >= 1,
+                      "Add on photo %s placed it on %d new day(s) (%s)"
+                      % (k[:8], len(fresh), ", ".join(d[:8] for d in fresh)))
+                new_ids = [a_ids.get(d) for d in fresh]
+                check(all(new_ids),
+                      "Add on photo %s recorded a placement row for every "
+                      "new day (%d of %d)"
+                      % (k[:8], len([i for i in new_ids if i]), len(fresh)))
+                check(len(set(i for i in new_ids if i)) == len([i for i in new_ids if i]),
+                      "Add on photo %s gave each new day its OWN placement "
+                      "row (%d row(s) for %d day(s))"
+                      % (k[:8], len(set(i for i in new_ids if i)), len(fresh)))
+                check(not [i for i in new_ids if i and i in b_ids.values()],
+                      "Add on photo %s created NEW placement rows rather "
+                      "than re-pointing existing ones" % k[:8])
+                check(len(set(fresh)) == len(fresh),
+                      "Add on photo %s lists each new day once" % k[:8])
+                kept_ids = [b_ids.get(d) for d in kept if b_ids.get(d)]
+                check(all(a_ids.get(d) == b_ids.get(d) for d in kept),
+                      "Add on photo %s preserved all %d placement row(s) it "
+                      "already had" % (k[:8], len(kept_ids)))
             if label == "Move" and current:
                 src = [d for d in before if d not in after]
                 for d in src:
@@ -1277,7 +1527,7 @@ def do_verify(now, attests=None, now_iso=None):
             base = json.load(fh)
     if base is None:
         skip("no capture baseline at %s -- Stage A persistence cannot be "
-             "derived" % os.path.basename(STATE))
+             "derived" % os.path.basename(STATE), environmental=True)
         changes = {"day_text": [], "notes": [], "new_notes": [],
                    "captions": [], "removed_placements": [],
                    "surviving_placements": []}
@@ -1305,8 +1555,9 @@ def do_verify(now, attests=None, now_iso=None):
     stage_a_total = (len(changes["day_text"]) + len(changes["notes"])
                      + len(changes["new_notes"]) + len(changes["captions"]))
     if not stage_a_total:
-        skip("capture and checkpoint are identical -- Stage A edits "
-             "(walkthrough steps 2/4/5/10) were not recorded")
+        skip("capture and checkpoint are identical -- Stage A recorded no "
+             "edits, so there is nothing to prove persisted",
+             environmental=True)
     else:
         out("      (Stage A wrote: %d day-text field(s), %d note edit(s), "
             "%d new note(s), %d caption(s))"
@@ -1384,7 +1635,7 @@ def do_verify(now, attests=None, now_iso=None):
             if r[0] == "note" and tuple(r[:2]) not in old_ids:
                 new_notes.append(r[1])
     if not new_notes:
-        skip("no note was added during Stage B")
+        skip("no note was added during Stage B", step="quick_note")
     else:
         check(True, "Stage B quick capture created a note (n=%d)"
               % len(new_notes))
@@ -1418,7 +1669,7 @@ def do_verify(now, attests=None, now_iso=None):
 
     if not (added or dropped or moved_photo or moved_conv or new_notes):
         skip("nothing was added, removed or moved -- the rail counts had "
-             "nothing to follow")
+             "nothing to follow", step="add_two_days")
     else:
         unmeasurable = []
         for d in sorted(set(list(now.get("counts") or {})
@@ -1433,7 +1684,7 @@ def do_verify(now, attests=None, now_iso=None):
                   "(%d -> %d)" % (d[:8], want, was, is_))
         if unmeasurable:
             skip("%d day(s) served no photo_count -- their arithmetic could "
-                 "not be checked" % len(unmeasurable))
+                 "not be checked" % len(unmeasurable), environmental=True)
 
     # Attestations are recorded HERE, before the verdict is computed.
     #
@@ -1471,7 +1722,7 @@ def do_verify(now, attests=None, now_iso=None):
 def main():
     argv = sys.argv[1:]
     mode = (argv[0] if argv else "").strip().lower()
-    modes = ("capture", "checkpoint", "verify", "restore-verify")
+    modes = ("capture", "checkpoint", "verify", "restore-verify", "plan")
     if mode not in modes:
         print(__doc__)
         return 2
@@ -1492,6 +1743,16 @@ def main():
         print("Unrecognised argument %r" % rest[i])
         print(__doc__)
         return 2
+
+    # `plan` reads the checkpoint file and nothing else. It must work
+    # with the stack DOWN, because its whole purpose is telling the
+    # operator whether the fixture can prove Stage B before they touch
+    # any data -- and demanding a running API to answer that would make
+    # it useless at exactly the moment it is wanted.
+    if mode == "plan":
+        rc = do_plan(None)
+        flush(mode)
+        return rc
 
     try:
         now = snapshot()

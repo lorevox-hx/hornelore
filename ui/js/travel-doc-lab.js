@@ -4321,10 +4321,28 @@
     // this day" on a Taken-on-this-date suggestion, which is not — and
     // that second path sits inside the day inspector, inches below the
     // fields being typed into.
-    if (dayFormDirtyBlocks()) return Promise.resolve();
+    // ── ONE RESULT SHAPE ON EVERY PATH ───────────────────────────────
+    //
+    // CORRECTED 2026-08-13 after review. The blocked path returned
+    // `undefined` while the picker's handler reads `r.added` on the
+    // next line, so a dirty form plus a press of Add would have thrown
+    // a TypeError instead of quietly refusing. Every exit now answers
+    // {added, unsent, error, reloadError, blocked}.
     var ids = (linkIds || []).slice();
     var total = ids.length;
-    if (!total) return Promise.resolve({ added: [], unsent: [], error: null });
+    function result(o) {
+      return { added: o.added || [], unsent: o.unsent || [],
+               error: o.error || null, reloadError: o.reloadError || null,
+               blocked: !!o.blocked };
+    }
+    if (dayFormDirtyBlocks()) {
+      // Nothing was sent, so nothing has landed and the whole
+      // selection is still outstanding. Reporting it as `unsent` is
+      // what keeps the picker from clearing ticks the operator will
+      // want back the moment they press Save.
+      return Promise.resolve(result({ unsent: ids, blocked: true }));
+    }
+    if (!total) return Promise.resolve(result({}));
     var batches = [];
     while (ids.length) batches.push(ids.splice(0, PLACEMENT_BATCH_MAX));
 
@@ -4367,29 +4385,62 @@
       });
     }, Promise.resolve());
 
+    // ── A FAILED REFRESH MUST NOT ERASE A KNOWN WRITE ────────────────
+    //
+    // CORRECTED 2026-08-13 after review. The reload sat inside the same
+    // chain as the writes and the outer `.catch` overwrote `st.error`
+    // with whatever it caught — so a run that placed 50 photographs and
+    // then failed to refresh reported ONLY the refresh error. The
+    // operator was told the add failed while 50 photographs sat on the
+    // day, which is the most dangerous of the possible wrong answers:
+    // the obvious response is to press Add again on all 120.
+    //
+    // The two failures are different facts and are now carried
+    // separately. A reload failure never downgrades what is known to
+    // have been written.
+    var reloadError = null;
     return chain
-      .then(function () { return Promise.all([reloadDays(), reloadPhotoLinks()]); })
       .then(function () {
-        if (!failure) {
-          st.error = "";
-        } else if (!added.length) {
-          st.error = failure.message;
-        } else {
-          st.error = "Added " + added.length + " of " + total +
+        return Promise.all([reloadDays(), reloadPhotoLinks()])
+          .catch(function (e) { reloadError = e; });
+      })
+      .then(function () {
+        var outstanding = failedBatch.concat(unsent);
+        var parts = [];
+        if (failure && added.length) {
+          parts.push("Added " + added.length + " of " + total +
             " photographs to " + dayChipText(day) + ". The next " +
             failedBatch.length + " failed (" + failure.message + ")" +
             (unsent.length ? " and " + unsent.length + " were not sent" : "") +
             ". The ones already added are on the day; the rest are still " +
-            "selected — press Add again to retry just those.";
+            "selected — press Add again to retry just those.");
+        } else if (failure) {
+          parts.push(failure.message);
         }
+        if (reloadError) {
+          parts.push((failure ? "Also, the" : "All " + total +
+            " photographs were added, but the") +
+            " screen could not be refreshed (" + reloadError.message +
+            "), so what you see below may be out of date. Reload the " +
+            "page to see the day as it now is.");
+        }
+        st.error = parts.join(" ");
         renderAll();
-        return { added: added, unsent: failedBatch.concat(unsent),
-                 error: failure };
+        return result({ added: added, unsent: outstanding, error: failure,
+                        reloadError: reloadError });
       })
       .catch(function (e) {
-        st.error = e.message;
+        // Anything unforeseen after the writes. Same rule: report what
+        // is known to have landed rather than replacing it with the
+        // exception.
+        st.error = (added.length
+          ? "Added " + added.length + " of " + total + " photographs, then "
+            + "something went wrong afterwards (" + e.message + "). Reload "
+            + "the page before trying again."
+          : e.message);
         renderAll();
-        return { added: added, unsent: failedBatch.concat(unsent), error: e };
+        return result({ added: added, unsent: failedBatch.concat(unsent),
+                        error: failure || e, reloadError: reloadError || e });
       });
   }
 
@@ -5478,16 +5529,36 @@
         // refused. A day has no cap; a request does.
         addPhotosToDay(day, ids)
           .then(function (r) {
+            // Defensive: a caller that reads `r.added` off whatever it
+            // is handed turns a changed return shape into an unhandled
+            // rejection at the exact moment something has already gone
+            // wrong. addPhotosToDay promises this shape on every path;
+            // this line is what keeps that promise from becoming
+            // load-bearing.
+            // An unrecognisable answer means we do not know what
+            // happened, and "we do not know" must not be read as
+            // success: closing the drawer would discard a selection
+            // that may never have been sent. Keep everything as it is
+            // and let the operator decide.
+            if (!r || !Array.isArray(r.added)) { renderAll(); return; }
+            var landed = r.added;
+            // A dirty form means nothing was sent. Clearing ticks or
+            // closing the drawer would punish the operator for a
+            // refusal, and they still have to come back to this
+            // selection after pressing Save.
+            if (r.blocked) { renderAll(); return; }
             // The drawer closes only when the whole selection landed.
             // On a partial add it STAYS OPEN holding exactly the
             // photographs that did not land, so pressing Add again
             // retries those and only those — which is what makes the
             // retry idempotent from the operator's side rather than
             // relying on the server to tolerate a duplicate.
-            (r.added || []).forEach(function (id) {
+            landed.forEach(function (id) {
               delete st.photoPickerChecked[id];
             });
-            if (!r.error) st.photoPickerDayId = null;
+            if (!r.error && !(r.unsent || []).length) {
+              st.photoPickerDayId = null;
+            }
             renderAll();
           });
       });

@@ -21,6 +21,7 @@ Run per-module:
 """
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import os
@@ -533,7 +534,7 @@ class ModeValidationTest(_HarnessCase):
     def test_all_four_plan_modes_are_accepted_and_junk_is_not(self):
         src = _SCRIPT.read_text(encoding="utf-8")
         self.assertIn('modes = ("capture", "checkpoint", "verify", '
-                      '"restore-verify")', src)
+                      '"restore-verify", "plan")', src)
         self.assertIn("if mode not in modes:", src)
 
     def test_every_mode_still_has_a_handler(self):
@@ -542,7 +543,7 @@ class ModeValidationTest(_HarnessCase):
         half that would break if a revision quietly folded two modes
         together."""
         for fn in ("do_capture", "do_checkpoint", "do_verify",
-                   "do_restore_verify"):
+                   "do_restore_verify", "do_plan"):
             self.assertTrue(callable(getattr(wo02, fn, None)),
                             "%s is gone" % fn)
 
@@ -910,7 +911,8 @@ class WalkthroughNamesTheThreeOperationsTest(_HarnessCase):
         pins the two together: every operation the harness classifies is
         an operation the printed walkthrough names.
         """
-        text = " ".join(t + " " + d for t, d in wo02.STAGE_B_STEPS).lower()
+        text = " ".join(t + " " + d
+                        for _k, t, d in wo02.STAGE_B_STEPS).lower()
         for phrase in ("add", "remove from this day", "move"):
             self.assertIn(phrase, text)
 
@@ -1125,8 +1127,16 @@ class PlacementIdentityIsProvedTest(_HarnessCase):
                     "pids": {"d1": "pl-capA-d1", "d3": "pl-NEW"},
                     "ch": "capA", "approved": 0}})
         self.assertEqual(n["fail"], 0, log)
-        self.assertPassed(log, "created 1 placement(s); exactly one was expected")
-        self.assertPassed(log, "created a NEW placement row")
+        # RETARGETED 2026-08-13. This asserted `created 1 placement(s);
+        # exactly one was expected`, which encoded a rule the review
+        # retired: an Add may legitimately place a photograph on
+        # SEVERAL days, and the walkthrough's own first step asks for
+        # exactly that. What still holds is that the new day got a new
+        # row and the old one was left alone.
+        self.assertPassed(log, "placed it on 1 new day(s)")
+        self.assertPassed(log, "created NEW placement rows rather than "
+                               "re-pointing")
+        self.assertPassed(log, "preserved all 1 placement row(s)")
 
     def test_an_add_that_reused_an_existing_row_id_fails(self):
         """ADDED after a mutation survived.
@@ -1146,7 +1156,8 @@ class PlacementIdentityIsProvedTest(_HarnessCase):
             {"p1": {"days": ["d1", "d3"],
                     "pids": {"d1": "pl-capA-d1", "d3": "pl-capA-d1"},
                     "ch": "capA", "approved": 0}})
-        self.assertFailed(log, "created a NEW placement row")
+        self.assertFailed(log, "created NEW placement rows rather than "
+                               "re-pointing")
 
     def test_a_move_that_kept_the_source_row_id_fails(self):
         """Same shape for Move: the destination must be a new row, and
@@ -1222,7 +1233,7 @@ class PlacementIdentityIsProvedTest(_HarnessCase):
             {"p1": link([])},
             {"p1": {"days": ["d1"], "pids": {}, "ch": "capA",
                     "approved": 0}})
-        self.assertFailed(log, "recorded a placement row for the new day d1")
+        self.assertFailed(log, "recorded a placement row for every new day")
 
     def test_add_from_zero_days_with_an_id_passes(self):
         """Non-vacuity for the test above."""
@@ -1631,6 +1642,434 @@ class RailCountArithmeticTest(_HarnessCase):
                                     json.loads(json.dumps(s)))
         self.assertPassed(logs, "day d1: note_count (3) matches its note")
         self.assertPassed(logs, "day d1: item_count excludes the 3 day_text")
+
+
+class AddMayPlaceAPhotographOnSeveralDaysTest(_HarnessCase):
+    """The assertion that contradicted the walkthrough's first step.
+
+    ADDED 2026-08-13 after review. `verify` demanded that an Add create
+    EXACTLY ONE fresh placement, while step 1 of the printed
+    instructions told the operator to add one photograph to TWO days.
+    Following the walkthrough correctly produced a FAIL. That limit is
+    the single-day product's rule in set-shaped clothing;
+    PLACEMENT_BATCH_MAX caps a REQUEST, not how many days a photograph
+    may occupy between two snapshots.
+    """
+
+    def _cp(self, links):
+        cp = _baseline()
+        cp["photo_links"] = links
+        cp["stage_a"] = {"removed_placements": [], "new_notes": [],
+                         "edited_kinds": []}
+        return cp
+
+    def _verify(self, before, after):
+        self.write_baseline()
+        self.write_checkpoint(self._cp(before))
+        return self.run_mode(wo02.do_verify, self._cp(after), [], "T")
+
+    def test_an_unplaced_photograph_may_gain_two_days(self):
+        rc, log, n = self._verify(
+            {"p1": {"days": [], "pids": {}, "ch": "c", "approved": 0}},
+            {"p1": {"days": ["d1", "d2"],
+                    "pids": {"d1": "new-1", "d2": "new-2"},
+                    "ch": "c", "approved": 0}})
+        self.assertPassed(log, "placed it on 2 new day(s)")
+        self.assertPassed(log, "gave each new day its OWN placement row")
+        self.assertPassed(log, "recorded a placement row for every new day")
+        self.assertNotIn("exactly one", log)
+
+    def test_two_new_days_sharing_one_placement_row_fails(self):
+        rc, log, n = self._verify(
+            {"p1": {"days": [], "pids": {}, "ch": "c", "approved": 0}},
+            {"p1": {"days": ["d1", "d2"],
+                    "pids": {"d1": "same", "d2": "same"},
+                    "ch": "c", "approved": 0}})
+        self.assertEqual(rc, 1)
+        self.assertFailed(log, "gave each new day its OWN placement row")
+
+    def test_a_new_day_with_no_placement_row_fails(self):
+        rc, log, n = self._verify(
+            {"p1": {"days": [], "pids": {}, "ch": "c", "approved": 0}},
+            {"p1": {"days": ["d1", "d2"], "pids": {"d1": "new-1"},
+                    "ch": "c", "approved": 0}})
+        self.assertEqual(rc, 1)
+        self.assertFailed(log, "recorded a placement row for every new day")
+
+    def test_an_add_that_reuses_an_existing_row_fails(self):
+        rc, log, n = self._verify(
+            {"p1": {"days": ["d1"], "pids": {"d1": "old-1"},
+                    "ch": "c", "approved": 0}},
+            {"p1": {"days": ["d1", "d2"],
+                    "pids": {"d1": "old-1", "d2": "old-1"},
+                    "ch": "c", "approved": 0}})
+        self.assertEqual(rc, 1)
+        self.assertFailed(log, "created NEW placement rows rather than "
+                               "re-pointing")
+
+    def test_an_add_that_rewrites_an_existing_row_fails(self):
+        rc, log, n = self._verify(
+            {"p1": {"days": ["d1"], "pids": {"d1": "old-1"},
+                    "ch": "c", "approved": 0}},
+            {"p1": {"days": ["d1", "d2"],
+                    "pids": {"d1": "REKEYED", "d2": "new-2"},
+                    "ch": "c", "approved": 0}})
+        self.assertEqual(rc, 1)
+        self.assertFailed(log, "preserved all 1 placement row(s) it already "
+                               "had")
+
+    def test_the_count_added_is_reported(self):
+        rc, log, n = self._verify(
+            {"p1": {"days": [], "pids": {}, "ch": "c", "approved": 0}},
+            {"p1": {"days": ["d1", "d2", "d3"],
+                    "pids": {"d1": "n1", "d2": "n2", "d3": "n3"},
+                    "ch": "c", "approved": 0}})
+        self.assertPassed(log, "placed it on 3 new day(s)")
+
+
+class TheWalkthroughCanActuallyBeCompletedTest(_HarnessCase):
+    """One synthetic Stage B, performed exactly as published.
+
+    ADDED 2026-08-13 after review, and it is the test this whole
+    correction exists for. Two operator actions `verify` checks -- a
+    conversation move and a Stage B quick note -- had dropped out of
+    the instructions, and step 1 asked for something the Add assertion
+    rejected. The published walkthrough could not reach PASS.
+
+    So: build the checkpoint the plan is derived from, apply exactly
+    the changes the plan names, and require zero FAIL and zero SKIP.
+    """
+
+    DAYS = [{"id": "d1", "n": 1, "date": "2026-07-14"},
+            {"id": "d2", "n": 2, "date": "2026-07-15"},
+            {"id": "d3", "n": 3, "date": "2026-07-16"}]
+
+    def _checkpoint(self):
+        """Four links, shaped like the live Bismarck fixture."""
+        links = {
+            "pA": {"days": [], "pids": {}, "ch": "capA", "approved": 0},
+            "pB": {"days": ["d3"], "pids": {"d3": "b-d3"},
+                   "ch": "capB", "approved": 0},
+            "pC": {"days": ["d3"], "pids": {"d3": "c-d3"},
+                   "ch": "capC", "approved": 0},
+            "pD": {"days": [], "pids": {}, "ch": "capD", "approved": 0},
+        }
+        return snap(
+            self.DAYS, links,
+            {"c1": {"day": "d1", "u": 10, "a": 11, "nh": "nA", "lh": "lA",
+                    "src": "active_trip_day", "st": "needs_day"}},
+            {"d1": [["conversation", "c1", ""],
+                    ["day_text", "t1", "txtA"]],
+             "d2": [],
+             "d3": [["photo", "pB", "b-d3", "capB"],
+                    ["photo", "pC", "c-d3", "capC"]]},
+        )
+
+    def _capture(self):
+        """A pre-Stage-A world, so the Stage A derivation has work.
+
+        Stage A here: typed a day-text field that was empty, and edited
+        photo A's caption. Both are shapes a row diff cannot see, which
+        is why they are the ones modelled.
+        """
+        cap = self._checkpoint()
+        cap["items"]["d1"] = [["conversation", "c1", ""]]
+        cap["counts"]["d1"] = calendar_counts(cap["items"]["d1"])
+        cap["photo_links"]["pA"] = dict(cap["photo_links"]["pA"],
+                                        ch="capA_before")
+        return cap
+
+    def _after_stage_b(self, plan):
+        """Exactly what the plan told the operator to do."""
+        s = self._checkpoint()
+        a, b, c = plan["a"], plan["b"], plan["c"]
+        # A: onto its two days, one new row each.
+        s["photo_links"][a["link"]] = {
+            "days": sorted([a["days"][0]["id"], a["days"][1]["id"]]),
+            "pids": {a["days"][0]["id"]: "a-new-1",
+                     a["days"][1]["id"]: "a-new-2"},
+            "ch": "capA", "approved": 0}
+        # B: that one placement removed.
+        s["photo_links"][b["link"]] = {"days": [], "pids": {},
+                                       "ch": "capB", "approved": 0}
+        # C: moved to a day it was not on.
+        s["photo_links"][c["link"]] = {
+            "days": [c["to"]["id"]], "pids": {c["to"]["id"]: "c-moved"},
+            "ch": "capC", "approved": 0}
+        # D: the spare, added alongside A.
+        spare = [l for l in plan["d"] if l != a["link"]][0]
+        s["photo_links"][spare] = {
+            "days": [plan["d_day"]["id"]],
+            "pids": {plan["d_day"]["id"]: "d-new"},
+            "ch": "capD", "approved": 0}
+
+        # Rebuild every day's timeline from those placements.
+        rows = dict((d["id"], []) for d in self.DAYS)
+        for lid, v in s["photo_links"].items():
+            for day in v["days"]:
+                rows[day].append(["photo", lid, v["pids"][day], v["ch"]])
+        # The conversation moved d1 -> d2, confirmed by the operator.
+        rows["d2"].append(["conversation", "c1", ""])
+        s["turns"]["c1"] = {"day": "d2", "u": 10, "a": 11, "nh": "nA",
+                            "lh": "lA", "src": "operator_selected",
+                            "st": "confirmed"}
+        # Stage A's day text survives; Stage B adds exactly one note.
+        rows["d1"].append(["day_text", "t1", "txtA"])
+        rows["d1"].append(["note", "nB", "stageBnote"])
+        s["items"] = rows
+        s["counts"] = dict((d["id"], calendar_counts(rows[d["id"]]))
+                           for d in self.DAYS)
+        return s
+
+    def test_the_published_walkthrough_reaches_pass(self):
+        cap, cp = self._capture(), self._checkpoint()
+        self.write_baseline(cap)
+        self.write_checkpoint(cp)
+
+        plan = wo02.build_stage_b_plan(cp)
+        self.assertTrue(plan["ok"], plan["problems"])
+
+        rc, log, n = self.run_mode(
+            wo02.do_verify, self._after_stage_b(plan), ["modal-reopen"], "T")
+
+        self.assertEqual(n["fail"], 0, "\n".join(
+            l for l in log.splitlines() if l.startswith("FAIL")))
+        self.assertEqual(n["skip"], 0, "\n".join(
+            l for l in log.splitlines() if l.startswith("SKIP")))
+        self.assertEqual(n["attest"], 1)
+        self.assertEqual(rc, 0)
+        self.assertIn("RESULT: PASS", log)
+
+        # Each behaviour the work order exists to prove, named.
+        self.assertPassed(log, "placed it on 2 new day(s)")
+        self.assertPassed(log, "adding a day kept every day it already had")
+        self.assertPassed(log, "removing a day kept every other day")
+        self.assertPassed(log, "moving changed the day and kept the count")
+        self.assertPassed(log, "recorded as confirmed operator placement")
+        self.assertPassed(log, "Stage B quick capture created a note")
+        self.assertPassed(log, "still holds its Stage A caption")
+        self.assertPassed(log, "caption is still withheld from Lori")
+        self.assertPassed(log, "photo_count moved by")
+
+    def test_the_multi_day_state_is_actually_multi_day(self):
+        """Non-vacuity: photo A really ends up on two days."""
+        cp = self._checkpoint()
+        plan = wo02.build_stage_b_plan(cp)
+        after = self._after_stage_b(plan)
+        self.assertEqual(len(after["photo_links"][plan["a"]["link"]]["days"]),
+                         2)
+        self.assertEqual(
+            len(set(after["photo_links"][plan["a"]["link"]]["pids"].values())),
+            2, "two days must not share one placement row")
+
+    def test_omitting_the_conversation_move_is_reported_not_ignored(self):
+        cap, cp = self._capture(), self._checkpoint()
+        self.write_baseline(cap)
+        self.write_checkpoint(cp)
+        plan = wo02.build_stage_b_plan(cp)
+        after = self._after_stage_b(plan)
+        after["turns"]["c1"]["day"] = "d1"          # never moved
+        after["items"]["d1"].append(["conversation", "c1", ""])
+        after["items"]["d2"] = [r for r in after["items"]["d2"]
+                                if r[0] != "conversation"]
+        after["counts"] = dict(
+            (d["id"], calendar_counts(after["items"][d["id"]]))
+            for d in self.DAYS)
+        rc, log, n = self.run_mode(wo02.do_verify, after, [], "T")
+        self.assertIn("no conversation was moved", log)
+        self.assertGreaterEqual(n["skip"], 1)
+
+    def test_omitting_the_stage_b_note_is_reported_not_ignored(self):
+        cap, cp = self._capture(), self._checkpoint()
+        self.write_baseline(cap)
+        self.write_checkpoint(cp)
+        plan = wo02.build_stage_b_plan(cp)
+        after = self._after_stage_b(plan)
+        after["items"]["d1"] = [r for r in after["items"]["d1"]
+                                if r[1] != "nB"]
+        after["counts"]["d1"] = calendar_counts(after["items"]["d1"])
+        rc, log, n = self.run_mode(wo02.do_verify, after, [], "T")
+        self.assertIn("no note was added during Stage B", log)
+
+
+class WalkthroughCoversEverySkipTest(_HarnessCase):
+    """No SKIP may name an action the instructions never asked for.
+
+    A SKIP is the harness saying *you did not do this*. That is only
+    fair if the walkthrough asked. Two of them were being reported
+    against instructions that had stopped mentioning either.
+    """
+
+    def _skip_calls(self, fn_name):
+        src = _SCRIPT.read_text(encoding="utf-8")
+        tree = ast.parse(src)
+        fn = next(n for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef) and n.name == fn_name)
+        return [c for c in ast.walk(fn)
+                if isinstance(c, ast.Call)
+                and getattr(c.func, "id", None) == "skip"]
+
+    def test_every_skip_declares_a_step_or_declares_itself_environmental(self):
+        for fn in ("do_verify", "do_checkpoint", "do_restore_verify",
+                   "check_count_contract"):
+            for call in self._skip_calls(fn):
+                kw = {k.arg for k in call.keywords}
+                with self.subTest(fn=fn, line=call.lineno):
+                    self.assertTrue(
+                        ("step" in kw) ^ ("environmental" in kw),
+                        "skip() at %s:%d must name exactly one of step= / "
+                        "environmental=" % (fn, call.lineno))
+
+    def test_every_named_step_exists_in_the_walkthrough(self):
+        keys = set(wo02.STAGE_B_STEP_KEYS)
+        for fn in ("do_verify",):
+            for call in self._skip_calls(fn):
+                for k in call.keywords:
+                    # Literal keys are checked here. One call site
+                    # passes the loop variable `step_key`; those three
+                    # values are pinned by the test below, and skip()
+                    # itself raises on an unknown key at runtime.
+                    if k.arg == "step" and isinstance(k.value, ast.Constant):
+                        with self.subTest(line=call.lineno):
+                            self.assertIn(k.value.value, keys)
+
+    def test_the_stage_b_actions_verify_checks_are_all_asked_for(self):
+        """Every step key verify can skip on appears in the printed text."""
+        wanted = set()
+        for call in self._skip_calls("do_verify"):
+            for k in call.keywords:
+                if k.arg == "step" and isinstance(k.value, ast.Constant):
+                    wanted.add(k.value.value)
+        # The three placement operations are skipped through a variable
+        # (step_key), so name them explicitly rather than pretending the
+        # AST saw them.
+        wanted |= {"add_two_days", "remove", "move"}
+        self.assertTrue(wanted)
+        for key in wanted:
+            with self.subTest(step=key):
+                self.assertIn(key, wo02.STAGE_B_STEP_KEYS)
+
+    def test_skip_refuses_an_unclassified_call(self):
+        with self.assertRaises(AssertionError):
+            wo02.skip("nobody said which step this is")
+
+    def test_skip_refuses_an_unknown_step(self):
+        with self.assertRaises(AssertionError):
+            wo02.skip("x", step="not_a_real_step")
+
+
+class StageBPlanTest(_HarnessCase):
+    """`plan` names the actual links, and refuses when it cannot."""
+
+    def _cp(self, links, days=None):
+        cp = _baseline()
+        cp["days"] = days if days is not None else _DAYS
+        cp["photo_links"] = links
+        return cp
+
+    def test_each_operation_gets_its_own_photograph(self):
+        plan = wo02.build_stage_b_plan(self._cp({
+            "u1": {"days": [], "pids": {}, "ch": "", "approved": 0},
+            "u2": {"days": [], "pids": {}, "ch": "", "approved": 0},
+            "p1": {"days": ["d1"], "pids": {"d1": "x"}, "ch": "", "approved": 0},
+            "p2": {"days": ["d1"], "pids": {"d1": "y"}, "ch": "", "approved": 0},
+        }))
+        self.assertTrue(plan["ok"], plan["problems"])
+        chosen = [plan["a"]["link"], plan["b"]["link"], plan["c"]["link"]]
+        self.assertEqual(len(set(chosen)), 3,
+                         "Add, Remove and Move must not share a photograph")
+
+    def test_the_move_destination_is_a_day_it_is_not_on(self):
+        """Not merely a different day from the source.
+
+        STRENGTHENED 2026-08-13: this asserted `to != from`, and a
+        mutation replacing the destination search with "any day at all"
+        survived it. A Move onto a day the photograph is ALREADY on is
+        not a Move under set semantics -- the set does not change size
+        or membership, so `verify` would classify it as nothing at all
+        and the step would be unprovable. Both placed links start on
+        the FIRST day here, so a mutation that ignores the day set
+        picks that day and this fails.
+        """
+        links = {
+            "u1": {"days": [], "pids": {}, "ch": "", "approved": 0},
+            "u2": {"days": [], "pids": {}, "ch": "", "approved": 0},
+            "p1": {"days": ["d1"], "pids": {"d1": "x"}, "ch": "", "approved": 0},
+            "p2": {"days": ["d1"], "pids": {"d1": "y"}, "ch": "", "approved": 0},
+        }
+        plan = wo02.build_stage_b_plan(self._cp(links))
+        c = plan["c"]
+        self.assertNotIn(c["to"]["id"], links[c["link"]]["days"],
+                         "a Move onto a day it is already on changes no set "
+                         "and proves nothing")
+        self.assertNotEqual(c["to"]["id"], c["from"]["id"])
+
+    def test_a_single_spare_lets_photo_a_join_the_multi_select(self):
+        """The live Bismarck shape: one unplaced spare, not two."""
+        plan = wo02.build_stage_b_plan(self._cp({
+            "u1": {"days": [], "pids": {}, "ch": "", "approved": 0},
+            "u2": {"days": [], "pids": {}, "ch": "", "approved": 0},
+            "p1": {"days": ["d3"], "pids": {"d3": "x"}, "ch": "", "approved": 0},
+            "p2": {"days": ["d3"], "pids": {"d3": "y"}, "ch": "", "approved": 0},
+        }))
+        self.assertTrue(plan["ok"], plan["problems"])
+        self.assertTrue(plan["d_includes_a"])
+        self.assertIn(plan["a"]["link"], plan["d"])
+        self.assertEqual(len(plan["d"]), 2)
+
+    def test_it_refuses_when_no_photograph_is_unplaced(self):
+        plan = wo02.build_stage_b_plan(self._cp({
+            "p1": {"days": ["d1"], "pids": {"d1": "x"}, "ch": "", "approved": 0},
+            "p2": {"days": ["d1"], "pids": {"d1": "y"}, "ch": "", "approved": 0},
+        }))
+        self.assertFalse(plan["ok"])
+        self.assertTrue(any("unplaced" in p for p in plan["problems"]))
+
+    def test_it_refuses_when_a_move_cannot_be_told_from_an_add(self):
+        plan = wo02.build_stage_b_plan(self._cp({
+            "u1": {"days": [], "pids": {}, "ch": "", "approved": 0},
+            "p1": {"days": ["d1"], "pids": {"d1": "x"}, "ch": "", "approved": 0},
+        }))
+        self.assertFalse(plan["ok"])
+        self.assertTrue(any("photo C" in p for p in plan["problems"]))
+
+    def test_it_refuses_a_one_day_trip(self):
+        plan = wo02.build_stage_b_plan(self._cp(
+            {}, days=[{"id": "d1", "n": 1, "date": "2026-07-14"}]))
+        self.assertFalse(plan["ok"])
+        self.assertTrue(any("at least two" in p for p in plan["problems"]))
+
+    def test_plan_mode_writes_nothing_and_needs_no_api(self):
+        cp = self._cp({
+            "u1": {"days": [], "pids": {}, "ch": "", "approved": 0},
+            "u2": {"days": [], "pids": {}, "ch": "", "approved": 0},
+            "p1": {"days": ["d1"], "pids": {"d1": "x"}, "ch": "", "approved": 0},
+            "p2": {"days": ["d2"], "pids": {"d2": "y"}, "ch": "", "approved": 0},
+        })
+        self.write_checkpoint(cp)
+        before = _SCRIPT.read_text(encoding="utf-8")
+        raw = json.dumps(json.load(open(wo02.STATE_CP, encoding="utf-8")))
+        wo02._reset()
+        rc = wo02.do_plan(None)           # `now` is deliberately unused
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            raw,
+            json.dumps(json.load(open(wo02.STATE_CP, encoding="utf-8"))),
+            "plan must not rewrite the checkpoint")
+        self.assertEqual(before, _SCRIPT.read_text(encoding="utf-8"))
+
+    def test_plan_mode_exits_nonzero_when_the_fixture_cannot_prove_stage_b(self):
+        self.write_checkpoint(self._cp({
+            "p1": {"days": ["d1"], "pids": {"d1": "x"}, "ch": "", "approved": 0},
+        }))
+        wo02._reset()
+        rc = wo02.do_plan(None)
+        self.assertEqual(rc, 2)
+        self.assertIn("CANNOT PROVE STAGE B", "\n".join(wo02.LINES))
+
+    def test_plan_is_a_real_mode(self):
+        self.assertIn("plan", _SCRIPT.read_text(encoding="utf-8"))
+        self.assertIn('"plan"', _SCRIPT.read_text(encoding="utf-8"))
 
 
 class LegacyEvidenceIsMarkedHistoricalTest(_HarnessCase):

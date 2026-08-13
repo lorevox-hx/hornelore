@@ -67,7 +67,7 @@ function check(name, ok, detail) {
 function makeSandbox(opts) {
   opts = opts || {};
   const calls = [];
-  const reloads = { days: 0, links: 0 };
+  const reloads = { days: 0, links: 0, failed: 0 };
   const renders = { n: 0 };
   const st = {
     trip: { id: "T1" },
@@ -91,7 +91,14 @@ function makeSandbox(opts) {
     flashed.n++;
     return true;
   }
-  function reloadDays() { reloads.days++; return Promise.resolve(); }
+  function reloadDays() {
+    if (opts.reloadFails) {
+      reloads.failed++;
+      return Promise.reject(new Error("reload down"));
+    }
+    reloads.days++;
+    return Promise.resolve();
+  }
   function reloadPhotoLinks() { reloads.links++; return Promise.resolve(); }
   function renderAll() { renders.n++; }
   function dayChipText(d) { return "Day " + d.n; }
@@ -280,6 +287,114 @@ async function main() {
       JSON.stringify(s.calls[0] && s.calls[0].body));
     check("a completed move closes its drawer",
       s.st.placementMove === null);
+  }
+
+  // ── 7. EVERY PATH ANSWERS THE SAME SHAPE ─────────────────────────
+  //
+  // The picker does `addPhotosToDay(...).then(r => r.added...)`. A path
+  // that answers `undefined` turns a refusal into a TypeError.
+  {
+    const shape = (r, name) => check(
+      "the " + name + " path answers {added, unsent, error, reloadError}",
+      r && Array.isArray(r.added) && Array.isArray(r.unsent)
+        && "error" in r && "reloadError" in r && "blocked" in r,
+      JSON.stringify(r === undefined ? "undefined" : Object.keys(r || {})));
+
+    let s = makeSandbox({ dirty: true });
+    let r = await s.fns.addPhotosToDay(DAY, ids(3));
+    shape(r, "dirty-blocked");
+    check("a dirty block reports the whole selection as outstanding",
+      r.unsent.length === 3 && r.added.length === 0 && r.blocked === true,
+      r.unsent.length + " outstanding");
+
+    s = makeSandbox({});
+    shape(await s.fns.addPhotosToDay(DAY, []), "empty-selection");
+    s = makeSandbox({});
+    shape(await s.fns.addPhotosToDay(DAY, ids(3)), "success");
+    s = makeSandbox({ failOn: 1 });
+    shape(await s.fns.addPhotosToDay(DAY, ids(3)), "total-failure");
+    s = makeSandbox({ failOn: 2 });
+    shape(await s.fns.addPhotosToDay(DAY, ids(120)), "partial-failure");
+    s = makeSandbox({ reloadFails: true });
+    shape(await s.fns.addPhotosToDay(DAY, ids(3)), "reload-failure");
+  }
+
+  // ── 8. A FAILED REFRESH DOES NOT ERASE A KNOWN WRITE ─────────────
+  {
+    const s = makeSandbox({ failOn: 2, reloadFails: true });
+    const r = await s.fns.addPhotosToDay(DAY, ids(120));
+    check("partial write + failed reload still reports 50 added",
+      r.added.length === 50, r.added.length);
+    check("partial write + failed reload still reports 70 outstanding",
+      r.unsent.length === 70, r.unsent.length);
+    check("both failures are carried separately",
+      !!r.error && !!r.reloadError,
+      "error=" + !!r.error + " reloadError=" + !!r.reloadError);
+    check("the message keeps the tally AND names the stale screen",
+      /Added 50 of 120/.test(s.st.error)
+        && /could not be refreshed/.test(s.st.error), s.st.error);
+    check("the reload error has not replaced the tally",
+      s.st.error !== "reload down", s.st.error);
+  }
+  {
+    const s = makeSandbox({ reloadFails: true });
+    const r = await s.fns.addPhotosToDay(DAY, ids(3));
+    check("full write + failed reload reports every photograph added",
+      r.added.length === 3 && !r.error, r.added.length);
+    check("full write + failed reload warns the screen is stale",
+      /All 3 photographs were added/.test(s.st.error)
+        && /out of date/.test(s.st.error), s.st.error);
+  }
+
+  // ── 9. THE PICKER CALLER, DRIVEN AS THE OPERATOR DRIVES IT ───────
+  //
+  // The handler is lifted out of renderPhotoPicker by source slice so
+  // this exercises the SHIPPED code rather than a restatement of it.
+  {
+    const m = /addPhotosToDay\(day, ids\)\s*\n\s*\.then\(function \(r\) \{[\s\S]*?\n {10}\}\);/
+      .exec(src);
+    check("the picker's Add handler was found in the source", !!m);
+    if (m) {
+      const body = "return " + m[0]
+        .replace("addPhotosToDay(day, ids)", "Promise.resolve(RESULT)");
+      const run = new Function("RESULT", "st", "renderAll", "day", body);
+
+      const drive = (result) => {
+        const st = { photoPickerChecked: { L0: true, L1: true },
+                     photoPickerDayId: "D1" };
+        return run(result, st, function () {}, DAY).then(() => st);
+      };
+
+      let st = await drive(undefined);
+      check("a malformed result does not throw in the picker",
+        st.photoPickerDayId === "D1", "drawer left open, no crash");
+
+      st = await drive({ added: [], unsent: ["L0", "L1"], error: null,
+                         reloadError: null, blocked: true });
+      check("a dirty block keeps the drawer open",
+        st.photoPickerDayId === "D1", st.photoPickerDayId);
+      check("a dirty block keeps every tick",
+        Object.keys(st.photoPickerChecked).length === 2,
+        Object.keys(st.photoPickerChecked).join(","));
+
+      st = await drive({ added: ["L0"], unsent: ["L1"], error: new Error("x"),
+                         reloadError: null, blocked: false });
+      check("a partial add keeps the drawer open",
+        st.photoPickerDayId === "D1", st.photoPickerDayId);
+      check("a partial add unticks only what landed",
+        !st.photoPickerChecked.L0 && st.photoPickerChecked.L1 === true,
+        JSON.stringify(st.photoPickerChecked));
+
+      st = await drive({ added: ["L0", "L1"], unsent: [], error: null,
+                         reloadError: null, blocked: false });
+      check("a complete add closes the drawer",
+        st.photoPickerDayId === null, String(st.photoPickerDayId));
+
+      st = await drive({ added: ["L0", "L1"], unsent: [], error: null,
+                         reloadError: new Error("stale"), blocked: false });
+      check("a complete add closes the drawer even if the refresh failed",
+        st.photoPickerDayId === null, String(st.photoPickerDayId));
+    }
   }
 
   const bad = R.filter((r) => !r.ok);
