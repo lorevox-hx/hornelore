@@ -19,6 +19,28 @@ Each mode measures against the state the PREVIOUS one wrote:
                                 (WO-02_ACCEPTANCE_checkpoint.json)
     verify   -> Stage B held against checkpoint, and everything survived
                 the restart
+
+STAGE A'S RESULTS ARE DERIVED, NOT RE-PERFORMED (2026-08-13).
+`verify` reads BOTH state files and works out what Stage A did by
+comparing them: the day-text fields it changed, the notes it edited, the
+notes it created, the captions it rewrote, and the placements it
+destroyed and kept. It then asserts each of those results still exists
+exactly once and still holds its checkpoint value.
+
+That is persistence. The previous version diffed the checkpoint against
+NOW and called any difference "edits survived the restart", which is
+change, and which graded backwards in both directions: an operator who
+restarted and correctly touched nothing was told the steps were not
+done, while one who edited something unrelated afterwards was told they
+had passed. It also under-reported -- the live 2026-08-13 run announced
+only `Stage A edits landed (note)` although day text and a caption had
+also been edited, because a day-text field that was EMPTY at capture is
+a new row rather than a changed one, and because a caption edited before
+the photograph was removed from that day leaves no row on that day to
+carry the new hash. Captions are therefore read from the LINK.
+
+The practical consequence: a checkpoint already written needs no rerun,
+and `verify` requires no second edit and no second quick note.
     restore-verify -> the restore put the ORIGINAL rows back, created no
                 duplicates, and undid nothing it should not have
 
@@ -365,6 +387,158 @@ def rekeyed_days(before, after, days):
     return bad
 
 
+def _rows_by_identity(snap):
+    """{(day, kind, id): hash} for every timeline row in a snapshot.
+
+    The hash is the LAST element, which is the one thing every row shape
+    has in common: a photo row is
+    ``[kind, link_id, placement_id, hash]`` and the others are
+    ``[kind, id, hash]``.
+    """
+    out = {}
+    for did, rows in (snap.get("items") or {}).items():
+        for r in rows:
+            if len(r) < 3:
+                continue
+            out[(str(did), str(r[0]), str(r[1]))] = r[-1]
+    return out
+
+
+def stage_a_changeset(base, cp):
+    """Exactly what Stage A did, DERIVED from the two whole snapshots.
+
+    ADDED 2026-08-13. `verify` used to look for a difference between the
+    checkpoint and now, and call any difference "edits survived the
+    restart". That is not persistence — it is change. An operator who
+    restarted the stack and changed nothing (which is what the
+    walkthrough asks for) got SKIP; an operator who edited something
+    unrelated got PASS. The instrument rewarded the wrong behaviour in
+    both directions.
+
+    Persistence is: the values Stage A produced are STILL THERE and
+    STILL THE SAME. That needs the Stage A change set, and deriving it
+    from `capture` versus `checkpoint` means the checkpoint already
+    written on 2026-08-13 — 10 PASS, 0 FAIL, 1 ATTEST — remains usable
+    without a rerun. No new metadata is required of it.
+
+    The live run also showed WHY row-diffing alone was not enough. It
+    reported only `Stage A edits landed (note)` although day text and a
+    photo caption had also been edited:
+
+      * the Afternoon field was EMPTY at capture, so no `day_text` row
+        existed to compare against — it is a NEW row, not a changed one;
+      * the caption edit was followed by Remove from this day, so by
+        checkpoint time the photo row was gone from that day's timeline
+        entirely. A caption lives on the LINK, and that is where it has
+        to be read.
+    """
+    b, c = _rows_by_identity(base), _rows_by_identity(cp)
+    out = {"day_text": [], "notes": [], "new_notes": [], "captions": [],
+           "removed_placements": [], "surviving_placements": []}
+
+    for key, hsh in sorted(c.items()):
+        did, kind, ident = key
+        if kind == "day_text":
+            if b.get(key) != hsh:
+                out["day_text"].append({"day": did, "id": ident, "h": hsh})
+        elif kind == "note":
+            if key not in b:
+                out["new_notes"].append({"day": did, "id": ident, "h": hsh})
+            elif b[key] != hsh:
+                out["notes"].append({"day": did, "id": ident, "h": hsh})
+
+    base_links = base.get("photo_links") or {}
+    for lid, v in sorted((cp.get("photo_links") or {}).items()):
+        was = base_links.get(lid)
+        if was is not None and was.get("ch") != v.get("ch"):
+            out["captions"].append({"link": lid, "ch": v.get("ch"),
+                                    "approved": v.get("approved")})
+        b_pids, c_pids = pids_of(was or {}), pids_of(v)
+        for d, pid in sorted(b_pids.items()):
+            if d not in c_pids:
+                out["removed_placements"].append(
+                    {"link": lid, "day": d, "pid": pid})
+        for d, pid in sorted(c_pids.items()):
+            out["surviving_placements"].append(
+                {"link": lid, "day": d, "pid": pid})
+    return out
+
+
+_COUNT_LANES = (("conversation", "conversation_count"),
+                ("photo", "photo_count"),
+                ("note", "note_count"),
+                ("source", "source_count"))
+
+
+def check_count_contract(snap, label):
+    """The calendar's counts against the timeline rows they describe.
+
+    CORRECTED 2026-08-13. The old check asked only whether the count
+    dictionary had CHANGED, which cannot tell a count that followed the
+    content from one that drifted away from it — a rail reporting three
+    photographs on a day holding one is "changed" and wrong.
+
+    The contract, per day:
+
+        conversation_count == conversation rows
+        photo_count        == photo rows (explicit placements)
+        note_count         == note rows
+        source_count       == source rows
+        item_count         == the sum of those four
+
+    ``day_text`` rows are DELIBERATELY outside item_count — the day's
+    own typed fields are the day, not things attached to it — so the
+    last assertion is written as `rows minus day_text`, which states the
+    exclusion rather than assuming it.
+    """
+    for d in snap.get("days") or []:
+        did = str(d.get("id"))
+        rows = (snap.get("items") or {}).get(did) or []
+        kinds = {}
+        for r in rows:
+            kinds[str(r[0])] = kinds.get(str(r[0]), 0) + 1
+        counts = (snap.get("counts") or {}).get(did) or {}
+        # A day whose count block carries none of the lanes this contract
+        # knows is UNVERIFIED, and must say so. Asserting only the keys
+        # that happen to be present means an unrecognised block passes
+        # every check by having nothing to check -- which is how the old
+        # synthetic `row_count` fixture kept the rail assertions green
+        # for months without ever exercising them.
+        known = [k for _kind, k in _COUNT_LANES] + ["item_count"]
+        if not any(k in counts for k in known):
+            skip("day %s served no recognised count lane (%s) -- its rail "
+                 "arithmetic was not checked"
+                 % (did[:8], ", ".join(sorted(counts)) or "empty"))
+            continue
+        for kind, key in _COUNT_LANES:
+            if key not in counts:
+                continue
+            check(int(counts[key] or 0) == kinds.get(kind, 0),
+                  "%s day %s: %s (%s) matches its %s row(s) (%d)"
+                  % (label, did[:8], key, counts[key], kind,
+                     kinds.get(kind, 0)))
+        if "item_count" in counts:
+            component_sum = sum(int(counts.get(k, 0) or 0)
+                                for _kind, k in _COUNT_LANES)
+            check(int(counts["item_count"] or 0) == component_sum,
+                  "%s day %s: item_count (%s) is the sum of its four lanes "
+                  "(%d)" % (label, did[:8], counts["item_count"],
+                            component_sum))
+            without_day_text = len(rows) - kinds.get("day_text", 0)
+            check(int(counts["item_count"] or 0) == without_day_text,
+                  "%s day %s: item_count excludes the %d day_text row(s) "
+                  "(%s vs %d rows)"
+                  % (label, did[:8], kinds.get("day_text", 0),
+                     counts["item_count"], len(rows)))
+
+
+def photo_count_of(snap, day_id):
+    counts = (snap.get("counts") or {}).get(str(day_id)) or {}
+    if "photo_count" not in counts:
+        return None
+    return int(counts["photo_count"] or 0)
+
+
 def id_health(entry, label):
     """Malformed-id problems on one entry, as readable strings."""
     problems = ["%s lists day %s with no placement id" % (label, d)
@@ -526,9 +700,14 @@ def do_checkpoint(now, attests, now_iso):
         for k, before, after in shrunk:
             lost = [d for d in before if d not in after]
             kept = [d for d in before if d in after]
+            # Worded to be TRUE ON BOTH BRANCHES. check() prints one
+            # message whatever the outcome, and this read "lost exactly
+            # one day, not 1" on the passing branch -- a sentence that
+            # contradicts itself and its own data. State the
+            # measurement, then the expectation.
             check(len(lost) == 1,
-                  "photo %s lost exactly one day, not %d (%s -> %s)"
-                  % (k[:8], len(lost), before, after))
+                  "photo %s lost %d day(s); exactly one was expected "
+                  "(%s -> %s)" % (k[:8], len(lost), before, after))
             check(sorted(after) == sorted(kept),
                   "photo %s kept every other placement (%s)" % (k[:8], kept))
             for problem in (id_health(old["photo_links"].get(k) or {},
@@ -597,10 +776,87 @@ def do_checkpoint(now, attests, now_iso):
         json.dump(now, fh, indent=1)
 
     out("")
-    out(">>> Stage A recorded. Do Stage B, then restart, then run verify.")
+    print_stage_b_walkthrough()
     out("")
     out("checkpoint state: %s" % STATE_CP)
     return _verdict("PASS -- Stage A held.")
+
+
+#: Stage B, in the order it has to be done. Held as data rather than
+#: printed inline so a test can assert that every operation the harness
+#: CLASSIFIES is an operation the operator was actually asked to
+#: perform. The two used to drift: `verify` could report "no Move was
+#: performed" about a step no walkthrough had ever mentioned, and the
+#: operator had no way to know which of a dozen gestures the instrument
+#: was waiting for.
+STAGE_B_STEPS = [
+    ("Add to two days",
+     "Put ONE photograph on two different days. Add it to the first, "
+     "then add the same photograph to the second -- it must end up on "
+     "both, not move from one to the other."),
+    ("Several photographs on one day",
+     "Select several photographs at once and add them to a single day. "
+     "If any of them fail, the panel must say how many landed; the "
+     "ones that did not stay selected so Add can be pressed again."),
+    ("Remove, preserving the other day",
+     "On one of the two days from step 1, press Remove from this day. "
+     "The photograph must stay on the OTHER day, keep its caption, and "
+     "keep its trip membership."),
+    ("Move, explicitly",
+     "Use Move... on a photograph that is on one day, and send it to a "
+     "day it is NOT already on. Moving is a separate gesture from Add "
+     "and names the day it moves from."),
+    ("Shared caption",
+     "Edit the caption of a photograph that is on two days, from one "
+     "of them. The other day must show the same caption -- a caption "
+     "belongs to the photograph, not to a placement -- and it must "
+     "stay withheld from Lori."),
+    ("A deliberate date suggestion",
+     "Find a photograph under 'Taken on this date' and press Add to "
+     "this day. A suggestion is not a placement until you accept it."),
+]
+
+
+def print_stage_b_walkthrough():
+    out(">>> STAGE A IS RECORDED. NOW DO STAGE B, IN THIS ORDER:")
+    out("")
+    for i, (title, detail) in enumerate(STAGE_B_STEPS, 1):
+        out("  %d. %s" % (i, title))
+        for line in _wrap(detail, 66):
+            out("     " + line)
+    out("")
+    out("  While doing all of the above, at least once: type into a day's")
+    out("  fields WITHOUT saving, then press a photo control (Add to this")
+    out("  day, Remove from this day, or Move...). It must refuse, keep")
+    out("  what you typed, and show Save / Cancel. That is the")
+    out("  dirty-guard attestation.")
+    out("")
+    out(">>> THEN, IN THIS ORDER:")
+    out("")
+    out("  a. Stop the stack, start it again, and hard-reload the page.")
+    out("  b. Re-open the trip and a day modal, close it, and re-open it.")
+    out("     It must come back on a usable day. That is the")
+    out("     modal-reopen attestation.")
+    out("  c. ./scripts/wo02_acceptance.py verify --attest modal-reopen")
+    out("  d. Restore the trip by hand to how it was before Stage A.")
+    out("  e. ./scripts/wo02_acceptance.py restore-verify")
+    out("")
+    out("  Stage A's results are proved by comparing the capture and the")
+    out("  checkpoint, so `verify` needs NO further edit and NO second")
+    out("  quick note. Leaving Stage A's work untouched is the pass.")
+
+
+def _wrap(text, width):
+    words, lines, cur = text.split(), [], ""
+    for w in words:
+        if cur and len(cur) + 1 + len(w) > width:
+            lines.append(cur)
+            cur = w
+        else:
+            cur = (cur + " " + w).strip()
+    if cur:
+        lines.append(cur)
+    return lines
 
 
 def do_restore_verify(now, attests, now_iso):
@@ -722,17 +978,24 @@ def do_restore_verify(now, attests, now_iso):
     else:
         skip("no Stage A note recorded -- run checkpoint before restoring")
 
-    # Rail counts agree with the rows now on each day.
-    disagree = []
-    for d in now["days"]:
-        did = d["id"]
-        rows = now["items"].get(did) or []
-        counts = now["counts"].get(did) or {}
-        if sum(counts.values()) != len(rows):
-            disagree.append(d["n"])
-    check(not disagree,
-          "rail counts agree with the timeline rows on every day "
-          "(%d disagree)" % len(disagree))
+    # ── Rail counts agree with the rows now on each day ───────────────
+    #
+    # CORRECTED 2026-08-13. This summed EVERY key ending in `_count` and
+    # compared the total against every timeline row. Both halves are
+    # wrong on a real calendar day, and they were wrong in opposite
+    # directions, which is why the arithmetic looked plausible:
+    #
+    #   * `item_count` is itself the sum of the four component lanes, so
+    #     summing all five double-counts the day;
+    #   * `day_text` rows are DELIBERATELY excluded from `item_count`,
+    #     so `len(rows)` is larger than any count claims to be.
+    #
+    # Against Chris's live Day 1 — one conversation, no photographs,
+    # three notes, three day-text fields — the old check computed 8 on
+    # the left and 7 on the right and would have failed a correct
+    # calendar. It never fired because the fixtures fed it a synthetic
+    # `row_count` no calendar has ever served.
+    check_count_contract(now, "restore")
 
     if attests:
         state = dict(cp or old)
@@ -945,8 +1208,8 @@ def do_verify(now, attests=None, now_iso=None):
                        and is_set_format(now["photo_links"][k]))
             if label == "Add" and current:
                 check(len(fresh) == 1,
-                      "Add on photo %s created exactly one placement (%s)"
-                      % (k[:8], fresh))
+                      "Add on photo %s created %d placement(s); exactly one "
+                      "was expected (%s)" % (k[:8], len(fresh), fresh))
                 for d in fresh:
                     check(bool(a_ids.get(d)),
                           "Add on photo %s recorded a placement row for the "
@@ -991,22 +1254,129 @@ def do_verify(now, attests=None, now_iso=None):
           "no unrelated photograph's placement rows were rewritten (%d)"
           % len(disturbed))
 
-    # points 2/4/5 -- edits survived the operator's restart
-    edited = []
-    for did, rows in now["items"].items():
-        was = dict((tuple(r[:2]), tuple(r))
-                   for r in [tuple(x) for x in old["items"].get(did, [])])
-        for r in rows:
-            key = tuple(r[:2])
-            if key in was and tuple(r) != was[key]:
-                edited.append(r[0])
-    if not edited:
-        skip("no row text changed -- walkthrough steps 2/4/5 not done")
+    # ── STAGE A PERSISTENCE, points 2/4/5/10 ──────────────────────────
+    #
+    # CORRECTED 2026-08-13 after the live Stage A run. This used to diff
+    # the checkpoint against NOW and call any difference "edits persisted
+    # across the restart". That measured change, not persistence, and got
+    # both directions wrong: an operator who restarted and correctly
+    # touched nothing was told SKIP, while one who edited something
+    # unrelated after the checkpoint was told PASS.
+    #
+    # It was also imprecise about what Stage A did. The live checkpoint
+    # reported `Stage A edits landed (note)` although day text and a
+    # photo caption had ALSO been edited — see stage_a_changeset() for
+    # why each was invisible to a row diff.
+    #
+    # So the change set is derived from the two whole snapshots, and
+    # every result it names is asserted to still exist EXACTLY ONCE and
+    # still hold its checkpoint value. An unchanged value is the pass.
+    base = None
+    if os.path.exists(STATE):
+        with open(STATE, encoding="utf-8") as fh:
+            base = json.load(fh)
+    if base is None:
+        skip("no capture baseline at %s -- Stage A persistence cannot be "
+             "derived" % os.path.basename(STATE))
+        changes = {"day_text": [], "notes": [], "new_notes": [],
+                   "captions": [], "removed_placements": [],
+                   "surviving_placements": []}
     else:
-        check(True, "text edits persisted across the restart (%s)"
-              % ", ".join(sorted(set(edited))))
+        changes = stage_a_changeset(base, old)
 
-    # point 10 -- quick capture wrote a real note row
+    now_rows = _rows_by_identity(now)
+    now_counts = {}
+    for did, rows in (now.get("items") or {}).items():
+        for r in rows:
+            k = (str(did), str(r[0]), str(r[1]))
+            now_counts[k] = now_counts.get(k, 0) + 1
+
+    def _still_there(record, kind, label):
+        key = (record["day"], kind, record["id"])
+        seen = now_counts.get(key, 0)
+        check(seen == 1,
+              "%s %s on day %s survived the restart exactly once (found %d)"
+              % (label, record["id"][:8], record["day"][:8], seen))
+        if seen:
+            check(now_rows.get(key) == record["h"],
+                  "%s %s still holds its checkpoint value"
+                  % (label, record["id"][:8]))
+
+    stage_a_total = (len(changes["day_text"]) + len(changes["notes"])
+                     + len(changes["new_notes"]) + len(changes["captions"]))
+    if not stage_a_total:
+        skip("capture and checkpoint are identical -- Stage A edits "
+             "(walkthrough steps 2/4/5/10) were not recorded")
+    else:
+        out("      (Stage A wrote: %d day-text field(s), %d note edit(s), "
+            "%d new note(s), %d caption(s))"
+            % (len(changes["day_text"]), len(changes["notes"]),
+               len(changes["new_notes"]), len(changes["captions"])))
+
+    for rec in changes["day_text"]:
+        _still_there(rec, "day_text", "day text")
+    for rec in changes["notes"]:
+        _still_there(rec, "note", "edited note")
+    for rec in changes["new_notes"]:
+        _still_there(rec, "note", "quick-capture note")
+
+    for rec in changes["captions"]:
+        cur = now["photo_links"].get(rec["link"])
+        check(cur is not None,
+              "captioned photo %s still has its trip membership"
+              % rec["link"][:8])
+        if cur is not None:
+            check(cur.get("ch") == rec["ch"],
+                  "photo %s still holds its Stage A caption on every day "
+                  "it appears" % rec["link"][:8])
+            # A caption belongs to the LINK, so consistency across days is
+            # structural rather than something the operator maintains --
+            # which is exactly why it must be asserted rather than assumed.
+            check(not cur.get("approved"),
+                  "photo %s caption is still withheld from Lori"
+                  % rec["link"][:8])
+
+    # Placements Stage B DELIBERATELY changed are exempt from the Stage A
+    # persistence assertion and are proved by the classification loop
+    # above instead. Without this exemption the harness would demand that
+    # a photograph stay where Stage A left it while the walkthrough asks
+    # the operator to move it — a contradiction the instrument would
+    # report as a product failure.
+    stage_b_touched = set(k for k, _b, _a in added + dropped + moved_photo)
+    live_pids = set()
+    for v in now["photo_links"].values():
+        live_pids.update(pids_of(v).values())
+    for rec in changes["removed_placements"]:
+        # The ROW IDENTITY is asserted unconditionally, with no Stage B
+        # exemption, because a destroyed placement id reappearing is
+        # never legitimate: it means an id was reused, and every
+        # identity comparison in this harness is then reading a value
+        # that does not mean what it says. Re-adding the photograph to
+        # that day in Stage B is fine and must produce a NEW row.
+        if rec["pid"] is not None:
+            check(rec["pid"] not in live_pids,
+                  "the placement row Stage A destroyed on photo %s was not "
+                  "resurrected (%s)"
+                  % (rec["link"][:8], str(rec["pid"])[:8]))
+        # Whether the photograph is still OFF that day is exempt when
+        # Stage B deliberately put it back -- that is an Add, and the
+        # classification above proves it.
+        if rec["link"] in stage_b_touched:
+            continue
+        cur = now["photo_links"].get(rec["link"]) or {}
+        check(rec["day"] not in days_of(cur),
+              "photo %s is still off day %s after the restart"
+              % (rec["link"][:8], rec["day"][:8]))
+    for rec in changes["surviving_placements"]:
+        if rec["link"] in stage_b_touched or rec["pid"] is None:
+            continue
+        cur = now["photo_links"].get(rec["link"]) or {}
+        check(pids_of(cur).get(rec["day"]) == rec["pid"],
+              "photo %s kept placement row %s on day %s across the restart"
+              % (rec["link"][:8], str(rec["pid"])[:8], rec["day"][:8]))
+
+    # Stage B's own quick capture, which is a different question from
+    # whether Stage A's note survived.
     new_notes = []
     for did, rows in now["items"].items():
         old_ids = set(tuple(x[:2]) for x in old["items"].get(did, []))
@@ -1014,19 +1384,56 @@ def do_verify(now, attests=None, now_iso=None):
             if r[0] == "note" and tuple(r[:2]) not in old_ids:
                 new_notes.append(r[1])
     if not new_notes:
-        skip("no note was added -- walkthrough step 10 not done")
+        skip("no note was added during Stage B")
     else:
-        check(True, "quick capture created a note (n=%d)" % len(new_notes))
+        check(True, "Stage B quick capture created a note (n=%d)"
+              % len(new_notes))
 
-    # point 8 -- rail counts followed the content
-    changed = [d for d in now["counts"]
-               if now["counts"][d] != old["counts"].get(d)]
-    if not (moved_conv or moved_photo or new_notes):
-        skip("nothing moved or was added -- rail counts had nothing to "
-             "follow")
+    # ── point 8 -- the rail counts ────────────────────────────────────
+    #
+    # CORRECTED 2026-08-13. This asked only whether the count dictionary
+    # had CHANGED, which cannot distinguish a count that followed the
+    # content from one that drifted away from it, and it skipped
+    # entirely unless a Move or a note happened — so an Add or a Remove,
+    # the two operations most likely to move a photo count, activated no
+    # verification at all.
+    #
+    # Two assertions now. The contract is internal consistency, checked
+    # unconditionally because a rail that disagrees with its own rows is
+    # wrong whether or not this walkthrough touched it. The delta is the
+    # placement arithmetic, checked against what actually happened.
+    check_count_contract(now, "verify")
+
+    expected_delta = {}
+    for k, v in now["photo_links"].items():
+        if k not in old["photo_links"]:
+            continue
+        before, after = days_of(old["photo_links"][k]), days_of(v)
+        for d in after:
+            if d not in before:
+                expected_delta[d] = expected_delta.get(d, 0) + 1
+        for d in before:
+            if d not in after:
+                expected_delta[d] = expected_delta.get(d, 0) - 1
+
+    if not (added or dropped or moved_photo or moved_conv or new_notes):
+        skip("nothing was added, removed or moved -- the rail counts had "
+             "nothing to follow")
     else:
-        check(bool(changed),
-              "day counts changed on %d day(s)" % len(changed))
+        unmeasurable = []
+        for d in sorted(set(list(now.get("counts") or {})
+                            + list(old.get("counts") or {}))):
+            was, is_ = photo_count_of(old, d), photo_count_of(now, d)
+            if was is None or is_ is None:
+                unmeasurable.append(d)
+                continue
+            want = expected_delta.get(d, 0)
+            check(is_ - was == want,
+                  "day %s photo_count moved by %+d, as its placements did "
+                  "(%d -> %d)" % (d[:8], want, was, is_))
+        if unmeasurable:
+            skip("%d day(s) served no photo_count -- their arithmetic could "
+                 "not be checked" % len(unmeasurable))
 
     # Attestations are recorded HERE, before the verdict is computed.
     #

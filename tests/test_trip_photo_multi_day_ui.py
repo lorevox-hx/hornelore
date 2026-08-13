@@ -248,6 +248,89 @@ class BatchingRespectsTheServerLimitTest(unittest.TestCase):
         body = _fn("renderPhotoPicker")
         self.assertIn("addPhotosToDay(day, ids)", body)
 
+    def test_a_failed_batch_stops_the_run_without_stopping_the_reload(self):
+        """ADDED 2026-08-13.
+
+        The behaviour is proved by executing the function --
+        `node scripts/ui/run_photo_placement_safety.js`, which fails
+        batch 2 of 120 and asserts 50 added / 2 requests / 1 reload.
+        These are the structural properties that harness depends on, so
+        that a rewrite which broke them fails here too rather than
+        leaving the harness quietly measuring something else.
+        """
+        body = _fn("addPhotosToDay")
+        # The per-batch failure handler: without it the rejection
+        # propagates past the reload and the 50 that landed stay
+        # invisible until the operator refreshes by hand.
+        self.assertIn("failure = e", body)
+        self.assertIn("unsent = unsent.concat(batch)", body)
+        # The reload is chained off the completed run, not off a
+        # success. `.then(` after the chain rather than inside it.
+        self.assertIn("reloadDays(), reloadPhotoLinks()", body)
+        # The tally reaches the operator.
+        self.assertIn('"Added " + added.length + " of " + total', body)
+        # And the caller is told what landed, so it can retain exactly
+        # the selection that did not.
+        self.assertIn("added: added", body)
+
+    def test_the_picker_keeps_the_unadded_selection_after_a_partial_add(self):
+        body = _fn("renderPhotoPicker")
+        self.assertIn("delete st.photoPickerChecked[id]", body)
+        self.assertIn("if (!r.error) st.photoPickerDayId = null;", body,
+                      "the drawer must stay open when part of the "
+                      "selection did not land")
+
+
+class DirtyDayEditsAreProtectedFromPhotoControlsTest(unittest.TestCase):
+    """ADDED 2026-08-13.
+
+    Every day-inspector photo control ends in reloadDays() +
+    renderAll(), which rebuilds the day form from the SAVED row and
+    discards whatever the operator had typed. The Add photos drawer had
+    carried `dayFormDirtyBlocks()` since it was written; Remove, Move
+    and the direct "Add to this day" on a date suggestion had not.
+
+    Behaviour is proved by
+    `node scripts/ui/run_photo_placement_safety.js`, which drives each
+    control with a dirty form and asserts zero requests; these tests
+    pin the call sites so a removal is caught by the build as well.
+    """
+
+    def test_every_placement_control_checks_the_dirty_form_first(self):
+        for name in ("addPhotosToDay", "unlinkDayPhoto",
+                     "openPlacementMove", "movePlacement"):
+            with self.subTest(fn=name):
+                body = _fn(name)
+                self.assertIn("dayFormDirtyBlocks()", body,
+                              "%s can discard typed day edits" % name)
+
+    def test_the_guard_is_the_first_thing_each_one_does(self):
+        """Before the request, not after it.
+
+        A guard below the api() call would block the repaint and leave
+        the write already sent -- the worst of both.
+        """
+        for name, call in (("addPhotosToDay", "api("),
+                           ("unlinkDayPhoto", "api("),
+                           ("movePlacement", "api("),
+                           ("openPlacementMove", "st.placementMove =")):
+            with self.subTest(fn=name):
+                body = _fn(name)
+                self.assertLess(body.index("dayFormDirtyBlocks()"),
+                                body.index(call),
+                                "%s acts before it checks" % name)
+
+    def test_blocking_returns_a_promise_where_the_caller_expects_one(self):
+        """`addPhotosToDay(...).then(...)` is a live call site.
+
+        Returning undefined from the guarded path would throw inside
+        the picker's Add handler rather than block it quietly.
+        """
+        for name in ("addPhotosToDay", "unlinkDayPhoto", "movePlacement"):
+            with self.subTest(fn=name):
+                self.assertIn("dayFormDirtyBlocks()) return Promise.resolve()",
+                              _fn(name))
+
 
 class EveryItemIsReachableTest(unittest.TestCase):
     """Phase 3b. The truncating slices were a CORRECTNESS bug, not a

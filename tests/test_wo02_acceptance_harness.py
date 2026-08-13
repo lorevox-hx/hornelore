@@ -38,6 +38,27 @@ sys.modules["wo02_acceptance"] = wo02
 _spec.loader.exec_module(wo02)
 
 
+def calendar_counts(rows):
+    """The count block a real calendar day serves, for these rows.
+
+    CORRECTED 2026-08-13. The default used to be `{"row_count": len(rows)}`,
+    which no calendar has ever served. That single synthetic key made the
+    rail-count checks pass on every fixture while the production shape --
+    four component lanes plus an `item_count` that is their sum, with
+    `day_text` deliberately outside it -- went entirely unexercised. A
+    fixture that is easier than production tests the fixture.
+    """
+    kinds = {}
+    for r in rows:
+        kinds[str(r[0])] = kinds.get(str(r[0]), 0) + 1
+    block = {"conversation_count": kinds.get("conversation", 0),
+             "photo_count": kinds.get("photo", 0),
+             "note_count": kinds.get("note", 0),
+             "source_count": kinds.get("source", 0)}
+    block["item_count"] = sum(block.values())
+    return block
+
+
 def snap(days, photo_links, turns, items, counts=None):
     """Build a snapshot in the shape snapshot() returns.
 
@@ -46,7 +67,7 @@ def snap(days, photo_links, turns, items, counts=None):
     and must never appear by accident in a fixture that is not testing it.
     """
     counts = counts or dict(
-        (d["id"], {"row_count": len(items.get(d["id"]) or [])}) for d in days)
+        (d["id"], calendar_counts(items.get(d["id"]) or [])) for d in days)
     return {"days": days, "counts": counts, "photo_links": photo_links,
             "turns": turns, "items": items}
 
@@ -230,11 +251,11 @@ class RestoreVerifyTest(_HarnessCase):
         """Everything back where the baseline had it, plus the Stage A note."""
         s = _baseline()
         s["items"]["d1"] = s["items"]["d1"] + [["note", "n9", "newnote"]]
-        s["counts"]["d1"] = {"row_count": len(s["items"]["d1"])}
+        s["counts"]["d1"] = calendar_counts(s["items"]["d1"])
         return s
 
-    def _checkpoint_state(self):
-        cp = _baseline()
+    def _checkpoint_state(self, s=None):
+        cp = s if s is not None else _baseline()
         cp["stage_a"] = {"removed_placements": [{"link": "p1", "before": ["d1"], "after": []}], "new_notes": ["n9"],
                          "edited_kinds": ["day_text"]}
         cp["attestations"] = {"dirty-guard": {"mode": "checkpoint", "at": "T"},
@@ -284,13 +305,76 @@ class RestoreVerifyTest(_HarnessCase):
         self.assertIn("exactly once", logs)
 
     def test_rail_counts_that_disagree_with_the_rows_fail(self):
+        """A count lane that contradicts the rows it describes.
+
+        REWRITTEN 2026-08-13. This used to inject `{"row_count": 99}`,
+        a key no calendar serves, and passed only because the old check
+        summed every `*_count` blindly. Under the real contract that
+        block asserts nothing at all, so the test would have gone
+        vacuously green -- proving the point it exists to prove.
+        """
         self.write_baseline()
         self._checkpoint_state()
         bad = self._restored()
-        bad["counts"]["d1"] = {"row_count": 99}
+        bad["counts"]["d1"]["photo_count"] += 3
+        bad["counts"]["d1"]["item_count"] += 3
         rc, logs, n = self.run_mode(wo02.do_restore_verify, bad, [], "T")
         self.assertEqual(rc, 1)
-        self.assertIn("rail counts", logs)
+        self.assertFailed(logs, "photo_count")
+
+    def test_an_unrecognised_count_block_is_reported_not_accepted(self):
+        self.write_baseline()
+        self._checkpoint_state()
+        odd = self._restored()
+        odd["counts"]["d1"] = {"row_count": 99}
+        rc, logs, n = self.run_mode(wo02.do_restore_verify, odd, [], "T")
+        self.assertIn("no recognised count lane", logs)
+        # INCOMPLETE, not PASS. An unverifiable day is "not exercised"
+        # rather than "broken", so the exit code stays 0 by design --
+        # what must not happen is the run claiming that day was checked.
+        self.assertIn("RESULT: INCOMPLETE", logs)
+        self.assertGreaterEqual(n["skip"], 1)
+
+    def test_item_count_that_omits_a_lane_fails(self):
+        """`item_count` is the sum of the four lanes, not a free number."""
+        self.write_baseline()
+        self._checkpoint_state()
+        bad = self._restored()
+        bad["counts"]["d1"]["item_count"] -= 1
+        rc, logs, n = self.run_mode(wo02.do_restore_verify, bad, [], "T")
+        self.assertEqual(rc, 1)
+        self.assertFailed(logs, "sum of its four lanes")
+
+    def test_item_count_must_exclude_day_text_rows(self):
+        """The day's own typed fields are the day, not items on it.
+
+        Reproduces the shape of Chris's live Bismarck Day 1 after Stage
+        A: one conversation, no photographs, three notes, and three
+        day_text rows. `item_count` is 4. An implementation that counted
+        day_text would say 7, and the old blind-sum check would have
+        called that agreement.
+        """
+        rows = [["conversation", "c1", ""],
+                ["note", "n1", "a"], ["note", "n2", "b"],
+                ["note", "n3", "c"],
+                ["day_text", "d1:main_location", "x"],
+                ["day_text", "d1:morning", "y"],
+                ["day_text", "d1:afternoon", "z"]]
+        counts = calendar_counts(rows)
+        self.assertEqual(counts["item_count"], 4,
+                         "day_text must stay outside item_count")
+
+        live = snap(_DAYS, {}, {}, {"d1": rows, "d2": [], "d3": []})
+        self.write_baseline(live)
+        self._checkpoint_state(live)
+        rc, logs, n = self.run_mode(wo02.do_restore_verify, live, [], "T")
+        self.assertPassed(logs, "excludes the 3 day_text row(s)")
+
+        counted = snap(_DAYS, {}, {}, {"d1": rows, "d2": [], "d3": []})
+        counted["counts"]["d1"]["item_count"] = 7
+        rc, logs, n = self.run_mode(wo02.do_restore_verify, counted, [], "T")
+        self.assertEqual(rc, 1)
+        self.assertFailed(logs, "excludes the 3 day_text row(s)")
 
     def test_missing_attestations_hold_the_gate_open(self):
         """Two requirements are browser-only. Without them Gate 3 is
@@ -614,9 +698,42 @@ class MultiDayCheckpointTest(_HarnessCase):
         after["counts"]["d1"] = {"row_count": 3}
         rc, log, n = self.run_mode(wo02.do_checkpoint, after, [], "T")
         self.assertEqual(n["fail"], 0, log)
-        self.assertIn("lost exactly one day", log)
-        self.assertIn("kept every other placement", log)
+        self.assertPassed(log, "lost 1 day(s); exactly one was expected")
+        self.assertPassed(log, "kept every other placement")
         self.assertEqual(len(after["photo_links"]), 1)
+
+    def test_a_passing_readout_never_contradicts_itself(self):
+        """Found in the live 2026-08-13 Stage A run, which PASSED and
+        printed
+
+            PASS  photo 2a54d793 lost exactly one day, not 1
+
+        `check()` prints ONE message whatever the outcome, and that one
+        was written for the failure branch only, so on success it
+        contradicted both itself and the number beside it. A readout
+        that reads as nonsense when everything is fine teaches the
+        operator to stop reading it.
+
+        Scanned rather than string-matched on one phrase: any PASS line
+        asserting a quantity must not also carry a "not <n>" clause,
+        which is the shape that only makes sense while failing.
+        """
+        self.write_baseline(self._two_day_baseline())
+        after = self._two_day_baseline()
+        after["photo_links"]["p1"] = link(["d3"])
+        after["items"]["d1"] = [["conversation", "c1", ""],
+                                ["day_text", "t1", "txtB"],
+                                ["note", "n9", "newnote"]]
+        after["counts"]["d1"] = {"row_count": 3}
+        rc, log, n = self.run_mode(wo02.do_checkpoint, after, [], "T")
+        self.assertEqual(n["fail"], 0, log)
+        for line in log.split("\n"):
+            if not line.startswith("PASS"):
+                continue
+            self.assertNotRegex(
+                line, r", not \d",
+                "a passing line reads as a failure message: %r" % line)
+        self.assertPassed(log, "lost 1 day(s); exactly one was expected")
 
     def test_losing_BOTH_days_when_one_was_removed_fails(self):
         """Non-vacuity for the test above: the assertion has to be able
@@ -633,7 +750,7 @@ class MultiDayCheckpointTest(_HarnessCase):
         bad["counts"]["d3"] = {"row_count": 0}
         rc, log, n = self.run_mode(wo02.do_checkpoint, bad, [], "T")
         self.assertGreater(n["fail"], 0, log)
-        self.assertIn("lost exactly one day, not 2", log)
+        self.assertFailed(log, "lost 2 day(s); exactly one was expected")
 
     def test_gaining_a_day_is_not_reported_as_a_removal(self):
         """The old scalar test fired FALSELY here: a photograph going
@@ -784,6 +901,61 @@ class WalkthroughNamesTheThreeOperationsTest(_HarnessCase):
         src = _SCRIPT.read_text(encoding="utf-8")
         for phrase in ("Add to this day", "Remove from this day", "Move"):
             self.assertIn(phrase, src)
+
+    def test_the_printed_walkthrough_asks_for_every_operation_verified(self):
+        """The instructions and the checks must not drift apart.
+
+        `verify` reports "no Move was performed" when a Move is absent.
+        That is only fair if the operator was asked to perform one. This
+        pins the two together: every operation the harness classifies is
+        an operation the printed walkthrough names.
+        """
+        text = " ".join(t + " " + d for t, d in wo02.STAGE_B_STEPS).lower()
+        for phrase in ("add", "remove from this day", "move"):
+            self.assertIn(phrase, text)
+
+    def test_the_walkthrough_covers_the_whole_phase_5_sequence(self):
+        wo02._reset()
+        wo02.print_stage_b_walkthrough()
+        text = "\n".join(wo02.LINES)
+        for needle in ("two days", "several photographs",
+                       "Remove from this day", "Move...",
+                       "caption", "Taken on this date",
+                       "hard-reload", "verify --attest modal-reopen",
+                       "restore-verify"):
+            with self.subTest(step=needle):
+                self.assertIn(needle, text)
+
+    def test_the_walkthrough_says_stage_a_needs_no_repeat_work(self):
+        """The instruction the corrected instrument makes true.
+
+        Until 2026-08-13 `verify` looked for a CHANGE since the
+        checkpoint, so an operator who correctly left Stage A alone was
+        told the steps were 'not done'. The text now says the opposite,
+        and it is the code that changed to match it.
+        """
+        wo02._reset()
+        wo02.print_stage_b_walkthrough()
+        text = "\n".join(wo02.LINES)
+        self.assertIn("NO further edit", text)
+        self.assertIn("NO second", text)
+        self.assertIn("Leaving Stage A's work untouched is the pass", text)
+
+    def test_the_walkthrough_asks_for_the_dirty_guard_on_a_photo_control(self):
+        """The attestation must be exercised where the guard was missing.
+
+        Add photos had been guarded all along; Remove, Move and the
+        direct date-suggestion Add had not. An attestation collected by
+        pressing only the control that already worked proves nothing
+        about the three that did not.
+        """
+        wo02._reset()
+        wo02.print_stage_b_walkthrough()
+        text = "\n".join(wo02.LINES)
+        self.assertIn("WITHOUT saving", text)
+        for control in ("Add to this", "Remove from this day", "Move..."):
+            with self.subTest(control=control):
+                self.assertIn(control, text)
 
 
 class VerifyMeasuresAgainstTheCheckpointTest(_HarnessCase):
@@ -953,7 +1125,7 @@ class PlacementIdentityIsProvedTest(_HarnessCase):
                     "pids": {"d1": "pl-capA-d1", "d3": "pl-NEW"},
                     "ch": "capA", "approved": 0}})
         self.assertEqual(n["fail"], 0, log)
-        self.assertPassed(log, "created exactly one placement")
+        self.assertPassed(log, "created 1 placement(s); exactly one was expected")
         self.assertPassed(log, "created a NEW placement row")
 
     def test_an_add_that_reused_an_existing_row_id_fails(self):
@@ -1141,6 +1313,324 @@ class PlacementIdentityIsProvedTest(_HarnessCase):
         rc, log, n = self.run_mode(wo02.do_restore_verify, restored, [], "T")
         self.assertEqual(n["fail"], 0, log)
         self.assertIn("complete original day set", log)
+
+
+def _stage_a_pair():
+    """(capture, checkpoint) for a Stage A that did all four things.
+
+    Modelled on Chris's live 2026-08-13 walkthrough, including the two
+    shapes a row diff cannot see:
+
+      * `t2` is a day-text field that was EMPTY at capture, so no row
+        existed to compare against -- the Afternoon field;
+      * the caption on `p1` was edited and the photograph was THEN
+        removed from d1, so by checkpoint time no d1 photo row survives
+        to carry the changed hash.
+    """
+    cap = snap(
+        _DAYS,
+        {"p1": link(["d1", "d3"], ch="capA")},
+        {"c1": {"day": "d1", "u": 10, "a": 11, "nh": "nA", "lh": "lA",
+                "src": "active_trip_day", "st": "needs_day"}},
+        {"d1": [["photo", "p1", "pl-capA-d1", "capA"],
+                ["conversation", "c1", ""],
+                ["day_text", "t1", "txtA"],
+                ["note", "n1", "noteA"]],
+         "d2": [],
+         "d3": [["photo", "p1", "pl-capA-d3", "capA"]]},
+    )
+    cp = snap(
+        _DAYS,
+        {"p1": link(["d3"], ch="capB")},
+        {"c1": {"day": "d1", "u": 10, "a": 11, "nh": "nA", "lh": "lA",
+                "src": "active_trip_day", "st": "needs_day"}},
+        {"d1": [["conversation", "c1", ""],
+                ["day_text", "t1", "txtB"],
+                ["day_text", "t2", "txtNEW"],
+                ["note", "n1", "noteB"],
+                ["note", "n9", "quickcap"]],
+         "d2": [],
+         "d3": [["photo", "p1", "pl-capA-d3", "capB"]]},
+    )
+    cp["photo_links"]["p1"]["pids"] = {"d3": "pl-capA-d3"}
+    return cap, cp
+
+
+class StageAPersistenceIsDerivedTest(_HarnessCase):
+    """`verify` proves Stage A's results SURVIVED, not that things changed.
+
+    ADDED 2026-08-13. The old check diffed the checkpoint against now and
+    called any difference "edits persisted across the restart". That is
+    change, not persistence, and it graded backwards in both directions:
+    an operator who restarted and correctly touched nothing was told
+    SKIP, while one who edited something unrelated afterwards was told
+    PASS. The live run also proved it imprecise -- it reported only
+    `Stage A edits landed (note)` although day text and a caption had
+    also been edited.
+    """
+
+    def _write(self):
+        cap, cp = _stage_a_pair()
+        self.write_baseline(cap)
+        self.write_checkpoint(cp)
+        return cap, cp
+
+    def test_the_change_set_finds_all_four_kinds(self):
+        cap, cp = _stage_a_pair()
+        ch = wo02.stage_a_changeset(cap, cp)
+        self.assertEqual([r["id"] for r in ch["notes"]], ["n1"])
+        self.assertEqual([r["id"] for r in ch["new_notes"]], ["n9"])
+        self.assertEqual([r["link"] for r in ch["captions"]], ["p1"])
+        self.assertEqual(sorted(r["id"] for r in ch["day_text"]),
+                         ["t1", "t2"],
+                         "a day-text field that was EMPTY at capture is a "
+                         "Stage A edit, not a row with nothing to compare")
+
+    def test_a_caption_edit_is_seen_even_when_the_photo_left_the_day(self):
+        """The live case. A caption lives on the LINK.
+
+        The operator edited the caption and then removed the photograph
+        from that day, so the row carrying the changed hash was gone by
+        checkpoint time. Reading captions from the timeline rows misses
+        it entirely; reading them from photo_links cannot.
+        """
+        cap, cp = _stage_a_pair()
+        for rows in cp["items"].values():
+            self.assertFalse([r for r in rows
+                              if r[0] == "photo" and r[1] == "p1"
+                              and r[-1] == "capA"])
+        ch = wo02.stage_a_changeset(cap, cp)
+        self.assertEqual(ch["captions"][0]["ch"], "capB")
+
+    def test_an_unchanged_checkpoint_value_is_persistence_and_passes(self):
+        """The operator restarts and correctly changes nothing."""
+        cap, cp = self._write()
+        rc, logs, n = self.run_mode(wo02.do_verify, json.loads(json.dumps(cp)))
+        self.assertPassed(logs, "day text t1 on day d1 survived the restart")
+        self.assertPassed(logs, "quick-capture note n9")
+        self.assertPassed(logs, "still holds its Stage A caption")
+        self.assertPassed(logs, "is still off day d1")
+        self.assertEqual(n["fail"], 0)
+
+    def test_no_further_edit_is_required_or_rewarded(self):
+        """Non-vacuity, in the direction that matters.
+
+        The old instrument SKIPped a run in which nothing changed after
+        the checkpoint -- which is exactly what the walkthrough asks for.
+        """
+        cap, cp = self._write()
+        rc, logs, n = self.run_mode(wo02.do_verify, json.loads(json.dumps(cp)))
+        self.assertNotIn("no row text changed", logs)
+        self.assertIn("Stage A wrote: 2 day-text field(s), 1 note edit(s), "
+                      "1 new note(s), 1 caption(s)", logs)
+
+    def test_a_reverted_day_text_field_fails(self):
+        cap, cp = self._write()
+        now = json.loads(json.dumps(cp))
+        now["items"]["d1"][1] = ["day_text", "t1", "txtA"]
+        rc, logs, n = self.run_mode(wo02.do_verify, now)
+        self.assertEqual(rc, 1)
+        self.assertFailed(logs, "day text t1 still holds its checkpoint")
+
+    def test_a_lost_quick_capture_note_fails(self):
+        cap, cp = self._write()
+        now = json.loads(json.dumps(cp))
+        now["items"]["d1"] = [r for r in now["items"]["d1"] if r[1] != "n9"]
+        now["counts"]["d1"] = calendar_counts(now["items"]["d1"])
+        rc, logs, n = self.run_mode(wo02.do_verify, now)
+        self.assertEqual(rc, 1)
+        self.assertFailed(logs, "quick-capture note n9 on day d1 survived")
+
+    def test_a_duplicated_note_fails_as_loudly_as_a_missing_one(self):
+        cap, cp = self._write()
+        now = json.loads(json.dumps(cp))
+        now["items"]["d1"].append(["note", "n9", "quickcap"])
+        now["counts"]["d1"] = calendar_counts(now["items"]["d1"])
+        rc, logs, n = self.run_mode(wo02.do_verify, now)
+        self.assertEqual(rc, 1)
+        self.assertFailed(logs, "exactly once (found 2)")
+
+    def test_a_reverted_caption_fails(self):
+        cap, cp = self._write()
+        now = json.loads(json.dumps(cp))
+        now["photo_links"]["p1"]["ch"] = "capA"
+        now["items"]["d3"] = [["photo", "p1", "pl-capA-d3", "capA"]]
+        rc, logs, n = self.run_mode(wo02.do_verify, now)
+        self.assertEqual(rc, 1)
+        self.assertFailed(logs, "still holds its Stage A caption")
+
+    def test_a_destroyed_placement_row_that_is_resurrected_fails(self):
+        """Stage B may re-add the photograph; it may not reuse the row.
+
+        Re-adding is an Add and must mint a NEW placement. If the id
+        Stage A destroyed comes back, ids are being reused and every
+        identity comparison in this harness is reading a value that
+        does not mean what it says -- so this half carries no Stage B
+        exemption.
+        """
+        cap, cp = self._write()
+        now = json.loads(json.dumps(cp))
+        now["photo_links"]["p1"]["days"] = ["d1", "d3"]
+        now["photo_links"]["p1"]["pids"] = {"d1": "pl-capA-d1",
+                                            "d3": "pl-capA-d3"}
+        now["items"]["d1"].append(["photo", "p1", "pl-capA-d1", "capB"])
+        now["counts"]["d1"] = calendar_counts(now["items"]["d1"])
+        rc, logs, n = self.run_mode(wo02.do_verify, now)
+        self.assertEqual(rc, 1)
+        self.assertFailed(logs, "was not resurrected")
+
+    def test_stage_b_may_re_add_the_photograph_with_a_new_row(self):
+        cap, cp = self._write()
+        now = json.loads(json.dumps(cp))
+        now["photo_links"]["p1"]["days"] = ["d1", "d3"]
+        now["photo_links"]["p1"]["pids"] = {"d1": "pl-FRESH-d1",
+                                            "d3": "pl-capA-d3"}
+        now["items"]["d1"].append(["photo", "p1", "pl-FRESH-d1", "capB"])
+        now["counts"]["d1"] = calendar_counts(now["items"]["d1"])
+        rc, logs, n = self.run_mode(wo02.do_verify, now)
+        self.assertPassed(logs, "was not resurrected")
+        self.assertPassed(logs, "Add on photo p1")
+        self.assertEqual(n["fail"], 0)
+
+    def test_a_surviving_placement_row_that_was_rekeyed_fails(self):
+        cap, cp = self._write()
+        now = json.loads(json.dumps(cp))
+        now["photo_links"]["p1"]["pids"] = {"d3": "pl-DIFFERENT"}
+        now["items"]["d3"] = [["photo", "p1", "pl-DIFFERENT", "capB"]]
+        rc, logs, n = self.run_mode(wo02.do_verify, now)
+        self.assertEqual(rc, 1)
+        self.assertFailed(logs, "kept placement row pl-capA- on day d3")
+
+    def test_stage_b_may_move_what_stage_a_placed(self):
+        """The exemption, and why it exists.
+
+        Stage B deliberately moves photographs. Without exempting the
+        links Stage B touched, the harness would demand a photograph
+        stay where Stage A left it while the walkthrough asks the
+        operator to move it, and would report that contradiction as a
+        product failure. Stage B's own change is proved by the
+        Add/Remove/Move classification instead.
+        """
+        cap, cp = self._write()
+        now = json.loads(json.dumps(cp))
+        now["photo_links"]["p1"]["days"] = ["d2"]
+        now["photo_links"]["p1"]["pids"] = {"d2": "pl-new-d2"}
+        now["items"]["d3"] = []
+        now["items"]["d2"] = [["photo", "p1", "pl-new-d2", "capB"]]
+        now["counts"]["d2"] = calendar_counts(now["items"]["d2"])
+        now["counts"]["d3"] = calendar_counts(now["items"]["d3"])
+        rc, logs, n = self.run_mode(wo02.do_verify, now)
+        self.assertPassed(logs, "Move on photo p1")
+        self.assertNotIn("kept placement row pl-capA- on day d3", logs)
+        self.assertEqual(n["fail"], 0)
+
+    def test_a_missing_capture_baseline_is_reported_not_assumed(self):
+        _cap, cp = _stage_a_pair()
+        self.write_checkpoint(cp)          # no capture file written
+        rc, logs, n = self.run_mode(wo02.do_verify, json.loads(json.dumps(cp)))
+        self.assertIn("Stage A persistence cannot be derived", logs)
+
+
+class RailCountArithmeticTest(_HarnessCase):
+    """Rail counts must follow the placements EXACTLY, not merely change.
+
+    CORRECTED 2026-08-13. The old assertion was `bool(changed)` -- true
+    if any day's count dictionary differed at all -- and it was gated on
+    a Move or a note, so an Add or a Remove, the two operations most
+    likely to move a photo count, activated no verification whatsoever.
+    """
+
+    def _pair(self, before_days, after_days, before_pids, after_pids):
+        def build(days_map, pids_map):
+            items = dict((d["id"], []) for d in _DAYS)
+            for d in days_map:
+                items[d].append(["photo", "p1", pids_map[d], "capA"])
+            s = snap(_DAYS, {"p1": {"days": sorted(days_map), "pids": pids_map,
+                                    "ch": "capA", "approved": 0}},
+                     {}, items)
+            return s
+        cp = build(before_days, before_pids)
+        now = build(after_days, after_pids)
+        self.write_baseline(cp)
+        self.write_checkpoint(cp)
+        return cp, now
+
+    def test_add_moves_the_destination_count_by_one(self):
+        cp, now = self._pair(["d1"], ["d1", "d3"],
+                             {"d1": "x1"}, {"d1": "x1", "d3": "x3"})
+        rc, logs, n = self.run_mode(wo02.do_verify, now)
+        self.assertPassed(logs, "day d3 photo_count moved by +1")
+        self.assertPassed(logs, "day d1 photo_count moved by +0")
+        self.assertEqual(n["fail"], 0)
+
+    def test_remove_moves_the_source_count_by_minus_one(self):
+        cp, now = self._pair(["d1", "d3"], ["d3"],
+                             {"d1": "x1", "d3": "x3"}, {"d3": "x3"})
+        rc, logs, n = self.run_mode(wo02.do_verify, now)
+        self.assertPassed(logs, "day d1 photo_count moved by -1")
+        self.assertPassed(logs, "day d3 photo_count moved by +0")
+        self.assertEqual(n["fail"], 0)
+
+    def test_move_shifts_one_count_each_way(self):
+        cp, now = self._pair(["d1"], ["d2"], {"d1": "x1"}, {"d2": "x2"})
+        rc, logs, n = self.run_mode(wo02.do_verify, now)
+        self.assertPassed(logs, "day d1 photo_count moved by -1")
+        self.assertPassed(logs, "day d2 photo_count moved by +1")
+        self.assertPassed(logs, "day d3 photo_count moved by +0")
+
+    def test_move_onto_a_day_it_is_already_on_leaves_that_count_alone(self):
+        """The case the arithmetic is easiest to get wrong.
+
+        Under set semantics the destination already holds the
+        photograph, so the source loses one and the destination gains
+        nothing. A naive "a move shifts one count each way" would demand
+        d3 go up and would fail a correct system.
+        """
+        cp, now = self._pair(["d1", "d3"], ["d3"],
+                             {"d1": "x1", "d3": "x3"}, {"d3": "x3"})
+        rc, logs, n = self.run_mode(wo02.do_verify, now)
+        self.assertPassed(logs, "day d3 photo_count moved by +0")
+        self.assertEqual(n["fail"], 0)
+
+    def test_a_count_that_did_not_follow_its_placement_fails(self):
+        cp, now = self._pair(["d1"], ["d1", "d3"],
+                             {"d1": "x1"}, {"d1": "x1", "d3": "x3"})
+        now["counts"]["d3"]["photo_count"] = 0   # rail did not follow
+        now["counts"]["d3"]["item_count"] = 0
+        rc, logs, n = self.run_mode(wo02.do_verify, now)
+        self.assertEqual(rc, 1)
+        self.assertFailed(logs, "day d3 photo_count moved by +1")
+
+    def test_an_unrelated_day_that_drifted_fails(self):
+        cp, now = self._pair(["d1"], ["d1", "d3"],
+                             {"d1": "x1"}, {"d1": "x1", "d3": "x3"})
+        now["counts"]["d2"]["photo_count"] = 2
+        now["counts"]["d2"]["item_count"] = 2
+        rc, logs, n = self.run_mode(wo02.do_verify, now)
+        self.assertEqual(rc, 1)
+        self.assertFailed(logs, "day d2 photo_count moved by +0")
+
+    def test_the_component_contract_holds_on_the_live_day_1_shape(self):
+        """One conversation, no photographs, three notes, three day-text.
+
+        Chris's Bismarck Day 1 after Stage A. `item_count` is 4.
+        """
+        rows = [["conversation", "c1", ""],
+                ["note", "n1", "a"], ["note", "n2", "b"],
+                ["note", "n3", "c"],
+                ["day_text", "d1:main_location", "x"],
+                ["day_text", "d1:morning", "y"],
+                ["day_text", "d1:afternoon", "z"]]
+        s = snap(_DAYS, {}, {}, {"d1": rows, "d2": [], "d3": []})
+        self.assertEqual(s["counts"]["d1"]["item_count"], 4)
+        self.assertEqual(s["counts"]["d1"]["note_count"], 3)
+        self.assertEqual(s["counts"]["d1"]["photo_count"], 0)
+        self.write_baseline(s)
+        self.write_checkpoint(s)
+        rc, logs, n = self.run_mode(wo02.do_verify,
+                                    json.loads(json.dumps(s)))
+        self.assertPassed(logs, "day d1: note_count (3) matches its note")
+        self.assertPassed(logs, "day d1: item_count excludes the 3 day_text")
 
 
 class LegacyEvidenceIsMarkedHistoricalTest(_HarnessCase):

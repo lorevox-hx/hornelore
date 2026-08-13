@@ -4203,7 +4203,16 @@
     // Removes THIS day's placement and nothing else: the photograph's
     // other days, its trip membership, the photo row, the original, the
     // thumbnail, the caption and the approvals all survive.
-    api("/api/trips/" + encodeURIComponent(st.trip.id) +
+    //
+    // GUARDED 2026-08-13. The day inspector's photo controls all end in
+    // reloadDays() + renderAll(), which rebuilds the day form from the
+    // SAVED day row and silently discards whatever the operator had
+    // typed into it. The Add photos drawer had carried this guard since
+    // it was written; Remove, Move and the direct "Add to this day" on
+    // a date suggestion had not, so the three shortest paths to losing
+    // typed work were the three that were unprotected.
+    if (dayFormDirtyBlocks()) return Promise.resolve();
+    return api("/api/trips/" + encodeURIComponent(st.trip.id) +
       "/days/" + encodeURIComponent(day.id) + "/photos/unlink",
       { method: "POST", body: { photo_link_ids: [linkId] } })
       .then(function () { return Promise.all([reloadDays(), reloadPhotoLinks()]); })
@@ -4307,24 +4316,81 @@
   }
 
   function addPhotosToDay(day, linkIds) {
+    // See unlinkDayPhoto(). This is reached both from the Add photos
+    // drawer (which is guarded at open time) and directly from "Add to
+    // this day" on a Taken-on-this-date suggestion, which is not — and
+    // that second path sits inside the day inspector, inches below the
+    // fields being typed into.
+    if (dayFormDirtyBlocks()) return Promise.resolve();
     var ids = (linkIds || []).slice();
-    if (!ids.length) return Promise.resolve();
+    var total = ids.length;
+    if (!total) return Promise.resolve({ added: [], unsent: [], error: null });
     var batches = [];
     while (ids.length) batches.push(ids.splice(0, PLACEMENT_BATCH_MAX));
-    // Sequential, not Promise.all: each call assigns `ord` after the
-    // day's current maximum, so concurrent batches would interleave the
-    // operator's order.
+
+    // ── A PARTIAL ADD IS NEITHER A SUCCESS NOR A FAILURE ──────────────
+    //
+    // CORRECTED 2026-08-13. The chain used to propagate the first
+    // rejection straight past the reload into a bare `st.error`. Three
+    // consequences, and the operator saw none of them stated:
+    //
+    //   * the photographs that DID land were already on the day and
+    //     nowhere on screen, because reloadDays() had been skipped —
+    //     so the interface showed a failure and the database held a
+    //     half-completed add;
+    //   * the message named the transport error and never the number
+    //     that succeeded, which is the one fact needed to decide what
+    //     to do next;
+    //   * "select Add again" would have re-sent all 120, including the
+    //     50 already placed.
+    //
+    // Failures are therefore caught PER BATCH rather than allowed to
+    // propagate: the first one stops the run, every later batch is
+    // recorded as unsent WITHOUT being sent, and the reload happens
+    // regardless so the screen matches the database either way.
+    //
+    // Sequential, not Promise.all, for the original reason as well:
+    // each call assigns `ord` after the day's current maximum, so
+    // concurrent batches would interleave the operator's order.
+    var added = [];
+    var unsent = [];
+    var failedBatch = [];
+    var failure = null;
     var chain = batches.reduce(function (p, batch) {
       return p.then(function () {
+        if (failure) { unsent = unsent.concat(batch); return null; }
         return api("/api/trips/" + encodeURIComponent(st.trip.id) +
           "/days/" + encodeURIComponent(day.id) + "/photos/link",
-          { method: "POST", body: { photo_link_ids: batch } });
+          { method: "POST", body: { photo_link_ids: batch } })
+          .then(function () { added = added.concat(batch); },
+                function (e) { failure = e; failedBatch = batch; });
       });
     }, Promise.resolve());
+
     return chain
       .then(function () { return Promise.all([reloadDays(), reloadPhotoLinks()]); })
-      .then(function () { st.error = ""; renderAll(); })
-      .catch(function (e) { st.error = e.message; renderAll(); });
+      .then(function () {
+        if (!failure) {
+          st.error = "";
+        } else if (!added.length) {
+          st.error = failure.message;
+        } else {
+          st.error = "Added " + added.length + " of " + total +
+            " photographs to " + dayChipText(day) + ". The next " +
+            failedBatch.length + " failed (" + failure.message + ")" +
+            (unsent.length ? " and " + unsent.length + " were not sent" : "") +
+            ". The ones already added are on the day; the rest are still " +
+            "selected — press Add again to retry just those.";
+        }
+        renderAll();
+        return { added: added, unsent: failedBatch.concat(unsent),
+                 error: failure };
+      })
+      .catch(function (e) {
+        st.error = e.message;
+        renderAll();
+        return { added: added, unsent: failedBatch.concat(unsent), error: e };
+      });
   }
 
   function openPlacementMove(day, link) {
@@ -4332,11 +4398,17 @@
     // the FROM day as well as the link, because a photograph on three
     // days has three occurrences sharing one link id and "move it" has
     // three readings.
+    // See unlinkDayPhoto(). Opening the move drawer repaints, so it is
+    // guarded at the opener as well as at the commit: blocked means no
+    // drawer opens at all, rather than a drawer opening over a form
+    // whose contents are already gone.
+    if (dayFormDirtyBlocks()) return;
     st.placementMove = { fromDayId: day.id, linkId: link.id };
     renderAll();
   }
 
   function movePlacement(fromDayId, linkId, toDayId) {
+    if (dayFormDirtyBlocks()) return Promise.resolve();
     return api("/api/trips/" + encodeURIComponent(st.trip.id) +
       "/photos/placement-move",
       { method: "POST", body: {
@@ -5405,8 +5477,17 @@
         // server's 50-per-call limit is SENT IN BATCHES rather than
         // refused. A day has no cap; a request does.
         addPhotosToDay(day, ids)
-          .then(function () {
-            if (!st.error) st.photoPickerDayId = null;
+          .then(function (r) {
+            // The drawer closes only when the whole selection landed.
+            // On a partial add it STAYS OPEN holding exactly the
+            // photographs that did not land, so pressing Add again
+            // retries those and only those — which is what makes the
+            // retry idempotent from the operator's side rather than
+            // relying on the server to tolerate a duplicate.
+            (r.added || []).forEach(function (id) {
+              delete st.photoPickerChecked[id];
+            });
+            if (!r.error) st.photoPickerDayId = null;
             renderAll();
           });
       });

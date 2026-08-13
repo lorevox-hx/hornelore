@@ -129,12 +129,21 @@ PHOTO_WINDOW_ARITHMETIC = Surface(
     "maths is verified where Chromium cannot run",
     False)
 
+PHOTO_PLACEMENT_SAFETY = Surface(
+    REPO_ROOT / "scripts" / "ui" / "run_photo_placement_safety.js",
+    "Phase 5-readiness proof that a half-failed multi-batch Add reports "
+    "what actually happened, and that every day-inspector photo control "
+    "refuses to discard typed edits; executes the real shipped "
+    "functions against an api that fails on demand",
+    False)
+
 #: Every file this project considers part of a Travel Doc surface.
 ALL: List[Surface] = [
     UNIFIED_JS, UNIFIED_CSS, SHELL_JS, SHELL_HTML, SHELL_CSS,
     DEV_HARNESS, RETIRED_JS, RETIRED_CSS, RETIRED_PAGE,
     LIVENESS_HARNESS, MOUNT_LIVENESS_HARNESS,
     PHOTO_WINDOW_LIVENESS, PHOTO_WINDOW_ARITHMETIC,
+    PHOTO_PLACEMENT_SAFETY,
 ]
 
 #: The surfaces an operator can actually reach from the shell.
