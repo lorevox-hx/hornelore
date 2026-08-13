@@ -342,6 +342,15 @@
     // three days has three occurrences sharing one link id.
     // {fromDayId, linkId} or null.
     placementMove: null,
+    // Bounded windows over photo lists, keyed by surface. See
+    // photoWindow(). Cleared on trip switch with the drawers.
+    photoWindows: {},
+    // The photo picker's checked set. It used to be a closure variable
+    // inside renderPhotoPicker, so ANY repaint silently emptied it —
+    // invisible while the grid was static, and unmissable the moment
+    // Load more repaints. Selection is operator state and belongs in
+    // st, not in a render.
+    photoPickerChecked: {},
     noteDrawerDayId: null,   // in-lab day note drawer
     // WO-LIVE-TRIP-COMPANION-01 VS1 -- the trip timeline modal. null =
     // closed. Open shape: {dayId, days, preserved, items, unplaced,
@@ -898,6 +907,8 @@
     st.loriReturnTab = "plan";
     st.photoPickerDayId = null;
     st.placementMove = null;
+    st.photoWindows = {};
+    st.photoPickerChecked = {};
     st.noteDrawerDayId = null;
     st.sourceDrawerDayId = null;
     st.reconcile = null;
@@ -4207,6 +4218,94 @@
   // outright, which is the behaviour this respects rather than tests.
   var PLACEMENT_BATCH_MAX = 50;
 
+  // ── Bounded windows over photo lists (§8) ────────────────────────
+  //
+  // WHAT THIS REPLACES, AND WHY IT WAS A CORRECTNESS BUG RATHER THAN A
+  // PERFORMANCE ONE. The day inspector rendered `dayLinks.slice(0, 12)`
+  // and `dateLinks.slice(0, 8)`. Those are not "showing the first
+  // few" — they are the ONLY rows that exist in the DOM, and every
+  // control lives on a row. The thirteenth photograph on a day could
+  // not be removed, moved, or even seen, and nothing on screen said it
+  // was there. A cap the operator cannot cross and cannot detect is
+  // worse than a long list.
+  //
+  // The picker had the opposite failure: it mounted the entire trip
+  // library in one grid, eagerly, however large.
+  //
+  // Both are now windows. Fifty items appear, "Load more" exposes fifty
+  // more, and the window slides once it reaches its bound so the
+  // mounted tile count stops growing. Everything remains reachable;
+  // nothing is mounted indefinitely.
+  var PHOTO_PAGE_SIZE = 50;
+  // A drawer holds ONE grid, so it may use the whole budget. The day
+  // inspector holds two lists at once — placements and suggestions —
+  // so each gets half and the mounted total lands in the same place
+  // either way. One number would have meant either a stingy drawer or
+  // an inspector that could mount four hundred tiles.
+  var PHOTO_WINDOW_MAX = 200;
+  var PHOTO_WINDOW_MAX_SECTION = 100;
+
+  function photoWindow(key, total, maxWide) {
+    // ONE stored number: `end`, the frontier the operator has loaded to.
+    // `start` is DERIVED as max(0, end - wide), so the window is the
+    // last `wide` items up to the frontier and is correct by
+    // construction — it cannot be wider than the bound, cannot start
+    // past its own end, and cannot survive the list changing size.
+    //
+    // The first version stored both edges and clamped them against each
+    // other. It failed on a list that SHRANK: a window at 227–327 over
+    // a list that dropped to three items clamped to 2–3, so the
+    // operator saw one photograph of three and an Earlier control. The
+    // arithmetic runner caught it, which is the argument for having a
+    // runner — the shape looked right in review and was wrong in
+    // execution. Deriving one edge from the other removes the class,
+    // not just the case.
+    var wide = maxWide || PHOTO_WINDOW_MAX;
+    var stored = st.photoWindows[key];
+    var floor = Math.min(PHOTO_PAGE_SIZE, total);
+    var end = Math.max(floor, Math.min(stored ? stored.end : floor, total));
+    var w = { start: Math.max(0, end - wide), end: end };
+    st.photoWindows[key] = w;
+    return w;
+  }
+
+  function slidePhotoWindow(key, total, maxWide, direction) {
+    // Moves the frontier by one page. `start` follows from it, so there
+    // is no second edge to keep in step and no state in which the two
+    // disagree.
+    var wide = maxWide || PHOTO_WINDOW_MAX;
+    var w = photoWindow(key, total, wide);
+    var floor = Math.min(PHOTO_PAGE_SIZE, total);
+    var end = direction > 0
+      ? Math.min(total, w.end + PHOTO_PAGE_SIZE)
+      : Math.max(floor, w.end - PHOTO_PAGE_SIZE);
+    st.photoWindows[key] = { start: Math.max(0, end - wide), end: end };
+    renderAll();
+  }
+
+  function photoPager(key, total, maxWide) {
+    // "Showing 51–250 of 327", plus whichever controls apply. The count
+    // is stated so the batch size is never mistaken for a cap on what a
+    // day may hold — the operator can see there are 327 and that this
+    // is a view of them.
+    var wide = maxWide || PHOTO_WINDOW_MAX;
+    var w = photoWindow(key, total, wide);
+    var bar = el("div", "tdl-photo-pager");
+    if (total <= PHOTO_PAGE_SIZE && w.start === 0) return bar;
+    bar.appendChild(el("span", "tdl-muted",
+      "Showing " + (w.start + 1) + "–" + w.end + " of " + total));
+    if (w.start > 0) {
+      bar.appendChild(btn("tdl-btn tdl-btn-small", "↑ Earlier",
+        function () { slidePhotoWindow(key, total, wide, -1); }));
+    }
+    if (w.end < total) {
+      bar.appendChild(btn("tdl-btn tdl-btn-small",
+        "Load more (" + (total - w.end) + " left)",
+        function () { slidePhotoWindow(key, total, wide, 1); }));
+    }
+    return bar;
+  }
+
   function addPhotosToDay(day, linkIds) {
     var ids = (linkIds || []).slice();
     if (!ids.length) return Promise.resolve();
@@ -4405,7 +4504,12 @@
     if (dayLinks.length) {
       ph.appendChild(el("div", "tdl-row-title-plain", "On this day"));
       var rowA = el("div", "tdl-photo-row");
-      dayLinks.slice(0, 12).forEach(function (l) {
+      // Windowed, not truncated. `slice(0, 12)` here meant the
+      // thirteenth photograph on a day had no row, and every control
+      // lives on a row — so it could not be removed, moved or seen.
+      var keyA = "day:" + day.id + ":on";
+      var winA = photoWindow(keyA, dayLinks.length, PHOTO_WINDOW_MAX_SECTION);
+      dayLinks.slice(winA.start, winA.end).forEach(function (l) {
         var cellWrap = el("div", "tdl-photo-cell");
         var im = thumbImg(l.photo_id, l.caption, false);
         cellWrap.appendChild(im);
@@ -4427,6 +4531,8 @@
         rowA.appendChild(cellWrap);
       });
       ph.appendChild(rowA);
+      ph.appendChild(photoPager(keyA, dayLinks.length,
+        PHOTO_WINDOW_MAX_SECTION));
     }
     if (dateLinks.length) {
       // "Taken on this date" — the name the work order gives it (§7).
@@ -4434,7 +4540,9 @@
       // the same rows as a deficiency; they are a suggestion.
       ph.appendChild(el("div", "tdl-row-title-plain", "Taken on this date"));
       var rowB = el("div", "tdl-photo-row");
-      dateLinks.slice(0, 8).forEach(function (l) {
+      var keyB = "day:" + day.id + ":suggested";
+      var winB = photoWindow(keyB, dateLinks.length, PHOTO_WINDOW_MAX_SECTION);
+      dateLinks.slice(winB.start, winB.end).forEach(function (l) {
         var sCell = el("div", "tdl-photo-cell");
         sCell.appendChild(thumbImg(l.photo_id, l.caption, false));
         var sOn = linkDayIds(l);
@@ -4446,6 +4554,8 @@
         rowB.appendChild(sCell);
       });
       ph.appendChild(rowB);
+      ph.appendChild(photoPager(keyB, dateLinks.length,
+        PHOTO_WINDOW_MAX_SECTION));
     }
     if (!dayLinks.length && !dateLinks.length) {
       ph.appendChild(el("p", "tdl-muted", "No photos on this day yet."));
@@ -5041,6 +5151,13 @@
     if (dayFormDirtyBlocks()) return;
     st.selectedDayId = dayId;
     st.photoPickerDayId = dayId;
+    // A fresh selection and a fresh window per opening. Selection
+    // survives repaints and window slides WITHIN one opening — that is
+    // what holding it in st is for — but carrying it across openings
+    // would silently pre-tick photographs the operator chose for a
+    // different day.
+    st.photoPickerChecked = {};
+    delete st.photoWindows["picker:" + dayId];
     st.noteDrawerDayId = null;
     st.loriOverlay = false;
     renderAll();
@@ -5048,6 +5165,7 @@
 
   function closePhotoPicker() {
     st.photoPickerDayId = null;
+    st.photoPickerChecked = {};
     renderAll();
   }
 
@@ -5152,7 +5270,12 @@
       "Pick trip photos to attach to this day. Attached photos count on " +
       "this day card and show in the day's Photos section."));
 
-    var checked = {};
+    // Selection lives in st, not in this closure. It used to be
+    // `var checked = {}` here, which meant every repaint emptied it —
+    // harmless while the grid was static and immediately visible once
+    // Load more repaints. It is cleared when the picker opens and when
+    // it closes, never by a render.
+    var checked = st.photoPickerChecked;
 
     // ── THIS IS AN ADD. IT WAS LABELLED A MOVE. ──────────────────────
     //
@@ -5232,10 +5355,15 @@
           "Every trip photo is already attached to this day." :
           "This trip has no photos yet."));
     }
-    pickable.forEach(function (l) {
+    var keyP = "picker:" + day.id;
+    var winP = photoWindow(keyP, pickable.length, PHOTO_WINDOW_MAX);
+    pickable.slice(winP.start, winP.end).forEach(function (l) {
       var cell = el("label", "tdl-picker-cell");
       var cb = document.createElement("input");
       cb.type = "checkbox";
+      // Reflects the stored selection, so a photograph ticked on the
+      // first page is still ticked when the window slides back to it.
+      cb.checked = !!checked[l.id];
       cb.addEventListener("change", function () {
         checked[l.id] = cb.checked;
         paintAttach();
@@ -5261,6 +5389,7 @@
       grid.appendChild(cell);
     });
     body.appendChild(grid);
+    body.appendChild(photoPager(keyP, pickable.length, PHOTO_WINDOW_MAX));
     drawer.appendChild(body);
 
     var moveNotice = el("div", "tdl-move-notice");

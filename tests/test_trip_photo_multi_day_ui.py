@@ -249,6 +249,157 @@ class BatchingRespectsTheServerLimitTest(unittest.TestCase):
         self.assertIn("addPhotosToDay(day, ids)", body)
 
 
+class EveryItemIsReachableTest(unittest.TestCase):
+    """Phase 3b. The truncating slices were a CORRECTNESS bug, not a
+    load-shape one: every control lives on a row, so a photograph with
+    no row could not be removed, moved, or seen, and nothing on screen
+    said it was there."""
+
+    def test_the_truncating_slices_are_gone(self):
+        body = _fn("renderDayInspector") if "function renderDayInspector(" \
+            in _js() else _js()
+        for dead in ("dayLinks.slice(0, 12)", "dateLinks.slice(0, 8)"):
+            self.assertNotIn(dead, body,
+                             "%s truncates a list every control lives on"
+                             % dead)
+
+    def test_both_inspector_lists_are_windowed(self):
+        src = _js()
+        self.assertIn("dayLinks.slice(winA.start, winA.end)", src)
+        self.assertIn("dateLinks.slice(winB.start, winB.end)", src)
+
+    def test_the_picker_is_windowed(self):
+        body = _fn("renderPhotoPicker")
+        self.assertIn("pickable.slice(winP.start, winP.end)", body)
+        self.assertNotIn("pickable.forEach(", body,
+                         "the picker still mounts the whole trip library")
+
+    def test_every_windowed_list_has_a_pager(self):
+        """A window without a control is a slice with extra steps."""
+        src = _js()
+        self.assertEqual(src.count("photoPager("), 4,
+                         "three call sites plus the definition; a list "
+                         "gained a window without gaining its control")
+
+    def test_the_pager_states_the_true_total(self):
+        body = _fn("photoPager")
+        self.assertIn('" of " + total', body)
+        self.assertIn("Load more (", body)
+        self.assertIn("Earlier", body)
+
+
+class BoundedDomTest(unittest.TestCase):
+
+    def test_the_constants_are_declared_once(self):
+        src = _js()
+        self.assertEqual(src.count("var PHOTO_PAGE_SIZE = "), 1)
+        self.assertEqual(src.count("var PHOTO_WINDOW_MAX = "), 1)
+        self.assertEqual(src.count("var PHOTO_WINDOW_MAX_SECTION = "), 1)
+
+    def test_the_inspector_sections_share_the_drawer_budget(self):
+        """Two lists are mounted at once in the inspector; one is
+        mounted in the drawer. Halving the section bound is what makes
+        the mounted total the same on either surface."""
+        src = _js()
+        page = int(re.search(r"var PHOTO_PAGE_SIZE = (\d+);", src).group(1))
+        wide = int(re.search(r"var PHOTO_WINDOW_MAX = (\d+);", src).group(1))
+        section = int(re.search(
+            r"var PHOTO_WINDOW_MAX_SECTION = (\d+);", src).group(1))
+        self.assertEqual(page, 50)
+        self.assertLessEqual(section * 2, wide,
+                             "the inspector can mount more than the drawer")
+        self.assertLessEqual(wide, 200, "the bound drifted above ~200")
+
+    def test_the_sections_use_the_section_bound_and_the_drawer_the_full_one(
+            self):
+        src = _js()
+        self.assertIn('photoWindow(keyA, dayLinks.length, '
+                      'PHOTO_WINDOW_MAX_SECTION)', src)
+        self.assertIn('photoWindow(keyB, dateLinks.length, '
+                      'PHOTO_WINDOW_MAX_SECTION)', src)
+        self.assertIn('photoWindow(keyP, pickable.length, '
+                      'PHOTO_WINDOW_MAX)', src)
+
+    def test_start_is_derived_rather_than_stored(self):
+        """The bug the arithmetic runner found: storing both edges let a
+        shrunken list clamp to a one-item window. `start` is now
+        max(0, end - wide), so the class cannot recur."""
+        body = _fn("photoWindow")
+        self.assertIn("start: Math.max(0, end - wide)", body)
+
+
+class SelectionSurvivesARepaintTest(unittest.TestCase):
+    """Load more repaints, and a repaint used to empty the selection —
+    invisible while the grid was static, unmissable once it slides."""
+
+    def test_the_checked_set_lives_in_state(self):
+        src = _js()
+        self.assertIn("photoPickerChecked", src)
+        body = _fn("renderPhotoPicker")
+        self.assertIn("var checked = st.photoPickerChecked;", body)
+        self.assertNotIn("var checked = {};", body,
+                         "selection is back in the render closure")
+
+    def test_a_rendered_checkbox_reflects_the_stored_selection(self):
+        body = _fn("renderPhotoPicker")
+        self.assertIn("cb.checked = !!checked[l.id];", body)
+
+    def test_it_is_cleared_when_the_picker_opens_and_closes(self):
+        for fn in ("openPhotoPicker", "closePhotoPicker"):
+            self.assertIn("st.photoPickerChecked = {};", _fn(fn),
+                          "%s leaves a stale selection" % fn)
+
+    def test_windows_and_selection_are_cleared_on_trip_switch(self):
+        body = _fn("selectTrip")
+        self.assertIn("st.photoWindows = {};", body)
+        self.assertIn("st.photoPickerChecked = {};", body)
+
+
+class ThumbnailsStayEagerTest(unittest.TestCase):
+    """§8.1. Nested `overflow:auto` panels are their own scrollport, and
+    native lazy loading evaluates against the document's — which is how
+    four thumbnail sites shipped permanently blank once. Bounded eager
+    batches are the sanctioned answer and the one taken here."""
+
+    def test_every_nested_panel_asks_for_eager_thumbnails(self):
+        """Scoped to the nested panels, NOT the whole file.
+
+        The first version of this test banned lazy loading everywhere
+        and failed on the trip gallery — which is the one surface that
+        legitimately keeps the hint, because it scrolls with the
+        DOCUMENT rather than inside an overflow:auto panel, and it is
+        also the one that can hold every photograph on a trip. Banning
+        it there would have traded a real defect for a real cost.
+        """
+        for fn in ("renderPhotoPicker", "renderPlacementMove"):
+            body = _fn(fn)
+            self.assertNotIn(", true)", body.replace("thumbImg(", "\x00"),
+                             "%s asks for a lazy thumbnail inside a "
+                             "nested scrollport" % fn)
+        src = _js()
+        self.assertIn("thumbImg(l.photo_id, l.caption, false)", src)
+
+    def test_the_lazy_inventory_did_not_grow(self):
+        """Exactly the two sites that were here before Phase 3: the trip
+        gallery and the travel-document preview. Both scroll with the
+        document rather than inside an overflow:auto panel, which is the
+        condition under which native lazy loading works at all.
+
+        Equality, not a ceiling. A third would almost certainly be a new
+        nested panel, and that is the failure §8.1 exists to prevent —
+        four thumbnail sites once shipped permanently blank for exactly
+        this reason.
+        """
+        src = _js()
+        lazy = re.findall(r"thumbImg\([^)]*,\s*true\)", src)
+        self.assertEqual(len(lazy), 2,
+                         "the lazy-thumbnail inventory moved: %r" % (lazy,))
+
+    def test_lazy_remains_opt_in_at_the_single_decision_point(self):
+        body = _fn("thumbImg")
+        self.assertIn("lazy", body)
+
+
 class NoNativeDialogsTest(unittest.TestCase):
     """Every destructive or reassigning act added by Phase 3 stays
     in-panel. The lab's standing rule, and this is the phase most

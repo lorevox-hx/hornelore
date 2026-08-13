@@ -215,6 +215,13 @@
 .tdl-photo-row img { width: 100%; aspect-ratio: 1.25; object-fit: cover; border-radius: 8px; border: 1px solid var(--tdl-line); background: #eee6d6; }
 .tdl-photo-cell { display: grid; gap: .3rem; }
 .tdl-photo-cell .tdl-btn-small { font-size: .72rem; padding: .15rem .3rem; }
+/* WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01 Phase 3b — the bounded-window
+   footer. Structural only; every colour reuses an existing variable.
+   It carries "Showing 51–250 of 327" beside the Earlier / Load more
+   controls, so the batch size can never read as a cap on what a day is
+   allowed to hold. */
+.tdl-photo-pager { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin: .4rem 0 .2rem; }
+.tdl-photo-pager:empty { display: none; }
 
 /* Drawers (photo picker / note / Lori-in-context) — in-lab overlays,
    never a navigation away from the Trip Plan. */
