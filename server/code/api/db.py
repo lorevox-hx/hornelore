@@ -461,6 +461,96 @@ def _wo13_seed_reference_narrators(
 
 
 # -----------------------------------------------------------------------------
+# WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01 Phase 1 — 0043 backfill skip report
+# -----------------------------------------------------------------------------
+# Databases already reported on in THIS process. Keyed by path rather than
+# a bare boolean because tests legitimately drive several databases through
+# one interpreter, and a single global flag would let the first one silence
+# the rest.
+_0043_SKIPS_REPORTED: set = set()
+
+
+def _report_0043_backfill_skips(con: sqlite3.Connection, db_path: str) -> None:
+    """Report legacy photo-day values migration 0043 refused to carry.
+
+    0043 backfills one placement per legacy ``trip_photo_links.trip_day_id``
+    but will not copy a value pointing at a missing day or at a day in
+    another trip — copying the first would fail the new foreign key and take
+    the migration down, the second would propagate corruption SQLite cannot
+    forbid. It records every such row in
+    ``trip_photo_day_placement_skips``. A migration is SQL run through
+    ``executescript`` and cannot log for itself, so this is where a skip
+    becomes something an operator can see: without it a photograph that had
+    a day in the old column would have no day in the new table and nothing
+    anywhere would say why.
+
+    CORRECTED 2026-08-12, and the correction is the interesting part. The
+    first version logged on BOTH paths and lived inline in ``init_db()`` —
+    which runs on essentially every CRUD call, not once at boot. On a clean
+    database that produced dozens of identical
+    ``0043 backfill: every legacy photo-day value carried over cleanly``
+    lines in three minutes, one every thirty seconds thereafter. Two
+    separate defects were hiding in that: a message on the clean path at
+    all, and a repetition that would have applied to the WARNING too — a
+    warning repeated 2,880 times a day is worse than an info one, because
+    it teaches an operator to scroll past warnings.
+
+    So: **the clean path is silent at every level**, and the warning fires
+    once per database per process. Each boot is a new process, so every boot
+    that has skips still warns exactly once; what is gone is the repetition
+    *within* a boot, which was the flood.
+
+    Non-fatal by design, like the pre-0034 orphan check it mirrors:
+    refusing to start the stack over a historical row would take the whole
+    product down to report a problem the operator can neither see nor fix at
+    that moment.
+    """
+    if db_path in _0043_SKIPS_REPORTED:
+        return
+    try:
+        _cur_skip = con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='trip_photo_day_placement_skips';"
+        )
+        if _cur_skip.fetchone() is None:
+            # Pre-0043 database. Not an error, and not something to
+            # remember — the table appears the moment 0043 runs.
+            return
+        _rows = con.execute(
+            "SELECT reason, COUNT(*) AS n, "
+            "       GROUP_CONCAT(photo_link_id) AS ids "
+            "  FROM trip_photo_day_placement_skips "
+            " GROUP BY reason;"
+        ).fetchall()
+        _total = sum(int(r[1]) for r in _rows)
+        if _total:
+            logger.warning(
+                "[migrations] 0043 backfill: %d legacy photo-day value(s) "
+                "NOT carried into trip_photo_day_placements. By reason: %s. "
+                "Those photographs are on no day in the new model until an "
+                "operator places them. (Reported once per process.)",
+                _total,
+                "; ".join("%s=%d (%s)" % (r[0], int(r[1]),
+                                          str(r[2] or "")[:200])
+                          for r in _rows),
+            )
+        # Clean OR reported: either way this database has been assessed and
+        # must not be assessed again on the next of thousands of init_db()
+        # calls. Nothing writes to the ledger after 0043 runs, so there is
+        # no later state to miss.
+        _0043_SKIPS_REPORTED.add(db_path)
+    except Exception:
+        logger.exception(
+            "[migrations] 0043 backfill preflight failed "
+            "(non-fatal — migrations already applied)")
+        # Remember the failure too. A preflight that cannot run will not
+        # start running later in the same process, and re-raising the same
+        # traceback every thirty seconds is the flood this correction
+        # exists to remove.
+        _0043_SKIPS_REPORTED.add(db_path)
+
+
+# -----------------------------------------------------------------------------
 # Schema
 # -----------------------------------------------------------------------------
 def init_db() -> None:
@@ -1418,53 +1508,12 @@ def init_db() -> None:
         run_pending_migrations(con)
 
         # WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01 Phase 1 — post-0043
-        # backfill preflight, the counterpart to the pre-0034 check
+        # backfill skip report, the counterpart to the pre-0034 check
         # above and written to the same rule: report, never block boot.
-        #
-        # 0043 backfills one placement per legacy trip_photo_links.
-        # trip_day_id, but refuses to copy a value pointing at a missing
-        # day or a day in another trip -- copying the first would fail
-        # the new foreign key and take the migration down, the second
-        # would propagate corruption SQLite cannot forbid. It records
-        # every such row in trip_photo_day_placement_skips. A migration
-        # is SQL run through executescript and cannot log for itself, so
-        # this is where the skip becomes something an operator can see:
-        # without it, a photograph that had a day in the old column
-        # would have no day in the new table and nothing anywhere would
-        # say why.
-        try:
-            _cur_skip = con.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' "
-                "AND name='trip_photo_day_placement_skips';"
-            )
-            if _cur_skip.fetchone() is not None:
-                _rows = con.execute(
-                    "SELECT reason, COUNT(*) AS n, "
-                    "       GROUP_CONCAT(photo_link_id) AS ids "
-                    "  FROM trip_photo_day_placement_skips "
-                    " GROUP BY reason;"
-                ).fetchall()
-                _total = sum(int(r[1]) for r in _rows)
-                if _total:
-                    logger.warning(
-                        "[migrations] 0043 backfill: %d legacy photo-day "
-                        "value(s) NOT carried into "
-                        "trip_photo_day_placements. By reason: %s. Those "
-                        "photographs are on no day in the new model until "
-                        "an operator places them.",
-                        _total,
-                        "; ".join("%s=%d (%s)" % (r[0], int(r[1]),
-                                                  str(r[2] or "")[:200])
-                                  for r in _rows),
-                    )
-                else:
-                    logger.info(
-                        "[migrations] 0043 backfill: every legacy "
-                        "photo-day value carried over cleanly.")
-        except Exception:
-            logger.exception(
-                "[migrations] 0043 backfill preflight failed "
-                "(non-fatal — migrations already applied)")
+        # Silent on a clean database; see the function's own docstring
+        # for why that silence is the whole point of the 2026-08-12
+        # correction.
+        _report_0043_backfill_skips(con, str(DB_PATH))
     except Exception:
         logger.exception("Post-legacy migrations failed")
         con.close()
