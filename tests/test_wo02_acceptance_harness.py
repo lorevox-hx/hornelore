@@ -52,16 +52,33 @@ def snap(days, photo_links, turns, items, counts=None):
 
 
 _DAYS = [{"id": "d1", "n": 1, "date": "2026-07-14"},
-         {"id": "d2", "n": 2, "date": "2026-07-15"}]
+         {"id": "d2", "n": 2, "date": "2026-07-15"},
+         {"id": "d3", "n": 3, "date": "2026-07-16"}]
+
+
+def link(days, ch="capA", approved=0):
+    """A photo-link snapshot entry in SET shape.
+
+    Was a scalar `{"day": "d1", ...}`. WO-TRIP-PHOTO-MULTI-DAY-
+    PLACEMENT-01 gave placements their own table, so the harness records
+    the day SET and a placement id per day. Sorted, because the set is
+    the fact and its order is not — two runs of the same state have to
+    produce identical files.
+    """
+    days = sorted(days)
+    return {"days": days,
+            "pids": dict((d, "pl-%s-%s" % (ch, d)) for d in days),
+            "ch": ch, "approved": approved}
 
 
 def _baseline():
     return snap(
         _DAYS,
-        {"p1": {"day": "d1", "ch": "capA", "approved": 0}},
+        {"p1": link(["d1"])},
         {"c1": {"day": "d1", "u": 10, "a": 11, "nh": "nA", "lh": "lA",
                 "src": "active_trip_day", "st": "needs_day"}},
-        {"d1": [["photo", "p1", "capA"], ["conversation", "c1", ""],
+        {"d1": [["photo", "p1", "pl-capA-d1", "capA"],
+                ["conversation", "c1", ""],
                 ["day_text", "t1", "txtA"]],
          "d2": []},
     )
@@ -99,7 +116,7 @@ class CheckpointTest(_HarnessCase):
         """Photo removed from its day, day text edited, one note added."""
         return snap(
             _DAYS,
-            {"p1": {"day": None, "ch": "capA", "approved": 0}},
+            {"p1": link([])},
             {"c1": {"day": "d1", "u": 10, "a": 11, "nh": "nA", "lh": "lA",
                     "src": "active_trip_day", "st": "needs_day"}},
             {"d1": [["conversation", "c1", ""], ["day_text", "t1", "txtB"],
@@ -120,7 +137,8 @@ class CheckpointTest(_HarnessCase):
         self.assertTrue(os.path.exists(wo02.STATE_CP))
         with open(wo02.STATE_CP, encoding="utf-8") as fh:
             cp = json.load(fh)
-        self.assertEqual(cp["stage_a"]["removed_photo_links"], ["p1"])
+        self.assertEqual(cp["stage_a"]["removed_placements"],
+            [{"link": "p1", "before": ["d1"], "after": []}])
         self.assertEqual(cp["stage_a"]["new_notes"], ["n9"])
 
     def test_nothing_done_is_incomplete_never_failed(self):
@@ -180,7 +198,7 @@ class RestoreVerifyTest(_HarnessCase):
 
     def _checkpoint_state(self):
         cp = _baseline()
-        cp["stage_a"] = {"removed_photo_links": ["p1"], "new_notes": ["n9"],
+        cp["stage_a"] = {"removed_placements": [{"link": "p1", "before": ["d1"], "after": []}], "new_notes": ["n9"],
                          "edited_kinds": ["day_text"]}
         cp["attestations"] = {"dirty-guard": {"mode": "checkpoint", "at": "T"},
                               "modal-reopen": {"mode": "verify", "at": "T"}}
@@ -204,7 +222,8 @@ class RestoreVerifyTest(_HarnessCase):
         self.write_baseline()
         self._checkpoint_state()
         bad = self._restored()
-        bad["photo_links"]["p1_copy"] = {"day": "d1", "ch": "capA",
+        bad["photo_links"]["p1_copy"] = {"days": ["d1"], "pids": {},
+                                        "ch": "capA",
                                          "approved": 0}
         rc, logs, n = self.run_mode(wo02.do_restore_verify, bad, [], "T")
         self.assertEqual(rc, 1)
@@ -214,7 +233,7 @@ class RestoreVerifyTest(_HarnessCase):
         self.write_baseline()
         self._checkpoint_state()
         bad = self._restored()
-        bad["photo_links"]["p1"]["day"] = "d2"
+        bad["photo_links"]["p1"]["days"] = ["d2"]
         rc, logs, n = self.run_mode(wo02.do_restore_verify, bad, [], "T")
         self.assertEqual(rc, 1)
         self.assertIn("original day", logs)
@@ -242,7 +261,7 @@ class RestoreVerifyTest(_HarnessCase):
         evidence it never had."""
         self.write_baseline()
         cp = _baseline()
-        cp["stage_a"] = {"removed_photo_links": ["p1"], "new_notes": ["n9"],
+        cp["stage_a"] = {"removed_placements": [{"link": "p1", "before": ["d1"], "after": []}], "new_notes": ["n9"],
                          "edited_kinds": []}
         with open(wo02.STATE_CP, "w", encoding="utf-8") as fh:
             json.dump(cp, fh)
@@ -310,7 +329,7 @@ class MainDispatchAttestationTest(_HarnessCase):
 
     def _seed_checkpoint(self):
         cp = _baseline()
-        cp["stage_a"] = {"removed_photo_links": [], "new_notes": [],
+        cp["stage_a"] = {"removed_placements": [], "new_notes": [],
                          "edited_kinds": []}
         with open(wo02.STATE_CP, "w", encoding="utf-8") as fh:
             json.dump(cp, fh)
@@ -377,6 +396,371 @@ class ModeValidationTest(_HarnessCase):
         self.assertIn('modes = ("capture", "checkpoint", "verify", '
                       '"restore-verify")', src)
         self.assertIn("if mode not in modes:", src)
+
+    def test_every_mode_still_has_a_handler(self):
+        """The source check above proves the LIST is intact. This proves
+        each entry still resolves to something callable, which is the
+        half that would break if a revision quietly folded two modes
+        together."""
+        for fn in ("do_capture", "do_checkpoint", "do_verify",
+                   "do_restore_verify"):
+            self.assertTrue(callable(getattr(wo02, fn, None)),
+                            "%s is gone" % fn)
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01 Phase 4 — set semantics
+#
+#  The harness measured a photograph's day as ONE nullable value. Under
+#  many-to-many that is not merely incomplete: two of its three photo
+#  questions become actively wrong, and one of them passes on data it
+#  should reject. These tests pin the corrected questions.
+# ══════════════════════════════════════════════════════════════════════
+
+
+class SnapshotReadsTheApiTest(_HarnessCase):
+    """`snapshot()` itself, with the network stubbed.
+
+    ADDED 2026-08-13 BECAUSE A MUTATION SURVIVED. Reverting the snapshot
+    to the old scalar — `"days": [link["trip_day_id"]]` — killed no
+    test, and so did removing the sort. Every other test in this file
+    builds its fixtures by hand, so the one function that actually reads
+    the API and decides the shape of every state file had no coverage at
+    all. The tests were measuring their own fixtures.
+    """
+
+    def _stub(self, photo_links, timeline=None):
+        cal = {"days": [{"id": "d1", "day_index": 1, "date": "2026-07-14",
+                         "row_count": 1}]}
+        tl = {"items": timeline if timeline is not None else []}
+
+        def fake_get(path):
+            if "/calendar" in path:
+                return cal
+            if "/timeline" in path:
+                return tl
+            if "/photo-links" in path:
+                return {"photo_links": photo_links}
+            raise AssertionError("unexpected path %r" % path)
+        return fake_get
+
+    def _with_stub(self, fake_get):
+        real = wo02.get
+        wo02.get = fake_get
+        try:
+            return wo02.snapshot()
+        finally:
+            wo02.get = real
+
+    def test_it_records_the_placement_set_not_the_scalar(self):
+        snap_ = self._with_stub(self._stub([{
+            "id": "p1",
+            # What the server sends for a photograph on TWO days: the
+            # derived scalar is null BY RULE.
+            "trip_day_id": None,
+            "trip_day_ids": ["d3", "d1"],
+            "day_placements": [{"id": "plA", "trip_day_id": "d1"},
+                               {"id": "plB", "trip_day_id": "d3"}],
+            "caption": "c", "caption_approved_for_lori": 0,
+        }]))
+        entry = snap_["photo_links"]["p1"]
+        self.assertEqual(entry["days"], ["d1", "d3"],
+                         "the snapshot recorded the null scalar instead "
+                         "of the placement set")
+        self.assertEqual(entry["pids"], {"d1": "plA", "d3": "plB"})
+
+    def test_the_day_set_is_sorted(self):
+        """Two runs of the same state must produce identical files, so
+        the set's order cannot leak in from the server's."""
+        a = self._with_stub(self._stub([{
+            "id": "p1", "trip_day_id": None,
+            "trip_day_ids": ["d3", "d1"], "day_placements": [],
+            "caption": "c", "caption_approved_for_lori": 0}]))
+        b = self._with_stub(self._stub([{
+            "id": "p1", "trip_day_id": None,
+            "trip_day_ids": ["d1", "d3"], "day_placements": [],
+            "caption": "c", "caption_approved_for_lori": 0}]))
+        self.assertEqual(a["photo_links"], b["photo_links"])
+        self.assertEqual(a["photo_links"]["p1"]["days"], ["d1", "d3"])
+
+    def test_an_unplaced_photo_records_an_empty_set(self):
+        snap_ = self._with_stub(self._stub([{
+            "id": "p1", "trip_day_id": None, "trip_day_ids": [],
+            "day_placements": [], "caption": "c",
+            "caption_approved_for_lori": 0}]))
+        self.assertEqual(snap_["photo_links"]["p1"]["days"], [])
+
+    def test_a_timeline_photo_row_carries_its_placement_id(self):
+        snap_ = self._with_stub(self._stub(
+            [], timeline=[{"kind": "photo", "link_id": "p1",
+                           "placement_id": "plA", "caption": "c"}]))
+        row = snap_["items"]["d1"][0]
+        self.assertEqual(row[0], "photo")
+        self.assertEqual(row[1], "p1")
+        self.assertEqual(row[2], "plA",
+                         "the timeline row lost its placement id, so two "
+                         "occurrences of one photograph are indistinguishable")
+
+
+class SnapshotShapeTest(_HarnessCase):
+
+    def test_days_are_sorted_so_two_runs_agree(self):
+        a = link(["d3", "d1"])
+        b = link(["d1", "d3"])
+        self.assertEqual(a["days"], b["days"])
+        self.assertEqual(a["days"], ["d1", "d3"])
+
+    def test_days_of_reads_the_new_shape(self):
+        self.assertEqual(wo02.days_of(link(["d1", "d3"])), ["d1", "d3"])
+        self.assertEqual(wo02.days_of(link([])), [])
+
+    def test_days_of_still_reads_a_pre_migration_snapshot(self):
+        """A state file captured before 2026-08-13 carries `day`.
+        Refusing it would throw away a real capture; it is read as the
+        one-day set it was."""
+        self.assertEqual(wo02.days_of({"day": "d1"}), ["d1"])
+        self.assertEqual(wo02.days_of({"day": None}), [])
+
+    def test_a_legacy_snapshot_is_detected(self):
+        legacy = _baseline()
+        legacy["photo_links"]["p1"] = {"day": "d1", "ch": "capA",
+                                       "approved": 0}
+        self.assertTrue(wo02._snapshot_is_legacy(legacy))
+        self.assertFalse(wo02._snapshot_is_legacy(_baseline()))
+
+
+class MultiDayCheckpointTest(_HarnessCase):
+    """One photograph, several days, and the three operations told
+    apart."""
+
+    def _two_day_baseline(self):
+        s = _baseline()
+        s["photo_links"]["p1"] = link(["d1", "d3"])
+        s["items"]["d1"] = [["photo", "p1", "pl-capA-d1", "capA"],
+                            ["conversation", "c1", ""],
+                            ["day_text", "t1", "txtA"]]
+        s["items"]["d3"] = [["photo", "p1", "pl-capA-d3", "capA"]]
+        s["counts"]["d3"] = {"row_count": 1}
+        return s
+
+    def test_a_photo_can_be_on_two_days_at_once(self):
+        s = self._two_day_baseline()
+        self.assertEqual(wo02.days_of(s["photo_links"]["p1"]), ["d1", "d3"])
+        # And it is ONE trip link, not two.
+        self.assertEqual(len(s["photo_links"]), 1)
+
+    def test_removing_one_placement_keeps_the_other_and_the_link(self):
+        self.write_baseline(self._two_day_baseline())
+        after = self._two_day_baseline()
+        after["photo_links"]["p1"] = link(["d3"])
+        after["items"]["d1"] = [["conversation", "c1", ""],
+                                ["day_text", "t1", "txtB"],
+                                ["note", "n9", "newnote"]]
+        after["counts"]["d1"] = {"row_count": 3}
+        rc, log, n = self.run_mode(wo02.do_checkpoint, after, [], "T")
+        self.assertEqual(n["fail"], 0, log)
+        self.assertIn("lost exactly one day", log)
+        self.assertIn("kept every other placement", log)
+        self.assertEqual(len(after["photo_links"]), 1)
+
+    def test_losing_BOTH_days_when_one_was_removed_fails(self):
+        """Non-vacuity for the test above: the assertion has to be able
+        to tell 'one occurrence removed' from 'the photograph swept off
+        every day'."""
+        self.write_baseline(self._two_day_baseline())
+        bad = self._two_day_baseline()
+        bad["photo_links"]["p1"] = link([])
+        bad["items"]["d1"] = [["conversation", "c1", ""],
+                              ["day_text", "t1", "txtB"],
+                              ["note", "n9", "newnote"]]
+        bad["counts"]["d1"] = {"row_count": 3}
+        bad["items"]["d3"] = []
+        bad["counts"]["d3"] = {"row_count": 0}
+        rc, log, n = self.run_mode(wo02.do_checkpoint, bad, [], "T")
+        self.assertGreater(n["fail"], 0, log)
+        self.assertIn("lost exactly one day, not 2", log)
+
+    def test_gaining_a_day_is_not_reported_as_a_removal(self):
+        """The old scalar test fired FALSELY here: a photograph going
+        from one day to two makes the derived scalar go from a day to
+        null, which read as 'removed from its day'."""
+        self.write_baseline(_baseline())
+        grew = _baseline()
+        grew["photo_links"]["p1"] = link(["d1", "d3"])
+        grew["items"]["d3"] = [["photo", "p1", "pl-capA-d3", "capA"]]
+        grew["counts"]["d3"] = {"row_count": 1}
+        grew["items"]["d1"] = [["photo", "p1", "pl-capA-d1", "capA"],
+                               ["conversation", "c1", ""],
+                               ["day_text", "t1", "txtB"],
+                               ["note", "n9", "newnote"]]
+        grew["counts"]["d1"] = {"row_count": 4}
+        rc, log, n = self.run_mode(wo02.do_checkpoint, grew, [], "T")
+        self.assertEqual(n["fail"], 0, log)
+        self.assertIn("no photo was removed from a day", log)
+        self.assertIn("which is Add and not a defect", log)
+
+
+class MultiDayRestoreTest(_HarnessCase):
+    """Restoration returns the COMPLETE original set and deletes nothing
+    it was not asked to."""
+
+    def _base(self):
+        s = _baseline()
+        s["photo_links"]["p1"] = link(["d1", "d3"])
+        s["photo_links"]["p2"] = link(["d2"], ch="capB")
+        s["items"]["d1"] = [["photo", "p1", "pl-capA-d1", "capA"],
+                            ["conversation", "c1", ""],
+                            ["day_text", "t1", "txtA"]]
+        s["items"]["d2"] = [["photo", "p2", "pl-capB-d2", "capB"]]
+        s["items"]["d3"] = [["photo", "p1", "pl-capA-d3", "capA"]]
+        s["counts"]["d2"] = {"row_count": 1}
+        s["counts"]["d3"] = {"row_count": 1}
+        return s
+
+    def _cp(self):
+        cp = self._base()
+        cp["stage_a"] = {"removed_placements": [], "new_notes": [],
+                         "edited_kinds": []}
+        cp["attestations"] = {"dirty-guard": {"mode": "checkpoint",
+                                              "at": "T"},
+                              "modal-reopen": {"mode": "verify", "at": "T"}}
+        return cp
+
+    def _write(self, cp=None):
+        self.write_baseline(self._base())
+        with open(wo02.STATE_CP, "w", encoding="utf-8") as fh:
+            json.dump(cp or self._cp(), fh)
+
+    def test_a_complete_restore_passes(self):
+        self._write()
+        rc, log, n = self.run_mode(wo02.do_restore_verify, self._base(),
+                                   [], "T")
+        self.assertEqual(n["fail"], 0, log)
+        self.assertIn("complete original day set", log)
+
+    def test_a_half_restore_fails(self):
+        """Back on Day 1 but not Day 3. The OLD scalar assertion could
+        not fail this: both the wanted and the got scalar are null when
+        the set has two members, so it compared null to null and
+        passed."""
+        self._write()
+        half = self._base()
+        half["photo_links"]["p1"] = link(["d1"])
+        half["items"]["d3"] = []
+        half["counts"]["d3"] = {"row_count": 0}
+        rc, log, n = self.run_mode(wo02.do_restore_verify, half, [], "T")
+        self.assertGreater(n["fail"], 0, log)
+        self.assertIn("wanted ['d1', 'd3'], got ['d1']", log)
+
+    def test_a_restore_to_the_wrong_one_of_two_days_fails(self):
+        self._write()
+        wrong = self._base()
+        wrong["photo_links"]["p1"] = link(["d2"])
+        wrong["items"]["d1"] = [["conversation", "c1", ""],
+                                ["day_text", "t1", "txtA"]]
+        wrong["items"]["d2"] = [["photo", "p2", "pl-capB-d2", "capB"],
+                                ["photo", "p1", "pl-capA-d2", "capA"]]
+        wrong["items"]["d3"] = []
+        wrong["counts"] = dict(
+            (d["id"], {"row_count": len(wrong["items"].get(d["id"]) or [])})
+            for d in _DAYS)
+        rc, log, n = self.run_mode(wo02.do_restore_verify, wrong, [], "T")
+        self.assertGreater(n["fail"], 0, log)
+
+    def test_restoring_one_photo_by_unplacing_another_fails(self):
+        """The check that no unrelated placement was deleted. Both links
+        still exist and both still have days, so every per-link
+        comparison except p2's would pass — the total is what catches
+        it."""
+        self._write()
+        robbed = self._base()
+        robbed["photo_links"]["p2"] = link([], ch="capB")
+        robbed["items"]["d2"] = []
+        robbed["counts"]["d2"] = {"row_count": 0}
+        rc, log, n = self.run_mode(wo02.do_restore_verify, robbed, [], "T")
+        self.assertGreater(n["fail"], 0, log)
+        self.assertIn("same number of placements", log)
+
+
+class WalkthroughNamesTheThreeOperationsTest(_HarnessCase):
+    """§8: Add, Remove from this day and Move are explicit operations,
+    and the readout tells them apart."""
+
+    def _cp(self, links):
+        cp = _baseline()
+        cp["photo_links"] = links
+        cp["stage_a"] = {"removed_placements": [], "new_notes": [],
+                         "edited_kinds": []}
+        return cp
+
+    def _run_verify(self, before, after):
+        self.write_baseline(self._cp(before))
+        rc, log, n = self.run_mode(wo02.do_verify, self._cp(after), [], "T")
+        return log, n
+
+    def test_a_grown_set_is_reported_as_Add(self):
+        log, n = self._run_verify({"p1": link(["d1"])},
+                                  {"p1": link(["d1", "d3"])})
+        self.assertIn("1 Add operation(s) seen", log)
+        self.assertIn("adding a day kept every day it already had", log)
+
+    def test_a_shrunk_set_is_reported_as_Remove(self):
+        log, n = self._run_verify({"p1": link(["d1", "d3"])},
+                                  {"p1": link(["d1"])})
+        self.assertIn("1 Remove from this day operation(s) seen", log)
+
+    def test_a_same_size_change_is_reported_as_Move(self):
+        log, n = self._run_verify({"p1": link(["d1"])},
+                                  {"p1": link(["d2"])})
+        self.assertIn("1 Move operation(s) seen", log)
+        self.assertIn("moving changed the day and kept the count", log)
+
+    def test_an_add_is_not_reported_as_a_move(self):
+        """The conflation the old scalar test made unavoidable."""
+        log, n = self._run_verify({"p1": link(["d1"])},
+                                  {"p1": link(["d1", "d3"])})
+        self.assertNotIn("Move operation(s) seen", log)
+
+    def test_the_walkthrough_docstring_names_all_three(self):
+        src = _SCRIPT.read_text(encoding="utf-8")
+        for phrase in ("Add to this day", "Remove from this day", "Move"):
+            self.assertIn(phrase, src)
+
+
+class LegacyEvidenceIsMarkedHistoricalTest(_HarnessCase):
+    """Requirement 9: a pre-migration capture is still readable, and is
+    never presented as current acceptance evidence."""
+
+    def _legacy(self):
+        s = _baseline()
+        s["photo_links"]["p1"] = {"day": "d1", "ch": "capA", "approved": 0}
+        return s
+
+    def test_verify_says_the_baseline_is_historical(self):
+        self.write_baseline(self._legacy())
+        rc, log, n = self.run_mode(wo02.do_verify, _baseline(), [], "T")
+        self.assertIn("HISTORICAL BASELINE", log)
+        self.assertIn("SINGLE-DAY product", log)
+
+    def test_checkpoint_says_it_too(self):
+        self.write_baseline(self._legacy())
+        rc, log, n = self.run_mode(wo02.do_checkpoint, _baseline(), [], "T")
+        self.assertIn("HISTORICAL BASELINE", log)
+
+    def test_a_current_baseline_says_nothing_of_the_sort(self):
+        """Non-vacuity: the notice must not print on every run."""
+        self.write_baseline(_baseline())
+        rc, log, n = self.run_mode(wo02.do_verify, _baseline(), [], "T")
+        self.assertNotIn("HISTORICAL", log)
+
+    def test_the_notice_is_not_a_failure(self):
+        """It is a caveat about the EVIDENCE, not a defect in the
+        product. Counting it as a FAIL would make an operator think
+        something broke."""
+        self.write_baseline(self._legacy())
+        before = wo02.FAIL[0]
+        wo02.warn_if_legacy(self._legacy(), "verify")
+        self.assertEqual(wo02.FAIL[0], before)
 
 
 if __name__ == "__main__":

@@ -22,6 +22,36 @@ Each mode measures against the state the PREVIOUS one wrote:
     restore-verify -> the restore put the ORIGINAL rows back, created no
                 duplicates, and undid nothing it should not have
 
+PHOTOGRAPHS ARE ON A SET OF DAYS, NOT ON A DAY (2026-08-13).
+WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01 gave placements their own table, so
+one photograph may sit on several days of a trip. Every photo assertion
+here compares SETS. The snapshot field is `days: [...]`, sorted so two
+runs of the same state are byte-identical, with `pids` carrying the
+placement id per day for the occasions when a single occurrence has to
+be named.
+
+That changed three questions, not just their spelling:
+
+  * "was it removed from a day" is `the set shrank`, not `the scalar
+    became null`. The old test could not see two days becoming one, and
+    it fired FALSELY on a photograph that gained a second day, because
+    the server derives that scalar and returns null once there are
+    several.
+  * "is it back where it was" is set equality. Comparing one scalar to
+    another would fail a photograph correctly restored to Day 1 while
+    still on Day 3, and pass one restored to the wrong one of its two.
+  * "was it moved" is now three separate walkthrough operations —
+    **Add to this day**, **Remove from this day**, and **Move**, which
+    names the day it moves from. A set that grew is an Add; one that
+    shrank is a Remove; one that changed without changing size is a
+    Move. Reporting all three as "moved" would let a walkthrough that
+    added a day read as a successful move.
+
+A state file captured before that date carries the old scalar `day`. It
+is still readable — see `days_of()` — and every mode that loads one says
+out loud that it is HISTORICAL evidence about the single-day product,
+not current acceptance evidence.
+
 OPERATOR ATTESTATIONS. Two acceptance requirements are browser-only and a
 read-only API snapshot cannot observe them: the dirty-navigation guard
 appearing and preserving unsaved typing, and the modal retaining a usable
@@ -163,7 +193,14 @@ def snapshot():
         for it in tl.get("items") or []:
             kind = it.get("kind")
             if kind == "photo":
-                rows.append(["photo", it.get("link_id"), h(it.get("caption"))])
+                # The PLACEMENT id joins the row, beside the link id it
+                # shares with every other occurrence of the same
+                # photograph. Without it a day's timeline row for a
+                # photograph on three days is indistinguishable from
+                # the other two, and "this occurrence moved" cannot be
+                # said at all.
+                rows.append(["photo", it.get("link_id"),
+                             it.get("placement_id"), h(it.get("caption"))])
             elif kind == "note":
                 rows.append(["note", it.get("note_id"),
                              h(it.get("title")) + h(it.get("text"))])
@@ -189,11 +226,83 @@ def snapshot():
     pl = get("/api/trips/%s/photo-links?include_hidden=1" % TRIP)
     for link in pl.get("photo_links") or []:
         snap["photo_links"][str(link.get("id"))] = {
-            "day": link.get("trip_day_id"),
+            # ── `days`, not `day` (2026-08-13) ────────────────────────
+            #
+            # This field was the scalar `link.get("trip_day_id")`. Under
+            # WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01 the server DERIVES
+            # that scalar and returns null when a photograph is on
+            # SEVERAL days, so a snapshot built from it would record the
+            # most deliberately placed photographs in the trip as being
+            # on no day at all — and `restore-verify` would then
+            # "confirm" that state had been restored.
+            #
+            # SORTED, so a snapshot is comparable: the set is the fact,
+            # its order is not. Two runs that placed the same photograph
+            # on the same two days must produce byte-identical state
+            # files or the whole capture/verify model stops working.
+            "days": sorted(str(d) for d in (link.get("trip_day_ids") or [])),
+            # Placement ids, keyed by day, so a REMOVED occurrence can
+            # be named. Recorded alongside rather than instead of
+            # `days`: ids are stable within a run and meaningless
+            # across a restore, while the day set is the thing the
+            # operator would recognise.
+            "pids": dict(
+                (str(p.get("trip_day_id")), str(p.get("id")))
+                for p in (link.get("day_placements") or [])
+                if p.get("trip_day_id")),
             "ch": h(link.get("caption")),
             "approved": int(link.get("caption_approved_for_lori") or 0),
         }
     return snap
+
+
+def days_of(entry):
+    """The day set of a photo-link snapshot entry, tolerating the OLD
+    scalar shape.
+
+    A state file captured before 2026-08-13 carries `day`, not `days`.
+    Rather than refuse it — which would throw away a genuine
+    pre-migration capture an operator may still want to compare against
+    — it is read as the one-day set it was. `do_verify` says out loud
+    that such a file is historical; see `_snapshot_is_legacy`.
+    """
+    if "days" in entry:
+        return sorted(str(d) for d in (entry.get("days") or []))
+    legacy = entry.get("day")
+    return [str(legacy)] if legacy else []
+
+
+def _snapshot_is_legacy(snap):
+    """True when the state file predates set semantics."""
+    for entry in (snap.get("photo_links") or {}).values():
+        if "days" not in entry:
+            return True
+    return False
+
+
+
+def warn_if_legacy(old, mode):
+    """Say out loud when the baseline predates set semantics.
+
+    Requirement 9 of Phase 4: pre-migration scalar capture evidence is
+    HISTORICAL, not current acceptance evidence. It is still read —
+    throwing it away would destroy a real capture somebody took — but a
+    run that silently compared today's multi-day product against a
+    single-day baseline would produce a verdict about a product that no
+    longer exists, and print it in the same format as a real one.
+    """
+    if not _snapshot_is_legacy(old):
+        return False
+    out("HISTORICAL BASELINE. This state file was captured before "
+        "2026-08-13 and")
+    out("records one day per photograph (`day`), not the placement set "
+        "(`days`).")
+    out("It is read as a one-day set so the comparison can run, but this "
+        "%s is" % mode)
+    out("evidence about the SINGLE-DAY product. Re-run 'capture' for "
+        "current acceptance.")
+    out("")
+    return True
 
 
 def do_capture(now):
@@ -260,6 +369,7 @@ def do_checkpoint(now, attests, now_iso):
 
     out("=== WO-02 CHECKPOINT (Stage A) ===")
     out("")
+    warn_if_legacy(old, "checkpoint")
 
     # Stage A must not have touched a transcript.
     for lid, was in old["turns"].items():
@@ -277,23 +387,53 @@ def do_checkpoint(now, attests, now_iso):
     check(not gained,
           "no caption edit granted Lori approval (n=%d)" % len(gained))
 
-    # A photo removed from a day keeps its link and its photo; only the
-    # day pointer is cleared. Losing the link would be a delete wearing
-    # the word "remove".
-    removed = [k for k, v in now["photo_links"].items()
-               if v["day"] is None
-               and (old["photo_links"].get(k) or {}).get("day") is not None]
+    # ── Remove from THIS day takes one occurrence ─────────────────────
+    #
+    # This asked whether the scalar had become null: `v["day"] is None
+    # and old day is not None`. Under set semantics that is the wrong
+    # question twice over. It cannot see a photograph going from two
+    # days to one — the interesting case, and the one the operator is
+    # most likely to get wrong — and it FIRES SPURIOUSLY on a
+    # photograph that gained a second day, because the derived scalar
+    # goes from a day to null when the set grows past one.
+    #
+    # The question now is whether the day SET shrank, and the assertion
+    # is that everything else survived: the other placements, the trip
+    # link, and the count of links.
+    shrunk, grew = [], []
+    for k, v in now["photo_links"].items():
+        before = days_of(old["photo_links"].get(k) or {})
+        after = days_of(v)
+        if len(after) < len(before):
+            shrunk.append((k, before, after))
+        elif len(after) > len(before):
+            grew.append((k, before, after))
     vanished = [k for k in old["photo_links"] if k not in now["photo_links"]]
     check(not vanished,
           "no photo link disappeared during Stage A (n=%d)" % len(vanished))
-    if not removed:
+    if not shrunk:
         skip("no photo was removed from a day -- Stage A step not done")
     else:
         check(len(now["photo_links"]) == len(old["photo_links"]),
-              "removing a photo created no second link (%d -> %d)"
+              "removing a photo from a day created no second link (%d -> %d)"
               % (len(old["photo_links"]), len(now["photo_links"])))
-        out("      (removed photo link(s): %s)"
-            % ", ".join(k[:8] for k in removed))
+        # THE PROPERTY THAT MATTERS UNDER MANY-TO-MANY: removing one
+        # occurrence must leave every other one alone. Under the old
+        # scalar this could not even be expressed — there was only ever
+        # one placement to lose.
+        for k, before, after in shrunk:
+            lost = [d for d in before if d not in after]
+            kept = [d for d in before if d in after]
+            check(len(lost) == 1,
+                  "photo %s lost exactly one day, not %d (%s -> %s)"
+                  % (k[:8], len(lost), before, after))
+            check(sorted(after) == sorted(kept),
+                  "photo %s kept every other placement (%s)" % (k[:8], kept))
+        out("      (removed from a day: %s)"
+            % ", ".join("%s %s->%s" % (k[:8], b, a) for k, b, a in shrunk))
+    if grew:
+        out("      (also gained a day, which is Add and not a defect: %s)"
+            % ", ".join("%s %s->%s" % (k[:8], b, a) for k, b, a in grew))
 
     # Edited rows / added note — the identities Stage B and the restore
     # will be measured against.
@@ -320,7 +460,13 @@ def do_checkpoint(now, attests, now_iso):
               % len(new_notes))
 
     now = dict(now)
-    now["stage_a"] = {"removed_photo_links": removed,
+    # `removed_placements` and not `removed_photo_links`: what Stage A
+    # removed is an OCCURRENCE, and the link it belongs to is still
+    # there — often still on other days. Recording the link id alone
+    # would name a row that did not go anywhere.
+    now["stage_a"] = {"removed_placements":
+                      [{"link": k, "before": b, "after": a}
+                       for k, b, a in shrunk],
                       "new_notes": new_notes,
                       "edited_kinds": sorted(set(edited))}
     record_attestations(now, attests, "checkpoint", now_iso)
@@ -346,6 +492,7 @@ def do_restore_verify(now, attests, now_iso):
         return 2
     with open(STATE, encoding="utf-8") as fh:
         old = json.load(fh)
+    _legacy_baseline = old
     cp = None
     if os.path.exists(STATE_CP):
         with open(STATE_CP, encoding="utf-8") as fh:
@@ -353,21 +500,49 @@ def do_restore_verify(now, attests, now_iso):
 
     out("=== WO-02 RESTORE-VERIFY ===")
     out("")
+    warn_if_legacy(_legacy_baseline, "restore-verify")
 
-    # Original link ids are back on their original days.
-    back, wrong = [], []
+    # ── The complete original placement SET is back ───────────────────
+    #
+    # This compared one scalar to one scalar: `cur["day"] == was["day"]`.
+    # The Phase 0 map flagged that as becoming WRONG rather than merely
+    # incomplete under many-to-many, and it is wrong in both directions.
+    # A photograph restored to Day 1 while still on Day 3 has a null
+    # derived scalar and would FAIL a check that should pass; a
+    # photograph restored to the wrong ONE of its two days has a null
+    # scalar either way and would PASS a check that should fail.
+    #
+    # Set equality is the honest question, and it is stricter: it
+    # catches a day that came back, a day that did not, and a day that
+    # was never there.
+    wrong = []
     for k, was in old["photo_links"].items():
         cur = now["photo_links"].get(k)
         if cur is None:
             check(False, "photo link %s no longer exists" % k[:8])
             continue
-        (back if cur["day"] == was["day"] else wrong).append(k)
+        before, after = days_of(was), days_of(cur)
+        if before != after:
+            wrong.append((k, before, after))
     check(not wrong,
-          "every photo link is back on its original day (%d misplaced)"
-          % len(wrong))
+          "every photograph is back on its complete original day set "
+          "(%d wrong)" % len(wrong))
+    if wrong:
+        for k, before, after in wrong[:10]:
+            out("      photo %s: wanted %s, got %s" % (k[:8], before, after))
     check(len(now["photo_links"]) == len(old["photo_links"]),
           "the round trip created no duplicate photo link (%d -> %d)"
           % (len(old["photo_links"]), len(now["photo_links"])))
+
+    # And it deleted nothing it was not asked to. Total placements are
+    # counted across every link, so a restore that put one photograph
+    # back by taking a day off another would be caught here even though
+    # both links still exist and both still have days.
+    want_total = sum(len(days_of(v)) for v in old["photo_links"].values())
+    got_total = sum(len(days_of(v)) for v in now["photo_links"].values())
+    check(want_total == got_total,
+          "the trip holds the same number of placements as before "
+          "(%d -> %d)" % (want_total, got_total))
 
     for lid, was in old["turns"].items():
         cur = now["turns"].get(lid)
@@ -442,6 +617,7 @@ def do_verify(now, attests=None, now_iso=None):
 
     out("=== WO-02 VERIFY ===")
     out("")
+    warn_if_legacy(old, "verify")
 
     # point 7 -- a move never rewrites a transcript
     for lid, was in old["turns"].items():
@@ -473,17 +649,56 @@ def do_verify(now, attests=None, now_iso=None):
     check(not gained,
           "no caption edit granted Lori approval (n=%d)" % len(gained))
 
-    # point 6 -- a move relocates the row, it does not clone it
-    moved_photo = [k for k, v in now["photo_links"].items()
-                   if k in old["photo_links"]
-                   and v["day"] != old["photo_links"][k]["day"]]
-    if not moved_photo:
-        skip("no photo was moved -- walkthrough step 6 not done")
-    else:
-        out("      (%d photo move(s) seen)" % len(moved_photo))
+    # ── point 6 -- Add, Move and Remove are now three different things ─
+    #
+    # This asked whether one scalar differed from another and called any
+    # difference a "move". Under set semantics that conflates the three
+    # operations the interface now offers, and the operator did one of
+    # them deliberately: a set that GREW is an Add, one that SHRANK is a
+    # Remove from this day, and one that changed while staying the same
+    # size is a Move. Reporting all three as "moved" would make a
+    # walkthrough that added a second day read as a successful move.
+    added, dropped, moved_photo = [], [], []
+    for k, v in now["photo_links"].items():
+        if k not in old["photo_links"]:
+            continue
+        before, after = days_of(old["photo_links"][k]), days_of(v)
+        if before == after:
+            continue
+        if len(after) > len(before):
+            added.append((k, before, after))
+        elif len(after) < len(before):
+            dropped.append((k, before, after))
+        else:
+            moved_photo.append((k, before, after))
+
+    if not (added or dropped or moved_photo):
+        skip("no photo placement changed -- walkthrough steps 6/6a/6b "
+             "not done")
+    for label, rows, rule in (
+            ("Add", added,
+             "adding a day kept every day it already had"),
+            ("Remove from this day", dropped,
+             "removing a day kept every other day"),
+            ("Move", moved_photo,
+             "moving changed the day and kept the count")):
+        if not rows:
+            skip("no %s was performed -- that walkthrough step not done"
+                 % label)
+            continue
+        out("      (%d %s operation(s) seen)" % (len(rows), label))
+        for k, before, after in rows:
+            if label == "Add":
+                ok = all(d in after for d in before)
+            elif label == "Remove from this day":
+                ok = all(d in before for d in after)
+            else:
+                ok = len(before) == len(after) and before != after
+            check(ok, "%s on photo %s: %s (%s -> %s)"
+                  % (label, k[:8], rule, before, after))
         check(len(now["photo_links"]) == len(old["photo_links"]),
-              "moving a photo created no second placement (%d -> %d)"
-              % (len(old["photo_links"]), len(now["photo_links"])))
+              "%s created no second trip link (%d -> %d)"
+              % (label, len(old["photo_links"]), len(now["photo_links"])))
 
     # points 2/4/5 -- edits survived the operator's restart
     edited = []

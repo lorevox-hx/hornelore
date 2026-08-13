@@ -380,7 +380,26 @@ is a wall; a wall deleted the day the feature arrives was never one.
 There has been exactly one override of this rule, granted for one slice, and
 recorded as non-generalisable.
 
-### 1.12 One photo has one placement per trip
+### 1.12 One photo has one placement per trip — **SUPERSEDED 2026-08-13**
+
+> **SUPERSEDED by ruling 1.16.** A photograph may now be placed on any number
+> of a trip's days. The ruling below is preserved in full, with its reasoning,
+> because it was correct when it was made and because the reason it stopped
+> being correct is the whole point of
+> `WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01`: 1.12 was a true reading of what the
+> data model allowed, and Chris later ruled that the data model was the thing
+> that was wrong.
+>
+> **What survives unchanged:** the three layers, the four-verb ladder, and
+> `UNIQUE (trip_id, photo_id)`. One photograph still joins a trip exactly
+> once. What changed is that the day left the membership row and became its
+> own table, so "one membership" and "one day" stopped being the same
+> sentence.
+>
+> **What is retired:** "Use Move, not Also show on another day", and the
+> line *"What it may not offer: Also show on another day"*. Add is now the
+> primary action on a day surface and Move is a separate deliberate one. See
+> 1.16.
 
 Chris's ruling, 2026-07-28, verbatim:
 
@@ -600,6 +619,83 @@ things nobody has asked for, and every one of those is speculative today. See
 built later: wherever destinations end up living, the day is not on the
 candidate.
 
+### 1.16 A photograph may be placed on several days of a trip
+
+Chris's ruling, 2026-08-12, and it **supersedes 1.12**:
+
+> One stored photo, one trip membership, many day placements. A photograph
+> taken on one day can belong to the story of several.
+
+**Why 1.12 was right and still had to go.** 1.12 said "one photo has one
+placement per trip" and grounded it in `UNIQUE (trip_id, photo_id)`, which is
+real and is still enforced. What it did not separate is that
+`trip_photo_links` was carrying *two different relationships in one row*: that
+a photograph belongs to a trip, and that it sits on a day. Migration 0028 added
+the day as a **column**, so the two became inseparable by accident rather than
+by decision — and once they were, the interface could only ever offer "Move to
+this day", because setting a day necessarily erased the previous one.
+
+1.12 therefore described the consequence of a schema shape as though it were a
+product rule. It was an accurate description; it was not a decision anybody had
+made. Chris made the decision the other way.
+
+**The model, restated with the day pulled out:**
+
+- **`photos`** — the permanent archive. No trip column, no day column.
+  Unchanged by this ruling.
+- **`trip_photo_links`** — trip MEMBERSHIP. Still `UNIQUE (trip_id, photo_id)`;
+  a photograph still joins a trip exactly once. Its `trip_day_id` column is a
+  retired compatibility scalar, written by nothing, dropped in a later phase.
+- **`trip_photo_day_placements`** (migration 0043) — the PLACEMENTS.
+  `UNIQUE (photo_link_id, trip_day_id)`, so the same photograph twice on one
+  day is still nonsense, and any number of different days is not.
+- **`import_candidate`** — unchanged. Still no day concept, per 1.15.
+
+*A photo does not belong to a day. Its placement does.* 1.12's sentence
+survives this ruling intact — it turns out to have been the argument for it.
+
+**What a day surface offers now:**
+
+- **Add** — the primary action. A photograph already on another day stays
+  there and gains this one, and the interface says so before the operator
+  commits.
+- **Remove from this day** — deletes that day's placement and nothing else.
+  Other placements, the trip membership, the photo row, the original, the
+  thumbnail, the caption, the approvals and the shared context all survive.
+- **Move** — deliberate and separate, and it names the day it moves **from**.
+  A photograph on three days has three occurrences sharing one link id, so a
+  bare link id cannot say which one is moving.
+
+**The four-verb ladder from 1.12 is unchanged apart from its first rung**,
+which splits in two:
+
+1. *Add to a day* / *Remove from a day* — insert or delete one placement row.
+   **Move** is these two in one transaction, with the source named.
+2. *Remove from trip* — delete the trip link. Placements cascade with it; the
+   permanent photo is untouched.
+3. *Delete from Hornelore* — still **not reachable** from a day, a trip, or
+   the review queue. Only from a protected library-management screen.
+
+**Counting follows the split** (§7 of the work order): a day card's photo count
+means explicit, live, visible placements on that day and nothing else. A
+taken-date match is a **suggestion**, reported separately, and excludes
+photographs already placed on that day. The same photograph on Day 1 and Day 3
+counts once on each; the trip's unique-photo count counts it once overall.
+
+**Export follows it too.** The document renders a multi-day photograph once
+under **each day the operator explicitly placed it on**, ordered by the
+placement's `ord`. This deliberately retires the `WO-TRAVEL-DOC-CLOSEOUT-01`
+observation that four photographs happened to embed exactly once each — that
+was a property of one-day data, not an invariant. The original asset and its
+thumbnail remain single files on disk however many times the document embeds
+them.
+
+**"Needs a day" means zero placements**, not a null scalar. Under many-to-many
+the old test is not merely outdated, it is inverted: the compatibility scalar
+is null BY RULE for a photograph on several days, so the old query would print
+the most deliberately placed photographs in the trip under "Needs a day" in the
+same document that already printed them under both.
+
 ---
 
 ## Part 2 — Implemented and verified (as of 2026-07-29)
@@ -773,16 +869,51 @@ consequence, and a reader who is not holding the three-layer model in their
 head cannot tell from the word whether the photograph is about to leave the
 trip or leave Hornelore.
 
-**No second-placement control exists on that surface**, per 1.12, and
-`tests/test_travel_doc_lab.py` asserts the absence by name rather than leaving
-it to be noticed. "Move to another day" is *specified* by 1.12 but is not built
-yet; it belongs to the later phase that also brings the two import buttons.
-Absence with a reason, per Part 3's own opening line — recorded here rather
-than in Part 3 only because what shipped and what did not are the same
-sentence.
+> **CORRECTED IN PLACE 2026-08-13.** The paragraph below read:
+>
+> > *"**No second-placement control exists on that surface**, per 1.12, and
+> > `tests/test_travel_doc_lab.py` asserts the absence by name rather than
+> > leaving it to be noticed. "Move to another day" is *specified* by 1.12 but
+> > is not built yet; it belongs to the later phase that also brings the two
+> > import buttons."*
+> >
+> > *"**This section carries no live-smoke claim.** 2.6 applies unchanged: the
+> > assertion is a source scan, the browser has still not been watched doing
+> > it."*
+>
+> Both halves stopped being true, and by opposite routes. The absence was
+> retired by ruling 1.16: adding a second placement is now the day surface's
+> PRIMARY action, so a test asserting that no such control exists would be
+> asserting the defect. And the browser HAS now been watched doing it.
 
-**This section carries no live-smoke claim.** 2.6 applies unchanged: the
-assertion is a source scan, the browser has still not been watched doing it.
+**The day workspace as it stands, 2026-08-13** (`WO-TRIP-PHOTO-MULTI-DAY-
+PLACEMENT-01` Phase 3, `6d228a7` / `f47749f` / `e89fa19`):
+
+- **On this day** — the day's placements, each row naming which *other* days
+  hold the same photograph, with **Remove from this day** and **Move…**.
+  Naming the other days is what makes "Remove from this day" readable as the
+  narrow act it is rather than as a deletion.
+- **Taken on this date** — suggestions, excluding photographs already placed
+  here, each addable directly.
+- **Add** in the picker, labelled **"Add to this day too"** on a row already
+  placed elsewhere, with the consequence stated before the operator commits.
+  It is no longer a warning, because nothing is being taken away.
+- **Move…** opens its own drawer headed *"from Day N"* and posts
+  `photo_link_id` + `from_day_id` + `to_day_id`.
+
+**"Remove from this day" keeps its 2026-07-28 wording and its reason**, which
+1.16 strengthens rather than retires: the word now has to distinguish four
+things rather than three, and "unlink" would describe the row instead of the
+consequence.
+
+**THIS SECTION NOW CARRIES A LIVE-BROWSER CLAIM, and it is narrow.** A headless
+Chromium harness (`scripts/ui/run_photo_window_liveness.js`, 39/39 on the
+laptop, 2026-08-13) drove the real DOM against a canned API and confirmed: the
+13th and 51st photographs on a 327-placement day have rows and working
+Remove/Move controls; the mounted tile count stays bounded; a selection
+survives the window sliding past it. **That is a browser against a FAKE
+backend.** The live operator walkthrough against the running stack is Phase 5
+and has not happened. 2.6's caution applies to that claim and not to this one.
 
 ### 2.8 The shrinking-dates rule as it stands in the interface today
 
@@ -1189,7 +1320,9 @@ check and upserts through `photo_link_upsert(assignment_method="operator")`,
 and `unlink_day_photos` refuses `photo_ids` with a 422 rather than quietly
 ignoring the field. The upsert is what makes repeated placement idempotent,
 and `UNIQUE (trip_id, photo_id)` from ruling 1.12 is what makes the upsert the
-only possible shape.
+only possible shape. (That constraint survives 1.12's supersession by 1.16
+unchanged: one photograph still joins a trip exactly once. What moved out of
+`trip_photo_links` is the DAY, not the membership.)
 
 **One lesson about instruments, which is the same lesson twice.** The drawer's
 doctrine paragraph was rewritten from two acts to three and made plainer, on
@@ -1564,8 +1697,9 @@ with a type discriminator and a foreign key nobody can constrain. Every
 requirement it would serve beyond trip-and-day is speculative today, and the
 cost is not the table: it is that a polymorphic key cannot be enforced by the
 database, so every guarantee the schema currently gives for free (ruling
-1.12's `UNIQUE (trip_id, photo_id)` most of all) becomes application code that
-has to remember.
+1.12's `UNIQUE (trip_id, photo_id)` most of all -- still enforced after 1.16,
+which moved the day out of that row and left the membership alone) becomes
+application code that has to remember.
 
 Ruling 1.15 is the part that had to be decided now, and it was decided in the
 narrowest form that survives this framework being built later: the day is not

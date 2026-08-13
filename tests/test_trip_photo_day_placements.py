@@ -604,6 +604,35 @@ class PreMigrationCompatibilityTest(_Base):
         self.assertIsNone(self.scalar_of("L2"),
                           "the refusal wrote the legacy column anyway")
 
+    def test_the_serialized_read_does_not_blank_the_legacy_scalar(self):
+        """Phase 4 audit finding, 2026-08-13.
+
+        apply_placement_serialization overwrote ``trip_day_id`` on every
+        row unconditionally, and on a pre-0043 database
+        placements_by_link_for_trip correctly returns {} — so
+        photo_link_get answered "on no day" about a photograph that was
+        on d1. Every other reader in the module keeps an explicit legacy
+        branch; this one had lost it.
+
+        On that database the scalar is not a fossil, it is the only
+        record there is. It is left alone, and ``trip_day_ids`` is
+        derived FROM it so a consumer written against the new field
+        still works against an old database.
+        """
+        row = repo.photo_link_get("L1")          # no migrate() in this class
+        self.assertEqual(row["trip_day_id"], "d1",
+                         "the serialized read blanked the only truth a "
+                         "pre-0043 database has")
+        self.assertEqual(row["trip_day_ids"], ["d1"])
+        self.assertEqual(row["day_placements"], [])
+
+    def test_a_link_with_no_legacy_day_is_still_empty(self):
+        """Non-vacuity for the test above: the pre-0043 branch reports
+        an absence as an absence rather than echoing something."""
+        row = repo.photo_link_get("L2")
+        self.assertIsNone(row["trip_day_id"])
+        self.assertEqual(row["trip_day_ids"], [])
+
     def test_legacy_tally_is_used_when_the_table_is_absent(self):
         con = sqlite3.connect(self.path)
         con.row_factory = sqlite3.Row

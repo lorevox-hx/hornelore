@@ -112,12 +112,29 @@ MOUNT_LIVENESS_HARNESS = Surface(
     "Phase 1.1 behavioural proof that a mount/destroy cycle leaves "
     "nothing behind; drives the module directly, without the shell",
     False)
+# WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01 Phase 3b. Added to the map on
+# 2026-08-13 because a harness absent from this inventory is a harness
+# the doctrine scans do not read -- which is how the Phase 2D picker
+# script sat outside every dialog scan until somebody noticed.
+PHOTO_WINDOW_LIVENESS = Surface(
+    REPO_ROOT / "scripts" / "ui" / "run_photo_window_liveness.js",
+    "Phase 3b behavioural proof that every placement on a day is "
+    "reachable and the mounted tile count stays bounded; drives the "
+    "real DOM against a canned API",
+    False)
+PHOTO_WINDOW_ARITHMETIC = Surface(
+    REPO_ROOT / "scripts" / "ui" / "run_photo_window_arithmetic.js",
+    "Phase 3b proof of the window arithmetic itself; executes the real "
+    "photoWindow/slidePhotoWindow without a browser, so the load-shape "
+    "maths is verified where Chromium cannot run",
+    False)
 
 #: Every file this project considers part of a Travel Doc surface.
 ALL: List[Surface] = [
     UNIFIED_JS, UNIFIED_CSS, SHELL_JS, SHELL_HTML, SHELL_CSS,
     DEV_HARNESS, RETIRED_JS, RETIRED_CSS, RETIRED_PAGE,
     LIVENESS_HARNESS, MOUNT_LIVENESS_HARNESS,
+    PHOTO_WINDOW_LIVENESS, PHOTO_WINDOW_ARITHMETIC,
 ]
 
 #: The surfaces an operator can actually reach from the shell.

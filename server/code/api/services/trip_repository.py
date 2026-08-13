@@ -523,7 +523,8 @@ def placements_for_link_detailed(
 
 def apply_placement_serialization(
         rows: List[Dict[str, Any]],
-        by_link: Dict[str, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+        by_link: Dict[str, List[Dict[str, Any]]],
+        placements_supported: bool = True) -> List[Dict[str, Any]]:
     """Attach authoritative day placement to serialized photo-link rows.
 
     THE COMPATIBILITY SCALAR IS DERIVED HERE, NOT READ FROM THE COLUMN,
@@ -548,7 +549,24 @@ def apply_placement_serialization(
     3, which is worse than saying nothing, because nothing is at least
     visibly a gap. ``trip_day_ids`` and ``day_placements`` carry the
     complete truth for anyone who has been migrated.
+
+    ``placements_supported=False`` IS NOT A CONVENIENCE. Added
+    2026-08-13 by the Phase 4 audit, which found this function blanking
+    the scalar on a database that has never run migration 0043. There
+    the scalar is not a fossil -- it is the only record of where a
+    photograph is, and every other reader in this module keeps an
+    explicit legacy branch for exactly that case. This one did not, so
+    ``photo_link_get`` on a pre-0043 database answered "on no day" about
+    a photograph that was on Day 1. The scalar is left alone on that
+    path and ``trip_day_ids`` is derived FROM it, so a consumer written
+    against the new field still works against an old database.
     """
+    if not placements_supported:
+        for row in rows:
+            legacy = row.get("trip_day_id")
+            row["day_placements"] = []
+            row["trip_day_ids"] = [str(legacy)] if legacy else []
+        return rows
     for row in rows:
         placements = by_link.get(str(row.get("id") or ""), [])
         row["day_placements"] = placements
@@ -1946,7 +1964,8 @@ def photo_link_get(link_id: str) -> Optional[Dict[str, Any]]:
             return None
         out = _row_to_dict(row)
         return apply_placement_serialization(
-            [out], {link_id: placements_for_link_detailed(con, link_id)})[0]
+            [out], {link_id: placements_for_link_detailed(con, link_id)},
+            _placements_supported(con))[0]
     finally:
         con.close()
 
@@ -2197,7 +2216,8 @@ def photo_links_list(
         # scalar is derived, never the stored column. See
         # apply_placement_serialization.
         return apply_placement_serialization(
-            out, placements_by_link_for_trip(con, trip_id))
+            out, placements_by_link_for_trip(con, trip_id),
+            _placements_supported(con))
     finally:
         con.close()
 
@@ -2573,7 +2593,8 @@ def photo_links_with_photo_paths(
         ).fetchall()
         out = apply_placement_serialization(
             [_row_to_dict(r) for r in rows],
-            placements_by_link_for_trip(con, trip_id))
+            placements_by_link_for_trip(con, trip_id),
+            _placements_supported(con))
         for row in out:
             # The single-day compatibility columns, under the same rule
             # as the scalar: one placement may speak for the row, and
