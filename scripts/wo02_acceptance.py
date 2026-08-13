@@ -837,17 +837,29 @@ def do_checkpoint(now, attests, now_iso):
 # Hence photo A / B / C / D below, and `plan` mode, which reads the
 # checkpoint and names the actual links and days rather than leaving
 # the operator to work out which photograph can play which part.
+#
+# ORDER MATTERS, AND IT IS THE ORDER PRINTED (corrected 2026-08-13).
+# The date-suggestion step comes FIRST because a photograph already on
+# a day is not offered as that day's suggestion — so any step that puts
+# A on its first day destroys the affordance the suggestion step needs.
 STAGE_B_STEPS = [
-    ("add_two_days", "Photo A -- one photograph, two days",
-     "Take the photograph the plan calls A. Add it to the first day, "
-     "then add the SAME photograph to the second. Leave it on both. It "
-     "must end up on two days, not move from one to the other. This is "
-     "the whole point of the work order, so A is touched by nothing "
-     "else."),
-    ("add_several", "Photo D -- several photographs, one day",
-     "Select several photographs at once and add them to a single day. "
-     "If any of them fail, the panel must say how many landed; the "
-     "ones that did not stay selected so Add can be pressed again."),
+    ("date_suggestion", "Photo A -- accept the date suggestion FIRST",
+     "On photo A's first day, find A under 'Taken on this date' and "
+     "press Add to this day. Do this BEFORE anything else touches that "
+     "day: a photograph already on a day is not suggested for it, so "
+     "any other route would consume this step's own affordance. A "
+     "suggestion is not a placement until you accept it."),
+    ("add_several", "Photo D -- several photographs at once",
+     "Select the photographs the plan calls D together and add them to "
+     "the day it names. If any of them fail, the panel must say how "
+     "many landed; the ones that did not stay selected so Add can be "
+     "pressed again."),
+    ("add_two_days", "Photo A -- confirm it is on two days",
+     "Photo A must now be on BOTH of its days, and still be one "
+     "photograph rather than two. If the batch above did not give it "
+     "the second day, add it now. It must end up on two days, not move "
+     "from one to the other -- this is the whole point of the work "
+     "order."),
     ("remove", "Photo B -- remove one placement",
      "Take the photograph the plan calls B and press Remove from this "
      "day on the day named. Its trip membership, its caption and its "
@@ -861,10 +873,6 @@ STAGE_B_STEPS = [
      "day must show the same caption -- a caption belongs to the "
      "photograph, not to a placement -- and it must stay withheld from "
      "Lori."),
-    ("date_suggestion", "A deliberate date suggestion",
-     "Find a photograph under 'Taken on this date' and press Add to "
-     "this day. A suggestion is not a placement until you accept it. "
-     "Photo D is a good candidate."),
     ("conversation_move", "Move the conversation",
      "Drag or send the existing conversation to a different day. Its "
      "transcript must not change, and the placement must record itself "
@@ -995,8 +1003,22 @@ def build_stage_b_plan(cp):
         plan["d_day"] = days[0]
         plan["d_includes_a"] = False
     elif len(spares) == 1 and plan["a"]:
+        # ── THE BATCH GOES TO A's SECOND DAY, NOT ITS FIRST ───────────
+        #
+        # CORRECTED 2026-08-13 after review. The batch used to be sent
+        # to A's FIRST day, and A's first day is the one the operator is
+        # supposed to reach through "Taken on this date". A photograph
+        # already on a day is not offered as that day's suggestion, so
+        # the batch consumed the very affordance the next step needed —
+        # and on the live fixture A is precisely the Day 1 suggestion,
+        # because Stage A removed it from Day 1 and its date still
+        # matches.
+        #
+        # So: A reaches its first day through the suggestion control,
+        # and the batch gives it its second. Two different days, two
+        # different controls, and neither destroys the other.
         plan["d"] = [plan["a"]["link"], spares[0]]
-        plan["d_day"] = plan["a"]["days"][0]
+        plan["d_day"] = plan["a"]["days"][1]
         plan["d_includes_a"] = True
     else:
         plan["d"] = spares
@@ -1007,6 +1029,33 @@ def build_stage_b_plan(cp):
             "'several photographs at once' needs two (photo D). Add "
             "another photograph to the trip first."
             % (len(spares) + (1 if plan["a"] else 0)))
+
+    # ── THE DATE SUGGESTION IS AN ASSIGNMENT, NOT A HINT ──────────────
+    #
+    # ADDED 2026-08-13 after review. Every step that affects placement
+    # classification named its photograph; this one said "find a
+    # photograph under 'Taken on this date'" and left the operator to
+    # pick, which is how it ended up colliding with the batch.
+    #
+    # A reaches its FIRST day through this control. That is a real
+    # ordering constraint and the printed walkthrough states it: the
+    # suggestion has to be taken before anything else puts A on that
+    # day, because a photograph already on a day is not suggested for
+    # it.
+    #
+    # WHAT THIS CANNOT KNOW, AND SAYS SO. The snapshot records a photo
+    # link's days, placement ids, caption hash and approval flag. It
+    # does NOT record `taken_at`, so nothing here can prove A will
+    # actually appear under "Taken on this date" for that day. It is
+    # published as an operator PRECONDITION to confirm, never as a
+    # derived fact.
+    if plan["a"]:
+        plan["suggestion"] = {"link": plan["a"]["link"],
+                              "day": plan["a"]["days"][0]}
+        plan["a_second_via"] = "batch" if plan.get("d_includes_a") else "direct"
+    else:
+        plan["suggestion"] = None
+        plan["a_second_via"] = None
 
     plan["ok"] = not plan["problems"]
     return plan
@@ -1033,20 +1082,42 @@ def print_plan_assignments(plan):
         out("  Fix the fixture before changing any data. Adding an")
         out("  unplaced photograph to the trip is usually enough.")
         return
-    out("  YOUR ASSIGNMENTS FOR THIS TRIP:")
-    a, b, c = plan["a"], plan["b"], plan["c"]
-    out("     photo A  %s   add to %s and %s"
-        % (a["link"][:8], _day_label(a["days"][0]), _day_label(a["days"][1])))
-    out("     photo B  %s   remove from %s"
-        % (b["link"][:8], _day_label(b["day"])))
-    out("     photo C  %s   move %s -> %s"
-        % (c["link"][:8], _day_label(c["from"]), _day_label(c["to"])))
-    out("     photo D  %s   select together, add to %s"
+    out("  YOUR ASSIGNMENTS FOR THIS TRIP, IN THIS ORDER:")
+    a, b, c, sug = plan["a"], plan["b"], plan["c"], plan["suggestion"]
+    out("   1 suggestion  %s   'Taken on this date' -> Add, on %s"
+        % (sug["link"][:8], _day_label(sug["day"])))
+    out("   2 photo D     %s   select together, add to %s"
         % (", ".join(l[:8] for l in plan["d"]),
            _day_label(plan["d_day"]) if plan.get("d_day") else "one day"))
-    if plan.get("d_includes_a"):
-        out("              (photo A is in that batch -- it gets its FIRST")
-        out("               day from it, then add its second separately)")
+    if plan.get("a_second_via") == "batch":
+        out("                 (photo A is in that batch, and that is how")
+        out("                  it gets its SECOND day)")
+    out("   3 photo A     %s   must now be on %s and %s%s"
+        % (a["link"][:8], _day_label(a["days"][0]), _day_label(a["days"][1]),
+           "" if plan.get("a_second_via") == "batch"
+           else " -- add the second day directly"))
+    out("   4 photo B     %s   remove from %s"
+        % (b["link"][:8], _day_label(b["day"])))
+    out("   5 photo C     %s   move %s -> %s"
+        % (c["link"][:8], _day_label(c["from"]), _day_label(c["to"])))
+    out("   6 caption     %s   edit from one of its two days"
+        % a["link"][:8])
+    out("   7 conversation           move it to another day")
+    out("   8 quick note              exactly one, any day")
+    out("")
+    out("  THE ORDER IS NOT A SUGGESTION. Photo A reaches its first day")
+    out("  through the 'Taken on this date' control, and a photograph")
+    out("  already on a day is not offered as that day's suggestion --")
+    out("  so anything that places A there first destroys step 1.")
+    out("")
+    out("  PRECONDITION YOU MUST CONFIRM ON SCREEN:")
+    out("     photo %s appears under 'Taken on this date' on %s."
+        % (sug["link"][:8], _day_label(sug["day"])))
+    out("     This harness records a photograph's days, placement rows,")
+    out("     caption and approvals -- it does NOT record taken_at, so")
+    out("     it cannot know which day suggests which photograph. If")
+    out("     that photograph is not offered there, STOP and say so")
+    out("     rather than substituting another route.")
     out("")
     out("  Each net operation belongs to its OWN photograph. Add,")
     out("  Remove and Move are read from the day set at the end, so a")

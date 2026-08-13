@@ -1780,28 +1780,74 @@ class TheWalkthroughCanActuallyBeCompletedTest(_HarnessCase):
         return cap
 
     def _after_stage_b(self, plan):
-        """Exactly what the plan told the operator to do."""
+        """Replay the plan's steps IN THE PRINTED ORDER.
+
+        REWRITTEN 2026-08-13 after review. This used to assign each
+        photograph its final day set directly, which proves the
+        endpoint and says nothing about the sequence -- and the defect
+        under review WAS a sequence defect: the batch landed on the day
+        whose date suggestion the operator still had to accept, so
+        step 2 destroyed step 1's affordance while the final state
+        looked perfectly correct.
+
+        Applying the operations one at a time, in order, is what makes
+        that observable. `suggested` models the one rule that matters
+        here: a photograph already on a day is not offered as that
+        day's suggestion.
+        """
         s = self._checkpoint()
         a, b, c = plan["a"], plan["b"], plan["c"]
-        # A: onto its two days, one new row each.
-        s["photo_links"][a["link"]] = {
-            "days": sorted([a["days"][0]["id"], a["days"][1]["id"]]),
-            "pids": {a["days"][0]["id"]: "a-new-1",
-                     a["days"][1]["id"]: "a-new-2"},
-            "ch": "capA", "approved": 0}
-        # B: that one placement removed.
-        s["photo_links"][b["link"]] = {"days": [], "pids": {},
-                                       "ch": "capB", "approved": 0}
-        # C: moved to a day it was not on.
-        s["photo_links"][c["link"]] = {
-            "days": [c["to"]["id"]], "pids": {c["to"]["id"]: "c-moved"},
-            "ch": "capC", "approved": 0}
-        # D: the spare, added alongside A.
-        spare = [l for l in plan["d"] if l != a["link"]][0]
-        s["photo_links"][spare] = {
-            "days": [plan["d_day"]["id"]],
-            "pids": {plan["d_day"]["id"]: "d-new"},
-            "ch": "capD", "approved": 0}
+        links = s["photo_links"]
+        seq = 0
+
+        def place(lid, day_id):
+            nonlocal seq
+            seq += 1
+            v = links[lid]
+            if day_id in v["days"]:
+                raise AssertionError(
+                    "step %d put %s on %s twice -- the plan's order is "
+                    "self-defeating" % (seq, lid, day_id))
+            v["days"] = sorted(v["days"] + [day_id])
+            v["pids"] = dict(v["pids"], **{day_id: "new-%d" % seq})
+
+        def suggested(lid, day_id):
+            """Would the interface offer `lid` under Taken on this date?"""
+            return day_id not in links[lid]["days"]
+
+        # 1. the date suggestion, FIRST
+        sug = plan["suggestion"]
+        if not suggested(sug["link"], sug["day"]["id"]):
+            raise AssertionError(
+                "step 1 cannot run: %s is already on %s, so it is not "
+                "offered as that day's suggestion"
+                % (sug["link"], sug["day"]["id"]))
+        place(sug["link"], sug["day"]["id"])
+
+        # 2. the multi-select batch
+        for lid in plan["d"]:
+            place(lid, plan["d_day"]["id"])
+
+        # 3. photo A on both of its days
+        for d in (a["days"][0]["id"], a["days"][1]["id"]):
+            if d not in links[a["link"]]["days"]:
+                place(a["link"], d)
+
+        # 4. remove B's one placement
+        links[b["link"]] = {
+            "days": [d for d in links[b["link"]]["days"] if d != b["day"]["id"]],
+            "pids": dict((k, v) for k, v in links[b["link"]]["pids"].items()
+                         if k != b["day"]["id"]),
+            "ch": links[b["link"]]["ch"], "approved": 0}
+
+        # 5. move C
+        links[c["link"]] = {
+            "days": sorted([d for d in links[c["link"]]["days"]
+                            if d != c["from"]["id"]] + [c["to"]["id"]]),
+            "pids": dict(
+                [(k, v) for k, v in links[c["link"]]["pids"].items()
+                 if k != c["from"]["id"]] + [(c["to"]["id"], "c-moved")]),
+            "ch": links[c["link"]]["ch"], "approved": 0}
 
         # Rebuild every day's timeline from those placements.
         rows = dict((d["id"], []) for d in self.DAYS)
@@ -2016,6 +2062,134 @@ class StageBPlanTest(_HarnessCase):
         self.assertTrue(plan["d_includes_a"])
         self.assertIn(plan["a"]["link"], plan["d"])
         self.assertEqual(len(plan["d"]), 2)
+
+    def test_the_date_suggestion_step_has_a_photograph_and_a_day(self):
+        """ADDED 2026-08-13 after review.
+
+        It read "find a photograph under 'Taken on this date'" and
+        assigned nothing, while every step that affects placement
+        classification named its own photograph. That is how it came to
+        collide with the multi-select batch.
+        """
+        plan = wo02.build_stage_b_plan(self._cp({
+            "u1": {"days": [], "pids": {}, "ch": "", "approved": 0},
+            "u2": {"days": [], "pids": {}, "ch": "", "approved": 0},
+            "p1": {"days": ["d3"], "pids": {"d3": "x"}, "ch": "", "approved": 0},
+            "p2": {"days": ["d3"], "pids": {"d3": "y"}, "ch": "", "approved": 0},
+        }))
+        self.assertTrue(plan["ok"], plan["problems"])
+        sug = plan["suggestion"]
+        self.assertTrue(sug and sug.get("link") and sug.get("day"))
+        self.assertEqual(sug["link"], plan["a"]["link"],
+                         "photo A reaches its first day this way")
+        self.assertEqual(sug["day"]["id"], plan["a"]["days"][0]["id"])
+
+    def test_when_the_batch_includes_a_it_goes_to_as_second_day(self):
+        """The blocking conflict, pinned.
+
+        The batch used to be sent to A's FIRST day — the same day the
+        operator has to reach through 'Taken on this date'. A
+        photograph already on a day is not offered as that day's
+        suggestion, so the batch consumed the affordance the next step
+        needed. On the live fixture A IS the Day 1 suggestion, created
+        by Stage A's own removal.
+        """
+        plan = wo02.build_stage_b_plan(self._cp({
+            "u1": {"days": [], "pids": {}, "ch": "", "approved": 0},
+            "u2": {"days": [], "pids": {}, "ch": "", "approved": 0},
+            "p1": {"days": ["d3"], "pids": {"d3": "x"}, "ch": "", "approved": 0},
+            "p2": {"days": ["d3"], "pids": {"d3": "y"}, "ch": "", "approved": 0},
+        }))
+        self.assertTrue(plan["d_includes_a"])
+        self.assertNotEqual(plan["d_day"]["id"], plan["suggestion"]["day"]["id"],
+                            "the batch must not land on the day whose "
+                            "suggestion the operator still has to accept")
+        self.assertEqual(plan["d_day"]["id"], plan["a"]["days"][1]["id"])
+        self.assertEqual(plan["a_second_via"], "batch")
+
+    def test_the_batch_always_holds_at_least_two_photographs(self):
+        for links in (
+            {"u1": {"days": [], "pids": {}, "ch": "", "approved": 0},
+             "u2": {"days": [], "pids": {}, "ch": "", "approved": 0},
+             "p1": {"days": ["d3"], "pids": {"d3": "x"}, "ch": "",
+                    "approved": 0},
+             "p2": {"days": ["d3"], "pids": {"d3": "y"}, "ch": "",
+                    "approved": 0}},
+            {"u1": {"days": [], "pids": {}, "ch": "", "approved": 0},
+             "u2": {"days": [], "pids": {}, "ch": "", "approved": 0},
+             "u3": {"days": [], "pids": {}, "ch": "", "approved": 0},
+             "p1": {"days": ["d1"], "pids": {"d1": "x"}, "ch": "",
+                    "approved": 0},
+             "p2": {"days": ["d2"], "pids": {"d2": "y"}, "ch": "",
+                    "approved": 0}},
+        ):
+            plan = wo02.build_stage_b_plan(self._cp(links))
+            with self.subTest(spares=len(links)):
+                self.assertTrue(plan["ok"], plan["problems"])
+                self.assertGreaterEqual(len(plan["d"]), 2,
+                                        "'several photographs' means two")
+                self.assertEqual(len(set(plan["d"])), len(plan["d"]))
+
+    def test_following_the_printed_order_leaves_a_on_exactly_two_days(self):
+        """Replay the plan's own steps and count A's days at the end."""
+        plan = wo02.build_stage_b_plan(self._cp({
+            "u1": {"days": [], "pids": {}, "ch": "", "approved": 0},
+            "u2": {"days": [], "pids": {}, "ch": "", "approved": 0},
+            "p1": {"days": ["d3"], "pids": {"d3": "x"}, "ch": "", "approved": 0},
+            "p2": {"days": ["d3"], "pids": {"d3": "y"}, "ch": "", "approved": 0},
+        }))
+        a = plan["a"]["link"]
+        on = set()
+        # 1. the date suggestion
+        on.add(plan["suggestion"]["day"]["id"])
+        # 2. the multi-select batch
+        if a in plan["d"]:
+            on.add(plan["d_day"]["id"])
+        # 3. whatever the second day still needs
+        on.add(plan["a"]["days"][1]["id"])
+        self.assertEqual(len(on), 2, sorted(on))
+        self.assertEqual(on, {plan["a"]["days"][0]["id"],
+                              plan["a"]["days"][1]["id"]})
+
+    def test_the_printed_order_puts_the_suggestion_before_the_batch(self):
+        keys = list(wo02.STAGE_B_STEP_KEYS)
+        self.assertLess(keys.index("date_suggestion"), keys.index("add_several"),
+                        "the batch would consume the suggestion")
+        self.assertLess(keys.index("add_several"), keys.index("add_two_days"))
+
+    def test_the_precondition_is_printed_as_a_precondition(self):
+        """It must not be claimed as derived.
+
+        The snapshot stores days, placement ids, caption hash and
+        approval — no `taken_at`. Nothing here can know which day
+        suggests which photograph, and saying otherwise would be the
+        harness inventing evidence.
+        """
+        plan = wo02.build_stage_b_plan(self._cp({
+            "u1": {"days": [], "pids": {}, "ch": "", "approved": 0},
+            "u2": {"days": [], "pids": {}, "ch": "", "approved": 0},
+            "p1": {"days": ["d3"], "pids": {"d3": "x"}, "ch": "", "approved": 0},
+            "p2": {"days": ["d3"], "pids": {"d3": "y"}, "ch": "", "approved": 0},
+        }))
+        wo02._reset()
+        wo02.print_plan_assignments(plan)
+        text = "\n".join(wo02.LINES)
+        self.assertIn("PRECONDITION YOU MUST CONFIRM ON SCREEN", text)
+        self.assertIn("does NOT record taken_at", text)
+        self.assertIn("STOP", text)
+        self.assertNotIn("guaranteed", text)
+        # And the claim is true rather than merely cautious: the word
+        # appears in this module only where the disclaimer says it is
+        # absent. If a future revision starts capturing taken_at, this
+        # fails and the precondition can become a derived fact.
+        src = _SCRIPT.read_text(encoding="utf-8")
+        occurrences = [ln for ln in src.splitlines() if "taken_at" in ln]
+        self.assertEqual(
+            len(occurrences), 2,
+            "taken_at is mentioned somewhere new: %s" % occurrences)
+        self.assertTrue(all("NOT record" in ln or "does not record" in ln
+                            or "does NOT record" in ln for ln in occurrences),
+                        occurrences)
 
     def test_it_refuses_when_no_photograph_is_unplaced(self):
         plan = wo02.build_stage_b_plan(self._cp({
