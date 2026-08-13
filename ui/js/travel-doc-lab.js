@@ -337,6 +337,11 @@
     loriOverlay: false,      // Lori as a drawer over Trip Plan / Photos
     loriReturnTab: "plan",   // context-aware Back label + return surface
     photoPickerDayId: null,  // in-lab day photo picker drawer
+    // Move ONE occurrence of a photograph between days. Carries the day
+    // it is moving FROM as well as the link, because a photograph on
+    // three days has three occurrences sharing one link id.
+    // {fromDayId, linkId} or null.
+    placementMove: null,
     noteDrawerDayId: null,   // in-lab day note drawer
     // WO-LIVE-TRIP-COMPANION-01 VS1 -- the trip timeline modal. null =
     // closed. Open shape: {dayId, days, preserved, items, unplaced,
@@ -818,6 +823,20 @@
     return "Day " + day.day_index + " · " + day.date;
   }
 
+  function dayListText(dayIds) {
+    // "Day 1 and Day 3", or "Day 1, Day 3 and Day 5". A photograph can
+    // now be on any number of days, so every surface that used to name
+    // one needs a way to name several — and a comma-joined list reads
+    // as a fragment where the operator is reading a sentence.
+    var names = (dayIds || []).map(function (id) {
+      var d = dayById(id);
+      return d ? ("Day " + d.day_index) : "another day";
+    });
+    if (!names.length) return "";
+    if (names.length === 1) return names[0];
+    return names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
+  }
+
   // ── data loading (single shared adapter — no per-view duplication) ───
 
   // opts.noAutoSelect — WO-TRAVEL-DOC-UNIFY-01 Phase 3A. On boot, landing
@@ -878,6 +897,7 @@
     st.loriOverlay = false;
     st.loriReturnTab = "plan";
     st.photoPickerDayId = null;
+    st.placementMove = null;
     st.noteDrawerDayId = null;
     st.sourceDrawerDayId = null;
     st.reconcile = null;
@@ -1524,7 +1544,12 @@
     });
     return {
       photos: st.photoLinks.filter(function (l) {
-        return l.trip_day_id === day.id;
+        // Placements, not the compatibility scalar. This count feeds
+        // the shrink warning that tells the operator a day holds work,
+        // and a photograph on two days reads as being on none through
+        // that scalar — so the warning would have gone quiet on exactly
+        // the days most likely to hold something.
+        return linkIsOnDay(l, day.id);
       }).length,
       lori: lori,
       notes: written,
@@ -2359,6 +2384,7 @@
     if (st.trip && st.loriOverlay) app.appendChild(renderLoriOverlay());
     if (st.trip && st.tripCal) app.appendChild(renderTripCalendarModal());
     if (st.trip && st.photoPickerDayId) app.appendChild(renderPhotoPicker());
+    if (st.trip && st.placementMove) app.appendChild(renderPlacementMove());
     if (st.trip && st.noteDrawerDayId) app.appendChild(renderNoteDrawer());
     if (st.trip && st.sourceDrawerDayId) app.appendChild(renderSourceDrawer());
     // Phase 3C — intake drawer. Gated on st.trip: every upload endpoint is
@@ -3872,8 +3898,13 @@
       !(rec.out_of_range_days || []).length;
     var items = [
       ["Day cards generated / reconciled", reconciled],
+      // Label unchanged on purpose: the PREDICATE had to move to
+      // placements (a photograph on two days reads as being on none
+      // through the compatibility scalar), but renaming the dev
+      // harness's checklist item would have been churn that broke a
+      // test for no product gain.
       ["Photos attached to days", st.photoLinks.some(function (l) {
-        return !!l.trip_day_id;
+        return linkDayIds(l).length > 0;
       })],
       ["Sources attached to days", st.sources.some(function (s) {
         return !!s.trip_day_id;
@@ -4035,12 +4066,23 @@
   }
 
   function dayLinkedPhotoLinks(day) {
-    return st.photoLinks.filter(function (l) { return l.trip_day_id === day.id; });
+    // Every photograph PLACED on this day, including ones also placed
+    // elsewhere. Was `l.trip_day_id === day.id`, which missed a
+    // photograph on two days entirely — its compatibility scalar is
+    // null by rule, so it matched no day at all.
+    return st.photoLinks.filter(function (l) { return linkIsOnDay(l, day.id); });
   }
 
   function dateMatchedPhotoLinks(day) {
+    // Taken-date SUGGESTIONS for this day: photographs whose date falls
+    // here and which are not already placed here. Deliberately not
+    // "photographs placed nowhere" — one placed on Day 1 whose date is
+    // Day 3 is still the most likely thing the operator wants to do
+    // next on Day 3, and hiding it merely because it is placed
+    // somewhere would hide exactly that. Matches the server's
+    // `photo_suggestions` (work order §7).
     return st.photoLinks.filter(function (l) {
-      return !l.trip_day_id && linkTakenDate(l) === day.date;
+      return !linkIsOnDay(l, day.id) && linkTakenDate(l) === day.date;
     });
   }
 
@@ -4147,11 +4189,68 @@
   }
 
   function unlinkDayPhoto(day, linkId) {
+    // Removes THIS day's placement and nothing else: the photograph's
+    // other days, its trip membership, the photo row, the original, the
+    // thumbnail, the caption and the approvals all survive.
     api("/api/trips/" + encodeURIComponent(st.trip.id) +
       "/days/" + encodeURIComponent(day.id) + "/photos/unlink",
       { method: "POST", body: { photo_link_ids: [linkId] } })
       .then(function () { return Promise.all([reloadDays(), reloadPhotoLinks()]); })
       .then(function () { st.error = ""; renderAll(); })
+      .catch(function (e) { st.error = e.message; renderAll(); });
+  }
+
+  // §6.1's batching limit. Not a cap on how many photographs a day may
+  // hold — the schema has none and the product must not grow one by
+  // accident — so a larger selection is SENT IN BATCHES rather than
+  // refused or silently trimmed. The server rejects 51 in one call
+  // outright, which is the behaviour this respects rather than tests.
+  var PLACEMENT_BATCH_MAX = 50;
+
+  function addPhotosToDay(day, linkIds) {
+    var ids = (linkIds || []).slice();
+    if (!ids.length) return Promise.resolve();
+    var batches = [];
+    while (ids.length) batches.push(ids.splice(0, PLACEMENT_BATCH_MAX));
+    // Sequential, not Promise.all: each call assigns `ord` after the
+    // day's current maximum, so concurrent batches would interleave the
+    // operator's order.
+    var chain = batches.reduce(function (p, batch) {
+      return p.then(function () {
+        return api("/api/trips/" + encodeURIComponent(st.trip.id) +
+          "/days/" + encodeURIComponent(day.id) + "/photos/link",
+          { method: "POST", body: { photo_link_ids: batch } });
+      });
+    }, Promise.resolve());
+    return chain
+      .then(function () { return Promise.all([reloadDays(), reloadPhotoLinks()]); })
+      .then(function () { st.error = ""; renderAll(); })
+      .catch(function (e) { st.error = e.message; renderAll(); });
+  }
+
+  function openPlacementMove(day, link) {
+    // Move is deliberate and names both ends. `st.placementMove` holds
+    // the FROM day as well as the link, because a photograph on three
+    // days has three occurrences sharing one link id and "move it" has
+    // three readings.
+    st.placementMove = { fromDayId: day.id, linkId: link.id };
+    renderAll();
+  }
+
+  function movePlacement(fromDayId, linkId, toDayId) {
+    return api("/api/trips/" + encodeURIComponent(st.trip.id) +
+      "/photos/placement-move",
+      { method: "POST", body: {
+        photo_link_id: linkId,
+        from_day_id: fromDayId,
+        to_day_id: toDayId,
+      } })
+      .then(function () { return Promise.all([reloadDays(), reloadPhotoLinks()]); })
+      .then(function () {
+        st.error = "";
+        st.placementMove = null;
+        renderAll();
+      })
       .catch(function (e) { st.error = e.message; renderAll(); });
   }
 
@@ -4295,26 +4394,56 @@
     // ── Section: Photos (day-linked first, then date matches) ──
     var dayLinks = dayLinkedPhotoLinks(day);
     var dateLinks = dateMatchedPhotoLinks(day);
-    var ph = insSection("photos", "Photos (" + (dayLinks.length + dateLinks.length) + ")", false);
+    // The header counts PLACEMENTS on this day and suggestions
+    // separately, matching the server's `photos` / `photo_suggestions`
+    // split (work order §7): one number meaning both "the operator put
+    // this here" and "the camera says it was probably taken here" told
+    // the operator nothing they could act on.
+    var ph = insSection("photos", "Photos (" + dayLinks.length +
+      (dateLinks.length ? " · " + dateLinks.length + " suggested" : "") + ")",
+      false);
     if (dayLinks.length) {
-      ph.appendChild(el("div", "tdl-row-title-plain", "Attached to this day"));
+      ph.appendChild(el("div", "tdl-row-title-plain", "On this day"));
       var rowA = el("div", "tdl-photo-row");
       dayLinks.slice(0, 12).forEach(function (l) {
         var cellWrap = el("div", "tdl-photo-cell");
         var im = thumbImg(l.photo_id, l.caption, false);
         cellWrap.appendChild(im);
+        // A photograph may be on other days too. Saying which ones is
+        // what makes "Remove from this day" readable as the narrow act
+        // it is rather than as a deletion.
+        var others = linkDayIds(l).filter(function (d) { return d !== day.id; });
+        if (others.length) {
+          cellWrap.appendChild(el("small", "tdl-muted",
+            "also on " + dayListText(others)));
+        }
         cellWrap.appendChild(btn("tdl-btn tdl-btn-small", "Remove from this day",
           function () { unlinkDayPhoto(day, l.id); }));
+        // Move is its own deliberate action, and it names the day it
+        // moves FROM — which a bare link id cannot once a photograph
+        // can be on three days.
+        cellWrap.appendChild(btn("tdl-btn tdl-btn-small", "Move…",
+          function () { openPlacementMove(day, l); }));
         rowA.appendChild(cellWrap);
       });
       ph.appendChild(rowA);
     }
     if (dateLinks.length) {
-      ph.appendChild(el("div", "tdl-row-title-plain", "Dated to this day (not attached)"));
+      // "Taken on this date" — the name the work order gives it (§7).
+      // The old heading, "Dated to this day (not attached)", described
+      // the same rows as a deficiency; they are a suggestion.
+      ph.appendChild(el("div", "tdl-row-title-plain", "Taken on this date"));
       var rowB = el("div", "tdl-photo-row");
       dateLinks.slice(0, 8).forEach(function (l) {
-        var im = thumbImg(l.photo_id, l.caption, false);
-        rowB.appendChild(im);
+        var sCell = el("div", "tdl-photo-cell");
+        sCell.appendChild(thumbImg(l.photo_id, l.caption, false));
+        var sOn = linkDayIds(l);
+        if (sOn.length) {
+          sCell.appendChild(el("small", "tdl-muted", "on " + dayListText(sOn)));
+        }
+        sCell.appendChild(btn("tdl-btn tdl-btn-small", "Add to this day",
+          function () { addPhotosToDay(day, [l.id]); }));
+        rowB.appendChild(sCell);
       });
       ph.appendChild(rowB);
     }
@@ -4922,6 +5051,75 @@
     renderAll();
   }
 
+  function renderPlacementMove() {
+    // ── MOVE ONE OCCURRENCE ──────────────────────────────────────────
+    //
+    // Separate from Add on purpose (§8: "Add is the primary action.
+    // Move is separate and deliberate."). Before Phase 2 the two were
+    // the same gesture because the storage allowed one day; a photo
+    // placed on a second day lost the first, and the interface called
+    // that a move because that is what happened, not because anyone
+    // chose it.
+    //
+    // The drawer names the day it is moving FROM in its own heading.
+    // That is not decoration: a photograph on Day 1 and Day 3 has two
+    // occurrences that share one link id, so "move this photo to Day 5"
+    // is ambiguous and only the pair (link, from-day) resolves it.
+    var mv = st.placementMove || {};
+    var fromDay = dayById(mv.fromDayId);
+    var link = (st.photoLinks || []).filter(function (l) {
+      return l.id === mv.linkId;
+    })[0];
+    if (!fromDay || !link) {
+      st.placementMove = null;
+      return el("div", "tdl-drawer-scrim");
+    }
+
+    var sh = drawerShell("Move this photograph",
+      "from " + dayChipText(fromDay),
+      function () { st.placementMove = null; renderAll(); },
+      "tdl-photo-picker tdl-photo-picker-bare");
+
+    var top = el("div", "tdl-photo-cell");
+    top.appendChild(thumbImg(link.photo_id, link.caption, false));
+    sh.body.appendChild(top);
+
+    var on = linkDayIds(link);
+    sh.body.appendChild(el("p", "tdl-muted",
+      on.length > 1 ?
+        ("This photograph is on " + dayListText(on) + ". Only the " +
+         dayChipText(fromDay) + " placement moves; the others stay.") :
+        ("This photograph is only on " + dayChipText(fromDay) + ".")));
+
+    var others = (st.days || []).filter(function (d) { return d.id !== fromDay.id; });
+    if (!others.length) {
+      sh.body.appendChild(el("p", "tdl-muted",
+        "This trip has no other day to move it to."));
+    }
+    var list = el("div", "tdl-src-pick-list");
+    others.forEach(function (d) {
+      var row = el("div", "tdl-src-pick-row");
+      row.appendChild(el("span", "", dayChipText(d)));
+      var alreadyThere = linkIsOnDay(link, d.id);
+      if (alreadyThere) {
+        // Supported, and said out loud: the operator wants the source
+        // occurrence gone and the photograph is already on the
+        // destination. The server removes the source and reports that
+        // it created nothing.
+        row.appendChild(el("small", "tdl-muted", "already here"));
+      }
+      row.appendChild(btn("tdl-btn tdl-btn-small",
+        alreadyThere ? "Move here (removes the other)" : "Move here",
+        function () { movePlacement(fromDay.id, link.id, d.id); }));
+      list.appendChild(row);
+    });
+    sh.body.appendChild(list);
+
+    sh.foot.appendChild(btn("tdl-btn", "Cancel",
+      function () { st.placementMove = null; renderAll(); }));
+    return sh.wrap;
+  }
+
   function renderPhotoPicker() {
     var day = dayById(st.photoPickerDayId);
     var wrap = el("div", "tdl-drawer-scrim");
@@ -4956,38 +5154,52 @@
 
     var checked = {};
 
-    // Attach vs Move — reassignment is never silent. Links already on
-    // ANOTHER day are labeled "Move to this day" per row, the confirm
-    // button splits the counts, and a one-line notice spells out the
-    // move. Inline notice only — no native confirm() dialogs.
+    // ── THIS IS AN ADD. IT WAS LABELLED A MOVE. ──────────────────────
+    //
+    // Until 2026-08-13 a row for a photograph already on another day
+    // read "Move to this day", the button split into "Attach N · Move
+    // M", and a notice promised "M photo(s) will move from other days."
+    // All three described the DATA MODEL rather than a decision: one
+    // nullable column could hold one day, so placing a second day
+    // necessarily erased the first, and the interface reported the
+    // consequence as though it were an intention.
+    //
+    // Phase 2 made the route an add. Leaving the labels would have been
+    // the worst of the three states: the operator reads "Move", the
+    // photograph stays on both days, and nothing on screen says so.
+    // Moving one occurrence deliberately is now its own action, with
+    // its own route, which names the day it moves FROM — the thing a
+    // bare link id could never say once a photograph could be on three
+    // days.
     function selCounts() {
-      var counts = { attach: 0, move: 0 };
+      var counts = { add: 0, also: 0 };
       Object.keys(checked).forEach(function (k) {
         if (!checked[k]) return;
         var l = st.photoLinks.filter(function (x) { return x.id === k; })[0];
-        if (l && l.trip_day_id) counts.move += 1; else counts.attach += 1;
+        if (l && linkDayIds(l).length) counts.also += 1; else counts.add += 1;
       });
       return counts;
     }
     function paintAttach() {
       var c = selCounts();
-      var total = c.attach + c.move;
-      if (!total) {
-        attach.textContent = "Attach selected to " + dayChipText(day);
-      } else if (c.move) {
-        attach.textContent = "Attach " + c.attach + " · Move " + c.move;
-      } else {
-        attach.textContent = "Attach " + c.attach + " to " + dayChipText(day);
-      }
+      var total = c.add + c.also;
+      attach.textContent = total ?
+        ("Add " + total + " to " + dayChipText(day)) :
+        ("Add selected to " + dayChipText(day));
       attach.disabled = !total;
-      moveNotice.textContent = c.move ?
-        (c.move + " photo(s) will move from other days.") : "";
-      moveNotice.style.display = c.move ? "" : "none";
+      // Not a warning any more, because nothing is being taken away.
+      // It is still stated, because "this photograph will now be on two
+      // days" is a fact the operator should see before pressing the
+      // button rather than discover on the other day's card.
+      moveNotice.textContent = c.also ?
+        (c.also + " of these are already on another day and will be on " +
+         "both. Use Move on a day's photo to change days instead.") : "";
+      moveNotice.style.display = c.also ? "" : "none";
     }
 
     var grid = el("div", "tdl-picker-grid");
     var pickable = st.photoLinks.filter(function (l) {
-      return l.trip_day_id !== day.id;
+      return !linkIsOnDay(l, day.id);
     });
     if (!pickable.length) {
       // Compact when there is nothing to lay out. Chris: "the drawer in
@@ -5033,15 +5245,19 @@
       cell.appendChild(im);
       var meta = el("div", "tdl-picker-meta");
       meta.appendChild(el("span", "", linkTakenDate(l) || "undated"));
-      if (l.trip_day_id) {
-        var other = dayById(l.trip_day_id);
+      // Every day it is already on, named. The old version read one
+      // scalar and could only ever say "on Day 3" or "on another day";
+      // a photograph on two days said neither, because that scalar is
+      // null by rule.
+      var already = linkDayIds(l);
+      if (already.length) {
         meta.appendChild(el("small", "tdl-muted",
-          other ? ("on Day " + other.day_index) : "on another day"));
+          "already on " + dayListText(already)));
       }
       cell.appendChild(meta);
       cell.appendChild(el("small",
-        "tdl-picker-action" + (l.trip_day_id ? " tdl-picker-action-move" : ""),
-        l.trip_day_id ? "Move to this day" : "Attach"));
+        "tdl-picker-action" + (already.length ? " tdl-picker-action-move" : ""),
+        already.length ? "Add to this day too" : "Add"));
       grid.appendChild(cell);
     });
     body.appendChild(grid);
@@ -5053,19 +5269,17 @@
 
     var foot = el("div", "tdl-drawer-foot");
     var attach = btn("tdl-btn tdl-btn-primary",
-      "Attach selected to " + dayChipText(day), function () {
+      "Add selected to " + dayChipText(day), function () {
         var ids = Object.keys(checked).filter(function (k) { return checked[k]; });
         if (!ids.length) return;
-        api("/api/trips/" + encodeURIComponent(st.trip.id) +
-          "/days/" + encodeURIComponent(day.id) + "/photos/link",
-          { method: "POST", body: { photo_link_ids: ids } })
-          .then(function () { return Promise.all([reloadDays(), reloadPhotoLinks()]); })
+        // Through addPhotosToDay so a selection larger than the
+        // server's 50-per-call limit is SENT IN BATCHES rather than
+        // refused. A day has no cap; a request does.
+        addPhotosToDay(day, ids)
           .then(function () {
-            st.error = "";
-            st.photoPickerDayId = null;
+            if (!st.error) st.photoPickerDayId = null;
             renderAll();
-          })
-          .catch(function (e) { st.error = e.message; renderAll(); });
+          });
       });
     attach.disabled = true;
     foot.appendChild(attach);
@@ -5268,6 +5482,30 @@
       Number(l.cluster_confidence) < 0.5 && l.assignment_method !== "operator";
   }
 
+  // ── Which days is this photograph on? ────────────────────────────
+  //
+  // ONE definition, used by everything that asks. Phase 2 made
+  // trip_photo_day_placements authoritative and left
+  // `trip_photo_links.trip_day_id` as a compatibility scalar that the
+  // server DERIVES: it carries the day when there is exactly one, and
+  // is null when there are none OR SEVERAL. Reading that scalar to
+  // answer "where is this photograph" is therefore correct for one day
+  // and silently wrong for two — a photograph on Day 1 and Day 3 reads
+  // as being nowhere.
+  //
+  // The fallback to the scalar is for a response that predates Phase 2
+  // and carries no `trip_day_ids`. It cannot resurrect a stale value:
+  // the server never serves that column raw any more, so when it is
+  // present it means exactly one placement.
+  function linkDayIds(l) {
+    if (Array.isArray(l.trip_day_ids)) return l.trip_day_ids;
+    return l.trip_day_id ? [l.trip_day_id] : [];
+  }
+
+  function linkIsOnDay(l, dayId) {
+    return linkDayIds(l).indexOf(dayId) >= 0;
+  }
+
   function linkIsUnplaced(l) {
     // ONE definition, because there were two. The chip count and the
     // gallery contents each carried their own copy of this rule, so
@@ -5279,7 +5517,13 @@
     // `!l.trip_stop_id` alone, which on a trip with no stops reported
     // every photo as unplaced while the Trip Plan showed those same
     // photos sitting on day cards.
-    return !l.trip_stop_id && !l.trip_day_id;
+    //
+    // 2026-08-13: `&& !l.trip_day_id` became `&& !linkDayIds(l).length`.
+    // The scalar reads null for a photograph on several days BY RULE, so
+    // the old test called the most deliberately placed photographs in
+    // the trip unplaced — in the filter chip, in the gallery, and in the
+    // lightbox label, all at once, because they all come through here.
+    return !l.trip_stop_id && !linkDayIds(l).length;
   }
 
   function linkSharedWithLori(l) {
@@ -5755,10 +5999,15 @@
     // Same correction as the filter: a photo sitting on a day is not
     // "Unplaced" just because the trip has no stops. Day is the last
     // fallback before the word is used.
-    var lbDay = sel.trip_day_id ? dayById(sel.trip_day_id) : null;
+    //
+    // 2026-08-13: reads the placement SET, so a photograph on two days
+    // says so instead of falling through to "Unplaced" — which is what
+    // the single scalar produced, in the one place the operator is
+    // looking straight at the photograph.
+    var lbDays = linkDayIds(sel);
     head.appendChild(el("span", "tdl-lb-title",
       (stop && stop.location_name) || (region && region.title) ||
-      (lbDay ? dayChipText(lbDay) : null) || "Unplaced"));
+      (lbDays.length ? dayListText(lbDays) : null) || "Unplaced"));
     head.appendChild(el("span", "tdl-lb-date",
       "Taken " + (linkTakenDate(sel) || "unknown")));
     head.appendChild(btn("tdl-btn tdl-btn-small tdl-lb-close", "✕ Close",
@@ -5860,10 +6109,12 @@
         " · date source: " + (sel.photo_date_source || "n/a") +
         " · method: " + (sel.assignment_method || "?") +
         " · confidence: " + (sel.cluster_confidence == null ? "?" : sel.cluster_confidence)));
-      if (sel.trip_day_id) {
-        var linkedDay = dayById(sel.trip_day_id);
-        detail.appendChild(el("p", "",
-          "Attached to " + (linkedDay ? dayChipText(linkedDay) : "a day card")));
+      var detailDays = linkDayIds(sel);
+      if (detailDays.length) {
+        // "On Day 1 and Day 3" — one sentence for one day or several.
+        // Was "Attached to Day 1", which could only ever name one and
+        // said nothing at all for a photograph on two.
+        detail.appendChild(el("p", "", "On " + dayListText(detailDays)));
       }
       if (sel.caption) detail.appendChild(el("p", "", "Caption: " + sel.caption));
       if (sel.narrator_caption) {

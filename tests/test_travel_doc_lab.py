@@ -1041,14 +1041,46 @@ class Lab03Test(unittest.TestCase):
         self.assertIn("In memoir OFF", src)
 
     def test_source_attach_vs_move_is_explicit(self):
-        # Same Attach-vs-Move doctrine as the photo picker: sources on
-        # another day are never silently reassigned. "Move to this day"
-        # now appears for BOTH pickers (photos + sources), the source
-        # move gets its own inline notice, and there is still no native
-        # confirm() dialog anywhere in the lab.
+        """REWRITTEN 2026-08-13, WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01
+        Phase 3. The two pickers now differ ON PURPOSE, and that is
+        worth asserting rather than papering over.
+
+        This asserted `src.count("Move to this day") >= 2` — once for
+        the source picker, once for the photo picker — because both
+        obeyed one doctrine: a row already on another day is never
+        silently reassigned, so it is labelled a move.
+
+        That doctrine was never a choice for photographs. It was the
+        data model talking: one nullable column held one day, so placing
+        a second day erased the first, and the label described the
+        consequence. Phase 2 gave photographs their own placement table;
+        the photo picker is an ADD now, and moving one occurrence is a
+        separate deliberate action that names the day it moves FROM.
+
+        A SOURCE still carries a single `trip_sources.trip_day_id`, so
+        for sources the old doctrine is still exactly right and is
+        unchanged. Asserting the two separately is what stops a later
+        pass from "fixing the inconsistency" in the wrong direction.
+        """
         src = _stripped_js()
-        self.assertGreaterEqual(src.count("Move to this day"), 2)
+
+        # Sources: still one day, still a move, still announced.
+        self.assertIn("Move to this day", src)
         self.assertIn("source(s) will move from other days.", src)
+
+        # Photos: an add, and it says so. The notice is a two-line
+        # concatenation in the source, so this asserts the half that is
+        # one literal rather than reassembling it here — a test that
+        # rebuilds a string is a test that breaks on rewrapping.
+        self.assertIn("Add to this day too", src)
+        self.assertIn("are already on another day and will be on", src)
+
+        # And the photo picker no longer promises a move it will not
+        # perform. This is the defect Phase 3 exists to close: the
+        # operator read "Move", the photograph stayed on both days, and
+        # nothing on screen said so.
+        self.assertNotIn("photo(s) will move from other days.", src)
+
         cleaned = src.replace("paintAttach(", "").replace(
             "paintAttachSources(", "")
         self.assertNotIn("confirm(", cleaned)
