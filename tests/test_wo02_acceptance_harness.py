@@ -2222,15 +2222,42 @@ class StageBPlanTest(_HarnessCase):
         })
         self.write_checkpoint(cp)
         before = _SCRIPT.read_text(encoding="utf-8")
-        raw = json.dumps(json.load(open(wo02.STATE_CP, encoding="utf-8")))
+
+        def checkpoint_bytes():
+            # `with`, because the bare json.load(open(...)) this used to
+            # be leaked a file handle and printed a ResourceWarning
+            # through the middle of an otherwise clean run.
+            with open(wo02.STATE_CP, encoding="utf-8") as fh:
+                return json.dumps(json.load(fh))
+
+        raw = checkpoint_bytes()
         wo02._reset()
         rc = wo02.do_plan(None)           # `now` is deliberately unused
         self.assertEqual(rc, 0)
-        self.assertEqual(
-            raw,
-            json.dumps(json.load(open(wo02.STATE_CP, encoding="utf-8"))),
-            "plan must not rewrite the checkpoint")
+        self.assertEqual(raw, checkpoint_bytes(),
+                         "plan must not rewrite the checkpoint")
         self.assertEqual(before, _SCRIPT.read_text(encoding="utf-8"))
+
+    def test_plan_does_not_overclaim_what_it_left_alone(self):
+        """The closing line has to be true of the whole run.
+
+        It said "Nothing was written", and then main() wrote the
+        console readout every mode writes. A line whose only job is to
+        promise the harness touched nothing must not itself be the
+        inaccurate one.
+        """
+        self.write_checkpoint(self._cp({
+            "u1": {"days": [], "pids": {}, "ch": "", "approved": 0},
+            "u2": {"days": [], "pids": {}, "ch": "", "approved": 0},
+            "p1": {"days": ["d1"], "pids": {"d1": "x"}, "ch": "", "approved": 0},
+            "p2": {"days": ["d2"], "pids": {"d2": "y"}, "ch": "", "approved": 0},
+        }))
+        wo02._reset()
+        wo02.do_plan(None)
+        text = "\n".join(wo02.LINES)
+        self.assertNotIn("Nothing was written", text)
+        self.assertIn("Only this readout is saved", text)
+        self.assertIn("checkpoint is unchanged", text)
 
     def test_plan_mode_exits_nonzero_when_the_fixture_cannot_prove_stage_b(self):
         self.write_checkpoint(self._cp({

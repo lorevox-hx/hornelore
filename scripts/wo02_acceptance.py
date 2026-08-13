@@ -1138,7 +1138,14 @@ def do_plan(now):
     plan = build_stage_b_plan(cp)
     print_stage_b_walkthrough(plan)
     out("")
-    out("Read-only. Nothing was written; the checkpoint is untouched.")
+    # CORRECTED 2026-08-13. This said "Nothing was written", and then
+    # main() wrote the console readout every mode writes -- so the one
+    # line in this harness whose whole job is to promise it touched
+    # nothing was itself inaccurate. It reads no API, changes no trip
+    # data and does not rewrite the checkpoint; it does save its own
+    # readout, and now says so.
+    out("Read-only: no API call, no trip data touched, and the")
+    out("checkpoint is unchanged. Only this readout is saved.")
     return 0 if plan["ok"] else 2
 
 
