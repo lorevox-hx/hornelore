@@ -104,6 +104,18 @@ window. None of it touches model, window, prompt *configuration*, STT, TTS or sa
 
 ---
 
+## 2a. Rollback — corrected 2026-08-14 (L1)
+
+The WO's rollback section and the Phase 0 review both roll back via
+`HORNELORE_RUNTIME_PROFILE`, which has **zero readers repo-wide**. Both are therefore
+**unexecutable as written**, and **Phase 2 must not be built merely to make that paragraph
+true**. An executable rollback, written against the controls that actually exist, is §15 of
+`docs/wo/WO-LEAN-LORI-L2-RUNBOOK-2026-08-14.md`.
+
+The single most important rollback fact in this lane: **there is no DB column, no server flag
+and no per-narrator setting controlling `current_pass`** — its only durable home is browser
+`localStorage`, so a pass-ownership change cannot be rolled back server-side today.
+
 ## 3. The one product decision blocking Phase 8
 
 Phase 8's remaining scope is blocked on **Profile Seed ownership** — which subsystem owns
@@ -114,6 +126,12 @@ report notes that part of those tokens may exist only to argue with a block that
 be there.
 
 **Do not attempt Phase 8's remainder before this is decided.**
+
+**Decision brief written 2026-08-14 (L1):**
+`docs/wo/WO-LEAN-LORI-PROFILE-SEED-DECISION-BRIEF-2026-08-14.md` — competing authorities,
+every reader and writer, cache-refresh and export consequences, rollback implications, a
+recommended owner and the exact question for Chris. **The brief does not implement the
+decision.**
 
 ---
 
@@ -180,10 +198,14 @@ as active pipeline stage 1 and carries no reference to the park.
 **Gate:** review only. **Cheapest and highest-value first block — every item on it currently
 invites rebuilding landed work.**
 
-### Batch L2 — one live evidence run (one stack cycle)
-The three owed items in §5 plus the LLR-19 probe, in a single session.
+### Batch L2 — one live evidence run — **RUNBOOK WRITTEN, NOT STARTED**
+Full runbook: `docs/wo/WO-LEAN-LORI-L2-RUNBOOK-2026-08-14.md`. **Budget is exactly one start
+and one restart** — restart persistence is one of its required cases, so it is not a single
+uninterrupted cycle. Uses a dedicated `L2 ACCEPTANCE DELME` narrator; **no family narrator's
+profile or cache is cleared to manufacture the no-cached-spine condition.** Live safety stays
+`parked` throughout.
 **Gate:** Gate B closes; Phase 10 and Phase 6 debts discharge; Gate D gets its re-measured
-token figure, resolving §1.1.
+token table, resolving §1.1.
 
 ### Batch L3 — Phase 9 completion (offline, one consolidated gate)
 Optional-section dropping, priority tiers, section reporting — the gap `prompt_budget.py`
@@ -228,9 +250,19 @@ window-split 19 · story-trigger 118 · reflection 20 · meta-question 37 ·
 safety-precedence 16 · narrator-bridge 60. **These are breadth, not a passing state** — this
 map executed nothing.
 
-Note: `tests/test_chat_ws_safety_precedence.py` stays green only with
-`HORNELORE_SAFETY_STATE=active` set for that module; that is deliberate and is not a
-reactivation.
+> **CORRECTED 2026-08-14 (L1).** This note previously read: *"`tests/test_chat_ws_safety_precedence.py`
+> stays green only with `HORNELORE_SAFETY_STATE=active` set for that module."* **That was
+> wrong and it was mine.** The module sets and restores the variable **itself** in
+> `setUpModule`/`tearDownModule` (`:93-104`). Setting it externally is actively harmful — the
+> module would then restore it to `"active"` instead of removing it, leaving safety active for
+> every later module in the process.
+>
+> The module **does** need its own command, for a different and genuine reason: it mutates
+> `HORNELORE_SAFETY_LLM_LAYER`, `LV_ENABLE_SAFETY` and `DATA_DIR` at **import** time
+> (`:45-50`), which is not restored and leaks process-wide at collection.
+>
+> **Correct commands, and the full reasoning:** §13 and §14 of
+> `docs/wo/WO-LEAN-LORI-L2-RUNBOOK-2026-08-14.md`. The gate above is superseded by §13 there.
 
 ---
 
