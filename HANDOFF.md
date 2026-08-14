@@ -28,9 +28,9 @@ and its latest live evidence first.
 | Google Photos Picker | **BANKED** | Reopen only for a demonstrated defect. |
 | Travel Document core/export | **CLOSED on live evidence** | Preserve the editable timeline → DOCX projection rule. |
 | Multi-day trip-photo placement | **COMPLETE; Gate 3 accepted 2026-08-14** | Close documentation; do not begin legacy-column removal. |
-| Test-artifact cleanup | **FOLDED INTO PALETTE P0** | Inventory first; preserve genuine memories; hide noise reversibly; nothing deleted without Chris. |
-| Photo Palette | **ACTIVE PRODUCT LINE — starts at P0** | Execute `docs/wo/WO-TRIP-PHOTO-PALETTE-01_Spec.md`. |
-| Legacy photo-day scalar retirement | **DEFERRED / separate authorization** | SQLite rebuild proposal only after Palette acceptance. |
+| Test-artifact cleanup | **DONE — classified in Palette P0** | Inventory complete; genuine memories preserved; nothing deleted. |
+| Photo Palette | **COMPLETE; P4 and P5 accepted 2026-08-14** | Close the work order; do not reopen for polish without a demonstrated defect. |
+| Legacy photo-day scalar retirement | **DEFERRED / separate authorization — now unblocked** | SQLite rebuild proposal. **Palette acceptance does not authorize it.** |
 | Lean Lori | **PARKED BEHIND CURRENT TRAVEL-DOCUMENT SEQUENCE** | Resume only by Chris's explicit priority decision. |
 | Runtime safety | **PARKED, server-authoritative** | Never reactivate through environment values. |
 | Model / 8,192-token window | **LOCKED** | Any proposed model change is stop-and-report. |
@@ -69,14 +69,54 @@ requires a separately reviewed SQLite rebuild and rollback plan.
 
 ## 4. Immediate execution order
 
-1. Record the multi-day closeout. **Done 2026-08-14.** The final F12/API-log review is
-   not a separate stack cycle: the post-acceptance sweep is complete and clean, and the
-   one item still owed — live confirmation of the deferred-thumbnail fix — folds into P4.
-2. Inventory contaminated acceptance/test artifacts. Do not delete genuine family material.
-3. Execute the Photo Palette work order.
-4. Run one consolidated Palette regression gate.
-5. Start the stack once for Palette live acceptance; restart once at the end for persistence.
-6. Decide separately whether to authorize legacy-column retirement.
+Items 1–5 are **complete as of 2026-08-14**; item 6 is the next decision.
+
+1. Record the multi-day closeout. **Done.**
+2. Inventory contaminated acceptance/test artifacts. **Done in Palette P0** — no genuine
+   family material deleted, and the contamination proved not to reach the Palette at all
+   (22 of 36 narrators are harness residue and none owns a trip).
+3. Execute the Photo Palette work order. **Done — P0 through P5.**
+4. Run one consolidated Palette regression gate. **Done** — 584 tests plus four harnesses
+   at 113 / 32 / 16 / 56, verified in `.venv`.
+5. Start once for live acceptance, restart once for persistence. **Done** — P4 final PASS
+   after one correction; P5 persistence 14/14 and restoration 22/22.
+6. **NEXT: decide separately whether to authorize legacy-column retirement.** Palette
+   acceptance does **not** imply it.
+
+### 4.1 Photo Palette closeout
+
+Reports: [`P4`](docs/reports/WO-TRIP-PHOTO-PALETTE-01_P4_LIVE_ACCEPTANCE.md) ·
+[`P5`](docs/reports/WO-TRIP-PHOTO-PALETTE-01_P5_PERSISTENCE.md). Both are local-only under
+the `docs/reports/` privacy rule and carry live narrator data.
+
+Proven live and across a restart: placement identity preserved byte-for-byte; the derived
+compatibility scalar correct at zero, one and many placements while the stored column is
+never written; membership rendered once however many placements it has; filter counts equal
+to their cards on every chip; batch Add, eligibility-checked Remove, source-named Move, and
+reversible Hide/Restore; caption and Lori approval kept apart on the wire; dirty guards;
+thumbnail-only grid with deferred loading on the modal's real scrollport; no duplicate
+writes, no originals in the grid, no legacy-scalar writes.
+
+**One defect was found live and fixed inside P4** (`b991353` code, `88429cc` tests): Add,
+Remove, Move and a caption save refreshed the visible photo pool but not the Palette's own
+hidden pool, so a hidden card kept showing a day it no longer had. `reloadPalettePhotoPools`
+now owns that rule in one place, wired into five sites; eight mutations, eight killed.
+
+Eight genuine Bismarck photographs were uploaded during acceptance and are **preserved** —
+memberships only, no day placements, no approvals granted. Every temporary acceptance
+caption, placement and hidden flag was restored afterwards and re-verified against the
+original baseline.
+
+**Two things carried forward, neither blocking:**
+
+- **Region-only placement has no operator route.** `PhotoLinkPatch` carries no
+  `trip_region_id` field and no clear-stop flag, so nothing in the Travel Document can
+  create a region-only photo link. The Palette renders the badge; the state is
+  unreachable. A product decision, not a defect.
+- **Scale evidence is the harness's.** The trip holds 12 memberships, so 49/50/51/200/500/
+  1,000, `Load more` and the mounted-window distinction remain proven by
+  `run_photo_palette_behaviour.js` and `run_photo_window_arithmetic.js`. No rows were
+  manufactured to change that.
 
 ## 5. Photo Palette product boundary
 

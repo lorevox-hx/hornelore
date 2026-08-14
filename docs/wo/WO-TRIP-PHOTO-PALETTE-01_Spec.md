@@ -1,7 +1,35 @@
 # WO-TRIP-PHOTO-PALETTE-01
 
-**Status:** READY FOR EXECUTION after the Gate 4 cleanup map  
+**Status:** **COMPLETE — P0 through P5 accepted 2026-08-14.**
+*(This read "READY FOR EXECUTION after the Gate 4 cleanup map" until 2026-08-14.)*
 **Date:** 2026-08-14  
+
+> **CLOSEOUT.** All three gates met. Offline: 584 tests plus four harnesses
+> (113 / 32 / 16 / 56), verified in `.venv`. Live: P4 final PASS —
+> [`P4 report`](../reports/WO-TRIP-PHOTO-PALETTE-01_P4_LIVE_ACCEPTANCE.md). Restart
+> persistence: P5 14/14 read-only then restoration 22/22 —
+> [`P5 report`](../reports/WO-TRIP-PHOTO-PALETTE-01_P5_PERSISTENCE.md).
+>
+> **One defect found live and fixed inside P4** (`b991353` code, `88429cc` tests): Add,
+> Remove, Move and a caption save refreshed the visible photo pool but not the Palette's
+> own hidden pool, so a hidden card kept showing a day it no longer had and a caption it no
+> longer had. `reloadPalettePhotoPools(guard, {days})` now owns that rule in one place and
+> is wired into five sites — the fifth, `unlinkDayPhoto`, was not in the reported set but
+> carried the same bug. Eight mutations, eight killed by their intended checks.
+>
+> **Eight genuine photographs** were uploaded through the real intake drawer during
+> acceptance and are preserved: memberships only, zero day placements, no approvals
+> granted. Every temporary acceptance caption, placement and hidden flag was restored
+> afterwards and re-verified against the original baseline.
+>
+> **Two items carried forward, neither blocking.** §5 ruling 5's *Region assigned* badge
+> has **no operator route to create the state it describes** — `PhotoLinkPatch` has neither
+> a region field nor a clear-stop flag — which is a product decision, not a Palette defect.
+> And the §7 acceptance sizes above 12 remain proven by
+> `scripts/ui/run_photo_palette_behaviour.js` and `run_photo_window_arithmetic.js` rather
+> than live; the trip holds 12 memberships and no rows were manufactured to change that.
+>
+> **Phase 6 legacy-column retirement is NOT authorized by this closeout.**
 **Lane:** Travel Document / photo organization  
 **Priority:** Next product build  
 **Depends on:** completed `WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01`

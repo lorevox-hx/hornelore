@@ -53,7 +53,7 @@ landed work from a stale status line.**
 | Google Photos Picker | 🟢 **BANKED** — live end-to-end. Do not reopen for polish without a demonstrated defect. |
 | Travel Document | 🟢 **CLOSED on live evidence** (`WO-TRAVEL-DOC-CLOSEOUT-01`, live export 2026-08-06). |
 | **Multi-day photo placement** | 🟢 **PHASES 0–5 COMPLETE, Gate 3 closed 2026-08-14** on live acceptance (Stage B 83/0, `restore-verify` 45/0). A photograph is an asset with many explicit placements; `trip_photo_day_placements` is the authority and the legacy scalar is **derived, never authored** — 0 placements → null, 1 → that day, **≥2 → null always**. `PLACEMENT_BATCH_MAX = 50` bounds a *request*, not days-per-photograph. **Phase 6 (legacy-column removal) is NOT authorized by this closeout** and needs a SQLite table rebuild plus explicit approval. WO: [`docs/wo/WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01_Spec.md`](docs/wo/WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01_Spec.md). **Defect found in the post-acceptance sweep and FIXED:** the trip gallery set `loading="lazy"` inside `.tdl-main`, which is its own scrollport, so tiles past ~1 viewport were never requested; the native hint is gone from the file and deferral now runs through an `IntersectionObserver` rooted per image on the real scrollport (WO §8.1). **Live browser confirmation is owed** and folds into the Photo Palette acceptance cycle. |
-| **Photo Palette** | 🔵 **ACTIVE — the next product build, after the artifact-cleanup map.** Canonical plan: [`docs/wo/WO-TRIP-PHOTO-PALETTE-01_Spec.md`](docs/wo/WO-TRIP-PHOTO-PALETTE-01_Spec.md), installed 2026-08-14. **Unplaced means zero authoritative placements and NEVER `trip_photo_links.trip_day_id IS NULL`** — null is also how a photo placed on several days appears in the compatibility scalar. Delivery blocks P0–P5 are in `MASTER_WORK_ORDER_CHECKLIST.md` §B. |
+| **Photo Palette** | 🟢 **COMPLETE — P0–P5 accepted 2026-08-14.** *(This row read `🔵 ACTIVE — the next product build` until 2026-08-14.)* Offline 584 tests + 4 harnesses (113/32/16/56); P4 live final PASS; P5 restart persistence 14/14 then restoration 22/22. Reports: [P4](docs/reports/WO-TRIP-PHOTO-PALETTE-01_P4_LIVE_ACCEPTANCE.md), [P5](docs/reports/WO-TRIP-PHOTO-PALETTE-01_P5_PERSISTENCE.md) (local-only, live narrator data). **Two questions kept apart, and both matter:** *Not on a day* is `linkDayIds(l).length === 0` and is the filter; *completely unplaced* additionally requires no region and no stop and is a badge. **Neither ever reads the compatibility scalar** — null is also how a photo on several days appears there. **Do not reopen for polish without a demonstrated defect.** Carried forward, not blocking: the *Region assigned* badge has no operator route to create the state it describes (`PhotoLinkPatch` has neither a region field nor a clear-stop flag), and scale above 12 memberships stays the harness's evidence. |
 | **Lean Lori runtime** | ⏸️ **PARKED behind the current Travel Document sequence, 2026-08-14.** *(This row read `🔵 ACTIVE — the current technical line` until 2026-08-14, contradicting `HANDOFF.md`, which parks it. HANDOFF is the orientation document and wins. **Photo Palette is the active product line; Lean Lori resumes only on Chris's explicit priority decision.** Nothing below is retracted — it is the accurate state of the lane as of the last time it was worked, kept so resuming does not start from zero.)* Reconciled 2026-08-09 ([report](docs/reports/LEAN-LORI-R3-PHASE-RECONCILIATION-2026-08-09.md)): **Gate A complete · Gate B complete except the Phase 1A browser/export smoke · R3 Phase 2 (profile resolver) NOT STARTED · safety §3C PARKED+VERIFIED via its own `HORNELORE_SAFETY_STATE` · Gate D is the active gate.** Phase 5 done; **Phase 6 LANDED** (core 2,217→1,632 tok); **Phase 7 LANDED** (English-first 850→108); Phases 4 and 9 partial; **Phase 8's first gate LANDED** (`ce5e636`, ERA EXPLAINER glossary gated — the era system itself is untouched); Phase 10 landed with live acceptance owed. Cumulative 6+7: composed prompt **7,205→5,878 tok**, 60-pair fixture retains **3→17** pairs. Canonical WO: [`docs/wo/WO-LEAN-LORI-RUNTIME-01-FINAL-R3-2026-08-04.md`](docs/wo/WO-LEAN-LORI-RUNTIME-01-FINAL-R3-2026-08-04.md). **R3 phase numbers ≠ commit phase labels, and phase labels are not unique across WOs here — cite a commit or a file, never a bare phase number.** *(This row read "advanced through Phase 4A" until 2026-08-09; that label is ambiguous — commit "Phase 4A" is R3 Phase 10.)* **Carried debts:** Phase 6 LLR-19 and Phase 10 live acceptance — fold into the next live run, do not build a harness. |
 | Runtime safety | ⏸️ **PARKED 2026-08-04**, server-authoritative, code+corpus+tests preserved. [`docs/decisions/2026-08-04-park-safety-feature.md`](docs/decisions/2026-08-04-park-safety-feature.md). **Never reactivate through an environment value** — it takes Chris's explicit decision. |
 | System-directive persistence | ✅ **CLOSED 2026-08-09** — [`docs/wo/WO-SYSTEM-DIRECTIVE-PERSISTENCE-01_Spec.md`](docs/wo/WO-SYSTEM-DIRECTIVE-PERSISTENCE-01_Spec.md). Provenance is declared by the send path (`params.message_kind`), recorded in `turns.meta_json.origin`; `role` stays `'user'`. Zero undeclared `start_turn` senders in-tree. **Legacy limitation, by design:** the 120 pre-existing rows carry no flag, so an old narrator row that began `[SYSTEM:` stays indistinguishable from an old directive — no historical rewrite is authorised. **Rule this earned: when the producer knows provenance, transmit it; never reconstruct it later from prose.** |
@@ -397,6 +397,118 @@ The extraction pipeline is one output surface; **Lori is the companion** — des
 - **WO-STT-LIVE-02 fragile-fact transcript guard** is landed (7-pattern classifier + 30s staleness cap + typed-input fallback).
 
 ## Changelog
+
+### 2026-08-14 (later) — WO-TRIP-PHOTO-PALETTE-01 P4+P5 closeout: the Palette is accepted live and across a restart, and the one live defect it found was in the refresh, not the write
+
+**The lane is complete.** P0 map, P1 data/query contract, P2 UI, P3 offline gate, P4 live
+acceptance, P5 restart persistence and restoration. Offline gate **584 tests** plus four
+harnesses at **113 / 32 / 16 / 56**, verified in `.venv`. Live: P4 **final PASS**. Restart:
+P5 **14/14 read-only**, then restoration **22/22** against the original baseline.
+
+**Every placement claim in both reports is verified against SQLite, not the screen**, from a
+read-only snapshot taken through the sqlite3 backup API. A card reading "Day 2" is not
+evidence that a placement row exists, and the browser cannot show a placement id.
+
+**What P4 proved live.** Multi-day Add without duplicating membership; batch Add as ONE
+request for two photographs; Remove that sends only the eligible ids and leaves the
+ineligible ones selected; Remove-one preserving the sibling placement's row id byte-for-
+byte; a Move that names its source day and touches only that occurrence; reversible
+Hide/Restore; filter counts equal to their cards on all six chips; each membership rendered
+once however many placements it has; caption PATCH carrying `{"caption": …}` and nothing
+else, with every approval flag unchanged afterwards; dirty guards refusing a close while
+preserving typed text; a thumbnail-only grid with **zero** `/api/photos/{id}/image`
+requests; and an API log with one write per action and no duplicates.
+
+**The derived scalar was correct at every cardinality — 0 → null, 1 → that day, 2 → null —
+while the stored `trip_photo_links.trip_day_id` was never written.** That is the
+Phase-6-pending design working: the column is frozen historical data and the compatibility
+value is derived on read. **I nearly reported that as a defect** after seeing the stored
+column still holding Day 1 for a two-placement photograph; reading
+`day_placements_add`'s own note — *"No new code writes the legacy scalar"* — is what
+stopped it. A frozen column is not a stale one.
+
+**The one live defect, and why it was worth finding.** Add, Remove, Move and a caption save
+refreshed the visible photo pool but **not the Palette's own hidden pool**. Hide/Restore
+refreshed both — so the hidden grid was correct exactly after the one action that changes
+neither a day nor a caption, and stale after every action that does. Reproduced against
+SQLite: removing the Day 2 placement from a hidden photograph deleted the row and left the
+card still reading *"Day 2"*, beside a status line saying *"1 removed"*. **The write was
+truthful and the screen contradicted it.**
+
+Fixed by one named helper, `reloadPalettePhotoPools(guard, {days})`, wired into **five**
+sites rather than the four the review named — `unlinkDayPhoto`, the timeline row's Remove,
+removes a placement exactly as the Palette's Remove does and carried the same bug. It
+rejects only on a **primary**-pool failure, so a hidden-pool failure can never downgrade a
+write the caller knows landed; it is reported as stale display in its own sentence.
+`setPhotoLinksHidden` deliberately keeps its direct call — it must load the pool even the
+first time so the Hidden chip can turn from `(?)` into a real count — and that exception is
+pinned by a test so a later tidy-up cannot quietly remove it. Two adjacent gaps closed in
+the same commit: `addPhotosToDay`'s reload was unguarded and `movePlacement` re-read
+`st.trip.id` after the write; both now carry a trip-identity guard.
+
+**Eight mutations, eight killed by their intended checks** — reverting each of the five call
+sites, dropping the hidden fetch, inverting the loaded test, dropping the guard. Two of them
+reproduce the exact live symptom.
+
+**A regression I caused and caught rather than shipped.** `run_photo_placement_safety` fell
+56/56 → 44/56 because it stubs `reloadDays`/`reloadPhotoLinks` and did not know the new
+helper. Verified against `HEAD` that it was green **before** the change rather than assuming,
+then gave the harness the **real** helper instead of a stub, so it keeps measuring shipped
+code. Three existing assertions pinned the old spelling and were **narrowed in place with
+the retired claim quoted and dated**, not deleted; each still guards its original property.
+
+**Eight genuine Bismarck photographs were uploaded through the real intake drawer** and are
+preserved. Pre-upload hashing against all 22 existing `photos.file_hash` values found zero
+collisions. Photos 22 → 30, memberships 4 → 12, **placements unchanged at 5** — upload is
+intake, not placement, and that held across the restart. All eight landed
+`date_source=exif`, `metadata_trust=full`, `narrator_ready=1`, zero day placements.
+
+**P5 then proved every placement id, day and `ord` survived a restart byte-for-byte**, the
+uploads' stored hashes still matched the source files 8/8, the multi-day link still read
+null in the derived scalar, and the hidden card still showed its persisted caption and day
+state on first open. Restoration returned the four original links to their baseline day
+sets, unhid the hidden one and cleared the three temporary captions, **preserving all eight
+photographs and deleting nothing**. One consequence stated rather than glossed: **three
+placement row ids are new**, because a removed placement is gone and re-adding creates a
+new row — while `d904d0af`'s Day 3 occurrence, never removed, still carries its original
+id, which is itself proof the restoration touched only what it meant to.
+
+**Three measurement traps hit and recorded, because each produced a convincing false
+result.** (1) `document.visibilityState` read `hidden` for most of the session — Chrome
+withholds IntersectionObserver callbacks and clamps timers to ~1/minute in a background
+tab. Thumbnails therefore never promoted, which is **not** a defect and is the same false
+bug already withdrawn once in the P2 corrections; a later CDP timeout blamed on a "frozen
+renderer" was in fact my own `setTimeout` sleeps being clamped. (2) Palette actions resolve
+in **microtasks**, so reading the status line in the same synchronous block that clicked the
+button returns the *previous* message; two apparent defects evaporated on re-read. (3) A
+control IntersectionObserver reported zero callbacks because it was disconnected in the same
+synchronous turn. **The eventual thumbnail proof is a hidden/visible contrast on the same
+eleven cards — hidden: 11 deferred / 0 loaded; visible: 0 deferred / 11 loaded** — which
+carries both claims at once: the deferral is genuine, and the observer fires. Third
+confirmation that the 2026-08-14 scrollport fix holds inside the modal, where the document
+does not scroll and `.tdl-palette` is the real scrollport.
+
+**Carried forward, neither blocking.** **Region-only placement has no operator route:**
+`PhotoLinkPatch` has neither a `trip_region_id` field nor a clear-stop flag, so nothing in
+the Travel Document can create a region-only photo link — the Palette renders the badge
+correctly and the state is unreachable. A product decision, not a defect. And **scale above
+12 memberships stays the harness's evidence**; sizes 49/50/51/200/500/1,000, `Load more` and
+the mounted-window distinction are proven by `run_photo_palette_behaviour.js` and
+`run_photo_window_arithmetic.js`. **No rows were manufactured to cross the 51 boundary.**
+
+- Files changed, code: `ui/js/travel-doc-lab.js`, `ui/hornelore1.0.html` (cache-busters
+  bumped as a pair, `2026-08-14e` → `f`) — commit `b991353`.
+- Files changed, tests: `scripts/ui/run_photo_palette_behaviour.js`,
+  `scripts/ui/run_photo_placement_safety.js`, `tests/test_trip_photo_palette_ui.py`,
+  `tests/test_travel_doc_lab.py`, `tests/test_trip_photo_multi_day_ui.py` — commit `88429cc`.
+- Files changed, docs: `docs/wo/WO-TRIP-PHOTO-PALETTE-01_Spec.md`, `HANDOFF.md`,
+  `MASTER_WORK_ORDER_CHECKLIST.md`, `CLAUDE.md` (state table row + this entry).
+- Files added: `docs/reports/WO-TRIP-PHOTO-PALETTE-01_P4_LIVE_ACCEPTANCE.md`,
+  `docs/reports/WO-TRIP-PHOTO-PALETTE-01_P5_PERSISTENCE.md` and two evidence dumps —
+  **all under the gitignored `docs/reports/`, local-only, carrying live narrator data. Do
+  not `git add` them; the refusal is the feature.**
+- **Phase 6 legacy-column retirement is NOT authorized by this closeout** and still needs
+  its own reviewed SQLite rebuild and rollback plan.
 
 ### 2026-08-14 — WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01 Phase 5 closeout: a photograph can live on many days, proven on the running stack
 
