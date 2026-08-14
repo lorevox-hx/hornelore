@@ -222,9 +222,12 @@ function ids(n, prefix) {
   const blocked = runner.paletteResult({ unsent: ["a"], blocked: true });
   const clean = runner.paletteResult({ done: ["a"] });
   const keys = o => Object.keys(o).sort().join(",");
-  check("every exit answers the same five keys",
+  // SEVEN keys since 2026-08-14: `changed` and `already` were added so
+  // Hide/Restore can report what it actually altered rather than
+  // everything it was asked about. Add and Remove fall back to the batch.
+  check("every exit answers the same seven keys",
     keys(blocked) === keys(clean) &&
-    keys(clean) === "blocked,done,error,reloadError,unsent",
+    keys(clean) === "already,blocked,changed,done,error,reloadError,unsent",
     keys(clean));
   check("a blocked run reports the whole selection as still outstanding",
     blocked.blocked === true && blocked.unsent.length === 1 &&
@@ -276,6 +279,132 @@ function ids(n, prefix) {
 
   mod.paletteClearSelection();
   check("clear empties it", mod.paletteSelectedIds().length === 0);
+})();
+
+// ── the 2026-08-14 corrections, run for real ──────────────────────────
+
+(function theActionBarKeepsUpWithTheSelection() {
+  // THE DEFECT THIS REPLACES. `disabled` was decided at render time and
+  // ticking a card deliberately does not repaint, so the bar was always
+  // one selection behind: select something and every action stayed
+  // disabled; clear the selection and they all stayed enabled. Measured
+  // live in a visible tab, in both directions.
+  const mod = new Function([
+    "var st = { tripCal: null, photoLinks: [], hiddenPhotoLinks: [] };",
+    extract("linkDayIds"),
+    extract("linkIsOnDay"),
+    extract("newPaletteState"),
+    extract("paletteState"),
+    extract("paletteSelectedIds"),
+    extract("paletteToggleSelected"),
+    extract("paletteClearSelection"),
+    extract("paletteSelectedOutsideFilter"),
+    extract("paletteRemovableIds"),
+    extract("paletteRefreshBar"),
+    "return { st, newPaletteState, paletteToggleSelected,",
+    "         paletteClearSelection, paletteRefreshBar,",
+    "         paletteRemovableIds, paletteSelectedIds };"
+  ].join("\n"))();
+
+  mod.st.tripCal = { palette: mod.newPaletteState() };
+  mod.st.photoLinks = [
+    { id: "on", trip_day_ids: ["d1"] },
+    { id: "off", trip_day_ids: [] }
+  ];
+
+  // A stand-in for the rendered bar: the same query surface the real
+  // function uses, so the real function runs unmodified.
+  function makeBar() {
+    const btns = {};
+    ["add", "remove", "hide", "restore", "clear"].forEach(function (a) {
+      btns[a] = { disabled: false, title: "" };
+    });
+    const count = { textContent: "" };
+    return {
+      _b: btns, _c: count,
+      querySelector(sel) {
+        if (sel === ".tdl-palette-selcount") return count;
+        const m = /\[data-pal-act="(\w+)"\]/.exec(sel);
+        return m ? btns[m[1]] : null;
+      }
+    };
+  }
+  const day = { id: "d1" };
+  const bar = makeBar();
+
+  mod.paletteRefreshBar(bar, ["on", "off"], "d1", day);
+  check("CORRECTION: with nothing selected every action is disabled",
+    bar._b.add.disabled && bar._b.remove.disabled && bar._b.hide.disabled,
+    "count=" + bar._c.textContent);
+
+  mod.paletteToggleSelected("on", true);
+  mod.paletteRefreshBar(bar, ["on", "off"], "d1", day);
+  check("CORRECTION: selecting a photograph ENABLES the actions " +
+        "without a repaint",
+    !bar._b.add.disabled && !bar._b.hide.disabled && !bar._b.remove.disabled,
+    "add=" + bar._b.add.disabled + " hide=" + bar._b.hide.disabled);
+  check("CORRECTION: …and the count says so",
+    bar._c.textContent === "1 selected", bar._c.textContent);
+
+  mod.paletteClearSelection();
+  mod.paletteRefreshBar(bar, ["on", "off"], "d1", day);
+  check("CORRECTION: clearing the selection DISABLES them again",
+    bar._b.add.disabled && bar._b.hide.disabled && bar._b.remove.disabled);
+
+  // Remove eligibility: selection persists across filters, so it can
+  // hold photographs that are not on the visible day at all.
+  mod.paletteToggleSelected("off", true);
+  mod.paletteRefreshBar(bar, ["on", "off"], "d1", day);
+  check("CORRECTION: Remove stays disabled when nothing selected is on " +
+        "this day",
+    bar._b.remove.disabled && !bar._b.hide.disabled,
+    "remove=" + bar._b.remove.disabled);
+  check("CORRECTION: …and says why", /are on this day/i.test(bar._b.remove.title),
+    bar._b.remove.title);
+
+  check("CORRECTION: only the on-day photograph is removable",
+    mod.paletteRemovableIds("d1").join(",") === "",
+    mod.paletteRemovableIds("d1").join(","));
+  mod.paletteToggleSelected("on", true);
+  check("CORRECTION: …and the off-day one is excluded from the request " +
+        "while STAYING selected",
+    mod.paletteRemovableIds("d1").join(",") === "on" &&
+    mod.paletteSelectedIds().sort().join(",") === "off,on",
+    "removable=" + mod.paletteRemovableIds("d1").join(",") +
+    " selected=" + mod.paletteSelectedIds().sort().join(","));
+
+  check("CORRECTION: no day chosen means nothing is removable",
+    mod.paletteRemovableIds(null).length === 0);
+})();
+
+(function batchesReportWhatChangedNotWhatWasAsked() {
+  // Hiding fifty photographs of which forty-nine were already hidden is
+  // "Hid 1", not "Hid 50". The server distinguishes them; the UI used to
+  // throw that away.
+  return runner.paletteBatchRun(ids(3), function (batch) {
+    return Promise.resolve({ changed: [batch[0]],
+                             already_in_state: batch.slice(1) });
+  }).then(function (r) {
+    check("CORRECTION: a batch reports what it CHANGED",
+      r.changed.join(",") === "p0", r.changed.join(","));
+    check("CORRECTION: …separately from what was already in that state",
+      r.already.join(",") === "p1,p2", r.already.join(","));
+    check("CORRECTION: …while `done` still accounts for every id sent",
+      r.done.length === 3);
+  });
+})();
+
+(function aRouteThatDoesNotReportTheDistinctionFallsBack() {
+  // Add and Remove return no changed/already; treating their silence as
+  // "nothing changed" would under-report every placement.
+  return runner.paletteBatchRun(ids(2), function () {
+    return Promise.resolve({ ok: true });
+  }).then(function (r) {
+    check("CORRECTION: a route without changed/already falls back to the " +
+          "batch rather than reporting zero",
+      r.changed.length === 2 && r.already.length === 0,
+      "changed=" + r.changed.length);
+  });
 })();
 
 // ── one thousand memberships ──────────────────────────────────────────

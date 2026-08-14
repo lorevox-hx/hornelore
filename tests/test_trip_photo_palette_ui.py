@@ -171,17 +171,48 @@ class SelectionSurvivesRepaintTest(unittest.TestCase):
     def test_the_out_of_filter_count_is_reported(self):
         """Twelve selected, filter changed, two shown -- without this
         line the other ten look lost."""
-        self.assertIn("function paletteSelectedOutsideFilter(",
-                      _js())
-        pane = _fn("renderPalettePane")
-        self.assertIn("paletteSelectedOutsideFilter(", pane)
-        self.assertIn("not shown by this filter", pane)
+        # MOVED 2026-08-14. This asserted the call inside
+        # renderPalettePane. It now lives in paletteRefreshBar, which is
+        # strictly better: the pane runs once per render, the refresh
+        # runs on every tick, so the out-of-filter count is now live
+        # rather than one selection behind.
+        self.assertIn("function paletteSelectedOutsideFilter(", _js())
+        bar = _fn("paletteRefreshBar")
+        self.assertIn("paletteSelectedOutsideFilter(", bar)
+        self.assertIn("not shown by this filter", bar)
 
-    def test_select_all_is_scoped_to_what_is_loaded(self):
+    def test_select_all_is_scoped_to_the_MOUNTED_WINDOW(self):
+        """ADDED after mutation testing, which found nothing guarding
+        this. Widening `mountedIds` from the window to the whole filtered
+        list left every test green -- and with a thousand matches and
+        fifty mounted, "Select all shown" would then reach nine hundred
+        and fifty photographs the operator has never seen."""
         pane = _fn("renderPalettePane")
-        self.assertIn("Select all shown", pane,
-                      "the control must say what it selects; 'Select all' "
-                      "over an unseen database result is a surprise")
+        self.assertIn("Select all shown", pane)
+        self.assertIn("links.slice(win.start, win.end).map(", pane,
+                      "Select all must take the MOUNTED window, not the "
+                      "whole filtered list")
+        i = pane.index("var mountedIds")
+        self.assertIn("win.start", pane[i:i + 200])
+        self.assertIn("mountedIds.forEach", pane,
+                      "the handler must select the mounted ids")
+
+    def test_timeline_move_uses_the_atomic_placement_endpoint(self):
+        """ADDED after mutation testing. Reverting this to the day-link
+        route left every test green, and that route ADDS a placement
+        under the multi-day model -- so a control labelled "Move to Day N"
+        left the photograph on both days while reporting a move."""
+        body = _fn("moveTripPhotoLink")
+        self.assertIn("/photos/placement-move", body)
+        self.assertIn("from_day_id", body)
+        self.assertIn("to_day_id", body)
+        i = body.index("/photos/placement-move")
+        guard = body[max(0, i - 400):i]
+        self.assertIn("toDayId && fromDayId && toDayId !== fromDayId", guard,
+                      "a move must name BOTH ends; one end is not a move")
+        self.assertIn('"/photos/" + (toDayId ? "link" : "unlink")', body,
+                      "taking a photograph off a day is still the unlink "
+                      "route and must survive")
 
 
 class BatchTruthfulnessTest(unittest.TestCase):

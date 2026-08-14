@@ -302,9 +302,54 @@ visible focus ring and one `aria-live="polite"` status region. **No
 `role="grid"`** — that pattern needs roving focus and arrow-key navigation,
 and this grid recycles its window so most rows are not in the DOM.
 
-**Gate met:** `tests/test_trip_photo_palette_ui.py` (40 source-shape guards)
-plus `scripts/ui/run_photo_palette_behaviour.js` (42 executed checks,
-including the 1,000-membership evidence). Five mutations each detected.
+**Gate met:** `tests/test_trip_photo_palette_ui.py` (41 guards) plus
+`scripts/ui/run_photo_palette_behaviour.js` (55 executed checks, including
+the 1,000-membership evidence). Five mutations each detected.
+
+#### P2 corrections — 2026-08-14, after live review
+
+Nine gaps that the source-shape tests could not see, found by review and by
+driving the real UI. The first made the feature unusable:
+
+1. **The action bar never kept up with the selection.** `disabled` was
+   decided at render time, ticking deliberately does not repaint, and the
+   change handler re-derived only the count. Select a photograph and every
+   action stayed disabled; clear the selection and they stayed enabled.
+   Measured live in both directions. The bar is now rebuilt in place by
+   `paletteRefreshBar` on every tick — count *and* every button.
+2. **Hidden was not self-contained.** It read `st.hiddenPhotoLinks`, which
+   is only populated when the *Photos tab's* toggle is on, and its loader
+   swallowed failures into an empty array. The Palette now loads its own
+   pool, shows `(?)` before loading and `(!)` on failure, and renders an
+   error rather than an honest-looking zero.
+3. **The stale-response guard was never called.** `paletteGenerationIsCurrent`
+   was defined and unused. It now gates every async apply, and every batch
+   captures `tripId` once so a trip change mid-run cannot send the
+   remaining ids to the new trip.
+4. **Timeline "Move to…" performed an Add.** It POSTed to the day-link
+   route, which adds a placement under the multi-day model and removes
+   nothing, so a photograph "moved" ended up on both days. It now uses the
+   atomic placement-move endpoint when both ends are named.
+5. **"Select all shown" selected unseen cards** — the whole filtered list
+   rather than the mounted window. Now the window, and it says so.
+6. **Remove could claim success for ineligible ids.** Selection persists
+   across filters, so it can hold photographs not on the visible day.
+   `paletteRemovableIds` derives eligibility; ineligible ids stay selected.
+7. **No route to the caption or approval surface.** Cards now carry
+   **Open photo details**, reusing the existing editor rather than
+   duplicating either.
+8. **`role="tablist"` without tab keyboard behaviour** → a labelled group
+   of native buttons with `aria-pressed`.
+9. **Batch results overstated changes.** `changed` and `already_in_state`
+   are now aggregated, so hiding fifty of which forty-nine were already
+   hidden reports "Hid 1; 49 were already hidden".
+
+**One reported finding was withdrawn rather than fixed.** Palette
+thumbnails appeared never to load; measured again with the tab actually
+visible, all four load correctly. Chrome does not deliver
+IntersectionObserver callbacks to a background tab. The deferral mechanism
+works inside the modal, which is also the first confirmation that the
+2026-08-14 scrollport fix holds in its new home.
 
 ### P3 — consolidated offline verification
 

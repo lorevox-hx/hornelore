@@ -4579,6 +4579,10 @@
       // inherits the answer rather than the bug.
       selected: {},
       status: "",           // the aria-live line
+      // The Palette's OWN hidden pool, independent of the Photos tab.
+      hidden: [],
+      hiddenLoaded: false,
+      hiddenError: "",
     };
   }
 
@@ -4604,6 +4608,14 @@
   // download; refusing to apply is what protects the screen. Bumped on
   // every axis that changes what the Palette is about.]
   var paletteGeneration = 0;
+
+  // The render context the checkbox handler needs. Module-scoped rather
+  // than closed over, because the handler outlives the render that made
+  // it and the alternative is re-deriving the filtered list on every
+  // tick.
+  var paletteVisibleIds = [];
+  var paletteVisibleDayId = null;
+  var paletteVisibleDay = null;
 
   function paletteBumpGeneration() {
     paletteGeneration = (paletteGeneration + 1) % 1000000;
@@ -4639,6 +4651,89 @@
   // grid shows two of them — without this line the other ten look lost,
   // and the honest answer is that they are still selected and will still
   // be acted on.
+  // Which SELECTED photographs are actually on the visible day, and so
+  // may legitimately be removed from it. Selection persists across
+  // filters and days on purpose; eligibility does not.
+  // Load the hidden pool for the Palette, independently of the Photos
+  // tab. A FAILURE SETS AN ERROR, never an empty list: an honest-looking
+  // zero is the worst answer here, because it tells the operator their
+  // hidden photographs do not exist.
+  function paletteLoadHidden() {
+    var p = paletteState();
+    if (!p || !st.trip) return Promise.resolve();
+    var gen = paletteGeneration;
+    var tripId = st.trip.id;
+    return api("/api/trips/" + encodeURIComponent(tripId) +
+      "/photo-links?include_hidden=1")
+      .then(function (out) {
+        if (!paletteGenerationIsCurrent(gen) || !sameTrip(tripId)) return;
+        var pp = paletteState();
+        if (!pp) return;
+        pp.hidden = (out.photo_links || []).filter(function (l) {
+          return !!l.hidden;
+        });
+        pp.hiddenLoaded = true;
+        pp.hiddenError = "";
+        renderAll();
+      })
+      .catch(function (e) {
+        if (!paletteGenerationIsCurrent(gen) || !sameTrip(tripId)) return;
+        var pp = paletteState();
+        if (!pp) return;
+        pp.hidden = [];
+        pp.hiddenLoaded = false;
+        pp.hiddenError = e && e.message ? e.message : "could not be loaded";
+        renderAll();
+      });
+  }
+
+  function sameTrip(tripId) {
+    return !!st.trip && st.trip.id === tripId;
+  }
+
+  function paletteRemovableIds(dayId) {
+    if (!dayId) return [];
+    var byId = {};
+    (st.photoLinks || []).concat(st.hiddenPhotoLinks || [])
+      .forEach(function (l) { byId[l.id] = l; });
+    return paletteSelectedIds().filter(function (id) {
+      var l = byId[id];
+      return !!l && linkIsOnDay(l, dayId);
+    });
+  }
+
+  // Re-derive the action bar from the CURRENT selection, in place,
+  // without a render. See the comment at the bar for why a render is not
+  // an option and why re-deriving one element was not enough.
+  function paletteRefreshBar(bar, visibleIds, visibleDayId, day) {
+    if (!bar) return;
+    var sel = paletteSelectedIds();
+    var outside = paletteSelectedOutsideFilter(visibleIds || []);
+    var removable = paletteRemovableIds(visibleDayId);
+    var count = bar.querySelector(".tdl-palette-selcount");
+    if (count) {
+      count.textContent = sel.length
+        ? (sel.length + " selected" +
+           (outside ? " (" + outside + " not shown by this filter)" : ""))
+        : "None selected";
+    }
+    function set(act, on, title) {
+      var b = bar.querySelector('[data-pal-act="' + act + '"]');
+      if (!b) return;
+      b.disabled = !on;
+      if (title) b.title = title;
+    }
+    set("add", !!day && sel.length > 0,
+        day ? "" : "Choose a day on the left first");
+    set("remove", removable.length > 0,
+        removable.length ? "" :
+        (day ? "None of the selected photographs are on this day"
+             : "Choose a day on the left first"));
+    set("hide", sel.length > 0);
+    set("restore", sel.length > 0);
+    set("clear", sel.length > 0);
+  }
+
   function paletteSelectedOutsideFilter(visibleIds) {
     var seen = {};
     (visibleIds || []).forEach(function (id) { seen[id] = true; });
@@ -4672,7 +4767,8 @@
     var all = (ids || []).slice();
     var batches = [];
     while (all.length) batches.push(all.splice(0, PLACEMENT_BATCH_MAX));
-    var state = { done: [], unsent: [], failedBatch: [], failure: null };
+    var state = { done: [], changed: [], already: [], unsent: [],
+                  failedBatch: [], failure: null };
     return batches.reduce(function (p, batch) {
       return p.then(function () {
         if (state.failure) {
@@ -4680,7 +4776,21 @@
           return null;
         }
         return sendBatch(batch).then(
-          function () { state.done = state.done.concat(batch); },
+          function (out) {
+            // The server distinguishes what it CHANGED from what was
+            // already in that state. Reporting every requested id as
+            // newly hidden overstates what happened -- "Hid 50" when
+            // forty-nine were already hidden is a false claim about the
+            // operator's own trip. A route that does not report the
+            // distinction (Add, Remove) falls back to the batch.
+            var changed = out && Array.isArray(out.changed)
+              ? out.changed : batch;
+            var already = out && Array.isArray(out.already_in_state)
+              ? out.already_in_state : [];
+            state.done = state.done.concat(batch);
+            state.changed = state.changed.concat(changed);
+            state.already = state.already.concat(already);
+          },
           function (e) { state.failure = e; state.failedBatch = batch; });
       });
     }, Promise.resolve()).then(function () { return state; });
@@ -4689,7 +4799,8 @@
   function paletteResult(o) {
     // Same five keys as addPhotosToDay's `result()`, for the same
     // reason: a caller must never have to ask which shape it got.
-    return { done: o.done || [], unsent: o.unsent || [],
+    return { done: o.done || [], changed: o.changed || [],
+             already: o.already || [], unsent: o.unsent || [],
              error: o.error || null, reloadError: o.reloadError || null,
              blocked: !!o.blocked };
   }
@@ -4704,9 +4815,16 @@
       return Promise.resolve(paletteResult({ unsent: ids, blocked: true }));
     }
     if (!total) return Promise.resolve(paletteResult({}));
+    // IDENTITY CAPTURED ONCE, and every URL built from it. A multi-batch
+    // run spans seconds; reading st.trip.id per batch means that changing
+    // trips half way through sends the REMAINING photo ids to the NEW
+    // trip, after earlier batches already succeeded against the old one.
+    // The ids belong to the trip they were selected in.
+    var gen = paletteGeneration;
+    var tripId = st.trip.id;
     var reloadError = null;
     return paletteBatchRun(ids, function (batch) {
-      return api("/api/trips/" + encodeURIComponent(st.trip.id) +
+      return api("/api/trips/" + encodeURIComponent(tripId) +
         "/days/" + encodeURIComponent(day.id) + "/photos/unlink",
         { method: "POST", body: { photo_link_ids: batch } });
     }).then(function (r) {
@@ -4750,18 +4868,30 @@
     var ids = (linkIds || []).slice();
     var total = ids.length;
     if (!total) return Promise.resolve(paletteResult({}));
+    // Same capture, same reason. See removePhotosFromDay.
+    var gen = paletteGeneration;
+    var tripId = st.trip.id;
     var reloadError = null;
     return paletteBatchRun(ids, function (batch) {
-      return api("/api/trips/" + encodeURIComponent(st.trip.id) +
+      return api("/api/trips/" + encodeURIComponent(tripId) +
         "/photo-links/visibility",
         { method: "POST", body: { photo_link_ids: batch, hidden: !!hidden } });
     }).then(function (r) {
-      return reloadPhotoLinks()
+      // BOTH pools. Hiding moves a photograph from the visible list to
+      // the hidden one, so refreshing only the visible list leaves the
+      // Hidden filter stale and the photograph apparently nowhere.
+      return Promise.all([reloadPhotoLinks(), paletteLoadHidden()])
         .catch(function (e) { reloadError = e; })
         .then(function () { return r; });
     }).then(function (r) {
       var verb = hidden ? "Hid" : "Restored";
+      var was = hidden ? "already hidden" : "already visible";
       var parts = [];
+      if (!r.failure && r.already.length) {
+        parts.push(verb + " " + r.changed.length +
+          (r.already.length ? "; " + r.already.length + " were " + was : "") +
+          ".");
+      }
       if (r.failure && r.done.length) {
         parts.push(verb + " " + r.done.length + " of " + total +
           " photographs. The next " + r.failedBatch.length + " failed (" +
@@ -4778,7 +4908,8 @@
       }
       st.error = parts.join(" ");
       renderAll();
-      return paletteResult({ done: r.done,
+      return paletteResult({ done: r.done, changed: r.changed,
+                             already: r.already,
                              unsent: r.failedBatch.concat(r.unsent),
                              error: r.failure, reloadError: reloadError });
     });
@@ -10631,13 +10762,34 @@
   function moveTripPhotoLink(linkId, fromDayId, toDayId) {
     if (!st.trip || !st.tripCal) return Promise.resolve();
     var t = encodeURIComponent(st.trip.id);
-    // Detach names the day it is coming off; attach names the day it is
-    // going to. Both are the existing day-photo routes.
-    var onDay = toDayId || fromDayId || st.tripCal.dayId;
-    if (!onDay) return Promise.resolve();
-    var path = "/api/trips/" + t + "/days/" + encodeURIComponent(onDay) +
-      "/photos/" + (toDayId ? "link" : "unlink");
-    return api(path, { method: "POST", body: { photo_link_ids: [linkId] } })
+    // CORRECTED 2026-08-14. This read: "Detach names the day it is
+    // coming off; attach names the day it is going to. Both are the
+    // existing day-photo routes." That was true under the SCALAR model,
+    // where writing a photograph's single day both placed it on the new
+    // day and removed it from the old one, because there was only ever
+    // one. Under the placement model the attach route ADDS a placement
+    // and removes nothing -- so a control labelled "Move to Day N" left
+    // the photograph on BOTH days, silently, while telling the operator
+    // it had moved.
+    //
+    // A move now goes to the atomic placement-move endpoint, which names
+    // all three ids and does it in one transaction. Taking a photograph
+    // off a day is still the unlink route, which is what that means.
+    var req;
+    if (toDayId && fromDayId && toDayId !== fromDayId) {
+      req = api("/api/trips/" + t + "/photos/placement-move", {
+        method: "POST",
+        body: { photo_link_id: linkId, from_day_id: fromDayId,
+                to_day_id: toDayId },
+      });
+    } else {
+      var onDay = toDayId || fromDayId || st.tripCal.dayId;
+      if (!onDay) return Promise.resolve();
+      req = api("/api/trips/" + t + "/days/" + encodeURIComponent(onDay) +
+        "/photos/" + (toDayId ? "link" : "unlink"),
+        { method: "POST", body: { photo_link_ids: [linkId] } });
+    }
+    return req
       .then(function () { return reloadPhotoLinks(); })
       .then(function () {
         if (!st.tripCal) return null;
@@ -11078,8 +11230,15 @@
   // ══════════════════════════════════════════════════════════════════
 
   function renderCalModeStrip(cal) {
+    // A labelled GROUP of native buttons with aria-pressed, not a
+    // tablist. The first version declared role=tablist/role=tab without
+    // implementing any of what those roles promise -- arrow-key
+    // navigation between tabs, roving tabindex, a tabpanel relationship.
+    // Announcing a pattern and not implementing it is worse for a screen
+    // reader than not announcing it: the operator is told to press the
+    // arrow keys and nothing happens.
     var strip = el("div", "tdl-cal-modes");
-    strip.setAttribute("role", "tablist");
+    strip.setAttribute("role", "group");
     strip.setAttribute("aria-label", "Trip view");
     [["timeline", "Timeline"], ["palette", "Photo Palette"]]
       .forEach(function (m) {
@@ -11095,8 +11254,7 @@
             paletteBumpGeneration();
             renderAll();
           });
-        b.setAttribute("role", "tab");
-        b.setAttribute("aria-selected", on ? "true" : "false");
+        b.setAttribute("aria-pressed", on ? "true" : "false");
         strip.appendChild(b);
       });
     return strip;
@@ -11107,8 +11265,13 @@
   // the window below is stable between repaints.
   function paletteLinks(cal) {
     var p = paletteState();
+    // Hidden reads its own pool, loaded by the Palette itself. It used
+    // to read st.hiddenPhotoLinks, which reloadPhotoLinks only fills
+    // when the PHOTOS TAB's "Show hidden" toggle is on -- so selecting
+    // Hidden here could show a confident zero while hidden photographs
+    // existed, and hiding a card made it vanish with no way to reach it.
     var pool = (p.filter === "hidden")
-      ? (st.hiddenPhotoLinks || []).slice()
+      ? (p.hidden || []).slice()
       : (st.photoLinks || []).slice();
     return pool.filter(function (l) {
       return linkMatchesPaletteFilter(l, p.filter, p.dayId || cal.dayId);
@@ -11129,7 +11292,7 @@
     rail.setAttribute("aria-label", "Filter photographs");
     PALETTE_FILTERS.forEach(function (f) {
       var pool = (f[0] === "hidden")
-        ? (st.hiddenPhotoLinks || []) : (st.photoLinks || []);
+        ? (p.hidden || []) : (st.photoLinks || []);
       var n = pool.filter(function (l) {
         return linkMatchesPaletteFilter(l, f[0], visibleDayId);
       }).length;
@@ -11139,13 +11302,19 @@
         label = d ? ("Day " + d.day_index) : "Day";
       }
       var on = p.filter === f[0];
+      // The Hidden chip cannot state a count it has not loaded. "(?)"
+      // is the honest label for "not fetched yet"; "(0)" is a claim.
+      var chipText = (f[0] === "hidden" && !p.hiddenLoaded)
+        ? (label + (p.hiddenError ? " (!)" : " (?)"))
+        : (label + " (" + n + ")");
       var b = btn("tdl-palette-chip" + (on ? " tdl-active" : ""),
-        label + " (" + n + ")", function () {
+        chipText, function () {
           if (p.filter === f[0]) return;
           p.filter = f[0];
           // A filter change is a different question; an in-flight
           // answer to the previous one must not repaint this grid.
           paletteBumpGeneration();
+          if (f[0] === "hidden") paletteLoadHidden();
           renderAll();
         });
       b.setAttribute("aria-pressed", on ? "true" : "false");
@@ -11155,74 +11324,115 @@
     pane.appendChild(rail);
 
     // ── selection summary + batch actions ─────────────────────────────
-    var selIds = paletteSelectedIds();
     var visibleIds = links.map(function (l) { return l.id; });
-    var outside = paletteSelectedOutsideFilter(visibleIds);
+    // Parked for the checkbox handler, which runs long after this
+    // function has returned and must not re-derive the filtered list.
+    paletteVisibleIds = visibleIds;
+    paletteVisibleDayId = visibleDayId;
 
+    // Hoisted above the action bar: "Select all shown" has to know what
+    // is mounted, and the bar is built before the grid.
+    var key = "palette:" + (st.trip ? st.trip.id : "none") + ":" + p.filter +
+      ":" + (visibleDayId || "none");
+    var win = photoWindow(key, links.length, PHOTO_WINDOW_MAX);
+
+    // ── the action bar ────────────────────────────────────────────────
+    //
+    // [CORRECTED 2026-08-14 after live review, and this was the defect
+    // that made the Palette unusable rather than merely imperfect.
+    //
+    // Every button's `disabled` was computed here, at render time, from
+    // the selection as it stood THEN. Ticking a card deliberately does
+    // not repaint -- a repaint mid-tick rebuilds the input under the
+    // operator's finger and takes focus with it -- and the change
+    // handler re-derived only the count text. So the bar was always one
+    // step behind the selection, in whichever direction hurt:
+    //
+    //   select a photograph  -> count said "1 selected", every action
+    //                           button stayed DISABLED, and nothing
+    //                           could be done with the selection at all;
+    //   clear the selection  -> the buttons stayed ENABLED, offering to
+    //                           hide nothing.
+    //
+    // Measured live in a visible tab, both directions. The no-repaint
+    // rule was right; re-deriving ONE of six elements was not. The bar
+    // is built by a function that can be re-run against the DOM without
+    // a render, and the change handler runs it.]
     var bar = el("div", "tdl-palette-bar");
-    var selLine = selIds.length
-      ? (selIds.length + " selected" +
-         (outside ? " (" + outside + " not shown by this filter)" : ""))
-      : "None selected";
-    bar.appendChild(el("span", "tdl-palette-selcount", selLine));
+    bar.appendChild(el("span", "tdl-palette-selcount", ""));
 
-    // Select all means what is LOADED and matching, never every unseen
-    // row in the database. Saying so on the control is the difference
-    // between a shortcut and a surprise.
-    bar.appendChild(btn("tdl-btn tdl-btn-small", "Select all shown",
-      function () {
-        links.forEach(function (l) { paletteToggleSelected(l.id, true); });
-        p.status = links.length + " photographs selected.";
-        renderAll();
-      }));
-    bar.appendChild(btn("tdl-btn tdl-btn-small", "Clear selection",
-      function () { paletteClearSelection(); p.status = "Selection cleared.";
-                    renderAll(); }));
+    function actBtn(act, label, onClick) {
+      var b = btn("tdl-btn tdl-btn-small" +
+        (act === "add" ? " tdl-btn-gold" : ""), label, onClick);
+      b.setAttribute("data-pal-act", act);
+      return b;
+    }
 
     var day = visibleDayId ? dayById(visibleDayId) : null;
-    var canPlace = !!day && !!selIds.length;
+    paletteVisibleDay = day;
 
-    var addBtn = btn("tdl-btn tdl-btn-small tdl-btn-gold",
-      day ? ("Add to " + dayChipText(day)) : "Add to day",
-      function () {
-        addPhotosToDay(day, selIds).then(function (r) {
-          paletteAfterBatch(r, r.added || [], "added");
-        });
-      });
-    addBtn.disabled = !canPlace;
-    bar.appendChild(addBtn);
+    // What is actually mounted right now. "Select all shown" must mean
+    // the cards on screen, never every match in the database -- with a
+    // thousand matches and fifty mounted, the old wording was false and
+    // the action reached hundreds of photographs the operator had never
+    // seen.
+    var mountedIds = links.slice(win.start, win.end).map(function (l) {
+      return l.id;
+    });
 
-    var remBtn = btn("tdl-btn tdl-btn-small",
-      day ? ("Remove from " + dayChipText(day)) : "Remove from day",
-      function () {
-        removePhotosFromDay(day, selIds).then(function (r) {
-          paletteAfterBatch(r, r.done || [], "removed");
-        });
+    bar.appendChild(actBtn("selectall", "Select all shown", function () {
+      mountedIds.forEach(function (id) { paletteToggleSelected(id, true); });
+      p.status = mountedIds.length + " shown photographs selected.";
+      renderAll();
+    }));
+    bar.appendChild(actBtn("clear", "Clear selection", function () {
+      paletteClearSelection();
+      p.status = "Selection cleared.";
+      renderAll();
+    }));
+
+    bar.appendChild(actBtn("add", day ? ("Add to " + dayChipText(day))
+      : "Add to day", function () {
+      var ids = paletteSelectedIds();
+      var gen = paletteGeneration, tripId = st.trip && st.trip.id;
+      addPhotosToDay(day, ids).then(function (r) {
+        paletteAfterBatch(r, r.added || [], "added", gen, tripId);
       });
-    // Remove is only meaningful for photographs that are ON the day.
-    remBtn.disabled = !canPlace;
-    bar.appendChild(remBtn);
+    }));
+
+    bar.appendChild(actBtn("remove", day ? ("Remove from " + dayChipText(day))
+      : "Remove from day", function () {
+      // Eligibility, not the raw selection. Selection persists across
+      // filters and days by design, so a selection made under "Not on a
+      // day" can contain photographs that are not on the visible day at
+      // all. Sending those asks the server to remove a placement that
+      // does not exist, and the response would let the Palette report
+      // them as removed and clear them from the selection -- a success
+      // message for something that never happened.
+      var ids = paletteRemovableIds(visibleDayId);
+      var gen = paletteGeneration, tripId = st.trip && st.trip.id;
+      removePhotosFromDay(day, ids).then(function (r) {
+        paletteAfterBatch(r, r.done || [], "removed", gen, tripId);
+      });
+    }));
 
     if (p.filter === "hidden") {
-      var resBtn = btn("tdl-btn tdl-btn-small", "Restore selected",
-        function () {
-          setPhotoLinksHidden(selIds, false).then(function (r) {
-            paletteAfterBatch(r, r.done || [], "restored");
-          });
+      bar.appendChild(actBtn("restore", "Restore selected", function () {
+        var gen = paletteGeneration, tripId = st.trip && st.trip.id;
+        setPhotoLinksHidden(paletteSelectedIds(), false).then(function (r) {
+          paletteAfterBatch(r, r.changed || [], "restored", gen, tripId);
         });
-      resBtn.disabled = !selIds.length;
-      bar.appendChild(resBtn);
+      }));
     } else {
-      var hideBtn = btn("tdl-btn tdl-btn-small", "Hide selected",
-        function () {
-          setPhotoLinksHidden(selIds, true).then(function (r) {
-            paletteAfterBatch(r, r.done || [], "hidden");
-          });
+      bar.appendChild(actBtn("hide", "Hide selected", function () {
+        var gen = paletteGeneration, tripId = st.trip && st.trip.id;
+        setPhotoLinksHidden(paletteSelectedIds(), true).then(function (r) {
+          paletteAfterBatch(r, r.changed || [], "hidden", gen, tripId);
         });
-      hideBtn.disabled = !selIds.length;
-      bar.appendChild(hideBtn);
+      }));
     }
     pane.appendChild(bar);
+    paletteRefreshBar(bar, visibleIds, visibleDayId, day);
 
     // The one place the Palette speaks to a screen reader. Polite, so it
     // waits for a pause rather than interrupting; assertive would talk
@@ -11233,11 +11443,16 @@
     pane.appendChild(live);
 
     // ── the grid, windowed ────────────────────────────────────────────
-    var key = "palette:" + (st.trip ? st.trip.id : "none") + ":" + p.filter +
-      ":" + (visibleDayId || "none");
-    var win = photoWindow(key, links.length, PHOTO_WINDOW_MAX);
     var grid = el("div", "tdl-palette-grid");
-    if (!links.length) {
+    if (p.filter === "hidden" && p.hiddenError) {
+      // Never an empty grid for a failed load. The operator must be able
+      // to tell "nothing is hidden" from "we could not find out".
+      grid.appendChild(el("div", "tdl-error",
+        "The hidden photographs could not be loaded (" + p.hiddenError +
+        "). This is not the same as there being none — try again."));
+    } else if (p.filter === "hidden" && !p.hiddenLoaded) {
+      grid.appendChild(el("div", "tdl-empty", "Loading hidden photographs…"));
+    } else if (!links.length) {
       grid.appendChild(el("div", "tdl-empty",
         p.filter === "hidden" ? "No hidden photographs on this trip."
           : "No photographs match this filter."));
@@ -11250,7 +11465,13 @@
     return pane;
   }
 
-  function paletteAfterBatch(r, landed, verb) {
+  function paletteAfterBatch(r, landed, verb, gen, tripId) {
+    // An old batch must not write its result into a Palette that is now
+    // about a different trip or a different filter. The write already
+    // happened against the trip it named; what this refuses is the
+    // REPORT and the repaint, which are the parts that would lie.
+    if (gen !== undefined && !paletteGenerationIsCurrent(gen)) return;
+    if (tripId !== undefined && !sameTrip(tripId)) return;
     var p = paletteState();
     if (!p) return;
     // Only CONFIRMED successes leave the selection. A failed batch and
@@ -11289,14 +11510,15 @@
       "Select photograph" + (l.caption ? ": " + l.caption : ""));
     cb.onchange = function () {
       paletteToggleSelected(l.id, cb.checked);
-      // Deliberately no renderAll() here: repainting mid-tick would
-      // rebuild the input under the operator's finger and lose focus.
-      // The bar re-derives on the next real render.
-      var bar = root.querySelector(".tdl-palette-selcount");
-      if (bar) {
-        var n = paletteSelectedIds().length;
-        bar.textContent = n ? (n + " selected") : "None selected";
-      }
+      cell.classList.toggle("tdl-selected", cb.checked);
+      // Deliberately no renderAll(): repainting mid-tick rebuilds the
+      // input under the operator's finger and takes focus with it. The
+      // WHOLE bar is re-derived instead -- count AND every button's
+      // enabled state. The first version updated only the count, which
+      // left every action permanently unreachable; see the bar.
+      paletteRefreshBar(root.querySelector(".tdl-palette-bar"),
+                        paletteVisibleIds, paletteVisibleDayId,
+                        paletteVisibleDay);
     };
     lab.appendChild(cb);
     cell.appendChild(lab);
@@ -11354,6 +11576,21 @@
     // Move stays contextual and names its source day. A bulk move from a
     // bare link id is not expressible: a photograph on three days has
     // three occurrences behind one id.
+    // The route to the caption editor and the Lori-approval ladder. The
+    // Palette does NOT reimplement either: it hands over to the photo
+    // detail surface that already owns them, so there is one place a
+    // caption is written and one place approval is granted. Without this
+    // the Palette could show a caption and offer no way to change it,
+    // which made the planned live acceptance impossible to complete
+    // inside the feature.
+    meta.appendChild(btn("tdl-btn tdl-btn-small", "Open photo details",
+      function () {
+        // Selection, filter, mode and window all live in st.tripCal and
+        // st.photoWindows, neither of which this touches, so coming back
+        // lands where the operator left off.
+        openLightbox(l.id);
+      }));
+
     if (visibleDayId && linkIsOnDay(l, visibleDayId)) {
       var d = dayById(visibleDayId);
       meta.appendChild(btn("tdl-btn tdl-btn-small", "Move…", function () {
