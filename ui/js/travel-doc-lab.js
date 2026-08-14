@@ -1537,6 +1537,57 @@
       });
   }
 
+  // ── EVERY POOL THE PALETTE CAN DISPLAY, REFRESHED TOGETHER ───────────
+  //
+  // [P4 review, 2026-08-14. FOUR operations can change what a HIDDEN card
+  // displays — Add, Remove, Move and a caption save — and all four
+  // refreshed the visible pool only. Hide/Restore refreshed both, so the
+  // hidden grid was correct exactly after the one action that changes
+  // neither a day nor a caption, and stale after every action that does.
+  //
+  // Reproduced live against SQLite: removing the Day 2 placement from a
+  // hidden photograph deleted the placement row and left the card still
+  // reading "Day 2", directly beside a status line saying "1 removed".
+  // The write was truthful and the screen contradicted it. A caption
+  // saved to a hidden card likewise kept reading "No caption".
+  //
+  // ONE named helper rather than four copies of the same Promise.all,
+  // because the next operation that can touch a hidden card will be
+  // written by whoever reads this list — and a fifth copy is how the
+  // first four happened.]
+  //
+  // `days` is opt-in: only a placement change moves a day's counts, and a
+  // caption save that refetched every day card would be paying for a
+  // number that cannot have changed.
+  //
+  // Resolves to {hiddenStale, hiddenError}, and REJECTS only when the
+  // PRIMARY pools fail. A hidden-pool failure must never downgrade a
+  // write the caller knows landed: they are different facts and the
+  // callers report them in different sentences.
+  function reloadPalettePhotoPools(guard, opts) {
+    var o = opts || {};
+    var jobs = [reloadPhotoLinks(guard)];
+    if (o.days) jobs.push(reloadDays(guard));
+    return Promise.all(jobs).then(function () {
+      var p = paletteState();
+      // Nothing loaded and nothing showing means nothing can be stale, so
+      // this costs no request on a trip whose Hidden filter was never
+      // opened. Deliberately NOT keyed on st.showHiddenPhotos — that is
+      // the Photos tab's toggle, and the Palette owns its own pool.
+      if (!p || (!p.hiddenLoaded && p.filter !== "hidden")) {
+        return { hiddenStale: false, hiddenError: "" };
+      }
+      // paletteLoadHidden never rejects; it records its own failure as
+      // hiddenError so the Hidden grid can show an error rather than an
+      // honest-looking zero. Read that back rather than catching.
+      return paletteLoadHidden().then(function () {
+        var pp = paletteState();
+        var err = (pp && pp.hiddenError) || "";
+        return { hiddenStale: !!err, hiddenError: err };
+      });
+    });
+  }
+
   // The ONLY place hidden links join the visible ones: the Photos review
   // gallery and its detail pane.
   function photoLinksForReview() {
@@ -4380,7 +4431,15 @@
     return api("/api/trips/" + encodeURIComponent(st.trip.id) +
       "/days/" + encodeURIComponent(day.id) + "/photos/unlink",
       { method: "POST", body: { photo_link_ids: [linkId] } })
-      .then(function () { return Promise.all([reloadDays(), reloadPhotoLinks()]); })
+      // The FIFTH site of the P4 hidden-pool defect, and not one of the
+      // four the review named. It removes a placement exactly as the
+      // Palette's Remove does, so it can leave a hidden card claiming a
+      // day it is no longer on. Fixed here rather than left as a
+      // surviving copy of the bug the other four just lost.
+      .then(function () {
+        return reloadPalettePhotoPools({ tripId: st.trip && st.trip.id },
+                                       { days: true });
+      })
       .then(function () { st.error = ""; renderAll(); })
       .catch(function (e) { st.error = e.message; renderAll(); });
   }
@@ -4564,9 +4623,21 @@
     // separately. A reload failure never downgrades what is known to
     // have been written.
     var reloadError = null;
+    var hiddenStale = false;
+    var hiddenError = "";
+    // Guarded on the TRIP only. This function is reached from the Photos
+    // tab's Add drawer as well as from the Palette, so `needsModal` would
+    // skip the reload entirely on the non-modal path; and a generation
+    // check would skip it when the operator merely changed filter
+    // mid-add, leaving the screen silently stale. Trip identity is the
+    // one thing that must never be crossed, and it is what is guarded.
+    var addGuard = { tripId: st.trip && st.trip.id };
     return chain
       .then(function () {
-        return Promise.all([reloadDays(), reloadPhotoLinks()])
+        return reloadPalettePhotoPools(addGuard, { days: true })
+          .then(function (r) {
+            hiddenStale = r.hiddenStale; hiddenError = r.hiddenError;
+          })
           .catch(function (e) { reloadError = e; });
       })
       .then(function () {
@@ -4588,6 +4659,14 @@
             " screen could not be refreshed (" + reloadError.message +
             "), so what you see below may be out of date. Reload the " +
             "page to see the day as it now is.");
+        }
+        // Reported SEPARATELY from the write and separately from a
+        // primary reload failure: the photographs are on the day, and
+        // only the hidden list is behind.
+        if (hiddenStale) {
+          parts.push("The hidden list could not be refreshed (" +
+            hiddenError + "), so hidden photographs may still show " +
+            "out-of-date days or captions.");
         }
         st.error = parts.join(" ");
         renderAll();
@@ -4901,12 +4980,17 @@
     var tripId = st.trip.id;
     var guard = { tripId: tripId, gen: gen, needsModal: true };
     var reloadError = null;
+    var hiddenStale = false;
+    var hiddenError = "";
     return paletteBatchRun(ids, function (batch) {
       return api("/api/trips/" + encodeURIComponent(tripId) +
         "/days/" + encodeURIComponent(day.id) + "/photos/unlink",
         { method: "POST", body: { photo_link_ids: batch } });
     }, function () { return reloadGuardIsCurrent(guard, tripId); }).then(function (r) {
-      return Promise.all([reloadDays(guard), reloadPhotoLinks(guard)])
+      return reloadPalettePhotoPools(guard, { days: true })
+        .then(function (pools) {
+          hiddenStale = pools.hiddenStale; hiddenError = pools.hiddenError;
+        })
         .catch(function (e) { reloadError = e; })
         .then(function () { return r; });
     }).then(function (r) {
@@ -4926,6 +5010,13 @@
           " were removed, but the") + " screen could not be refreshed (" +
           reloadError.message + "), so what you see below may be out of " +
           "date. Reload the page to see the day as it now is.");
+      }
+      // See addPhotosToDay: the removal landed; only the hidden list is
+      // behind, and saying so is not the same as saying the write failed.
+      if (hiddenStale) {
+        parts.push("The hidden list could not be refreshed (" +
+          hiddenError + "), so hidden photographs may still show " +
+          "out-of-date days or captions.");
       }
       st.error = parts.join(" ");
       renderAll();
@@ -4960,6 +5051,12 @@
       // BOTH pools. Hiding moves a photograph from the visible list to
       // the hidden one, so refreshing only the visible list leaves the
       // Hidden filter stale and the photograph apparently nowhere.
+      // DELIBERATELY NOT reloadPalettePhotoPools. That helper skips the
+      // hidden fetch when the pool has never been loaded and the Hidden
+      // filter is not showing — correct for the placement operations,
+      // wrong here, because hiding from All is precisely the action that
+      // must turn the Hidden chip from "(?)" into a real count. This is
+      // the one caller that must load the pool unconditionally.
       return Promise.all([reloadPhotoLinks(guard), paletteLoadHidden()])
         .catch(function (e) { reloadError = e; })
         .then(function () { return r; });
@@ -5011,16 +5108,30 @@
 
   function movePlacement(fromDayId, linkId, toDayId) {
     if (dayFormDirtyBlocks()) return Promise.resolve();
-    return api("/api/trips/" + encodeURIComponent(st.trip.id) +
+    // Captured once, and the guard built from it, so a trip change while
+    // the move is in flight cannot let this response assign over the new
+    // trip's pools.
+    var tripId = st.trip.id;
+    var moveGuard = { tripId: tripId };
+    return api("/api/trips/" + encodeURIComponent(tripId) +
       "/photos/placement-move",
       { method: "POST", body: {
         photo_link_id: linkId,
         from_day_id: fromDayId,
         to_day_id: toDayId,
       } })
-      .then(function () { return Promise.all([reloadDays(), reloadPhotoLinks()]); })
+      // A move changes the day sets of BOTH ends, so a hidden card that
+      // was on the source day must stop saying so immediately.
       .then(function () {
-        st.error = "";
+        return reloadPalettePhotoPools(moveGuard, { days: true });
+      })
+      .then(function (pools) {
+        // The move itself succeeded. Only the hidden list may be behind.
+        st.error = (pools && pools.hiddenStale)
+          ? ("The photograph was moved, but the hidden list could not be " +
+             "refreshed (" + pools.hiddenError + "), so hidden photographs " +
+             "may still show out-of-date days.")
+          : "";
         st.placementMove = null;
         renderAll();
       })
@@ -10670,7 +10781,11 @@
   // owning list too, or closing the timeline shows the old words on the
   // day card and the operator cannot tell which one is true.
   function timelineOwnerReload(kind) {
-    if (kind === "photo") return reloadPhotoLinks();
+    // A caption belongs to the LINK and is shown on every card that link
+    // appears as, hidden ones included — and the Palette is the surface
+    // that offers Edit caption on a hidden card in the first place. No
+    // `days`: a caption cannot change a day's placement count.
+    if (kind === "photo") return reloadPalettePhotoPools(null, { days: false });
     if (kind === "note") return reloadNotes();
     if (kind === "source") return reloadSources();
     if (kind === "day_text") return reloadDays();
