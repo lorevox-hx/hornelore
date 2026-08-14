@@ -28,10 +28,11 @@ and its latest live evidence first.
 | Google Photos Picker | **BANKED** | Reopen only for a demonstrated defect. |
 | Travel Document core/export | **CLOSED on live evidence** | Preserve the editable timeline → DOCX projection rule. |
 | Multi-day trip-photo placement | **COMPLETE; Gate 3 accepted 2026-08-14** | Close documentation; do not begin legacy-column removal. |
-| Test-artifact cleanup | **DONE — classified in Palette P0** | Inventory complete; genuine memories preserved; nothing deleted. |
+| Test-artifact inventory/classification | **DONE in Palette P0** | Classification complete; genuine memories preserved. |
+| Test-artifact **cleanup** | **DEFERRED — requires Chris's authorization** | The 22 harness narrators were deliberately **not** deleted. No destructive cleanup without an explicit decision. |
 | Photo Palette | **COMPLETE; P4 and P5 accepted 2026-08-14** | Close the work order; do not reopen for polish without a demonstrated defect. |
-| Legacy photo-day scalar retirement | **DEFERRED / separate authorization — now unblocked** | SQLite rebuild proposal. **Palette acceptance does not authorize it.** |
-| Lean Lori | **PARKED BEHIND CURRENT TRAVEL-DOCUMENT SEQUENCE** | Resume only by Chris's explicit priority decision. |
+| Legacy photo-day scalar retirement (Phase 6) | **DEFERRED by supervisor recommendation, 2026-08-14 — NOT the next build** | Leave deferred until there is a concrete reason to remove the column. The scalar is frozen, no longer written, ignored for authoritative decisions, correctly derived on read, and covered by tests and live evidence; dropping it buys no product benefit and costs a risky SQLite table rebuild. |
+| Lean Lori | **NEXT — Phase 0 re-review only. Substantial work is ALREADY LANDED; do not rebuild it.** | *(This row read `PARKED BEHIND CURRENT TRAVEL-DOCUMENT SEQUENCE` until 2026-08-14.)* **Eleven Lean Lori commits are in-tree and live** — Gate A, Phases 1A–1E, 5, 6, 7 and Phase 8's first gate. **No NEW implementation is authorised**; the next authorised block is the offline Phase 0 map at `docs/wo/WO-LEAN-LORI-PHASE-0-MAP-2026-08-14.md`. The Phase 0.10 hard stop and the model / 8,192-token lock still bind. |
 | Runtime safety | **PARKED, server-authoritative** | Never reactivate through environment values. |
 | Model / 8,192-token window | **LOCKED** | Any proposed model change is stop-and-report. |
 | Privacy canon extraction/history purge | **PARKED work order** | Not on the current product critical path. |
@@ -85,9 +86,16 @@ Items 1–5 are **complete as of 2026-08-14**; item 6 is the next decision.
 
 ### 4.1 Photo Palette closeout
 
-Reports: [`P4`](docs/reports/WO-TRIP-PHOTO-PALETTE-01_P4_LIVE_ACCEPTANCE.md) ·
-[`P5`](docs/reports/WO-TRIP-PHOTO-PALETTE-01_P5_PERSISTENCE.md). Both are local-only under
-the `docs/reports/` privacy rule and carry live narrator data.
+**Reports are LOCAL-ONLY and deliberately not in the repository** — `docs/reports/` is
+gitignored because those files carry live narrator data. Not links, because a link would be
+broken for anyone cloning:
+
+```text
+docs/reports/WO-TRIP-PHOTO-PALETTE-01_P4_LIVE_ACCEPTANCE.md   (local working copy only)
+docs/reports/WO-TRIP-PHOTO-PALETTE-01_P5_PERSISTENCE.md       (local working copy only)
+```
+
+The summary below is the tracked evidence and is intended to stand on its own.
 
 Proven live and across a restart: placement identity preserved byte-for-byte; the derived
 compatibility scalar correct at zero, one and many placements while the stored column is

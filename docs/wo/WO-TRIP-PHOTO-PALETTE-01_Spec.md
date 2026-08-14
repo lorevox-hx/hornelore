@@ -5,10 +5,14 @@
 **Date:** 2026-08-14  
 
 > **CLOSEOUT.** All three gates met. Offline: 584 tests plus four harnesses
-> (113 / 32 / 16 / 56), verified in `.venv`. Live: P4 final PASS —
-> [`P4 report`](../reports/WO-TRIP-PHOTO-PALETTE-01_P4_LIVE_ACCEPTANCE.md). Restart
-> persistence: P5 14/14 read-only then restoration 22/22 —
-> [`P5 report`](../reports/WO-TRIP-PHOTO-PALETTE-01_P5_PERSISTENCE.md).
+> (113 / 32 / 16 / 56), verified in `.venv`. Live: P4 final PASS. Restart persistence:
+> P5 14/14 read-only then restoration 22/22.
+>
+> Evidence at `docs/reports/WO-TRIP-PHOTO-PALETTE-01_P4_LIVE_ACCEPTANCE.md` and
+> `..._P5_PERSISTENCE.md`. **Local-only and deliberately not in the repository** —
+> `docs/reports/` is gitignored because those files carry live narrator data. Written as
+> paths rather than links, because a link would be broken for anyone cloning. This closeout
+> is the tracked evidence and is meant to stand on its own.
 >
 > **One defect found live and fixed inside P4** (`b991353` code, `88429cc` tests): Add,
 > Remove, Move and a caption save refreshed the visible photo pool but not the Palette's
