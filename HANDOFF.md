@@ -112,7 +112,12 @@ Canonical plan:
 - Start once for live acceptance and restart once for final persistence proof.
 - Stop early only for schema risk, destructive live-data action, security boundary,
   model/configuration change, or a real design decision.
-- Claude commits; Chris pushes; Chris and ChatGPT review the pushed block.
+- **Claude prepares copy-paste `git add` + `git commit` blocks; Chris runs them and pushes;
+  Chris and ChatGPT review the pushed block.** Agents do not run git here. The reason is in
+  `CLAUDE.md`: a sandbox git command that hits the agent timeout on the `/mnt/c` 9p mount
+  leaves `.git/index.lock` behind and silently blocks GitHub Desktop and Chris's own WSL
+  git, presenting as "add succeeded, commit says nothing to commit, Desktop still shows N
+  changed files." Read-only git (`log`, `status`, `diff`, `rev-parse`) is fine.
 
 ## 7. Known separate issues—not Palette scope
 

@@ -1,6 +1,8 @@
 # WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01
 
-**Status:** READY FOR EXECUTION — 2026-08-12. Claude executes one phase at a time; Chris pushes each phase; Chris + ChatGPT review the pushed commit before the next phase starts.
+**Status:** **PHASES 0–5 COMPLETE — 2026-08-14. Live operator acceptance passed; Gate 3 complete.** Phase 6 (legacy-column retirement) is deliberately NOT authorized by this and requires its own explicit approval — see §10 Phase 6 and the Phase 5 closeout below.
+
+> *This line read `READY FOR EXECUTION — 2026-08-12. Claude executes one phase at a time; Chris pushes each phase; Chris + ChatGPT review the pushed commit before the next phase starts.` until 2026-08-14. That process was followed for all six phases and is recorded rather than deleted, because it is the reason the defects listed in the Phase 5 closeout were caught by review rather than by a narrator.*
 
 **Lane:** Travel Document / photo library / trip-day evidence
 
@@ -221,6 +223,34 @@ The day inspector/picker has its own `overflow:auto` scroll container. Native `l
 
 Use either eager loading for each bounded 50-item batch or an `IntersectionObserver` whose `root` is the actual picker scroll container. Keep `thumbImg(photoId, alt, lazy)` as the deliberate decision point and test the generated markup/observer wiring structurally and behaviorally.
 
+**Amended 2026-08-14 — the hazard is still live on the trip gallery, and it is the one site that kept the lazy hint.** This section was written about the picker and inspector. Measured on the running stack, it applies unchanged to `.tdl-gallery`, which is the sole surviving `thumbImg(..., true)` call site (`travel-doc-lab.js:6383`). The exemption's stated justification, written into `thumbImg` on 2026-07-29, is:
+
+> *"The trip gallery is the one site that worked, because it scrolls with the page, and it is also the one site that can hold every photo on a trip, so it is the one site that keeps the hint."*
+
+**The gallery does not scroll with the page.** On the live stack the document does not scroll at all (`documentElement.scrollHeight 729 === clientHeight 729`), while the gallery's ancestor `.tdl-main` is a genuine scrollport (`overflow-y: auto`, `scrollHeight 471` vs `clientHeight 219`). The exemption rests on precisely the condition the ban exists to catch.
+
+The consequence was reproduced rather than argued. A probe `<img loading="lazy">` appended into `.tdl-gallery`, then scrolled so it sat fully inside the visible band *and* fully inside the browser viewport (image `550–690`, band `511–729`), after four seconds reported `complete: false`, `naturalWidth: 0`, and **no network request issued at all**. Scrolling the nested scrollport does not rescue it, because native lazy loading evaluates against the document viewport and the document never moves.
+
+It is currently masked because the acceptance trip holds four photographs in a single row that lands inside Chrome's distance threshold measured from the document viewport. It becomes operator-visible once a gallery exceeds roughly one viewport of content — which the quoted comment itself identifies as this site's defining property.
+
+`LazyThumbnailScrollportTest::test_the_css_still_makes_those_panels_their_own_scrollport` pinned that `.tdl-inspector-body` and `.tdl-drawer-body` are their own scrollports — the *reason for the ban*. Nothing pinned `.tdl-main` — the *reason for the exemption*. The suite was internally consistent and its single unexamined assumption was the false one. **That is the durable lesson: a guard that pins why a rule applies, and never pins why an exception is allowed, is only half a guard.**
+
+**FIXED 2026-08-14, after the acceptance run rather than inside it.** The native hint is now absent from `travel-doc-lab.js` entirely — not moved, not narrowed. Deferral runs through an `IntersectionObserver` whose `root` is resolved **per image, at arm time, by walking up from the image itself** to the nearest ancestor that can actually scroll. That is what makes it correct for panels that do not exist yet: a new floating panel with its own overflow gets an observer rooted on that panel without anyone having to remember it was added. A hardcoded `.tdl-main` would have been right for today's gallery and wrong for the next surface — which is precisely how the defect being fixed was introduced.
+
+Supporting properties, each separately pinned:
+
+- `thumbImg(photoId, alt, lazy)` remains the one decision point, and `lazy` remains **opt-in** — a caller that forgets it gets an eager image, costing one request, rather than a blank tile.
+- A deferred image is given **no `src` at all**, only the URL in a data attribute, so an unreached tile costs nothing.
+- Arming happens **after** `root.appendChild(app)` and **after** the scroll positions are restored: the scrollport is found by walking up, so the image must already be attached, and an observer armed before the restore would evaluate every tile against `scrollTop 0` and fetch the wrong set.
+- Observers are disconnected on re-arm and in `destroy()`. An `IntersectionObserver` holds a strong reference to everything it observes, so a mount torn down without disconnecting keeps the whole detached workspace alive.
+- No `IntersectionObserver` in the engine means load everything immediately — a slower grid, never a blank one.
+
+**The missing half of the guard is now present:** `test_the_gallery_container_is_also_its_own_scrollport` pins `.tdl-main`'s `overflow-y: auto`, and `test_the_gallery_renders_inside_that_scrollport` pins that tab content is rendered into it. If `.tdl-main` ever stops scrolling independently, that test failing is the notice that the native hint could be reconsidered — rather than a claim nobody ever checked.
+
+**Behavioural proof, because a source scan is what failed here.** `scripts/ui/run_lazy_thumb_scrollport.js` executes the real `armLazyThumbs` against a DOM stand-in built to the dimensions measured on the running stack, and carries **two control rows that reproduce the old failure** — a deep tile evaluated against the document is reported not-visible, and stays not-visible however far the nested scrollport is scrolled. Without those controls a green run could be produced by a double that says yes to everything. 16 checks, all passing; four mutations of the shipped code were each killed by their intended check.
+
+**Still owed:** live confirmation on the running stack, which is deferred to the Photo Palette acceptance cycle because the stack was taken down for that work before this landed. The offline proof is strong but it is not a browser.
+
 ### 8.2 Both frontends
 
 `travel-doc-lab.js` is the primary product surface. The retired-but-served `travel-documenter.js` remains a testbed after U7. Either port this feature to both surfaces in the same UI phase or make the legacy page explicitly read-only for photo placement. Do not leave a reachable old page writing the legacy scalar authority.
@@ -319,6 +349,34 @@ After all prior phases are reviewed and pushed:
 
 **Gate:** all automated assertions pass, manual behavior matches this WO, and restart persistence is proven. Only then resume/close Gate 3 `WO-LIVE-TRIP-COMPANION-02` acceptance.
 
+#### Phase 5 closeout — PASSED 2026-08-14
+
+Run on the pinned stack against the Bismarck Trip, narrator `a4b2f07a`.
+
+| Stage | Result |
+|---|---|
+| Stage A capture + checkpoint | derived, no rerun required |
+| Stage B — eight keyed steps | **83 passed, 0 failed, 0 skipped, 1 attested** |
+| Restart + re-verify (persistence) | passed |
+| Restore + `restore-verify` | **45 passed, 0 failed — `RESULT: PASS -- WO-02 acceptance met, Gate 3 complete.`** |
+
+Every clause of §14 Definition of done is met except the last two lines of §10 Phase 6, which is separate by construction.
+
+**The finding that matters most, recorded because it changes how the next acceptance run should be read.** Four defects were found during Stage B, and **every one of them was the acceptance instrument contradicting its own printed instructions — none was the placement implementation.** In order:
+
+1. `stage_b_changeset` asserted `len(fresh) == 1` while the printed walkthrough instructed the operator to add one photograph to two days. Following the instructions correctly produced a FAIL. Corrected to `len(fresh) >= 1` plus four stronger assertions: every new day got a placement row, each row is distinct, the rows are *new* rather than re-pointed, and pre-existing placements survived.
+2. The walkthrough omitted the conversation move and quick note while `verify` still checked them. Restored, and `skip()` now enforces coverage so a step cannot be silently dropped from the printed order again.
+3. Add, Remove, and Move initially shared one photograph, which makes the operations unprovable — the net set is identical under several different histories. Fixed by `build_stage_b_plan` assigning distinct photographs A/B/C/D.
+4. The batch step consumed Photo A's own date suggestion, so by the time the operator reached the suggestion step it no longer existed. Chris named it exactly: *"Once the batch places Photo A on Day 1, Photo A is no longer available as Day 1's date suggestion."* The batch now targets A's second day, and step order is load-bearing and asserted.
+
+A fifth, found live: Stage A's caption was superseded by the Stage B caption edit, and `verify` demanded the checkpoint value. The rule is now supersession rather than equality — the caption must not have *reverted to its pre-Stage-A value* — and the Lori-approval assertion, which my first rewrite had orphaned into an `else:` branch and so ran only when the caption changed, is unconditional again. That branch-conditional state was worse than a deleted assertion, because it still appeared to be present.
+
+All 82–83 passing checks in the live runs were real product behaviour. The instrument, not the product, was what needed five corrections.
+
+**Post-acceptance UI sweep, 2026-08-14.** All nine Travel Doc tabs render with zero console errors, zero page errors, zero `.tdl-error` panels and zero broken images. 323 requests, one non-2xx: `/api/operator/past-tense-flags → 404`, the known gate-off endpoint. A browser-panel `503` on `/api/photos/…/thumb` was investigated and dismissed — `api.log` contains **zero** HTTP 503 responses ever, and that photograph's every request including the last logged `200 OK`; the 373 textual "503" hits in the log are digits inside UUIDs. One real defect was found — the trip gallery's lazy thumbnails — and it is **fixed**, with the account and the evidence at §8.1 above.
+
+**Correction to an earlier report in this lane:** an intermediate note claimed "2 of 4 gallery thumbnails unfetched while on screen." On a genuinely fresh load all four fetch; that reading was post-`scrollIntoView` state. The claim is withdrawn. The underlying mechanism is real and is now demonstrated properly at §8.1, but that particular observation was not sound evidence for it.
+
 ### Phase 6 — legacy-column retirement (separate authorization)
 
 Not automatically authorized by completing Phase 5. Prepare a separate migration/removal proposal after a clean `rg` audit and live acceptance. SQLite table rebuild risk, archived fixtures, external scripts, and rollback need explicit review.
@@ -379,3 +437,5 @@ This WO is done only when:
 - 2026-08-12 — Review amendment: Phase 1 now uses a transactional, temporary dual-write bridge so legacy UI writes cannot become invisible to deletion safety during the review window. Added multi-day DOCX and timeline rulings, increasing `ord` assignment, full rejection at 51 batch items, and S2-style named UNIQUE-race handling.
 - 2026-08-12 — Current-main reconciliation after Chris pushed through `5d1a4fa`: preserve the now-complete four-mode/attestation WO-02 harness from `10c44f8`, convert only its scalar photo model; explicitly migrate the centralized `linkIsUnplaced()` helper to zero-placement semantics; protect the landed Save Day confirmation and inspector-scroll behavior during the UI phase.
 - 2026-08-12 — Push review finding and closeout: `verify --attest` previously persisted correctly but recorded after `_verdict()`, producing a false `0 attested` summary. Fixed and reviewed in `e6388ae` before Phase 0; this WO now treats its main-dispatch, ordering, persistence, and no-PASS-inflation behavior as a protected regression during the Phase 4 set-semantics conversion.
+- 2026-08-14 — **Phase 5 closeout. Live operator acceptance passed; Gate 3 complete.** Stage B 83/0/0 with 1 attested; restart persistence proven; `restore-verify` 45/0. Status header rewritten with its retired wording quoted. The durable lesson from this phase, recorded in the closeout: **all five defects found during Stage B were the acceptance instrument contradicting its own printed instructions; none was the placement implementation.** Phase 6 remains unauthorized.
+- 2026-08-14 — **§8.1 hazard closed on the trip gallery.** The post-acceptance sweep found the exemption that kept `loading="lazy"` on the gallery rested on a false premise: the gallery does not scroll with the page, `.tdl-main` is its own scrollport, and a probe image sitting fully on screen was never requested. The native hint is now gone from the file entirely, replaced by an `IntersectionObserver` whose root is resolved per image by walking up to the real scrollport. The guard test gained the half it never had — the *reason for the exemption* is now pinned alongside the *reason for the ban* — and a behavioural harness with two controls that reproduce the old failure ships alongside it. Live confirmation is owed and folds into the Photo Palette acceptance cycle.

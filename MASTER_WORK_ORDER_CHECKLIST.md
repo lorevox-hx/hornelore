@@ -59,7 +59,9 @@ Do not reopen banked work for polish without a demonstrated regression.
    error truthfulness—not for every token or comment.
 6. No stack restart for docs, unit tests or harness-only changes.
 7. One live acceptance start and one final persistence restart per product gate.
-8. Claude commits, Chris pushes, Chris + ChatGPT review current pushed `main`.
+8. Claude prepares copy-paste commit blocks, Chris runs them and pushes, Chris + ChatGPT
+   review current pushed `main`. Agents do not run `git add`/`commit`/`push` here — see the
+   `.git/index.lock` hazard in `CLAUDE.md` and `HANDOFF.md` §6. Read-only git is fine.
 
 ## F. Governing documents
 
