@@ -661,6 +661,13 @@
     return st.apiBase + "/api/photos/" + encodeURIComponent(photoId) + "/thumb";
   }
 
+  // Declared above its first use in thumbImg rather than beside the rest
+  // of the deferred-thumbnail machinery below. `var` would hoist and this
+  // would work either way, but a constant that is read forty lines before
+  // the line that assigns it is a question the next reader has to stop
+  // and answer.
+  var LAZY_THUMB_ATTR = "data-tdl-lazy-src";
+
   // [Each of the four thumbnail call sites built its own img element and
   // set the native lazy loading hint on it until 2026-07-29. Three of the
   // four never showed a picture. Native lazy loading is evaluated against
@@ -673,18 +680,122 @@
   // 2026-07-29 against the first promoted Picker photo: inside the Day 1
   // inspector the img stayed at naturalWidth 0 through open, scroll, and
   // even re-insertion into the already-open section, while the identical
-  // URL loaded 301x400 the instant loading was set to "eager". The trip
+  // URL loaded 301x400 the instant loading was set to "eager".
+  //
+  // CORRECTED 2026-08-14. The 2026-07-29 note continued: "The trip
   // gallery is the one site that worked, because it scrolls with the
   // page, and it is also the one site that can hold every photo on a
-  // trip, so it is the one site that keeps the hint. The decision lives
-  // in one place now instead of four, so the next panel cannot inherit
-  // the bug by copying a line.]
+  // trip, so it is the one site that keeps the hint." The second clause
+  // is true and the first is false, and the first is the one the
+  // exemption rested on. THE GALLERY DOES NOT SCROLL WITH THE PAGE. In
+  // this app the document does not scroll at all -- measured live,
+  // documentElement.scrollHeight 729 === clientHeight 729 -- while
+  // `.tdl-main`, which contains the gallery, is a real scrollport at
+  // scrollHeight 471 against clientHeight 219. So the gallery had the
+  // identical defect as the three panels the hint was removed from; it
+  // was merely masked, because the acceptance trip holds four photographs
+  // in a single row that lands inside Chrome's distance threshold as
+  // measured from the document viewport. Reproduced rather than argued:
+  // a probe img carrying the native hint, positioned fully inside the
+  // visible band AND fully inside the browser viewport, reported
+  // complete=false, naturalWidth=0 and NO NETWORK REQUEST AT ALL after
+  // four seconds. Scrolling `.tdl-main` does not rescue it, because
+  // native lazy loading never consults a nested scrollport.
+  //
+  // The native hint is therefore gone from this file entirely. Deferred
+  // loading now runs through an IntersectionObserver whose `root` is the
+  // element that actually scrolls, resolved per image at arm time by
+  // walking up from the image itself. That is what makes this correct for
+  // panels that do not exist yet: a new floating panel with its own
+  // overflow gets an observer rooted on that panel, without anyone having
+  // to know it was added. thumbImg stays the one decision point, and the
+  // `lazy` argument stays opt-in, so a caller that forgets it gets an
+  // eager image -- one wasted request -- rather than a blank tile.]
   function thumbImg(photoId, alt, lazy) {
     var im = document.createElement("img");
-    im.src = thumbUrl(photoId);
     im.alt = alt || "trip photo";
-    if (lazy) im.loading = "lazy";
+    // Deferred images carry the URL in a data attribute and NO src, so a
+    // tile that is never reached costs nothing. armLazyThumbs() promotes
+    // it to a real src the moment its own scrollport reveals it.
+    if (lazy) im.setAttribute(LAZY_THUMB_ATTR, thumbUrl(photoId));
+    else im.src = thumbUrl(photoId);
     return im;
+  }
+
+  // ── deferred thumbnails ──────────────────────────────────────────────
+  //
+  // Rooted on the element that actually scrolls, for the reason written
+  // out at thumbImg above. Kept small and separate so the rule is legible
+  // in one screen.
+
+  var lazyThumbObservers = [];
+
+  function lazyThumbsDisconnect() {
+    lazyThumbObservers.forEach(function (o) {
+      try { o.disconnect(); } catch (e) { /* teardown must not throw */ }
+    });
+    lazyThumbObservers = [];
+  }
+
+  function lazyThumbLoad(im) {
+    var url = im.getAttribute(LAZY_THUMB_ATTR);
+    if (!url) return;
+    im.removeAttribute(LAZY_THUMB_ATTR);
+    im.src = url;
+  }
+
+  // The nearest ancestor that can scroll, or null for the document
+  // viewport. Deliberately NOT conditioned on scrollHeight > clientHeight:
+  // a container that does not overflow yet may overflow after the next
+  // render, and using it as the observer root in the meantime resolves
+  // every child as intersecting -- which loads eagerly. Wrong in the safe
+  // direction is the whole design rule here.
+  function lazyThumbScrollport(node) {
+    var e = node.parentElement;
+    while (e && e !== document.body && e !== document.documentElement) {
+      var cs;
+      try { cs = getComputedStyle(e); } catch (err) { return null; }
+      if (/(auto|scroll|overlay)/.test(cs.overflowY)
+        || /(auto|scroll|overlay)/.test(cs.overflowX)) return e;
+      e = e.parentElement;
+    }
+    return null;
+  }
+
+  function armLazyThumbs() {
+    lazyThumbsDisconnect();
+    if (destroyed || !root) return;
+    var pending = root.querySelectorAll("img[" + LAZY_THUMB_ATTR + "]");
+    if (!pending.length) return;
+    // No IntersectionObserver (old engine, or a test environment) means
+    // load them all now. A slower grid beats a blank one.
+    if (typeof IntersectionObserver !== "function") {
+      Array.prototype.forEach.call(pending, lazyThumbLoad);
+      return;
+    }
+    var groups = [];
+    Array.prototype.forEach.call(pending, function (im) {
+      var sp = lazyThumbScrollport(im);
+      var slot = null;
+      for (var i = 0; i < groups.length; i++) {
+        if (groups[i].sp === sp) { slot = groups[i]; break; }
+      }
+      if (!slot) { slot = { sp: sp, targets: [] }; groups.push(slot); }
+      slot.targets.push(im);
+    });
+    groups.forEach(function (slot) {
+      var obs = new IntersectionObserver(function (entries, self) {
+        entries.forEach(function (en) {
+          if (!en.isIntersecting) return;
+          lazyThumbLoad(en.target);
+          try { self.unobserve(en.target); } catch (e) {}
+        });
+      }, { root: slot.sp, rootMargin: "300px", threshold: 0 });
+      slot.targets.forEach(function (t) {
+        try { obs.observe(t); } catch (e) { lazyThumbLoad(t); }
+      });
+      lazyThumbObservers.push(obs);
+    });
   }
 
   function datePrefix(v) { return v ? String(v).slice(0, 10) : ""; }
@@ -2431,6 +2542,14 @@
       if (tlPane) tlPane.scrollTop = st.tripCal.scroll || 0;
       restoreTimelineEditFocus();
     }
+
+    // Deferred thumbnails, LAST and deliberately so. The observer
+    // computes intersections against the scroll positions restored
+    // immediately above; arming before that restore would evaluate every
+    // tile against scrollTop 0 and fetch the wrong set. It also has to be
+    // after root.appendChild(app), because the scrollport is resolved by
+    // walking up from each image and an unattached image has no ancestors.
+    armLazyThumbs();
   }
 
   // ── left rail: trip list + route navigator (collapsible) ─────────────
@@ -10832,6 +10951,12 @@
       // It also revokes immediately, which frees a multi-megabyte blob
       // rather than holding it for the rest of the minute.
       try { docExportRevokeNow(); } catch (e) {}
+      // 2026-08-14 -- the deferred-thumbnail observers. Same shape and
+      // same reason as the two above: an IntersectionObserver holds a
+      // strong reference to every element it observes, so a torn-down
+      // mount that never disconnected would keep the whole detached
+      // workspace alive for as long as the observer lived.
+      try { lazyThumbsDisconnect(); } catch (e) {}
       try { if (_tdlUpdateChannel) _tdlUpdateChannel.close(); } catch (e) {}
       _tdlUpdateChannel = null;
       try { loriPane.reset(); } catch (e) {}
