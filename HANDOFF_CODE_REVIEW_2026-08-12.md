@@ -1,5 +1,19 @@
 # HORNELORE — FULL REPOSITORY REVIEW & HANDOFF
 
+> ## ⚠️ HISTORICAL REVIEW — DO NOT USE AS THE CURRENT QUEUE
+>
+> **Added 2026-08-14.** This is a point-in-time review from 2026-08-12, kept for its
+> findings and its reasoning. **It is not the work queue and its recommendations are not
+> a to-do list.** Several are already done — S2 photo hash-clash protection and the U7
+> socket-race guards among them — and reading this file as current is how landed work
+> gets rebuilt.
+>
+> For what is actually active, start at [`HANDOFF.md`](HANDOFF.md), then
+> [`MASTER_WORK_ORDER_CHECKLIST.md`](MASTER_WORK_ORDER_CHECKLIST.md). As of 2026-08-14
+> the active product line is the Photo Palette
+> ([`docs/wo/WO-TRIP-PHOTO-PALETTE-01_Spec.md`](docs/wo/WO-TRIP-PHOTO-PALETTE-01_Spec.md)),
+> starting at block P0.
+
 > **STATUS UPDATE (end of day 2026-08-12):** the top code fixes are APPLIED and
 > COMMITTED (§11), and the PII untracking is DONE — commit `a87e865` removed 838
 > files (databases zip, evidence/proof dirs, 767 docs/reports files, real-person

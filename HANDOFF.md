@@ -28,8 +28,8 @@ and its latest live evidence first.
 | Google Photos Picker | **BANKED** | Reopen only for a demonstrated defect. |
 | Travel Document core/export | **CLOSED on live evidence** | Preserve the editable timeline → DOCX projection rule. |
 | Multi-day trip-photo placement | **COMPLETE; Gate 3 accepted 2026-08-14** | Close documentation; do not begin legacy-column removal. |
-| Test-artifact cleanup | **NEXT, bounded cleanup gate** | Inventory first; preserve genuine memories; hide noise reversibly. |
-| Photo Palette | **NEXT PRODUCT BUILD after cleanup map** | Execute `docs/wo/WO-TRIP-PHOTO-PALETTE-01_Spec.md`. |
+| Test-artifact cleanup | **FOLDED INTO PALETTE P0** | Inventory first; preserve genuine memories; hide noise reversibly; nothing deleted without Chris. |
+| Photo Palette | **ACTIVE PRODUCT LINE — starts at P0** | Execute `docs/wo/WO-TRIP-PHOTO-PALETTE-01_Spec.md`. |
 | Legacy photo-day scalar retirement | **DEFERRED / separate authorization** | SQLite rebuild proposal only after Palette acceptance. |
 | Lean Lori | **PARKED BEHIND CURRENT TRAVEL-DOCUMENT SEQUENCE** | Resume only by Chris's explicit priority decision. |
 | Runtime safety | **PARKED, server-authoritative** | Never reactivate through environment values. |
@@ -69,7 +69,9 @@ requires a separately reviewed SQLite rebuild and rollback plan.
 
 ## 4. Immediate execution order
 
-1. Record the multi-day closeout and perform one final F12/API-log review.
+1. Record the multi-day closeout. **Done 2026-08-14.** The final F12/API-log review is
+   not a separate stack cycle: the post-acceptance sweep is complete and clean, and the
+   one item still owed — live confirmation of the deferred-thumbnail fix — folds into P4.
 2. Inventory contaminated acceptance/test artifacts. Do not delete genuine family material.
 3. Execute the Photo Palette work order.
 4. Run one consolidated Palette regression gate.

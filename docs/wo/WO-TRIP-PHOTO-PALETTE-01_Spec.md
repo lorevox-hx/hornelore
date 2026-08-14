@@ -201,7 +201,25 @@ Acceptance sizes: 0, 1, 49, 50, 51, 200, 500 and 1,000 trip memberships/placemen
 - map every required filter/action to reuse, extension or missing support;
 - reconcile cleanup artifacts that would pollute live acceptance;
 - confirm no schema change;
+- confirm whether P1 needs any new endpoint at all, or only new query support behind
+  endpoints that already exist;
 - record exact test modules and one consolidated regression command.
+
+**Artifact classification is part of P0 and is not a separate work order.** The checklist
+named a `WO-LIVE-TRIP-CLEANUP-01` gate that was never written; rather than leave the queue
+pointing at a document that does not exist, its requirements are absorbed here, where the
+inventory is happening anyway. Every contaminated acceptance/test artifact is classified as
+exactly one of:
+
+| Class | Disposition |
+|---|---|
+| Genuine family memory | **Preserved.** Never hidden, never deleted, whatever else is true of it. |
+| Test noise | Hidden **reversibly** — the existing `hidden` flag, never a delete. |
+| Acceptance evidence | Kept and labelled as evidence, so a later reader cannot mistake it for family material. |
+| Uncertain | **Left alone and listed for Chris.** Uncertain is not a disposition an agent may resolve. |
+
+**No destructive deletion, at all, without Chris.** P0 mutates nothing: it produces the map
+and the classification, and the map is what gets reviewed.
 
 **Review gate:** map approved. Continue without starting the stack.
 
