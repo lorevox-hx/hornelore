@@ -3016,9 +3016,31 @@ class LazyThumbnailScrollportTest(unittest.TestCase):
     the identical URL loaded 301x400 the instant the hint was dropped.
     The same failure reproduced in the "Add photos" drawer.
 
-    The trip Photos gallery is the one site that worked, because it
-    scrolls with the page, and it is also the one site that can hold
-    every photo on a trip, so it is the one site that keeps the hint.
+    CORRECTED 2026-08-14. This docstring continued: "The trip Photos
+    gallery is the one site that worked, because it scrolls with the
+    page, and it is also the one site that can hold every photo on a
+    trip, so it is the one site that keeps the hint." The second clause
+    is true. THE FIRST IS FALSE, and the first is the one the exemption
+    rested on. The gallery lives inside ``.tdl-main``, which is its own
+    scrollport; the document does not scroll at all. Measured on the
+    running stack: documentElement.scrollHeight 729 == clientHeight 729,
+    while .tdl-main reported scrollHeight 471 against clientHeight 219.
+    A probe img carrying the native hint, placed fully inside the visible
+    band AND fully inside the viewport, was never requested -- four
+    seconds, complete=false, naturalWidth=0, no network entry.
+
+    THE GAP THAT LET THAT STAND FOR SIXTEEN DAYS IS THE LESSON. This
+    class pinned the scrollport-ness of the panels that pass ``false``
+    -- the reason for the BAN -- and pinned nothing at all about the
+    container of the site that passes ``true`` -- the reason for the
+    EXEMPTION. The suite was internally consistent and its one
+    unexamined assumption was the false one. Both halves are pinned now.
+
+    The native hint is gone from the file entirely. Deferral runs through
+    an IntersectionObserver whose ``root`` is resolved per image by
+    walking up to the nearest ancestor that can actually scroll, so a
+    panel that does not exist yet gets a correct root without anyone
+    having to remember it was added.
 
     This test does not check that the current four sites are right --
     it checks that there is only ever ONE place where the decision can
@@ -3035,21 +3057,107 @@ class LazyThumbnailScrollportTest(unittest.TestCase):
         i = self.src.index(name)
         return self.src[i:i + span]
 
-    def test_the_lazy_hint_is_set_in_exactly_one_place(self):
+    def test_the_native_lazy_hint_is_gone_entirely(self):
         """Scanned against comment-stripped source on purpose: the
-        paragraph above names the very string it forbids, and a raw
-        scan would fire on the explanation rather than on the code."""
+        paragraphs above name the very string they forbid, and a raw
+        scan would fire on the explanation rather than on the code.
+
+        RETIRED 2026-08-14. This asserted ``1 == count('loading =
+        "lazy"')`` -- one permitted use, inside thumbImg. The permitted
+        use was itself the bug: no scrollport in this app is the document,
+        so the native hint is never correct here, in any panel, including
+        the gallery it was kept for. The count is now ZERO.
+        """
         self.assertEqual(
-            1, self.src.count('loading = "lazy"'),
-            'the native lazy hint must be set only inside thumbImg(); a '
-            'call site that sets it directly is invisible to this rule '
-            'and will silently never load inside a floating panel')
+            0, self.src.count('loading = "lazy"'),
+            'the native lazy hint is never correct in this file: every '
+            'thumbnail lives inside a container with its own overflow, '
+            'and native lazy loading only ever consults the document '
+            'viewport. Defer through armLazyThumbs() instead.')
         self.assertNotIn('loading="lazy"', self.src)
 
-    def test_that_one_place_is_thumb_img(self):
-        fn = self._fn("function thumbImg(", 400)
-        self.assertIn('if (lazy) im.loading = "lazy";', fn)
-        self.assertIn("im.src = thumbUrl(", fn)
+    def test_thumb_img_is_still_the_one_decision_point(self):
+        fn = self._fn("function thumbImg(", 700)
+        self.assertIn("if (lazy) im.setAttribute(LAZY_THUMB_ATTR", fn)
+        self.assertIn("else im.src = thumbUrl(", fn)
+
+    def test_a_deferred_image_carries_no_src_at_all(self):
+        """The point of deferring is that an unreached tile costs
+        nothing. If thumbImg set ``src`` AND the data attribute, every
+        image would be fetched immediately and the observer would be
+        decoration.
+
+        STRENGTHENED 2026-08-14, because the first version did not do
+        its job. It asserted ``1 == body.count("im.src = ")`` -- a count,
+        which an UNCONDITIONAL ``im.src = thumbUrl(photoId)`` satisfies
+        just as happily as a guarded one. Mutation-tested: hoisting the
+        assignment out of the else branch left this test green and was
+        caught only by the neighbouring decision-point test. A test that
+        passes on the defect it was written for is decoration. It now
+        asserts the STRUCTURE -- every src assignment in this function is
+        the else branch -- rather than how many there are.
+        """
+        fn = self._fn("function thumbImg(", 700)
+        body = fn[:fn.index("return im;")]
+        self.assertEqual(
+            1, body.count("im.src = "),
+            "a deferred thumbnail must not be given a src; the only src "
+            "assignment in thumbImg belongs to the eager branch")
+        for m in re.finditer(r"im\.src = ", body):
+            preceding = body[:m.start()].rstrip()
+            self.assertTrue(
+                preceding.endswith("else"),
+                "every src assignment in thumbImg must sit on the else "
+                "branch, or deferred images are fetched immediately and "
+                "the observer does nothing")
+
+    def test_the_observer_root_is_resolved_by_walking_up(self):
+        """The root must be discovered from the image, not named. A
+        hardcoded ``.tdl-main`` would be correct for the gallery today
+        and wrong for the next panel someone adds -- which is exactly
+        how the bug this replaces was introduced."""
+        fn = self._fn("function lazyThumbScrollport(", 700)
+        self.assertIn("node.parentElement", fn)
+        self.assertIn("e = e.parentElement", fn)
+        self.assertIn("overflowY", fn)
+        self.assertNotIn("tdl-main", fn)
+        arm = self._fn("function armLazyThumbs(", 1400)
+        self.assertIn("root: slot.sp", arm)
+        self.assertIn("lazyThumbScrollport(im)", arm)
+
+    def test_a_missing_observer_falls_back_to_loading_everything(self):
+        """Degrade to a slower grid, never to a blank one."""
+        arm = self._fn("function armLazyThumbs(", 1400)
+        self.assertIn('typeof IntersectionObserver !== "function"', arm)
+        i = arm.index('typeof IntersectionObserver !== "function"')
+        self.assertIn("lazyThumbLoad", arm[i:i + 200])
+
+    def test_the_observers_are_disconnected_on_teardown(self):
+        """An IntersectionObserver holds a strong reference to every
+        element it observes, so a mount torn down without disconnecting
+        keeps the whole detached workspace alive."""
+        self.assertIn("lazyThumbsDisconnect();", _destroy_body())
+        arm = self._fn("function armLazyThumbs(", 400)
+        self.assertIn("lazyThumbsDisconnect();", arm,
+                      "re-arming must drop the previous observers; "
+                      "renderAll() rebuilds the DOM under them")
+
+    def test_arming_happens_after_the_scroll_positions_are_restored(self):
+        """The observer computes intersections against current scroll
+        offsets. Arming before the restore evaluates every tile against
+        scrollTop 0 and fetches the wrong set."""
+        render = self.src[self.src.index("function renderAll()"):]
+        render = render[:render.index("function toggleRail()")]
+        self.assertIn("armLazyThumbs();", render)
+        self.assertGreater(
+            render.index("armLazyThumbs();"),
+            render.index("main.scrollTop = st.mainScroll"),
+            "armLazyThumbs() must run after the scroll restore")
+        self.assertGreater(
+            render.index("armLazyThumbs();"),
+            render.index("root.appendChild(app)"),
+            "the scrollport is resolved by walking up from each image, "
+            "so the images must already be attached")
 
     def test_the_hint_is_opt_in_not_opt_out(self):
         """``if (lazy)`` and not ``if (lazy !== false)``. A new caller
@@ -3096,6 +3204,26 @@ class LazyThumbnailScrollportTest(unittest.TestCase):
         window = self.src[i:i + 700]
         self.assertIn("thumbImg(l.photo_id, l.caption, true)", window)
 
+    def test_the_behavioural_proof_ships_alongside_these_guards(self):
+        """Everything else in this class reads source text, and source
+        text is exactly what looked right for sixteen days while the
+        gallery quietly failed to load. The proof that the mechanism
+        actually fetches a picture inside a nested scrollport lives in a
+        runnable harness; pinning its existence and its two CONTROL rows
+        keeps these static checks from staying green while the behaviour
+        goes unverified.
+        """
+        p = _tds.LAZY_THUMB_SCROLLPORT.path
+        self.assertTrue(
+            p.is_file(),
+            "the deferred-thumbnail behavioural proof is missing; the "
+            "checks in this class only pin shape, not behaviour")
+        src = p.read_text(encoding="utf-8")
+        self.assertIn("CONTROL: the old rule", src)
+        self.assertIn("CONTROL: scrolling the nested scrollport does not "
+                      "rescue it", src)
+        self.assertIn("scrolling .tdl-main to it DOES fetch it", src)
+
     def test_the_css_still_makes_those_panels_their_own_scrollport(self):
         """The REASON the rule exists, pinned. If the inspector and the
         drawer ever stop being floating boxes with their own scrolling
@@ -3113,6 +3241,54 @@ class LazyThumbnailScrollportTest(unittest.TestCase):
         dbody = re.search(r"\.tdl-drawer-body\s*\{[^}]*\}", self.css)
         self.assertIsNotNone(dbody, ".tdl-drawer-body rule not found")
         self.assertIn("overflow: auto", dbody.group(0))
+
+    def test_the_gallery_container_is_also_its_own_scrollport(self):
+        """ADDED 2026-08-14 -- the half that was missing, and the reason
+        the bug survived sixteen days of a green suite.
+
+        The test above pins the REASON FOR THE BAN: the floating panels
+        have their own scrolling bodies, so the native hint cannot work
+        in them. Nothing pinned the REASON FOR THE EXEMPTION -- the claim
+        that the gallery "scrolls with the page" -- and that claim was
+        false. ``.tdl-gallery`` renders inside ``.tdl-main``, and
+        ``.tdl-main`` scrolls; the document does not.
+
+        If ``.tdl-main`` ever stops carrying its own overflow, this test
+        failing is the notice that the native hint could be reconsidered
+        for the gallery -- rather than a claim nobody ever checked.
+        """
+        main = re.search(r"\.tdl-main\s*\{[^}]*\}", self.css)
+        self.assertIsNotNone(main, ".tdl-main rule not found")
+        self.assertIn(
+            "overflow-y: auto", main.group(0),
+            "the gallery's container scrolls independently of the "
+            "document, which is why the trip gallery needed the same "
+            "treatment as the panels the hint was removed from")
+
+    def test_the_gallery_renders_inside_that_scrollport(self):
+        """The CSS assertion above only matters if the gallery is
+        actually inside ``.tdl-main``. Pinned separately so a future
+        layout change that moves the gallery out fails here with a
+        reason, instead of quietly making the rule above irrelevant.
+
+        Asserted through the render path rather than by proximity in the
+        source: ``renderPhotos()`` builds a detached wrapper and it is
+        ``renderAll()`` that puts tab content into ``.tdl-main``. A first
+        draft of this test scanned the 4000 characters before the gallery
+        for the string and failed -- correctly, because the two are
+        nowhere near each other in the file. That was the test being
+        wrong about the code, not the code being wrong.
+        """
+        render = self.src[self.src.index("function renderAll()"):]
+        render = render[:render.index("function toggleRail()")]
+        i = render.index('el("section", "tdl-main")')
+        window = render[i:i + 1500]
+        self.assertIn("main.appendChild(renderTab())", window,
+                      "tab content -- which is where the gallery lives -- "
+                      "must be rendered into the .tdl-main scrollport")
+        self.assertIn('"tdl-gallery"', self._fn("function renderPhotos(", 3000),
+                      "the gallery is expected to be built by renderPhotos, "
+                      "which renderTab() dispatches to")
 
 
 class TimelineUnsavedEditGuardTest(unittest.TestCase):
