@@ -222,12 +222,15 @@ function ids(n, prefix) {
   const blocked = runner.paletteResult({ unsent: ["a"], blocked: true });
   const clean = runner.paletteResult({ done: ["a"] });
   const keys = o => Object.keys(o).sort().join(",");
-  // SEVEN keys since 2026-08-14: `changed` and `already` were added so
-  // Hide/Restore can report what it actually altered rather than
-  // everything it was asked about. Add and Remove fall back to the batch.
-  check("every exit answers the same seven keys",
+  // EIGHT keys. `changed`/`already` so Hide/Restore reports what it
+  // altered rather than everything it was asked about, and `cancelled`
+  // so "the operator moved on" is distinguishable from "it failed" --
+  // the second would send them back to retry something that was never
+  // wrong.
+  check("every exit answers the same eight keys",
     keys(blocked) === keys(clean) &&
-    keys(clean) === "already,blocked,changed,done,error,reloadError,unsent",
+    keys(clean) ===
+      "already,blocked,cancelled,changed,done,error,reloadError,unsent",
     keys(clean));
   check("a blocked run reports the whole selection as still outstanding",
     blocked.blocked === true && blocked.unsent.length === 1 &&
@@ -299,6 +302,8 @@ function ids(n, prefix) {
     extract("paletteToggleSelected"),
     extract("paletteClearSelection"),
     extract("paletteSelectedOutsideFilter"),
+    extract("paletteLinkIndex"),
+    extract("paletteLinkById"),
     extract("paletteRemovableIds"),
     extract("paletteRefreshBar"),
     "return { st, newPaletteState, paletteToggleSelected,",
@@ -405,6 +410,237 @@ function ids(n, prefix) {
       r.changed.length === 2 && r.already.length === 0,
       "changed=" + r.changed.length);
   });
+})();
+
+// ── the FINAL P2 corrections, run for real ────────────────────────────
+
+(function aStaleReloadCannotAssign() {
+  // THE DEFECT. The previous correction guarded the REPORTER and left
+  // the reloads between it and the network unguarded, so trip A's
+  // response still overwrote st.photoLinks after the operator had moved
+  // to trip B -- the report was suppressed AFTER the screen was wrong.
+  const mod = new Function([
+    "var destroyed = false;",
+    "var paletteGeneration = 7;",
+    "var st = { trip: { id: 'A' }, photoLinks: ['ORIGINAL'],",
+    "           hiddenPhotoLinks: [], showHiddenPhotos: false,",
+    "           tripCal: {}, days: ['DAY-ORIGINAL'], preservedDays: [],",
+    "           countsWarning: '' };",
+    "var _resolve = null;",
+    "function api() { return new Promise(function (r) { _resolve = r; }); }",
+    "function invalidateMemoirPreview() {}",
+    extract("reloadGuardIsCurrent"),
+    extract("reloadDays"),
+    extract("reloadPhotoLinks"),
+    "return { st, reloadDays, reloadPhotoLinks,",
+    "         land: function (v) { _resolve(v); },",
+    "         setTrip: function (id) { st.trip = { id: id }; },",
+    "         setGen: function (g) { paletteGeneration = g; },",
+    "         kill: function () { destroyed = true; } };"
+  ].join("\n"))();
+
+  const guard = { tripId: "A", gen: 7, needsModal: true };
+  const pending = mod.reloadPhotoLinks(guard);
+  mod.setTrip("B");                       // the operator moves on
+  mod.land({ photo_links: ["TRIP-A-DATA"] });
+  return pending.then(function () {
+    check("CORRECTION: a reload that lands after a trip change does NOT " +
+          "assign", mod.st.photoLinks[0] === "ORIGINAL",
+      "st.photoLinks[0]=" + mod.st.photoLinks[0]);
+  });
+})();
+
+(function aStaleReloadCannotAssignDays() {
+  const mod = new Function([
+    "var destroyed = false;",
+    "var paletteGeneration = 3;",
+    "var st = { trip: { id: 'A' }, tripCal: {}, days: ['ORIGINAL'],",
+    "           preservedDays: [], countsWarning: '' };",
+    "var _resolve = null;",
+    "function api() { return new Promise(function (r) { _resolve = r; }); }",
+    extract("reloadGuardIsCurrent"),
+    extract("reloadDays"),
+    "return { st, reloadDays, land: function (v) { _resolve(v); },",
+    "         setGen: function (g) { paletteGeneration = g; },",
+    "         closeModal: function () { st.tripCal = null; } };"
+  ].join("\n"))();
+
+  const guard = { tripId: "A", gen: 3, needsModal: true };
+  const p1 = mod.reloadDays(guard);
+  mod.setGen(4);                          // filter or mode changed
+  mod.land({ days: ["STALE"] });
+  return p1.then(function () {
+    check("CORRECTION: a reload whose GENERATION moved on does not assign",
+      mod.st.days[0] === "ORIGINAL", mod.st.days[0]);
+
+    const p2 = mod.reloadDays({ tripId: "A", gen: 4, needsModal: true });
+    mod.closeModal();                     // modal closed mid-flight
+    mod.land({ days: ["ALSO-STALE"] });
+    return p2.then(function () {
+      check("CORRECTION: a reload for a CLOSED modal does not assign",
+        mod.st.days[0] === "ORIGINAL", mod.st.days[0]);
+    });
+  });
+})();
+
+(function batchesStopWhenTheContextGoesStale() {
+  let live = true;
+  let sent = 0;
+  return runner.paletteBatchRun(ids(150), function (batch) {
+    sent++;
+    if (sent === 1) live = false;   // the operator leaves after batch 1
+    return Promise.resolve();
+  }, function () { return live; }).then(function (r) {
+    check("CORRECTION: batches stop being SENT once the context is stale",
+      sent === 1, "sendBatch called " + sent + " times");
+    check("CORRECTION: …the batch that landed stays confirmed",
+      r.done.length === BATCH, r.done.length + " done");
+    check("CORRECTION: …and the remainder is classified unsent, not failed",
+      r.unsent.length === 100 && r.failure === null && r.cancelled === true,
+      "unsent=" + r.unsent.length + " cancelled=" + r.cancelled);
+    check("CORRECTION: …with nothing lost in the accounting",
+      r.done.length + r.unsent.length === 150);
+  });
+})();
+
+(function hiddenPhotographsAreRemovable() {
+  // THE DEFECT. Palette Hidden read p.hidden while eligibility read
+  // st.hiddenPhotoLinks -- empty unless the PHOTOS TAB toggle is on. A
+  // hidden photograph could be on screen, on the day, and unremovable.
+  const mod = new Function([
+    "var st = { tripCal: null, photoLinks: [], hiddenPhotoLinks: [] };",
+    extract("linkDayIds"),
+    extract("linkIsOnDay"),
+    extract("newPaletteState"),
+    extract("paletteState"),
+    extract("paletteSelectedIds"),
+    extract("paletteToggleSelected"),
+    extract("paletteLinkIndex"),
+    extract("paletteLinkById"),
+    extract("paletteRemovableIds"),
+    "return { st, newPaletteState, paletteToggleSelected,",
+    "         paletteRemovableIds, paletteLinkById };"
+  ].join("\n"))();
+
+  mod.st.tripCal = { palette: mod.newPaletteState() };
+  // The Photos tab's array is EMPTY, exactly as it is when that toggle
+  // is off. Only the Palette's own pool knows about this photograph.
+  mod.st.hiddenPhotoLinks = [];
+  mod.st.tripCal.palette.hidden = [
+    { id: "h1", hidden: 1, trip_day_ids: ["d1"] }
+  ];
+  mod.paletteToggleSelected("h1", true);
+
+  check("CORRECTION: a hidden photograph resolves through the Palette's " +
+        "own pool", !!mod.paletteLinkById("h1"));
+  check("CORRECTION: …and a hidden photograph ON the day is removable",
+    mod.paletteRemovableIds("d1").join(",") === "h1",
+    mod.paletteRemovableIds("d1").join(","));
+  check("CORRECTION: …and is the ONLY id submitted",
+    mod.paletteRemovableIds("d1").length === 1);
+  check("CORRECTION: a hidden photograph NOT on the day is not removable",
+    mod.paletteRemovableIds("d2").length === 0);
+})();
+
+(function theCaptionEditorIsReachableForAnyPaletteLink() {
+  const mod = new Function([
+    "var st = { trip: { id: 'A' }, photoLinks: [], tripCal: null };",
+    "var TL_EDIT_FIELDS = { photo: [{ name: 'caption' }] };",
+    "function timelineEdit() { return st.tripCal && st.tripCal.edit; }",
+    "function timelineEditDirtyBlocks() { return false; }",
+    "function renderAll() {}",
+    extract("newPaletteState"),
+    extract("paletteState"),
+    extract("paletteLinkIndex"),
+    extract("paletteLinkById"),
+    extract("openCaptionEditorForLink"),
+    "return { st, newPaletteState, openCaptionEditorForLink };"
+  ].join("\n"))();
+
+  mod.st.tripCal = { mode: "palette", edit: null,
+                     palette: mod.newPaletteState() };
+  // Deliberately NOT in any Photos-tab filtered list -- this is the case
+  // openLightbox() could not resolve.
+  mod.st.photoLinks = [{ id: "vis", caption: "a caption", trip_day_ids: [] }];
+  mod.st.tripCal.palette.hidden = [{ id: "hid", caption: "hidden one",
+                                     hidden: 1, trip_day_ids: ["d1"] }];
+
+  mod.openCaptionEditorForLink("vis");
+  check("CORRECTION: a visible Palette card opens the caption editor",
+    !!mod.st.tripCal.edit && mod.st.tripCal.edit.kind === "photo" &&
+    mod.st.tripCal.edit.values.caption === "a caption",
+    JSON.stringify(mod.st.tripCal.edit && mod.st.tripCal.edit.values));
+  check("CORRECTION: …and it remembers it came from the Palette",
+    mod.st.tripCal.edit.fromPalette === true);
+
+  mod.st.tripCal.edit = null;
+  mod.openCaptionEditorForLink("hid");
+  check("CORRECTION: a HIDDEN Palette card opens the caption editor too",
+    !!mod.st.tripCal.edit &&
+    mod.st.tripCal.edit.values.caption === "hidden one",
+    JSON.stringify(mod.st.tripCal.edit && mod.st.tripCal.edit.values));
+
+  mod.st.tripCal.edit = null;
+  mod.openCaptionEditorForLink("nope");
+  check("CORRECTION: an unknown id opens nothing rather than an empty editor",
+    mod.st.tripCal.edit === null);
+
+  // The write itself is the timeline's, and its photo branch is
+  // caption-only -- so editing a caption cannot grant Lori approval.
+  const body = new Function([
+    extract("timelineEditBody"),
+    "return timelineEditBody({ kind: 'photo', values: { caption: ' x ' } });"
+  ].join("\n"))();
+  check("CORRECTION: the shared save sends the caption and NOTHING else",
+    JSON.stringify(body.body) === '{"caption":"x"}',
+    JSON.stringify(body.body));
+  check("CORRECTION: …so it cannot change Lori approval",
+    !("caption_approved_for_lori" in body.body));
+})();
+
+(function theStatusLineTellsTheWholeTruth() {
+  // MUTATION-DRIVEN. Deleting the already-in-state clause from the
+  // status left every gate green, because the runner COLLECTS `already`
+  // and only the status line reports it. "Hid 1" when forty-nine were
+  // already hidden is a false claim about the operator's own trip.
+  const mod = new Function([
+    "var st = { tripCal: null };",
+    "var paletteGeneration = 1;",
+    "var destroyed = false;",
+    "function renderAll() {}",
+    "function sameTrip() { return true; }",
+    "function paletteGenerationIsCurrent() { return true; }",
+    extract("newPaletteState"),
+    extract("paletteState"),
+    extract("paletteAfterBatch"),
+    "return { st, newPaletteState, paletteAfterBatch };"
+  ].join("\n"))();
+  mod.st.tripCal = { palette: mod.newPaletteState() };
+  const P = function () { return mod.st.tripCal.palette; };
+
+  mod.paletteAfterBatch(
+    { changed: ["a"], already: ["b", "c"], unsent: [], done: ["a", "b", "c"] },
+    ["a"], "hidden");
+  check("CORRECTION: the status reports what was ALREADY in that state",
+    /1 hidden/.test(P().status) && /2 were already hidden/.test(P().status),
+    P().status);
+
+  mod.paletteAfterBatch(
+    { changed: ["a"], already: [], unsent: ["z"], cancelled: true,
+      done: ["a"] },
+    ["a"], "removed");
+  check("CORRECTION: a cancelled run says so, and does not read as a failure",
+    /not sent because/.test(P().status) && !/retry/.test(P().status),
+    P().status);
+
+  mod.paletteAfterBatch({ changed: ["a"], already: [], unsent: [],
+                          done: ["a"] }, ["a"], "hidden");
+  check("CORRECTION: a clean run stays terse — no empty parenthetical",
+    P().status === "1 hidden.", P().status);
+
+  mod.paletteAfterBatch({ blocked: true, unsent: ["a"] }, [], "hidden");
+  check("CORRECTION: a blocked run names the dirty day, not a count",
+    /save or discard the day/.test(P().status), P().status);
 })();
 
 // ── one thousand memberships ──────────────────────────────────────────

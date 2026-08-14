@@ -1451,14 +1451,40 @@
       });
   }
 
-  function reloadDays() {
+  // [WO-TRIP-PHOTO-PALETTE-01, final P2 correction. `guard` is optional
+  // and, when given, is checked IMMEDIATELY BEFORE THE ASSIGNMENT rather
+  // than anywhere earlier.
+  //
+  // The previous correction guarded the reporter -- paletteAfterBatch --
+  // and left the reloads between it and the network unguarded, which
+  // guards the wrong end of the chain. The sequence that survived it:
+  // start a reload on trip A, switch to trip B, A's response lands,
+  // `st.days` is overwritten with A's days, and only THEN does the
+  // suppressed report decline to mention it. The screen was already
+  // wrong. A late response must not be allowed to write at all.]
+  function reloadDays(guard) {
     if (!st.trip) return Promise.resolve();
-    return api("/api/trips/" + encodeURIComponent(st.trip.id) + "/days")
+    var tripId = st.trip.id;
+    return api("/api/trips/" + encodeURIComponent(tripId) + "/days")
       .then(function (out) {
+        if (!reloadGuardIsCurrent(guard, tripId)) return;
         st.days = out.days || [];
         st.preservedDays = out.preserved || [];
         st.countsWarning = out.counts_warning || "";
       });
+  }
+
+  // True when it is still safe to apply a response. No guard means the
+  // caller is a plain foreground reload and the trip check alone
+  // applies -- which is still stricter than the nothing it had before.
+  function reloadGuardIsCurrent(guard, tripId) {
+    if (!st.trip || st.trip.id !== tripId) return false;
+    if (destroyed) return false;
+    if (!guard) return true;
+    if (guard.tripId !== undefined && guard.tripId !== tripId) return false;
+    if (guard.gen !== undefined && guard.gen !== paletteGeneration) return false;
+    if (guard.needsModal && !st.tripCal) return false;
+    return true;
   }
 
   function reloadNotes() {
@@ -1471,18 +1497,25 @@
       .then(invalidateMemoirPreview);
   }
 
-  function reloadPhotoLinks() {
+  function reloadPhotoLinks(guard) {
     if (!st.trip) return Promise.resolve();
-    var tid = encodeURIComponent(st.trip.id);
+    var tripId = st.trip.id;
+    var tid = encodeURIComponent(tripId);
     // VISIBLE ONLY. Every other consumer of st.photoLinks assumes that.
     return api("/api/trips/" + tid + "/photo-links")
-      .then(function (out) { st.photoLinks = out.photo_links || []; })
+      .then(function (out) {
+        // Guarded at the ASSIGNMENT. See reloadDays.
+        if (!reloadGuardIsCurrent(guard, tripId)) return;
+        st.photoLinks = out.photo_links || [];
+      })
       .then(function () {
+        if (!reloadGuardIsCurrent(guard, tripId)) return;
         if (!st.showHiddenPhotos) { st.hiddenPhotoLinks = []; return; }
         // A SECOND request, into a separate array. The endpoint returns
         // visible+hidden together, so the hidden ones are the difference.
         return api("/api/trips/" + tid + "/photo-links?include_hidden=1")
           .then(function (out) {
+            if (!reloadGuardIsCurrent(guard, tripId)) return;
             st.hiddenPhotoLinks = (out.photo_links || []).filter(
               function (l) { return !!l.hidden; });
           })
@@ -4691,11 +4724,30 @@
     return !!st.trip && st.trip.id === tripId;
   }
 
+  // THE ONE PLACE the Palette resolves a link id. Visible links plus the
+  // Palette's OWN hidden pool -- never st.hiddenPhotoLinks, which belongs
+  // to the Photos tab and is empty unless that tab's toggle is on.
+  //
+  // [The previous correction gave the Palette its own hidden pool for
+  // reading and left eligibility looking at the old array, so a hidden
+  // photograph could be visible on screen, sitting on the day, and still
+  // fail to be removable -- the same split authority the pool was
+  // introduced to remove, surviving in the half nobody re-read.]
+  function paletteLinkIndex() {
+    var p = paletteState();
+    var byId = {};
+    (st.photoLinks || []).forEach(function (l) { byId[l.id] = l; });
+    ((p && p.hidden) || []).forEach(function (l) { byId[l.id] = l; });
+    return byId;
+  }
+
+  function paletteLinkById(linkId) {
+    return paletteLinkIndex()[linkId] || null;
+  }
+
   function paletteRemovableIds(dayId) {
     if (!dayId) return [];
-    var byId = {};
-    (st.photoLinks || []).concat(st.hiddenPhotoLinks || [])
-      .forEach(function (l) { byId[l.id] = l; });
+    var byId = paletteLinkIndex();
     return paletteSelectedIds().filter(function (id) {
       var l = byId[id];
       return !!l && linkIsOnDay(l, dayId);
@@ -4763,15 +4815,27 @@
   // Written once because it was already written twice. A third copy is
   // how the three paths start disagreeing about what a partial failure
   // means.]
-  function paletteBatchRun(ids, sendBatch) {
+  function paletteBatchRun(ids, sendBatch, isCurrent) {
     var all = (ids || []).slice();
     var batches = [];
     while (all.length) batches.push(all.splice(0, PLACEMENT_BATCH_MAX));
     var state = { done: [], changed: [], already: [], unsent: [],
-                  failedBatch: [], failure: null };
+                  failedBatch: [], failure: null, cancelled: false };
     return batches.reduce(function (p, batch) {
       return p.then(function () {
-        if (state.failure) {
+        if (state.failure || state.cancelled) {
+          state.unsent = state.unsent.concat(batch);
+          return null;
+        }
+        // Checked BEFORE the request, not after. Capturing the trip id
+        // stops a later batch being sent to the WRONG trip; it does
+        // nothing to stop it being sent at all. An operator who has left
+        // trip A should not have trip A quietly changing underneath the
+        // screen they are now looking at. Everything already confirmed
+        // stays confirmed; the rest is unsent, which is the truthful
+        // classification -- it was never sent.
+        if (typeof isCurrent === "function" && !isCurrent()) {
+          state.cancelled = true;
           state.unsent = state.unsent.concat(batch);
           return null;
         }
@@ -4802,7 +4866,7 @@
     return { done: o.done || [], changed: o.changed || [],
              already: o.already || [], unsent: o.unsent || [],
              error: o.error || null, reloadError: o.reloadError || null,
-             blocked: !!o.blocked };
+             blocked: !!o.blocked, cancelled: !!o.cancelled };
   }
 
   function removePhotosFromDay(day, linkIds) {
@@ -4822,13 +4886,14 @@
     // The ids belong to the trip they were selected in.
     var gen = paletteGeneration;
     var tripId = st.trip.id;
+    var guard = { tripId: tripId, gen: gen, needsModal: true };
     var reloadError = null;
     return paletteBatchRun(ids, function (batch) {
       return api("/api/trips/" + encodeURIComponent(tripId) +
         "/days/" + encodeURIComponent(day.id) + "/photos/unlink",
         { method: "POST", body: { photo_link_ids: batch } });
-    }).then(function (r) {
-      return Promise.all([reloadDays(), reloadPhotoLinks()])
+    }, function () { return reloadGuardIsCurrent(guard, tripId); }).then(function (r) {
+      return Promise.all([reloadDays(guard), reloadPhotoLinks(guard)])
         .catch(function (e) { reloadError = e; })
         .then(function () { return r; });
     }).then(function (r) {
@@ -4851,7 +4916,8 @@
       }
       st.error = parts.join(" ");
       renderAll();
-      return paletteResult({ done: r.done,
+      return paletteResult({ done: r.done, changed: r.changed,
+                             already: r.already, cancelled: r.cancelled,
                              unsent: r.failedBatch.concat(r.unsent),
                              error: r.failure, reloadError: reloadError });
     });
@@ -4871,16 +4937,17 @@
     // Same capture, same reason. See removePhotosFromDay.
     var gen = paletteGeneration;
     var tripId = st.trip.id;
+    var guard = { tripId: tripId, gen: gen, needsModal: true };
     var reloadError = null;
     return paletteBatchRun(ids, function (batch) {
       return api("/api/trips/" + encodeURIComponent(tripId) +
         "/photo-links/visibility",
         { method: "POST", body: { photo_link_ids: batch, hidden: !!hidden } });
-    }).then(function (r) {
+    }, function () { return reloadGuardIsCurrent(guard, tripId); }).then(function (r) {
       // BOTH pools. Hiding moves a photograph from the visible list to
       // the hidden one, so refreshing only the visible list leaves the
       // Hidden filter stale and the photograph apparently nowhere.
-      return Promise.all([reloadPhotoLinks(), paletteLoadHidden()])
+      return Promise.all([reloadPhotoLinks(guard), paletteLoadHidden()])
         .catch(function (e) { reloadError = e; })
         .then(function () { return r; });
     }).then(function (r) {
@@ -4909,7 +4976,7 @@
       st.error = parts.join(" ");
       renderAll();
       return paletteResult({ done: r.done, changed: r.changed,
-                             already: r.already,
+                             already: r.already, cancelled: r.cancelled,
                              unsent: r.failedBatch.concat(r.unsent),
                              error: r.failure, reloadError: reloadError });
     });
@@ -10449,6 +10516,40 @@
     renderAll();
   }
 
+  // ONE way in to the shared-caption editor, used by the timeline row
+  // and by the Palette card. Neither caller writes a caption itself:
+  // both end at timelineEditBody(), whose photo branch sends `caption`
+  // and nothing else, so editing a caption cannot grant Lori approval
+  // by accident from either surface.
+  //
+  // Takes a LINK ID rather than a timeline item, because the Palette has
+  // a link and no timeline item -- its card may be for a photograph that
+  // is on no day at all, or hidden, and in neither case does a row exist
+  // to hand over.
+  function openCaptionEditorForLink(linkId) {
+    if (!st.tripCal) return;
+    var l = paletteLinkById(linkId);
+    if (!l) return;
+    var cur = timelineEdit();
+    var key = "photo:" + linkId;
+    if (cur && cur.key === key) return;
+    if (timelineEditDirtyBlocks()) return;
+    var vals = { caption: l.caption || "" };
+    var orig = { caption: l.caption || "" };
+    st.tripCal.edit = {
+      key: key, kind: "photo", ownerId: linkId, field: "caption",
+      label: "Caption", values: vals, original: orig,
+      dirty: false, saving: false, error: "",
+      focus: "caption", saveButtons: [], badges: [],
+      // Where to go back to. The Palette's mode, filter, selection and
+      // window all live in st.tripCal and st.photoWindows and are not
+      // touched by the editor, so returning is a matter of not changing
+      // the mode on the way out.
+      fromPalette: (st.tripCal.mode === "palette"),
+    };
+    renderAll();
+  }
+
   // Quick capture: a note written where the operator already is,
   // filed on the day they are already looking at. Save is off until
   // something has been typed, so an accidental click captures nothing.
@@ -10755,10 +10856,6 @@
     return pick;
   }
 
-  // A photograph moves by updating the ONE trip_photo_links row it
-  // already has. No second placement record, and no "also show on
-  // another day" here: a photograph on two days is a claim that it was
-  // taken twice, and this surface is not where that gets decided.
   function moveTripPhotoLink(linkId, fromDayId, toDayId) {
     if (!st.trip || !st.tripCal) return Promise.resolve();
     var t = encodeURIComponent(st.trip.id);
@@ -11478,16 +11575,35 @@
     // everything after it stay ticked, so pressing the button again
     // retries exactly those and nothing else.
     (landed || []).forEach(function (id) { delete p.selected[id]; });
+    // THE WHOLE RESULT, not just the part that landed. The runner has
+    // collected `already` since the last correction and the status line
+    // was still throwing it away, so hiding fifty photographs of which
+    // forty-nine were already hidden reported "49 hidden" -- a claim
+    // about the operator's own trip that is simply untrue.
+    var n = (landed || []).length;
+    var extra = [];
+    if (r && r.already && r.already.length) {
+      extra.push(r.already.length + " were already " +
+        (verb === "hidden" ? "hidden"
+          : verb === "restored" ? "visible" : "in that state"));
+    }
+    if (r && r.unsent && r.unsent.length) {
+      extra.push(r.unsent.length + " not sent");
+    }
+    var tail = extra.length ? " (" + extra.join(", ") + ")" : "";
     if (r && r.blocked) {
       p.status = "Nothing was sent — save or discard the day first.";
+    } else if (r && r.cancelled) {
+      p.status = n + " " + verb + tail + ". The rest were not sent because " +
+        "you moved on; they are still selected.";
     } else if (r && r.error) {
-      p.status = (landed || []).length + " " + verb + "; the rest are still " +
-        "selected. Press again to retry just those.";
+      p.status = n + " " + verb + tail + "; the rest are still selected. " +
+        "Press again to retry just those.";
     } else if (r && r.reloadError) {
-      p.status = (landed || []).length + " " + verb +
+      p.status = n + " " + verb + tail +
         ", but the screen could not be refreshed.";
     } else {
-      p.status = (landed || []).length + " " + verb + ".";
+      p.status = n + " " + verb + tail + ".";
     }
     renderAll();
   }
@@ -11583,13 +11699,21 @@
     // the Palette could show a caption and offer no way to change it,
     // which made the planned live acceptance impossible to complete
     // inside the feature.
-    meta.appendChild(btn("tdl-btn tdl-btn-small", "Open photo details",
-      function () {
-        // Selection, filter, mode and window all live in st.tripCal and
-        // st.photoWindows, neither of which this touches, so coming back
-        // lands where the operator left off.
-        openLightbox(l.id);
-      }));
+    // CORRECTED: this called openLightbox(), which resolves its selection
+    // through filteredLinks() -- the PHOTOS TAB's filtered list. A
+    // Palette card excluded by that tab's filter, or one from the
+    // Palette's own hidden pool, may not be in it at all, so the
+    // lightbox could fail to render. And the lightbox shows the caption
+    // read-only; it has never contained an editor, so the comment
+    // claiming it routed to "the caption editor and Lori-approval
+    // ladder" was describing something that does not exist there.
+    //
+    // The real shared-caption editor is the timeline row's inline editor
+    // in this same modal, whose PATCH body is caption-only and never
+    // sends caption_approved_for_lori in either direction. The Palette
+    // opens THAT, by link id, through one shared helper.
+    meta.appendChild(btn("tdl-btn tdl-btn-small", "Edit caption",
+      function () { openCaptionEditorForLink(l.id); }));
 
     if (visibleDayId && linkIsOnDay(l, visibleDayId)) {
       var d = dayById(visibleDayId);

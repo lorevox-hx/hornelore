@@ -231,9 +231,31 @@ class BatchTruthfulnessTest(unittest.TestCase):
                          "concurrent batches interleave ord assignment")
 
     def test_the_runner_stops_at_the_first_failure(self):
+        """The condition gained `|| state.cancelled` when batches learned
+        to stop on a stale context, so this asserts the failure half by
+        name rather than the whole expression."""
         body = _fn("paletteBatchRun")
-        self.assertIn("if (state.failure)", body)
+        self.assertIn("state.failure || state.cancelled", body)
         self.assertIn("state.unsent = state.unsent.concat(batch)", body)
+
+    def test_the_runner_checks_currency_BEFORE_sending(self):
+        """Capturing the trip id stops a batch going to the wrong trip;
+        it does nothing to stop it going at all. An operator who has left
+        trip A must not have trip A changing underneath them."""
+        body = _fn("paletteBatchRun")
+        i = body.index('typeof isCurrent === "function"')
+        j = body.index("return sendBatch(batch)")
+        self.assertLess(i, j,
+                        "currency must be checked before the request, not "
+                        "after the response")
+        self.assertIn("state.cancelled = true", body)
+
+    def test_cancelled_is_not_reported_as_a_failure(self):
+        """"You moved on" and "it broke" send the operator to different
+        places; conflating them means retrying something never wrong."""
+        body = _fn("paletteAfterBatch")
+        self.assertIn("r.cancelled", body)
+        self.assertIn("not sent because", body)
 
     def test_remove_chunks_at_the_same_ceiling_as_add(self):
         self.assertIn("PLACEMENT_BATCH_MAX", _fn("paletteBatchRun"))
@@ -275,6 +297,93 @@ class BatchTruthfulnessTest(unittest.TestCase):
         card = _fn("renderPaletteCard")
         self.assertIn("openPlacementMove(d, l)", card,
                       "Move stays contextual and names its source day")
+
+
+class OneLinkLookupTest(unittest.TestCase):
+
+    def test_palette_eligibility_never_reads_the_photos_tab_array(self):
+        """`st.hiddenPhotoLinks` is empty unless the PHOTOS TAB toggle is
+        on, so a hidden photograph could be on screen, on the day, and
+        unremovable -- the same split authority the Palette's own pool
+        was introduced to remove."""
+        for name in ("paletteLinkIndex", "paletteRemovableIds"):
+            self.assertNotIn("st.hiddenPhotoLinks", _fn(name),
+                             "%s reads the Photos tab's array" % name)
+        idx = _fn("paletteLinkIndex")
+        self.assertIn("st.photoLinks", idx)
+        self.assertIn("p.hidden", idx)
+
+    def test_there_is_one_lookup_and_remove_uses_it(self):
+        self.assertIn("paletteLinkIndex()", _fn("paletteRemovableIds"))
+        self.assertIn("paletteLinkIndex()", _fn("paletteLinkById"))
+
+
+class CaptionRouteTest(unittest.TestCase):
+
+    def test_the_palette_does_not_route_through_the_photos_tab_filter(self):
+        """`openLightbox` resolves selection through `filteredLinks()`,
+        which is the Photos tab's list -- a Palette card excluded by that
+        filter, or a hidden one, may not be in it at all."""
+        card = _fn("renderPaletteCard")
+        self.assertNotIn("openLightbox(", card)
+        self.assertIn("openCaptionEditorForLink(l.id)", card)
+
+    def test_the_opener_takes_a_link_id_not_a_timeline_item(self):
+        """The Palette has a link and no row: its card may be for a
+        photograph on no day at all, or hidden."""
+        body = _fn("openCaptionEditorForLink")
+        self.assertIn("paletteLinkById(linkId)", body)
+        self.assertIn('kind: "photo"', body)
+
+    def test_both_callers_end_at_one_shared_save(self):
+        """Neither surface writes a caption itself."""
+        body = _fn("timelineEditBody")
+        self.assertIn('return { body: { caption: t("caption") } };', body)
+        self.assertNotIn("caption_approved_for_lori", body,
+                         "the shared save must never send approval")
+        opener = _fn("openCaptionEditorForLink")
+        self.assertNotIn("api(", opener,
+                         "the opener must not carry its own write")
+
+
+class GuardedReloadTest(unittest.TestCase):
+
+    def test_the_guard_is_checked_at_the_assignment(self):
+        """Guarding the reporter after an unguarded reload has already
+        overwritten global state guards the wrong end of the chain."""
+        for name, assign in (("reloadPhotoLinks", "st.photoLinks ="),
+                             ("reloadDays", "st.days =")):
+            body = _fn(name)
+            i = body.index("reloadGuardIsCurrent(guard, tripId)")
+            j = body.index(assign)
+            self.assertLess(i, j,
+                            "%s assigns before it checks the guard" % name)
+
+    def test_the_guard_covers_trip_generation_and_modal(self):
+        body = _fn("reloadGuardIsCurrent")
+        self.assertIn("st.trip.id !== tripId", body)
+        self.assertIn("guard.gen !== paletteGeneration", body)
+        self.assertIn("guard.needsModal && !st.tripCal", body)
+        self.assertIn("destroyed", body)
+
+    def test_the_batch_reloads_carry_the_guard(self):
+        for name in ("removePhotosFromDay", "setPhotoLinksHidden"):
+            body = _fn(name)
+            self.assertIn("reloadPhotoLinks(guard)", body,
+                          "%s reloads unguarded" % name)
+
+
+class ObsoleteCommentTest(unittest.TestCase):
+
+    def test_the_retired_single_day_claim_is_gone(self):
+        """It claimed one link has one day and that a photograph on two
+        days is a claim it was taken twice -- retired by the placement
+        model, and the corrected comment below it said the opposite."""
+        src = _raw()
+        for gone in ("A photograph moves by updating the ONE",
+                     "a photograph on two days is a claim that it was"):
+            self.assertNotIn(gone, src)
+        self.assertIn("/photos/placement-move", _fn("moveTripPhotoLink"))
 
 
 class StaleRequestTest(unittest.TestCase):
