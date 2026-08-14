@@ -59,9 +59,43 @@ for case C.
   Excellent for proving the *composer* branch fires on `pass1`; useless for proving the
   *browser* reaches it. Case C needs a real browser.
 
-**The no-cached-spine condition is satisfied by construction** — a newly created narrator has
-never had `lorevox.spine.<pid>` written, because only `initTimelineSpine()` writes it
-(`app.js:7689`). **Nothing needs clearing.**
+### 2.1 How the no-cached-spine state is actually produced — CORRECTED 2026-08-14
+
+> **This section previously said the condition was "satisfied by construction" because a new
+> narrator has never had a spine written. That was wrong, and the review caught it.**
+> `saveProfile()` calls `initTimelineSpine()` as soon as DOB and birthplace are present
+> (`app.js:3947-3949`), and `initTimelineSpine()` writes the cache **and then immediately
+> promotes**:
+>
+> ```
+> app.js:7691   saveSpineLocal();
+> app.js:7694   setPass("pass2a");
+> ```
+>
+> **So completing identity destroys the state case C exists to measure.** The old §7 could
+> never have produced it.
+
+**It is still reachable, legitimately, and without touching anything.** Two facts make it so:
+
+1. **`initTimelineSpine()` has exactly one caller** — `saveProfile()` at `app.js:3948`. It is
+   **never** called on load. Verified: the only two occurrences repo-wide are that call site
+   and the definition at `:7665`.
+2. **`identity_complete` is server-derived, not cache-derived.** `hasIdentityBasics74()`
+   (`app.js:2954` → definition) reads `state.profile.basics`, which is loaded from the
+   server profile.
+
+**Therefore the method is a second browser profile:**
+
+| Step | Where | Result |
+|---|---|---|
+| C-a | Browser **A** (normal window) | Create the acceptance narrator, complete identity. This writes the spine cache and promotes to `pass2a` **in browser A only**. |
+| C-b | Browser **B** (a separate Chrome profile, or an incognito window) | Open the app, select the same narrator. `loadPerson` finds no `lorevox.spine.<pid>`, so the `if (_cachedSpine)` block at `app.js:3382` is skipped, **no promotion runs**, and `currentPass` stays `"pass1"` from `state.js:127` — while `hasIdentityBasics74()` returns **true** from the server profile. |
+
+**Nothing is cleared, no product code changes, no family narrator is touched, and this is
+exactly the production scenario the Phase 8 report names — *"a different machine."***
+
+If browser B cannot be used for any reason, **record case C as not-exercised** and say so.
+**Do not clear a family narrator's `localStorage` to substitute for it.**
 
 ---
 
@@ -84,6 +118,10 @@ stat -c %s .runtime/logs/api.log
 
 Record: narrator count, `turns` count, `interview_sessions` count, archive file count for the
 acceptance narrator (zero — it does not exist yet), and the API-log byte offset.
+
+> **The snapshot is a complete copy of the live database, every narrator included.** It is
+> retained only through verification and is deleted by one explicit command in §11.3 once the
+> report is accepted. Do not leave it on disk.
 
 ---
 
@@ -138,8 +176,39 @@ browser, in `turns`, and in the archive/export.
 **Expected writes per turn:** exactly 1 user row + 1 assistant row in `turns`; exactly 1
 archive append. **Duplicate = FAIL.** Zero = FAIL.
 
+### 5.1 The export half — ADDED 2026-08-14, it was missing
+
+> **The review was right: this case could not close "browser/export smoke" as written.** It
+> checked `turns` and archive event counts and never touched an export. A real export
+> endpoint exists and must be used:
+>
+> ```
+> GET /api/memory-archive/people/{person_id}/export      (memory_archive.py:615)
+> ```
+
+**A6 — download and inspect the export.** After A1–A5:
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+curl -s -o /tmp/l2_export.zip \
+  "http://localhost:8000/api/memory-archive/people/<ACCEPTANCE_PID>/export"
+unzip -o /tmp/l2_export.zip -d /tmp/l2_export && ls -R /tmp/l2_export
+```
+
+Then, for **each** deterministic reply delivered in A1–A5, count its occurrences across the
+extracted export:
+
+```bash
+grep -Rc "<first 40 chars of the reply>" /tmp/l2_export | grep -v ':0$'
+```
+
+**Expected: exactly one occurrence per reply, in exactly one file. Two = FAIL. Zero = FAIL.**
+
 **Evidence format:** for each branch — branch name, narrator-visible text (first 60 chars),
-`turns.rowid` of both rows, archive event count delta, and the `[chat_ws] turn:` log line.
+`turns.rowid` of both rows, archive event count delta, the `[chat_ws] turn:` log line, **and
+the export occurrence count**.
+
+`/tmp/l2_export*` is scratch and is deleted in §11.
 
 **Stop condition:** any branch producing two assistant rows for one delivered reply. Stop and
 report; do not continue to case B.
@@ -156,8 +225,19 @@ Three paths: WebSocket `chat_ws.py:4313` (refusal `:4324`, backstop `:4431-4460`
 `api.py:776`/`:879`, backstop `:802-820`.
 
 **Cases, per the WO's list:** plain `hi` · Building Years · active trip · selected photo ·
-realistic history · one long valid turn · each session style · **the
-mandatory-core-cannot-fit path**.
+realistic history · one long valid turn · **the mandatory-core-cannot-fit path** · and each
+session style, **enumerated rather than left as "each"**:
+
+| Style | Path |
+|---|---|
+| `warm_storytelling` | in `_KNOWN_NON_ORAL_STYLES` (`prompt_composer.py:3990-3994`) |
+| `companion` | in `_KNOWN_NON_ORAL_STYLES` |
+| `clear_direct` | in `_KNOWN_NON_ORAL_STYLES` |
+| `questionnaire_first` | in `_KNOWN_NON_ORAL_STYLES` |
+| `memory_exercise` | in `_KNOWN_NON_ORAL_STYLES` |
+| **`oral_history` / unset `""`** | **NOT** in the set — takes the oral-history default path (`:3995-3997`), and is the style under which the three-authority conflict is reachable |
+
+That is five named styles plus the default path — **six rows, not "each".**
 
 | | Expected |
 |---|---|
@@ -179,10 +259,14 @@ narrator turn. **Do not lower the window to force it** — changing
 **Claim under test:** whether a real browser reaches `pass1` for an identity-complete narrator
 — i.e. whether the three-authority conflict is live.
 
-1. Create the acceptance narrator (§2). **Do not clear anything.**
-2. Complete identity (name, DOB, POB) so `identity_complete` is true.
-3. Send one ordinary turn.
-4. Read the **browser console** line `app.js:6025`:
+**Procedure — the corrected one from §2.1. Do not complete identity and then measure in the
+same browser; that promotes to `pass2a` and destroys the state.**
+
+1. **Browser A:** create the acceptance narrator (§2), complete identity (name, DOB, POB).
+2. **Browser B** (separate Chrome profile or incognito): open the app, select the same
+   narrator. **Clear nothing.**
+3. Send one ordinary turn **in browser B**.
+4. Read the **browser B console** line `app.js:6025`:
    `[Lori 7.1] runtime71 → model:`
 
 **Record four fields:** `current_pass` · `effective_pass` · `identity_complete` ·
@@ -240,42 +324,135 @@ Fill this table using §4's terminology. Every row needs all four labels.
 | fresh unidentified `hi` | ordinary | incomplete | | |
 | `pass1` turn, if case C reaches it | ordinary | complete | | |
 
-**Source of the count:** `api.py:385`, after `_apply_chat_template`. **Do not quote a
-builder-side estimate.**
+**Source of the count — no instrumentation change needed.** The server already logs the
+post-template count on every WebSocket turn:
+
+```
+chat_ws.py:4352   _prompt_tokens = len(tok.encode(prompt))
+chat_ws.py:4390   "[chat_ws][WO-10M] prompt_tokens=%d max_new=%d required=%.0f MB …"
+```
+
+**Read the figure off `[chat_ws][WO-10M] prompt_tokens=` in `api.log`.** That is a real
+post-`_apply_chat_template` count, which is the only honest one
+(`prompt_composer.py:3312`). **Do not add instrumentation, and do not quote a builder-side
+estimate.**
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+grep "\[chat_ws\]\[WO-10M\] prompt_tokens=" .runtime/logs/api.log | tail -20
+```
+
+> *An earlier concern that this required new instrumentation was withdrawn by the review; the
+> log line already exists. Recorded so nobody re-adds one.*
 
 **Outcome:** this table supersedes every bare token figure in `CLAUDE.md`, the WO and the
 Phase 8 report. Those documents get one corrective edit each, citing this table.
 
 ---
 
-## 10. Case F — post-restart persistence, read-only
+## 10. Case F — post-restart persistence, GENUINELY read-only
 
-After **the one restart**:
+> **CORRECTED 2026-08-14.** This case previously said "read-only" and then required reading
+> `current_pass` *"on the first post-restart turn"*. **Sending a turn is a write** — it
+> creates `turns` rows and an archive append. The case contradicted its own heading.
 
-1. Every reply from cases A–D still present in `turns`, byte-identical.
-2. Archive events for the acceptance narrator still present and still counted correctly.
-3. The acceptance narrator still identity-complete.
-4. `current_pass` re-read on the first post-restart turn — **record whether it changed**, since
-   the browser cache survives a server restart and the spine may now exist.
-5. No new rows created by the restart itself.
+After **the one restart**, with **no turn sent**:
 
-**Read-only. No writes in case F.**
+1. Every reply from cases A–D still present in `turns`, byte-identical — read from a
+   read-only SQLite snapshot, not the live file.
+2. Archive events for the acceptance narrator still present and correctly counted.
+3. The acceptance narrator still identity-complete — read via
+   `GET /api/profiles/<pid>`, a read.
+4. **`current_pass` inspected WITHOUT sending a turn.** Open the app in browser B and read the
+   value off page state before typing anything:
+   ```js
+   JSON.stringify({ currentPass: state.session.currentPass,
+                    identityComplete: hasIdentityBasics74(),
+                    hasCachedSpine: !!localStorage.getItem("lorevox.spine." + state.person_id) })
+   ```
+   `loadPerson` has already run by then, so the promotion decision at `app.js:3394` has already
+   been made or skipped. **This observes the same fact the turn would have, and writes
+   nothing.**
+5. No new rows created by the restart itself — `turns` count equal to the pre-restart count.
+
+**If a post-restart turn ever becomes indispensable**, it stops being case F: rename it, and
+add its user row, assistant row and archive event to the §11 restoration accounting. **Do not
+send one silently under a "read-only" heading.**
 
 ---
 
-## 11. Restoration
+## 11. Restoration — REWRITTEN 2026-08-14, the previous version was materially wrong
 
-After case F, and only then:
+> **Three claims in the old §11 were false, and executing it would have left residue while
+> reporting a clean baseline.** They are quoted here rather than deleted, because a
+> restoration plan that overstates its own completeness is the most dangerous kind:
+>
+> - *"This cascades its turns, archive and session rows."*
+> - *"Turns/archive … removed by the same cascade."*
+> - *"The only differences should be the acceptance narrator's removal."*
+>
+> **What the code actually does:** the normal UI delete is `DELETE /api/people/{id}` with
+> `mode` defaulting to **`"soft"`** (`people.py:238-254`). A soft delete marks the person and
+> **removes no turns, no sessions and no archive data**. And the filesystem memory archive is
+> **decoupled from narrator deletion by design** — `memory_archive.py:658-660` says the
+> operator *"has to call this separately after confirming they really"* mean it, via its own
+> archive-delete endpoint. **Even a hard delete does not remove the filesystem archive.**
 
-- Delete the acceptance narrator through the normal UI delete path (it is `DELME`-named and
-  **not** on the KEEP list). This cascades its turns, archive and session rows.
-- Confirm the four family narrators are untouched: dependent-row counts equal to the §3
-  baseline.
-- Confirm no family narrator's `lorevox.spine.*` key was removed.
-- Re-run the §3 snapshot and diff against baseline: **the only differences should be the
-  acceptance narrator's removal.**
+**Therefore L2 does not promise a clean baseline. It promises an accounted one.**
 
-**Nothing else is deleted. No photo assets, no family data, no harness narrators.**
+### 11.1 What is left behind, classified
+
+After L2 completes, this evidence exists and is **expected**:
+
+| Artefact | Where | Disposition |
+|---|---|---|
+| `L2 ACCEPTANCE DELME 2026-08-14` narrator row | `people` | **Soft-deleted** via the normal UI path, or left visible — Chris's call (§11.2) |
+| Its `turns` rows (cases A–D) | `turns` | **Retained.** Not removed by any delete mode. |
+| Its `interview_sessions` rows | `interview_sessions` | **Retained.** |
+| Its filesystem archive | `DATA_DIR/memory/archive/people/<pid>/` | **Retained.** Decoupled from narrator deletion by design. |
+| `lorevox.spine.<pid>` in browsers A and B | browser `localStorage` | Browser-local; remove by hand if desired, no server effect |
+| `/tmp/l2_export*`, `/tmp/l2_export.zip` | scratch | Delete — carries narrator text |
+| `/mnt/c/hornelore_data/_l2_baseline.sqlite3` | data dir | **A complete copy of the live database** — see §11.3 |
+
+**This is why the narrator is named `DELME` and dated.** A clearly-labelled acceptance
+narrator with its evidence intact is far better than unexplained residue, and better than a
+deletion that silently half-worked.
+
+### 11.2 The permanent-deletion decision is Chris's, not the runbook's
+
+**Do not hard-delete the narrator and do not call the archive-delete endpoint to make the
+baseline diff look clean.** Making evidence match a number by destroying it is the failure
+this section exists to prevent.
+
+After the L2 report is accepted, Chris chooses one:
+
+- **Keep it** as labelled acceptance evidence *(recommended — it is cheap, named and dated)*;
+- **Soft-delete only** — hidden from the narrator list, all evidence retained;
+- **Hard-delete the narrator** (`?mode=hard`) **and separately** call the archive-delete
+  endpoint — the only route that genuinely removes everything, and it needs his explicit word.
+
+### 11.3 The baseline snapshot must be accounted for
+
+`/mnt/c/hornelore_data/_l2_baseline.sqlite3` (§3) is **a complete copy of the live database,
+including every narrator's live data.** It is retained through verification because the
+restoration check diffs against it — and then it must go.
+
+**After the L2 report is accepted, one explicit command:**
+
+```bash
+rm -f /mnt/c/hornelore_data/_l2_baseline.sqlite3
+```
+
+**Do not leave it on disk.** It is not gitignored territory, it is not backed up deliberately,
+and nothing else references it.
+
+### 11.4 What restoration actually verifies
+
+- The four family narrators are **untouched**: dependent-row counts equal to §3 baseline.
+- **No family narrator's `lorevox.spine.*` key was removed** in either browser.
+- No photo assets, no family data, no harness narrators deleted.
+- The §3 snapshot diff shows **exactly** the acceptance narrator's rows and nothing else —
+  and those rows are **expected and enumerated in §11.1**, not absent.
 
 ---
 
@@ -294,6 +471,10 @@ Stop and report; never decide these.
 7. A **duplicate assistant row** in case A (§5).
 8. A **silently truncated** reply in case B — as opposed to an honest refusal.
 9. Any **instruction text reaching the narrator** in case D.
+10. Any temptation to **hard-delete the narrator or erase the archive** to make the
+    restoration diff look clean (§11.2). Evidence is never destroyed to match a number.
+11. Case C's state proving unreachable even with a second browser profile — **record it
+    unexercised** rather than clearing a family narrator's cache to force it.
 
 ---
 

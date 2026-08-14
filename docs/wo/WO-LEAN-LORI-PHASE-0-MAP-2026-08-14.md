@@ -199,11 +199,29 @@ as active pipeline stage 1 and carries no reference to the park.
 invites rebuilding landed work.**
 
 ### Batch L2 — one live evidence run — **RUNBOOK WRITTEN, NOT STARTED**
-Full runbook: `docs/wo/WO-LEAN-LORI-L2-RUNBOOK-2026-08-14.md`. **Budget is exactly one start
-and one restart** — restart persistence is one of its required cases, so it is not a single
-uninterrupted cycle. Uses a dedicated `L2 ACCEPTANCE DELME` narrator; **no family narrator's
-profile or cache is cleared to manufacture the no-cached-spine condition.** Live safety stays
-`parked` throughout.
+Full runbook: `docs/wo/WO-LEAN-LORI-L2-RUNBOOK-2026-08-14.md`, **corrected 2026-08-14 after
+repository-backed review**. **Budget is exactly one start and one restart.** Uses a dedicated
+`L2 ACCEPTANCE DELME` narrator; **no family narrator's profile or cache is cleared.** Live
+safety stays `parked` throughout.
+
+Four corrections the review forced, each recorded in place in the runbook:
+
+- **Case C was impossible as written** — `saveProfile()` calls `initTimelineSpine()`, which
+  writes the spine cache *and* promotes to `pass2a`, so completing identity destroyed the
+  state being measured. It is reachable via a **second browser profile** instead, because
+  `initTimelineSpine()` has exactly one caller and never runs on load.
+- **Case F contradicted "read-only"** — it required a post-restart turn, which writes. It now
+  inspects page state without sending.
+- **Restoration was materially wrong** — the normal UI delete is **soft** and cascades
+  nothing; the filesystem archive is decoupled from narrator deletion by design. L2 no longer
+  promises a clean baseline, it promises an **accounted** one, and permanent deletion is
+  Chris's explicit decision.
+- **Case A did not test export** — it now downloads
+  `GET /api/memory-archive/people/{pid}/export` and proves each reply occurs exactly once.
+
+Also: token counts come from the existing `[chat_ws][WO-10M] prompt_tokens=` log (no
+instrumentation change), the five session styles are enumerated, and the baseline snapshot —
+a full copy of the live database — has an explicit deletion command.
 **Gate:** Gate B closes; Phase 10 and Phase 6 debts discharge; Gate D gets its re-measured
 token table, resolving §1.1.
 
