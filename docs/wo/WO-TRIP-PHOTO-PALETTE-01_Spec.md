@@ -53,8 +53,25 @@ trip_photo_day_placements      zero/one/many explicit day occurrences
 2. A photo joins a trip once.
 3. A trip photo may be placed on zero, one or many days.
 4. A day may contain any number of photos.
-5. **Unplaced means zero authoritative placements.** It never means
-   `trip_photo_links.trip_day_id IS NULL`.
+5. **Two questions, kept apart — AMENDED 2026-08-14 by review ruling.**
+   This read: *"Unplaced means zero authoritative placements. It never means
+   `trip_photo_links.trip_day_id IS NULL`."* The second sentence stands
+   unchanged and always will. The first was doing two jobs at once, and the
+   Palette needs them separated:
+
+   - **Not on a day** — `linkDayIds(link).length === 0`. This is the
+     Palette's filter, because the Palette organises photographs onto DAYS.
+   - **Completely unplaced** — no `trip_region_id`, no `trip_stop_id`, and
+     zero day placements. This is a badge, not a filter.
+
+   A stop- or region-assigned photograph with no day is **Not on a day** and
+   is **not** completely unplaced, and the card shows both facts. Neither
+   rule ever reads the compatibility scalar.
+
+   **The review also caught what the landed code had always been missing:**
+   `linkIsUnplaced()` tested stop and day and **forgot `trip_region_id`
+   entirely**, so a photograph filed to a region was reported as unplaced.
+   P0 did not account for that field either.
 6. Caption and Lori approval belong to the trip membership and are shared across placements.
 7. Add is the normal action. Move is explicit and names a source placement. Remove affects
    one occurrence only.
@@ -223,24 +240,71 @@ and the classification, and the map is what gets reviewed.
 
 **Review gate:** map approved. Continue without starting the stack.
 
-### P1 — data/query contract
+### P1 — data/query contract — **LANDED 2026-08-14**
 
-- implement only missing inventory/filter/paging support;
-- centralize placement-aware predicates;
-- add exact counts and safe response fields;
-- preserve existing placement transactions.
+Three changes, no new read endpoint, no schema, no migration:
 
-**Gate:** behavioral repository/API tests at boundary sizes and error cases.
+1. `photo_links_list()` excludes soft-deleted photographs
+   (`AND p.deleted_at IS NULL`, probed so a pre-column database degrades
+   rather than 500s). Latent when found — zero live instances.
+2. The read order is now **total**: `ORDER BY l.taken_at, l.ord, l.id`.
+   `taken_at` ties on every burst and every undated link, `ord` ties on
+   everything never reordered, and a window over a nondeterministically
+   ordered array moves cards between renders.
+3. New `POST /api/trips/{trip_id}/photo-links/visibility` taking
+   `{photo_link_ids, hidden}` — atomic batch Hide/Restore, max 50 rejected
+   at 400 with zero writes, ownership validated for every id inside the
+   write transaction, idempotent, returning `requested` / `updated` /
+   `already_in_state` / `changed`. It names three columns — `hidden`,
+   `hidden_at`, `updated_at` — so it cannot move a placement, edit a
+   caption or flip an approval.
 
-### P2 — Palette UI
+**Gate met:** `tests/test_trip_photo_visibility_batch.py`, 33 tests across
+sizes 0/1/49/50/51, mixed ownership, rollback, idempotence, preserved
+placements, soft-deleted exclusion, total order and 1,000-membership scale.
+Five mutations of the shipped code each killed by their intended test.
 
-- add Timeline | Photo Palette mode;
-- filters, counts, cards, selection and day labels;
-- batch Add/Hide/Restore and contextual Remove/Move;
-- caption/approval separation;
-- bounded thumbnail windows and truthful partial failures.
+**One correction recorded rather than quietly fixed.** A draft test asserted
+that a link whose photos row is missing survives the read. The SQL reasoning
+was right and the scenario is unreachable: `photo_id` carries
+`REFERENCES photos(id) ON DELETE CASCADE`, so there is no orphan to keep.
+The guarantee is the constraint, not the `WHERE` clause.
 
-**Gate:** behavioral UI/source guards plus executable JS safety runner.
+### P2 — Palette UI — **LANDED 2026-08-14**
+
+`Timeline | Photo Palette` is a **mode of the existing trip calendar modal**
+— one backdrop, one selected trip, one selected day; only the right pane
+changes. Five named predicates (`linkHasNoDayPlacement`,
+`linkIsCompletelyUnplaced`, `linkIsOnDay`, `linkIsOnMultipleDays`,
+`linkMatchesPaletteFilter`), and **one** dispatcher drives both the chip
+counts and the cards they label, so they cannot disagree.
+
+Selection is a map keyed by `photo_link_id` held in `st`, never in a render
+closure — `renderAll()` rebuilds every node in this module, so a closure
+selection is emptied by every filter press and every Load more. Ticking a
+box deliberately does **not** repaint, because that rebuilds the input under
+the operator's finger. Select all is labelled **Select all shown**.
+
+One sequential batch runner is shared by Remove and Hide/Restore, carrying
+the contract Add already earned: chunk at 50, stop at the first failure,
+record later batches as unsent without sending them, keep the failed batch
+separate from the unsent, and never let a failed refresh downgrade a known
+write. Only confirmed successes leave the selection.
+
+Stale responses are refused by a **generation identity** rather than
+`AbortController`: `api()` is the single fetch choke point and threading a
+signal would change every call site for a guarantee this achieves at the
+point of use. Aborting saves a download; refusing to apply is what protects
+the screen.
+
+Accessibility is native checkboxes and buttons with accessible names, a
+visible focus ring and one `aria-live="polite"` status region. **No
+`role="grid"`** — that pattern needs roving focus and arrow-key navigation,
+and this grid recycles its window so most rows are not in the DOM.
+
+**Gate met:** `tests/test_trip_photo_palette_ui.py` (40 source-shape guards)
+plus `scripts/ui/run_photo_palette_behaviour.js` (42 executed checks,
+including the 1,000-membership evidence). Five mutations each detected.
 
 ### P3 — consolidated offline verification
 

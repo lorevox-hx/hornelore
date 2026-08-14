@@ -145,6 +145,14 @@ LAZY_THUMB_SCROLLPORT = Surface(
     "everything; executes the real armLazyThumbs against a DOM stand-in",
     False)
 
+PALETTE_BEHAVIOUR = Surface(
+    REPO_ROOT / "scripts" / "ui" / "run_photo_palette_behaviour.js",
+    "WO-TRIP-PHOTO-PALETTE-01 P2 proof that the Palette's predicates, "
+    "batch runner and selection behave -- including the 1,000-membership "
+    "evidence that keeps the one-fetch read honest; executes the real "
+    "shipped functions against an api that fails on demand",
+    False)
+
 #: Every file this project considers part of a Travel Doc surface.
 ALL: List[Surface] = [
     UNIFIED_JS, UNIFIED_CSS, SHELL_JS, SHELL_HTML, SHELL_CSS,
@@ -152,6 +160,7 @@ ALL: List[Surface] = [
     LIVENESS_HARNESS, MOUNT_LIVENESS_HARNESS,
     PHOTO_WINDOW_LIVENESS, PHOTO_WINDOW_ARITHMETIC,
     PHOTO_PLACEMENT_SAFETY, LAZY_THUMB_SCROLLPORT,
+    PALETTE_BEHAVIOUR,
 ]
 
 #: The surfaces an operator can actually reach from the shell.

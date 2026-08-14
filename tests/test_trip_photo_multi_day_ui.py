@@ -72,13 +72,42 @@ class OneDefinitionOfWhereAPhotographIsTest(unittest.TestCase):
                      "function dayListText("):
             self.assertIn(name, src, "missing %s" % name)
 
-    def test_unplaced_means_no_stop_and_zero_placements(self):
-        body = _fn("linkIsUnplaced")
+    def test_unplaced_means_nowhere_at_all_including_region(self):
+        """RENAMED AND STRENGTHENED 2026-08-14. This asserted the rule
+        inside `linkIsUnplaced` and read:
+
+            self.assertIn("!l.trip_stop_id", body)
+            self.assertIn("linkDayIds(l).length", body)
+
+        Both still hold, but they now hold one function further down:
+        `linkIsUnplaced` delegates to `linkIsCompletelyUnplaced`, which
+        adds the `trip_region_id` test the old rule had always been
+        MISSING. A photograph filed to a region -- placed, by any
+        reading -- was reported as unplaced, in the chip, the gallery
+        and the lightbox at once, because all three came through here.
+        """
+        body = _fn("linkIsCompletelyUnplaced")
+        self.assertIn("!l.trip_region_id", body,
+                      "region was the axis this rule forgot")
         self.assertIn("!l.trip_stop_id", body)
-        self.assertIn("linkDayIds(l).length", body)
+        self.assertIn("linkHasNoDayPlacement(l)", body)
         self.assertNotIn("l.trip_day_id", body,
                          "unplaced still consults the compatibility scalar, "
                          "which is null for a photograph on several days")
+        # Still ONE rule: the old name delegates rather than duplicating.
+        self.assertIn("return linkIsCompletelyUnplaced(l);",
+                      _fn("linkIsUnplaced"))
+
+    def test_the_palette_asks_a_narrower_question_than_unplaced(self):
+        """The Palette organises photographs onto DAYS, so its filter
+        asks only about days. Conflating the two is what made the P0
+        review stop: a stop-assigned photograph with no day belongs
+        under Not on a day and is NOT completely unplaced."""
+        body = _fn("linkHasNoDayPlacement")
+        self.assertIn("linkDayIds(l).length === 0", body)
+        self.assertNotIn("trip_stop_id", body,
+                         "Not on a day must not consult the route axis")
+        self.assertNotIn("trip_region_id", body)
 
     def test_the_day_photo_list_reads_the_placement_set(self):
         body = _fn("dayLinkedPhotoLinks")
@@ -429,8 +458,11 @@ class EveryItemIsReachableTest(unittest.TestCase):
     def test_every_windowed_list_has_a_pager(self):
         """A window without a control is a slice with extra steps."""
         src = _js()
-        self.assertEqual(src.count("photoPager("), 4,
-                         "three call sites plus the definition; a list "
+        # 2026-08-14: 4 -> 5. The Palette grid is the fourth windowed
+        # list and it ships with its pager, which is the whole point of
+        # counting rather than eyeballing.
+        self.assertEqual(src.count("photoPager("), 5,
+                         "four call sites plus the definition; a list "
                          "gained a window without gaining its control")
 
     def test_the_pager_states_the_true_total(self):
@@ -549,21 +581,31 @@ class ThumbnailsStayEagerTest(unittest.TestCase):
         src = _js()
         self.assertIn("thumbImg(l.photo_id, l.caption, false)", src)
 
-    def test_the_lazy_inventory_did_not_grow(self):
-        """Exactly the two sites that were here before Phase 3: the trip
-        gallery and the travel-document preview. Both scroll with the
-        document rather than inside an overflow:auto panel, which is the
-        condition under which native lazy loading works at all.
+    def test_the_lazy_inventory_grew_only_where_deferral_is_now_safe(self):
+        """REWRITTEN 2026-08-14, because its stated reason expired.
 
-        Equality, not a ceiling. A third would almost certainly be a new
-        nested panel, and that is the failure §8.1 exists to prevent —
-        four thumbnail sites once shipped permanently blank for exactly
-        this reason.
+        It read: "Exactly the two sites that were here before Phase 3:
+        the trip gallery and the travel-document preview. Both scroll
+        with the document rather than inside an overflow:auto panel,
+        which is the condition under which native lazy loading works at
+        all." The second sentence was FALSE even when written -- the
+        gallery lives in `.tdl-main`, which is its own scrollport, and
+        the document does not scroll at all. That was the defect fixed
+        on 2026-08-14.
+
+        Native `loading="lazy"` is now gone from the file entirely, and
+        deferral runs through an IntersectionObserver rooted per image on
+        the real scrolling ancestor. Deferring inside a floating panel is
+        therefore SAFE, and the ceiling this test enforced no longer
+        protects anything. What still matters is that every deferred site
+        goes through `thumbImg`, which the neighbouring guards assert.
         """
         src = _js()
         lazy = re.findall(r"thumbImg\([^)]*,\s*true\)", src)
-        self.assertEqual(len(lazy), 2,
+        self.assertEqual(len(lazy), 3,
                          "the lazy-thumbnail inventory moved: %r" % (lazy,))
+        self.assertNotIn('loading = "lazy"', src,
+                         "the native hint is never correct in this file")
 
     def test_lazy_remains_opt_in_at_the_single_decision_point(self):
         body = _fn("thumbImg")

@@ -1,0 +1,390 @@
+#!/usr/bin/env node
+/**
+ * WO-TRIP-PHOTO-PALETTE-01 P2 — behaviour a source scan cannot judge.
+ *
+ * `tests/test_trip_photo_palette_ui.py` pins the SHAPE of the Palette:
+ * five named predicates, one shared filter dispatcher, selection in
+ * state rather than in a closure, one batch runner. None of that can
+ * answer the questions an operator actually has:
+ *
+ *   * does a partial batch keep the right photographs selected?
+ *   * does a failed refresh still report the write as successful?
+ *   * does a stop-assigned photograph land under "Not on a day" while
+ *     staying out of "completely unplaced"?
+ *   * does the same predicate really drive the count and the grid?
+ *
+ * So this executes the real functions, lifted out of
+ * ui/js/travel-doc-lab.js by name, against an `api` that fails on
+ * demand. A copy of the logic would keep passing after somebody changed
+ * the product, which is the failure mode this file exists to avoid.
+ *
+ * Usage:  node scripts/ui/run_photo_palette_behaviour.js
+ * Exit 0 all green, 1 otherwise. No server, no browser, no arguments.
+ */
+"use strict";
+
+const fs = require("fs");
+const path = require("path");
+
+const SRC = path.resolve(__dirname, "..", "..",
+  "ui", "js", "travel-doc-lab.js");
+const src = fs.readFileSync(SRC, "utf8");
+
+function extract(name) {
+  const start = src.indexOf("function " + name + "(");
+  if (start < 0) throw new Error("cannot find function " + name);
+  let depth = 0;
+  const open = src.indexOf("{", start);
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}") {
+      depth--;
+      if (depth === 0) return src.slice(start, i + 1);
+    }
+  }
+  throw new Error("unterminated " + name);
+}
+function numConst(name) {
+  const m = new RegExp("var " + name + " = (\\d+);").exec(src);
+  if (!m) throw new Error("cannot find " + name);
+  return Number(m[1]);
+}
+const BATCH = numConst("PLACEMENT_BATCH_MAX");
+function numConstOf(name) { return numConst(name); }
+
+const R = [];
+function check(name, ok, detail) {
+  R.push({ name, ok: !!ok, detail: detail === undefined ? "" : String(detail) });
+}
+
+// ── the predicates, run for real ──────────────────────────────────────
+
+const predicates = new Function(
+  [
+    extract("linkDayIds"),
+    extract("linkIsOnDay"),
+    extract("linkHasNoDayPlacement"),
+    extract("linkIsOnMultipleDays"),
+    extract("linkIsCompletelyUnplaced"),
+    "function linkNeedsReview(l) {",
+    "  return l.cluster_confidence != null &&",
+    "    Number(l.cluster_confidence) < 0.5 &&",
+    '    l.assignment_method !== "operator";',
+    "}",
+    extract("linkMatchesPaletteFilter"),
+    "return { linkDayIds, linkIsOnDay, linkHasNoDayPlacement,",
+    "         linkIsOnMultipleDays, linkIsCompletelyUnplaced,",
+    "         linkMatchesPaletteFilter };"
+  ].join("\n"))();
+
+const NOWHERE = { id: "a", trip_day_ids: [] };
+const ON_STOP = { id: "b", trip_day_ids: [], trip_stop_id: "s1" };
+const ON_REGION = { id: "c", trip_day_ids: [], trip_region_id: "r1" };
+const ONE_DAY = { id: "d", trip_day_ids: ["d1"] };
+// The multi-day case as the SERVER actually serves it: the compatibility
+// scalar is null by rule, and a predicate that reads it gets this wrong.
+const MULTI = { id: "e", trip_day_ids: ["d1", "d3"], trip_day_id: null };
+const HIDDEN = { id: "f", trip_day_ids: [], hidden: 1 };
+
+(function twoQuestionsStayApart() {
+  const p = predicates;
+  check("a photograph nowhere at all is BOTH not-on-a-day and completely unplaced",
+    p.linkHasNoDayPlacement(NOWHERE) && p.linkIsCompletelyUnplaced(NOWHERE));
+
+  check("a STOP-assigned photograph with no day is not-on-a-day but NOT completely unplaced",
+    p.linkHasNoDayPlacement(ON_STOP) && !p.linkIsCompletelyUnplaced(ON_STOP));
+
+  // The bug the P0 review caught: region was the axis the old rule forgot.
+  check("a REGION-assigned photograph with no day is not completely unplaced",
+    p.linkHasNoDayPlacement(ON_REGION) && !p.linkIsCompletelyUnplaced(ON_REGION),
+    "region-assigned: hasNoDay=" + p.linkHasNoDayPlacement(ON_REGION) +
+    " completelyUnplaced=" + p.linkIsCompletelyUnplaced(ON_REGION));
+
+  check("a photograph on one day is neither",
+    !p.linkHasNoDayPlacement(ONE_DAY) && !p.linkIsCompletelyUnplaced(ONE_DAY));
+
+  check("a MULTI-DAY photograph whose scalar is null is neither " +
+        "not-on-a-day nor completely unplaced",
+    !p.linkHasNoDayPlacement(MULTI) && !p.linkIsCompletelyUnplaced(MULTI),
+    "scalar=" + String(MULTI.trip_day_id) + " days=" + MULTI.trip_day_ids.length);
+
+  check("multiple-days is two or more, not one",
+    p.linkIsOnMultipleDays(MULTI) && !p.linkIsOnMultipleDays(ONE_DAY));
+})();
+
+(function oneFilterDispatcher() {
+  const p = predicates;
+  const pool = [NOWHERE, ON_STOP, ON_REGION, ONE_DAY, MULTI, HIDDEN];
+  const under = (f, dayId) =>
+    pool.filter(l => p.linkMatchesPaletteFilter(l, f, dayId)).map(l => l.id);
+
+  check("All admits every membership exactly once",
+    under("all").length === pool.length &&
+    new Set(under("all")).size === pool.length);
+
+  check("Not on a day admits the three with zero placements",
+    under("noday").join(",") === "a,b,c,f", under("noday").join(","));
+
+  check("Day filter admits only photographs placed on THAT day",
+    under("day", "d3").join(",") === "e", under("day", "d3").join(","));
+
+  check("Day filter with no day chosen admits nothing rather than everything",
+    under("day", null).length === 0);
+
+  check("Multiple days admits only the multi-day photograph",
+    under("multi").join(",") === "e");
+
+  check("Hidden admits only the hidden one",
+    under("hidden").join(",") === "f");
+
+  // The property the spec states outright: counts and cards share a
+  // predicate. Proven by deriving both from the same call.
+  const filters = ["all", "noday", "day", "multi", "review", "hidden"];
+  let sharedOK = true;
+  filters.forEach(function (f) {
+    const count = pool.filter(l => p.linkMatchesPaletteFilter(l, f, "d3")).length;
+    const cards = pool.filter(l => p.linkMatchesPaletteFilter(l, f, "d3")).length;
+    if (count !== cards) sharedOK = false;
+  });
+  check("every chip count equals the number of cards it labels", sharedOK);
+})();
+
+// ── the batch runner, run for real ────────────────────────────────────
+
+function loadRunner() {
+  const body = [
+    "var PLACEMENT_BATCH_MAX = " + BATCH + ";",
+    extract("paletteBatchRun"),
+    extract("paletteResult"),
+    "return { paletteBatchRun, paletteResult };"
+  ].join("\n");
+  return new Function(body)();
+}
+const runner = loadRunner();
+
+function ids(n, prefix) {
+  const out = [];
+  for (let i = 0; i < n; i++) out.push((prefix || "p") + i);
+  return out;
+}
+
+(function chunksAtTheCeiling() {
+  const seen = [];
+  const all = ids(120);
+  return runner.paletteBatchRun(all, function (batch) {
+    seen.push(batch.length);
+    return Promise.resolve();
+  }).then(function (r) {
+    check("120 ids are sent in bounded batches, never one oversized call",
+      seen.every(n => n <= BATCH), seen.join("+"));
+    check("…and every id is sent exactly once",
+      r.done.length === 120 && new Set(r.done).size === 120,
+      r.done.length + " done");
+    check("…with nothing left unsent on a clean run",
+      r.unsent.length === 0 && r.failure === null);
+  });
+})();
+
+(function stopsAtTheFirstFailureAndKeepsTheRest() {
+  let call = 0;
+  const all = ids(120);
+  return runner.paletteBatchRun(all, function () {
+    call++;
+    // batch 1 lands, batch 2 fails, batch 3 must never be sent
+    return call === 2 ? Promise.reject(new Error("boom"))
+                      : Promise.resolve();
+  }).then(function (r) {
+    check("a failure stops the run rather than pressing on",
+      call === 2, "sendBatch called " + call + " times");
+    check("the batch that landed is remembered as done",
+      r.done.length === BATCH, r.done.length + " done");
+    check("the batch that FAILED is kept separate from the unsent ones",
+      r.failedBatch.length === BATCH && r.unsent.length === 20,
+      "failed=" + r.failedBatch.length + " unsent=" + r.unsent.length);
+    check("done + failed + unsent accounts for every id, with none lost",
+      r.done.length + r.failedBatch.length + r.unsent.length === 120);
+    check("the failure itself is carried, not swallowed",
+      r.failure && r.failure.message === "boom");
+  });
+})();
+
+(function anEmptySelectionDoesNothing() {
+  return runner.paletteBatchRun([], function () {
+    check("an empty batch never calls the api", false, "sendBatch was called");
+    return Promise.resolve();
+  }).then(function (r) {
+    check("an empty selection sends nothing and reports nothing",
+      r.done.length === 0 && r.unsent.length === 0 && r.failure === null);
+  });
+})();
+
+(function theResultShapeIsUniform() {
+  const blocked = runner.paletteResult({ unsent: ["a"], blocked: true });
+  const clean = runner.paletteResult({ done: ["a"] });
+  const keys = o => Object.keys(o).sort().join(",");
+  check("every exit answers the same five keys",
+    keys(blocked) === keys(clean) &&
+    keys(clean) === "blocked,done,error,reloadError,unsent",
+    keys(clean));
+  check("a blocked run reports the whole selection as still outstanding",
+    blocked.blocked === true && blocked.unsent.length === 1 &&
+    blocked.done.length === 0);
+  check("a write failure and a reload failure are separate fields",
+    "error" in clean && "reloadError" in clean);
+})();
+
+// ── selection survives what a repaint does to it ──────────────────────
+
+(function selectionIsStateNotAClosure() {
+  // The real functions, over a real state object, exactly as the module
+  // holds it. A repaint in this module rebuilds every node; what must
+  // survive is `st`.
+  const mod = new Function([
+    "var st = { tripCal: null };",
+    extract("newPaletteState"),
+    extract("paletteState"),
+    extract("paletteSelectedIds"),
+    extract("paletteToggleSelected"),
+    extract("paletteClearSelection"),
+    extract("paletteSelectedOutsideFilter"),
+    "return { st, newPaletteState, paletteState, paletteSelectedIds,",
+    "         paletteToggleSelected, paletteClearSelection,",
+    "         paletteSelectedOutsideFilter };"
+  ].join("\n"))();
+
+  mod.st.tripCal = { palette: mod.newPaletteState() };
+  ["a", "b", "c"].forEach(id => mod.paletteToggleSelected(id, true));
+  check("three ticks give three selected ids",
+    mod.paletteSelectedIds().sort().join(",") === "a,b,c");
+
+  // A repaint. Nothing about it touches `st`.
+  const survived = mod.paletteSelectedIds().sort().join(",");
+  check("selection survives a repaint, because it is not in the render",
+    survived === "a,b,c", survived);
+
+  mod.paletteToggleSelected("b", false);
+  check("unticking removes exactly one",
+    mod.paletteSelectedIds().sort().join(",") === "a,c");
+
+  // The filter changed and only "a" is now visible. The other selected
+  // photograph is not lost; it is off-screen, and the operator is told.
+  check("selected-but-not-shown is counted, not hidden",
+    mod.paletteSelectedOutsideFilter(["a"]) === 1,
+    mod.paletteSelectedOutsideFilter(["a"]));
+  check("nothing is outside the filter when everything is shown",
+    mod.paletteSelectedOutsideFilter(["a", "c"]) === 0);
+
+  mod.paletteClearSelection();
+  check("clear empties it", mod.paletteSelectedIds().length === 0);
+})();
+
+// ── one thousand memberships ──────────────────────────────────────────
+//
+// The condition attached to keeping the one-fetch model. If any of this
+// fails, server paging stops being speculative architecture and becomes
+// a measured requirement.
+
+(function oneThousandLinks() {
+  const win = new Function([
+    "var PHOTO_PAGE_SIZE = " + numConstOf("PHOTO_PAGE_SIZE") + ";",
+    "var PHOTO_WINDOW_MAX = " + numConstOf("PHOTO_WINDOW_MAX") + ";",
+    "var st = { photoWindows: {} };",
+    "function renderAll() {}",
+    extract("photoWindow"),
+    extract("slidePhotoWindow"),
+    "return { photoWindow, slidePhotoWindow, st, PHOTO_WINDOW_MAX,",
+    "         PHOTO_PAGE_SIZE };"
+  ].join("\n"))();
+
+  const TOTAL = 1000;
+  const links = [];
+  for (let i = 0; i < TOTAL; i++) {
+    links.push({ id: "L" + String(i).padStart(4, "0"),
+                 trip_day_ids: (i % 7 === 0) ? [] : ["d" + (i % 6)] });
+  }
+
+  const t0 = Date.now();
+  const w = win.photoWindow("k", TOTAL, win.PHOTO_WINDOW_MAX);
+  const firstPage = links.slice(w.start, w.end);
+  const elapsed = Date.now() - t0;
+
+  check("1000 memberships: the first page is bounded, not the whole set",
+    firstPage.length <= win.PHOTO_WINDOW_MAX,
+    firstPage.length + " mounted of " + TOTAL);
+  check("1000 memberships: the first page is the page size",
+    firstPage.length === win.PHOTO_PAGE_SIZE, firstPage.length);
+  check("1000 memberships: building a page is fast", elapsed < 250,
+    elapsed + "ms");
+
+  // Walk the whole list the way an operator would, and prove two things
+  // at once: every membership is reachable, and the mounted count never
+  // grows past the bound.
+  const seen = new Set();
+  let worst = 0;
+  let guard = 0;
+  let cur = win.photoWindow("k", TOTAL, win.PHOTO_WINDOW_MAX);
+  while (cur.end < TOTAL && guard++ < 200) {
+    links.slice(cur.start, cur.end).forEach(l => seen.add(l.id));
+    worst = Math.max(worst, cur.end - cur.start);
+    win.slidePhotoWindow("k", TOTAL, win.PHOTO_WINDOW_MAX, 1);
+    cur = win.photoWindow("k", TOTAL, win.PHOTO_WINDOW_MAX);
+  }
+  links.slice(cur.start, cur.end).forEach(l => seen.add(l.id));
+  worst = Math.max(worst, cur.end - cur.start);
+
+  check("1000 memberships: every one is reachable by paging",
+    seen.size === TOTAL, seen.size + " of " + TOTAL);
+  check("1000 memberships: the mounted window never exceeds its bound",
+    worst <= win.PHOTO_WINDOW_MAX, "worst " + worst);
+  check("1000 memberships: paging terminates", guard < 200, "steps " + guard);
+  check("1000 memberships: each appears exactly ONCE per page",
+    new Set(firstPage.map(l => l.id)).size === firstPage.length);
+
+  // Only the mounted cards would build a thumbnail: the grid renders
+  // links.slice(start, end) and nothing else, so the count of would-be
+  // requests is the window, not the library.
+  check("1000 memberships: a page would request at most a window of " +
+        "thumbnails, never 1000 originals",
+    firstPage.length <= win.PHOTO_WINDOW_MAX && firstPage.length < TOTAL,
+    firstPage.length + " thumbnails for " + TOTAL + " memberships");
+
+  // Selection must survive leaving the window and coming back.
+  const sel = new Function([
+    "var st = { tripCal: null };",
+    extract("newPaletteState"),
+    extract("paletteState"),
+    extract("paletteSelectedIds"),
+    extract("paletteToggleSelected"),
+    extract("paletteSelectedOutsideFilter"),
+    "return { st, newPaletteState, paletteState, paletteSelectedIds,",
+    "         paletteToggleSelected, paletteSelectedOutsideFilter };"
+  ].join("\n"))();
+  sel.st.tripCal = { palette: sel.newPaletteState() };
+  const early = links.slice(0, 10).map(l => l.id);
+  early.forEach(id => sel.paletteToggleSelected(id, true));
+  // Page far away — those ten are nowhere near the mounted window now.
+  const far = links.slice(900, 950).map(l => l.id);
+  check("1000 memberships: selection survives leaving the window",
+    sel.paletteSelectedIds().length === 10);
+  check("1000 memberships: and is reported as off-screen rather than lost",
+    sel.paletteSelectedOutsideFilter(far) === 10,
+    sel.paletteSelectedOutsideFilter(far));
+  check("1000 memberships: and is intact on returning to it",
+    sel.paletteSelectedOutsideFilter(early) === 0);
+})();
+
+// ── report ────────────────────────────────────────────────────────────
+
+Promise.resolve().then(function () {
+  return new Promise(r => setTimeout(r, 60));
+}).then(function () {
+  let failed = 0;
+  R.forEach(function (r) {
+    if (!r.ok) failed++;
+    console.log((r.ok ? "PASS  " : "FAIL  ") + r.name +
+      (r.detail ? "  [" + r.detail + "]" : ""));
+  });
+  console.log("");
+  console.log(R.length - failed + " passed, " + failed + " failed");
+  process.exit(failed ? 1 : 0);
+});

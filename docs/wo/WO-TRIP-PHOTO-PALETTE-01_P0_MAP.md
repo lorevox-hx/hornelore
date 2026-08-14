@@ -97,7 +97,7 @@ travel-document photo cells (`:9099`).
 |---|---|---|
 | `linkDayIds(l)` | 5915 | the single definition of "which days"; prefers `trip_day_ids[]` |
 | `linkIsOnDay(l, dayId)` | 5920 | ready for the **Day N** filter |
-| `linkIsUnplaced(l)` | 5924 | zero-placement semantics — **but see §6** |
+| `linkIsUnplaced(l)` | 5924 | zero-placement semantics — **but see §6; it also FORGOT `trip_region_id`, which this row failed to notice** |
 | `linkNeedsReview(l)` | 5895 | `< 0.50` and not operator-assigned |
 | `linkSharedWithLori(l)` | 5944 | OR of the four approval flags |
 | `photoWindow` / `slidePhotoWindow` / `photoPager` | 4376 / 4400 / 4414 | page 50, step 50, mounted bound 200 |
@@ -303,6 +303,24 @@ stop-assigned photograph genuinely is placed — just not on a day. **But this i
 call, and P2 should not start until it is made**, since it decides what the Unplaced filter
 shows on the first screen of the feature.
 
+### RULED 2026-08-14 — and the answer was better than either option
+
+Neither. The question was wrong: it asked which of two definitions to keep, when the right
+move is to stop making one word answer two questions.
+
+- **Not on a day** — `linkDayIds(link).length === 0`. The Palette's filter.
+- **Completely unplaced** — no region, no stop, no day. A badge.
+
+A stop- or region-assigned photograph with zero days is the first and not the second, and
+its card shows both facts.
+
+**And the review caught something P0 missed.** `linkIsUnplaced()` tested stop and day and
+**forgot `trip_region_id` entirely** — so a photograph filed to a region was reported as
+unplaced, in the chip, the gallery and the lightbox at once. §2.2 above lists that helper
+as reusable with only a semantic question against it; the helper was also simply wrong, and
+this map did not say so. Fixed in P2: the rule moved to `linkIsCompletelyUnplaced` with the
+region test added, and `linkIsUnplaced` delegates to it so there is still exactly one rule.
+
 ---
 
 ## 7. One consolidated regression command
@@ -310,21 +328,26 @@ shows on the first screen of the feature.
 Per-module, never whole-tree discovery. Verified green in the sandbox at **498 tests in
 63 seconds**:
 
+**EXTENDED 2026-08-14 for P1+P2** — two modules added, not replaced. Verified green at
+**572 tests in 83 seconds**:
+
 ```bash
 cd /mnt/c/Users/chris/hornelore
 PYTHONPATH=server/code .venv/bin/python -m unittest \
   tests.test_trip_photo_day_placements tests.test_trip_photo_day_placements_full_chain \
   tests.test_trip_photo_placement_api tests.test_trip_photo_placement_projection \
   tests.test_trip_photo_placement_suite_isolation tests.test_trip_photo_multi_day_ui \
+  tests.test_trip_photo_visibility_batch tests.test_trip_photo_palette_ui \
   tests.test_narrator_photo_links_safe tests.test_travel_doc_doctrine \
   tests.test_travel_doc_lab tests.travel_doc_surfaces tests.test_travel_doc_surface_gates \
   tests.test_travel_doc_evidence_ui tests.test_trip_days_reconcile
 ```
 
-Plus the two executable harnesses, which need no server and no browser:
+Plus the four executable harnesses, which need no server and no browser:
 
 ```bash
 cd /mnt/c/Users/chris/hornelore
+node scripts/ui/run_photo_palette_behaviour.js
 node scripts/ui/run_photo_window_arithmetic.js
 node scripts/ui/run_lazy_thumb_scrollport.js
 node scripts/ui/run_photo_placement_safety.js
