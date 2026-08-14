@@ -103,9 +103,22 @@ function makeSandbox(opts) {
   function renderAll() { renders.n++; }
   function dayChipText(d) { return "Day " + d.n; }
 
+  // P4 correction, 2026-08-14: the four placement operations no longer
+  // call reloadDays/reloadPhotoLinks directly — they go through
+  // reloadPalettePhotoPools, which also refreshes the Palette's own
+  // hidden pool. The REAL helper is lifted in here rather than stubbed,
+  // so this harness keeps measuring shipped code; only the Palette state
+  // it reads is doubled. `paletteState()` returns null, which is the
+  // "no modal open" case — the helper then does no hidden fetch and this
+  // harness's day/link reload counts stay exactly what they were.
+  function paletteState() { return null; }
+  function paletteLoadHidden() { return Promise.resolve(); }
+
   const build = new Function(
     "PLACEMENT_BATCH_MAX", "st", "api", "dayFormDirtyBlocks",
     "reloadDays", "reloadPhotoLinks", "renderAll", "dayChipText",
+    "paletteState", "paletteLoadHidden",
+    extract("reloadPalettePhotoPools") + "\n" +
     extract("addPhotosToDay") + "\n" +
     extract("unlinkDayPhoto") + "\n" +
     extract("openPlacementMove") + "\n" +
@@ -117,7 +130,8 @@ function makeSandbox(opts) {
   );
   return {
     fns: build(BATCH, st, api, dayFormDirtyBlocks, reloadDays,
-               reloadPhotoLinks, renderAll, dayChipText),
+               reloadPhotoLinks, renderAll, dayChipText,
+               paletteState, paletteLoadHidden),
     calls, reloads, renders, st, flashed,
     setDirty: function (v) { dirty = v; },
   };

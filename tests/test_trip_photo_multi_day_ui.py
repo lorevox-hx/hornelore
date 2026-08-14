@@ -295,7 +295,20 @@ class BatchingRespectsTheServerLimitTest(unittest.TestCase):
         self.assertIn("unsent = unsent.concat(batch)", body)
         # The reload is chained off the completed run, not off a
         # success. `.then(` after the chain rather than inside it.
-        self.assertIn("reloadDays(), reloadPhotoLinks()", body)
+        #
+        # RETIRED 2026-08-14 (P4 correction): this read
+        # `assertIn("reloadDays(), reloadPhotoLinks()", body)`. Those two
+        # calls moved behind `reloadPalettePhotoPools`, which refreshes
+        # the same two pools plus the Palette's own hidden pool — the
+        # defect this correction closes. What the assertion was really
+        # protecting is that the reload hangs off `chain`, i.e. it runs
+        # whether the run succeeded or failed, so the photographs that
+        # landed are on screen either way. That is what is pinned now.
+        self.assertIn("return chain", body)
+        i = body.index("return chain")
+        self.assertIn("reloadPalettePhotoPools(addGuard, { days: true })",
+                      body[i:],
+                      "the reload no longer hangs off the completed run")
         # The tally reaches the operator.
         self.assertIn('"Added " + added.length + " of " + total', body)
         # And the caller is told what landed, so it can retain exactly

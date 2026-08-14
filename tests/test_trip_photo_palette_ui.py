@@ -367,10 +367,28 @@ class GuardedReloadTest(unittest.TestCase):
         self.assertIn("destroyed", body)
 
     def test_the_batch_reloads_carry_the_guard(self):
-        for name in ("removePhotosFromDay", "setPhotoLinksHidden"):
-            body = _fn(name)
-            self.assertIn("reloadPhotoLinks(guard)", body,
-                          "%s reloads unguarded" % name)
+        """The guard must reach the reload, whatever the reload is called.
+
+        RETIRED 2026-08-14 (P4 correction): this asserted the literal
+        `reloadPhotoLinks(guard)` in BOTH functions. That stopped being
+        the spelling when the four operations that can change a hidden
+        card's display were routed through `reloadPalettePhotoPools`,
+        which takes the guard and forwards it. The property under test
+        never changed -- a reload must not assign across a trip change --
+        so the assertion is narrowed rather than dropped, and the
+        forwarding is pinned so the guard cannot be quietly lost inside
+        the new helper.
+        """
+        self.assertIn("reloadPalettePhotoPools(guard,", _fn("removePhotosFromDay"),
+                      "removePhotosFromDay reloads unguarded")
+        # Hide/Restore keeps the direct call, deliberately: it must load
+        # the hidden pool even the first time. See setPhotoLinksHidden.
+        self.assertIn("reloadPhotoLinks(guard)", _fn("setPhotoLinksHidden"),
+                      "setPhotoLinksHidden reloads unguarded")
+        # And the helper hands the guard on rather than dropping it.
+        helper = _fn("reloadPalettePhotoPools")
+        self.assertIn("reloadPhotoLinks(guard)", helper)
+        self.assertIn("reloadDays(guard)", helper)
 
 
 class ObsoleteCommentTest(unittest.TestCase):

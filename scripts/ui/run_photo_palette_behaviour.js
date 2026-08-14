@@ -1004,6 +1004,189 @@ function ids(n, prefix) {
     sel.paletteSelectedOutsideFilter(early) === 0);
 })();
 
+// ── P4 correction: the Hidden pool refreshes with every other pool ────
+//
+// The reported defect: Add, Remove, Move and a caption save refreshed the
+// VISIBLE pool only, so a hidden card kept displaying a day it was no
+// longer on and a caption it no longer had. Reproduced live against
+// SQLite before the fix.
+//
+// Two halves, and they are different kinds of evidence:
+//   * BEHAVIOURAL — the real reloadPalettePhotoPools and the real
+//     paletteLoadHidden run against a fake api, and the hidden pool is
+//     checked for the NEW server values afterwards;
+//   * WIRING — each of the five operations is checked to delegate to the
+//     helper, which is what a mutation removing the refresh would break.
+
+function loadPools(apiImpl, seed) {
+  const state = {
+    st: { trip: { id: "T" }, tripCal: { palette: null }, showHiddenPhotos: false },
+    daysCalls: 0, linkCalls: 0, renders: 0
+  };
+  const body = [
+    "var __s = arguments[0]; var api = arguments[1];",
+    "var st = __s.st;",
+    "var paletteGeneration = 0;",
+    "function renderAll(){ __s.renders++; }",
+    "function sameTrip(t){ return !!st.trip && st.trip.id === t; }",
+    "function paletteGenerationIsCurrent(g){",
+    "  return g === paletteGeneration && !!st.tripCal; }",
+    "function paletteState(){",
+    "  if (!st.tripCal) return null;",
+    "  if (!st.tripCal.palette) st.tripCal.palette = " +
+      "{ filter:'all', selected:{}, status:'', hidden:[], " +
+      "hiddenLoaded:false, hiddenError:'' };",
+    "  return st.tripCal.palette; }",
+    "function reloadPhotoLinks(){ __s.linkCalls++; return Promise.resolve(); }",
+    "function reloadDays(){ __s.daysCalls++; return Promise.resolve(); }",
+    extract("paletteLoadHidden"),
+    extract("reloadPalettePhotoPools"),
+    "return { reloadPalettePhotoPools: reloadPalettePhotoPools," +
+    "         paletteState: paletteState, st: st };"
+  ].join("\n");
+  const mod = new Function(body)(state, apiImpl);
+  const p = mod.paletteState();
+  Object.assign(p, seed || {});
+  return { mod, state, p };
+}
+
+// The server's answer AFTER the operation: the hidden photograph has
+// lost its day and gained a caption. If the pool is not refetched, the
+// card keeps the old ones.
+const HIDDEN_AFTER = {
+  photo_links: [
+    { id: "h1", hidden: 1, trip_day_ids: [], caption: "new caption" }
+  ]
+};
+const HIDDEN_BEFORE = {
+  id: "h1", hidden: 1, trip_day_ids: ["d2"], caption: ""
+};
+
+(function hiddenPoolIsRefetchedWhenItIsLoaded() {
+  let asked = 0;
+  const { mod, state, p } = loadPools(function (url) {
+    if (/include_hidden=1/.test(url)) { asked++; return Promise.resolve(HIDDEN_AFTER); }
+    return Promise.resolve({});
+  }, { hidden: [HIDDEN_BEFORE], hiddenLoaded: true });
+
+  return mod.reloadPalettePhotoPools({ tripId: "T" }, { days: true })
+    .then(function (r) {
+      const card = mod.paletteState().hidden[0];
+      check("a loaded Hidden pool is refetched with the visible pool",
+        asked === 1, "include_hidden requests: " + asked);
+      check("…so a hidden card stops showing a day it is no longer on",
+        card.trip_day_ids.length === 0, JSON.stringify(card.trip_day_ids));
+      check("…and shows the caption that was just saved to it",
+        card.caption === "new caption", card.caption);
+      check("…and days are refreshed when placements moved",
+        state.daysCalls === 1, state.daysCalls);
+      check("…and nothing is reported stale on a clean refresh",
+        r.hiddenStale === false && r.hiddenError === "");
+    });
+})();
+
+(function captionSaveDoesNotRefetchEveryDayCard() {
+  const { mod, state } = loadPools(function () { return Promise.resolve(HIDDEN_AFTER); },
+    { hidden: [HIDDEN_BEFORE], hiddenLoaded: true });
+  return mod.reloadPalettePhotoPools(null, { days: false }).then(function () {
+    check("a caption save refreshes the pools but NOT the day cards",
+      state.daysCalls === 0 && state.linkCalls === 1,
+      "days=" + state.daysCalls + " links=" + state.linkCalls);
+  });
+})();
+
+(function anUnopenedHiddenPoolCostsNothing() {
+  let asked = 0;
+  const { mod } = loadPools(function (url) {
+    if (/include_hidden=1/.test(url)) asked++;
+    return Promise.resolve(HIDDEN_AFTER);
+  }, { hidden: [], hiddenLoaded: false, filter: "all" });
+  return mod.reloadPalettePhotoPools(null, { days: true }).then(function () {
+    check("a Hidden pool that was never opened is not fetched",
+      asked === 0, "include_hidden requests: " + asked);
+  });
+})();
+
+(function showingHiddenForcesTheFetchEvenBeforeFirstLoad() {
+  let asked = 0;
+  const { mod } = loadPools(function (url) {
+    if (/include_hidden=1/.test(url)) { asked++; return Promise.resolve(HIDDEN_AFTER); }
+    return Promise.resolve({});
+  }, { hidden: [], hiddenLoaded: false, filter: "hidden" });
+  return mod.reloadPalettePhotoPools(null, { days: true }).then(function () {
+    check("but a Palette SHOWING Hidden is refreshed regardless",
+      asked === 1, "include_hidden requests: " + asked);
+  });
+})();
+
+(function aFailedHiddenRefreshIsReportedWithoutFailingTheWrite() {
+  const { mod } = loadPools(function (url) {
+    if (/include_hidden=1/.test(url)) return Promise.reject(new Error("hidden boom"));
+    return Promise.resolve({});
+  }, { hidden: [HIDDEN_BEFORE], hiddenLoaded: true });
+  let rejected = false;
+  return mod.reloadPalettePhotoPools(null, { days: true })
+    .catch(function () { rejected = true; return null; })
+    .then(function (r) {
+      check("a Hidden-pool failure does NOT reject — the write stands",
+        rejected === false);
+      check("…and is reported as stale display, separately",
+        !!r && r.hiddenStale === true && /hidden boom/.test(r.hiddenError),
+        r && r.hiddenError);
+      check("…and the Hidden grid gets an error, never an honest-looking zero",
+        /hidden boom/.test(mod.paletteState().hiddenError));
+    });
+})();
+
+(function aPrimaryFailureStillRejects() {
+  const { mod } = loadPools(function () { return Promise.resolve({}); },
+    { hidden: [], hiddenLoaded: true });
+  // Break the primary pool by making reloadPhotoLinks throw through api.
+  const broken = loadPools(function () { return Promise.resolve({}); }, {});
+  // Direct check: the helper's first job is the visible pool, and a
+  // rejection there must propagate so the caller reports a stale screen.
+  const srcFn = extract("reloadPalettePhotoPools");
+  check("the visible pool is the first job, so its failure propagates",
+    /jobs\s*=\s*\[reloadPhotoLinks\(guard\)\]/.test(srcFn));
+  check("…and the hidden fetch is deliberately not in that Promise.all",
+    !/Promise\.all\(\[[^\]]*paletteLoadHidden/.test(srcFn));
+})();
+
+(function everyOperationThatCanChangeAHiddenCardDelegatesToTheHelper() {
+  // WIRING half. A mutation that drops the refresh from any one of these
+  // — reverting it to Promise.all([reloadDays(), reloadPhotoLinks()]) —
+  // fails exactly the line named for it.
+  const ops = [
+    ["addPhotosToDay", "Add"],
+    ["removePhotosFromDay", "Remove"],
+    ["movePlacement", "Move"],
+    ["unlinkDayPhoto", "Remove from the timeline row"],
+    ["timelineOwnerReload", "caption save"]
+  ];
+  ops.forEach(function (pair) {
+    const body = extract(pair[0]);
+    check(pair[1] + " refreshes every Palette pool, not just the visible one",
+      /reloadPalettePhotoPools\(/.test(body), pair[0]);
+    check(pair[1] + " no longer refreshes the visible pool alone",
+      !/Promise\.all\(\[reloadDays\(\),\s*reloadPhotoLinks\(\)\]\)/.test(body) &&
+      !/Promise\.all\(\[reloadPhotoLinks\(guard\),\s*reloadDays/.test(body),
+      pair[0]);
+  });
+  // Hide/Restore is the one caller that must NOT use the helper: it has
+  // to load the pool even the first time, so the Hidden chip can turn
+  // from "(?)" into a real count. Pinned so a later tidy-up cannot
+  // "unify" it and quietly break that.
+  // Comment lines stripped first. The paragraph inside this function
+  // explaining why it must NOT use the helper names the helper, so a raw
+  // scan fires on the explanation — the fourth time that has happened in
+  // this file's history, and the reason the rule is written here again.
+  const hideBody = extract("setPhotoLinksHidden")
+    .split("\n").filter(l => !/^\s*\/\//.test(l)).join("\n");
+  check("Hide/Restore still loads the Hidden pool unconditionally",
+    /paletteLoadHidden\(\)/.test(hideBody) &&
+    !/reloadPalettePhotoPools/.test(hideBody));
+})();
+
 // ── report ────────────────────────────────────────────────────────────
 
 Promise.resolve().then(function () {

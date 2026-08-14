@@ -3602,8 +3602,15 @@ class TimelineInlineEditingTest(unittest.TestCase):
         # Otherwise the day card still shows the old words after the
         # timeline closes, and two surfaces disagree about one record.
         fn = self._fn("function timelineOwnerReload(")
-        for r in ("reloadPhotoLinks()", "reloadNotes()", "reloadSources()",
-                  "reloadDays()"):
+        # RETIRED 2026-08-14 (P4 correction): the photo arm asserted
+        # `reloadPhotoLinks()`. A caption belongs to the LINK and shows on
+        # every card that link appears as -- hidden ones included, and the
+        # Palette is the surface that offers Edit caption on a hidden card
+        # -- so refreshing the visible pool alone left the hidden card
+        # reading "No caption" after a save that had landed. The photo arm
+        # now goes through the pool helper. Same property, wider reach.
+        self.assertIn("reloadPalettePhotoPools(", fn, "photo owner reload")
+        for r in ("reloadNotes()", "reloadSources()", "reloadDays()"):
             self.assertIn(r, fn, r)
         self.assertIn("timelineOwnerReload(ed.kind)",
                       self._fn("function saveTimelineEdit("))
