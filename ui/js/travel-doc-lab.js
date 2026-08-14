@@ -1519,9 +1519,22 @@
             st.hiddenPhotoLinks = (out.photo_links || []).filter(
               function (l) { return !!l.hidden; });
           })
-          .catch(function () { st.hiddenPhotoLinks = []; });
+          .catch(function () {
+            // GUARDED. A rejection belonging to a trip the operator has
+            // left would otherwise ERASE the current trip's hidden pool.
+            // The success path was guarded and the failure path was not,
+            // which is the more damaging half of the pair.
+            if (!reloadGuardIsCurrent(guard, tripId)) return;
+            st.hiddenPhotoLinks = [];
+          });
       })
-      .then(invalidateMemoirPreview);
+      .then(function () {
+        // A stale response does no downstream work either. Invalidating
+        // the memoir cache is cheap, but doing it for a trip nobody is
+        // looking at presents stale work as a current reload.
+        if (!reloadGuardIsCurrent(guard, tripId)) return;
+        return invalidateMemoirPreview();
+      });
   }
 
   // The ONLY place hidden links join the visible ones: the Photos review
@@ -11531,6 +11544,27 @@
     pane.appendChild(bar);
     paletteRefreshBar(bar, visibleIds, visibleDayId, day);
 
+    // THE CAPTION EDITOR, RENDERED HERE.
+    //
+    // [The previous correction created the editor state and never drew
+    // it. renderTripCalendarModal returns immediately after the Palette
+    // pane, and renderTimelineEditor is only reached in the TIMELINE
+    // branch -- so pressing Edit caption built cal.edit, repainted, and
+    // showed the operator nothing at all. The tests proved the opener
+    // existed and that the shared body is caption-only; not one of them
+    // proved a form appeared. That is the same gap three times now: a
+    // helper asserted into existence and never asked to do its job.
+    //
+    // Drawn in the PALETTE rather than by switching to Timeline, because
+    // a Not-on-a-day or hidden photograph has no timeline row on the
+    // selected day to switch to -- and those are exactly the cards whose
+    // captions the operator most needs to reach.]
+    if (cal.edit && cal.edit.kind === "photo" && cal.edit.fromPalette) {
+      var edWrap = el("div", "tdl-palette-editor");
+      edWrap.appendChild(renderTimelineEditor(cal.edit));
+      pane.appendChild(edWrap);
+    }
+
     // The one place the Palette speaks to a screen reader. Polite, so it
     // waits for a pause rather than interrupting; assertive would talk
     // over the operator mid-sentence for a routine count.
@@ -11567,8 +11601,19 @@
     // about a different trip or a different filter. The write already
     // happened against the trip it named; what this refuses is the
     // REPORT and the repaint, which are the parts that would lie.
-    if (gen !== undefined && !paletteGenerationIsCurrent(gen)) return;
+    // SCOPE MATTERS, and the previous version collapsed two different
+    // situations into one refusal.
+    //
+    //   TRIP CHANGED, or the modal closed -- suppress everything. The
+    //   selection it would reconcile belongs to a Palette that is gone.
+    //
+    //   SAME trip and modal, generation moved (a filter or mode change)
+    //   -- the selection IS STILL THERE, still the operator's, and still
+    //   holds the ids just removed. Suppressing here left completed work
+    //   ticked, so pressing the button again re-sent photographs already
+    //   taken off the day and called them newly removed.
     if (tripId !== undefined && !sameTrip(tripId)) return;
+    if (!st.tripCal) return;
     var p = paletteState();
     if (!p) return;
     // Only CONFIRMED successes leave the selection. A failed batch and

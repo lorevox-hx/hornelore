@@ -643,6 +643,272 @@ function ids(n, prefix) {
     /save or discard the day/.test(P().status), P().status);
 })();
 
+// ── the caption editor must actually APPEAR ───────────────────────────
+//
+// A source assertion that openCaptionEditorForLink exists is exactly
+// what let the previous version ship an editor nobody could see. This
+// renders the real Palette pane against a DOM stand-in and looks for a
+// mounted field.
+
+(function theCaptionEditorIsMountedInPaletteMode() {
+  // The smallest DOM the pane touches. el()/btn() are lifted from the
+  // module, so the pane runs unmodified.
+  function makeDoc() {
+    function mk(tag) {
+      return {
+        tagName: String(tag).toUpperCase(), className: "", textContent: "",
+        type: "", disabled: false, checked: false, value: "", title: "",
+        children: [], attrs: {}, style: {},
+        appendChild(c) { this.children.push(c); return c; },
+        setAttribute(k, v) { this.attrs[k] = String(v); },
+        getAttribute(k) { return this.attrs[k] === undefined ? null : this.attrs[k]; },
+        addEventListener(t, f) { if (t === "click") this._click = f; },
+        querySelector(sel) { return findOne(this, sel); },
+        querySelectorAll(sel) { return findAll(this, sel); },
+        focus() {}, classList: { toggle() {}, add() {}, remove() {} }
+      };
+    }
+    function walk(n, out) {
+      (n.children || []).forEach(function (c) { out.push(c); walk(c, out); });
+      return out;
+    }
+    function matches(n, sel) {
+      if (sel.charAt(0) === ".") return (" " + n.className + " ").indexOf(" " + sel.slice(1) + " ") >= 0;
+      if (sel.indexOf("[data-pal-act=") === 0) {
+        const m = /\[data-pal-act="(\w+)"\]/.exec(sel);
+        return m && n.attrs["data-pal-act"] === m[1];
+      }
+      return n.tagName === sel.toUpperCase();
+    }
+    function findAll(root, sel) { return walk(root, []).filter(n => matches(n, sel)); }
+    function findOne(root, sel) { return findAll(root, sel)[0] || null; }
+    return { createElement: mk, findAll: findAll };
+  }
+  const doc = makeDoc();
+
+  const mod = new Function("document", [
+    "var destroyed = false;",
+    "var paletteGeneration = 1;",
+    "var PHOTO_PAGE_SIZE = " + numConstOf("PHOTO_PAGE_SIZE") + ";",
+    "var PHOTO_WINDOW_MAX = " + numConstOf("PHOTO_WINDOW_MAX") + ";",
+    "var PALETTE_FILTERS = [['all','All'],['noday','Not on a day'],",
+    "  ['day','Day'],['multi','Multiple days'],['review','Needs review'],",
+    "  ['hidden','Hidden']];",
+    "var st = { trip: { id: 'A' }, photoLinks: [], hiddenPhotoLinks: [],",
+    "           tripCal: null, photoWindows: {} };",
+    "var root = null;",
+    "function renderAll() {}",
+    "function dayById(id) { return { id: id, day_index: 1, date: '2026-05-01' }; }",
+    "function dayChipText() { return 'Day 1'; }",
+    "function dayListText() { return 'Day 1'; }",
+    "function linkNeedsReview() { return false; }",
+    "function linkSharedWithLori() { return false; }",
+    "function thumbImg() { return document.createElement('img'); }",
+    "function photoPager() { return document.createElement('div'); }",
+    "function openPlacementMove() {}",
+    "function addPhotosToDay() { return Promise.resolve({}); }",
+    "function removePhotosFromDay() { return Promise.resolve({}); }",
+    "function setPhotoLinksHidden() { return Promise.resolve({}); }",
+    "function paletteLoadHidden() { return Promise.resolve(); }",
+    "function paletteBumpGeneration() { paletteGeneration++; }",
+    "function paletteAfterBatch() {}",
+    "function timelineEdit() { return st.tripCal && st.tripCal.edit; }",
+    "function timelineEditDirtyBlocks() { return false; }",
+    "var TL_EDIT_FIELDS = { photo: [{ name: 'caption', label: 'Caption' }] };",
+    // A stand-in for the real editor, so this test measures WIRING --
+    // whether the pane draws an editor at all -- not the editor's own
+    // markup, which the timeline already owns and tests.
+    "function renderTimelineEditor(ed) {",
+    "  var w = document.createElement('div');",
+    "  w.className = 'tdl-tl-editor';",
+    "  var f = document.createElement('textarea');",
+    "  f.className = 'tdl-tl-field';",
+    "  f.value = ed.values.caption;",
+    "  w.appendChild(f);",
+    "  return w;",
+    "}",
+    extract("el"),
+    extract("btn"),
+    extract("linkDayIds"),
+    extract("linkIsOnDay"),
+    extract("linkHasNoDayPlacement"),
+    extract("linkIsOnMultipleDays"),
+    extract("linkIsCompletelyUnplaced"),
+    extract("linkMatchesPaletteFilter"),
+    extract("newPaletteState"),
+    extract("paletteState"),
+    extract("paletteSelectedIds"),
+    extract("paletteToggleSelected"),
+    extract("paletteClearSelection"),
+    extract("paletteSelectedOutsideFilter"),
+    extract("paletteLinkIndex"),
+    extract("paletteLinkById"),
+    extract("paletteRemovableIds"),
+    extract("paletteRefreshBar"),
+    extract("photoWindow"),
+    extract("openCaptionEditorForLink"),
+    extract("paletteLinks"),
+    extract("renderPaletteCard"),
+    extract("renderPalettePane"),
+    "return { st, newPaletteState, renderPalettePane,",
+    "         openCaptionEditorForLink, paletteToggleSelected,",
+    "         paletteSelectedIds };"
+  ].join("\n"))(doc);
+
+  function fields(pane) {
+    return doc.findAll(pane, ".tdl-tl-field");
+  }
+
+  function setup(filter, links, hidden) {
+    mod.st.photoLinks = links;
+    mod.st.tripCal = { dayId: "d1", mode: "palette", edit: null,
+                       palette: mod.newPaletteState() };
+    mod.st.tripCal.palette.filter = filter;
+    mod.st.tripCal.palette.hidden = hidden || [];
+    mod.st.tripCal.palette.hiddenLoaded = true;
+  }
+
+  // (a) an ordinary card
+  setup("all", [{ id: "v1", caption: "the old caption", trip_day_ids: [] }]);
+  let pane = mod.renderPalettePane(mod.st.tripCal);
+  check("no editor is mounted until one is asked for",
+    fields(pane).length === 0, fields(pane).length + " fields");
+
+  mod.openCaptionEditorForLink("v1");
+  pane = mod.renderPalettePane(mod.st.tripCal);
+  check("CORRECTION: Edit caption MOUNTS a field in Palette mode",
+    fields(pane).length === 1, fields(pane).length + " fields");
+  check("CORRECTION: …carrying the photograph's current caption",
+    fields(pane)[0] && fields(pane)[0].value === "the old caption",
+    fields(pane)[0] && fields(pane)[0].value);
+
+  // (b) a photograph NOT on the selected day -- no timeline row exists,
+  // which is why switching to Timeline would not have worked.
+  setup("noday", [{ id: "off", caption: "not on a day", trip_day_ids: [] }]);
+  mod.openCaptionEditorForLink("off");
+  pane = mod.renderPalettePane(mod.st.tripCal);
+  check("CORRECTION: a Not-on-a-day photograph opens its editor",
+    fields(pane).length === 1 && fields(pane)[0].value === "not on a day",
+    fields(pane).length + " fields");
+
+  // (c) a HIDDEN photograph, which the Photos tab's list never contains
+  setup("hidden", [], [{ id: "h1", caption: "hidden caption", hidden: 1,
+                         trip_day_ids: ["d1"] }]);
+  mod.openCaptionEditorForLink("h1");
+  pane = mod.renderPalettePane(mod.st.tripCal);
+  check("CORRECTION: a HIDDEN photograph opens its editor",
+    fields(pane).length === 1 && fields(pane)[0].value === "hidden caption",
+    fields(pane).length + " fields");
+
+  // (d) state survives the round trip
+  setup("noday", [{ id: "a", caption: "x", trip_day_ids: [] },
+                  { id: "b", caption: "y", trip_day_ids: [] }]);
+  mod.paletteToggleSelected("a", true);
+  mod.openCaptionEditorForLink("b");
+  pane = mod.renderPalettePane(mod.st.tripCal);
+  check("CORRECTION: opening the editor preserves mode, filter and selection",
+    mod.st.tripCal.mode === "palette" &&
+    mod.st.tripCal.palette.filter === "noday" &&
+    mod.paletteSelectedIds().join(",") === "a",
+    "mode=" + mod.st.tripCal.mode + " filter=" +
+    mod.st.tripCal.palette.filter + " sel=" + mod.paletteSelectedIds());
+  check("CORRECTION: …and the grid is still drawn beneath it",
+    doc.findAll(pane, ".tdl-palette-card").length === 2,
+    doc.findAll(pane, ".tdl-palette-card").length + " cards");
+})();
+
+(function aStaleHiddenFailureCannotEraseTheCurrentPool() {
+  const mod = new Function([
+    "var destroyed = false;",
+    "var paletteGeneration = 1;",
+    "var st = { trip: { id: 'A' }, photoLinks: [], showHiddenPhotos: true,",
+    "           hiddenPhotoLinks: ['TRIP-B-HIDDEN'], tripCal: {} };",
+    "var _calls = [];",
+    "function api() {",
+    "  return new Promise(function (res, rej) { _calls.push({res:res, rej:rej}); });",
+    "}",
+    "function invalidateMemoirPreview() { return Promise.resolve(); }",
+    extract("reloadGuardIsCurrent"),
+    extract("reloadPhotoLinks"),
+    "return { st, reloadPhotoLinks, calls: _calls,",
+    "         setTrip: function (id) { st.trip = { id: id }; } };"
+  ].join("\n"))();
+
+  const guard = { tripId: "A", gen: 1, needsModal: true };
+  const pending = mod.reloadPhotoLinks(guard);
+  mod.calls[0].res({ photo_links: [] });        // the visible half lands
+  // Wait for the SECOND request (the include_hidden one) to actually be
+  // issued before moving on -- a draft rejected calls[1] before it
+  // existed, so the failure path was never reached and the mutation
+  // survived. Poll rather than guess a microtask count.
+  return (function waitForSecond(n) {
+    if (mod.calls.length > 1 || n > 50) return Promise.resolve();
+    return Promise.resolve().then(function () { return waitForSecond(n + 1); });
+  })(0).then(function () {
+    check("the stale-hidden test actually reaches the failure path",
+      mod.calls.length > 1, mod.calls.length + " api calls issued");
+    mod.setTrip("B");                           // the operator moves on
+    if (mod.calls[1]) mod.calls[1].rej(new Error("gone"));
+    return pending;
+  }).then(function () {
+    check("CORRECTION: a stale hidden FAILURE does not erase the current " +
+          "trip's hidden pool",
+      mod.st.hiddenPhotoLinks[0] === "TRIP-B-HIDDEN",
+      "hiddenPhotoLinks=" + JSON.stringify(mod.st.hiddenPhotoLinks));
+  });
+})();
+
+(function aFilterChangeReconcilesRatherThanDiscarding() {
+  const mod = new Function([
+    "var destroyed = false;",
+    "var paletteGeneration = 5;",
+    "var st = { trip: { id: 'A' }, tripCal: null };",
+    "function renderAll() {}",
+    "function sameTrip(id) { return st.trip && st.trip.id === id; }",
+    "function paletteGenerationIsCurrent(g) { return g === paletteGeneration; }",
+    extract("newPaletteState"),
+    extract("paletteState"),
+    extract("paletteSelectedIds"),
+    extract("paletteToggleSelected"),
+    extract("paletteAfterBatch"),
+    "return { st, newPaletteState, paletteToggleSelected,",
+    "         paletteSelectedIds, paletteAfterBatch,",
+    "         bump: function () { paletteGeneration++; } };"
+  ].join("\n"))();
+
+  mod.st.tripCal = { palette: mod.newPaletteState() };
+  const all = ids(120);
+  all.forEach(id => mod.paletteToggleSelected(id, true));
+  const done = all.slice(0, 50);
+  const unsent = all.slice(50);
+
+  mod.bump();          // a FILTER change: same trip, same modal
+  mod.paletteAfterBatch(
+    { done: done, changed: done, already: [], unsent: unsent,
+      cancelled: true }, done, "removed", 5, "A");
+
+  const still = mod.paletteSelectedIds();
+  check("CORRECTION: a same-trip filter change still removes the COMPLETED " +
+        "ids from the selection",
+    still.length === 70, still.length + " still selected");
+  check("CORRECTION: …the 70 unsent stay selected",
+    done.every(id => still.indexOf(id) < 0) &&
+    unsent.every(id => still.indexOf(id) >= 0));
+  check("CORRECTION: …and the status records both numbers",
+    /50 removed/.test(mod.st.tripCal.palette.status) &&
+    /70 not sent/.test(mod.st.tripCal.palette.status),
+    mod.st.tripCal.palette.status);
+
+  // A TRIP change is different: suppress entirely.
+  mod.st.tripCal.palette.status = "UNTOUCHED";
+  mod.paletteAfterBatch({ done: ["z"], changed: ["z"], already: [],
+                          unsent: [], cancelled: true }, ["z"], "removed",
+                        5, "OLD-TRIP");
+  check("CORRECTION: a TRIP change suppresses the report entirely",
+    mod.st.tripCal.palette.status === "UNTOUCHED",
+    mod.st.tripCal.palette.status);
+})();
+
 // ── one thousand memberships ──────────────────────────────────────────
 //
 // The condition attached to keeping the one-fetch model. If any of this

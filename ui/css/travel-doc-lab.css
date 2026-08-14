@@ -1201,3 +1201,6 @@
 /* Focus must stay VISIBLE. A grid of thumbnails is exactly where a
    keyboard operator gets lost if the ring is styled away. */
 .tdl-palette-card :focus-visible, .tdl-palette-chip:focus-visible, .tdl-cal-mode:focus-visible { outline: 3px solid var(--tdl-gold); outline-offset: 2px; }
+/* The Palette's own caption-editor slot. The editor itself is the
+   timeline's, unchanged; this only gives it somewhere to sit. */
+.tdl-palette-editor { border: 1px solid var(--tdl-line); border-radius: 12px; padding: .6rem; background: #fff; }
