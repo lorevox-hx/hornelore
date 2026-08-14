@@ -96,6 +96,11 @@ _KNOWN_TABLES = (
     # approved" -- those are different facts and one of them would
     # send the operator hunting for a tick they cannot yet make.
     "trip_days",
+    # WO-TRIP-PHOTO-PALETTE-01 P1: probed for deleted_at, so the
+    # operator photo list can exclude a soft-deleted photograph on any
+    # database that carries the column and degrade quietly on one that
+    # does not, rather than 500ing on an old DB.
+    "photos",
 )
 
 
@@ -2171,21 +2176,47 @@ def photo_links_list(
         hidden_where = ("" if include_hidden or not _has_hidden
                         else "AND l.hidden = 0 ")
 
+        # P1 -- a soft-deleted photograph must never enter this read.
+        # `narrator_photo_links` (:2032) and `_day_photo_items` (:5866)
+        # have always excluded them and this one never did, so the
+        # operator lane could show a photograph the narrator lane had
+        # already dropped. Measured on the live database at the time of
+        # the fix: ZERO links currently point at a soft-deleted photo, so
+        # this guards a class rather than repairing a visible symptom --
+        # which is exactly why it survived unnoticed.
+        #
+        # The test is `p.deleted_at IS NULL` on a LEFT JOIN. On a current
+        # database an ORPHAN link cannot occur -- `photo_id` carries
+        # REFERENCES photos(id) ON DELETE CASCADE, so losing the photo
+        # loses the membership with it -- and the LEFT JOIN's NULL is
+        # therefore the degradation path for a database predating that
+        # foreign key rather than a live case. Kept as a LEFT JOIN for
+        # exactly that reason; the guarantee is the constraint.
+        _has_deleted_at = _table_has_column(con, "photos", "deleted_at")
+        deleted_where = "AND p.deleted_at IS NULL " if _has_deleted_at else ""
+
+        # P1 -- `id` is the final tiebreaker so the order is TOTAL.
+        # `taken_at` ties constantly (a burst of photographs shares a
+        # second, and undated links share NULL) and `ord` ties on every
+        # link that has never been reordered. SQLite may then return tied
+        # rows in any order it likes, and a windowed grid over a
+        # nondeterministically ordered array moves cards between renders
+        # for no reason the operator can see.
         def _run(cols, safe_link_cols=_PHOTO_LINK_SAFE_COLS):
             base = ("SELECT " + safe_link_cols + hidden_cols + cols +
                     " FROM trip_photo_links l "
                     "LEFT JOIN photos p ON p.id = l.photo_id "
-                    "WHERE l.trip_id = ? " + hidden_where)
+                    "WHERE l.trip_id = ? " + hidden_where + deleted_where)
             if max_confidence is not None:
                 return con.execute(
                     base +
                     "AND (l.cluster_confidence IS NULL "
                     "OR l.cluster_confidence <= ?) "
-                    "ORDER BY l.taken_at, l.ord",
+                    "ORDER BY l.taken_at, l.ord, l.id",
                     (trip_id, max_confidence),
                 ).fetchall()
             return con.execute(
-                base + "ORDER BY l.taken_at, l.ord",
+                base + "ORDER BY l.taken_at, l.ord, l.id",
                 (trip_id,),
             ).fetchall()
         try:
@@ -4595,6 +4626,81 @@ def day_placements_remove(link_ids: List[str], day_id: str,
         con.commit()
         return {"removed": removed, "not_present": not_present,
                 "placements": placements}
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def photo_links_set_visibility(link_ids: List[str], hidden: bool,
+                               trip_id: str) -> Dict[str, Any]:
+    """Hide or restore a BOUNDED batch of trip photo links, atomically.
+
+    WHY THIS EXISTS RATHER THAN A LOOP OVER `PATCH /photo-links/{id}`.
+    Fifty individually committed PATCH requests are fifty transactions.
+    A failure at request thirty-one leaves thirty links hidden and
+    twenty not, with no record of which, and the operator's only signal
+    is a grid that half-changed. One statement inside one transaction
+    either happens or does not, which is the only outcome an operator
+    can act on. The 50-item ceiling is the same one the placement lane
+    already enforces, and for the same reason -- see
+    `_reject_oversized_batch` in the router.
+
+    WHAT IT MAY TOUCH: `hidden`, `hidden_at`, `updated_at`. Nothing
+    else. Not day placements, not the caption, not one of the four
+    approval flags, not the photos row, not the original, not the
+    thumbnail. Hiding is a review-queue posture, not an edit to the
+    photograph, and it is emphatically not a delete.
+
+    IDEMPOTENT. Hiding what is already hidden is not an error and not a
+    no-op that lies about itself: those ids come back under
+    `already_in_state`, separately from `updated`, so a caller can tell
+    "I changed thirty" from "thirty were already like that".
+    """
+    ids: List[str] = []
+    for raw in (link_ids or []):
+        sid = str(raw)
+        if sid and sid not in ids:
+            ids.append(sid)
+    if not ids:
+        return {"requested": 0, "updated": 0,
+                "already_in_state": [], "changed": []}
+
+    want = 1 if hidden else 0
+    con = _connect()
+    try:
+        if not _table_has_column(con, "trip_photo_links", "hidden"):
+            raise RuntimeError(
+                "trip_photo_links.hidden is missing; migration 0036 has "
+                "not been applied to this database")
+
+        # Ownership first, for EVERY id, before a single write. One
+        # foreign link in a batch of fifty rejects the whole request
+        # with nothing written -- the caller does not get a partial
+        # result it then has to reason about.
+        for lid in ids:
+            _assert_link_in_trip(con, lid, trip_id)
+
+        marks = ",".join("?" for _ in ids)
+        current = {
+            str(r["id"]): int(r["hidden"] or 0) for r in con.execute(
+                "SELECT id, hidden FROM trip_photo_links WHERE id IN (%s)"
+                % marks, tuple(ids)).fetchall()
+        }
+        already = [lid for lid in ids if current.get(lid) == want]
+        changed = [lid for lid in ids if current.get(lid) != want]
+
+        if changed:
+            cmarks = ",".join("?" for _ in changed)
+            now = _now()
+            con.execute(
+                "UPDATE trip_photo_links SET hidden = ?, hidden_at = ?, "
+                "updated_at = ? WHERE id IN (%s)" % cmarks,
+                tuple([want, (now if hidden else None), now] + changed))
+        con.commit()
+        return {"requested": len(ids), "updated": len(changed),
+                "already_in_state": already, "changed": changed}
     except Exception:
         con.rollback()
         raise

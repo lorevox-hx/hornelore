@@ -3546,6 +3546,15 @@ class TripDayPhotoLinksReq(BaseModel):
     photo_ids: List[str] = []
 
 
+class TripPhotoVisibilityReq(BaseModel):
+    """P1 -- batch Hide/Restore. `hidden` is required and has no default
+    on purpose: a missing flag would otherwise silently mean "restore",
+    and a request that hides nothing when the operator pressed Hide is
+    the failure mode this endpoint exists to remove."""
+    photo_link_ids: List[str] = []
+    hidden: bool
+
+
 class TripPlacementMoveReq(BaseModel):
     """All three ids, named. See move_photo_placement for why."""
     photo_link_id: str
@@ -3747,6 +3756,61 @@ def unlink_day_photos(trip_id: str, day_id: str,
         # longer make about a photograph that may still be on others.
         "trip_day_id": day_id,
         "day_placements": result["placements"],
+    }
+
+
+@router.post("/{trip_id}/photo-links/visibility")
+def set_photo_links_visibility(trip_id: str,
+                               req: TripPhotoVisibilityReq) -> Dict[str, Any]:
+    """Hide or restore up to 50 photo links in ONE transaction.
+
+    WHY A ROUTE AND NOT A CLIENT LOOP. `PATCH /photo-links/{id}` updates
+    one link and commits. Fifty of those are fifty transactions, and a
+    failure part way through leaves the trip in a state no one recorded:
+    some hidden, some not, and a grid that half-changed. This route is
+    all-or-none, which is the only result an operator can act on.
+
+    WHAT IT CANNOT DO, by construction rather than by promise: it names
+    three columns -- hidden, hidden_at, updated_at -- so it cannot move
+    a placement, edit a caption, flip a Lori approval, touch the photos
+    row, or remove an original or a thumbnail. Hiding is a review
+    posture. It is not an edit and it is certainly not a delete.
+
+    REFUSALS, all with zero writes: more than 50 ids is 400 (the same
+    ceiling and the same reasoning as the placement lane); a link
+    belonging to another trip, or no link at all, is 400 and rejects
+    the WHOLE batch rather than silently skipping it.
+    """
+    _require_trips_enabled()
+    # No separate trip-existence check: `_assert_link_in_trip` inside the
+    # write transaction rejects any id that is not this trip's, which
+    # covers a trip that does not exist at all (nothing belongs to it) and
+    # keeps validation on the same connection as the write.
+    ids = list(req.photo_link_ids or [])
+    if not ids:
+        raise HTTPException(status_code=422, detail="no photo_link_ids")
+    _reject_oversized_batch(len(ids))
+    try:
+        result = trip_repository.photo_links_set_visibility(
+            ids, bool(req.hidden), trip_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except sqlite3.Error as exc:
+        raise _classified_sqlite_500(
+            exc, "[trips][photo-visibility]", trip_id) from exc
+    logger.info("[trips][photo-visibility] trip=%s hidden=%s requested=%d "
+                "updated=%d already=%d", trip_id, bool(req.hidden),
+                result["requested"], result["updated"],
+                len(result["already_in_state"]))
+    return {
+        "ok": True,
+        "hidden": bool(req.hidden),
+        "requested": result["requested"],
+        "updated": result["updated"],
+        "already_in_state": result["already_in_state"],
+        "changed": result["changed"],
     }
 
 
