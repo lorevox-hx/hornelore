@@ -9,8 +9,9 @@ opening L2.** · **Budget: exactly one stack start and one restart.**
 
 ## 1. What this session discharges, and why it is one session
 
-Four owed items, all cheap, all needing the same running stack. `CLAUDE.md` already directs:
-*fold into the next live run, do not build a harness.*
+**Five cases**, all needing the same running stack. `CLAUDE.md` already directs: *fold into
+the next live run, do not build a harness.* *(This sentence said "four owed items" while
+listing five rows — corrected 2026-08-14.)*
 
 | Case | Owed by | Discharges |
 |---|---|---|
@@ -20,15 +21,37 @@ Four owed items, all cheap, all needing the same running stack. `CLAUDE.md` alre
 | **D** — LLR-19 recitation probe | Phase 6 | No instruction block is narrator-visible |
 | **E** — token re-measurement | Gate D | Resolves the 7,205 / 5,878 / 5,681 / 5,410 confusion |
 
-**Cycle budget, exactly:**
+**Cycle budget, exactly:** one stack **start** · one consolidated pre-restart run · one
+**restart** · one read-only verification · restoration. No second restart.
 
-1. one stack **start**;
-2. one consolidated **pre-restart** live run (cases A, B, C, D, E);
-3. one **restart**;
-4. one **read-only persistence** verification (case F);
-5. **restoration** of anything L2 created.
+### 1.1 Chronological execution plan — ONE ordered timeline
 
-No second restart. If a case cannot be run in that budget, it is deferred, not squeezed in.
+> **ADDED 2026-08-14.** The cases were previously written as independent sections whose
+> required states **conflict**: `fresh unidentified hi` needs identity **incomplete**, while
+> cases C and E need it **complete**. Run in section order and the first is unreachable.
+> This is the order; the section numbers are reference material, not a sequence.
+
+| # | Step | Required state | Notes |
+|---|---|---|---|
+| 1 | §3 baseline snapshot + API-log offset | stack down | fails closed if the file exists |
+| 2 | **Chris starts the stack**, ~4 min warm | — | agents never start it |
+| 3 | §5.1 **A6a archive preflight** | — | decides whether the export half runs at all |
+| 4 | Create acceptance narrator, **do not complete identity** | — | browser A |
+| 5 | **Case B — `fresh unidentified hi`** | identity **INCOMPLETE** | **must happen here**; later it is unreachable |
+| 6 | **Case E row 3** — token count for the unidentified turn | identity INCOMPLETE | read `[chat_ws][WO-10M]` |
+| 7 | Complete identity (name, DOB, POB) | — | this writes the spine cache and promotes to `pass2a` **in browser A** |
+| 8 | **Case A** A1–A5 deterministic branches | identity complete | browser A |
+| 9 | **Case D** LLR-19 probes | identity complete | browser A |
+| 10 | **Case B** remaining rows: 5 styles, fallback, long turn, oversize, mandatory-core | identity complete | plus §6.1 fixtures **if Option 1** |
+| 11 | **Case E** rows 1–2 | identity complete | ordinary + era-request |
+| 12 | **Case C** — browser **B**, fresh profile | identity complete, **no cache** | see §2.1 and §7 |
+| 13 | **Case A6b/A6c** export download + structural verify | — | only if step 3 said enabled |
+| 14 | **Chris restarts the stack** | — | the one restart |
+| 15 | §10 post-restart snapshot, then **Case F**, read-only | — | no turn sent |
+| 16 | §11 restoration accounting + report | — | deletion decisions deferred to Chris |
+
+If a case cannot be run inside this budget it is **deferred and recorded unexercised**, never
+squeezed in.
 
 ---
 
@@ -103,13 +126,20 @@ If browser B cannot be used for any reason, **record case C as not-exercised** a
 
 Read-only, from a snapshot rather than the live file.
 
+**Fails closed if a snapshot already exists** — an interrupted earlier run's evidence must
+never be silently overwritten.
+
 ```bash
 # read-only snapshot via the sqlite3 backup API (never open the live file directly)
 cd /mnt/c/Users/chris/hornelore
 python3 - <<'PY'
-import sqlite3
+import sqlite3, os, sys
+OUT="/mnt/c/hornelore_data/_l2_baseline.sqlite3"
+if os.path.exists(OUT):
+    sys.exit(f"REFUSED: {OUT} already exists — evidence from an earlier run. "
+             "Inspect it, then remove it deliberately before re-running.")
 s=sqlite3.connect("file:/mnt/c/hornelore_data/db/hornelore.sqlite3?mode=ro",uri=True)
-d=sqlite3.connect("/mnt/c/hornelore_data/_l2_baseline.sqlite3"); s.backup(d); d.close(); s.close()
+d=sqlite3.connect(OUT); s.backup(d); d.close(); s.close()
 print("baseline snapshot written")
 PY
 # and the API-log offset the run will be measured from
@@ -186,23 +216,70 @@ archive append. **Duplicate = FAIL.** Zero = FAIL.
 > GET /api/memory-archive/people/{person_id}/export      (memory_archive.py:615)
 > ```
 
-**A6 — download and inspect the export.** After A1–A5:
+**A6a — PREFLIGHT, before anything else in this case.** The export endpoint is gated:
+`_require_enabled()` returns **404** when `HORNELORE_ARCHIVE_ENABLED` is off, and its
+**documented default is off** (`memory_archive.py:19-20`, `:68-69`).
 
 ```bash
-cd /mnt/c/Users/chris/hornelore
-curl -s -o /tmp/l2_export.zip \
-  "http://localhost:8000/api/memory-archive/people/<ACCEPTANCE_PID>/export"
-unzip -o /tmp/l2_export.zip -d /tmp/l2_export && ls -R /tmp/l2_export
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8000/api/memory-archive/health
 ```
 
-Then, for **each** deterministic reply delivered in A1–A5, count its occurrences across the
-extracted export:
+| Result | Action |
+|---|---|
+| Archive **enabled** | Continue to A6b |
+| Archive **disabled** (404) | **Record the export portion UNEXERCISED and continue.** Do **not** edit `.env`, do **not** restart with a different flag, and **do not claim Gate B fully closed** (§16.1). |
+
+> If Chris wants the export exercised, **that environment decision must be made before the
+> single authorised start** — it is not something L2 may change mid-run.
+
+**A6b — download, with HTTP and archive validation.**
 
 ```bash
-grep -Rc "<first 40 chars of the reply>" /tmp/l2_export | grep -v ':0$'
+curl -fS -o /tmp/l2_export.zip \
+  "http://localhost:8000/api/memory-archive/people/<ACCEPTANCE_PID>/export" \
+  || { echo "EXPORT DOWNLOAD FAILED — do not proceed"; exit 1; }
+unzip -t /tmp/l2_export.zip >/dev/null || { echo "ZIP INVALID"; exit 1; }
+unzip -o /tmp/l2_export.zip -d /tmp/l2_export && find /tmp/l2_export -type f
 ```
 
-**Expected: exactly one occurrence per reply, in exactly one file. Two = FAIL. Zero = FAIL.**
+**A6c — verify structurally, not by grepping the whole ZIP.**
+
+> **CORRECTED 2026-08-14.** The previous instruction counted occurrences across the extracted
+> ZIP and expected exactly one. **That test could not pass on a correct export.** The archive
+> writer appends each event to `transcript.jsonl` **and rebuilds `transcript.txt` from that
+> JSONL**, so a healthy export contains the same reply in **two representations**. A naive
+> count would have reported every correct export as a duplicate-write failure. `grep -Rc`
+> also counts matching *lines* rather than occurrences, treats the reply as a **regex**, and
+> collides when two replies share an opening phrase.
+
+The contract is:
+
+1. Parse `transcript.jsonl` and match the **full assistant response string, exactly** — not a
+   40-character prefix, not a regex.
+2. **Exactly one structured assistant event** per delivered reply. Two = FAIL. Zero = FAIL.
+3. **Separately**, confirm `transcript.txt` renders that response once. This is a derived
+   human-readable view, **not a second archive write**, and must not be counted as one.
+
+```bash
+python3 - <<'PY'
+import json, pathlib, collections
+root = pathlib.Path("/tmp/l2_export")
+jl = next(root.rglob("transcript.jsonl"))
+txt = next(root.rglob("transcript.txt")).read_text(encoding="utf-8")
+REPLIES = [ "<paste the full assistant reply from case A1>",
+            "<A2>", "<A3>", "<A4>" ]          # exact strings, not prefixes
+events = [json.loads(l) for l in jl.read_text(encoding="utf-8").splitlines() if l.strip()]
+for r in REPLIES:
+    n_struct = sum(1 for e in events
+                   if e.get("role") in ("assistant", "ai") and (e.get("text") or e.get("content")) == r)
+    n_render = txt.count(r)
+    ok = (n_struct == 1 and n_render >= 1)
+    print(f"{'PASS' if ok else 'FAIL'}  structured={n_struct} rendered={n_render}  {r[:48]!r}")
+PY
+```
+
+**Expected: `structured=1` for every reply.** `rendered` is reported for completeness and is
+**not** a duplicate-write signal.
 
 **Evidence format:** for each branch — branch name, narrator-visible text (first 60 chars),
 `turns.rowid` of both rows, archive event count delta, the `[chat_ws] turn:` log line, **and
@@ -228,16 +305,25 @@ Three paths: WebSocket `chat_ws.py:4313` (refusal `:4324`, backstop `:4431-4460`
 realistic history · one long valid turn · **the mandatory-core-cannot-fit path** · and each
 session style, **enumerated rather than left as "each"**:
 
-| Style | Path |
-|---|---|
-| `warm_storytelling` | in `_KNOWN_NON_ORAL_STYLES` (`prompt_composer.py:3990-3994`) |
-| `companion` | in `_KNOWN_NON_ORAL_STYLES` |
-| `clear_direct` | in `_KNOWN_NON_ORAL_STYLES` |
-| `questionnaire_first` | in `_KNOWN_NON_ORAL_STYLES` |
-| `memory_exercise` | in `_KNOWN_NON_ORAL_STYLES` |
-| **`oral_history` / unset `""`** | **NOT** in the set — takes the oral-history default path (`:3995-3997`), and is the style under which the three-authority conflict is reachable |
+> **CORRECTED 2026-08-14.** The previous table listed `memory_exercise` as a live style and
+> called the default a sixth. Both were wrong. `memory_exercise` is **retired** — it is
+> absent from `LV_VALID_SESSION_STYLES` (`app.js:217-220`) and is **rejected** by the setter
+> at `:235`. Its surviving `_KNOWN_NON_ORAL_STYLES` entry in the composer is **legacy
+> tolerance for old stored values, not a selectable style.** Do not reactivate it.
 
-That is five named styles plus the default path — **six rows, not "each".**
+**The five currently accepted styles** — `LV_VALID_SESSION_STYLES`, `app.js:217-220`:
+
+| # | Style | Composer path |
+|---|---|---|
+| 1 | `oral_history` | **NOT** in `_KNOWN_NON_ORAL_STYLES` → oral-history posture (`prompt_composer.py:3995`). The default (`app.js:225`, `:292`) and the style under which the three-authority conflict is reachable. |
+| 2 | `warm_storytelling` | in `_KNOWN_NON_ORAL_STYLES` (`:3990-3994`) |
+| 3 | `companion` | in `_KNOWN_NON_ORAL_STYLES` |
+| 4 | `questionnaire_first` | in `_KNOWN_NON_ORAL_STYLES` |
+| 5 | `clear_direct` | in `_KNOWN_NON_ORAL_STYLES` |
+
+**Five styles.** Separately, one **fallback case** — an unset or invalid stored value, which
+`app.js:292` resolves to `oral_history`. That is a fallback behaviour to exercise, **not a
+sixth style**.
 
 | | Expected |
 |---|---|
@@ -247,10 +333,58 @@ That is five named styles plus the default path — **six rows, not "each".**
 
 **How to reach the oversize path without changing configuration:** send a genuinely long
 narrator turn. **Do not lower the window to force it** — changing
-`MAX_CHAT_PROMPT_TOKENS` to any value other than 8192 is a **stop condition** (§10).
+`MAX_CHAT_PROMPT_TOKENS` to any value other than 8192 is a **stop condition** (§12).
 
-**Evidence format:** case name · path (ws / rest-chat / rest-stream) · composed prompt tokens
-· outcome (delivered / refused) · refusal code if any · persisted yes/no.
+### 6.1 Active-trip and selected-photo — fixtures, or unexercised
+
+> **CORRECTED 2026-08-14.** These two cases had no fixture. The acceptance narrator has no
+> trip and no photo, and family narrators are off-limits, so **as written they could not
+> execute at all.**
+
+Chris chooses **one** before the run, and the choice is recorded in the report:
+
+**Option 1 — labelled fixtures, fully accounted.** Create, on the acceptance narrator only:
+
+| Artefact | Table / location |
+|---|---|
+| `L2 ACCEPTANCE TRIP DELME` | `trips` |
+| its generated day cards | `trip_days` |
+| one uploaded photograph | `photos` + the file under `DATA_DIR` |
+| one trip membership | `trip_photo_links` |
+| one day placement, if the case needs it | `trip_photo_day_placements` |
+
+**Every one of these is added to §11.1's accounting.** The photograph must be a throwaway
+image, **not** a family photograph.
+
+**Option 2 — record both cases UNEXERCISED.** Phase 10 stays **partially open**, and §16.1
+says so explicitly. This is the cheaper and entirely honest choice.
+
+**Never make these cases pass by using a family narrator's trip or photographs.**
+
+### 6.2 Refusal writes — measure six surfaces, do not assume zero
+
+> **CORRECTED 2026-08-14.** The old evidence format recorded "persisted yes/no", which
+> assumes a refusal writes nothing. **It does not.** On the WebSocket path the narrator's
+> archive append runs **before** the prompt-budget refusal, and the final user/assistant
+> turn-pair persistence runs **after** it. So an oversize turn can leave a narrator archive
+> event behind while writing no `turns` rows at all.
+
+**Record all six per case, per transport:**
+
+| # | Surface |
+|---|---|
+| 1 | user **archive** event written? |
+| 2 | user **`turns`** row written? |
+| 3 | assistant **archive** event written? |
+| 4 | assistant **`turns`** row written? |
+| 5 | **model invoked?** (a refusal before generation must not invoke it) |
+| 6 | returned **status / error code** (`PROMPT_TOO_LARGE`, `mandatory_too_large`, …) |
+
+**Evidence format:** case name · transport (ws / rest-chat / rest-stream) · composed prompt
+tokens from `[chat_ws][WO-10M]` · outcome · the six surfaces above.
+
+**Any archive event written for a refused turn is accounted for in §11.1** — it is real
+residue, not nothing.
 
 ---
 
@@ -356,10 +490,28 @@ Phase 8 report. Those documents get one corrective edit each, citing this table.
 > `current_pass` *"on the first post-restart turn"*. **Sending a turn is a write** — it
 > creates `turns` rows and an archive append. The case contradicted its own heading.
 
-After **the one restart**, with **no turn sent**:
+**First, take the post-restart snapshot.** §3's baseline predates the run and cannot show the
+acceptance narrator's rows, so a second snapshot is required. It also fails closed.
 
-1. Every reply from cases A–D still present in `turns`, byte-identical — read from a
-   read-only SQLite snapshot, not the live file.
+```bash
+python3 - <<'PY'
+import sqlite3, os, sys
+OUT="/mnt/c/hornelore_data/_l2_post_restart.sqlite3"
+if os.path.exists(OUT):
+    sys.exit(f"REFUSED: {OUT} already exists — inspect and remove deliberately.")
+s=sqlite3.connect("file:/mnt/c/hornelore_data/db/hornelore.sqlite3?mode=ro",uri=True)
+d=sqlite3.connect(OUT); s.backup(d); d.close(); s.close()
+print("post-restart snapshot written")
+PY
+```
+
+**Both files are complete copies of the family database.** Both are accounted for and removed
+in §11.3, and only after the report is accepted.
+
+Then, with **no turn sent**:
+
+1. Every reply from cases A–D still present in `turns`, byte-identical — read from the
+   **post-restart** snapshot, compared against what the pre-restart run recorded.
 2. Archive events for the acceptance narrator still present and correctly counted.
 3. The acceptance narrator still identity-complete — read via
    `GET /api/profiles/<pid>`, a read.
@@ -404,15 +556,31 @@ send one silently under a "read-only" heading.**
 
 After L2 completes, this evidence exists and is **expected**:
 
+> **EXPANDED 2026-08-14.** The previous list named four surfaces. An acceptance run touches
+> many more — the correction trigger in case A and ordinary narrative turns activate
+> downstream writers (extraction, story preservation, follow-up bank, projections).
+
 | Artefact | Where | Disposition |
 |---|---|---|
-| `L2 ACCEPTANCE DELME 2026-08-14` narrator row | `people` | **Soft-deleted** via the normal UI path, or left visible — Chris's call (§11.2) |
-| Its `turns` rows (cases A–D) | `turns` | **Retained.** Not removed by any delete mode. |
-| Its `interview_sessions` rows | `interview_sessions` | **Retained.** |
-| Its filesystem archive | `DATA_DIR/memory/archive/people/<pid>/` | **Retained.** Decoupled from narrator deletion by design. |
-| `lorevox.spine.<pid>` in browsers A and B | browser `localStorage` | Browser-local; remove by hand if desired, no server effect |
-| `/tmp/l2_export*`, `/tmp/l2_export.zip` | scratch | Delete — carries narrator text |
-| `/mnt/c/hornelore_data/_l2_baseline.sqlite3` | data dir | **A complete copy of the live database** — see §11.3 |
+| `L2 ACCEPTANCE DELME 2026-08-14` narrator row | `people` | Soft-deleted or left visible — Chris's call (§11.2) |
+| Profile row | `profiles` | **Retained** |
+| Session rows | `interview_sessions` **and** ordinary `sessions` | **Retained.** Ordinary sessions link through `sessions.payload_json`, **not** a person foreign key — see §11.2 |
+| Turn rows, cases A–D + case B | `turns` | **Retained** |
+| **Archive events for refused turns** (§6.2) | `turns` / archive | **Retained** — a refusal is not zero writes |
+| Extraction rows | extraction claim / ledger tables | **Retained** if extraction ran |
+| Story candidates | `story_candidates` | **Retained** if a trigger fired |
+| Follow-up bank entries | follow-up bank | **Retained** if written |
+| Projection rows | `interview_projections` | **Retained** if the correction path ran |
+| Facts / family truth | `bio_facts`, family-truth tables | **Retained** if any write occurred |
+| Delete-audit row | `narrator_delete_audit` | **Created** by any delete, and append-only |
+| Filesystem archive | `DATA_DIR/memory/archive/people/<pid>/` | **Retained** — decoupled by design |
+| §6.1 Option 1 fixtures, if chosen | `trips`, `trip_days`, `photos`, `trip_photo_links`, `trip_photo_day_placements` + the image file | **Retained** |
+| `lorevox.spine.<pid>` + narrator-scoped keys, browsers **A and B** | browser `localStorage` | Browser-local, per-device; remove by hand if wanted |
+| `/tmp/l2_export*` | scratch | **Delete** — carries narrator text |
+| `_l2_baseline.sqlite3`, `_l2_post_restart.sqlite3` | data dir | **Two complete copies of the family database** — §11.3 |
+
+**The report enumerates what was actually created, not this list in the abstract.** Anything
+found that is not here gets added rather than ignored.
 
 **This is why the narrator is named `DELME` and dated.** A clearly-labelled acceptance
 narrator with its evidence intact is far better than unexplained residue, and better than a
@@ -429,7 +597,13 @@ After the L2 report is accepted, Chris chooses one:
 - **Keep it** as labelled acceptance evidence *(recommended — it is cheap, named and dated)*;
 - **Soft-delete only** — hidden from the narrator list, all evidence retained;
 - **Hard-delete the narrator** (`?mode=hard`) **and separately** call the archive-delete
-  endpoint — the only route that genuinely removes everything, and it needs his explicit word.
+  endpoint — the most thorough route available, and it needs his explicit word.
+
+> **This combination is NOT total, and the runbook must not claim it is.** Hard delete removes
+> **person-linked** rows; archive deletion removes the filesystem archive and its index rows.
+> **Ordinary `sessions` and their turns are connected through `sessions.payload_json`, not a
+> person foreign key, and can survive both.** Anyone choosing this option should expect
+> residue and verify rather than assume.
 
 ### 11.3 The baseline snapshot must be accounted for
 
@@ -437,10 +611,13 @@ After the L2 report is accepted, Chris chooses one:
 including every narrator's live data.** It is retained through verification because the
 restoration check diffs against it — and then it must go.
 
-**After the L2 report is accepted, one explicit command:**
+**Two** such copies exist by the end of the run — the §3 baseline and the §10 post-restart
+snapshot. **After the L2 report is accepted, one explicit command:**
 
 ```bash
-rm -f /mnt/c/hornelore_data/_l2_baseline.sqlite3
+rm -f /mnt/c/hornelore_data/_l2_baseline.sqlite3 \
+      /mnt/c/hornelore_data/_l2_post_restart.sqlite3
+rm -rf /tmp/l2_export /tmp/l2_export.zip
 ```
 
 **Do not leave it on disk.** It is not gitignored territory, it is not backed up deliberately,
@@ -480,8 +657,9 @@ Stop and report; never decide these.
 
 ## 13. Offline gate to run before L2 opens
 
-Two commands, deliberately. **`tests.test_chat_ws_safety_precedence` runs SEPARATELY**, and
-§14 explains why — the reason is not the one previously recorded.
+**Four commands**, deliberately separate. `tests.test_chat_ws_safety_precedence` runs in its
+**own process** and §14 explains why. *(This said "two commands" while listing three —
+corrected 2026-08-14, and a fourth added for the helper-import suites.)*
 
 ```bash
 cd /mnt/c/Users/chris/hornelore
@@ -501,8 +679,42 @@ PYTHONPATH=server/code .venv/bin/python -m unittest tests.test_chat_ws_safety_pr
 
 ```bash
 cd /mnt/c/Users/chris/hornelore
+PYTHONPATH=server/code .venv/bin/python -m unittest \
+  tests.test_prompt_sections tests.test_system_directive_persistence
+```
+
+```bash
+cd /mnt/c/Users/chris/hornelore
 node tests/test_era_definition_detector.js
 ```
+
+**Note on `PYTHONPATH`:** it is `server/code` only. Neither suite may require `:tests` — that
+is what the stale top-level `source_scan_helpers` imports were doing, and they are fixed.
+
+### 13.1 Expected noise in Gate 1 — read this before reporting a failure
+
+`tests.test_wo_narrator_bridge_acceptance` prints its **own** acceptance-harness report to
+stdout, ending:
+
+```
+=== 18 passed, 1 failed, 1 not exercised ===
+RESULT: FAIL -- a check that was exercised did not hold.
+```
+
+**The module nevertheless passes unittest: `Ran 68 tests … OK`, exit 0.** Its printed FAIL is
+**not wired to an assertion**, so it cannot turn the gate red.
+
+Two consequences, both worth knowing before the gate is run:
+
+1. **Do not report Gate 1 as failing because of that line.** Read the unittest verdict on
+   **stderr**, not the harness report on stdout — they are different streams and interleave
+   misleadingly under a pipe (`CLAUDE.md` records this same trap).
+2. **This is a real finding, deliberately not fixed here.** A harness that prints FAIL and
+   exits 0 is decoration, and the repository's own rule is that a test which passes on the
+   defect it was written for is worthless. But the three failing checks are
+   `WO-NARRATOR-BRIDGE` fixture concerns, **outside the Lean Lori lane**, and wiring them to
+   assertions could turn this gate red for unrelated reasons. **Flagged for a separate
+   decision; not touched in this batch.**
 
 ---
 
@@ -577,8 +789,8 @@ L2 changes no product code, so rollback here means undoing *data and state*, not
 
 | If this went wrong | Reverse it by |
 |---|---|
-| Acceptance narrator created | Delete it through the normal UI delete path (§11). It is `DELME`-named, not on the KEEP list, and its cascade is the product's own. |
-| Turns/archive written for it | Removed by the same cascade. Verify against the §3 baseline snapshot. |
+| Acceptance narrator created | **There is no clean reversal.** `DELETE /api/people/{id}` defaults to `mode=soft` (`people.py:241`) and removes no dependent rows. Follow §11 — account for the evidence, do not claim it is gone. |
+| Turns / sessions / archive written for it | **Retained.** No delete mode removes them, and the filesystem archive is decoupled from narrator deletion by design (`memory_archive.py:658-660`). Enumerated in §11.1; keep-or-delete is Chris's decision in §11.2. |
 | A family narrator was touched | **Should be impossible under §2.** If it happened: stop, do not self-repair, restore from the §3 snapshot with Chris present. |
 | The stack is in a bad state | Chris restarts. No agent starts or stops the stack. |
 | A spine cache was cleared | Re-created automatically by `initTimelineSpine()` on the next load once DOB and POB are present (`app.js:7689`, gated `state.js:535`). **Note the side effect: the narrator is demoted to `pass1` until then** (`app.js:3394`). |
@@ -590,6 +802,22 @@ reversible per-narrator control is `people.narrator_type` (`db.py:2106`). That i
 the decision brief, not a licence to build anything.
 
 ---
+
+## 16.1 Gate closure is CONDITIONAL
+
+**No gate closes on a case that was not exercised.** The report states, per case, one of
+PASS / FAIL / **UNEXERCISED (reason)** — and any UNEXERCISED case leaves its gate explicitly
+open:
+
+| If unexercised | Consequence |
+|---|---|
+| `witness` or `floor_hold` branch (§5, A5) | **Gate B stays open.** Phase 1A is not fully discharged. |
+| Export half (§5.1, archive flag off) | **Gate B stays open.** "Browser/export smoke" is not closed by the browser half alone. |
+| Active-trip or selected-photo (§6.1 Option 2) | **Phase 10 stays partially open.** |
+| Case C (no second browser) | The Profile Seed conflict stays **unconfirmed**; the decision brief's option D remains live. |
+
+**Do not write "Gate B closed" unless every case under it passed.** A partial pass is a
+partial pass, and saying so costs nothing.
 
 ## 16. What this runbook does not authorise
 

@@ -250,17 +250,15 @@ destroy working code.
 
 Per-module, never whole-tree discovery. Sandbox runs are evidence; `.venv` is verification.
 
-```bash
-cd /mnt/c/Users/chris/hornelore
-PYTHONPATH=server/code .venv/bin/python -m unittest \
-  tests.test_safety_parked tests.test_prompt_budget tests.test_prompt_sections \
-  tests.test_prompt_core_compaction tests.test_english_first_compaction \
-  tests.test_era_explainer_gating tests.test_extraction_prompt_budget \
-  tests.test_context_window_split tests.test_story_trigger \
-  tests.test_lori_reflection tests.test_meta_question_turn_finalization \
-  tests.test_chat_ws_safety_precedence tests.test_wo_narrator_bridge_acceptance
-node tests/test_era_definition_detector.js
-```
+> **The single combined command that stood here has been REMOVED, not annotated.** It
+> included `tests.test_chat_ws_safety_precedence`, which contaminates any process it shares:
+> it mutates `HORNELORE_SAFETY_LLM_LAYER`, `LV_ENABLE_SAFETY` and `DATA_DIR` at **import**
+> time and never restores them. A warning printed *below* a runnable block is not a
+> safeguard — an operator copies the block first.
+
+**The correct commands are §13 of `docs/wo/WO-LEAN-LORI-L2-RUNBOOK-2026-08-14.md`** — four
+separate invocations, with the reasoning at §14. They are deliberately not duplicated here,
+so there is one place to keep correct.
 
 Coverage breadth by `def test_` count: safety-parked 54 · prompt-budget 22 · prompt-sections
 36 · core-compaction 22 · english-first 14 · era-gating 16 · extraction-budget 42 ·
