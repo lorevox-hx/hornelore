@@ -39,7 +39,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from source_scan_helpers import strip_py_comments
+from tests.source_scan_helpers import strip_py_comments
 
 
 def _fresh_db_module():

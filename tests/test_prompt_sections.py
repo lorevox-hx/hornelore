@@ -458,7 +458,7 @@ class NarratorTextIsNotDuplicatedTest(unittest.TestCase):
         # within the hour. Two copies of a comment-stripper is how the
         # JS side ended up with a broken regex in several files, so it
         # moved next to `strip_js_comments`.
-        from source_scan_helpers import strip_py_comments as _strip_py
+        from tests.source_scan_helpers import strip_py_comments as _strip_py
 
         roots = [_REPO / "server", _REPO / "ui", _REPO / "scripts"]
         hits = []

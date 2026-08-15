@@ -55,7 +55,7 @@ def _strip_js_comments(src: str) -> str:
     a phantom block comment that swallowed hundreds of lines. The repo
     already learned this once; reuse the shared helper.
     """
-    from source_scan_helpers import strip_js_comments
+    from tests.source_scan_helpers import strip_js_comments
     return strip_js_comments(src)
 
 
