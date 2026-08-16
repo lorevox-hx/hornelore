@@ -220,14 +220,20 @@ archive append. **Duplicate = FAIL.** Zero = FAIL.
 `_require_enabled()` returns **404** when `HORNELORE_ARCHIVE_ENABLED` is off, and its
 **documented default is off** (`memory_archive.py:19-20`, `:68-69`).
 
+> **CORRECTED 2026-08-14. Checking the HTTP status is not the test.** `/health` is
+> **flag-agnostic** — it returns `200` with `{"ok": true, "enabled": flags.archive_enabled()}`
+> whether the feature is on or off. A `200` therefore proves nothing. **Parse the JSON
+> `enabled` field.**
+
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8000/api/memory-archive/health
+curl -s http://localhost:8000/api/memory-archive/health \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); print("enabled:", d.get("enabled"))'
 ```
 
-| Result | Action |
+| `enabled` | Action |
 |---|---|
-| Archive **enabled** | Continue to A6b |
-| Archive **disabled** (404) | **Record the export portion UNEXERCISED and continue.** Do **not** edit `.env`, do **not** restart with a different flag, and **do not claim Gate B fully closed** (§16.1). |
+| `true` | Continue to A6b |
+| `false` | **Record the export portion UNEXERCISED and continue.** Do **not** edit `.env`, do **not** restart with a different flag, and **do not claim Gate B fully closed** (§16.1). |
 
 > If Chris wants the export exercised, **that environment decision must be made before the
 > single authorised start** — it is not something L2 may change mid-run.
@@ -260,21 +266,45 @@ The contract is:
 3. **Separately**, confirm `transcript.txt` renders that response once. This is a derived
    human-readable view, **not a second archive write**, and must not be counted as one.
 
+> **CORRECTED 2026-08-14 (second pass).** The first version used
+> `next(root.rglob("transcript.jsonl"))`, which inspects **only the first exported session**.
+> An export contains one transcript pair *per session*, and the acceptance run spans several
+> — so a duplicate landing in session 2 would have gone unseen, and a reply recorded in a
+> later session would have read as missing. **Aggregate across every exported session.**
+
 ```bash
 python3 - <<'PY'
-import json, pathlib, collections
+import json, pathlib
 root = pathlib.Path("/tmp/l2_export")
-jl = next(root.rglob("transcript.jsonl"))
-txt = next(root.rglob("transcript.txt")).read_text(encoding="utf-8")
+jls = sorted(root.rglob("transcript.jsonl"))
+txts = sorted(root.rglob("transcript.txt"))
+print(f"sessions found: {len(jls)} jsonl, {len(txts)} txt")
+assert jls, "no transcript.jsonl in the export — stop, do not interpret"
+
+events = []
+for p in jls:
+    for line in p.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            e = json.loads(line); e["_session"] = p.parent.name; events.append(e)
+rendered = "\n".join(p.read_text(encoding="utf-8") for p in txts)
+
 REPLIES = [ "<paste the full assistant reply from case A1>",
             "<A2>", "<A3>", "<A4>" ]          # exact strings, not prefixes
-events = [json.loads(l) for l in jl.read_text(encoding="utf-8").splitlines() if l.strip()]
+
+fails = 0
 for r in REPLIES:
-    n_struct = sum(1 for e in events
-                   if e.get("role") in ("assistant", "ai") and (e.get("text") or e.get("content")) == r)
-    n_render = txt.count(r)
+    hits = [e for e in events
+            if e.get("role") in ("assistant", "ai")
+            and (e.get("text") or e.get("content")) == r]
+    n_struct = len(hits)
+    n_render = rendered.count(r)
     ok = (n_struct == 1 and n_render >= 1)
-    print(f"{'PASS' if ok else 'FAIL'}  structured={n_struct} rendered={n_render}  {r[:48]!r}")
+    fails += (not ok)
+    where = ",".join(sorted({h["_session"] for h in hits})) or "-"
+    print(f"{'PASS' if ok else 'FAIL'}  structured={n_struct} rendered={n_render} "
+          f"session(s)={where}  {r[:44]!r}")
+print(f"\n{'ALL PASS' if not fails else str(fails)+' FAILED'} "
+      f"(across {len(jls)} session transcript(s))")
 PY
 ```
 
@@ -704,17 +734,28 @@ RESULT: FAIL -- a check that was exercised did not hold.
 **The module nevertheless passes unittest: `Ran 68 tests … OK`, exit 0.** Its printed FAIL is
 **not wired to an assertion**, so it cannot turn the gate red.
 
-Two consequences, both worth knowing before the gate is run:
+**This is expected output, not a defect.**
 
-1. **Do not report Gate 1 as failing because of that line.** Read the unittest verdict on
-   **stderr**, not the harness report on stdout — they are different streams and interleave
-   misleadingly under a pipe (`CLAUDE.md` records this same trap).
-2. **This is a real finding, deliberately not fixed here.** A harness that prints FAIL and
-   exits 0 is decoration, and the repository's own rule is that a test which passes on the
-   defect it was written for is worthless. But the three failing checks are
-   `WO-NARRATOR-BRIDGE` fixture concerns, **outside the Lean Lori lane**, and wiring them to
-   assertions could turn this gate red for unrelated reasons. **Flagged for a separate
-   decision; not touched in this batch.**
+> **CORRECTION 2026-08-14 — my earlier characterisation of this was wrong.** I described the
+> module as "a harness printing FAIL and exiting 0", i.e. decoration with no assertion behind
+> it. **That was overstated and the review was right to reject it.** Those lines are
+> **deliberate negative-test fixtures**: the unit tests drive failing harness scenarios *on
+> purpose* and then assert that the harness reports them correctly —
+>
+> ```python
+> tests/test_wo_narrator_bridge_acceptance.py:924   self.assertIn("FAIL", log)
+> tests/test_wo_narrator_bridge_acceptance.py:931   self.assertNotEqual(0, rc, log)
+> ```
+>
+> So the printed FAIL **is** asserted; it is the thing being proved. A module that reported
+> PASS for a broken scenario would be the actual bug. I withdraw the "decoration" reading.
+
+What remains is a genuine **output-clarity** issue, and it is worth one line of guidance:
+
+**Read the gate's verdict from unittest's exit status and summary on stderr — not from
+harness text on stdout.** The two streams interleave misleadingly under a pipe (`CLAUDE.md`
+records this same buffering trap), and a module that deliberately exercises failure paths
+will print `RESULT: FAIL` while passing. Keep the module in the gate.
 
 ---
 

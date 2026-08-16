@@ -187,7 +187,7 @@ that leaked in LLR-19 is no longer present at all.
 
 Offered for Chris's selection. **Nothing here is authorised by this map.**
 
-### Batch L1 — documentation reconciliation (offline, no stack)
+### Batch L1 — documentation reconciliation (offline, no stack) — **COMPLETE 2026-08-14**
 Correct the stale claims this map found: the reconciliation report's `NS` on Phases 6/7/8;
 the WO's Definition-of-done bullets that still assert *"deterministic safety remains
 active"*; the unexecutable `HORNELORE_RUNTIME_PROFILE` rollback plan; Phase 10's drifted
@@ -240,9 +240,13 @@ Phase 8 remainder (needs the §3 decision) · Phases 2, 11-sweep, 12-manifest (n
 deferred by Chris) · Phases 3A/3B (need Phase 2 plus the §4.4/§4.5 acceptances) · Gate F ·
 the inference coordinator (**do not open**).
 
-**Recommended order: L1, then L2, then L3+L4 as one block.** L1 first because it is free and
-because leaving it undone is the only thing in this lane that can cause a future session to
-destroy working code.
+> **STATUS 2026-08-14: L1 is COMPLETE.** *(This read "Recommended order: L1, then L2, then
+> L3+L4 as one block" — retired now that L1 has landed.)* Delivered: errata banners on the
+> stale historical report, an executable rollback, corrected gate commands, the Profile Seed
+> decision brief, the full L2 runbook, and reproducible safety-preservation evidence.
+>
+> **Next is L2, and it is NOT authorised** — it opens on Chris's word. After that, L3+L4 as
+> one block, once the live evidence and the Profile Seed decision are settled.
 
 ---
 

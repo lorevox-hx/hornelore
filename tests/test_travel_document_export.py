@@ -206,8 +206,27 @@ class TheWorkspaceCanExportTest(unittest.TestCase):
     def test_the_new_css_adds_no_colour_literal(self):
         """Structural only; every colour reuses an existing --tdl-*
         variable so this block cannot drift from the palette."""
-        i = _CSS.index("Travel Document tab (WO-TRAVEL-DOC-CLOSEOUT-01)")
-        block = _CSS[i:]
+        # BOUNDED AT BOTH ENDS — corrected 2026-08-14.
+        #
+        # This read `block = _CSS[i:]`, i.e. from the Travel Document
+        # marker to END OF FILE. That was correct only while this block
+        # was last in the stylesheet. WO-TRIP-PHOTO-PALETTE-01 P2 later
+        # appended the Photo Palette section, so the scan silently grew
+        # to cover somebody else's CSS and began failing on #fff and
+        # #efe8dc -- literals that belong to the Palette, not here.
+        #
+        # An unbounded slice is the same defect this repository has now
+        # hit three times (the fixed-width window in
+        # test_travel_documenter_panel, the naive comment stripper, this).
+        # The END MARKER IS ASSERTED rather than defaulted to end-of-file:
+        # if the Palette block is renamed or removed, this fails loudly
+        # instead of quietly re-widening to swallow whatever comes next.
+        start = _CSS.index("Travel Document tab (WO-TRAVEL-DOC-CLOSEOUT-01)")
+        END = "WO-TRIP-PHOTO-PALETTE-01 P2"
+        self.assertIn(END, _CSS[start:],
+                      "the end marker this scan is bounded by is gone; "
+                      "re-bound it deliberately rather than scanning to EOF")
+        block = _CSS[start:_CSS.index(END, start)]
         # #fffdf7 is the existing card background, already used by
         # .tdl-doc-section; anything else would be a new colour.
         literals = set(re.findall(r"#[0-9a-fA-F]{3,8}\b", block))

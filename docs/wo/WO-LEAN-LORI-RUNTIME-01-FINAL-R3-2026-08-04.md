@@ -889,6 +889,22 @@ Phase 2 only resolves and reports state. Do not park features yet.
 > effective: …"*, so on paper nothing in Gate C could proceed without this. **§3C proceeded
 > anyway**, through a dedicated server-authoritative `HORNELORE_SAFETY_STATE` (`flags.py:260`).
 >
+> **AMENDMENT 2026-08-14 — THIS DOCUMENT'S ROLLBACK PLAN IS UNEXECUTABLE.**
+> The rollback section near the end of this work order, and the Phase 0 review's rollback
+> paragraph, both roll back via *"one documented configuration change
+> (`HORNELORE_RUNTIME_PROFILE`)"*. **That flag has no reader anywhere in the repository**, so
+> neither instruction can be carried out as written.
+>
+> **Do NOT implement Phase 2 merely to make those paragraphs true.** Chris deferred the
+> resolver on 2026-08-09 on the grounds that it is architectural housekeeping improving no
+> narrator turn, and that reasoning stands.
+>
+> An **executable** rollback, written against controls that actually exist, is §15 of
+> `docs/wo/WO-LEAN-LORI-L2-RUNBOOK-2026-08-14.md`. The single most important fact it records:
+> **there is no DB column, no server flag and no per-narrator setting controlling
+> `current_pass`** — its only durable home is browser `localStorage`, so a pass-ownership
+> change cannot be rolled back server-side today.
+>
 > That was the right call for a decision that had to land the same day, it is well tested
 > (54 tests), and it defaults to `parked` by being absent from `.env` — which is the correct
 > posture for a machine nobody configured. **But it means this phase's stated dependency is

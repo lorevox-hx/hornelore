@@ -2,6 +2,28 @@
 
 **Status:** ACTIVE — architectural decision record (synthesis document)
 **Date:** 2026-05-24
+
+> ## ⚠️ AMENDMENT 2026-08-14 — STAGE 1 IS INACTIVE AT RUNTIME
+>
+> **Nothing below is retracted; the nine-stage model still describes the pipeline's shape.**
+> But this ADR predates the safety park and, read cold, it tells a reader that Stage 1
+> classifies every turn. **It does not.**
+>
+> `WO-LEAN-LORI-RUNTIME-01` §3C **parked the entire runtime safety feature** on 2026-08-04
+> (`docs/decisions/2026-08-04-park-safety-feature.md`). In the parked state the LLM safety
+> classifier performs **zero generations**, the safety protocol contributes **zero prompt
+> tokens**, and deterministic scanning is inactive on both the WebSocket and the legacy REST
+> path. The state is server-authoritative via `HORNELORE_SAFETY_STATE` (`flags.py:250-275`),
+> **defaults to `parked`**, and an unrecognised value resolves to `parked` deliberately so a
+> typo cannot switch the family back on.
+>
+> **Parked is not deleted.** Every module, corpus and test is preserved — that is the point of
+> parking rather than removing, and `tests/test_safety_parked.py` (54 tests) proves it.
+> **Reactivation is Chris's explicit decision, never an environment value.**
+>
+> So when reading **Stage 1 — Safety Classification** below: it is the design of record and
+> what reactivation lands on, **not a description of what runs today.** Current state:
+> `docs/wo/WO-LEAN-LORI-PHASE-0-MAP-2026-08-14.md`.
 **Decision owner:** Chris Horne
 **Type:** Architectural Decision Record (ADR) — not a Work Order
 **Companion to:** `HORNELORE-UNIVERSAL-PIVOT-STRATEGY.md`

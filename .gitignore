@@ -195,7 +195,24 @@ wo13_phase5_proof/
 wo13_phase6_proof/
 wo13_phase7_proof/
 wo13_phase8_plan/
-docs/reports/
+docs/reports/*
+# ── NARROW, DELIBERATE EXCEPTION — two synthetic safety artifacts ──────
+# `tests/test_safety_parked.py::test_the_corpus_and_the_measurement_are_kept`
+# asserts these two files EXIST. Under the blanket `docs/reports/` rule they
+# were untracked, so a clean clone failed that test with 2 failures — the
+# preservation guarantee for the parked safety feature was unverifiable by
+# anyone but Chris.
+#
+# THIS IS NOT THE PRIVACY RULE BEING "FIXED". The rule above exists because
+# reports carry LIVE NARRATOR DATA. These two do not, and they say so:
+# the corpus's own note reads "Synthetic red-team phrases from the repo's own
+# test fixtures. No narrator material." Verified 2026-08-14 — the case bodies
+# are synthetic red-team phrases and measurement counts; the only name-shaped
+# match in either file is the string "hornelore", the project itself.
+#
+# Everything else under docs/reports/ stays ignored. Do not widen this.
+!docs/reports/lean_lori_safety_corpus_2026-08-04.json
+!docs/reports/lean_lori_safety_gate.json
 docs/wo13_phase8_proof/
 docs/wo13_phase9_plan/
 test/live test one no camera.docx
