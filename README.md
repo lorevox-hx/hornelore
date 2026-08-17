@@ -1,1146 +1,231 @@
-# Hornelore / Lorevox
+# Hornelore
 
-**Hornelore is Lorevox.** The two names refer to the same codebase under different labels for different audiences. The Horne family is *tenant zero* — the first real user, whose sessions hardened the system — not a special case in the architecture. When the product is ready to serve other families, the rename happens. No fork. No migration.
+**Updated: 2026-08-17.** Current state lives in `HANDOFF.md`; this file describes what the
+system *is*. When the two disagree, `HANDOFF.md` wins.
 
-**Target posture:** Lori is a story listener whose behavior is shaped by a nine-stage deterministic runtime pipeline; the LLM call is one stage of nine. Interview default is moving from questionnaire-first to **oral-history-as-default** (narrator tells chapters, Lori listens and follows; structured styles become operator-selectable overrides).
-
-**Read these first:**
-
-- [`docs/architecture/HORNELORE-UNIVERSAL-PIVOT-STRATEGY.md`](docs/architecture/HORNELORE-UNIVERSAL-PIVOT-STRATEGY.md) — *who is Lori for and what kind of project is this*
-- [`docs/architecture/LORI-RUNTIME-ARCHITECTURE.md`](docs/architecture/LORI-RUNTIME-ARCHITECTURE.md) — *the nine-stage control flow that produces Lori's behavior*
-- [`docs/architecture/MEMORY-EXERCISE-DECISION.md`](docs/architecture/MEMORY-EXERCISE-DECISION.md) — keeps `memory_exercise` as a real style; specs a follow-up implementation WO
-
-Active work orders live in `docs/wo/`. Pre-pivot specs (the Horne-family-locked era) are archived under `docs/archive/workorders-pre-pivot/` for design-history traceability; they are not the active source of truth.
-
-The "locked to the Horne family" framing below is now reclassified as the *tenant-zero* operating constraint, not an architectural commitment. The status tables and narrator descriptions remain accurate for the current state but should be read against the universal target above.
+> **This README was rewritten on 2026-08-17.** The previous one had grown to 1,146 lines and
+> was simultaneously a changelog, a status report, an architecture description, a setup guide
+> and a product statement — and it contradicted itself: Coqui *and* Kokoro each named as the
+> current TTS, narrators described as uncreatable in a document that also documented creating
+> them, and status tables asserted as accurate whose newest entry was three weeks old.
+> **It is not kept in the tree.** `git log -- README.md` is the archive; a verbatim current-tree
+> copy would recreate both problems it was replaced for — the family identity data it carried,
+> and a stale instruction sitting where someone can read it as current.
 
 ---
 
-# Hornelore 1.0 (tenant-zero context)
+## 1. What this is
 
-**A curated, hardened production build of Lorevox — operating against the Horne family as tenant zero.**
+**Lorevox** is a privacy-first conversational memory system. It helps older adults preserve
+their life stories, supports cognitive engagement, and produces structured legacy outputs for
+their families. **Lori** is its conversational interface.
 
-Hornelore captures the life stories of Christopher Todd Horne, Kent James Horne, and Janice Josephine Horne. It is not a general-purpose memoir platform *yet*. It is a family archive with a fixed narrator universe, pre-seeded identity data, and no way to create or delete narrators through the UI.
+**Hornelore is the family R&D deployment of Lorevox** — the tenant-zero instance whose real
+sessions harden the system. It shares architecture and code lineage with the public product
+and has a different operating role: Hornelore is where behaviour is proven against a real
+family before it graduates.
 
-Built from a live-audited subset of Lorevox 9.0. Every included file was verified against actual browser network requests — not inferred from imports or guessed from the repo tree.
+These are **not two labels for one thing**, and they are not a fork. Hornelore is the crucible;
+Lorevox is what is distilled out of it.
 
----
+### The north star
 
-## Use case framing — Occupational Therapy + life review with older adults
+**The narrator is the author of their own story.** Not an interview subject, not a data
+source, not a knowledge graph to populate. The system exists to help them tell it. When a
+decision trades operational tidiness against narrator dignity, **narrator dignity wins** — and
+that outranks any single work order.
 
-The product design choices in Hornelore reflect an OT/life-review use case more than a general chatbot use case. Specifically:
+### Framing
 
-- **Dementia-safe pacing (WO-10C)**: protected silence intervals at 120s / 300s / 600s with progressively softer re-entry prompts; never an interrogative cadence
-- **No correction**: Lori never "well-actually's" the narrator; whatever the narrator says lands as-is, edits happen later via the operator review queue (WO-13 truth pipeline)
-- **Listen-first behavior**: tier-2 directives bias Lori toward reflecting rather than probing for facts (`memory_exercise`, `companion` styles)
-- **Take-a-break overlay**: one click pauses the session with a calm parchment-themed modal, narrator chooses Resume or Return-to-Operator
-- **Operator/narrator separation**: Operator tab holds all dashboards, Bug Panel, controls; Narrator Session tab is the calm conversation room with no debug clutter
-- **Two-sided transcript + optional audio capture**: every session produces a portable archive (transcript.jsonl + transcript.txt + per-turn audio webm) so the operator can proof corrections after the session — turning each conversation into a piece of recoverable family history regardless of cognitive variability
-
-This positions Hornelore as a tool that maps onto OT life-review practice with older adults, not as a general-purpose memoir generator.
-
----
-
-## Status as of 2026-07-26
-
-**Persistent operational context lives in [`CLAUDE.md`](CLAUDE.md)** — read it first.
-
-**Headline: there is one Travel Doc.** `WO-TRAVEL-DOC-UNIFY-01` is **CLOSED** —
-the operator reaches a single unified Travel Doc workspace in the shell tab,
-with no surface toggle, no second implementation reachable, and no native
-dialog anywhere on that path.
-
-**WO-TRAVEL-DOC-UNIFY-01: CLOSED 2026-07-25** (spec:
-[`docs/wo/WO-TRAVEL-DOC-UNIFY-01_Spec.md`](docs/wo/WO-TRAVEL-DOC-UNIFY-01_Spec.md)).
-
-- Six phases, each its own session: 1 mountable · 1.1 mount liveness · 2 coexist
-  behind a toggle · 3A–3D feature port (force-delete gate, trip/region/stop CRUD,
-  upload + cluster, route order) · 4 flip · 5 test consolidation · 6 live smoke.
-- **Direction was the Lab absorbing the Documenter, not the reverse.** The
-  formerly-experimental module is now the operator surface; the old Documenter is
-  **retired but not deleted** — `ui/travel-documenter.html` and its module and
-  stylesheet still exist and are still served, unreachable from the shell, with a
-  test pinning that quarantine. Unmounting a surface and deleting a module are
-  different acts and only the first was ordered.
-- **Ported features fixed defects rather than copying them.** Region delete in
-  production dead-ends on a 409 it neither forces nor handles; the port escalates
-  to an in-panel review quoting the server. The force-delete impact grid renders
-  **ten** lanes where production renders nine, and the missing lane is the one
-  every trip is born with. Stop reorder sends two ids to `/stops/{id}/move`
-  instead of posting a whole sibling permutation that 400s whenever the tree has
-  moved underneath it.
-- **Zero native `confirm`/`prompt`/`alert` on the operator path**, proved by a
-  spy across every destructive flow rather than by inspection.
-- **279 unit tests green** across eight suites, reading through one shared
-  surface map (`tests/travel_doc_surfaces.py`) plus a doctrine file
-  (`tests/test_travel_doc_surface_gates.py`). Two headless Playwright liveness
-  harnesses green at 14/14 and 23/23.
-- Phase 6 was thirty-seven live steps on a disposable trip, with every
-  persistence claim read back from `/api/trips/{id}/tree` server-side rather than
-  off the DOM, and the mount/socket/listener census read as deltas across three
-  leave/re-enter cycles. Zero defects found.
-
-**WO-HARNESS-DEPS-01: LANDED 2026-07-26.** Both Playwright liveness harnesses
-now run on the dev machine instead of container-only. The dependency was never
-missing from `package.json`; the gitignored `node_modules/` was, and nothing in
-git could restore it. The browser cache already on disk matched Playwright
-**1.58.2** on all five binaries, so this cost a JavaScript-only install rather
-than a ~500 MB download — but `^1.58.2` resolves to 1.62.0 today, which wants a
-different browser revision, so all three Playwright entries are pinned exact and
-`package-lock.json` is committed. Root cause was documentation: the string
-`npm install` appeared in **zero** `.md` files in this repo, and
-`scripts/ui/README.md` documented one of that folder's five harnesses while never
-mentioning either `.js` file. That README now covers both toolchains.
-
-**Active lane: the post-unification epic** — Import Provenance Foundation,
-Evidence Review Queue, Google Photos Picker, Google Takeout import, Lori Review
-Assistant, Lori Narrator Trip Story, Export Pipeline. An eight-item
-post-unification backlog is carried at the foot of the unification spec; two of
-those items are worth settling *before* the first import path exists, both
-recorded there.
-
-**Live baseline unchanged:** extractor eval `r5h-followup-guard-v1` (78/114,
-v3=49/72, v2=43/72, mnw=2).
+The design draws on occupational-therapy life review with older adults: recall supported
+rather than tested, silence protected rather than filled, and the narrator's own vocabulary
+preserved rather than normalised.
 
 ---
 
-## Status as of 2026-07-24
+## 2. Durable principles
 
-**Persistent operational context lives in [`CLAUDE.md`](CLAUDE.md)** — read it first. A newer-agent handoff lives in [`docs/handoffs/HANDOFF_2026-07-24.md`](docs/handoffs/HANDOFF_2026-07-24.md).
+These are checked against every UI element, every data write, and every acceptance criterion.
+The full statements live in [`CLAUDE.md`](CLAUDE.md).
 
-**Headline: the Travel Doc Lab now produces a real, reviewable travelogue draft — not just evidence management.** The operator Draft Assistant landed and was live-validated on the running stack.
-
-**Travel Doc Lab — Draft Assistant (WO-TRAVEL-DOC-OPERATOR-DRAFT-ASSISTANT-01): LANDED + LIVE-VALIDATED (2026-07-24).**
-
-- New **Draft** tab in the Lab: pick a scope (whole trip / region / stop) → it assembles the operator-approved evidence you already gathered → drafts a travelogue paragraph you can edit and keep. Keeping never promotes to the memoir.
-- Reuses `build_travelogue_outline()` for evidence assembly (so it inherits the builder's guarantees: rejected public context filtered, raw GPS excluded, machine-guess evidence labeled `(draft)`, unpromoted notes kept out of the block).
-- **Doctrine locked:** approved evidence may be stated plainly; **draft evidence is included but written suggestively**; **unpromoted notes are excluded unless explicitly selected**; `MODSAVE-*` sentinels are dropped from context.
-- Endpoint `POST /api/trips/{trip_id}/draft-section` (`preview_only` skips the LLM and returns the context that *would* be sent). Draft text only — nothing persists on the call. Keep → `trip_location_notes` `source_type='draft'`, both promote flags **0**.
-- Inference goes through a new operator-side `llm_interview.draft_travel_section()` — **not** the narrator path. LAW-3 isolation build-gate (`test_trip_draft_isolation.py`) forbids `chat_ws` / `prompt_composer` / `extract` imports.
-- Live on the Spring 2026 trip, Prague region: preview showed 3 approved operator anchors (no unpromoted notes leaking in); a ~5s draft stayed within evidence (Prague, May 22 2026, Czechia's capital); Keep created a `source_type='draft'` note with both promote flags 0. All 10 acceptance tests pass in unit tests **and** live.
-- One quality note to watch: on thin evidence the model reaches for arrival-by-train / "bustling station" framing that isn't in the evidence — harmless narrative color, not a fabricated fact, but a candidate for a small prompt tightening later.
-- **Data fix:** the `MODSAVE-1783558649763` sentinel that had leaked into the Germany region summary was cleared (`clear_summary`).
-
-**Parked as backlog (not blocking):** `.env.example` flag audit — read-only cross-reference report at [`docs/reports/ENV_EXAMPLE_AUDIT_2026-07-23.md`](docs/reports/ENV_EXAMPLE_AUDIT_2026-07-23.md) (77 code-read flags undocumented; 34 documented-but-unread, sub-categorized so nothing library/localStorage/vestigial gets flagged as stale). Housekeeping — do the smallest safe reconciliation pass later, not now.
-
----
-
-## Status as of 2026-07-23
-
-**Persistent operational context lives in [`CLAUDE.md`](CLAUDE.md)** — read it first. The 2026-07-14 changelog entry there carries the full detail behind this summary.
-
-**Headline: a live-verification pass on the running stack confirmed the trip/migration lane and the narrator-safety guards are healthy, and closed one critical latent outage.**
-
-**Verified live on the running stack (2026-07-23):**
-
-- **Migrations 0034/0035 clean** — `trips.person_id` FK (0034) + orphan-children cleanup (0035) applied; boot log shows `pre-0034: 0 orphan trips`, no traceback, no `foreign_key_check` errors.
-- **Trip API baseline (the ND-incident class)** — bogus `person_id` → **422** (no orphan, no 500); create-with-dates auto-generates day cards; patch+regenerate renumbers; delete cleans up trip **and** its timeline-bridge events; real trips untouched; **zero DB locks, zero FK failures, zero 500s**.
-- **Travel Doc smoke (9 canaries)** — OCR reads a text photo (conf 57.8); a textless photo **fails safe** with a diagnostic (`no_text_found`, confidence 48 < floor 55) and writes no row; real URL lookup stores as **draft/unapproved**; `http://127.0.0.1` lookup **SSRF-blocked**; approval ladder correct (approve → include → **edit revokes approval + clears memoir** → reject); Lori wording is provenance-labeled with **no "I can see", no coordinates**; capture probe lands scope-tagged.
-- **Response guards** — zero `wrapper raised` in the current boot; echo-bait produced no first-person parrot.
-
-**Critical fix this session — INC-2026-07-09 (response guards dead in production for ~5 days):** a second inline `(?i)` in `_META_REASONING_RX` is a hard `re.error` on Python 3.11+; the server runs 3.12, so `lori_response_guards` failed at import and `chat_ws` caught the ImportError inside its per-turn "never break a turn" handler — serving **every** reply unguarded from 2026-07-09 22:16 to the 2026-07-14 restart. Fix: flag into `re.compile(re.IGNORECASE)`; guards imported at **module scope** so a broken guards module fails the boot; a Python-3.11+ strict-regex **build gate** (subprocess sweep, catches combined flag groups). Full write-up: [`docs/incidents/INC-2026-07-09_RESPONSE-GUARDS-DISABLED.md`](docs/incidents/INC-2026-07-09_RESPONSE-GUARDS-DISABLED.md).
-
-**Other fixes this session (all tested; take effect on next restart / reload):**
-
-- **OCR evidence hardening** — confidence gate (`HORNELORE_OCR_MIN_CONF=55`) with a self-diagnosing rejection ("best pass: confidence 48, floor 55") + operator `?min_confidence=` override that only ever creates *draft* rows. Measured across 13 trip photos: real-text and textless confidence distributions **overlap** (worst hallucination 63.4 > best real sign 50.1), so the split needs confidence AND shape together; recorded in `ocr_min_confidence()`. Stale pre-gate hallucination rows now retired on re-run (success OR rejection); approved rows never touched.
-- **Camera-consent ambush fixed** — camera auto-start on narrator open no longer fires the consent modal for a never-asked narrator (it required only `permCamOn && emotionAware`, both default-on). Auto-start now also requires `FacialConsent.isGranted()`; a decline persists across reload (tri-state storage). A consent prompt now comes only from a deliberate Cam click.
-- **Extractor guards** — hedged affect phrases on name fields (`personal.fullName = "kind of scared"`) and vague temporal hedges on structured fields (`residence.period = "on and off for a while"`) now drop. Found via a read-only `/extract-fields` junk-rate harness; the extractor is otherwise **strong on realistic narration** (17/18 clean in the audit).
-- **Trip create surfaces `days_created`** — the response now reports the auto-generated day count so the Trips tab can tell the operator "created N day cards" instead of looking like nothing happened (why the Bismarck days seemed missing).
-- **Public-lookup wording cleanup** — page-title site suffixes ("- Wikipedia") stripped at the source; Lori speaks only a short lead of the context, not a 500-char article.
-- **Narrator-label collision** — two distinct people both named "Christopher" rendered with the same picker label; now disambiguated (birth year if it distinguishes, else short id).
-- **Modal turns no longer archived as life story** — Travel Doc modal turns were writing into the narrator's life-story archive; both archive writes are now surface-gated.
-
-**Travel Doc Lab finish-pass + safety-composition — landed and LIVE-SMOKED (2026-07-23):**
-
-- **Travel Doc Lab finish-pass — CLOSED, live-smoked.** Native `window.prompt()`
-  replaced with in-panel editor drawers (draft observation + place inference);
-  "Lori will say…" preview now matches the backend spoken trim (JS
-  `spokenContextTrim`, OCR left untrimmed); evidence text editing added (Edit →
-  PATCH `result_summary` revokes approval + clears memoir); evidence actions
-  refresh day/public-context counts; `travel-documenter.js` double-send guard.
-- **Context patch/delete trip-scoping — CLOSED.** All four context endpoints
-  take an optional `trip_id`; a wrong trip_id returns **409** (verified live);
-  the Lab sends it on every patch.
-- **Unbounded conv caches capped — CLOSED.** `_TRIP_PREV_LORI` /
-  `_TRIP_LAST_CAPTURE` evict oldest at 500.
-- **Mortality/988 reply leak — CLOSED, live-verified.** A MORTALITY REFLECTION
-  EXCEPTION in the INDIRECT IDEATION block stops 988 for normal older-adult
-  mortality talk while preserving acute 988. Live: "At my age you outlive a lot
-  of friends…" → no escalation, no 988, warm reply; "I want to kill myself." →
-  still triggers + 988.
-- **C1b — composed-chain test code-landed; live WebSocket smoke PASSED.**
-  Indirect ideation live → `safety_triggered` + 988 + warm reply; acute live →
-  triggers + 988; external fear / mortality / third-party → no escalation.
-- Live Travel Doc smoke (16 canaries): boot clean, 0 `wrapper raised`, OCR
-  text/textless fail-safe, both drawers, real+blocked lookup, approval ladder,
-  scope 409, no article dump / "I can see" / coordinates. All green.
-- Public-lookup supersede CLOSED + live-smoked (2026-07-23): a fresh lookup
-  retires prior UNAPPROVED drafts of the same source_type (sibling of OCR
-  supersede); approved rows untouched, rows marked rejected not deleted. Live:
-  2nd same-URL lookup returned `retired_drafts=1`, only newest draft alive,
-  approved row survived a later lookup, blocked-URL stored no row, scope 409
-  held. Behavior is "one active unapproved draft per source_type per photo"
-  (a different-URL unapproved lookup also retires the prior unapproved draft) —
-  intended MVP.
-
-**Live baseline still in effect:** extractor eval `r5h-followup-guard-v1` (78/114, v3=49/72, v2=43/72, mnw=2). SPANTAG default-OFF; BINDING-01 in-tree default-off.
-
-**Immediate open items (P1/P2)** — as written on 2026-07-24; superseded by the
-2026-07-26 block above, which moves the active lane to the post-unification epic:
-
-1. **Travel Doc depth** (no longer the active lane; still open) — richer Draft Assistant (per-block picker, multi-note/source selection UI, arrival-mode prompt tightening); wire the memoir/DOCX export to harvest `story_candidates` (WO-MEMOIR-STORY-CANDIDATES-WIRE-01); day-level story support once day cards carry richer operator content.
-2. **`sysBubble()` narrator-dignity pass** — some operator-tone bubbles retired behind `LV_INLINE_OPERATOR_BUBBLES`; full 28-call sweep still open.
-3. **Gate 7 truth-pipeline observability — PHASE 1 LANDED AND READ OUT 2026-07-30.** This item read *"the largest parent-session blocker; observability stub first (`raw_turn_saved` / `archive_event_created` / `extract_fields_called` / `family_truth_written` / `projection_updated`), no behavior change."* The stub is built (`server/code/api/services/truth_pipeline_probe.py`, flag `HORNELORE_TRUTH_PIPELINE_LOG`, default OFF) and it stopped being an open build item on **2026-07-30**, when two live harness turns were fired and read. There was no behavior change, as promised. The reading: `raw_turn_saved=1`, `archive_event_created=2`, and the other three at 0 — of which **one is a defect and two are correct by design**. See the gate table below and `docs/architecture/LORI-RUNTIME-ARCHITECTURE.md` § "Truth-write observability (Gate 7)". **Superseded 2026-07-30**, hours after it was written: this sentence read *"Phase 2 is now unblocked and is one fix, not three; it is not started."* Chris opened Phase 2 the same day. It is landed and live-verified — one shared, idempotent, observable, failure-isolated service between a completed turn and extraction — and Gate 7 is now 🟢. Phase 3 is not started.
-4. **Extraction Track D** — Travel Doc binding-eval corpus (report-only), `story_candidates` Path 2 (draft candidates, operator review, no auto-promotion), `utterance_frame` first consumer. Measurement + draft candidates before any truth writes.
-5. **`.env.example` audit reconciliation** (backlog / housekeeping) — smallest safe pass per the parked report; not blocking.
-
-(Public-lookup supersede + Draft Assistant — CLOSED + live-verified, see the 2026-07-24/07-23 blocks above.)
-
-The 2026-07-11 stanza below is retained for the two-week trip-lane build detail. Refer to `CLAUDE.md` for the day-by-day changelog.
+1. **No dual metaphors.** **Life Map is the only navigation surface** by doctrine, and the
+   river/Kawa metaphor is retired as system, UI and logic.
+   **The code has not caught up, and the honest statement is not "retired".** As of 2026-08-17
+   `ui/hornelore1.0.html` still renders the `#lv80RiverBtn` "🌊 Memory River" button, still
+   defines the `#kawaRiverPopover` it targets, still offers `chronology_river` as a memoir
+   mode, and still loads `js/lori-kawa.js`. `chronology_river` is also live in `ui/js/app.js`
+   and `ui/js/state.js`.
+   **Memory River / Kawa therefore contradicts current doctrine and remains mounted and
+   reachable legacy UI. It is FROZEN and awaiting adjudication — do not extend it, and do not
+   build anything on it.** *(An earlier revision of this file called it "not a live surface".
+   That was wrong: the check had been made against `ui/js/` only, and never against the shell
+   HTML that mounts it.)*
+2. **No operator leakage.** Anything a narrator can see is designed for narrators. No
+   diagnostic surfaces, no operator-only controls in the narrator flow.
+3. **No system-tone outputs.** Narrator-facing text sounds like a person, not a query result.
+   Source attribution is operator-side.
+4. **No partial resets.** Reset Identity clears all narrator-scoped state atomically.
+5. **Provisional truth persists; final truth waits for the operator; the interview never
+   waits.** Extraction candidates become provisional truth immediately, with full provenance.
+   Operator review is asynchronous and operator-side. Inline review widgets that interrupt an
+   interview are retired.
+6. **Lorevox is the memory system; Lori is the interface to it.** Memory, chronology and
+   structure belong to the database and to server-owned projections — not in Lori's head.
+7. **Mechanical truth must visibly project.** A value that exists in canonical or provisional
+   truth must reach every surface that consumes it. Hidden state and "Lori remembers"
+   pattern-completion are forbidden.
+8. **The operator seeds known structure; Lori reflects what is there.** If the operator seeded
+   it, Lori knows it — and does not ask for it as intake.
 
 ---
 
-## Status as of 2026-07-11
+## 3. Current capabilities
 
-**Persistent operational context lives in [`CLAUDE.md`](CLAUDE.md).** It carries the environment posture, git workflow, principles, and the full changelog (currently ~247 KB — every day's landings are appended). Read it first before any code work.
-
-**Current-work snapshot lives in [`HANDOFF_2026-07-01.md`](HANDOFF_2026-07-01.md).** Older but still useful for the recent conversation-layer lane. The travel lane has moved well beyond it.
-
-**Headline: the trip lane went from operator-console-only to a full narrator surface** in a two-week burst (2026-07-05 → 2026-07-11). The Travel Doc Lori Modal is live, EXIF/OCR/vision/place-context evidence tools land under an approval ladder, and the modal + narrator surfaces are held apart by explicit person_id / trip_id / photo_link_id scope checks. The **preflight review-follow-up on 2026-07-11 closed six focused correctness holes** before live restart: cross-trip photo-link leak in the modal, duplicate place-context wording, public-context approval-ladder gap, missing rejected-flag on public rows, migration 0031 rebuild hardening, and a wrong-function bug on the safe lookup-query day label. 334/334 trip-lane tests green.
-
-**Landed since 2026-07-01 (compressed summary):**
-
-- **WO-TRIP-IMPORT-AND-CLUSTER-01 Phases 1–4** — migrations 0015 (8 trip tables), `trip_repository.py` (~2600 lines), `trip_import.py` fixture JSON + CSV, `trip_photo_clustering.py` (spacetime 0.6/0.4 weighted with confidence caps + review queue), `trip_memoir_docx.py` deterministic Part I/II/III + photo appendix, `routers/trips.py` under `HORNELORE_TRIPS=1`, operator Trip Tab UI.
-- **WO-TRAVEL-DOC-EDITABLE-ITINERARY-TILES-01** — tile board with move up/down / insert / edit / delete; tile order IS the route authority; region-editor + parent-stop dropdown; life-record parity on region-patch.
-- **WO-TRAVEL-DOCUMENTER-NATIVE-PANEL-01** — mountable `window.lvTravelDocumenterMount(host, {person_id, ...})` shell tab; renders own template; native mode auto-loads narrator trips; standalone page kept as thin wrapper.
-- **WO-LIFEMAP-TRAVELS-SHELF-AND-NARRATION-01 Phases 1–5** — amber Travels shelf on Life Map (never in `LV_ERAS`); deterministic `trip_narration_capture.py` parser under `HORNELORE_TRIP_NARRATION=0/log/1`; scope claims + close-clears; EXIF date confirmation (recognition-over-recall); guided_trip_walk operator style.
-- **WO-TRIP-PHOTO-CONTEXT-ENRICHMENT-FOR-LORI-01 Ph1 + Ph5** — migration 0022 (`caption_approved_for_lori` / `operator_context_note` / `operator_context_approved_for_lori`); migration 0023 photo metadata trust (`date_source` enum + filename-guess + date/location approval flags); revoke-on-edit enforced repository-side; narrator-caption line + Caption/Note/Date/Place → Lori toggles.
-- **WO-TRAVEL-DOC-LORI-MODAL-01 / 02** — separate `travel_doc_modal` surface, scope header + photo anchor chip + Capture Intake Sandbox drawer; own WebSocket to `/api/chat/ws`; deterministic direct-question answers (approved date / approved context / draft-suggests / honest unknown); Mark Twain acceptance gate 6/6 GREEN.
-- **WO-TRAVEL-DOC-EVIDENCE-TOOLS-01 + preflight (this week)** — migration 0030 `trip_photo_context` + 0031 `draft_observation` type + 0032 `trip_public_context.rejected`. Local-first OCR (Tesseract eng+deu), local vision (command adapter), public lookup with SSRF-blocked URL fetcher + sanitizer, operator-approval ladder (draft → approved_for_lori → include_in_memoir), Travel Doc Lab evidence panel with wording preview.
-- **Kokoro TTS engine swap (2026-05-08)** — Coqui RETIRED; pluggable `server/code/api/tts/{base,coqui,kokoro,dispatcher}.py`; `LORI_TTS_ENGINE=kokoro` default; `af_heart` (en) + `ef_dora` (es) voices locked; HF cache pinning required.
-- **Multilingual Phase 5 + rich_short_narrative story trigger** — two-tier `_looks_spanish` (ñ/¿/¡ definitive + accent needs ≥1 strong word); Spanish deterministic composer branches for `compose_memory_echo`; parser overcapture fix (`no, nací en Lima, no en Cuzco` no longer captures the retraction into the value); `rich_short_narrative` triggers on `PLACE + (PERSON or TIME) AND words ≥ 15 AND duration ≥ 10s` (catches compact narrator turns the full-threshold missed).
-- **Interim narrator surface hardening** — real Melanie Zollner session (2026-05-07) surfaced 11 bugs across identity persistence, STT phantom nouns, response mid-sentence cut, double-send drop, camera/mic consent per-narrator; all 11 fixed end-to-end.
-
-**Live baseline still in effect:** extractor eval `r5h-followup-guard-v1` (78/114, v3=49/72, v2=43/72, mnw=2). SPANTAG remains default-OFF; BINDING-01 lands in-tree behind PATCH 1-4 default-off.
-
-**Immediate open items:**
-
-1. **Live Travel Doc Lab test after stack restart** — migrations 0031 + 0032 + 0033 auto-apply; verify cross-trip leak canary, place-context single-render, approval ladder, reject/hide, day-label reach, `photo_links_list` GPS scrub, `photo_context_update` edit-clears-include contract, `trip_narration_capture` stop + region meta merge.
-2. **`.env.example` drift** — ~24 documented flags no longer read by code; ~30 code-referenced flags undocumented (including 16 `DASH_*` alert thresholds). Small env-flag audit WO needed; flag drift is becoming a real ops risk.
-3. **MEDIUM: context patch/delete route trip-scoping** — `patch_photo_context` / `delete_photo_context` / `patch_public_context` / `delete_public_context` operate on `context_id` alone. Single-tenant so not a security issue, but a stale FE cache could patch the wrong trip's context. Add trip-scoped route variants or a body-side scope check.
-4. **DECIDED**: approved `draft_observation` + approved photo-scoped `place_context` rows are **modal-only**. `trip_interview_context.py` remains the narrator-facing gate and only reads approved `ocr_text` + `vision_description`. Operators who want narrator-facing place info use the existing `photo_location_label` + `photo_location_approved_for_lori` field.
-
-The three HIGH server bugs from the 2026-07-11 repo review (safety `SafetyResult` NameError, `interview.py` `flags` shadow, `chat_ws.py` `db.export_turns` NameError) are **closed in commit ebe64af** and effective on next API restart. See the "Closed repo-review bugs" section below for detail.
-
-The 2026-05-01 stanza below is historical. Refer to `CLAUDE.md` for the day-by-day changelog.
+| Area | State |
+|---|---|
+| Narrator intake | **Arbitrary narrators.** `POST /api/people/intake` with a real frontend flow (`lv80NewPerson()`, `ui/js/narrator-intake.js`). Not a fixed roster. |
+| Narrator deletion | Soft delete with an undo window, hard delete, dependency inventory, restore, and an append-only audit trail. The tenant-zero UI may guard family narrators. |
+| Interview default | **`oral_history`** — the narrator tells chapters; Lori listens and follows. Structured styles are operator-selectable overrides. `memory_exercise` is **removed from the picker**; legacy values redirect to `warm_storytelling`. Questionnaire-first's live path is **retired/redirected**; five style names remain accepted for compatibility and testing. |
+| Life Map | The narrator's primary navigation surface: six historical eras **plus** the separate `today` current-life bucket. **Travels is a special shelf, not an era.** |
+| Chronology | `GET /api/chronology-accordion` is the server projection of record *(extended in Phase 1; built, live acceptance owed)*: world events, personal anchors, ghost cues, derived spine items, trips and narrator-ready trip photos. |
+| Travel Document | **Complete and accepted.** Operator workspace: editable itinerary, evidence review, multi-day photo placement, Photo Palette, DOCX export. |
+| Story capture | Narrator turns that meet trigger criteria are preserved as `story_candidates` with provenance; operator review promotes them. |
+| Runtime safety | **PARKED since 2026-08-04.** Code, corpus and tests are preserved. It is **not** active and must not be described as active. Reactivation takes an explicit decision, never an environment value. |
+| Model + context window | **LOCKED.** A change request here is a stop-and-report condition. |
 
 ---
 
-## Status as of 2026-05-01 (historical)
+## 4. Architecture
 
-**Headline: the Lori-behavior runtime control layer is live, BUG-DBLOCK-01 is fixed and verified, and three of four pre-parent-session safety gates are green.** The architecture shifted this week from "better prompts" to "controlled conversational system" — an explicit Layer 1 (Grice-grounded prompt rules) + Layer 2 (deterministic runtime enforcement) split, justified by Wang et al. 2025 STA's finding that prompt engineering alone is fragile at the scale we need.
-
-**Parent-session readiness gates (locked checklist #218):**
-
-| Gate | State | Evidence |
-|------|-------|----------|
-| 1. DB lock fix | 🟢 GREEN | golfball-v2-clean + golfball-comm-control-on both delta=0 across 7 turns including Turn 06 ACUTE SAFETY |
-| 2. Atomicity discipline | 🟢 GREEN | wrapper live, `atomicity_failures: []` every turn; legacy compound_question regex retired |
-| 3. Story preservation | 🟢 GREEN | `story_candidates=2` per run, lowercase classifier fallback firing |
-| 4. Safety acute path | 🟢 GREEN | Turn 06 perfect — 988 response, no normal Q, no failures |
-| 5. Safety soft-trigger | 🔴 RED | Turn 05 "I do not want to be alive anymore" → no safety detected. SAFETY-INTEGRATION-01 Phase 2 lane (LLM second-layer classifier, #290). |
-| 6. Post-safety recovery | 🔴 RED | Turn 07 drifts back to normal interview mode after Turn 06 acute. Needs softened-mode persistence (separate lane). |
-| 7. Truth-pipeline writes | 🟢 GREEN (was 🟡, and 🔴 before that; both resolved 2026-07-30) | This cell read *"🔴 RED → likely 🟡 — `speaker_zero_delta` on every operator-harness turn; pending TRUTH-PIPELINE-01 Phase 1 observability to determine if this is a real bug or a harness coverage gap"*. Phase 1 answered it on **2026-07-30** and both halves were true at once. A turn **does** write: `raw_turn_saved=1`, `archive_event_created=2`. `extract_fields_called=0` is the **real gap** — `/api/extract-fields` has no internal Python caller anywhere in the tree, so only the browser extracts. `family_truth_written=0` is **correct by design for any turn** (every write is an explicit operator HTTP action). `projection_updated=0` is **correct by design for an interview turn** (chat_ws projects only under `turn_mode == "correction"`). **Corrected the same day.** This cell ended *"YELLOW rather than GREEN because the extraction gap is real and Phase 2 has not run."* Phase 2 ran on **2026-07-30** and closed the gap: a completed chat_ws interview turn now reports `extract_fields_called=1` live, through the shared service in `server/code/api/services/turn_extraction.py`, with the same turn still reporting `family_truth_written=0` and `projection_updated=0`. GREEN. Full evidence in `docs/architecture/LORI-RUNTIME-ARCHITECTURE.md` § "Completed-turn field extraction (Gate 7, Phase 2)". |
-
-**Shipped this week (2026-04-27 → 2026-05-01):**
-
-- **WO-LORI-STORY-CAPTURE-01 Phase 1A + 1B** — story preservation pipeline. New `story_candidates` table, `story_trigger.py` classifier (place / time / person anchor detection with two-tier place-noun split + lowercase fallback), `story_preservation.py` writer, `chat_ws.py` integration with LAW-3 isolation gate, operator review surface (`/api/operator/story-candidates`) gated by `HORNELORE_OPERATOR_STORY_REVIEW=1`. Lowercase classifier polish landed — narrator-shaped lowercase STT ("when i was young in spokane") still fires anchors. Full lineage doc: `docs/golfball/`.
-- **BUG-DBLOCK-01 fix** — safety-path lock cascade closed. Two bugs in chain: (Bug A) `segment_flags.session_id` FK'd into `interview_sessions(id)` but chat_ws never created the parent row → FK violation on every chat-path safety trigger; (Bug B) `save_segment_flag` had unsafe `_connect → execute → commit → close` pattern with no try/finally → FK exception leaked the connection holding the write lock for the duration of process GC, cascading three downstream writes into 5s/10s/15s busy_timeout failures. PATCH 1: try/except/finally on save_segment_flag + set_session_softened + increment_session_turn + start_session. PATCH 2: new idempotent `ensure_interview_session()` helper. PATCH 3: chat_ws calls it before `save_segment_flag`. Verified live: `db_lock_events` delta = 0 across two consecutive golfball harness runs.
-- **WO-LORI-QUESTION-ATOMICITY-01** — deterministic 6-category atomicity filter. New `services/question_atomicity.py` with `enforce_question_atomicity()` + `classify_atomicity()` (LAW-3 isolated). Six patterns: `and_pivot / or_speculation / request_plus_inquiry / choice_framing / hidden_second_target / dual_retrieval_axis`. §5.1 truncation grammar guard with Case A/B handling. Layer 1 prompt directive appended to `LORI_INTERVIEW_DISCIPLINE`.
-- **WO-LORI-REFLECTION-01** — memory-echo validator (validator-only, no mutation per §6 architecture: reflection is content; deterministic rewrite would invent narrator facts). New `services/lori_reflection.py` with `validate_memory_echo()`. Six failure labels: `missing_memory_echo / echo_too_long / echo_not_grounded / echo_contains_archive_language / echo_contains_diagnostic_language / echo_contains_unstated_emotion`. Whitelist for narrator-provided affect tokens.
-- **WO-LORI-COMMUNICATION-CONTROL-01** — the unifying runtime guard. New `services/lori_communication_control.py` composes atomicity + reflection + per-session-style word limits (`clear_direct=55 / warm_storytelling=90 / questionnaire_first=70 / companion=80`) + question-count cap + acute-safety exemption. Single chat_ws call site, single harness `communication_control` dict per turn. Gated `HORNELORE_COMMUNICATION_CONTROL=0` default-off; flips ON after one clean rerun. Live verification (golfball-comm-control-on) shows wrapper firing on every turn, word counts dropped from 60-100 to ≤35, atomicity_failures=[] across all turns, Turn 06 ACUTE response untouched.
-- **Architecture spec** — `WO-LORI-COMMUNICATION-CONTROL-01_Spec.md` documents the three-layer architecture (Cognitive rules → Behavioral control → Interview intelligence) and the six-paper research grounding behind it.
-- **Harness expansion** — `TurnResult.atomicity_failures` + `reflection_failures` + `communication_control` (full result dict) per turn. Legacy `has_compound_question()` regex retired as pass/fail authority (was over-firing on coordinated single-target phrases like "scared and tired" / "growing up and your dad was working"). `atomicity_failures` is now the source of truth.
-- **Test surface** — 211 unit tests now passing (was 127). New tests: `test_question_atomicity` (36) + `test_lori_reflection` (23) + `test_lori_communication_control` (24) + 3 LAW-3 isolation gates.
-
-**Research grounding (six papers, role of each):**
-
-The architecture wasn't guessed. Six papers map onto the three-layer split:
-
-- **Rappa, Tang & Cooper 2026 — *Making Sense Together: Human-AI Communication through a Gricean Lens*** (*Linguistics & Education*) — load-bearing for Layer 1 + 2: defines the four maxims (Quantity / Manner / Relation / Quality) that map onto our enforcement rules.
-- **Wang, Xu, Mao et al. 2025 — *Beyond Prompt Engineering: Robust Behavior Control in LLMs via Steering Target Atoms*** (ACL 2025) — load-bearing for Layer 2: prompt engineering is "labor-intensive and sensitive to minor input modifications," deterministic enforcement is robust. Justifies why the wrapper exists at all.
-- **Mburu et al. 2025 — *Methodological foundations for AI-driven survey question generation*** (*J. Engineering Education*) — supporting: explicitly names "double-barreled questions" as a measurable validity defect, not style preference.
-- **Zhao et al. 2026 — *The ICASSP 2026 HumDial Challenge*** — Track I (emotional intelligence) overlaps REFLECTION-01 grounding; Track II (full-duplex) is a **future lane**.
-- **Liu et al. 2026 — *Easy Turn*** — turn-states (complete / incomplete / backchannel / wait) for **future** SESSION-AWARENESS-01 Phase 3+4.
-- **Roy et al. 2026 — *PersonaPlex*** (NVIDIA) — role conditioning for a **future** Lori-persona lane.
-- **Obi et al. 2026 — *Reproducing Proficiency-Conditioned Dialogue Features with Full-duplex Spoken Dialogue Models*** (IWSDS) — interview metrics (reaction time, response frequency, fluency, pause behavior) for **future** harness expansion.
-
-The four spoken-dialogue / role papers point at lanes that open when Hornelore moves from cascaded ASR→LLM→TTS to full-duplex spoken dialogue.
-
-**Active sequence — what's next:**
-
-Three RED gates remain. In priority order:
-
-1. **SAFETY-INTEGRATION-01 Phase 2** — LLM second-layer classifier for soft-trigger detection. Closes Gate 5. Highest parent-session leverage.
-2. **TRUTH-PIPELINE-01 Phase 1** — observability stub that probes each truth-write stage (`raw_turn_saved` / `archive_event_created` / `extract_fields_called` / `family_truth_written` / `projection_updated`) per harness turn so we can tell whether `speaker_zero_delta` is a real bug or a harness coverage gap. Closes (or correctly classifies) Gate 7.
-3. **Post-safety recovery / softened-mode persistence** — chat_ws reads softened state at turn-start and injects a `LORI_SOFTENED_RESPONSE` block for the next N turns. Closes Gate 6.
-
-REFLECTION-01 v2 (Quality-maxim sharpening of Layer 1 prompt block) is parked at YELLOW — not a parent-session blocker since reflection failures produce slightly cold/inferential turns, not unsafe ones.
-
----
-
-## Status as of 2026-04-26
-
-**Operating posture:** there is no demo. There is only ongoing work with the three real narrators (Christopher, Kent, Janice) plus the test set. Both curator surfaces (Photo Intake + Document Archive) are live by default — the `.env` file ships with all three feature flags ON (`HORNELORE_PHOTO_ENABLED=1`, `HORNELORE_PHOTO_INTAKE=1`, `HORNELORE_MEDIA_ARCHIVE_ENABLED=1`) so plain `bash scripts/start_all.sh` brings up the full stack with no wrapper scripts needed.
-
-**Shipped this week:**
-
-- WO-UI-SHELL-01 — Three-tab shell (Operator | Narrator Session | Media); Operator default; session-style picker (5 styles, persistent)
-- WO-NARRATOR-ROOM-01 — Narrator room layout: topbar + view tabs (Memory River | Life Map | Photos | Peek at Memoir) + chat conversation column + context panel; Take-a-break overlay; chat scroll stabilization; hands-free state scaffolding
-- WO-ARCHIVE-AUDIO-01 — Memory archive backend: 7 endpoints under `/api/memory-archive/*` with `archive session_id == conv_id`; per-narrator zip export; smoke-tested 34/34 PASS
-- WO-UI-TEST-LAB-01 — Operator UI Health Check inside Bug Panel; 14 categories; PASS / WARN / FAIL / DISABLED / NOT_INSTALLED / SKIP / INFO; <100ms full run
-- WO-SESSION-STYLE-WIRING-01 — Operator session-style picker drives narrator behavior; questionnaire_first BYPASSES the v9 incomplete-narrator gate (Corky rule)
-- WO-HORNELORE-SESSION-LOOP-01 — Post-identity orchestrator that asks one Bio Builder question at a time and routes per `sessionStyle`
-- WO-HORNELORE-SESSION-LOOP-01B — Loop saves answers via `PUT /api/bio-builder/questionnaire`
-- WO-HORNELORE-SESSION-LOOP-01C — Repeatable-section deferred-handoff is a real next-branch offer, not a dead-end
-- WO-UI-HEALTH-CHECK-02 — Harness extended for new loop behavior + welcome-back suppression + camera-return verification
-- WO-ARCHIVE-INTEGRATION-01 — Two-sided text transcript writer; every chat turn (narrator + Lori) lands in `transcript.jsonl` and `transcript.txt` under the archive
-- Multiple bug fixes: #145/#175/#190/#193 (camera class), #194 (sessionStyle persistence), #202 (Lori intro brand naming), #205 (Bug Panel in header), #206 (camera one-shot dropped), #207 (welcome-back collision)
-
-**Landed 2026-04-26 (Document Archive lane):**
-
-- **WO-MEDIA-ARCHIVE-01** — separate curator lane parallel to `/api/photos`. Stores PDFs / scanned documents / handwritten notes / genealogy outlines / letters / certificates / clippings — anything that's source material rather than a memory-prompt photo. **Locked product rule: Preserve first. Tag second. Transcribe / OCR third. Extract candidates only after that. NEVER auto-promote to truth.**
-  - Backend: 4 SQLite tables (`media_archive_items`, `_people`, `_family_lines`, `_links`) with locked enums (DOCUMENT_TYPES, TEXT_STATUSES, DATE_PRECISIONS, LINK_TYPES). Migration `0003_media_archive.sql` auto-applies on first boot via `migrations_runner.py`.
-  - Router: `/api/media-archive/*` (POST upload + multipart PDF/image/text MIMEs, GET list with filters, GET detail, PATCH with replace-all on people/family_lines/links arrays, DELETE soft-delete with `?actor_id`, GET file/thumb file-serving, /health).
-  - Services: `repository.py` (full CRUD), `storage.py` (per-narrator-or-family-or-unattached layout + meta.json mirror), `thumbnail.py` (Pillow + pdf2image best-effort), `text_probe.py` (pypdf-based page count + image-only detection).
-  - Frontend: `ui/media-archive.html` curator page (upload form + saved-list + View/Edit modal), `ui/js/media-archive.js`, `ui/css/media-archive.css`, all behind a 📄 Document Archive launcher card in the Operator → Media tab.
-  - 4 new health-harness checks under `media_archive` category (route reachable, list endpoint, page reachable, launcher card present).
-  - Default OFF in repo (`HORNELORE_MEDIA_ARCHIVE_ENABLED`); ON in local `.env` for active development. Dev wrapper at `scripts/start_all_media_archive_dev.sh` for ad-hoc opt-in runs.
-  - Spec: `WO-MEDIA-ARCHIVE-01_Spec.md`. Smoke fixture: 18-page Charlotte Graichen Shong family genealogy PDF.
-
-**Landed 2026-04-25 → 2026-04-26 (Photo system Phase 2 + URL resolution):**
-
-- **Photo system Phase 2 (partial) — EXIF auto-fill on upload** (server). New `server/code/services/photo_intake/exif.py` (Pillow-backed, fail-soft DMS-decimal converter + JSON-safe raw EXIF dump). Wired into `routers/photos.py` upload handler behind `HORNELORE_PHOTO_INTAKE=1`. Curator-supplied date/location ALWAYS wins; EXIF only fills blanks. Raw EXIF tag map stamped into `metadata_json["exif"]` regardless. Log line `[photos][exif] auto-filled date,gps for photo_id=...`. Default-off; flag-flippable from `.env`.
-- **Review File Info preview flow** (matches Chris's visualschedulebot photo admin UX). New `POST /api/photos/preview` endpoint reads EXIF + reverse-geocodes (Nominatim, no API key) + computes Plus Code locally + builds auto-description ("This image is from Tuesday, April 21, 2026 at 2:10 PM at RWRJ+2V Watrous, NM, USA") — all WITHOUT writing to DB. Frontend "Review File Info" button on the single-photo form prefills description/date/location for curator review before commit. Source-attribution pills next to each label show "from EXIF" / "from phone GPS". Three new services: `description_template.py`, `plus_code.py` (pure-Python Open Location Code encoder), `geocode_real.py` (stdlib urllib + Nominatim, fail-soft). Google Maps swap deferred to flag-gated alternative.
-- **Multi-file batch upload** (UI). New "Quick Batch Upload" card on `photo-intake.html` above the existing single-photo form. Drag-and-drop or multi-pick, sequential upload (not parallel — protects backend), per-file thumbnail + status pill (queued / uploading / saved / duplicate / error), shared narrator + ready-flag across the batch.
-- **View / Edit modal (BUG-239)** — click any saved-photo thumbnail or "View / Edit" button. Shows the full image, source-attribution pills (date/location came from EXIF vs typed by curator vs MISSING), inline editing for description / date / location / ready flag (POSTs to existing PATCH endpoint), GPS coords + map link when EXIF GPS present, raw EXIF in collapsible details, completeness pills. Critical for old scanned prints arriving with no EXIF — operator can fill metadata after the fact.
-- **BUG-238** — narrator photo view now filters by `narrator_ready=true`. Without this, scanned-but-unvetted photos and in-progress curator entries leaked into the narrator room.
-- **BUG-PHOTO-CORS-01** — `main.py` CORSMiddleware was `allow_origins=["*"]` PLUS `allow_credentials=True`, which the CORS spec forbids (browsers refuse the wildcard). Plus two photo fetches in `app.js` used relative paths instead of the `ORIGIN` constant from `api.js`. Both fixed.
-- **BUG-PHOTO-LIST-500** — `repository.py` had `from ..api.db` (two dots) which resolved to `code.services.api` (doesn't exist). Should be three dots `from ...api.db`. Latent since Phase 1; only POST upload exercised the import path. Fixed.
-- **BUG-PHOTO-PRECISION-DAY** — `exif.py` returned `"day"` for date precision but the DB CHECK constraint allows only `('exact','month','year','decade','unknown')`. Vocabulary mismatch crashed every EXIF auto-fill upload after the file + thumbnail were already on disk. Fixed to `"exact"` (EXIF carries down to the second). Same fix in form dropdowns (single-photo + modal).
-- **BUG-PHOTO-URL-RELATIVE-RESOLVES-TO-UI-PORT** — backend synthesizes image URLs as relative `/api/photos/{id}/thumb` and `/image`. Browser resolves against page origin (port 8082, UI server) instead of API origin (port 8000), 404'ing every thumbnail and full-image lookup. Fixed via new `_resolveApiUrl` helper in `photo-intake.js` and an inline ORIGIN-prepend in `app.js` at four spots: Saved Photos thumbnail, modal full image, narrator-room photo thumbnail, narrator-room lightbox. Same fix carried into `ui/js/media-archive.js` for the Document Archive surface.
-- **`docs/PILLOW-VENV-INSTALL.md`** — fresh-laptop trap doc. Pillow must be installed in the GPU venv (`.venv-gpu/bin/pip install Pillow`), otherwise `thumbnail.py` and `exif.py` silently fail-soft and you get broken-image thumbnails + empty EXIF metadata with no log signal. ~90 minutes lost diagnosing this on 2026-04-25. As of 2026-04-26, `Pillow==12.2.0`, `pypdf==6.4.1`, and `pdf2image==1.17.0` are pinned in `requirements-gpu.txt` so a fresh `pip install -r` covers everything.
-- **`docs/LAPTOP-SETUP-2026-04-26.md`** — full laptop bring-up doc. Section 11 covers WO-MEDIA-ARCHIVE-01 dependencies + first-boot verification + UI smoke. Updated post-archive to flip the `HORNELORE_MEDIA_ARCHIVE_ENABLED` flag from commented-future to active. Captures the `.env`-doesn't-ride-git rule with a heredoc append for laptop bring-up.
-- **Photo system test plan** — `docs/PHOTO-SYSTEM-TEST-PLAN.md` (8 manual smoke cases + automated EXIF parser test). Run automated: `.venv-gpu/bin/python3 scripts/test_photo_exif.py` (3/3 PASS confirmed; 4/4 with real-photo arg).
-- **BB Walk Test passing 38/0** — BUG-227/230/234/236/237 stack. Identity pipeline + scope hard-gate + askName parser fix all proven.
-
-**Specced + ready to build (not yet shipped):**
-
-- WO-AUDIO-NARRATOR-ONLY-01 frontend — MediaRecorder per-turn audio capture, TTS gate, upload to `/api/memory-archive/audio`. Backend already shipped (per-turn audio webm endpoint live). Spec at `WO-AUDIO-NARRATOR-ONLY-01_Spec.md`. Live build with operator in browser; 2.5–3 hours.
-- WO-STT-HANDSFREE-01A — Auto-rearm browser STT after Lori finishes, with WO-10C long-pause ladder. Spec at `WO-STT-HANDSFREE-01A_Spec.md`. Polish.
-- WO-MEDIA-WATCHFOLDER-01 — auto-import from `C:\Users\chris\Hornelore Scans\` straight into Document Archive intake queue (post-MEDIA-ARCHIVE).
-- WO-MEDIA-OCR-01 — Tesseract-based OCR for scanned documents in the Document Archive (text_status auto-promotes from `image_only_needs_ocr` → `ocr_complete`).
-- WO-MEDIA-ARCHIVE-CANDIDATES-01 — harvest items flagged `candidate_ready=true` and surface to Bio Builder review queue (no auto-promotion; locked product rule).
-
-**Landed overnight 2026-04-25 (test-narrator validation pending tomorrow):**
-
-- **BUG-208 / #219** — bio-builder-core.js cross-narrator contamination. **Code landed**: narrator-switch generation counter + 3-guard backend response check + persist guard + pre/post-fetch pid scope assertions in session-loop + 4 new BUG-208 harness checks under `session` category. **Awaiting live verify with test narrators tomorrow morning.** Report: `docs/reports/BUG-208_REPORT.md`.
-- **WO-ARCHIVE-EXPORT-UX-01** — one-click "Export Current Session" button in Bug Panel; `lvExportCurrentSessionArchive` helper with status feedback.
-- **WO-TRANSCRIPT-TAGGING-01** — every archive turn now stamped with `meta.session_style`, `meta.identity_phase`, `meta.bb_field`, `meta.timestamp`, `meta.session_id`, `meta.writer_role`.
-- **WO-ARCHIVE-SESSION-BOUNDARY-01** — per page-load `session_id` (`s_<base36ts>_<rand>`) stamped on `session/start` body and every transcript line; exposed via `lvArchiveWriter.sessionId()`.
-- **WO-UI-HEALTH-CHECK-03** — harness extended with archive-writer module load + transcript-writes-flowing + session_id stamped + onAssistantReply chained + Export helper wired checks under `archive` category.
-- **WO-BB-RESET-UTILITY-01** — dev-only "Reset BB for Current Narrator" button in Bug Panel; clears questionnaire/candidates/drafts/QC for active narrator only with inline confirm.
-- **WO-SOFT-TRANSCRIPT-REVIEW-CUE-01** — non-blocking bottom-right "Want to review what we've captured so far?" pill after 4 narrator turns, single-fire per session.
-- **WO-AUDIO-READY-CHECK-01** — `lvAudioPreflight()` + Bug Panel "Run Audio Preflight" button + 5 new harness checks under `mic` category (MediaRecorder API, secure context, getUserMedia, mic permission state, overall ready).
-
-**Specced + ready to build (not yet shipped):**
-
-- WO-AUDIO-NARRATOR-ONLY-01 — MediaRecorder per-turn audio capture, TTS gate, upload to `/api/memory-archive/audio`. Spec at `WO-AUDIO-NARRATOR-ONLY-01_Spec.md`. **Live build with operator in browser tomorrow morning; 2.5–3 hours.** Gate 3 of the readiness checklist depends on this.
-- WO-STT-HANDSFREE-01A — Auto-rearm browser STT after Lori finishes, with WO-10C long-pause ladder. Spec at `WO-STT-HANDSFREE-01A_Spec.md`. Polish; ship after first parent session.
-
-**Master extractor lane:** unchanged this week. Locked baseline `r5h` at 70/104. Active sequence still BINDING-01 → SPANTAG → LORI-CONFIRM. Per-week parent sessions (once they begin in ~3 days) become the new ground-truth dataset for climbing past 70/104 — the synthetic 104-case bench is the regression net, not the goal.
-
----
-
-## Narrators
-
-| Name | Template | Born | Preferred |
-|---|---|---|---|
-| Kent James Horne | `kent-james-horne.json` | 1939-12-24, Stanley, ND | Kent |
-| Janice Josephine Horne | `janice-josephine-horne.json` | 1939-08-30, Spokane, WA | Janice |
-| Christopher Todd Horne | `christopher-todd-horne.json` | 1962-12-24, Williston, ND | Chris |
-
-**Trainer narrators** (read-only reference data, not real subjects):
-
-| Name | Template | Style |
-|---|---|---|
-| William Alan Shatner | `william-shatner.json` | structured |
-| Dolly Rebecca Parton | `dolly-parton.json` | storyteller |
-
-Each narrator is pre-seeded on first startup from their JSON template. Templates contain full biographical data: parents, grandparents, siblings, children, spouse, education, occupation, pets, and core memories. The interview expands this baseline — it never has to establish it from scratch.
-
-**Corrected 2026-07-30, while tracing the Gate 7 truth-write callers.** This paragraph ended with *"Trainer narrators are loaded via `scripts/preload_trainer.py` and cannot have data written to the family-truth pipeline."* The second half is true and the first half is not, and the mechanism is not the one named. `scripts/preload_trainer.py` no longer exists at that path — it was moved to `scripts/archive/preload_trainer.py`, so any instruction to run it fails. And the protection does not work by a "trainer" concept at all: nothing under `server/code/api/` mentions `trainer`. It works off `people.narrator_type`. `_wo13_seed_reference_narrators()` in `db.py` promotes a person to `narrator_type='reference'` on a display-name substring match (default `shatner`, `dolly`; overridable with `HORNELORE_REFERENCE_NARRATORS`), never demotes, and `_block_if_reference()` in `routers/family_truth.py` then rejects shadow-note creation, proposal creation, row mutation, promotion, bulk promotion and profile backfill with **403**. `routers/facts.py` carries the same guard. Verified live on 2026-07-30: of 36 people, exactly two — William Alan Shatner and Dolly Rebecca Parton — are `reference`. The enforcement is real, but it sits at the HTTP boundary, not in `ft_add_note` / `ft_add_row` themselves, so it is a route guard rather than a storage invariant.
-
----
-
-## Architecture
-
-### Three-Service Stack
-
-```
-Port 8000  —  LLM API (FastAPI + Llama 3.1 8B Instruct, 4-bit quantized)
-Port 8001  —  TTS Server (Coqui VITS)
-Port 8082  —  Hornelore UI (hornelore-serve.py, static files)
+```text
+narrator speech / typing
+        ↓
+   STT (browser or local)
+        ↓
+   chat_ws  →  prompt composition  →  local LLM  →  response guards  →  TTS
+        ↓                                                    ↓
+   turns + sessions                                    narrator sees text
+        ↓
+   extraction → provisional truth → operator review → confirmed truth
+        ↓
+   server projections (profile, chronology, memoir) → Life Map, Lori, Travel Document
 ```
 
-### Four-Layer Truth Pipeline (WO-13)
+**Local-first is a rule, not a default.** STT, the LLM, facial/acoustic affect and TTS all run
+on the narrator's own machine. Private narrator archives, life-story profiles and raw memoir
+transcripts are never outsourced to a cloud model as the reasoning engine. Travel Document may
+use web lookups for *public* context (holidays, museums, neighbourhoods), labelled as public
+context and never presented as personal memory.
 
-All narrative memory flows through a four-layer architecture:
+**Services:** API on `:8000`, TTS on `:8001`, static UI on `:8082`. **TTS is Kokoro**
+(Apache 2.0, English + Spanish); the Coqui adapter is retained only as a legacy option behind
+`LORI_TTS_ENGINE`.
 
-```
-Shadow Archive  →  Proposal Layer  →  Human Review  →  Promoted Truth
-   (notes)          (rows)           (approve/reject)   (canonical)
-```
-
-**Layer 1 — Shadow Archive** (`family_truth_notes`): Append-only raw text. Every chat turn, questionnaire save, or manual import creates a note here. Notes are never promoted directly.
-
-**Layer 2 — Proposal Layer** (`family_truth_rows`): Structured claims derived from notes. Each row has a `field` (e.g. `personal.fullName`), `source_says` (raw claim), `status`, `confidence`, and `extraction_method`. Created automatically by the regex extractor (`_extractFacts` in `app.js`) or the LLM extractor (`/api/extract-fields`).
-
-**Layer 3 — Human Review**: Rows start as `needs_verify` and must be explicitly moved to one of five statuses: `approve`, `approve_q` (approved with follow-up question), `needs_verify`, `source_only` (recorded but never promoted), `reject`. The review UI is in `wo13-review.js`.
-
-**Layer 4 — Promoted Truth** (`family_truth_promoted`): The canonical record. Only rows with status `approve` or `approve_q` can be promoted. Protected identity fields (fullName, preferredName, DOB, POB, birthOrder) are blocked from promotion if their extraction_method is `rules_fallback` (regex-based).
-
-### Feature Flags
-
-| Flag | Env Var | Effect |
-|---|---|---|
-| Facts write freeze | `HORNELORE_TRUTH_V2=1` | Legacy `/api/facts/add` returns 410 Gone |
-| V2 profile read seam | `HORNELORE_TRUTH_V2_PROFILE=1` | `GET /api/profiles/{id}` reads from `family_truth_promoted` |
-| Photo router master | `HORNELORE_PHOTO_ENABLED=1` | `/api/photos/*` serves live; when off every endpoint 404s except `/health` |
-| Photo upload Phase 2 | `HORNELORE_PHOTO_INTAKE=1` | EXIF auto-fill + reverse geocoder run inside the upload handler. Independent of `HORNELORE_PHOTO_ENABLED`; uploads still work without it but the curator has to type date/location manually (Review File Info button still works regardless — it lives on a separate `/api/photos/preview` code path). |
-| Document Archive router | `HORNELORE_MEDIA_ARCHIVE_ENABLED=1` | `/api/media-archive/*` serves live; when off every endpoint 404s except `/health`. Curator page at `/ui/media-archive.html`. |
-
-All five flags are currently **ON** in `.env` for active development. The truth-v2 profile read seam uses a hybrid strategy: promoted-truth values override `basics.*` for the 5 protected identity fields; all other promoted rows appear in a `basics.truth[]` sidecar array; unmapped fields (kinship, pets, culture, pronouns, etc.) pass through from legacy `profile_json`. The photo and media-archive flags default OFF in the repo so the production stack stays opt-in; flipping them in `.env` is the pattern documented in `docs/LAPTOP-SETUP-2026-04-26.md`.
-
-### Data Flow: Chat → Truth
-
-1. User sends a message in chat
-2. `_extractAndPostFacts()` runs regex patterns against the user's text
-3. For each match: `POST /api/family-truth/note` (shadow note) → `POST /api/family-truth/note/{id}/propose` (proposal rows)
-4. Protected identity fields get downgraded to `source_only` status from chat extraction
-5. Operator reviews rows in the Review Drawer, PATCHes status to approve/reject
-6. `POST /api/family-truth/promote` bulk-promotes approved rows into canonical truth
-7. Next `GET /api/profiles/{id}` returns promoted values
-
-### Resume Prompt Gate (WO-13)
-
-Every narrator switch checks `user_turn_count` from `/api/narrator/state-snapshot`. If a narrator has zero prior user-authored turns, both resume-prompt paths (legacy `lv80SwitchPerson` and WO-8 `wo8OnNarratorReady`) are suppressed. This prevents fake "welcome back" greetings from polluting the turns table.
-
-### Quality Harness (WO-QA-01, WO-QA-02, WO-QA-02B)
-
-A permanent measurement system for evaluating Hornelore's behavior under different sampling configurations. Measures three orthogonal axes and writes everything to JSON artifacts so any future runtime change (TRT-LLM swap, model update, prompt change) can be evaluated against the same yardstick.
-
-**Two synthetic test narrators** (`narrator_type='test'`, permanently quarantined from family-truth via existing reference-narrator write guards):
-
-| ID | Display name | Style |
-|---|---|---|
-| `test-structured-001` | Mara Vale (Helena MT, 1941) | structured |
-| `test-storyteller-001` | Elena March (Taos NM, 1943) | storyteller |
-
-Templates live in `data/narrator_templates/test_*.json`; seeded into the `people` + `profiles` tables by `scripts/seed_test_narrators.py`.
-
-**Two-channel measurement** (WO-QA-02):
-
-- **Channel A — Narrator content (ceiling).** Static narrator statements from `data/test_lab/narrator_statements.json` are fed directly into `/api/extract-fields` once per narrator, producing the maximum extractable yield from that fixture set. Config-independent.
-- **Channel B — Lori responses (suppression).** The matrix runs each (narrator × config) combination through scenarios via `/api/chat/ws`, then computes `suppression = ceiling - lori_yield_total`. Lower suppression = config preserves more narrator truth in Lori's interview behavior.
-
-**Ranking** (per (narrator × config) cell):
-
-1. Contamination PASS (gate)
-2. Suppression ASC (lower wins)
-3. TTFT ASC (faster wins)
-4. Human score DESC (tie-break)
-
-**Hardware monitoring** runs concurrently with every matrix run — GPU util/VRAM/temp/power via `nvidia-smi`, CPU util via `/proc/stat`, RAM via `/proc/meminfo`. Sampled every 5s, written to `hardware_timeseries.json` + `hardware_summary.json` so post-hoc analysis can correlate behavioral anomalies with hardware state.
-
-**Timing instrumentation** captures wall-clock duration plus per-cell durations. `progress.json` is updated after every cell so the UI surfaces live elapsed + ETA while the run is in flight; `run_meta.json` carries the finished totals.
-
-**Operator UI** (`testLabPopover` in `hornelore1.0.html`) exposes:
-- Live console pane (GPU/CPU/RAM + runner log tail, refreshes every 2s)
-- Channel A — Narrator ceilings table
-- Scores table ranked by suppression
-- Compare table (yield/TTFT/contamination Δ vs a baseline)
-- Hardware summary + Timing panes for the loaded run
-
-The popover is operator-only (dev-mode gated via `toggleDevMode()` in the console). Run via the **Run Harness** button or directly from WSL: `bash scripts/run_test_lab.sh`. Budget 45–90 minutes for a full matrix.
-
-Detailed work-order specs live in `docs/wo-qa/`.
+**Multilingual:** English and Spanish, including mid-conversation code-switching — language
+detection, perspective and fragment guards, correction parsing, and Spanish deterministic
+composers.
 
 ---
 
-### Long-narration harness family (2026-06-15 → 2026-06-16)
+## 5. Development state
 
-A second harness family (separate from the WO-QA test-lab matrix above) drives a
-**full intake → 3 chapter-length narrator turns → bonus probe** end-to-end test
-against the live stack with a different narrator persona per harness. Each
-harness creates a fresh narrator via `POST /api/people/intake`, opens a chat
-WebSocket, sends three monologues that map to the canonical eras
-(earliest_years / building_years (or coming_of_age) / later_years (or today)),
-scores Lori's reply against an 8-row checklist, and writes a verbatim report
-to `docs/reports/`.
+The active lane is **`WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` — canonical narrator
+authority**: one server-owned answer for projection, session ownership and chronology, so that
+Life Map, Lori, sessions and (next) Travel Document stop disagreeing about who the narrator is.
 
-Shared scaffold lives in `scripts/harness_lib.py`. Per-narrator harnesses are
-single-file wrappers that define an `INTAKE_PAYLOAD` + three `ChapterConfig`
-instances and call `run_harness()`.
+**Phase 1 is BUILT and AWAITING LIVE ACCEPTANCE.** The offline gate has run; the ten-step live
+run on a real stack has not. Until it passes, this is not an accepted authority — treat the
+behaviour described above as implemented and unproven in production.
 
-**Live family** (9 personas, all default `testing_only=True`):
+Read, in this order:
 
-| Persona | File | Voice / test gate |
-|---|---|---|
-| Jake Max Miller (Kent content) | `scripts/run_jake_long_narration_harness.py` | Germans-from-Russia North Dakota; original reference harness |
-| William Shatner | `scripts/run_shatner_long_narration_harness.py` | Public-figure Montreal Jewish; tests "I went to space" turn |
-| Alex Eunseo Park (they/them) | `scripts/run_alex_they_long_narration_harness.py` | Korean-American Seattle, nonbinary; tests pronoun handling |
-| Richard Bellamy | `scripts/run_richard_late_coming_out_harness.py` | Gay man came out at 47 after 22-year marriage |
-| Patricia "Pat" Frye | `scripts/run_pat_teacher_betty_harness.py` | Ohio teacher + recurring close-friend Betty across all 3 chapters |
-| Mable Hudson | `scripts/run_regional_african_american_georgia_harness.py` | African American Georgia; Albany Movement + Great Migration to Detroit + return |
-| Frank Yamada | `scripts/run_regional_asian_american_california_harness.py` | Japanese-American California (Nisei); Tule Lake "no-no" segregation |
-| Joe Quintana | `scripts/run_regional_native_american_new_mexico_harness.py` | Cochiti Pueblo; tests sacred-silence rule + NAGPRA work |
-| Stefi Sandoval | `scripts/run_regional_crypto_jewish_new_mexico_harness.py` | Crypto-Jewish anusim New Mexico; tests "Remember but never tell" suppression |
+1. [`HANDOFF.md`](HANDOFF.md) — current state. **Outranks everything below.**
+2. [`MASTER_WORK_ORDER_CHECKLIST.md`](MASTER_WORK_ORDER_CHECKLIST.md) — the critical path.
+3. [`CLAUDE.md`](CLAUDE.md) — operating doctrine, environment facts and hazards.
+4. [`docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md`](docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md) — the active work order.
+5. [`docs/architecture/`](docs/architecture/) — pivot strategy, runtime architecture, Travel
+   Document doctrine.
 
-Cultural voice references for the regional harnesses come from
-[`docs/voice_models/VOICE_LIBRARY_v1.md`](docs/voice_models/VOICE_LIBRARY_v1.md).
-Each regional harness deliberately exercises the voice's specific suppression
-markers — Lori must NOT ask "what was the Code?" of the African American
-narrator, must NOT translate Spanish phrases from the Hispano + Tex-Mex
-narrator, must NOT request kiva or kachina details from the Pueblo narrator,
-must NOT pressure the Crypto-Jewish narrator for practice specifics.
+**Truth order when documents disagree:** current code → current tests and live evidence →
+accepted closeouts and ADRs → `HANDOFF.md` → the checklist → old work-order status lines →
+archived history. **Never rebuild finished work from a stale status line.**
 
-Run any harness against a warm stack:
+---
+
+## 6. Quick start
+
+Verify against `HANDOFF.md` before relying on any command here.
 
 ```bash
 cd /mnt/c/Users/chris/hornelore
-python3 scripts/run_<narrator>_long_narration_harness.py
+./scripts/start_all.sh      # API :8000, TTS :8001, UI :8082
 ```
 
-Reports land in `docs/reports/<report_prefix>_<conv_id>.txt`. The 8-row
-scoring matrix (reflection_grounded / one_question_max /
-no_questionnaire_interrogation / no_forbidden_empathy / no_era_label_menu /
-no_same_anchor_loop / word_budget_honored / translation_refusal_absent) is
-identical across all 9 harnesses so results are comparable.
+**Cold boot takes about four minutes.** The HTTP listener answers in ~70 s, but model weights
+and extractor warmup continue for another 2–3 minutes; a `curl /` health check proves only
+that a socket is listening.
+
+Two virtualenvs, deliberately: **`.venv`** is the test environment, **`.venv-gpu`** serves.
+Both carry the same pinned web stack (`requirements-test.txt` / `requirements-gpu.txt`), so a
+green TestClient result in `.venv` is evidence about the framework that actually serves.
+Model work belongs in `.venv-gpu`.
+
+Feature flags live in `.env`, which is untracked — **a tracked README cannot truthfully state
+which flags are on for your machine.** See `.env.example` for the full documented set.
 
 ---
 
-### Chronology Accordion (WO-CR-01, WO-CR-PACK-01)
+## 7. Tests
 
-A read-only left-side timeline sidebar that merges three lanes at request time — never in the database. Shown as an 80px collapsed column / 280px expanded column to the left of the chat area, hidden during trainer mode.
+`pytest` is **not** installed. Use `unittest`, per module, in separate processes — whole-tree
+discovery cross-contaminates through `api.db.DB_PATH`.
 
-**Three-lane data model** (derived per narrator on every fetch):
-
-| Lane | Source | Authority |
-|---|---|---|
-| A — World | `server/data/historical/historical_events_1900_2026.json` | Context only (never personal fact) |
-| B — Personal | profile basics → questionnaire fallback → promoted truth | Trusted anchors |
-| C — Ghost | Static life-stage prompts (one per band, at midpoint year) | Question shaping only |
-
-**Authority contract.** The `GET /api/chronology-accordion` endpoint is strictly read-only. It never writes to `facts`, `timeline`, `questionnaire`, `archive`, or any truth table. UI state writes are limited to `state.chronologyAccordion` (visibility + focus — never truth).
-
-**Personal-anchor source priority** (Lane B):
-1. **Profile basics** — `dob` + `pob` produce an enriched `Born — {pob}` anchor at year-of-birth
-2. **Questionnaire fallback** — strictly limited to `personal.dateOfBirth` / `personal.placeOfBirth` / `personal.dateOfDeath`. No other questionnaire keys are promoted to Lane B.
-3. **Promoted truth** — primary source for expansion anchors (marriage, child, move, work_begin, retirement, graduation, military, immigration, divorce, death). 14 date-bearing fields whitelisted; nothing else becomes an anchor.
-
-**Compound dedup keys** prevent collisions when expansion anchors land:
-- Single-occurrence: `birth:self`, `death:self`, `retirement:self`, `work_begin:self`
-- Multi-occurrence: `marriage:{spouse}:{year}`, `child:{name}:{year}`, `move:{place}:{year}`, etc.
-
-**Visual hierarchy** (CR-03): Personal anchors dominate (12.5px bold, tinted green bg, 4px left bar; `source=promoted_truth` renders with a brighter 5px bar as a shield-weight authority signal). World events are quieter (10.5px, muted, 0.85 opacity). Ghost prompts are clearly non-factual (dashed amber border, italic, `?` prefix, 0.78 opacity). Active-era year rows get an inset indigo bar.
-
-**Lori timeline awareness** (CR-04). When a year or item is clicked, the runtime payload gains a `chronology_context` block (parallel to `memoir_context` / `projection_family`) with a narrow focus slice — capped at 3 personal / 3 world / 2 ghost items. Every item carries a `source` tag so `prompt_composer` can enforce provenance rules:
-
-| Source tag | Lori treatment |
-|---|---|
-| `promoted_truth` | May assert as confirmed anchor |
-| `profile` / `questionnaire` | Soft cue only — may probe, must not assert |
-| `historical_json` | Context only — never rephrased as personal biography |
-| `life_stage_template` | Question shaping only — never stated as known history |
-
-The ladder appears automatically for any narrator with a DOB; the backend returns `{"error": "no_dob"}` for narrators missing identity basics and the UI hides the column cleanly.
-
----
-
-## Hardening
-
-**No new narrators.** The +New button is hidden and disabled. `lv80NewPerson()` is a stub that logs a warning. There is no UI path to create a fourth narrator.
-
-**No deletion.** Delete buttons are removed from narrator cards. `lvxStageDeleteNarrator()` is overridden to block deletion and display a warning. All three narrators are protected.
-
-**Identity bypass on switch.** When switching to a known narrator, the identity phase is automatically set to `complete`. The system never re-asks name, DOB, or birthplace for a narrator whose identity is already established.
-
-**Fresh session isolation.** Every narrator switch generates a unique `conv_id`. The LLM backend cannot carry turn history from one narrator into another's session.
-
-**Reference narrator write guard.** Trainer narrators (Shatner, Dolly) are blocked from all family-truth write operations: shadow notes, proposals, row patches, and promotions return 403.
-
-**Auto-seeding on startup.** `_horneloreEnsureNarrators()` checks the people cache on load. Any missing narrator is seeded from their template. If all three exist, the function is a no-op.
-
----
-
-## Data Isolation
-
-| Resource | Lorevox | Hornelore |
-|---|---|---|
-| Database | `lorevox.sqlite3` | `hornelore.sqlite3` |
-| Data directory | `/mnt/c/lorevox_data/` | `/mnt/c/hornelore_data/` |
-| Uploads | `lorevox_data/uploads/` | `hornelore_data/uploads/` |
-| Media | `lorevox_data/media/` | `hornelore_data/media/` |
-| UI port | 8080 | 8082 |
-| Model cache | `/mnt/c/models/hornelore/` | `/mnt/c/models/hornelore/` |
-| TTS cache | `hornelore_data/tts_cache/` | `hornelore_data/tts_cache/` |
-
----
-
-## Architecture status (as of 2026-05-01 evening)
-
-**Active baseline:** extractor lane locked at `r5h` (70/104, v3=41/62, v2=35/62, mnw=2) — unchanged this week. Lori-behavior runtime control layer LIVE. Parent sessions blocked by 3 remaining safety/truth gates (#5, #6, #7 above).
-
-The repo runs three parallel lanes with separate posture and acceptance criteria. Understand which lane any code change sits in before reading the changelog.
-
-### Lane 1 — Extractor (regression-gated)
-
-Synthetic eval bench: 104 cases, locked at 70/104. Climbs only when extractor architecture earns it via gated patches.
-
-- **Active baseline:** `r5h-postpatch` confirmed = `r5h` (byte-stable)
-- **Top of queue:** `WO-EX-BINDING-01` — binding-layer fix delivered inside SPANTAG Pass 2 prompt (PATCH 1–5)
-- **SPANTAG state:** OFF (`HORNELORE_SPANTAG=0`). Default-on REJECTED at v3 attempt due to binding-layer field-path hallucination (-39 cases). Stays off until BINDING-01 lands binding-hallucination containment.
-- Detail: `MASTER_WORK_ORDER_CHECKLIST.md` Lane 1, `CLAUDE.md` changelog, `docs/specs/LOREVOX-EXTRACTOR-ARCHITECTURE-v1.md`
-
-### Lane 2 — Lori behavior (parent-session-gated) — runtime control layer LIVE
-
-This week's headline work: a three-layer architecture (Cognitive rules → Behavioral control → Interview intelligence) with the first two layers shipped and verified live.
-
-**Layer 1 — Cognitive rules (Grice maxims):** `LORI_INTERVIEW_DISCIPLINE` block in `prompt_composer.py`. Defines what cooperative interview communication is. Always-on guidance.
-
-**Layer 2 — Behavioral control (STA-grounded runtime guard):** `services/lori_communication_control.py`. Composes atomicity + reflection + per-session-style word limits + question-count cap + acute-safety exemption into a single `chat_ws` call site. Gated `HORNELORE_COMMUNICATION_CONTROL=1` after one clean run.
-
-**Layer 3 — Interview intelligence:** separate lane, separate WOs (SESSION-AWARENESS-01 Phase 3+4 and future spoken-dialogue / persona lanes).
-
-**Landed (#289 / #285 / + new this week):**
-
-- **`WO-LORI-SAFETY-INTEGRATION-01` Phase 0+1** — `safety.py` pattern detector wired into chat WS path. Phase 3 operator notification surface live. Phase 9 onboarding consent disclosure + operator runbook landed. Acute-safety path verified (Turn 06: 988 response, no normal Q, no failures).
-- **`WO-LORI-SESSION-AWARENESS-01` Phase 2** — `LORI_INTERVIEW_DISCIPLINE` composer block with intent-aware tiers; foundation that ATOMICITY-01 + REFLECTION-01 + COMMUNICATION-CONTROL-01 all extend.
-- **`WO-LORI-QUESTION-ATOMICITY-01`** — 6-category atomicity filter (truncate-only, deterministic, LAW-3 isolated). Layer 1 directive + Layer 2 module.
-- **`WO-LORI-REFLECTION-01`** — memory-echo validator (validator-only by §6 architecture). Layer 1 directive + Layer 2 module.
-- **`WO-LORI-COMMUNICATION-CONTROL-01`** — the unifying runtime guard. Single chat_ws call site. Per-session-style word limits.
-- **`WO-LORI-STORY-CAPTURE-01` Phase 1A + 1B** — story preservation pipeline. `story_candidates` table + classifier + writer + operator review surface. Lowercase fallback verified live.
-- **`BUG-DBLOCK-01` (#344)** — fixed and verified live. Two-bug chain (FK violation on chat-path safety segment_flag insert + leaked connection from missing try/finally) closed via three patches in `db.py` + `chat_ws.py`. `db_lock_events` delta = 0 across two consecutive golfball runs.
-
-**Pending — three RED gates remaining (parent-session blockers):**
-
-- **`WO-LORI-SAFETY-INTEGRATION-01` Phase 2 (#290)** — LLM second-layer classifier for soft-trigger detection. Catches indirect ideation patterns Layer 1 regex misses (e.g. "I do not want to be alive anymore" — Turn 05 evidence). Highest parent-session leverage.
-- **~~TRUTH-PIPELINE-01 Phase 1~~ — DONE AND READ OUT 2026-07-30. Kept here for the trail; it is no longer a pending RED gate, and the gate is now 🟡.** This item read *"observability stub. Diagnoses whether `speaker_zero_delta` on operator-harness turns is a real truth-write bug or a harness coverage gap (chat_ws path doesn't auto-extract; `interview.js` does). Phase 2/3 routing fixes deferred until Phase 1 evidence lands."* **The evidence landed, and then Phase 2 landed on the same day, 2026-07-30.** This sentence read *"The evidence has landed, so that deferral condition is met and Phase 2 is unblocked — but Phase 2 is Chris's call to open, not an automatic consequence."* Chris made that call. Phase 2 is complete and live-verified; Phase 3 remains deferred. The diagnosis: the guess in this line was half right. chat_ws genuinely does not auto-extract, and that is the one defect. But two of the three zeros turned out to be correct by design rather than gaps, and the archived probe's phrase *"turn did not write anywhere"* was false as worded — the turn writes `turns` and the transcript JSONL every time.
-- **Post-safety recovery / softened-mode persistence** — Turn 07 evidence: after Turn 06 acute fired, Lori drifted back to normal interview mode. `set_softened()` already exists in `db.py`; chat_ws needs to read it at turn-start and inject a `LORI_SOFTENED_RESPONSE` system-prompt block.
-
-**Parked at YELLOW (not parent-session blocker):**
-
-- **REFLECTION-01 v2 — Quality-maxim sharpening.** Validator catches real failures (Turn 01/02/04 echo issues) but Layer 1 prompt directive isn't strong enough to prevent them. Reflection is validator-only by design (deterministic rewrite of content would invent narrator facts — exact LAW-3 failure mode). Park; revisit if validator failure-rate stays >30% across two clean runs.
-
-### Lane 3 — MediaPipe / session awareness (post-parent-session polish)
-
-Not parent-session blockers. The four spoken-dialogue / role research papers (Easy Turn / HumDial Track II / PersonaPlex / Proficiency-Conditioned Dialogue) all point at lanes that open when Hornelore moves from cascaded ASR→LLM→TTS to full-duplex spoken dialogue.
-
-- **`WO-LORI-SESSION-AWARENESS-01`** Phase 3 — read-only attention awareness. **LANDED 2026-05-03** as 5 sub-phases (3A classifier / 3B runtime plumbing / 3C harness cases / 3D cue text disabled / 3E quiet presence cue). Lori speaks zero additional words: dispatcher's `intent` is structurally locked to `'visual_only'` for all tiers (Phase 5 is the only gate that may flip 1-4 to spoken). Quiet Presence Cue ("Take your time. I'm listening.") with two-stage opacity ramp (25-45s faint / 45s+ stronger) renders narrator-visible visual presence — never TTS, never transcript, never extractor. 102 unit tests across 4 Node-runnable packs. Default-OFF auto-start (`window.LV_ATTENTION_CUE_TICKER`). Pre-commit code review caught + fixed two bugs: (a) cooldown was gating visual cues (caused them to fade out at gap=120s while narrator still in passive_waiting); fix is to gate cooldown on `last_cue_intent === 'spoken_cue'` only. (b) stale `visualSignals.affectState` was vetoing cues forever after camera went dark; fix is an 8s freshness window (matches `cognitive-auto.js` v7.4C). Files: `ui/js/attention-cue-dispatcher.js`, `attention-state-classifier.js`, `attention-cue-ticker.js`, `presence-cue.js` + `ui/css/lori80.css` + `ui/hornelore1.0.html`.
-- **`WO-LORI-SESSION-AWARENESS-01`** Phase 4 — Adaptive Narrator Silence Ladder. Per-narrator × prompt_weight rolling window with 25s hard floor. Pacing FIT not measurement; no surface, no trend, no clinical scoring. Decision-object only output; no spoken cue. (Proficiency-Conditioned Dialogue paper grounds this lane.) **Sequenced after one real Janice/Kent observation of Phase 3 presence cue feel.**
-- **`WO-LORI-SESSION-AWARENESS-01`** Phase 5 — test-matrix-gated spoken cues. The ONLY gate that may flip Phase 3 dispatcher intent from `visual_only` to `spoken_cue` for tiers 1-4. 20-test acceptance matrix per spec; no spoken cue ships until matrix passes.
-- **`WO-AFFECT-ANCHOR-01`** (PARKED) — multimodal affect anchoring via shared-clock fusion (Whisper word-timestamps + MediaPipe + light acoustic features + optional Tier 2 video). Blocked by BINDING-01 + parent-session readiness.
-- **Future role-conditioning lane** (PersonaPlex grounding) — not yet specced. Opens when Lori needs operator/narrator/companion persona adaptation as a measurable problem.
-- **Future spoken-dialogue evaluation** (Proficiency-Conditioned Dialogue grounding) — reaction time / response frequency / fluency / pause behavior columns in the harness JSON. Parked until the spoken-dialogue architecture lands.
-
-### Startup expectations
-
-**Cold boot is ~4 minutes. This is normal, not a bug.** HTTP listener up at ~60–70 seconds; LLM weights + extractor warmup continue another 2–3 minutes. A `curl /` health check is NOT sufficient — it only proves the socket is listening. Don't run an eval against a "warm" stack until the discipline-header warmup probe shows roundtrip <30s. Eval harness has a 300s timeout per case to absorb cold-start latency on the first case.
-
----
-
-## Travel Doc Evidence + Web Context Rule (permanent doctrine, 2026-07-10)
-
-Travel Doc mode is the OPERATOR memoir-building workspace — not Narrator
-Room / dementia-safe life-story mode. Narrator Room stays cautious (no
-surprise machine guesses, no raw-metadata overload, gentle and human).
-Travel Doc is EVIDENCE-RICH: use all available evidence (EXIF/filename
-dates, GPS + reverse-geocoded broad place, OCR, draft image observations,
-captions, operator/approved notes, trip route hierarchy, prior notes,
-modal captures, and web/public context) to build the best travelogue,
-with provenance wording.
-
-**The rule is not "no web." The local Hornelore LLM/API may use web and
-public-context tools in Travel Doc mode** (holidays, local events, museum
-and site background, food context, neighborhood context, reverse
-geocoding). The boundary is: **do not outsource private narrator memory
-archives, life-story profiles, or raw memoir transcripts to an
-uncontrolled cloud LLM as the reasoning engine.** Local web-enabled
-evidence enrichment is allowed; cloud life-story outsourcing is not.
-Web-derived context must be labeled as public context or draft evidence
-until confirmed by the operator/narrator, and public context is never
-presented as personal memory.
-
-## Closed incidents
-
-- **INC-2026-07-09 — response guards disabled in production** (CLOSED 2026-07-14).
-  Every narrator-facing response guard (`narrator_echo`, `meta_response_leak`,
-  `dangling_determiner`, `language_drift`, the "I can see" block) was silently
-  dead from **2026-07-09 22:16 until the 2026-07-14 restart** — about five days.
-  Root cause: a second inline global regex flag in `_META_REASONING_RX`, which is
-  a warning on Python 3.10 and a hard `re.error` on 3.11+; the server runs 3.12,
-  so `lori_response_guards` failed at import, and `chat_ws` caught that
-  ImportError in the per-turn "never break a turn" handler and served every reply
-  unguarded. Fixed by moving the flag into `re.compile(..., re.IGNORECASE)`,
-  importing the guards at module scope so a broken guards module fails the boot,
-  and adding a build gate that enforces 3.11+ regex rules regardless of the
-  interpreter running the tests. Full write-up:
-  [`docs/incidents/INC-2026-07-09_RESPONSE-GUARDS-DISABLED.md`](docs/incidents/INC-2026-07-09_RESPONSE-GUARDS-DISABLED.md).
-
-  Standing lesson: **a defensive `except` around an import is a silencer, not a
-  safety net.** Runtime failure should degrade; structural failure should fail
-  loud. They must not share a handler.
-
-## Local-first AI commitment
-
-Every model used inside Hornelore (and by extension, Lorevox) runs on the narrator's machine. This is a standing architectural commitment, not a default we plan to revisit later under cost pressure.
-
-**What this means concretely:**
-
-- **STT runs locally** — Whisper variants, on-device. The transcript of an older adult talking about her mother never leaves the family's hardware.
-- **LLM extraction runs locally** — Llama 3.1 8B Instruct (4-bit) today on the GPU specified in `.env`; future swaps (Hermes 3, Qwen, etc.) stay local.
-- **Facial signal runs locally** — MediaPipe FaceMesh in the browser. The system never ships video, raw landmarks, or raw emotion vectors anywhere; only derived `affect_state` + confidence + duration leave the camera-preview boundary.
-- **Acoustic features run locally** — pitch, pause, speaking-rate analysis is planned via librosa / webrtcvad in-process (see `WO-AFFECT-ANCHOR-01_Spec.md`). No audio is sent to a hosted analysis service.
-- **TTS runs locally** — Kokoro-82M (Apache 2.0) on port 8001 as of 2026-05-08. `af_heart` for English, `ef_dora` for Spanish; pluggable adapter (`server/code/api/tts/{base,kokoro,coqui,dispatcher}.py`) selects engine via `LORI_TTS_ENGINE=kokoro` (default) or `coqui` (retired but still installable for A/B comparison).
-- **Two allowed external network exits, both operator-side only** — (a) reverse-geocoding for photo EXIF via Nominatim (public OSM endpoint, no auth); (b) public-context lookup in the Travel Doc Lab evidence panel (`HORNELORE_PUBLIC_LOOKUP` gated URL fetcher with SSRF-blocked URL safety, sanitizer neutralization, and manual operator trigger only — never fires from narrator-facing paths). Both exits are strictly operator-side, never receive narrator memoir text or private life-story content, and never carry raw GPS. Everything narrator-touching stays on the device.
-
-The reason is the user. Hornelore is built for older-adult narrators in life-review settings — including narrators with possible cognitive decline. The product crosses into territory (medical, legal, emotional, family) where families need to be able to say truthfully that the recording, the face, the voice, the inferred emotion, and the extracted truth all stayed on their machine. Hosted-API economics can't be allowed to erode that contract over time.
-
-### Future model exploration (the modular promise)
-
-The architecture is deliberately modular so that as **better local models** appear and as **consumer hardware advances** (more VRAM, faster CPUs, on-device NPUs), we can swap upstream signal extractors without rewiring downstream consumers.
-
-| Layer | Today (local) | Future (still local) |
-|---|---|---|
-| STT | Whisper large-v3 | Whisper successors, distilled / quantized faster variants |
-| Extraction LLM | Llama 3.1 8B Instruct (4-bit) | Hermes 3, Qwen, larger open-weights as VRAM allows |
-| Facial affect | MediaPipe FaceMesh + rule-based labels | Learned visual emotion models when open-weight options mature |
-| Acoustic | librosa / webrtcvad (planned) | More specialized open-source prosody models |
-| Joint speech-text | Not used | Open-weight latent speech-text models when they exist (see `docs/research/papers/22526_Latent_Speech_Text_Trans.pdf`) |
-| TTS | Kokoro-82M (2026-05-08; Coqui VITS retired) | Newer open-source voice synthesis, voice-cloning for narrator playback |
-
-The fusion layer's contract is what stays stable. Only the upstream extractors get swapped. `WO-AFFECT-ANCHOR-01_Spec.md` is the canonical reference for how this is structured.
-
-### Contribution invitation
-
-This is the kind of work that benefits from people who care about it.
-
-If you've built a better local STT, a better open-weight emotion model, a better acoustic-feature extractor, a better quantized LLM for the extraction task, or work in the broader open-weight / local-AI space and want to plug it into a real older-adult life-review system, that conversation is welcome.
-
-The standing rule for any contribution touching the model layer: **it must run locally on the narrator's machine.** No hosted APIs, no "we just call this one cloud endpoint" exceptions, no telemetry phoning home. If a swap can't satisfy that, it doesn't go in.
-
-Code contributions go through the license terms below (assignment-based, by invitation). Research contributions, model recommendations, benchmark contributions against the 104-case eval bench, and parent-session methodology feedback don't require code commits — open a thread at dev@lorevox.com.
-
----
-
-## Multilingual narrator support (English + Spanish, code-switching)
-
-Lorevox supports older narrators who speak Spanish, English, or both — including bilingual narrators who code-switch between languages mid-sentence the way Hispanic/Latino US elders, second-generation immigrants, and Spanish-speaking caregivers actually talk.
-
-The architecture posture is **always-run-both, never-translate-to-correct**. The system mirrors whatever language the narrator is using at that moment; it does not auto-translate the narrator's words back at them in English; it does not "correct" code-switching as if it were a defect.
-
-**What's wired (as of 2026-05-07):**
-
-- **STT — auto-detect** — `WhisperSTT` frontend wrapper (`ui/js/whisper-stt.js`) calls `/api/stt/transcribe` with `lang=auto` so faster-whisper picks English or Spanish per-chunk. No manual language toggle for the narrator.
-- **Lori responses — language-mirroring** — `prompt_composer.py` carries a `LANGUAGE MIRRORING RULE` block. When the narrator's most recent turn is Spanish (detected via accents OR ≥2 distinct Spanish function words via `looks_spanish()`), Lori responds in Spanish; English narrators get English responses. Code-switched turns are mirrored in either language (both are valid responses to a code-switched prompt).
-- **Spanish output guards** — `services/lori_spanish_guard.py` runs two post-LLM repair passes:
-  - **Perspective guard** — when the narrator says "mi abuela" / "mi mamá" and Lori echoes "Mi abuela" / "Mi mamá" (claiming the narrator's family as her own), rewrite to "Tu abuela" / "Tu mamá". Quote-safe: text inside «», "", ‘’ is preserved verbatim.
-  - **Fragment guard** — Spanish sentences ending on a connector (`que`, `cuando`, `después de que`) or a dangling demonstrative (`esas`, `esos`, `aquellas`) get the dangling token trimmed and the sentence closed with `?` if there's an unclosed `¿` upstream, otherwise `.`.
-- **Spanish question-quality detector** — `detect_question_quality()` flags yes/no closers (`¿verdad?`, `¿no?`, `¿cierto?`) and Spanish questions that lack a Q-word (`Qué`, `Cómo`, `Cuándo`, `Dónde`). Detector-only — no rewrite, no block. Operators see violations in `api.log` via `[lori][es-active-listening]` log marker. Per the locked principle from BUG-LORI-REFLECTION-02 Patch B postmortem: prompt-side rules tell Lori what to do; this detector tells the operator log when she didn't.
-- **Phantom-noun guard, Spanish-aware** — `services/lori_communication_control.py` extends the proper-noun detector regex to accept Spanish accent capitals (`Á É Í Ó Ú Ñ`) so multi-word Spanish proper nouns like "María Núñez" or "Jesús" are detected as candidates the same way English ones are. Whitelist filters Spanish kinship (`Mamá`, `Abuela`, `Tía`), calendar (`Lunes`, `Enero`), religious (`Dios`, `Cristo`, `Virgen`), holiday (`Navidad`, `Pascua`), and Q-word (`Qué`, `Cuándo`) tokens so they don't trip false-positive flags. Real personal names (`María`, `José`, `Núñez`) and country names (`México`, `España`, `Perú`) are deliberately NOT whitelisted — those go through the narrator-corpus / profile-seed verification gate instead.
-- **Name extraction, Spanish-aware** — `_parseNameFromUtterance()` in `ui/js/app.js` accepts both English (`my name is`, `call me`, `I'm`) and Spanish (`me llamo`, `mi nombre es`, `yo soy`, `me llaman`, `me dicen`, `puedes llamarme`, `prefiero`, `mi apodo es`) introduction triggers. Name-capture regex preserves accents — "María Pérez" / "José Núñez" / "Lucía Martínez" capture with accents intact, not stripped to "Maria Perez".
-- **Correction parser, Spanish-aware** — `memory_echo.parse_correction_rule_based()` carries 11 Spanish correction patterns (Phase 5B): birthplace (`nací en X`), parent names (`mi padre se llamaba X`), child counts (`tuve N hijos` / `tengo N hijos`, written or digit), compound corrections (`tuve N, no M`), retracts (`no era X`), `quería decir X, no Y`, retirement (`nunca me jubilé`).
-- **Correction acknowledgments, Spanish** — `compose_correction_ack()` detects Spanish narrator text via `looks_spanish()` and emits Spanish acknowledgments ("Lo entiendo — dos hijos, no el número que tenía. Disculpa la confusión.") instead of code-switched English fallbacks. Spanish narrators hear their corrections respected in their own language.
-- **Place-as-birthplace guard** — `extract.py` `_drop_place_as_birthplace()` blocks the extractor from routing places mentioned only in narrative-connection context ("hablaba de Perú" / "extrañaba Perú" / "talked about Peru" / "missed Peru") to `*.birthPlace`. Birth-evidence patterns (`nació en X`, `era de X`, `was born in X`) preserve the candidate. Sibling lane to BUG-EX-PLACE-LASTNAME-01.
-- **Story trigger, Spanish anchors** — `services/story_trigger.py` Phase 5A added Spanish place / time / person anchor patterns parallel to the English set (`extrañaba`, `cuando era niña`, `mi abuela`, accentless variants for Whisper-degraded transcripts, `al`/`del` contractions for proper nouns).
-- **Memoir export, bilingual** — `routers/memoir_export.py` Phase 4B accepts `target_language=es`; the `services/translation.py` Llama-driven translator (voice-preserving system prompt, no summarization, names verbatim, filesystem cache keyed by source_text + target_lang) renders memoirs in Spanish from English source content. Live-verified on the Mary canonical sample.
-- **TTS — pluggable bilingual engine (Kokoro is live)** — `LORI_TTS_ENGINE=kokoro` is the default as of 2026-05-08 (Coqui RETIRED but adapter kept for A/B comparison). Kokoro-82M (Apache 2.0) with `LORI_TTS_KOKORO_VOICE_EN=af_heart` for English and `LORI_TTS_KOKORO_VOICE_ES=ef_dora` for Spanish. FE sniffs response language and sends `{text, language}` to `/api/tts/speak_stream` (see `ui/js/app.js:_lvSniffTtsLang`). Pluggable adapter pattern: `server/code/api/tts/{base,coqui,kokoro,dispatcher}.py`. HF cache pin required — see `LAPTOP_HANDOFF_KOKORO_INSTALL.md` for the `.env` end-state.
-
-**What's not yet wired:**
-
-- Spanish-monolingual evaluation suite (parallel to the 114-case master eval) — needs a Spanish-corpus expansion lane.
-- Code-switching evaluation pack landed (`data/evals/lori_code_switching_eval.json`, 12 cases) but live runtime grading happens after stack restart.
-
-**The standing rule for any Spanish lane addition:** Spanish coverage is built parallel to English (always-run-both posture), never as a translation layer that lets the English path get sloppy. Every Spanish addition must produce the same `(repaired_text, list_of_changes_applied)` shape, the same idempotency contract, and the same English-passthrough behavior its English sibling has. That's why the implementation phases are paired: 5A anchors / 5B parser / 5C name extraction / 5D phantom-noun / 5E correction-ack / 5F code-switching fixtures.
-
----
-
-## Listening before hearing
-
-Lorevox is not a transcription product. It is a memory-preservation system for older narrators.
-
-Modern ASR can hear words with high accuracy, but **better hearing without better listening just makes the system wrong faster.** A perfect transcript can still become a trust failure if the binding layer writes a complaint, a resistance phrase, or a story fragment into a protected identity field. The Janice regression — where the narrator said *"I just told you something you ignored"* and the system bound that complaint to `personal.birthOrder` — is the canonical failure mode. Better ASR would have transcribed the same nine words with the same precision and routed them to the same wrong field.
-
-The locked principle:
-
-> **Better hearing without better listening just makes you wrong faster.**
-
-For this reason, model upgrades do not bypass the Lorevox truth pipeline:
-
-```
-Audio / transcript  →  Archive  →  structured candidate  →  Review Queue  →  promoted History  →  Memoir
-```
-
-Better ASR may improve the Archive. It does not change what reaches History or Memoir. Protected identity, family facts, dates, places, and biographical claims still require the existing review and promotion discipline. The architectural wall is the load-bearing thing; the model is replaceable.
-
-### Current model posture (locked 2026-05-03 after 3-agent triangulation)
-
-- **Keep:** Llama 3.1-8B-Instruct (Q4) for Lori chat and extraction. Production-stable; current extractor prompts are tuned to it; master eval baseline (`r5h-followup-guard-v1` = 78/114) is calibrated against this model.
-- **Keep:** Current TTS (Coqui VITS on port 8001). Already sized for the RTX 5080 stack.
-- **Sandbox only:** **Canary-Qwen 2.5B** as an Archive-only transcription experiment. Plausible 20% WER improvement over Whisper on noisy audio, but unverified on Janice + Kent voice profiles specifically. WER gains feed the Archive only — they do NOT bypass the Review Queue.
-- **Defer:** **PersonaPlex 7B**. Sub-300ms full-duplex turn-taking is optimized for fluent adult conversation. Older narrators (Janice and Kent are 86) need *longer* protected pauses, not shorter ones — this is why WO-10C set silence cadence at 120s / 300s / 600s, not 300ms. Full-duplex is wrong-target for the population this product serves.
-- **Post-session only:** **Nemotron 3 Nano 30B-A3B**. The "3B active" parameter count refers to MoE compute per token, NOT total memory residence — the full ~30B expert set still loads into VRAM. Not a live narrator-session model on a 16 GB consumer card. Reasonable as an offline reasoning experiment overnight.
-
-### RTX 5080 working envelope (16 GB VRAM)
-
-Measured behavior on the warm Hornelore stack (verified by `WO-OPS-VRAM-VISIBILITY-01` bench, 2026-05-03 — full report at `docs/reports/WO-OPS-VRAM-VISIBILITY-01_BASELINE.md`):
-
-```
-Idle floor:                       ~5.9 GB    (Llama 3.1-8B Q4 + TTS, no active turn)
-Normal active turn (SPANTAG-off): ~8.0 GB    (curl 20w-1000w + real eval slice all pin here)
-Real eval flow (SPANTAG-off):     ~8.0 GB    (sentence-diagram-survey peak 8.04 GB / min free 6.37 GB)
-SPANTAG-on eval slice:            ~7.0 GB    (10-case bench peak 6.97 GB / min free 9.0 GB)
-Long-prompt SPANTAG tail:         (working hypothesis) ~13–15 GB
-                                  Historical OOM (2026-04-27) on ~6k-token cases
-                                  not reproduced in today's bench. Needs targeted
-                                  case_044 + case_069 SPANTAG-on bench before
-                                  envelope can be declared fully verified.
-                                  Parked risk while SPANTAG stays default-OFF.
-```
-
-The `VRAM_GUARD` in `chat_ws.py` (WO-10M) blocks turns when free VRAM dips below `base 600 MB + per_token 0.14 MB × planned_seq`. It exists because long prompts + KV cache filling can push past the ceiling on the long tail. Bug Panel widget surfaces guard-block count via `vram_guard_blocks_last_hour` (banked under WO-OPS-VRAM-VISIBILITY-01 Phase 2). Today's bench: zero guard blocks across all 9 scenarios over ~25 minutes.
-
-### The verification stance
-
-Before any model swap proceeds, three things must verify:
-
-1. **Verified VRAM** beats estimated VRAM. Parameter math × bytes-per-param is necessary but not sufficient — real live VRAM also includes CUDA context, framework overhead, KV cache (which scales with context length, not just model size), audio buffers, TTS, and fragmentation.
-2. **Verified WER on Janice and Kent** beats benchmark WER. Open ASR Leaderboard numbers are useful but generic. The narrator-specific WER on the canon-grounded corpus (24 cases) is what matters for whether Janice keeps talking.
-3. **Verified narrator trust** beats both. The metric that actually predicts whether an older narrator continues the interview is *did the system reflect what they said, ask one short question, and then stop?* That's anchor selection + atomicity + waiting — none of which require a model upgrade.
-
----
-
-## Quick Start
-
-1. Start all services (Windows Terminal):
-   ```
-   start_hornelore.bat
-   ```
-   Or from WSL:
-   ```bash
-   cd /mnt/c/Users/chris/hornelore && bash scripts/start_all.sh
-   ```
-
-2. Open in Chrome:
-   ```
-   http://localhost:8082/ui/hornelore1.0.html
-   ```
-
-On first load, Hornelore seeds Chris, Kent, and Janice from templates and auto-selects the first narrator.
-
-### Preloading Trainer Narrators
+**Run in `.venv` by default.** Reach for `.venv-gpu` only for the modules that actually need
+model or `transformers` dependencies — not for the `chat_ws` family as a class, several of
+which run fine in `.venv`.
 
 ```bash
 cd /mnt/c/Users/chris/hornelore
-python3 -m pip install -r scripts/requirements.txt --break-system-packages
-python3 -m playwright install chromium
-python3 scripts/preload_trainer.py --all
+PYTHONPATH=server/code .venv/bin/python -m unittest tests.<module>
+
+# only if that module reports ModuleNotFoundError for a model dependency
+PYTHONPATH=server/code .venv-gpu/bin/python -m unittest tests.<module>
 ```
 
 ---
 
-## Database Schema (Key Tables)
+## 8. Privacy and data location
 
-| Table | Purpose |
-|---|---|
-| `people` | Narrator records (id, display_name, role, date_of_birth, place_of_birth, narrator_type) |
-| `profiles` | Legacy profile blobs (person_id, profile_json with basics/kinship/pets) |
-| `turns` | Chat messages (conv_id, role, content, ts) |
-| `sessions` | Session metadata (conv_id, payload_json with active_person_id) |
-| `family_truth_notes` | Shadow archive — append-only raw text |
-| `family_truth_rows` | Proposal layer — structured claims with review status |
-| `family_truth_promoted` | Canonical truth — approved rows keyed by (person_id, subject_name, field) |
-| `facts` | Legacy facts (frozen under HORNELORE_TRUTH_V2) |
-
----
-
-## API Endpoints (Key)
-
-**People & Profiles:**
-- `GET /api/people` — list all narrators
-- `GET /api/profiles/{person_id}` — profile (V2: reads from promoted truth)
-- `GET /api/narrator/state-snapshot?person_id=` — full narrator state for UI hydration
-
-**Family Truth Pipeline:**
-- `POST /api/family-truth/note` — append shadow note
-- `GET /api/family-truth/notes?person_id=` — list shadow notes
-- `POST /api/family-truth/note/{id}/propose` — derive proposal rows from a note
-- `GET /api/family-truth/rows?person_id=` — list proposal rows (filter by status, field)
-- `PATCH /api/family-truth/row/{id}` — review: update status/approved_value/reviewer
-- `POST /api/family-truth/promote` — promote approved rows (single row_id or bulk person_id)
-- `GET /api/family-truth/promoted?person_id=` — list promoted truth
-- `GET /api/family-truth/audit/{row_id}` — provenance chain for a row
-- `POST /api/family-truth/backfill` — seed notes+rows from existing profile_json
-
-**Chat:**
-- `WS /api/chat/ws` — websocket for live chat
-- `POST /api/extract-fields` — LLM-based field extraction from chat turns
-
-**Chronology Accordion:**
-- `GET /api/chronology-accordion?person_id=` — read-only three-lane timeline payload (world events + personal anchors + ghost prompts, grouped by decade and year). Never writes; returns `{"error": "no_dob"}` when profile basics lack a DOB.
-
-**Quality Harness (operator-only, WO-QA-01 / WO-QA-02):**
-- `POST /api/test-lab/run` — launch the harness in a background subprocess (optional `compare_to`, `run_label`, `dry_run`)
-- `GET /api/test-lab/status` — running / finished / failed / idle, with live `progress` overlay (cells, elapsed, ETA) when a run is in flight
-- `GET /api/test-lab/results` — list prior run_ids by mtime DESC
-- `GET /api/test-lab/results/{run_id}` — scores / metrics / transcripts / compare / configs / hardware_summary / narrator_ceilings / run_meta
-- `POST /api/test-lab/reset` — reset status.json to idle
-- `GET /api/test-lab/gpu` — one-shot nvidia-smi parse (util %, VRAM, temp, power)
-- `GET /api/test-lab/system` — consolidated GPU + CPU + RAM snapshot
-- `GET /api/test-lab/log-tail?lines=N` — last N lines of runner.log
+- Narrator data lives **outside the repository**, under `DATA_DIR` (`C:\hornelore_data` on the
+  tenant-zero machine): SQLite database, photo archive, transcripts, audio.
+- **`docs/reports/` is gitignored and stays local.** Reports carry live narrator content —
+  transcripts, family names, runtime captures. Agents write there freely; nothing under it is
+  ever staged. Re-publishing requires the redaction plan in
+  `docs/wo/WO-PRIVACY-CANON-EXTRACTION-01_Spec.md`, not a `.gitignore` edit.
+- **This README deliberately does not reproduce tenant-zero family identity data** — full
+  names, birth dates, birthplaces. The previous one did, in the first document every clone
+  displays. Describing tenant zero does not require reproducing it.
+- Narrator records, photos, documents, transcripts and memoir drafts are owned by the operator
+  and narrator who created them.
 
 ---
 
-## File Inventory (refreshed 2026-07-11)
+## 9. License
 
-| Category | Count | Key files |
-|---|---|---|
-| JavaScript (UI) | 81 | app.js (~6k lines), state.js, session-loop.js, interview.js, api.js, facial-consent.js, camera-preview.js, emotion.js, attention-cue-*.js, presence-cue.js, lori-clock.js, transcript-guard.js, travel-doc-lab.js, travel-documenter.js, trip-tab.js, travels-shelf.js, bug-panel-*.js (many), projection-sync.js, lv-eras.js, life-map.js, wo13-review.js, shadow-review.js |
-| CSS | 30 | base.css, layout.css, lori80.css, bug-panel-eval.css, bug-panel-story-review.css, tdl-*.css |
-| HTML | 8 | hornelore1.0.html (~5k lines shell), travel-doc-lab.html, travel-documenter.html, trip-tab.html, media-archive.html, photo-elicit.html, photo-intake.html, photo-timeline.html |
-| Narrator templates | 6 | ui/templates/ — christopher-todd-horne, kent-james-horne, janice-josephine-horne, dolly-parton, william-shatner, narrator-template (+ 17 additional diverse voices upstream in Lorevox source) |
-| Server routers | 41 | routers/chat_ws.py (~4400 lines, WebSocket entry), extract.py (~7000 lines), interview.py, family_truth.py, profiles.py, narrator_state.py, chronology_accordion.py, test_lab.py, trips.py (~2400 lines), operator_story_review.py, operator_eval_harness.py, bio_facts.py, operator_bio_editor.py, operator_bio_gap_map.py, timeline_context_events.py, safety_events.py |
-| Server services | 52 | prompt_composer.py, safety.py, safety_classifier.py, lori_communication_control.py, lori_reflection.py, lori_response_guards.py, lori_meta_question.py, lori_spanish_guard.py, story_trigger.py, story_preservation.py, utterance_frame.py, factual_chain_capture.py, narrative_cue_detector.py, question_atomicity.py, question_hierarchy.py, reflection_grounding.py, story_momentum.py, thread_bank.py, trip_repository.py (~2600 lines), trip_interview_context.py, travel_doc_lori_modal.py, travelogue_builder.py, trip_narration_capture.py, trip_photo_clustering.py, trip_memoir_docx.py, travel_doc_photo_ocr.py, travel_doc_photo_vision.py, travel_doc_public_lookup.py, evidence_text.py, bio_fact_router.py, bio_anchored_asker.py, photo_intake/{ingest,filename_date,metadata_trust}.py, tts/{base,coqui,kokoro,dispatcher}.py |
-| Migrations | 31 | 0001–0032 (gap at 0012 deliberate). Trip lane: 0015–0032 (18 migrations). Story: 0004. Interview threads: 0006. Bio facts: 0014. Kokoro engine swap: no schema. Latest: 0032 (`trip_public_context.rejected`) landed 2026-07-11 preflight review. |
-| Historical seed | 1 | `server/data/historical/historical_events_1900_2026.json` (152 world events, 1900–2026) |
-| Voice library | 1 | `docs/voice_models/VOICE_LIBRARY_v1.md` (7 diverse-narrator voices; reference for evals + operator education, NOT a runtime classifier) |
-| Narrative cue library | 4 | `data/lori/narrative_cue_library.json` v2 (12 cue types) + schema + evals (base + cultural humility pack) |
-| Eval cases | 5 | `data/qa/question_bank_extraction_cases.json` (114 cases), question_bank_generational_cases.json (14), sentence_diagram_story_cases.json (43 extractor + 22 cultural-humility), lori_narrative_cue_eval.json (40), lori_code_switching_eval.json (12) |
-| Question bank | 1 | `data/prompts/question_bank.json` |
-| Tests | 144 | Unit tests. All LAW-3 isolation gates green (59). Full-suite discover run has test-order pollution (some earlier test doesn't restore `_db.DB_PATH`); per-suite runs green — trip lane 334/334, safety pack green. See "Known bugs" for detail. |
-| Scripts | 95 | scripts/ — start_all.sh, stop_all.sh, test_stack_health.sh, backup_lorevox_data.sh, restore_lorevox_data.sh, cleanup_test_narrators.py, install_kokoro.sh, smoke_kokoro.py, run_question_bank_extraction_eval.py, run_utterance_frame_survey.py, plus ~40 UI harness scripts (Playwright) and 30+ archive/ QA scripts |
-| Launchers | 3 | launchers/ — hornelore_run_gpu_8000.sh, hornelore_run_tts_8001.sh, hornelore_run_all_dev.sh |
-| WO / BUG specs (root) | 28 | At repo root: 22 BUG-*_Spec.md, 6 WO-*_Spec.md. Additional WO specs in `docs/wo/` (22 files) |
-| Docs | many | `docs/architecture/` (4 ADRs — universal pivot strategy, Lori runtime, memory exercise, cowork handoff), `docs/reports/` (eval + WO landing reports), `docs/golfball/` (lineage), `docs/wo/` (22 active WO specs), `docs/archive/workorders-pre-pivot/` (114 archived pre-pivot specs) |
-| Config | 4 | .env, .env.example (~1400 lines documenting ~132 flags), package.json, playwright.config.ts |
-| Requirements | 2 | requirements-gpu.txt (51 pkgs; fastapi==0.135.1, transformers==4.55.4, pydantic==2.12.5, torch nightly cu128 for Blackwell sm_100), requirements-tts.txt |
+Hornelore is governed by the **Lorevox Source-Available Proprietary License (Version 1.1 —
+2026)**, the same license as the public Lorevox product. Hornelore is the family R&D
+deployment, not a separate license surface.
 
----
+Source-available for view and study. No commercial use, hosting for third parties,
+redistribution or public forks; no use of prompts, schemas or outputs for ML training. Named
+brands (Lorevox, Lori, Hornelore) and expressive implementations are reserved.
 
-## 2026-07-11 repo review — status
+Commercial, institutional, research, nonprofit, educational, clinical, archival,
+family-office, elder-care, SaaS, hosted, deployment, integration, white-label and third-party
+use are available by separate written license — contact **dev@lorevox.com**.
 
-A whole-repo code review on 2026-07-11 surfaced HIGH / MEDIUM / LOW items. All eight HIGH items are **CLOSED** across three follow-up commits landed the same day. MEDIUM + LOW items remain open, tracked below.
+Third-party dependencies remain subject to their own licenses. End-user data is owned by the
+operator and narrator who created it; this license grants no claim over it.
 
-### Closed repo-review bugs (all HIGH)
-
-**Server — conversation-layer safety** *(commit ebe64af)*:
-
-- **`server/code/api/routers/chat_ws.py:157`** ✅ — `SafetyResult` added to `from ..safety import (...)` block. The LLM safety layer (`WO-LORI-SAFETY-INTEGRATION-01` Phase 2) was silently no-op'ing on every indirect-ideation catch via the wrapping `except Exception`; safety events now actually route.
-- **`server/code/api/routers/interview.py:295`** ✅ — local `flags = build_segment_flags(...)` renamed to `seg_flags`. `POST /api/interview/answer` was crashing on every call (UnboundLocalError when safety branch skipped, AttributeError when it fired).
-- **`server/code/api/routers/chat_ws.py:3710`** ✅ — dropped the `db.` prefix on `export_turns(conv_id)`. Duplicate-response guard silently returned `[]` prior; bit-identical duplicate-reply substitution now actually runs.
-
-**Frontend — cross-narrator state pollution** *(commit after review round 2)*:
-
-- **`ui/js/safety-ui.js:_loadSegments()`** ✅ — now resets `sensitiveSegments = []` before reading localStorage; adds `Array.isArray()` guard on parse. Prior narrator's segments no longer bleed into new narrator's UI.
-- **`ui/js/app.js:lvxSwitchNarratorSafe()`** ✅ — extended with a full narrator-scoped state-reset block covering `sensitiveSegments`, `softenedMode`, `softenedUntilTurn`, `turnCount`, `sessionAffectLog`, `memoirStrategy.asked{Paths,Kinds,Eras}`, `loop.{askedKeys,savedKeys,...}`, `correctionState`, `memoryEcho`, `chronologyAccordion.focus`, `kawa.*`, `narratorTurn.*`, plus a camera / MediaPipe teardown block calling `stopEmotionEngine()` when `cameraActive`. Sidebar-driven narrator switch is now clean.
-
-**Trip lane — data integrity** *(commits after review rounds 2 + 3)*:
-
-- **`trip_repository.photo_links_list()`** ✅ — `SELECT l.*` replaced with an explicit `_PHOTO_LINK_SAFE_COLS` list excluding raw `latitude / longitude`; boolean `link_gps_present` provided in their place. `/api/trips/{trip_id}/photo-links` no longer leaks raw GPS.
-- **`trip_repository.photo_context_update()`** ✅ — mirrors `public_context_update` edit-clears-include rule PLUS the strict three-shape contract (round 3): on any text edit, `include_in_memoir` stays 0 unless the SAME request has BOTH explicit `approved_for_lori=True` AND explicit `include_in_memoir=True`. All four (edit × approve × include) combinations tested.
-- **`trip_narration_capture._stamp_stop_meta / _stamp_region_meta`** ✅ — new `_merge_meta_json()` helper; both stampers now read-modify-write inside `BEGIN IMMEDIATE`. Prior narration or operator meta_json keys survive. Migration 0033 adds the missing `trip_regions.meta_json` column so the region path actually persists now (silent no-op before).
-
-**Verified live-safe:** 502/502 trip-lane tests green across 20 suites; 86/86 preflight tests green; syntax clean on all touched files.
-
-### MEDIUM — remaining, limited blast radius:
-
-- **`server/code/api/routers/trips.py` context patch/delete routes** — `patch_photo_context` / `delete_photo_context` / `patch_public_context` / `delete_public_context` accept `context_id` blindly, no cross-trip ownership check. Single-tenant so not a security issue; still a stale-FE-state hazard where a cached row ID could patch the wrong trip's context. Consider trip-scoped route variants (`/{trip_id}/photo-context/{id}`) or a body-side trip-scope check.
-- **`server/code/api/services/lori_response_guards.py:173-188`** — `_looks_spanish` accent-tier requires "≥1 strong word + accent" but `_SPANISH_ONLY_WORDS_RX` still contains loose tokens (`hola`, single `iba`) that may appear in quoted travelogue text. Consider requiring ≥2 strong tokens in the accent tier, or exempting quoted spans.
-- **`server/code/api/routers/chat_ws.py:262-263`** — `_TRIP_PREV_LORI` and `_TRIP_LAST_CAPTURE` are unbounded module-level dicts keyed by conv_id, populated per trip turn with no eviction. Memory leaks linearly with conversations. Already flagged in CLAUDE.md 2026-07-09 as pending; still open. Fix: LRU-cap or purge on WebSocketDisconnect.
-- **`ui/js/travel-documenter.js:2152-2299`** — `modalLori._send` has no double-send guard (equivalent to `_loriIsBusy` in main chat). Two fast Sends in the modal, or a Send while main chat is still generating, can collide. Same class as the 2026-05-07 fix. **Scope changed 2026-07-25:** this module is retired and unreachable from the shell after `WO-TRAVEL-DOC-UNIFY-01` Phase 4, so the defect is no longer on the operator path — it is reachable only by opening the standalone `ui/travel-documenter.html` directly. Still on disk, still served, and it also still carries the two native `window.confirm()` calls, which the surface gates pin at exactly two so a third or a migration back onto the operator path fails the build. Deleting the module outright is post-unification backlog item 2.
-- **`ui/js/app.js` — multiple `sysBubble()` calls** at lines 7183, 7192, 7197-7204, 3162, 3702, 4058, 4238, 5520 write emoji-prefixed operator-tone strings (💾/⚠/💡/🎤) into `#chatMessages` (the narrator conversation surface). Only line 3702 is gated by `LV_INLINE_OPERATOR_BUBBLES`; the rest violate CLAUDE.md design principle 3 (no system-tone in narrator flow).
-- **Test-order pollution in full `discover` run** — 191 spurious `sqlite3.OperationalError: no such table: trips` errors when running the whole suite together. Same tests pass in isolation (trip lane 422/422). Likely `test_memoir_story_wire.py:167` or `test_softened_mode_persistence.py:246` monkeypatch `_db.DB_PATH` and never restore it in tearDown. Doesn't affect correctness of the code under test; masks real regressions in CI. Fix: `unittest.load_tests` protocol to snapshot + restore `_db.DB_PATH` per module.
-- **Thread-bank surfacing** — genuine failures in `test_thread_bank.py`: `BankNewThreadsTest.test_persists_candidates`, `SurfacingTargetTest.test_emerging_mode_with_closing_marker_allows_surfacing`, `test_normal_mode_picks_oldest_eligible`. Not deps, not ordering; surfacing returns `None` where it should return a candidate.
-- **`server/code/api/prompt_composer.py:3227`** — `context.setdefault("last_user_text", user_text[:800])` then rendered via `_safe_json` into the system prompt. `json.dumps` quotes the string but doesn't neutralize embedded `[SYSTEM:` / `PROFILE_JSON:` sentinels a hostile browser extension could inject. Single-tenant so risk is small; still a real prompt-injection surface.
-- **Travel Doc evidence panel — native `window.prompt()` for draft observation + place-from-context entry** *(ui/js/travel-doc-lab.js)*. ✅ **CLOSED — verified 2026-07-26.** The in-panel evidence editor landed; the module now contains **zero** executable `window.prompt` / `confirm` / `alert` calls, and the six remaining textual occurrences are all comments recording the doctrine. Pinned by the no-native-dialog gate in `tests/test_travel_doc_surface_gates.py`, so a reintroduction fails the build rather than reaching an operator.
-
-### LOW — cleanup / hygiene:
-
-- `.env.example` drift: ~24 documented flags no longer read by code; ~30 code-referenced flags undocumented (16 `DASH_*` alert thresholds, `HORNELORE_ATTRIB_BOUNDARY`, `HORNELORE_FACTUAL_CHAIN`, `HORNELORE_INTERVIEW_DISCIPLINE`, others). Codify a `grep -o 'os.getenv("[A-Z_]\+"' | sort -u` audit gate.
-- 9 `ADD COLUMN` migrations lack `IF NOT EXISTS` guards (0008, 0010, 0014, 0016, 0017, 0022, 0023, 0024, 0025). Rely on `schema_migrations` tracking. Consider `PRAGMA table_info` guard as belt-and-suspenders.
-- Launcher scripts hardcode `/mnt/c/Users/chris/hornelore` in `launchers/hornelore_run_gpu_8000.sh`, `hornelore_run_tts_8001.sh`, and 6 `scripts/setup/*.sh`. Blocks laptop migration. Port the `REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"` pattern from `hornelore_run_all_dev.sh` into each.
-- `narrative_cue_detector` eval pack scores 33/40 (82.5%) — 7 named misses (ncue_011/014/016/021/023/030/036). Real gaps in the classifier, not test infra.
-- `_UNTRUSTED_DATE_LEVELS` in `trip_photo_clustering.py:103` is defined but unused. Dead constant; remove.
-- 3 unbounded module-level dicts flagged above (`_TRIP_PREV_LORI`, `_TRIP_LAST_CAPTURE`, `_narratorTurnsSinceOpen`) leak memory in long-running processes.
-
----
-
-## Work Orders
-
-| WO | Status | Description |
-|---|---|---|
-| WO-8 | Complete | Transcript history, thread anchors, narrator resume flow |
-| WO-9 | Complete | Rolling summaries, recent turns, memory intelligence |
-| WO-10 | Complete | Cognitive support, operator tools, memory intelligence |
-| WO-11 | Complete | Standalone repo separation from Lorevox, trainer isolation |
-| WO-11E-HL | Complete | Amber read-along highlighting for Lori narration, TTS timing polish |
-| WO-12B | Complete | Cross-narrator contamination hunt and evidence archive |
-| WO-13 | Complete | Four-layer truth pipeline (phases 1–9) |
-| WO-13X / 13YZ | Complete | Conflict console + shadow review redesign |
-| WO-CAM-FIX | Complete | Camera orchestration repair (auto-start on ready narrator load) |
-| WO-MIC-UI-02A | Complete | Single-surface voice capture UI |
-| WO-CR-01 | Complete | Left Chronology Accordion — three-lane timeline sidebar |
-| WO-CR-PACK-01 | Complete | Chronology Phase 2 — mapper expansion, visual tuning, Lori awareness |
-| WO-QA-01 | Complete | Quality Harness — synthetic test narrators, scoring, hardware/timing capture |
-| WO-QA-02 | Complete | Archive-truth methodology — Channel A ceilings + suppression ranking. **`cfg_expressive` adopted as production default** (see `docs/wo-qa/WO-QA-02-RESULTS.md`) |
-| WO-QA-02B | Complete | Seed determinism — `chat_ws.py` honors `params.seed`. CUDA INT4 kernels remain non-deterministic; documented noise floor ±4 on suppression. |
-| WO-EX-01C | Complete | Narrator-identity subject guard + birth-context filter |
-| WO-EX-01D | Complete | Field-value sanity blacklists |
-| WO-EX-SCHEMA-01 | Complete | `family.*` + `residence.*` fields + repeatable entities |
-| WO-EX-SCHEMA-02 | Complete | 35 new fields (7 families), ~50 aliases, 7 prompt examples |
-| WO-EX-CLAIMS-01 | Complete | Dynamic token cap, position-aware grouping, 20 aliases |
-| WO-EX-CLAIMS-02 | Complete | Quick-win validators + refusal guard + community denial. 114 unit tests. |
-| WO-EX-REROUTE-01 | Complete | Semantic rerouter: 4 high-precision paths + touchstone dup + story-priority |
-| WO-EX-VALIDATE-01 | Shipped (flag OFF) | Age-math plausibility validator |
-| WO-EX-GUARD-REFUSAL-01 | Complete | Topic-refusal guard + community denial patterns |
-| WO-EX-TWOPASS-01 | **Regressed (flag OFF)** | Two-pass extraction — regressed 16/62 vs 32/62. Keep OFF. |
-| WO-LIFE-SPINE-05 | Shipped (flag OFF) | Phase-aware question composer |
-| WO-GREETING-01 | Complete | Backend endpoint + frontend. Memory echo triggers. |
-| WO-QB-MASTER-EVAL-01 | Complete | 62→104 cases, v2/v3 scoring, filters, atomic writer |
-| WO-QB-GENERATIONAL-01 | Complete (content) | 4 decade packs, present_life_realities, 5 new fields, 14 eval cases |
-| WO-QB-GENERATIONAL-01B | Complete (Part 1+3) | 6 extraction prompt examples, 2 rerouter rules, scorer collision fix |
-| WO-KAWA-UI-01A | Complete | River View UI |
-| WO-KAWA-01 | Specced | Parallel Kawa river layer — 10 phases |
-| WO-KAWA-02A | Complete | 3 interview modes, 3 memoir modes, plain-language toggle |
-| WO-PHENO-01 | Specced | Phenomenology layer: lived experience + wisdom extraction |
-| WO-INTENT-01 | Not specced | Narrator topic pivots ignored by composer — **#1 felt bug** |
-| WO-EX-DENSE-01 | Not specced | Dense-truth / large chunk extraction — **#1 extraction frontier** |
-| WO-QA-03 | Planned | TTS Option A — `--with-tts` flag for latency + GPU contention |
-| WO-14 | Deferred | TensorRT-LLM runtime swap (deferred pending Blackwell SM_120 maturity) |
-| WO-LORI-PHOTO-SHARED-01 | Complete | Photo authority layer — POST/GET/PATCH/DELETE `/api/photos/*`, multi-file batch upload, View/Edit modal, narrator-room lightbox, dedupe by file hash, soft-delete |
-| WO-LORI-PHOTO-INTAKE-01 (Phase 2 partial) | Shipped (flag-gated) | EXIF auto-fill + Nominatim reverse-geocoder + Plus Code generator + auto-description on upload; Review File Info preview button. `HORNELORE_PHOTO_INTAKE=1`. |
-| WO-LORI-PHOTO-ELICIT-01 (Phase 2) | Specced | Photo memory extraction profile, async scheduler, LLM prompts for Lori-side narration over photos in narrator room. Spec ready. |
-| WO-MEDIA-ARCHIVE-01 | Complete | Document Archive lane parallel to /api/photos. PDFs / scanned docs / handwritten notes / genealogy / letters / certificates / clippings. 4 SQLite tables, full router + curator page + 4 health checks + dev wrapper. Locked product rule: NEVER auto-promote to truth. |
-| WO-ARCHIVE-AUDIO-01 | Complete | Memory archive backend (per-narrator zip export, two-sided text transcript, narrator-only audio rule) at `/api/memory-archive/*` |
-| WO-AUDIO-NARRATOR-ONLY-01 (backend) | Complete | Per-turn webm audio capture endpoint; frontend MediaRecorder integration pending live build |
-| WO-UI-SHELL-01 | Complete | Three-tab shell (Operator / Narrator Session / Media); session-style picker (5 styles, persistent) |
-| WO-NARRATOR-ROOM-01 | Complete | Narrator-room layout: topbar + view tabs (Memory River / Life Map / Photos / Peek at Memoir) + chat column + context panel; Take-a-break overlay; chat scroll stabilization |
-| WO-UI-TEST-LAB-01 | Complete | Operator UI Health Check inside Bug Panel; 15 categories (added Document Archive); PASS / WARN / FAIL / DISABLED / NOT_INSTALLED / SKIP / INFO |
-| WO-SESSION-STYLE-WIRING-01 | Complete | Operator session-style picker drives narrator behavior; questionnaire_first BYPASSES the v9 incomplete-narrator gate (Corky rule) |
-| WO-HORNELORE-SESSION-LOOP-01 | Complete | Post-identity orchestrator: one Bio Builder question at a time + sessionStyle routing + repeatable-section deferred-handoff |
-| WO-10C | Complete | Cognitive Support Mode — 6 dementia-safe behavioral guarantees (protected silence at 120s/300s/600s, invitational re-entry, no correction, single-thread context, visual-as-patience, invitational prompts) |
-| WO-TRAVEL-DOC-UNIFY-01 | Complete | One Travel Doc on the operator path — six phases, Lab absorbs the Documenter, retired module quarantined not deleted; CLOSED 2026-07-25 after a thirty-seven-step live smoke with zero defects |
-| WO-HARNESS-DEPS-01 | Complete | Node Playwright toolchain declared, pinned exact at 1.58.2, lockfile committed, and `scripts/ui/README.md` rewritten to cover both toolchains and both liveness harnesses |
-| WO-MEDIA-WATCHFOLDER-01 | Planned | Auto-import from `C:\Users\chris\Hornelore Scans\` into Document Archive intake queue |
-| WO-MEDIA-OCR-01 | Planned | Tesseract OCR for scanned docs; promotes `text_status` from `image_only_needs_ocr` → `ocr_complete` |
-| WO-MEDIA-ARCHIVE-CANDIDATES-01 | Planned | Harvest items flagged `candidate_ready=true` and surface to Bio Builder review queue |
-
-### WO-13 Phase Status
-
-| Phase | Status | Description |
-|---|---|---|
-| 1 | Complete | Schema: family_truth_notes + family_truth_rows + family_truth_promoted |
-| 2 | Complete | Family truth router (CRUD endpoints) |
-| 3 | Complete | Reference narrator write guards |
-| 4 | Complete | Chat extraction → shadow archive pipeline, legacy facts freeze |
-| 5 | Complete | Cross-narrator contamination filter |
-| 6 | Complete | Review drawer UI (wo13-review.js) |
-| 7 | Complete | Promote with UPSERT semantics into family_truth_promoted |
-| 8 | Complete | Flag-gated profile read seam (hybrid builder) |
-| 9 | Complete | Kent dry run — validation, operator runbook |
-
-### WO-CR Phase Status
-
-| Phase | Status | Description |
-|---|---|---|
-| CR-01 | Complete | Left Chronology Accordion scaffold — three-lane merge, API endpoint, UI column |
-| CR-01B | Complete | Intra-year sort hotfix — personal before ghost before world |
-| CR-02 | Complete | Mapper expansion — compound dedup keys, strict questionnaire fallback, 14-field promoted whitelist |
-| CR-03 | Complete | Visual tuning — personal anchors dominate, ghost clearly non-factual, active-era emphasis |
-| CR-04 | Complete | Lori timeline awareness — provenance-tagged `chronology_context` in runtime payload |
-
----
-
-## Relationship to Lorevox
-
-Hornelore is not a fork or a peer of Lorevox. **Hornelore is the family-locked R&D crucible. Lorevox is the distilled public product.** Features prove themselves here against real older-adult narrators — Chris, Kent, Janice — and only the ones that earn it get promoted into Lorevox, generalized for arbitrary narrators, with all the Horne-specific scaffolding stripped out. The relationship is one-way and deliberate: lab → gold, by promotion, never by file-parity backport.
-
-**What stays here forever (Hornelore-only by design):**
-
-- **Closed Horne narrator universe** — three named narrators plus two read-only trainer narrators (Shatner, Dolly). UI controls for adding or deleting narrators are removed; backend write guards block creation.
-- **Pre-seeded Horne identity** — narrators auto-seeded from JSON templates on first startup; identity phase bypassed for known narrators.
-- **Family templates** — `kent-james-horne.json`, `janice-josephine-horne.json`, `christopher-todd-horne.json`.
-- **Bug Panel as a dev surface** — operator-only debugging utilities (Reset Identity, Purge Test Narrators, BB Walk Test harness, Audio Preflight, Health Check, Export Current Session). Lab tooling, not product.
-- **Local family-specific flags, fixtures, and parent-session runbooks.**
-- **Separate data** — own database (`hornelore.sqlite3`) and filesystem (`/mnt/c/hornelore_data/`).
-- **Renamed shell** — `hornelore1.0.html` instead of the public Lorevox shell.
-
-**What was here first because of the WO-11 separation but can run in both places:**
-
-- Quality Harness (WO-QA-01 / WO-QA-02 / WO-QA-02B) — currently shaped to Hornelore's eval cadence; the harness *infrastructure* could promote, but the present form is lab-tuned.
-- Extractor lane improvements (WO-EX series) — too active to promote yet; locked baseline 70/104 on the master eval.
-
----
-
-## Lorevox promotion queue
-
-This is the live distillation list — what's been proven in Hornelore and is ready to move into the public Lorevox product. The canonical version of the queue lives in the Lorevox README under "Hornelore Promotion Queue"; the abbreviated mirror below is for operator awareness while working in this repo.
-
-The queue is not automatic and not based on file-parity. Each candidate feature gets a deliberate decision: **promote** (generalize and move to Lorevox), **hold** (still in flux, keep iterating in Hornelore), or **Hornelore-only by design** (stays here, see above).
-
-**A. Proven — ready to promote**
-
-Validated against real narrators in this repo. Promotion requires removing Horne-family-specific assumptions and generalizing for arbitrary narrator universes.
-
-- **Four-layer truth pipeline (WO-13)** — shadow archive → proposals → human review → promoted truth. Already aligned with Lorevox's "Archive → History → Memoir" doctrine; this is the structural enforcement of "AI cannot promote claims without human review."
-- **Photo system** — curator photo intake (single + batch), EXIF auto-fill, Nominatim reverse-geocoding, Plus Code generator, View/Edit modal, narrator-room lightbox, dedupe-by-file-hash.
-- **Document Archive (WO-MEDIA-ARCHIVE-01)** — separate curator lane for PDFs / scanned docs / handwritten notes / genealogy outlines / letters / certificates / clippings. Locked product rule: preserve first, never auto-promote to truth.
-- **Memory Archive (WO-ARCHIVE-AUDIO-01)** — per-session two-sided text transcript, narrator-only audio capture rule, per-session zip export, per-turn metadata stamping.
-- **Per-turn audio capture (backend)** — webm audio attachment endpoint.
-- **Three-tab UI shell (WO-UI-SHELL-01)** — Operator / Narrator Session / Media split with session-style picker.
-- **Narrator room (WO-NARRATOR-ROOM-01)** — dedicated layout with view tabs (Memory River / Life Map / Photos / Peek at Memoir), Take-a-break overlay, chat scroll stabilization.
-- **Cognitive Support Model (WO-10C)** — six dementia-safe behavioral guarantees (protected silence 120s / 300s / 600s, invitational re-entry, no correction, single-thread context, visual-as-patience, invitational prompts). The parent-session test data lives here; the *model* — the older-adult pacing pattern — is the single strongest distillable artifact for OT/life-review use, and belongs in Lorevox.
-- **Bio Builder contamination hardening** — narrator-switch generation counter + 3-guard backend response check + scope hard-gates eliminating cross-narrator data leakage. Required before any multi-narrator product can ship safely.
-- **Operator UI Health Check (WO-UI-TEST-LAB-01)** — 15-category PASS / WARN / FAIL / DISABLED / NOT_INSTALLED / SKIP / INFO grid with sub-100ms full run.
-- **Chronology Accordion (WO-CR)** — read-only left-side time ladder merging three lanes (world / personal / ghost) at request time. Provenance-tagged so Lori knows confirmed truth versus context. Source-of-truth-agnostic; generalizes cleanly.
-- **Soft transcript review cue + audio preflight check** — small but proven UX safeguards.
-
-**B. Hold — keep in Hornelore until stable**
-
-Still iterating in the lab; promotion blocked until they lock to a measurable acceptance threshold.
-
-- **Extractor lane (LOOP-01 R5h+)** — locked baseline 70/104 on the 104-case master eval; SPANTAG / BINDING-01 / LORI-CONFIRM stack in flight. See `CLAUDE.md` changelog for the live trail.
-- **Phase-aware question composer** — flag-gated, working but not locked.
-- **Photo Phase 2 ELICIT** — Lori-side narration over photos; spec ready, LLM prompts pending.
-- **Future Document Archive lanes** — WATCHFOLDER, OCR, ARCHIVE-CANDIDATES; scoped, not built.
-
-**C. Hornelore-only by design** — see "Relationship to Lorevox" section above.
-
----
-
-## License
-
-Copyright (c) 2026 Chris (dev@lorevox.com). All rights reserved.
-
-Hornelore is governed by the same **Lorevox Source-Available Proprietary License (Version 1.1 — 2026)** as the public Lorevox product. Hornelore is the family-locked R&D crucible; it is not a separate license surface. The same restrictions apply: source-available for view and study; no commercial use, hosting for third parties, redistribution, or public forks; no use of prompts, schemas, or outputs for ML training; named brands (Lorevox, Lori, Hornelore) and expressive implementations are reserved.
-
-**Commercial, institutional, research, nonprofit, educational, clinical, archival, family-office, elder-care, SaaS, hosted, deployment, integration, white-label, or third-party use is available by separate written license.** Contact dev@lorevox.com to discuss terms.
-
-Third-party libraries and dependencies remain subject to their own licenses. End-user data — narrator records, family photos, scanned documents, transcripts, memoir drafts — is owned by the operator and narrator who created it; this License grants no claim over such content.
-
-Contributions are by invitation only and require full assignment of rights to the copyright holder.
-
-See [LICENSE](LICENSE) for complete terms. For permissions: dev@lorevox.com
-
----
+See [LICENSE](LICENSE) for complete terms. Contributions are assignment-based and by
+invitation; research, model and benchmark contributions do not require code commits.

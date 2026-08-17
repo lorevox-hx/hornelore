@@ -1,7 +1,38 @@
 # Lean Lori L2 — live acceptance runbook
 
-**Date:** 2026-08-14 · **Status:** PREPARED, NOT STARTED. **Do not execute without Chris
-opening L2.** · **Budget: exactly one stack start and one restart.**
+> ## ERRATA — 2026-08-17
+>
+> **THIS RUNBOOK HAS BEEN EXECUTED AND L2 IS CLOSED. DO NOT RUN IT AGAIN.**
+>
+> The status line below read *"PREPARED, NOT STARTED"* until 2026-08-17. That was accurate
+> when it was written and became false on 2026-08-16, when L2 ran and closed **PARTIAL by
+> product-priority decision (Chris)**. It is quoted rather than deleted, per the
+> correct-in-place rule, because a runbook that describes itself as unstarted is an
+> instruction to start it.
+>
+> **Gate B stays OPEN. Phase 10 stays open.** The unexercised cases — Case C, the remaining
+> Case A branches, the five styles, the trip/photo fixtures, the refusal matrix, Case E rows
+> 2 and 4, and the final restart with Case F — are **DEFERRED BY DECISION, not failures.**
+>
+> The budget was also not met: the run consumed one start, a clean shutdown, an authorized
+> resume start and a final restart. That deviation is recorded in the evidence report, not
+> smoothed over here.
+>
+> **Evidence of record:** `docs/reports/WO-LEAN-LORI-L2-PARTIAL-2026-08-16.md` — local-only
+> and gitignored (live narrator data), written as a path rather than a link because a link
+> would be broken for anyone cloning.
+>
+> **Known correction this run earned, carried forward and NOT yet fixed:** §5.1 A6c's export
+> verifier matches replies to turns *by text*, so two legitimate identical deterministic
+> replies read as a duplicate archive write. The verifier's contract is wrong; the product
+> behaviour was correct.
+>
+> **The active lane is `WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01`**, which takes up the three
+> integration defects L2 surfaced.
+
+**Date:** 2026-08-14 · **Status:** ~~PREPARED, NOT STARTED~~ **EXECUTED 2026-08-16 — CLOSED
+PARTIAL. Do not re-run.** · **Budget as written: exactly one stack start and one restart
+(not met — see the errata above).**
 **Binding throughout:** the model lock, the 8,192-token window, and **live safety stays
 `parked`**.
 

@@ -1,6 +1,6 @@
 # HORNELORE HANDOFF
 
-**Updated:** 2026-08-14  
+**Updated:** 2026-08-17  
 **Repository:** `lorevox-hx/hornelore`  
 **Branch:** `main`
 
@@ -23,6 +23,21 @@ and its latest live evidence first.
 
 ## 2. Current project state
 
+**Active lane as of 2026-08-17: `WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` Phase 1 — canonical
+narrator authority.** Three substantive commits: conflict-aware field-level projection
+authority; explicit session ownership reconciled across `sessions` and `interview_sessions`;
+ONE server chronology projection, extended from `/api/chronology-accordion` rather than added
+beside it, consumed by both Life Map renderers. Spec:
+[`docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md`](docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md).
+Phases 2–4 (Travel Document connection, Witness/story connection, unified output verification)
+are **sequenced and not started**.
+
+**Known, deliberate and not this lane's work:** seven assertions in the older
+`tests/test_lori_witness_mode` module conflict with later deliberate behaviour — four still
+demand three-anchor cascade output despite the newer two-anchor cap, and three expect the
+retired broad correction behaviour. That is reconciliation work for the Witness lane, not a
+reason to divert the authority phase.
+
 | Lane | State | Next decision |
 |---|---|---|
 | Google Photos Picker | **BANKED** | Reopen only for a demonstrated defect. |
@@ -32,7 +47,7 @@ and its latest live evidence first.
 | Test-artifact **cleanup** | **DEFERRED — requires Chris's authorization** | The 22 harness narrators were deliberately **not** deleted. No destructive cleanup without an explicit decision. |
 | Photo Palette | **COMPLETE; P4 and P5 accepted 2026-08-14** | Close the work order; do not reopen for polish without a demonstrated defect. |
 | Legacy photo-day scalar retirement (Phase 6) | **DEFERRED by supervisor recommendation, 2026-08-14 — NOT the next build** | Leave deferred until there is a concrete reason to remove the column. The scalar is frozen, no longer written, ignored for authoritative decisions, correctly derived on read, and covered by tests and live evidence; dropping it buys no product benefit and costs a risky SQLite table rebuild. |
-| Lean Lori | **L1 COMPLETE 2026-08-14. NEXT: L2, awaiting Chris's authorization.** | **Substantial work is ALREADY LANDED — eleven commits, Gate A, 1A–1E, 5, 6, 7, Phase 8 first gate. Do not rebuild it.** *(This row said `PARKED` until 2026-08-14, then `NEXT — Phase 0 re-review only`; both are retired — the Phase 0 map and L1 are done.)* Current state, runbook and decision brief: `docs/wo/WO-LEAN-LORI-PHASE-0-MAP-2026-08-14.md`, `..._L2-RUNBOOK-2026-08-14.md`, `..._PROFILE-SEED-DECISION-BRIEF-2026-08-14.md`. **L2 is one live block: one start, one restart. It is not authorised until Chris opens it.** The Phase 0.10 hard stop and the model / 8,192-token lock still bind. |
+| Lean Lori | **L1 COMPLETE 2026-08-14. L2 ran PARTIAL on 2026-08-16 and is CLOSED by product-priority decision — DO NOT RESUME IT.** *(This row said `NEXT: L2, awaiting Chris's authorization` until 2026-08-17. L2 had already run and been closed; a handoff that still names it as next is an instruction to redo a decision, which is the failure this file's own ordering rule exists to prevent.)* | **Substantial work is ALREADY LANDED — eleven commits, Gate A, 1A–1E, 5, 6, 7, Phase 8 first gate. Do not rebuild it.** Evidence for the partial run: `docs/reports/WO-LEAN-LORI-L2-PARTIAL-2026-08-16.md` (local-only, gitignored — live narrator data). **Gate B stays OPEN and Phase 10 stays open**; the deferred cases are deferred by decision, not failures. Profile Seed ownership is **DECIDED — Option A, live narrators only**. The three integration defects L2 surfaced are the active lane: `docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md`. The model / 8,192-token lock still binds. |
 | Runtime safety | **PARKED, server-authoritative** | Never reactivate through environment values. |
 | Model / 8,192-token window | **LOCKED** | Any proposed model change is stop-and-report. |
 | Privacy canon extraction/history purge | **PARKED work order** | Not on the current product critical path. |

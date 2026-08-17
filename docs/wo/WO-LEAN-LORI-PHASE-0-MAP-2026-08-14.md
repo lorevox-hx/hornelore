@@ -1,5 +1,19 @@
 # Lean Lori — Phase 0 reconciliation map
 
+> ## ERRATA — 2026-08-17
+>
+> **L2 has since RUN and is CLOSED PARTIAL by product-priority decision (2026-08-16).**
+> Everything below describes the state on 2026-08-14, when L2 was still unopened. It is
+> design history now, not a build queue. **Do not read §8's "the stack was not started" as
+> current** — it was true of *this map*, and is no longer true of the lane.
+>
+> Gate B stays OPEN and Phase 10 stays open; the unexercised L2 cases are deferred by
+> decision, not failed. Profile Seed ownership is **DECIDED — Option A, live narrators
+> only**. Evidence: `docs/reports/WO-LEAN-LORI-L2-PARTIAL-2026-08-16.md` (local-only,
+> gitignored). The active lane is
+> `docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md`.
+
+
 **Status:** PHASE 0 RE-REVIEW COMPLETE — 2026-08-14. **Offline only. No product code, no
 schema, no migration, no flag change, no stack cycle, no live run.**
 **Canonical WO:** `docs/wo/WO-LEAN-LORI-RUNTIME-01-FINAL-R3-2026-08-04.md`
