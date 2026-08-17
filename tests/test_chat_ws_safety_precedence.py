@@ -155,11 +155,40 @@ class FakeWS:
     waiting for any outstanding turns via a final explicit wait entry —
     callers should end scripts with ("wait_done", n))."""
 
-    def __init__(self, script):
+    def __init__(self, script, headers: Optional[Dict[str, str]] = None):
         self.script = list(script)
         self.sent: List[Dict[str, Any]] = []
+        # ── THE ORIGIN GUARD NEEDS A HEADERS MAPPING ──────────────────
+        #
+        # `ws_chat` reads `ws.headers.get("origin")` before accepting
+        # (chat_ws.py:494) and refuses with 4403 when the origin is not
+        # permitted. Without this attribute every test in this module --
+        # and in the three modules that import FakeWS from here --
+        # errored with AttributeError before a single assertion ran, so
+        # 16 tests reported as errors while zero behaviour was measured.
+        #
+        # AN EMPTY MAPPING IS THE FAITHFUL DEFAULT, NOT A BYPASS.
+        # `origin_permitted(None)` returns True by design
+        # (net_guard.py:61) because a missing Origin means a non-browser
+        # client -- "harnesses, eval scripts" in the production comment's
+        # own words -- and the threat model is hostile web pages, which
+        # always send one. A harness is exactly that permitted client, so
+        # sending no Origin is what it should do. The guard still runs
+        # and is still evaluated; it is simply given the input its own
+        # docstring says a harness supplies.
+        #
+        # Overridable so a future test can drive the refusal path:
+        #     FakeWS(script, headers={"origin": "http://evil.example"})
+        self.headers: Dict[str, str] = dict(headers or {})
 
     async def accept(self):
+        return None
+
+    async def close(self, code: int = 1000):
+        # The origin guard closes rather than accepting. Without this the
+        # refusal path would fail with a second AttributeError and be
+        # unmeasurable.
+        self.closed_code = code
         return None
 
     async def send_text(self, text: str):
