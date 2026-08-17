@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from ..db import (
+    SessionOwnerConflict,
     new_conv_id,
     ensure_session,
     upsert_session,
@@ -22,19 +23,30 @@ class PutSessionRequest(BaseModel):
     conv_id: str
     title: str = ""
     payload: Dict[str, Any] = {}
+    # WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 R2.3 (2026-08-16).
+    # Optional and additive: existing callers that only put the narrator
+    # inside `payload` keep working, because upsert_session reads both
+    # historical payload keys when this is absent.
+    person_id: Optional[str] = None
 
 
 @router.get("/api/sessions/list")
-def api_sessions_list(limit: int = 50):
-    items = list_sessions(limit=limit)
+def api_sessions_list(limit: int = 50, person_id: str = ""):
+    # WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 R2.5 — optional narrator
+    # scoping. Omitting person_id preserves the existing unfiltered
+    # behaviour exactly.
+    items = list_sessions(limit=limit, person_id=person_id or None)
     # Return BOTH keys so old/new UIs don’t break
     return {"items": items, "sessions": items}
 
 
 @router.post("/api/session/new")
-def api_session_new(title: str = ""):
+def api_session_new(title: str = "", person_id: str = ""):
     conv_id = new_conv_id()
-    ensure_session(conv_id, title=title or "")
+    # R2.3 — a caller that knows the narrator can say so at creation.
+    # Omitting it records NULL, which is the truthful answer; it is never
+    # inferred later (R2.4/§4.4).
+    ensure_session(conv_id, title=title or "", person_id=person_id or None)
     payload = get_session_payload(conv_id) or {"conv_id": conv_id, "title": title or "", "updated_at": "", "payload": {}}
     return {"conv_id": conv_id, "session_id": conv_id, "title": payload.get("title", ""), "payload": payload}
 
@@ -43,7 +55,12 @@ def api_session_new(title: str = ""):
 def api_session_put(req: PutSessionRequest):
     if not req.conv_id:
         raise HTTPException(status_code=400, detail="conv_id required")
-    upsert_session(req.conv_id, req.title or "", req.payload or {})
+    # R2.4 — a session already owned by narrator A must not be quietly
+    # reassigned to narrator B. 409 says so instead of a 500 stack.
+    try:
+        upsert_session(req.conv_id, req.title or "", req.payload or {}, person_id=req.person_id)
+    except SessionOwnerConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     return {"ok": True, "conv_id": req.conv_id}
 
 

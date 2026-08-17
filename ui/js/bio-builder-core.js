@@ -1070,23 +1070,47 @@
           } catch (e) { console.warn("[bb-deep-reset] backend QQ wipe threw:", e); }
         }
 
-        // 7. Backend projection wipe (best-effort, fire-and-forget)
-        if (typeof API !== "undefined" && API.IV_PROJ_PUT) {
+        // 7. Backend projection wipe (best-effort, fire-and-forget).
+        //
+        // WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 (2026-08-17). This is
+        // the RESET operation, and it is the only caller entitled to
+        // replace the whole envelope. It therefore has to earn it:
+        //   * read the current version first, so the replacement runs
+        //     under optimistic concurrency rather than blind;
+        //   * say replace: true and allow_empty: true explicitly.
+        // A stale base returns 409 and wipes nothing, which is correct --
+        // if the row moved between the read and the write, the operator
+        // is resetting something they have not seen.
+        if (typeof API !== "undefined" && API.IV_PROJ_PUT && API.IV_PROJ_GET) {
           try {
-            fetch(API.IV_PROJ_PUT, {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                person_id: pid,
-                fields: {},
-                source: "bb_deep_reset",
-                version: 1
+            fetch(API.IV_PROJ_GET(pid))
+              .then(function (r) { return r.ok ? r.json() : null; })
+              .then(function (cur) {
+                if (!cur) throw new Error("could not read current projection version");
+                return fetch(API.IV_PROJ_PUT, {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    person_id: pid,
+                    projection: { fields: {}, pendingSuggestions: [], syncLog: [] },
+                    source: "bb_deep_reset",
+                    version: 1,
+                    replace: true,
+                    allow_empty: true,
+                    base_version: cur.version
+                  })
+                });
               })
-            }).then(function (r) {
-              console.log("[bb-deep-reset] backend projection wipe → " + r.status);
-            }).catch(function (e) {
-              console.warn("[bb-deep-reset] backend projection wipe failed:", e);
-            });
+              .then(function (r) {
+                console.log("[bb-deep-reset] backend projection wipe → " + r.status);
+                if (r.status === 409) {
+                  console.warn("[bb-deep-reset] projection changed since it was read — " +
+                               "nothing was wiped. Re-open and reset again to confirm.");
+                }
+              })
+              .catch(function (e) {
+                console.warn("[bb-deep-reset] backend projection wipe failed:", e);
+              });
           } catch (e) { console.warn("[bb-deep-reset] backend projection wipe threw:", e); }
         }
 

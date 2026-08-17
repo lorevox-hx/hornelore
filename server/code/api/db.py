@@ -1643,38 +1643,126 @@ def new_conv_id() -> str:
     return _uuid()
 
 
-def ensure_session(conv_id: str, title: str = "") -> None:
+class SessionOwnerConflict(Exception):
+    """A session already owned by narrator A was claimed for narrator B.
+
+    Supervisor requirement (2026-08-16): *"If a session is already owned
+    by narrator A, a later call for narrator B must fail -- not silently
+    replace the owner."* Keeping A quietly would also have been a silent
+    resolution of a contradiction, and the contradiction is the
+    information. A conversation does not change narrators, so this is a
+    bug to surface at the moment it happens, while the caller is still
+    on the stack.
+    """
+
+    def __init__(self, conv_id: str, stored_person_id: str, incoming_person_id: str):
+        self.conv_id = conv_id
+        self.stored_person_id = stored_person_id
+        self.incoming_person_id = incoming_person_id
+        super().__init__(
+            f"session {conv_id} is owned by {stored_person_id}; "
+            f"refusing to reassign it to {incoming_person_id}"
+        )
+
+
+def _assert_session_owner(con, conv_id: str, incoming: Optional[str]) -> None:
+    """Raise if `incoming` contradicts a recorded owner. Silent when it agrees."""
+    if not incoming:
+        return
+    row = con.execute(
+        "SELECT person_id FROM sessions WHERE conv_id=?;", (conv_id,)
+    ).fetchone()
+    if not row:
+        return
+    stored = (row["person_id"] or "").strip()
+    if stored and stored != incoming:
+        raise SessionOwnerConflict(conv_id, stored, incoming)
+
+
+def ensure_session(conv_id: str, title: str = "", person_id: Optional[str] = None) -> None:
+    """Create or touch a chat session row, recording who it belongs to.
+
+    WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 commit 2 (2026-08-16), R2.3/R2.4.
+
+    ``person_id`` is new. Until this commit the signature could not
+    express ownership at all, which is why every row on the live
+    WebSocket path was written with ``payload_json='{}'`` even though
+    ``chat_ws`` had the narrator id in hand and was passing it to
+    ``archive_ensure_session`` and ``ensure_interview_session`` for the
+    very same ``conv_id``.
+
+    OWNERSHIP IS WRITTEN ONCE AND NEVER SILENTLY CHANGED. A NULL
+    incoming id never clears an existing owner
+    (``COALESCE(sessions.person_id, excluded.person_id)``), and a
+    DIFFERENT incoming id raises ``SessionOwnerConflict`` rather than
+    replacing -- or quietly discarding -- either value. A conversation
+    does not change narrators, so a collision is information, and
+    resolving it silently in either direction destroys that
+    information.
+
+    ``payload_json`` is untouched. The legacy JSON key stays readable
+    forever -- demoted, not deleted (see ``_session_owner_sql``).
+    """
     init_db()
     con = _connect()
     now = _now_iso()
+    pid = (person_id or "").strip() or None
+    try:
+        _assert_session_owner(con, conv_id, pid)
+    except Exception:
+        con.close()
+        raise
     con.execute(
         """
-        INSERT INTO sessions(conv_id,title,updated_at,payload_json)
-        VALUES(?,?,?,?)
+        INSERT INTO sessions(conv_id,title,updated_at,payload_json,person_id)
+        VALUES(?,?,?,?,?)
         ON CONFLICT(conv_id) DO UPDATE SET
           title=CASE WHEN excluded.title<>'' THEN excluded.title ELSE sessions.title END,
-          updated_at=excluded.updated_at;
+          updated_at=excluded.updated_at,
+          person_id=COALESCE(sessions.person_id, excluded.person_id);
         """,
-        (conv_id, title or "", now, "{}"),
+        (conv_id, title or "", now, "{}", pid),
     )
     con.commit()
     con.close()
 
 
-def upsert_session(conv_id: str, title: str, payload: Dict[str, Any]) -> None:
+def upsert_session(
+    conv_id: str,
+    title: str,
+    payload: Dict[str, Any],
+    person_id: Optional[str] = None,
+) -> None:
+    """Replace a session's payload. Ownership follows the same
+    write-once rule as ``ensure_session`` (R2.4).
+
+    When no ``person_id`` is passed explicitly the payload is consulted,
+    accepting either historical key. ``app.js`` has always written
+    ``person_id`` while the only reader looked for ``active_person_id``;
+    both are honoured here so that mismatch stops costing attribution.
+    """
     init_db()
     con = _connect()
     now = _now_iso()
+    body = payload or {}
+    pid = (person_id or body.get("active_person_id") or body.get("person_id") or "")
+    pid = str(pid).strip() or None
+    try:
+        _assert_session_owner(con, conv_id, pid)
+    except Exception:
+        con.close()
+        raise
     con.execute(
         """
-        INSERT INTO sessions(conv_id,title,updated_at,payload_json)
-        VALUES(?,?,?,?)
+        INSERT INTO sessions(conv_id,title,updated_at,payload_json,person_id)
+        VALUES(?,?,?,?,?)
         ON CONFLICT(conv_id) DO UPDATE SET
           title=excluded.title,
           updated_at=excluded.updated_at,
-          payload_json=excluded.payload_json;
+          payload_json=excluded.payload_json,
+          person_id=COALESCE(sessions.person_id, excluded.person_id);
         """,
-        (conv_id, title or "", now, _json_dump(payload or {})),
+        (conv_id, title or "", now, _json_dump(body), pid),
     )
     con.commit()
     con.close()
@@ -1684,7 +1772,7 @@ def get_session_payload(conv_id: str) -> Optional[Dict[str, Any]]:
     init_db()
     con = _connect()
     row = con.execute(
-        "SELECT conv_id,title,updated_at,payload_json FROM sessions WHERE conv_id=?;",
+        "SELECT conv_id,title,updated_at,payload_json,person_id FROM sessions WHERE conv_id=?;",
         (conv_id,),
     ).fetchone()
     con.close()
@@ -1694,7 +1782,109 @@ def get_session_payload(conv_id: str) -> Optional[Dict[str, Any]]:
     payload.setdefault("conv_id", row["conv_id"])
     payload.setdefault("title", row["title"] or "")
     payload.setdefault("updated_at", row["updated_at"] or "")
+    # R2.5 — the column is the authority, and it is surfaced ONLY when an
+    # owner is actually known.
+    #
+    # An earlier cut of this wrote `payload["person_id"] = owner or None`
+    # unconditionally. That is a regression, and the offline gate caught
+    # it: `prompt_composer` serialises this dict into the composed
+    # prompt's trailing PROFILE_JSON blob, so every ownerless session --
+    # which is every legacy row, including the shared "default" one --
+    # started emitting `PROFILE_JSON: {"person_id": null}` into Lori's
+    # system prompt. A read helper must not change what the composer
+    # says. Callers wanting the owner alone use get_session_owner().
+    owner = row["person_id"] or payload.get("active_person_id") or payload.get("person_id") or ""
+    if owner:
+        payload.setdefault("person_id", owner)
+        payload.setdefault("active_person_id", owner)
     return payload
+
+
+def get_session_owner(conv_id: str) -> Optional[str]:
+    """The narrator a session belongs to, or None when unrecorded.
+
+    R2.5. Resolution order: the `sessions.person_id` column added by
+    0044, then `$.active_person_id` (the key the legacy reader expected),
+    then `$.person_id` (the key `app.js` has actually been writing). None
+    means "owner not recorded" -- which is the truthful answer for every
+    row written before 0044, and is never upgraded to a guess.
+    """
+    init_db()
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT payload_json, person_id FROM sessions WHERE conv_id=?;", (conv_id,)
+        ).fetchone()
+        if not row:
+            return None
+        if (row["person_id"] or "").strip():
+            return row["person_id"]
+        payload = _json_load(row["payload_json"], {}) or {}
+        return payload.get("active_person_id") or payload.get("person_id") or None
+    finally:
+        con.close()
+
+
+def session_ownership_residue() -> Dict[str, Any]:
+    """What narrator deletion cannot reach, counted rather than implied.
+
+    WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 commit 2, R2.5. A narrator
+    hard-delete now removes the sessions it OWNS (and their turns, via
+    the existing cascade off ``sessions(conv_id)``). It deliberately does
+    not touch rows whose owner was never recorded -- deleting those would
+    mean guessing, and guessing is the thing this lane exists to stop.
+
+    So there is a residue, and this reports it: how many sessions and
+    turns are unattributable, and how many of those a recorded link
+    might still rescue. The number is meant to be looked at, not fixed
+    by inference.
+    """
+    init_db()
+    con = _connect()
+    try:
+        def _one(sql: str) -> int:
+            row = con.execute(sql).fetchone()
+            return int(row[0] if row else 0)
+
+        unowned = _one(
+            "SELECT COUNT(*) FROM sessions WHERE person_id IS NULL OR person_id=''"
+        )
+        owned = _one("SELECT COUNT(*) FROM sessions WHERE person_id IS NOT NULL AND person_id<>''")
+        orphan_turns = _one(
+            "SELECT COUNT(*) FROM turns t JOIN sessions s ON s.conv_id=t.conv_id "
+            "WHERE s.person_id IS NULL OR s.person_id=''"
+        )
+        legacy_json = _one(
+            "SELECT COUNT(*) FROM sessions WHERE (person_id IS NULL OR person_id='') "
+            "AND COALESCE(json_extract(payload_json,'$.active_person_id'),"
+            "json_extract(payload_json,'$.person_id')) IS NOT NULL"
+        )
+        return {
+            "sessions_total": owned + unowned,
+            "sessions_owned": owned,
+            "sessions_unowned": unowned,
+            "turns_in_unowned_sessions": orphan_turns,
+            "unowned_but_legacy_json_has_an_id": legacy_json,
+        }
+    finally:
+        con.close()
+
+
+def count_sessions_without_owner() -> int:
+    """How many session rows still have no recorded narrator.
+
+    R2.6/§4.4 of the work order: this number is REPORTED, never reduced
+    by inference. It exists so the honest answer is cheap to obtain.
+    """
+    init_db()
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT COUNT(*) AS n FROM sessions WHERE person_id IS NULL OR person_id='';"
+        ).fetchone()
+        return int(row["n"] if row else 0)
+    finally:
+        con.close()
 
 
 def get_session(conv_id: str) -> Optional[Dict[str, Any]]:
@@ -1702,15 +1892,40 @@ def get_session(conv_id: str) -> Optional[Dict[str, Any]]:
     return get_session_payload(conv_id)
 
 
-def list_sessions(limit: int = 50) -> List[Dict[str, Any]]:
+def list_sessions(limit: int = 50, person_id: Optional[str] = None) -> List[Dict[str, Any]]:
     init_db()
     con = _connect()
-    rows = con.execute(
-        "SELECT conv_id,title,updated_at FROM sessions ORDER BY updated_at DESC LIMIT ?;",
-        (int(limit),),
-    ).fetchall()
+    if person_id:
+        # R2.5 — the sidebar can finally scope to one narrator. Legacy
+        # JSON keys are honoured so rows written before 0044 are not
+        # invisible under a filter.
+        rows = con.execute(
+            "SELECT conv_id,title,updated_at,person_id FROM sessions "
+            "WHERE COALESCE(NULLIF(person_id,''), "
+            "json_extract(payload_json,'$.active_person_id'), "
+            "json_extract(payload_json,'$.person_id')) = ? "
+            "ORDER BY updated_at DESC LIMIT ?;",
+            (person_id, int(limit)),
+        ).fetchall()
+    else:
+        rows = con.execute(
+            "SELECT conv_id,title,updated_at,person_id FROM sessions "
+            "ORDER BY updated_at DESC LIMIT ?;",
+            (int(limit),),
+        ).fetchall()
     con.close()
-    return [{"conv_id": r["conv_id"], "title": r["title"] or "", "updated_at": r["updated_at"] or ""} for r in rows]
+    # R2.5 — person_id is surfaced so the sidebar can finally filter by
+    # narrator. None means "owner not recorded", which is the truthful
+    # answer for every row written before migration 0044.
+    return [
+        {
+            "conv_id": r["conv_id"],
+            "title": r["title"] or "",
+            "updated_at": r["updated_at"] or "",
+            "person_id": r["person_id"] or None,
+        }
+        for r in rows
+    ]
 
 
 def delete_session(conv_id: str) -> None:
@@ -1729,9 +1944,22 @@ def add_turn(
     ts: Optional[str] = None,
     anchor_id: str = "",
     meta: Optional[Dict[str, Any]] = None,
+    person_id: Optional[str] = None,
 ) -> None:
+    """Append one turn row.
+
+    WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 R2.3 (2026-08-16): the
+    supervisor list of creation paths that must carry ownership includes
+    this one. It is the sibling writer to ``persist_turn_transaction``
+    and it creates `sessions` rows too, so leaving it out would have left
+    a second way to mint an ownerless session.
+
+    If ``person_id`` is omitted but ``meta`` carries one, that is used --
+    a recorded fact from the caller, not an inference.
+    """
     init_db()
-    ensure_session(conv_id)
+    owner = (person_id or (meta or {}).get("person_id") or "") or None
+    ensure_session(conv_id, person_id=owner)
     con = _connect()
     ts = ts or _now_iso()
     con.execute(
@@ -1785,6 +2013,7 @@ def persist_turn_transaction(
     row_ids_out: Optional[dict] = None,
     *,
     is_system_directive: bool = False,
+    person_id: Optional[str] = None,
 ) -> Optional[int]:
     """Commit one user+assistant turn pair. Returns the assistant rowid.
 
@@ -1868,7 +2097,12 @@ def persist_turn_transaction(
     change's clothes.
     """
     init_db()
-    ensure_session(conv_id)
+    # WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 R2.3 — the narrator this
+    # turn belongs to. Every chat_ws persist site has it in scope; it was
+    # simply being dropped here. Keyword-only and defaulted, so callers
+    # that genuinely have no narrator (tests, legacy REST) are unchanged
+    # and record NULL rather than a guess.
+    ensure_session(conv_id, person_id=person_id)
     ts = _now_iso()
 
     assistant_rowid: Optional[int] = None
@@ -4834,6 +5068,18 @@ _EXTENDED_PERSON_SCOPED_TABLES: List[tuple] = [
     ("section_summaries", "person_id"),
     ("trip_bio_suggestions", "person_id"),
     ("trips", "person_id"),
+    # WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 commit 2 (2026-08-16).
+    # `sessions` has no SQLite FK to `people` -- adding one needs a table
+    # rebuild that rewrites the parent of the whole chat corpus (see
+    # migration 0044). The deletion POLICY a cascade would have given is
+    # implemented here instead, where it is testable: a narrator's owned
+    # sessions are deleted explicitly, and `turns` follows through its
+    # existing ON DELETE CASCADE off sessions(conv_id).
+    #
+    # Only OWNED rows go. Rows whose owner was never recorded are not
+    # swept up on a guess -- they are reported by
+    # session_ownership_residue() instead.
+    ("sessions", "person_id"),
 ]
 
 
@@ -4911,6 +5157,10 @@ def person_delete_inventory(person_id: str) -> Optional[Dict[str, Any]]:
         ("interview_answers", "person_id"),
         ("facts", "person_id"),
         ("life_phases", "person_id"),
+        # R2.5 — the operator must see chat sessions in the confirmation
+        # inventory, because deleting the narrator now removes them (and
+        # their turns) rather than orphaning them.
+        ("sessions", "person_id"),
     ]
     for table, col in tables:
         row = con.execute(
@@ -5388,17 +5638,151 @@ def get_projection(person_id: str) -> Dict[str, Any]:
         con.close()
 
 
-def upsert_projection(
+def projection_envelope_is_empty(projection: Optional[Dict[str, Any]]) -> bool:
+    """True when an envelope carries no narrator content.
+
+    WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 R1.3. "Empty" is defined here,
+    once, so the guard is testable rather than a matter of taste: an envelope
+    is empty when ``fields`` is falsy/{} AND ``pendingSuggestions`` is
+    falsy/[]. ``syncLog`` is session-only audit and is NEVER counted — a
+    payload that carries nothing but its own audit trail is still empty.
+    """
+    if not isinstance(projection, dict):
+        return True
+    fields = projection.get("fields")
+    pending = projection.get("pendingSuggestions")
+    return not fields and not pending
+
+
+def merge_projection_fields(
     person_id: str,
-    projection: Dict[str, Any],
+    mutations: Optional[Dict[str, Any]] = None,
+    removals: Optional[List[str]] = None,
     source: str = "projection_sync",
-    version: int = 1,
+    base_version: Optional[int] = None,
+    base_fields: Optional[Dict[str, Any]] = None,
+    pending_suggestions: Optional[List[Any]] = None,
+    extra_keys: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Save canonical projection state to backend DB."""
+    """Apply FIELD-LEVEL changes with PER-PATH optimistic concurrency.
+
+    WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 commit 1.
+
+    WHY A WHOLE-DOCUMENT PUT COULD NOT BE MADE SAFE BY GUARDING IT. The
+    browser envelope is not a superset of the server one. The server
+    writes keys the browser has never seen -- ``projection_writer.
+    apply_correction`` rewrites ``fields`` mid-turn. Replacing the
+    document destroys those keys even when the replacement is fresh,
+    non-empty and authorised. Only a per-field write can leave a key the
+    writer does not know about intact.
+
+    WHY A GLOBAL VERSION IS NOT ENOUGH EITHER (supervisor review,
+    2026-08-17). ``base_version`` proves only that SOMETHING changed, not
+    WHAT. Rebasing a dirty path onto a newer record and retrying is safe
+    when the server touched *different* paths and silently destructive
+    when it touched the *same* one -- the conflict is delayed, not
+    resolved.
+
+    So concurrency is checked PER PATH. ``base_fields`` maps each path the
+    caller is writing to the value it hydrated for that path. A path is
+    CONTESTED when the stored value differs from that. Then:
+
+      * no contested paths -> apply. A newer ``version`` alone is not a
+        conflict; a disjoint edit rebases here, on the server, in one
+        round trip, so no client retry is needed or offered.
+      * any contested path -> REFUSE the whole write, change nothing, and
+        return ``conflicting_paths``. The caller keeps its mutation and
+        surfaces the conflict. It must NOT retry.
+
+    ``base_fields=None`` means the caller cannot demonstrate what it was
+    editing from. A version mismatch is then treated as contesting EVERY
+    path, because unprovable is not the same as safe.
+
+    ``pending_suggestions`` replaces that array when supplied and leaves
+    it untouched when omitted -- the same "absent means leave alone" rule
+    the field mutations follow.
+    """
     now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
-    p_json = json.dumps(projection, ensure_ascii=False)
+    mutations = mutations or {}
+    removals = list(removals or [])
     con = _connect()
     try:
+        # ONE WRITE TRANSACTION AROUND COMPARE-AND-WRITE.
+        # BEGIN IMMEDIATE takes the write lock BEFORE the SELECT. Without
+        # it the read runs in autocommit and only the INSERT opens a
+        # (deferred) transaction, so two concurrent requests could both
+        # pass the per-path comparison before either wrote -- and the
+        # second would land on top of the first having "proved" it was
+        # safe against a row that no longer existed. busy_timeout=5000 is
+        # already set in _connect, so a contending writer waits rather
+        # than failing immediately.
+        con.execute("BEGIN IMMEDIATE")
+        row = con.execute(
+            "SELECT projection_json, source, version, updated_at "
+            "FROM interview_projections WHERE person_id = ?",
+            (person_id,),
+        ).fetchone()
+
+        stored: Dict[str, Any] = json.loads(row["projection_json"] or "{}") if row else {}
+        stored_version = int(row["version"] or 0) if row else 0
+        stored_fields = stored.get("fields") or {}
+        touched = list(mutations.keys()) + removals
+
+        contested: List[str] = []
+        if base_fields is not None:
+            for path in touched:
+                if stored_fields.get(path) != base_fields.get(path):
+                    contested.append(path)
+        elif base_version is not None and int(base_version) != stored_version:
+            # Cannot prove any path is safe. Unprovable != safe.
+            contested = list(touched)
+
+        if contested:
+            con.rollback()
+            return {
+                "person_id": person_id,
+                "projection": stored,
+                "source": row["source"] if row else "empty",
+                "version": stored_version,
+                "updated_at": (row["updated_at"] if row else "") or "",
+                "write_applied": False,
+                "conflict": True,
+                "conflicting_paths": sorted(set(contested)),
+            }
+
+        if not mutations and not removals and pending_suggestions is None and not extra_keys:
+            con.rollback()
+            return {
+                "person_id": person_id,
+                "projection": stored,
+                "source": row["source"] if row else "empty",
+                "version": stored_version,
+                "updated_at": (row["updated_at"] if row else "") or "",
+                "write_applied": False,
+                "conflict": False,
+                "conflicting_paths": [],
+            }
+
+        merged = dict(stored)
+        fields = dict(stored_fields)
+        for path, value in mutations.items():
+            fields[str(path)] = value
+        for path in removals:
+            fields.pop(str(path), None)
+        merged["fields"] = fields
+        if pending_suggestions is not None:
+            merged["pendingSuggestions"] = list(pending_suggestions)
+        else:
+            merged.setdefault("pendingSuggestions", stored.get("pendingSuggestions") or [])
+        # Envelope-level keys the caller owns (e.g. last_correction_at).
+        # Named explicitly rather than swept in, so a merge still cannot
+        # carry a whole document by accident.
+        for k, v in (extra_keys or {}).items():
+            merged[str(k)] = v
+        # Any server-authored key not named above is carried through
+        # untouched -- that is the whole point of this function.
+
+        next_version = stored_version + 1
         con.execute(
             """INSERT INTO interview_projections
                    (person_id, projection_json, source, version, updated_at)
@@ -5408,15 +5792,127 @@ def upsert_projection(
                    source = excluded.source,
                    version = excluded.version,
                    updated_at = excluded.updated_at""",
-            (person_id, p_json, source, version, now),
+            (person_id, json.dumps(merged, ensure_ascii=False), source, next_version, now),
+        )
+        con.commit()
+        return {
+            "person_id": person_id,
+            "projection": merged,
+            "source": source,
+            "version": next_version,
+            "updated_at": now,
+            "write_applied": True,
+            "conflict": False,
+            "conflicting_paths": [],
+        }
+    finally:
+        con.close()
+
+
+def upsert_projection(
+    person_id: str,
+    projection: Dict[str, Any],
+    source: str = "projection_sync",
+    version: int = 1,
+    allow_empty: bool = False,
+    base_version: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Save canonical projection state to backend DB.
+
+    WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01, commit 1 (2026-08-16).
+
+    Two changes to what was a blind last-writer-wins whole-blob replace:
+
+    R1.3 — an EMPTY envelope over a NON-EMPTY stored row is REFUSED. The
+    stored row is left byte-identical and the return value reports
+    ``write_applied=False``. A caller that genuinely means to wipe passes
+    ``allow_empty=True`` and says so. This is the durable half of the fix:
+    it protects the row from every writer, not just from the browser path
+    that was observed doing it during L2.
+
+    R1.4 — ``version`` is server-owned and monotonic: an applied write
+    stores ``stored_version + 1``. The caller's ``version`` is accepted for
+    wire compatibility and is advisory only. It was previously stored
+    verbatim, and because the browser hardcodes 1 the column was pinned at
+    1 forever and carried no ordering information despite existing.
+
+    ``base_version`` (supervisor requirement, 2026-08-16): a stale
+    whole-document write returns ``conflict=True`` with the CURRENT
+    server record and writes nothing.
+
+    THIS IS THE REPLACEMENT PATH AND IT IS NOT THE DEFAULT ONE. Ordinary
+    editing goes through ``merge_projection_fields``, because replacing
+    a document destroys server-authored keys the writer never saw. Use
+    this only where wholesale replacement is the actual intent -- a deep
+    reset, or a restore.
+
+    Nothing is destroyed to achieve either: no column dropped, no row
+    deleted, no migration.
+    """
+    now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+    con = _connect()
+    try:
+        # Same atomicity rule as merge_projection_fields: the base check
+        # and the replacement are one write transaction.
+        con.execute("BEGIN IMMEDIATE")
+        row = con.execute(
+            "SELECT projection_json, source, version, updated_at "
+            "FROM interview_projections WHERE person_id = ?",
+            (person_id,),
+        ).fetchone()
+
+        stored_version = int(row["version"] or 0) if row is not None else 0
+        if base_version is not None and int(base_version) != stored_version:
+            con.rollback()
+            return {
+                "person_id": person_id,
+                "projection": json.loads(row["projection_json"] or "{}") if row else {},
+                "source": row["source"] if row is not None else "empty",
+                "version": stored_version,
+                "updated_at": (row["updated_at"] if row is not None else "") or "",
+                "write_applied": False,
+                "conflict": True,
+            }
+
+        if row is not None and not allow_empty and projection_envelope_is_empty(projection):
+            existing = json.loads(row["projection_json"] or "{}")
+            if not projection_envelope_is_empty(existing):
+                # R1.3 — refuse the silent wipe. Touch nothing, not even
+                # updated_at: a refused write must leave no trace, so a
+                # later forensic byte-comparison stays meaningful.
+                con.rollback()
+                return {
+                    "person_id": person_id,
+                    "projection": existing,
+                    "source": row["source"],
+                    "version": int(row["version"] or 0),
+                    "updated_at": row["updated_at"] or "",
+                    "write_applied": False,
+                    "conflict": False,
+                }
+
+        next_version = int(row["version"] or 0) + 1 if row is not None else 1
+        p_json = json.dumps(projection, ensure_ascii=False)
+        con.execute(
+            """INSERT INTO interview_projections
+                   (person_id, projection_json, source, version, updated_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(person_id) DO UPDATE SET
+                   projection_json = excluded.projection_json,
+                   source = excluded.source,
+                   version = excluded.version,
+                   updated_at = excluded.updated_at""",
+            (person_id, p_json, source, next_version, now),
         )
         con.commit()
         return {
             "person_id": person_id,
             "projection": projection,
             "source": source,
-            "version": version,
+            "version": next_version,
             "updated_at": now,
+            "write_applied": True,
+            "conflict": False,
         }
     finally:
         con.close()
@@ -5458,9 +5954,21 @@ def get_narrator_state_snapshot(person_id: str) -> Dict[str, Any]:
     # WO-13: Count prior user-authored turns for this narrator.
     # Used by the UI to gate the session-resume prompt — a fresh narrator with
     # zero real user turns should NOT trigger a "welcome back" greeting.
-    # Turns are joined to the person via sessions.payload_json.active_person_id.
     # Internal system prompts (role='user' but content starts with '[SYSTEM:')
     # are excluded so they never inflate the count.
+    #
+    # WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 commit 2, R2.5. This join
+    # used to run ONLY on json_extract(payload_json,'$.active_person_id').
+    # Every row in that column is '{}', so the count was structurally
+    # always 0 and the UI treated every returning narrator as brand new.
+    #
+    # Ownership now resolves in three steps, most authoritative first:
+    #   1. sessions.person_id      -- the real column, added by 0044
+    #   2. $.active_person_id      -- the key the legacy reader expected
+    #   3. $.person_id             -- the key app.js has actually written
+    # Step 3 is not a new invention: /api/session/put has been writing
+    # `person_id` while this query looked for `active_person_id`, so even
+    # the rare rows that DID record an owner went uncounted.
     user_turn_count = 0
     try:
         con = _connect()
@@ -5471,7 +5979,11 @@ def get_narrator_state_snapshot(person_id: str) -> Dict[str, Any]:
               JOIN sessions s ON s.conv_id = t.conv_id
              WHERE t.role = 'user'
                AND t.content NOT LIKE '[SYSTEM:%'
-               AND json_extract(s.payload_json, '$.active_person_id') = ?
+               AND COALESCE(
+                     NULLIF(s.person_id, ''),
+                     json_extract(s.payload_json, '$.active_person_id'),
+                     json_extract(s.payload_json, '$.person_id')
+                   ) = ?
             """,
             (person_id,),
         ).fetchone()

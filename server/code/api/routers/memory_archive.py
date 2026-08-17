@@ -41,7 +41,14 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from .. import flags
-from ..db import _connect, _now_iso, _uuid, ensure_session, get_session_payload
+from ..db import (
+    SessionOwnerConflict,
+    _connect,
+    _now_iso,
+    _uuid,
+    ensure_session,
+    get_session_payload,
+)
 from ...utils.archive_paths import (
     DATA_DIR,
     ensure_session_archive_dirs,
@@ -360,9 +367,21 @@ def session_start(body: _SessionStart) -> Dict[str, Any]:
 
     # Make sure the chat-layer sessions row exists so the archive isn't
     # orphaned from the DB side.  Caller can opt out.
+    #
+    # WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 R2.3 (2026-08-16): this
+    # call used to drop `person_id` -- the very id validated eight lines
+    # above and used for the archive directory immediately below -- so
+    # the row created to stop the archive being orphaned was itself
+    # orphaned from the narrator. It is passed now.
     if body.ensure_chat_session:
         try:
-            ensure_session(conv_id, title=body.session_style or "")
+            ensure_session(conv_id, title=body.session_style or "", person_id=person_id)
+        except SessionOwnerConflict as exc:
+            # R2.4 — this conv_id belongs to another narrator. Surfaced,
+            # not swallowed: creating the archive under a second owner
+            # would produce exactly the cross-narrator attribution this
+            # work order exists to prevent.
+            raise HTTPException(status_code=409, detail=str(exc))
         except sqlite3.Error as exc:
             log.warning("[memory_archive] ensure_session failed: %s", exc)
 

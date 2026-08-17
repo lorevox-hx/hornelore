@@ -3302,6 +3302,166 @@ async function createPersonFromForm(){
     }
   }catch{ sysBubble("⚠ Create failed — is the server running?"); }
 }
+/* ═══════════════════════════════════════════════════════════════
+   WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 commit 3 — R3.6.
+
+   THE SERVER OWNS THE CHRONOLOGY. Until this commit the Life Map's
+   periods were computed in the browser by initTimelineSpine() and
+   persisted only to localStorage under lorevox.spine.<pid>, so a
+   cleared browser meant a lost chronology and two browsers could not
+   be reconciled at all — there was nothing on the server to reconcile
+   AGAINST.
+
+   The localStorage key survives (R3.7) and nothing that reads it
+   breaks. It is now a cache of the server projection: painted first so
+   the map does not flicker, then replaced by the authority.
+
+   A failed fetch is NOT an error path that clears the map. Offline,
+   the cached spine is the best available answer and it stays.
+═══════════════════════════════════════════════════════════════ */
+let _chronoAbort = null;      // cancels the in-flight request on switch
+let _chronoInFlight = null;   // rapid-click dedup: one request per pid at a time
+
+async function _hydrateChronologyFromServer(pid, gen) {
+  if (!pid || typeof API === "undefined" || !API.CHRONOLOGY_ACCORDION) return;
+
+  // RAPID-CLICK DEDUPLICATION. Clicking a narrator three times must
+  // produce one request, not three racing ones whose answers land in an
+  // unpredictable order.
+  if (_chronoInFlight && _chronoInFlight.pid === pid) {
+    try { await _chronoInFlight.promise; } catch (_) {}
+    return;
+  }
+
+  // CANCELLATION ON NARRATOR SWITCH.
+  if (_chronoAbort) { try { _chronoAbort.abort(); } catch (_) {} }
+  const ctl = (typeof AbortController !== "undefined") ? new AbortController() : null;
+  _chronoAbort = ctl;
+
+  const run = (async () => {
+    const r = await fetch(API.CHRONOLOGY_ACCORDION(pid), ctl ? { signal: ctl.signal } : undefined);
+    if (!r.ok) return;
+    const j = await r.json();
+    // A narrator switch overtook this request — its answer is about
+    // someone else now.
+    if (gen !== _loadGeneration || j.person_id !== pid) return;
+
+    // seed_ready=false / reason="no_dob" is a STATE, not a failure. No
+    // DOB means no derivable chronology; do not overwrite a cached spine
+    // with emptiness, and do not claim readiness. Note that `today` is
+    // still returned in that case — current life does not need a birth
+    // year — so the check is for the DERIVED eras, not for periods.
+    const derived = (j.periods || []).filter(p => !p.is_current_life);
+    if (!derived.length) {
+      state.chronologyProjection = j;
+      return;
+    }
+
+    state.timeline.spine = {
+      birth_date:  j.birth_date  || "",
+      birth_place: j.birth_place || "",
+      periods:     j.periods            // includes the canonical `today`
+    };
+    state.timeline.seedReady = true;
+    // The whole projection is kept, not just the spine: confirmed
+    // timeline events, story evidence with status, and trip days travel
+    // with it so every renderer reads one answer.
+    state.chronologyProjection = j;
+
+    if (!state.session.currentEra) {
+      const p0 = derived[0];
+      setEra(p0.era_id || p0.label);
+    }
+    if (state.session.currentPass === "pass1") setPass("pass2a");
+    saveSpineLocal();
+    console.log("[chronology] spine hydrated from server for " + pid +
+                " (periods=" + j.periods.length +
+                " events=" + (j.lane_counts?.timeline_events ?? 0) +
+                " stories=" + (j.lane_counts?.story_evidence ?? 0) +
+                " tripDays=" + (j.lane_counts?.trip_days ?? 0) + ")");
+  })();
+
+  _chronoInFlight = { pid, promise: run };
+  try {
+    await run;
+  } catch (e) {
+    if (e && e.name === "AbortError") return;   // superseded by a switch
+    console.warn("[chronology] server hydration failed — keeping cached spine", e);
+  } finally {
+    if (_chronoInFlight && _chronoInFlight.promise === run) _chronoInFlight = null;
+    if (_chronoAbort === ctl) _chronoAbort = null;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ONE SHARED ERA-SELECTION AND PROMPT DISPATCHER.
+
+   Era selection was copy-pasted at four sites in life-map.js alone
+   (era click, memory click, jumpToCurrentEra, _navigateToEra), each a
+   slightly different sequence of setEra / setPass / re-render calls.
+   Four copies of a dispatch sequence is four chances for two renderers
+   to disagree about what selecting an era means.
+
+   Every caller routes through here now. Add a step once, and both Life
+   Map renderers get it.
+═══════════════════════════════════════════════════════════════ */
+window.LorevoxEraDispatch = (function () {
+  function selectEra(eraId, opts) {
+    if (!eraId) return false;
+    opts = opts || {};
+
+    if (typeof setEra === "function") setEra(eraId);
+
+    // `today` is the current-life bucket, not a chronological walk, so
+    // it does not promote the pass engine.
+    var isCurrentLife = (eraId === "today");
+    if (!isCurrentLife &&
+        typeof setPass === "function" &&
+        typeof interviewMode !== "undefined" &&
+        interviewMode === "chronological") {
+      setPass("pass2a");
+    }
+
+    // Each refresh is isolated: in lori8.0 several of these are no-ops
+    // because their root elements do not exist, and one missing element
+    // must not block the rest.
+    [
+      "update71RuntimeUI", "renderRoadmap", "renderInterview",
+      "updateContextTriggers", "renderTimeline"
+    ].forEach(function (fn) {
+      try { if (typeof window[fn] === "function") window[fn](); } catch (_) {}
+    });
+
+    if (opts.refreshLifeMap !== false) {
+      try { window.LorevoxLifeMap?.refresh(); } catch (_) {}
+    }
+    return true;
+  }
+
+  /* RAPID-CLICK DEDUPLICATION for the era prompt. Double-clicking a
+     life period used to send Lori two identical system prompts, and she
+     answered both. Identical text inside the window is dropped. */
+  var _lastPrompt = "";
+  var _lastPromptAt = 0;
+  var DEDUP_MS = 1500;
+
+  function dispatchEraPrompt(text, opts) {
+    if (!text) return false;
+    opts = opts || {};
+    var now = Date.now();
+    if (text === _lastPrompt && (now - _lastPromptAt) < (opts.dedupMs || DEDUP_MS)) {
+      console.log("[era-dispatch] duplicate era prompt suppressed");
+      return false;
+    }
+    _lastPrompt = text;
+    _lastPromptAt = now;
+    if (typeof sendSystemPrompt === "function") { sendSystemPrompt(text); return true; }
+    return false;
+  }
+
+  return { selectEra: selectEra, dispatchEraPrompt: dispatchEraPrompt };
+})();
+
 let _loadGeneration=0;
 async function loadPerson(pid){
   const gen=++_loadGeneration;
@@ -3393,6 +3553,14 @@ async function loadPerson(pid){
     }
     if (state.session.currentPass === "pass1") setPass("pass2a");
   }
+  // WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 commit 3, R3.6 (2026-08-16).
+  // The cached spine above is now a PAINT, not an authority — it exists so
+  // the Life Map does not flicker while the server answers. The server's
+  // chronology is fetched next and overwrites it. Await is deliberate:
+  // renderTimeline() is two lines down, and a chronology that arrives
+  // after the render is a second source of truth all over again.
+  await _hydrateChronologyFromServer(pid, gen);
+  if (gen !== _loadGeneration) return;
   renderTimeline();
   updateContextTriggers();
   updateArchiveReadiness();

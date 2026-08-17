@@ -67,8 +67,18 @@ const API = {
   BB_QQ_GET:        (id) => `${ORIGIN}/api/bio-builder/questionnaire?person_id=${encodeURIComponent(id)}`,
   BB_QQ_PUT:        ORIGIN + "/api/bio-builder/questionnaire",
   IV_PROJ_GET:      (id) => `${ORIGIN}/api/interview/projection?person_id=${encodeURIComponent(id)}`,
+  // Whole-document REPLACEMENT. Reserved for wholesale intent (deep
+  // reset, restore) — see WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01.
   IV_PROJ_PUT:      ORIGIN + "/api/interview/projection",
+  // FIELD-LEVEL, conflict-aware mutation. This is the ordinary write
+  // path: it leaves server-authored keys the browser has never seen
+  // intact, which a whole-document PUT cannot do.
+  IV_PROJ_PATCH:    ORIGIN + "/api/interview/projection",
   NARRATOR_STATE:   (id) => `${ORIGIN}/api/narrator/state-snapshot?person_id=${encodeURIComponent(id)}`,
+  // WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 commit 3 — there is NO
+  // separate narrator-chronology endpoint. /api/chronology-accordion
+  // below is the single server projection; adding a second engine beside
+  // it is what this commit exists to avoid.
   // Phase Q.1 — Relationship Graph Layer
   GRAPH_GET:        (id) => `${ORIGIN}/api/graph/${encodeURIComponent(id)}`,
   GRAPH_PUT:        (id) => `${ORIGIN}/api/graph/${encodeURIComponent(id)}`,

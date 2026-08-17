@@ -484,18 +484,24 @@
   }
 
   /* ── Shared era navigation (used by both era + memory clicks) */
-  function _navigateToEra(era) {
+  /* WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 commit 3 — ONE shared
+     era-selection dispatcher. This sequence used to be copy-pasted at
+     four sites in this file, each slightly different, which is four
+     chances for two renderers to disagree about what selecting an era
+     means. All four now route through window.LorevoxEraDispatch. */
+  function _dispatchEraPrompt(text) {
+    var d = window.LorevoxEraDispatch;
+    if (d && typeof d.dispatchEraPrompt === "function") return d.dispatchEraPrompt(text);
+    if (typeof sendSystemPrompt === "function") { sendSystemPrompt(text); return true; }
+    return false;
+  }
+
+  function _navigateToEra(era, opts) {
     if (!era) return;
+    var d = window.LorevoxEraDispatch;
+    if (d && typeof d.selectEra === "function") { d.selectEra(era, opts); return; }
+    // app.js not loaded (standalone harness) — minimal fallback.
     if (typeof setEra === "function") setEra(era);
-    if (typeof setPass === "function" &&
-        typeof interviewMode !== "undefined" &&
-        interviewMode === "chronological") {
-      setPass("pass2a");
-    }
-    if (typeof update71RuntimeUI     === "function") update71RuntimeUI();
-    if (typeof renderRoadmap         === "function") renderRoadmap();
-    if (typeof renderInterview       === "function") renderInterview();
-    if (typeof updateContextTriggers === "function") updateContextTriggers();
   }
 
   /**
@@ -541,21 +547,8 @@
     // Phase L fix: set era FIRST so the meta bar updates correctly,
     // then re-render the Life Map to show the new era, then dismiss.
     if (data.kind === "era" && data.era) {
-      // ① Set era state
-      if (typeof setEra  === "function") setEra(data.era);
-      if (typeof setPass === "function" &&
-          typeof interviewMode !== "undefined" &&
-          interviewMode === "chronological") {
-        setPass("pass2a");
-      }
-      // ② UI refresh — wrapped individually so one failure doesn't
-      //   block the rest.  In lori8.0 several of these are no-ops
-      //   (their root elements don't exist in the 8.0 DOM).
-      try { if (typeof update71RuntimeUI     === "function") update71RuntimeUI();     } catch (_) {}
-      try { if (typeof renderRoadmap         === "function") renderRoadmap();         } catch (_) {}
-      try { if (typeof renderInterview       === "function") renderInterview();       } catch (_) {}
-      try { if (typeof updateContextTriggers === "function") updateContextTriggers(); } catch (_) {}
-      try { if (typeof renderTimeline        === "function") renderTimeline();        } catch (_) {}
+      // ①② Set era state and refresh the UI — one shared dispatcher.
+      _navigateToEra(data.era, { refreshLifeMap: false });
 
       // ③ Phase L: Re-render the Life Map so meta bar + button label update
       // immediately to reflect the new era, giving visible state-change feedback.
@@ -603,16 +596,8 @@
         ].filter(Boolean);
         meta.textContent = bits.join(" · ") + " — navigating…";
       }
-      // Navigate era state (same defensive pattern as era click)
-      if (typeof setEra  === "function") setEra(data.era);
-      if (typeof setPass === "function" &&
-          typeof interviewMode !== "undefined" &&
-          interviewMode === "chronological") {
-        setPass("pass2a");
-      }
-      try { if (typeof update71RuntimeUI     === "function") update71RuntimeUI();     } catch (_) {}
-      try { if (typeof renderRoadmap         === "function") renderRoadmap();         } catch (_) {}
-      try { if (typeof renderInterview       === "function") renderInterview();       } catch (_) {}
+      // Navigate era state through the one shared dispatcher.
+      _navigateToEra(data.era, { refreshLifeMap: false });
       try { if (typeof updateContextTriggers === "function") updateContextTriggers(); } catch (_) {}
       // Brief pause so user sees the "navigating…" cue, then jump
       var memTitle = data.title || "a memory";
@@ -621,15 +606,14 @@
         _jumpToInterview();
         // v9.0: Trigger Lori to ask about the selected memory's era
         setTimeout(function () {
-          if (typeof sendSystemPrompt === "function") {
-            var prettyEra = _prettyEra(memEra);
-            sendSystemPrompt(
-              "[SYSTEM: The narrator just selected '" + memTitle +
-              "' from the Life Map (era: " + prettyEra +
-              "). Ask ONE warm follow-up question about this memory or this period.]"
-            );
-            console.log("[life-map] System prompt sent for memory:", memTitle, "era:", prettyEra);
-          }
+          // One shared prompt dispatcher — carries the rapid-click
+          // dedup, so a double-click no longer asks Lori twice.
+          var prettyEra = _prettyEra(memEra);
+          _dispatchEraPrompt(
+            "[SYSTEM: The narrator just selected '" + memTitle +
+            "' from the Life Map (era: " + prettyEra +
+            "). Ask ONE warm follow-up question about this memory or this period.]"
+          );
         }, 300);
       }, 220);
     }
@@ -784,15 +768,7 @@
   function jumpToCurrentEra() {
     var era = _currentEra();
     if (era) {
-      if (typeof setEra  === "function") setEra(era);
-      if (typeof setPass === "function" &&
-          typeof interviewMode !== "undefined" &&
-          interviewMode === "chronological") {
-        setPass("pass2a");
-      }
-      try { if (typeof update71RuntimeUI     === "function") update71RuntimeUI();     } catch (_) {}
-      try { if (typeof renderRoadmap         === "function") renderRoadmap();         } catch (_) {}
-      try { if (typeof renderInterview       === "function") renderInterview();       } catch (_) {}
+      _navigateToEra(era, { refreshLifeMap: false });
       try { if (typeof updateContextTriggers === "function") updateContextTriggers(); } catch (_) {}
       try { if (typeof renderTimeline        === "function") renderTimeline();        } catch (_) {}
     }
@@ -802,7 +778,7 @@
       var prettyName = _prettyEra(era);
       setTimeout(function () {
         if (typeof sendSystemPrompt === "function") {
-          sendSystemPrompt(
+          _dispatchEraPrompt(
             "[SYSTEM: The narrator clicked 'Continue in Interview' for the '" + prettyName +
             "' era. Ask ONE warm, open question about this time in their life.]"
           );

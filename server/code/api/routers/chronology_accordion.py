@@ -86,17 +86,276 @@ def load_historical_seed() -> List[Dict[str, Any]]:
 
 # ─── SCAFFOLD ─────────────────────────────────────────────────────
 
-def build_scaffold_periods(birth_year: int) -> List[Dict[str, Any]]:
-    """Build fallback life-period scaffold from birth year using ERA_AGE_MAP."""
-    periods = []
-    for label in TIMELINE_ORDER:
+def build_scaffold_periods(
+    birth_year: int,
+    birth_place: str = "",
+    include_today: bool = True,
+) -> List[Dict[str, Any]]:
+    """Build the canonical life-period spine from birth year.
+
+    WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 commit 3 (2026-08-16).
+
+    THIS IS THE ONLY CHRONOLOGY ENGINE. The Life Map used to compute its
+    own periods in the browser (`app.js initTimelineSpine`) and persist
+    them to localStorage under `lorevox.spine.<pid>`, so there was no
+    server row to reconcile a second browser against. Rather than add a
+    second server engine beside this one, the projection this endpoint
+    already builds is extended and the browser consumes it.
+
+    CANONICAL STRUCTURE, unchanged: SIX historical eras PLUS the separate
+    `today` current-life bucket. Today is NOT removed and NOT folded into
+    later_years -- it is a bucket the narrator/operator selects
+    explicitly, never one that birth-year arithmetic produces, which is
+    why it carries `start_year: None` and `is_current_life: True`.
+    `year_to_era` skips it for exactly that reason.
+
+    Each period now carries `era_id` alongside `label` (both hold the
+    canonical era_id, per WO-CANONICAL-LIFE-SPINE-01 Step 3d) plus the
+    places/notes/is_approximate keys the browser spine has always had, so
+    a Life Map renderer can consume this payload directly.
+    """
+    place = (birth_place or "").strip()
+    periods: List[Dict[str, Any]] = []
+    for idx, label in enumerate(TIMELINE_ORDER):
         ages = ERA_AGE_MAP[label]
         periods.append({
+            "era_id": label,
             "label": label,
             "start_year": birth_year + ages["start"],
             "end_year": (birth_year + ages["end"]) if ages["end"] is not None else None,
+            "is_approximate": True,
+            "is_current_life": False,
+            "places": [place] if (idx == 0 and place) else [],
+            "people": [],
+            "notes": [f"Born in {place}"] if (idx == 0 and place) else [],
+            "source": "derived",
+            "status": "derived",
         })
+
+    if include_today:
+        today = _BY_ID_TODAY()
+        if today:
+            periods.append({
+                "era_id": today["era_id"],
+                "label": today["era_id"],
+                "start_year": None,
+                "end_year": None,
+                "is_approximate": False,
+                # The flag that keeps Today out of year->era math while
+                # keeping it IN the canonical taxonomy.
+                "is_current_life": True,
+                "places": [],
+                "people": [],
+                "notes": [],
+                "source": "canonical",
+                "status": "current_life",
+            })
     return periods
+
+
+def _BY_ID_TODAY() -> Optional[Dict[str, Any]]:
+    for era in LV_ERAS:
+        if era.get("era_id") == "today":
+            return era
+    return None
+
+
+# ─── UNIFIED PROJECTION LANES ─────────────────────────────────────
+# WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 commit 3 (2026-08-16).
+#
+# Three lanes the Life Map needed and this payload did not carry:
+# confirmed timeline events, story evidence WITH its review status, and
+# trip DAYS rather than a single trip heading. They live here because
+# the supervisor requirement is one projection contract, not a second
+# engine beside this one.
+#
+# All three are READ-ONLY and all three FAIL SOFT: a missing table on an
+# older database is not a defect, and a lane that fails must not take the
+# rest of the chronology down with it. What it must not do is fail
+# silently, so `_sources_block` reports the status of every lane.
+
+
+def _sources_block(
+    dob_ok: bool,
+    timeline_events: int = 0,
+    story_evidence: int = 0,
+    trip_days: int = 0,
+) -> Dict[str, Any]:
+    """Truthful per-lane provenance, so a consumer never has to guess.
+
+    `status` distinguishes "this narrator has none" from "this lane could
+    not be read" -- the distinction the Life Map has to make before it
+    renders an empty column as though it were an answer.
+    """
+    return {
+        "periods": {"source": "lv_eras + profile.dob", "status": "derived" if dob_ok else "unavailable_no_dob"},
+        "timeline_events": {"source": "timeline_events", "status": "read", "count": timeline_events},
+        "story_evidence": {"source": "story_candidates", "status": "read", "count": story_evidence},
+        "trip_days": {"source": "trips + trip_days", "status": "read", "count": trip_days},
+        "authority": "server",
+    }
+
+
+def _year_of(value: Any) -> Optional[int]:
+    text = str(value or "").strip()
+    if len(text) < 4 or not text[:4].isdigit():
+        return None
+    return int(text[:4])
+
+
+def _collect_timeline_events(person_id: str) -> List[Dict[str, Any]]:
+    """Confirmed timeline events. Status is reported, never assumed."""
+    try:
+        con = db._connect()
+    except Exception:
+        return []
+    try:
+        rows = con.execute(
+            "SELECT id, date, title, body, kind, status, is_approximate, confidence "
+            "FROM timeline_events WHERE person_id=? ORDER BY date;",
+            (person_id,),
+        ).fetchall()
+    except Exception as exc:
+        logger.info("chronology: timeline_events lane skipped for %s: %s", person_id, exc)
+        return []
+    finally:
+        con.close()
+
+    items: List[Dict[str, Any]] = []
+    for r in rows:
+        year = _year_of(r["date"])
+        if year is None:
+            continue
+        items.append({
+            "id": r["id"],
+            "year": year,
+            "date": r["date"],
+            "label": r["title"] or "",
+            "body": r["body"] or "",
+            "kind": r["kind"] or "event",
+            "lane": "personal",
+            "source": "timeline_events",
+            # An operator-entered event is confirmed unless the row says
+            # otherwise. Reported from the column rather than inferred.
+            "status": (r["status"] or "confirmed"),
+            "is_approximate": bool(r["is_approximate"]) if r["is_approximate"] is not None else False,
+        })
+    return items
+
+
+# Review status -> the three-way status the Life Map renders. Explicit
+# rather than a truthiness test, because "provisional" and "derived" are
+# different claims and collapsing them would overstate the second.
+_STORY_STATUS = {
+    "promoted": "approved",
+    "memoir_only": "approved",
+    "in_review": "provisional",
+    "unreviewed": "provisional",
+    "discarded": "discarded",
+}
+
+
+def _collect_story_evidence(person_id: str) -> List[Dict[str, Any]]:
+    """Captured stories, carrying approved / provisional / derived status."""
+    try:
+        con = db._connect()
+    except Exception:
+        return []
+    try:
+        rows = con.execute(
+            "SELECT id, created_at, transcript, era_candidates, estimated_year_low, "
+            "estimated_year_high, confidence, review_status, extraction_status, "
+            "word_count FROM story_candidates WHERE narrator_id=? ORDER BY created_at;",
+            (person_id,),
+        ).fetchall()
+    except Exception as exc:
+        logger.info("chronology: story_evidence lane skipped for %s: %s", person_id, exc)
+        return []
+    finally:
+        con.close()
+
+    items: List[Dict[str, Any]] = []
+    for r in rows:
+        review = (r["review_status"] or "unreviewed").strip()
+        status = _STORY_STATUS.get(review, "provisional")
+        if status == "discarded":
+            continue
+        try:
+            eras = json.loads(r["era_candidates"] or "[]")
+        except (ValueError, TypeError):
+            eras = []
+        year_low = r["estimated_year_low"]
+        # A year the narrator never stated is DERIVED, and says so. This
+        # is the difference between "they told us" and "we worked it out
+        # from a date of birth", which the Life Map must not blur.
+        placement = "stated" if year_low and r["confidence"] == "high" else "derived"
+        items.append({
+            "id": r["id"],
+            "year": year_low,
+            "year_high": r["estimated_year_high"],
+            "era_candidates": eras if isinstance(eras, list) else [],
+            "excerpt": (r["transcript"] or "")[:280],
+            "word_count": r["word_count"],
+            "lane": "story",
+            "source": "story_candidates",
+            "status": status,
+            "review_status": review,
+            "extraction_status": r["extraction_status"] or "pending",
+            "placement": placement,
+            "confidence": r["confidence"] or "low",
+        })
+    return items
+
+
+def _collect_trip_days(person_id: str) -> List[Dict[str, Any]]:
+    """Trip DAYS, not merely a trip heading.
+
+    A trip rendered as one row loses the thing the narrator actually
+    remembers -- the individual days. Each day is returned with its own
+    date and place so the chronology can place it.
+    """
+    try:
+        con = db._connect()
+    except Exception:
+        return []
+    try:
+        rows = con.execute(
+            "SELECT d.id AS day_id, d.trip_id, d.day_index, d.date, d.title, "
+            "d.main_location, d.lodging_base, t.title AS trip_title "
+            "FROM trip_days d JOIN trips t ON t.id = d.trip_id "
+            "WHERE t.person_id=? ORDER BY d.date, d.day_index;",
+            (person_id,),
+        ).fetchall()
+    except Exception as exc:
+        # A pre-0027 database legitimately has no trip_days table.
+        logger.info("chronology: trip_days lane skipped for %s: %s", person_id, exc)
+        return []
+    finally:
+        con.close()
+
+    items: List[Dict[str, Any]] = []
+    for r in rows:
+        year = _year_of(r["date"])
+        if year is None:
+            continue
+        items.append({
+            "id": r["day_id"],
+            "trip_id": r["trip_id"],
+            "trip_title": r["trip_title"] or "",
+            "day_index": r["day_index"],
+            "year": year,
+            "date": r["date"],
+            "label": r["title"] or r["main_location"] or "",
+            "main_location": r["main_location"] or "",
+            "lodging_base": r["lodging_base"] or "",
+            "lane": "travels",
+            "source": "trip_days",
+            # Travels is a special shelf, not a life era. Flagged so a
+            # renderer does not fold it into the era taxonomy.
+            "shelf": "travels",
+            "status": "confirmed",
+        })
+    return items
 
 
 def year_to_era(year: int, periods: List[Dict[str, Any]]) -> Optional[str]:
@@ -108,6 +367,14 @@ def year_to_era(year: int, periods: List[Dict[str, Any]]) -> Optional[str]:
     Step 4 (was legacy keys before the migration).
     """
     for p in periods:
+        # WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 commit 3: `today` is a
+        # current-life bucket selected explicitly, never derived from
+        # birth-year arithmetic (this matches era_id_from_age, which has
+        # never returned it). It now appears in `periods` as part of the
+        # canonical taxonomy, so it is skipped here rather than removed
+        # there.
+        if p.get("is_current_life") or p.get("start_year") is None:
+            continue
         start = p["start_year"]
         end = p.get("end_year")
         if end is None:
@@ -646,16 +913,31 @@ def build_chronology_accordion_payload(
             pass
 
     if not birth_year:
+        # A narrator who has not given a date of birth has no derivable
+        # chronology YET. That is a STATE, not a failure, and the Life
+        # Map must be able to tell the difference. `today` still appears:
+        # current life does not depend on a birth year.
         return {
             "person_id": person_id,
             "decades": [],
-            "periods": [],
+            "periods": build_scaffold_periods(0, "", include_today=True)[-1:],
             "birth_year": None,
+            "birth_date": dob or "",
+            "birth_place": basics.get("pob", "") or "",
+            "seed_ready": False,
+            "reason": "no_dob",
             "error": "no_dob",
+            "timeline_events": [],
+            "story_evidence": [],
+            "trip_days": [],
+            "sources": _sources_block(dob_ok=False),
         }
 
-    # Build periods (prefer spine if available, else scaffold)
-    periods = build_scaffold_periods(birth_year)
+    # Build periods (prefer spine if available, else scaffold).
+    # WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 commit 3: birth place is
+    # threaded through so the Life Map can render from this payload
+    # instead of from its own browser-local spine.
+    periods = build_scaffold_periods(birth_year, basics.get("pob", "") or "")
 
     # Load all three lanes
     seed = load_historical_seed()
@@ -824,23 +1106,43 @@ def build_chronology_accordion_payload(
     # Group into decades
     decades = group_by_decade(all_items, periods)
 
+    # WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 commit 3 — the unified
+    # projection. These three lanes are added here rather than in a
+    # parallel endpoint so there is ONE chronology contract for the Life
+    # Map, the accordion, Lori grounding and (next phase) the Travel
+    # Document to agree on.
+    timeline_events = _collect_timeline_events(person_id)
+    story_evidence = _collect_story_evidence(person_id)
+    trip_days = _collect_trip_days(person_id)
+
     return {
         "person_id": person_id,
         "birth_year": birth_year,
-        "periods": [
-            {
-                "label": p["label"],
-                "start_year": p["start_year"],
-                "end_year": p.get("end_year"),
-            }
-            for p in periods
-        ],
+        "birth_date": dob or "",
+        "birth_place": basics.get("pob", "") or "",
+        "seed_ready": True,
+        # Full period objects now (era_id, places, notes, is_approximate,
+        # is_current_life, source, status) so a Life Map renderer can
+        # consume this directly instead of deriving its own spine.
+        "periods": periods,
         "decades": decades,
+        "timeline_events": timeline_events,
+        "story_evidence": story_evidence,
+        "trip_days": trip_days,
+        "sources": _sources_block(
+            dob_ok=True,
+            timeline_events=len(timeline_events),
+            story_evidence=len(story_evidence),
+            trip_days=len(trip_days),
+        ),
         "lane_counts": {
             "world": len(lane_a),
             "personal": len(lane_b_with_spine),
             "personal_derived": len(spine_items),
             "ghost": len(lane_c),
+            "timeline_events": len(timeline_events),
+            "story_evidence": len(story_evidence),
+            "trip_days": len(trip_days),
         },
     }
 

@@ -36,6 +36,50 @@ from api import db as _db  # noqa: E402
 from api.routers import chat_ws as _chat_ws  # noqa: E402
 from api.services import lori_response_guards as _guards  # noqa: E402
 
+_SAVED_SAFETY_STATE = None
+
+
+def setUpModule():  # noqa: N802
+    """Put safety in the state this module's assertions presume.
+
+    2026-08-17, found by the .venv gate.
+    ``test_safety_triggered_guard_failure_uses_safety_fallback`` asserted
+    the SAFETY fallback and got the neutral one. That was not a product
+    regression -- it reproduces identically on a clean checkout of
+    ``2c3a593``, and the product was right: runtime safety is PARKED, and
+    parked outranks everything, so ``scan_answer`` never runs, there is no
+    safety turn, and the neutral fail-closed fallback is the correct
+    answer.
+
+    The gap was here. This module borrows ``ChatWsHarness`` and
+    ``DISTRESS`` from ``test_chat_ws_safety_precedence`` but NOT its
+    module fixture -- and importing a module does not run its
+    ``setUpModule``. So a suite asserting safety behaviour ran in a
+    deployment state where the safety feature does not exist.
+
+    That sibling module states the rule this now follows, in its own
+    words: *a suite that exists to prove the safety feature works should
+    be entirely in the state where the feature exists.* The parked
+    behaviour is asserted separately, by ``ParkedGuardFailureTest`` below
+    and by ``tests/test_safety_parked.py``.
+
+    Nothing about the assertion is weakened and no product code changes:
+    the environment is put into the state the assertion was always
+    written against.
+    """
+    import os
+    global _SAVED_SAFETY_STATE
+    _SAVED_SAFETY_STATE = os.environ.get("HORNELORE_SAFETY_STATE")
+    os.environ["HORNELORE_SAFETY_STATE"] = "active"
+
+
+def tearDownModule():  # noqa: N802
+    import os
+    if _SAVED_SAFETY_STATE is None:
+        os.environ.pop("HORNELORE_SAFETY_STATE", None)
+    else:
+        os.environ["HORNELORE_SAFETY_STATE"] = _SAVED_SAFETY_STATE
+
 _GUARDS_SRC = (
     _SERVER_CODE / "api" / "services" / "lori_response_guards.py"
 ).read_text(encoding="utf-8")
@@ -119,6 +163,44 @@ class GuardFailureFailClosedTest(_GuardCrashMixin, _HarnessCase):
             self.assertEqual(done.get("final_text"),
                              "Cuéntame más sobre eso.")
             self.assertNotIn("RAW-UNGUARDED-SENTINEL", json.dumps(ws.sent))
+
+
+class ParkedGuardFailureTest(_GuardCrashMixin, _HarnessCase):
+    """The OTHER deployment state, pinned so neither can regress silently.
+
+    Runtime safety is PARKED in this deployment. Parked outranks the
+    kill-switch and every legacy env value, so a distress turn produces
+    no safety scan and no safety turn. The guard wrapper must STILL fail
+    closed -- the raw LLM text must not reach the narrator -- and the
+    correct fallback there is the neutral continuation, because there is
+    no safety turn to compose safety wording for.
+
+    Without this, `setUpModule` above would leave the parked path
+    unexercised by this module, and a future change that made the
+    fallback unconditionally "safety-shaped" would pass every test here
+    while contradicting the parking decision.
+    """
+
+    def test_parked_distress_turn_still_fails_closed_to_neutral(self):
+        import os
+        _prev = os.environ.get("HORNELORE_SAFETY_STATE")
+        os.environ["HORNELORE_SAFETY_STATE"] = "parked"
+        try:
+            with self._with_crashing_guards({"llm_text": RAW_LLM}) as h:
+                ws = h.run_turn("conv_guardfail_parked", DISTRESS)
+                self.assert_no_ws_errors(ws)
+                # Fail-closed is the invariant that holds in BOTH states.
+                self.assertNotIn("RAW-UNGUARDED-SENTINEL", json.dumps(ws.sent))
+                done = ws.dones()[0]
+                self.assertEqual(done.get("final_text"),
+                                 "Tell me more about that.")
+                # And parking is real: no safety cascade ran.
+                self.assertEqual(len(ws.events("safety_triggered")), 0)
+        finally:
+            if _prev is None:
+                os.environ.pop("HORNELORE_SAFETY_STATE", None)
+            else:
+                os.environ["HORNELORE_SAFETY_STATE"] = _prev
 
 
 class FallbackComposerUnitTest(unittest.TestCase):

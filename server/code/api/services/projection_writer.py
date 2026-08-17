@@ -49,6 +49,8 @@ _retracted (control sentinel, not a field path):
 """
 from __future__ import annotations
 
+import json
+
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -123,6 +125,13 @@ def apply_correction(
     proj = existing_blob.get("projection") if isinstance(existing_blob.get("projection"), dict) else {}
     fields = proj.get("fields") if isinstance(proj.get("fields"), dict) else {}
     pending = proj.get("pendingSuggestions") if isinstance(proj.get("pendingSuggestions"), list) else []
+
+    # WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 (2026-08-17).
+    # Snapshot the fields and the suggestion queue BEFORE this correction
+    # touches them, so the write below can be the DIFF rather than the
+    # whole document. See the write site for why that matters.
+    _fields_before = json.loads(json.dumps(fields, ensure_ascii=False)) if fields else {}
+    _pending_before = json.loads(json.dumps(pending, ensure_ascii=False)) if pending else []
 
     now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
@@ -245,12 +254,51 @@ def apply_correction(
         return summary
 
     try:
-        _db.upsert_projection(
+        # FIELD-LEVEL, not whole-document.
+        #
+        # This used to read the whole projection and call
+        # upsert_projection(), which replaces the row. The HTTP PUT was
+        # hardened first, and that left this internal path as the last
+        # writer that could still erase a browser mutation landing
+        # between the read above and the write here -- a correction turn
+        # and a narrator edit are exactly the pair most likely to
+        # overlap, because they happen in the same seconds.
+        #
+        # Only the paths this correction actually changed are sent, so a
+        # concurrent edit to any other path survives. base_fields carries
+        # what THIS writer read, so the per-path comparison and the write
+        # happen inside one BEGIN IMMEDIATE transaction in
+        # merge_projection_fields.
+        _mutations = {
+            k: v for k, v in fields.items()
+            if k not in _fields_before or _fields_before[k] != v
+        }
+        _removals = [k for k in _fields_before if k not in fields]
+        _pending_changed = pending != _pending_before
+        _base = {k: _fields_before.get(k) for k in list(_mutations) + _removals}
+
+        _result = _db.merge_projection_fields(
             person_id,
-            proj,
+            mutations=_mutations,
+            removals=_removals,
             source="correction",
-            version=int(existing_blob.get("version") or 1),
+            base_fields=_base,
+            pending_suggestions=(pending if _pending_changed else None),
+            extra_keys={"last_correction_at": now},
         )
+        if _result.get("conflict"):
+            # The narrator edited one of these very paths while the turn
+            # was in flight. Reported, never overwritten -- the operator
+            # review queue is where that is resolved.
+            summary["errors"].append(
+                "projection_conflict: " + ",".join(_result.get("conflicting_paths") or [])
+            )
+            logger.warning(
+                "[projection-writer] correction CONFLICTED person=%s paths=%s turn=%s "
+                "-- nothing written",
+                person_id, _result.get("conflicting_paths"), source_turn_id,
+            )
+            return summary
         logger.info(
             "[projection-writer] applied correction person=%s applied=%d retracted=%d turn=%s",
             person_id,
@@ -268,10 +316,10 @@ def apply_correction(
             pass
     except Exception as exc:
         logger.warning(
-            "[projection-writer] upsert_projection failed person=%s: %s",
+            "[projection-writer] merge_projection_fields failed person=%s: %s",
             person_id, exc,
         )
-        summary["errors"].append(f"upsert_failed: {exc}")
+        summary["errors"].append(f"merge_failed: {exc}")
 
     return summary
 

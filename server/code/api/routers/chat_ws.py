@@ -315,6 +315,10 @@ async def _finalize_deterministic_turn(
     # classification was already made at `:1247` and carried in `params`
     # at `:1263` -- it is passed on rather than re-derived, because the
     # point of the work order is that authorship is decided once.
+    # WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 R2.3 (2026-08-16):
+    # `person_id` is already a parameter of this function and is already
+    # passed to the archive write below. It is passed to the DB row too,
+    # so the two stop disagreeing about who spoke.
     persist_turn_transaction(
         conv_id=conv_id,
         user_message=user_text,
@@ -322,6 +326,7 @@ async def _finalize_deterministic_turn(
         model_name=model_name,
         meta=turn_meta,
         is_system_directive=bool(params.get("_is_system_directive")),
+        person_id=person_id,
     )
 
     # The modal-surface gate is RECOMPUTED here rather than inherited.
@@ -1589,6 +1594,8 @@ async def ws_chat(ws: WebSocket):
                     user_message=user_text,
                     assistant_message=_buffer_ack,
                     model_name="floor-buffer-deterministic",
+                    # WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 R2.3.
+                    person_id=person_id,
                     # WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 Phase 1 (2026-08-09).
                     is_system_directive=bool(params.get("_is_system_directive")),
                     meta={
@@ -2965,6 +2972,8 @@ async def ws_chat(ws: WebSocket):
                                     user_message=user_text,
                                     assistant_message=_ack_text,
                                     model_name="past-tense-acknowledgment",
+                                    # WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 R2.3.
+                                    person_id=person_id,
                                     # WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 Phase 1.
                                     is_system_directive=bool(params.get("_is_system_directive")),
                                     meta={
@@ -3509,6 +3518,8 @@ async def ws_chat(ws: WebSocket):
                                 user_message=user_text,
                                 assistant_message=_flush_text,
                                 model_name="bank-flush-deterministic",
+                                # WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 R2.3.
+                                person_id=person_id,
                                 # WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 Phase 1.
                                 is_system_directive=bool(params.get("_is_system_directive")),
                                 meta={
@@ -5625,6 +5636,10 @@ async def ws_chat(ws: WebSocket):
                 user_message=user_text,
                 assistant_message=final_text,
                 model_name="local-llm-ws",
+                # WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 R2.3 — the
+                # narrator bound at the top of this turn, recorded on the
+                # sessions row instead of being dropped.
+                person_id=person_id,
                 meta={"ws": True, "cancelled": ev.is_set()},
                 row_ids_out=_persisted_row_ids,
                 # WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 Phase 1 (2026-08-09).
