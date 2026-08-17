@@ -207,8 +207,22 @@ docs/reports/*
 # reports carry LIVE NARRATOR DATA. These two do not, and they say so:
 # the corpus's own note reads "Synthetic red-team phrases from the repo's own
 # test fixtures. No narrator material." Verified 2026-08-14 — the case bodies
-# are synthetic red-team phrases and measurement counts; the only name-shaped
-# match in either file is the string "hornelore", the project itself.
+# are synthetic red-team phrases and measurement counts.
+#
+# CORRECTED 2026-08-14. This comment previously claimed "the only name-shaped
+# match in either file is the string 'hornelore', the project itself." THAT WAS
+# FALSE, and it was false because the check behind it was too narrow: it grepped
+# for NARRATOR NAMES and never scanned for filesystem paths. The gate report
+# carried an operator's local interpreter path at `.kokoro_cpu.interpreter` —
+# machine metadata rather than narrator data, but personal, and published on a
+# public repo. It is redacted to "<redacted-local-venv>/bin/python"; nothing
+# else in the file changed, and every measurement value is byte-identical.
+# Both files are now re-scanned for absolute paths, usernames and hostnames as
+# well as narrator names: zero matches.
+#
+# THE RULE THIS EARNED: before tracking anything that was previously ignored for
+# privacy, scan for machine metadata — paths, usernames, hostnames — and not
+# only for the category you happen to be worried about.
 #
 # Everything else under docs/reports/ stays ignored. Do not widen this.
 !docs/reports/lean_lori_safety_corpus_2026-08-04.json

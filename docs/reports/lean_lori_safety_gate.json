@@ -8101,7 +8101,7 @@
   "note": "No narrator turn, archive event, safety flag, notification or outbound message was created. No WebSocket was driven. The disposable copy MAY have changed (ensure_session), which is why the proof above is of the FAMILY database, not of it.",
   "kokoro_cpu": {
     "cuda_visible_devices": "",
-    "interpreter": "/mnt/c/Users/chris/hornelore/.venv/bin/python",
+    "interpreter": "<redacted-local-venv>/bin/python",
     "torch_cuda_available": false,
     "torch_device_count": 0,
     "construct_s": 0.0,

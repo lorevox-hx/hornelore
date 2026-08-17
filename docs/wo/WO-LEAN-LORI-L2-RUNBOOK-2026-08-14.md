@@ -225,15 +225,41 @@ archive append. **Duplicate = FAIL.** Zero = FAIL.
 > whether the feature is on or off. A `200` therefore proves nothing. **Parse the JSON
 > `enabled` field.**
 
+> **CORRECTED AGAIN 2026-08-14 — the preflight must ENFORCE, not narrate.** The previous
+> version printed `enabled: True`/`False` and **exited 0 either way**, so an operator who
+> glanced past the line would continue into a verification that cannot work. A preflight that
+> cannot stop you is not a preflight. **Fail closed.**
+
 ```bash
-curl -s http://localhost:8000/api/memory-archive/health \
-  | python3 -c 'import json,sys; d=json.load(sys.stdin); print("enabled:", d.get("enabled"))'
+cd /mnt/c/Users/chris/hornelore
+.venv/bin/python - <<'PY'
+import sys, json
+try:
+    import requests
+    r = requests.get("http://localhost:8000/api/memory-archive/health", timeout=5)
+    r.raise_for_status()
+    d = r.json()
+except Exception as e:                       # unreachable, non-2xx, or not JSON
+    sys.exit(f"PREFLIGHT FAILED (unreachable/invalid): {e!r}")
+if not isinstance(d, dict) or "enabled" not in d:
+    sys.exit(f"PREFLIGHT FAILED (malformed payload): {d!r}")
+if d["enabled"] is True:
+    print("archive ENABLED — continue to A6b"); raise SystemExit(0)
+if d["enabled"] is False:
+    print("archive DISABLED — export stays UNEXERCISED; change no flag"); raise SystemExit(3)
+sys.exit(f"PREFLIGHT FAILED (enabled is not a bool): {d['enabled']!r}")
+PY
+echo "preflight exit: $?"
 ```
 
-| `enabled` | Action |
-|---|---|
-| `true` | Continue to A6b |
-| `false` | **Record the export portion UNEXERCISED and continue.** Do **not** edit `.env`, do **not** restart with a different flag, and **do not claim Gate B fully closed** (§16.1). |
+| Exit | Meaning | Action |
+|---|---|---|
+| **0** | `enabled is True` | Continue to A6b |
+| **3** | `enabled is False` | **Record the export portion UNEXERCISED.** Do **not** edit `.env`, do **not** restart with a different flag, and **do not claim Gate B fully closed** (§16.1). |
+| **1 / other** | unreachable, non-2xx, non-JSON, malformed, or `enabled` not a boolean | **Stop.** Do not guess and do not proceed to A6b. |
+
+`enabled` is compared with `is True` / `is False` deliberately: a string `"false"` or a `0`
+must fail loudly rather than being coerced into an answer.
 
 > If Chris wants the export exercised, **that environment decision must be made before the
 > single authorised start** — it is not something L2 may change mid-run.
@@ -292,21 +318,45 @@ REPLIES = [ "<paste the full assistant reply from case A1>",
             "<A2>", "<A3>", "<A4>" ]          # exact strings, not prefixes
 
 fails = 0
+
+# The two representations must come from the same set of sessions. A JSONL
+# without its rendered pair (or vice versa) means a partial export, and every
+# per-reply count below would be measured against an incomplete corpus.
+jl_dirs  = {p.parent for p in jls}
+txt_dirs = {p.parent for p in txts}
+if jl_dirs != txt_dirs:
+    fails += 1
+    print(f"FAIL  session transcript sets disagree: "
+          f"jsonl-only={sorted(d.name for d in jl_dirs - txt_dirs)} "
+          f"txt-only={sorted(d.name for d in txt_dirs - jl_dirs)}")
+
 for r in REPLIES:
     hits = [e for e in events
             if e.get("role") in ("assistant", "ai")
             and (e.get("text") or e.get("content")) == r]
     n_struct = len(hits)
     n_render = rendered.count(r)
-    ok = (n_struct == 1 and n_render >= 1)
+    # EXACTLY one of each. `>= 1` was wrong: the stated contract is that the
+    # rendered transcript shows the reply once, and a second rendering is a
+    # duplicate worth failing on, not noise worth tolerating.
+    ok = (n_struct == 1 and n_render == 1)
     fails += (not ok)
     where = ",".join(sorted({h["_session"] for h in hits})) or "-"
     print(f"{'PASS' if ok else 'FAIL'}  structured={n_struct} rendered={n_render} "
           f"session(s)={where}  {r[:44]!r}")
+
 print(f"\n{'ALL PASS' if not fails else str(fails)+' FAILED'} "
       f"(across {len(jls)} session transcript(s))")
+# EXIT NONZERO ON FAILURE. Without this the verifier printed FAILED and the
+# shell still reported success, so a broken export read as a clean one.
+raise SystemExit(1 if fails else 0)
 PY
+echo "export verifier exit: $?"
 ```
+
+**Exit 0 means every reply appeared exactly once structurally and exactly once rendered,
+across every exported session, with the two transcript sets agreeing. Any other exit is a
+failure and stops case A.**
 
 **Expected: `structured=1` for every reply.** `rendered` is reported for completeness and is
 **not** a duplicate-write signal.
