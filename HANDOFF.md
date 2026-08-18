@@ -113,9 +113,10 @@ reason to divert the authority phase.
 | **Narrator authority Phase 1** | **ACCEPTED 2026-08-17** | Step 9 accepted with its synthetic-B limitation. Closes no L2 gate. |
 | **Narrator authority Phase 2** | **ACCEPTED 2026-08-17 — 8/8 live steps** | Travel Doc ↔ chronology, shared narrator-context contract, migration 0045. Record: spec §12.7. |
 | **Harness `completed-turn`** | **PRODUCT ROUTE NOW EXERCISED LIVE (2026-08-18); the harness SCENARIO is still deferred** | Phase 3's live run drove two real Lori turns end to end: chat → `turn_extraction_ledger` rows → owned sessions, confirmed by the delete report removing 2 sessions and 2 interview_sessions scoped to that narrator. The harness's own scenario still needs `HORNELORE_OPERATOR_HARNESS=1` and a restart; what is no longer true is that the ROUTE is unexercised. |
-| **Phase 3 — Reviewed story authority** | **ACCEPTED WITH ONE ITEM OWED — 8/9 live, 2026-08-18** | Owed: Lori SPEAKING an approved story, blocked by the drop-order defect the run found. Fixed and ranked at 25; needs a restart to confirm. |
-| **Phase 4 — unified output verification** | **NEXT — not started** | Opens from here. |
-| **`turn_extraction_ledger` not cleaned by `hard_delete_person`** | **REPORTED, NOT FIXED — pre-existing, out of Phase 3's scope** | The ledger arrived in migration 0038 (2026-07-30) and was never added to the delete path's explicit table list, so a hard-deleted narrator leaves ledger rows behind. Measured live: 2 orphans, and they are the ONLY 2 in the whole 40-row table, so this is newly observable rather than an accumulated pile-up. **The rows carry keys, statuses and timings — no narrator text — so this is referential hygiene, not a privacy leak.** Chris's call whether to add the table to `hard_delete_person` or leave the ledger deliberately append-only. |
+| **Phase 3 — Reviewed story authority** | **ACCEPTED 2026-08-18; its owed item is CLOSED** | *(Read "ACCEPTED WITH ONE ITEM OWED — 8/9 live" until Phase 4's acceptance.)* Lori answered a direct memory question from the approved story: *"You mentioned your grandmother Elena from Corpus Christi."* Spec §14.2. |
+| **Phase 4 — section-aware prompt authority** | **ACCEPTED 2026-08-18** | *(Read "NEXT — not started" until 2026-08-18.)* The section classification finally has a production reader; all three transports budget through it. Spec §14. |
+| **`WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01`** | **COMPLETE — Phases 1–4 all accepted** | No Story Integration phases remain. Next lane is Lean Lori; see §4. |
+| **`turn_extraction_ledger` cleanup** | **FIXED in Phase 4** | *(Read "REPORTED, NOT FIXED" until 2026-08-18.)* The table joined `_EXTENDED_PERSON_SCOPED_TABLES`, so it is both inventoried before deletion and removed by it — 6 rows removed live. **Two orphans remain and are NOT new: `turnrow:1663` and `turnrow:1665`, from the Phase 3 narrator hard-deleted before the fix existed.** They carry keys and timings and no narrator text. Sweeping those two is a one-line data decision for Chris. |
 | Kawa / Memory River | **REACHABLE FROZEN LEGACY UI** | Phase 2 did not extend it. Awaiting a deliberate removal decision. |
 | Runtime safety | **PARKED, server-authoritative** | Never reactivate through environment values. |
 | Model / 8,192-token window | **LOCKED** | Any proposed model change is stop-and-report. |
@@ -154,13 +155,50 @@ requires a separately reviewed SQLite rebuild and rollback plan.
 
 ## 4. Immediate execution order
 
-**Next action: open Phase 3 — Witness/story connection.** Phase 2's live acceptance passed
-8/8 on 2026-08-17 and is recorded in spec §12.7. Do not resume the L2 matrix.
+**Next action: finish Lean Lori, in one substantial implementation block.**
+`WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` is **COMPLETE** — Phases 1–4 all accepted, no
+phases remain. Do not resume the L2 matrix.
 
-**Owed separately, not part of Phase 3:** the harness `completed-turn` route, deferred until a
-deliberate operator-harness restart; and a small harness usability fix so absent or
-soft-deleted reference personas report `N/A` while the writable synthetic personas continue —
-that is a harness commit, not Phase 2 work.
+*(This section read "Next action: open Phase 3 — Witness/story connection" until 2026-08-18,
+while Phase 3 and Phase 4 were both built and accepted beneath it. A control document naming
+an accepted phase as next is an instruction to redo it, which is the failure this file's own
+ordering rule exists to prevent.)*
+
+**The Lean Lori block, in the order it should be built:**
+
+1. **Complete prompt-section metadata.** Sections carry `required` and `drop_order` today.
+   They still need owner, activation condition, trim policy, source, priority tier, real token
+   count and redacted hash. Phase 4 built the reader and the telemetry that make the last two
+   observable; the fields themselves are not there yet.
+2. **Finish directive gating.** Only the Era Explainer is gated by actual narrator state. Every
+   other directive family must appear only when its state, feature or task is active. Profile
+   Seed is **DECIDED — Option A, live narrators only.**
+3. **Decide history versus optional-section priority FROM MEASUREMENTS.** Phase 4 deliberately
+   exhausts history before shedding any section, which preserved every working turn and is the
+   reason that change was safe to land. Whether low-value optional material should instead go
+   before recent narrator/Lori conversation is a product decision, and the per-section token
+   costs the new telemetry emits are the measurement it needs. **Not another test matrix.**
+4. **Finish passive diagnostics.** One operator-readable record of which sections were
+   activated, kept or removed across REST chat, REST streaming and the WebSocket — without
+   storing narrator prose. The per-transport wiring exists; the unified record does not.
+5. **Close the remaining Lean Lori live evidence.** A SMALL acceptance replacing the abandoned
+   broad L2 campaign: ordinary conversation, one state-heavy turn, one trip turn, one
+   approved-story turn, one safe oversized-prompt refusal.
+6. **Reconcile the Lean Lori work order itself.** Its status table is stale now that
+   optional-section budgeting has landed, and it still carries abandoned runtime-profile
+   rollback language and Gate F assumptions that the architecture cannot satisfy. Replace them
+   with what actually exists.
+
+**After Lean Lori, in order:** extraction improvement against the new four-persona core and
+challenge packs — finding BINDING failures rather than reporting pass counts, and retiring the
+old evaluator only after scoring parity, preserved under `scripts/archive/`; then removal of
+the frozen Kawa / Memory River UI once Life Map is confirmed to cover the active navigation
+paths.
+
+**Owed separately, and not part of any of the above:** the harness `completed-turn` SCENARIO
+(the product route is now exercised live — see the lane table), deferred until a deliberate
+operator-harness restart; and the harness usability fix so absent or soft-deleted reference
+personas report `N/A` while the writable synthetic personas continue.
 
 The Palette / multi-day sequence below is **historical and complete**. It is kept because
 item 6 is still an open decision, not because any of it is the next lane.

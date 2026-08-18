@@ -163,7 +163,8 @@ contract, and completes the legacy session-owner backfill in migration 0045.
 *(This paragraph read "is BUILT … and its focused live acceptance is owed … the eight-step
 focused live run has not" until 2026-08-18. The run happened and passed.)*
 
-**Phase 3 (Reviewed story authority) is ACCEPTED WITH ONE ITEM OWED (2026-08-18).** A captured
+**Phase 3 (Reviewed story authority) is ACCEPTED (2026-08-18), and its one owed item is now
+CLOSED by Phase 4.** A captured
 story now has one server-owned review state, and the surfaces read it from one projection:
 approved stories reach the Life Map, the chronology and Lori; provisional ones are counted but
 never asserted; discarded ones are absent rather than dimmed. The nine-step live run passed
@@ -174,6 +175,21 @@ use it. *(This paragraph first blamed a missing `drop_order` on the prompt secti
 was withdrawn the same day: nothing in production reads the section classification, so nothing
 was dropped and the story did reach the model. The ranking fix is kept as a latent defect.)*
 The owed check is therefore a prompt-authority question and folds into Phase 4.
+
+**Phase 4 (Section-aware prompt authority) is ACCEPTED (2026-08-18), and this work order is
+COMPLETE.** The composer has classified the system prompt into named sections since Lean Lori
+Phase 2A and nothing in production read that classification: the budget could drop whole
+conversation turns and nothing else, so when the mandatory content alone exceeded the window
+the only available answer was to refuse. Phase 4 built the reader, wired all three transports
+(REST chat, REST streaming, WebSocket) to it, and made removal a rung BELOW history exhaustion
+— so no prompt that fits today changes, and some turns that used to refuse now degrade
+gracefully instead. **The owed Phase 3 check passed in the same live run:** asked what she
+already knew, Lori answered from the approved story rather than saying she did not recall it.
+
+**No Story Integration phases remain. The next lane is finishing Lean Lori** — section metadata,
+directive gating, the history-versus-sections priority decision (from the measurements Phase 4's
+telemetry now emits), passive diagnostics, a small live acceptance, and reconciling that work
+order's stale status table.
 
 *(This paragraph said Phase 1 was "BUILT and AWAITING LIVE ACCEPTANCE" until 2026-08-17, and
 said "Phase 3 … is not opened" until 2026-08-18.)*

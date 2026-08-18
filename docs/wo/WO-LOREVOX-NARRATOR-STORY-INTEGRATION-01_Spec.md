@@ -833,8 +833,10 @@ synthetic personas continue — belongs to the harness lane and is **not** Phase
 - **Gate B: OPEN.**
 - **L2: PARTIAL, closed for product priority.** Not resumed by this acceptance.
 - **Phase 2: ACCEPTED.**
-- **Phase 3 (Reviewed story authority): ACCEPTED WITH ONE ITEM OWED — see §13.**
-  *(This line read "Phase 3 (Witness/story): NEXT, not yet started." until 2026-08-18.)*
+- **Phase 3 (Reviewed story authority): ACCEPTED — the owed item is CLOSED by §14.2, where
+  Lori answered a direct memory question from the approved story.** *(This line read "ACCEPTED
+  WITH ONE ITEM OWED — see §13" until 2026-08-18, and "NEXT, not yet started" before that.)*
+- **Phase 4 (Section-aware prompt authority): ACCEPTED — see §14. THIS WORK ORDER IS COMPLETE.**
 
 ---
 
@@ -929,7 +931,96 @@ because losing who the narrator is makes Lori invent, which is worse than her sa
 reading source is a hypothesis, not a cause. The ladder comment was so precise about drop order
 that it read as enforcement; nobody had checked whether anything consumed it.
 
-**The unenforced classification is now the headline input to Phase 4** — see the block charter.
+**The unenforced classification is now the headline input to Phase 4** — see §14.
+
+---
+
+## 14. Phase 4 — section-aware prompt authority. ACCEPTED 2026-08-18. THIS WORK ORDER IS COMPLETE.
+
+Phase 3 left one item owed and one fact: a reviewed story reached Lori's prompt and she did not
+use it, and the section classification the composer had carried since Lean Lori Phase 2A had
+**no production reader at all**. Phase 4 built the reader and answered the owed item.
+
+### 14.1 What was built
+
+**The composer was split, not rewritten.** `_compose_prompt_assembly` holds the 1,200-line
+body; `compose_system_prompt` and the new `compose_prompt_sections` both render it. Byte
+equivalence is structural — one renderer, one code path — and is asserted anyway across four
+shapes, because "structural" is a claim a later edit can break.
+
+**Section removal sits BELOW history exhaustion, and that ordering is the whole safety
+argument.** It engages only where the previous code refused, so **no prompt that fits today
+changes at all**; what changes is that some refusals become graceful degradation. Required
+sections and the complete current narrator turn survive every path including refusal.
+
+**All three transports** — REST `/chat`, REST `/chat/stream`, WebSocket — pass their sections
+to the same authority. The WebSocket's trip-context block, previously concatenated onto the
+finished string, became a classified section, because a budget that cannot see a block prices a
+message that is not the one sent.
+
+**`turn_extraction_ledger` joined hard deletion**, with a residue sweep over the whole
+person-scoped table list rather than three hand-named tables — written as a loop precisely
+because the previous assertions named tables by hand and the unnamed one leaked.
+
+### 14.2 The live acceptance — synthetic narrator only, no restart
+
+| Claim | Live evidence |
+|---|---|
+| Lori uses an approved story when directly asked | *"You mentioned your grandmother Elena from Corpus Christi."* — bridge logged `approved=1 provisional=0` |
+| Provisional stories stay unquoted | Never asserted in any turn; counted only |
+| Optional sections removed WHOLE when necessary | `reason=trimmed_sections … dropped_sections=2` |
+| Required instructions and current turn survive | Refusal turn kept all four required sections; the narrator's words were never altered |
+| Trip evidence only when Lori received trip context | `trip_context:DROP` → *"budget dropped trip_context; this turn is NOT trip-scoped"* |
+| Telemetry carries decisions, counts, hashes — not prose | `approved_stories:keep:309:7b9593e489ce` |
+| Hard deletion removes the ledger and all residue | 6 ledger rows removed; 0 orphan stories / trips / sessions; `integrity_check ok` |
+
+**Three turns of increasing size mapped the whole cascade**, which is the evidence that matters
+most because it shows each rung engaging in order:
+
+- **6.8k chars** → `trimmed tokens=8178 dropped_turns=1` — history alone sufficed, **no section
+  touched**.
+- **9.0k chars** → `trimmed_sections tokens=8114 dropped_turns=4 dropped_sections=2` — history
+  fully exhausted, then `memory_context` (5) and `english_first` (20) shed, stopping the moment
+  it fit. **Under the pre-Phase-4 code this exact turn would have been REFUSED.** And
+  `approved_stories` was **kept** — the ranking protecting the reviewed story while discarding
+  what rebuilds itself next turn.
+- **12.6k chars** → `REFUSING mandatory_too_large` with all four optional sections shed and all
+  four required kept; the narrator received the honest "a little at a time" message rather than
+  a reply built from a mutilated prompt.
+
+### 14.3 Stated precisely rather than implied
+
+**"Life Map, Chronology, Lori and Travel Document agree" was proven in Phase 3's step 7, not
+re-run here.** That step showed *"Life Map chronology — in step"*, *"Story evidence — 1
+approved · 1 provisional"*, the lane table naming each source separately, and **0 Story Notes**
+on the trip with no story text in either export. Phase 4 changed the composer, the budget, the
+trip-scope stamp and the delete path; it touched neither the chronology projection, the Life
+Map reader, nor the Travel Document panel. The Phase 3 evidence therefore still holds — but it
+is Phase 3's evidence, and this record says so rather than absorbing it.
+
+**Two orphan ledger rows remain and are NOT from this run:** `turnrow:1663` and `turnrow:1665`,
+belonging to the Phase 3 acceptance narrator, who was hard-deleted **before** this fix existed.
+The fix works prospectively — this run's 6 rows were removed cleanly. Those two carry keys and
+timings and no narrator text. Sweeping them is a data decision for Chris, not an agent's.
+
+**An environment trap worth not rediscovering:** the browser tab driving the acceptance reported
+`visibilityState: hidden`, and Chrome clamped it so hard that requests never left the browser —
+proven by **zero** matching entries in `api.log`, not inferred from the client timing out. A
+fresh tab fixed it, and the stalled attempts created nothing. Same family as the Palette P5
+finding: a hidden tab produces convincing false results.
+
+### 14.4 Status after this closeout
+
+- **Phase 1: ACCEPTED.** **Phase 2: ACCEPTED.** **Phase 3: ACCEPTED** — its owed item is closed
+  by §14.2. **Phase 4: ACCEPTED.**
+- **THIS WORK ORDER IS COMPLETE. No Story Integration phases remain.**
+- **Gate B stays OPEN. L2 stays PARTIAL and is not resumed.**
+- **Next: finish Lean Lori in one substantial implementation block** — see `HANDOFF.md` §4 for
+  the six items and the order.
+- **Deliberately left open by Phase 4, for the Lean Lori lane to decide from measurements:**
+  whether low-value optional sections should be removed BEFORE recent narrator/Lori history.
+  Phase 4 exhausts history first, which preserved every working turn; the per-section token
+  costs the telemetry now emits are the measurement that decision needs.
 
 ### 13.4 Two other defects the live run found that 530 offline tests did not
 
