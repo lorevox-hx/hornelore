@@ -432,20 +432,29 @@ class LoriGroundingBoundary(unittest.TestCase):
         self.assertIn("if _story_block:", src)
 
     def test_the_story_block_is_ranked_and_never_takes_the_default(self):
-        """BUG-STORY-GROUNDING-DROPPED-FIRST-01, found live 2026-08-17.
+        """The reviewed-story section carries a deliberate rank.
 
-        The block shipped as `required=False` with no `drop_order`. That
-        defaults to 0, and `drop_order` is ascending, so the one thing
-        Phase 3 exists to deliver was the FIRST section dropped whenever
-        the prompt was over budget -- which measured prompts are. The
-        bridge logged `approved=1` and Lori said she did not recall the
-        story, so the failure looked like a model shrug rather than a
-        prompt that had the section cut out of it.
+        A LATENT defect, and the docstring says so because the first
+        write-up of it did not. This shipped `required=False` with no
+        `drop_order`, which defaults to 0 and is ascending, ranking the
+        one thing Phase 3 delivers below a per-turn hint.
 
-        Pinned as a RANGE rather than as the literal 25, because what
-        must hold is the ordering decision, not the number: reviewed
-        stories outlive the sections that rebuild themselves each turn
-        and yield to the identity sections that do not.
+        IT WAS BRIEFLY RECORDED AS THE CAUSE OF THE OWED STEP-6 CHECK.
+        That was wrong and is withdrawn: `_PromptAssembly.render()` joins
+        every section unconditionally, and `sections()` / `drop_order` /
+        `required` have NO production consumer -- the only readers are
+        tests, this one included. Nothing is dropped today, so nothing
+        was dropped then.
+
+        The rank is still worth pinning, for the reason the assembly's
+        own docstring gives: it is the answer to "which of these two do I
+        lose first", and it must be a decision rather than a default
+        BEFORE enforcement lands, not after. Enforcement is Phase 4 work.
+
+        Pinned as a RANGE rather than the literal 25, because what must
+        hold is the ordering decision, not the number: reviewed stories
+        outlive the sections that rebuild themselves each turn and yield
+        to the identity sections that do not.
         """
         src = _COMPOSER.read_text(encoding="utf-8")
         i = src.index('parts.add("approved_stories"')

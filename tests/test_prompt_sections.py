@@ -575,8 +575,22 @@ class SectionClassificationTest(unittest.TestCase):
     REQUIRED = ("identity_facts", "identity_grounding",
                 "directives_interview", "directives_bio_builder",
                 "directives_questionnaire")
+    # `approved_stories` joined the ladder at 25 on 2026-08-18
+    # (WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 3). It sits above the
+    # three sections that rebuild themselves on the next turn and below the
+    # two identity sections, because a reviewed story exists only because a
+    # human read it and decided -- the same rationale that puts
+    # `pinned_facts` last -- while losing who the narrator IS makes Lori
+    # invent, which is worse than her saying less.
+    #
+    # This inventory is the reason the gap was caught at all: the section
+    # was added in Phase 3 Commit B and registered in NEITHER set, and
+    # `test_every_section_is_classified_one_way_or_the_other` failed on it.
+    # Registering a new section here is not bookkeeping -- it is the step
+    # that forces the drop decision to be made deliberately.
     DROPPABLE = {"memory_context": 5, "factual_chain": 10,
-                 "english_first": 20, "ui_context": 30, "pinned_facts": 40}
+                 "english_first": 20, "approved_stories": 25,
+                 "ui_context": 30, "pinned_facts": 40}
 
     def test_lori_can_never_lose_her_identity_or_her_discipline(self):
         for name in self.REQUIRED:
