@@ -20,14 +20,21 @@
   // launch card passes ?narrator_id=<active narrator>, which WINS over
   // the locally-remembered picker value. The picker remains for the
   // direct-URL / no-active-narrator case.
-  var _urlNarrator = "";
-  try {
-    _urlNarrator = new URLSearchParams(window.location.search)
-      .get("narrator_id") || "";
-  } catch (e) { _urlNarrator = ""; }
+  //
+  // WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 2 Part B (2026-08-17):
+  // that handoff is now VALIDATED before it is honoured, and the
+  // selection is made after /api/people answers rather than at module
+  // load. The old shape read the URL and the legacy key synchronously
+  // and trusted both, so a stale link or a stale cache silently scoped
+  // the whole console — including its trip creation and photo
+  // clustering — to a narrator who might not exist. `narratorId` starts
+  // EMPTY on purpose; resolveNarrator() fills it.
+  var NC = window.LorevoxNarratorContext;
+  var _urlNarrator = NC ? NC.readQuery() : "";
 
   var state = {
-    narratorId: _urlNarrator || localStorage.getItem(LS_NARRATOR) || "",
+    narratorId: "",
+    narratorNotice: "",
     tripId: localStorage.getItem(LS_TRIP) || "",
     tree: null,
     flatStops: [],
@@ -82,24 +89,56 @@
   }
 
   // ── narrator picker ─────────────────────────────────────────────────
-  function loadNarrators() {
-    return fetch(ORIGIN + "/api/people")
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        var people = (data && data.people) || [];
-        var sel = $("narratorSel");
-        sel.innerHTML = "";
-        var opt0 = el("option", null, "— all narrators —");
-        opt0.value = "";
-        sel.appendChild(opt0);
-        people.forEach(function (p) {
-          var opt = el("option", null, p.display_name || p.id);
-          opt.value = p.id || "";
-          sel.appendChild(opt);
+  //
+  // Phase 2 Part B: one resolve() call does the validation, the
+  // fail-closed rule and the people fetch that populates this picker, so
+  // the list and the selection can no longer disagree about who exists.
+  function resolveNarrator() {
+    if (!NC) {
+      // Helper tag missing. Fail closed rather than fall back to the
+      // unvalidated legacy key — an unvalidated id is what Part B exists
+      // to stop, and a picker with nothing selected is a safe state.
+      state.narratorNotice = "";
+      return fetch(ORIGIN + "/api/people")
+        .then(function (r) { return r.json(); })
+        .then(function (data) { fillPicker((data && data.people) || []); })
+        .catch(function (e) {
+          setStatus("people load failed: " + e.message, true);
         });
-        if (state.narratorId) sel.value = state.narratorId;
-      })
-      .catch(function (e) { setStatus("people load failed: " + e.message, true); });
+    }
+    return NC.resolve({ apiBase: ORIGIN, legacyKey: LS_NARRATOR })
+      .then(function (res) {
+        state.narratorId = res.personId || "";
+        state.narratorNotice = res.error || "";
+        if (!res.peopleOk) {
+          setStatus(res.error || "people load failed", true);
+        } else if (res.error) {
+          setStatus(res.error, true);
+        }
+        // Only a selection this surface actually honoured is cached, so
+        // a rejected handoff cannot become next visit's default.
+        if (res.personId && res.source === "query") {
+          NC.remember(LS_NARRATOR, res.personId);
+        }
+        fillPicker(res.people.map(function (p) {
+          return { id: p.id, display_name: p.display_name };
+        }));
+      });
+  }
+
+  function fillPicker(people) {
+    var sel = $("narratorSel");
+    if (!sel) return;
+    sel.innerHTML = "";
+    var opt0 = el("option", null, "— all narrators —");
+    opt0.value = "";
+    sel.appendChild(opt0);
+    people.forEach(function (p) {
+      var opt = el("option", null, p.display_name || p.id);
+      opt.value = p.id || "";
+      sel.appendChild(opt);
+    });
+    sel.value = state.narratorId || "";
   }
 
   // ── trip list ───────────────────────────────────────────────────────
@@ -864,15 +903,21 @@
 
   // ── wiring ──────────────────────────────────────────────────────────
   document.addEventListener("DOMContentLoaded", function () {
-    if (_urlNarrator) {
-      localStorage.setItem(LS_NARRATOR, _urlNarrator);
-    }
-    loadNarrators().then(loadTrips);
+    // Phase 2 Part B: the URL value is no longer written to the legacy
+    // key here. It is written inside resolveNarrator(), and only once it
+    // has been validated — otherwise a single bad link would poison this
+    // surface's cache for every later visit.
+    resolveNarrator().then(loadTrips);
     if (state.tripId) selectTrip(state.tripId);
 
     $("narratorSel").addEventListener("change", function () {
+      // An operator choosing a narrator HERE updates this surface's own
+      // cache and nothing else. It never writes lv_active_person_v55 —
+      // remember() refuses that key by construction.
       state.narratorId = this.value;
-      localStorage.setItem(LS_NARRATOR, state.narratorId);
+      state.narratorNotice = "";
+      if (NC) NC.remember(LS_NARRATOR, state.narratorId);
+      else localStorage.setItem(LS_NARRATOR, state.narratorId);
       loadTrips();
     });
     $("refreshBtn").addEventListener("click", function () {
@@ -895,7 +940,12 @@
     $("importGo").addEventListener("click", doImport);
     $("clusterBtn").addEventListener("click", runCluster);
     $("openIntakeBtn").addEventListener("click", function () {
-      window.open("photo-intake.html", "_blank", "noopener");
+      // Phase 2 Part B: this dropped the narrator on the floor. Trip Tab
+      // knew exactly who it was scoped to and opened Intake bare, so the
+      // operator could upload a trip's photographs against whoever
+      // Intake happened to remember.
+      if (NC) NC.openTool("photo-intake.html", state.narratorId);
+      else window.open("photo-intake.html", "_blank", "noopener");
     });
     $("queueBtn").addEventListener("click", function () { loadQueue(0.5); });
     $("allLinksBtn").addEventListener("click", function () { loadQueue(null); });

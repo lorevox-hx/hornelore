@@ -1204,3 +1204,30 @@
 /* The Palette's own caption-editor slot. The editor itself is the
    timeline's, unchanged; this only gives it somewhere to sit. */
 .tdl-palette-editor { border: 1px solid var(--tdl-line); border-radius: 12px; padding: .6rem; background: #fff; }
+
+/* ── Chronology connection panel ──────────────────────────────────────
+   WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 2, Part A.
+
+   Prefix `tdl-chron-`, chosen because every shorter candidate was
+   already taken by something it would have restyled from across the
+   file: `tdl-cal-` is the trip calendar modal, `tdl-tl-` is the trip
+   timeline, `tdl-doc-` is the Travel Document. Structural only — every
+   colour is an existing --tdl-* variable, so this panel inherits the
+   workspace theme instead of introducing a second one. */
+.tdl-chron { border: 1px solid var(--tdl-line); border-radius: 12px; padding: .6rem .75rem; background: var(--tdl-paper2); margin: .5rem 0 .8rem; font-size: .82rem; }
+.tdl-chron-head { display: flex; align-items: center; gap: .5rem; margin-bottom: .45rem; }
+.tdl-chron-pill { border: 1px solid var(--tdl-line); border-radius: 999px; padding: .05rem .5rem; font-size: .7rem; font-weight: 800; }
+.tdl-chron-pill.tdl-chron-ok { border-color: var(--tdl-green); color: var(--tdl-green); }
+.tdl-chron-pill.tdl-chron-warn { border-color: var(--tdl-gold); color: var(--tdl-gold); }
+.tdl-chron-pill.tdl-chron-bad { border-color: var(--tdl-red); color: var(--tdl-red); }
+.tdl-chron-rows { display: grid; grid-template-columns: minmax(140px, max-content) 1fr; gap: .15rem .8rem; }
+.tdl-chron-row { display: contents; }
+.tdl-chron-key { color: var(--tdl-muted); }
+.tdl-chron-val { font-weight: 600; }
+/* A lane that could not be read is marked on the VALUE, which is where
+   the status word actually is. */
+.tdl-chron-row.tdl-chron-bad .tdl-chron-val { color: var(--tdl-red); font-weight: 800; }
+.tdl-chron-diff { margin-top: .5rem; border-top: 1px dashed var(--tdl-line); padding-top: .45rem; }
+.tdl-chron-diff ul { margin: .3rem 0 0; padding-left: 1.1rem; }
+.tdl-chron-diff li { margin: .1rem 0; }
+.tdl-chron-sync { margin-bottom: .6rem; }

@@ -46,7 +46,7 @@
        Phase 4: the old Documenter's stylesheet used to load immediately
        above this comment. It came out with the surface toggle — that
        module is no longer on the shell path at all. -->
-  <link rel="stylesheet" href="css/travel-doc-lab.css?v=2026-08-14f" />
+  <link rel="stylesheet" href="css/travel-doc-lab.css?v=2026-08-17a" />
   <link rel="stylesheet" href="css/lori80.css">
   <link rel="stylesheet" href="css/bio-review.css">
   <link rel="stylesheet" href="css/shadow-review.css">
@@ -3257,13 +3257,13 @@
           <button id="lv80PhotoIntakeBtn"
                   type="button"
                   title="Upload family photos with metadata for the active narrator (operator only)"
-                  onclick="window.open('photo-intake.html', '_blank', 'noopener')">
+                  onclick="lvOpenNarratorTool('photo-intake.html')">
             📷 Photo Intake
           </button>
           <button id="lv80PhotoTimelineBtn"
                   type="button"
                   title="Browse uploaded photos by year (read-only timeline view)"
-                  onclick="window.open('photo-timeline.html', '_blank', 'noopener')">
+                  onclick="lvOpenNarratorTool('photo-timeline.html')">
             🖼 Photo Timeline
           </button>
           <!-- WO-13 Phase 6: Review Queue drawer trigger -->
@@ -5379,6 +5379,11 @@
 <script src="js/trainer-narrators.js"></script>
 <script src="js/data.js"></script>
 <script src="js/api.js"></script>
+<!-- WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 2 Part B: the one
+     narrator-context contract, shared with the standalone surfaces.
+     Loaded before app.js so lvOpenNarratorTool can use it, and before
+     travel-doc-lab.js so the mounted workspace can too. -->
+<script src="js/narrator-context.js?v=2026-08-17a"></script>
 <script src="js/tabs.js"></script>
 <script src="js/safety-ui.js"></script>
 <script src="js/safety-banner.js?v=2026-05-01"></script>
@@ -5484,7 +5489,7 @@
      above this comment. It came out with the surface toggle. The module
      still exists on disk and its own standalone page still loads it —
      the shell just no longer does. -->
-<script src="js/travel-doc-lab.js?v=2026-08-14f"></script>
+<script src="js/travel-doc-lab.js?v=2026-08-17a"></script>
 <script src="js/test-narrator-lab.js"></script>
 <script src="js/test-harness.js"></script>
 <script src="js/test-bb-walk.js"></script>

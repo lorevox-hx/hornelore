@@ -1714,14 +1714,15 @@ def ensure_session(conv_id: str, title: str = "", person_id: Optional[str] = Non
         raise
     con.execute(
         """
-        INSERT INTO sessions(conv_id,title,updated_at,payload_json,person_id)
-        VALUES(?,?,?,?,?)
+        INSERT INTO sessions(conv_id,title,updated_at,payload_json,person_id,person_id_source)
+        VALUES(?,?,?,?,?,?)
         ON CONFLICT(conv_id) DO UPDATE SET
           title=CASE WHEN excluded.title<>'' THEN excluded.title ELSE sessions.title END,
           updated_at=excluded.updated_at,
-          person_id=COALESCE(sessions.person_id, excluded.person_id);
+          person_id=COALESCE(sessions.person_id, excluded.person_id),
+          person_id_source=COALESCE(sessions.person_id_source, excluded.person_id_source);
         """,
-        (conv_id, title or "", now, "{}", pid),
+        (conv_id, title or "", now, "{}", pid, "explicit" if pid else None),
     )
     con.commit()
     con.close()
@@ -1754,15 +1755,16 @@ def upsert_session(
         raise
     con.execute(
         """
-        INSERT INTO sessions(conv_id,title,updated_at,payload_json,person_id)
-        VALUES(?,?,?,?,?)
+        INSERT INTO sessions(conv_id,title,updated_at,payload_json,person_id,person_id_source)
+        VALUES(?,?,?,?,?,?)
         ON CONFLICT(conv_id) DO UPDATE SET
           title=excluded.title,
           updated_at=excluded.updated_at,
           payload_json=excluded.payload_json,
-          person_id=COALESCE(sessions.person_id, excluded.person_id);
+          person_id=COALESCE(sessions.person_id, excluded.person_id),
+          person_id_source=COALESCE(sessions.person_id_source, excluded.person_id_source);
         """,
-        (conv_id, title or "", now, _json_dump(body), pid),
+        (conv_id, title or "", now, _json_dump(body), pid, "explicit" if pid else None),
     )
     con.commit()
     con.close()
@@ -1825,19 +1827,55 @@ def get_session_owner(conv_id: str) -> Optional[str]:
         con.close()
 
 
+# WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 2 Part C (2026-08-17).
+#
+# Why an unowned row was NOT backfilled by 0045, reported as the FIRST
+# condition it failed, in the migration's own evaluation order. Reporting
+# the first failure rather than every failure keeps the buckets mutually
+# exclusive, so they sum to `sessions_unowned` and a reader can add them
+# up and get the right answer.
+_RESIDUE_UNOWNED_BUCKETS = (
+    # Two structured fields contradicting each other. 0045 declines.
+    "legacy_fields_disagree",
+    # A structured id that points at no row in `people`.
+    "legacy_id_invalid",
+    # A stronger recorded link names two narrators, or names one that the
+    # payload contradicts. Either way the payload does not get to decide.
+    "stronger_source_ambiguous_or_conflicting",
+    # No structured owner anywhere: '{}', invalid JSON, or a payload with
+    # neither key. This is the honest remainder and it is expected to be
+    # the largest bucket.
+    "no_recorded_link",
+)
+
+
 def session_ownership_residue() -> Dict[str, Any]:
     """What narrator deletion cannot reach, counted rather than implied.
 
-    WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 commit 2, R2.5. A narrator
-    hard-delete now removes the sessions it OWNS (and their turns, via
-    the existing cascade off ``sessions(conv_id)``). It deliberately does
-    not touch rows whose owner was never recorded -- deleting those would
-    mean guessing, and guessing is the thing this lane exists to stop.
+    WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 commit 2, R2.5, extended by
+    Phase 2 Part C. A narrator hard-delete removes the sessions it OWNS
+    (and their turns, via the existing cascade off ``sessions(conv_id)``).
+    It deliberately does not touch rows whose owner was never recorded --
+    deleting those would mean guessing, and guessing is the thing this
+    lane exists to stop.
 
-    So there is a residue, and this reports it: how many sessions and
-    turns are unattributable, and how many of those a recorded link
-    might still rescue. The number is meant to be looked at, not fixed
-    by inference.
+    So there is a residue, and this reports it in five parts, which is
+    the shape Phase 2 asks for:
+
+    * ``owner_explicit`` -- a writer recorded the narrator at the time.
+    * ``owner_recovered_legacy_payload`` -- 0045 promoted one structured,
+      unambiguous, existing id out of ``payload_json``.
+    * ``owner_source_unrecorded`` -- owned, but provenance predates the
+      ``person_id_source`` column. This covers every row 0044 recovered
+      and every row written before Phase 2. It is NOT folded into either
+      category above, because deciding after the fact which one it was
+      would be exactly the reconstruction this lane forbids.
+    * the four ``unowned_*`` buckets -- why each remaining row was
+      declined, one bucket per row, summing to ``sessions_unowned``.
+    * ``turns_in_unowned_sessions`` -- the conversation content that
+      therefore cannot be attributed or deleted by narrator.
+
+    The numbers are meant to be looked at, not fixed by inference.
     """
     init_db()
     con = _connect()
@@ -1847,25 +1885,127 @@ def session_ownership_residue() -> Dict[str, Any]:
             return int(row[0] if row else 0)
 
         unowned = _one(
-            "SELECT COUNT(*) FROM sessions WHERE person_id IS NULL OR person_id=''"
+            "SELECT COUNT(*) FROM sessions WHERE person_id IS NULL OR TRIM(person_id)=''"
         )
-        owned = _one("SELECT COUNT(*) FROM sessions WHERE person_id IS NOT NULL AND person_id<>''")
+        owned = _one(
+            "SELECT COUNT(*) FROM sessions "
+            "WHERE person_id IS NOT NULL AND TRIM(person_id)<>''"
+        )
         orphan_turns = _one(
             "SELECT COUNT(*) FROM turns t JOIN sessions s ON s.conv_id=t.conv_id "
-            "WHERE s.person_id IS NULL OR s.person_id=''"
+            "WHERE s.person_id IS NULL OR TRIM(s.person_id)=''"
         )
         legacy_json = _one(
-            "SELECT COUNT(*) FROM sessions WHERE (person_id IS NULL OR person_id='') "
+            "SELECT COUNT(*) FROM sessions "
+            "WHERE (person_id IS NULL OR TRIM(person_id)='') "
+            "AND json_valid(payload_json) "
             "AND COALESCE(json_extract(payload_json,'$.active_person_id'),"
             "json_extract(payload_json,'$.person_id')) IS NOT NULL"
         )
-        return {
+
+        by_source: Dict[str, int] = {
+            "owner_explicit": 0,
+            "owner_recovered_legacy_payload": 0,
+            "owner_source_unrecorded": 0,
+        }
+        for row in con.execute(
+            "SELECT person_id_source AS src, COUNT(*) AS n FROM sessions "
+            "WHERE person_id IS NOT NULL AND TRIM(person_id)<>'' "
+            "GROUP BY person_id_source;"
+        ).fetchall():
+            src = (row["src"] or "").strip()
+            if src == "explicit":
+                by_source["owner_explicit"] += int(row["n"])
+            elif src == "legacy_payload_json":
+                by_source["owner_recovered_legacy_payload"] += int(row["n"])
+            else:
+                # An unrecognised marker is not silently promoted into a
+                # category it did not claim.
+                by_source["owner_source_unrecorded"] += int(row["n"])
+
+        buckets: Dict[str, int] = {name: 0 for name in _RESIDUE_UNOWNED_BUCKETS}
+        rows = con.execute(
+            """
+            SELECT
+              CASE WHEN json_valid(s.payload_json)
+                   THEN TRIM(COALESCE(json_extract(s.payload_json,'$.person_id'),''))
+                   ELSE '' END AS lp,
+              CASE WHEN json_valid(s.payload_json)
+                   THEN TRIM(COALESCE(json_extract(s.payload_json,'$.active_person_id'),''))
+                   ELSE '' END AS lap,
+              (
+                SELECT COUNT(DISTINCT x.pid) FROM (
+                    SELECT isx.person_id AS pid FROM interview_sessions isx
+                     WHERE isx.id = s.conv_id AND isx.person_id IS NOT NULL
+                       AND TRIM(isx.person_id) <> ''
+                    UNION
+                    SELECT mas.person_id FROM memory_archive_sessions mas
+                     WHERE mas.conv_id = s.conv_id AND mas.person_id IS NOT NULL
+                       AND TRIM(mas.person_id) <> ''
+                    UNION
+                    SELECT json_extract(t.meta_json,'$.person_id') FROM turns t
+                     WHERE t.conv_id = s.conv_id AND json_valid(t.meta_json)
+                       AND json_extract(t.meta_json,'$.person_id') IS NOT NULL
+                       AND TRIM(json_extract(t.meta_json,'$.person_id')) <> ''
+                ) x
+              ) AS stronger_count,
+              (
+                SELECT MIN(x.pid) FROM (
+                    SELECT isx.person_id AS pid FROM interview_sessions isx
+                     WHERE isx.id = s.conv_id AND isx.person_id IS NOT NULL
+                       AND TRIM(isx.person_id) <> ''
+                    UNION
+                    SELECT mas.person_id FROM memory_archive_sessions mas
+                     WHERE mas.conv_id = s.conv_id AND mas.person_id IS NOT NULL
+                       AND TRIM(mas.person_id) <> ''
+                    UNION
+                    SELECT json_extract(t.meta_json,'$.person_id') FROM turns t
+                     WHERE t.conv_id = s.conv_id AND json_valid(t.meta_json)
+                       AND json_extract(t.meta_json,'$.person_id') IS NOT NULL
+                       AND TRIM(json_extract(t.meta_json,'$.person_id')) <> ''
+                ) x
+              ) AS stronger_id
+              FROM sessions s
+             WHERE s.person_id IS NULL OR TRIM(s.person_id) = '';
+            """
+        ).fetchall()
+
+        known_people = {
+            r["id"] for r in con.execute("SELECT id FROM people;").fetchall()
+        }
+        for r in rows:
+            lp = (r["lp"] or "").strip()
+            lap = (r["lap"] or "").strip()
+            candidate = lp or lap
+            stronger_count = int(r["stronger_count"] or 0)
+            stronger_id = (r["stronger_id"] or "").strip()
+            if lp and lap and lp != lap:
+                buckets["legacy_fields_disagree"] += 1
+            elif not candidate:
+                buckets["no_recorded_link"] += 1
+            elif candidate not in known_people:
+                buckets["legacy_id_invalid"] += 1
+            elif stronger_count > 1 or (stronger_count == 1 and stronger_id != candidate):
+                buckets["stronger_source_ambiguous_or_conflicting"] += 1
+            else:
+                # A resolvable candidate that survived every condition and
+                # is still unowned means 0045 has not been applied to this
+                # database yet. Truthful, and it is the number that should
+                # drop to zero after the migration runs.
+                buckets["no_recorded_link"] += 1
+
+        out: Dict[str, Any] = {
             "sessions_total": owned + unowned,
             "sessions_owned": owned,
             "sessions_unowned": unowned,
             "turns_in_unowned_sessions": orphan_turns,
+            # Retained verbatim from commit 2 so existing readers of this
+            # dict keep working; the buckets below are the finer answer.
             "unowned_but_legacy_json_has_an_id": legacy_json,
         }
+        out.update(by_source)
+        out.update({"unowned_" + name: buckets[name] for name in _RESIDUE_UNOWNED_BUCKETS})
+        return out
     finally:
         con.close()
 

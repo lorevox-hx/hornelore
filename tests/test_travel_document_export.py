@@ -166,13 +166,32 @@ class TheWorkspaceCanExportTest(unittest.TestCase):
         """A plain <a download> would save a 503 error page to disk AS
         the document, and the operator would open a Word file containing
         an error. The response is fetched first so a failure surfaces on
-        the panel."""
-        i = self.src.index("function _exportTravelDocument(")
+        the panel.
+
+        NARROWED 2026-08-17 by WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01
+        Phase 2 Part A. This read `_exportTravelDocument` and asserted
+        `d.error` in it. That function is now the pre-output GATE --
+        dirty-form refusal, day reload, chronology refresh, stale-preview
+        invalidation -- and the download it guards moved to
+        `_exportTravelDocumentNow`. The assertion is unchanged in
+        substance and re-pointed at the function that now downloads; the
+        gate itself is covered by
+        tests/test_travel_doc_chronology_integration.py."""
+        i = self.src.index("function _exportTravelDocumentNow(")
         body = self.src[i:self.src.index("\n  function ", i + 10)]
         self.assertIn("d.error", body)
         # The anchor is built only after a successful response.
         self.assertLess(body.index('"/export-docx"'),
                         body.index('createElement("a")'))
+
+    def test_the_download_is_reachable_only_through_the_gate(self):
+        """Phase 2 Part A: the split must not become a bypass."""
+        outer = self.src[self.src.index("function _exportTravelDocument("):]
+        outer = outer[: outer.index("\n  function ", 10)]
+        self.assertIn("prepareForDocumentOutput(", outer)
+        self.assertIn("_exportTravelDocumentNow();", outer)
+        # And nothing else calls the downloader.
+        self.assertEqual(1, self.src.count("_exportTravelDocumentNow();"))
 
     def test_no_native_dialog_is_used(self):
         """Standing doctrine for every Travel Doc surface.

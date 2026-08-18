@@ -25,38 +25,78 @@
   };
 
   // ── Narrator picker ──────────────────────────────────────────
+  //
+  // WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 2 Part B (2026-08-17):
+  // accepts a validated `?narrator_id=` handoff from the shell and from
+  // the Intake page, and fails closed on an id that does not exist. The
+  // legacy key stays SHARED with Photo Intake, deliberately — the two
+  // pages are a pair and a narrator picked on one should still be
+  // waiting on the other.
+  var NC = window.LorevoxNarratorContext;
+
+  function _fillPicker(items, selectedId) {
+    el.narrator.innerHTML = "";
+    if (!items.length) {
+      el.narrator.innerHTML = '<option value="">— no narrators —</option>';
+      return;
+    }
+    var opt0 = document.createElement("option");
+    opt0.value = "";
+    opt0.textContent = "— choose a narrator —";
+    el.narrator.appendChild(opt0);
+    items.forEach(function (p) {
+      var opt = document.createElement("option");
+      opt.value = p.id || p.person_id || "";
+      opt.textContent = p.display_name || p.name || opt.value;
+      el.narrator.appendChild(opt);
+    });
+    el.narrator.value = selectedId || "";
+  }
+
   function loadNarrators() {
-    return fetch(ORIGIN + "/api/people")
-      .then(function (r) { return r.ok ? r.json() : []; })
-      .then(function (people) {
-        var items = Array.isArray(people) ? people
-                   : (people && Array.isArray(people.people) ? people.people : []);
-        el.narrator.innerHTML = "";
-        if (!items.length) {
-          el.narrator.innerHTML = '<option value="">— no narrators —</option>';
+    if (!NC) {
+      return fetch(ORIGIN + "/api/people")
+        .then(function (r) { return r.ok ? r.json() : []; })
+        .then(function (people) {
+          var items = Array.isArray(people) ? people
+                     : (people && Array.isArray(people.people) ? people.people : []);
+          _fillPicker(items, "");
+        })
+        .catch(function () {
+          el.narrator.innerHTML = '<option value="">— /api/people unavailable —</option>';
+        });
+    }
+    return NC.resolve({ apiBase: ORIGIN, legacyKey: LS_NARRATOR })
+      .then(function (res) {
+        if (!res.peopleOk) {
+          el.narrator.innerHTML = '<option value="">— /api/people unavailable —</option>';
           return;
         }
-        items.forEach(function (p) {
-          var opt = document.createElement("option");
-          opt.value = p.id || p.person_id || "";
-          opt.textContent = p.display_name || p.name || opt.value;
-          el.narrator.appendChild(opt);
-        });
-        var saved = localStorage.getItem(LS_NARRATOR);
-        if (saved) {
-          var opts = Array.from(el.narrator.options).map(function(o){return o.value;});
-          if (opts.indexOf(saved) >= 0) el.narrator.value = saved;
+        _fillPicker(res.people, res.personId);
+        if (res.personId && res.source === "query") {
+          NC.remember(LS_NARRATOR, res.personId);
         }
-      })
-      .catch(function () {
-        el.narrator.innerHTML = '<option value="">— /api/people unavailable —</option>';
       });
   }
 
   el.narrator.addEventListener("change", function () {
-    localStorage.setItem(LS_NARRATOR, el.narrator.value);
+    if (NC) NC.remember(LS_NARRATOR, el.narrator.value);
+    else localStorage.setItem(LS_NARRATOR, el.narrator.value);
+    _syncIntakeLink();
     refreshTimeline();
   });
+
+  // Phase 2 Part B: the "Intake →" link is a cross-page link between two
+  // narrator-scoped tools and used to carry nothing, relying entirely on
+  // the shared legacy key. It now carries the narrator explicitly, so
+  // the link is correct even when the two pages' caches disagree.
+  function _syncIntakeLink() {
+    var link = document.querySelector('a[href^="photo-intake.html"]');
+    if (!link || !NC) return;
+    link.setAttribute(
+      "href", NC.withNarrator("photo-intake.html", el.narrator.value)
+    );
+  }
 
   // ── Decade / year grouping ───────────────────────────────────
   function extractYear(photo) {
@@ -244,5 +284,8 @@
   });
 
   // ── Bootstrap ────────────────────────────────────────────────
-  loadNarrators().then(refreshTimeline);
+  loadNarrators().then(function () {
+    _syncIntakeLink();
+    return refreshTimeline();
+  });
 })();

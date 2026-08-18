@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, NamedTuple, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -175,23 +175,79 @@ def _BY_ID_TODAY() -> Optional[Dict[str, Any]]:
 # silently, so `_sources_block` reports the status of every lane.
 
 
+class _LaneResult(NamedTuple):
+    """One lane's rows AND whether the lane could be read at all.
+
+    WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 2, Part A.
+
+    THE DEFECT THIS TYPE EXISTS TO FIX. Until Phase 2 the three
+    collectors below returned a bare list and swallowed every exception
+    into `return []`, while `_sources_block` hardcoded `"status":
+    "read"`. So a lane whose table was missing, whose database could not
+    be opened, or whose query raised produced *exactly* the payload of a
+    lane that was read successfully and found nothing:
+    `{"status": "read", "count": 0}`.
+
+    That is the one distinction `_sources_block`'s own docstring promises
+    to make -- "this narrator has none" versus "this lane could not be
+    read" -- and it was the one distinction the payload could not
+    express. A renderer drawing an empty column from it would be
+    reporting an outage as an answer.
+
+    Failing soft is still right: a pre-0027 database legitimately has no
+    `trip_days` table, and one lane must not take the chronology down.
+    Failing soft SILENTLY is what changes here.
+    """
+
+    items: List[Dict[str, Any]]
+    status: str  # "read" | "unavailable"
+
+
+# Emitted when a lane raised. Distinct from "read" so a consumer can tell
+# an outage from an empty narrator, and distinct from the periods lane's
+# "unavailable_no_dob", which is a narrator STATE rather than a failure.
+_LANE_UNAVAILABLE = "unavailable"
+_LANE_READ = "read"
+
+
 def _sources_block(
     dob_ok: bool,
-    timeline_events: int = 0,
-    story_evidence: int = 0,
-    trip_days: int = 0,
+    timeline_events: Optional[_LaneResult] = None,
+    story_evidence: Optional[_LaneResult] = None,
+    trip_days: Optional[_LaneResult] = None,
 ) -> Dict[str, Any]:
     """Truthful per-lane provenance, so a consumer never has to guess.
 
     `status` distinguishes "this narrator has none" from "this lane could
     not be read" -- the distinction the Life Map has to make before it
     renders an empty column as though it were an answer.
+
+    Phase 2: each lane's status now comes FROM THE LANE. Passing `None`
+    means the lane was never attempted (the no-DOB early return), which
+    is a third state again and is reported as `not_attempted` rather than
+    borrowing either of the other two.
     """
+
+    def _lane(source: str, result: Optional[_LaneResult]) -> Dict[str, Any]:
+        if result is None:
+            return {"source": source, "status": "not_attempted", "count": 0}
+        return {
+            "source": source,
+            "status": result.status,
+            # A failed lane reports zero rows because it HAS zero rows in
+            # hand -- the count is honest, and `status` is what says the
+            # zero is not an answer about the narrator.
+            "count": len(result.items),
+        }
+
     return {
-        "periods": {"source": "lv_eras + profile.dob", "status": "derived" if dob_ok else "unavailable_no_dob"},
-        "timeline_events": {"source": "timeline_events", "status": "read", "count": timeline_events},
-        "story_evidence": {"source": "story_candidates", "status": "read", "count": story_evidence},
-        "trip_days": {"source": "trips + trip_days", "status": "read", "count": trip_days},
+        "periods": {
+            "source": "lv_eras + profile.dob",
+            "status": "derived" if dob_ok else "unavailable_no_dob",
+        },
+        "timeline_events": _lane("timeline_events", timeline_events),
+        "story_evidence": _lane("story_candidates", story_evidence),
+        "trip_days": _lane("trips + trip_days", trip_days),
         "authority": "server",
     }
 
@@ -203,12 +259,16 @@ def _year_of(value: Any) -> Optional[int]:
     return int(text[:4])
 
 
-def _collect_timeline_events(person_id: str) -> List[Dict[str, Any]]:
+def _collect_timeline_events(person_id: str) -> _LaneResult:
     """Confirmed timeline events. Status is reported, never assumed."""
     try:
         con = db._connect()
-    except Exception:
-        return []
+    except Exception as exc:
+        logger.info(
+            "chronology: timeline_events lane unavailable for %s (no connection): %s",
+            person_id, exc,
+        )
+        return _LaneResult([], _LANE_UNAVAILABLE)
     try:
         rows = con.execute(
             "SELECT id, date, title, body, kind, status, is_approximate, confidence "
@@ -217,7 +277,7 @@ def _collect_timeline_events(person_id: str) -> List[Dict[str, Any]]:
         ).fetchall()
     except Exception as exc:
         logger.info("chronology: timeline_events lane skipped for %s: %s", person_id, exc)
-        return []
+        return _LaneResult([], _LANE_UNAVAILABLE)
     finally:
         con.close()
 
@@ -240,7 +300,7 @@ def _collect_timeline_events(person_id: str) -> List[Dict[str, Any]]:
             "status": (r["status"] or "confirmed"),
             "is_approximate": bool(r["is_approximate"]) if r["is_approximate"] is not None else False,
         })
-    return items
+    return _LaneResult(items, _LANE_READ)
 
 
 # Review status -> the three-way status the Life Map renders. Explicit
@@ -255,12 +315,16 @@ _STORY_STATUS = {
 }
 
 
-def _collect_story_evidence(person_id: str) -> List[Dict[str, Any]]:
+def _collect_story_evidence(person_id: str) -> _LaneResult:
     """Captured stories, carrying approved / provisional / derived status."""
     try:
         con = db._connect()
-    except Exception:
-        return []
+    except Exception as exc:
+        logger.info(
+            "chronology: story_evidence lane unavailable for %s (no connection): %s",
+            person_id, exc,
+        )
+        return _LaneResult([], _LANE_UNAVAILABLE)
     try:
         rows = con.execute(
             "SELECT id, created_at, transcript, era_candidates, estimated_year_low, "
@@ -270,7 +334,7 @@ def _collect_story_evidence(person_id: str) -> List[Dict[str, Any]]:
         ).fetchall()
     except Exception as exc:
         logger.info("chronology: story_evidence lane skipped for %s: %s", person_id, exc)
-        return []
+        return _LaneResult([], _LANE_UNAVAILABLE)
     finally:
         con.close()
 
@@ -304,10 +368,10 @@ def _collect_story_evidence(person_id: str) -> List[Dict[str, Any]]:
             "placement": placement,
             "confidence": r["confidence"] or "low",
         })
-    return items
+    return _LaneResult(items, _LANE_READ)
 
 
-def _collect_trip_days(person_id: str) -> List[Dict[str, Any]]:
+def _collect_trip_days(person_id: str) -> _LaneResult:
     """Trip DAYS, not merely a trip heading.
 
     A trip rendered as one row loses the thing the narrator actually
@@ -316,8 +380,12 @@ def _collect_trip_days(person_id: str) -> List[Dict[str, Any]]:
     """
     try:
         con = db._connect()
-    except Exception:
-        return []
+    except Exception as exc:
+        logger.info(
+            "chronology: trip_days lane unavailable for %s (no connection): %s",
+            person_id, exc,
+        )
+        return _LaneResult([], _LANE_UNAVAILABLE)
     try:
         rows = con.execute(
             "SELECT d.id AS day_id, d.trip_id, d.day_index, d.date, d.title, "
@@ -329,7 +397,7 @@ def _collect_trip_days(person_id: str) -> List[Dict[str, Any]]:
     except Exception as exc:
         # A pre-0027 database legitimately has no trip_days table.
         logger.info("chronology: trip_days lane skipped for %s: %s", person_id, exc)
-        return []
+        return _LaneResult([], _LANE_UNAVAILABLE)
     finally:
         con.close()
 
@@ -355,7 +423,7 @@ def _collect_trip_days(person_id: str) -> List[Dict[str, Any]]:
             "shelf": "travels",
             "status": "confirmed",
         })
-    return items
+    return _LaneResult(items, _LANE_READ)
 
 
 def year_to_era(year: int, periods: List[Dict[str, Any]]) -> Optional[str]:
@@ -1111,9 +1179,12 @@ def build_chronology_accordion_payload(
     # parallel endpoint so there is ONE chronology contract for the Life
     # Map, the accordion, Lori grounding and (next phase) the Travel
     # Document to agree on.
-    timeline_events = _collect_timeline_events(person_id)
-    story_evidence = _collect_story_evidence(person_id)
-    trip_days = _collect_trip_days(person_id)
+    timeline_events_lane = _collect_timeline_events(person_id)
+    story_evidence_lane = _collect_story_evidence(person_id)
+    trip_days_lane = _collect_trip_days(person_id)
+    timeline_events = timeline_events_lane.items
+    story_evidence = story_evidence_lane.items
+    trip_days = trip_days_lane.items
 
     return {
         "person_id": person_id,
@@ -1131,9 +1202,9 @@ def build_chronology_accordion_payload(
         "trip_days": trip_days,
         "sources": _sources_block(
             dob_ok=True,
-            timeline_events=len(timeline_events),
-            story_evidence=len(story_evidence),
-            trip_days=len(trip_days),
+            timeline_events=timeline_events_lane,
+            story_evidence=story_evidence_lane,
+            trip_days=trip_days_lane,
         ),
         "lane_counts": {
             "world": len(lane_a),

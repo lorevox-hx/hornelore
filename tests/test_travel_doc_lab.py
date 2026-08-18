@@ -200,9 +200,27 @@ class BoundaryTest(unittest.TestCase):
         # and the module surfaces none of its DELETE (the lane has exactly
         # one, it releases a session at Google, it answers
         # `batch_deleted: false`, and this UI does not call it).
+        # /api/chronology-accordion is the SEVENTH surface, admitted by
+        # WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 2 Part A on
+        # 2026-08-17. This gate caught it, which is the gate doing its
+        # job on a lane it had never been told about.
+        #
+        # It is admitted deliberately and it is the narrowest possible
+        # widening: ONE read-only GET, person-scoped, on the projection
+        # Phase 1 established as the single chronology authority. The
+        # alternative -- a second chronology engine inside this module --
+        # is exactly what Phase 1 deleted, so refusing the prefix would
+        # have pushed the integration towards the shape the lane exists
+        # to prevent.
+        #
+        # The properties that admitted the previous two hold here too: it
+        # writes nothing, it is not narrator-facing (the panel is
+        # operator-only), and the module surfaces no DELETE on it,
+        # because the route has none. It is a prefix allow-list, so this
+        # admits one lane and still fails the build on anything else.
         allowed = ("/api/trips", "/api/photos/", "/api/people",
                    "/api/chat/ws", "/api/import-provenance",
-                   "/api/google-picker")
+                   "/api/google-picker", "/api/chronology-accordion")
         for m in re.finditer(r'"(/api/[^"]*)"', src):
             path = m.group(1)
             self.assertTrue(

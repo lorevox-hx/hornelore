@@ -111,40 +111,68 @@
   }
 
   // ── Narrator picker ─────────────────────────────────────────
-  function _populateNarratorSelect(selectEl, items, savedKey) {
+  //
+  // WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 2 Part B (2026-08-17).
+  // This surface previously read NOTHING from the URL, so opening it
+  // from the shell landed on whichever narrator it happened to remember
+  // — and every upload here is stamped `narrator_id`, so that is a
+  // cross-narrator write, not a cosmetic mismatch. It now accepts a
+  // validated `?narrator_id=` handoff, and fails closed when the id does
+  // not exist rather than falling back to the cache.
+  var NC = window.LorevoxNarratorContext;
+
+  function _populateNarratorSelect(selectEl, items, selectedId) {
     if (!selectEl) return;
     selectEl.innerHTML = "";
     if (!items.length) {
       selectEl.innerHTML = '<option value="">— no narrators —</option>';
       return;
     }
+    // Phase 2: a real empty option exists so "nothing selected" is a
+    // state the operator can see. Before, a fail-closed resolution would
+    // have silently displayed — and uploaded against — whichever
+    // narrator sorted first.
+    var opt0 = document.createElement("option");
+    opt0.value = "";
+    opt0.textContent = "— choose a narrator —";
+    selectEl.appendChild(opt0);
     items.forEach(function (p) {
       var opt = document.createElement("option");
       opt.value = p.id || p.person_id || "";
       opt.textContent = p.display_name || p.name || opt.value;
       selectEl.appendChild(opt);
     });
-    var saved = savedKey ? localStorage.getItem(savedKey) : null;
-    if (saved) {
-      var opts = Array.from(selectEl.options).map(function(o){return o.value;});
-      if (opts.indexOf(saved) >= 0) selectEl.value = saved;
-    }
+    selectEl.value = selectedId || "";
   }
 
   function loadNarrators() {
-    return fetch(ORIGIN + "/api/people")
-      .then(function (r) { return r.ok ? r.json() : []; })
-      .then(function (people) {
-        var items = Array.isArray(people) ? people
-                   : (people && Array.isArray(people.people) ? people.people : []);
-        // Single-photo dropdown (legacy LS key, untouched on the wire).
-        _populateNarratorSelect(el.narrator,      items, LS_NARRATOR);
-        // Batch dropdown shares the same saved selection.
-        _populateNarratorSelect(el.batchNarrator, items, LS_NARRATOR);
-      })
-      .catch(function () {
-        if (el.narrator)      el.narrator.innerHTML      = '<option value="">— /api/people unavailable —</option>';
-        if (el.batchNarrator) el.batchNarrator.innerHTML = '<option value="">— /api/people unavailable —</option>';
+    if (!NC) {
+      return fetch(ORIGIN + "/api/people")
+        .then(function (r) { return r.ok ? r.json() : []; })
+        .then(function (people) {
+          var items = Array.isArray(people) ? people
+                     : (people && Array.isArray(people.people) ? people.people : []);
+          _populateNarratorSelect(el.narrator, items, "");
+          _populateNarratorSelect(el.batchNarrator, items, "");
+        })
+        .catch(function () {
+          if (el.narrator)      el.narrator.innerHTML      = '<option value="">— /api/people unavailable —</option>';
+          if (el.batchNarrator) el.batchNarrator.innerHTML = '<option value="">— /api/people unavailable —</option>';
+        });
+    }
+    return NC.resolve({ apiBase: ORIGIN, legacyKey: LS_NARRATOR })
+      .then(function (res) {
+        if (!res.peopleOk) {
+          if (el.narrator)      el.narrator.innerHTML      = '<option value="">— /api/people unavailable —</option>';
+          if (el.batchNarrator) el.batchNarrator.innerHTML = '<option value="">— /api/people unavailable —</option>';
+          return;
+        }
+        _populateNarratorSelect(el.narrator, res.people, res.personId);
+        _populateNarratorSelect(el.batchNarrator, res.people, res.personId);
+        if (res.personId && res.source === "query") {
+          NC.remember(LS_NARRATOR, res.personId);
+        }
+        if (res.error) setStatus(res.error, "warn");
       });
   }
 
@@ -157,8 +185,11 @@
     if (el.batchNarratorReady) el.batchNarratorReady.checked = false;
   }
 
+  // A narrator chosen HERE updates this surface's own cache only. It
+  // must not become the shell's selection — remember() refuses that key.
   el && el.narrator && el.narrator.addEventListener("change", function () {
-    localStorage.setItem(LS_NARRATOR, el.narrator.value);
+    if (NC) NC.remember(LS_NARRATOR, el.narrator.value);
+    else localStorage.setItem(LS_NARRATOR, el.narrator.value);
     if (el.batchNarrator && el.batchNarrator.value !== el.narrator.value) {
       el.batchNarrator.value = el.narrator.value;
     }
@@ -167,7 +198,8 @@
   });
 
   el && el.batchNarrator && el.batchNarrator.addEventListener("change", function () {
-    localStorage.setItem(LS_NARRATOR, el.batchNarrator.value);
+    if (NC) NC.remember(LS_NARRATOR, el.batchNarrator.value);
+    else localStorage.setItem(LS_NARRATOR, el.batchNarrator.value);
     if (el.narrator && el.narrator.value !== el.batchNarrator.value) {
       el.narrator.value = el.batchNarrator.value;
     }

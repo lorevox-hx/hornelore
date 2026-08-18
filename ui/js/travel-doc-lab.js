@@ -438,6 +438,28 @@
     pickerFileToTrip: true,  // destination is explicit (spec 10.2), never inferred
     mainScroll: 0,           // preserved across re-renders / drawer close
     error: "",
+
+    // ── CANONICAL CHRONOLOGY ────────────────────────────────────────
+    // WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 2, Part A.
+    //
+    // The Travel Document keeps `st.days` as the DETAILED authority --
+    // trip_days, edited here, written through /api/trips/{id}/days. This
+    // is the SEPARATE, narrator-wide READ projection from
+    // /api/chronology-accordion: the same days as the Life Map sees
+    // them, alongside the historical periods, confirmed timeline events
+    // and story evidence they sit among.
+    //
+    // Two models, deliberately, and connected rather than merged. The
+    // chronology projection is coarser -- one row per day with a date
+    // and a place -- and REPLACING st.days with it would silently
+    // destroy lodging, notes, photo placements and everything else the
+    // detailed editor exists to hold.
+    chronology: null,        // the /api/chronology-accordion payload
+    chronologyStatus: "idle",// idle | loading | ok | unavailable
+    chronologyError: "",     // why the lane could not be read
+    chronologyStale: false,  // a detailed write landed; this is older than it
+    chronologyReconcile: null, // per-day agreement report, see reconcileCanonicalDays()
+    chronologySyncWarning: "", // the write succeeded and the refresh did not
   };
 
   // Module vars (survive re-renders; deliberately NOT in st so a trip
@@ -506,6 +528,16 @@
   // paragraph cannot be kept accurate is the day the argument in it has
   // stopped being true, and that is worth noticing rather than papering
   // over.
+  //
+  // Checked again 2026-08-17 by WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01
+  // Phase 2 Part A, and the COUNT DID NOT MOVE. The canonical-chronology
+  // integration adds no fetch (it goes through api()), no timer, no
+  // listener and no channel. It adds one OUTBOUND
+  // `window.dispatchEvent` — see notifyChronologyRefreshed — which is
+  // not an async exit at all: nothing in this module waits on it, and a
+  // torn-down mount that has already fired it has simply told the shell
+  // something true. The shell's own handler re-checks the narrator
+  // before acting on it.
   var destroyed = false;
 
   // A promise that never settles. api() returns this once the mount is
@@ -1080,6 +1112,15 @@
     // selected rather than remember a choice made about another one.
     st.pickerError = "";
     st.pickerFileToTrip = true;
+    // Phase 2 Part A. The chronology PAYLOAD survives a trip switch --
+    // it is narrator-wide and describes every trip -- but the
+    // reconciliation and the sync warning are about the trip being left
+    // behind, and carrying either across would attribute one trip's
+    // disagreement to another. `chronologyStale` is not reset: whether
+    // the projection is older than the last detailed write is a fact
+    // about the narrator, not about which trip is on screen.
+    st.chronologyReconcile = null;
+    st.chronologySyncWarning = "";
     loriPane.reset();
     if (!st.trip) { renderAll(); return Promise.resolve(); }
     return loadTripBundle(tripId);
@@ -1184,8 +1225,18 @@
     st.uploadDrawer = null;
     st.photoIntake = null;
     st.sourceIntake = null;
+    // Phase 2 Part A — the reconciliation and the sync warning are about
+    // a trip that no longer exists. The chronology PAYLOAD is kept: it
+    // is narrator-wide, it is still true, and the deleted trip's days
+    // are simply gone from it after the refresh below.
+    st.chronologyReconcile = null;
+    st.chronologySyncWarning = "";
     st.error = "";
     loriPane.reset();
+    // A deleted trip changes the narrator's chronology, so the Life Map
+    // is told. Deliberately not awaited: the rail must repopulate
+    // whether or not the projection refresh succeeds.
+    refreshCanonicalChronology("trip_deleted");
     return loadTrips({ noAutoSelect: true });
   }
 
@@ -1279,6 +1330,12 @@
         _captureLoadError("Reconcile preview failed to load", null)),
       api("/api/trips/" + t + "/travelogue-preview").catch(
         _captureLoadError("Travelogue preview failed to load", null)),
+      // Phase 2 Part A — the canonical chronology, loaded ALONGSIDE the
+      // detailed bundle rather than after it, so the connection panel is
+      // populated on first paint instead of arriving a beat later. It
+      // already owns its own failure handling and resolves to null on an
+      // outage, so it can never take the workspace down with it.
+      loadChronology("trip_bundle"),
     ]).then(function (outs) {
       st.tree = outs[0];
       st.days = outs[1].days || [];
@@ -1309,6 +1366,11 @@
       st.reconcile = outs[6];
       st.travelogue = outs[7];
       st.error = "";
+      // Re-run the day comparison now that st.days is populated. The
+      // chronology load reconciles when it lands, but on a cold bundle
+      // it can land against the PREVIOUS trip's day rows; this is the
+      // authoritative pass.
+      reconcileCanonicalDays();
       renderAll();
       // ── #4: refetch the hidden rows when the toggle is on.
       //
@@ -1477,6 +1539,313 @@
   // True when it is still safe to apply a response. No guard means the
   // caller is a plain foreground reload and the trip check alone
   // applies -- which is still stricter than the nothing it had before.
+  /* ══ CANONICAL CHRONOLOGY ══════════════════════════════════════════
+     WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 2, Part A.
+
+     Phase 1 established ONE server chronology projection and deleted the
+     second engine that was proposed beside it. This connects the Travel
+     Document to that projection. It does NOT build a third: every read
+     here is `/api/chronology-accordion`, through this module's single
+     api() choke point, and this file contains no chronology computation
+     of its own beyond comparing two lists.
+
+     The authority split, restated because it is the thing most likely to
+     be "simplified" away later:
+
+         detailed trip/day editing   trip_days + /api/trips/{id}/days
+         person-wide chronology      /api/chronology-accordion
+         narrator navigation         Life Map + Chronology Accordion
+         travel memoir output        the visible timeline -> DOCX
+
+     The chronology projection is the coarser of the two day models. It
+     carries date, index, label, main location and lodging base — and
+     nothing else. Adopting it as the editor's model would silently drop
+     conversations, photo placements, notes, sources and approvals.
+  ═════════════════════════════════════════════════════════════════════ */
+
+  // Cancels an in-flight chronology load whose answer is about to become
+  // about a different trip, a different narrator, or a dead mount.
+  // Deliberately separate from paletteGeneration: a photo action must not
+  // invalidate a chronology read, and vice versa.
+  var chronologyGeneration = 0;
+
+  function chronologyBumpGeneration() {
+    chronologyGeneration += 1;
+    return chronologyGeneration;
+  }
+
+  /* Load the canonical projection for the MOUNTED narrator.
+
+     Two validations, because either alone is insufficient:
+       * the generation token catches a trip switch or a second load;
+       * `person_id` in the RESPONSE catches the case the token cannot —
+         a response that is internally about somebody else. The mount is
+         bound to one narrator for its whole life, so a payload naming a
+         different one is discarded rather than rendered.
+     `destroyed` is handled by api() itself, which never settles. */
+  function loadChronology(reason) {
+    var pid = st.personId;
+    if (!pid) {
+      st.chronologyStatus = "idle";
+      st.chronology = null;
+      st.chronologyReconcile = null;
+      return Promise.resolve(null);
+    }
+    var gen = chronologyBumpGeneration();
+    st.chronologyStatus = "loading";
+    st.chronologyError = "";
+    return api("/api/chronology-accordion?person_id=" + encodeURIComponent(pid))
+      .then(function (out) {
+        if (gen !== chronologyGeneration) return null;   // superseded
+        if (pid !== st.personId) return null;            // mount rebound
+        if (!out || String(out.person_id || "") !== String(pid)) {
+          // Not an error about the narrator — an answer about the wrong
+          // one. Saying so beats rendering it.
+          st.chronologyStatus = "unavailable";
+          st.chronologyError =
+            "The chronology service answered about a different narrator.";
+          st.chronology = null;
+          st.chronologyReconcile = null;
+          return null;
+        }
+        st.chronology = out;
+        st.chronologyStatus = "ok";
+        st.chronologyError = "";
+        st.chronologyStale = false;
+        reconcileCanonicalDays();
+        return out;
+      })
+      .catch(function (e) {
+        if (gen !== chronologyGeneration) return null;
+        st.chronologyStatus = "unavailable";
+        st.chronologyError = (e && e.message) || "chronology unavailable";
+        // The PREVIOUS payload is deliberately kept and flagged stale
+        // rather than blanked. An outage is not evidence that a narrator
+        // has no chronology, and blanking would render it as though it
+        // were — the exact confusion Part A's server-side fix removes
+        // from the payload.
+        st.chronologyStale = !!st.chronology;
+        return null;
+      });
+  }
+
+  /* Refresh after a detailed write, then tell the shell.
+
+     ORDER IS THE CONTRACT. The shell is notified ONLY after a successful
+     canonical refresh, because the event means "the server projection
+     has moved, go and read it" — firing it on a failed refresh would
+     make the Life Map repaint from data that has not changed and report
+     success to the operator for a synchronisation that did not happen.
+
+     A failed refresh never rolls back the detailed write. The trip edit
+     is saved; what is unknown is whether the Life Map agrees yet, and
+     that is what the warning says. */
+  function refreshCanonicalChronology(reason) {
+    if (!st.personId) return Promise.resolve(false);
+    st.chronologyStale = true;
+    return loadChronology(reason).then(function (out) {
+      if (!out) {
+        st.chronologySyncWarning =
+          "Your change was saved. The Life Map chronology could not be " +
+          "refreshed just now, so it may still show the previous version." +
+          (st.chronologyError ? " (" + st.chronologyError + ")" : "");
+        return false;
+      }
+      var rec = st.chronologyReconcile;
+      if (rec && !rec.agrees) {
+        st.chronologySyncWarning =
+          "Your change was saved. The canonical chronology does not match " +
+          "the day details yet — see the connection panel below.";
+      } else {
+        st.chronologySyncWarning = "";
+      }
+      notifyChronologyRefreshed(reason);
+      return true;
+    });
+  }
+
+  /* One named event, carrying the narrator it is about. The shell
+     accepts it only for its own active narrator — see
+     lvRefreshNarratorChronology in app.js. */
+  function notifyChronologyRefreshed(reason) {
+    try {
+      window.dispatchEvent(new CustomEvent("lorevox:chronology-refreshed", {
+        detail: { person_id: st.personId, reason: reason || "travel_doc" },
+      }));
+    } catch (e) {
+      // A browser without CustomEvent still saved the trip. The shell
+      // simply repaints on its next narrator load.
+    }
+  }
+
+  // The canonical projection carries every trip this narrator has. Only
+  // the selected one is being reconciled.
+  function canonicalDaysForTrip(tripId) {
+    var all = (st.chronology && st.chronology.trip_days) || [];
+    return all.filter(function (d) {
+      return String(d.trip_id || "") === String(tripId || "");
+    });
+  }
+
+  function _dayYear(value) {
+    var s = String(value || "").trim();
+    if (s.length < 4 || !/^\d{4}/.test(s)) return null;
+    return parseInt(s.slice(0, 4), 10);
+  }
+
+  // The detailed row's projected label, matched against the projection's
+  // own rule: title first, main location second. Comparing a raw title
+  // against a projected label would report a difference on every day
+  // that has no title, which is most of them.
+  function _projectedLabel(day) {
+    return String((day && (day.title || day.main_location)) || "").trim();
+  }
+
+  /* Compare the detailed day rows with the canonical ones, BY STABLE DAY
+     ID. Not by index and not by date: a day can legitimately be
+     re-dated or re-ordered, and both of those would read as "every day
+     changed" under a positional comparison. */
+  function reconcileCanonicalDays() {
+    if (!st.trip || !st.chronology) { st.chronologyReconcile = null; return null; }
+    var tripId = String(st.trip.id);
+    var canonical = canonicalDaysForTrip(tripId);
+    var detailed = st.days || [];
+
+    var canonById = {};
+    canonical.forEach(function (c) { canonById[String(c.id)] = c; });
+    var detailById = {};
+    detailed.forEach(function (d) { detailById[String(d.id)] = d; });
+
+    var mismatched = [];
+    var onlyDetailed = [];
+    var onlyCanonical = [];
+
+    detailed.forEach(function (d) {
+      var key = String(d.id);
+      var c = canonById[key];
+      if (!c) {
+        // Expected and NOT an error for a day with no date: the
+        // projection drops undateable rows rather than guessing a year
+        // for them, which is the correct behaviour and is reported
+        // rather than treated as a disagreement.
+        onlyDetailed.push({
+          dayId: key,
+          dayIndex: d.day_index,
+          date: d.date || "",
+          undated: !_dayYear(d.date),
+        });
+        return;
+      }
+      function diff(field, mine, theirs) {
+        if (String(mine == null ? "" : mine) !== String(theirs == null ? "" : theirs)) {
+          mismatched.push({
+            dayId: key, field: field,
+            detailed: mine == null ? "" : mine,
+            canonical: theirs == null ? "" : theirs,
+          });
+        }
+      }
+      diff("trip_id", tripId, c.trip_id);
+      diff("day_index", d.day_index, c.day_index);
+      diff("date", d.date || "", c.date || "");
+      diff("year", _dayYear(d.date), c.year);
+      diff("label", _projectedLabel(d), String(c.label || "").trim());
+      diff("main_location", d.main_location || "", c.main_location || "");
+      diff("lodging_base", d.lodging_base || "", c.lodging_base || "");
+    });
+
+    canonical.forEach(function (c) {
+      if (!detailById[String(c.id)]) {
+        onlyCanonical.push({ dayId: String(c.id), date: c.date || "" });
+      }
+    });
+
+    var rec = {
+      tripId: tripId,
+      canonicalCount: canonical.length,
+      detailedCount: detailed.length,
+      mismatched: mismatched,
+      onlyDetailed: onlyDetailed,
+      onlyCanonical: onlyCanonical,
+      // A day this workspace holds but the projection legitimately
+      // dropped (no date) is NOT a disagreement. A day the projection
+      // has and this workspace does not IS one — that means the two are
+      // looking at different trips.
+      agrees: mismatched.length === 0 && onlyCanonical.length === 0,
+    };
+    st.chronologyReconcile = rec;
+    return rec;
+  }
+
+  /* What the panel needs, computed once so the renderer stays a
+     renderer. Every number here is derived from the server payload; none
+     is invented locally. */
+  function chronologySummary() {
+    var out = {
+      status: st.chronologyStatus,
+      error: st.chronologyError,
+      stale: !!st.chronologyStale,
+      sources: (st.chronology && st.chronology.sources) || null,
+      seedReady: !!(st.chronology && st.chronology.seed_ready),
+      reason: (st.chronology && st.chronology.reason) || "",
+      canonicalDays: 0,
+      periods: [],
+      todayApplies: false,
+      nearbyEvents: 0,
+      storiesApproved: 0,
+      storiesProvisional: 0,
+      reconcile: st.chronologyReconcile,
+    };
+    if (!st.chronology || !st.trip) return out;
+
+    var days = canonicalDaysForTrip(st.trip.id);
+    out.canonicalDays = days.length;
+
+    var years = [];
+    days.forEach(function (d) { if (d.year) years.push(d.year); });
+    [st.trip.start_date, st.trip.end_date].forEach(function (v) {
+      var y = _dayYear(v);
+      if (y) years.push(y);
+    });
+    years = years.filter(function (y, i) { return years.indexOf(y) === i; });
+
+    // Overlapping HISTORICAL periods only. `today` is handled separately
+    // and on purpose — see below.
+    (st.chronology.periods || []).forEach(function (p) {
+      if (p.is_current_life) return;
+      var start = p.start_year, end = p.end_year;
+      var hit = years.some(function (y) {
+        if (start && y < start) return false;
+        if (end && y > end) return false;
+        return !!(start || end);
+      });
+      if (hit) out.periods.push(p);
+    });
+
+    // TODAY IS NEVER DERIVED FROM A MISSING YEAR. A trip with no dates
+    // is a trip with no dates; calling it "today" because nothing said
+    // otherwise would be the system inventing a placement. It applies
+    // only when the trip is EXPLICITLY current: the operator has marked
+    // it live, or it carries a real year that is this year or later.
+    var nowYear = new Date().getFullYear();
+    var liveState = String(st.trip.live_state || "");
+    out.todayApplies = liveState === "active" ||
+      years.some(function (y) { return y >= nowYear; });
+
+    // "Nearby" means the same year as a day of this trip. A wider window
+    // would let an unrelated event look like part of the journey.
+    var evs = st.chronology.timeline_events || [];
+    out.nearbyEvents = evs.filter(function (e) {
+      return e.year && years.indexOf(e.year) >= 0;
+    }).length;
+
+    (st.chronology.story_evidence || []).forEach(function (s) {
+      if (s.status === "approved") out.storiesApproved += 1;
+      else if (s.status === "provisional") out.storiesProvisional += 1;
+    });
+    return out;
+  }
+
   function reloadGuardIsCurrent(guard, tripId) {
     if (!st.trip || st.trip.id !== tripId) return false;
     if (destroyed) return false;
@@ -1699,6 +2068,10 @@
         st.daysWarning = "";
         return Promise.all([reloadDays(), reloadReconcile()]);
       })
+      // Phase 2 Part A: auto-generation creates day rows, so the
+      // canonical projection has to be told even though no operator
+      // pressed anything.
+      .then(function () { return refreshCanonicalChronology("days_generated"); })
       .catch(function (e) {
         st.daysWarning = "Day cards could not be generated from the trip " +
           "dates automatically: " + e.message + " Open the reconcile " +
@@ -1827,6 +2200,11 @@
     return api("/api/trips/" + encodeURIComponent(tripId) + "/days/reconcile",
       { method: "POST", body: { drop_empty_out_of_range: true } })
       .then(function (out) {
+        // Phase 2 Part A: this is a day DELETION path, so the canonical
+        // projection is refreshed here too. Fired without awaiting the
+        // result — the notice below describes what the server did, and
+        // must be shown whether or not the projection can be re-read.
+        refreshCanonicalChronology("days_dropped");
         var dropped = (out && out.dropped_days) || [];
         var kept = (out && out.kept_out_of_range) || [];
         if (dropped.length) {
@@ -2436,22 +2814,34 @@
     // Same lazy shape as the travelogue above, for the same reason: a
     // fetch from render() would re-render, which would fetch again.
     if (tab === "document" && !st.memoirPreview && st.trip) {
-      // Same token discipline as invalidateMemoirPreview: this fetch and
-      // an approval-triggered one can be in flight together.
+      // Phase 2 Part A: the preview goes through the SAME gate as the
+      // export, because it is what the operator checks the export
+      // against. A preview built from staler rows than the document
+      // would make the two disagree, and the preview is the only thing
+      // anyone reads before pressing the button.
+      //
+      // The dirty check inside the gate is belt-and-braces here —
+      // setTab() already refused a dirty switch above — but the gate is
+      // one contract and the export path needs it, so it stays in one
+      // place rather than being conditional on the caller.
       var _docTripId = st.trip.id;
-      memoirPreviewToken += 1;
-      var _docToken = memoirPreviewToken;
-      api("/api/trips/" + encodeURIComponent(_docTripId) + "/memoir-preview")
-        .then(function (out) {
-          if (destroyed || !st.trip || st.trip.id !== _docTripId) return;
-          if (_docToken !== memoirPreviewToken) return;
-          st.memoirPreview = out; renderAll();
-        })
-        .catch(function (e) {
-          if (destroyed || !st.trip || st.trip.id !== _docTripId) return;
-          if (_docToken !== memoirPreviewToken) return;
-          st.error = e.message; renderAll();
-        });
+      prepareForDocumentOutput("document_preview").then(function (ok) {
+        if (!ok || destroyed || !st.trip || st.trip.id !== _docTripId) return;
+        // Same token discipline as invalidateMemoirPreview: this fetch
+        // and an approval-triggered one can be in flight together.
+        var _docToken = memoirPreviewToken;
+        api("/api/trips/" + encodeURIComponent(_docTripId) + "/memoir-preview")
+          .then(function (out) {
+            if (destroyed || !st.trip || st.trip.id !== _docTripId) return;
+            if (_docToken !== memoirPreviewToken) return;
+            st.memoirPreview = out; renderAll();
+          })
+          .catch(function (e) {
+            if (destroyed || !st.trip || st.trip.id !== _docTripId) return;
+            if (_docToken !== memoirPreviewToken) return;
+            st.error = e.message; renderAll();
+          });
+      });
     }
     // WO-2 Phase 2 — same lazy shape as the travelogue: fetched on the tab
     // switch, never from render. A queue fetched during render would
@@ -3019,6 +3409,7 @@
           } }).then(function (out) {
             applyTripWarnings(out);
             notifyTripUpdated(out.trip_id, "trip_created");
+            refreshCanonicalChronology("trip_created");
             st.tripEditor = null;
             st.error = "";
             // noAutoSelect: the list refresh must not pick trips[0] out
@@ -3058,6 +3449,10 @@
             } }).then(function (out) {
             applyTripWarnings(out);
             notifyTripUpdated(trip.id, "trip_saved");
+            // Trip dates bound which days exist and which historical
+            // period they fall in, so a trip save moves the projection
+            // even when no day row was touched directly.
+            refreshCanonicalChronology("trip_saved");
             st.tripEditor = null;
             st.error = "";
             return refreshTripsPreservingSelection(trip.id)
@@ -3851,6 +4246,164 @@
     return n;
   }
 
+  /* The chronology connection panel.
+     WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 2, Part A.
+
+     OPERATOR-ONLY, and compact on purpose. It answers one question —
+     *does the narrator-wide chronology agree with the trip I am editing,
+     and can it even be read right now?* — and it answers it with server
+     numbers rather than with anything computed here.
+
+     It is not a second Life Map. It does not render eras, it does not
+     let anything be selected, and it does not offer to fix a
+     disagreement: the detailed model is the write authority and the
+     projection is a read, so "fixing" would mean writing to the wrong
+     one of the two. */
+  function renderChronologyPanel() {
+    var box = el("div", "tdl-chron");
+    var sum = chronologySummary();
+
+    var head = el("div", "tdl-chron-head");
+    head.appendChild(el("strong", "", "Life Map chronology"));
+
+    // THE HONEST UNAVAILABLE STATE. An outage renders as an outage. It
+    // never renders as "this narrator has no chronology", which is the
+    // exact confusion the server-side _sources_block fix removes from
+    // the payload — it would be perverse to reintroduce it here.
+    if (sum.status === "loading" && !st.chronology) {
+      head.appendChild(el("span", "tdl-chron-pill", "reading…"));
+      box.appendChild(head);
+      return box;
+    }
+    if (sum.status === "unavailable" && !st.chronology) {
+      head.appendChild(el("span", "tdl-chron-pill tdl-chron-bad", "unavailable"));
+      box.appendChild(head);
+      box.appendChild(el("div", "tdl-muted",
+        "The canonical chronology could not be read, so this panel cannot " +
+        "say whether the Life Map agrees with these days. Your trip edits " +
+        "are unaffected." + (sum.error ? " (" + sum.error + ")" : "")));
+      return box;
+    }
+    if (!st.chronology) {
+      head.appendChild(el("span", "tdl-chron-pill", "not loaded"));
+      box.appendChild(head);
+      return box;
+    }
+
+    if (sum.stale || sum.status === "unavailable") {
+      head.appendChild(el("span", "tdl-chron-pill tdl-chron-warn", "stale"));
+    } else if (sum.reconcile && !sum.reconcile.agrees) {
+      head.appendChild(el("span", "tdl-chron-pill tdl-chron-warn", "differs"));
+    } else {
+      head.appendChild(el("span", "tdl-chron-pill tdl-chron-ok", "in step"));
+    }
+    box.appendChild(head);
+
+    var rows = el("div", "tdl-chron-rows");
+    function row(label, value, cls) {
+      var r = el("div", "tdl-chron-row" + (cls ? " " + cls : ""));
+      r.appendChild(el("span", "tdl-chron-key", label));
+      r.appendChild(el("span", "tdl-chron-val", value));
+      rows.appendChild(r);
+    }
+
+    row("Canonical days for this trip",
+        String(sum.canonicalDays) + " of " +
+        String((sum.reconcile && sum.reconcile.detailedCount) || (st.days || []).length) +
+        " day cards");
+
+    if (sum.periods.length) {
+      row("Overlapping life period",
+          sum.periods.map(function (p) { return p.era_id || p.label; }).join(", "));
+    }
+    // Travels stays a SHELF, not a seventh era. It is named here as what
+    // it is, beside the historical period rather than inside the list of
+    // them, because folding it in is precisely the taxonomy change Phase
+    // 1 refused.
+    row("Shelf", "Travels (not a life era)");
+
+    if (sum.todayApplies) {
+      // Shown ONLY when the trip is explicitly current — see
+      // chronologySummary(). A trip with no dates never lands here.
+      row("Current life", "This trip is in the Today bucket");
+    }
+
+    row("Confirmed events in these years", String(sum.nearbyEvents));
+    row("Story evidence",
+        String(sum.storiesApproved) + " approved · " +
+        String(sum.storiesProvisional) + " provisional");
+
+    // PROVENANCE AND STATUS, per lane, straight from the payload. This
+    // is the row that makes an empty column readable: "read · 0" is an
+    // answer about the narrator, "unavailable" is an answer about the
+    // server.
+    if (sum.sources) {
+      ["timeline_events", "story_evidence", "trip_days"].forEach(function (lane) {
+        var s = sum.sources[lane];
+        if (!s) return;
+        var bad = s.status && s.status !== "read" && s.status !== "derived";
+        row(lane.replace(/_/g, " "),
+            (s.source || "?") + " · " + (s.status || "?") +
+            (typeof s.count === "number" ? " · " + s.count : ""),
+            bad ? "tdl-chron-bad" : "");
+      });
+      if (sum.sources.periods) {
+        row("periods",
+            sum.sources.periods.source + " · " + sum.sources.periods.status,
+            sum.sources.periods.status === "derived" ? "" : "tdl-chron-bad");
+      }
+      row("authority", String(sum.sources.authority || "server"));
+    }
+    box.appendChild(rows);
+
+    if (!sum.seedReady) {
+      box.appendChild(el("div", "tdl-muted",
+        "This narrator has no date of birth recorded, so no historical " +
+        "eras can be derived yet. That is a state, not a failure — the " +
+        "trip days above are still canonical."));
+    }
+
+    var rec = sum.reconcile;
+    if (rec && !rec.agrees) {
+      var d = el("div", "tdl-chron-diff");
+      d.appendChild(el("strong", "", "The projection and the day details differ:"));
+      var ul = el("ul", "");
+      rec.mismatched.slice(0, 8).forEach(function (m) {
+        ul.appendChild(el("li", "",
+          "day " + m.dayId.slice(0, 8) + " · " + m.field +
+          " — here “" + m.detailed + "”, chronology “" +
+          m.canonical + "”"));
+      });
+      rec.onlyCanonical.slice(0, 8).forEach(function (m) {
+        ul.appendChild(el("li", "",
+          "day " + m.dayId.slice(0, 8) + " is in the chronology but not in " +
+          "this workspace"));
+      });
+      if (rec.mismatched.length > 8) {
+        ul.appendChild(el("li", "tdl-muted",
+          "and " + (rec.mismatched.length - 8) + " more"));
+      }
+      d.appendChild(ul);
+      box.appendChild(d);
+    }
+
+    // Reported rather than hidden: the projection drops a day it cannot
+    // date. That is correct behaviour and the operator should know which
+    // days it applies to, because those days will not appear on the Life
+    // Map until they have a date.
+    var undated = (rec && rec.onlyDetailed || []).filter(function (m) { return m.undated; });
+    if (undated.length) {
+      box.appendChild(el("div", "tdl-muted",
+        countPhrase(undated.length, "day card has", "day cards have") +
+        " no date, so " + (undated.length === 1 ? "it does" : "they do") +
+        " not appear on the Life Map. Give " +
+        (undated.length === 1 ? "it" : "them") + " a date to place " +
+        (undated.length === 1 ? "it" : "them") + " in the chronology."));
+    }
+
+    return box;
+  }
+
   function renderPlan() {
     var wrap = el("div");
 
@@ -3895,6 +4448,17 @@
     // nothing on screen admitting it, is the silent deletion this
     // doctrine exists to prevent — and "without asking" was never
     // "without saying."
+    // Phase 2 Part A — a detailed write succeeded and the canonical
+    // refresh did not, or disagreed. It says the save landed FIRST,
+    // because the operator's first question after any warning at the
+    // moment of Save is "did I lose my edit?" and the answer is no.
+    if (st.chronologySyncWarning) {
+      var syncBox = el("div", "tdl-error tdl-chron-sync");
+      syncBox.appendChild(el("strong", "", "Life Map not updated: "));
+      syncBox.appendChild(document.createTextNode(st.chronologySyncWarning));
+      wrap.appendChild(syncBox);
+    }
+    wrap.appendChild(renderChronologyPanel());
     if (st.daysNotice) {
       var dnBox = el("div", "tdl-reconcile-banner tdl-reconcile-notice");
       dnBox.appendChild(el("span", "", st.daysNotice));
@@ -4084,6 +4648,10 @@
     api("/api/trips/" + encodeURIComponent(st.trip.id) + "/days/generate-from-dates",
       { method: "POST", body: {} })
       .then(function () { return Promise.all([reloadDays(), reloadReconcile()]); })
+      // Phase 2 Part A: day rows moved, so the canonical projection is
+      // now older than the detailed model. Refreshed here, and the shell
+      // notified only if that refresh succeeds.
+      .then(function () { return refreshCanonicalChronology("days_changed"); })
       .then(function () { st.error = ""; renderAll(); })
       .catch(function (e) { st.error = e.message; renderAll(); });
   }
@@ -4093,6 +4661,10 @@
     api("/api/trips/" + encodeURIComponent(st.trip.id) + "/days/reconcile",
       { method: "POST", body: { add_missing: true } })
       .then(function () { return Promise.all([reloadDays(), reloadReconcile()]); })
+      // Phase 2 Part A: day rows moved, so the canonical projection is
+      // now older than the detailed model. Refreshed here, and the shell
+      // notified only if that refresh succeeds.
+      .then(function () { return refreshCanonicalChronology("days_changed"); })
       .then(function () { st.error = ""; renderAll(); })
       .catch(function (e) { st.error = e.message; renderAll(); });
   }
@@ -4102,6 +4674,10 @@
     api("/api/trips/" + encodeURIComponent(st.trip.id) + "/days/reconcile",
       { method: "POST", body: { mark_out_of_range: true } })
       .then(function () { return Promise.all([reloadDays(), reloadReconcile()]); })
+      // Phase 2 Part A: day rows moved, so the canonical projection is
+      // now older than the detailed model. Refreshed here, and the shell
+      // notified only if that refresh succeeds.
+      .then(function () { return refreshCanonicalChronology("days_changed"); })
       .then(function () { st.error = ""; renderAll(); })
       .catch(function (e) { st.error = e.message; renderAll(); });
   }
@@ -4400,6 +4976,9 @@
     api("/api/trips/days/" + encodeURIComponent(day.id),
       { method: "PATCH", body: body_ })
       .then(function () { return reloadDays(); })
+      // A day's date, title, main location or lodging base are all
+      // fields the canonical projection carries, so a day save moves it.
+      .then(function () { return refreshCanonicalChronology("day_saved"); })
       .then(function () {
         st.error = "";
         // Stamped only HERE -- inside the success branch, after the
@@ -9379,10 +9958,71 @@
     }
   }
 
+  /* THE PRE-OUTPUT GATE, shared by the preview and the export.
+     WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 2, Part A.
+
+     The binding rule is unchanged and is the reason this gate exists:
+
+         the visible editable Travel Document timeline -> DOCX
+
+     A document built from anything other than what the operator can see
+     is a document nobody can check. So before either output:
+
+       1. REFUSE while the day form is dirty. Exporting typed-but-unsaved
+          work would produce a document that disagrees with the screen in
+          the one direction the operator cannot detect — the screen looks
+          right and the file is wrong.
+       2. Re-read the detailed trip and day state, because the server
+          projection that builds the document reads rows, not the browser.
+       3. Refresh and reconcile the canonical chronology, so a
+          disagreement is visible BEFORE the file exists rather than
+          discovered in it afterwards.
+       4. Drop any lazily cached preview, so step 2's rows are what gets
+          rendered.
+
+     Returns a promise resolving true when the caller may proceed. It
+     never throws: a chronology outage is reported and does NOT block the
+     export, because the detailed rows are the document's source and they
+     were just re-read. Blocking on it would make an unrelated outage
+     look like a broken export. */
+  function prepareForDocumentOutput(reason) {
+    if (!st.trip) return Promise.resolve(false);
+    if (dayFormDirtyBlocks()) return Promise.resolve(false);
+    var tripId = st.trip.id;
+    return reloadDays()
+      .then(function () { return refreshCanonicalChronology(reason); })
+      .then(function () {
+        if (destroyed || !st.trip || st.trip.id !== tripId) return false;
+        // Supersede any preview built from the rows we just replaced.
+        memoirPreviewToken += 1;
+        st.memoirPreview = null;
+        return true;
+      })
+      .catch(function (e) {
+        if (destroyed || !st.trip || st.trip.id !== tripId) return false;
+        // The day reload failed. That IS a reason to stop: the document
+        // would be built from rows this workspace can no longer confirm.
+        st.error = "Could not refresh the trip before building the " +
+          "document: " + ((e && e.message) || e);
+        renderAll();
+        return false;
+      });
+  }
+
   function _exportTravelDocument() {
     if (!st.trip) return;
     var d = st.docExport || (st.docExport = {});
     if (d.busy) return;                       // no double-download
+    prepareForDocumentOutput("document_export").then(function (ok) {
+      if (!ok) return;
+      _exportTravelDocumentNow();
+    });
+  }
+
+  function _exportTravelDocumentNow() {
+    if (!st.trip) return;
+    var d = st.docExport || (st.docExport = {});
+    if (d.busy) return;
     d.busy = true; d.error = null; d.status = "Building the document…";
     renderAll();
 

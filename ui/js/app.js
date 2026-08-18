@@ -642,9 +642,12 @@ function lvShellShowTab(tabName) {
     const frame = document.getElementById("lvTripsFrame");
     if (frame) {
       const pid = state && state.person_id;
-      const src = pid
-        ? `trip-tab.html?narrator_id=${encodeURIComponent(pid)}`
-        : "trip-tab.html";
+      const ctx = window.LorevoxNarratorContext;
+      const src = ctx
+        ? ctx.withNarrator("trip-tab.html", pid)
+        : (pid
+            ? `trip-tab.html?narrator_id=${encodeURIComponent(pid)}`
+            : "trip-tab.html");
       if (frame.getAttribute("data-lv-src") !== src) {
         frame.src = src;
         frame.setAttribute("data-lv-src", src);
@@ -789,6 +792,39 @@ function lvStartNarratorSession() {
 window.lvStartNarratorSession = lvStartNarratorSession;
 
 /**
+ * THE shell launcher for every narrator-scoped standalone tool.
+ * WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 2, Part B (2026-08-17).
+ *
+ * Before Phase 2 there were nine separate `window.open` calls across
+ * app.js and hornelore1.0.html and four of them passed no narrator at
+ * all, so whether a tool inherited the shell's selection depended on
+ * which button you happened to press. That is not a policy, it is an
+ * accident with a 50% success rate, and the failure mode is a silent
+ * cross-narrator write rather than an error.
+ *
+ * One function now decides. Explicit `pid` wins (the photo-session path
+ * has already resolved and guarded it); otherwise the shell's active
+ * narrator is used; a shell with no narrator opens the tool bare and the
+ * tool falls back to its own picker. The receiving page VALIDATES
+ * whatever arrives before selecting it — see ui/js/narrator-context.js.
+ */
+function lvOpenNarratorTool(page, pid) {
+  const chosen = String(pid || (state && state.person_id) || "").trim();
+  const ctx = window.LorevoxNarratorContext;
+  if (ctx && typeof ctx.openTool === "function") {
+    return ctx.openTool(page, chosen);
+  }
+  // The helper is a plain script with no dependencies, so this branch
+  // means the tag is missing rather than that loading failed. Carry the
+  // narrator anyway; losing it is the bug being fixed.
+  const url = chosen
+    ? page + (page.indexOf("?") >= 0 ? "&" : "?") +
+      "narrator_id=" + encodeURIComponent(chosen)
+    : page;
+  return window.open(url, "_blank", "noopener");
+}
+
+/**
  * Media tab launchers.  Phase 1: open existing photo pages.  The
  * Photo Session requires an active narrator so the elicit page can
  * bind the right narrator_id.
@@ -796,11 +832,18 @@ window.lvStartNarratorSession = lvStartNarratorSession;
 function lvOpenMediaTool(tool) {
   const noteEl = document.getElementById("lvMediaDisabledNote");
   switch (tool) {
+    // WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 2 Part B: these
+    // two used to open with NO narrator, so a surface that had been
+    // looking at narrator B last week kept looking at narrator B while
+    // the shell said A — and uploads are stamped with the surface's
+    // belief. They now carry the shell's active narrator like every
+    // other launcher. Opening with no active narrator is still allowed:
+    // the page keeps its own picker for the direct-URL case.
     case "photo_intake":
-      window.open("photo-intake.html", "_blank", "noopener");
+      lvOpenNarratorTool("photo-intake.html");
       break;
     case "photo_timeline":
-      window.open("photo-timeline.html", "_blank", "noopener");
+      lvOpenNarratorTool("photo-timeline.html");
       break;
     case "photo_session": {
       const pid = state && state.person_id;
@@ -809,7 +852,7 @@ function lvOpenMediaTool(tool) {
         if (typeof lv80OpenNarratorSwitcher === "function") lv80OpenNarratorSwitcher();
         return;
       }
-      window.open(`photo-elicit.html?narrator_id=${encodeURIComponent(pid)}`, "_blank", "noopener");
+      lvOpenNarratorTool("photo-elicit.html", pid);
       break;
     }
     // WO-MEDIA-ARCHIVE-01 — Document Archive lane (PDFs, scanned docs,
@@ -819,7 +862,10 @@ function lvOpenMediaTool(tool) {
     // (HORNELORE_MEDIA_ARCHIVE_ENABLED). Narrator is optional — many
     // archive items aren't bound to a specific person at intake time.
     case "document_archive":
-      window.open("media-archive.html", "_blank", "noopener");
+      // Narrator stays OPTIONAL on this surface — many archive items are
+      // not bound to a person at intake time — but when the shell has
+      // one there is no reason to make the operator re-pick it.
+      lvOpenNarratorTool("media-archive.html");
       break;
     // WO-TRIP-IMPORT-AND-CLUSTER-01 Phase 3 — Trips operator console
     // (itinerary import, EXIF photo clustering, review queue, trip
@@ -831,13 +877,7 @@ function lvOpenMediaTool(tool) {
       // Mirrors the photo_session pattern. Falls back to opening
       // without a param when no narrator is active — the trip page
       // keeps its own picker for that case.
-      const tripPid = state && state.person_id;
-      window.open(
-        tripPid
-          ? `trip-tab.html?narrator_id=${encodeURIComponent(tripPid)}`
-          : "trip-tab.html",
-        "_blank", "noopener",
-      );
+      lvOpenNarratorTool("trip-tab.html");
       break;
     }
     default:
@@ -1715,9 +1755,10 @@ function _lvNarratorPaintTripsSlot() {
       btn.textContent = "Look at photos from this trip together";
       btn.addEventListener("click", () => {
         const pid = (state && state.person_id) || "";
-        window.open("photo-elicit.html?narrator_id=" +
-          encodeURIComponent(pid) +
-          "&trip_id=" + encodeURIComponent(tree.id || ""), "_blank");
+        lvOpenNarratorTool(
+          "photo-elicit.html?trip_id=" + encodeURIComponent(tree.id || ""),
+          pid,
+        );
       });
       slot.appendChild(btn);
     }
@@ -3392,6 +3433,76 @@ async function _hydrateChronologyFromServer(pid, gen) {
     if (_chronoAbort === ctl) _chronoAbort = null;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   THE SHELL'S SIDE OF THE TRAVEL DOCUMENT ↔ CHRONOLOGY CONNECTION.
+   WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 2, Part A (2026-08-17).
+
+   The Travel Document is the detailed authority for trip days, and it
+   owns its own writes. What it cannot do is repaint the shell. So after
+   a trip or day mutation it refreshes the CANONICAL chronology through
+   its own API choke point, and only once that succeeded does it fire
+   `lorevox:chronology-refreshed` at the window.
+
+   Four rules this handler holds, each of them a way the naive version
+   would have gone wrong:
+
+   * IT ACCEPTS THE EVENT ONLY FOR THE ACTIVE NARRATOR. A Travel Doc
+     mount that is being torn down mid-switch can fire for the narrator
+     it USED to hold; repainting the Life Map from that would show
+     narrator A's trips under narrator B's name.
+   * IT DEDUPLICATES. Saving a day fires one event; a batch of day
+     placements can fire several within a few hundred milliseconds. They
+     coalesce into one refresh, with exactly one trailing re-run so the
+     last event's data is never the one that got dropped.
+   * IT SENDS NO PROMPT. This is a repaint, not a turn. Nothing here
+     touches sendSystemPrompt, the interview loop, or the era dispatcher
+     — an operator saving a trip day must not make Lori say anything.
+   * IT WRITES NO PROJECTION. No PUT and no PATCH to
+     /api/interview/projection. The whole point of Phase 1 was that a
+     load is not a write; a refresh is not a write either.
+═══════════════════════════════════════════════════════════════ */
+let _chronoRefreshBusy = false;
+let _chronoRefreshQueued = false;
+
+async function lvRefreshNarratorChronology(pid, reason) {
+  const target = String(pid || "").trim();
+  if (!target || target !== state.person_id) {
+    // Not this narrator's shell any more. Silently correct, and worth a
+    // line in the console because it means a mount outlived its switch.
+    if (target) {
+      console.log("[chronology] ignoring refresh for non-active narrator", target, reason || "");
+    }
+    return false;
+  }
+  if (_chronoRefreshBusy) { _chronoRefreshQueued = true; return false; }
+  _chronoRefreshBusy = true;
+  try {
+    do {
+      _chronoRefreshQueued = false;
+      await _hydrateChronologyFromServer(target, _loadGeneration);
+      // The await above can span a narrator switch.
+      if (target !== state.person_id) return false;
+      if (window.LorevoxLifeMap?.render) window.LorevoxLifeMap.render(true);
+      if (typeof window.crInitAccordion === "function") {
+        try { await window.crInitAccordion(); }
+        catch (e) { console.warn("[chronology] accordion repaint failed", e); }
+      }
+    } while (_chronoRefreshQueued);
+    console.log("[chronology] refreshed for " + target + " (" + (reason || "unspecified") + ")");
+    return true;
+  } finally {
+    _chronoRefreshBusy = false;
+  }
+}
+window.lvRefreshNarratorChronology = lvRefreshNarratorChronology;
+
+window.addEventListener("lorevox:chronology-refreshed", function (ev) {
+  const detail = (ev && ev.detail) || {};
+  lvRefreshNarratorChronology(detail.person_id, detail.reason).catch(function (e) {
+    console.warn("[chronology] shell refresh failed", e);
+  });
+});
 
 /* ═══════════════════════════════════════════════════════════════
    ONE SHARED ERA-SELECTION AND PROMPT DISPATCHER.

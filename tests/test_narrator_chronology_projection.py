@@ -220,6 +220,101 @@ class UnifiedProjectionContract(_DbBase):
             self.assertIn("source", s[lane])
             self.assertIn("status", s[lane])
 
+
+class ALaneThatFailedSaysSo(_DbBase):
+    """WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 2, Part A.
+
+    THE DEFECT. Commit 3 gave `_sources_block` a docstring promising to
+    distinguish "this narrator has none" from "this lane could not be
+    read". It could not: the three collectors swallowed every exception
+    into `return []` and `_sources_block` hardcoded `"status": "read"`,
+    so a missing table and an empty narrator produced the identical
+    payload -- `{"status": "read", "count": 0}`.
+
+    A renderer drawing an empty column from that is reporting an outage
+    as an answer, which is the one thing the block exists to prevent.
+    """
+
+    def _drop(self, table):
+        con = self._con()
+        con.execute(f"DROP TABLE {table};")
+        con.commit()
+        con.close()
+
+    def test_a_read_lane_with_no_rows_reports_read_and_zero(self):
+        s = self._get().json()["sources"]
+        for lane in ("timeline_events", "story_evidence", "trip_days"):
+            with self.subTest(lane=lane):
+                self.assertEqual(s[lane]["status"], "read")
+                self.assertEqual(s[lane]["count"], 0)
+
+    def test_a_failed_lane_reports_unavailable(self):
+        # `story_candidates` is created by migration 0004, so a pre-0004
+        # database genuinely does not have it. That is the real-world
+        # shape of this failure.
+        #
+        # NOT `timeline_events`: this test was first written against that
+        # table and failed with 'read' != 'unavailable'. The cause is
+        # worth recording rather than working around silently -- the
+        # endpoint calls get_person(), which calls init_db(), whose
+        # legacy CREATE TABLE IF NOT EXISTS block RECREATES
+        # `timeline_events` before the collector ever runs. The drop was
+        # undone inside the request. The collector-level test below
+        # covers that table directly, with no init_db in between.
+        self._drop("story_candidates")
+        s = self._get().json()["sources"]
+        self.assertEqual(s["story_evidence"]["status"], "unavailable")
+        self.assertEqual(s["story_evidence"]["count"], 0,
+                         "a failed lane still reports zero rows -- it HAS "
+                         "zero rows; `status` is what says the zero is not "
+                         "an answer about the narrator")
+
+    def test_the_two_are_distinguishable_in_the_same_payload(self):
+        # The whole point: one lane down, the others fine, and a consumer
+        # can tell which is which.
+        self._drop("story_candidates")
+        s = self._get().json()["sources"]
+        self.assertEqual(s["story_evidence"]["status"], "unavailable")
+        self.assertEqual(s["timeline_events"]["status"], "read")
+        self.assertNotEqual(s["story_evidence"]["status"],
+                            s["timeline_events"]["status"])
+
+    def test_a_failed_lane_does_not_take_the_chronology_down(self):
+        self._drop("trip_days")
+        body = self._get().json()
+        self.assertEqual(self._get().status_code, 200)
+        self.assertTrue(body["seed_ready"])
+        self.assertEqual(len(body["periods"]), 7)
+        self.assertEqual(body["trip_days"], [])
+        self.assertEqual(body["sources"]["trip_days"]["status"], "unavailable")
+
+    def test_the_no_dob_payload_reports_lanes_as_not_attempted(self):
+        # A third state, and it must borrow neither of the other two: the
+        # lanes were not read AND did not fail. They were never tried.
+        self._set_basics({})
+        con = self._con()
+        con.execute("UPDATE people SET date_of_birth='' WHERE id=?", (self.person_id,))
+        con.commit()
+        con.close()
+        s = self._get().json()["sources"]
+        for lane in ("timeline_events", "story_evidence", "trip_days"):
+            with self.subTest(lane=lane):
+                self.assertEqual(s[lane]["status"], "not_attempted")
+                self.assertEqual(s[lane]["count"], 0)
+
+    def test_the_collectors_return_their_own_status(self):
+        # Pinned at the collector rather than only at the payload, so a
+        # future lane cannot be added that fails soft and silently.
+        for fn in (ca._collect_timeline_events, ca._collect_story_evidence,
+                   ca._collect_trip_days):
+            with self.subTest(fn=fn.__name__):
+                res = fn(self.person_id)
+                self.assertEqual(res.status, "read")
+                self.assertEqual(res.items, [])
+        self._drop("timeline_events")
+        self.assertEqual(
+            ca._collect_timeline_events(self.person_id).status, "unavailable")
+
     def test_no_dob_is_a_state_and_today_still_appears(self):
         # Current life does not depend on a birth year.
         self._set_basics({})

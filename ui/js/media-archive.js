@@ -130,36 +130,62 @@
   }
 
   // ── Narrator picker ─────────────────────────────────────────
+  //
+  // WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 2 Part B (2026-08-17):
+  // narrator scoping is OPTIONAL on this surface by design — many
+  // archive items are not bound to a person at intake — so the empty
+  // option stays first and stays the default. What changes is that a
+  // `?narrator_id=` handoff from the shell is honoured after validation,
+  // and a stale one fails closed to "— no narrator —" instead of
+  // selecting whoever this page remembered.
+  var NC = window.LorevoxNarratorContext;
+
+  function _fillPicker(items, selectedId) {
+    if (!el.narrator) return;
+    el.narrator.innerHTML = '<option value="">— no narrator —</option>';
+    items.forEach(function (p) {
+      var opt = document.createElement("option");
+      opt.value = p.id || p.person_id || "";
+      opt.textContent = p.display_name || p.name || opt.value;
+      el.narrator.appendChild(opt);
+    });
+    el.narrator.value = selectedId || "";
+  }
+
   function loadNarrators() {
-    return fetch(ORIGIN + "/api/people")
-      .then(function (r) { return r.ok ? r.json() : []; })
-      .then(function (people) {
-        var items = Array.isArray(people) ? people
-                   : (people && Array.isArray(people.people) ? people.people : []);
-        if (!el.narrator) return;
-        el.narrator.innerHTML = '<option value="">— no narrator —</option>';
-        items.forEach(function (p) {
-          var opt = document.createElement("option");
-          opt.value = p.id || p.person_id || "";
-          opt.textContent = p.display_name || p.name || opt.value;
-          el.narrator.appendChild(opt);
+    if (!NC) {
+      return fetch(ORIGIN + "/api/people")
+        .then(function (r) { return r.ok ? r.json() : []; })
+        .then(function (people) {
+          var items = Array.isArray(people) ? people
+                     : (people && Array.isArray(people.people) ? people.people : []);
+          _fillPicker(items, "");
+        })
+        .catch(function () {
+          if (el.narrator) {
+            el.narrator.innerHTML = '<option value="">— /api/people unavailable —</option>';
+          }
         });
-        var saved = localStorage.getItem(LS_NARRATOR);
-        if (saved) {
-          var opts = Array.from(el.narrator.options).map(function (o) { return o.value; });
-          if (opts.indexOf(saved) >= 0) el.narrator.value = saved;
+    }
+    return NC.resolve({ apiBase: ORIGIN, legacyKey: LS_NARRATOR })
+      .then(function (res) {
+        if (!res.peopleOk) {
+          if (el.narrator) {
+            el.narrator.innerHTML = '<option value="">— /api/people unavailable —</option>';
+          }
+          return;
         }
-      })
-      .catch(function () {
-        if (el.narrator) {
-          el.narrator.innerHTML = '<option value="">— /api/people unavailable —</option>';
+        _fillPicker(res.people, res.personId);
+        if (res.personId && res.source === "query") {
+          NC.remember(LS_NARRATOR, res.personId);
         }
       });
   }
 
   if (el.narrator) {
     el.narrator.addEventListener("change", function () {
-      localStorage.setItem(LS_NARRATOR, el.narrator.value);
+      if (NC) NC.remember(LS_NARRATOR, el.narrator.value);
+      else localStorage.setItem(LS_NARRATOR, el.narrator.value);
       refreshList();
     });
   }
