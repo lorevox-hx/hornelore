@@ -343,7 +343,26 @@
         if (eraDraft.isEraAware) draftSuffix += " (era)";
       }
 
-      var topicStr = _prettyEra(period.label) + " · " + subtitle + countSuffix + draftSuffix;
+      // WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 3, Commit B:
+      // reviewed-story counts, from the canonical server projection via
+      // the one shared reader. Approved and provisional are shown APART
+      // and never summed -- a single number cannot tell the operator
+      // whether an era rests on reviewed material or on unconfirmed
+      // captures. The era comes from the server; this never derives one.
+      var storySuffix = "";
+      try {
+        var SE = window.LorevoxStoryEvidence;
+        if (SE) {
+          var sc = SE.countsForEra(period.era_id || period.label);
+          var sp = [];
+          if (sc.approved) sp.push(sc.approved + " approved");
+          if (sc.provisional) sp.push(sc.provisional + " provisional");
+          if (sp.length) storySuffix = " · " + sp.join(", ") + " stor" +
+            (sc.total === 1 ? "y" : "ies");
+        }
+      } catch (e) { storySuffix = ""; }
+
+      var topicStr = _prettyEra(period.label) + " · " + subtitle + countSuffix + draftSuffix + storySuffix;
 
       // Style tiers:
       //  active          → indigo solid       (current working period)
@@ -675,6 +694,36 @@
    * display:none parent produces wrong layout dimensions.  We reset
    * _lastSig so the next tab-open forces a full rebuild with correct dims.
    */
+  /* Reviewed-story summary for the meta bar.
+     WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 3, Commit B.
+
+     UNPLACED STORIES GET THEIR OWN SENTENCE AND ARE NEVER PUT IN TODAY.
+     `today` is the current-life bucket; dropping undated stories there
+     would assert a placement nobody made, and would file a childhood
+     memory in the narrator's present. They are named as unplaced so an
+     operator can go and place them.
+
+     An unavailable lane says so rather than reading as "no stories". */
+  function _storyMeta() {
+    try {
+      var SE = window.LorevoxStoryEvidence;
+      if (!SE) return "";
+      var t = SE.totals();
+      if (t.status === "unavailable") {
+        return " · reviewed stories could not be read";
+      }
+      if (!t.total) return "";
+      var bits = [];
+      if (t.approved) bits.push(t.approved + " approved");
+      if (t.provisional) bits.push(t.provisional + " provisional");
+      var out = " · Stories: " + bits.join(", ");
+      if (t.unplaced) {
+        out += " (" + t.unplaced + " not yet placed in any era)";
+      }
+      return out;
+    } catch (e) { return ""; }
+  }
+
   function render(force) {
     _syncHostVisibility();
     if (!_libraryReady()) return;
@@ -731,9 +780,9 @@
           if (metaDraft.isEraAware) draftMeta += " (era-matched)";
         }
 
-        meta.textContent = "Lori is in: " + _prettyEra(activeEra) + memNote + draftMeta + " — click a period to navigate, or use the button below.";
+        meta.textContent = "Lori is in: " + _prettyEra(activeEra) + memNote + draftMeta + _storyMeta() + " — click a period to navigate, or use the button below.";
       } else {
-        meta.textContent = "Click a life period to move Lori into that era and continue the interview.";
+        meta.textContent = "Click a life period to move Lori into that era and continue the interview." + _storyMeta();
       }
     }
 

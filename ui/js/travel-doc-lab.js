@@ -1667,6 +1667,40 @@
   /* One named event, carrying the narrator it is about. The shell
      accepts it only for its own active narrator — see
      lvRefreshNarratorChronology in app.js. */
+  /* Phase 3, Commit B: the Travel Document also LISTENS.
+     WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 (2026-08-17).
+
+     Reviewing a story changes the approved/provisional counts this
+     workspace's connection panel reports, and the review happens in the
+     Bug Panel, not here. So the panel refreshes when the shell announces
+     that the canonical chronology moved.
+
+     LOOP-FREE BY CONSTRUCTION: this calls `loadChronology`, which does
+     NOT fire the event. Only `refreshCanonicalChronology` fires it, and
+     it is not on this path -- otherwise a save here would announce, be
+     heard here, and announce again.
+
+     It reconciles and repaints, and it does NOT insert anything into a
+     trip. A narrator-wide story is not trip evidence: putting one into a
+     trip or its DOCX would need an explicit durable trip relationship,
+     which reviewing a story does not create. */
+  var onChronologyRefreshed = null;
+
+  function armStoryReviewListener() {
+    onChronologyRefreshed = function (ev) {
+      if (destroyed) return;
+      var detail = (ev && ev.detail) || {};
+      if (String(detail.person_id || "") !== String(st.personId || "")) return;
+      if (detail.reason === "travel_doc") return;   // our own write
+      loadChronology("external_refresh").then(function (out) {
+        if (destroyed || !out) return;
+        reconcileCanonicalDays();
+        renderAll();
+      });
+    };
+    window.addEventListener("lorevox:chronology-refreshed", onChronologyRefreshed);
+  }
+
   function notifyChronologyRefreshed(reason) {
     try {
       window.dispatchEvent(new CustomEvent("lorevox:chronology-refreshed", {
@@ -7581,6 +7615,7 @@
     else if (e.key === "ArrowRight") { e.preventDefault(); lightboxStep(1); }
   }
   document.addEventListener("keydown", onDocKeydown);
+  armStoryReviewListener();
 
   function renderLightbox() {
     var links = filteredLinks();
@@ -12710,6 +12745,12 @@
     destroy: function () {
       destroyed = true;
       try { document.removeEventListener("keydown", onDocKeydown); } catch (e) {}
+      try {
+        if (onChronologyRefreshed) {
+          window.removeEventListener(
+            "lorevox:chronology-refreshed", onChronologyRefreshed);
+        }
+      } catch (e) {}
       // Phase 2D -- the picker poll. Its callback checks `destroyed`
       // first, so this is belt AND braces rather than the only guard;
       // clearing the handle means a torn-down mount leaves nothing

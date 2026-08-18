@@ -3596,6 +3596,44 @@ async def ws_chat(ws: WebSocket):
                     conv_id,
                     person_id or "(none)",
                 )
+            # ── Phase 3: reviewed-story grounding ──────────────────────
+            #
+            # WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 3, Commit B.
+            #
+            # Captured stories reached the memoir and the Life Map but had
+            # never reached Lori. This is the bridge, and it is bounded and
+            # server-owned by construction: `grounding_context` returns at
+            # most a handful of APPROVED excerpts, never provisional text,
+            # never a discarded story, and never the turn being composed.
+            #
+            # DEFAULT-OFF. The context window is LOCKED at 8,192 tokens and
+            # measured live prompts already run 6.0-6.7k, so adding content
+            # to every turn is a decision to make deliberately with a
+            # restart, not a side effect of landing a review surface.
+            try:
+                if os.getenv("HORNELORE_STORY_GROUNDING", "0").strip().lower() in (
+                    "1", "true", "yes", "on",
+                ) and person_id:
+                    from ..services import story_projection as _story_proj
+                    _story_ctx = _story_proj.grounding_context(
+                        person_id, exclude_text=user_text or "",
+                    )
+                    if _story_ctx.get("available") and (
+                        _story_ctx.get("approved") or _story_ctx.get("provisional_count")
+                    ):
+                        runtime71 = dict(runtime71)
+                        runtime71["story_context"] = _story_ctx
+                        logger.info(
+                            "[chat_ws][story-grounding] approved=%d provisional=%d person=%s",
+                            len(_story_ctx.get("approved") or []),
+                            _story_ctx.get("provisional_count") or 0,
+                            person_id,
+                        )
+            except Exception as _story_exc:
+                # A story-grounding failure must never cost the narrator
+                # their turn. Same posture as preservation (LAW 3).
+                logger.warning(
+                    "[chat_ws][story-grounding] skipped (non-fatal): %s", _story_exc)
         except Exception as _seed_exc:
             # Never let the seed bridge fail the turn — fall through to
             # behavior identical to pre-Phase-A (UI seed only, if any).

@@ -104,7 +104,33 @@ function crRenderAccordion(data) {
   // 2026-07-05: unbounded growth across re-renders).
   for (const k in _crTripPhotoRegistry) delete _crTripPhotoRegistry[k];
 
+  // WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 3, Commit B: the
+  // SECOND Life Map renderer consumes the same canonical story evidence
+  // as the first, through the same shared reader. Approved and
+  // provisional are shown apart; unplaced stories get their own line and
+  // are NOT filed under Today; an unavailable lane says so rather than
+  // rendering as an empty narrator.
   let html = "";
+  try {
+    const SE = window.LorevoxStoryEvidence;
+    if (SE) {
+      const t = SE.totals();
+      if (t.status === "unavailable") {
+        html += '<div class="cr-story-banner cr-story-unavailable">'
+             +  'Reviewed stories could not be read.</div>';
+      } else if (t.total) {
+        const bits = [];
+        if (t.approved) bits.push(t.approved + " approved");
+        if (t.provisional) bits.push(t.provisional + " provisional");
+        html += '<div class="cr-story-banner">Stories: ' + bits.join(" · ");
+        if (t.unplaced) {
+          html += '<span class="cr-story-unplaced"> — ' + t.unplaced
+               +  ' not yet placed in an era</span>';
+        }
+        html += '</div>';
+      }
+    }
+  } catch (e) { /* the accordion must render with or without stories */ }
   for (const decade of data.decades) {
     const decadeKey = String(decade.decade);
     const isOpen = !!state.chronologyAccordion.openDecades[decadeKey];

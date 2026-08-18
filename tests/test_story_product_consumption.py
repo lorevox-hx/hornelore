@@ -1,0 +1,273 @@
+"""WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 3, Commit B.
+
+Reviewed stories reaching the operator, the Life Map, Lori and the
+Travel Document — each through the one canonical projection.
+
+The BEHAVIOUR of the shared browser reader is proved by executing it in
+`scripts/ui/run_story_evidence_behaviour.js`; a source scan cannot tell a
+working grouping rule from a broken one. These tests pin the shape and
+the boundaries.
+
+pytest is not installed in this repo. Run with:
+
+    PYTHONPATH=server/code .venv/bin/python -m unittest tests.test_story_product_consumption
+"""
+from __future__ import annotations
+
+import re
+import sys
+import unittest
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_SERVER_CODE = _REPO_ROOT / "server" / "code"
+for _p in (str(_SERVER_CODE), str(_REPO_ROOT)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+from tests.source_scan_helpers import strip_js_comments  # noqa: E402
+
+_UI = _REPO_ROOT / "ui"
+_PANEL = _UI / "js" / "bug-panel-story-review.js"
+_READER = _UI / "js" / "story-evidence.js"
+_LIFEMAP = _UI / "js" / "life-map.js"
+_ACCORDION = _UI / "js" / "chronology-accordion.js"
+_TDL = _UI / "js" / "travel-doc-lab.js"
+_SHELL = _UI / "hornelore1.0.html"
+_COMPOSER = _SERVER_CODE / "api" / "prompt_composer.py"
+_CHAT_WS = _SERVER_CODE / "api" / "routers" / "chat_ws.py"
+
+
+def _js(path: Path) -> str:
+    return strip_js_comments(path.read_text(encoding="utf-8"))
+
+
+class OperatorWorkspaceIsUpgradedNotDuplicated(unittest.TestCase):
+    def test_there_is_still_one_story_section(self):
+        # "Upgrade the existing Bug Panel story section rather than
+        # building another queue."
+        shell = _SHELL.read_text(encoding="utf-8")
+        self.assertEqual(shell.count('id="lv10dBpStoryReview"'), 1)
+        # Count SCRIPT TAGS, not mentions: the shell also names the file
+        # in an HTML comment above the mount, and `strip_js_comments`
+        # cannot see HTML comments.
+        self.assertEqual(shell.count('src="js/bug-panel-story-review.js'), 1)
+
+    def test_it_defaults_to_the_current_narrator(self):
+        src = _js(_PANEL)
+        self.assertIn("_state.narratorFilter = _currentPersonId()", src)
+        self.assertIn("function _narrator()", src)
+
+    def test_it_filters_by_status_and_shows_counts(self):
+        src = _js(_PANEL)
+        self.assertIn("statusFilter", src)
+        self.assertIn("renderStatusFilters", src)
+        for status in ("unreviewed", "in_review", "promoted", "memoir_only",
+                       "discarded"):
+            with self.subTest(status=status):
+                self.assertIn(status, src)
+
+    def test_it_opens_the_full_preserved_transcript(self):
+        src = _js(_PANEL)
+        self.assertIn("function openDetail(", src)
+        self.assertIn("d.transcript", src)
+
+    def test_it_edits_placement_and_private_notes(self):
+        src = _js(_PANEL)
+        for field in ("era_candidates", "year_low", "year_high",
+                      "placement_source", "review_notes"):
+            with self.subTest(field=field):
+                self.assertIn(field, src)
+
+    def test_it_offers_the_four_review_actions(self):
+        src = _js(_PANEL)
+        for label, status in (("Promote", "promoted"),
+                              ("Memoir only", "memoir_only"),
+                              ("Needs review", "unreviewed"),
+                              ("Discard", "discarded")):
+            with self.subTest(label=label):
+                self.assertIn(label, src)
+                self.assertIn(status, src)
+
+    def test_every_mutation_carries_the_observed_version(self):
+        src = _js(_PANEL)
+        self.assertIn("review_version: item.review_version", src)
+
+    def test_a_conflict_is_shown_without_discarding_the_operators_edit(self):
+        """The rule that makes a 409 survivable instead of costly."""
+        src = _js(_PANEL)
+        body = src[src.index("function applyReview("):]
+        body = body[: body.index("\n  function ")]
+        i_conflict = body.index("res.status === 409")
+        i_delete = body.index("delete _state.edits[item.id]")
+        # The staged edit is dropped ONLY on success, which is after the
+        # 409 branch has already returned.
+        self.assertLess(i_conflict, i_delete)
+        self.assertIn("return;", body[i_conflict:i_delete])
+
+    def test_after_a_review_it_refreshes_without_prompting_or_writing(self):
+        src = _js(_PANEL)
+        body = src[src.index("function afterReviewApplied("):]
+        body = body[: body.index("\n  function ")]
+        self.assertIn("fetchReview()", body)
+        self.assertIn("lvRefreshNarratorChronology", body)
+        # Narrator switched away mid-flight -> do nothing.
+        self.assertIn("if (pid !== _narrator()) return;", body)
+        for forbidden in ("sendSystemPrompt", "sendUserMessage", "projection",
+                          "PUT", "PATCH"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, body)
+
+    def test_no_narrator_visible_control(self):
+        # The whole surface lives in the Bug Panel.
+        src = _js(_PANEL)
+        self.assertIn("MOUNT_ID = 'lv10dBpStoryReview'", src)
+        for forbidden in ("chatMessages", "narratorConversation",
+                          "lvEnterInterviewMode"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, src)
+
+    def test_no_filesystem_or_audio_path_reaches_the_browser(self):
+        src = _js(_PANEL)
+        self.assertIn("audio_present", src)
+        self.assertNotIn("audio_clip_path", src)
+
+
+class BothLifeMapRenderersConsumeTheProjection(unittest.TestCase):
+    def test_one_shared_reader_exists_and_loads_first(self):
+        self.assertTrue(_READER.exists())
+        shell = _SHELL.read_text(encoding="utf-8")
+        i_reader = shell.index("js/story-evidence.js")
+        for consumer in ("js/life-map.js", "js/chronology-accordion.js"):
+            with self.subTest(consumer=consumer):
+                self.assertLess(i_reader, shell.index(consumer))
+
+    def test_both_renderers_use_it(self):
+        for path in (_LIFEMAP, _ACCORDION):
+            with self.subTest(renderer=path.name):
+                self.assertIn("LorevoxStoryEvidence", _js(path))
+
+    def test_approved_and_provisional_are_never_summed(self):
+        for path in (_LIFEMAP, _ACCORDION):
+            with self.subTest(renderer=path.name):
+                src = _js(path)
+                self.assertIn("approved", src)
+                self.assertIn("provisional", src)
+                # The one thing a renderer must not do.
+                self.assertNotIn("approved + t.provisional", src)
+                self.assertNotIn("approved+provisional", src)
+
+    def test_unplaced_is_its_own_group_and_is_not_today(self):
+        for path in (_LIFEMAP, _ACCORDION):
+            with self.subTest(renderer=path.name):
+                src = _js(path)
+                self.assertIn("unplaced", src)
+        # And the reader never invents `today` for an unplaced story.
+        reader = _js(_READER)
+        self.assertNotIn('"today"', reader)
+        self.assertNotIn("'today'", reader)
+
+    def test_the_reader_owns_no_story_state(self):
+        """No browser-owned story state: everything derives per call."""
+        src = _js(_READER)
+        self.assertIn("chronologyProjection", src)
+        # No module-level mutable cache.
+        self.assertFalse(re.search(r"^\s*var _(cache|items|store)\b", src, re.M))
+        for forbidden in ("localStorage", "sessionStorage"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, src)
+
+    def test_the_reader_writes_nothing_back(self):
+        src = _js(_READER)
+        for forbidden in ("fetch(", "PATCH", "POST", "state.chronologyProjection ="):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, src)
+
+
+class LoriGroundingBoundary(unittest.TestCase):
+    def test_the_composer_renders_only_approved_story_text(self):
+        src = _COMPOSER.read_text(encoding="utf-8")
+        body = src[src.index("def _approved_story_block("):]
+        body = body[: body.index("\ndef _identity_grounding_rules_block(")]
+        self.assertIn('ctx.get("approved")', body)
+        # The provisional COUNT may be rendered; provisional TEXT may not.
+        self.assertIn("provisional_count", body)
+        self.assertNotIn('ctx.get("provisional")', body)
+
+    def test_the_block_is_omitted_when_there_is_nothing_approved(self):
+        src = _COMPOSER.read_text(encoding="utf-8")
+        self.assertIn("_story_block = _approved_story_block(runtime71)", src)
+        self.assertIn("if _story_block:", src)
+
+    def test_grounding_is_default_off(self):
+        src = _CHAT_WS.read_text(encoding="utf-8")
+        self.assertIn('os.getenv("HORNELORE_STORY_GROUNDING", "0")', src)
+        env = (_REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+        self.assertIn("HORNELORE_STORY_GROUNDING=0", env)
+
+    def test_the_current_turn_is_excluded_from_history(self):
+        src = _CHAT_WS.read_text(encoding="utf-8")
+        self.assertIn("exclude_text=user_text", src)
+
+    def test_a_grounding_failure_never_costs_the_turn(self):
+        src = _CHAT_WS.read_text(encoding="utf-8")
+        i = src.index("[chat_ws][story-grounding]")
+        window = src[i - 2000: i + 2000]
+        self.assertIn("except Exception as _story_exc", window)
+        self.assertIn("non-fatal", window)
+
+    def test_no_model_or_token_window_change(self):
+        src = _CHAT_WS.read_text(encoding="utf-8")
+        i = src.index("Phase 3: reviewed-story grounding")
+        block = src[i: i + 2600]
+        for forbidden in ("max_new_tokens", "n_ctx", "context_window",
+                          "MODEL_PATH", "8192"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, block)
+
+
+class TravelDocumentBoundary(unittest.TestCase):
+    def test_the_panel_refreshes_its_story_counts_after_a_review(self):
+        src = _js(_TDL)
+        self.assertIn("function armStoryReviewListener()", src)
+        self.assertIn('"lorevox:chronology-refreshed", onChronologyRefreshed', src)
+
+    def test_the_listener_cannot_loop(self):
+        src = _js(_TDL)
+        body = src[src.index("function armStoryReviewListener()"):]
+        body = body[: body.index("\n  function ")]
+        # It re-reads, it does not re-announce.
+        self.assertIn("loadChronology(", body)
+        self.assertNotIn("notifyChronologyRefreshed", body)
+        self.assertNotIn("refreshCanonicalChronology", body)
+
+    def test_the_listener_is_narrator_scoped_and_torn_down(self):
+        src = _js(_TDL)
+        body = src[src.index("function armStoryReviewListener()"):]
+        body = body[: body.index("\n  function ")]
+        self.assertIn("!== String(st.personId", body)
+        self.assertIn("if (destroyed) return;", body)
+        # Removed in destroy(), or the mount leaks a window listener.
+        destroy = src[src.index("destroy: function"):]
+        self.assertIn("removeEventListener", destroy)
+        self.assertIn("onChronologyRefreshed", destroy)
+
+    def test_reviewing_a_story_inserts_nothing_into_a_trip(self):
+        """A narrator-wide story is not trip evidence."""
+        src = _js(_TDL)
+        body = src[src.index("function armStoryReviewListener()"):]
+        body = body[: body.index("\n  function ")]
+        for forbidden in ("location-notes", "sources", "photo-links",
+                          "export-docx", "method: \"POST\"", "method: \"PATCH\""):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, body)
+
+    def test_the_trip_export_still_forbids_an_implicit_story_harvest(self):
+        """Preserved from WO-MEMOIR-TRIP-STORY-LANE-01, not weakened."""
+        trips = (_SERVER_CODE / "api" / "routers" / "trips.py").read_text(encoding="utf-8")
+        self.assertNotIn("story_candidate_list_for_memoir", trips)
+        self.assertNotIn("story_projection", trips)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -75,7 +75,7 @@ Default-on, no env flag — correctness fix.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, replace as _dc_replace, field
 from typing import List, Optional, Tuple
 
 
@@ -1199,6 +1199,60 @@ def _resolve_locale(target_language: Optional[str]) -> str:
     return "en"
 
 
+# BUG-LORI-CORRECTION-FIELD-NAME-ANCHOR-01, fixed inside
+# WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 3 (2026-08-17) rather
+# than deferred to another correction lane.
+#
+# THE DEFECT, in narrator-facing output:
+#
+#     narrator: "actually the year was 1962 not 1961"
+#     Lori:     "Got it — the year was. What happened next?"
+#
+#     narrator: "you got the year wrong, it was 1960 not 1959"
+#     Lori:     "Got it — the year wrong. What happened next?"
+#
+# `_extract_correction_value` is CORRECT here and returns "": its value
+# patterns are `[A-Za-z\s]` and a numeric correction has no extractable
+# letter-value. The fault is downstream — `_extract_factual_anchor`, the
+# generic fallback picker, then supplies a FIELD-NAME FRAGMENT, and the
+# correction template renders it in the value slot as though the narrator
+# had said it.
+#
+# Repeating a sentence fragment back to an older narrator as their own
+# correction is exactly the mechanical-sounding output the witness lane
+# exists to avoid. The composer already renders an empty anchor
+# gracefully -- "Got it. What happened next?" -- so the fix is to refuse
+# the fragment, not to invent a value.
+#
+# Deliberately NOT fixed by widening the value patterns to accept digits:
+# that would change what counts as a correction on a live, unflagged
+# narrator path, and the narrowing those patterns carry was itself the
+# response to two observed live false positives (Walt Era 6, Jake
+# Chapter 1). Refusing a bad anchor is strictly safer than minting one.
+_CORRECTION_FIELD_NAME_TAIL = (
+    "was", "is", "were", "are", "wrong", "right", "off", "incorrect",
+    "backwards", "mixed", "reversed",
+)
+
+
+def _correction_anchor_is_a_field_name(anchor: str) -> bool:
+    """True when the anchor names the FIELD rather than the corrected value.
+
+    "the year was", "the year wrong", "the name is" — all describe what
+    was being corrected, none of them is the correction.
+    """
+    text = " ".join(str(anchor or "").split()).strip().casefold()
+    if not text:
+        return False
+    tokens = text.split()
+    if tokens[-1] in _CORRECTION_FIELD_NAME_TAIL:
+        return True
+    # A bare determiner-led fragment carries no value either.
+    if len(tokens) <= 2 and tokens[0] in ("the", "that", "this", "a", "an"):
+        return True
+    return False
+
+
 def _format_anchor_clause(anchor: str, lang: str, sub_type: str = "") -> str:
     """Build the continuation clause from the anchor. Shape depends on
     sub_type:
@@ -1374,6 +1428,18 @@ def compose_witness_response(
             multi_template = pack.get("structured_multi") or pack.get("structured", "")
             return multi_template.format(anchor_list=multi_list)
         # 0 or 1 anchor → fall through to single-anchor template
+
+    # BUG-LORI-CORRECTION-FIELD-NAME-ANCHOR-01 (2026-08-17). Refuse an
+    # anchor that names the field rather than the corrected value, before
+    # any correction template can render it in the value slot. An empty
+    # anchor degrades to "Got it. What happened next?", which is true.
+    anchor = detection.factual_anchor
+    if (
+        detection.sub_type == "correction"
+        and anchor
+        and _correction_anchor_is_a_field_name(anchor)
+    ):
+        detection = _dc_replace(detection, factual_anchor="")
 
     # BUG-LORI-WITNESS-PROPER-NOUN-CONFIRM-01 — for correction turns
     # where the corrected value LOOKS LIKE a proper-noun multi-word

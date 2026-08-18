@@ -572,22 +572,82 @@ class CorrectionPerspectiveInversionTest(unittest.TestCase):
         self.assertIn("landstuhl", text_lower)
         # Must comprehend
         self.assertIn("got it", text_lower)
-        # Multi-word proper-noun correction → spelling confirmation
-        self.assertIn("did i get that name right", text_lower)
+        # RECONCILED 2026-08-17 (Phase 3). This asserted the spelling
+        # confirmation fires here. It does not, and that is DELIBERATE:
+        # BUG-LORI-PHRASE-AS-NAME-CONFIRMATION-01 (2026-06-17) tightened
+        # the trigger to 2-4 tokens because "5+ tokens is overwhelmingly
+        # NOT a name", after these fired it on the full-family run:
+        #   "Originally Schong With A C", "It Was The Air",
+        #   "You Learned To Stand Up And Sit Down And Kneel At The Right Times"
+        # Kent's anchor is SEVEN tokens, so it is correctly treated as a
+        # value to echo rather than a name to spell-check.
+        self.assertNotIn("did i get that name right", text_lower)
+        # The property that still matters: the corrected value is echoed
+        # in full, so the narrator can see they were heard.
+        self.assertIn("ramstein air force base", text_lower)
 
     def test_single_proper_noun_correction_no_spelling_check(self):
-        ans = wm.detect_and_compose("actually it was Bismarck")
+        """RECONCILED 2026-08-17 (Phase 3).
+
+        The input was `"actually it was Bismarck"`, which is no longer
+        detected as a correction at all. That narrowing is DELIBERATE:
+        WO-SPANISH-LIVE-READINESS-01 follow-up (2026-06-24) required a
+        trailing `" not "` after the Walt Era 6 live regression, where
+        "the work I am doing today actually began" was classified as a
+        correction and produced a garbage narrator-facing anchor.
+
+        KNOWN RECALL GAP, recorded rather than silently widened: a real
+        correction phrased WITHOUT "not" — "actually it was Bismarck" —
+        is not intercepted and falls through to the ordinary LLM turn.
+        A missed deterministic intercept is a much smaller harm than a
+        wrong one, and widening the detector on a live, unflagged
+        narrator path is not this phase's decision to make.
+
+        The property under test is unchanged and now uses a shape that
+        IS detected: a single proper noun gets no spelling check.
+        """
+        ans = wm.detect_and_compose("actually it was Bismarck not Fargo")
         self.assertIsNotNone(ans)
-        # Single proper noun → no spelling check (overhead)
         self.assertNotIn("did i get that name right", ans.text.lower())
         self.assertIn("Bismarck", ans.text)
 
-    def test_year_correction_no_spelling_check(self):
-        # "the year was" extracted as anchor — but no caps, so no
-        # spelling check
-        ans = wm.detect_and_compose("actually the year was 1962")
-        self.assertIsNotNone(ans)
-        self.assertNotIn("did i get that name right", ans.text.lower())
+    def test_a_numeric_correction_never_echoes_a_field_name(self):
+        """BUG-LORI-CORRECTION-FIELD-NAME-ANCHOR-01, fixed 2026-08-17.
+
+        This replaces `test_year_correction_no_spelling_check`, whose
+        input `"actually the year was 1962"` is no longer detected (see
+        above). Rewriting it against a detected shape exposed a GENUINE
+        product defect rather than a stale expectation:
+
+            narrator: "actually the year was 1962 not 1961"
+            Lori:     "Got it — the year was. What happened next?"
+
+        `_extract_correction_value` correctly returns "" for a numeric
+        correction, and the generic fallback anchor picker then supplied
+        the FIELD NAME, which the correction template rendered in the
+        value slot. Repeating a sentence fragment back to an older
+        narrator as their own correction is precisely the mechanical
+        output this lane exists to prevent.
+        """
+        for text in ("actually the year was 1962 not 1961",
+                     "you got the year wrong, it was 1960 not 1959"):
+            with self.subTest(text=text):
+                ans = wm.detect_and_compose(text)
+                self.assertIsNotNone(ans)
+                lower = ans.text.lower()
+                self.assertNotIn("the year was", lower)
+                self.assertNotIn("the year wrong", lower)
+                self.assertNotIn("did i get that name right", lower)
+                # Degrades to the truthful generic acknowledgment.
+                self.assertIn("got it", lower)
+                self.assertIn("what happened next", lower)
+
+    def test_a_real_value_correction_still_names_the_value(self):
+        """The guard must refuse field names WITHOUT muting real ones."""
+        ans = wm.detect_and_compose("actually it was Bismarck not Fargo")
+        self.assertIn("Bismarck", ans.text)
+        ans = wm.detect_and_compose("I meant Fort Ord not Fort Lewis")
+        self.assertIn("Fort Ord", ans.text)
 
     def test_correction_never_uses_first_person_pronouns(self):
         # Sweep across multiple correction shapes
@@ -636,10 +696,22 @@ class ActiveReceiptCompositionTest(unittest.TestCase):
             f"active receipt should start with second-person 'You': {ans.text!r}",
         )
         # Multi-fact: should reference at least 2 narrator-named events
+        # RECONCILED 2026-08-17 (Phase 3). This asserted `>= 3`. The
+        # accepted behaviour is a TWO-anchor cap
+        # (BUG-LORI-ANCHOR-CASCADE-DUMP-01, 2026-06-17): a 3+ list read as
+        # a mechanical proper-noun dump in narrator-facing output —
+        # "You went from Saint Augustine to Brendan, then Eileen,
+        #  Patrick, Catholic, South Boston, Mass, and Walter."
+        # Two anchors demonstrate active listening without reciting a
+        # list. The DETECTOR still finds three; the formatter caps the
+        # output, which is why `test_extract_top_anchors_kent_k3_basic_training`
+        # still asserts three and is untouched.
         named_events = ["enlisted", "fort leonard wood", "germany", "served", "married", "janice"]
         matches = sum(1 for e in named_events if e in text_lower)
-        self.assertGreaterEqual(matches, 3,
-                                f"receipt should reflect 3+ narrator events: {ans.text!r}")
+        self.assertGreaterEqual(matches, 2,
+                                f"receipt should reflect 2 narrator events: {ans.text!r}")
+        self.assertLessEqual(matches, 2,
+                             f"the two-anchor cap must hold: {ans.text!r}")
         # Continuation question
         self.assertIn("what happened next", text_lower)
         # No sensory probes
@@ -709,7 +781,7 @@ class MultiAnchorReflectionTest(unittest.TestCase):
         self.assertEqual(positions, sorted(positions),
                          f"Anchors must be in narrative order: {anchors}")
 
-    def test_kent_k6_multi_anchor_output_includes_germany_bismarck_janice(self):
+    def test_kent_k6_multi_anchor_output_caps_at_two_of_three(self):
         text = (
             "in Germany was fantastic it is a lot to learn and after I "
             "have been there for a bit then I got to leave to go home "
@@ -720,10 +792,23 @@ class MultiAnchorReflectionTest(unittest.TestCase):
         self.assertIsNotNone(ans)
         self.assertEqual(ans.detection_type, "STRUCTURED_NARRATIVE")
         text_lower = ans.text.lower()
-        # All three of Kent's named places/people should be reflected
+        # RECONCILED 2026-08-17 (Phase 3). This asserted all THREE of
+        # Kent's named places/people appeared. The detector still finds
+        # three — ('Germany', 'Bismarck', 'Janice') — and the formatter
+        # caps the narrator-facing output at two
+        # (BUG-LORI-ANCHOR-CASCADE-DUMP-01). Asserting three here was
+        # asserting the cascade dump that bug removed.
+        #
+        # The property worth keeping is that the output reflects the
+        # narrator's OWN anchors in order, so the first two are pinned by
+        # name and the third is pinned as ABSENT.
         self.assertIn("germany", text_lower)
         self.assertIn("bismarck", text_lower)
-        self.assertIn("janice", text_lower)
+        self.assertNotIn("janice", text_lower)
+        detection = wm.detect_witness_event(text)
+        self.assertEqual(
+            list(detection.multi_anchors)[:3], ["Germany", "Bismarck", "Janice"],
+            "the DETECTOR must still find all three; only the formatter caps")
         # Continuation invitation
         self.assertIn("what happened next", text_lower)
         # NO sensory probe
@@ -731,9 +816,17 @@ class MultiAnchorReflectionTest(unittest.TestCase):
         self.assertNotIn("sights", text_lower)
         self.assertNotIn("how did you feel", text_lower)
 
-    def test_format_multi_anchor_list_oxford_comma_en(self):
+    def test_format_multi_anchor_list_caps_at_two_en(self):
+        """RECONCILED 2026-08-17 (Phase 3).
+
+        Was `test_format_multi_anchor_list_oxford_comma_en`, asserting
+        `"A, B, and C"`. The Oxford-comma branch was REMOVED by
+        BUG-LORI-ANCHOR-CASCADE-DUMP-01 (2026-06-17) and no 3+ format
+        exists anywhere in the module. The test named a behaviour the
+        product had deliberately retired two months earlier.
+        """
         result = wm._format_multi_anchor_list(["A", "B", "C"], "en")
-        self.assertEqual(result, "A, B, and C")
+        self.assertEqual(result, "A and B")
 
     def test_format_multi_anchor_list_two_items_en(self):
         result = wm._format_multi_anchor_list(["A", "B"], "en")
@@ -746,9 +839,10 @@ class MultiAnchorReflectionTest(unittest.TestCase):
     def test_format_multi_anchor_list_empty(self):
         self.assertEqual(wm._format_multi_anchor_list([], "en"), "")
 
-    def test_format_multi_anchor_list_es(self):
+    def test_format_multi_anchor_list_caps_at_two_es(self):
+        """RECONCILED 2026-08-17 (Phase 3) — same cap, Spanish joiner."""
         result = wm._format_multi_anchor_list(["A", "B", "C"], "es")
-        self.assertEqual(result, "A, B, y C")
+        self.assertEqual(result, "A y B")
 
     def test_falls_back_to_single_anchor_when_few(self):
         # Short narrative with only 1 proper noun → single-anchor path

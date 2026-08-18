@@ -2588,3 +2588,11 @@ body.lv-interview-mode-active #lvInterviewActiveFocus {
 .lv-chat-photo-title { font-weight: 700; color: #c7d2fe; font-size: 13px; }
 .lv-chat-photo-fn { font-size: 11px; color: #94a3b8; font-family: ui-monospace, SFMono-Regular, monospace; word-break: break-all; }
 .lv-chat-photo-hint { font-size: 12px; color: #cbd5e1; line-height: 1.4; margin-top: 2px; }
+
+/* Chronology Accordion — reviewed-story summary.
+   WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 3, Commit B (2026-08-17).
+   Approved and provisional are rendered apart, never summed; unplaced
+   stories are named as unplaced rather than filed under Today. */
+.cr-story-banner { padding: 6px 10px; font-size: 11px; color: #475569; border-bottom: 1px solid rgba(0,0,0,.06); }
+.cr-story-unplaced { color: #b7791f; }
+.cr-story-unavailable { color: #be3830; }

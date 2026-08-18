@@ -540,6 +540,70 @@ def _known_identity_facts_block(runtime71: Optional[Dict[str, Any]]) -> str:
     return "KNOWN IDENTITY FACTS:\n" + "\n".join(facts)
 
 
+def _approved_story_block(runtime71: Optional[Dict[str, Any]]) -> str:
+    """Reviewed story context, and the rules for speaking about it.
+
+    WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 3, Commit B (2026-08-17).
+
+    Captured stories have existed since migration 0004 and had NEVER
+    reached Lori's prompt: the table was write-only from her side. So a
+    narrator could tell Lori something, an operator could review and
+    approve it, and Lori would still have no idea it had been said.
+
+    Only APPROVED stories are rendered, and only as material the narrator
+    has already told. `story_context` is built server-side by
+    `services/story_projection.grounding_context`, which drops discarded
+    stories, never includes provisional TEXT, and excludes the current
+    turn so a story captured from this very turn cannot come back as
+    history.
+
+    Provisional stories are named as a COUNT and nothing else. The
+    composer must be able to know that unconfirmed material exists --
+    otherwise it can be tempted to fill the gap -- without being able to
+    state any of it.
+    """
+    rt = runtime71 or {}
+    ctx = rt.get("story_context")
+    if not isinstance(ctx, dict) or not ctx.get("available"):
+        return ""
+    approved = [row for row in (ctx.get("approved") or []) if (row or {}).get("text")]
+    provisional = int(ctx.get("provisional_count") or 0)
+    if not approved and not provisional:
+        return ""
+
+    lines = ["REVIEWED STORIES THE NARRATOR HAS ALREADY TOLD:"]
+    if approved:
+        for row in approved:
+            when = ""
+            year = row.get("year")
+            era = row.get("era")
+            if year:
+                when = f" ({year})"
+            elif era:
+                when = f" ({era})"
+            lines.append(f"- {row['text']}{when}")
+    else:
+        lines.append("- none approved yet")
+
+    lines.append("")
+    lines.append("HOW TO USE THEM:")
+    lines.append(
+        "- These are established. You may refer to them as things the "
+        "narrator has told you."
+    )
+    lines.append(
+        "- Do NOT invent detail beyond what is written above. If you need "
+        "more, ask."
+    )
+    if provisional:
+        lines.append(
+            f"- {provisional} further story/stories are captured but NOT yet "
+            "reviewed. You do not have them and must not guess at them or "
+            "refer to them as established."
+        )
+    return "\n".join(lines)
+
+
 def _identity_grounding_rules_block(runtime71: Optional[Dict[str, Any]]) -> str:
     """Hard anti-hallucination rules for narrator identity facts.
 
@@ -3586,6 +3650,15 @@ def compose_system_prompt(
                   required=True)
         parts.add("identity_grounding", _identity_grounding_rules_block(runtime71),
                   required=True)
+
+        # Phase 3: reviewed stories. Rendered AFTER identity grounding so
+        # the anti-hallucination rules are already in force when the model
+        # reads them, and omitted entirely when there is nothing approved
+        # -- an empty section would spend tokens saying nothing, and the
+        # context window is LOCKED.
+        _story_block = _approved_story_block(runtime71)
+        if _story_block:
+            parts.add("approved_stories", _story_block, required=False)
 
         # WO-LORI-ENGLISH-FIRST-NARRATION-01 (2026-06-24, product call
         # from Spring 2026 trip canary): always-on English-first rule

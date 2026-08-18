@@ -13,6 +13,18 @@
 //   - Optional narrator filter (text input; empty = all narrators)
 //   - NO actions (promote/refine/discard land in Phase 3)
 //
+// PHASE 3 (2026-08-17), WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01:
+// this section is UPGRADED IN PLACE rather than replaced by a second
+// queue. It now defaults to the CURRENT narrator, filters by review
+// status with counts, opens the full preserved transcript, edits
+// placement and private notes, and applies Promote / Memoir only /
+// Needs review / Discard through the atomic review route.
+//
+// Every mutation carries the `review_version` it observed. A stale
+// version comes back 409 and the operator's typed edit is KEPT on
+// screen with the conflict shown beside it -- losing somebody's work
+// to a race is worse than refusing the save.
+//
 // NEVER narrator-visible — this surface lives in the Bug Panel only.
 (function () {
   'use strict';
@@ -22,7 +34,19 @@
   // Bare relative URL hits port 8082 (UI), not 8000 (API).
   const _O = (typeof ORIGIN !== 'undefined' && ORIGIN) || 'http://localhost:8000';
   const ENDPOINT = _O + '/api/operator/story-candidates';
+  const REVIEW_ENDPOINT = _O + '/api/operator/story-candidates/review';
   const DEFAULT_LIMIT = 50;
+
+  // Review status -> operator-facing label. The server owns the
+  // vocabulary; this only decides how it reads on screen.
+  const STATUS_LABELS = {
+    unreviewed: 'Needs review',
+    in_review: 'In review',
+    promoted: 'Promoted',
+    memoir_only: 'Memoir only',
+    discarded: 'Discarded',
+  };
+  const STATUS_ORDER = ['unreviewed', 'in_review', 'promoted', 'memoir_only', 'discarded'];
 
   let _state = {
     loading: false,
@@ -33,6 +57,18 @@
     narratorFilter: '',
     collapsed: true,   // historical backlog — collapsed by default
     error: null,
+    // ── Phase 3 ──────────────────────────────────────────────────
+    statusFilter: [],      // [] = every status
+    counts: null,          // per-status totals from the server
+    projection: null,      // canonical approved/provisional totals
+    openId: null,          // candidate whose detail is expanded
+    detail: null,          // full row incl. transcript
+    detailBusy: false,
+    // The operator's UNSAVED edits, keyed by candidate id. Deliberately
+    // survives a 409: a conflict must not cost them what they typed.
+    edits: {},
+    conflict: null,        // {id, message, current}
+    actionBusy: null,      // candidate id with a write in flight
   };
 
   function _currentPersonId() {
@@ -138,6 +174,262 @@
     }
   }
 
+  // ── Phase 3: the review lane ─────────────────────────────────────
+
+  function _narrator() {
+    return (_state.narratorFilter || '').trim() || _currentPersonId();
+  }
+
+  function fetchReview() {
+    const pid = _narrator();
+    if (!pid) {                      // narrator-scoped by contract
+      _state.items = []; _state.counts = null; _state.projection = null;
+      _state.error = 'Choose a narrator to review their stories.';
+      render(); return Promise.resolve();
+    }
+    _state.loading = true; _state.error = null; render();
+    let url = REVIEW_ENDPOINT + '?narrator_id=' + encodeURIComponent(pid) +
+      '&limit=' + DEFAULT_LIMIT;
+    if (_state.statusFilter.length) {
+      url += '&status=' + encodeURIComponent(_state.statusFilter.join(','));
+    }
+    return fetch(url, { credentials: 'same-origin' })
+      .then(function (resp) {
+        if (resp.status === 404) { _state.enabled = false; return null; }
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        _state.enabled = true;
+        return resp.json();
+      })
+      .then(function (body) {
+        if (!body) return;
+        _state.items = body.items || [];
+        _state.count = body.count || 0;
+        _state.counts = body.counts || null;
+        _state.projection = body.projection || null;
+        _state.fetchedAt = body.fetched_at || null;
+      })
+      .catch(function (err) {
+        _state.enabled = true;
+        _state.error = String(err && err.message || err);
+      })
+      .then(function () { _state.loading = false; render(); });
+  }
+
+  function openDetail(id) {
+    if (_state.openId === id) { _state.openId = null; _state.detail = null; render(); return; }
+    const pid = _narrator();
+    _state.openId = id; _state.detail = null; _state.detailBusy = true; render();
+    fetch(ENDPOINT + '/' + encodeURIComponent(id) +
+          '?narrator_id=' + encodeURIComponent(pid), { credentials: 'same-origin' })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (b) { _state.detail = b.item || null; })
+      .catch(function (e) { _state.error = 'Detail failed: ' + e.message; })
+      .then(function () { _state.detailBusy = false; render(); });
+  }
+
+  function _edit(id) {
+    if (!_state.edits[id]) _state.edits[id] = {};
+    return _state.edits[id];
+  }
+
+  function applyReview(item, patch) {
+    const pid = _narrator();
+    const edit = _edit(item.id);
+    const body = {
+      narrator_id: pid,
+      // The version the operator OBSERVED. Not re-read from anywhere:
+      // re-reading it here would defeat the whole check.
+      review_version: item.review_version,
+    };
+    if (edit.review_notes !== undefined) body.review_notes = edit.review_notes;
+    if (edit.era_candidates !== undefined) {
+      body.era_candidates = String(edit.era_candidates)
+        .split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+    }
+    if (edit.year_low !== undefined && String(edit.year_low).trim() !== '') {
+      body.estimated_year_low = parseInt(edit.year_low, 10);
+    }
+    if (edit.year_high !== undefined && String(edit.year_high).trim() !== '') {
+      body.estimated_year_high = parseInt(edit.year_high, 10);
+    }
+    if (edit.placement_source !== undefined) body.placement_source = edit.placement_source;
+    Object.keys(patch || {}).forEach(function (k) { body[k] = patch[k]; });
+
+    _state.actionBusy = item.id; _state.conflict = null; render();
+    return fetch(ENDPOINT + '/' + encodeURIComponent(item.id), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(body),
+    })
+      .then(function (r) {
+        return r.json().catch(function () { return null; }).then(function (b) {
+          return { status: r.status, body: b };
+        });
+      })
+      .then(function (res) {
+        if (res.status === 409) {
+          // THE EDIT IS KEPT. _state.edits is untouched on purpose, so
+          // the operator can re-apply against the fresh version rather
+          // than retype what they wrote.
+          const d = (res.body && res.body.detail) || {};
+          _state.conflict = {
+            id: item.id,
+            message: d.message || 'Someone else reviewed this story first.',
+            current: d.current || null,
+          };
+          return;
+        }
+        if (res.status !== 200) {
+          _state.error = 'Review failed: HTTP ' + res.status;
+          return;
+        }
+        // Applied: drop only THIS candidate's staged edit.
+        delete _state.edits[item.id];
+        _state.conflict = null;
+        _state.detail = null;
+        _state.openId = null;
+        return afterReviewApplied(pid);
+      })
+      .catch(function (e) { _state.error = 'Review failed: ' + e.message; })
+      .then(function () { _state.actionBusy = null; render(); });
+  }
+
+  /* After a successful review: reload the candidate list, refresh the
+     canonical chronology, and repaint the CURRENT narrator only.
+
+     It issues no Lori prompt and no projection PUT/PATCH -- a reviewer
+     approving a story must not make Lori say anything -- and it refuses
+     to touch a narrator the shell has since switched away from. */
+  function afterReviewApplied(pid) {
+    return fetchReview().then(function () {
+      if (pid !== _narrator()) return;          // switched away mid-flight
+      if (typeof window.lvRefreshNarratorChronology === 'function') {
+        return window.lvRefreshNarratorChronology(pid, 'story_reviewed');
+      }
+    });
+  }
+
+  function renderStatusFilters() {
+    const chips = [el('span', { class: 'story-meta' }, ['Status:'])];
+    STATUS_ORDER.forEach(function (st) {
+      const on = _state.statusFilter.indexOf(st) >= 0;
+      const n = (_state.counts && _state.counts[st] != null) ? _state.counts[st] : null;
+      chips.push(el('button', {
+        class: 'story-chip' + (on ? ' story-chip-on' : ''),
+        onclick: function () {
+          const i = _state.statusFilter.indexOf(st);
+          if (i >= 0) _state.statusFilter.splice(i, 1);
+          else _state.statusFilter.push(st);
+          fetchReview();
+        },
+      }, [STATUS_LABELS[st] + (n != null ? ' (' + n + ')' : '')]));
+    });
+    if (_state.projection && _state.projection.counts) {
+      const c = _state.projection.counts;
+      chips.push(el('span', { class: 'story-meta' }, [
+        '· canonical: ' + c.approved + ' approved, ' + c.provisional +
+        ' provisional, ' + c.unplaced + ' unplaced',
+      ]));
+    }
+    return el('div', { class: 'story-chiprow' }, chips);
+  }
+
+  function renderActions(item) {
+    const busy = _state.actionBusy === item.id;
+    function act(label, status, cls) {
+      return el('button', {
+        class: 'story-act' + (cls ? ' ' + cls : ''),
+        disabled: busy ? 'disabled' : undefined,
+        onclick: function () { applyReview(item, { review_status: status }); },
+      }, [label]);
+    }
+    return el('div', { class: 'story-actions' }, [
+      act('Promote', 'promoted', 'story-act-promote'),
+      act('Memoir only', 'memoir_only'),
+      act('Needs review', 'unreviewed'),
+      act('Discard', 'discarded', 'story-act-discard'),
+      el('button', {
+        class: 'story-act',
+        disabled: busy ? 'disabled' : undefined,
+        onclick: function () { applyReview(item, {}); },
+      }, ['Save placement / notes']),
+    ]);
+  }
+
+  function renderEditor(item) {
+    const edit = _edit(item.id);
+    function field(label, key, value, placeholder) {
+      return el('label', { class: 'story-field' }, [
+        el('span', { class: 'story-meta' }, [label]),
+        el('input', {
+          class: 'story-input',
+          type: 'text',
+          value: edit[key] !== undefined ? edit[key] : (value == null ? '' : String(value)),
+          placeholder: placeholder || '',
+          oninput: function (e) { edit[key] = e.target.value; },
+        }),
+      ]);
+    }
+    const sourceSel = el('select', {
+      class: 'story-input',
+      oninput: function (e) { edit.placement_source = e.target.value; },
+    }, ['unknown', 'narrator_stated', 'operator_set', 'dob_derived'].map(function (v) {
+      const cur = edit.placement_source !== undefined
+        ? edit.placement_source : (item.placement_source || 'unknown');
+      return el('option', { value: v, selected: v === cur ? 'selected' : undefined }, [v]);
+    }));
+    return el('div', { class: 'story-editor' }, [
+      field('Eras (comma-separated)', 'era_candidates',
+            (item.era_candidates || []).join(','), 'e.g. building_years'),
+      field('Year from', 'year_low', item.estimated_year_low, 'e.g. 1962'),
+      field('Year to', 'year_high', item.estimated_year_high, 'e.g. 1964'),
+      el('label', { class: 'story-field' }, [
+        el('span', { class: 'story-meta' }, ['Placement source']), sourceSel,
+      ]),
+      field('Private review notes', 'review_notes', item.review_notes,
+            'operator-only; never narrator-visible'),
+    ]);
+  }
+
+  function renderConflict(item) {
+    if (!_state.conflict || _state.conflict.id !== item.id) return null;
+    const cur = _state.conflict.current || {};
+    return el('div', { class: 'story-conflict' }, [
+      el('div', {}, ['⚠ ' + _state.conflict.message]),
+      el('div', { class: 'story-meta' }, [
+        'It is now: ' + (STATUS_LABELS[cur.review_status] || cur.review_status || '?') +
+        ' (version ' + (cur.review_version != null ? cur.review_version : '?') + ').',
+      ]),
+      el('div', { class: 'story-meta' }, [
+        'Your edits are still here. Refresh to see the current version, ' +
+        'then apply again.',
+      ]),
+    ]);
+  }
+
+  function renderDetail(item) {
+    if (_state.openId !== item.id) return null;
+    if (_state.detailBusy) return el('div', { class: 'story-detail' }, ['Loading…']);
+    const d = _state.detail;
+    if (!d) return null;
+    const bits = [
+      el('div', { class: 'story-transcript' }, [d.transcript || '(empty)']),
+    ];
+    if (d.audio_present) {
+      // Presence, never the path -- the archive layout is not the
+      // browser's business.
+      bits.push(el('div', { class: 'story-meta' }, [
+        'audio captured' + (d.audio_duration_sec ? ' (' + d.audio_duration_sec + 's)' : ''),
+      ]));
+    }
+    bits.push(renderEditor(d));
+    bits.push(renderActions(d));
+    const conflict = renderConflict(d);
+    if (conflict) bits.push(conflict);
+    return el('div', { class: 'story-detail' }, bits);
+  }
+
   function renderRow(item) {
     const meta = [];
     meta.push(fmtTriggerBadge(item.trigger_reason));
@@ -170,17 +462,30 @@
       el('span', { class: 'story-time' }, [fmtTime(item.created_at)]),
     ]);
 
-    return el('div', { class: 'story-row' }, [
+    meta.push(el('span', { class: 'story-status story-status-' + (item.review_status || 'unreviewed') }, [
+      STATUS_LABELS[item.review_status] || item.review_status || '?',
+    ]));
+    if (item.placement_source && item.placement_source !== 'unknown') {
+      meta.push(el('span', { class: 'story-meta' }, ['placed=' + item.placement_source]));
+    }
+
+    const kids = [
       headerLine,
       el('div', { class: 'story-meta-line' }, meta),
-      el('div', { class: 'story-preview' }, [previewText || '(empty transcript)']),
-    ]);
+      el('button', {
+        class: 'story-preview story-preview-btn',
+        onclick: function () { openDetail(item.id); },
+      }, [previewText || '(empty transcript)']),
+    ];
+    const detail = renderDetail(item);
+    if (detail) kids.push(detail);
+    return el('div', { class: 'story-row' }, kids);
   }
 
   function renderControls() {
     const refreshBtn = el('button', {
       class: 'story-refresh-btn',
-      onclick: function () { fetchCandidates(); },
+      onclick: function () { fetchReview(); },
     }, ['Refresh']);
 
     const filterInput = el('input', {
@@ -190,12 +495,12 @@
       value: _state.narratorFilter || '',
       oninput: function (e) { _state.narratorFilter = e.target.value; },
       onkeydown: function (e) {
-        if (e.key === 'Enter') { e.preventDefault(); fetchCandidates(); }
+        if (e.key === 'Enter') { e.preventDefault(); fetchReview(); }
       },
     });
 
     return el('div', { class: 'story-controls' }, [
-      filterInput, refreshBtn,
+      filterInput, refreshBtn, renderStatusFilters(),
     ]);
   }
 
@@ -282,7 +587,7 @@
   }
 
   // Public manual-refresh hook so operators can trigger from console.
-  window.lvStoryReviewRefresh = fetchCandidates;
+  window.lvStoryReviewRefresh = fetchReview;
 
   // Auto-load when the Bug Panel becomes visible. Cheap polling-free
   // approach: fire on first DOMContentLoaded + when the bug panel is
@@ -291,8 +596,11 @@
     if (document.getElementById(MOUNT_ID)) {
       // Default the filter to the ACTIVE narrator so old test-narrator
       // candidates don't show by default. Operator can clear it to see all.
+      // Phase 3: current-narrator by default. The review lane is
+      // narrator-scoped by contract, so an unscoped default would be a
+      // cross-narrator read.
       if (!_state.narratorFilter) _state.narratorFilter = _currentPersonId();
-      fetchCandidates();
+      fetchReview();
     }
   }
 
@@ -304,6 +612,6 @@
 
   // Refresh when the window regains focus (cheap freshness signal).
   window.addEventListener('focus', function () {
-    if (_state.enabled !== false) fetchCandidates();
+    if (_state.enabled !== false) fetchReview();
   });
 })();
