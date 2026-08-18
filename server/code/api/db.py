@@ -12,7 +12,7 @@ import types
 import uuid
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 logger = logging.getLogger(__name__)
 
@@ -6687,6 +6687,17 @@ _VALID_CONFIDENCE = ("low", "medium", "high")
 _VALID_EXTRACTION_STATUS = ("pending", "partial", "complete", "failed")
 _VALID_REVIEW_STATUS = ("unreviewed", "in_review", "promoted", "discarded", "memoir_only")
 
+# WHICH review statuses carry a story forward, defined ONCE.
+# `story_candidate_list_for_memoir` below and
+# `services/story_projection.py` both read these, so the export gate and
+# the Life Map cannot drift apart on what "approved" means.
+#
+# The two sets differ by exactly `memoir_only`, which is the operator
+# saying: these are the narrator's words and they belong in the memoir,
+# but do not promote what the extractor made of them.
+STORY_MEMOIR_ELIGIBLE = ("promoted", "memoir_only")
+STORY_FACTS_ELIGIBLE = ("promoted",)
+
 
 def _row_to_story_candidate(row: sqlite3.Row) -> Dict[str, Any]:
     """Inflate a story_candidates row to a Dict, hydrating JSON columns
@@ -6904,9 +6915,10 @@ def story_candidate_list_for_memoir(narrator_id: str) -> List[Dict[str, Any]]:
         rows = con.execute(
             "SELECT * FROM story_candidates "
             "WHERE narrator_id = ? "
-            "  AND review_status IN ('promoted', 'memoir_only') "
+            "  AND review_status IN (" +
+            ",".join("?" for _ in STORY_MEMOIR_ELIGIBLE) + ") "
             "ORDER BY created_at ASC",
-            (narrator_id,),
+            (narrator_id, *STORY_MEMOIR_ELIGIBLE),
         ).fetchall()
         return [_row_to_story_candidate(r) for r in rows]
     finally:
@@ -7054,6 +7066,288 @@ def story_candidate_update_review(
         except Exception:
             pass
         raise
+    finally:
+        con.close()
+
+
+# ── WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 3, Commit A ────────────
+#
+# Server-authoritative story review. Everything above this block writes a
+# story candidate WITHOUT concurrency control: `story_candidate_update_review`
+# has no version check, no row-existence check and no narrator check, so a
+# bad id silently updates nothing and two operators silently overwrite each
+# other. It is retained (tests reference it) and is no longer the review path.
+
+_VALID_PLACEMENT_SOURCE = ("unknown", "narrator_stated", "operator_set", "dob_derived")
+
+# The transitions the review contract accepts. `unreviewed` and `in_review`
+# are the provisional states; the other three are terminal decisions the
+# operator can still change their mind about.
+_REVIEW_TRANSITIONS = ("unreviewed", "in_review", "promoted", "memoir_only", "discarded")
+
+
+class StoryCandidateNotFound(Exception):
+    """No such candidate for this narrator.
+
+    Deliberately does NOT distinguish "no such row" from "belongs to a
+    different narrator". Telling a caller which of the two it was would
+    confirm the existence of another narrator's candidate to somebody
+    who supplied its id.
+    """
+
+
+class StoryReviewConflict(Exception):
+    """The observed review_version is stale; someone else wrote first.
+
+    Carries the CURRENT record so the caller can show the operator what
+    changed without a second round trip -- and, more importantly, so the
+    UI can refuse to discard the operator's typed edit while telling them
+    it could not be saved.
+    """
+
+    def __init__(self, candidate_id: str, expected: int, actual: int, current: Dict[str, Any]):
+        self.candidate_id = candidate_id
+        self.expected = expected
+        self.actual = actual
+        self.current = current
+        super().__init__(
+            f"story {candidate_id} was reviewed by someone else "
+            f"(you saw version {expected}, it is now {actual})"
+        )
+
+
+def story_candidate_review_apply(
+    candidate_id: str,
+    narrator_id: str,
+    expected_version: int,
+    *,
+    review_status: Optional[str] = None,
+    review_notes: Optional[str] = None,
+    reviewed_by: Optional[str] = None,
+    era_candidates: Optional[List[str]] = None,
+    estimated_year_low: Optional[int] = None,
+    estimated_year_high: Optional[int] = None,
+    placement_source: Optional[str] = None,
+    confidence: Optional[str] = None,
+    clear_year_range: bool = False,
+) -> Dict[str, Any]:
+    """Apply one operator review action atomically. Returns the new row.
+
+    THE CONTRACT, and every clause of it is load-bearing:
+
+    * **Candidate id AND narrator id are both required.** The narrator is
+      part of the WHERE clause, not merely validated beforehand, so a
+      review can never land on another narrator's candidate even if the
+      caller's own scoping is wrong.
+    * **The observed `review_version` is compared and incremented inside
+      ONE transaction.** `BEGIN IMMEDIATE` takes the write lock before the
+      read, so the compare and the write cannot be interleaved by a second
+      writer. A stale version raises `StoryReviewConflict` and writes
+      nothing.
+    * **The preserved narrator transcript is never touched.** `transcript`,
+      `audio_clip_path`, `scene_anchors`, `word_count` and the capture
+      metadata are absent from the SET list by construction, not by a
+      caller remembering to leave them out.
+    * **Extraction cannot approve a story.** `extracted_fields` and
+      `extraction_status` are likewise absent. Extraction writes through
+      `story_candidate_update_extraction`; approval is a human act.
+
+    Omitted arguments are LEFT ALONE. That matters here in a way it did
+    not for the older accessor: `story_candidate_update_review` wrote
+    `review_notes` and `reviewed_by` unconditionally, so a caller that
+    only wanted to change the status silently erased the reviewer's notes.
+
+    `clear_year_range` exists because `None` already means "leave alone",
+    so there would otherwise be no way to say "this story has no year
+    after all" -- and an operator who mis-dated a story must be able to
+    take the date back off rather than only replace it.
+    """
+    init_db()
+    if not (candidate_id or "").strip():
+        raise ValueError("candidate_id required")
+    if not (narrator_id or "").strip():
+        raise ValueError("narrator_id required")
+    try:
+        expected = int(expected_version)
+    except (TypeError, ValueError):
+        raise ValueError("expected_version must be an integer")
+
+    if review_status is not None and review_status not in _REVIEW_TRANSITIONS:
+        raise ValueError(f"invalid review_status: {review_status!r}")
+    if placement_source is not None and placement_source not in _VALID_PLACEMENT_SOURCE:
+        raise ValueError(f"invalid placement_source: {placement_source!r}")
+    if confidence is not None and confidence not in _VALID_CONFIDENCE:
+        raise ValueError(f"invalid confidence: {confidence!r}")
+
+    con = _connect()
+    try:
+        # The write lock is taken FIRST. A deferred transaction would read
+        # the version, then upgrade to a write lock, and lose a race it
+        # could not detect.
+        con.execute("BEGIN IMMEDIATE;")
+        row = con.execute(
+            "SELECT * FROM story_candidates WHERE id=? AND narrator_id=?;",
+            (candidate_id, narrator_id),
+        ).fetchone()
+        if row is None:
+            con.rollback()
+            raise StoryCandidateNotFound(candidate_id)
+        current_version = int(row["review_version"] or 1)
+        if current_version != expected:
+            current = _row_to_story_candidate(row)
+            con.rollback()
+            raise StoryReviewConflict(candidate_id, expected, current_version, current)
+
+        sets: List[str] = []
+        params: List[Any] = []
+        if review_status is not None:
+            sets.append("review_status = ?")
+            params.append(review_status)
+            # `reviewed_at` marks the last REVIEW DECISION, so it moves
+            # only when the status moves -- a placement correction is not
+            # a new decision about the story.
+            sets.append("reviewed_at = ?")
+            params.append(_now_iso())
+        if review_notes is not None:
+            sets.append("review_notes = ?")
+            params.append(review_notes)
+        if reviewed_by is not None:
+            sets.append("reviewed_by = ?")
+            params.append(reviewed_by)
+        if era_candidates is not None:
+            sets.append("era_candidates = ?")
+            params.append(_json_dump(list(era_candidates)))
+        if clear_year_range:
+            sets.append("estimated_year_low = NULL")
+            sets.append("estimated_year_high = NULL")
+        else:
+            if estimated_year_low is not None:
+                sets.append("estimated_year_low = ?")
+                params.append(int(estimated_year_low))
+            if estimated_year_high is not None:
+                sets.append("estimated_year_high = ?")
+                params.append(int(estimated_year_high))
+        if placement_source is not None:
+            sets.append("placement_source = ?")
+            params.append(placement_source)
+        if confidence is not None:
+            sets.append("confidence = ?")
+            params.append(confidence)
+
+        # The version and the timestamp move on EVERY applied action,
+        # including one that only edited a note -- otherwise a second
+        # operator's stale save would be accepted because nothing they
+        # could observe had changed.
+        sets.append("review_version = review_version + 1")
+        sets.append("updated_at = ?")
+        params.append(_now_iso())
+
+        params.extend([candidate_id, narrator_id, expected])
+        cur = con.execute(
+            f"UPDATE story_candidates SET {', '.join(sets)} "
+            "WHERE id=? AND narrator_id=? AND review_version=?;",
+            params,
+        )
+        if cur.rowcount != 1:
+            # Belt and braces: the SELECT above already proved the row and
+            # the version, and BEGIN IMMEDIATE holds the write lock, so
+            # this is unreachable by concurrency. It is kept because a
+            # silent zero-row UPDATE is the failure mode of the accessor
+            # this one replaces.
+            con.rollback()
+            raise StoryReviewConflict(candidate_id, expected, current_version, _row_to_story_candidate(row))
+        fresh = con.execute(
+            "SELECT * FROM story_candidates WHERE id=? AND narrator_id=?;",
+            (candidate_id, narrator_id),
+        ).fetchone()
+        con.commit()
+        return _row_to_story_candidate(fresh)
+    except Exception:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
+
+
+def story_candidate_get_for_narrator(candidate_id: str, narrator_id: str) -> Optional[Dict[str, Any]]:
+    """One candidate, scoped to its narrator. None when it is not theirs."""
+    init_db()
+    if not (candidate_id or "").strip() or not (narrator_id or "").strip():
+        return None
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT * FROM story_candidates WHERE id=? AND narrator_id=?;",
+            (candidate_id, narrator_id),
+        ).fetchone()
+        return _row_to_story_candidate(row) if row else None
+    finally:
+        con.close()
+
+
+def story_candidate_list_for_review(
+    narrator_id: str,
+    *,
+    statuses: Optional[Sequence[str]] = None,
+    limit: int = 100,
+) -> List[Dict[str, Any]]:
+    """Narrator-scoped review list, optionally filtered by review status.
+
+    Distinct from `story_candidate_list_unreviewed`, which is hard-wired
+    to `unreviewed` -- so a candidate vanished from the operator's only
+    list the moment they acted on it, and there was no way back to it.
+    """
+    init_db()
+    if not (narrator_id or "").strip():
+        return []
+    limit = max(1, min(int(limit or 100), 500))
+    wanted = [s for s in (statuses or ()) if s in _VALID_REVIEW_STATUS]
+    con = _connect()
+    try:
+        if wanted:
+            placeholders = ",".join("?" for _ in wanted)
+            rows = con.execute(
+                f"SELECT * FROM story_candidates WHERE narrator_id=? "
+                f"AND review_status IN ({placeholders}) "
+                "ORDER BY created_at DESC, id DESC LIMIT ?;",
+                [narrator_id, *wanted, limit],
+            ).fetchall()
+        else:
+            rows = con.execute(
+                "SELECT * FROM story_candidates WHERE narrator_id=? "
+                "ORDER BY created_at DESC, id DESC LIMIT ?;",
+                (narrator_id, limit),
+            ).fetchall()
+        return [_row_to_story_candidate(r) for r in rows]
+    finally:
+        con.close()
+
+
+def story_candidate_status_counts(narrator_id: str) -> Dict[str, int]:
+    """Per-status totals for one narrator, every status present as a key.
+
+    Every valid status is returned even at zero. A missing key and a zero
+    read the same way to a careless renderer, and "this narrator has no
+    discarded stories" is a different statement from "I did not look".
+    """
+    init_db()
+    out = {status: 0 for status in _VALID_REVIEW_STATUS}
+    if not (narrator_id or "").strip():
+        return out
+    con = _connect()
+    try:
+        for row in con.execute(
+            "SELECT review_status, COUNT(*) AS n FROM story_candidates "
+            "WHERE narrator_id=? GROUP BY review_status;",
+            (narrator_id,),
+        ).fetchall():
+            status = (row["review_status"] or "").strip()
+            if status in out:
+                out[status] += int(row["n"])
+        return out
     finally:
         con.close()
 

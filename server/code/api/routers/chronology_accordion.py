@@ -29,6 +29,7 @@ from ..db import (
 from ..flags import truth_v2_enabled
 from ..life_spine import derive_life_spine
 from ..lv_eras import LV_ERAS, legacy_key_to_era_id
+from ..services import story_projection
 
 logger = logging.getLogger("chronology_accordion")
 
@@ -303,70 +304,56 @@ def _collect_timeline_events(person_id: str) -> _LaneResult:
     return _LaneResult(items, _LANE_READ)
 
 
-# Review status -> the three-way status the Life Map renders. Explicit
-# rather than a truthiness test, because "provisional" and "derived" are
-# different claims and collapsing them would overstate the second.
-_STORY_STATUS = {
-    "promoted": "approved",
-    "memoir_only": "approved",
-    "in_review": "provisional",
-    "unreviewed": "provisional",
-    "discarded": "discarded",
-}
+# WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 3, Commit A (2026-08-17).
+#
+# `_STORY_STATUS` and the stated/derived rule USED TO LIVE HERE. They were
+# one of four separate interpretations of `review_status` in this
+# repository, and the duplication is what Phase 3 removes: the canonical
+# reading now lives in `services/story_projection.py` and this lane
+# consumes it, so the Life Map, the memoir, Lori and the operator surface
+# cannot disagree about whether a story is approved.
+#
+# The retired rule is quoted rather than deleted, because it is the reason
+# the `placement_source` column exists:
+#
+#     placement = "stated" if year_low and r["confidence"] == "high" else "derived"
+#
+# That inferred PROVENANCE from CONFIDENCE. Confidence is set at capture
+# time from the trigger heuristic and says nothing about who decided when
+# a story happened -- and since nothing ever set it above "medium", the
+# expression could only ever return "derived". Provenance is now recorded
+# rather than guessed, and an unrecorded placement reports `unplaced`.
 
 
 def _collect_story_evidence(person_id: str) -> _LaneResult:
-    """Captured stories, carrying approved / provisional / derived status."""
-    try:
-        con = db._connect()
-    except Exception as exc:
-        logger.info(
-            "chronology: story_evidence lane unavailable for %s (no connection): %s",
-            person_id, exc,
-        )
+    """Captured stories, carrying approved / provisional status.
+
+    A thin adapter over the canonical projection. It maps the projection's
+    lane status onto this module's `_LaneResult` and adds the two keys the
+    accordion payload has always carried (`excerpt`, `extraction_status`);
+    it makes no judgement of its own about any story.
+    """
+    projection = story_projection.project_stories(person_id)
+    if projection.status != "read":
         return _LaneResult([], _LANE_UNAVAILABLE)
-    try:
-        rows = con.execute(
-            "SELECT id, created_at, transcript, era_candidates, estimated_year_low, "
-            "estimated_year_high, confidence, review_status, extraction_status, "
-            "word_count FROM story_candidates WHERE narrator_id=? ORDER BY created_at;",
-            (person_id,),
-        ).fetchall()
-    except Exception as exc:
-        logger.info("chronology: story_evidence lane skipped for %s: %s", person_id, exc)
-        return _LaneResult([], _LANE_UNAVAILABLE)
-    finally:
-        con.close()
 
     items: List[Dict[str, Any]] = []
-    for r in rows:
-        review = (r["review_status"] or "unreviewed").strip()
-        status = _STORY_STATUS.get(review, "provisional")
-        if status == "discarded":
-            continue
-        try:
-            eras = json.loads(r["era_candidates"] or "[]")
-        except (ValueError, TypeError):
-            eras = []
-        year_low = r["estimated_year_low"]
-        # A year the narrator never stated is DERIVED, and says so. This
-        # is the difference between "they told us" and "we worked it out
-        # from a date of birth", which the Life Map must not blur.
-        placement = "stated" if year_low and r["confidence"] == "high" else "derived"
+    for row in projection.items:
         items.append({
-            "id": r["id"],
-            "year": year_low,
-            "year_high": r["estimated_year_high"],
-            "era_candidates": eras if isinstance(eras, list) else [],
-            "excerpt": (r["transcript"] or "")[:280],
-            "word_count": r["word_count"],
+            "id": row["id"],
+            "year": row.get("year"),
+            "year_high": row.get("year_high"),
+            "era_candidates": row.get("era_candidates") or [],
+            "excerpt": row.get("excerpt") or "",
+            "word_count": row.get("word_count"),
             "lane": "story",
             "source": "story_candidates",
-            "status": status,
-            "review_status": review,
-            "extraction_status": r["extraction_status"] or "pending",
-            "placement": placement,
-            "confidence": r["confidence"] or "low",
+            "status": row["status"],
+            "review_status": row["review_status"],
+            "extraction_status": row.get("extraction_status") or "pending",
+            "placement": row["placement"],
+            "placement_source": row.get("placement_source") or "unknown",
+            "confidence": row.get("confidence") or "low",
         })
     return _LaneResult(items, _LANE_READ)
 

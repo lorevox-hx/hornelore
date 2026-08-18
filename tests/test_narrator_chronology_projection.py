@@ -424,15 +424,53 @@ class StoryEvidenceCarriesItsStatus(_DbBase):
         self._add_story(review="discarded")
         self.assertEqual(self._get().json()["story_evidence"], [])
 
-    def test_a_worked_out_year_is_labelled_derived_not_stated(self):
-        # The difference between "they told us" and "we computed it from a
-        # date of birth" must not be blurred.
-        self._add_story(confidence="low")
-        self.assertEqual(self._get().json()["story_evidence"][0]["placement"], "derived")
+    def test_an_unrecorded_placement_is_labelled_unplaced(self):
+        """NARROWED 2026-08-17 by Phase 3, Commit A.
 
-    def test_a_high_confidence_year_is_labelled_stated(self):
+        This test read:
+
+            def test_a_worked_out_year_is_labelled_derived_not_stated(self):
+                self._add_story(confidence="low")
+                self.assertEqual(..."placement"], "derived")
+
+        The property it guarded — *the difference between "they told us"
+        and "we computed it from a date of birth" must not be blurred* —
+        is UNCHANGED and is now guarded harder. What changed is the
+        mechanism: `derived` was produced by a heuristic
+        (`year_low and confidence == "high"` → stated, else derived) that
+        inferred PROVENANCE from CONFIDENCE. Confidence is set at capture
+        time by the trigger heuristic and says nothing about who decided
+        when a story happened.
+
+        Provenance is now recorded in `placement_source`, and a story
+        whose placement nobody recorded reports `unplaced` rather than
+        claiming to have been worked out from anything.
+        """
+        self._add_story(confidence="low")
+        self.assertEqual(
+            self._get().json()["story_evidence"][0]["placement"], "unplaced")
+
+    def test_high_confidence_alone_does_not_make_a_placement_stated(self):
+        """NARROWED 2026-08-17 by Phase 3, Commit A.
+
+        This test read:
+
+            def test_a_high_confidence_year_is_labelled_stated(self):
+                self._add_story(confidence="high")
+                self.assertEqual(..."placement"], "stated")
+
+        It asserted the retired heuristic directly, and it is now
+        INVERTED on purpose: confidence is not provenance, so a
+        high-confidence capture with no recorded placement source is
+        `unplaced`. The retired rule could in fact never fire in
+        production — nothing sets confidence above `medium` — so this
+        test was passing only against hand-written fixture rows.
+        """
         self._add_story(confidence="high")
-        self.assertEqual(self._get().json()["story_evidence"][0]["placement"], "stated")
+        body = self._get().json()["story_evidence"][0]
+        self.assertEqual(body["confidence"], "high")
+        self.assertEqual(body["placement_source"], "unknown")
+        self.assertEqual(body["placement"], "unplaced")
 
     def test_the_excerpt_is_bounded(self):
         self.assertLessEqual(
