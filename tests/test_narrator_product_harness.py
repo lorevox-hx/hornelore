@@ -206,18 +206,27 @@ class RunnerOfflineTest(unittest.TestCase):
             )
 
     def test_references_resolve_before_any_synthetic_creation(self):
+        """A HARD reference failure still precedes any synthetic creation.
+
+        NARROWED 2026-08-17. This previously stood for "any reference
+        problem aborts the run", because absence and misclassification
+        raised alike. Absence is now `not_applicable` and the run
+        continues, so the property this test still guards is the one that
+        matters: a reference failure that IS fatal happens before a
+        writable row exists, and therefore cannot strand one.
+        """
         manifest = self.module._validate_manifest(_load(PERSONAS))
-        created = []
+        created, unavailable = [], {}
         with mock.patch.object(self.module, "_people", return_value=[]), \
              mock.patch.object(
                  self.module, "_find_reference",
-                 side_effect=self.module.HarnessError("missing reference"),
+                 side_effect=self.module.HarnessError("ambiguous reference"),
              ), \
              mock.patch.object(self.module, "_create_synthetic") as create:
             with self.assertRaises(self.module.HarnessError):
                 self.module._resolve_live_people(
                     "http://unused", ["tomasita", "shatner"],
-                    manifest, "run123", created,
+                    manifest, "run123", created, unavailable,
                 )
         create.assert_not_called()
         self.assertEqual(created, [])
@@ -240,6 +249,154 @@ class RunnerOfflineTest(unittest.TestCase):
         self.assertEqual(len(created), 1)
         self.assertEqual(created[0]["id"], "exact-new-uuid")
         self.assertTrue(created[0]["display_name"].startswith("HARNESS PRODUCT DELME "))
+
+
+class ReferenceAvailabilityTest(unittest.TestCase):
+    """Absent reference personas are N/A; ambiguous or misclassified ones fail.
+
+    A reference narrator that was soft-deleted months ago is a fact about
+    the database, not a fault in the harness. Raising on it made an
+    unrelated data-state decision look like a harness failure AND took the
+    writable synthetic coverage down with it. The two cases that still
+    raise are the ones where continuing would be dishonest rather than
+    merely limited.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("harness_refs", RUNNER)
+        assert spec and spec.loader
+        cls.module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.module)
+        cls.manifest = cls.module._validate_manifest(_load(PERSONAS))
+
+    def _persona(self, key="shatner"):
+        return self.manifest[key]
+
+    # ── N/A, not failure ──────────────────────────────────────────────
+    def test_an_absent_reference_is_not_applicable(self):
+        row, status = self.module._find_reference(self._persona(), [])
+        self.assertIsNone(row)
+        self.assertEqual(status, "not_applicable")
+
+    def test_a_soft_deleted_reference_is_not_applicable(self):
+        # /api/people excludes soft-deleted rows, so a soft-deleted
+        # narrator reaches the harness as an empty match list. Same input,
+        # same answer -- and deliberately so.
+        row, status = self.module._find_reference(
+            self._persona(), [{"id": "x", "display_name": "Someone Else",
+                               "narrator_type": "live"}])
+        self.assertIsNone(row)
+        self.assertEqual(status, "not_applicable")
+
+    def test_a_present_reference_still_resolves(self):
+        name = self._persona()["lookup_names"][0]
+        row, status = self.module._find_reference(
+            self._persona(),
+            [{"id": "ref-1", "display_name": name, "narrator_type": "reference"}])
+        self.assertEqual(status, "resolved")
+        self.assertEqual(row["id"], "ref-1")
+
+    # ── hard failures ─────────────────────────────────────────────────
+    def test_duplicate_active_matches_are_a_hard_failure(self):
+        name = self._persona()["lookup_names"][0]
+        rows = [{"id": "a", "display_name": name, "narrator_type": "reference"},
+                {"id": "b", "display_name": name, "narrator_type": "reference"}]
+        with self.assertRaises(self.module.HarnessError) as ctx:
+            self.module._find_reference(self._persona(), rows)
+        self.assertIn("refusing to guess", str(ctx.exception))
+
+    def test_a_matching_non_reference_narrator_is_a_hard_failure(self):
+        name = self._persona()["lookup_names"][0]
+        with self.assertRaises(self.module.HarnessError) as ctx:
+            self.module._find_reference(
+                self._persona(),
+                [{"id": "live-1", "display_name": name, "narrator_type": "live"}])
+        self.assertIn("not 'reference'", str(ctx.exception))
+
+    # ── the writable personas carry on ────────────────────────────────
+    def test_absent_references_do_not_stop_synthetic_resolution(self):
+        created, unavailable = [], {}
+        with mock.patch.object(self.module, "_people", return_value=[]), \
+             mock.patch.object(
+                 self.module, "_create_synthetic",
+                 side_effect=lambda a, p, r, sink: {"id": "syn-" + p["key"],
+                                                    "display_name": "x"}):
+            rows = self.module._resolve_live_people(
+                "http://unused", ["shatner", "dolly", "tomasita", "alex"],
+                self.manifest, "run123", created, unavailable,
+            )
+        self.assertEqual(sorted(rows), ["alex", "tomasita"])
+        self.assertEqual(sorted(unavailable), ["dolly", "shatner"])
+        for reason in unavailable.values():
+            self.assertIn("soft deletion is respected", reason)
+
+    def test_an_absent_reference_is_never_recreated(self):
+        """The rule this correction must not quietly break."""
+        created, unavailable = [], {}
+        with mock.patch.object(self.module, "_people", return_value=[]), \
+             mock.patch.object(self.module, "_create_synthetic") as create:
+            self.module._resolve_live_people(
+                "http://unused", ["shatner", "dolly"],
+                self.manifest, "run123", created, unavailable,
+            )
+        create.assert_not_called()
+        self.assertEqual(created, [])
+
+    # ── three-state reporting ─────────────────────────────────────────
+    def test_product_read_reports_not_applicable_and_still_reads_synthetics(self):
+        calls = []
+
+        def fake_http(api, method, path, **kw):
+            calls.append(path)
+            return 200, {"person_id": "syn-tomasita"}
+
+        with mock.patch.object(self.module, "_http_json", side_effect=fake_http):
+            results = self.module._run_product_reads(
+                ["shatner", "tomasita"], self.manifest,
+                {"tomasita": {"id": "syn-tomasita"}}, "http://unused",
+                {"shatner": "reference narrator not present in this database"},
+            )
+        by_key = {row["persona"]: row for row in results}
+        self.assertFalse(by_key["shatner"]["applicable"])
+        self.assertTrue(by_key["tomasita"]["applicable"])
+        # The unavailable reference contributed no HTTP traffic...
+        self.assertTrue(all("syn-tomasita" in p for p in calls))
+        # ...and the writable persona was genuinely read.
+        self.assertEqual(len(calls), 3)
+
+    def test_the_three_states_are_counted_apart(self):
+        rows = [
+            {"persona": "shatner", "applicable": False, "pass": True},
+            {"persona": "tomasita", "applicable": True, "pass": True},
+            {"persona": "alex", "applicable": True, "pass": False},
+        ]
+        applicable = [r for r in rows if r.get("applicable")]
+        summary = {
+            "total": len(applicable),
+            "passed": sum(1 for r in applicable if r["pass"]),
+            "failed": sum(1 for r in applicable if not r["pass"]),
+            "not_applicable": len(rows) - len(applicable),
+        }
+        # `total` is the APPLICABLE total, so an N/A run cannot report
+        # itself as complete by shrinking its own denominator.
+        self.assertEqual(summary, {"total": 2, "passed": 1, "failed": 1,
+                                   "not_applicable": 1})
+
+    def test_an_unavailable_persona_never_scores_as_a_pass(self):
+        # A gate must not be able to read "all passed" from cases nobody
+        # ran, so an N/A extraction case carries pass=False AND
+        # applicable=False -- it is excluded from the denominator rather
+        # than counted as success.
+        results = self.module._run_extraction_cases(
+            [{"id": "xcore_001", "persona": "shatner", "answer": "x",
+              "truthZones": [], "context": {}}],
+            {}, mode="live", api_base="http://unused",
+        )
+        self.assertEqual(len(results), 1)
+        self.assertFalse(results[0]["applicable"])
+        self.assertFalse(results[0]["pass"])
+        self.assertEqual(results[0]["method"], "not_applicable")
 
 
 if __name__ == "__main__":

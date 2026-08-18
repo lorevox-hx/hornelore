@@ -81,11 +81,41 @@ PYTHONPATH=server/code .venv/bin/python -m unittest \
   tests.test_narrator_product_harness
 ```
 
+## Reference availability — three states, not two
+
+*Corrected 2026-08-17. This section previously said the reference narrators
+"must already exist"; absence was a runtime failure that also took the writable
+synthetic coverage down with it.*
+
+A reference persona resolves to one of three outcomes:
+
+| Outcome | When | Effect |
+|---|---|---|
+| **resolved** | exactly one active match, `narrator_type='reference'` | the persona runs |
+| **not_applicable** | no active match — absent, or **soft-deleted** | reported `N/A`; the run continues with Tomasita and Alex |
+| **hard failure** | two or more active matches, or a single match that is **not** a reference narrator | the run stops |
+
+`/api/people` excludes soft-deleted rows, so "absent" and "soft-deleted" arrive
+here identically — and they mean the same thing to a harness: not available.
+**Soft deletion is a decision and this harness respects it. Shatner and Dolly
+are never restored, recreated, or converted to writable narrators.**
+
+The two hard failures are the cases where continuing would be *dishonest*
+rather than merely limited: with two active matches the harness would be
+guessing which narrator it read, and a matching non-reference narrator would
+mean silently exercising a live narrator through a read-only contract.
+
+Reports and the console distinguish **passed**, **failed** and
+**not_applicable**. `total` counts only the applicable rows, so a run whose
+references were unavailable reports what it actually exercised instead of
+shrinking its denominator to look complete. An unavailable extraction case
+carries `pass: false` as well as `applicable: false`, so a gate can never read
+"all passed" from cases nobody ran.
+
 ## Live direct extraction
 
-Chris starts the stack. The two reference narrators must already exist exactly
-once and be classified as `reference`. The runner creates and cleans Tomasita
-and Alex itself.
+Chris starts the stack. The runner creates and cleans Tomasita and Alex itself;
+the reference personas are read-only and report `N/A` when unavailable.
 
 ```bash
 PYTHONPATH=server/code .venv/bin/python \

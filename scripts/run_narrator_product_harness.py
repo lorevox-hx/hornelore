@@ -100,17 +100,55 @@ def _people(api_base: str) -> List[Dict[str, Any]]:
     return [dict(row) for row in body.get("people", []) if isinstance(row, dict)]
 
 
-def _find_reference(persona: Mapping[str, Any], people: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
+def _find_reference(
+    persona: Mapping[str, Any], people: Sequence[Mapping[str, Any]]
+) -> Tuple[Optional[Dict[str, Any]], str]:
+    """Resolve a reference persona to `(row, status)`.
+
+    THREE OUTCOMES, and the distinction between them is the point.
+
+    * **resolved** — exactly one active match, and it really is a
+      `reference` narrator.
+    * **not_applicable** — NO active match. The narrator is absent from
+      this database, or it is soft-deleted (`/api/people` excludes
+      soft-deleted rows, so the two look identical from here, and they
+      mean the same thing for a harness: not available). This is a STATE,
+      not a failure. It must not stop the writable synthetic personas
+      from running, and it must never tempt anyone into recreating the
+      reference narrator — **soft deletion is a decision and this harness
+      respects it.**
+    * **HarnessError** — the two cases where continuing would be
+      dishonest rather than merely limited:
+        - two or more ACTIVE matches, because the harness would then be
+          guessing which narrator it is reading;
+        - exactly one match that is NOT a reference narrator, because
+          reading it would silently exercise a live narrator through a
+          read-only persona's contract.
+
+    Returning a status instead of raising on absence is the whole of this
+    correction. Raising made an unrelated data-state decision — somebody
+    soft-deleting a reference narrator months ago — look like a harness
+    failure, and it took the writable coverage down with it.
+    """
     names = {str(name).strip().casefold() for name in persona.get("lookup_names", [])}
-    matches = [dict(row) for row in people if str(row.get("display_name") or "").strip().casefold() in names]
-    if len(matches) != 1:
+    matches = [
+        dict(row) for row in people
+        if str(row.get("display_name") or "").strip().casefold() in names
+    ]
+    if not matches:
+        return None, "not_applicable"
+    if len(matches) > 1:
         raise HarnessError(
-            f"reference {persona['key']} requires exactly one matching person; found {len(matches)}"
+            f"reference {persona['key']} matched {len(matches)} active narrators; "
+            "refusing to guess which one to read"
         )
     row = matches[0]
     if str(row.get("narrator_type") or "live").lower() != "reference":
-        raise HarnessError(f"{persona['key']} exists but narrator_type is not reference")
-    return row
+        raise HarnessError(
+            f"{persona['key']} matched an active narrator whose narrator_type is "
+            f"{row.get('narrator_type')!r}, not 'reference'"
+        )
+    return row, "resolved"
 
 
 def _create_synthetic(
@@ -238,7 +276,19 @@ def _run_extraction_cases(
         else:
             person = person_rows.get(str(case.get("persona")))
             if not person or not person.get("id"):
-                raise HarnessError(f"no resolved person for {case.get('persona')}")
+                # The persona is unavailable in this database (see
+                # _find_reference). The case is NOT run and is NOT counted
+                # as passing -- it is reported as not applicable, so a gate
+                # can never read "all passed" from cases nobody executed.
+                results.append({
+                    "id": case.get("id"), "persona": case.get("persona"),
+                    "applicable": False, "pass": False, "score": None,
+                    "method": "not_applicable",
+                    "error": "persona unavailable in this database",
+                })
+                print(f"N/A   {case.get('id')} {case.get('persona')} "
+                      "(persona unavailable)")
+                continue
             status, body = _http_json(
                 api_base, "POST", "/api/extract-fields",
                 payload=_context_payload(case, str(person["id"])), timeout=320,
@@ -281,10 +331,24 @@ def _run_product_reads(
     personas: Mapping[str, Mapping[str, Any]],
     person_rows: Mapping[str, Mapping[str, Any]],
     api_base: str,
+    unavailable: Mapping[str, str],
 ) -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
     for key in selected:
-        row = person_rows[key]
+        row = person_rows.get(key)
+        if row is None:
+            # An unavailable reference is N/A, not a failure, and the run
+            # carries on with the writable synthetic personas.
+            results.append({
+                "persona": key,
+                "kind": personas[key]["kind"],
+                "applicable": False,
+                "pass": True,
+                "reason": unavailable.get(
+                    key, "persona not resolved in this database"),
+            })
+            print(f"N/A   product-read {key} ({personas[key]['kind']})")
+            continue
         pid = str(row["id"])
         checks: Dict[str, Any] = {}
         for name, path in (
@@ -300,7 +364,8 @@ def _run_product_reads(
             }
         passed = all(v["status"] == 200 and v["person_id_match"] for v in checks.values())
         kind = personas[key]["kind"]
-        result = {"persona": key, "kind": kind, "pass": passed, "checks": checks}
+        result = {"persona": key, "kind": kind, "applicable": True,
+                  "pass": passed, "checks": checks}
         results.append(result)
         print(f"{'PASS' if passed else 'FAIL'} product-read {key} ({kind})")
     return results
@@ -426,15 +491,31 @@ def _resolve_live_people(
     personas: Mapping[str, Mapping[str, Any]],
     run_id: str,
     created_sink: List[Dict[str, Any]],
+    unavailable_sink: Dict[str, str],
 ) -> Dict[str, Dict[str, Any]]:
     listed = _people(api_base)
     resolved: Dict[str, Dict[str, Any]] = {}
-    # Resolve every read-only dependency before creating anything. A missing
-    # or misclassified reference therefore cannot leave a synthetic row.
+    # Resolve every read-only dependency before creating anything. A
+    # MISCLASSIFIED or AMBIGUOUS reference still raises here, and it raises
+    # before any synthetic row exists -- so a genuine contract violation
+    # cannot leave a writable narrator behind.
+    #
+    # An ABSENT reference no longer raises. It is recorded as unavailable
+    # and the run continues with the writable personas, because "this
+    # database does not have that reference narrator" is a fact about the
+    # database, not a fault in the harness.
     for key in selected:
         persona = personas[key]
         if persona["kind"] == "reference":
-            resolved[key] = _find_reference(persona, listed)
+            row, status = _find_reference(persona, listed)
+            if row is not None:
+                resolved[key] = row
+            else:
+                unavailable_sink[key] = (
+                    "reference narrator not present in this database "
+                    "(absent or soft-deleted); soft deletion is respected and "
+                    "the narrator is NOT recreated"
+                )
     for key in selected:
         persona = personas[key]
         if persona["kind"] == "synthetic_writable":
@@ -500,6 +581,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     cleanup: List[Dict[str, Any]] = []
     cleanup_errors: List[str] = []
     diag: Any = None
+    unavailable: Dict[str, str] = {}
     results: List[Dict[str, Any]] = []
     summary: Dict[str, Any] = {}
     runtime_error = ""
@@ -520,16 +602,25 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 ]
             person_rows = _resolve_live_people(
                 args.api, resolve_selected, personas, run_id, created,
+                unavailable,
             )
             diag_status, diag_body = _http_json(args.api, "GET", "/api/extract-diag", timeout=20)
             diag = diag_body if diag_status == 200 else {"http_status": diag_status}
 
         if args.scenario == "product-read":
-            results = _run_product_reads(selected, personas, person_rows, args.api)
+            results = _run_product_reads(
+                selected, personas, person_rows, args.api, unavailable,
+            )
+            # Three states, counted apart. `total` is the APPLICABLE total,
+            # so a run whose references are unavailable reports what it
+            # actually exercised instead of quietly shrinking its own
+            # denominator to look complete.
+            applicable = [row for row in results if row.get("applicable")]
             summary = {
-                "total": len(results),
-                "passed": sum(1 for row in results if row["pass"]),
-                "failed": sum(1 for row in results if not row["pass"]),
+                "total": len(applicable),
+                "passed": sum(1 for row in applicable if row["pass"]),
+                "failed": sum(1 for row in applicable if not row["pass"]),
+                "not_applicable": len(results) - len(applicable),
             }
         elif args.scenario == "completed-turn":
             results = _run_completed_turns(selected, personas, person_rows, args.api)
@@ -551,7 +642,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             results = _run_extraction_cases(
                 cases, person_rows, mode=args.mode, api_base=args.api,
             )
-            summary = summarize(results)
+            applicable = [row for row in results if row.get("applicable", True)]
+            summary = summarize(applicable)
+            summary["not_applicable"] = len(results) - len(applicable)
             summary["gate"] = bool(pack.get("gate"))
     except Exception as exc:
         runtime_error = f"{type(exc).__name__}: {exc}"
@@ -583,6 +676,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "server_extract_diag": diag,
         "summary": summary,
         "results": results,
+        "reference_personas_unavailable": dict(unavailable),
         "synthetic_rows_created": [row.get("id") for row in created],
         "synthetic_cleanup": cleanup,
         "synthetic_cleanup_errors": cleanup_errors,
@@ -594,7 +688,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     _write_report(report, output)
     print(f"\nReport: {output}")
     if summary:
-        print(f"Summary: {summary.get('passed', 0)}/{summary.get('total', 0)} passed")
+        line = f"Summary: {summary.get('passed', 0)}/{summary.get('total', 0)} passed"
+        if summary.get("not_applicable"):
+            line += f", {summary['not_applicable']} not applicable"
+        print(line)
+    for key, reason in unavailable.items():
+        print(f"N/A   persona {key}: {reason}")
     if runtime_error:
         print(f"RUNTIME ERROR: {runtime_error}", file=sys.stderr)
     if cleanup_errors:
