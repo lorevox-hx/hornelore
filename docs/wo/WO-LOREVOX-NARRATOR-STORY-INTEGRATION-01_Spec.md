@@ -1,8 +1,14 @@
 # WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 — Canonical narrator authority
 
 **Opened:** 2026-08-16 · **Revised 2026-08-17 against Chris's supervisor review** ·
-**Phase 1 of the narrator-authority lane** · **Status: Phase 1 built, offline gate run, awaiting
-the six-step live acceptance**
+**Status: Phase 1 ACCEPTED 2026-08-17. Phase 2 BUILT 2026-08-17, offline gate run, live
+acceptance owed.**
+
+*(This header read `Status: Phase 1 built, offline gate run, awaiting the six-step live
+acceptance` until 2026-08-17. Phase 1's live acceptance has since run and been accepted —
+step 9 with a stated limitation, recorded in §8.1 — and a status line that still calls an
+accepted phase "awaiting" is an instruction to re-run it. It also said "six-step"; §8 lists
+ten.)*
 
 > **Revision note.** The first cut of this spec proposed guarding the existing whole-document
 > projection PUT, adding a nullable `sessions.person_id` backfilled from the memory archive
@@ -518,9 +524,9 @@ none of them is started here.
 
 | Phase | Work | State |
 |---|---|---|
-| **1** | **Canonical narrator authority — the three commits in this document** | **Built; offline gate run; live acceptance owed** |
-| 2 | Travel Document connection — operator edits and memoir construction read the same chronology authority | Not started |
-| 3 | Witness/story connection — captured stories enter that authority with truthful provisional/approved status | Not started |
+| **1** | **Canonical narrator authority — the three commits in this document** | **ACCEPTED 2026-08-17.** Step 9 accepted with its synthetic-B limitation (§8.1). |
+| **2** | **Travel Document connection, surface narrator context, legacy session-owner backfill — §12** | **BUILT 2026-08-17; offline gate run; focused live acceptance owed (§12.6).** |
+| 3 | Witness/story connection — captured stories enter that authority with truthful provisional/approved status | **NOT OPENED.** |
 | 4 | Unified projection/output verification — Life Map, Chronology, Lori grounding, Travel Document and memoir agree, with no browser ownership anywhere | Not started |
 
 ## 11. Supervisor requirements — where each one landed
@@ -564,3 +570,195 @@ none of them is started here.
 | Request cancellation on narrator switch | R3.8 |
 | Rapid-click deduplication | R3.8 (requests) and R3.7 (prompts) |
 | **Canonical six historical eras PLUS the separate Today bucket; Travels is a special shelf** | R3.2 · `today` is in the payload and still never year-derived |
+
+---
+
+## 8.1 Phase 1 live acceptance — accepted 2026-08-17
+
+Phase 1 ran its live acceptance and is **ACCEPTED**. Test narrator
+`6ad678ee-b295-49de-8578-da00200848ba` ("L2 ACCEPTANCE DELME 2026-08-16"); no family
+narrator was touched.
+
+**Step 9 is accepted with a stated limitation, not silently.** The rapid A→B narrator
+switch was exercised against a **synthetic narrator B**. What that proves is the
+mechanism — a delayed hydration for A does not land on B, no queued A write is flushed,
+and A's chronology request is aborted rather than raced. What it does not prove is the
+same behaviour against a second narrator carrying a full live history, because no such
+second narrator exists outside the family set and the family set is not available for
+acceptance runs. The limitation is recorded here rather than in a report, because a
+limitation that lives only in a local file is a limitation the next reader will not find.
+
+**L2 remains PARTIAL and Gate B remains OPEN.** Phase 1's acceptance closes no L2 gate
+and re-runs no L2 case. The deferred L2 cases — Case C, the remaining Case A branches,
+five styles, trip/photo fixtures, the refusal matrix, Case E rows 2 and 4, and the final
+restart with Case F — stay **deferred by product-priority decision, not by failure**.
+
+---
+
+## 12. Phase 2 — the contract
+
+**Built 2026-08-17.** One integrated code commit and one governing-document commit. The
+outcome: Travel Document connects to the accepted chronology authority, narrator selection
+is reconciled across shell-launched surfaces, and the legacy session-owner migration is
+completed safely.
+
+### 12.1 The authority boundaries, unchanged
+
+| Responsibility | Authority |
+|---|---|
+| Detailed trip/day editing | `trip_days` and `/api/trips/{trip_id}/days` |
+| Person-wide chronology projection | `/api/chronology-accordion` |
+| Narrator navigation | Life Map and Chronology Accordion |
+| Travel memoir output | the visible editable Travel Document timeline, projected to DOCX |
+
+**These are CONNECTED, not merged.** The chronology projection carries one row per day with
+a date, an index, a label, a main location and a lodging base. Adopting it as the editor's
+model would silently destroy conversations, photo placements, notes, sources and approvals —
+everything the detailed model exists to hold. Replacing the projection with the detailed
+model would rebuild the second chronology engine Phase 1 deleted.
+
+### 12.2 Part A — Travel Document ↔ canonical chronology
+
+- The mounted workspace loads `GET /api/chronology-accordion?person_id=<mounted narrator>`
+  **through `travel-doc-lab.js`'s existing `api()` choke point**. No competing raw fetch, no
+  new chronology engine. The file still contains exactly one `fetch(`.
+- Responses are discarded when the **generation token** has moved, when the mount has been
+  rebound to another narrator, or when the payload's own `person_id` does not match. Both
+  the resolve arm and the reject arm carry the generation guard.
+- The projection loads **alongside** the detailed selected-trip bundle, as a ninth parallel
+  request, and cannot take the workspace down: an outage keeps the previous payload and
+  flags it stale rather than blanking it.
+- **Reconciliation is by stable day id**, not by index and not by date. A re-dated or
+  re-ordered day would otherwise read as "every day changed". Compared: trip id, day id,
+  day index, date, year, projected label, main location, lodging base.
+- A day the projection legitimately dropped because it has **no date** is reported as a
+  note, not as a disagreement. A day the projection **has and the workspace does not** is a
+  disagreement, because it means the two are looking at different trips.
+- An **operator-only connection panel** shows: canonical day count for the selected trip;
+  overlapping historical period; the Travels **shelf** named as a shelf; confirmed
+  timeline-event count for those years; approved and provisional story-evidence counts;
+  per-lane provenance and status; and an honest unavailable/stale warning.
+- **Today appears only when the trip is explicitly current** — the operator marked it live,
+  or it carries a real year that is this year or later. **It is never derived from a missing
+  year.**
+- **Travels remains a special shelf and does not become a seventh historical era.**
+- After a **chronology-bearing** write — trip create, trip edit, day generation, day
+  reconcile, day save, day drop, trip delete — the canonical projection is refreshed. **Only
+  after a successful refresh** is the shell notified, with
+  `window.dispatchEvent(new CustomEvent("lorevox:chronology-refreshed", {detail:{person_id, reason}}))`.
+  Photo-only writes do not refresh: they change no chronology-bearing field.
+- If the detailed write succeeds and the refresh fails or disagrees, **the trip edit is
+  preserved** and a truthful synchronisation warning is shown. It opens with the fact that
+  the change was saved, because that is the operator's first question. It does not claim the
+  Life Map was updated.
+- The shell handler `lvRefreshNarratorChronology` **accepts the event only for its active
+  narrator**, deduplicates concurrent refreshes with one trailing re-run, repaints both Life
+  Map renderers (`window.LorevoxLifeMap.render` and `window.crInitAccordion`), **sends no
+  prompt** and **writes no projection**.
+- **Before preview or DOCX export** one shared gate runs: refuse while the day form is
+  dirty, reload the detailed trip/day state, refresh and reconcile the chronology,
+  invalidate any stale lazy preview. The binding rule is unchanged —
+  **visible editable Travel Document timeline → DOCX** — and exactly-once day rendering
+  remains the server projection's decision, not a client-side filter.
+
+**The authority-reporting defect fixed inside this block.** `_sources_block` promised to
+distinguish "this narrator has none" from "this lane could not be read" and could not: the
+three collectors swallowed every exception into `return []` while the block hardcoded
+`"status": "read"`, so a missing table and an empty narrator produced the identical
+`{"status": "read", "count": 0}`. Collectors now return a `_LaneResult(items, status)` and
+the block reports `read` / `unavailable` / `not_attempted` from the lane itself. Failing
+soft is still right; failing soft **silently** is what changed.
+
+### 12.3 Part B — one narrator-context contract
+
+`ui/js/narrator-context.js`, shared by the shell and by every narrator-scoped standalone
+surface.
+
+- The shell authority stays `state.person_id` + `lv_active_person_v55`.
+- Shell launches append `?narrator_id=<person_id>`. One launcher, `lvOpenNarratorTool`,
+  replaces nine scattered `window.open` calls — **four of which passed no narrator at all**,
+  so whether a tool inherited the shell's selection depended on which button was pressed.
+- **An explicit query narrator is the initial handoff authority and is validated against
+  `/api/people` before it is selected.**
+- **An invalid explicit id FAILS CLOSED.** No narrator is selected, and it must never fall
+  through to a legacy cache: "the id you asked for is wrong, so here is a different
+  narrator's library" is the worst available answer, and Photo Intake stamps every upload
+  with the narrator it believes in.
+- A direct standalone load with **no** query parameter may use its legacy key, after the
+  same validation. A stale cached id is dropped rather than honoured.
+- A narrator chosen inside a standalone surface updates **that surface's** cache and never
+  `lv_active_person_v55`. Enforced structurally: `remember()` refuses the shell key and says
+  so; `readCache()` refuses it too, so no surface can inherit the shell's selection
+  ambiently.
+- Cross-page links carry the validated narrator: Photo Timeline → Photo Intake, Trip Tab →
+  Photo Intake, and the existing Photo Elicit links.
+- **Legacy keys are demoted to fallback caches, not deleted**, and every standalone picker
+  is preserved.
+- **Travel Document embedded in the shell keeps taking its narrator from `opts` only.** It
+  acquires no selector authority of its own and does not load the helper.
+- **Kawa / Memory River was not extended.** It remains reachable frozen legacy UI awaiting
+  separate adjudication.
+
+### 12.4 Part C — legacy session-owner backfill
+
+`server/code/db/migrations/0045_sessions_legacy_payload_owner.sql`. **0044 is not edited.**
+
+Reads exactly two structured fields — `payload_json.person_id` and
+`payload_json.active_person_id` — and assigns ownership only when all five conditions hold:
+the row has no explicit owner; the payload is valid JSON; exactly one id is established and
+both fields agree where both are present; the person exists in `people`; and no stronger
+recorded link contradicts it or is itself ambiguous.
+
+`payload_json` is **never rewritten**. An existing explicit owner is **never overwritten**.
+Ambiguous and conflicting rows **stay NULL**. Nothing is inferred from prose, names,
+timestamps, proximity or UI history. The migration is idempotent.
+
+**Provenance is recorded by the producer**, per the rule this repository earned in
+`WO-SYSTEM-DIRECTIVE-PERSISTENCE-01`: a new nullable `sessions.person_id_source` is stamped
+`legacy_payload_json` on exactly the rows 0045 fills, and `explicit` by the live write path.
+Rows 0044 recovered are **not** retro-stamped — deciding after the fact which they were is
+the reconstruction that rule forbids — and are reported honestly as
+`owner_source_unrecorded`.
+
+`session_ownership_residue()` now distinguishes explicit owners, rows recovered from legacy
+payload, owners whose provenance predates the column, and four mutually exclusive reasons a
+row was declined: disagreeing fields, an invalid legacy id, an ambiguous or conflicting
+stronger source, and no recorded link at all. The four sum to the unowned total.
+
+### 12.5 Offline gate — 2026-08-17
+
+Focused suites during development, then one consolidated run. New modules:
+`tests/test_travel_doc_chronology_integration.py` (33),
+`tests/test_surface_narrator_context.py` (22),
+`tests/test_sessions_legacy_payload_owner.py` (28), plus new lane-status cases in
+`tests/test_narrator_chronology_projection.py` (54 total). Two behaviour harnesses execute
+the **shipped** code rather than a copy of its logic:
+`scripts/ui/run_chronology_connection_behaviour.js` (28) and
+`scripts/ui/run_narrator_context_behaviour.js` (23).
+
+**Seven mutants were injected and all seven killed**, and the first run of that exercise
+found **three tests weaker than their names claimed** — a generation guard asserted once
+where two arms needed it, a narrator check satisfied by a second occurrence elsewhere in the
+function, and an export gate proved only in the negative, so a gate that refused everything
+would have passed. All three were strengthened rather than accepted.
+
+Two existing assertions were **narrowed in place, not deleted**: the Travel Doc endpoint
+allow-list gains `/api/chronology-accordion` as a seventh sanctioned prefix, and the export
+test re-points at `_exportTravelDocumentNow` now that `_exportTravelDocument` is the gate.
+
+### 12.6 Live acceptance owed — focused, not another campaign
+
+After review and push, one stack start, non-family narrator `6ad678ee`:
+
+1. its provable legacy session receives explicit ownership after migration;
+2. create trip `PHASE2 ACCEPTANCE DELME` with two days;
+3. Travel Document shows the chronology connection and the Travels shelf status;
+4. edit one day; detailed day, chronology endpoint and Life Map agree;
+5. export once; both days appear exactly once with current values;
+6. Trip Tab, Photo Intake, Photo Timeline and Media Archive launched from the shell all
+   receive the same test narrator;
+7. an invalid explicit narrator id does not fall back to another surface's cached narrator;
+8. delete only that trip and this acceptance's artifacts, then verify residue and counts.
+
+**No family narrator. No restart unless a real persistence question appears. The L2 matrix
+is not resumed.**

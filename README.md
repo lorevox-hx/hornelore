@@ -87,8 +87,8 @@ The full statements live in [`CLAUDE.md`](CLAUDE.md).
 | Narrator deletion | Soft delete with an undo window, hard delete, dependency inventory, restore, and an append-only audit trail. The tenant-zero UI may guard family narrators. |
 | Interview default | **`oral_history`** — the narrator tells chapters; Lori listens and follows. Structured styles are operator-selectable overrides. `memory_exercise` is **removed from the picker**; legacy values redirect to `warm_storytelling`. Questionnaire-first's live path is **retired/redirected**; five style names remain accepted for compatibility and testing. |
 | Life Map | The narrator's primary navigation surface: six historical eras **plus** the separate `today` current-life bucket. **Travels is a special shelf, not an era.** |
-| Chronology | `GET /api/chronology-accordion` is the server projection of record *(extended in Phase 1; built, live acceptance owed)*: world events, personal anchors, ghost cues, derived spine items, trips and narrator-ready trip photos. |
-| Travel Document | **Complete and accepted.** Operator workspace: editable itinerary, evidence review, multi-day photo placement, Photo Palette, DOCX export. |
+| Chronology | `GET /api/chronology-accordion` is the server projection of record *(extended in Phase 1, accepted 2026-08-17)*: world events, personal anchors, ghost cues, derived spine items, trip **days**, confirmed timeline events and story evidence with status. Each lane reports its own provenance and whether it could be read at all, so an outage is distinguishable from a narrator with nothing in that lane. |
+| Travel Document | **Complete and accepted.** Operator workspace: editable itinerary, evidence review, multi-day photo placement, Photo Palette, DOCX export. Phase 2 connects it to the canonical chronology — the detailed day model stays the write authority and the projection stays the read authority; they are reconciled, never merged. |
 | Story capture | Narrator turns that meet trigger criteria are preserved as `story_candidates` with provenance; operator review promotes them. |
 | Runtime safety | **PARKED since 2026-08-04.** Code, corpus and tests are preserved. It is **not** active and must not be described as active. Reactivation takes an explicit decision, never an environment value. |
 | Model + context window | **LOCKED.** A change request here is a stop-and-report condition. |
@@ -112,10 +112,29 @@ narrator speech / typing
 ```
 
 **Local-first is a rule, not a default.** STT, the LLM, facial/acoustic affect and TTS all run
-on the narrator's own machine. Private narrator archives, life-story profiles and raw memoir
-transcripts are never outsourced to a cloud model as the reasoning engine. Travel Document may
-use web lookups for *public* context (holidays, museums, neighbourhoods), labelled as public
-context and never presented as personal memory.
+on the narrator's own machine.
+
+### Travel Doc Evidence + Web Context Rule
+
+*(Restored 2026-08-17. The README rewrite earlier that day dropped this named rule while
+keeping a paraphrase of it. The rule is permanent doctrine — it is stated in full in
+`CLAUDE.md` — and `tests/test_travel_doc_doctrine.py` asserts it in both documents, so the
+rewrite left that suite failing at HEAD. Reinstated rather than the test relaxed: the test
+was right.)*
+
+Travel Doc mode is the **operator** memoir-building workspace, not Narrator Room. Narrator
+Room stays cautious. Travel Doc is evidence-rich: EXIF and filename dates, GPS with
+reverse-geocoded broad place, OCR, draft image observations, captions, operator notes, trip
+route hierarchy and public context, all carrying provenance wording.
+
+**The rule is not "no web."** The local Hornelore LLM/API **may use web and public-context
+tools in Travel Doc mode** — holidays, local events, museum and site background, food and
+neighbourhood context, reverse geocoding. The boundary is that Hornelore must never
+**outsource private narrator memory** archives, life-story profiles or raw memoir transcripts
+to an uncontrolled cloud LLM as the reasoning engine. Local web-enabled evidence enrichment is
+allowed; cloud life-story outsourcing is not. Web-derived context is labelled public context
+or draft evidence until an operator or narrator confirms it, and public context is never
+presented as personal memory.
 
 **Services:** API on `:8000`, TTS on `:8001`, static UI on `:8082`. **TTS is Kokoro**
 (Apache 2.0, English + Spanish); the Coqui adapter is retained only as a legacy option behind
@@ -133,9 +152,19 @@ The active lane is **`WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` — canonical na
 authority**: one server-owned answer for projection, session ownership and chronology, so that
 Life Map, Lori, sessions and (next) Travel Document stop disagreeing about who the narrator is.
 
-**Phase 1 is BUILT and AWAITING LIVE ACCEPTANCE.** The offline gate has run; the ten-step live
-run on a real stack has not. Until it passes, this is not an accepted authority — treat the
-behaviour described above as implemented and unproven in production.
+**Phase 1 is ACCEPTED (2026-08-17).** The ten-step live run passed on a non-family test
+narrator. Step 9 — rapid A→B narrator switching — is accepted with a stated limitation: it was
+exercised against a *synthetic* narrator B, so the mechanism is proven but not against a
+second narrator carrying a full live history.
+
+**Phase 2 is BUILT (2026-08-17) and its focused live acceptance is owed.** It connects the
+Travel Document to that chronology authority, reconciles narrator selection across
+shell-launched surfaces behind one shared contract, and completes the legacy session-owner
+backfill in migration 0045. The offline gate has run; the eight-step focused live run has not.
+
+**Phase 3 (Witness/story integration) is not opened.**
+
+*(This paragraph said Phase 1 was "BUILT and AWAITING LIVE ACCEPTANCE" until 2026-08-17.)*
 
 Read, in this order:
 

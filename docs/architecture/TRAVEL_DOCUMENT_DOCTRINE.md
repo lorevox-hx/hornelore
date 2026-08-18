@@ -696,6 +696,65 @@ is null BY RULE for a photograph on several days, so the old query would print
 the most deliberately placed photographs in the trip under "Needs a day" in the
 same document that already printed them under both.
 
+### 1.17 The detailed day model and the chronology projection are CONNECTED, never merged
+
+Added 2026-08-17 by `WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` Phase 2, Part A.
+
+Two models describe a trip's days, and both are correct:
+
+| Responsibility | Authority |
+|---|---|
+| Detailed trip/day editing | `trip_days` and `/api/trips/{trip_id}/days` |
+| Person-wide chronology projection | `/api/chronology-accordion` |
+| Narrator navigation | Life Map and Chronology Accordion |
+| Travel memoir output | the visible editable Travel Document timeline, projected to DOCX |
+
+**Neither may absorb the other, and the temptation runs in both directions.**
+
+Adopting the projection as the editor's model looks like simplification and is
+data loss: the projection carries a date, an index, a label, a main location and
+a lodging base, and nothing else. Conversations, photo placements, notes,
+sources, approvals and the whole evidence lane have no representation in it.
+
+Computing a chronology inside the Travel Document looks like independence and is
+a second engine. Phase 1 deleted exactly that — a standalone
+`narrator_chronology` service beside the accordion — because two projections of
+one narrator's life is the two-sources-of-truth problem the authority lane
+exists to end.
+
+So the Travel Document **reads** the projection through its own single `api()`
+choke point and **reconciles** it against the detailed rows **by stable day id**.
+Not by index and not by date: a day can legitimately be re-dated or re-ordered,
+and a positional comparison would report every day as changed.
+
+Three consequences that are not obvious and must not be "tidied up":
+
+- **A day the projection dropped because it has no date is a NOTE, not a
+  disagreement.** Dropping undateable rows rather than guessing a year for them
+  is the projection behaving correctly. The operator is told, because those days
+  will not appear on the Life Map until they are dated.
+- **A day the projection has and the workspace does not IS a disagreement.** It
+  means the two are looking at different trips.
+- **Today is never derived from a missing year.** A trip with no dates is a trip
+  with no dates. It enters the current-life bucket only when the operator marked
+  it live or it carries a real year that is this year or later. Travels remains a
+  special shelf and is not a seventh historical era.
+
+**A chronology-bearing write refreshes the projection, and the shell is notified
+only after that refresh succeeds.** Notifying on a failed refresh would repaint
+the Life Map from data that has not moved and report a synchronisation that did
+not happen. When the detailed write lands and the refresh does not, the trip edit
+is preserved and the warning says the change was saved before it says anything
+else. Photo-only writes do not refresh: they change no chronology-bearing field.
+
+**Ruling 1.16's output rule is unchanged and now has a gate in front of it.**
+Before the preview or the export: refuse while the day form is dirty, reload the
+detailed rows, refresh and reconcile the chronology, invalidate the lazy preview.
+The preview goes through the same gate as the export, because the preview is what
+the operator checks the export against. Exactly-once day rendering stays the
+server projection's decision; a client-side filter here would be a second
+definition of "a day worth printing", living in a second language.
+
 ---
 
 ## Part 2 — Implemented and verified (as of 2026-07-29)
