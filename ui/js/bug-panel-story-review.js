@@ -76,8 +76,35 @@
   // still match. Deliberately NOT person-scoped edit retention: this is a
   // low-frequency operator switch, so cancelling and clearing is the safe
   // answer and the simple one.
-  let _gen = 0;
-  function _bumpGen() { _gen += 1; return _gen; }
+  //
+  // BUG-STORY-REVIEW-WEDGED-AFTER-WRITE-01, found by the Phase 3 live
+  // acceptance on 2026-08-17 and fixed here. The guard above shipped as ONE
+  // counter bumped by every read, and `applyReview` tested its own
+  // completion against it -- while its own SUCCESS path calls
+  // `afterReviewApplied` -> `fetchReview()`, which bumps that very counter.
+  // So the cleanup `.then()` of every SUCCESSFUL review decided it was
+  // stale, returned early, and never cleared `actionBusy`. The write landed
+  // on the server, the panel stayed disabled, and the next click was a
+  // no-op on a disabled button -- which reads as "the button does nothing"
+  // rather than as a stale-guard bug, and is exactly how the live
+  // acceptance found it.
+  //
+  // THREE SEPARATE QUESTIONS WERE SHARING ONE COUNTER. They are now three
+  // counters, because a single number cannot answer them independently:
+  //
+  //   _listGen    is my list read still the newest list read?
+  //   _detailGen  is my detail read still the newest detail read?
+  //   _switchGen  has the operator switched narrator since I started?
+  //
+  // A write asks ONLY the third question. Sharing a counter also meant a
+  // routine list refresh silently discarded an in-flight detail open, which
+  // is the same fault in a quieter costume.
+  let _listGen = 0;
+  let _detailGen = 0;
+  let _switchGen = 0;
+  function _bumpListGen() { _listGen += 1; return _listGen; }
+  function _bumpDetailGen() { _detailGen += 1; return _detailGen; }
+  function _bumpSwitchGen() { _switchGen += 1; return _switchGen; }
 
   let _state = {
     loading: false,
@@ -113,6 +140,28 @@
     const n = document.createElement(tag);
     if (attrs) {
       Object.keys(attrs).forEach(function (k) {
+        // BUG-STORY-REVIEW-DISABLED-UNDEFINED-01, found by the Phase 3
+        // live acceptance on 2026-08-17 and fixed here.
+        //
+        // A key present with an UNDEFINED value used to reach
+        // setAttribute, which stringifies it: `disabled: undefined`
+        // became `disabled="undefined"` and the attribute's mere
+        // PRESENCE disables the element. Every review action button was
+        // therefore permanently disabled, and clicking one did nothing at
+        // all -- no request, no error, no message. The same bug set
+        // `selected="undefined"` on every option.
+        //
+        // The idiom `disabled: busy ? 'disabled' : undefined` is the
+        // natural way to write a conditional attribute, so the fix
+        // belongs in the helper rather than in each call site. Skipping
+        // undefined and null makes that idiom mean what it reads as.
+        //
+        // No source scan could see this: the buttons, their labels and
+        // their handlers were all present and correct. Only pressing one
+        // reveals it.
+        if (attrs[k] === undefined || attrs[k] === null) {
+          return;
+        }
         if (k === 'class') {
           n.className = attrs[k];
         } else if (k === 'onclick') {
@@ -213,14 +262,17 @@
 
   function fetchReview() {
     const pid = _narrator();
-    const gen = _bumpGen();
+    const gen = _bumpListGen();
+    const switchGen = _switchGen;
     if (!pid) {                      // narrator-scoped by contract
       _state.items = []; _state.counts = null; _state.projection = null;
       _state.error = 'Choose a narrator to review their stories.';
       render(); return Promise.resolve();
     }
     _state.loading = true; _state.error = null; render();
-    const stale = function () { return gen !== _gen || pid !== _narrator(); };
+    const stale = function () {
+      return gen !== _listGen || switchGen !== _switchGen || pid !== _narrator();
+    };
     let url = REVIEW_ENDPOINT + '?narrator_id=' + encodeURIComponent(pid) +
       '&limit=' + DEFAULT_LIMIT;
     if (_state.statusFilter.length) {
@@ -255,8 +307,13 @@
   function openDetail(id) {
     if (_state.openId === id) { _state.openId = null; _state.detail = null; render(); return; }
     const pid = _narrator();
-    const gen = _bumpGen();
-    const stale = function () { return gen !== _gen || pid !== _narrator(); };
+    const gen = _bumpDetailGen();
+    const switchGen = _switchGen;
+    // A newer DETAIL read supersedes this one; a routine list refresh does
+    // not, which is why these are separate counters.
+    const stale = function () {
+      return gen !== _detailGen || switchGen !== _switchGen || pid !== _narrator();
+    };
     _state.openId = id; _state.detail = null; _state.detailBusy = true; render();
     fetch(ENDPOINT + '/' + encodeURIComponent(id) +
           '?narrator_id=' + encodeURIComponent(pid), { credentials: 'same-origin' })
@@ -279,7 +336,7 @@
      unsaved note on a deliberate narrator switch is a smaller harm than
      either, and it can never address A's edit to B. */
   function onNarratorSwitch(pid) {
-    _bumpGen();
+    _bumpSwitchGen();
     _state.narratorFilter = String(pid || '');
     _state.openId = null;
     _state.detail = null;
@@ -325,8 +382,15 @@
     if (edit.placement_source !== undefined) body.placement_source = edit.placement_source;
     Object.keys(patch || {}).forEach(function (k) { body[k] = patch[k]; });
 
-    const gen = _gen;
-    const stale = function () { return gen !== _gen || pid !== _narrator(); };
+    // A WRITE ASKS ONE QUESTION: has the operator switched narrator since I
+    // started? It must NOT ask "has any read happened", because its own
+    // success path issues one -- that was
+    // BUG-STORY-REVIEW-WEDGED-AFTER-WRITE-01, and it left the panel with
+    // every button disabled after each successful review.
+    const switchGen = _switchGen;
+    const stale = function () {
+      return switchGen !== _switchGen || pid !== _narrator();
+    };
     _state.actionBusy = item.id; _state.conflict = null; render();
     return fetch(ENDPOINT + '/' + encodeURIComponent(item.id), {
       method: 'PATCH',

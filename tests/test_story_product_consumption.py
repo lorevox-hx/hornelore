@@ -145,23 +145,85 @@ class NarratorSwitchGuard(unittest.TestCase):
     def setUp(self):
         self.src = _js(_PANEL)
 
-    def test_there_is_a_generation_token(self):
-        self.assertIn("function _bumpGen()", self.src)
-        self.assertIn("let _gen = 0;", self.src)
+    def _body(self, fn):
+        body = self.src[self.src.index("function " + fn + "("):]
+        return body[: body.index("\n  function ")]
 
-    def test_every_read_and_write_is_generation_guarded(self):
+    def test_there_are_three_generation_tokens(self):
+        """Three questions, three counters.
+
+        This test asserted ONE counter (`let _gen = 0;`) until 2026-08-17,
+        and that single counter was the defect -- see
+        `test_a_write_is_not_invalidated_by_its_own_refresh` below for what
+        it cost. Retired assertions, quoted so a reader can see they were
+        withdrawn rather than lost:
+
+            self.assertIn("function _bumpGen()", self.src)
+            self.assertIn("let _gen = 0;", self.src)
+        """
+        for decl in ("let _listGen = 0;", "let _detailGen = 0;",
+                     "let _switchGen = 0;"):
+            with self.subTest(decl=decl):
+                self.assertIn(decl, self.src)
+        # And the single shared counter is gone, not merely supplemented.
+        self.assertNotIn("let _gen = 0;", self.src)
+        self.assertNotIn("function _bumpGen()", self.src)
+
+    def test_every_read_and_write_is_guarded(self):
         for fn in ("fetchReview", "openDetail", "applyReview"):
             with self.subTest(fn=fn):
-                body = self.src[self.src.index("function " + fn + "("):]
-                body = body[: body.index("\n  function ")]
+                body = self._body(fn)
                 self.assertIn("stale", body,
                               fn + " applies its response unguarded")
-                # BOTH halves: the generation AND the narrator. Either
-                # alone leaves a hole -- a second read for the same
-                # narrator moves the generation, and a switch back to A
-                # would restore the narrator without restoring staleness.
-                self.assertIn("gen !== _gen", body)
+                # The narrator half is required of all three: a switch to B
+                # and back to A restores the narrator, so identity alone is
+                # not sufficient -- which is why the switch counter exists
+                # alongside it.
+                self.assertIn("switchGen !== _switchGen", body)
                 self.assertIn("_narrator()", body)
+
+    def test_each_read_is_superseded_only_by_a_read_of_its_own_kind(self):
+        """A list refresh must not discard an in-flight detail open.
+
+        Sharing one counter meant the panel's own list refresh silently
+        cancelled a detail the operator had just clicked -- the same fault as
+        the wedge below, in a quieter costume.
+        """
+        self.assertIn("gen !== _listGen", self._body("fetchReview"))
+        self.assertNotIn("_detailGen", self._body("fetchReview"))
+        self.assertIn("gen !== _detailGen", self._body("openDetail"))
+        self.assertNotIn("_listGen", self._body("openDetail"))
+
+    def test_a_write_is_not_invalidated_by_its_own_refresh(self):
+        """BUG-STORY-REVIEW-WEDGED-AFTER-WRITE-01, found live 2026-08-17.
+
+        `applyReview`'s SUCCESS path calls `afterReviewApplied` ->
+        `fetchReview()`, which bumps a read generation. While the write
+        tested its completion against that same generation, the cleanup arm
+        of every SUCCESSFUL review decided it was stale and returned before
+        `_state.actionBusy = null`. The write landed on the server and the
+        panel was left with EVERY action button disabled, so the next click
+        was a no-op on a disabled button.
+
+        Nothing above catches it: the guard was present, both halves were
+        present, and the success arm was guarded. The bug was that the write
+        asked a question its own success answers. So this pins the write's
+        staleness test as STRUCTURALLY INDEPENDENT of the read counters --
+        the property, not the spelling.
+        """
+        body = self._body("applyReview")
+        i = body.index("const stale = function ()")
+        closure = body[i: body.index("};", i)]
+        for read_counter in ("_listGen", "_detailGen"):
+            with self.subTest(read_counter=read_counter):
+                self.assertNotIn(
+                    read_counter, closure,
+                    "a write must not be invalidated by a read generation; "
+                    "its own success path bumps one")
+        self.assertIn("switchGen !== _switchGen", closure)
+        # And the cleanup arm is reachable: it clears the busy latch that
+        # the wedge left set, and it is the LAST arm of the chain.
+        self.assertIn("_state.actionBusy = null; render();", body)
 
     def test_the_success_arm_of_each_path_is_guarded(self):
         """The arm that PAINTS must be guarded, not merely the failure arms.
@@ -187,9 +249,14 @@ class NarratorSwitchGuard(unittest.TestCase):
                       self.src)
 
     def test_the_switch_clears_everything_belonging_to_the_old_narrator(self):
-        body = self.src[self.src.index("function onNarratorSwitch(pid)"):]
-        body = body[: body.index("\n  function ")]
-        self.assertIn("_bumpGen()", body)          # cancels pending reads
+        body = self._body("onNarratorSwitch")
+        # Only the SWITCH counter is bumped here, and it is the only place
+        # that bumps it -- that is what makes it answerable by a write.
+        self.assertIn("_bumpSwitchGen();", body)
+        # Exactly one CALL site file-wide. `_bumpSwitchGen() {` is the
+        # declaration and is deliberately not counted.
+        self.assertEqual(1, self.src.count("_bumpSwitchGen();"),
+                         "only a narrator switch may bump the switch counter")
         self.assertIn("_state.narratorFilter = String(pid", body)  # re-scopes
         for cleared in ("_state.openId = null", "_state.detail = null",
                         "_state.conflict = null", "_state.edits = {}",
@@ -229,6 +296,26 @@ class CanonicalEraSelector(unittest.TestCase):
         body = self.src[self.src.index("function applyReview("):]
         body = body[: body.index("\n  function ")]
         self.assertIn("body.era_candidates = one ? [one] : []", body)
+
+    def test_a_conditional_attribute_is_omitted_not_stringified(self):
+        """BUG-STORY-REVIEW-DISABLED-UNDEFINED-01, found live 2026-08-17.
+
+        `disabled: busy ? 'disabled' : undefined` reached setAttribute,
+        which stringified it to `disabled="undefined"` -- and the
+        attribute's PRESENCE disables the element. Every review action
+        button was permanently disabled and clicking one did nothing:
+        no request, no error, no message.
+
+        No source scan could catch it. The buttons, labels and handlers
+        were all present and correct; only pressing one revealed it. This
+        pins the helper so the idiom means what it reads as.
+        """
+        body = self.src[self.src.index("function el(tag, attrs, children)"):]
+        body = body[: body.index("\n  }")]
+        self.assertIn("=== undefined", body)
+        self.assertIn("=== null", body)
+        # And the guard must come BEFORE any branch that writes.
+        self.assertLess(body.index("=== undefined"), body.index("setAttribute"))
 
     def test_there_is_a_working_clear_placement_action(self):
         self.assertIn("Clear placement", self.src)
@@ -343,6 +430,38 @@ class LoriGroundingBoundary(unittest.TestCase):
         src = _COMPOSER.read_text(encoding="utf-8")
         self.assertIn("_story_block = _approved_story_block(runtime71)", src)
         self.assertIn("if _story_block:", src)
+
+    def test_the_story_block_is_ranked_and_never_takes_the_default(self):
+        """BUG-STORY-GROUNDING-DROPPED-FIRST-01, found live 2026-08-17.
+
+        The block shipped as `required=False` with no `drop_order`. That
+        defaults to 0, and `drop_order` is ascending, so the one thing
+        Phase 3 exists to deliver was the FIRST section dropped whenever
+        the prompt was over budget -- which measured prompts are. The
+        bridge logged `approved=1` and Lori said she did not recall the
+        story, so the failure looked like a model shrug rather than a
+        prompt that had the section cut out of it.
+
+        Pinned as a RANGE rather than as the literal 25, because what
+        must hold is the ordering decision, not the number: reviewed
+        stories outlive the sections that rebuild themselves each turn
+        and yield to the identity sections that do not.
+        """
+        src = _COMPOSER.read_text(encoding="utf-8")
+        i = src.index('parts.add("approved_stories"')
+        call = src[i: src.index(")", src.index("drop_order", i))]
+        order = int(call.split("drop_order=")[1].strip().rstrip(","))
+        # Above everything that regenerates next turn...
+        self.assertGreater(order, 20,
+                           "reviewed stories must outlive per-turn hints")
+        # ...and below the identity sections, which must never be traded
+        # for episodic material.
+        self.assertLess(order, 30,
+                        "identity truth outranks a story; losing it makes "
+                        "Lori invent rather than merely say less")
+        # And the ladder comment documents it, so the next person ranking
+        # a section can see this one without reading the call site.
+        self.assertIn("approved_stories", src[: src.index("parts = _PromptAssembly")])
 
     def test_grounding_is_default_off(self):
         src = _CHAT_WS.read_text(encoding="utf-8")

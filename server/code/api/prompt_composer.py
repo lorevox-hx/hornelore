@@ -3672,6 +3672,9 @@ def compose_system_prompt(
     #   20 english_first     language steering. Real cost, but the
     #                        deterministic guards catch drift after the
     #                        fact, so it degrades rather than breaks.
+    #   25 approved_stories  stories a human REVIEWED and approved. Above
+    #                        the three below it because those rebuild
+    #                        themselves next turn and this one does not.
     #   30 ui_context        PROFILE_JSON. High value, dropped late.
     #   40 pinned_facts      operator-pinned truth. Dropped LAST of the
     #                        optional set, because it is the closest
@@ -3700,9 +3703,29 @@ def compose_system_prompt(
         # reads them, and omitted entirely when there is nothing approved
         # -- an empty section would spend tokens saying nothing, and the
         # context window is LOCKED.
+        # BUG-STORY-GROUNDING-DROPPED-FIRST-01, found by the Phase 3 live
+        # acceptance on 2026-08-17 and fixed here. This shipped as
+        # `required=False` with NO drop_order, which defaults to 0 -- and
+        # `drop_order` is ascending, so the reviewed-story block was the
+        # FIRST section discarded whenever the prompt was over budget.
+        # Live prompts measure 6.0-6.7k against a LOCKED 8,192 window, so
+        # it was discarded routinely: the bridge logged `approved=1` and
+        # Lori then said she did not recall the story. Optional was the
+        # right call; ranking it below everything was not a call at all,
+        # it was an omission wearing a default.
+        #
+        # 25 places it below the two identity blocks and above the three
+        # that rebuild themselves. A per-turn hint, language steering and
+        # adaptive recall all come back on the next turn at no cost. An
+        # APPROVED STORY DOES NOT: it exists because a human read it and
+        # decided, which is the same rationale that puts `pinned_facts`
+        # last. It stays below `ui_context` and `pinned_facts` because
+        # identity truth outranks episodic material -- losing who the
+        # narrator is makes Lori invent, which is worse than saying less.
         _story_block = _approved_story_block(runtime71)
         if _story_block:
-            parts.add("approved_stories", _story_block, required=False)
+            parts.add("approved_stories", _story_block,
+                      required=False, drop_order=25)
 
         # WO-LORI-ENGLISH-FIRST-NARRATION-01 (2026-06-24, product call
         # from Spring 2026 trip canary): always-on English-first rule
