@@ -26,20 +26,31 @@ and its latest live evidence first.
 **Phase 1 is ACCEPTED (2026-08-17).** Conflict-aware field-level projection authority;
 explicit session ownership reconciled across `sessions` and `interview_sessions`; ONE server
 chronology projection, extended from `/api/chronology-accordion` rather than added beside it,
-consumed by both Life Map renderers. Live acceptance ran on non-family narrator `6ad678ee`.
+consumed by both Life Map renderers. Live acceptance ran on the designated non-family acceptance narrator.
 **Step 9 — rapid A→B narrator switching — is accepted with its synthetic-B limitation:** the
 mechanism is proven, but not against a second narrator carrying a full live history, because
 no such narrator exists outside the family set. Recorded in §8.1 of the spec, not only in a
 local report.
 
-**Active lane as of 2026-08-17: `WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` Phase 2 — BUILT,
-offline gate run, focused live acceptance owed.** Travel Document connects to the chronology
-authority; narrator selection is reconciled across shell-launched surfaces; the legacy
-session-owner backfill is completed by migration 0045. Contract and acceptance steps: §12 of
+**Phase 2 is ACCEPTED (2026-08-17) — 8/8 live acceptance steps passed.** Travel Document
+connects to the chronology authority; narrator selection is reconciled across shell-launched
+surfaces behind one shared contract; the legacy session-owner backfill is completed by
+migration 0045. Contract in §12 and the acceptance record in §12.7 of
 [`docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md`](docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md).
 
-**Phase 3 (Witness/story connection) is NOT OPENED.** Phase 4 (unified output verification)
-follows it.
+**Ownership results, aggregate:** 721 sessions — 8 recovered from unambiguous legacy payload,
+1 newly explicit, 712 older rows with unrecorded provenance and deliberately not retro-stamped.
+**Zero malformed payload rows currently exist; the `list_sessions` guard is preventive.**
+
+**Two things this acceptance did NOT prove, and does not claim to.** The harness's
+`completed-turn` route — chat → extraction ledger → result → owned-session — is **genuinely
+unexercised**; the acceptance proved session *ownership* only. It needs
+`HORNELORE_OPERATOR_HARNESS=1` and a deliberate restart, and is deferred until then rather than
+counted as duplicated evidence. And `product-read` did not run because its reference personas
+are soft-deleted; **soft deletion is respected and they are not restored.**
+
+**Phase 3 (Witness/story connection) is NEXT and not yet started.** Phase 4 (unified output
+verification) follows it.
 
 *(This section read "Phase 1 — canonical narrator authority … Phases 2–4 are sequenced and not
 started" until 2026-08-17. Phase 1 has been accepted and Phase 2 built; a handoff that still
@@ -63,8 +74,9 @@ reason to divert the authority phase.
 | Legacy photo-day scalar retirement (Phase 6) | **DEFERRED by supervisor recommendation, 2026-08-14 — NOT the next build** | Leave deferred until there is a concrete reason to remove the column. The scalar is frozen, no longer written, ignored for authoritative decisions, correctly derived on read, and covered by tests and live evidence; dropping it buys no product benefit and costs a risky SQLite table rebuild. |
 | Lean Lori | **L1 COMPLETE 2026-08-14. L2 ran PARTIAL on 2026-08-16 and is CLOSED by product-priority decision — DO NOT RESUME IT.** *(This row said `NEXT: L2, awaiting Chris's authorization` until 2026-08-17. L2 had already run and been closed; a handoff that still names it as next is an instruction to redo a decision, which is the failure this file's own ordering rule exists to prevent.)* | **Substantial work is ALREADY LANDED — eleven commits, Gate A, 1A–1E, 5, 6, 7, Phase 8 first gate. Do not rebuild it.** Evidence for the partial run: `docs/reports/WO-LEAN-LORI-L2-PARTIAL-2026-08-16.md` (local-only, gitignored — live narrator data). **Gate B stays OPEN and Phase 10 stays open**; the deferred cases are deferred by decision, not failures. Profile Seed ownership is **DECIDED — Option A, live narrators only**. The three integration defects L2 surfaced are the active lane: `docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md`. The model / 8,192-token lock still binds. |
 | **Narrator authority Phase 1** | **ACCEPTED 2026-08-17** | Step 9 accepted with its synthetic-B limitation. Closes no L2 gate. |
-| **Narrator authority Phase 2** | **BUILT 2026-08-17; offline gate run; focused live acceptance owed** | Travel Doc ↔ chronology, shared narrator-context contract, migration 0045. Spec §12. Do not widen the acceptance into another browser campaign. |
-| **Phase 3 — Witness/story** | **NOT OPENED** | Opens only after Phase 2's focused acceptance. |
+| **Narrator authority Phase 2** | **ACCEPTED 2026-08-17 — 8/8 live steps** | Travel Doc ↔ chronology, shared narrator-context contract, migration 0045. Record: spec §12.7. |
+| **Harness `completed-turn`** | **DEFERRED — genuinely unexercised** | Needs `HORNELORE_OPERATOR_HARNESS=1` and a deliberate restart. Not covered by Phase 2's ownership evidence. |
+| **Phase 3 — Witness/story** | **NEXT — not yet started** | Opens from here. |
 | Kawa / Memory River | **REACHABLE FROZEN LEGACY UI** | Phase 2 did not extend it. Awaiting a deliberate removal decision. |
 | Runtime safety | **PARKED, server-authoritative** | Never reactivate through environment values. |
 | Model / 8,192-token window | **LOCKED** | Any proposed model change is stop-and-report. |
@@ -103,9 +115,13 @@ requires a separately reviewed SQLite rebuild and rollback plan.
 
 ## 4. Immediate execution order
 
-**Next action: the focused Phase 2 live acceptance in spec §12.6** — one stack start,
-non-family narrator `6ad678ee`, eight named checks, then delete only what the acceptance
-created. Do not resume the L2 matrix and do not widen this into a broad browser campaign.
+**Next action: open Phase 3 — Witness/story connection.** Phase 2's live acceptance passed
+8/8 on 2026-08-17 and is recorded in spec §12.7. Do not resume the L2 matrix.
+
+**Owed separately, not part of Phase 3:** the harness `completed-turn` route, deferred until a
+deliberate operator-harness restart; and a small harness usability fix so absent or
+soft-deleted reference personas report `N/A` while the writable synthetic personas continue —
+that is a harness commit, not Phase 2 work.
 
 The Palette / multi-day sequence below is **historical and complete**. It is kept because
 item 6 is still an open decision, not because any of it is the next lane.

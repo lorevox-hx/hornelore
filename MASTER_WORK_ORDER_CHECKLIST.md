@@ -1,6 +1,6 @@
 # MASTER WORK ORDER CHECKLIST
 
-**Active as of:** 2026-08-17 (Phase 2 build)  
+**Active as of:** 2026-08-17 (Phase 2 accepted; Phase 3 is next)  
 *(This read `2026-08-14` while the L2 partial closed and the narrator-authority lane opened beneath it — the exact staleness this file's own authority line warns about.)*  
 **Authority:** code and live evidence outrank this coordination list. Start with
 `HANDOFF.md`.
@@ -18,8 +18,8 @@
 | 7 | **Lean Lori — L2 live acceptance** | **L2 PARTIAL — closed for now by product-priority decision, 2026-08-16.** **DO NOT RESUME.** | Evidence: `docs/reports/WO-LEAN-LORI-L2-PARTIAL-2026-08-16.md` (local-only, gitignored). Case C, remaining Case A branches, five styles, trip/photo fixtures, refusal matrix, Case E rows 2/4 and the final restart with Case F are **DEFERRED by decision — not failures.** **Gate B stays OPEN.** L2 established: identity completion promotes `pass1→pass2a` and the spine is browser-local; deterministic turns archive 1:1; memory echo sees the server profile seed; LLR-19 did not reproduce; export ZIP valid; identity completion *raised* the prompt 6,008→6,709 tok; **no family narrator content changed (proven byte-identical)**. Three integration defects surfaced and feed the next lane: text-based export verification is invalid for identical deterministic replies; `sessions` rows carry no narrator ownership; browser projection sync can rewrite a server row merely on narrator load. |
 | 8 | **`WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` — Phase 1, canonical narrator authority** | **ACCEPTED 2026-08-17.** *(This row read `IN BUILD 2026-08-17` until the live acceptance ran.)* Step 9 accepted with its synthetic-B limitation — spec §8.1. Closes no L2 gate. Spec: [`docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md`](docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md) | Three commits: conflict-aware field-level projection authority; explicit session ownership reconciled across both session systems; ONE server chronology projection consumed by both Life Map renderers. Absorbs Lean Lori Gate D. Travel Document connects to this authority **after** it works. *(This row previously appeared TWICE at order 8, alongside a separate Profile Seed row. Two rows cannot both be eighth; the Profile Seed decision is now row 9, where it belongs, and is no longer open.)* |
 | 9 | **Profile Seed ownership** | **DECIDED — Option A, live narrators only.** *(This row read `DECISION REQUESTED` until 2026-08-17. The decision had already been made; the row had not caught up, and a control document that calls a settled question open is an instruction to re-open it.)* | Brief: [`docs/wo/WO-LEAN-LORI-PROFILE-SEED-DECISION-BRIEF-2026-08-14.md`](docs/wo/WO-LEAN-LORI-PROFILE-SEED-DECISION-BRIEF-2026-08-14.md). Option D remains unconfirmed live because L2 Case C was never run; that is an unexercised measurement, **not** a re-opening of the decision. |
-| 10 | **`WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` — Phase 2** | **BUILT 2026-08-17; offline gate run; focused live acceptance owed.** *(This row read `Phases 2–4 — NOT STARTED` until 2026-08-17.)* | Contract in spec §12. Travel Document reads the same chronology projection through the module's own API choke point; one shared narrator-context contract across shell-launched surfaces, fail-closed on an invalid explicit id; migration 0045 completes the legacy session-owner backfill without editing 0044. Acceptance steps: §12.6 — one stack start, narrator `6ad678ee`, no family narrator, no L2 resumption. |
-| 11 | **`WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` — Phases 3–4** | **NOT OPENED** | 3: Witness/story capture enters the authority with truthful provisional/approved status. 4: unified output verification — Life Map, Chronology, Lori grounding, Travel Document and memoir agree with no browser ownership anywhere. Phase 3 opens only after Phase 2's focused acceptance. |
+| 10 | **`WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` — Phase 2** | **ACCEPTED 2026-08-17 — 8/8 live acceptance steps passed (spec §12.7).** *(This row read `Phases 2–4 — NOT STARTED` until 2026-08-17.)* | Contract in spec §12. Travel Document reads the same chronology projection through the module's own API choke point; one shared narrator-context contract across shell-launched surfaces, fail-closed on an invalid explicit id; migration 0045 completes the legacy session-owner backfill without editing 0044. Acceptance steps: §12.6 — one stack start, the designated non-family acceptance narrator, no family narrator, no L2 resumption. |
+| 11 | **`WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` — Phases 3–4** | **PHASE 3 IS NEXT — not yet started** | 3: Witness/story capture enters the authority with truthful provisional/approved status. 4: unified output verification — Life Map, Chronology, Lori grounding, Travel Document and memoir agree with no browser ownership anywhere. Phase 3 opens only after Phase 2's focused acceptance. |
 
 ## B. Photo Palette delivery blocks
 
@@ -31,6 +31,15 @@
 | P3 | One consolidated regression run and review of P1+P2 together. **DONE** — 584 tests + 4 harnesses. | Stack stays down. |
 | P4 | Live browser acceptance and F12/log review. **DONE 2026-08-14 — final PASS.** Carried the owed deferred-thumbnail confirmation. One reproduced defect found and fixed mid-phase (`b991353`, `88429cc`): the Hidden pool was not refreshed after Add/Remove/Move/caption-save. Eight genuine photographs uploaded. | Started once. |
 | P5 | Persistence verification and closeout. **DONE 2026-08-14 — 14/14 read-only, then restoration 22/22.** | Restarted once. |
+
+## B.1 Deferred out of Phase 2, owed separately
+
+- **Harness `completed-turn`** — the chat → extraction ledger → result → owned-session route is
+  **genuinely unexercised.** Phase 2 proved session ownership and nothing beyond it. Needs
+  `HORNELORE_OPERATOR_HARNESS=1` and a deliberate restart; not duplicated evidence.
+- **Harness reference-persona handling** — absent or soft-deleted reference personas should
+  report `N/A` while the writable synthetic personas continue. **A harness commit, not Phase 2.**
+  **Soft deletion is respected; those narrators are not restored.**
 
 ## C. Banked / preserve
 

@@ -1,8 +1,8 @@
 # WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 — Canonical narrator authority
 
 **Opened:** 2026-08-16 · **Revised 2026-08-17 against Chris's supervisor review** ·
-**Status: Phase 1 ACCEPTED 2026-08-17. Phase 2 BUILT 2026-08-17, offline gate run, live
-acceptance owed.**
+**Status: Phase 1 ACCEPTED 2026-08-17. Phase 2 ACCEPTED 2026-08-17 — 8/8 live acceptance
+steps passed (§12.7).**
 
 *(This header read `Status: Phase 1 built, offline gate run, awaiting the six-step live
 acceptance` until 2026-08-17. Phase 1's live acceptance has since run and been accepted —
@@ -502,7 +502,7 @@ confirmation and **does not replace** the era-dispatch and narrator-switch check
    for A is aborted rather than raced. *(R1.6/R3.8)*
 10. **Optional: restart and re-check 2 and 5.** Persistence confirmation only.
 
-**Test narrator:** `6ad678ee-b295-49de-8578-da00200848ba` ("L2 ACCEPTANCE DELME 2026-08-16")
+**Test narrator:** the designated non-family acceptance narrator
 — live, testing-only, identity-complete, `pass2a`, with a spine cache. **No new narrator is
 needed, and no family narrator is touched.**
 
@@ -525,8 +525,8 @@ none of them is started here.
 | Phase | Work | State |
 |---|---|---|
 | **1** | **Canonical narrator authority — the three commits in this document** | **ACCEPTED 2026-08-17.** Step 9 accepted with its synthetic-B limitation (§8.1). |
-| **2** | **Travel Document connection, surface narrator context, legacy session-owner backfill — §12** | **BUILT 2026-08-17; offline gate run; focused live acceptance owed (§12.6).** |
-| 3 | Witness/story connection — captured stories enter that authority with truthful provisional/approved status | **NOT OPENED.** |
+| **2** | **Travel Document connection, surface narrator context, legacy session-owner backfill — §12** | **ACCEPTED 2026-08-17 — 8/8 live steps (§12.7).** |
+| **3** | **Witness/story connection — captured stories enter that authority with truthful provisional/approved status** | **NEXT — not yet started.** |
 | 4 | Unified projection/output verification — Life Map, Chronology, Lori grounding, Travel Document and memoir agree, with no browser ownership anywhere | Not started |
 
 ## 11. Supervisor requirements — where each one landed
@@ -576,7 +576,7 @@ none of them is started here.
 ## 8.1 Phase 1 live acceptance — accepted 2026-08-17
 
 Phase 1 ran its live acceptance and is **ACCEPTED**. Test narrator
-`6ad678ee-b295-49de-8578-da00200848ba` ("L2 ACCEPTANCE DELME 2026-08-16"); no family
+the designated non-family acceptance narrator; no family
 narrator was touched.
 
 **Step 9 is accepted with a stated limitation, not silently.** The rapid A→B narrator
@@ -770,7 +770,7 @@ test re-points at `_exportTravelDocumentNow` now that `_exportTravelDocument` is
 
 ### 12.6 Live acceptance owed — focused, not another campaign
 
-After review and push, one stack start, non-family narrator `6ad678ee`:
+After review and push, one stack start, the designated non-family acceptance narrator:
 
 1. its provable legacy session receives explicit ownership after migration;
 2. create trip `PHASE2 ACCEPTANCE DELME` with two days;
@@ -784,3 +784,53 @@ After review and push, one stack start, non-family narrator `6ad678ee`:
 
 **No family narrator. No restart unless a real persistence question appears. The L2 matrix
 is not resumed.**
+
+
+---
+
+## 12.7 Phase 2 live acceptance — ACCEPTED 2026-08-17
+
+One stack start, the designated non-family acceptance narrator, no family narrator touched.
+**All eight steps passed.**
+
+| # | Step | Result |
+|---|---|---|
+| 1 | Legacy session gains explicit ownership after migration | **PASS** — a session belonging to the acceptance narrator carries `person_id_source = legacy_payload_json`, recovered by 0045. |
+| 2 | Acceptance trip with two days | **PASS** — both days reached the canonical projection. |
+| 3 | Chronology connection panel and Travels shelf | **PASS** — *in step*, 2 of 2 day cards, overlapping historical period named, **"Travels (not a life era)"**, per-lane provenance `read` with counts, `authority: server`. **No current-life row for a past-dated trip** — Today was not derived from a missing year. |
+| 4 | Day edit; detailed day, chronology endpoint and Life Map agree | **PASS** — all three agree exactly. **One** `lorevox:chronology-refreshed` event (`reason: day_saved`), **zero** projection writes, **zero** prompts. |
+| 5 | Export once, both days exactly once with current values | **PASS** — the dirty-form guard refused output; preview and DOCX each rendered two days with two unique day ids and the saved values; one export request, HTTP 200. |
+| 6 | Shell launchers carry the narrator | **PASS** — all seven launch paths, including the four that previously passed none. |
+| 7 | Invalid explicit narrator fails closed | **PASS** — nothing selected, and **no fallback** to a valid cached narrator. Valid explicit honoured; a no-query load used the validated cache; the cross-page link carried the narrator. |
+| 8 | Cleanup and residue | **PASS** — unforced delete refused with the full impact grid, a wrong confirm id refused, the exact id accepted; the trip and its days are gone and the projection returned to zero trip days with status `read`. |
+
+### Ownership results — aggregate only
+
+**721 sessions.** 8 recovered from unambiguous legacy payload; 1 newly explicit, written by the
+live path during acceptance; 712 older rows carry unrecorded provenance and are **not**
+retro-stamped, because deciding after the fact which they were is the reconstruction this lane
+forbids.
+
+**Zero malformed payload rows currently exist.** The `json_valid` guard added to
+`list_sessions` in Part C is therefore **preventive**: it removes a failure mode this database
+does not presently contain, rather than repairing a live outage.
+
+### Deferred, and not treated as covered
+
+**`completed-turn` remains genuinely unexercised.** The acceptance proved *session ownership* —
+it did **not** prove the harness's complete chat → extraction ledger → result → owned-session
+route. That scenario requires `HORNELORE_OPERATOR_HARNESS=1` and a deliberate restart, which is
+a flag change and therefore a stop condition. It is deferred until an intentional
+operator-harness restart and **is not considered duplicated evidence.**
+
+**`product-read` did not run.** Its two reference personas are soft-deleted, so the person
+lookup finds none. **Soft deletion is respected and those narrators are not restored.** The
+usability fix — absent or soft-deleted reference personas reporting `N/A` while the writable
+synthetic personas continue — belongs to the harness lane and is **not** Phase 2 work.
+
+### Statuses after this closeout
+
+- **Gate B: OPEN.**
+- **L2: PARTIAL, closed for product priority.** Not resumed by this acceptance.
+- **Phase 2: ACCEPTED.**
+- **Phase 3 (Witness/story): NEXT, not yet started.**
