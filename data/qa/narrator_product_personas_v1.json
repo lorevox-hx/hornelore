@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "purpose": "Shared, non-family persona manifest for product and extraction harnesses.",
+  "rules": [
+    "Reference personas are read-only product fixtures and must never be converted to writable narrators.",
+    "Synthetic writable personas are created with testing_only=true and deleted only by exact returned person_id.",
+    "No harness may select or mutate a family narrator.",
+    "Persona facts describe the fixture; runtime behavior must not infer behavior from demographic identity."
+  ],
+  "personas": [
+    {
+      "key": "shatner",
+      "display_name": "William Shatner",
+      "kind": "reference",
+      "reference_template": "ui/templates/william-shatner.json",
+      "lookup_names": ["William Shatner", "William Alan Shatner"],
+      "capabilities": ["direct_extraction", "read_projection", "read_chronology", "reference_refusal"],
+      "forbidden_capabilities": ["family_truth_write", "fact_write", "product_mutation"]
+    },
+    {
+      "key": "dolly",
+      "display_name": "Dolly Parton",
+      "kind": "reference",
+      "reference_template": "ui/templates/dolly-parton.json",
+      "lookup_names": ["Dolly Parton", "Dolly Rebecca Parton"],
+      "capabilities": ["direct_extraction", "read_projection", "read_chronology", "reference_refusal"],
+      "forbidden_capabilities": ["family_truth_write", "fact_write", "product_mutation"]
+    },
+    {
+      "key": "tomasita",
+      "display_name": "Tomasita Reyes Cantu",
+      "kind": "synthetic_writable",
+      "source_harness": "scripts/run_regional_hispano_tex_mex_harness.py",
+      "capabilities": ["direct_extraction", "completed_turn", "projection_write", "session_write", "chronology_write", "travel_write", "archive_write"],
+      "intake": {
+        "full_legal_name": "Tomasita Guadalupe Reyes Cantu",
+        "preferred_name": "Tomasita",
+        "date_of_birth": "1939-12-12",
+        "place_of_birth": "Brownsville, Texas",
+        "pronouns": "she_her",
+        "pronouns_other": "",
+        "current_residence": "San Antonio, Texas",
+        "testing_only": true,
+        "consent_recording_agreement": false,
+        "consent_disclosure_reviewed": false,
+        "consent_checked_by_operator": "harness:product-v1",
+        "family_of_origin": {
+          "father_name": "Rafael Reyes",
+          "mother_name": "Guadalupe Cantu",
+          "mother_maiden_name": "Garza",
+          "siblings": [{"name": "Mateo Reyes", "birth_order": 2}]
+        },
+        "marriage": {
+          "marital_status": "widowed",
+          "number_of_marriages": 1,
+          "spouses": [{"name": "Luis Cantu", "year_married": 1960, "status": "deceased"}]
+        },
+        "children": [
+          {"name": "Elena Cantu", "birth_date": "1962-05-03"},
+          {"name": "Rafael Cantu", "birth_date": "1965-09-19"}
+        ],
+        "education_work": {
+          "highest_education_level": "high_school",
+          "primary_career": "Bilingual school secretary",
+          "years_working": "1958-2001"
+        },
+        "military": {"served": false},
+        "faith": {
+          "religion_raised": "Catholic",
+          "current_faith": "Catholic",
+          "ethnicity_heritage": "Tejana",
+          "languages_at_home": "Spanish and English"
+        },
+        "today": {
+          "living_situation": "Lives independently near family",
+          "health_considerations": "Uses a cane for long walks"
+        }
+      }
+    },
+    {
+      "key": "alex",
+      "display_name": "Alex Eunseo Park",
+      "kind": "synthetic_writable",
+      "source_harness": "scripts/run_alex_they_long_narration_harness.py",
+      "capabilities": ["direct_extraction", "completed_turn", "projection_write", "session_write", "chronology_write", "travel_write", "archive_write"],
+      "intake": {
+        "full_legal_name": "Alex Eunseo Park",
+        "preferred_name": "Alex",
+        "date_of_birth": "1988-09-14",
+        "place_of_birth": "Seattle, Washington",
+        "pronouns": "they_them",
+        "pronouns_other": "",
+        "current_residence": "Seattle, Washington",
+        "testing_only": true,
+        "consent_recording_agreement": false,
+        "consent_disclosure_reviewed": false,
+        "consent_checked_by_operator": "harness:product-v1",
+        "family_of_origin": {
+          "father_name": "Sang-Ho Park",
+          "mother_name": "Min-Jung Park",
+          "mother_maiden_name": "Kim",
+          "siblings": [{"name": "Jamie Park", "birth_date": "1991-04-22", "birth_order": 2}]
+        },
+        "marriage": {
+          "marital_status": "partnered_not_married",
+          "number_of_marriages": 0,
+          "spouses": [{"name": "Sam Rivera", "status": "current_partner"}]
+        },
+        "children": [],
+        "education_work": {
+          "highest_education_level": "bachelors",
+          "primary_career": "Software engineer",
+          "years_working": "2010-present"
+        },
+        "military": {"served": false},
+        "faith": {
+          "religion_raised": "Catholic",
+          "current_faith": "None",
+          "ethnicity_heritage": "Korean American",
+          "languages_at_home": "Korean and English"
+        },
+        "today": {
+          "living_situation": "Lives with partner Sam Rivera",
+          "health_considerations": "No current accommodation noted"
+        }
+      }
+    }
+  ]
+}

@@ -1,5 +1,25 @@
 #!/usr/bin/env python3
-"""WO-QB-MASTER-EVAL-01 — Unified regression + oral-history stress eval.
+"""WO-QB-MASTER-EVAL-01 — RETIRED operational runner (compatibility only).
+
+RETIRED 2026-08-17
+------------------
+This file is deliberately preserved because historical reports, the canon
+grounded evaluator, and scorer-parity tests still import it.  It is no longer
+the default or governing extraction harness.  New work uses:
+
+    scripts/run_narrator_product_harness.py
+    scripts/harness/extraction_scoring.py
+    data/qa/extraction_core_v1.json
+    data/qa/extraction_challenge_v1.json
+
+Do not add new personas, scoring policy, GPU discipline, or product acceptance
+logic here.  A local tenant-zero reproduction may still invoke this runner
+explicitly against its historical case bank.  Its hard-coded family UUID live
+mode is one of the reasons it was retired; never use that mode as routine QA.
+
+Historical description follows.
+
+WO-QB-MASTER-EVAL-01 — Unified regression + oral-history stress eval.
 
 Dual-mode runner:
   --mode offline   Use mockLlmOutput from the fixture. Tests guards, routing,

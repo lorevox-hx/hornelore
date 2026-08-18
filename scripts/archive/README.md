@@ -38,8 +38,12 @@ The `scripts/` root now contains:
 
 ### Eval runners (extractor lane)
 
-- `run_question_bank_extraction_eval.py` — **MASTER EVAL** (was at `./scripts/`)
-  Used by the standard eval block in `CLAUDE.md`. Path moved.
+- `run_question_bank_extraction_eval.py` — **RETIRED operational runner;
+  compatibility/reproduction only.** Preserved because historical reports,
+  the canon-grounded evaluator and scorer-parity tests import it. New routine
+  work uses `scripts/run_narrator_product_harness.py` plus
+  `scripts/harness/extraction_scoring.py`. Its hard-coded family-UUID live mode
+  must not be used as routine QA.
 - `run_stubborn_pack_eval.py` — stubborn-pack diagnostic eval
 - `run_canon_grounded_eval.py` — canon-grounded eval runner
 - `run_section_effect_matrix.py` — #95 SECTION-EFFECT Phase 3 matrix runner
@@ -72,7 +76,7 @@ The `scripts/` root now contains:
 - `dump_cases_per_narrator.py` — per-narrator eval case dump (#105)
 - `debug_twopass_stage_loss.py` — TWOPASS regression debug (deferred lane)
 
-## To use any of these from the new path
+## Historical reproduction from this path
 
 ```bash
 # was:
@@ -82,9 +86,8 @@ The `scripts/` root now contains:
 ./scripts/archive/run_question_bank_extraction_eval.py --mode live ...
 ```
 
-Same applies to all other scripts in this folder. The standard eval block in
-`CLAUDE.md` and the runbook in `HANDOFF.md` were updated 2026-04-25 to reflect
-the new paths.
+Same applies to all other scripts in this folder. This section explains old
+commands; it does not make an archived runner the current product gate.
 
 ## To restore one back to scripts/ root
 

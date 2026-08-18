@@ -1,0 +1,227 @@
+{
+  "schema_version": 1,
+  "gate": false,
+  "description": "Synthetic research pack for difficult extraction classes. Failures are findings, not accepted gate failures.",
+  "promotion_rule": "A repaired challenge case moves to core only with a second-persona equivalent and a negative counterexample.",
+  "cases": [
+    {
+      "id": "xchallenge_001", "persona": "shatner", "cluster": "dense_multi_entity",
+      "answer": "My parents were Joseph and Anne, my sisters were Joy and Farla, and my daughters are Leslie, Lisabeth, and Melanie.",
+      "context": {"current_section": "family", "current_target_paths": ["parents.firstName", "siblings.firstName", "family.children.firstName"]},
+      "truthZones": {
+        "parents.firstName": {"zone": "must_extract", "expected": "Joseph"},
+        "siblings.firstName": {"zone": "must_extract", "expected": "Joy"},
+        "family.children.firstName": {"zone": "must_extract", "expected": "Leslie"}
+      },
+      "mockItems": [
+        {"fieldPath": "parents.firstName", "value": "Joseph"},
+        {"fieldPath": "siblings.firstName", "value": "Joy"},
+        {"fieldPath": "family.children.firstName", "value": "Leslie"}
+      ]
+    },
+    {
+      "id": "xchallenge_002", "persona": "shatner", "cluster": "wrong_entity_attribution",
+      "answer": "Leonard served in the Army before acting; I did not serve with him.",
+      "context": {"current_section": "military", "current_target_paths": ["military.branch", "education.careerProgression"]},
+      "truthZones": {
+        "military.branch": {"zone": "must_not_write"},
+        "education.careerProgression": {"zone": "may_extract", "expected": "acted with Leonard"}
+      },
+      "mockItems": []
+    },
+    {
+      "id": "xchallenge_003", "persona": "shatner", "cluster": "timeline_cardinality",
+      "answer": "I first worked in Ottawa, then Stratford, then Broadway, and later television in New York and Los Angeles.",
+      "context": {"current_section": "career", "current_target_paths": ["education.careerProgression", "residence.place"]},
+      "truthZones": {
+        "education.careerProgression": {"zone": "must_extract", "expected": "Ottawa, Stratford, Broadway, then television"},
+        "residence.place": {"zone": "should_ignore"}
+      },
+      "mockItems": [{"fieldPath": "education.careerProgression", "value": "Ottawa, Stratford, Broadway, then television"}]
+    },
+    {
+      "id": "xchallenge_004", "persona": "shatner", "cluster": "long_mixed_narrative",
+      "answer": "At ninety I flew above the Karman line, but the important part was not the record or Jeff Bezos; it was seeing Earth alone in blackness and feeling responsible for it.",
+      "context": {"current_section": "later_years", "current_target_paths": ["travel.significantTrip", "laterYears.lifeLessons"]},
+      "truthZones": {
+        "travel.significantTrip": {"zone": "must_extract", "expected": "flew above the Karman line at ninety"},
+        "laterYears.lifeLessons": {"zone": "must_extract", "expected": "responsibility for Earth"},
+        "community.organization": {"zone": "should_ignore"}
+      },
+      "mockItems": [
+        {"fieldPath": "travel.significantTrip", "value": "flew above the Karman line at ninety"},
+        {"fieldPath": "laterYears.lifeLessons", "value": "responsibility for Earth"}
+      ]
+    },
+
+    {
+      "id": "xchallenge_005", "persona": "dolly", "cluster": "repeatable_siblings",
+      "answer": "There were twelve children: Willadeene, David, Denver, Bobby, Stella, Cassie, Randy, Larry, Floyd, Freida, Rachel, and me.",
+      "context": {"current_section": "siblings", "current_target_paths": ["siblings.firstName"]},
+      "truthZones": {
+        "siblings.firstName": {"zone": "must_extract", "expected": "Willadeene"},
+        "family.children.firstName": {"zone": "must_not_write"}
+      },
+      "mockItems": [
+        {"fieldPath": "siblings.firstName", "value": "Willadeene"},
+        {"fieldPath": "siblings.firstName", "value": "David"},
+        {"fieldPath": "siblings.firstName", "value": "Rachel"}
+      ]
+    },
+    {
+      "id": "xchallenge_006", "persona": "dolly", "cluster": "relative_fact_not_narrator",
+      "answer": "My father could not read or write, which inspired my literacy work; I have always been able to read.",
+      "context": {"current_section": "community", "current_target_paths": ["parents.education", "community.significantEvent"]},
+      "truthZones": {
+        "parents.education": {"zone": "must_extract", "expected": "could not read or write"},
+        "community.significantEvent": {"zone": "must_extract", "expected": "literacy work"},
+        "education.readingAbility": {"zone": "must_not_write"}
+      },
+      "mockItems": [
+        {"fieldPath": "parents.education", "value": "could not read or write"},
+        {"fieldPath": "community.significantEvent", "value": "literacy work"}
+      ]
+    },
+    {
+      "id": "xchallenge_007", "persona": "dolly", "cluster": "name_collision",
+      "answer": "Dolly was the name my parents gave me; Dollywood is the name of the park, not my last name.",
+      "context": {"current_section": "name_story", "current_target_paths": ["personal.nameStory", "community.organization"]},
+      "truthZones": {
+        "personal.nameStory": {"zone": "must_extract", "expected": "Dolly was the name my parents gave me"},
+        "community.organization": {"zone": "may_extract", "expected": "Dollywood"},
+        "personal.lastName": {"zone": "must_not_write"}
+      },
+      "mockItems": [
+        {"fieldPath": "personal.nameStory", "value": "Dolly was the name my parents gave me"},
+        {"fieldPath": "community.organization", "value": "Dollywood"}
+      ]
+    },
+    {
+      "id": "xchallenge_008", "persona": "dolly", "cluster": "uncertainty_abstention",
+      "answer": "I may have first sung there when I was six or seven; I would not put an exact year on it.",
+      "context": {"current_section": "early_memories", "current_target_paths": ["earlyMemories.firstMemory", "education.workStartYear"]},
+      "truthZones": {
+        "earlyMemories.firstMemory": {"zone": "must_extract", "expected": "first sang at age six or seven"},
+        "education.workStartYear": {"zone": "must_not_write"}
+      },
+      "mockItems": [{"fieldPath": "earlyMemories.firstMemory", "value": "first sang at age six or seven"}]
+    },
+
+    {
+      "id": "xchallenge_009", "persona": "tomasita", "cluster": "compound_surname",
+      "answer": "Reyes is my father's surname and Cantu is Luis's surname; Garza was my mother's maiden name, not mine.",
+      "context": {"current_section": "family", "current_target_paths": ["parents.lastName", "parents.maidenName", "family.spouse.lastName"]},
+      "truthZones": {
+        "parents.lastName": {"zone": "must_extract", "expected": "Reyes"},
+        "parents.maidenName": {"zone": "must_extract", "expected": "Garza"},
+        "family.spouse.lastName": {"zone": "must_extract", "expected": "Cantu"},
+        "personal.lastName": {"zone": "must_not_write"}
+      },
+      "mockItems": [
+        {"fieldPath": "parents.lastName", "value": "Reyes"},
+        {"fieldPath": "parents.maidenName", "value": "Garza"},
+        {"fieldPath": "family.spouse.lastName", "value": "Cantu"}
+      ]
+    },
+    {
+      "id": "xchallenge_010", "persona": "tomasita", "cluster": "code_switching",
+      "answer": "Mi abuela called the kitchen la cocina, but I am telling you about my grandmother's kitchen, not asking you to translate me.",
+      "context": {"current_section": "culture", "current_target_paths": ["cultural.touchstoneMemory", "grandparents.memorableStory"]},
+      "truthZones": {
+        "cultural.touchstoneMemory": {"zone": "must_extract", "expected": "grandmother called the kitchen la cocina"},
+        "grandparents.memorableStory": {"zone": "may_extract", "expected": "grandmother's kitchen"},
+        "personal.preferredName": {"zone": "must_not_write"}
+      },
+      "mockItems": [{"fieldPath": "cultural.touchstoneMemory", "value": "grandmother called the kitchen la cocina"}]
+    },
+    {
+      "id": "xchallenge_011", "persona": "tomasita", "cluster": "multi_generation_attribution",
+      "answer": "My mother Guadalupe was born in Matamoros, but I was born across the river in Brownsville, and Elena was born later in San Antonio.",
+      "context": {"current_section": "family", "current_target_paths": ["parents.birthPlace", "personal.placeOfBirth", "family.children.placeOfBirth"]},
+      "truthZones": {
+        "parents.birthPlace": {"zone": "must_extract", "expected": "Matamoros"},
+        "personal.placeOfBirth": {"zone": "must_extract", "expected": "Brownsville"},
+        "family.children.placeOfBirth": {"zone": "must_extract", "expected": "San Antonio"}
+      },
+      "mockItems": [
+        {"fieldPath": "parents.birthPlace", "value": "Matamoros"},
+        {"fieldPath": "personal.placeOfBirth", "value": "Brownsville"},
+        {"fieldPath": "family.children.placeOfBirth", "value": "San Antonio"}
+      ]
+    },
+    {
+      "id": "xchallenge_012", "persona": "tomasita", "cluster": "mixed_trip_move",
+      "answer": "We moved to San Antonio in 1968, then years later took a vacation to Mexico City; those were different kinds of journeys.",
+      "context": {"current_section": "travel", "current_target_paths": ["residence.place", "residence.period", "travel.destination"]},
+      "truthZones": {
+        "residence.place": {"zone": "must_extract", "expected": "San Antonio"},
+        "residence.period": {"zone": "must_extract", "expected": "1968"},
+        "travel.destination": {"zone": "must_extract", "expected": "Mexico City"},
+        "personal.placeOfBirth": {"zone": "must_not_write"}
+      },
+      "mockItems": [
+        {"fieldPath": "residence.place", "value": "San Antonio"},
+        {"fieldPath": "residence.period", "value": "1968"},
+        {"fieldPath": "travel.destination", "value": "Mexico City"}
+      ]
+    },
+
+    {
+      "id": "xchallenge_013", "persona": "alex", "cluster": "pronoun_entity_binding",
+      "answer": "Jamie said they would help me move, but Jamie uses he and him; I am the one who uses they and them.",
+      "context": {"current_section": "family", "current_target_paths": ["siblings.firstName", "siblings.notes", "personal.notes"]},
+      "truthZones": {
+        "siblings.firstName": {"zone": "must_extract", "expected": "Jamie"},
+        "personal.notes": {"zone": "must_extract", "expected": "uses they/them"},
+        "siblings.notes": {"zone": "may_extract", "expected": "uses he/him"}
+      },
+      "mockItems": [
+        {"fieldPath": "siblings.firstName", "value": "Jamie"},
+        {"fieldPath": "personal.notes", "value": "uses they/them"}
+      ]
+    },
+    {
+      "id": "xchallenge_014", "persona": "alex", "cluster": "partner_not_spouse",
+      "answer": "Sam is my partner, not my spouse; we share a home but have never married.",
+      "context": {"current_section": "marriage", "current_target_paths": ["family.spouse.firstName", "family.spouse.relation", "family.marriageDate", "residence.notes"]},
+      "truthZones": {
+        "family.spouse.firstName": {"zone": "must_extract", "expected": "Sam"},
+        "family.spouse.relation": {"zone": "must_extract", "expected": "partner"},
+        "family.marriageDate": {"zone": "must_not_write"},
+        "residence.notes": {"zone": "may_extract", "expected": "shares a home with Sam"}
+      },
+      "mockItems": [
+        {"fieldPath": "family.spouse.firstName", "value": "Sam"},
+        {"fieldPath": "family.spouse.relation", "value": "partner"}
+      ]
+    },
+    {
+      "id": "xchallenge_015", "persona": "alex", "cluster": "correction_in_narrative",
+      "answer": "I said 2013 before, but that was wrong; I came out in 2014.",
+      "context": {"current_section": "later_years", "current_target_paths": ["laterYears.significantEvent"]},
+      "truthZones": {
+        "laterYears.significantEvent": {"zone": "must_extract", "expected": "came out in 2014"},
+        "residence.period": {"zone": "must_not_write"}
+      },
+      "mockItems": [{"fieldPath": "laterYears.significantEvent", "value": "came out in 2014"}]
+    },
+    {
+      "id": "xchallenge_016", "persona": "alex", "cluster": "dense_timeline",
+      "answer": "My parents arrived in 1985, I was born in 1988, Jamie in 1991, I finished college in 2010, came out in 2014, and my parents retired in 2018.",
+      "context": {"current_section": "life_history", "current_target_paths": ["parents.notes", "personal.dateOfBirth", "siblings.birthDate", "education.higherEducation", "laterYears.significantEvent"]},
+      "truthZones": {
+        "personal.dateOfBirth": {"zone": "must_extract", "expected": "1988"},
+        "siblings.birthDate": {"zone": "must_extract", "expected": "1991"},
+        "education.higherEducation": {"zone": "must_extract", "expected": "finished college in 2010"},
+        "laterYears.significantEvent": {"zone": "must_extract", "expected": "came out in 2014"},
+        "laterYears.retirement": {"zone": "must_not_write"}
+      },
+      "mockItems": [
+        {"fieldPath": "personal.dateOfBirth", "value": "1988"},
+        {"fieldPath": "siblings.birthDate", "value": "1991"},
+        {"fieldPath": "education.higherEducation", "value": "finished college in 2010"},
+        {"fieldPath": "laterYears.significantEvent", "value": "came out in 2014"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,449 @@
+{
+  "schema_version": 1,
+  "gate": true,
+  "description": "Fictional/public-reference extraction contract. Every case is required to pass.",
+  "rules": [
+    "Every must_not_write emission is a gate failure.",
+    "No case contains Horne-family narrator data.",
+    "Each major rule is represented under more than one persona.",
+    "mockItems describe the ideal contract and validate scoring only; live mode measures the real extractor."
+  ],
+  "cases": [
+    {
+      "id": "xcore_001", "persona": "shatner", "tags": ["identity", "date"],
+      "answer": "I was born March 22, 1931, in Montreal, Quebec.",
+      "context": {"current_section": "origin_point", "current_target_paths": ["personal.dateOfBirth", "personal.placeOfBirth"]},
+      "truthZones": {
+        "personal.dateOfBirth": {"zone": "must_extract", "expected": "1931-03-22"},
+        "personal.placeOfBirth": {"zone": "must_extract", "expected": "Montreal, Quebec"},
+        "parents.birthPlace": {"zone": "must_not_write"}
+      },
+      "mockItems": [
+        {"fieldPath": "personal.dateOfBirth", "value": "1931-03-22", "confidence": 0.95},
+        {"fieldPath": "personal.placeOfBirth", "value": "Montreal, Quebec", "confidence": 0.95}
+      ]
+    },
+    {
+      "id": "xcore_002", "persona": "shatner", "tags": ["parents", "attribution"],
+      "answer": "My father Joseph manufactured clothing, and my mother Anne was born into the Garmaise family.",
+      "context": {"current_section": "family_of_origin", "current_target_paths": ["parents.firstName", "parents.occupation", "parents.maidenName"]},
+      "truthZones": {
+        "parents.firstName": {"zone": "must_extract", "expected": "Joseph"},
+        "parents.occupation": {"zone": "must_extract", "expected": "clothing manufacturer"},
+        "parents.maidenName": {"zone": "may_extract", "expected": "Garmaise"},
+        "personal.lastName": {"zone": "must_not_write"}
+      },
+      "mockItems": [
+        {"fieldPath": "parents.firstName", "value": "Joseph"},
+        {"fieldPath": "parents.occupation", "value": "clothing manufacturer"},
+        {"fieldPath": "parents.maidenName", "value": "Garmaise"}
+      ]
+    },
+    {
+      "id": "xcore_003", "persona": "shatner", "tags": ["education", "career"],
+      "answer": "I studied commerce at McGill, but I chose the theatre and went to Ottawa afterward.",
+      "context": {"current_section": "education_work", "current_target_paths": ["education.higherEducation", "education.earlyCareer"]},
+      "truthZones": {
+        "education.higherEducation": {"zone": "must_extract", "expected": "commerce at McGill"},
+        "education.earlyCareer": {"zone": "must_extract", "expected": "theatre in Ottawa"},
+        "travel.destination": {"zone": "should_ignore"}
+      },
+      "mockItems": [
+        {"fieldPath": "education.higherEducation", "value": "studied commerce at McGill"},
+        {"fieldPath": "education.earlyCareer", "value": "theatre in Ottawa"}
+      ]
+    },
+    {
+      "id": "xcore_004", "persona": "shatner", "tags": ["career", "dense"],
+      "answer": "In 1966 I began playing Captain Kirk on Star Trek; the original series ran for three seasons.",
+      "context": {"current_section": "career", "current_target_paths": ["education.careerProgression"]},
+      "truthZones": {
+        "education.careerProgression": {"zone": "must_extract", "expected": "began playing Captain Kirk on Star Trek in 1966"},
+        "military.rank": {"zone": "must_not_write"},
+        "military.branch": {"zone": "must_not_write"}
+      },
+      "mockItems": [{"fieldPath": "education.careerProgression", "value": "began playing Captain Kirk on Star Trek in 1966"}]
+    },
+    {
+      "id": "xcore_005", "persona": "shatner", "tags": ["children", "repeatable"],
+      "answer": "My daughters are Leslie, Lisabeth, and Melanie.",
+      "context": {"current_section": "family", "current_target_paths": ["family.children.firstName"]},
+      "truthZones": {
+        "family.children.firstName": {"zone": "must_extract", "expected": "Leslie"},
+        "siblings.firstName": {"zone": "must_not_write"}
+      },
+      "mockItems": [
+        {"fieldPath": "family.children.firstName", "value": "Leslie", "repeatableGroup": "child_1"},
+        {"fieldPath": "family.children.firstName", "value": "Lisabeth", "repeatableGroup": "child_2"},
+        {"fieldPath": "family.children.firstName", "value": "Melanie", "repeatableGroup": "child_3"}
+      ]
+    },
+    {
+      "id": "xcore_006", "persona": "shatner", "tags": ["travel", "late_life"],
+      "answer": "I flew to space with Blue Origin in 2021 when I was ninety.",
+      "context": {"current_section": "later_years", "current_target_paths": ["travel.destination", "travel.significantTrip"]},
+      "truthZones": {
+        "travel.destination": {"zone": "must_extract", "expected": "space"},
+        "travel.significantTrip": {"zone": "must_extract", "expected": "Blue Origin flight in 2021"},
+        "military.deploymentLocation": {"zone": "must_not_write"}
+      },
+      "mockItems": [
+        {"fieldPath": "travel.destination", "value": "space"},
+        {"fieldPath": "travel.significantTrip", "value": "Blue Origin flight in 2021"}
+      ]
+    },
+    {
+      "id": "xcore_007", "persona": "shatner", "tags": ["negation", "military"],
+      "answer": "I played military officers, but I never served in the armed forces.",
+      "context": {"current_section": "military", "current_target_paths": ["military.branch", "military.rank"]},
+      "truthZones": {
+        "military.branch": {"zone": "must_not_write"},
+        "military.rank": {"zone": "must_not_write"},
+        "education.careerProgression": {"zone": "may_extract", "expected": "played military officers"}
+      },
+      "mockItems": [{"fieldPath": "education.careerProgression", "value": "played military officers"}]
+    },
+    {
+      "id": "xcore_008", "persona": "shatner", "tags": ["reference", "noise"],
+      "answer": "The reporters wanted a simple astronaut quote, but what stayed with me was grief for the planet.",
+      "context": {"current_section": "later_years", "current_target_paths": ["laterYears.lifeLessons"]},
+      "truthZones": {
+        "laterYears.lifeLessons": {"zone": "must_extract", "expected": "grief for the planet"},
+        "education.earlyCareer": {"zone": "should_ignore"},
+        "personal.fullName": {"zone": "must_not_write"}
+      },
+      "mockItems": [{"fieldPath": "laterYears.lifeLessons", "value": "grief for the planet"}]
+    },
+
+    {
+      "id": "xcore_009", "persona": "dolly", "tags": ["identity", "date"],
+      "answer": "I was born January 19, 1946, in Sevier County, Tennessee.",
+      "context": {"current_section": "origin_point", "current_target_paths": ["personal.dateOfBirth", "personal.placeOfBirth"]},
+      "truthZones": {
+        "personal.dateOfBirth": {"zone": "must_extract", "expected": "1946-01-19"},
+        "personal.placeOfBirth": {"zone": "must_extract", "expected": "Sevier County, Tennessee"},
+        "parents.birthPlace": {"zone": "must_not_write"}
+      },
+      "mockItems": [
+        {"fieldPath": "personal.dateOfBirth", "value": "1946-01-19"},
+        {"fieldPath": "personal.placeOfBirth", "value": "Sevier County, Tennessee"}
+      ]
+    },
+    {
+      "id": "xcore_010", "persona": "dolly", "tags": ["parents", "attribution"],
+      "answer": "My father Lee worked the land, and my mother Avie Lee cared for our large family.",
+      "context": {"current_section": "family_of_origin", "current_target_paths": ["parents.firstName", "parents.occupation"]},
+      "truthZones": {
+        "parents.firstName": {"zone": "must_extract", "expected": "Lee"},
+        "parents.occupation": {"zone": "must_extract", "expected": "worked the land"},
+        "personal.occupation": {"zone": "must_not_write"}
+      },
+      "mockItems": [
+        {"fieldPath": "parents.firstName", "value": "Lee"},
+        {"fieldPath": "parents.occupation", "value": "worked the land"},
+        {"fieldPath": "parents.firstName", "value": "Avie Lee", "repeatableGroup": "parent_2"}
+      ]
+    },
+    {
+      "id": "xcore_011", "persona": "dolly", "tags": ["career", "place"],
+      "answer": "The day after I graduated from high school in 1964, I moved to Nashville to write and sing.",
+      "context": {"current_section": "education_work", "current_target_paths": ["education.schooling", "education.earlyCareer", "residence.place"]},
+      "truthZones": {
+        "education.schooling": {"zone": "may_extract", "expected": "graduated high school in 1964"},
+        "education.earlyCareer": {"zone": "must_extract", "expected": "moved to Nashville to write and sing"},
+        "residence.place": {"zone": "must_extract", "expected": "Nashville"},
+        "personal.placeOfBirth": {"zone": "must_not_write"}
+      },
+      "mockItems": [
+        {"fieldPath": "education.schooling", "value": "graduated high school in 1964"},
+        {"fieldPath": "education.earlyCareer", "value": "moved to Nashville to write and sing"},
+        {"fieldPath": "residence.place", "value": "Nashville"}
+      ]
+    },
+    {
+      "id": "xcore_012", "persona": "dolly", "tags": ["spouse", "meeting"],
+      "answer": "I met Carl Dean at the Wishy Washy laundromat on my first day in Nashville.",
+      "context": {"current_section": "marriage", "current_target_paths": ["family.spouse.firstName", "family.spouse.lastName", "family.marriageNotes"]},
+      "truthZones": {
+        "family.spouse.firstName": {"zone": "must_extract", "expected": "Carl"},
+        "family.spouse.lastName": {"zone": "must_extract", "expected": "Dean"},
+        "family.marriageNotes": {"zone": "may_extract", "expected": "met at the Wishy Washy laundromat"},
+        "residence.place": {"zone": "should_ignore"}
+      },
+      "mockItems": [
+        {"fieldPath": "family.spouse.firstName", "value": "Carl"},
+        {"fieldPath": "family.spouse.lastName", "value": "Dean"},
+        {"fieldPath": "family.marriageNotes", "value": "met at the Wishy Washy laundromat"}
+      ]
+    },
+    {
+      "id": "xcore_013", "persona": "dolly", "tags": ["community", "legacy"],
+      "answer": "I created the Imagination Library to send books to children, inspired by my father who could not read.",
+      "context": {"current_section": "community", "current_target_paths": ["community.organization", "community.significantEvent"]},
+      "truthZones": {
+        "community.organization": {"zone": "must_extract", "expected": "Imagination Library"},
+        "community.significantEvent": {"zone": "must_extract", "expected": "send books to children"},
+        "personal.readingAbility": {"zone": "must_not_write"}
+      },
+      "mockItems": [
+        {"fieldPath": "community.organization", "value": "Imagination Library"},
+        {"fieldPath": "community.significantEvent", "value": "send books to children"}
+      ]
+    },
+    {
+      "id": "xcore_014", "persona": "dolly", "tags": ["negation", "children"],
+      "answer": "Carl and I never had children of our own.",
+      "context": {"current_section": "family", "current_target_paths": ["family.children.firstName", "family.children.notes"]},
+      "truthZones": {
+        "family.children.firstName": {"zone": "must_not_write"},
+        "family.children.dateOfBirth": {"zone": "must_not_write"},
+        "family.children.notes": {"zone": "may_extract", "expected": "no children"}
+      },
+      "mockItems": [{"fieldPath": "family.children.notes", "value": "no children"}]
+    },
+    {
+      "id": "xcore_015", "persona": "dolly", "tags": ["career", "attribution"],
+      "answer": "Porter Wagoner gave me an important television opportunity, but my own career was in songwriting and performing.",
+      "context": {"current_section": "career", "current_target_paths": ["education.careerProgression"]},
+      "truthZones": {
+        "education.careerProgression": {"zone": "must_extract", "expected": "songwriting and performing"},
+        "family.spouse.firstName": {"zone": "must_not_write"},
+        "parents.firstName": {"zone": "must_not_write"}
+      },
+      "mockItems": [{"fieldPath": "education.careerProgression", "value": "songwriting and performing"}]
+    },
+    {
+      "id": "xcore_016", "persona": "dolly", "tags": ["reference", "life_lesson"],
+      "answer": "I believe you should find out who you are and do it on purpose.",
+      "context": {"current_section": "later_years", "current_target_paths": ["laterYears.lifeLessons"]},
+      "truthZones": {
+        "laterYears.lifeLessons": {"zone": "must_extract", "expected": "find out who you are and do it on purpose"},
+        "faith.values": {"zone": "should_ignore"},
+        "personal.fullName": {"zone": "must_not_write"}
+      },
+      "mockItems": [{"fieldPath": "laterYears.lifeLessons", "value": "find out who you are and do it on purpose"}]
+    },
+
+    {
+      "id": "xcore_017", "persona": "tomasita", "tags": ["identity", "diacritic"],
+      "answer": "My full name is Tomasita Guadalupe Reyes Cantu, and I was born December 12, 1939, in Brownsville, Texas.",
+      "context": {"current_section": "origin_point", "current_target_paths": ["personal.fullName", "personal.dateOfBirth", "personal.placeOfBirth"]},
+      "truthZones": {
+        "personal.fullName": {"zone": "must_extract", "expected": "Tomasita Guadalupe Reyes Cantu"},
+        "personal.dateOfBirth": {"zone": "must_extract", "expected": "1939-12-12"},
+        "personal.placeOfBirth": {"zone": "must_extract", "expected": "Brownsville, Texas"}
+      },
+      "mockItems": [
+        {"fieldPath": "personal.fullName", "value": "Tomasita Guadalupe Reyes Cantu"},
+        {"fieldPath": "personal.dateOfBirth", "value": "1939-12-12"},
+        {"fieldPath": "personal.placeOfBirth", "value": "Brownsville, Texas"}
+      ]
+    },
+    {
+      "id": "xcore_018", "persona": "tomasita", "tags": ["parents", "compound"],
+      "answer": "My father Rafael Reyes repaired fishing boats, and my mother Guadalupe Garza Cantu kept the books for the family store.",
+      "context": {"current_section": "family_of_origin", "current_target_paths": ["parents.firstName", "parents.lastName", "parents.maidenName", "parents.occupation"]},
+      "truthZones": {
+        "parents.firstName": {"zone": "must_extract", "expected": "Rafael"},
+        "parents.occupation": {"zone": "must_extract", "expected": "repaired fishing boats"},
+        "parents.maidenName": {"zone": "may_extract", "expected": "Garza"},
+        "personal.lastName": {"zone": "must_not_write"}
+      },
+      "mockItems": [
+        {"fieldPath": "parents.firstName", "value": "Rafael", "repeatableGroup": "parent_1"},
+        {"fieldPath": "parents.occupation", "value": "repaired fishing boats", "repeatableGroup": "parent_1"},
+        {"fieldPath": "parents.firstName", "value": "Guadalupe", "repeatableGroup": "parent_2"},
+        {"fieldPath": "parents.maidenName", "value": "Garza", "repeatableGroup": "parent_2"}
+      ]
+    },
+    {
+      "id": "xcore_019", "persona": "tomasita", "tags": ["language", "culture"],
+      "answer": "We spoke Spanish at home and English at school; neither language replaced the other.",
+      "context": {"current_section": "culture", "current_target_paths": ["cultural.touchstoneMemory"]},
+      "truthZones": {
+        "cultural.touchstoneMemory": {"zone": "must_extract", "expected": "spoke Spanish at home and English at school"},
+        "personal.ethnicity": {"zone": "must_not_write"}
+      },
+      "mockItems": [{"fieldPath": "cultural.touchstoneMemory", "value": "spoke Spanish at home and English at school"}]
+    },
+    {
+      "id": "xcore_020", "persona": "tomasita", "tags": ["spouse", "marriage"],
+      "answer": "I married Luis Cantu in 1960, and we raised Elena and Rafael.",
+      "context": {"current_section": "marriage", "current_target_paths": ["family.spouse.firstName", "family.spouse.lastName", "family.marriageDate", "family.children.firstName"]},
+      "truthZones": {
+        "family.spouse.firstName": {"zone": "must_extract", "expected": "Luis"},
+        "family.spouse.lastName": {"zone": "must_extract", "expected": "Cantu"},
+        "family.marriageDate": {"zone": "may_extract", "expected": "1960"},
+        "family.children.firstName": {"zone": "must_extract", "expected": "Elena"}
+      },
+      "mockItems": [
+        {"fieldPath": "family.spouse.firstName", "value": "Luis"},
+        {"fieldPath": "family.spouse.lastName", "value": "Cantu"},
+        {"fieldPath": "family.marriageDate", "value": "1960"},
+        {"fieldPath": "family.children.firstName", "value": "Elena", "repeatableGroup": "child_1"},
+        {"fieldPath": "family.children.firstName", "value": "Rafael", "repeatableGroup": "child_2"}
+      ]
+    },
+    {
+      "id": "xcore_021", "persona": "tomasita", "tags": ["career", "school"],
+      "answer": "I worked as a bilingual school secretary from 1958 until 2001.",
+      "context": {"current_section": "career", "current_target_paths": ["education.careerProgression", "laterYears.retirement"]},
+      "truthZones": {
+        "education.careerProgression": {"zone": "must_extract", "expected": "bilingual school secretary from 1958 until 2001"},
+        "laterYears.retirement": {"zone": "may_extract", "expected": "retired in 2001"},
+        "education.schooling": {"zone": "should_ignore"}
+      },
+      "mockItems": [
+        {"fieldPath": "education.careerProgression", "value": "bilingual school secretary from 1958 until 2001"},
+        {"fieldPath": "laterYears.retirement", "value": "retired in 2001"}
+      ]
+    },
+    {
+      "id": "xcore_022", "persona": "tomasita", "tags": ["travel", "residence"],
+      "answer": "We moved from Brownsville to San Antonio in 1968; it was a move, not a vacation.",
+      "context": {"current_section": "residence", "current_target_paths": ["residence.place", "residence.period", "travel.destination"]},
+      "truthZones": {
+        "residence.place": {"zone": "must_extract", "expected": "San Antonio"},
+        "residence.period": {"zone": "must_extract", "expected": "1968"},
+        "travel.destination": {"zone": "must_not_write"},
+        "personal.placeOfBirth": {"zone": "must_not_write"}
+      },
+      "mockItems": [
+        {"fieldPath": "residence.place", "value": "San Antonio"},
+        {"fieldPath": "residence.period", "value": "1968"}
+      ]
+    },
+    {
+      "id": "xcore_023", "persona": "tomasita", "tags": ["negation", "military"],
+      "answer": "My brother served in the Navy, but I did not serve in the military.",
+      "context": {"current_section": "military", "current_target_paths": ["military.branch", "military.yearsOfService"]},
+      "truthZones": {
+        "military.branch": {"zone": "must_not_write"},
+        "military.yearsOfService": {"zone": "must_not_write"},
+        "siblings.notes": {"zone": "may_extract", "expected": "brother served in the Navy"}
+      },
+      "mockItems": [{"fieldPath": "siblings.notes", "value": "brother served in the Navy"}]
+    },
+    {
+      "id": "xcore_024", "persona": "tomasita", "tags": ["approximate_date", "abstention"],
+      "answer": "I think Mateo was born around 1942, but I would want to check before writing down the exact year.",
+      "context": {"current_section": "siblings", "current_target_paths": ["siblings.firstName", "siblings.birthDate"]},
+      "truthZones": {
+        "siblings.firstName": {"zone": "must_extract", "expected": "Mateo"},
+        "siblings.birthDate": {"zone": "must_not_write"}
+      },
+      "mockItems": [{"fieldPath": "siblings.firstName", "value": "Mateo"}]
+    },
+
+    {
+      "id": "xcore_025", "persona": "alex", "tags": ["identity", "pronouns"],
+      "answer": "My name is Alex Eunseo Park, I use they and them, and I was born September 14, 1988, in Seattle.",
+      "context": {"current_section": "origin_point", "current_target_paths": ["personal.fullName", "personal.dateOfBirth", "personal.placeOfBirth", "personal.notes"]},
+      "truthZones": {
+        "personal.fullName": {"zone": "must_extract", "expected": "Alex Eunseo Park"},
+        "personal.dateOfBirth": {"zone": "must_extract", "expected": "1988-09-14"},
+        "personal.placeOfBirth": {"zone": "must_extract", "expected": "Seattle"},
+        "personal.notes": {"zone": "may_extract", "expected": "uses they/them pronouns"}
+      },
+      "mockItems": [
+        {"fieldPath": "personal.fullName", "value": "Alex Eunseo Park"},
+        {"fieldPath": "personal.dateOfBirth", "value": "1988-09-14"},
+        {"fieldPath": "personal.placeOfBirth", "value": "Seattle, Washington"},
+        {"fieldPath": "personal.notes", "value": "uses they/them pronouns"}
+      ]
+    },
+    {
+      "id": "xcore_026", "persona": "alex", "tags": ["parents", "immigration"],
+      "answer": "My parents Min-Jung and Sang-Ho moved from Seoul to Seattle in 1985.",
+      "context": {"current_section": "family_of_origin", "current_target_paths": ["parents.firstName", "residence.place", "residence.period"]},
+      "truthZones": {
+        "parents.firstName": {"zone": "must_extract", "expected": "Min-Jung"},
+        "residence.place": {"zone": "should_ignore"},
+        "personal.placeOfBirth": {"zone": "must_not_write"}
+      },
+      "mockItems": [
+        {"fieldPath": "parents.firstName", "value": "Min-Jung", "repeatableGroup": "parent_1"},
+        {"fieldPath": "parents.firstName", "value": "Sang-Ho", "repeatableGroup": "parent_2"}
+      ]
+    },
+    {
+      "id": "xcore_027", "persona": "alex", "tags": ["sibling", "attribution"],
+      "answer": "My younger brother Jamie was born in 1991; that is his birth year, not mine.",
+      "context": {"current_section": "siblings", "current_target_paths": ["siblings.firstName", "siblings.birthDate"]},
+      "truthZones": {
+        "siblings.firstName": {"zone": "must_extract", "expected": "Jamie"},
+        "siblings.birthDate": {"zone": "must_extract", "expected": "1991"},
+        "personal.dateOfBirth": {"zone": "must_not_write"}
+      },
+      "mockItems": [
+        {"fieldPath": "siblings.firstName", "value": "Jamie"},
+        {"fieldPath": "siblings.birthDate", "value": "1991"}
+      ]
+    },
+    {
+      "id": "xcore_028", "persona": "alex", "tags": ["partner", "relationship"],
+      "answer": "My partner Sam Rivera and I have been together for five years, but we are not married.",
+      "context": {"current_section": "marriage", "current_target_paths": ["family.spouse.firstName", "family.spouse.lastName", "family.marriageDate"]},
+      "truthZones": {
+        "family.spouse.firstName": {"zone": "must_extract", "expected": "Sam"},
+        "family.spouse.lastName": {"zone": "must_extract", "expected": "Rivera"},
+        "family.marriageDate": {"zone": "must_not_write"},
+        "family.spouse.notes": {"zone": "may_extract", "expected": "partner, not married"}
+      },
+      "mockItems": [
+        {"fieldPath": "family.spouse.firstName", "value": "Sam"},
+        {"fieldPath": "family.spouse.lastName", "value": "Rivera"},
+        {"fieldPath": "family.spouse.notes", "value": "partner, not married"}
+      ]
+    },
+    {
+      "id": "xcore_029", "persona": "alex", "tags": ["career", "education"],
+      "answer": "I studied computer science at the University of Washington and now lead a machine-learning team.",
+      "context": {"current_section": "education_work", "current_target_paths": ["education.higherEducation", "education.careerProgression"]},
+      "truthZones": {
+        "education.higherEducation": {"zone": "must_extract", "expected": "computer science at the University of Washington"},
+        "education.careerProgression": {"zone": "must_extract", "expected": "leads a machine-learning team"}
+      },
+      "mockItems": [
+        {"fieldPath": "education.higherEducation", "value": "computer science at the University of Washington"},
+        {"fieldPath": "education.careerProgression", "value": "leads a machine-learning team"}
+      ]
+    },
+    {
+      "id": "xcore_030", "persona": "alex", "tags": ["language", "attribution"],
+      "answer": "We spoke Korean at home, and I learned English when I started kindergarten.",
+      "context": {"current_section": "culture", "current_target_paths": ["cultural.touchstoneMemory", "education.schooling"]},
+      "truthZones": {
+        "cultural.touchstoneMemory": {"zone": "must_extract", "expected": "spoke Korean at home"},
+        "education.schooling": {"zone": "may_extract", "expected": "learned English in kindergarten"},
+        "parents.education": {"zone": "must_not_write"}
+      },
+      "mockItems": [
+        {"fieldPath": "cultural.touchstoneMemory", "value": "spoke Korean at home"},
+        {"fieldPath": "education.schooling", "value": "learned English in kindergarten"}
+      ]
+    },
+    {
+      "id": "xcore_031", "persona": "alex", "tags": ["negation", "children"],
+      "answer": "Sam and I talk about having children someday, but we do not have children now.",
+      "context": {"current_section": "family", "current_target_paths": ["family.children.firstName", "family.children.dateOfBirth", "additionalNotes.unfinishedDreams"]},
+      "truthZones": {
+        "family.children.firstName": {"zone": "must_not_write"},
+        "family.children.dateOfBirth": {"zone": "must_not_write"},
+        "additionalNotes.unfinishedDreams": {"zone": "may_extract", "expected": "may have children someday"}
+      },
+      "mockItems": [{"fieldPath": "additionalNotes.unfinishedDreams", "value": "may have children someday"}]
+    },
+    {
+      "id": "xcore_032", "persona": "alex", "tags": ["stated_affect", "no_inference"],
+      "answer": "I felt relieved when my father wrote that he was proud of me; I did not say that everything was easy after that.",
+      "context": {"current_section": "later_years", "current_target_paths": ["laterYears.significantEvent", "laterYears.lifeLessons"]},
+      "truthZones": {
+        "laterYears.significantEvent": {"zone": "must_extract", "expected": "father wrote that he was proud"},
+        "health.majorCondition": {"zone": "must_not_write"},
+        "family.spouse.notes": {"zone": "should_ignore"}
+      },
+      "mockItems": [{"fieldPath": "laterYears.significantEvent", "value": "father wrote that he was proud"}]
+    }
+  ]
+}
