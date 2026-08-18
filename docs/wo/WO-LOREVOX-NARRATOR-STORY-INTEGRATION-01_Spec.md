@@ -889,20 +889,47 @@ that protects the narrator, and it is the half this system exists to get right.
 
 **The positive half did not.** The bridge attached the approved story —
 `[chat_ws][story-grounding] approved=1 provisional=1` — and Lori then said she did not recall
-it. Chasing that gap is what found **BUG-STORY-GROUNDING-DROPPED-FIRST-01**: the section was
-registered `required=False` with **no `drop_order`**, which defaults to 0, and `drop_order` is
-ascending. So the reviewed-story block was the FIRST section discarded from an over-budget
-prompt — and measured live prompts run 6.0–6.7k against a LOCKED 8,192 window, so it was
-discarded routinely. It ranked below `memory_context`, whose own documented rationale is that
-"the narrator can always be asked again". A reviewed story cannot be re-asked; it exists
-because a human read it and decided.
+it.
 
-Optional was the right call. Ranking it below everything was not a call at all — it was an
-omission wearing a default. It is now `drop_order=25`: above the three sections that rebuild
-themselves next turn, below the two identity sections, because losing who the narrator is makes
-Lori invent, which is worse than her saying less.
+**── CORRECTED 2026-08-18, SAME DAY. THE FIRST DIAGNOSIS WAS WRONG. ──**
 
-**Confirming the positive half live requires a restart** and is the one item owed.
+This section originally read:
+
+> *"Chasing that gap is what found BUG-STORY-GROUNDING-DROPPED-FIRST-01: the section was
+> registered `required=False` with no `drop_order`, which defaults to 0 … So the reviewed-story
+> block was the FIRST section discarded from an over-budget prompt … Confirming the positive
+> half live requires a restart."*
+
+**That is not what happened, and the claim is withdrawn.** Verified afterwards against the
+tree, not inferred:
+
+- `_PromptAssembly.render()` joins **every** section unconditionally. It reads neither
+  `required` nor `drop_order`.
+- `sections()`, `drop_order` and `required` have **no production consumer anywhere** — the
+  only readers in the repository are tests.
+- `prompt_budget.fit_chat_messages` drops **history turns only**; its own docstring states that
+  the system message "is mandatory and never modified".
+- `_approved_story_block` renders non-empty for exactly the shape the bridge produced, and
+  `compose_system_prompt` is called from ONE site in `chat_ws.py`, passing the same `runtime71`
+  the bridge had already stamped.
+
+**So no section was being dropped, the block reached the model, and Lori had the approved story
+in front of her when she said she did not recall it.** The owed check is therefore a
+prompt-authority / model-behaviour problem, not a budgeting one, and it does **not** need a
+restart to reproduce — it needs the Phase 4 work on authoritative prompt assembly.
+
+**The `drop_order` fix is kept, re-characterised as what it actually is:** a LATENT defect. An
+optional section with no rank is wrong regardless of whether anything currently enforces the
+ranking, and it would have become the live defect described above the moment enforcement
+landed — which is precisely what Phase 4 is chartered to build. It is now `drop_order=25`:
+above the three sections that rebuild themselves next turn, below the two identity sections,
+because losing who the narrator is makes Lori invent, which is worse than her saying less.
+
+**The lesson is the one this repository keeps re-learning:** a plausible mechanism found by
+reading source is a hypothesis, not a cause. The ladder comment was so precise about drop order
+that it read as enforcement; nobody had checked whether anything consumed it.
+
+**The unenforced classification is now the headline input to Phase 4** — see the block charter.
 
 ### 13.4 Two other defects the live run found that 530 offline tests did not
 

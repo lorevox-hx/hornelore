@@ -71,11 +71,23 @@ for keeping the live step a gate rather than a formality. All three are fixed:
    different questions, and `applyReview`'s own success path bumped it — so the cleanup arm
    decided it was stale and never cleared the busy latch. Now three counters: list reads,
    detail reads, and narrator switches. A write asks only the third.
-3. **The reviewed-story prompt section was the FIRST thing dropped.** It shipped
-   `required=False` with no `drop_order`, which defaults to 0, and `drop_order` is ascending —
-   so the one thing Phase 3 exists to deliver ranked below a per-turn hint. Now 25: above the
-   sections that rebuild themselves next turn, below the identity sections that must never be
-   traded for episodic material.
+3. **The reviewed-story prompt section carried no `drop_order`** — `required=False` with an
+   implicit 0, ranked below a per-turn hint. Now 25: above the sections that rebuild themselves
+   next turn, below the identity sections that must never be traded for episodic material.
+   **CORRECTED the same day:** this was first written up as the CAUSE of the owed check. It is
+   not. `render()` emits every section, `sections()`/`drop_order`/`required` have no production
+   consumer at all, and the token budget trims history turns while leaving the system message
+   untouched by contract — so **nothing was being dropped and the story reached the model.**
+   The fix is kept as a LATENT defect, correct in itself and dangerous the moment enforcement
+   lands. The retired claim read: *"The reviewed-story prompt section was the FIRST thing
+   dropped … so the one thing Phase 3 exists to deliver ranked below a per-turn hint."*
+
+**What the owed check actually is, now that the wrong cause has been withdrawn:** Lori received
+the approved story and still said she did not recall it. That is a prompt-authority and
+model-behaviour problem, not a budgeting one, and it does **not** need a restart to reproduce.
+It folds into the Phase 4 block, which is chartered to make prompt assembly authoritative — and
+the fact that the section classification is **declared but unenforced** is that block's single
+most useful starting fact.
 
 *(This section read "Phase 1 — canonical narrator authority … Phases 2–4 are sequenced and not
 started" until 2026-08-17, and "Phase 3 (Witness/story connection) is NEXT and not yet started"

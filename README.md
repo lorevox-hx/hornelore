@@ -169,10 +169,11 @@ approved stories reach the Life Map, the chronology and Lori; provisional ones a
 never asserted; discarded ones are absent rather than dimmed. The nine-step live run passed
 8 of 9 on a synthetic narrator. **The owed item is the half of step 6 that says Lori SPEAKS an
 approved story** — the run proved the bridge attaches it (`approved=1 provisional=1`) and
-proved the more important negative (a provisional story is never asserted), then found the
-reason she still did not use it: the prompt section was registered with no `drop_order`, so it
-was the FIRST thing dropped from an over-budget prompt. That is fixed and ranked; confirming it
-live needs a restart.
+proved the more important negative (a provisional story is never asserted), but Lori did not
+use it. *(This paragraph first blamed a missing `drop_order` on the prompt section. That claim
+was withdrawn the same day: nothing in production reads the section classification, so nothing
+was dropped and the story did reach the model. The ranking fix is kept as a latent defect.)*
+The owed check is therefore a prompt-authority question and folds into Phase 4.
 
 *(This paragraph said Phase 1 was "BUILT and AWAITING LIVE ACCEPTANCE" until 2026-08-17, and
 said "Phase 3 … is not opened" until 2026-08-18.)*
