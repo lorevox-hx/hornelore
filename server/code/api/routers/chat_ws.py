@@ -140,9 +140,12 @@ from ..db import (
 import torch
 from ..api import (_load_model, _apply_chat_template, StopOnEvent,
                    _normalize_role, MAX_CHAT_PROMPT_TOKENS)
-from ..services.prompt_budget import fit_chat_messages
+from ..services.prompt_budget import (
+    fit_chat_messages, fit_chat_messages_with_sections)
 from ..db import turn_is_system_directive as _turn_is_system_directive
-from ..prompt_composer import compose_system_prompt
+from ..prompt_composer import (
+    compose_system_prompt, compose_prompt_sections, make_section,
+    render_sections)
 
 # BUG-GUARDS-DEAD-ON-PY311-INLINE-FLAG-01 (2026-07-14) — FAIL LOUD, AT BOOT.
 #
@@ -4285,9 +4288,15 @@ async def ws_chat(ws: WebSocket):
                 "(posture=%s, %d chars) — NOT into the narrator turn",
                 params.get("ui_posture") or "?", len(_ui_system_for_prompt))
 
-        system_prompt = compose_system_prompt(
+        # Phase 4: compose to the CLASSIFIED assembly, so the budget below
+        # can shed named optional sections instead of refusing outright.
+        # `_composed.text` is byte-identical to what `compose_system_prompt`
+        # returns — both come from the same renderer.
+        _composed = compose_prompt_sections(
             conv_id, ui_system=_ui_system_for_prompt, user_text=user_text,
             runtime71=runtime71)
+        _prompt_sections = list(_composed.sections)
+        system_prompt = _composed.text
 
         # WO-TRIP-INTERVIEW-CONTEXT-01 Step 2 — when a trip is actively open
         # on the Travels shelf, append a compact, narrator-safe trip context
@@ -4300,7 +4309,33 @@ async def ws_chat(ws: WebSocket):
             from ..services import trip_interview_context as _tic
             _tic_block = _tic.context_block_for_turn(person_id, runtime71)
             if _tic_block:
-                system_prompt = system_prompt + _tic_block
+                # Phase 4: appended as a CLASSIFIED SECTION rather than
+                # concatenated onto the finished string. It used to be
+                # `system_prompt = system_prompt + _tic_block`, which meant
+                # the budget priced a system message that was not the one
+                # sent -- on a shelf-open turn this block can be several
+                # hundred tokens the ladder knew nothing about.
+                #
+                # The leading newlines are stripped because the renderer
+                # supplies the "\n\n" separator itself; keeping them would
+                # produce four.
+                #
+                # NOT byte-identical to the old concatenation, and the
+                # difference is stated rather than glossed: the renderer
+                # strips the finished prompt, so the trip block's trailing
+                # newline is gone. Measured, the delta is exactly one
+                # character and confined to trailing whitespace. Every
+                # other composition path was already stripped; raw
+                # concatenation was the one that bypassed it.
+                #
+                # drop_order 15: above `factual_chain` (10), which the next
+                # turn rebuilds from scratch, and below `english_first`
+                # (20), because language steering degrades gracefully while
+                # losing the trip context makes Lori answer "what do you
+                # know about this trip" with nothing.
+                _prompt_sections.append(make_section(
+                    "trip_context", _tic_block.lstrip("\n"), drop_order=15))
+                system_prompt = render_sections(_prompt_sections)
                 logger.info("[chat_ws][trip-context] injected trip context "
                             "conv=%s person=%s", conv_id, person_id or "(none)")
             # Stamp prior-turn trip-scope for the NEXT narrator answer's
@@ -4359,9 +4394,10 @@ async def ws_chat(ws: WebSocket):
         # Counted through the real `_apply_chat_template` + the real
         # tokenizer, because the template adds tokens of its own and a
         # builder-side estimate measures a prompt nobody sends.
-        _budget = fit_chat_messages(
+        _budget = fit_chat_messages_with_sections(
             msgs, limit=MAX_CHAT_PROMPT_TOKENS,
-            count_tokens=lambda m: len(tok.encode(_apply_chat_template(m))))
+            count_tokens=lambda m: len(tok.encode(_apply_chat_template(m))),
+            sections=_prompt_sections, render_sections=render_sections)
         if not _budget.fits:
             # Honest refusal rather than a mutilated prompt. The
             # extraction lane already works this way; the same reasoning

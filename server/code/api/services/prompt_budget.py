@@ -81,12 +81,47 @@ it more elegantly later.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Callable, Dict, List, Sequence
+import hashlib
+from dataclasses import dataclass, field
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
-__all__ = ["BudgetOutcome", "fit_chat_messages", "history_segments"]
+__all__ = [
+    "BudgetOutcome",
+    "SectionPlan",
+    "fit_chat_messages",
+    "fit_chat_messages_with_sections",
+    "history_segments",
+    "section_digest",
+]
 
 Message = Dict[str, str]
+
+
+def section_digest(text: str) -> str:
+    """A short, non-reversible fingerprint of a section's content.
+
+    Telemetry has to be able to say *which* text was kept or dropped
+    across two turns without ever carrying narrator words into a log. A
+    truncated SHA-256 answers "is this the same section content as last
+    turn" and answers nothing else.
+    """
+    return hashlib.sha256((text or "").encode("utf-8")).hexdigest()[:12]
+
+
+@dataclass(frozen=True)
+class SectionPlan:
+    """One system-prompt section, and what the budget decided about it."""
+
+    name: str
+    required: bool
+    drop_order: int
+    tokens: int
+    digest: str
+    kept: bool
+
+    def as_log_field(self) -> str:
+        return (f"{self.name}:{'keep' if self.kept else 'DROP'}"
+                f":{self.tokens}:{self.digest}")
 
 
 @dataclass(frozen=True)
@@ -103,10 +138,29 @@ class BudgetOutcome:
     kept_turns: int
     #: "fits" | "trimmed" | "mandatory_too_large"
     reason: str
+    #: Phase 4. Empty for the history-only entry point, which cannot see
+    #: sections and therefore may not claim to have judged any.
+    sections: List[SectionPlan] = field(default_factory=list)
+
+    @property
+    def dropped_sections(self) -> List[str]:
+        return [s.name for s in self.sections if not s.kept]
+
+    @property
+    def kept_sections(self) -> List[str]:
+        return [s.name for s in self.sections if s.kept]
 
     def as_log_fields(self) -> str:
-        return (f"reason={self.reason} tokens={self.tokens} limit={self.limit} "
+        base = (f"reason={self.reason} tokens={self.tokens} limit={self.limit} "
                 f"kept_turns={self.kept_turns} dropped_turns={self.dropped_turns}")
+        if not self.sections:
+            return base
+        # Section identifiers, token counts, decisions and digests. NEVER
+        # section text -- the digest exists precisely so the text does not
+        # have to travel.
+        return (base
+                + f" dropped_sections={len(self.dropped_sections)}"
+                + " sections=" + ",".join(s.as_log_field() for s in self.sections))
 
 
 def history_segments(history: Sequence[Message]) -> List[List[Message]]:
@@ -204,3 +258,131 @@ def fit_chat_messages(
 
     return BudgetOutcome(best_msgs, True, best_tokens, limit,
                          total_turns - best, best, "trimmed")
+
+
+# ── Phase 4: section-aware budgeting ────────────────────────────────────
+#
+# WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 4, 2026-08-18.
+#
+# `fit_chat_messages` above can drop conversation turns and nothing else.
+# When the mandatory content -- system prompt plus the current narrator
+# turn -- exceeds the window on its own, it refuses, because there was no
+# safe subset to discard: the prompt was one opaque string.
+#
+# The composer has always CLASSIFIED that string into named sections with
+# a required flag and a drop order, and nothing in production ever read
+# the classification. This is the reader.
+#
+# ── THE ORDER IS THE DESIGN, AND IT IS DELIBERATELY CONSERVATIVE ────────
+#
+# History is exhausted FIRST, exactly as today. Section removal is a rung
+# BELOW that, so it engages only in the situations that currently raise
+# `ChatPromptTooLarge`. The consequence is worth stating plainly:
+#
+#   **No prompt that fits today changes at all.** Every currently-working
+#   turn keeps byte-identical content. What changes is that some turns
+#   that currently REFUSE now degrade gracefully instead, by shedding the
+#   optional sections the composer already ranked as losable.
+#
+# Dropping sections before history would be the opposite trade -- it would
+# alter working turns to save failing ones -- and no measurement supports
+# it. If a future measurement does, this is the one place to change it.
+#
+# Sections go in ASCENDING drop_order, lowest first, which is the ladder
+# the composer documents. Ties keep composition order, which the sort is
+# stable enough to preserve.
+#
+# Required sections and the complete current narrator turn are never
+# touched. If they alone do not fit, this refuses exactly as before: a
+# reply generated from a prompt with Lori's identity or the narrator's
+# actual words cut out of it is worse than an error somebody can read.
+
+
+def _plan(sections, kept_names, tokens_by_name) -> List[SectionPlan]:
+    return [
+        SectionPlan(
+            name=s.name,
+            required=bool(s.required),
+            drop_order=int(s.drop_order),
+            tokens=int(tokens_by_name.get(s.name, 0)),
+            digest=section_digest(s.text),
+            kept=s.name in kept_names,
+        )
+        for s in sections
+    ]
+
+
+def fit_chat_messages_with_sections(
+    messages: Sequence[Message],
+    *,
+    limit: int,
+    count_tokens: Callable[[List[Message]], int],
+    sections: Optional[Sequence] = None,
+    render_sections: Optional[Callable[[Sequence], str]] = None,
+) -> BudgetOutcome:
+    """Fit history first; then, only if still over, shed optional sections.
+
+    `sections` are the composer's classified `_Section` records for the
+    system message. `render_sections` turns a subset back into the system
+    string, and MUST be the composer's own renderer -- a second joiner
+    here would be a second definition of what the prompt says.
+
+    With no sections supplied this is `fit_chat_messages`, unchanged.
+    """
+    outcome = fit_chat_messages(messages, limit=limit, count_tokens=count_tokens)
+    if outcome.fits or not sections or render_sections is None:
+        return outcome
+
+    # History is gone and it still does not fit. Now, and only now, the
+    # classification earns its keep.
+    msgs = [dict(m) for m in outcome.messages]
+    if not msgs or (msgs[0].get("role") or "").strip().lower() != "system":
+        # No system message to shed sections from; nothing further to try.
+        return outcome
+
+    ordered = list(sections)
+    droppable = sorted(
+        [s for s in ordered if not s.required],
+        key=lambda s: int(s.drop_order),
+    )
+
+    # Per-section token cost, measured by difference through the REAL
+    # template rather than estimated. An estimate here would be the same
+    # mistake the front-slice made.
+    def with_sections(keep_names) -> List[Message]:
+        kept = [s for s in ordered if s.name in keep_names]
+        out = [dict(m) for m in msgs]
+        out[0] = dict(out[0], content=render_sections(kept))
+        return out
+
+    all_names = {s.name for s in ordered}
+    tokens_by_name: Dict[str, int] = {}
+    full_tokens = count_tokens(with_sections(all_names))
+    for s in ordered:
+        without = count_tokens(with_sections(all_names - {s.name}))
+        tokens_by_name[s.name] = max(0, full_tokens - without)
+
+    keep_names = set(all_names)
+    for s in droppable:
+        candidate = keep_names - {s.name}
+        msgs_try = with_sections(candidate)
+        n = count_tokens(msgs_try)
+        keep_names = candidate
+        if n <= limit:
+            return BudgetOutcome(
+                msgs_try, True, n, limit,
+                outcome.dropped_turns, outcome.kept_turns,
+                "trimmed_sections",
+                _plan(ordered, keep_names, tokens_by_name),
+            )
+
+    # Every optional section is gone and the required ones plus the
+    # narrator's current words still do not fit. Refuse, and report what
+    # was left so an operator can see WHAT did not fit.
+    minimal = with_sections(keep_names)
+    return BudgetOutcome(
+        minimal, False, count_tokens(minimal), limit,
+        outcome.dropped_turns, outcome.kept_turns,
+        "mandatory_too_large",
+        _plan(ordered, keep_names, tokens_by_name),
+    )

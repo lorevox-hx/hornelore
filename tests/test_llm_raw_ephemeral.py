@@ -283,9 +283,18 @@ class MarkerSelfCheckTest(unittest.TestCase):
     really what the composer emits — lock them to production source."""
 
     def test_markers_exist_in_composer(self):
+        """Repointed 2026-08-18 (Phase 4), not relaxed.
+
+        This read `inspect.getsource(prompt_composer.compose_system_prompt)`.
+        That name is now a three-line wrapper that renders the assembly, so
+        the markers this test exists to find live in
+        `_compose_prompt_assembly`. Left pointing at the wrapper it would
+        have failed; loosened to a substring search over the whole module
+        it would have passed vacuously. The composition is what it means.
+        """
         self.assertIn(_MARKER_DEFAULT_CORE, prompt_composer.DEFAULT_CORE)
         import inspect
-        src = inspect.getsource(prompt_composer.compose_system_prompt)
+        src = inspect.getsource(prompt_composer._compose_prompt_assembly)
         self.assertIn(_MARKER_PROFILE, src)
         self.assertIn(_MARKER_RAG, src)
         self.assertIn(_MARKER_GOLDEN, src)

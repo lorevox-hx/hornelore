@@ -26,7 +26,12 @@ from .db import (
     upsert_session,
     get_session,
 )
-from .prompt_composer import compose_system_prompt, extract_profile_json_from_ui_system
+from .prompt_composer import (
+    compose_system_prompt,
+    compose_prompt_sections,
+    render_sections,
+    extract_profile_json_from_ui_system,
+)
 # bus for legacy TTS delta bridging (optional)
 from .routers import stream_bus
 
@@ -153,7 +158,8 @@ from .services.extraction_budget import (            # noqa: E402
 # prompt outright because no subset of it is safe to lose, while chat can
 # drop old conversation and carry on. Same shape, opposite policy, and
 # one module doing both would blur which policy applied where.
-from .services.prompt_budget import fit_chat_messages   # noqa: E402
+from .services.prompt_budget import (  # noqa: E402
+    fit_chat_messages, fit_chat_messages_with_sections)
 
 
 def _extraction_budget_for(*, max_new: int, prompt_tokens: int,
@@ -365,24 +371,33 @@ class ChatPromptTooLarge(Exception):
         super().__init__(f"chat prompt too large: {outcome.as_log_fields()}")
 
 
-def _fit_chat_prompt(msgs: List[Dict[str, str]], tok, *, where: str
-                     ) -> List[Dict[str, str]]:
+def _fit_chat_prompt(msgs: List[Dict[str, str]], tok, *, where: str,
+                     sections=None) -> List[Dict[str, str]]:
     """WO-LEAN-LORI-RUNTIME-01 Phase 4A — shared by both REST chat paths.
 
     Drops the oldest conversation at turn boundaries until the prompt
-    fits, and never touches the system message or the narrator's current
-    words. Counted through the real template and the real tokenizer,
-    because the template adds tokens of its own.
+    fits, and never touches the narrator's current words. Counted through
+    the real template and the real tokenizer, because the template adds
+    tokens of its own.
 
     `tok` may be None in tests that stub generation; in that case there
     is nothing to count with, so the messages pass through unchanged
     rather than being trimmed against a guess.
+
+    ── Phase 4, 2026-08-18 ──
+    `sections` is the composer's classified system-prompt sections. When
+    supplied, and ONLY once history is exhausted, optional sections are
+    shed in the composer's own drop order instead of refusing outright.
+    Required sections and the narrator's current turn are still never
+    touched. Passing nothing keeps the exact previous behaviour, which is
+    what the stubbed-generation tests rely on.
     """
     if tok is None:
         return msgs
-    outcome = fit_chat_messages(
+    outcome = fit_chat_messages_with_sections(
         msgs, limit=MAX_CHAT_PROMPT_TOKENS,
-        count_tokens=lambda m: len(tok.encode(_apply_chat_template(m))))
+        count_tokens=lambda m: len(tok.encode(_apply_chat_template(m))),
+        sections=sections, render_sections=render_sections)
     if not outcome.fits:
         print(f"[PROMPT-BUDGET] where={where} REFUSING — "
               f"{outcome.as_log_fields()}")
@@ -622,7 +637,9 @@ def chat(req: _ChatReq) -> Dict[str, Any]:
 
     conv_for_prompt = (req.conv_id or 'default').strip() or 'default'
     base_system = (ui_base or ui_system or 'You are Lorevox, a warm oral historian and memoir biographer.').strip()
-    unified_system = compose_system_prompt(conv_for_prompt, ui_system=base_system, user_text=user_text)
+    _composed = compose_prompt_sections(
+        conv_for_prompt, ui_system=base_system, user_text=user_text)
+    unified_system = _composed.text
 
     msgs = [{'role': 'system', 'content': unified_system}] + [
         {'role': _normalize_role(m.role), 'content': m.content}
@@ -636,7 +653,7 @@ def chat(req: _ChatReq) -> Dict[str, Any]:
     # exception escaped as a bare 500, which tells a client nothing and
     # looks identical to a crash.
     try:
-        msgs = _fit_chat_prompt(msgs, tok, where="rest-chat")
+        msgs = _fit_chat_prompt(msgs, tok, where="rest-chat", sections=_composed.sections)
         prompt = _apply_chat_template(msgs)
         text = _generate_text(model, tok, prompt, req)
     except ChatPromptTooLarge as too_large:
@@ -754,7 +771,9 @@ def chat_stream(req: _ChatReq):
 
     conv_for_prompt = (req.conv_id or 'default').strip() or 'default'
     base_system = (ui_base or ui_system or 'You are Lorevox, a warm oral historian and memoir biographer.').strip()
-    unified_system = compose_system_prompt(conv_for_prompt, ui_system=base_system, user_text=user_text)
+    _composed = compose_prompt_sections(
+        conv_for_prompt, ui_system=base_system, user_text=user_text)
+    unified_system = _composed.text
 
     msgs = [{'role': 'system', 'content': unified_system}] + [
         {'role': _normalize_role(m.role), 'content': m.content}
@@ -768,7 +787,8 @@ def chat_stream(req: _ChatReq):
     # a 200 body. The in-generator clause further down exists for the
     # backstop only, where the response has already begun.
     try:
-        msgs = _fit_chat_prompt(msgs, tok, where="rest-stream")
+        msgs = _fit_chat_prompt(msgs, tok, where="rest-stream",
+                                sections=_composed.sections)
     except ChatPromptTooLarge as too_large:
         raise HTTPException(
             status_code=413,

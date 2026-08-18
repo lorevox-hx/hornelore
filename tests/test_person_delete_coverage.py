@@ -85,6 +85,19 @@ class _FullDbCase(unittest.TestCase):
             "INSERT INTO trip_photo_links (id, trip_id, photo_id, created_at, "
             "updated_at) VALUES ('li-1', 'tr-1', 'ph-1', '2026-07-05', '2026-07-05');",
         )
+        # Phase 4 (2026-08-18): the extraction ledger. Added to the seed
+        # rather than to a test of its own so it is covered by the SAME
+        # deletion and residue assertions as every other person-scoped
+        # table -- a table with its own bespoke test is a table the next
+        # person can forget to add to the sweep.
+        # `id` is INTEGER PRIMARY KEY AUTOINCREMENT here, unlike the uuid
+        # text keys above, so it is deliberately not supplied.
+        con.execute(
+            "INSERT INTO turn_extraction_ledger "
+            "(narrator_id, turn_key, outcome, created_at, updated_at) "
+            "VALUES (?, 'turnrow:1', 'succeeded', '2026-08-18', '2026-08-18');",
+            (self.person_id,),
+        )
         con.commit()
         con.close()
 
@@ -127,6 +140,63 @@ class _FullDbCase(unittest.TestCase):
         ).fetchone()["c"]
         con.close()
         self.assertGreaterEqual(n, 1)
+
+    def test_the_extraction_ledger_is_inventoried_and_deleted(self):
+        """WO-...-STORY-INTEGRATION-01 Phase 4, 2026-08-18.
+
+        `turn_extraction_ledger` arrived with migration 0038 on 2026-07-30
+        and was never added to the delete path's table list, so a
+        hard-deleted narrator left ledger rows behind. The Phase 3 live
+        acceptance found 2 orphans -- the only 2 in the table.
+
+        Both halves are asserted, because they are separate promises: the
+        operator must SEE the rows in the confirmation inventory before
+        agreeing, and the delete must then remove them.
+        """
+        self._seed()
+        inv = _db.person_delete_inventory(self.person_id)
+        self.assertEqual(inv["counts"].get("turn_extraction_ledger"), 1,
+                         "the ledger is missing from the delete inventory")
+        _db.hard_delete_person(self.person_id, requested_by="test")
+        self.assertEqual(self._count("turn_extraction_ledger", "narrator_id"), 0)
+
+    def test_hard_delete_leaves_no_residue_in_any_scoped_table(self):
+        """The sweep, rather than one assertion per table.
+
+        Every entry in `_EXTENDED_PERSON_SCOPED_TABLES` is checked, so a
+        table added to that list without deletion coverage fails here.
+        This is the test that would have caught the ledger gap in July,
+        and it is written as a loop for exactly that reason: the previous
+        assertions named three tables by hand, and the one nobody named
+        was the one that leaked.
+        """
+        self._seed()
+        _db.hard_delete_person(self.person_id, requested_by="test")
+        con = self._con()
+        try:
+            residue = {}
+            for table, col in _db._EXTENDED_PERSON_SCOPED_TABLES:
+                try:
+                    n = con.execute(
+                        f"SELECT COUNT(*) AS c FROM {table} WHERE {col}=?;",
+                        (self.person_id,),
+                    ).fetchone()["c"]
+                except sqlite3.OperationalError:
+                    continue        # table absent in this schema; guarded
+                if n:
+                    residue[f"{table}.{col}"] = n
+        finally:
+            con.close()
+        self.assertEqual({}, residue,
+                         "hard delete left person-scoped rows behind")
+
+    def test_the_audit_row_is_not_swept_by_the_residue_rule(self):
+        """The one table that MUST survive, so the sweep above can never
+        be 'fixed' by deleting the record of the deletion."""
+        self.assertNotIn(
+            "narrator_delete_audit",
+            [t for t, _ in _db._EXTENDED_PERSON_SCOPED_TABLES],
+            "the audit trail must outlive the delete it records")
 
     def test_hard_delete_on_clean_person_still_works(self):
         result = _db.hard_delete_person(self.person_id, requested_by="test")

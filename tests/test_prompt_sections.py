@@ -56,6 +56,20 @@ _REPO = Path(__file__).resolve().parent.parent
 _COMPOSER = _REPO / "server" / "code" / "api" / "prompt_composer.py"
 _SRC = _COMPOSER.read_text(encoding="utf-8")
 
+# ── Renamed 2026-08-18, Phase 4 ─────────────────────────────────────────
+# These tests locate the composition by function name. Until Phase 4 that
+# name was `compose_system_prompt`; the 1,200-line body now lives in
+# `_compose_prompt_assembly`, and `compose_system_prompt` is a three-line
+# wrapper that renders it.
+#
+# Pointed at the new name rather than relaxed: the property every test
+# below asserts is about the function that BUILDS the sections, and after
+# the rename the old name resolves to a wrapper containing no `parts.add`
+# calls at all -- which makes every one of these tests pass vacuously
+# while proving nothing. A silent rename here would have been worse than
+# a failure.
+_COMPOSE_FN = "_compose_prompt_assembly"
+
 
 def _load_assembly():
     """Exec the real `_PromptAssembly` source, not a copy of it.
@@ -330,7 +344,7 @@ class TheComposerUsesItEverywhereTest(unittest.TestCase):
         cls.tree = ast.parse(_SRC)
         cls.fn = next(n for n in cls.tree.body
                       if isinstance(n, ast.FunctionDef)
-                      and n.name == "compose_system_prompt")
+                      and n.name == _COMPOSE_FN)
 
     def test_no_bare_append_remains_in_the_composer(self):
         left = [n.lineno for n in ast.walk(self.fn)
@@ -339,15 +353,52 @@ class TheComposerUsesItEverywhereTest(unittest.TestCase):
                 and getattr(n.func.value, "id", "") == "parts"]
         self.assertEqual([], left, f"bare parts.append at {left}")
 
-    def test_every_exit_renders_through_the_assembly(self):
+    def test_every_exit_returns_the_assembly(self):
+        """No exit hand-rolls the join, and every exit yields the sections.
+
+        NARROWED IN PLACE 2026-08-18 (Phase 4). This asserted that all
+        three exits ended in `parts.render(conv_id)`:
+
+            renders = [r for r in returns if "parts.render" in r]
+            self.assertEqual(3, len(renders), ...)
+
+        The composer now returns the ASSEMBLY and the two public wrappers
+        render it, because a finished string cannot be budgeted section by
+        section. The half that mattered is unchanged and still first: no
+        exit may hand-roll the join. The second half is restated in the
+        form the code now takes, and the wrapper-side render is pinned
+        separately below so the rendering did not simply go missing.
+        """
         returns = [ast.unparse(n) for n in ast.walk(self.fn)
                    if isinstance(n, ast.Return) and n.value is not None]
         joins = [r for r in returns if "join" in r]
         self.assertEqual([], joins,
                          f"an exit still hand-rolls the join: {joins}")
-        renders = [r for r in returns if "parts.render" in r]
-        self.assertEqual(3, len(renders),
-                         f"expected 3 rendered exits, got {renders}")
+        # `ast.unparse` of a Return node includes the keyword, and the
+        # walk descends into nested helpers, so this is an equality test
+        # against the whole statement rather than a substring search.
+        exits = [r for r in returns if r.strip() == "return parts"]
+        self.assertEqual(3, len(exits),
+                         f"expected 3 assembly exits, got {returns}")
+
+    def test_both_public_entry_points_render_that_assembly(self):
+        """The rendering moved to the wrappers; it did not disappear.
+
+        Without this, deleting the render from `compose_system_prompt`
+        would leave the test above perfectly green while the function
+        returned an assembly object to callers expecting a string.
+        """
+        tree = ast.parse(_SRC)
+        by_name = {n.name: n for n in tree.body
+                   if isinstance(n, ast.FunctionDef)}
+        for fn_name in ("compose_system_prompt", "compose_prompt_sections"):
+            with self.subTest(fn=fn_name):
+                self.assertIn(fn_name, by_name)
+                body = ast.unparse(by_name[fn_name])
+                self.assertIn(_COMPOSE_FN, body,
+                              f"{fn_name} does not compose through the assembly")
+                self.assertIn(".render(conv_id)", body,
+                              f"{fn_name} never renders")
 
     def test_all_ten_sections_are_named(self):
         names = []
@@ -382,7 +433,7 @@ class TheComposerUsesItEverywhereTest(unittest.TestCase):
         _apply_chat_template. A builder-side estimate was measurably
         wrong, and this is the number the compaction work steers by."""
         i = _SRC.index("class _PromptAssembly")
-        block = _SRC[i:_SRC.index("def compose_system_prompt")]
+        block = _SRC[i:_SRC.index("def " + _COMPOSE_FN)]
         body = "\n".join(l for l in block.splitlines()
                          if not l.strip().startswith("#"))
         for banned in ("token_estimate", "est_tokens", "// 4", "/ 4",
@@ -534,7 +585,7 @@ class NarratorTextIsNotDuplicatedTest(unittest.TestCase):
         change that only removed one context key."""
         tree = ast.parse(_SRC)
         fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
-                  and n.name == "compose_system_prompt")
+                  and n.name == _COMPOSE_FN)
         body = "\n".join(ast.unparse(b) for b in fn.body)
         for survivor in ("ui_profile", "ctx_block", "PROFILE_JSON: ",
                          "system_head", "pinned", "_looks_spanish",
@@ -561,7 +612,7 @@ class SectionClassificationTest(unittest.TestCase):
         cls.tree = ast.parse(_SRC)
         cls.fn = next(n for n in cls.tree.body
                       if isinstance(n, ast.FunctionDef)
-                      and n.name == "compose_system_prompt")
+                      and n.name == _COMPOSE_FN)
         cls.spec = {}
         for n in ast.walk(cls.fn):
             if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)

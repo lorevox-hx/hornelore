@@ -5240,6 +5240,21 @@ _EXTENDED_PERSON_SCOPED_TABLES: List[tuple] = [
     # swept up on a guess -- they are reported by
     # session_ownership_residue() instead.
     ("sessions", "person_id"),
+    # WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 4 (2026-08-18).
+    #
+    # `turn_extraction_ledger` arrived with migration 0038 on 2026-07-30
+    # (Gate 7 Phase 2) and was never added to this list, so a hard-deleted
+    # narrator left ledger rows behind. Found by the Phase 3 live
+    # acceptance: its two Lori turns left 2 orphans, and they were the
+    # only 2 in the whole 40-row table -- newly observable rather than an
+    # accumulated pile-up, because the table is young.
+    #
+    # The rows carry idempotency keys, outcomes and timings and NO
+    # narrator text, so this was referential hygiene rather than a privacy
+    # leak. It is still residue: the ledger is keyed to turns and a
+    # narrator that no longer exist, and locked principle 4 -- "no partial
+    # resets" -- says a deletion that leaves rows behind is not done.
+    ("turn_extraction_ledger", "narrator_id"),
 ]
 
 

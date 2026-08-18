@@ -630,6 +630,37 @@ def _approved_story_block(runtime71: Optional[Dict[str, Any]]) -> str:
         "- These are established. You may refer to them as things the "
         "narrator has told you."
     )
+    # ── Phase 4, 2026-08-18: the direct-memory-question contract ────────
+    #
+    # Phase 3's live acceptance found Lori holding an approved story and
+    # answering "I don't recall you mentioning it". The section was in the
+    # prompt -- that was checked -- so the gap was that nothing told her
+    # what to DO with it when asked directly. Everything above is
+    # permission ("you MAY refer to them"); a narrator asking what they
+    # have already said needs an obligation.
+    #
+    # THE CAUSE OF THAT ANSWER IS NOT PROVEN, and this does not pretend to
+    # be a fix for a diagnosed defect. It is the missing half of the
+    # contract, stated so the next live run measures something specific.
+    #
+    # Three things it deliberately does NOT do: it does not demand
+    # verbatim recitation, because reciting a transcript back at someone
+    # is not how a person listens; it does not let a provisional story be
+    # named, only counted; and it does not license expansion beyond the
+    # text, which the next line already forbids.
+    if approved:
+        lines.append(
+            "- IF THE NARRATOR ASKS WHAT THEY HAVE ALREADY TOLD YOU, what "
+            "you know, or whether you remember something: you MUST answer "
+            "from the stories above. Saying you do not recall, or that "
+            "nothing has been shared, is FALSE when this list is not "
+            "empty, and it takes something away from the narrator that "
+            "they already gave you."
+        )
+        lines.append(
+            "- Answer in your own words, briefly and warmly. Repeat the "
+            "story back word for word ONLY if they ask you to."
+        )
     lines.append(
         "- Do NOT invent detail beyond what is written above. If you need "
         "more, ask."
@@ -3492,9 +3523,19 @@ class _PromptAssembly:
         """
         return list(self._sections)
 
+    # THE ONLY JOINER. Phase 4 gave the budget layer the ability to render
+    # a SUBSET of sections back into a system message, and the one thing
+    # that must not happen is a second function that also knows how a
+    # prompt is assembled -- two joiners is two answers to "what does the
+    # prompt say". `render` below delegates here, so the budget layer and
+    # the composer are provably the same code.
+    @staticmethod
+    def join(sections) -> str:
+        parts = [sec.text for sec in sections]
+        return "\n\n".join([q for q in parts if q.strip()]).strip()
+
     def render(self, conv_id: str = "") -> str:
-        parts = [sec.text for sec in self._sections]
-        out = "\n\n".join([q for q in parts if q.strip()]).strip()
+        out = _PromptAssembly.join(self._sections)
         # ── WO-LEAN-LORI-RUNTIME-01, logging level corrected 2026-08-05 ──
         # This was `logger.info`, unconditional, once per narrator turn.
         # That was right while Phase 2A was MEASURING which sections cost
@@ -3534,13 +3575,33 @@ class _PromptAssembly:
             pass
         return out
 
-def compose_system_prompt(
+def _compose_prompt_assembly(
     conv_id: str,
     ui_system: Optional[str] = None,
     user_text: Optional[str] = None,
     runtime71: Optional[Dict[str, Any]] = None,
-) -> str:
-    """Compose the unified system prompt.
+) -> "_PromptAssembly":
+    """Compose the unified system prompt, returning the CLASSIFIED assembly.
+
+    ── WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 4, 2026-08-18 ──
+
+    This is the historical `compose_system_prompt` body, unchanged except
+    that it now returns `parts` instead of `parts.render(conv_id)`.
+
+    The split exists because the section classification was DECLARED AND
+    UNENFORCED: `required` and `drop_order` were metadata that nothing in
+    production read, because the only thing the composer ever handed out
+    was a finished string, and a string cannot be budgeted section by
+    section. The budget layer could therefore trim whole conversation
+    turns and nothing else.
+
+    **Byte-equivalence is structural, not asserted.** `compose_system_prompt`
+    below returns exactly `_compose_prompt_assembly(...).render(conv_id)`,
+    which is the same call the three former return sites made. There is one
+    renderer and one code path; the wrapper discards the structure rather
+    than rebuilding the text.
+
+    Compose the unified system prompt.
 
     conv_id: chat conversation id (used for session payload lookup).
     ui_system: system prompt sent by the UI (optional). If it includes PROFILE_JSON: {...}, we will strip and re-inject it in a structured way.
@@ -4037,7 +4098,7 @@ def compose_system_prompt(
             )
             parts.add("directives_bio_builder", "\n".join(directive_lines).strip(),
                               required=True)
-            return parts.render(conv_id)
+            return parts
 
         if assistant_role == "onboarding":
             # v7.4E — Phase-aware onboarding: tell the model EXACTLY which step it is on.
@@ -4094,7 +4155,7 @@ def compose_system_prompt(
             )
             parts.add("directives_questionnaire", "\n".join(directive_lines).strip(),
                               required=True)
-            return parts.render(conv_id)
+            return parts
 
         # ── Standard interview directives (only when role = "interviewer") ────
 
@@ -4888,4 +4949,92 @@ def compose_system_prompt(
                 parts.add("memory_context", memory_block,
                               required=False, drop_order=5)
 
-    return parts.render(conv_id)
+    return parts
+
+
+# ── Phase 4: the two public entry points ────────────────────────────────
+#
+# WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 4, 2026-08-18.
+#
+# `compose_system_prompt` keeps the exact contract every caller already
+# depends on: conv_id in, one string out. `compose_prompt_sections` is the
+# same composition handed to a caller that intends to BUDGET it, and is the
+# only way the classification reaches production.
+#
+# Both go through `_compose_prompt_assembly`, so they cannot disagree about
+# what the prompt says. A second builder is precisely the failure this lane
+# has spent three phases removing from other surfaces.
+
+def make_section(name: str, text: str, *, required: bool = False,
+                 drop_order: int = 0) -> "_Section":
+    """Build a classified section outside the composer.
+
+    For content a TRANSPORT appends after composition — today only the
+    Travels-shelf trip-context block, which `chat_ws` used to concatenate
+    onto the finished string. That concatenation is why this exists: a
+    system message the budget cannot see the shape of is a system message
+    the budget prices wrongly, and on that transport the block could be
+    several hundred tokens the ladder knew nothing about.
+    """
+    return _Section(name=name, text=text or "",
+                    required=bool(required), drop_order=int(drop_order))
+
+
+def render_sections(sections) -> str:
+    """Join a subset of sections back into a system message.
+
+    Handed to the budget layer so it can price and shed sections. It
+    delegates to the assembly's own joiner, so there is exactly one
+    definition of how a prompt is assembled — a second one here would be
+    a second answer to "what does the prompt say", which is the failure
+    this lane has spent three phases removing from other surfaces.
+    """
+    return _PromptAssembly.join(sections)
+
+
+class ComposedPrompt(NamedTuple):
+    """A composed prompt and the sections it was built from.
+
+    `text` is byte-identical to what `compose_system_prompt` returns for
+    the same inputs, because both come from the same `render` call.
+    """
+
+    text: str
+    sections: List["_Section"]
+
+
+def compose_system_prompt(
+    conv_id: str,
+    ui_system: Optional[str] = None,
+    user_text: Optional[str] = None,
+    runtime71: Optional[Dict[str, Any]] = None,
+) -> str:
+    """The historical contract: compose and render, returning the string.
+
+    Unchanged for every existing caller. See `_compose_prompt_assembly`
+    for the composition itself and for why the split exists.
+    """
+    return _compose_prompt_assembly(
+        conv_id, ui_system=ui_system, user_text=user_text,
+        runtime71=runtime71,
+    ).render(conv_id)
+
+
+def compose_prompt_sections(
+    conv_id: str,
+    ui_system: Optional[str] = None,
+    user_text: Optional[str] = None,
+    runtime71: Optional[Dict[str, Any]] = None,
+) -> ComposedPrompt:
+    """Compose, and hand back the classified sections with the text.
+
+    For the budget layer, which needs to know what may be removed and in
+    what order. The text is produced by the same `render` call the string
+    entry point makes, so a caller that renders this itself and a caller
+    that asks for the string get the same bytes.
+    """
+    assembly = _compose_prompt_assembly(
+        conv_id, ui_system=ui_system, user_text=user_text,
+        runtime71=runtime71,
+    )
+    return ComposedPrompt(assembly.render(conv_id), assembly.sections())
