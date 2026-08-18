@@ -157,14 +157,25 @@ narrator. Step 9 — rapid A→B narrator switching — is accepted with a state
 exercised against a *synthetic* narrator B, so the mechanism is proven but not against a
 second narrator carrying a full live history.
 
-**Phase 2 is BUILT (2026-08-17) and its focused live acceptance is owed.** It connects the
-Travel Document to that chronology authority, reconciles narrator selection across
-shell-launched surfaces behind one shared contract, and completes the legacy session-owner
-backfill in migration 0045. The offline gate has run; the eight-step focused live run has not.
+**Phase 2 is ACCEPTED (2026-08-17) — 8/8.** It connects the Travel Document to that chronology
+authority, reconciles narrator selection across shell-launched surfaces behind one shared
+contract, and completes the legacy session-owner backfill in migration 0045.
+*(This paragraph read "is BUILT … and its focused live acceptance is owed … the eight-step
+focused live run has not" until 2026-08-18. The run happened and passed.)*
 
-**Phase 3 (Witness/story integration) is not opened.**
+**Phase 3 (Reviewed story authority) is ACCEPTED WITH ONE ITEM OWED (2026-08-18).** A captured
+story now has one server-owned review state, and the surfaces read it from one projection:
+approved stories reach the Life Map, the chronology and Lori; provisional ones are counted but
+never asserted; discarded ones are absent rather than dimmed. The nine-step live run passed
+8 of 9 on a synthetic narrator. **The owed item is the half of step 6 that says Lori SPEAKS an
+approved story** — the run proved the bridge attaches it (`approved=1 provisional=1`) and
+proved the more important negative (a provisional story is never asserted), then found the
+reason she still did not use it: the prompt section was registered with no `drop_order`, so it
+was the FIRST thing dropped from an over-budget prompt. That is fixed and ranked; confirming it
+live needs a restart.
 
-*(This paragraph said Phase 1 was "BUILT and AWAITING LIVE ACCEPTANCE" until 2026-08-17.)*
+*(This paragraph said Phase 1 was "BUILT and AWAITING LIVE ACCEPTANCE" until 2026-08-17, and
+said "Phase 3 … is not opened" until 2026-08-18.)*
 
 Read, in this order:
 

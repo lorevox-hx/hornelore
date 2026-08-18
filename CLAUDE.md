@@ -46,7 +46,7 @@ Before changing product code in a lane: read recent commits, read that lane's im
 and tests, check for a later closeout, *then* reconcile the documents. **Never reimplement
 landed work from a stale status line.**
 
-**State as of 2026-08-17.** *(This heading read `State as of 2026-08-14` until 2026-08-17, while L2 ran, closed PARTIAL, and the narrator-authority lane opened beneath it.)* *(This heading read `State as of 2026-08-09` until 2026-08-14. It was five days stale while the multi-day placement lane ran to completion beneath it, which is the exact failure this file's own opening warns about: a control document that names finished work as active is an instruction to redo it. `HANDOFF.md` is the orientation document and outranks this table.)*
+**State as of 2026-08-18.** *(This heading read `State as of 2026-08-17` until 2026-08-18, while Phase 3 was built, reviewed and taken through a nine-step live acceptance beneath it.)* *(This heading read `State as of 2026-08-14` until 2026-08-17, while L2 ran, closed PARTIAL, and the narrator-authority lane opened beneath it.)* *(This heading read `State as of 2026-08-09` until 2026-08-14. It was five days stale while the multi-day placement lane ran to completion beneath it, which is the exact failure this file's own opening warns about: a control document that names finished work as active is an instruction to redo it. `HANDOFF.md` is the orientation document and outranks this table.)*
 
 | Lane | State |
 |---|---|
@@ -54,7 +54,7 @@ landed work from a stale status line.**
 | Travel Document | 🟢 **CLOSED on live evidence** (`WO-TRAVEL-DOC-CLOSEOUT-01`, live export 2026-08-06). |
 | **Multi-day photo placement** | 🟢 **PHASES 0–5 COMPLETE, Gate 3 closed 2026-08-14** on live acceptance (Stage B 83/0, `restore-verify` 45/0). A photograph is an asset with many explicit placements; `trip_photo_day_placements` is the authority and the legacy scalar is **derived, never authored** — 0 placements → null, 1 → that day, **≥2 → null always**. `PLACEMENT_BATCH_MAX = 50` bounds a *request*, not days-per-photograph. **Phase 6 (legacy-column removal) is NOT authorized by this closeout** and needs a SQLite table rebuild plus explicit approval. WO: [`docs/wo/WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01_Spec.md`](docs/wo/WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01_Spec.md). **Defect found in the post-acceptance sweep and FIXED:** the trip gallery set `loading="lazy"` inside `.tdl-main`, which is its own scrollport, so tiles past ~1 viewport were never requested; the native hint is gone from the file and deferral now runs through an `IntersectionObserver` rooted per image on the real scrollport (WO §8.1). **Live browser confirmation is owed** and folds into the Photo Palette acceptance cycle. |
 | **Photo Palette** | 🟢 **COMPLETE — P0–P5 accepted 2026-08-14.** *(This row read `🔵 ACTIVE — the next product build` until 2026-08-14.)* Offline 584 tests + 4 harnesses (113/32/16/56); P4 live final PASS; P5 restart persistence 14/14 then restoration 22/22. Evidence at `docs/reports/WO-TRIP-PHOTO-PALETTE-01_P4_LIVE_ACCEPTANCE.md` and `..._P5_PERSISTENCE.md` — **local-only, deliberately NOT in the repository** (`docs/reports/` is gitignored; live narrator data). Written as paths rather than links because a link would be broken for anyone cloning. **Two questions kept apart, and both matter:** *Not on a day* is `linkDayIds(l).length === 0` and is the filter; *completely unplaced* additionally requires no region and no stop and is a badge. **Neither ever reads the compatibility scalar** — null is also how a photo on several days appears there. **Do not reopen for polish without a demonstrated defect.** Carried forward, not blocking: the *Region assigned* badge has no operator route to create the state it describes (`PhotoLinkPatch` has neither a region field nor a clear-stop flag), and scale above 12 memberships stays the harness's evidence. |
-| **Narrator authority** | 🟢 **PHASE 1 ACCEPTED 2026-08-17** · 🟢 **PHASE 2 ACCEPTED 2026-08-17 — 8/8 live acceptance steps (spec §12.7).** *(This row read `🔵 ACTIVE LANE — … Phase 1` with `Phases 2–4 are sequenced and NOT started` until 2026-08-17. Phase 1's live acceptance ran and passed; Phase 2 is built. A control document that still calls an accepted phase active is an instruction to redo it.)* Spec: [`docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md`](docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md) — Phase 1 in §3–§5, its acceptance in §8.1, the **Phase 2 contract in §12**. **Phase 1:** conflict-aware **field-level** projection authority (never a guarded whole-document replace); explicit **session ownership** reconciled across `sessions` and `interview_sessions`; **ONE** server chronology projection — the EXISTING Chronology Accordion (`GET /api/chronology-accordion`) **extended**, not a competing engine. **Step 9 of its acceptance is accepted with a stated synthetic-B limitation** — the rapid A→B switch was exercised against a synthetic second narrator, so the mechanism is proven and a full live history is not. **Phase 2:** the Travel Document reads that same projection through `travel-doc-lab.js`'s own `api()` choke point and reconciles it against `trip_days` **by stable day id** — the two models are CONNECTED, never merged, because the projection cannot hold photo placements, notes, sources or approvals and the detailed model is not narrator-wide; one shared narrator-context contract (`ui/js/narrator-context.js`) that **fails closed** on an invalid explicit `?narrator_id=` rather than falling back to a surface's cached narrator; and migration **0045** completing the legacy session-owner backfill. **Canonical taxonomy is unchanged: six historical eras PLUS the separate `today` current-life bucket; Travels is a special shelf and did not become a seventh era.** **Phase 3 (Witness/story) is NEXT and not yet started**; Phase 4 follows it. **Deferred out of Phase 2 and owed separately:** the harness `completed-turn` route (chat → extraction ledger → result → owned-session) is GENUINELY UNEXERCISED — Phase 2 proved session ownership only — and needs `HORNELORE_OPERATOR_HARNESS=1` plus a deliberate restart; it is not duplicated evidence. `product-read` did not run because its reference personas are soft-deleted, and **soft deletion is respected — they are not restored**; making absent personas report `N/A` is a HARNESS commit, not Phase 2. |
+| **Narrator authority** | 🟢 **PHASE 1 ACCEPTED 2026-08-17** · 🟢 **PHASE 2 ACCEPTED 2026-08-17 — 8/8 live acceptance steps (spec §12.7).** *(This row read `🔵 ACTIVE LANE — … Phase 1` with `Phases 2–4 are sequenced and NOT started` until 2026-08-17. Phase 1's live acceptance ran and passed; Phase 2 is built. A control document that still calls an accepted phase active is an instruction to redo it.)* Spec: [`docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md`](docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md) — Phase 1 in §3–§5, its acceptance in §8.1, the **Phase 2 contract in §12**. **Phase 1:** conflict-aware **field-level** projection authority (never a guarded whole-document replace); explicit **session ownership** reconciled across `sessions` and `interview_sessions`; **ONE** server chronology projection — the EXISTING Chronology Accordion (`GET /api/chronology-accordion`) **extended**, not a competing engine. **Step 9 of its acceptance is accepted with a stated synthetic-B limitation** — the rapid A→B switch was exercised against a synthetic second narrator, so the mechanism is proven and a full live history is not. **Phase 2:** the Travel Document reads that same projection through `travel-doc-lab.js`'s own `api()` choke point and reconciles it against `trip_days` **by stable day id** — the two models are CONNECTED, never merged, because the projection cannot hold photo placements, notes, sources or approvals and the detailed model is not narrator-wide; one shared narrator-context contract (`ui/js/narrator-context.js`) that **fails closed** on an invalid explicit `?narrator_id=` rather than falling back to a surface's cached narrator; and migration **0045** completing the legacy session-owner backfill. **Canonical taxonomy is unchanged: six historical eras PLUS the separate `today` current-life bucket; Travels is a special shelf and did not become a seventh era.** **Phase 3 (Reviewed story authority) is ACCEPTED WITH ONE ITEM OWED — 8 of 9 live steps, 2026-08-18** *(this read `Phase 3 (Witness/story) is NEXT and not yet started` until 2026-08-18)*; spec §13 carries the record. ONE server-owned review state and ONE projection every surface reads: approved stories reach Life Map, chronology and Lori; provisional are counted and never quoted; **discarded are ABSENT from every projection, not dimmed**; migration 0046 records `placement_source` + `review_version` and every review is an atomic compare-and-write. **The owed item is the positive half of step 6 — Lori SPEAKING an approved story.** The negative half (a provisional story is never asserted) passed twice and is the half that protects the narrator. Chasing the positive half found **BUG-STORY-GROUNDING-DROPPED-FIRST-01**: the prompt section shipped `required=False` with no `drop_order`, which defaults to 0 and is ascending, so the one thing Phase 3 delivers was the FIRST section dropped from an over-budget prompt — ranked below `memory_context`, whose own rationale is "the narrator can always be asked again". **A reviewed story cannot be re-asked.** Now `drop_order=25`. **Optional was the right call; ranking it below everything was an omission wearing a default.** Confirming live needs a restart. Two further live-only defects fixed in the same run: every review button rendered `disabled="undefined"` (attribute PRESENCE disables), and one generation counter answered two questions so `applyReview`'s own success path invalidated its cleanup arm and wedged the panel with every button disabled — now three counters, and **a write asks only "has the narrator switched".** **Reported, deliberately NOT fixed:** `turn_extraction_ledger` (migration 0038) is absent from `hard_delete_person`'s table list, so a hard-deleted narrator leaves ledger rows; 2 orphans measured and they are the only 2 in 40 rows; they carry keys/statuses/timings and **no narrator text**, so it is referential hygiene, not a privacy leak. **Phase 4 follows.** **The harness `completed-turn` PRODUCT ROUTE is now exercised live** (chat → `turn_extraction_ledger` → owned sessions, confirmed by the delete report); the harness SCENARIO still needs `HORNELORE_OPERATOR_HARNESS=1` plus a restart. *(This clause read "the harness `completed-turn` route … is GENUINELY UNEXERCISED" until 2026-08-18.)* `product-read` did not run because its reference personas are soft-deleted, and **soft deletion is respected — they are not restored**; making absent personas report `N/A` is a HARNESS commit, not Phase 2. |
 | **Lean Lori runtime** | ⏸️ **L1 COMPLETE · L2 PARTIAL — CLOSED by product-priority decision 2026-08-16. DO NOT RESUME L2.** Gate B stays **OPEN**; Phase 10 stays open. The unexercised cases (Case C, the remaining Case A branches, five styles, trip/photo fixtures, refusal matrix, Case E rows 2/4, final restart with Case F) are **deferred by decision, not failures**. Profile Seed ownership is **DECIDED — Option A, live narrators only**. **Substantial work is already in-tree (eleven commits) — do not rebuild it.** Evidence: `docs/reports/WO-LEAN-LORI-L2-PARTIAL-2026-08-16.md` (local-only, gitignored). Design history and the phase reconciliation live in [`docs/wo/WO-LEAN-LORI-PHASE-0-MAP-2026-08-14.md`](docs/wo/WO-LEAN-LORI-PHASE-0-MAP-2026-08-14.md), [`docs/wo/WO-LEAN-LORI-L2-RUNBOOK-2026-08-14.md`](docs/wo/WO-LEAN-LORI-L2-RUNBOOK-2026-08-14.md) (both now carry ERRATA banners) and [`docs/wo/WO-LEAN-LORI-RUNTIME-01-FINAL-R3-2026-08-04.md`](docs/wo/WO-LEAN-LORI-RUNTIME-01-FINAL-R3-2026-08-04.md). **Read those for *why* a subsystem behaves as it does; do not read them as a build queue.** Two rules earned here still bind: a token number is not quotable without its turn state, identity state and commit; and R3 phase numbers ≠ commit phase labels — cite a commit or a file, never a bare phase number. |
 | **What L2 found — the reason the lane above exists** | 📌 Three integration defects, each a disagreement between two individually-correct components where **nothing declared which one is the narrator**: **(1)** browser projection sync could rewrite a server row *merely because a narrator was loaded* — the payload happened to be byte-identical, which is a fact about that payload and not about the mechanism; **(2)** `sessions` rows carry **no narrator ownership** (`payload_json` was literally `{}` on 56 of 56 rows), so `user_turn_count` was structurally always 0 and every returning narrator looked new; **(3)** the Life Map spine was **browser-local** with no server row to reconcile against. A fourth finding is harness-side and is **not** product: the export verifier matches replies to turns *by text*, so two legitimate identical deterministic replies read as a duplicate write. |
 | Runtime safety | ⏸️ **PARKED 2026-08-04**, server-authoritative, code+corpus+tests preserved. [`docs/decisions/2026-08-04-park-safety-feature.md`](docs/decisions/2026-08-04-park-safety-feature.md). **Never reactivate through an environment value** — it takes Chris's explicit decision. |
@@ -405,6 +405,101 @@ The extraction pipeline is one output surface; **Lori is the companion** — des
 - **WO-STT-LIVE-02 fragile-fact transcript guard** is landed (7-pattern classifier + 30s staleness cap + typed-input fallback).
 
 ## Changelog
+
+### 2026-08-18 — Phase 3 accepted 8/9: a reviewed story reaches the surfaces, and the live run found three defects 530 offline tests could not
+
+**Phase 3 is ACCEPTED WITH ONE ITEM OWED.** A captured story now has ONE server-owned review
+state and ONE projection every surface reads. Migration **0046** records `placement_source`
+(`unknown` / `narrator_stated` / `operator_set` / `dob_derived`) and `review_version`; every
+review is an atomic compare-and-write inside `BEGIN IMMEDIATE` with the narrator in the WHERE
+clause. `story_projection.py` is the single interpretation of `review_status` — five surfaces
+had been reading that one column four different ways, and the reading that mattered most,
+Lori's, did not exist at all.
+
+**Placement is not approval, and the live run proved the difference.** Step 4 placed a story in
+`early_school_years`/1945 with `placement_source=operator_set` and left it `unreviewed`. Step 5
+promoted it and the second candidate was untouched at version 1. Provenance is RECORDED, never
+inferred — the rule this replaces guessed "narrator stated" from `confidence == "high"`, and
+confidence is set by the capture heuristic, which says nothing about who decided when a story
+happened.
+
+**Step 7 is the boundary step and it held on both sides.** The Travel Document reported *"Life
+Map chronology — in step"* and *"Story evidence — 1 approved · 1 provisional"*, with a lane
+table naming each source separately — `story evidence — story_candidates · read · 2` beside
+`trip days — trips + trip_days · read · 3` — while the trip's own counter read **0 Story
+Notes** and neither export payload contained any story text. Connected, never merged: the same
+rule Phase 2 earned.
+
+**Step 8 proved absence rather than dimming.** After the discard the operator still saw the
+decision (chip *Discarded*, version 2) — a reviewer must be able to see what they decided —
+while the chronology's `lane_counts.story_evidence` fell 2 → 1 and the Life Map reader read 1
+approved / 0 provisional / 0 unplaced.
+
+**THE OWED ITEM, and it is the interesting half of this entry.** Step 6 has two halves. The
+negative half — *a provisional story is never asserted* — passed twice, including on a turn
+that invited it, and that is the half that protects the narrator. The positive half — *Lori
+speaks an approved story* — did not: the bridge logged `approved=1 provisional=1` and Lori then
+said she did not recall it. Chasing that gap found
+**BUG-STORY-GROUNDING-DROPPED-FIRST-01** — the section shipped `required=False` with **no
+`drop_order`**, which defaults to 0, and `drop_order` is ascending. So the one thing this whole
+phase exists to deliver was the FIRST section discarded from an over-budget prompt, and
+measured prompts run 6.0–6.7k against a LOCKED 8,192 window. It ranked below `memory_context`,
+whose own documented rationale is that *"the narrator can always be asked again"*. **A reviewed
+story cannot be re-asked — it exists because a human read it and decided**, which is the same
+rationale that puts `pinned_facts` last. Now `drop_order=25`: above the three sections that
+rebuild themselves next turn, below the two identity sections, because losing who the narrator
+is makes Lori invent, which is worse than her saying less. **Optional was the right call;
+ranking it below everything was not a call at all, it was an omission wearing a default.**
+Confirming the positive half live needs a restart and is the one item owed.
+
+**Two further defects, both invisible to a source scan, which is the argument for keeping the
+live step a gate rather than a formality.** (1) Every review action button rendered
+`disabled="undefined"` — the panel's `el()` helper emitted attributes whose value was
+`undefined`, and an attribute's PRESENCE disables a control, so the entire review surface was
+inert. (2) **The panel wedged after every successful write:** ONE generation counter was
+answering two different questions — "is my read still current" and "has the narrator switched"
+— and `applyReview` tested its completion against that counter while its own SUCCESS path calls
+`fetchReview()`, which bumps it. The cleanup arm of every successful review therefore decided
+it was stale and never cleared the busy latch, so the write landed on the server and the panel
+was left with every button disabled and the next click was a no-op on a disabled button. That
+reads as "the button does nothing", not as a stale-guard bug, which is exactly why only a live
+run found it. **Three counters now — list reads, detail reads, narrator switches — and a write
+asks only the third.** The same shared counter had also been silently cancelling a detail the
+operator had just opened whenever a routine list refresh landed; the split fixes both.
+
+**Eleven mutants, eleven killed**, each by its intended assertion, including mutants that
+restore the exact shipped defects. Two assertions were narrowed in place with the retired text
+quoted rather than deleted: the single-counter pin (`let _gen = 0;`) and the switch-hook's
+`_bumpGen()` check. The drop-order rank is pinned as a RANGE — above 20, below 30 — because
+what must hold is the ordering decision, not the number.
+
+**Step 9 removed exactly what the run created** (1 profile, 2 sessions, 2 interview_sessions, 2
+story_candidates, 1 trip through the force gate), verified read-only against the live database:
+0 orphan story_candidates, 0 orphan trips, 0 orphan sessions, `integrity_check ok`, and the
+known `interview_sessions` foreign-key violations still **exactly 6** — this run added none.
+
+**Reported, deliberately NOT fixed:** `turn_extraction_ledger` is absent from
+`hard_delete_person`'s explicit table list, so a hard-deleted narrator leaves ledger rows
+behind. Measured: 2 orphans, and they are the only 2 in the whole 40-row table, so this is newly
+observable rather than an accumulated pile-up. The rows carry keys, statuses and timings and
+**no narrator text**, so it is referential hygiene and not a privacy leak. It arrived with
+migration 0038 on 2026-07-30, predates this lane, and whether the ledger should be cleaned or is
+deliberately append-only is Chris's call.
+
+- Files changed, server: `server/code/api/prompt_composer.py` (drop-order rank + ladder comment).
+- Files changed, UI: `ui/js/bug-panel-story-review.js` (the `el()` fix and the three-counter
+  split), `ui/hornelore1.0.html` (both story cache-busters bumped **as a pair**,
+  `2026-08-17b` → `2026-08-17c`).
+- Files changed, tests: `tests/test_story_product_consumption.py`.
+- Files changed, docs: `README.md`, `HANDOFF.md`, `MASTER_WORK_ORDER_CHECKLIST.md`,
+  `docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md` (new §13), `CLAUDE.md`.
+- **No schema change, no migration, no `.env` change, no flag change, no model or safety-state
+  change, and Kawa / Memory River was NOT extended.**
+- Offline gate: **418 tests green** across the seven story/chronology/narrator-context modules,
+  plus `run_story_evidence_behaviour.js` 21/21. **Sandbox runs are evidence, not verification** —
+  `.venv` on Chris's machine is the verification, per the standing rule.
+- **Only a synthetic harness narrator was used. No family narrator was touched, and the stack
+  was not restarted.**
 
 ### 2026-08-17 — Phase 2: the Travel Document reads the same chronology the Life Map does, narrator selection stops being ambient, and the last recoverable session owners are recovered
 

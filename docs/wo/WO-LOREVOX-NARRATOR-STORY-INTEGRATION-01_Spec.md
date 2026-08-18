@@ -833,4 +833,107 @@ synthetic personas continue — belongs to the harness lane and is **not** Phase
 - **Gate B: OPEN.**
 - **L2: PARTIAL, closed for product priority.** Not resumed by this acceptance.
 - **Phase 2: ACCEPTED.**
-- **Phase 3 (Witness/story): NEXT, not yet started.**
+- **Phase 3 (Reviewed story authority): ACCEPTED WITH ONE ITEM OWED — see §13.**
+  *(This line read "Phase 3 (Witness/story): NEXT, not yet started." until 2026-08-18.)*
+
+---
+
+## 13. Phase 3 live acceptance — 8 of 9, ACCEPTED WITH ONE ITEM OWED, 2026-08-18
+
+Run on a **synthetic harness narrator only** (a `HARNESS PRODUCT DELME` persona, DOB 1939), on
+the running stack, with no restart and no family narrator involved. Two captured stories: one
+42-word childhood story, one 24-word later-life story.
+
+### 13.1 Step results
+
+| # | Step | Result |
+|---|---|---|
+| 1 | Two stories captured and visible to the operator, narrator-scoped | **PASS** |
+| 2 | Detail opens; text, trigger, anchors and word count shown | **PASS** |
+| 3 | Both start `unreviewed`, `placement_source=unknown`, and both project as UNPLACED | **PASS** |
+| 4 | Operator places one: era `early_school_years`, 1945–1950, notes saved, `placement_source=operator_set`, `review_version` incremented, status still `unreviewed` | **PASS** — placement is not approval |
+| 5 | Promote applies; the OTHER candidate is untouched | **PASS** — `promoted`; the second stayed `unreviewed` at version 1 |
+| 6 | Lori grounds the approved story; the provisional one is not treated as established | **PARTIAL — see §13.3** |
+| 7 | Travel Document updates story counts without adding the story to a trip export | **PASS** |
+| 8 | Discard the second candidate; it disappears | **PASS** |
+| 9 | Delete the synthetic narrator; report residue | **PASS** |
+
+### 13.2 What the passing steps actually showed
+
+**Step 7 is the boundary step and it held on both sides.** The Travel Document reported
+*"Life Map chronology — in step"*, *"Story evidence — 1 approved · 1 provisional"*, and a lane
+table naming each source separately: `story evidence — story_candidates · read · 2` beside
+`trip days — trips + trip_days · read · 3`. The trip's own counters read **0 Story Notes**, and
+neither the memoir preview nor the travelogue preview contained any story text or story lane —
+checked by scanning the serialised payloads for the story content, not by trusting a field
+list. The two models are connected and not merged, which is the same rule Phase 2 earned.
+
+**Step 8 proved absence rather than dimming**, which is TRUTH 4 of the projection module. After
+the discard the operator surface still showed the decision (chip: *Discarded*, version 2) — a
+reviewer must be able to see what they decided — while the canonical chronology's
+`lane_counts.story_evidence` fell 2 → 1 and the Life Map reader reported 1 approved, 0
+provisional, 0 unplaced. The discarded story is gone from the projection, not filtered by a
+consumer.
+
+**Step 9 removed exactly what this run created**: 1 profile, 2 sessions, 2 interview_sessions,
+2 story_candidates, and the trip (deleted explicitly through the force gate first). Verified
+read-only against the live database afterwards: 0 orphan story_candidates, 0 orphan trips, 0
+orphan sessions, `integrity_check ok`, and the pre-existing `interview_sessions` foreign-key
+violations still **exactly 6** — this run added none.
+
+### 13.3 The owed item, and the defect that caused it
+
+Step 6 has two halves. **The negative half passed, twice:** Lori never asserted the
+provisional story, in either of two turns, including one that invited her to. That is the half
+that protects the narrator, and it is the half this system exists to get right.
+
+**The positive half did not.** The bridge attached the approved story —
+`[chat_ws][story-grounding] approved=1 provisional=1` — and Lori then said she did not recall
+it. Chasing that gap is what found **BUG-STORY-GROUNDING-DROPPED-FIRST-01**: the section was
+registered `required=False` with **no `drop_order`**, which defaults to 0, and `drop_order` is
+ascending. So the reviewed-story block was the FIRST section discarded from an over-budget
+prompt — and measured live prompts run 6.0–6.7k against a LOCKED 8,192 window, so it was
+discarded routinely. It ranked below `memory_context`, whose own documented rationale is that
+"the narrator can always be asked again". A reviewed story cannot be re-asked; it exists
+because a human read it and decided.
+
+Optional was the right call. Ranking it below everything was not a call at all — it was an
+omission wearing a default. It is now `drop_order=25`: above the three sections that rebuild
+themselves next turn, below the two identity sections, because losing who the narrator is makes
+Lori invent, which is worse than her saying less.
+
+**Confirming the positive half live requires a restart** and is the one item owed.
+
+### 13.4 Two other defects the live run found that 530 offline tests did not
+
+Both are fixed, and both are the kind no source scan can catch — which is the argument for
+keeping the live step a gate rather than a formality.
+
+**BUG-STORY-REVIEW-DISABLED-UNDEFINED-01.** Every review action button rendered
+`disabled="undefined"`, and an attribute's PRESENCE disables a control, so the entire review
+surface was inert. The panel's `el()` helper now skips `undefined`/`null` values.
+
+**BUG-STORY-REVIEW-WEDGED-AFTER-WRITE-01.** One generation counter was answering two different
+questions — "is my read still current" and "has the narrator switched". `applyReview` tested
+its completion against that counter while its own SUCCESS path calls `fetchReview()`, which
+bumps it. So the cleanup arm of every successful review decided it was stale and never cleared
+the busy latch: the write landed on the server and the panel was left with every button
+disabled, so the next click was a no-op. There are now three counters — list reads, detail
+reads, narrator switches — and **a write asks only the third**. The same shared counter also
+meant a routine list refresh silently cancelled a detail the operator had just opened; that is
+fixed by the same split.
+
+Each fix is pinned by tests that were mutation-proved rather than trusted: eight mutants across
+the two panel defects and three against the drop-order rank, all killed by their intended
+assertion, including one mutant that restores the exact shipped defect.
+
+### 13.5 Recorded, deliberately NOT fixed here
+
+`turn_extraction_ledger` is not cleaned by `hard_delete_person`. The table arrived in migration
+0038 (2026-07-30) and was never added to that path's explicit table list, so this run's two
+Lori turns left 2 ledger rows behind for a narrator that no longer exists — and they are the
+only 2 orphans in the whole 40-row table, so it is newly observable rather than an accumulated
+pile-up. **The rows carry keys, statuses and timings and no narrator text**, so this is
+referential hygiene rather than a privacy leak. It predates Phase 3 and belongs to whoever owns
+the delete path; whether the ledger should be cleaned or is deliberately append-only is Chris's
+call, not an agent's.

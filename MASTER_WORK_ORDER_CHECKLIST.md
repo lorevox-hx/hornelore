@@ -1,7 +1,13 @@
 # MASTER WORK ORDER CHECKLIST
 
-**Active as of:** 2026-08-17 (Phase 2 accepted; Phase 3 is next)  
-*(This read `2026-08-14` while the L2 partial closed and the narrator-authority lane opened beneath it — the exact staleness this file's own authority line warns about.)*  
+**Active as of:** 2026-08-18 (Phase 3 accepted 8/9, one item owed; Phase 4 is next)
+
+*(This read `2026-08-17 (Phase 2 accepted; Phase 3 is next)` until 2026-08-18, and `2026-08-14`
+before that, while the L2 partial closed and the narrator-authority lane opened beneath it —
+the exact staleness this file's own authority line warns about. The two lines above carried
+trailing double-space hard breaks; replaced with blank-line separation, which renders the same
+and leaves no trailing whitespace.)*
+
 **Authority:** code and live evidence outrank this coordination list. Start with
 `HANDOFF.md`.
 
@@ -19,7 +25,8 @@
 | 8 | **`WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` — Phase 1, canonical narrator authority** | **ACCEPTED 2026-08-17.** *(This row read `IN BUILD 2026-08-17` until the live acceptance ran.)* Step 9 accepted with its synthetic-B limitation — spec §8.1. Closes no L2 gate. Spec: [`docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md`](docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md) | Three commits: conflict-aware field-level projection authority; explicit session ownership reconciled across both session systems; ONE server chronology projection consumed by both Life Map renderers. Absorbs Lean Lori Gate D. Travel Document connects to this authority **after** it works. *(This row previously appeared TWICE at order 8, alongside a separate Profile Seed row. Two rows cannot both be eighth; the Profile Seed decision is now row 9, where it belongs, and is no longer open.)* |
 | 9 | **Profile Seed ownership** | **DECIDED — Option A, live narrators only.** *(This row read `DECISION REQUESTED` until 2026-08-17. The decision had already been made; the row had not caught up, and a control document that calls a settled question open is an instruction to re-open it.)* | Brief: [`docs/wo/WO-LEAN-LORI-PROFILE-SEED-DECISION-BRIEF-2026-08-14.md`](docs/wo/WO-LEAN-LORI-PROFILE-SEED-DECISION-BRIEF-2026-08-14.md). Option D remains unconfirmed live because L2 Case C was never run; that is an unexercised measurement, **not** a re-opening of the decision. |
 | 10 | **`WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` — Phase 2** | **ACCEPTED 2026-08-17 — 8/8 live acceptance steps passed (spec §12.7).** *(This row read `Phases 2–4 — NOT STARTED` until 2026-08-17.)* | Contract in spec §12. Travel Document reads the same chronology projection through the module's own API choke point; one shared narrator-context contract across shell-launched surfaces, fail-closed on an invalid explicit id; migration 0045 completes the legacy session-owner backfill without editing 0044. Acceptance steps: §12.6 — one stack start, the designated non-family acceptance narrator, no family narrator, no L2 resumption. |
-| 11 | **`WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` — Phases 3–4** | **PHASE 3 IS NEXT — not yet started** | 3: Witness/story capture enters the authority with truthful provisional/approved status. 4: unified output verification — Life Map, Chronology, Lori grounding, Travel Document and memoir agree with no browser ownership anywhere. Phase 3 opens only after Phase 2's focused acceptance. |
+| 11 | **`WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` — Phases 3–4** | **PHASE 3 ACCEPTED 8/9 (2026-08-18), ONE ITEM OWED · PHASE 4 IS NEXT — not started** | *(This row read `PHASE 3 IS NEXT — not yet started` until 2026-08-18.)* Phase 3 landed one server-owned review state and one projection: approved stories reach Life Map, chronology and Lori; provisional are counted, never quoted; **discarded are absent, not dimmed**; migration 0046 + atomic compare-and-write. Record: spec §13. **Owed: Lori SPEAKING an approved story** — the bridge attaches it (`approved=1`), but the prompt section had no `drop_order` and so was dropped first from an over-budget prompt; fixed at 25, needs a restart to confirm. Phase 4: unified output verification — Life Map, Chronology, Lori grounding, Travel Document and memoir agree with no browser ownership anywhere. |
+| 11a | **`turn_extraction_ledger` survives `hard_delete_person`** | **REPORTED 2026-08-18, NOT FIXED — pre-existing, needs Chris's call** | Migration 0038 (2026-07-30) added the table and it was never added to the delete path's explicit list, so a hard-deleted narrator leaves ledger rows. 2 orphans measured, the only 2 in 40 rows. Rows carry keys/statuses/timings and **no narrator text** — referential hygiene, not a privacy leak. Decide: add the table to `hard_delete_person`, or declare the ledger deliberately append-only. |
 
 ## B. Photo Palette delivery blocks
 

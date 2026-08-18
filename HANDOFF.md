@@ -49,13 +49,38 @@ unexercised**; the acceptance proved session *ownership* only. It needs
 counted as duplicated evidence. And `product-read` did not run because its reference personas
 are soft-deleted; **soft deletion is respected and they are not restored.**
 
-**Phase 3 (Witness/story connection) is NEXT and not yet started.** Phase 4 (unified output
-verification) follows it.
+**Phase 3 (Reviewed story authority) is ACCEPTED WITH ONE ITEM OWED — 8 of 9 live steps,
+2026-08-18.** A captured story now has ONE server-owned review state and ONE projection every
+surface reads: approved stories reach the Life Map, the chronology and Lori's prompt;
+provisional ones are counted and never quoted; discarded ones are ABSENT from every projection
+rather than dimmed. Migration 0046 records `placement_source` and `review_version`, and every
+review is an atomic compare-and-write.
+
+**THE OWED ITEM, stated plainly:** step 6 has two halves and only one is proven live. The
+negative half — *a provisional story is never asserted* — passed twice. The positive half —
+*Lori speaks an approved story* — did NOT, and chasing it is what found the defect below. It
+needs a restart to confirm.
+
+**The live run found three real defects that 530 offline tests did not**, which is the argument
+for keeping the live step a gate rather than a formality. All three are fixed:
+
+1. **Every review action button was `disabled="undefined"`.** The panel's `el()` helper wrote
+   attributes whose value was `undefined`, and an attribute's PRESENCE disables a control. No
+   source scan can see this; it needs a browser.
+2. **The panel wedged after every successful write.** One generation counter was answering two
+   different questions, and `applyReview`'s own success path bumped it — so the cleanup arm
+   decided it was stale and never cleared the busy latch. Now three counters: list reads,
+   detail reads, and narrator switches. A write asks only the third.
+3. **The reviewed-story prompt section was the FIRST thing dropped.** It shipped
+   `required=False` with no `drop_order`, which defaults to 0, and `drop_order` is ascending —
+   so the one thing Phase 3 exists to deliver ranked below a per-turn hint. Now 25: above the
+   sections that rebuild themselves next turn, below the identity sections that must never be
+   traded for episodic material.
 
 *(This section read "Phase 1 — canonical narrator authority … Phases 2–4 are sequenced and not
-started" until 2026-08-17. Phase 1 has been accepted and Phase 2 built; a handoff that still
-names an accepted phase as active is an instruction to redo it, which is the failure this
-file's own ordering rule exists to prevent.)*
+started" until 2026-08-17, and "Phase 3 (Witness/story connection) is NEXT and not yet started"
+until 2026-08-18. A handoff that still names an accepted phase as active is an instruction to
+redo it, which is the failure this file's own ordering rule exists to prevent.)*
 
 **Known, deliberate and not this lane's work:** seven assertions in the older
 `tests/test_lori_witness_mode` module conflict with later deliberate behaviour — four still
@@ -75,8 +100,10 @@ reason to divert the authority phase.
 | Lean Lori | **L1 COMPLETE 2026-08-14. L2 ran PARTIAL on 2026-08-16 and is CLOSED by product-priority decision — DO NOT RESUME IT.** *(This row said `NEXT: L2, awaiting Chris's authorization` until 2026-08-17. L2 had already run and been closed; a handoff that still names it as next is an instruction to redo a decision, which is the failure this file's own ordering rule exists to prevent.)* | **Substantial work is ALREADY LANDED — eleven commits, Gate A, 1A–1E, 5, 6, 7, Phase 8 first gate. Do not rebuild it.** Evidence for the partial run: `docs/reports/WO-LEAN-LORI-L2-PARTIAL-2026-08-16.md` (local-only, gitignored — live narrator data). **Gate B stays OPEN and Phase 10 stays open**; the deferred cases are deferred by decision, not failures. Profile Seed ownership is **DECIDED — Option A, live narrators only**. The three integration defects L2 surfaced are the active lane: `docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md`. The model / 8,192-token lock still binds. |
 | **Narrator authority Phase 1** | **ACCEPTED 2026-08-17** | Step 9 accepted with its synthetic-B limitation. Closes no L2 gate. |
 | **Narrator authority Phase 2** | **ACCEPTED 2026-08-17 — 8/8 live steps** | Travel Doc ↔ chronology, shared narrator-context contract, migration 0045. Record: spec §12.7. |
-| **Harness `completed-turn`** | **DEFERRED — genuinely unexercised** | Needs `HORNELORE_OPERATOR_HARNESS=1` and a deliberate restart. Not covered by Phase 2's ownership evidence. |
-| **Phase 3 — Witness/story** | **NEXT — not yet started** | Opens from here. |
+| **Harness `completed-turn`** | **PRODUCT ROUTE NOW EXERCISED LIVE (2026-08-18); the harness SCENARIO is still deferred** | Phase 3's live run drove two real Lori turns end to end: chat → `turn_extraction_ledger` rows → owned sessions, confirmed by the delete report removing 2 sessions and 2 interview_sessions scoped to that narrator. The harness's own scenario still needs `HORNELORE_OPERATOR_HARNESS=1` and a restart; what is no longer true is that the ROUTE is unexercised. |
+| **Phase 3 — Reviewed story authority** | **ACCEPTED WITH ONE ITEM OWED — 8/9 live, 2026-08-18** | Owed: Lori SPEAKING an approved story, blocked by the drop-order defect the run found. Fixed and ranked at 25; needs a restart to confirm. |
+| **Phase 4 — unified output verification** | **NEXT — not started** | Opens from here. |
+| **`turn_extraction_ledger` not cleaned by `hard_delete_person`** | **REPORTED, NOT FIXED — pre-existing, out of Phase 3's scope** | The ledger arrived in migration 0038 (2026-07-30) and was never added to the delete path's explicit table list, so a hard-deleted narrator leaves ledger rows behind. Measured live: 2 orphans, and they are the ONLY 2 in the whole 40-row table, so this is newly observable rather than an accumulated pile-up. **The rows carry keys, statuses and timings — no narrator text — so this is referential hygiene, not a privacy leak.** Chris's call whether to add the table to `hard_delete_person` or leave the ledger deliberately append-only. |
 | Kawa / Memory River | **REACHABLE FROZEN LEGACY UI** | Phase 2 did not extend it. Awaiting a deliberate removal decision. |
 | Runtime safety | **PARKED, server-authoritative** | Never reactivate through environment values. |
 | Model / 8,192-token window | **LOCKED** | Any proposed model change is stop-and-report. |
