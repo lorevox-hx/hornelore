@@ -57,11 +57,19 @@ import logging
 from typing import Any, Dict, List, NamedTuple, Optional, Sequence
 
 from .. import db as _db
+from ..lv_eras import LV_ERAS as _LV_ERAS, legacy_key_to_era_id as _legacy_key_to_era_id
 
 logger = logging.getLogger("story_projection")
 
+# The canonical taxonomy, read from lv_eras rather than restated: six
+# historical eras PLUS the separate `today` current-life bucket. Restating
+# it here would be a second definition of the spine.
+_VALID_ERA_IDS = frozenset(e["era_id"] for e in _LV_ERAS)
+
 __all__ = [
     "StoryProjection",
+    "PlacementRejected",
+    "canonical_eras",
     "APPROVED",
     "PROVISIONAL",
     "PLACEMENT_STATED",
@@ -118,6 +126,48 @@ class StoryProjection(NamedTuple):
     items: List[Dict[str, Any]]
     status: str
     counts: Dict[str, int]
+
+
+class PlacementRejected(ValueError):
+    """An operator placement that cannot be honoured as written.
+
+    Added 2026-08-17 after review. The PATCH route accepted arbitrary
+    `era_candidates`, so an operator typo — "buidling_years" — produced a
+    story the SERVER considered placed and that appeared in NO Life Map
+    era. Silently placed and invisible is the worst of the three possible
+    outcomes: worse than unplaced, which at least shows up in the unplaced
+    group and can be found and fixed.
+    """
+
+
+def canonical_eras(values: Optional[Sequence[str]]) -> List[str]:
+    """Canonicalize operator-supplied eras, or refuse them.
+
+    Accepts the six historical era_ids plus an explicit `today`, and the
+    legacy keys `legacy_key_to_era_id` already knows how to translate.
+    Anything else is REFUSED rather than dropped: dropping a typo silently
+    would leave the operator believing they had placed a story.
+
+    NEVER derives an era from a year. A year is not a position on the Life
+    Map — the map is drawn in eras — and inferring one is the guess this
+    whole lane exists to stop.
+    """
+    if values is None:
+        return []
+    out: List[str] = []
+    for raw in values:
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        era = text if text in _VALID_ERA_IDS else _legacy_key_to_era_id(text)
+        if not era or era not in _VALID_ERA_IDS:
+            raise PlacementRejected(
+                f"{text!r} is not a life era. Valid: "
+                + ", ".join(sorted(_VALID_ERA_IDS))
+            )
+        if era not in out:
+            out.append(era)
+    return out
 
 
 def _placement_for(row: Dict[str, Any]) -> str:

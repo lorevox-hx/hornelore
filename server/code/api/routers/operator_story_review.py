@@ -189,6 +189,11 @@ class StoryReviewAction(BaseModel):
     placement_source: Optional[str] = None
     confidence: Optional[str] = None
     clear_year_range: bool = False
+    # Clear placement entirely: era, year range, and provenance back to
+    # `unknown`. Without this an operator who mis-placed a story could
+    # only ever REPLACE the placement, never take it back off -- and a
+    # story wrongly filed in an era is worse than one that is unplaced.
+    clear_placement: bool = False
 
 
 @router.get("/story-candidates/review")
@@ -287,6 +292,40 @@ def api_story_review_apply(
     confirms nothing about it.
     """
     _require_enabled()
+
+    # ── Canonical placement validation (added 2026-08-17 after review) ──
+    #
+    # This route previously accepted arbitrary `era_candidates`, reversed
+    # year ranges and misspelled eras. An operator typo -- "buidling_years"
+    # -- produced a story the SERVER treated as PLACED and that appeared in
+    # NO Life Map era: silently placed and invisible, which is worse than
+    # unplaced, because unplaced at least shows up in the unplaced group
+    # where somebody can find and fix it.
+    eras = action.era_candidates
+    if eras is not None:
+        try:
+            eras = story_projection.canonical_eras(eras)
+        except story_projection.PlacementRejected as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        # AN OPERATOR-SET PLACEMENT MUST RESOLVE TO EXACTLY ONE ERA. Two
+        # eras is not a placement, it is a pair of guesses, and the Life
+        # Map would have to pick one -- which is the derivation this lane
+        # forbids. (The capture path may still record several CANDIDATES;
+        # this rule binds the operator's decision, not the machine's
+        # shortlist.)
+        if action.placement_source == "operator_set" and len(eras) != 1:
+            raise HTTPException(status_code=400, detail=(
+                "an operator-set placement needs exactly one era; "
+                f"got {len(eras)}"
+            ))
+
+    lo = action.estimated_year_low
+    hi = action.estimated_year_high
+    if lo is not None and hi is not None and int(lo) > int(hi):
+        raise HTTPException(status_code=400, detail=(
+            f"year range is reversed: {lo} is after {hi}"
+        ))
+
     try:
         row = _db.story_candidate_review_apply(
             candidate_id,
@@ -295,12 +334,14 @@ def api_story_review_apply(
             review_status=action.review_status,
             review_notes=action.review_notes,
             reviewed_by=action.reviewed_by,
-            era_candidates=action.era_candidates,
+            era_candidates=eras,
             estimated_year_low=action.estimated_year_low,
             estimated_year_high=action.estimated_year_high,
-            placement_source=action.placement_source,
+            placement_source=(
+                "unknown" if action.clear_placement else action.placement_source),
             confidence=action.confidence,
-            clear_year_range=action.clear_year_range,
+            clear_year_range=action.clear_year_range or action.clear_placement,
+            clear_eras=action.clear_placement,
         )
     except _db.StoryCandidateNotFound:
         raise HTTPException(status_code=404, detail="story candidate not found")

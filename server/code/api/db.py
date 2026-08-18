@@ -7130,6 +7130,7 @@ def story_candidate_review_apply(
     placement_source: Optional[str] = None,
     confidence: Optional[str] = None,
     clear_year_range: bool = False,
+    clear_eras: bool = False,
 ) -> Dict[str, Any]:
     """Apply one operator review action atomically. Returns the new row.
 
@@ -7214,7 +7215,12 @@ def story_candidate_review_apply(
         if reviewed_by is not None:
             sets.append("reviewed_by = ?")
             params.append(reviewed_by)
-        if era_candidates is not None:
+        if clear_eras:
+            # Clear placement: an operator who mis-filed a story must be
+            # able to take the placement back OFF, not only replace it.
+            sets.append("era_candidates = ?")
+            params.append(_json_dump([]))
+        elif era_candidates is not None:
             sets.append("era_candidates = ?")
             params.append(_json_dump(list(era_candidates)))
         if clear_year_range:

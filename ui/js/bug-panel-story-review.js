@@ -48,6 +48,37 @@
   };
   const STATUS_ORDER = ['unreviewed', 'in_review', 'promoted', 'memoir_only', 'discarded'];
 
+  // The canonical taxonomy, read from the shared era registry rather than
+  // restated here. Six historical eras plus the separate `today` bucket.
+  // A free-text era field let an operator typo produce a story the server
+  // considered PLACED and that appeared in no Life Map era.
+  function _eraOptions() {
+    try {
+      var reg = window.LorevoxEras && window.LorevoxEras.LV_ERAS;
+      if (Array.isArray(reg) && reg.length) {
+        return reg.map(function (e) { return e.era_id; }).filter(Boolean);
+      }
+    } catch (e) { /* fall through */ }
+    return ['earliest_years', 'early_school_years', 'adolescence',
+            'coming_of_age', 'building_years', 'later_years', 'today'];
+  }
+
+  // NARRATOR-SWITCH GUARD (added 2026-08-17 after review).
+  //
+  // fetchReview() and openDetail() captured a narrator and then applied
+  // their responses without re-checking it, and the default scope stayed
+  // on A after the shell switched to B. A delayed A response could
+  // therefore paint A's stories into B's operator context -- and, worse, a
+  // staged edit belonging to A could be addressed to B.
+  //
+  // Every read carries the generation it was issued under, and every
+  // response is discarded unless BOTH the generation and the narrator
+  // still match. Deliberately NOT person-scoped edit retention: this is a
+  // low-frequency operator switch, so cancelling and clearing is the safe
+  // answer and the simple one.
+  let _gen = 0;
+  function _bumpGen() { _gen += 1; return _gen; }
+
   let _state = {
     loading: false,
     enabled: null, // null = unknown until first probe
@@ -182,12 +213,14 @@
 
   function fetchReview() {
     const pid = _narrator();
+    const gen = _bumpGen();
     if (!pid) {                      // narrator-scoped by contract
       _state.items = []; _state.counts = null; _state.projection = null;
       _state.error = 'Choose a narrator to review their stories.';
       render(); return Promise.resolve();
     }
     _state.loading = true; _state.error = null; render();
+    const stale = function () { return gen !== _gen || pid !== _narrator(); };
     let url = REVIEW_ENDPOINT + '?narrator_id=' + encodeURIComponent(pid) +
       '&limit=' + DEFAULT_LIMIT;
     if (_state.statusFilter.length) {
@@ -201,7 +234,7 @@
         return resp.json();
       })
       .then(function (body) {
-        if (!body) return;
+        if (!body || stale()) return;
         _state.items = body.items || [];
         _state.count = body.count || 0;
         _state.counts = body.counts || null;
@@ -209,22 +242,57 @@
         _state.fetchedAt = body.fetched_at || null;
       })
       .catch(function (err) {
+        if (stale()) return;
         _state.enabled = true;
         _state.error = String(err && err.message || err);
       })
-      .then(function () { _state.loading = false; render(); });
+      .then(function () {
+        if (stale()) return;
+        _state.loading = false; render();
+      });
   }
 
   function openDetail(id) {
     if (_state.openId === id) { _state.openId = null; _state.detail = null; render(); return; }
     const pid = _narrator();
+    const gen = _bumpGen();
+    const stale = function () { return gen !== _gen || pid !== _narrator(); };
     _state.openId = id; _state.detail = null; _state.detailBusy = true; render();
     fetch(ENDPOINT + '/' + encodeURIComponent(id) +
           '?narrator_id=' + encodeURIComponent(pid), { credentials: 'same-origin' })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function (b) { _state.detail = b.item || null; })
-      .catch(function (e) { _state.error = 'Detail failed: ' + e.message; })
-      .then(function () { _state.detailBusy = false; render(); });
+      .then(function (b) { if (stale()) return; _state.detail = b.item || null; })
+      .catch(function (e) { if (stale()) return; _state.error = 'Detail failed: ' + e.message; })
+      .then(function () {
+        if (stale()) return;
+        _state.detailBusy = false; render();
+      });
+  }
+
+  /* Called by app.js on every narrator switch.
+     Cancels in-flight reads by moving the generation, clears everything
+     that belonged to the previous narrator, and re-scopes to the new one.
+
+     STAGED EDITS ARE DISCARDED, deliberately. Keeping them would mean
+     either carrying A's typed text into B's context, or building
+     person-scoped retention for a low-frequency operator action. Losing an
+     unsaved note on a deliberate narrator switch is a smaller harm than
+     either, and it can never address A's edit to B. */
+  function onNarratorSwitch(pid) {
+    _bumpGen();
+    _state.narratorFilter = String(pid || '');
+    _state.openId = null;
+    _state.detail = null;
+    _state.detailBusy = false;
+    _state.conflict = null;
+    _state.edits = {};
+    _state.actionBusy = null;
+    _state.items = [];
+    _state.counts = null;
+    _state.projection = null;
+    _state.error = null;
+    if (_state.enabled !== false) fetchReview();
+    else render();
   }
 
   function _edit(id) {
@@ -243,8 +311,10 @@
     };
     if (edit.review_notes !== undefined) body.review_notes = edit.review_notes;
     if (edit.era_candidates !== undefined) {
-      body.era_candidates = String(edit.era_candidates)
-        .split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+      // One era or none. The selector cannot produce anything else, and
+      // the server refuses an unknown value regardless.
+      const one = String(edit.era_candidates || '').trim();
+      body.era_candidates = one ? [one] : [];
     }
     if (edit.year_low !== undefined && String(edit.year_low).trim() !== '') {
       body.estimated_year_low = parseInt(edit.year_low, 10);
@@ -255,6 +325,8 @@
     if (edit.placement_source !== undefined) body.placement_source = edit.placement_source;
     Object.keys(patch || {}).forEach(function (k) { body[k] = patch[k]; });
 
+    const gen = _gen;
+    const stale = function () { return gen !== _gen || pid !== _narrator(); };
     _state.actionBusy = item.id; _state.conflict = null; render();
     return fetch(ENDPOINT + '/' + encodeURIComponent(item.id), {
       method: 'PATCH',
@@ -268,6 +340,10 @@
         });
       })
       .then(function (res) {
+        // A switch landed while this write was in flight. The write itself
+        // was narrator-scoped on the wire and cannot have hit the wrong
+        // person; what must not happen is repainting B with A's outcome.
+        if (stale()) return;
         if (res.status === 409) {
           // THE EDIT IS KEPT. _state.edits is untouched on purpose, so
           // the operator can re-apply against the fresh version rather
@@ -291,8 +367,14 @@
         _state.openId = null;
         return afterReviewApplied(pid);
       })
-      .catch(function (e) { _state.error = 'Review failed: ' + e.message; })
-      .then(function () { _state.actionBusy = null; render(); });
+      .catch(function (e) {
+        if (stale()) return;
+        _state.error = 'Review failed: ' + e.message;
+      })
+      .then(function () {
+        if (stale()) return;
+        _state.actionBusy = null; render();
+      });
   }
 
   /* After a successful review: reload the candidate list, refresh the
@@ -354,6 +436,21 @@
         disabled: busy ? 'disabled' : undefined,
         onclick: function () { applyReview(item, {}); },
       }, ['Save placement / notes']),
+      // A story wrongly filed in an era is worse than one that is
+      // unplaced, so taking a placement back OFF has to be possible --
+      // not merely replaceable. This clears era, year range and returns
+      // placement_source to `unknown` in one atomic action.
+      el('button', {
+        class: 'story-act',
+        disabled: busy ? 'disabled' : undefined,
+        onclick: function () {
+          delete _edit(item.id).era_candidates;
+          delete _edit(item.id).year_low;
+          delete _edit(item.id).year_high;
+          delete _edit(item.id).placement_source;
+          applyReview(item, { clear_placement: true });
+        },
+      }, ['Clear placement']),
     ]);
   }
 
@@ -379,9 +476,30 @@
         ? edit.placement_source : (item.placement_source || 'unknown');
       return el('option', { value: v, selected: v === cur ? 'selected' : undefined }, [v]);
     }));
+    // CANONICAL ERA SELECTOR, not a free-text field (2026-08-17 fix).
+    // The comma-separated input let a typo produce a story the server
+    // considered PLACED and that appeared in no Life Map era. The server
+    // now refuses an unknown era; this makes one impossible to type.
+    //
+    // ONE era, because an operator-set placement must resolve to exactly
+    // one -- two is a pair of guesses, and the Life Map would have to pick.
+    const curEra = edit.era_candidates !== undefined
+      ? edit.era_candidates
+      : ((item.era_candidates || [])[0] || '');
+    const eraSel = el('select', {
+      class: 'story-input',
+      oninput: function (e) { edit.era_candidates = e.target.value; },
+    }, [el('option', { value: '', selected: curEra ? undefined : 'selected' },
+           ['— not placed —'])].concat(_eraOptions().map(function (v) {
+      return el('option', {
+        value: v, selected: v === curEra ? 'selected' : undefined,
+      }, [v]);
+    })));
+
     return el('div', { class: 'story-editor' }, [
-      field('Eras (comma-separated)', 'era_candidates',
-            (item.era_candidates || []).join(','), 'e.g. building_years'),
+      el('label', { class: 'story-field' }, [
+        el('span', { class: 'story-meta' }, ['Life era']), eraSel,
+      ]),
       field('Year from', 'year_low', item.estimated_year_low, 'e.g. 1962'),
       field('Year to', 'year_high', item.estimated_year_high, 'e.g. 1964'),
       el('label', { class: 'story-field' }, [
@@ -588,6 +706,7 @@
 
   // Public manual-refresh hook so operators can trigger from console.
   window.lvStoryReviewRefresh = fetchReview;
+  window.lvStoryReviewOnNarratorSwitch = onNarratorSwitch;
 
   // Auto-load when the Bug Panel becomes visible. Cheap polling-free
   // approach: fire on first DOMContentLoaded + when the bug panel is

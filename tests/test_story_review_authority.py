@@ -227,6 +227,63 @@ class AtomicReviewContract(_Base):
         self.assertEqual(self._row(cid)["review_version"], 2)
 
 
+class CanonicalPlacementValidation(_Base):
+    """Added 2026-08-17 after review.
+
+    The PATCH route accepted arbitrary eras, reversed year ranges and
+    misspelled era ids. An operator typo produced a story the SERVER
+    treated as PLACED and that appeared in NO Life Map era -- silently
+    placed and invisible, which is worse than unplaced, because unplaced at
+    least shows up in the unplaced group where somebody can fix it.
+    """
+
+    def test_the_canonical_eras_are_the_six_plus_today(self):
+        from api.lv_eras import LV_ERAS
+        ids = [e["era_id"] for e in LV_ERAS]
+        self.assertEqual(len(ids), 7)
+        self.assertIn("today", ids)
+        self.assertEqual(story_projection.canonical_eras(ids), ids)
+
+    def test_a_misspelled_era_is_refused_not_dropped(self):
+        # Dropping it silently would leave the operator believing they had
+        # placed the story.
+        with self.assertRaises(story_projection.PlacementRejected):
+            story_projection.canonical_eras(["buidling_years"])
+
+    def test_a_year_is_never_accepted_as_an_era(self):
+        with self.assertRaises(story_projection.PlacementRejected):
+            story_projection.canonical_eras(["1962"])
+
+    def test_legacy_era_keys_still_canonicalize(self):
+        self.assertEqual(story_projection.canonical_eras(["midlife"]),
+                         ["building_years"])
+
+    def test_duplicates_collapse(self):
+        self.assertEqual(
+            story_projection.canonical_eras(["adolescence", "adolescence"]),
+            ["adolescence"])
+
+    def test_clearing_a_placement_takes_the_era_back_off(self):
+        cid = self._story()
+        _db.story_candidate_review_apply(
+            cid, self.narrator, 1, era_candidates=["building_years"],
+            estimated_year_low=1962, estimated_year_high=1964,
+            placement_source="operator_set")
+        placed = story_projection.project_stories(self.narrator).items[0]
+        self.assertEqual(placed["placement"], "operator_set")
+
+        _db.story_candidate_review_apply(
+            cid, self.narrator, 2, clear_eras=True, clear_year_range=True,
+            placement_source="unknown")
+        row = self._row(cid)
+        self.assertEqual(row["era_candidates"], [])
+        self.assertIsNone(row["estimated_year_low"])
+        self.assertEqual(row["placement_source"], "unknown")
+        cleared = story_projection.project_stories(self.narrator).items[0]
+        self.assertEqual(cleared["placement"], "unplaced")
+        self.assertIsNone(cleared["era"])
+
+
 class ListingAndCounts(_Base):
     def test_a_reviewed_story_does_not_vanish_from_the_operator(self):
         # The Phase 1B accessor filtered to `unreviewed`, so acting on a

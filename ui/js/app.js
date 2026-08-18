@@ -3941,6 +3941,22 @@ async function lvxSwitchNarratorSafe(pid){
     console.warn("[narrator-switch] OperatorIntake.onNarratorSwitch threw:", e);
   }
 
+  // WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 3 fix (2026-08-17).
+  //
+  // The story-review surface holds in-flight reads and staged operator
+  // edits scoped to ONE narrator. Without this hook its default scope
+  // stayed on A after a switch to B, and a delayed A response could paint
+  // A's stories into B's operator context. It cancels its reads by moving
+  // its generation token, clears the open detail, the conflict and the
+  // staged edits, and re-scopes to the new narrator.
+  try {
+    if (typeof window.lvStoryReviewOnNarratorSwitch === "function") {
+      window.lvStoryReviewOnNarratorSwitch(pid);
+    }
+  } catch (e) {
+    console.warn("[narrator-switch] story-review hook threw:", e);
+  }
+
   await loadPerson(pid);
 
   // Phase G: hydrate canonical state from backend state-snapshot
