@@ -4305,6 +4305,11 @@ async def ws_chat(ws: WebSocket):
         # (flag + active_trip_id + shelf open + trip owned by person_id) and
         # is read-only (no writes / dispatch / runtime mutation). Non-fatal:
         # the chat turn always proceeds even if this errors.
+        #
+        # Phase 4: holds the INTENDED prior-Lori trip scope until the budget
+        # has decided what the model actually receives. None means "nothing
+        # to stamp" -- the trip lane errored, or never ran.
+        _tic_pending: Optional[Dict[str, Any]] = None
         try:
             from ..services import trip_interview_context as _tic
             _tic_block = _tic.context_block_for_turn(person_id, runtime71)
@@ -4340,13 +4345,31 @@ async def ws_chat(ws: WebSocket):
                             "conv=%s person=%s", conv_id, person_id or "(none)")
             # Stamp prior-turn trip-scope for the NEXT narrator answer's
             # story capture (Step 2). The Lori turn we are composing now is
-            # trip-scoped iff a trip-context block was injected.
-            _TRIP_PREV_LORI[conv_id] = {
+            # trip-scoped iff a trip-context block REACHED THE MODEL.
+            #
+            # ── Phase 4 correction, 2026-08-18 ──────────────────────────
+            # This stamped `bool(_tic_block)` HERE, before the budget ran.
+            # That was safe while the trip block was concatenated onto the
+            # prompt and could never be removed. It stopped being safe the
+            # moment `trip_context` became an optional SECTION: an
+            # over-budget turn can now shed it, and the stamp would still
+            # claim the turn was trip-scoped.
+            #
+            # The consequence is a DATA-INTEGRITY one, not a cosmetic one.
+            # `_TRIP_PREV_LORI` is what the NEXT narrator answer consults
+            # to decide whether it is trip evidence, so a turn where Lori
+            # never saw the trip could cause the narrator's reply to be
+            # captured against that trip. Wrong evidence attached to a
+            # real trip is worse than no evidence.
+            #
+            # The intent is recorded here; the STAMP happens after the
+            # budget decision, below, where what the model actually
+            # received is known.
+            _tic_pending = {
                 "trip_scoped": bool(_tic_block),
                 "prompt_kind": "trip" if _tic_block else None,
                 "lori_text": None,   # filled with THIS turn's reply below
             }
-            _cap_conv_cache(_TRIP_PREV_LORI)
         except Exception as _tic_exc:
             logger.warning("[chat_ws][trip-context] skipped conv=%s: %s",
                            conv_id, _tic_exc)
@@ -4415,12 +4438,45 @@ async def ws_chat(ws: WebSocket):
             await _ws_send(ws, {"type": "done", "final_text": "",
                                 "blocked": "prompt_too_large"})
             return
-        if _budget.dropped_turns:
+        if _budget.dropped_turns or _budget.dropped_sections:
             # INFO, not WARNING: dropping old conversation is the budget
             # working as designed. The WARNING is reserved for the
             # refusal above, which is the condition that needs someone.
+            #
+            # Phase 4 correction, 2026-08-18: this tested `dropped_turns`
+            # alone, so a SECTION-only reduction -- an over-budget turn
+            # with no history to shed -- succeeded in total silence and
+            # the section telemetry never reached the operator log. The
+            # one case the new machinery exists to handle was the one
+            # case that reported nothing.
             logger.info("[chat_ws][prompt-budget] %s", _budget.as_log_fields())
         msgs = _budget.messages
+
+        # ── Phase 4: prior-Lori trip scope, decided by the BUDGET ───────
+        #
+        # `_TRIP_PREV_LORI` is what the NEXT narrator answer consults to
+        # decide whether it is trip evidence. Stamping it at injection
+        # time was correct while the trip block could not be removed;
+        # now that `trip_context` is an optional section, a turn where
+        # the budget shed it would still have claimed to be trip-scoped,
+        # and the narrator's next answer could have been captured against
+        # a trip Lori never saw. Wrong evidence attached to a real trip is
+        # worse than no evidence.
+        #
+        # Three cases, and the refusal case is deliberately silent: the
+        # turn was abandoned above, so there is no Lori turn for a
+        # narrator answer to follow and nothing to record.
+        if _tic_pending is not None:
+            if _tic_pending["trip_scoped"] and _budget.dropped_sections:
+                _kept = "trip_context" in _budget.kept_sections
+                if not _kept:
+                    logger.info(
+                        "[chat_ws][trip-context] budget dropped trip_context; "
+                        "this turn is NOT trip-scoped conv=%s", conv_id)
+                _tic_pending["trip_scoped"] = _kept
+                _tic_pending["prompt_kind"] = "trip" if _kept else None
+            _TRIP_PREV_LORI[conv_id] = _tic_pending
+            _cap_conv_cache(_TRIP_PREV_LORI)
 
         prompt = _apply_chat_template(msgs)
 

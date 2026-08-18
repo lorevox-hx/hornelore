@@ -402,7 +402,12 @@ def _fit_chat_prompt(msgs: List[Dict[str, str]], tok, *, where: str,
         print(f"[PROMPT-BUDGET] where={where} REFUSING — "
               f"{outcome.as_log_fields()}")
         raise ChatPromptTooLarge(outcome)
-    if outcome.dropped_turns:
+    # Phase 4 correction, 2026-08-18: this tested `dropped_turns` alone, so
+    # a SECTION-only reduction -- an over-budget prompt with no history to
+    # shed -- succeeded in total silence and the section telemetry never
+    # reached the operator log. The one case the new machinery exists to
+    # handle was the one case that reported nothing.
+    if outcome.dropped_turns or outcome.dropped_sections:
         print(f"[PROMPT-BUDGET] where={where} {outcome.as_log_fields()}")
     return outcome.messages
 
