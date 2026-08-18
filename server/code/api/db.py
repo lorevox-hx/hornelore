@@ -2039,11 +2039,31 @@ def list_sessions(limit: int = 50, person_id: Optional[str] = None) -> List[Dict
         # R2.5 — the sidebar can finally scope to one narrator. Legacy
         # JSON keys are honoured so rows written before 0044 are not
         # invisible under a filter.
+        #
+        # THE json_valid GUARDS ARE LOAD-BEARING, added by Phase 2 Part C
+        # (2026-08-17). `json_extract` on malformed JSON is not NULL in
+        # SQLite -- it RAISES `OperationalError: malformed JSON` -- and it
+        # raises for the whole statement, so ONE junk historical row makes
+        # this endpoint 500 for EVERY narrator, not just for that row's.
+        #
+        # `payload_json` is exactly the column where junk is plausible:
+        # it is browser-supplied state that has been persisted verbatim
+        # for the life of the table. Migration 0045 and
+        # session_ownership_residue() both guard it for that reason;
+        # until this change `list_sessions` was the one reader that did
+        # not, which made it the one reader that could take the endpoint
+        # down.
+        #
+        # A row whose payload cannot be parsed is simply not attributable
+        # by the legacy fallback. It is skipped, never guessed at, and it
+        # remains visible in the unfiltered listing.
         rows = con.execute(
             "SELECT conv_id,title,updated_at,person_id FROM sessions "
             "WHERE COALESCE(NULLIF(person_id,''), "
-            "json_extract(payload_json,'$.active_person_id'), "
-            "json_extract(payload_json,'$.person_id')) = ? "
+            "CASE WHEN json_valid(payload_json) "
+            "THEN json_extract(payload_json,'$.active_person_id') END, "
+            "CASE WHEN json_valid(payload_json) "
+            "THEN json_extract(payload_json,'$.person_id') END) = ? "
             "ORDER BY updated_at DESC LIMIT ?;",
             (person_id, int(limit)),
         ).fetchall()

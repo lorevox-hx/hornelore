@@ -338,6 +338,98 @@ def _sql_without_comments(text: str) -> str:
     return "\n".join(out)
 
 
+class MalformedLegacyPayloadCannotBreakTheListing(_Base):
+    """Phase 2 Part C, 2026-08-17.
+
+    `list_sessions`' narrator filter reads the two legacy payload keys so
+    that rows written before 0044 stay visible under a filter. It did so
+    with a bare `json_extract`, and in SQLite that does not return NULL on
+    malformed JSON -- it raises `OperationalError: malformed JSON`, for
+    the whole statement. So ONE junk historical row would 500
+    `GET /api/sessions/list?person_id=…` for EVERY narrator.
+
+    That endpoint is read by the four-persona harness in both its
+    `product-read` and `completed-turn` scenarios, which is what turned a
+    latent fragility into a path something exercises routinely.
+
+    The route is driven here rather than the function, because "does not
+    return HTTP 500" is a claim about the route and a direct call could
+    not have proved it.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from fastapi import FastAPI
+        from starlette.testclient import TestClient
+        from api.routers import sessions as sessions_router
+
+        app = FastAPI()
+        app.include_router(sessions_router.router)
+        self.client = TestClient(app, raise_server_exceptions=False)
+
+    def tearDown(self):
+        self.client.close()
+        super().tearDown()
+
+    def _seed(self):
+        # One row of each kind that the filter has to survive.
+        self._session("m_junk", "{not json at all")                    # malformed
+        self._session("m_legacy_active", {"active_person_id": self.alice})
+        self._session("m_legacy_person", {"person_id": self.alice})
+        self._session("m_explicit", {}, person_id=self.alice, source="explicit")
+        self._session("m_other", {"person_id": self.bob})
+
+    def _list(self, pid):
+        r = self.client.get("/api/sessions/list", params={"person_id": pid})
+        return r, [row["conv_id"] for row in (r.json().get("sessions") or [])]
+
+    def test_a_malformed_row_does_not_produce_a_500(self):
+        self._seed()
+        r, _ = self._list(self.alice)
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def test_the_malformed_row_is_not_falsely_attributed(self):
+        self._seed()
+        _, alice = self._list(self.alice)
+        _, bob = self._list(self.bob)
+        self.assertNotIn("m_junk", alice)
+        self.assertNotIn("m_junk", bob)
+
+    def test_valid_legacy_fallback_rows_remain_discoverable(self):
+        # The whole point of reading the legacy keys at all. A guard that
+        # protected the endpoint by dropping these would have "fixed" it
+        # by removing the feature.
+        self._seed()
+        _, alice = self._list(self.alice)
+        self.assertIn("m_legacy_active", alice)
+        self.assertIn("m_legacy_person", alice)
+
+    def test_explicitly_owned_rows_remain_discoverable(self):
+        self._seed()
+        _, alice = self._list(self.alice)
+        self.assertIn("m_explicit", alice)
+        self.assertNotIn("m_other", alice)
+
+    def test_the_unfiltered_listing_still_shows_the_malformed_row(self):
+        # Unattributable is not invisible. The row exists and an operator
+        # must still be able to see that it does.
+        self._seed()
+        r = self.client.get("/api/sessions/list")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("m_junk",
+                      [row["conv_id"] for row in r.json()["sessions"]])
+
+    def test_the_guard_is_present_in_both_legacy_expressions(self):
+        # Non-vacuity: the four assertions above would all pass on a
+        # database that happened to contain no malformed row, so the
+        # shipped SQL is pinned too. Both legacy keys, both guarded.
+        import inspect
+        src = inspect.getsource(_db.list_sessions)
+        self.assertEqual(src.count("json_valid(payload_json)"), 2)
+        self.assertNotIn("THEN json_extract(payload_json,'$.active_person_id'), ",
+                         src)
+
+
 class MigrationTextRules(unittest.TestCase):
     """The file itself, because some rules are about what it must not do."""
 

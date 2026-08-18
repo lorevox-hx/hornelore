@@ -725,12 +725,34 @@ payload, owners whose provenance predates the column, and four mutually exclusiv
 row was declined: disagreeing fields, an invalid legacy id, an ambiguous or conflicting
 stronger source, and no recorded link at all. The four sum to the unowned total.
 
+**One legacy-read defect fixed in the same part, because Part C owns the legacy session
+reads.** `list_sessions`' narrator filter read the two legacy payload keys with a bare
+`json_extract`. In SQLite that does not yield NULL on malformed JSON — it raises
+`OperationalError: malformed JSON`, and it raises for the whole statement, so a **single**
+junk historical row would return HTTP 500 from
+`GET /api/sessions/list?person_id=…` for **every** narrator. `payload_json` is precisely the
+column where junk is plausible: browser-supplied state persisted verbatim for the life of the
+table. Migration 0045 and `session_ownership_residue()` both guard it for that reason; until
+this change `list_sessions` was the one reader that did not, and therefore the one that could
+take the endpoint down.
+
+Both legacy expressions are now wrapped in `CASE WHEN json_valid(payload_json)`. An
+unparseable row is **not attributable by the legacy fallback** — skipped, never guessed at —
+and it stays visible in the unfiltered listing, because unattributable is not invisible.
+
+Found while reviewing the four-persona harness landed in `425a2d2`, which reads that endpoint
+in **both** its `product-read` and `completed-turn` scenarios. That is what turned a latent
+fragility into a path something exercises routinely; the defect itself predates both lanes.
+Six regression tests, driving the real route rather than the function — "does not return HTTP
+500" is a claim about the route and a direct call could not prove it. The mutation that
+restores the unguarded form is killed by five of them.
+
 ### 12.5 Offline gate — 2026-08-17
 
 Focused suites during development, then one consolidated run. New modules:
 `tests/test_travel_doc_chronology_integration.py` (33),
 `tests/test_surface_narrator_context.py` (22),
-`tests/test_sessions_legacy_payload_owner.py` (28), plus new lane-status cases in
+`tests/test_sessions_legacy_payload_owner.py` (34), plus new lane-status cases in
 `tests/test_narrator_chronology_projection.py` (54 total). Two behaviour harnesses execute
 the **shipped** code rather than a copy of its logic:
 `scripts/ui/run_chronology_connection_behaviour.js` (28) and

@@ -502,7 +502,22 @@ precisely the reconstruction that rule forbids — and are reported as
 `owner_source_unrecorded`. `session_ownership_residue()` now splits owners three ways and
 gives four mutually exclusive reasons a row was declined, which sum to the unowned total.
 
-**Testing, including what it caught in itself.** Three new modules (33 + 22 + 28), new
+**A legacy-read defect fixed inside Part C, because Part C owns the legacy session reads.**
+`list_sessions`' narrator filter read the two legacy payload keys with a bare `json_extract`.
+SQLite does not return NULL there on malformed JSON — it **raises**, for the whole statement —
+so ONE junk historical row would 500 `GET /api/sessions/list?person_id=…` for EVERY narrator.
+0045 and the residue function both guard that column with `json_valid` precisely because junk
+is plausible in it; `list_sessions` was the one reader that did not, and therefore the one that
+could take the endpoint down. Both expressions are now guarded. An unparseable row is not
+attributable by the legacy fallback — skipped, never guessed at — and stays visible in the
+unfiltered listing, because **unattributable is not invisible**. Found while reviewing the
+four-persona harness (`425a2d2`), which reads that endpoint in both `product-read` and
+`completed-turn`: that is what turned a latent fragility into a routinely exercised path, and
+the defect predates both lanes. Six regression tests drive the real route rather than the
+function, because "does not return HTTP 500" is a claim about the route; the mutation
+restoring the unguarded form is killed by five of them.
+
+**Testing, including what it caught in itself.** Three new modules (33 + 22 + 34), new
 lane-status cases in the chronology projection suite (54 total), and two harnesses that
 execute the **shipped** code rather than a copy: `run_chronology_connection_behaviour.js` (28)
 and `run_narrator_context_behaviour.js` (23). Seven mutants injected, seven killed — **but not
