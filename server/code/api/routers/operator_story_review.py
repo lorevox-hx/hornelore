@@ -272,6 +272,56 @@ def api_story_candidate_detail(
         (row.get("audio_clip_path") or "").strip()
     )
     shaped["audio_duration_sec"] = row.get("audio_duration_sec")
+
+    # ── Turn provenance and extraction evidence, for the reviewer ───────
+    #
+    # WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01 Commit 1 (2026-08-19).
+    #
+    # Which committed rows this story came from, and -- if extraction ran
+    # on the same completed turn -- what it found. Both are shown so an
+    # operator can judge the story against machine evidence instead of
+    # from the transcript alone.
+    #
+    # THIS IS EVIDENCE, NOT TRUTH. `extraction` is rendered beside the
+    # story and is copied into nothing: not `extracted_fields`, not
+    # `review_status`, not any placement column. An operator deciding
+    # what to do with it IS the review step, and skipping that step by
+    # merging it here would put unreviewed machine output into the
+    # narrator's life story -- the failure this whole lane exists to
+    # prevent.
+    shaped["source_user_turn_row_id"] = row.get("source_user_turn_row_id")
+    shaped["completed_assistant_turn_row_id"] = row.get(
+        "completed_assistant_turn_row_id")
+    shaped["turn_linked"] = bool(row.get("completed_assistant_turn_row_id"))
+    try:
+        result = _db.story_candidate_extraction_result(row)
+    except Exception:
+        # An unreadable result must not cost the reviewer the story. It is
+        # reported as unavailable rather than as "extraction found
+        # nothing" -- those are different facts and a reviewer would act
+        # differently on each.
+        logger.exception(
+            "[operator-story-review] extraction lookup failed (%s)", candidate_id)
+        shaped["extraction"] = {"status": "unavailable", "items": []}
+    else:
+        if result is None:
+            shaped["extraction"] = {
+                # `not_linked` means we cannot look; `none` means we
+                # looked and this turn produced no extraction result.
+                "status": "none" if row.get("completed_assistant_turn_row_id")
+                          else "not_linked",
+                "items": [],
+            }
+        else:
+            shaped["extraction"] = {
+                "status": result.get("status") or "succeeded",
+                "method": result.get("method") or "",
+                "item_count": result.get("item_count"),
+                "items": result.get("items") or [],
+                "clarification_required": result.get("clarification_required") or [],
+                "created_at": result.get("created_at"),
+                "applied_at": result.get("applied_at"),
+            }
     return {"item": shaped, "fetched_at": _now_iso()}
 
 

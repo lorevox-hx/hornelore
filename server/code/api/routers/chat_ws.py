@@ -1812,6 +1812,27 @@ async def ws_chat(ws: WebSocket):
                                 _candidate_id, conv_id, person_id,
                                 _trigger_reason, _turn_id,
                             )
+                            # ── WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01
+                            # Commit 1 (2026-08-19): carry the candidate to
+                            # the post-commit bind.
+                            #
+                            # Preservation runs HERE, before the reply and
+                            # before persistence, and that ordering is
+                            # deliberate -- a preserved story must not
+                            # depend on the LLM succeeding (LAW 3). The
+                            # committed row ids therefore do not exist yet,
+                            # which is why `turn_id` above is the client's
+                            # string and why 22 of 75 live rows have none.
+                            #
+                            # So the candidate is carried forward on
+                            # `params` -- the same object already used for
+                            # `_persisted_turn_row_id` -- and bound to the
+                            # real rows once they are committed. Capture
+                            # first, link second; never the reverse.
+                            try:
+                                params["_story_candidate_id"] = _candidate_id
+                            except Exception:
+                                pass
                         except Exception as _preserve_exc:
                             # LAW 3: preservation failure is loud but
                             # NOT fatal. Chat turn continues so the
@@ -5882,6 +5903,63 @@ async def ws_chat(ws: WebSocket):
                     _persisted_row_ids.get("user_row_id"))
             except Exception:
                 pass
+
+            # ── Story provenance: link the preserved story to the rows ──
+            #
+            # WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01 Commit 1.
+            #
+            # A story captured earlier in this turn now gets the two
+            # committed row ids it could not have had at capture time:
+            # the narrator's row (where the story came from) and Lori's
+            # row (what `turn_extraction_results.turn_key` is built from).
+            # Both are taken from what `persist_turn_transaction` actually
+            # returned. THE CLIENT'S `turn_id` IS NEVER USED AS THE
+            # DURABLE RELATIONSHIP -- it is a correlation string that may
+            # be absent or re-minted on retry, and it cannot join `turns`
+            # at all.
+            #
+            # This writes provenance and NOTHING else: no review status,
+            # no placement, no promotion. A linked story is exactly as
+            # provisional as it was a moment earlier.
+            #
+            # LOUD BUT NEVER FATAL. The narrator has already watched this
+            # turn complete. A refused or failed link costs a provenance
+            # record and is logged as a warning with its reason; it must
+            # never cost the conversation, and it must never cost the
+            # PRESERVED STORY, which is already committed and stays so.
+            _story_cid = ""
+            try:
+                _story_cid = (params.get("_story_candidate_id") or "").strip()
+            except Exception:
+                _story_cid = ""
+            if _story_cid:
+                try:
+                    from ..db import story_candidate_bind_turn_rows as _bind_rows
+                    _bound = _bind_rows(
+                        _story_cid,
+                        narrator_id=person_id or "",
+                        conversation_id=conv_id,
+                        user_turn_row_id=_persisted_row_ids.get("user_row_id"),
+                        assistant_turn_row_id=_persisted_turn_row_id,
+                    )
+                    logger.info(
+                        "[story-trigger][bind] candidate=%s user_row=%s "
+                        "assistant_row=%s conv=%s narrator=%s",
+                        _bound["candidate_id"],
+                        _bound["source_user_turn_row_id"],
+                        _bound["completed_assistant_turn_row_id"],
+                        conv_id, person_id,
+                    )
+                except Exception as _bind_exc:
+                    _reason = getattr(_bind_exc, "reason", None) \
+                        or _bind_exc.__class__.__name__
+                    logger.warning(
+                        "[story-trigger][bind] REFUSED candidate=%s conv=%s "
+                        "narrator=%s reason=%s detail=%s — the story stays "
+                        "preserved and unlinked; the turn is unaffected",
+                        _story_cid, conv_id, person_id, _reason,
+                        getattr(_bind_exc, "detail", "") or str(_bind_exc)[:160],
+                    )
         except Exception as persist_err:
             logger.error("[chat-ws] Phase G: persist_turn_transaction failed — %s", persist_err)
             await _ws_send(ws, {"type": "error", "message": "Turn persist failed — no state written"})

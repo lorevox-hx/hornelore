@@ -54,6 +54,7 @@ from the project.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Dict, List, NamedTuple, Optional, Sequence
 
 from .. import db as _db
@@ -266,6 +267,64 @@ def project_stories(narrator_id: str) -> StoryProjection:
     return StoryProjection(items, "read", counts)
 
 
+_SENTENCE_END = re.compile(r"[.!?](?=\s|$)")
+
+
+def _clip_to_boundary(text: str, max_chars: int) -> str:
+    """Trim to the bound without leaving a sentence visibly unfinished.
+
+    WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01 Commit 1 (2026-08-19).
+
+    Observed live on 2026-08-19: an approved story was read back to the
+    narrator ending `"...and about the little house her own mother"` --
+    a hard slice at 240 characters, mid-sentence. The bound was doing its
+    job; the CUT was the problem. Lori reciting a narrator's own words and
+    stopping mid-breath reads as though the recording failed.
+
+    The bound is unchanged and still absolute. Preference order:
+
+      1. the last complete sentence that fits -- the best outcome, because
+         nothing looks truncated at all;
+      2. failing that, the last whole word, with an ellipsis, so the
+         reader can SEE that more exists;
+      3. never a raw mid-word slice.
+
+    Rule 2 keeps the ellipsis inside `max_chars` rather than appending
+    past it: a bound that the tidy-up quietly exceeds is not a bound.
+    A very long first sentence therefore still shortens -- it just
+    shortens honestly.
+    """
+    body = " ".join(str(text or "").split()).strip()
+    try:
+        limit = int(max_chars)
+    except (TypeError, ValueError):
+        return body
+    if limit <= 0:
+        return ""
+    if len(body) <= limit:
+        return body
+
+    window = body[:limit]
+    ends = [m.end() for m in _SENTENCE_END.finditer(window)]
+    if ends:
+        # A sentence that fits is not a truncation, so it gets no
+        # ellipsis. Guard against a lone leading "." producing a stub.
+        clipped = window[:ends[-1]].strip()
+        if len(clipped) >= 40:
+            return clipped
+
+    ellipsis = "…"
+    cut = window.rfind(" ")
+    if cut <= 0:
+        # One enormous unbroken token. Nothing safe to break on, so the
+        # bound wins and the ellipsis says so.
+        return window[:max(0, limit - 1)].rstrip() + ellipsis
+    trimmed = window[:cut].rstrip(" ,;:-—")
+    if len(trimmed) + 1 > limit:
+        trimmed = trimmed[:limit - 1].rstrip()
+    return trimmed + ellipsis
+
+
 def grounding_context(
     narrator_id: str,
     *,
@@ -317,7 +376,7 @@ def grounding_context(
             continue
         approved.append({
             "id": item["id"],
-            "text": excerpt[:max_chars],
+            "text": _clip_to_boundary(excerpt, max_chars),
             "era": item.get("era"),
             "year": item.get("year"),
             "placement": item.get("placement"),

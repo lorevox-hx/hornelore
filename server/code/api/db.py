@@ -5255,6 +5255,20 @@ _EXTENDED_PERSON_SCOPED_TABLES: List[tuple] = [
     # narrator that no longer exist, and locked principle 4 -- "no partial
     # resets" -- says a deletion that leaves rows behind is not done.
     ("turn_extraction_ledger", "narrator_id"),
+    # WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01 Commit 1 (2026-08-19).
+    #
+    # `turn_extraction_results` (migration 0041) was missed the same way
+    # the ledger was, and it is the more serious of the two: the ledger
+    # holds keys and timings, while THIS table holds `items` -- the
+    # extracted values themselves, which are derived directly from the
+    # narrator's own speech ("Elena", "Corpus Christi", a date of birth).
+    #
+    # So a hard-deleted narrator was leaving structured facts about their
+    # life in the database. Found by the deletion-residue test written for
+    # this commit, not by reading the list -- which is the argument for
+    # testing deletion per table rather than trusting an inventory that
+    # has now been incomplete twice.
+    ("turn_extraction_results", "narrator_id"),
 ]
 
 
@@ -7368,6 +7382,212 @@ def story_candidate_status_counts(narrator_id: str) -> Dict[str, int]:
             status = (row["review_status"] or "").strip()
             if status in out:
                 out[status] += int(row["n"])
+        return out
+    finally:
+        con.close()
+
+
+class StoryTurnBindRejected(Exception):
+    """A proposed story→turn link did not prove itself. Nothing written.
+
+    Carries `reason` so the caller can log WHICH check refused without
+    re-deriving it. A refusal is a normal, expected outcome -- the bind
+    runs on every captured turn and must decline rather than guess.
+    """
+
+    def __init__(self, reason: str, detail: str = ""):
+        super().__init__(f"{reason}: {detail}" if detail else reason)
+        self.reason = reason
+        self.detail = detail
+
+
+def story_candidate_bind_turn_rows(
+    candidate_id: str,
+    *,
+    narrator_id: str,
+    conversation_id: str,
+    user_turn_row_id: Any,
+    assistant_turn_row_id: Any,
+) -> Dict[str, Any]:
+    """Record which committed rows a preserved story came from.
+
+    WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01 Commit 1 (2026-08-19).
+
+    ── THIS IS PROVENANCE. IT IS NOT APPROVAL ──────────────────────────
+
+    The only columns written are `source_user_turn_row_id` and
+    `completed_assistant_turn_row_id`. `review_status`, `placement_source`,
+    `era_candidates`, the estimated years, `confidence` and
+    `extracted_fields` are NOT touched, and must never be touched here.
+    Knowing where a story came from says nothing about whether it is
+    true, where it belongs, or whether an operator has accepted it. A
+    link that also promoted would turn a plumbing fix into an
+    unreviewed-material-reaches-the-Life-Map defect.
+
+    ── FIVE PROOFS, OR IT REFUSES ──────────────────────────────────────
+
+    The bind runs late, after the turn is committed, and by then the
+    narrator may have switched, the socket may have been reused, and a
+    retry may have minted new rows. So nothing is assumed:
+
+      1. the candidate exists;
+      2. it belongs to `narrator_id`;
+      3. it belongs to `conversation_id`;
+      4. both turn rows exist, sit in that same conversation, and
+      5. carry the EXPECTED ROLES -- user row `role='user'`, assistant
+         row `role='assistant'`.
+
+    Check 5 is the one that catches a caller passing the pair the wrong
+    way round, which is otherwise silent and permanent: the story would
+    claim to come from Lori's sentence rather than the narrator's.
+
+    Refusal raises `StoryTurnBindRejected` and writes nothing. Attaching
+    one narrator's evidence to another is the failure this guards, and
+    an unlinked story is merely unlinked.
+
+    Returns the two ids that were written, for the caller's log line.
+    """
+    init_db()
+    cid = (candidate_id or "").strip()
+    nid = (narrator_id or "").strip()
+    conv = (conversation_id or "").strip()
+    if not cid:
+        raise StoryTurnBindRejected("candidate_id_required")
+    if not nid:
+        raise StoryTurnBindRejected("narrator_id_required")
+    if not conv:
+        raise StoryTurnBindRejected("conversation_id_required")
+
+    def _row_id(value: Any, which: str) -> int:
+        try:
+            rid = int(value)
+        except (TypeError, ValueError):
+            raise StoryTurnBindRejected(f"{which}_not_an_int", repr(value))
+        if rid <= 0:
+            raise StoryTurnBindRejected(f"{which}_not_positive", str(rid))
+        return rid
+
+    user_rid = _row_id(user_turn_row_id, "user_turn_row_id")
+    asst_rid = _row_id(assistant_turn_row_id, "assistant_turn_row_id")
+    # The two rows of one completed turn are different rows. They are
+    # commonly adjacent, which is exactly why an equality slip would go
+    # unnoticed -- so it is refused explicitly rather than left to the
+    # role check below to catch by luck.
+    if user_rid == asst_rid:
+        raise StoryTurnBindRejected("turn_rows_identical", str(user_rid))
+
+    con = _connect()
+    try:
+        cand = con.execute(
+            "SELECT id, narrator_id, conversation_id FROM story_candidates "
+            "WHERE id=?;", (cid,),
+        ).fetchone()
+        if cand is None:
+            raise StoryTurnBindRejected("candidate_not_found", cid)
+        if (cand["narrator_id"] or "") != nid:
+            raise StoryTurnBindRejected(
+                "candidate_narrator_mismatch",
+                f"candidate={cand['narrator_id']!r} caller={nid!r}")
+        if (cand["conversation_id"] or "") != conv:
+            raise StoryTurnBindRejected(
+                "candidate_conversation_mismatch",
+                f"candidate={cand['conversation_id']!r} caller={conv!r}")
+
+        rows = {
+            r["id"]: r for r in con.execute(
+                "SELECT id, conv_id, role FROM turns WHERE id IN (?, ?);",
+                (user_rid, asst_rid),
+            ).fetchall()
+        }
+        for rid, which, expected_role in (
+            (user_rid, "user_turn_row", "user"),
+            (asst_rid, "assistant_turn_row", "assistant"),
+        ):
+            row = rows.get(rid)
+            if row is None:
+                raise StoryTurnBindRejected(f"{which}_not_found", str(rid))
+            if (row["conv_id"] or "") != conv:
+                raise StoryTurnBindRejected(
+                    f"{which}_conversation_mismatch",
+                    f"row={row['conv_id']!r} caller={conv!r}")
+            if (row["role"] or "").strip().lower() != expected_role:
+                raise StoryTurnBindRejected(
+                    f"{which}_unexpected_role",
+                    f"expected={expected_role!r} got={row['role']!r}")
+
+        con.execute(
+            """
+            UPDATE story_candidates
+               SET source_user_turn_row_id = ?,
+                   completed_assistant_turn_row_id = ?
+             WHERE id = ? AND narrator_id = ?;
+            """,
+            (user_rid, asst_rid, cid, nid),
+        )
+        con.commit()
+        return {
+            "candidate_id": cid,
+            "source_user_turn_row_id": user_rid,
+            "completed_assistant_turn_row_id": asst_rid,
+        }
+    except sqlite3.Error:
+        # BUG-DBLOCK-01 hygiene parity with every other writer here.
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
+
+
+def story_candidate_extraction_result(
+    candidate: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    """The extraction result for this story's completed turn, or None.
+
+    READ ONLY, and deliberately not merged into anything. Extraction
+    output is provisional evidence an operator may find useful while
+    reviewing; it is not a fact about the narrator's life until a human
+    says so. This returns it so a review surface can SHOW it, and copies
+    nothing into `extracted_fields`, `review_status` or any placement
+    column.
+
+    ── THE JOIN, AND WHY IT USES THE ASSISTANT ROW ─────────────────────
+
+    `turn_extraction_results.turn_key` is built by
+    `turn_extraction_key_for_row` from the id `persist_turn_transaction`
+    RETURNS, which is Lori's row. So the join key is
+    `completed_assistant_turn_row_id` -- never the user row, and never
+    the user row plus one. The story's own provenance is the user row;
+    these are two different questions and the columns are separate for
+    that reason.
+
+    Narrator ownership is part of the join, not a filter applied after
+    it: a turn_key is unique per row id, but reading one narrator's
+    evidence while scoped to another is precisely the mistake worth
+    making impossible.
+    """
+    init_db()
+    row = candidate or {}
+    nid = (row.get("narrator_id") or "").strip()
+    key = turn_extraction_key_for_row(row.get("completed_assistant_turn_row_id"))
+    if not nid or not key:
+        return None
+    con = _connect()
+    try:
+        found = con.execute(
+            "SELECT * FROM turn_extraction_results "
+            "WHERE narrator_id=? AND turn_key=? "
+            "ORDER BY id DESC LIMIT 1;",
+            (nid, key),
+        ).fetchone()
+        if found is None:
+            return None
+        out = {k: found[k] for k in found.keys()}
+        out["items"] = _json_load(out.get("items"), [])
+        out["clarification_required"] = _json_load(
+            out.get("clarification_required"), [])
         return out
     finally:
         con.close()
