@@ -3650,15 +3650,61 @@ async def ws_chat(ws: WebSocket):
             # measured live prompts already run 6.0-6.7k, so adding content
             # to every turn is a decision to make deliberately with a
             # restart, not a side effect of landing a review surface.
+            #
+            # ── WHAT THE FLAG GOVERNS, AND WHAT IT MUST NOT ────────────
+            #
+            # WO-LORI-STORY-RECALL-ROUTING-01 follow-up, 2026-08-19.
+            #
+            # The paragraph above is the whole rationale: token cost on
+            # EVERY model turn. That says nothing about a turn where the
+            # narrator has explicitly asked what they already told Lori,
+            # which is answered deterministically and costs no prompt
+            # tokens at all.
+            #
+            # Left coupled, the first fix recreated the original defect on
+            # every installation with grounding off: the question routed
+            # to the deterministic path, found no context, and fell back
+            # to a profile summary -- the wrong answer, exactly as before.
+            #
+            # So an explicit recall turn reads the canonical projection
+            # regardless of the flag. It is still ONE bounded read, still
+            # approved-only, still for this turn alone, and it does NOT
+            # turn grounding on for ordinary turns: `_story_recall_subject`
+            # is set only by the recall detector.
+            # Kept on ONE line: `test_story_product_consumption` pins the
+            # literal `os.getenv("HORNELORE_STORY_GROUNDING", "0")` as its
+            # proof that the flag is default-off, and wrapping this across
+            # lines broke that guard without changing any behaviour. The
+            # test was right; the formatting was what moved.
+            _grounding_env = os.getenv("HORNELORE_STORY_GROUNDING", "0")
+            _grounding_on = _grounding_env.strip().lower() in (
+                "1", "true", "yes", "on")
             try:
-                if os.getenv("HORNELORE_STORY_GROUNDING", "0").strip().lower() in (
-                    "1", "true", "yes", "on",
-                ) and person_id:
+                if (_grounding_on or _story_recall_subject) and person_id:
                     from ..services import story_projection as _story_proj
                     _story_ctx = _story_proj.grounding_context(
                         person_id, exclude_text=user_text or "",
                     )
-                    if _story_ctx.get("available") and (
+                    if _story_recall_subject:
+                        # The narrator asked. Attach the canonical read
+                        # WHATEVER it says -- including an unavailable
+                        # verdict, which the composer renders as "I can't
+                        # check right now". Dropping it here would leave
+                        # the composer unable to tell a failed read from
+                        # an empty record, and it would report the wrong
+                        # one of those two to the narrator.
+                        runtime71 = dict(runtime71)
+                        runtime71["story_context"] = _story_ctx
+                        logger.info(
+                            "[chat_ws][story-grounding][recall] available=%s "
+                            "approved=%d provisional=%d flag=%s person=%s",
+                            bool(_story_ctx.get("available")),
+                            len(_story_ctx.get("approved") or []),
+                            _story_ctx.get("provisional_count") or 0,
+                            "on" if _grounding_on else "off",
+                            person_id,
+                        )
+                    elif _story_ctx.get("available") and (
                         _story_ctx.get("approved") or _story_ctx.get("provisional_count")
                     ):
                         runtime71 = dict(runtime71)
@@ -3672,6 +3718,11 @@ async def ws_chat(ws: WebSocket):
             except Exception as _story_exc:
                 # A story-grounding failure must never cost the narrator
                 # their turn. Same posture as preservation (LAW 3).
+                #
+                # On a recall turn the narrator is owed an answer about
+                # this failure rather than silence: leaving the context
+                # absent tells the composer the read did not complete, and
+                # it says so instead of reciting an unrelated fact.
                 logger.warning(
                     "[chat_ws][story-grounding] skipped (non-fatal): %s", _story_exc)
         except Exception as _seed_exc:

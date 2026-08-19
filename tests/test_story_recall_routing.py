@@ -513,18 +513,116 @@ class SubjectTermSelectivity(unittest.TestCase):
             _story_context(_GRANDMOTHER, available=False), ["grandmother"]))
         self.assertIsNone(select_approved_story(None, ["grandmother"]))
 
-    def test_absent_context_asserts_nothing_either_way(self):
-        """Not looking is not the same as looking and finding nothing.
+    def test_an_unreadable_record_is_not_reported_as_an_empty_one(self):
+        """Retired 2026-08-19, and the retired claim is worth keeping.
 
-        `story_context` is only built when story grounding is enabled. On
-        a turn without it, claiming "nothing confirmed" would be a
-        statement about evidence nobody consulted, so the recall block is
-        omitted entirely and the ordinary read-back stands.
+        This test used to assert that an absent `story_context` produced
+        NO recall block at all -- "not looking is not the same as looking
+        and finding nothing", so the ordinary read-back simply stood.
+
+        That was right while the read depended on HORNELORE_STORY_
+        GROUNDING, and wrong the moment explicit recall stopped depending
+        on it. chat_ws now always attempts the canonical read on a recall
+        turn, so an absent or unavailable context no longer means "we
+        didn't look" -- it means the look FAILED, and the narrator is owed
+        that rather than silence or a false negative.
         """
-        out = _echo(text="q", runtime={"speaker_name": "Mary"},
-                    recall_subject="my grandmother")
-        self.assertNotIn("confirmed", out)
-        self.assertTrue(out.startswith("What I know about Mary"))
+        for ctx in (None, {"available": False, "status": "unavailable",
+                           "approved": [], "provisional_count": 0}):
+            with self.subTest(ctx="absent" if ctx is None else "unavailable"):
+                rt = {"speaker_name": "Mary"}
+                if ctx is not None:
+                    rt["story_context"] = ctx
+                # A failed read is an operator-visible event, not a quiet
+                # degradation; assertLogs both proves that and keeps the
+                # suite's own output clean.
+                import api.prompt_composer as _pc
+                with self.assertLogs(_pc.logger, level="WARNING") as log:
+                    out = _echo(text="q", runtime=rt,
+                                recall_subject="my grandmother")
+                self.assertTrue(any("could not be read" in m
+                                    for m in log.output), log.output)
+                self.assertIn("can't check your record", out)
+                # The distinction that matters: this must NOT read as a
+                # statement that the narrator never told her.
+                self.assertNotIn("don't have anything confirmed", out)
+                self.assertIn("What I know about Mary so far:", out)
+
+
+class RecallDoesNotDependOnTheGroundingFlag(unittest.TestCase):
+    """HORNELORE_STORY_GROUNDING is about prompt tokens, not about whether
+    a narrator may ask what they already said.
+
+    The first cut coupled them, and the coupling recreated the original
+    defect on every installation with grounding off: the question routed
+    to the deterministic path, found no context, and fell back to a
+    profile summary -- the same wrong answer, reached by a new route.
+
+    These are source-level assertions because the behaviour lives in a
+    WebSocket handler that a unit test cannot enter; each one names a
+    property that, if it stopped holding, would put the defect back.
+    """
+
+    def _grounding_block(self):
+        src = _read(_CHAT_WS)
+        start = src.index('_grounding_env = os.getenv("HORNELORE_STORY_GROUNDING"')
+        end = src.index("[chat_ws][story-grounding] skipped", start)
+        return src[start:end]
+
+    def test_an_explicit_recall_turn_reads_the_record_with_the_flag_off(self):
+        block = self._grounding_block()
+        self.assertIn("if (_grounding_on or _story_recall_subject) and person_id:",
+                      block)
+
+    def test_the_recall_read_is_the_canonical_bounded_projection(self):
+        """Not a second query with its own idea of what may be shown."""
+        block = self._grounding_block()
+        self.assertIn("_story_proj.grounding_context(", block)
+        self.assertEqual(block.count("grounding_context("), 1)
+
+    def test_ordinary_turns_are_not_grounded_by_this_change(self):
+        """The flag still governs every turn the narrator did not ask on.
+
+        `_story_recall_subject` is set ONLY by the recall detector, so the
+        widened condition cannot switch grounding on for ordinary model
+        turns -- which is the token-cost decision the flag exists to make.
+        """
+        src = _read(_CHAT_WS)
+        assignments = [ln.strip() for ln in src.splitlines()
+                       if "_story_recall_subject =" in ln]
+        self.assertEqual(
+            sorted(assignments),
+            ['_story_recall_subject = ""',
+             '_story_recall_subject = _recall_req.subject'])
+        # The ordinary arm still requires real content before attaching.
+        self.assertIn("elif _story_ctx.get(\"available\") and (",
+                      self._grounding_block())
+
+    def test_an_unavailable_verdict_still_reaches_the_composer(self):
+        """The attach is UNCONDITIONAL on a recall turn.
+
+        Any test on `available` here would gate the wrong thing; what
+        matters is that nothing gates the attach. Comments are stripped
+        first because the paragraph above that code explains the rule and
+        therefore contains the very words a naive scan would fire on --
+        the fifth time in this repository that a guard has matched its
+        own explanation.
+        """
+        block = self._grounding_block()
+        recall_arm = block[block.index("if _story_recall_subject:"):
+                           block.index("elif _story_ctx.get(")]
+        code = "\n".join(ln for ln in recall_arm.splitlines()
+                         if not ln.strip().startswith("#"))
+        self.assertIn('runtime71["story_context"] = _story_ctx', code)
+        attach = code[:code.index('runtime71["story_context"]')]
+        self.assertNotIn(" if ", attach)
+        self.assertNotIn("available", attach)
+
+    def test_the_flag_state_is_logged_on_a_recall_read(self):
+        """An operator debugging this needs to see which path ran."""
+        block = self._grounding_block()
+        self.assertIn("[chat_ws][story-grounding][recall]", block)
+        self.assertIn('"on" if _grounding_on else "off"', block)
 
 
 class QuotedStoryTextStaysData(unittest.TestCase):

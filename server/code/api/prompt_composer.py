@@ -2560,6 +2560,10 @@ _MEMORY_ECHO_LOCALE: Dict[str, Dict[str, str]] = {
         "recall_story_line_dated": "- \"{text}\" ({when})",
         "recall_footer_found": "That is from your own telling, and it is set down.",
         "recall_header_none": "You asked about {subject}. I don't have anything confirmed from you about that yet — tell me about it whenever you'd like.",
+        # An unavailable read is OUR failure, not an empty record. Telling
+        # a narrator "nothing confirmed" when we simply could not look
+        # would let them conclude their story had been lost.
+        "recall_header_unavailable": "You asked about {subject}. I can't check your record just now, so I don't want to say either way — please ask me again in a moment.",
         "recall_continue": "Here is what I do have:",
         # Profile-seed labels
         "seed_childhood_home": "Childhood home",
@@ -2629,6 +2633,7 @@ _MEMORY_ECHO_LOCALE: Dict[str, Dict[str, str]] = {
         "recall_story_line_dated": "- \"{text}\" ({when})",
         "recall_footer_found": "Eso viene de tu propio relato, y queda registrado.",
         "recall_header_none": "Preguntaste sobre {subject}. Todavía no tengo nada confirmado que me hayas contado sobre eso — cuéntamelo cuando quieras.",
+        "recall_header_unavailable": "Preguntaste sobre {subject}. Ahora mismo no puedo consultar tu registro, así que prefiero no decir ni que sí ni que no — pregúntame otra vez en un momento.",
         "recall_continue": "Esto es lo que sí tengo:",
         # Profile-seed labels
         "seed_childhood_home": "Hogar de la infancia",
@@ -2768,13 +2773,21 @@ def compose_memory_echo(
     # so the entire existing read-back below is untouched and the
     # `recall_subject == ""` path stays byte-identical.
     #
-    # THE ABSENT-CONTEXT CASE IS NOT THE SAME AS THE NO-MATCH CASE, and
-    # conflating them would make Lori lie. `story_context` is only built
-    # when HORNELORE_STORY_GROUNDING is on; when it is off there is no
-    # context at all, and "I don't have anything confirmed about that"
-    # would be a claim about evidence nobody looked for. So: context
-    # present and nothing matched -> say so honestly; context absent ->
-    # add nothing and let the ordinary read-back stand.
+    # THREE OUTCOMES, AND CONFLATING ANY TWO WOULD MAKE LORI LIE:
+    #
+    #   found       -- an approved story matches; quote it.
+    #   looked      -- the record was read and holds nothing on this
+    #                  subject; say that.
+    #   unavailable -- the record could not be read at all. Saying
+    #                  "nothing confirmed" here would report a system
+    #                  failure as a fact about the narrator's own life,
+    #                  which is the worse of the two errors by far: the
+    #                  narrator would conclude their story was lost.
+    #
+    # `available: False` is `grounding_context`'s own verdict when the
+    # projection could not be read; an absent context means the read did
+    # not complete at all. On a recall turn chat_ws always attempts the
+    # read, so both mean unavailable.
     _recall_prefix: List[str] = []
     if recall_subject:
         try:
@@ -2804,12 +2817,19 @@ def compose_memory_echo(
                     "",
                 ]
             else:
-                logger.info(
-                    "[memory_echo][story-recall] subject=%r but no story_context "
-                    "on this turn (grounding disabled?) — asserting nothing about "
-                    "it and rendering the ordinary read-back",
+                logger.warning(
+                    "[memory_echo][story-recall] subject=%r — the story record "
+                    "could not be read this turn (status=%s); telling the "
+                    "narrator so rather than reporting an empty record",
                     recall_subject,
+                    (_ctx or {}).get("status") if isinstance(_ctx, dict) else "absent",
                 )
+                _recall_prefix = [
+                    _pack["recall_header_unavailable"].format(subject=recall_subject),
+                    "",
+                    _pack["recall_continue"],
+                    "",
+                ]
         except Exception as _recall_err:
             # A recall failure must cost the narrator the ANSWER, never the
             # turn: the ordinary read-back below still renders in full.
