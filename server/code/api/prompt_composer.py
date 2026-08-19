@@ -2549,6 +2549,18 @@ _MEMORY_ECHO_LOCALE: Dict[str, Dict[str, str]] = {
         "footer_based_on": "(Based on: {sources}.)",
         "footer_no_records": "(I don't have anything on record for you yet — would you like to start with your name?)",
         "footer_corrections": "You can correct anything that is wrong, missing, or too vague. One correction at a time works best.",
+        # ── Explicit story recall (WO-LORI-STORY-RECALL-ROUTING-01) ──
+        # Rendered ONLY when the narrator asked a subject-specific recall
+        # question. `recall_none` is deliberately "nothing confirmed",
+        # not "you never told me": a provisional story about the same
+        # subject may well exist, and this composer is not allowed to
+        # know its contents, so it must not deny it either.
+        "recall_header_found": "About {subject} — here is what you have already told me, in your own words:",
+        "recall_story_line": "- \"{text}\"",
+        "recall_story_line_dated": "- \"{text}\" ({when})",
+        "recall_footer_found": "That is from your own telling, and it is set down.",
+        "recall_header_none": "You asked about {subject}. I don't have anything confirmed from you about that yet — tell me about it whenever you'd like.",
+        "recall_continue": "Here is what I do have:",
         # Profile-seed labels
         "seed_childhood_home": "Childhood home",
         "seed_parents_work": "Parents' work",
@@ -2607,6 +2619,17 @@ _MEMORY_ECHO_LOCALE: Dict[str, Dict[str, str]] = {
         "footer_based_on": "(Basado en: {sources}.)",
         "footer_no_records": "(Aún no tengo nada registrado para ti — ¿te gustaría empezar con tu nombre?)",
         "footer_corrections": "Puedes corregir cualquier cosa que esté equivocada, falte, o sea demasiado vaga. Una corrección a la vez funciona mejor.",
+        # ── Explicit story recall (WO-LORI-STORY-RECALL-ROUTING-01) ──
+        # The DETECTOR is English-only by design, so these are unlikely to
+        # render today. They exist so that a Spanish readback can never
+        # acquire an English paragraph if the language resolver and the
+        # detector ever disagree on the same turn.
+        "recall_header_found": "Sobre {subject} — esto es lo que ya me has contado, con tus propias palabras:",
+        "recall_story_line": "- \"{text}\"",
+        "recall_story_line_dated": "- \"{text}\" ({when})",
+        "recall_footer_found": "Eso viene de tu propio relato, y queda registrado.",
+        "recall_header_none": "Preguntaste sobre {subject}. Todavía no tengo nada confirmado que me hayas contado sobre eso — cuéntamelo cuando quieras.",
+        "recall_continue": "Esto es lo que sí tengo:",
         # Profile-seed labels
         "seed_childhood_home": "Hogar de la infancia",
         "seed_parents_work": "Trabajo de los padres",
@@ -2690,6 +2713,7 @@ def compose_memory_echo(
     state_snapshot: Optional[Dict[str, Any]] = None,
     *,
     target_language: str = "en",
+    recall_subject: str = "",
 ) -> str:
     """Build a deterministic structured read-back from current runtime state.
 
@@ -2720,6 +2744,14 @@ def compose_memory_echo(
       exists at /api/bio-builder/questionnaire but isn't threaded today).
     - 4-source priority: profile / promoted truth / session transcript /
       Peek-at-Memoir scaffold.
+
+    WO-LORI-STORY-RECALL-ROUTING-01 (2026-08-19) — `recall_subject`:
+    when the narrator asked a subject-specific recall question ("what have
+    I already told you about my grandmother?"), the answer to THAT
+    question leads, drawn from `runtime.story_context`, and the ordinary
+    read-back follows it. With `recall_subject` empty -- which is every
+    broad "what do you know about me" turn -- nothing here changes and
+    the output is byte-identical to before.
     """
     runtime = runtime or {}
 
@@ -2729,6 +2761,63 @@ def compose_memory_echo(
     if target_language not in _MEMORY_ECHO_LOCALE:
         target_language = "en"
     _pack = _MEMORY_ECHO_LOCALE[target_language]
+
+    # ── The narrator asked about ONE subject ────────────────────────────
+    #
+    # WO-LORI-STORY-RECALL-ROUTING-01. Built here, prepended at the end,
+    # so the entire existing read-back below is untouched and the
+    # `recall_subject == ""` path stays byte-identical.
+    #
+    # THE ABSENT-CONTEXT CASE IS NOT THE SAME AS THE NO-MATCH CASE, and
+    # conflating them would make Lori lie. `story_context` is only built
+    # when HORNELORE_STORY_GROUNDING is on; when it is off there is no
+    # context at all, and "I don't have anything confirmed about that"
+    # would be a claim about evidence nobody looked for. So: context
+    # present and nothing matched -> say so honestly; context absent ->
+    # add nothing and let the ordinary read-back stand.
+    _recall_prefix: List[str] = []
+    if recall_subject:
+        try:
+            from .services.story_recall_request import (
+                select_approved_story as _select_story,
+                subject_terms as _subject_terms,
+            )
+            _ctx = runtime.get("story_context")
+            _looked = isinstance(_ctx, dict) and bool(_ctx.get("available"))
+            _story = _select_story(_ctx, _subject_terms(recall_subject))
+            if _story:
+                _when = _story.get("year") or _story.get("era") or ""
+                _text = _quote_story_text(_story.get("text") or "")
+                _recall_prefix = [
+                    _pack["recall_header_found"].format(subject=recall_subject),
+                    (_pack["recall_story_line_dated"].format(text=_text, when=_when)
+                     if _when else _pack["recall_story_line"].format(text=_text)),
+                    "",
+                    _pack["recall_footer_found"],
+                    "",
+                ]
+            elif _looked:
+                _recall_prefix = [
+                    _pack["recall_header_none"].format(subject=recall_subject),
+                    "",
+                    _pack["recall_continue"],
+                    "",
+                ]
+            else:
+                logger.info(
+                    "[memory_echo][story-recall] subject=%r but no story_context "
+                    "on this turn (grounding disabled?) — asserting nothing about "
+                    "it and rendering the ordinary read-back",
+                    recall_subject,
+                )
+        except Exception as _recall_err:
+            # A recall failure must cost the narrator the ANSWER, never the
+            # turn: the ordinary read-back below still renders in full.
+            logger.warning(
+                "[memory_echo][story-recall] failed for subject=%r: %s",
+                recall_subject, _recall_err,
+            )
+            _recall_prefix = []
 
     speaker_name = (runtime.get("speaker_name") or "").strip()
     dob = runtime.get("dob") or None
@@ -3028,7 +3117,8 @@ def compose_memory_echo(
 
     lines.append("")
     lines.append(_pack["footer_corrections"])
-    return "\n".join(lines)
+    # The answer to the question that was actually asked goes first.
+    return "\n".join(_recall_prefix + lines)
 
 
 def _fmt_line_explicit(

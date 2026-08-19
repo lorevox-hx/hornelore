@@ -3209,6 +3209,12 @@ async def ws_chat(ws: WebSocket):
         # rather than incidental.)
         # Floor-hold short-circuit overrides everything else. The narrator
         # is still talking and Lori must hold silent space.
+        #
+        # WO-LORI-STORY-RECALL-ROUTING-01: set ONLY by the subject-specific
+        # recall detector below. Empty on every other turn, including the
+        # broad "what do you know about me" memory echo, whose behaviour is
+        # unchanged.
+        _story_recall_subject = ""
         if _safety_forced_interview:
             turn_mode = "interview"
             logger.info(
@@ -3238,6 +3244,9 @@ async def ws_chat(ws: WebSocket):
             # Pure-stdlib regex; no LLM call.
             try:
                 import re as _re_me
+                from ..services.story_recall_request import (
+                    detect_story_recall as _detect_story_recall,
+                )
                 _ut_low = (user_text or "").lower().strip()
                 # Must be a question OR end with a question-word
                 _is_question_form = (
@@ -3275,6 +3284,34 @@ async def ws_chat(ws: WebSocket):
                         "memory_echo",
                         conv_id, (user_text or "")[:120],
                     )
+                else:
+                    # ── WO-LORI-STORY-RECALL-ROUTING-01 (2026-08-19) ────
+                    #
+                    # The anchors above are about the narrator AS A WHOLE
+                    # ("about me", "who I am"). A question about ONE
+                    # subject -- "what have I already told you about my
+                    # grandmother?" -- matches none of them, so it fell
+                    # through to the model, and whether it was answered
+                    # from the reviewed story depended on the model.
+                    # Measured live 2026-08-18: the approved story was in
+                    # the prompt, nothing was trimmed, and Lori answered
+                    # from an unrelated profile fact.
+                    #
+                    # This is the same deterministic route, reached by a
+                    # narrower door. The detector requires the NARRATOR to
+                    # be the teller ("I told you"), which is what keeps
+                    # ordinary narration -- "my grandmother told me about
+                    # the river" -- out of it.
+                    _recall_req = _detect_story_recall(user_text or "")
+                    if _recall_req.matched:
+                        turn_mode = "memory_echo"
+                        _story_recall_subject = _recall_req.subject
+                        logger.info(
+                            "[chat_ws][memory-echo][story-recall] conv=%s "
+                            "subject=%r terms=%s — routing to memory_echo",
+                            conv_id, _recall_req.subject,
+                            ",".join(_recall_req.terms),
+                        )
             except Exception as _me_exc:
                 logger.warning(
                     "[chat_ws][memory-echo][server-trigger] detector "
@@ -3891,6 +3928,7 @@ async def ws_chat(ws: WebSocket):
                 text=user_text,
                 runtime=runtime71,
                 target_language=_memory_echo_lang,
+                recall_subject=_story_recall_subject,
             )
 
             # BANK_PRIORITY_REBUILD 2026-05-10 — recent-chapter summary
