@@ -143,13 +143,32 @@ class GatingIsUnchangedTest(unittest.TestCase):
         self.assertIn('parts.add("english_first", _english_first_block', _SRC)
 
     def test_it_is_still_droppable_at_the_same_priority(self):
-        m = re.search(r'parts\.add\("english_first",\s*_english_first_block,\s*'
-                      r'required=(\w+),\s*drop_order=(\d+)', _SRC)
-        self.assertIsNotNone(m, "the english_first add() call changed shape")
-        self.assertEqual("False", m.group(1))
-        self.assertEqual("20", m.group(2),
+        """REPOINTED 2026-08-18 (Lean Lori item 1), not relaxed.
+
+        This read the priority off the call site:
+
+            m = re.search(r'parts\\.add\\("english_first",\\s*'
+                          r'_english_first_block,\\s*required=(\\w+),\\s*'
+                          r'drop_order=(\\d+)', _SRC)
+
+        Call sites no longer state policy — one registry now declares it,
+        so a section cannot acquire a drop order by someone typing a
+        number inside a 1,200-line function. The property asserted is
+        unchanged: still droppable, still 20.
+        """
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]
+                               / "server" / "code"))
+        from api.services.prompt_section_policy import policy_for
+        pol = policy_for("english_first")
+        self.assertFalse(pol.required)
+        self.assertEqual(20, pol.drop_order,
                          "drop_order changed; that is a budget-priority "
-                         "decision (Phase 9), not a compaction one.")
+                         "decision (item 3), not a compaction one.")
+        # And it is still composed conditionally, which the registry
+        # cannot tell you — that half stays a source check.
+        self.assertIn('parts.add("english_first", _english_first_block', _SRC)
 
     def test_the_spanish_detour_still_exists(self):
         # A Spanish narrator must still skip this block entirely.

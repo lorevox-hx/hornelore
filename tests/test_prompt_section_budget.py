@@ -365,7 +365,7 @@ class AllThreeTransportsUseTheAuthority(unittest.TestCase):
                                            runtime71={"current_era": "today"})
         old = composed.text + block
         new = render_sections(list(composed.sections) + [
-            make_section("trip_context", block.lstrip("\n"), drop_order=15)])
+            make_section("trip_context", block.lstrip("\n"))])
         self.assertNotEqual(old, new, "the trailing-newline delta is expected")
         self.assertEqual(old.rstrip(), new.rstrip(),
                          "the difference is NOT confined to trailing whitespace")

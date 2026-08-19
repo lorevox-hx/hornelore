@@ -48,11 +48,13 @@ import ast
 import logging
 import os
 import random
+import sys
 import unittest
 from pathlib import Path
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple  # noqa: F401  (used by exec'd source)
 
 _REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_REPO / "server" / "code"))
 _COMPOSER = _REPO / "server" / "code" / "api" / "prompt_composer.py"
 _SRC = _COMPOSER.read_text(encoding="utf-8")
 
@@ -97,12 +99,24 @@ def _load_assembly():
     # swallow is correct in production -- measurement must never break a
     # narrator's turn -- which is exactly why the harness has to supply
     # what the real module has, or it tests a branch that always throws.
+    # `policy_for` joined this namespace on 2026-08-18 (Lean Lori item 1)
+    # for exactly the reason `os` and `logging` are here: the extracted
+    # class now RESOLVES a section's policy from the registry instead of
+    # taking it as a keyword, so a namespace without it does not exercise
+    # the shipped code — it exercises a branch that always raises.
+    #
+    # The REAL registry is supplied, not a stub. A stub that answered
+    # every id would hide precisely the failure the registry exists to
+    # cause, which is an unknown section id going unnoticed.
+    from api.services.prompt_section_policy import policy_for as _policy_for
+
     ns: Dict[str, Any] = {
-        "List": List, "Tuple": Tuple, "Optional": Optional,
+        "List": List, "Tuple": Tuple, "Optional": Optional, "Any": Any,
         "NamedTuple": NamedTuple,
         "os": os,
         "logging": logging,
         "logger": logging.getLogger("test_prompt_sections"),
+        "policy_for": _policy_for,
     }
     exec(compile(ast.Module(body=nodes, type_ignores=[]), "<composer>", "exec"), ns)
     return ns["_PromptAssembly"]
@@ -142,7 +156,7 @@ class RenderIsByteIdenticalTest(unittest.TestCase):
             with self.subTest(parts=parts):
                 asm = _PromptAssembly()
                 for i, t in enumerate(parts):
-                    asm.add(f"s{i}", t)
+                    asm.add(f"s{i}", t, required=False, drop_order=1)
                 self.assertEqual(_historical_join(parts), asm.render("conv"))
 
     def test_the_seeded_constructor_matches_a_seeded_list(self):
@@ -150,25 +164,25 @@ class RenderIsByteIdenticalTest(unittest.TestCase):
         `parts = _PromptAssembly("system_head", system_head)`."""
         head = "SYSTEM HEAD"
         rest = ["one", "", "two"]
-        asm = _PromptAssembly("system_head", head)
+        asm = _PromptAssembly("system_head", head, required=True, drop_order=0)
         for i, t in enumerate(rest):
-            asm.add(f"s{i}", t)
+            asm.add(f"s{i}", t, required=False, drop_order=1)
         self.assertEqual(_historical_join([head] + rest), asm.render("conv"))
 
     def test_an_empty_seed_is_not_added_as_a_section(self):
         """The old code seeded the list unconditionally, but an empty
         head was then dropped by the render filter anyway. Both produce
         the same string; this pins that they still do."""
-        asm = _PromptAssembly("system_head", "")
-        asm.add("body", "text")
+        asm = _PromptAssembly("system_head", "", required=True, drop_order=0)
+        asm.add("body", "text", required=False, drop_order=1)
         self.assertEqual(_historical_join(["", "text"]), asm.render("conv"))
         self.assertEqual("text", asm.render("conv"))
 
     def test_none_is_treated_as_empty_not_as_a_crash(self):
         asm = _PromptAssembly()
-        asm.add("a", "kept")
-        asm.add("b", None)
-        asm.add("c", "also kept")
+        asm.add("a", "kept", required=False, drop_order=1)
+        asm.add("b", None, required=False, drop_order=1)
+        asm.add("c", "also kept", required=False, drop_order=1)
         self.assertEqual("kept\n\nalso kept", asm.render("conv"))
 
     def test_randomised_equality(self):
@@ -181,7 +195,7 @@ class RenderIsByteIdenticalTest(unittest.TestCase):
             parts = [rnd.choice(pool) for _ in range(rnd.randint(0, 7))]
             asm = _PromptAssembly()
             for i, t in enumerate(parts):
-                asm.add(f"s{i}", t)
+                asm.add(f"s{i}", t, required=False, drop_order=1)
             self.assertEqual(_historical_join(parts), asm.render(""),
                              f"diverged on {parts!r}")
 
@@ -233,8 +247,8 @@ class TheSectionLogIsQuietByDefaultTest(unittest.TestCase):
         self.logger.addHandler(handler)
         self.logger.setLevel(level)
         try:
-            asm = _PromptAssembly("system_head", "IDENTITY")
-            asm.add("body", "SOME BODY TEXT")
+            asm = _PromptAssembly("system_head", "IDENTITY", required=True, drop_order=0)
+            asm.add("body", "SOME BODY TEXT", required=False, drop_order=1)
             asm.render("conv-1")
         finally:
             self.logger.removeHandler(handler)
@@ -309,9 +323,9 @@ class MeasurementTest(unittest.TestCase):
     """Measurement is the deliverable, and it must not cost a turn."""
 
     def test_sections_are_named_and_ordered(self):
-        asm = _PromptAssembly("head", "AAA")
-        asm.add("body", "BBBB")
-        asm.add("tail", "CC")
+        asm = _PromptAssembly("head", "AAA", required=True, drop_order=0)
+        asm.add("body", "BBBB", required=False, drop_order=1)
+        asm.add("tail", "CC", required=False, drop_order=1)
         self.assertEqual([("head", 3), ("body", 4), ("tail", 2)], asm.measure())
 
     def test_empty_sections_are_still_recorded(self):
@@ -319,7 +333,7 @@ class MeasurementTest(unittest.TestCase):
         fact worth seeing -- "why is identity_facts 0 chars" is exactly
         the question the compaction work needs to be able to ask."""
         asm = _PromptAssembly()
-        asm.add("identity_facts", "")
+        asm.add("identity_facts", "", required=True, drop_order=0)
         self.assertEqual([("identity_facts", 0)], asm.measure())
 
     def test_render_survives_a_logger_that_raises(self):
@@ -331,7 +345,7 @@ class MeasurementTest(unittest.TestCase):
 
         # rebind the logger the exec'd class closed over
         cls.__init__.__globals__["logger"] = _Boom()
-        asm = cls("head", "text")
+        asm = cls("head", "text", required=True, drop_order=0)
         self.assertEqual("text", asm.render("conv"))
 
 
@@ -613,15 +627,34 @@ class SectionClassificationTest(unittest.TestCase):
         cls.fn = next(n for n in cls.tree.body
                       if isinstance(n, ast.FunctionDef)
                       and n.name == _COMPOSE_FN)
-        cls.spec = {}
+        # ── REPOINTED 2026-08-18 (Lean Lori item 1) ─────────────────────
+        # This built `spec` by reading `required=`/`drop_order=` keywords
+        # off each `parts.add()` call:
+        #
+        #     kw = {k.arg: getattr(k.value, "value", None) for k in n.keywords}
+        #     cls.spec[n.args[0].value] = (bool(kw.get("required", False)),
+        #                                  kw.get("drop_order", 0))
+        #
+        # Those keywords are gone — the scattering is the thing item 1
+        # removed — so the spec now comes from the registry, which is
+        # where the decision is made. The call sites are still walked, so
+        # a section that stops being composed still fails these tests.
+        from api.services.prompt_section_policy import policy_for
+        cls.composed = []
         for n in ast.walk(cls.fn):
             if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
                     and n.func.attr == "add"
                     and getattr(n.func.value, "id", "") == "parts"
                     and n.args and isinstance(n.args[0], ast.Constant)):
-                kw = {k.arg: getattr(k.value, "value", None) for k in n.keywords}
-                cls.spec[n.args[0].value] = (bool(kw.get("required", False)),
-                                             kw.get("drop_order", 0))
+                cls.composed.append(n.args[0].value)
+        # `system_head` is seeded through the constructor rather than
+        # `parts.add`, and `trip_context` is appended by a transport, so
+        # neither appears in the walk above. Both are registered sections
+        # and both are covered by the registry's own suite.
+        cls.spec = {}
+        for sid in cls.composed:
+            p = policy_for(sid)
+            cls.spec[sid] = (p.required, p.drop_order)
 
     REQUIRED = ("identity_facts", "identity_grounding",
                 "directives_interview", "directives_bio_builder",
@@ -660,8 +693,16 @@ class SectionClassificationTest(unittest.TestCase):
         # 1,200-line function, which buries the one line that matters.
         self.assertIn('_PromptAssembly("system_head", system_head)', _SRC,
                       "the head is no longer seeded through the constructor")
-        self.assertIn("self.add(name, text, required=True)", _SRC,
-                      "the seeded head is not marked required")
+        # NARROWED 2026-08-18 (Lean Lori item 1). This asserted the
+        # constructor said so itself:
+        #     self.assertIn("self.add(name, text, required=True)", _SRC)
+        # That was the last place a section's policy was stated outside
+        # the registry. The head is still required -- but the registry
+        # is where that is now decided, so that is where it is checked.
+        from api.services.prompt_section_policy import policy_for
+        head = policy_for("system_head")
+        self.assertTrue(head.required, "the seeded head is not required")
+        self.assertEqual("never", head.trim_policy)
 
     def test_the_droppable_sections_have_the_intended_order(self):
         for name, order in self.DROPPABLE.items():
@@ -701,7 +742,7 @@ class SectionClassificationTest(unittest.TestCase):
         """The budget cannot enforce what it cannot see, and it lives in
         another module."""
         cls = _load_assembly()
-        asm = cls("head", "identity")
+        asm = cls("head", "identity", required=True, drop_order=0)
         asm.add("opt", "droppable", required=False, drop_order=7)
         secs = asm.sections()
         self.assertEqual(["head", "opt"], [s.name for s in secs])
@@ -713,14 +754,15 @@ class SectionClassificationTest(unittest.TestCase):
         """`for name, text in ...` predates the classification and must
         keep working for any reader that has not caught up."""
         cls = _load_assembly()
-        asm = cls("head", "text")
-        name, text, required, order = asm.sections()[0]
-        self.assertEqual(("head", "text", True, 0), (name, text, required, order))
+        asm = cls("head", "text", required=True, drop_order=0)
+        name, text, required, order, policy = asm.sections()[0]
+        self.assertEqual(("head", "text", True, 0),
+                         (name, text, required, order))
 
     def test_classification_did_not_change_the_rendered_output(self):
         """Phase 2A's guarantee must survive Phase 2D."""
         cls = _load_assembly()
-        asm = cls("head", "AAA")
+        asm = cls("head", "AAA", required=True, drop_order=0)
         asm.add("mid", "", required=False, drop_order=1)
-        asm.add("tail", "BBB", required=True)
+        asm.add("tail", "BBB", required=True, drop_order=0)
         self.assertEqual(_historical_join(["AAA", "", "BBB"]), asm.render("c"))

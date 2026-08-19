@@ -4333,13 +4333,14 @@ async def ws_chat(ws: WebSocket):
                 # other composition path was already stripped; raw
                 # concatenation was the one that bypassed it.
                 #
-                # drop_order 15: above `factual_chain` (10), which the next
-                # turn rebuilds from scratch, and below `english_first`
-                # (20), because language steering degrades gracefully while
-                # losing the trip context makes Lori answer "what do you
-                # know about this trip" with nothing.
-                _prompt_sections.append(make_section(
-                    "trip_context", _tic_block.lstrip("\n"), drop_order=15))
+                # Its policy -- owner, activation, trim policy, source,
+                # tier and drop order 15 -- is declared once in
+                # `services/prompt_section_policy.REGISTRY`, not here. A
+                # transport that could invent a section's policy at its
+                # own call site would be the last hole in the authority
+                # this registry exists to be.
+                _prompt_sections.append(
+                    make_section("trip_context", _tic_block.lstrip("\n")))
                 system_prompt = render_sections(_prompt_sections)
                 logger.info("[chat_ws][trip-context] injected trip context "
                             "conv=%s person=%s", conv_id, person_id or "(none)")

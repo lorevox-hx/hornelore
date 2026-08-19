@@ -456,10 +456,18 @@ class LoriGroundingBoundary(unittest.TestCase):
         outlive the sections that rebuild themselves each turn and yield
         to the identity sections that do not.
         """
-        src = _COMPOSER.read_text(encoding="utf-8")
-        i = src.index('parts.add("approved_stories"')
-        call = src[i: src.index(")", src.index("drop_order", i))]
-        order = int(call.split("drop_order=")[1].strip().rstrip(","))
+        # REPOINTED 2026-08-18 (Lean Lori item 1). This read the number
+        # out of the `parts.add("approved_stories", ...)` call site:
+        #
+        #     i = src.index('parts.add("approved_stories"')
+        #     call = src[i: src.index(")", src.index("drop_order", i))]
+        #     order = int(call.split("drop_order=")[1].strip().rstrip(","))
+        #
+        # Call sites no longer state policy -- that scattering is the
+        # thing item 1 removed -- so the rank now comes from the one
+        # place it is declared. The property asserted is unchanged.
+        from api.services.prompt_section_policy import policy_for
+        order = policy_for("approved_stories").drop_order
         # Above everything that regenerates next turn...
         self.assertGreater(order, 20,
                            "reviewed stories must outlive per-turn hints")
@@ -468,9 +476,11 @@ class LoriGroundingBoundary(unittest.TestCase):
         self.assertLess(order, 30,
                         "identity truth outranks a story; losing it makes "
                         "Lori invent rather than merely say less")
-        # And the ladder comment documents it, so the next person ranking
-        # a section can see this one without reading the call site.
-        self.assertIn("approved_stories", src[: src.index("parts = _PromptAssembly")])
+        # And the section is REGISTERED, with the rest of its policy, so
+        # the next person ranking a section sees this one beside theirs.
+        pol = policy_for("approved_stories")
+        self.assertEqual("story-review", pol.owner)
+        self.assertFalse(pol.required)
 
     def test_grounding_is_default_off(self):
         src = _CHAT_WS.read_text(encoding="utf-8")

@@ -157,10 +157,32 @@ class ZeroSafetyTextInAParkedPromptTest(unittest.TestCase):
 
     def test_lori_identity_is_never_droppable(self):
         """Chris: do not make Lori's core identity droppable. The parked
-        head must still be a required section."""
+        head must still be a required section.
+
+        REPOINTED 2026-08-18 (Lean Lori item 1), NOT relaxed. This read:
+
+            self.assertIn("self.add(name, text, required=True)",
+                          _COMPOSER_SRC)
+
+        The constructor no longer states the head's policy — one registry
+        declares every section's, so a section cannot be made droppable by
+        editing a keyword inside a 1,200-line function. This asserts the
+        same property where the decision now lives, and asserts it three
+        ways, because this is the section whose loss is the cemetery
+        failure: it must be required, its trim policy must be `never`,
+        and the two must agree.
+        """
         self.assertIn('_PromptAssembly("system_head", system_head)',
                       _COMPOSER_SRC)
-        self.assertIn("self.add(name, text, required=True)", _COMPOSER_SRC)
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]
+                               / "server" / "code"))
+        from api.services import prompt_section_policy as _pol
+        head = _pol.policy_for("system_head")
+        self.assertTrue(head.required, "Lori's identity became droppable")
+        self.assertEqual(_pol.TRIM_NEVER, head.trim_policy)
+        self.assertEqual(_pol.TIER_IDENTITY, head.priority_tier)
 
     def test_the_composer_chooses_the_head_by_state(self):
         tree = ast.parse(_COMPOSER_SRC)

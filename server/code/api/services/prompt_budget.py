@@ -110,14 +110,46 @@ def section_digest(text: str) -> str:
 
 @dataclass(frozen=True)
 class SectionPlan:
-    """One system-prompt section, and what the budget decided about it."""
+    """The EVALUATED half: what the budget decided about one section, on
+    one turn.
+
+    Lean Lori item 1 draws the line here deliberately. The DECLARATIVE
+    half -- owner, activation condition, trim policy, source, priority
+    tier -- lives in `prompt_section_policy` and is true of the section
+    regardless of any turn. The three fields that can only be known once
+    the real tokenizer has seen the real template live here: `tokens`,
+    `kept`, and `digest`.
+
+    Phase 0 of Lean Lori established that a builder-side token estimate
+    is wrong by a wide margin, so a token count must never be invented
+    at composition time. This record is the only place one is honest.
+    """
 
     name: str
     required: bool
     drop_order: int
+    #: Real post-template token cost, measured by difference.
     tokens: int
+    #: Non-reversible fingerprint. See `section_digest`.
     digest: str
     kept: bool
+    #: The declared policy this section resolved to, when available.
+    #: Carried so a diagnostic can report owner and tier without a second
+    #: lookup, and deliberately NOT re-derived here.
+    policy: Optional[object] = None
+
+    @property
+    def owner(self) -> str:
+        return getattr(self.policy, "owner", "") or "unregistered"
+
+    @property
+    def priority_tier(self) -> str:
+        return getattr(self.policy, "priority_tier", "") or "unregistered"
+
+    @property
+    def trim_policy(self) -> str:
+        return getattr(self.policy, "trim_policy", "") or (
+            "never" if self.required else "drop_whole")
 
     def as_log_field(self) -> str:
         return (f"{self.name}:{'keep' if self.kept else 'DROP'}"
@@ -307,6 +339,7 @@ def _plan(sections, kept_names, tokens_by_name) -> List[SectionPlan]:
             tokens=int(tokens_by_name.get(s.name, 0)),
             digest=section_digest(s.text),
             kept=s.name in kept_names,
+            policy=getattr(s, "policy", None),
         )
         for s in sections
     ]

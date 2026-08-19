@@ -20,6 +20,14 @@ import re
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 from . import db
+# Lean Lori item 1 — the section policy registry, imported at MODULE
+# scope on purpose. It is pure stdlib and imports nothing from this
+# package, so there is no cycle, and a broken registry must fail the
+# BOOT rather than be caught per-call and leave the composer quietly
+# assigning silent defaults. That is the standing lesson from
+# INC-2026-07-09: a defensive except around an import is a silencer,
+# not a safety net.
+from .services.prompt_section_policy import policy_for  # noqa: E402
 from .lv_eras import (
     era_id_to_lori_focus,
     era_id_to_warm_label,
@@ -3455,16 +3463,32 @@ def _system_head_core() -> str:
 # be worse than none -- it is the number the compaction work will steer
 # by.
 class _Section(NamedTuple):
-    """One named prompt section and what it would cost to lose it.
+    """One named prompt section, its text, and its DECLARED policy.
 
     A NamedTuple rather than a dataclass so the pairs the assembly used
     to hold remain iterable in the same shape -- `for name, text in ...`
     keeps working for any reader that predates the classification.
+
+    ── Lean Lori item 1, 2026-08-18 ────────────────────────────────────
+    `required` and `drop_order` used to be supplied at each `parts.add()`
+    call and defaulted silently when omitted. They are now resolved from
+    `services/prompt_section_policy.REGISTRY`, which is the one place a
+    section's policy is declared, and `policy` carries the rest of it.
+
+    **No token count and no digest live here.** Those are per-turn,
+    measured after `_apply_chat_template`, and belong to the evaluated
+    `prompt_budget.SectionPlan`. Phase 0 established that a builder-side
+    token estimate is wrong by a wide margin, and this record is built
+    where no tokenizer exists.
     """
     name: str
     text: str
     required: bool = False
     drop_order: int = 0
+    #: The registry entry this section resolved to. Optional only so the
+    #: pre-existing test harness, which exec's this class in isolation,
+    #: keeps working; production always populates it.
+    policy: Optional[Any] = None
 
 
 class _PromptAssembly:
@@ -3472,26 +3496,45 @@ class _PromptAssembly:
 
     __slots__ = ("_sections",)
 
-    def __init__(self, name: str = "", text: str = ""):
+    def __init__(self, name: str = "", text: str = "", *,
+                 required: Optional[bool] = None,
+                 drop_order: Optional[int] = None):
         self._sections: List[Tuple[str, str]] = []
         if text:
-            self.add(name, text, required=True)
+            # Seeded through `add` so the head resolves its policy from the
+            # registry like every other section. It used to pass
+            # `required=True` here, which was correct and was also the last
+            # place a section's policy was stated outside the registry.
+            #
+            # The overrides exist for the same reason `add`'s do: the test
+            # harness exec's this class with invented section names, which
+            # have no registry entry and must not have one.
+            self.add(name, text, required=required, drop_order=drop_order)
 
     def add(self, name: str, text: Optional[str], *,
-            required: bool = False, drop_order: int = 0) -> None:
-        """Record a section, with what it would cost to lose it.
+            required: Optional[bool] = None,
+            drop_order: Optional[int] = None) -> None:
+        """Record a section. Its POLICY comes from the registry.
 
         `None`/empty is kept, exactly as the bare list kept it -- the
         render-time `if p.strip()` filter is what removed empties
         before, and moving that decision earlier would change behaviour.
 
-        WO-LEAN-LORI-RUNTIME-01 Phase 2D, 2026-08-04 — the two new
-        keywords. They classify only; NOTHING drops yet. Enforcement
-        belongs at api.py's tokenize point, because Phase 0 established
-        that the only honest token count is taken after
-        _apply_chat_template, where the template's own tokens are
-        visible. A builder-side estimate was wrong by a wide margin in
-        the reconnaissance that produced this work.
+        ── Lean Lori item 1, 2026-08-18 ────────────────────────────────
+        `required` and `drop_order` were keyword arguments supplied at
+        each call site, and omitting them meant `False` and `0`. That is
+        how `approved_stories` shipped ranked below a per-turn hint:
+        nobody chose 0, it was simply what silence meant.
+
+        They are now resolved from
+        `services/prompt_section_policy.REGISTRY`, keyed by the section
+        id. An unregistered id raises rather than defaulting, because a
+        section nobody wrote a policy for is a section nobody made a
+        decision about.
+
+        The two keywords survive as OVERRIDES for the test harness,
+        which exec's this class in isolation with invented section
+        names. Production passes neither; a guard test pins that.
 
         `required=True` means the section may never be dropped to make
         room. If the prompt still does not fit once only required
@@ -3504,12 +3547,24 @@ class _PromptAssembly:
         than a category because the useful question at the boundary is
         never "is this optional" but "which of these two do I lose
         first", and a boolean cannot answer that.
+
+        **Still no token count here.** The tokenizer is not available at
+        composition time; counts and digests belong to the evaluated
+        `SectionPlan`, per Phase 0.
         """
+        policy = None
+        if required is None or drop_order is None:
+            policy = policy_for(name)
+            if required is None:
+                required = policy.required
+            if drop_order is None:
+                drop_order = policy.drop_order
         self._sections.append(
             _Section(name=name,
                      text=text if text is not None else "",
                      required=bool(required),
-                     drop_order=int(drop_order)))
+                     drop_order=int(drop_order),
+                     policy=policy))
 
     def measure(self) -> List[Tuple[str, int]]:
         return [(sec.name, len(sec.text or "")) for sec in self._sections]
@@ -3745,19 +3800,17 @@ def _compose_prompt_assembly(
     # never "is this optional" but "which of these two do I lose first".
     parts = _PromptAssembly("system_head", system_head)
     if ctx_block:
-        parts.add("ui_context", ctx_block, required=False, drop_order=30)
+        parts.add("ui_context", ctx_block)
     if pinned:
-        parts.add("pinned_facts", pinned, required=False, drop_order=40)
+        parts.add("pinned_facts", pinned)
 
     # v7.1 — inject runtime directive block when the UI supplies runtime context
     if runtime71:
         # BUG-LG-01 — Identity grounding: inject verified narrator facts and
         # anti-hallucination rules BEFORE any role/pass directives so the model
         # sees them first and treats them as ground truth.
-        parts.add("identity_facts", _known_identity_facts_block(runtime71),
-                  required=True)
-        parts.add("identity_grounding", _identity_grounding_rules_block(runtime71),
-                  required=True)
+        parts.add("identity_facts", _known_identity_facts_block(runtime71))
+        parts.add("identity_grounding", _identity_grounding_rules_block(runtime71))
 
         # Phase 3: reviewed stories. Rendered AFTER identity grounding so
         # the anti-hallucination rules are already in force when the model
@@ -3785,8 +3838,7 @@ def _compose_prompt_assembly(
         # narrator is makes Lori invent, which is worse than saying less.
         _story_block = _approved_story_block(runtime71)
         if _story_block:
-            parts.add("approved_stories", _story_block,
-                      required=False, drop_order=25)
+            parts.add("approved_stories", _story_block)
 
         # WO-LORI-ENGLISH-FIRST-NARRATION-01 (2026-06-24, product call
         # from Spring 2026 trip canary): always-on English-first rule
@@ -3875,8 +3927,7 @@ def _compose_prompt_assembly(
             except Exception:
                 pass
         if _narrator_is_english:
-            parts.add("english_first", _english_first_block,
-                          required=False, drop_order=20)
+            parts.add("english_first", _english_first_block)
 
         # WO-LORI-FACTUAL-CHAIN-CAPTURE-01 Phase 2 (2026-06-24): high-
         # priority directive threaded through runtime71 by chat_ws when
@@ -3888,8 +3939,7 @@ def _compose_prompt_assembly(
         # legacy runtime71 dicts, tests).
         _chain_directive = (runtime71.get("factual_chain_directive") or "").strip()
         if _chain_directive:
-            parts.add("factual_chain", "[FACTUAL_CHAIN_DIRECTIVE]\n" + _chain_directive,
-                          required=False, drop_order=10)
+            parts.add("factual_chain", "[FACTUAL_CHAIN_DIRECTIVE]\n" + _chain_directive)
 
         current_pass   = runtime71.get("current_pass", "pass1") or "pass1"
         # WO-CANONICAL-LIFE-SPINE-01 Step 4: normalize current_era at the
@@ -4096,8 +4146,7 @@ def _compose_prompt_assembly(
                 "  - Voice command 'send': also sends your current message.\n"
                 "  - Save confirmation: appears briefly after a successful profile save."
             )
-            parts.add("directives_bio_builder", "\n".join(directive_lines).strip(),
-                              required=True)
+            parts.add("directives_bio_builder", "\n".join(directive_lines).strip())
             return parts
 
         if assistant_role == "onboarding":
@@ -4153,8 +4202,7 @@ def _compose_prompt_assembly(
                 "  - Do NOT ask about memories, childhood, family, or life events.\n"
                 "  - Be warm, patient, and conversational — one question at a time."
             )
-            parts.add("directives_questionnaire", "\n".join(directive_lines).strip(),
-                              required=True)
+            parts.add("directives_questionnaire", "\n".join(directive_lines).strip())
             return parts
 
         # ── Standard interview directives (only when role = "interviewer") ────
@@ -4932,8 +4980,7 @@ def _compose_prompt_assembly(
                 "Make it easy to answer. Signal that there is no rush."
             )
 
-        parts.add("directives_interview", "\n".join(directive_lines).strip(),
-                      required=True)
+        parts.add("directives_interview", "\n".join(directive_lines).strip())
 
     # WO-9/WO-10 — Inject adaptive conversation memory context
     if runtime71:
@@ -4946,8 +4993,7 @@ def _compose_prompt_assembly(
                 cognitive_support_mode=cognitive_support_mode,
             )
             if memory_block:
-                parts.add("memory_context", memory_block,
-                              required=False, drop_order=5)
+                parts.add("memory_context", memory_block)
 
     return parts
 
@@ -4965,8 +5011,7 @@ def _compose_prompt_assembly(
 # what the prompt says. A second builder is precisely the failure this lane
 # has spent three phases removing from other surfaces.
 
-def make_section(name: str, text: str, *, required: bool = False,
-                 drop_order: int = 0) -> "_Section":
+def make_section(name: str, text: str) -> "_Section":
     """Build a classified section outside the composer.
 
     For content a TRANSPORT appends after composition — today only the
@@ -4975,9 +5020,18 @@ def make_section(name: str, text: str, *, required: bool = False,
     system message the budget cannot see the shape of is a system message
     the budget prices wrongly, and on that transport the block could be
     several hundred tokens the ladder knew nothing about.
+
+    ── Lean Lori item 1, 2026-08-18 ────────────────────────────────────
+    This took `required` and `drop_order` as keyword arguments, so a
+    transport could invent a section's policy at its call site — the one
+    remaining way to get a section into the prompt without a registered
+    decision. It now resolves from the registry like everything else, and
+    an unregistered id raises.
     """
+    policy = policy_for(name)
     return _Section(name=name, text=text or "",
-                    required=bool(required), drop_order=int(drop_order))
+                    required=policy.required, drop_order=policy.drop_order,
+                    policy=policy)
 
 
 def render_sections(sections) -> str:
