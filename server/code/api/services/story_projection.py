@@ -250,7 +250,20 @@ def project_stories(narrator_id: str) -> StoryProjection:
             continue
         status = _REVIEW_TO_STATUS.get(review, PROVISIONAL)
         placement = _placement_for(row)
-        era = _era_of(row)
+        # ── `era` IS THE PLACEMENT, NOT THE SHORTLIST, 2026-08-19 ───────
+        #
+        # This shipped `_era_of(row)` unconditionally, so an UNPLACED
+        # story still carried the first machine era candidate in the one
+        # field consumers treat as the answer. Two consumers had already
+        # worked around it locally (`grounding_context`, `memoir_projection`
+        # both nulled it when unplaced) and a third -- the chronology
+        # payload the Life Map reads -- had not, so a guessed era would
+        # have drawn an unplaced story into a real era on the map.
+        #
+        # Withheld at the source instead, so every consumer inherits it
+        # and none has to remember. `era_candidates` still travels for the
+        # operator review surface, which is where a shortlist belongs.
+        era = _era_of(row) if placement != PLACEMENT_UNPLACED else None
         if placement == PLACEMENT_UNPLACED:
             counts["unplaced"] += 1
         counts[status] += 1
@@ -414,9 +427,10 @@ def memoir_projection(narrator_id: str) -> MemoirProjection:
             "transcript": transcript,
             # Placement is the projection's answer, so a year-only or
             # unknown placement arrives here as unplaced and the memoir
-            # cannot file it under a guessed era.
+            # cannot file it under a guessed era. `era` is already None
+            # for those, withheld at the source since 2026-08-19.
             "placement": item.get("placement"),
-            "era": item.get("era") if placed else None,
+            "era": item.get("era"),
             "year": item.get("year") if placed else None,
             "review_status": item.get("review_status"),
             "created_at": item.get("created_at"),
@@ -490,11 +504,15 @@ def grounding_context(
         # forgets. The story still reaches Lori in full; only the claim
         # about WHEN it happened is withheld, and only when nobody made
         # it.
+        # `era` is already withheld by `project_stories` for an unplaced
+        # story (2026-08-19), so it is read straight through. `year` is
+        # still filtered here: the projection keeps it as data for the
+        # review surface, and only this lane must not SPEAK it.
         _placed = item.get("placement") != PLACEMENT_UNPLACED
         approved.append({
             "id": item["id"],
             "text": _clip_to_boundary(excerpt, max_chars),
-            "era": item.get("era") if _placed else None,
+            "era": item.get("era"),
             "year": item.get("year") if _placed else None,
             "placement": item.get("placement"),
         })

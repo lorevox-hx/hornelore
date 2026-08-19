@@ -230,15 +230,24 @@ def _sources_block(
     """
 
     def _lane(source: str, result: Optional[_LaneResult]) -> Dict[str, Any]:
+        # ── AN UNKNOWN COUNT IS null, NOT 0, 2026-08-19 ─────────────────
+        #
+        # This returned `count: 0` for `not_attempted` and for a failed
+        # lane, with a comment arguing the zero was "honest" because the
+        # lane HAS zero rows in hand and `status` says the rest.
+        #
+        # It is honest about the variable and misleading about the
+        # narrator, and readers do not pair the two fields: the Travel
+        # Document's provenance line renders them together and read
+        # "unavailable · 0", which invites exactly the wrong conclusion.
+        # Zero is a fact about a person's life and belongs only to a lane
+        # that was read and found nothing.
         if result is None:
-            return {"source": source, "status": "not_attempted", "count": 0}
+            return {"source": source, "status": "not_attempted", "count": None}
         return {
             "source": source,
             "status": result.status,
-            # A failed lane reports zero rows because it HAS zero rows in
-            # hand -- the count is honest, and `status` is what says the
-            # zero is not an answer about the narrator.
-            "count": len(result.items),
+            "count": len(result.items) if result.status == _LANE_READ else None,
         }
 
     return {
@@ -379,6 +388,19 @@ def _collect_story_evidence(person_id: str) -> _LaneResult:
     for row in projection.items:
         items.append({
             "id": row["id"],
+            # ── THE CANONICAL ERA, 2026-08-19 ────────────────────────
+            #
+            # This adapter forwarded `era_candidates` -- the machine's
+            # shortlist -- and dropped `era`, the projection's actual
+            # placement decision. Commit 2 then taught the browser to
+            # read `row.era` precisely so it would stop interpreting the
+            # shortlist for itself, and the key was not in the payload.
+            #
+            # The result was worse than the defect it replaced: EVERY
+            # story, including ones an operator had explicitly placed,
+            # rendered as unplaced on the Life Map. Carrying it is the
+            # whole point of having one canonical placement.
+            "era": row.get("era"),
             "year": row.get("year"),
             "year_high": row.get("year_high"),
             "era_candidates": row.get("era_candidates") or [],

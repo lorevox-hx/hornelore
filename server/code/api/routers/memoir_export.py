@@ -259,6 +259,12 @@ def _translate_request_content(
             id=sec.id,
             label=_t(sec.label),
             items=[_t(item) for item in (sec.items or [])],
+            # Provenance survives translation. Dropping it here meant a
+            # Spanish-only export lost every source digest -- the same
+            # memoir, the same reviewed stories, and no way to trace a
+            # paragraph back. Digests are opaque ids, not prose, so they
+            # are carried across untouched. 2026-08-19.
+            sources=list(sec.sources or []),
         ))
 
     translated_prose: Optional[str] = None
@@ -452,17 +458,70 @@ def _stamp_source_provenance(doc, req: "MemoirExportRequest") -> None:
     Never raises: a memoir must not fail to export over its own metadata.
     """
     try:
-        digests = []
+        # POSITIONAL, not a bare list. An unordered set of digests proves
+        # only that sources were used; it cannot say WHICH paragraph came
+        # from which candidate, which is the question an operator asks
+        # when something in the document looks wrong. The mapping is
+        # `section-id:item-index=digest`.
+        pairs = []
         for sec in (req.sections or []):
-            for d in (getattr(sec, "sources", None) or []):
-                if d and d not in digests:
-                    digests.append(str(d))
-        if not digests:
+            sources = getattr(sec, "sources", None) or []
+            if not sources:
+                continue
+            sec_id = str(getattr(sec, "id", "") or "?")
+            for idx, digest in enumerate(sources):
+                if digest:
+                    pairs.append(f"{sec_id}:{idx}={digest}")
+        if not pairs:
             return
         doc.core_properties.comments = (
-            "lorevox-story-sources: " + ",".join(digests))
+            "lorevox-story-sources: " + ";".join(pairs))
     except Exception as exc:  # pragma: no cover - metadata is best effort
         logger.warning("[memoir-docx] provenance stamp skipped: %s", exc)
+
+
+def _captured_story_sections_of(req: "MemoirExportRequest") -> List["MemoirSection"]:
+    """The server-harvested captured-story sections in this request.
+
+    Identified by the reserved id namespace, which only the server may
+    use -- client sections wearing it are stripped before the harvest is
+    appended, so anything left here is genuinely server-authored.
+    """
+    return [s for s in (req.sections or [])
+            if str(getattr(s, "id", "") or "").startswith(
+                _RESERVED_STORY_SECTION_PREFIX)]
+
+
+def _render_captured_stories_into_draft(doc, req: "MemoirExportRequest") -> None:
+    """Render reviewed captured stories into a DRAFT-state document.
+
+    WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01 Commit 3 follow-up
+    (2026-08-19).
+
+    The draft builders render `req.prose` and ignore `req.sections`
+    entirely -- which was correct while sections were purely the threads
+    view of the same content. It stopped being correct when the server
+    began APPENDING captured stories as sections: a narrator exporting in
+    draft state got a memoir with every reviewed story silently missing,
+    while the same narrator in threads state got all of them. Same data,
+    same review, two different documents.
+
+    Rendered AFTER the operator's prose, under their own headings, so the
+    operator's authored narrative keeps its shape and the narrator's own
+    words follow it -- clearly sourced rather than woven in.
+    """
+    sections = _captured_story_sections_of(req)
+    if not sections:
+        return
+    for sec in sections:
+        h = doc.add_heading(sec.label, level=1)
+        try:
+            h.runs[0].font.color.rgb = _DARK_BROWN
+        except Exception:
+            pass
+        for item in (sec.items or []):
+            doc.add_paragraph(item)
+        doc.add_paragraph()  # spacer
 
 
 def _build_threads_docx(
@@ -576,6 +635,9 @@ def _build_draft_docx(
             else:
                 doc.add_paragraph(para_text)
             doc.add_paragraph()  # spacer
+
+    # Reviewed captured stories, after the operator's own prose. 2026-08-19.
+    _render_captured_stories_into_draft(doc, req)
 
     # Append photo section at end of draft (no per-section matching in pure prose)
     # Only include photos not already displayed via section matching
@@ -752,6 +814,12 @@ def _build_draft_docx_bilingual(
                     tp.runs[0].font.italic = True
                     tp.runs[0].font.color.rgb = _WARM_GREY
         doc.add_paragraph()  # spacer
+
+    # Reviewed captured stories reach the BILINGUAL draft too. They are
+    # the narrator's own words and are rendered from the source request,
+    # so they appear once and are not double-rendered per language.
+    # 2026-08-19.
+    _render_captured_stories_into_draft(doc, req)
 
     if req.attached_photos:
         doc.add_page_break()
@@ -1033,8 +1101,16 @@ def api_memoir_export_docx(req: MemoirExportRequest):
         # So the reserved namespace is stripped from the client payload
         # before the server's own sections are appended. Nothing else the
         # client sent is touched.
+        # A client may not supply provenance either. `sources` is a
+        # SERVER claim about which reviewed candidate a paragraph came
+        # from; accepting it from the wire would let a caller stamp
+        # forged digests onto arbitrary prose and have the artifact
+        # assert it was reviewed evidence. Client sections are rebuilt
+        # with `sources=[]` -- their content is kept exactly as sent.
         _client_sections = [
-            s for s in (req.sections or [])
+            s.model_copy(update={"sources": []})
+            if hasattr(s, "model_copy") else s
+            for s in (req.sections or [])
             if not str(getattr(s, "id", "") or "").startswith(
                 _RESERVED_STORY_SECTION_PREFIX)
         ]

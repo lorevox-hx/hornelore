@@ -3394,13 +3394,43 @@ async function _hydrateChronologyFromServer(pid, gen) {
     if (gen !== _loadGeneration || j.person_id !== pid) return;
 
     // seed_ready=false / reason="no_dob" is a STATE, not a failure. No
-    // DOB means no derivable chronology; do not overwrite a cached spine
-    // with emptiness, and do not claim readiness. Note that `today` is
-    // still returned in that case — current life does not need a birth
-    // year — so the check is for the DERIVED eras, not for periods.
+    // DOB means no derivable chronology. Note that `today` is still
+    // returned in that case — current life does not need a birth year —
+    // so the check is for the DERIVED eras, not for periods.
     const derived = (j.periods || []).filter(p => !p.is_current_life);
     if (!derived.length) {
+      // ── A SUCCESSFUL ANSWER IS AUTHORITATIVE, 2026-08-19 ──────────
+      //
+      // This branch used to keep only the projection and return, with
+      // the reasoning "do not overwrite a cached spine with emptiness".
+      // That is right for a FAILED request and wrong for this one: the
+      // server answered, and its answer is that this narrator has no
+      // derivable history.
+      //
+      // Leaving the cache in place meant a restored spine — from
+      // localStorage, or browser-derived from a birth year that is no
+      // longer on the profile — kept drawing historical eras for a
+      // narrator the server had just said has none. After a switch it
+      // could be the PREVIOUS narrator's cache being restored by
+      // loadPerson(); the periods on screen then belonged to someone
+      // else entirely.
+      //
+      // So the server's Today-only periods replace the cache, readiness
+      // is false, and the independently-read lanes (stories, events,
+      // trip days) still travel with the projection — a narrator with no
+      // date of birth keeps their stories, shown as unplaced.
+      state.timeline.spine = {
+        birth_date:  j.birth_date  || "",
+        birth_place: j.birth_place || "",
+        periods:     j.periods || []      // `today` only
+      };
+      state.timeline.seedReady = false;
       state.chronologyProjection = j;
+      try { saveSpineLocal(); } catch (_) {}
+      console.log("[chronology] server reports no derivable chronology for "
+                  + pid + " (reason=" + (j.reason || "no_dob")
+                  + ") — cached historical periods cleared, stories="
+                  + _laneCount(j.lane_counts?.story_evidence));
       return;
     }
 
