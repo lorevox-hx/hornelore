@@ -2831,13 +2831,37 @@ def compose_memory_echo(
                     "",
                 ]
         except Exception as _recall_err:
-            # A recall failure must cost the narrator the ANSWER, never the
-            # turn: the ordinary read-back below still renders in full.
+            # ── FAIL CLOSED, NOT OPEN ──────────────────────────────────
+            #
+            # Corrected 2026-08-19 after review. This handler used to set
+            # `_recall_prefix = []`, which is fail-OPEN: the narrator asked
+            # what they had already told Lori, something broke, and they
+            # received a general profile summary with no sign that their
+            # question had been dropped -- which is precisely the wrong
+            # answer this whole work order exists to remove, reintroduced
+            # by the error path.
+            #
+            # A failure here is indistinguishable, from the narrator's
+            # side, from an unreadable record. So it says the same honest
+            # thing. The turn is still never lost: the ordinary read-back
+            # below renders in full underneath.
             logger.warning(
-                "[memory_echo][story-recall] failed for subject=%r: %s",
+                "[memory_echo][story-recall] failed for subject=%r: %s "
+                "— reporting an unreadable record rather than answering "
+                "with an unrelated profile fact",
                 recall_subject, _recall_err,
             )
-            _recall_prefix = []
+            try:
+                _recall_prefix = [
+                    _pack["recall_header_unavailable"].format(subject=recall_subject),
+                    "",
+                    _pack["recall_continue"],
+                    "",
+                ]
+            except Exception:
+                # Only reachable if the locale pack itself is broken, in
+                # which case there is no honest sentence to render.
+                _recall_prefix = []
 
     speaker_name = (runtime.get("speaker_name") or "").strip()
     dob = runtime.get("dob") or None

@@ -549,6 +549,96 @@ class SubjectTermSelectivity(unittest.TestCase):
                 self.assertIn("What I know about Mary so far:", out)
 
 
+class ARecallFailureFailsClosed(unittest.TestCase):
+    """A broken selector must not answer with an unrelated profile fact.
+
+    The error path used to clear the recall block entirely, so a narrator
+    who asked what they had already told Lori got a general profile
+    summary with nothing indicating their question had been dropped --
+    the exact wrong answer this work removes, reintroduced through the
+    exception handler.
+
+    From the narrator's side a crash and an unreadable record are the
+    same event, so they get the same honest sentence.
+    """
+
+    def _raise_in_selector(self):
+        import api.services.story_recall_request as mod
+
+        def _boom(*_a, **_kw):
+            raise RuntimeError("selector exploded")
+
+        original = mod.select_approved_story
+        mod.select_approved_story = _boom
+        self.addCleanup(setattr, mod, "select_approved_story", original)
+
+    def test_a_selector_crash_reports_an_unreadable_record(self):
+        self._raise_in_selector()
+        import api.prompt_composer as _pc
+        with self.assertLogs(_pc.logger, level="WARNING") as log:
+            out = _echo(
+                text="q",
+                runtime={"speaker_name": "Mary",
+                         "story_context": _story_context(_GRANDMOTHER)},
+                recall_subject="my grandmother",
+            )
+        self.assertIn("can't check your record", out)
+        self.assertTrue(any("story-recall] failed" in m for m in log.output),
+                        log.output)
+
+    def test_a_crash_is_not_reported_as_an_empty_record(self):
+        """The two must stay distinguishable even on the error path.
+
+        "Nothing confirmed" after a crash would tell a narrator their
+        story was never recorded, when in fact it was never consulted.
+        """
+        self._raise_in_selector()
+        import api.prompt_composer as _pc
+        with self.assertLogs(_pc.logger, level="WARNING"):
+            out = _echo(
+                text="q",
+                runtime={"story_context": _story_context(_GRANDMOTHER)},
+                recall_subject="my grandmother",
+            )
+        self.assertNotIn("don't have anything confirmed", out)
+
+    def test_the_narrator_still_gets_their_summary_after_a_crash(self):
+        """Failing closed must not cost the turn as well as the answer."""
+        self._raise_in_selector()
+        import api.prompt_composer as _pc
+        with self.assertLogs(_pc.logger, level="WARNING"):
+            out = _echo(
+                text="q",
+                runtime={"speaker_name": "Mary",
+                         "story_context": _story_context(_GRANDMOTHER)},
+                recall_subject="my grandmother",
+            )
+        self.assertIn("What I know about Mary so far:", out)
+        self.assertIn("Identity", out)
+
+    def test_the_handler_does_not_clear_the_block(self):
+        """Source-level, because the regression is a one-line revert.
+
+        Comments are stripped: the paragraph above that code quotes the
+        retired `_recall_prefix = []` while explaining why it went.
+        """
+        import api.prompt_composer as _pc
+        tree = ast.parse(_read(_pc.__file__))
+        fn = next(n for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef)
+                  and n.name == "compose_memory_echo")
+        handlers = [h for h in ast.walk(fn) if isinstance(h, ast.ExceptHandler)
+                    and h.name == "_recall_err"]
+        self.assertEqual(len(handlers), 1, "the recall handler has moved")
+        code = ast.unparse(handlers[0])
+        self.assertIn("recall_header_unavailable", code)
+        # The one surviving `= []` is the locale-pack-is-broken fallback,
+        # which is nested inside its own handler rather than being the
+        # answer to a selector failure.
+        outer = code[:code.index("try:")] if "try:" in code else code
+        self.assertNotIn("_recall_prefix = []", outer)
+
+
 class RecallDoesNotDependOnTheGroundingFlag(unittest.TestCase):
     """HORNELORE_STORY_GROUNDING is about prompt tokens, not about whether
     a narrator may ask what they already said.
