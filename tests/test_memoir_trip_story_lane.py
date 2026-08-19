@@ -136,7 +136,21 @@ class _LaneCase(unittest.TestCase):
         return tid
 
     def _sections(self):
-        return memoir_export._trip_story_sections(_PERSON)
+        """Just the sections. See the note below for why there are two."""
+        return memoir_export._trip_story_sections(_PERSON)[0]
+
+    def _status(self):
+        """read / empty / not_attempted / partial / unavailable."""
+        return memoir_export._trip_story_sections(_PERSON)[1]
+
+
+# REPOINTED 2026-08-19 (WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01).
+# `_trip_story_sections` now returns `(sections, status)`. The status is
+# the point: this lane used to swallow an unreadable trip list into `[]`
+# and `continue` past a single unreadable trip, so an approved trip story
+# could vanish from a memoir that looked complete. Tests unpack it; the
+# two resilience tests that asserted `== []` on a failure now assert what
+# the failure IS.
 
 
 class ApprovalGateTest(_LaneCase):
@@ -294,10 +308,21 @@ class TwoSurfaceBoundaryTest(unittest.TestCase):
 
 class RouteWiringTest(unittest.TestCase):
     def test_route_appends_trip_sections(self):
+        """REPOINTED 2026-08-19. This pinned the append spelling:
+
+            assertIn("list(req.sections) + _trip_sections", block)
+
+        Both server lanes are now collected into `_server_sections` and
+        appended once, after a provenance-alignment check, so the old
+        literal no longer exists. The property -- the route reads this
+        lane and appends what it returns -- is unchanged and is what is
+        asserted now.
+        """
         i = _MEMOIR_SRC.index("def api_memoir_export_docx")
         block = _MEMOIR_SRC[i:]
         self.assertIn("_trip_story_sections(req.person_id)", block)
-        self.assertIn("list(req.sections) + _trip_sections", block)
+        self.assertIn("_server_sections += _trip_sections", block)
+        self.assertIn("list(req.sections) + _server_sections", block)
 
     def test_the_lane_is_opt_outable_and_needs_a_person(self):
         i = _MEMOIR_SRC.index("def api_memoir_export_docx")

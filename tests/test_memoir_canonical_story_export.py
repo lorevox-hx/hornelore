@@ -294,23 +294,36 @@ class AnUnreadableStoryLaneRefusesTheExport(_Base):
 
 class ClientSectionsCannotSpoofCapturedStories(_Base):
 
-    def test_the_reserved_prefix_is_stripped_from_client_sections(self):
+    def test_the_reserved_namespaces_are_stripped_from_client_sections(self):
+        """REPOINTED 2026-08-19. These asserted the inline spelling:
+
+            assertIn("startswith(", window)
+            assertIn("_RESERVED_STORY_SECTION_PREFIX", window)
+            assertIn("not str(", window)
+
+        The check moved into `_is_server_evidence_section` when
+        `trip_stories` joined the reserved set, so the old assertions
+        tested a spelling rather than the property. They now test the
+        property, behaviourally where possible.
+        """
         src = _read(Path(_me.__file__))
-        self.assertIn("_RESERVED_STORY_SECTION_PREFIX", src)
         i = src.index("_client_sections = [")
-        window = src[i:i + 500]
-        self.assertIn("startswith(", window)
-        self.assertIn("_RESERVED_STORY_SECTION_PREFIX", window)
+        window = src[i:i + 400]
+        self.assertIn("_is_server_evidence_section(s)", window)
+        self.assertIn("req.sections", window)
+
+    def test_both_server_namespaces_are_recognised(self):
+        for sid in ("captured_stories_today", "trip_stories_abc"):
+            with self.subTest(sid=sid):
+                self.assertTrue(_me._is_server_evidence_section(
+                    _me.MemoirSection(id=sid, label="L", items=["x"])))
 
     def test_operator_authored_sections_are_still_welcome(self):
         """Client prose is the editing surface doing its job. Only the
-        reserved namespace is defended, not client content in general."""
-        src = _read(Path(_me.__file__))
-        i = src.index("_client_sections = [")
-        window = src[i:i + 500]
-        self.assertIn("req.sections", window)
-        # The filter keeps everything that is NOT reserved.
-        self.assertIn("not str(", window)
+        reserved namespaces are defended, not client content in general."""
+        self.assertFalse(_me._is_server_evidence_section(
+            _me.MemoirSection(id="operator_authored", label="L",
+                              items=["An operator wrote this."])))
 
 
 # ── Provenance survives into the artifact ───────────────────────────────

@@ -434,6 +434,11 @@ def memoir_projection(narrator_id: str) -> MemoirProjection:
             "year": item.get("year") if placed else None,
             "review_status": item.get("review_status"),
             "created_at": item.get("created_at"),
+            # The narrator's own language for THIS story. Carried so the
+            # memoir does not hand a Spanish transcript to the translator
+            # labelled English and then report the result as a successful
+            # translation. 2026-08-19.
+            "language": (str(row.get("language") or "").strip().lower() or "en"),
         })
     return MemoirProjection("read", out)
 

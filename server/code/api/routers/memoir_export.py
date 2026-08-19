@@ -81,6 +81,13 @@ class MemoirSection(BaseModel):
     label: str
     items: List[str] = Field(default_factory=list)
     sources: List[str] = Field(default_factory=list)
+    #: Per-item ISO-639-1 source language, parallel to `items`.
+    #: 2026-08-19: the pipeline assumed every source item was English,
+    #: so a Spanish story was handed to the translator as English and a
+    #: Spanish-to-Spanish "translation" was reported as success. Set by
+    #: the server harvests from the stored language; empty on client
+    #: sections, which fall back to `req.source_language` as before.
+    languages: List[str] = Field(default_factory=list)
 
 
 class AttachedPhoto(BaseModel):
@@ -265,6 +272,7 @@ def _translate_request_content(
             # paragraph back. Digests are opaque ids, not prose, so they
             # are carried across untouched. 2026-08-19.
             sources=list(sec.sources or []),
+            languages=list(sec.languages or []),
         ))
 
     translated_prose: Optional[str] = None
@@ -440,6 +448,54 @@ def _add_photo_to_doc(doc: Any, photo: AttachedPhoto, resolved: Optional[Path]) 
 
 # ── DOCX builders ──────────────────────────────────────────────────────────────
 
+def _assert_translation_covered(req: "MemoirExportRequest",
+                                translated: "MemoirExportRequest",
+                                target_lang: str) -> None:
+    """Refuse to present untranslated evidence as a translated memoir.
+
+    WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01 (2026-08-19).
+
+    `_translate_request_content` falls back to the SOURCE text whenever
+    the translation service fails, which keeps the export from crashing
+    and is right on its own terms. What was wrong is that the result was
+    then delivered as a successful Spanish memoir: an operator asks for
+    Spanish, receives a document, and has no way to tell that the
+    narrator's own words in it are still English.
+
+    Only SERVER EVIDENCE is checked. Operator-authored prose is the
+    operator's to write in whatever language they chose, and an item
+    already IN the target language is correctly returned unchanged --
+    which is why per-item `languages` had to be carried this far.
+
+    Raises 503 when requested evidence came back untranslated.
+    """
+    tgt = (target_lang or "").strip().lower()
+    if tgt not in ("es",):        # "en" translates nothing; bilingual keeps both
+        return
+    by_id = {s.id: s for s in (translated.sections or [])}
+    stale: List[str] = []
+    for sec in _server_evidence_sections_of(req):
+        out = by_id.get(sec.id)
+        out_items = list(getattr(out, "items", None) or [])
+        langs = list(getattr(sec, "languages", None) or [])
+        for idx, item in enumerate(sec.items or []):
+            item_lang = (langs[idx] if idx < len(langs) else "") or "en"
+            if item_lang == tgt:
+                continue          # already in the requested language
+            rendered = out_items[idx] if idx < len(out_items) else ""
+            if not rendered or rendered == item:
+                stale.append(f"{sec.id}:{idx}")
+    if stale:
+        logger.error(
+            "[memoir-docx] translation incomplete for %d evidence item(s): %s",
+            len(stale), ",".join(stale[:8]))
+        raise HTTPException(
+            status_code=503,
+            detail=("the reviewed evidence could not be translated to %s — "
+                    "export refused rather than deliver an untranslated "
+                    "document as a translated one" % tgt))
+
+
 def _stamp_source_provenance(doc, req: "MemoirExportRequest") -> None:
     """Record which captured stories this document was built from.
 
@@ -476,44 +532,53 @@ def _stamp_source_provenance(doc, req: "MemoirExportRequest") -> None:
             return
         doc.core_properties.comments = (
             "lorevox-story-sources: " + ";".join(pairs))
-    except Exception as exc:  # pragma: no cover - metadata is best effort
-        logger.warning("[memoir-docx] provenance stamp skipped: %s", exc)
+    except Exception as exc:
+        # NOT best-effort any more, 2026-08-19. Silently shipping a
+        # document whose reviewed evidence carries no provenance produces
+        # exactly the artifact this lane was built to stop being: prose
+        # that cannot be traced to the story it came from. If evidence is
+        # present and cannot be stamped, the export fails loudly.
+        logger.error("[memoir-docx] provenance stamp FAILED: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail="reviewed evidence could not be stamped with its "
+                   "provenance — export refused")
 
 
-def _captured_story_sections_of(req: "MemoirExportRequest") -> List["MemoirSection"]:
-    """The server-harvested captured-story sections in this request.
+def _server_evidence_sections_of(req: "MemoirExportRequest") -> List["MemoirSection"]:
+    """The server-harvested evidence sections in this request.
 
-    Identified by the reserved id namespace, which only the server may
-    use -- client sections wearing it are stripped before the harvest is
-    appended, so anything left here is genuinely server-authored.
+    Both lanes: reviewed captured stories and operator-approved Travel
+    Document stories. Identified by the reserved id namespaces, which
+    only the server may use -- client sections wearing either are
+    stripped before the harvests are appended, so anything left here is
+    genuinely server-authored.
+
+    Renamed from `_captured_story_sections_of` on 2026-08-19: it matched
+    `captured_stories*` only, so a draft export lost every approved trip
+    story as well.
     """
-    return [s for s in (req.sections or [])
-            if str(getattr(s, "id", "") or "").startswith(
-                _RESERVED_STORY_SECTION_PREFIX)]
+    return [s for s in (req.sections or []) if _is_server_evidence_section(s)]
 
 
-def _render_captured_stories_into_draft(doc, req: "MemoirExportRequest") -> None:
-    """Render reviewed captured stories into a DRAFT-state document.
+def _render_evidence_into_draft(doc, req: "MemoirExportRequest") -> None:
+    """Render server-owned evidence into a DRAFT-state document.
 
-    WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01 Commit 3 follow-up
-    (2026-08-19).
+    WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01 (2026-08-19).
 
     The draft builders render `req.prose` and ignore `req.sections`
-    entirely -- which was correct while sections were purely the threads
-    view of the same content. It stopped being correct when the server
-    began APPENDING captured stories as sections: a narrator exporting in
-    draft state got a memoir with every reviewed story silently missing,
+    entirely -- correct while sections were purely the threads view of
+    the same content, and wrong once the server began APPENDING evidence
+    as sections. A narrator exporting in draft state got a memoir with
+    every reviewed story and every approved trip story silently missing,
     while the same narrator in threads state got all of them. Same data,
     same review, two different documents.
 
     Rendered AFTER the operator's prose, under their own headings, so the
-    operator's authored narrative keeps its shape and the narrator's own
-    words follow it -- clearly sourced rather than woven in.
+    authored narrative keeps its shape and the sourced evidence follows
+    it rather than being woven in.
     """
-    sections = _captured_story_sections_of(req)
-    if not sections:
-        return
-    for sec in sections:
+    for sec in _server_evidence_sections_of(req):
         h = doc.add_heading(sec.label, level=1)
         try:
             h.runs[0].font.color.rgb = _DARK_BROWN
@@ -521,6 +586,46 @@ def _render_captured_stories_into_draft(doc, req: "MemoirExportRequest") -> None
             pass
         for item in (sec.items or []):
             doc.add_paragraph(item)
+        doc.add_paragraph()  # spacer
+
+
+def _render_evidence_into_bilingual_draft(doc, req: "MemoirExportRequest",
+                                          translated: "MemoirExportRequest") -> None:
+    """Render server-owned evidence ONCE PER LANGUAGE in a bilingual draft.
+
+    The first cut called the monolingual renderer here, so a bilingual
+    document showed the narrator's own words in the source language only
+    -- while every surrounding paragraph appeared in both. A bilingual
+    memoir exists so a Spanish-reading grandchild can read it; the one
+    part they most need is the narrator speaking.
+
+    Pairing is BY SECTION ID and BY ITEM INDEX, matching how the prose
+    above is paired. A translated section that is missing, or shorter
+    than its source, simply contributes no Spanish line for that item --
+    it never shifts the pairing, which would attach one story's
+    translation to another's text.
+    """
+    tgt_by_id = {s.id: s for s in (translated.sections or [])}
+    for sec in _server_evidence_sections_of(req):
+        h = doc.add_heading(sec.label, level=1)
+        try:
+            h.runs[0].font.color.rgb = _DARK_BROWN
+        except Exception:
+            pass
+        tgt = tgt_by_id.get(sec.id)
+        tgt_items = list(getattr(tgt, "items", None) or [])
+        for idx, item in enumerate(sec.items or []):
+            doc.add_paragraph(item)
+            rendered = tgt_items[idx] if idx < len(tgt_items) else ""
+            # Only when the translation actually differs. When the
+            # service is unavailable it passes the source text through,
+            # and printing the same sentence twice is worse than
+            # printing it once.
+            if rendered and rendered != item:
+                tp = doc.add_paragraph(rendered)
+                if tp.runs:
+                    tp.runs[0].font.italic = True
+                    tp.runs[0].font.color.rgb = _WARM_GREY
         doc.add_paragraph()  # spacer
 
 
@@ -637,7 +742,7 @@ def _build_draft_docx(
             doc.add_paragraph()  # spacer
 
     # Reviewed captured stories, after the operator's own prose. 2026-08-19.
-    _render_captured_stories_into_draft(doc, req)
+    _render_evidence_into_draft(doc, req)
 
     # Append photo section at end of draft (no per-section matching in pure prose)
     # Only include photos not already displayed via section matching
@@ -815,11 +920,10 @@ def _build_draft_docx_bilingual(
                     tp.runs[0].font.color.rgb = _WARM_GREY
         doc.add_paragraph()  # spacer
 
-    # Reviewed captured stories reach the BILINGUAL draft too. They are
-    # the narrator's own words and are rendered from the source request,
-    # so they appear once and are not double-rendered per language.
-    # 2026-08-19.
-    _render_captured_stories_into_draft(doc, req)
+    # Server-owned evidence reaches the BILINGUAL draft in BOTH
+    # languages -- see `_render_evidence_into_bilingual_draft` for why
+    # source-only was the wrong answer. 2026-08-19.
+    _render_evidence_into_bilingual_draft(doc, req, translated)
 
     if req.attached_photos:
         doc.add_page_break()
@@ -853,6 +957,20 @@ _MEMOIR_ERA_ORDER = [
 #: contain a chapter of "captured stories" that no review ever cleared,
 #: indistinguishable in the finished document from ones that were.
 _RESERVED_STORY_SECTION_PREFIX = "captured_stories"
+
+#: Every section id namespace the SERVER owns. Both lanes are harvested
+#: server-side and review-gated -- captured stories by `review_status`,
+#: trip stories by the operator's explicit `include_in_memoir` -- so a
+#: client section wearing either prefix would appear in the finished
+#: document as cleared evidence beside the real thing, and could collide
+#: with a server section id (the bilingual builder keys by id, last wins).
+#: `trip_stories` was missing from this defence until 2026-08-19.
+_RESERVED_SECTION_PREFIXES = ("captured_stories", "trip_stories")
+
+
+def _is_server_evidence_section(section: Any) -> bool:
+    sid = str(getattr(section, "id", "") or "")
+    return sid.startswith(_RESERVED_SECTION_PREFIXES)
 
 
 def _story_source_digest(candidate_id: str) -> str:
@@ -936,6 +1054,7 @@ def _captured_story_sections(person_id: str) -> Tuple[List[MemoirSection], str]:
             label=label,
             items=[r["transcript"] for r in rows],
             sources=[_story_source_digest(r["id"]) for r in rows],
+            languages=[r.get("language") or "en" for r in rows],
         )
 
     sections: List[MemoirSection] = []
@@ -954,41 +1073,61 @@ def _captured_story_sections(person_id: str) -> Tuple[List[MemoirSection], str]:
     return sections, "read"
 
 
-def _trip_story_sections(person_id: str) -> List[MemoirSection]:
+def _trip_note_source_digest(note_id: str) -> str:
+    """Provenance for one approved trip note, from its durable id.
+
+    Trip notes DO have a stable id (`trip_location_notes.id`), so their
+    provenance is real rather than invented -- the earlier position that
+    they must carry none was over-cautious. The digest is namespaced
+    apart from story candidates so the two lanes can never collide.
+    """
+    return hashlib.sha256(
+        f"tripnote:{note_id}".encode("utf-8")).hexdigest()[:12]
+
+
+def _trip_story_sections(person_id: str) -> Tuple[List[MemoirSection], str]:
     """Harvest APPROVED Travel Doc trip stories into memoir sections.
 
-    WO-MEMOIR-TRIP-STORY-LANE-01 (2026-07-27). Travel Doc modal turns
-    are captured to trip_location_notes (source_surface=
-    travel_doc_modal) and are deliberately NEVER written to the
-    narrator's life-story archive -- that boundary is the two-surface
-    rule of 2026-07-09, locked by tests/test_modal_archive_boundary.py.
-    Rebuilding an archive bridge would resurrect
-    BUG-MODAL-TURNS-ARCHIVED-AS-LIFE-STORY-01, where operator workspace
-    chatter came back to the narrator as their own life.
+    WO-MEMOIR-TRIP-STORY-LANE-01 (2026-07-27). Travel Doc modal turns are
+    captured to trip_location_notes (source_surface=travel_doc_modal) and
+    are deliberately NEVER written to the narrator's life-story archive --
+    the two-surface rule of 2026-07-09, locked by
+    tests/test_modal_archive_boundary.py. This lane is the sanctioned way
+    trip material reaches the memoir: a DB read, gated on the operator's
+    explicit include_in_memoir=1, rendered as its own clearly-sourced
+    section. It performs no archive write of any kind.
 
-    This lane is the sanctioned way trip material reaches the memoir:
-    a DB read, gated on the operator's explicit include_in_memoir=1,
-    rendered as its own clearly-sourced section. It performs no archive
-    write of any kind. Notes the operator has not promoted never appear;
-    hidden=1 rows are already excluded by location_notes_list. The trip
-    DOCX export path is untouched.
+    ── IT NO LONGER FAILS OPEN, 2026-08-19 ─────────────────────────────
 
-    Never raises -- memoir export must not fail because trip rows are
-    unreadable."""
-    # Trips are a default-OFF surface. If the operator has not enabled
-    # them, trip material does not appear in the memoir either.
+    This returned a bare list and swallowed every failure: an unreadable
+    trip list produced `[]`, and a single unreadable trip was `continue`d
+    past. Both produced a memoir that LOOKED complete while missing
+    approved material, which a family cannot detect -- they simply never
+    see the chapter.
+
+    It now returns `(sections, status)`:
+
+        read           every requested trip was read
+        not_attempted  the trips feature is off for this deployment
+        unavailable    the trip list itself could not be read
+        partial        some trips read, at least one did not
+
+    `partial` is the one worth having separately: it is the case that
+    used to be silently `continue`d, and it is the case where the
+    document is most convincingly wrong.
+    """
     if os.getenv("HORNELORE_TRIPS", "0").strip().lower() not in (
         "1", "true", "yes", "on",
     ):
-        return []
+        return [], "not_attempted"
     try:
         from ..services import trip_repository as _tr
         trips = _tr.trip_list(person_id)
     except Exception as exc:
         logger.warning("[memoir-docx] trip harvest failed: %s", exc)
-        return []
+        return [], "unavailable"
     if not trips:
-        return []
+        return [], "read"
 
     def _order(t: Dict[str, Any]):
         """Dated trips in chronological order, undated ones after."""
@@ -996,6 +1135,7 @@ def _trip_story_sections(person_id: str) -> List[MemoirSection]:
         return (0, start) if start else (1, (t.get("created_at") or ""))
 
     sections: List[MemoirSection] = []
+    unreadable = 0
     for trip in sorted(trips, key=_order):
         trip_id = trip.get("id")
         if not trip_id:
@@ -1006,30 +1146,36 @@ def _trip_story_sections(person_id: str) -> List[MemoirSection]:
             logger.warning(
                 "[memoir-docx] trip notes unreadable trip=%s: %s",
                 trip_id, exc)
+            unreadable += 1
             continue
         items: List[str] = []
+        digests: List[str] = []
+        languages: List[str] = []
+        seen_notes: set = set()
         for n in notes:
             if not n.get("include_in_memoir"):
                 continue          # unapproved never reaches the memoir
+            note_id = n.get("id")
+            if not note_id or note_id in seen_notes:
+                continue          # exactly once, by durable note id
             text = (n.get("note_text") or "").strip()
             if not text:
                 continue
+            seen_notes.add(note_id)
             title = (n.get("note_title") or "").strip()
             items.append(f"{title} \u2014 {text}" if title else text)
+            digests.append(_trip_note_source_digest(note_id))
+            languages.append(str(n.get("language") or "").strip().lower() or "en")
         if not items:
             continue
-        label = "From your travels \u2014 " + (
-            (trip.get("title") or "").strip() or "A trip")
+        label = "From your travels \u2014 " + str(
+            trip.get("title") or "").strip() or "From your travels"
         sections.append(MemoirSection(
-            id=f"trip_stories_{trip_id}", label=label, items=items))
-    return sections
+            id=f"trip_stories_{trip_id}", label=label, items=items,
+            sources=digests, languages=languages))
 
+    return sections, ("partial" if unreadable else "read")
 
-# WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 (Phase 5.5): strict
-# filename sanitizer, mirroring the trips.py export_docx allowlist.
-# ASCII letters/digits/underscore/hyphen/dot only — everything else
-# (quotes, CR/LF, slashes, backslashes, control chars, non-ASCII)
-# becomes '_'. Deterministic fallback when nothing survives.
 def _safe_filename_component(raw: Optional[str], *, fallback: str, max_len: int = 80) -> str:
     cleaned = "".join(
         c if (c.isascii() and (c.isalnum() or c in "-_.")) else "_"
@@ -1084,66 +1230,61 @@ def api_memoir_export_docx(req: MemoirExportRequest):
 
     target_lang = _normalize_target_lang(req)
 
-    # WO-MEMOIR-STORY-CANDIDATES-WIRE-01: append operator-cleared
-    # captured stories (verbatim) as era-grouped sections. Only fires
-    # when the caller supplies person_id; pre-wire callers byte-stable.
+    # ── CLIENT SECTIONS ARE SANITISED UNCONDITIONALLY ──────────────────
+    #
+    # 2026-08-19. This block used to sit inside
+    # `if req.person_id and req.include_captured_stories`, so a caller
+    # could bypass the whole defence by omitting the narrator or setting
+    # `include_captured_stories=false` -- and then send sections wearing
+    # `captured_stories_*` or `trip_stories_*` ids, carrying forged
+    # `sources` digests, which the artifact would present as reviewed
+    # evidence with server provenance. A sanitiser you can switch off by
+    # asking for less is not a sanitiser.
+    #
+    # Both reserved namespaces are stripped, and every client-supplied
+    # `sources`/`languages` array is discarded, on EVERY request. Client
+    # CONTENT is untouched: operator-authored prose is the editing
+    # surface doing its job and is passed through exactly as sent.
+    _client_sections = [
+        s.model_copy(update={"sources": [], "languages": []})
+        if hasattr(s, "model_copy") else s
+        for s in (req.sections or [])
+        if not _is_server_evidence_section(s)
+    ]
+    _spoofed = len(req.sections or []) - len(_client_sections)
+    if _spoofed:
+        logger.warning(
+            "[memoir-docx] dropped %d client section(s) using a reserved "
+            "%r id namespace — server evidence is harvested and "
+            "review-gated, never accepted from the wire",
+            _spoofed, _RESERVED_SECTION_PREFIXES)
+    req = req.model_copy(update={"sections": _client_sections}) \
+        if hasattr(req, "model_copy") else req
+    if not hasattr(req, "model_copy"):
+        req.sections = _client_sections
+
+    # ── AUTHORITATIVE LANES: READ, OR REFUSE ───────────────────────────
+    #
+    # Each requested lane reports read / empty / not_attempted / partial /
+    # unavailable. `partial` and `unavailable` REFUSE the export.
+    #
+    # The alternative -- exporting what was readable -- produces a
+    # document that looks complete and is not, and the one person who
+    # could notice is the narrator, who will never see the chapter that
+    # is missing. A refusal is recoverable; a plausible gap is not.
+    _server_sections: List[MemoirSection] = []
+    _lane_status: Dict[str, str] = {}
+
     if req.person_id and req.include_captured_stories:
-        # ── RESERVED IDS ARE THE SERVER'S ───────────────────────────────
-        #
-        # 2026-08-19. Client sections are operator-authored prose and are
-        # legitimate -- the editing surface is supposed to send them. But
-        # a client section wearing a `captured_stories*` id would appear
-        # in the finished document as reviewed narrator evidence, beside
-        # and indistinguishable from the real thing, and could also
-        # duplicate a server section by colliding with its id (the
-        # bilingual builder keys sections by id, last one wins).
-        #
-        # So the reserved namespace is stripped from the client payload
-        # before the server's own sections are appended. Nothing else the
-        # client sent is touched.
-        # A client may not supply provenance either. `sources` is a
-        # SERVER claim about which reviewed candidate a paragraph came
-        # from; accepting it from the wire would let a caller stamp
-        # forged digests onto arbitrary prose and have the artifact
-        # assert it was reviewed evidence. Client sections are rebuilt
-        # with `sources=[]` -- their content is kept exactly as sent.
-        _client_sections = [
-            s.model_copy(update={"sources": []})
-            if hasattr(s, "model_copy") else s
-            for s in (req.sections or [])
-            if not str(getattr(s, "id", "") or "").startswith(
-                _RESERVED_STORY_SECTION_PREFIX)
-        ]
-        _spoofed = len(req.sections or []) - len(_client_sections)
-        if _spoofed:
-            logger.warning(
-                "[memoir-docx] dropped %d client section(s) using the "
-                "reserved %r id namespace — captured stories are "
-                "server-harvested and review-gated",
-                _spoofed, _RESERVED_STORY_SECTION_PREFIX)
-
         _story_sections, _story_status = _captured_story_sections(req.person_id)
-
-        # ── AN UNREADABLE LANE MUST NOT LOOK LIKE AN EMPTY ONE ──────────
-        #
-        # The harvest used to swallow every failure into `return []`, so
-        # a database outage produced a memoir missing every approved
-        # story, logged at WARNING and otherwise indistinguishable from a
-        # complete document. A family cannot tell that a chapter is
-        # absent; they simply never see it.
+        _lane_status["captured_stories"] = _story_status
         if _story_status != "read":
             raise HTTPException(
                 status_code=503,
-                detail=("reviewed stories could not be read — export "
+                detail=("reviewed stories could not be read (%s) — export "
                         "refused rather than produce a memoir that looks "
-                        "complete"))
-
-        if _spoofed or _story_sections:
-            req = req.model_copy(update={
-                "sections": _client_sections + _story_sections,
-            }) if hasattr(req, "model_copy") else req
-            if not hasattr(req, "model_copy"):
-                req.sections = _client_sections + _story_sections
+                        "complete" % _story_status))
+        _server_sections += _story_sections
         if _story_sections:
             logger.info(
                 "[memoir-docx] captured stories appended: %d section(s), "
@@ -1153,24 +1294,44 @@ def api_memoir_export_docx(req: MemoirExportRequest):
                 "y" if sum(len(s.items) for s in _story_sections) == 1 else "ies",
             )
 
-    # WO-MEMOIR-TRIP-STORY-LANE-01: append APPROVED Travel Doc trip
-    # stories as their own sections. DB read only -- this adds no
-    # archive write, and no travel_doc_modal turn enters the narrator's
-    # life-story archive as a result of it.
     if req.person_id and req.include_trip_stories:
-        _trip_sections = _trip_story_sections(req.person_id)
+        _trip_sections, _trip_status = _trip_story_sections(req.person_id)
+        _lane_status["trip_stories"] = _trip_status
+        # `not_attempted` is the trips feature being off for this
+        # deployment, which is a configuration answer rather than a
+        # failure, so it does not refuse.
+        if _trip_status in ("partial", "unavailable"):
+            raise HTTPException(
+                status_code=503,
+                detail=("approved trip stories could not be fully read (%s) "
+                        "— export refused rather than produce a memoir that "
+                        "looks complete" % _trip_status))
+        _server_sections += _trip_sections
         if _trip_sections:
-            req = req.model_copy(update={
-                "sections": list(req.sections) + _trip_sections,
-            }) if hasattr(req, "model_copy") else req
-            if not hasattr(req, "model_copy"):
-                req.sections = list(req.sections) + _trip_sections
             logger.info(
-                "[memoir-docx] trip stories appended: %d section(s), "
-                "%d note(s)",
+                "[memoir-docx] trip stories appended: %d section(s), %d note(s)",
                 len(_trip_sections),
-                sum(len(s.items) for s in _trip_sections),
-            )
+                sum(len(s.items) for s in _trip_sections))
+
+    if _server_sections:
+        # One digest per item, checked rather than assumed. A short or
+        # long `sources` array means the positional provenance mapping
+        # would attribute a paragraph to the wrong candidate, which is
+        # worse than having none.
+        for sec in _server_sections:
+            if len(sec.sources) != len(sec.items):
+                logger.error(
+                    "[memoir-docx] provenance misaligned section=%s items=%d "
+                    "sources=%d", sec.id, len(sec.items), len(sec.sources))
+                raise HTTPException(
+                    status_code=500,
+                    detail="server evidence provenance is misaligned — "
+                           "export refused")
+        req = req.model_copy(update={
+            "sections": list(req.sections) + _server_sections,
+        }) if hasattr(req, "model_copy") else req
+        if not hasattr(req, "model_copy"):
+            req.sections = list(req.sections) + _server_sections
 
     logger.info(
         "[memoir-docx] export narrator=%s state=%s src=%s tgt=%s sections=%d photos=%d prose_len=%d",
@@ -1204,6 +1365,7 @@ def api_memoir_export_docx(req: MemoirExportRequest):
     elif target_lang == "es":
         # Translate first, then render with Spanish chrome.
         translated = _translate_request_content(req, "es")
+        _assert_translation_covered(req, translated, "es")
         if req.memoir_state == "draft":
             docx_bytes = _build_draft_docx(
                 translated, render_lang="es", resolved_photos=resolved_photos)

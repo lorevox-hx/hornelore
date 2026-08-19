@@ -211,7 +211,10 @@ class ProvenanceIsServerOnly(_Base):
         src = _read(Path(_me.__file__))
         i = src.index("_client_sections = [")
         window = src[i:i + 600]
-        self.assertIn('update={"sources": []}', window)
+        # The update also clears `languages` now; assert the property
+        # rather than the exact literal.
+        self.assertIn('update={"sources": []', window)
+        self.assertIn("_is_server_evidence_section(s)", window)
 
     def test_only_reserved_sections_carry_digests(self):
         cid = self._story("Reviewed and placed.")
