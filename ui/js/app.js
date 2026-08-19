@@ -3853,6 +3853,28 @@ async function lvxSwitchNarratorSafe(pid){
     // that survive narrator switch.
   } catch (_) {}
   try {
+    // ── WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01 Commit 2, 2026-08-19
+    //
+    // The server chronology projection is narrator-scoped data and was
+    // NOT being cleared here, though the focus above was. It is written
+    // in exactly two places (`_hydrateChronologyFromServer`) and read by
+    // `story-evidence.js`, which never checks whose it is.
+    //
+    // So if hydration for narrator B failed, 404'd, or was overtaken by a
+    // rapid switch, narrator A's approved / provisional / unplaced story
+    // counts stayed on screen under B's name. The generation guard in the
+    // fetch prevents writing the WRONG payload; nothing evicted the stale
+    // one already in memory.
+    //
+    // Cleared immediately, before the new narrator's fetch is issued, so
+    // the window where one narrator's life is displayed under another's
+    // name does not exist. An empty projection reads as "could not be
+    // read" via `laneReadable()`, which is the honest state until B's own
+    // data arrives.
+    state.chronologyProjection = null;
+    state.chronologyAccordion.payload = null;
+  } catch (_) {}
+  try {
     state.kawa = state.kawa || {};
     state.kawa.segmentList     = [];
     state.kawa.activeSegmentId = null;

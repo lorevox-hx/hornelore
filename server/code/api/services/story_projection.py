@@ -172,14 +172,36 @@ def canonical_eras(values: Optional[Sequence[str]]) -> List[str]:
 
 
 def _placement_for(row: Dict[str, Any]) -> str:
-    """Where this story's date came from, reported and never guessed."""
+    """Where this story's date came from, reported and never guessed.
+
+    ── ONE DEFINITION OF UNPLACED, SERVER AND BROWSER ──────────────────
+
+    Corrected 2026-08-19 (WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01
+    Commit 2). This function used to accept a year OR an era:
+
+        if not row.get("estimated_year_low") and not (row.get("era_candidates") or []):
+            return PLACEMENT_UNPLACED
+
+    while the browser required an era (`story-evidence.js`: a row is
+    placed only when it has an era AND a non-unplaced placement). A
+    year-only placement was therefore PLACED on the server and UNPLACED
+    on the Life Map, so the review panel could say "0 unplaced" while the
+    map said "1 not yet placed in any era" -- two readers, one column,
+    two answers, which is the exact thing this module was created to end.
+
+    The era is the one that survives, because it is the one that can be
+    true. The Life Map is drawn in eras; a story with a year and no era
+    has nowhere to be drawn, so calling it placed is a claim no surface
+    can honour. The year is not lost -- it stays on the row as data, and
+    `placement_source` still records who supplied it.
+    """
     source = str(row.get("placement_source") or "unknown").strip()
     placement = _SOURCE_TO_PLACEMENT.get(source, PLACEMENT_UNPLACED)
     if placement == PLACEMENT_UNPLACED:
         return PLACEMENT_UNPLACED
     # A recorded provenance with nothing to show for it is still unplaced.
     # This catches a row whose placement was set and later cleared.
-    if not row.get("estimated_year_low") and not (row.get("era_candidates") or []):
+    if not _era_of(row):
         return PLACEMENT_UNPLACED
     return placement
 
@@ -374,11 +396,29 @@ def grounding_context(
         if current and (excerpt.casefold() in current or current in excerpt.casefold()):
             # The turn being composed right now is not history.
             continue
+        # ── AN UNPLACED STORY CARRIES NO DATE INTO THE PROMPT ───────────
+        #
+        # Corrected 2026-08-19. `era` and `year` were forwarded verbatim
+        # and `placement` was shipped beside them and read by nobody:
+        # `_approved_story_block` renders `(year)` else `(era)`, and the
+        # recall block does `year or era`. So a story whose placement was
+        # never made -- a machine era candidate, a DOB-derived guess --
+        # was spoken back to the narrator with a date as though an
+        # operator had set it. TRUTH 2 of this module says unknown
+        # placement is not called stated; the consumers could not honour
+        # that because the payload made it optional to.
+        #
+        # Withholding here is the fix rather than patching each consumer,
+        # because a consumer that has to remember is one that eventually
+        # forgets. The story still reaches Lori in full; only the claim
+        # about WHEN it happened is withheld, and only when nobody made
+        # it.
+        _placed = item.get("placement") != PLACEMENT_UNPLACED
         approved.append({
             "id": item["id"],
             "text": _clip_to_boundary(excerpt, max_chars),
-            "era": item.get("era"),
-            "year": item.get("year"),
+            "era": item.get("era") if _placed else None,
+            "year": item.get("year") if _placed else None,
             "placement": item.get("placement"),
         })
         if len(approved) >= max_stories:

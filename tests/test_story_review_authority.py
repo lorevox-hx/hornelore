@@ -362,13 +362,49 @@ class TheFiveTruths(_Base):
         self.assertEqual(self._row(cid)["placement_source"], "unknown")
 
     def test_placement_is_reported_from_its_recorded_source(self):
+        """NARROWED 2026-08-19 (WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01
+        Commit 2). This test asserted:
+
+            _db.story_candidate_review_apply(
+                cid, self.narrator, 1, placement_source="narrator_stated",
+                estimated_year_low=1962)
+            assertEqual(items[0]["placement"], "stated")
+
+        -- a YEAR with no era counting as placed. That was the server's
+        definition and the browser's was different: `story-evidence.js`
+        files a story under an era or under UNPLACED, so a year-only row
+        was `stated` in the review panel's count and `unplaced` on the
+        Life Map. One column, two readers, two answers.
+
+        The era is the definition that survives, because it is the one a
+        surface can honour: the Life Map is drawn in eras and a year alone
+        has nowhere to go. Deriving an era from the year is the
+        derivation this lane exists to stop.
+
+        Nothing is lost that was true. `placement_source` still reports
+        who supplied it and the year is still on the row -- so this test
+        now asserts BOTH halves: the source is reported faithfully, and a
+        year without an era is honestly unplaced.
+        """
         cid = self._story()
         _db.story_candidate_review_apply(
             cid, self.narrator, 1, placement_source="narrator_stated",
             estimated_year_low=1962)
-        self.assertEqual(
-            story_projection.project_stories(self.narrator).items[0]["placement"],
-            "stated")
+        item = story_projection.project_stories(self.narrator).items[0]
+        self.assertEqual(item["placement_source"], "narrator_stated")
+        self.assertEqual(item["year"], 1962)
+        self.assertEqual(item["placement"], "unplaced")
+
+    def test_a_recorded_source_with_an_era_is_reported_as_placed(self):
+        """The other half, so the narrowing above did not simply make
+        `placement` always read `unplaced`."""
+        cid = self._story()
+        _db.story_candidate_review_apply(
+            cid, self.narrator, 1, placement_source="narrator_stated",
+            estimated_year_low=1962, era_candidates=["coming_of_age"])
+        item = story_projection.project_stories(self.narrator).items[0]
+        self.assertEqual(item["placement"], "stated")
+        self.assertEqual(item["era"], "coming_of_age")
 
     def test_a_recorded_source_with_nothing_to_show_is_still_unplaced(self):
         cid = self._story()

@@ -709,7 +709,12 @@
       var SE = window.LorevoxStoryEvidence;
       if (!SE) return "";
       var t = SE.totals();
-      if (t.status === "unavailable") {
+      /* CORRECTED 2026-08-19: this tested only the literal "unavailable",
+         so "not_loaded" and "not_attempted" fell through to the zero
+         branch below and rendered as "this narrator has no stories".
+         Any status that is not "read" means we cannot say. */
+      if (typeof SE.laneReadable === "function" ? !SE.laneReadable()
+                                                : t.status !== "read") {
         return " · reviewed stories could not be read";
       }
       if (!t.total) return "";

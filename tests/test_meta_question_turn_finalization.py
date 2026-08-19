@@ -192,8 +192,15 @@ class MetaQuestionFinalizationTest(unittest.TestCase):
         the fix; repairing the mode handoff is separate work with five
         other branches on the same seam.
         """
-        for banned in ("row_ids_out",
-                       "_persisted_turn_row_id",
+        # NARROWED 2026-08-19 (WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01
+        # Commit 2). `row_ids_out` was in this tuple. The finaliser now
+        # captures it into a LOCAL to bind a preserved story to the rows
+        # it came from -- provenance, granting no eligibility. The
+        # property that actually holds the hooks out is that neither row
+        # id reaches `params`, which is the only channel either hook
+        # reads, and that is still asserted here. See
+        # `test_row_ids_are_captured_locally_and_never_routed_to_params`.
+        for banned in ("_persisted_turn_row_id",
                        "_persisted_user_turn_row_id",
                        "_archive_event_persisted"):
             self.assertNotIn(
@@ -644,11 +651,35 @@ class DeterministicFinaliserContractTest(unittest.TestCase):
         a real assignment. That trap has fired repeatedly in this
         repository; here the explanation and the guard sit in the same
         file, so it was guaranteed."""
+        # NARROWED 2026-08-19 (WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01
+        # Commit 2). `row_ids_out` was in this tuple. The finaliser now
+        # captures it into a LOCAL to bind a preserved story to the rows
+        # it came from -- provenance, granting no eligibility. The
+        # property that actually holds the hooks out is that neither row
+        # id reaches `params`, which is the only channel either hook
+        # reads, and that is still asserted here. See
+        # `test_row_ids_are_captured_locally_and_never_routed_to_params`.
         for forbidden in ("_persisted_turn_row_id",
                           "_persisted_user_turn_row_id",
-                          "_archive_event_persisted",
-                          "row_ids_out"):
+                          "_archive_event_persisted"):
             self.assertNotIn(forbidden, self.body, forbidden)
+
+    def test_row_ids_are_captured_locally_and_never_routed_to_params(self):
+        """The narrowed half of the contract, asserted positively.
+
+        Capturing the ids is now allowed; ROUTING them to `params` is not,
+        because `params` is the only thing either completed-turn hook
+        reads. A test that merely banned the words would have to be
+        deleted to let the bind exist -- this one keeps the guarantee and
+        names the mechanism.
+        """
+        self.assertIn("row_ids_out", self.body,
+                      "the finaliser should capture its row ids for the bind")
+        self.assertIn("story_candidate_bind_turn_rows", self.body)
+        for hook_key in ("_persisted_turn_row_id",
+                         "_persisted_user_turn_row_id"):
+            self.assertNotIn(f'params["{hook_key}"]', self.body)
+            self.assertNotIn(f"params['{hook_key}']", self.body)
 
     def test_it_writes_each_thing_exactly_once(self):
         self.assertEqual(1, self.calls.count("persist_turn_transaction"))
@@ -764,10 +795,11 @@ class AllDeterministicBranchesFinalizeTest(unittest.TestCase):
         for mode in self.MODES:
             with self.subTest(mode=mode):
                 body = _effective_body(mode)
+                # `row_ids_out` left this tuple on 2026-08-19; see
+                # `test_row_ids_are_captured_locally_and_never_routed_to_params`.
                 for forbidden in ("_persisted_turn_row_id",
                                   "_persisted_user_turn_row_id",
-                                  "_archive_event_persisted",
-                                  "row_ids_out"):
+                                  "_archive_event_persisted"):
                     self.assertNotIn(forbidden, body, f"{mode}: {forbidden}")
 
     def test_each_branch_passes_its_own_mode_to_the_finaliser(self):

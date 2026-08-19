@@ -291,19 +291,37 @@ async def _finalize_deterministic_turn(
     `_archive_event_persisted`. Five branches each independently
     remembering not to set them is a guarantee that survives exactly
     until the next person adds a sixth branch by copying a fifth. Here it
-    is structural: this function never captures `row_ids_out` and never
-    writes those keys, and one test asserts that over this function's own
-    AST. Deterministic turns therefore stay extraction-ineligible and
-    trip-placement-ineligible, per R3 Phase 1A, and they will stay that
-    way without anyone having to remember.
+    is structural: this function never writes those keys, and one test
+    asserts that over this function's own AST. Deterministic turns
+    therefore stay extraction-ineligible and trip-placement-ineligible,
+    per R3 Phase 1A, and they will stay that way without anyone having to
+    remember.
 
-    Do NOT add row-id plumbing here to "complete" it. Reinstating those
+    Do NOT add PARAMS row-id plumbing here to "complete" it. Writing those
     keys fires an extraction generation and a trip conversation link
     against Lori's own deterministic answer -- which is precisely what the
     first cut of the meta_question repair did on 2026-08-01 and what the
     2026-08-03 correction removed. That contract changes only when the
     effective-mode handoff is repaired and a deliberate decision is made
     about which deterministic modes are extraction-eligible.
+
+    ── AMENDED 2026-08-19, and the distinction is the whole point ───────
+
+    The two sentences above read, until this date:
+
+        "this function never captures `row_ids_out` and never writes
+         those keys"
+        "Do NOT add row-id plumbing here"
+
+    `row_ids_out` IS captured now, into a local. The prohibition was
+    always really about `params`, and the earlier wording conflated the
+    mechanism with the channel: both hooks read `params`, so a LOCAL row
+    id cannot reach either of them. What changed is that a story
+    preserved from a turn which then resolves deterministically can now
+    record where it came from; before, those stories were the ones left
+    permanently unlinked. The eligibility contract is untouched, and the
+    test that guards it has been narrowed to the claim that still holds
+    rather than deleted.
 
     `archive=False` is offered for a branch whose reply must not enter the
     life story. No branch passes it today; it exists so that decision can
@@ -313,7 +331,24 @@ async def _finalize_deterministic_turn(
     if meta:
         turn_meta.update(meta)
 
-    # ONE user turn and ONE assistant turn. No `row_ids_out` -- see above.
+    # ONE user turn and ONE assistant turn.
+    #
+    # ── WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01 Commit 2, 2026-08-19 ──
+    #
+    # `row_ids_out` IS captured now, into a LOCAL dict, and the docstring
+    # above is amended rather than contradicted: what it forbids is
+    # putting `_persisted_turn_row_id` / `_persisted_user_turn_row_id`
+    # into `params`, because THAT is what makes a deterministic turn
+    # extraction- and trip-placement-eligible. Both hooks read those keys
+    # from `params`; neither can see a local.
+    #
+    # The reason to capture them is narrow. A story can be preserved from
+    # a narrator turn that then resolves deterministically -- a witness
+    # turn, a correction, an age recall -- and before this, those stories
+    # were the ones that stayed permanently unlinked, because only the
+    # ordinary model path bound anything. The link is provenance; it
+    # grants no eligibility of any kind.
+    _det_row_ids: Dict[str, Any] = {}
     # WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 Phase 1 (2026-08-09). The
     # classification was already made at `:1247` and carried in `params`
     # at `:1263` -- it is passed on rather than re-derived, because the
@@ -322,7 +357,7 @@ async def _finalize_deterministic_turn(
     # `person_id` is already a parameter of this function and is already
     # passed to the archive write below. It is passed to the DB row too,
     # so the two stop disagreeing about who spoke.
-    persist_turn_transaction(
+    _det_assistant_row_id = persist_turn_transaction(
         conv_id=conv_id,
         user_message=user_text,
         assistant_message=assistant_text,
@@ -330,7 +365,49 @@ async def _finalize_deterministic_turn(
         meta=turn_meta,
         is_system_directive=bool(params.get("_is_system_directive")),
         person_id=person_id,
+        row_ids_out=_det_row_ids,
     )
+
+    # Link a story preserved earlier in this turn to the rows just
+    # committed. Same guarded, write-once bind as the model path; same
+    # posture on failure -- loud, and never fatal to a turn the narrator
+    # has already been answered on.
+    _det_cid = ""
+    try:
+        _det_cid = (params.get("_story_candidate_id") or "").strip()
+    except Exception:
+        _det_cid = ""
+    if _det_cid:
+        try:
+            from ..db import story_candidate_bind_turn_rows as _det_bind
+            _det_bound = _det_bind(
+                _det_cid,
+                narrator_id=person_id or "",
+                conversation_id=conv_id,
+                user_turn_row_id=_det_row_ids.get("user_row_id"),
+                assistant_turn_row_id=_det_assistant_row_id,
+            )
+            logger.info(
+                "[story-trigger][bind] candidate=%s user_row=%s "
+                "assistant_row=%s conv=%s narrator=%s turn_mode=%s "
+                "already_bound=%s",
+                _det_bound["candidate_id"],
+                _det_bound["source_user_turn_row_id"],
+                _det_bound["completed_assistant_turn_row_id"],
+                conv_id, person_id, turn_mode,
+                _det_bound.get("already_bound"),
+            )
+        except Exception as _det_bind_exc:
+            logger.warning(
+                "[story-trigger][bind] REFUSED candidate=%s conv=%s "
+                "narrator=%s turn_mode=%s reason=%s detail=%s — the story "
+                "stays preserved and unlinked; the turn is unaffected",
+                _det_cid, conv_id, person_id, turn_mode,
+                getattr(_det_bind_exc, "reason", None)
+                or _det_bind_exc.__class__.__name__,
+                getattr(_det_bind_exc, "detail", "")
+                or str(_det_bind_exc)[:160],
+            )
 
     # The modal-surface gate is RECOMPUTED here rather than inherited.
     # The user-turn gate sits ~1,500 lines up and an early return can

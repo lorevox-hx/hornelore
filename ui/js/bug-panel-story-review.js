@@ -590,6 +590,93 @@
     ]);
   }
 
+  // ── Machine extraction, shown and never applied ─────────────────────
+  //
+  // WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01 Commit 2 (2026-08-19).
+  //
+  // The detail endpoint has returned an `extraction` block since Commit 1
+  // and nothing rendered it, so the one place an operator could weigh a
+  // story against machine evidence showed only the transcript.
+  //
+  // READ-ONLY BY CONSTRUCTION. There is no control in here: no button, no
+  // input, no handler. An operator reads it and then makes their own
+  // decision with the editor and action buttons below. A one-click
+  // "accept these fields" would move unreviewed machine output into a
+  // narrator's life story with no human judgement in between, which is
+  // the failure this whole lane exists to prevent -- and the heading says
+  // "provisional" for the same reason.
+  //
+  // FOUR DISTINCT STATES, because collapsing any two of them misleads:
+  //
+  //   not_linked   this story has no committed-turn link, so we cannot
+  //                even look. Nothing is claimed about extraction.
+  //   none         we looked; this turn produced no extraction result.
+  //   unavailable  the lookup itself failed. NOT the same as `none` --
+  //                reporting an outage as "found nothing" invites the
+  //                operator to conclude the extractor is broken.
+  //   succeeded    items to read.
+  function renderExtraction(d) {
+    const x = (d && d.extraction) || null;
+    if (!x) return null;
+    const status = String(x.status || '').trim() || 'none';
+
+    const head = el('div', { class: 'story-extraction-head' },
+                    ['Machine extraction — provisional']);
+    const bits = [head];
+
+    if (status === 'not_linked') {
+      bits.push(el('div', { class: 'story-extraction-note' }, [
+        'This story is not linked to a saved turn, so its extraction '
+        + 'cannot be looked up.']));
+      return el('div', { class: 'story-extraction' }, bits);
+    }
+    if (status === 'unavailable') {
+      bits.push(el('div', { class: 'story-extraction-note' }, [
+        'The extraction record could not be read just now — this is not '
+        + 'the same as finding nothing.']));
+      return el('div', { class: 'story-extraction' }, bits);
+    }
+    if (status === 'none') {
+      bits.push(el('div', { class: 'story-extraction-note' }, [
+        'No extraction was recorded for this turn.']));
+      return el('div', { class: 'story-extraction' }, bits);
+    }
+
+    const meta = [status];
+    if (x.method) meta.push('method ' + x.method);
+    if (typeof x.item_count === 'number') meta.push(x.item_count + ' item(s)');
+    bits.push(el('div', { class: 'story-extraction-note' }, [meta.join(' · ')]));
+
+    const items = Array.isArray(x.items) ? x.items : [];
+    if (items.length) {
+      bits.push(el('ul', { class: 'story-extraction-items' },
+        items.map(function (it) {
+          const path = (it && (it.fieldPath || it.field_path)) || '(no field)';
+          const value = (it && it.value !== undefined && it.value !== null)
+            ? String(it.value) : '';
+          const conf = (it && it.confidence) ? ' · ' + it.confidence : '';
+          return el('li', {}, [path + ': ' + value + conf]);
+        })));
+    }
+
+    const clar = Array.isArray(x.clarification_required)
+      ? x.clarification_required : [];
+    if (clar.length) {
+      bits.push(el('div', { class: 'story-extraction-note' }, [
+        'Needs clarification before it could be trusted:']));
+      bits.push(el('ul', { class: 'story-extraction-items' },
+        clar.map(function (c) {
+          const path = (c && (c.fieldPath || c.field_path)) || '(no field)';
+          const why = (c && (c.reason || c.confirmation_reason)) || '';
+          return el('li', {}, [path + (why ? ' — ' + why : '')]);
+        })));
+    }
+
+    bits.push(el('div', { class: 'story-extraction-note' }, [
+      'Nothing here has been applied. Use the controls below to decide.']));
+    return el('div', { class: 'story-extraction' }, bits);
+  }
+
   function renderDetail(item) {
     if (_state.openId !== item.id) return null;
     if (_state.detailBusy) return el('div', { class: 'story-detail' }, ['Loading…']);
@@ -605,6 +692,8 @@
         'audio captured' + (d.audio_duration_sec ? ' (' + d.audio_duration_sec + 's)' : ''),
       ]));
     }
+    const extraction = renderExtraction(d);
+    if (extraction) bits.push(extraction);
     bits.push(renderEditor(d));
     bits.push(renderActions(d));
     const conflict = renderConflict(d);

@@ -7515,21 +7515,69 @@ def story_candidate_bind_turn_rows(
                     f"{which}_unexpected_role",
                     f"expected={expected_role!r} got={row['role']!r}")
 
-        con.execute(
+        # ── PROVENANCE IS WRITE-ONCE ────────────────────────────────────
+        #
+        # Corrected 2026-08-19 after review. The first cut issued an
+        # unconditional UPDATE, so a second bind silently REPLACED the
+        # first -- and a provenance record that can be reassigned is not
+        # provenance, it is a mutable opinion about where a story came
+        # from. A late retry, a duplicated frame or a future second caller
+        # could quietly re-point a story at a different turn, and nothing
+        # afterwards could tell that had happened.
+        #
+        # The guard is in the WHERE clause and the verdict is `rowcount`,
+        # not the read above: between that SELECT and this UPDATE another
+        # writer may have bound the same candidate. A check that trusts
+        # its own earlier read is a race with a comment on it.
+        cur = con.execute(
             """
             UPDATE story_candidates
                SET source_user_turn_row_id = ?,
                    completed_assistant_turn_row_id = ?
-             WHERE id = ? AND narrator_id = ?;
+             WHERE id = ? AND narrator_id = ?
+               AND source_user_turn_row_id IS NULL
+               AND completed_assistant_turn_row_id IS NULL;
             """,
             (user_rid, asst_rid, cid, nid),
         )
-        con.commit()
-        return {
-            "candidate_id": cid,
-            "source_user_turn_row_id": user_rid,
-            "completed_assistant_turn_row_id": asst_rid,
-        }
+        if cur.rowcount == 1:
+            con.commit()
+            return {
+                "candidate_id": cid,
+                "source_user_turn_row_id": user_rid,
+                "completed_assistant_turn_row_id": asst_rid,
+                "already_bound": False,
+            }
+
+        # Nothing moved, so this candidate is already bound (or half
+        # bound). Re-reading decides which, and only an EXACT match of
+        # both fields is success -- a repeat of the same bind is a
+        # harmless retry, while a different pair is the reassignment this
+        # guard exists to refuse.
+        con.rollback()
+        existing = con.execute(
+            "SELECT source_user_turn_row_id, completed_assistant_turn_row_id "
+            "FROM story_candidates WHERE id=? AND narrator_id=?;",
+            (cid, nid),
+        ).fetchone()
+        if existing is None:
+            raise StoryTurnBindRejected("candidate_not_found", cid)
+        have_user = existing["source_user_turn_row_id"]
+        have_asst = existing["completed_assistant_turn_row_id"]
+        if have_user == user_rid and have_asst == asst_rid:
+            return {
+                "candidate_id": cid,
+                "source_user_turn_row_id": have_user,
+                "completed_assistant_turn_row_id": have_asst,
+                "already_bound": True,
+            }
+        # A half-populated pair is refused too. It cannot arise from this
+        # function, which writes both or neither -- so it means something
+        # else has written one column, and guessing the other would be
+        # inventing provenance.
+        raise StoryTurnBindRejected(
+            "already_bound_to_a_different_turn",
+            f"existing=({have_user},{have_asst}) proposed=({user_rid},{asst_rid})")
     except sqlite3.Error:
         # BUG-DBLOCK-01 hygiene parity with every other writer here.
         try:

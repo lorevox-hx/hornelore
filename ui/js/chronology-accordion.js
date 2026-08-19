@@ -115,7 +115,14 @@ function crRenderAccordion(data) {
     const SE = window.LorevoxStoryEvidence;
     if (SE) {
       const t = SE.totals();
-      if (t.status === "unavailable") {
+      // CORRECTED 2026-08-19 (WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01
+      // Commit 2). This tested the literal "unavailable" only, so
+      // "not_loaded" and "not_attempted" — the latter is what a narrator
+      // with no date of birth gets, because the server never queries the
+      // lane for them — fell through and rendered as an empty narrator.
+      // Only "read" is an answer.
+      if (typeof SE.laneReadable === "function" ? !SE.laneReadable()
+                                                : t.status !== "read") {
         html += '<div class="cr-story-banner cr-story-unavailable">'
              +  'Reviewed stories could not be read.</div>';
       } else if (t.total) {

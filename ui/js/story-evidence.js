@@ -62,6 +62,22 @@
     return lane.status || "not_loaded";
   }
 
+  /* Can this lane's numbers be believed?
+
+     Added 2026-08-19. Consumers were testing `status === "unavailable"`
+     and treating EVERYTHING else as an answer -- so "not_loaded" (the
+     projection has not arrived, or the fetch was dropped) and
+     "not_attempted" (the server never queried the lane, which is what a
+     narrator with no date of birth gets) both rendered as a confident
+     zero. A narrator with fifty captured stories and no DOB therefore
+     showed nothing at all, indistinguishable from one who has never told
+     a story.
+
+     Only "read" is an answer. Everything else means we cannot say. */
+  function laneReadable() {
+    return laneStatus() === "read";
+  }
+
   function items() {
     var proj = _projection();
     if (!proj) return [];
@@ -78,9 +94,18 @@
   function byEra() {
     var out = {};
     items().forEach(function (row) {
-      var era = "";
-      var eras = row && row.era_candidates;
-      if (Array.isArray(eras) && eras.length) era = String(eras[0] || "").trim();
+      /* CORRECTED 2026-08-19 (WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01
+         Commit 2). This read `row.era_candidates[0]` -- the machine's
+         shortlist -- and decided placement here. The server decides it
+         now, in `story_projection._placement_for`, and nulls `era` when
+         a story is unplaced. Reading the server's answer is what makes
+         "unplaced" mean ONE thing: the review panel's count and this
+         grouping can no longer disagree, which they did.
+
+         The retired line was:
+             var eras = row && row.era_candidates;
+             if (Array.isArray(eras) && eras.length) era = String(eras[0] || "").trim(); */
+      var era = String((row && row.era) || "").trim();
       var placed = !!era && row.placement && row.placement !== "unplaced";
       var key = placed ? era : UNPLACED;
       if (!out[key]) out[key] = { approved: [], provisional: [] };
@@ -141,6 +166,7 @@
   window.LorevoxStoryEvidence = {
     UNPLACED_KEY: UNPLACED,
     laneStatus: laneStatus,
+    laneReadable: laneReadable,
     items: items,
     byEra: byEra,
     countsForEra: countsForEra,
