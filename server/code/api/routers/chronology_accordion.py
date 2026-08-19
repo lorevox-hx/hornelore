@@ -260,6 +260,44 @@ def _year_of(value: Any) -> Optional[int]:
     return int(text[:4])
 
 
+def _lane_counts(*, world, personal, personal_derived, ghost,
+                 timeline_events, story_evidence, trip_days) -> Dict[str, Any]:
+    """Per-lane totals, with `null` where the count is not known.
+
+    WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01 Commit 3 (2026-08-19).
+
+    This block used to be seven `len()` calls. `_sources_block` already
+    distinguished `read` / `unavailable` / `not_attempted`, but the counts
+    beside it did not: a lane whose query raised produced
+    `story_evidence: 0`, byte-identical to a narrator who has never told
+    a story. Anything reading `lane_counts` alone -- and the browser's own
+    diagnostic log did, with `?? 0` -- turned an outage into a fact about
+    a person's life.
+
+    `None` serialises to JSON `null`, which a renderer cannot mistake for
+    zero the way it can mistake `0`. The three DOB-derived lanes are
+    passed as plain lists (or None when they were never computed, which
+    is the no-DOB case); the three independently-readable lanes are
+    passed as `_LaneResult` so their status decides.
+    """
+    def _n(value):
+        if value is None:
+            return None
+        if isinstance(value, _LaneResult):
+            return len(value.items) if value.status == "read" else None
+        return len(value)
+
+    return {
+        "world": _n(world),
+        "personal": _n(personal),
+        "personal_derived": _n(personal_derived),
+        "ghost": _n(ghost),
+        "timeline_events": _n(timeline_events),
+        "story_evidence": _n(story_evidence),
+        "trip_days": _n(trip_days),
+    }
+
+
 def _collect_timeline_events(person_id: str) -> _LaneResult:
     """Confirmed timeline events. Status is reported, never assumed."""
     try:
@@ -969,9 +1007,32 @@ def build_chronology_accordion_payload(
 
     if not birth_year:
         # A narrator who has not given a date of birth has no derivable
-        # chronology YET. That is a STATE, not a failure, and the Life
-        # Map must be able to tell the difference. `today` still appears:
-        # current life does not depend on a birth year.
+        # HISTORICAL chronology yet. That is a STATE, not a failure, and
+        # the Life Map must be able to tell the difference. `today` still
+        # appears: current life does not depend on a birth year.
+        #
+        # ── BUT THREE LANES DO NOT DEPEND ON DOB, 2026-08-19 ─────────
+        #
+        # This branch used to return `story_evidence: []`, `trip_days: []`
+        # and `timeline_events: []` with `_sources_block(dob_ok=False)`,
+        # so the lanes were never even queried. Captured stories, confirmed
+        # timeline events and trip days are all readable without a birth
+        # year -- only ERA DERIVATION needs one.
+        #
+        # The cost was borne by exactly the narrator least able to
+        # afford it: someone brand new, who has told Lori several stories
+        # and not yet given a date of birth, saw an empty Life Map that
+        # was indistinguishable from having said nothing at all. Their
+        # stories existed, were preserved, and were invisible.
+        #
+        # So the lanes are read and reported truthfully. What is withheld
+        # is only what cannot be computed: decades stay empty, periods
+        # stay at `today`, and every story is UNPLACED until an operator
+        # supplies a canonical era. Unplaced is an honest state; absent
+        # was not.
+        no_dob_timeline = _collect_timeline_events(person_id)
+        no_dob_stories = _collect_story_evidence(person_id)
+        no_dob_trips = _collect_trip_days(person_id)
         return {
             "person_id": person_id,
             "decades": [],
@@ -982,10 +1043,21 @@ def build_chronology_accordion_payload(
             "seed_ready": False,
             "reason": "no_dob",
             "error": "no_dob",
-            "timeline_events": [],
-            "story_evidence": [],
-            "trip_days": [],
-            "sources": _sources_block(dob_ok=False),
+            "timeline_events": no_dob_timeline.items,
+            "story_evidence": no_dob_stories.items,
+            "trip_days": no_dob_trips.items,
+            "sources": _sources_block(
+                dob_ok=False,
+                timeline_events=no_dob_timeline,
+                story_evidence=no_dob_stories,
+                trip_days=no_dob_trips,
+            ),
+            "lane_counts": _lane_counts(
+                world=None, personal=None, personal_derived=None, ghost=None,
+                timeline_events=no_dob_timeline,
+                story_evidence=no_dob_stories,
+                trip_days=no_dob_trips,
+            ),
         }
 
     # Build periods (prefer spine if available, else scaffold).
@@ -1193,15 +1265,15 @@ def build_chronology_accordion_payload(
             story_evidence=story_evidence_lane,
             trip_days=trip_days_lane,
         ),
-        "lane_counts": {
-            "world": len(lane_a),
-            "personal": len(lane_b_with_spine),
-            "personal_derived": len(spine_items),
-            "ghost": len(lane_c),
-            "timeline_events": len(timeline_events),
-            "story_evidence": len(story_evidence),
-            "trip_days": len(trip_days),
-        },
+        "lane_counts": _lane_counts(
+            world=lane_a,
+            personal=lane_b_with_spine,
+            personal_derived=spine_items,
+            ghost=lane_c,
+            timeline_events=timeline_events_lane,
+            story_evidence=story_evidence_lane,
+            trip_days=trip_days_lane,
+        ),
     }
 
 

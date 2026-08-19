@@ -101,7 +101,16 @@ class _WireCase(unittest.TestCase):
         except OSError:
             pass
 
-    def _seed_story(self, transcript, status, eras=None):
+    def _seed_story(self, transcript, status, eras=None, placed=True):
+        """Seed one story.
+
+        `placed` (2026-08-19) records a placement_source alongside the
+        era, because an era candidate ALONE is no longer a placement --
+        it is a machine guess, and the memoir stopped filing stories
+        under guessed eras in Commit 3. Tests about era GROUPING need a
+        real placement; the unplaced-group test passes `placed=False` and
+        gets the honest unplaced behaviour.
+        """
         cid = str(uuid.uuid4())
         _db.story_candidate_insert(
             cid, self.person_id, transcript,
@@ -110,20 +119,28 @@ class _WireCase(unittest.TestCase):
         )
         con = sqlite3.connect(str(self.db_path))
         con.execute(
-            "UPDATE story_candidates SET review_status=? WHERE id=?;",
-            (status, cid))
+            "UPDATE story_candidates SET review_status=?, placement_source=? "
+            "WHERE id=?;",
+            (status, "operator_set" if (placed and eras) else "unknown", cid))
         con.commit()
         con.close()
         return cid
 
 
 class HarvestTest(_WireCase):
+    # REPOINTED 2026-08-19 (WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01
+    # Commit 3). `_captured_story_sections` now returns
+    # `(sections, status)`. The status is the point: the harvest used to
+    # swallow every failure into `return []`, so an unreadable story lane
+    # produced a memoir missing every approved story and looked complete.
+    # These tests unpack it rather than being relaxed, and the two that
+    # asserted `== []` on a failure now assert what the failure IS.
     def test_promoted_and_memoir_only_export(self):
         self._seed_story("The mastoidectomy story, in her own words.",
                          "promoted", ["early_school_years"])
         self._seed_story("The Munich arrival story.",
                          "memoir_only", ["later_years"])
-        sections = memoir_export._captured_story_sections(self.person_id)
+        sections, _status = memoir_export._captured_story_sections(self.person_id)
         all_items = [i for s in sections for i in s.items]
         self.assertIn("The mastoidectomy story, in her own words.", all_items)
         self.assertIn("The Munich arrival story.", all_items)
@@ -134,40 +151,47 @@ class HarvestTest(_WireCase):
         self._seed_story("Not yet reviewed.", "unreviewed", ["today"])
         self._seed_story("Rejected story.", "discarded", ["today"])
         self._seed_story("Mid review.", "in_review", ["today"])
-        sections = memoir_export._captured_story_sections(self.person_id)
+        sections, _status = memoir_export._captured_story_sections(self.person_id)
         self.assertEqual(sections, [])
 
     def test_era_grouping_in_spine_order(self):
         self._seed_story("Later story.", "promoted", ["later_years"])
         self._seed_story("Childhood story.", "promoted", ["earliest_years"])
-        sections = memoir_export._captured_story_sections(self.person_id)
+        sections, _status = memoir_export._captured_story_sections(self.person_id)
         self.assertEqual(len(sections), 2)
         # Spine order, not insertion order.
         self.assertIn("earliest", sections[0].id)
         self.assertIn("later", sections[1].id)
 
     def test_unplaced_story_lands_in_trailing_group(self):
-        self._seed_story("No era on this one.", "promoted", [])
-        sections = memoir_export._captured_story_sections(self.person_id)
+        self._seed_story("No era on this one.", "promoted", [],
+                         placed=False)
+        sections, _status = memoir_export._captured_story_sections(self.person_id)
         self.assertEqual(len(sections), 1)
         self.assertEqual(sections[0].id, "captured_stories_more")
 
     def test_transcripts_are_verbatim(self):
         raw = "We drove an' drove — Dad said \"almost there\" for two hours."
         self._seed_story(raw, "promoted", ["adolescence"])
-        sections = memoir_export._captured_story_sections(self.person_id)
+        sections, _status = memoir_export._captured_story_sections(self.person_id)
         self.assertEqual(sections[0].items, [raw])  # no rewriting, ever
 
     def test_no_person_no_sections(self):
-        sections = memoir_export._captured_story_sections(str(uuid.uuid4()))
+        sections, status = memoir_export._captured_story_sections(str(uuid.uuid4()))
         self.assertEqual(sections, [])
+        self.assertEqual(status, "read",
+                         "an unknown narrator is EMPTY, not unreadable")
 
     def test_harvest_never_raises(self):
         # Point at a broken DB path — must return [] not raise.
         _db.DB_PATH = Path("/nonexistent/nope.sqlite3")
         try:
-            self.assertEqual(
-                memoir_export._captured_story_sections(self.person_id), [])
+            sections, status = memoir_export._captured_story_sections(
+                self.person_id)
+            self.assertEqual(sections, [])
+            # It still never raises -- but it no longer PRETENDS the
+            # narrator simply has no stories.
+            self.assertNotEqual(status, "read")
         finally:
             _db.DB_PATH = self.db_path
 

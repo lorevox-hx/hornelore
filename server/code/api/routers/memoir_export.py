@@ -30,11 +30,12 @@ WO-ML-04 / Phase 4B (2026-05-07) — bilingual memoir export:
 
 from __future__ import annotations
 
+import hashlib
 import io
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -68,10 +69,18 @@ def _require_enabled() -> None:
 # ── Request models ─────────────────────────────────────────────────────────────
 
 class MemoirSection(BaseModel):
-    """A single named section with zero or more thread items."""
+    """A single named section with zero or more thread items.
+
+    `sources` (2026-08-19) carries one opaque provenance digest per item,
+    parallel to `items`. It is set only by the server's captured-story
+    harvest, is never rendered into the visible document, and never
+    contains a narrator id -- see `_story_source_digest`. Client sections
+    simply leave it empty.
+    """
     id: str
     label: str
     items: List[str] = Field(default_factory=list)
+    sources: List[str] = Field(default_factory=list)
 
 
 class AttachedPhoto(BaseModel):
@@ -425,6 +434,37 @@ def _add_photo_to_doc(doc: Any, photo: AttachedPhoto, resolved: Optional[Path]) 
 
 # ── DOCX builders ──────────────────────────────────────────────────────────────
 
+def _stamp_source_provenance(doc, req: "MemoirExportRequest") -> None:
+    """Record which captured stories this document was built from.
+
+    WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01 Commit 3 (2026-08-19).
+
+    The audit found exported memoirs completely flat: once written, no
+    paragraph could be traced back to the story, turn or conversation it
+    came from, so nothing downstream could detect a duplicate or repair a
+    mistake. Provenance now travels with the artifact.
+
+    It is written to the document's `comments` core property -- metadata,
+    not a page -- so a family reading the memoir never sees it. The values
+    are opaque digests, never narrator ids; an operator matches a section
+    to its source by digesting the candidate id again.
+
+    Never raises: a memoir must not fail to export over its own metadata.
+    """
+    try:
+        digests = []
+        for sec in (req.sections or []):
+            for d in (getattr(sec, "sources", None) or []):
+                if d and d not in digests:
+                    digests.append(str(d))
+        if not digests:
+            return
+        doc.core_properties.comments = (
+            "lorevox-story-sources: " + ",".join(digests))
+    except Exception as exc:  # pragma: no cover - metadata is best effort
+        logger.warning("[memoir-docx] provenance stamp skipped: %s", exc)
+
+
 def _build_threads_docx(
     req: MemoirExportRequest,
     *,
@@ -441,6 +481,7 @@ def _build_threads_docx(
     """
     resolved_photos = resolved_photos or {}
     doc = Document()
+    _stamp_source_provenance(doc, req)
 
     # Title
     title_text = _chrome(render_lang, "threads_title").format(narrator=req.narrator_name)
@@ -501,6 +542,7 @@ def _build_draft_docx(
     (WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01)."""
     resolved_photos = resolved_photos or {}
     doc = Document()
+    _stamp_source_provenance(doc, req)
 
     title_text = _chrome(render_lang, "draft_title").format(narrator=req.narrator_name)
     title = doc.add_heading(title_text, level=0)
@@ -569,6 +611,7 @@ def _build_threads_docx_bilingual(
     """
     resolved_photos = resolved_photos or {}
     doc = Document()
+    _stamp_source_provenance(doc, req)
 
     # Bilingual title pairs — render both languages stacked.
     src_lang = (req.source_language or "en").strip().lower() or "en"
@@ -652,6 +695,7 @@ def _build_draft_docx_bilingual(
     paragraph the narrator wrote."""
     resolved_photos = resolved_photos or {}
     doc = Document()
+    _stamp_source_provenance(doc, req)
 
     src_lang = (req.source_language or "en").strip().lower() or "en"
     tgt_lang = (translated.target_language or "es").strip().lower() or "es"
@@ -735,58 +779,111 @@ _MEMOIR_ERA_ORDER = [
 ]
 
 
-def _captured_story_sections(person_id: str) -> List[MemoirSection]:
-    """Harvest operator-cleared story candidates into era-grouped
-    memoir sections. VERBATIM narrator transcripts — the whole point
-    of the story-preservation lane is the narrator's own words, so no
-    summarization, no rewriting. Era placement comes from the first
-    era_candidate; stories with no era land in a trailing group.
-    Never raises — memoir export must not fail because story rows are
-    unreadable."""
+#: Section ids this server OWNS. A client may send operator-authored
+#: sections freely -- that is the editing surface doing its job -- but it
+#: may not send one wearing a reserved id, because the memoir would then
+#: contain a chapter of "captured stories" that no review ever cleared,
+#: indistinguishable in the finished document from ones that were.
+_RESERVED_STORY_SECTION_PREFIX = "captured_stories"
+
+
+def _story_source_digest(candidate_id: str) -> str:
+    """A stable, non-identifying marker for one captured story.
+
+    A raw narrator UUID must not appear in a document a family reads, and
+    a memoir with no provenance at all cannot be traced back to the turn
+    it came from -- the audit found exported prose was completely flat.
+    A short digest of the candidate id is stable across exports, reveals
+    nothing on its face, and lets an operator match a paragraph to its
+    source by digesting the id again.
+    """
+    return hashlib.sha256(
+        f"story:{candidate_id}".encode("utf-8")).hexdigest()[:12]
+
+
+def _captured_story_sections(person_id: str) -> Tuple[List[MemoirSection], str]:
+    """Harvest reviewed story candidates into era-grouped memoir sections.
+
+    Rewritten 2026-08-19 (WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01
+    Commit 3). Returns `(sections, status)` where status is "read" or the
+    projection's own failure verdict, because the caller must be able to
+    tell an empty narrator from an unreadable one -- see the export route.
+
+    VERBATIM narrator transcripts. The whole point of the preservation
+    lane is the narrator's own words: no summarising, no rewriting.
+
+    ── WHAT CHANGED, AND WHY IT MATTERED ───────────────────────────────
+
+    This function used to read `story_candidate_list_for_memoir` and then
+    interpret `era_candidates[0]` itself:
+
+        era = eras[0] if eras else "_unplaced"
+
+    That is a second, independent reading of placement, and it disagreed
+    with the canonical one. `story_projection` had already decided that
+    an era candidate nobody confirmed is NOT a placement; the memoir filed
+    the story under it anyway. A machine guess became a chapter heading
+    in a document a family keeps, with nothing on the page to say it was
+    a guess.
+
+    Placement now comes from `story_projection.memoir_projection`, which
+    is the same service the Life Map, the chronology and Lori read. An
+    unplaced story -- including one with a year but no era -- goes to
+    "More stories", and no era is ever derived for it.
+
+    EACH ELIGIBLE CANDIDATE APPEARS EXACTLY ONCE, keyed by candidate id.
+    Deliberately NOT deduplicated by text: two tellings of the same
+    memory are two things the narrator said, and collapsing them would be
+    the system deciding which of a person's own words to discard.
+    """
     try:
-        from .. import db as _db
-        candidates = _db.story_candidate_list_for_memoir(person_id)
+        from ..services import story_projection as _sp
+        projection = _sp.memoir_projection(person_id)
     except Exception as exc:
         logger.warning("[memoir-docx] story harvest failed: %s", exc)
-        return []
-    if not candidates:
-        return []
+        return [], "unavailable"
+    if not projection.available:
+        return [], projection.status
+    if not projection.items:
+        return [], "read"
 
     try:
         from ..lv_eras import era_id_to_warm_label as _warm
     except Exception:
         _warm = lambda e: e  # noqa: E731
 
-    by_era: Dict[str, List[str]] = {}
-    for c in candidates:
-        transcript = (c.get("transcript") or "").strip()
-        if not transcript:
+    seen: set = set()
+    by_era: Dict[str, List[Dict[str, Any]]] = {}
+    for row in projection.items:
+        cid = row.get("id")
+        if not cid or cid in seen:
             continue
-        eras = c.get("era_candidates") or []
-        if isinstance(eras, str):
-            try:
-                import json as _json
-                eras = _json.loads(eras)
-            except Exception:
-                eras = []
-        era = eras[0] if eras else "_unplaced"
-        by_era.setdefault(era, []).append(transcript)
+        seen.add(cid)
+        era = row.get("era") or "_unplaced"
+        by_era.setdefault(era, []).append(row)
+
+    def _section(era_key: str, label: str, rows: List[Dict[str, Any]]):
+        return MemoirSection(
+            id=f"{_RESERVED_STORY_SECTION_PREFIX}_{era_key}",
+            label=label,
+            items=[r["transcript"] for r in rows],
+            sources=[_story_source_digest(r["id"]) for r in rows],
+        )
 
     sections: List[MemoirSection] = []
     ordered = [e for e in _MEMOIR_ERA_ORDER if e in by_era]
-    ordered += [e for e in by_era if e not in _MEMOIR_ERA_ORDER and e != "_unplaced"]
+    ordered += [e for e in by_era
+                if e not in _MEMOIR_ERA_ORDER and e != "_unplaced"]
     for era in ordered:
         try:
             label = "In their own words — " + str(_warm(era))
         except Exception:
             label = "In their own words"
-        sections.append(MemoirSection(
-            id=f"captured_stories_{era}", label=label, items=by_era[era]))
+        sections.append(_section(era, label, by_era[era]))
     if "_unplaced" in by_era:
-        sections.append(MemoirSection(
-            id="captured_stories_more", label="In their own words — More stories",
-            items=by_era["_unplaced"]))
-    return sections
+        sections.append(_section(
+            "more", "In their own words — More stories", by_era["_unplaced"]))
+    return sections, "read"
 
 
 def _trip_story_sections(person_id: str) -> List[MemoirSection]:
@@ -923,13 +1020,55 @@ def api_memoir_export_docx(req: MemoirExportRequest):
     # captured stories (verbatim) as era-grouped sections. Only fires
     # when the caller supplies person_id; pre-wire callers byte-stable.
     if req.person_id and req.include_captured_stories:
-        _story_sections = _captured_story_sections(req.person_id)
-        if _story_sections:
+        # ── RESERVED IDS ARE THE SERVER'S ───────────────────────────────
+        #
+        # 2026-08-19. Client sections are operator-authored prose and are
+        # legitimate -- the editing surface is supposed to send them. But
+        # a client section wearing a `captured_stories*` id would appear
+        # in the finished document as reviewed narrator evidence, beside
+        # and indistinguishable from the real thing, and could also
+        # duplicate a server section by colliding with its id (the
+        # bilingual builder keys sections by id, last one wins).
+        #
+        # So the reserved namespace is stripped from the client payload
+        # before the server's own sections are appended. Nothing else the
+        # client sent is touched.
+        _client_sections = [
+            s for s in (req.sections or [])
+            if not str(getattr(s, "id", "") or "").startswith(
+                _RESERVED_STORY_SECTION_PREFIX)
+        ]
+        _spoofed = len(req.sections or []) - len(_client_sections)
+        if _spoofed:
+            logger.warning(
+                "[memoir-docx] dropped %d client section(s) using the "
+                "reserved %r id namespace — captured stories are "
+                "server-harvested and review-gated",
+                _spoofed, _RESERVED_STORY_SECTION_PREFIX)
+
+        _story_sections, _story_status = _captured_story_sections(req.person_id)
+
+        # ── AN UNREADABLE LANE MUST NOT LOOK LIKE AN EMPTY ONE ──────────
+        #
+        # The harvest used to swallow every failure into `return []`, so
+        # a database outage produced a memoir missing every approved
+        # story, logged at WARNING and otherwise indistinguishable from a
+        # complete document. A family cannot tell that a chapter is
+        # absent; they simply never see it.
+        if _story_status != "read":
+            raise HTTPException(
+                status_code=503,
+                detail=("reviewed stories could not be read — export "
+                        "refused rather than produce a memoir that looks "
+                        "complete"))
+
+        if _spoofed or _story_sections:
             req = req.model_copy(update={
-                "sections": list(req.sections) + _story_sections,
+                "sections": _client_sections + _story_sections,
             }) if hasattr(req, "model_copy") else req
             if not hasattr(req, "model_copy"):
-                req.sections = list(req.sections) + _story_sections
+                req.sections = _client_sections + _story_sections
+        if _story_sections:
             logger.info(
                 "[memoir-docx] captured stories appended: %d section(s), "
                 "%d stor%s",

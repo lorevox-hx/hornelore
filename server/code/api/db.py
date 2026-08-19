@@ -7478,6 +7478,25 @@ def story_candidate_bind_turn_rows(
 
     con = _connect()
     try:
+        # ── ONE TRANSACTION, WRITE LOCK FIRST ───────────────────────────
+        #
+        # Corrected 2026-08-19 after review. Validation used to run
+        # OUTSIDE any transaction: the turn rows were checked, and only
+        # then did the UPDATE begin. A turn deleted in that gap has
+        # already fired migration 0048's clearing trigger, so the bind
+        # that follows writes ids pointing at rows which no longer exist
+        # -- and the trigger has been and gone, so nothing cleans them up.
+        # The result is a dangling provenance record that looks exactly
+        # like a real one, which is the failure this whole lane is built
+        # to avoid.
+        #
+        # `BEGIN IMMEDIATE` takes the write lock before the first read, so
+        # validation and binding see one consistent database and no
+        # deletion can land between them. Same idiom as
+        # `story_candidate_review_apply`, and for the same reason: a
+        # deferred transaction would read, then upgrade, and lose a race
+        # it could not detect.
+        con.execute("BEGIN IMMEDIATE;")
         cand = con.execute(
             "SELECT id, narrator_id, conversation_id FROM story_candidates "
             "WHERE id=?;", (cid,),
@@ -7554,7 +7573,11 @@ def story_candidate_bind_turn_rows(
         # both fields is success -- a repeat of the same bind is a
         # harmless retry, while a different pair is the reassignment this
         # guard exists to refuse.
-        con.rollback()
+        #
+        # The read stays INSIDE the transaction. Rolling back first would
+        # release the write lock and re-read outside it, which is the same
+        # race in miniature: the answer could change between the failed
+        # UPDATE and the question about why it failed.
         existing = con.execute(
             "SELECT source_user_turn_row_id, completed_assistant_turn_row_id "
             "FROM story_candidates WHERE id=? AND narrator_id=?;",
@@ -7565,6 +7588,10 @@ def story_candidate_bind_turn_rows(
         have_user = existing["source_user_turn_row_id"]
         have_asst = existing["completed_assistant_turn_row_id"]
         if have_user == user_rid and have_asst == asst_rid:
+            # Nothing was written, so the transaction is closed by
+            # rollback rather than commit. Idempotent means idempotent:
+            # a retry must not even touch the row's timestamps.
+            con.rollback()
             return {
                 "candidate_id": cid,
                 "source_user_turn_row_id": have_user,
@@ -7578,8 +7605,24 @@ def story_candidate_bind_turn_rows(
         raise StoryTurnBindRejected(
             "already_bound_to_a_different_turn",
             f"existing=({have_user},{have_asst}) proposed=({user_rid},{asst_rid})")
-    except sqlite3.Error:
-        # BUG-DBLOCK-01 hygiene parity with every other writer here.
+    except Exception:
+        # BUG-DBLOCK-01 hygiene parity with every other writer here --
+        # widened from `sqlite3.Error` on 2026-08-19, because every
+        # refusal above now raises INSIDE an open write transaction.
+        #
+        # HONEST SCOPE OF THIS WIDENING, measured rather than assumed.
+        # An earlier version of this comment claimed that catching only
+        # SQLite errors would leave a rejected bind holding the lock and
+        # was "a deadlock source". That is wrong: `finally: con.close()`
+        # runs immediately, and a close on an open transaction both
+        # releases the lock and discards the uncommitted write --
+        # verified directly, not reasoned about. Mutation testing agrees;
+        # narrowing this handler kills nothing.
+        #
+        # It is kept anyway, as defence in depth and as documentation:
+        # relying on `close()` to undo a half-written provenance record
+        # is a guarantee of the sqlite3 module rather than of this
+        # function, and the rollback says out loud what must happen.
         try:
             con.rollback()
         except Exception:

@@ -3363,6 +3363,12 @@ async function createPersonFromForm(){
 let _chronoAbort = null;      // cancels the in-flight request on switch
 let _chronoInFlight = null;   // rapid-click dedup: one request per pid at a time
 
+/* A lane count of null means the lane could not be read, which is not the
+   same as a narrator having none of that thing. 2026-08-19. */
+function _laneCount(n) {
+  return (n === null || n === undefined) ? "unavailable" : String(n);
+}
+
 async function _hydrateChronologyFromServer(pid, gen) {
   if (!pid || typeof API === "undefined" || !API.CHRONOLOGY_ACCORDION) return;
 
@@ -3417,9 +3423,13 @@ async function _hydrateChronologyFromServer(pid, gen) {
     saveSpineLocal();
     console.log("[chronology] spine hydrated from server for " + pid +
                 " (periods=" + j.periods.length +
-                " events=" + (j.lane_counts?.timeline_events ?? 0) +
-                " stories=" + (j.lane_counts?.story_evidence ?? 0) +
-                " tripDays=" + (j.lane_counts?.trip_days ?? 0) + ")");
+                // `?? 0` turned an unreadable lane into a confident zero
+                // in the one place an operator looks when a lane is
+                // misbehaving. The server now sends null for a lane it
+                // could not read; render that as "unavailable". 2026-08-19.
+                " events=" + _laneCount(j.lane_counts?.timeline_events) +
+                " stories=" + _laneCount(j.lane_counts?.story_evidence) +
+                " tripDays=" + _laneCount(j.lane_counts?.trip_days) + ")");
   })();
 
   _chronoInFlight = { pid, promise: run };
@@ -3873,6 +3883,24 @@ async function lvxSwitchNarratorSafe(pid){
     // data arrives.
     state.chronologyProjection = null;
     state.chronologyAccordion.payload = null;
+    // ── AND THE SPINE, 2026-08-19 ───────────────────────────────────
+    //
+    // Clearing the projection alone was not enough. `life-map.js`
+    // renders its periods from `state.timeline.spine`, which is a
+    // SEPARATE narrator-scoped structure: hydrated from the server,
+    // restored from localStorage, and — failing both — derived in the
+    // browser from LV_ERAS plus a birth year.
+    //
+    // So if narrator B has no cached spine, no date of birth, or a
+    // hydration that fails, narrator A's periods stayed on screen under
+    // B's name. Same class of leak as the projection, one layer down.
+    //
+    // Cleared to null / false BEFORE B's load begins, so only B's own
+    // cache or server result can repopulate it. An absent spine renders
+    // as nothing rather than as somebody else's life.
+    state.timeline = state.timeline || {};
+    state.timeline.spine = null;
+    state.timeline.seedReady = false;
   } catch (_) {}
   try {
     state.kawa = state.kawa || {};

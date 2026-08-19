@@ -347,6 +347,83 @@ def _clip_to_boundary(text: str, max_chars: int) -> str:
     return trimmed + ellipsis
 
 
+class MemoirProjection(NamedTuple):
+    """Memoir-eligible stories, or an honest statement that we could not
+    look."""
+
+    status: str                      # "read" | whatever project_stories said
+    items: List[Dict[str, Any]]
+
+    @property
+    def available(self) -> bool:
+        return self.status == "read"
+
+
+def memoir_projection(narrator_id: str) -> MemoirProjection:
+    """The canonical memoir lane: eligible stories, placed or not.
+
+    WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01 Commit 3 (2026-08-19).
+
+    ── WHY THE MEMOIR STOPPED READING THE TABLE DIRECTLY ───────────────
+
+    `_captured_story_sections` used to call `story_candidate_list_for_memoir`
+    and then interpret `era_candidates[0]` for itself. That is a SECOND
+    reading of placement, and it disagreed with the first: the projection
+    had already decided that an era candidate nobody confirmed is not a
+    placement, while the memoir filed the story under that era anyway --
+    printing a machine guess as a chapter heading in a document families
+    keep. One story service now answers eligibility, placement, era and
+    identity for every surface, this one included.
+
+    Full transcripts, not the 280-character excerpt `project_stories`
+    carries for the chronology payload: the memoir is the one consumer
+    that needs the narrator's whole answer, and truncating a life story
+    to fit a UI budget would be the wrong trade in exactly the place it
+    matters most.
+
+    ELIGIBILITY IS NOT RE-DECIDED HERE. `memoir_eligible` comes from the
+    projection, which reads `STORY_MEMOIR_ELIGIBLE` -- `promoted` and
+    `memoir_only`. Unreviewed, in-review and discarded stories are absent
+    by construction, not by a filter this function applies and could
+    forget.
+    """
+    projection = project_stories(narrator_id)
+    if projection.status != "read":
+        # An outage is reported, never rendered as "this narrator has no
+        # stories". A memoir that silently omits every approved story
+        # looks complete and is not.
+        return MemoirProjection(projection.status, [])
+
+    try:
+        rows = {r["id"]: r for r in _db.story_candidate_list_for_memoir(narrator_id)}
+    except Exception as exc:
+        logger.warning("[story-projection] memoir transcripts unreadable: %s", exc)
+        return MemoirProjection("unavailable", [])
+
+    out: List[Dict[str, Any]] = []
+    for item in projection.items:
+        if not item.get("memoir_eligible"):
+            continue
+        row = rows.get(item.get("id")) or {}
+        transcript = str(row.get("transcript") or "").strip()
+        if not transcript:
+            continue
+        placed = item.get("placement") != PLACEMENT_UNPLACED
+        out.append({
+            "id": item.get("id"),
+            "transcript": transcript,
+            # Placement is the projection's answer, so a year-only or
+            # unknown placement arrives here as unplaced and the memoir
+            # cannot file it under a guessed era.
+            "placement": item.get("placement"),
+            "era": item.get("era") if placed else None,
+            "year": item.get("year") if placed else None,
+            "review_status": item.get("review_status"),
+            "created_at": item.get("created_at"),
+        })
+    return MemoirProjection("read", out)
+
+
 def grounding_context(
     narrator_id: str,
     *,

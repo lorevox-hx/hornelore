@@ -1873,10 +1873,22 @@
       return e.year && years.indexOf(e.year) >= 0;
     }).length;
 
-    (st.chronology.story_evidence || []).forEach(function (s) {
-      if (s.status === "approved") out.storiesApproved += 1;
-      else if (s.status === "provisional") out.storiesProvisional += 1;
-    });
+    // 2026-08-19: the counts are only an ANSWER when the lane was read.
+    // Counting an unread lane produced "0 approved · 0 provisional" --
+    // a statement about the narrator -- immediately above a provenance
+    // row saying the lane was unavailable. The panel contradicted itself,
+    // and the confident line was the one an operator reads first.
+    var storyLane = (st.chronology.sources || {}).story_evidence || {};
+    out.storiesReadable = (storyLane.status || "read") === "read";
+    if (out.storiesReadable) {
+      (st.chronology.story_evidence || []).forEach(function (s) {
+        if (s.status === "approved") out.storiesApproved += 1;
+        else if (s.status === "provisional") out.storiesProvisional += 1;
+      });
+    } else {
+      out.storiesApproved = null;
+      out.storiesProvisional = null;
+    }
     return out;
   }
 
@@ -4364,8 +4376,10 @@
 
     row("Confirmed events in these years", String(sum.nearbyEvents));
     row("Story evidence",
-        String(sum.storiesApproved) + " approved · " +
-        String(sum.storiesProvisional) + " provisional");
+        sum.storiesReadable === false
+          ? "unavailable — the reviewed-story lane could not be read"
+          : String(sum.storiesApproved) + " approved · " +
+            String(sum.storiesProvisional) + " provisional");
 
     // PROVENANCE AND STATUS, per lane, straight from the payload. This
     // is the row that makes an empty column readable: "read · 0" is an
