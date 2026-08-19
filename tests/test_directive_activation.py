@@ -135,11 +135,20 @@ class ActivationIsExecutable(unittest.TestCase):
             fatigue_score=80)
         # Mutually exclusive with the "everything on" state: a turn has
         # ONE role and ONE pass, so these need their own positive case.
+        # Some pairs cannot both hold: a turn has ONE role and ONE pass,
+        # identity mode excludes the pass directives, and full cognitive
+        # support excludes the variants. Each needs its own positive
+        # state. Naming them is better than loosening the sweep, which
+        # would stop proving the rest.
         exclusive = {
             "role_onboarding": _state(assistant_role="onboarding"),
             "role_interviewer": _state(assistant_role="interviewer"),
-            "pass_2b": _state(current_pass="pass2b"),
-            "profile_walk_pass1": _state(current_pass="pass1"),
+            "pass_2a": _state(current_pass="pass2a", identity_mode=False),
+            "pass_2b": _state(current_pass="pass2b", identity_mode=False),
+            "profile_walk_pass1": _state(current_pass="pass1",
+                                         identity_mode=False),
+            "cognitive_variant_set": _state(cognitive_mode="alongside",
+                                            cognitive_support_mode=False),
             "session_style_default_oral": _state(session_style=""),
         }
         for pid in dp.PREDICATES:
@@ -387,19 +396,39 @@ class MediaCountIsNotAnInViewSignal(unittest.TestCase):
 
 class VisualAffectMatchesTheComposerCondition(unittest.TestCase):
     def test_it_requires_a_baseline_and_a_reading(self):
-        self.assertTrue(dp.evaluate("visual_affect_present",
+        self.assertTrue(dp.evaluate("visual_affect_emits",
                                     _state(visual_baseline=True,
                                            visual_affect="reflective")))
-        self.assertFalse(dp.evaluate("visual_affect_present",
+        self.assertFalse(dp.evaluate("visual_affect_emits",
                                      _state(visual_affect="reflective")))
-        self.assertFalse(dp.evaluate("visual_affect_present",
+        self.assertFalse(dp.evaluate("visual_affect_emits",
                                      _state(visual_baseline=True)))
 
     def test_no_freshness_signal_is_invented(self):
-        """The payload carries none; claiming one would be a claim the
-        data does not support."""
         self.assertNotIn("visual_fresh", dp.TurnState._fields)
         self.assertNotIn("visual_affect_fresh", dp.PREDICATES)
+
+    def test_it_matches_actual_emission_not_the_outer_guard(self):
+        """`v_baseline and v_affect` is the OUTER guard. The inner ladder
+        emits for distressed/overwhelmed with eligible gaze, for
+        reflective/moved, or for gaze explicitly off -- and nothing else.
+        A neutral affect with gaze on screen renders no block."""
+        cases = [
+            ("neutral", True, False),      # passes the guard, emits nothing
+            ("neutral", None, False),
+            ("neutral", False, True),      # gaze explicitly off
+            ("reflective", True, True),
+            ("moved", None, True),
+            ("distressed", True, True),
+            ("distressed", False, True),   # falls to the gaze-off arm
+            ("overwhelmed", False, True),
+        ]
+        for affect, gaze, expected in cases:
+            with self.subTest(affect=affect, gaze=gaze):
+                st = _state(visual_baseline=True, visual_affect=affect,
+                            visual_gaze=gaze)
+                self.assertEqual(expected,
+                                 dp.evaluate("visual_affect_emits", st))
 
     def test_the_visual_claim_ban_holds_when_affect_is_absent(self):
         ban = da.family_for("no_visual_claims")
@@ -489,3 +518,102 @@ class OneAuthorityForTheVocabulary(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MutuallyExclusiveBranches(unittest.TestCase):
+    """The composer uses `if/elif`. Two arms can never both render.
+
+    Activating both would put a ten-topic questionnaire beside an
+    identity question on one turn -- two jobs at once and neither done.
+    """
+
+    def test_identity_mode_excludes_the_profile_seed_walk(self):
+        st = _state(current_pass="pass1", identity_mode=True,
+                    identity_complete=False)
+        active = {f.family_id for f in da.active_families(st)}
+        self.assertIn("identity_mode", active)
+        self.assertNotIn("profile_seed_walk", active)
+
+    def test_identity_mode_excludes_both_era_passes(self):
+        for p in ("pass2a", "pass2b"):
+            with self.subTest(current_pass=p):
+                st = _state(current_pass=p, identity_mode=True)
+                active = {f.family_id for f in da.active_families(st)}
+                self.assertIn("identity_mode", active)
+                self.assertNotIn(f"pass_{p[-2:]}", active)
+
+    def test_the_walk_remains_for_an_identity_complete_pass1_turn(self):
+        """The preserved path. The exclusion must not delete it."""
+        st = _state(current_pass="pass1", identity_mode=False,
+                    identity_complete=True)
+        active = {f.family_id for f in da.active_families(st)}
+        self.assertIn("profile_seed_walk", active)
+        self.assertNotIn("identity_mode", active)
+
+    def test_full_cognitive_support_excludes_the_variants(self):
+        st = _state(cognitive_support_mode=True, cognitive_mode="alongside")
+        active = {f.family_id for f in da.active_families(st)}
+        self.assertIn("cognitive_support", active)
+        self.assertNotIn("cognitive_variant", active)
+
+    def test_a_variant_renders_when_full_support_is_off(self):
+        st = _state(cognitive_mode="recognition")
+        active = {f.family_id for f in da.active_families(st)}
+        self.assertIn("cognitive_variant", active)
+        self.assertNotIn("cognitive_support", active)
+
+
+class UnknownRolesKeepCurrentBehaviour(unittest.TestCase):
+    """The composer treats anything but helper/onboarding as interviewer.
+
+    Preserving an unexpected value would make `active_families` return
+    nothing -- a silently empty prompt, worse than the behaviour it
+    replaces.
+    """
+
+    def test_an_unexpected_role_normalises_to_interviewer(self):
+        for weird in ("wizard", "", None, "INTERVIEWER", " helper "):
+            with self.subTest(role=weird):
+                st = _state(assistant_role=weird)
+                self.assertIn(st.role, ("interviewer", "helper"))
+                self.assertTrue(da.active_families(st),
+                                "an unknown role produced an empty prompt")
+
+    def test_an_unknown_role_gets_the_full_interviewer_path(self):
+        active = {f.family_id
+                  for f in da.active_families(_state(assistant_role="wizard"))}
+        self.assertIn("interview_core", active)
+        self.assertIn("no_visual_claims", active)
+
+
+class StyleGuidanceStaysDiagnosable(unittest.TestCase):
+    """companion and clear_direct guidance lives INSIDE the combined
+    capabilities-honesty block. It must not disappear into a family
+    described only as honesty."""
+
+    def test_the_active_style_is_exposed_in_diagnostics(self):
+        for style in ("companion", "clear_direct"):
+            with self.subTest(style=style):
+                st = _state(session_style=style, style_directive="honesty + s")
+                fam = [f for f in da.active_families(st)
+                       if f.family_id == "capabilities_honesty"]
+                self.assertEqual(1, len(fam))
+                self.assertEqual(style, fam[0].style)
+
+    def test_the_default_path_reports_no_operator_style(self):
+        """Reporting "oral_history" would imply a choice nobody made."""
+        st = _state(session_style="", style_directive="honesty only")
+        fam = [f for f in da.active_families(st)
+               if f.family_id == "capabilities_honesty"][0]
+        self.assertEqual("", fam.style)
+
+    def test_a_non_oral_style_suppresses_the_oral_posture(self):
+        st = _state(session_style="companion", style_directive="h")
+        active = {f.family_id for f in da.active_families(st)}
+        self.assertNotIn("oral_history_posture", active)
+        self.assertIn("capabilities_honesty", active)
+
+    def test_the_registry_declares_the_block_as_combined(self):
+        note = da.family_for("capabilities_honesty").note
+        self.assertIn("COMBINED", note)
+        self.assertIn("companion", note)

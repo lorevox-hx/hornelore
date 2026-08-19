@@ -92,6 +92,17 @@ class TurnState(NamedTuple):
     fatigue_score: int
 
 
+def _normalise_role(value) -> str:
+    """Anything that is not helper or onboarding IS the interviewer path.
+
+    Matching current behaviour is the behaviour-neutral choice; rejecting
+    an unknown role would be a new failure mode on a turn that works
+    today.
+    """
+    role = (str(value).strip().lower() if value is not None else "")
+    return role if role in ("helper", "onboarding") else "interviewer"
+
+
 def state_from_composer(*, assistant_role, current_pass, effective_pass,
                         current_era, current_mode, identity_mode,
                         identity_complete, identity_phase, session_style,
@@ -120,7 +131,12 @@ def state_from_composer(*, assistant_role, current_pass, effective_pass,
             return 0
 
     return TurnState(
-        role=_s(assistant_role) or "interviewer",
+        # The composer compares against "helper" and "onboarding" and
+        # treats EVERYTHING else as the standard interviewer path. An
+        # unexpected value preserved verbatim would make
+        # `active_families` return nothing -- a silent empty prompt,
+        # which is worse than the behaviour it replaces.
+        role=_normalise_role(assistant_role),
         current_pass=_s(current_pass),
         effective_pass=_s(effective_pass),
         current_era=_s(current_era),
@@ -176,16 +192,31 @@ def _profile_walk_pass1(s: TurnState) -> bool:
     decision about the pass1 -> pass2a promotion, which is product work,
     not a predicate.
     """
-    return s.current_pass == "pass1"
+    return s.current_pass == "pass1" and not s.identity_mode
 
 
-def _visual_affect_present(s: TurnState) -> bool:
-    """Exactly the composer's condition: `v_baseline and v_affect`.
+def _visual_affect_emits(s: TurnState) -> bool:
+    """True only when the composer would actually RENDER a visual block.
 
-    Not "freshness" -- there is no freshness signal in the payload, and
-    inventing one would be a claim the data does not support.
+    `v_baseline and v_affect` is the OUTER guard, not the condition. The
+    inner ladder emits for distressed/overwhelmed with eligible gaze, for
+    reflective/moved, or for gaze explicitly off-screen -- and for
+    nothing else. A neutral affect with gaze on screen passes the outer
+    guard and emits no block at all.
+
+    Reproducing the outer guard alone would mark the family active on
+    turns that render nothing, which is a diagnostic that lies about the
+    prompt.
     """
-    return bool(s.visual_baseline and s.visual_affect)
+    if not (s.visual_baseline and s.visual_affect):
+        return False
+    if s.visual_affect in ("distressed", "overwhelmed") and s.visual_gaze is not False:
+        return True
+    if s.visual_affect == "overwhelmed":
+        return True
+    if s.visual_affect in ("reflective", "moved"):
+        return True
+    return s.visual_gaze is False
 
 
 PREDICATES: Dict[str, Callable[[TurnState], bool]] = {
@@ -216,16 +247,26 @@ PREDICATES: Dict[str, Callable[[TurnState], bool]] = {
     "softened_state_active_and_not_parked":
         lambda s: bool(s.softened_state and not s.softened_parked),
     "identity_mode_active": lambda s: bool(s.identity_mode),
+    # ── MUTUALLY EXCLUSIVE WITH IDENTITY MODE ───────────────────────────
+    # The composer is `if identity_mode: ... elif not identity_mode: ...`,
+    # so the pass directives and identity collection can never both
+    # render. Activating both would put a ten-topic walk beside an
+    # identity question on the same turn -- two jobs at once, and neither
+    # done.
     "profile_walk_pass1": _profile_walk_pass1,
-    "pass_2a": lambda s: s.current_pass == "pass2a",
-    "pass_2b": lambda s: s.current_pass == "pass2b",
+    "pass_2a": lambda s: s.current_pass == "pass2a" and not s.identity_mode,
+    "pass_2b": lambda s: s.current_pass == "pass2b" and not s.identity_mode,
     "current_mode_set":
         lambda s: s.current_mode in ("recognition", "grounding", "light"),
     "cognitive_support_mode": lambda s: bool(s.cognitive_support_mode),
+    #: The composer is `if cognitive_support_mode: ... elif
+    #: cognitive_mode == ...`, so the full WO-10C block and the variant
+    #: wording are alternatives, never both.
     "cognitive_variant_set":
-        lambda s: s.cognitive_mode in ("recognition", "alongside"),
+        lambda s: (not s.cognitive_support_mode
+                   and s.cognitive_mode in ("recognition", "alongside")),
     "paired_interview": lambda s: bool(s.paired),
-    "visual_affect_present": _visual_affect_present,
+    "visual_affect_emits": _visual_affect_emits,
     "fatigue_elevated": lambda s: s.fatigue_score >= 50,
 }
 

@@ -188,13 +188,19 @@ _FAMILIES: List[DirectiveFamily] = [
        note="Losing it makes Lori address a named person as a stranger."),
 
     _f("capabilities_honesty", "lori-trust",
-       "honest answers about recording, camera and sensing",
+       "honest answers about recording, camera and sensing, PLUS the "
+       "operator-selected style modifier when one is set",
        "style_directive_present", SOURCE_RUNTIME, TIER_DISCIPLINE, True, 60,
-       note="MISMODELLED IN THE FIRST CUT as a non-default-style family. "
-            "`_emitStyleDirective` ALWAYS returns the capabilities-honesty "
-            "preamble (BUG-218) and appends a style suffix only when there "
-            "is one -- so this is non-empty for oral history too. It is "
-            "universal trust material, not style tuning."),
+       note="A COMBINED block, declared honestly as combined rather than "
+            "split. `_emitStyleDirective` always returns the "
+            "capabilities-honesty preamble (BUG-218) and APPENDS a style "
+            "suffix for clear_direct and companion, in one string the "
+            "composer emits as one line. Splitting it here would change "
+            "rendered bytes; describing it only as 'capabilities honesty' "
+            "would hide the fact that companion and clear-direct guidance "
+            "live inside it. The active style is exposed separately in "
+            "evaluated diagnostics -- see `ActiveFamily.style` -- so an "
+            "operator can still see WHICH style is in force."),
 
     _f("media_hints", "photo-intake", "photo-count context",
        "media_present", SOURCE_RUNTIME, TIER_NARRATOR_CONTEXT, True, 70,
@@ -328,10 +334,12 @@ _FAMILIES: List[DirectiveFamily] = [
        roles=_INTERVIEW_ONLY),
 
     _f("visual_affect", "facial-awareness", "affect-derived pacing",
-       "visual_affect_present", SOURCE_RUNTIME, TIER_ACCESSIBILITY, False,
+       "visual_affect_emits", SOURCE_RUNTIME, TIER_ACCESSIBILITY, False,
        370, roles=_INTERVIEW_ONLY, degradation=DEGRADE_COSMETIC,
-       note="Composer condition is `v_baseline and v_affect`. There is no "
-            "freshness signal in the payload; the first cut invented one."),
+       note="`v_baseline and v_affect` is the OUTER guard, not the condition. "
+            "The predicate reproduces the inner ladder, so a neutral affect "
+            "with gaze on screen -- which renders nothing -- is not marked "
+            "active."),
 
     _f("no_visual_claims", "facial-awareness",
        "the ban on unevidenced visual claims", "always", SOURCE_STATIC,
@@ -438,6 +446,16 @@ class ActiveFamily(NamedTuple):
     #: True when the budget may not remove it. Mirrors `policy.required`,
     #: surfaced here so a consumer need not reach back into the policy.
     required: bool
+    #: The operator-selected session style, on the family that carries its
+    #: guidance. Empty elsewhere.
+    #:
+    #: `capabilities_honesty` is a COMBINED block: the honesty preamble
+    #: plus, for clear_direct and companion, a style suffix. Without this
+    #: field a diagnostic could report the family as present and still
+    #: leave an operator unable to see that companion guidance was in
+    #: force -- style guidance disappearing inside a family named after
+    #: something else.
+    style: str = ""
 
 
 def active_families(state) -> List[ActiveFamily]:
@@ -459,7 +477,14 @@ def active_families(state) -> List[ActiveFamily]:
     for fid in families_for_role(role):
         fam = REGISTRY[fid]
         if _evaluate(fam.activation, state):
-            out.append(ActiveFamily(fid, fam, fam.required))
+            style = ""
+            if fid == "capabilities_honesty":
+                # Only report a style when one is actually selected; the
+                # default oral-history path sets none, and reporting
+                # "oral_history" here would imply an operator choice that
+                # was never made.
+                style = getattr(state, "session_style", "") or ""
+            out.append(ActiveFamily(fid, fam, fam.required, style))
     return out
 
 
