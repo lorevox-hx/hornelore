@@ -91,10 +91,17 @@ class DirectiveFamily(NamedTuple):
     helper turn that silently loses it becomes an interview.
 
     ── ROLES ───────────────────────────────────────────────────────────
-    `roles` is the branch. Helper and onboarding turns must not inherit
-    interviewer-only directives; before this field they did, because the
-    role blocks APPENDED rather than branching and execution fell
-    through into the interview passes.
+    `roles` is the branch, and it mirrors what the composer already does
+    rather than proposing something new: helper and onboarding each build
+    their own section and RETURN, so the entire interviewer tail --
+    including the interview discipline and the visual-claims ban -- is
+    reachable only on the interviewer path.
+
+    (An earlier draft of this docstring claimed the role blocks
+    "APPENDED rather than branching and execution fell through into the
+    interview passes". That was wrong, and the composer's own comment
+    said so: "They return early from the directive block so no pass/era/
+    mode rules fire.")
     """
 
     family_id: str
@@ -126,168 +133,219 @@ def _f(family_id, owner, capability, activation, source, tier, required,
 
 
 _INTERVIEW_ONLY = frozenset({ROLE_INTERVIEWER})
+_HELPER_ONLY = frozenset({ROLE_HELPER})
+_ONBOARDING_ONLY = frozenset({ROLE_ONBOARDING})
 
 # ── THE REGISTRY ────────────────────────────────────────────────────────
-# `render_order` reproduces today's composition order, so with every
-# family active the rendered block is byte-for-byte what it was.
+#
+# CORRECTED 2026-08-18 against the composer's real branch structure. The
+# first cut modelled helper and onboarding as APPENDING blocks that fell
+# through into the interview material. They do not: both build their own
+# section and RETURN, and the composer's own comment says so --
+# "Helper and onboarding roles completely replace the interview
+# directives. They return early from the directive block so no pass/era/
+# mode rules fire."
+#
+# The real shape is three phases:
+#
+#   SHARED PRELUDE   every role. Runtime header, device time, location,
+#                    memoir arc, speaker name, capabilities honesty,
+#                    media, transparency.
+#   ROLE-EXCLUSIVE   helper OR onboarding, each ending the assembly.
+#   INTERVIEWER TAIL everything else -- and it is ALL interviewer-only,
+#                    including the interview discipline itself and the
+#                    ban on unevidenced visual claims.
+#
+# `render_order` follows the composer's line order, so with every family
+# active the rendered block is byte-for-byte what it was.
 _FAMILIES: List[DirectiveFamily] = [
+    # ── shared prelude ──────────────────────────────────────────────
     _f("runtime_state", "lori-core", "the LORI_RUNTIME state header",
-       "always", SOURCE_RUNTIME, TIER_IDENTITY, True, 5,
-       note="Pass, era, mode, identity phase, role. Every downstream "
-            "directive is read against it."),
+       "always", SOURCE_RUNTIME, TIER_IDENTITY, True, 10,
+       note="Pass, era, mode, identity phase, role. Every directive "
+            "below is read against it, and the transparency rule answers "
+            "trust questions FROM it."),
 
     _f("device_time", "lori-core", "answering what day it is",
-       "device_time_present", SOURCE_DEVICE, TIER_NARRATOR_CONTEXT, True, 8,
+       "device_time_present", SOURCE_DEVICE, TIER_NARRATOR_CONTEXT, True, 20,
        note="Required when present. Losing it reproduces the live defect "
-            "where Lori claimed she could not know the date while the "
-            "date was in the prompt."),
+            "where Lori denied knowing the date while the date was in "
+            "the prompt."),
 
     _f("narrator_location", "consent", "consented location context",
-       "location_shared", SOURCE_RUNTIME, TIER_NARRATOR_CONTEXT, False, 12,
+       "location_shared", SOURCE_RUNTIME, TIER_NARRATOR_CONTEXT, False, 30,
        degradation=DEGRADE_REBUILT_NEXT_TURN,
-       note="Explicitly optional context by its own wording."),
-
-    _f("interview_core", "lori-discipline", "the interview itself",
-       "always", SOURCE_STATIC, TIER_DISCIPLINE, True, 10,
-       note="Without it Lori reverts to a generic assistant."),
+       note="Optional by its own wording -- 'do not bring it up unless "
+            "relevant'."),
 
     _f("memoir_arc", "memoir", "memoir arc + meaning tags",
        "memoir_state_threads_or_draft", SOURCE_RUNTIME, TIER_WORKFLOW,
-       False, 20, roles=_INTERVIEW_ONLY,
-       degradation=DEGRADE_DURABLE_ON_SERVER,
+       False, 40, degradation=DEGRADE_DURABLE_ON_SERVER,
        note="Arc state is persisted; the next turn restores the steer."),
 
     _f("speaker_name", "lori-core", "addressing the narrator by name",
-       "speaker_name_known", SOURCE_PROFILE, TIER_NARRATOR_CONTEXT, True, 30,
+       "speaker_name_known", SOURCE_PROFILE, TIER_NARRATOR_CONTEXT, True, 50,
        note="Losing it makes Lori address a named person as a stranger."),
 
-    _f("session_style", "operator-session", "operator-selected session style",
-       "session_style_non_default", SOURCE_RUNTIME, TIER_WORKFLOW, True, 40,
+    _f("capabilities_honesty", "lori-trust",
+       "honest answers about recording, camera and sensing",
+       "style_directive_present", SOURCE_RUNTIME, TIER_DISCIPLINE, True, 60,
+       note="MISMODELLED IN THE FIRST CUT as a non-default-style family. "
+            "`_emitStyleDirective` ALWAYS returns the capabilities-honesty "
+            "preamble (BUG-218) and appends a style suffix only when there "
+            "is one -- so this is non-empty for oral history too. It is "
+            "universal trust material, not style tuning."),
+
+    _f("media_hints", "photo-intake", "photo-count context",
+       "media_present", SOURCE_RUNTIME, TIER_NARRATOR_CONTEXT, True, 70,
+       note="NOT an in-view signal. `media_count` is the narrator's TOTAL "
+            "uploaded photo count; the first cut renamed the predicate "
+            "'media_in_view', which would have claimed a turn-scoped "
+            "signal the payload does not carry. Behaviour is preserved "
+            "exactly; narrowing this needs a real in-view signal first."),
+
+    _f("transparency_rule", "lori-trust",
+       "never deny an active capability, never assert an inactive one",
+       "always", SOURCE_STATIC, TIER_DISCIPLINE, True, 80,
+       note="Universal by design and by its own comment -- 'must fire "
+            "before role overrides so every role inherits it'. Prevents "
+            "both false denial and false assertion about sensors."),
+
+    # ── role-exclusive: each ENDS the assembly ──────────────────────
+    _f("role_helper", "operator-roles", "helper role",
+       "role_helper", SOURCE_RUNTIME, TIER_WORKFLOW, True, 100,
+       roles=_HELPER_ONLY,
+       note="Renders as the `directives_bio_builder` section -- a "
+            "misnomer, recorded not renamed. A helper turn that loses "
+            "this becomes an interview."),
+
+    _f("role_onboarding", "operator-roles", "onboarding identity anchors",
+       "role_onboarding", SOURCE_RUNTIME, TIER_WORKFLOW, True, 110,
+       roles=_ONBOARDING_ONLY, affects_evidence=True,
+       note="Renders as the `directives_questionnaire` section -- also a "
+            "misnomer. Collects name/DOB/birthplace in strict sequence. "
+            "Onboarding does NOT reach the later identity_mode block; it "
+            "returns before it."),
+
+    # ── interviewer tail: ALL of it is interviewer-only ─────────────
+    _f("interview_core", "lori-discipline", "the interview discipline",
+       "always", SOURCE_STATIC, TIER_DISCIPLINE, True, 200,
        roles=_INTERVIEW_ONLY,
-       note="An operator chose a non-default style; silently reverting is "
-            "a different session, not a shorter one."),
+       note="CORRECTED: interviewer-only, and it sits AFTER the shared "
+            "prelude, not before it. The first cut had it universal at "
+            "order 10. Helper and onboarding have already returned."),
 
     _f("oral_history_posture", "lori-discipline",
        "the default oral-history posture -- the narrator leads",
-       "session_style_default_oral", SOURCE_STATIC, TIER_DISCIPLINE, True, 42,
-       roles=_INTERVIEW_ONLY,
-       note="The load-bearing block for the DEFAULT style. It was absent "
-            "from the first inventory, which would have made the default "
-            "posture the one thing nobody had declared."),
-
-    _f("media_hints", "photo-intake", "photo/media handling",
-       "media_in_view", SOURCE_RUNTIME, TIER_WORKFLOW, True, 50,
-       affects_evidence=True,
-       note="NARROWED: in view this turn, not merely on file. A narrator "
-            "with a large archive and nothing on screen is not doing a "
-            "photo task."),
-
-    _f("role_helper", "operator-roles", "helper role",
-       "role_helper", SOURCE_RUNTIME, TIER_WORKFLOW, True, 60,
-       roles=frozenset({ROLE_HELPER}),
-       note="A helper turn that loses its guidance becomes an interview."),
-
-    _f("role_onboarding", "operator-roles", "onboarding role",
-       "role_onboarding", SOURCE_RUNTIME, TIER_WORKFLOW, True, 70,
-       roles=frozenset({ROLE_ONBOARDING}), affects_evidence=True,
-       note="Strands the narrator mid-onboarding if lost."),
+       "session_style_default_oral", SOURCE_STATIC, TIER_DISCIPLINE, True,
+       210, roles=_INTERVIEW_ONLY,
+       note="Fires for oral_history, empty, and any UNRECOGNISED style. "
+            "The non-oral set is {warm_storytelling, companion, "
+            "clear_direct, questionnaire_first, memory_exercise} -- read "
+            "from the composer, after the first cut omitted `companion` "
+            "and invented `guided_trip_walk`."),
 
     _f("story_mode", "lori-story", "story-mode override",
-       "story_mode_active", SOURCE_RUNTIME, TIER_DISCIPLINE, True, 80,
+       "story_mode_active", SOURCE_RUNTIME, TIER_DISCIPLINE, True, 220,
        roles=_INTERVIEW_ONLY,
-       note="SPLIT from the question hierarchy: they have different "
-            "conditions -- story mode fires only at the story threshold."),
+       note="Split from the question hierarchy: fires only at the story "
+            "threshold, where the hierarchy fires across three modes."),
 
     _f("question_hierarchy", "lori-story", "the Layer 1-4 question ladder",
-       "story_phase_active", SOURCE_RUNTIME, TIER_DISCIPLINE, True, 84,
-       roles=_INTERVIEW_ONLY,
-       note="Interview discipline under another name."),
+       "story_phase_active", SOURCE_RUNTIME, TIER_DISCIPLINE, True, 230,
+       roles=_INTERVIEW_ONLY),
 
     _f("thread_surfacing", "lori-threads", "open-thread continuity",
-       "thread_surface_present", SOURCE_RUNTIME, TIER_WORKFLOW, False, 90,
+       "thread_surface_present", SOURCE_RUNTIME, TIER_WORKFLOW, False, 240,
        roles=_INTERVIEW_ONLY, degradation=DEGRADE_DURABLE_ON_SERVER,
        note="Safe to defer BECAUSE the thread is stored server-side."),
 
     _f("bio_anchored_ask", "bio-builder", "Bio Builder anchored ask",
        "bio_anchored_surface_present", SOURCE_RUNTIME, TIER_WORKFLOW, True,
-       100, roles=_INTERVIEW_ONLY, affects_evidence=True,
+       250, roles=_INTERVIEW_ONLY, affects_evidence=True,
        note="Without the anchor the reply is attributed to nothing."),
 
     _f("witness_receipt", "lori-witness", "witness-mode receipt",
-       "witness_receipt_present", SOURCE_RUNTIME, TIER_WORKFLOW, True, 110,
-       roles=_INTERVIEW_ONLY, affects_evidence=True,
-       note="Witness mode is an evidence posture."),
+       "witness_receipt_present", SOURCE_RUNTIME, TIER_WORKFLOW, True, 260,
+       roles=_INTERVIEW_ONLY, affects_evidence=True),
 
     _f("era_explanation", "life-map", "Era Explainer",
-       "era_definition_requested", SOURCE_RUNTIME, TIER_WORKFLOW, True, 120,
+       "era_definition_requested", SOURCE_RUNTIME, TIER_WORKFLOW, True, 270,
        roles=_INTERVIEW_ONLY,
        note="The narrator ASKED. Dropping it answers a question with "
             "silence."),
 
     _f("softened_response", "lori-safety", "softened response mode",
        "softened_state_active_and_not_parked", SOURCE_RUNTIME,
-       TIER_ACCESSIBILITY, True, 130,
+       TIER_ACCESSIBILITY, True, 280, roles=_INTERVIEW_ONLY,
        note="Its parked check is load-bearing: runtime safety is PARKED "
-            "and stays parked. When active, it is required."),
+            "and stays parked. Parking comes from the server flag, not "
+            "the payload."),
 
     _f("identity_mode", "lori-identity", "identity anchor collection",
-       "identity_mode_active", SOURCE_RUNTIME, TIER_WORKFLOW, True, 140,
-       roles=frozenset({ROLE_INTERVIEWER, ROLE_ONBOARDING}),
-       affects_evidence=True,
-       note="An identity turn that loses its instructions asks nothing "
-            "and records nothing."),
+       "identity_mode_active", SOURCE_RUNTIME, TIER_WORKFLOW, True, 290,
+       roles=_INTERVIEW_ONLY, affects_evidence=True,
+       note="CORRECTED: interviewer-only. Onboarding returns before this "
+            "block. `identity_mode` is COMPUTED by the composer as "
+            "`(effective_pass == 'identity') or (not identity_complete)` "
+            "-- it is not a runtime71 key, and reading it as one would "
+            "have deactivated identity collection entirely."),
 
     _f("profile_seed_walk", "profile-onboarding",
        "the ordered ten-topic new-narrator profile walk",
-       "profile_walk_active", SOURCE_SERVER_DB, TIER_WORKFLOW, True, 150,
+       "profile_walk_pass1", SOURCE_RUNTIME, TIER_WORKFLOW, True, 300,
        roles=_INTERVIEW_ONLY, affects_evidence=True,
-       note="PRESERVED. The only conversational filler for the nine "
-            "profile_seed buckets, and a new Lorevox narrator may have no "
-            "operator to seed them. Gated on INCOMPLETE ONBOARDING, never "
-            "on narrator type."),
+       note="PRESERVED, trigger UNCHANGED at current_pass == 'pass1'. "
+            "The intended onboarding-completion gate has no production "
+            "resolver and the browser promotes pass1 -> pass2a when "
+            "chronology is ready, so its new-narrator reachability is a "
+            "recorded DEBT rather than a claim. Never gated by narrator "
+            "type; never auto-activated for historical incomplete "
+            "profiles."),
 
     _f("pass_2a", "life-map", "era walk, pass 2a", "pass_2a", SOURCE_RUNTIME,
-       TIER_WORKFLOW, True, 160, roles=_INTERVIEW_ONLY),
+       TIER_WORKFLOW, True, 310, roles=_INTERVIEW_ONLY),
 
     _f("pass_2b", "life-map", "era walk, pass 2b", "pass_2b", SOURCE_RUNTIME,
-       TIER_WORKFLOW, True, 170, roles=_INTERVIEW_ONLY),
+       TIER_WORKFLOW, True, 320, roles=_INTERVIEW_ONLY),
 
     _f("current_mode", "lori-modes", "recognition/grounding/light modes",
-       "current_mode_set", SOURCE_RUNTIME, TIER_WORKFLOW, True, 180,
-       roles=_INTERVIEW_ONLY,
-       note="The mode was chosen for this narrator."),
+       "current_mode_set", SOURCE_RUNTIME, TIER_WORKFLOW, True, 330,
+       roles=_INTERVIEW_ONLY),
 
     _f("cognitive_support", "wo-10c", "WO-10C cognitive support",
        "cognitive_support_mode", SOURCE_RUNTIME, TIER_ACCESSIBILITY, True,
-       190,
+       340, roles=_INTERVIEW_ONLY,
        note="Accessibility, not workflow: it changes how a narrator is "
             "met, and is never traded for tokens."),
 
     _f("cognitive_variant", "wo-10c", "recognition/alongside variants",
-       "cognitive_variant_set", SOURCE_RUNTIME, TIER_ACCESSIBILITY, True, 194,
-       note="SPLIT from cognitive_support: a different condition governs "
-            "the variant wording from the one that enables the mode."),
+       "cognitive_variant_set", SOURCE_RUNTIME, TIER_ACCESSIBILITY, True,
+       350, roles=_INTERVIEW_ONLY),
 
     _f("paired_interview", "operator-session", "paired interview",
-       "paired_interview", SOURCE_RUNTIME, TIER_WORKFLOW, True, 200),
+       "paired_interview", SOURCE_RUNTIME, TIER_WORKFLOW, True, 360,
+       roles=_INTERVIEW_ONLY),
 
     _f("visual_affect", "facial-awareness", "affect-derived pacing",
-       "visual_affect_fresh", SOURCE_RUNTIME, TIER_ACCESSIBILITY, False, 210,
-       degradation=DEGRADE_COSMETIC,
-       note="Requires baseline AND current reading AND freshness. Stale "
-            "evidence produces nothing; the ban below still holds."),
+       "visual_affect_present", SOURCE_RUNTIME, TIER_ACCESSIBILITY, False,
+       370, roles=_INTERVIEW_ONLY, degradation=DEGRADE_COSMETIC,
+       note="Composer condition is `v_baseline and v_affect`. There is no "
+            "freshness signal in the payload; the first cut invented one."),
 
     _f("no_visual_claims", "facial-awareness",
        "the ban on unevidenced visual claims", "always", SOURCE_STATIC,
-       TIER_DISCIPLINE, True, 220,
-       note="REQUIRED and unconditional. It must hold precisely when the "
-            "affect family is ABSENT."),
+       TIER_DISCIPLINE, True, 380, roles=_INTERVIEW_ONLY,
+       note="CORRECTED: interviewer-only in the current composer, not "
+            "universal. It must still hold precisely when the affect "
+            "family above is ABSENT, which is why it stays unconditional "
+            "WITHIN that role."),
 
     _f("fatigue", "wo-10c", "fatigue pacing", "fatigue_elevated",
-       SOURCE_RUNTIME, TIER_ACCESSIBILITY, True, 230,
+       SOURCE_RUNTIME, TIER_ACCESSIBILITY, True, 390,
+       roles=_INTERVIEW_ONLY,
        note="A narrator-wellbeing signal, not a hint."),
 ]
-
 
 def _build(families) -> Dict[str, DirectiveFamily]:
     """Validate at import so a bad registry fails the BOOT."""
@@ -362,3 +420,59 @@ def required_family_ids() -> List[str]:
 
 def conditional_family_ids() -> List[str]:
     return [f.family_id for f in _FAMILIES if not f.required]
+
+
+# ── THE EVALUATED ASSEMBLY ──────────────────────────────────────────────
+#
+# Role eligibility AND predicate evaluation, in one place, returning the
+# families that are actually active for this turn in render order. This
+# is what a consumer calls; without it the registry is an inventory and
+# the predicates are unreferenced functions.
+
+
+class ActiveFamily(NamedTuple):
+    """A family that is active this turn, with its policy attached."""
+
+    family_id: str
+    policy: DirectiveFamily
+    #: True when the budget may not remove it. Mirrors `policy.required`,
+    #: surfaced here so a consumer need not reach back into the policy.
+    required: bool
+
+
+def active_families(state) -> List[ActiveFamily]:
+    """The families active for this turn, in composer render order.
+
+    Two gates, in order, and both must pass:
+
+      1. ROLE eligibility -- a helper turn never even considers the
+         interview passes, because the composer returns before them.
+      2. The family's activation PREDICATE against the turn state.
+
+    A family absent from this list is absent because its feature is
+    inactive on this turn. It is never absent merely to save tokens.
+    """
+    from .directive_predicates import evaluate as _evaluate
+
+    role = getattr(state, "role", "") or ROLE_INTERVIEWER
+    out: List[ActiveFamily] = []
+    for fid in families_for_role(role):
+        fam = REGISTRY[fid]
+        if _evaluate(fam.activation, state):
+            out.append(ActiveFamily(fid, fam, fam.required))
+    return out
+
+
+def inactive_families(state) -> List[str]:
+    """Role-eligible families whose condition did not fire.
+
+    Reported separately from role-ineligible ones: "your feature is off"
+    and "this conversation is not that kind of conversation" are
+    different answers, and a diagnostic that merges them cannot explain
+    why an instruction is missing.
+    """
+    from .directive_predicates import evaluate as _evaluate
+
+    role = getattr(state, "role", "") or ROLE_INTERVIEWER
+    return [fid for fid in families_for_role(role)
+            if not _evaluate(REGISTRY[fid].activation, state)]

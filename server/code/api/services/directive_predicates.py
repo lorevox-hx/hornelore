@@ -2,29 +2,30 @@
 
 WO-LEAN-LORI-DIRECTIVE-ACTIVATION-01, 2026-08-18.
 
-The first cut declared activation as a STRING NAME. A name is an
-inventory, not a gate: it tells a reader which condition is meant and
-lets nothing act on it, which is the same shape as the `drop_order` that
-sat unread for a whole phase.
+── WHY THIS MODULE DOES NOT PARSE runtime71 ────────────────────────────
 
-Each predicate here is a function of one `TurnState`. The registry names
-them; this module evaluates them; the composer asks.
+The first cut built `TurnState` by inferring key names from predicate
+names. Eleven of them were wrong: device time, location, memoir state
+and visual signals live in NESTED sub-objects (`device_context`,
+`location_context`, `memoir_context`, `visual_signals`); `identity_mode`
+is not sent at all but COMPUTED by the composer as
+`(effective_pass == "identity") or (not identity_complete)`; safety
+parking comes from a server flag rather than the payload; and several
+defaults differ from the composer's.
 
-── WHAT A PREDICATE MAY AND MAY NOT DO ─────────────────────────────────
+Wiring that in would have suppressed live capabilities -- most seriously
+identity collection, which would have activated never.
 
-It reads state and returns a bool. It performs no I/O, mutates nothing,
-and never raises: an exception in a gate would decide a narrator's
-prompt by accident. `TurnState` is built once per turn by the caller,
-which is the only place that touches runtime71 or the database.
+So this module does not read `runtime71`. `TurnState` is built FROM THE
+COMPOSER'S ALREADY-NORMALISED LOCALS, at the point where they have been
+derived once and correctly. One derivation, one shape; the gates cannot
+drift from the values the prompt is actually built from. Same principle
+as one renderer and one joiner.
 
-── NARROWNESS IS THE POINT ─────────────────────────────────────────────
+── WHAT A PREDICATE MAY DO ─────────────────────────────────────────────
 
-A capability's instructions belong in the prompt when the capability is
-ACTIVE THIS TURN -- not when the narrator merely has data of that kind
-on file. `media_present` is the worked example: a narrator with 400
-archived photos and none in view this turn does not need photo-handling
-instructions, and sending them on every turn is precisely the waste this
-item removes. Stored data is not an active task.
+Read state, return a bool. No I/O, no mutation, never fatal: an
+exception in a gate would decide a narrator's prompt by accident.
 """
 from __future__ import annotations
 
@@ -34,20 +35,29 @@ from typing import Any, Callable, Dict, NamedTuple, Optional
 logger = logging.getLogger("directive_predicates")
 
 __all__ = ["TurnState", "PREDICATES", "predicate_for", "evaluate",
-           "UnknownPredicateError", "build_turn_state"]
+           "UnknownPredicateError", "state_from_composer",
+           "NON_ORAL_STYLES"]
 
 
 class UnknownPredicateError(KeyError):
     """A predicate id with no implementation."""
 
 
-class TurnState(NamedTuple):
-    """Everything the gates are allowed to see, resolved once per turn.
+#: Verbatim from the composer's `_KNOWN_NON_ORAL_STYLES`. `companion` was
+#: missing from the first cut and `guided_trip_walk` was invented; both
+#: errors came from writing the set from memory instead of reading it.
+NON_ORAL_STYLES = frozenset({
+    "warm_storytelling", "companion", "clear_direct",
+    "questionnaire_first", "memory_exercise",
+})
 
-    Built by `build_turn_state` from runtime71 plus server-resolved
-    facts. A predicate that needs something absent from here needs this
-    record extended -- deliberately, in one place -- rather than reaching
-    into runtime71 on its own.
+
+class TurnState(NamedTuple):
+    """The gate inputs, taken from the composer's derived locals.
+
+    Every field is the composer's own variable, already normalised --
+    era canonicalised, defaults applied, nested contexts unwrapped,
+    `identity_mode` computed. Nothing here re-derives anything.
     """
 
     role: str
@@ -59,175 +69,163 @@ class TurnState(NamedTuple):
     identity_complete: bool
     identity_phase: str
     session_style: str
+    style_directive: str
     speaker_name: str
-    # Device / consent context
     device_date: str
     device_time: str
     location_label: str
-    # Task activity -- narrow, turn-scoped
-    media_in_view: int
+    media_count: int
     memoir_state: str
     story_momentum: str
     thread_surface: str
     anchored_surface: str
     witness_block: bool
     era_definition_requested: bool
-    softened_active: bool
+    softened_state: bool
     softened_parked: bool
     cognitive_support_mode: bool
     cognitive_mode: str
     paired: bool
     visual_baseline: bool
     visual_affect: str
-    visual_fresh: bool
+    visual_gaze: Any
     fatigue_score: int
-    # Profile onboarding -- the ten-topic walk
-    profile_onboarding_complete: bool
-    unanswered_profile_topics: tuple
 
 
-def _s(d: Dict[str, Any], key: str, default: str = "") -> str:
-    v = d.get(key)
-    return (str(v).strip() if v is not None else default) or default
+def state_from_composer(*, assistant_role, current_pass, effective_pass,
+                        current_era, current_mode, identity_mode,
+                        identity_complete, identity_phase, session_style,
+                        style_directive, speaker_name, device_date,
+                        device_time, location_label, media_count,
+                        memoir_state, story_momentum, thread_surface,
+                        anchored_surface, witness_block,
+                        era_definition_requested, softened_state,
+                        softened_parked, cognitive_support_mode,
+                        cognitive_mode, paired, visual_baseline,
+                        visual_affect, visual_gaze, fatigue_score
+                        ) -> TurnState:
+    """Build the gate state from values the composer has already derived.
 
-
-def build_turn_state(runtime71: Optional[Dict[str, Any]],
-                     *,
-                     unanswered_profile_topics=(),
-                     profile_onboarding_complete: bool = False,
-                     visual_fresh: bool = False) -> TurnState:
-    """Resolve the gate inputs once, from runtime71 plus server facts.
-
-    `unanswered_profile_topics` and `profile_onboarding_complete` are
-    supplied by the caller because they are SERVER truth -- computed from
-    the profile, not asserted by the browser. Narrator type is not an
-    input at all: it does not decide whether the walk exists.
+    Keyword-only and exhaustive on purpose: adding a gate input must be a
+    deliberate edit at the one call site, not a quiet `.get()` somewhere
+    that reintroduces the shape drift this replaces.
     """
-    rt = runtime71 if isinstance(runtime71, dict) else {}
-    try:
-        fatigue = int(rt.get("fatigue_score") or 0)
-    except Exception:
-        fatigue = 0
-    try:
-        media = int(rt.get("media_count") or 0)
-    except Exception:
-        media = 0
+    def _s(v):
+        return (str(v).strip() if v is not None else "")
+
+    def _i(v):
+        try:
+            return int(v or 0)
+        except Exception:
+            return 0
+
     return TurnState(
-        role=_s(rt, "assistant_role", "interviewer"),
-        current_pass=_s(rt, "current_pass"),
-        effective_pass=_s(rt, "effective_pass"),
-        current_era=_s(rt, "current_era"),
-        current_mode=_s(rt, "current_mode"),
-        identity_mode=bool(rt.get("identity_mode")),
-        identity_complete=bool(rt.get("identity_complete")),
-        identity_phase=_s(rt, "identity_phase"),
-        session_style=_s(rt, "session_style"),
-        speaker_name=_s(rt, "speaker_name"),
-        device_date=_s(rt, "device_date"),
-        device_time=_s(rt, "device_time"),
-        location_label=_s(rt, "location_label"),
-        media_in_view=media,
-        memoir_state=_s(rt, "memoir_state"),
-        story_momentum=_s(rt, "story_first_momentum_mode"),
-        thread_surface=_s(rt, "story_first_thread_surface_text"),
-        anchored_surface=_s(rt, "bio_anchored_surface_text"),
-        witness_block=bool(rt.get("witness_receipt_text")),
-        era_definition_requested=bool(rt.get("era_definition_requested")),
-        softened_active=bool(rt.get("softened_state")),
-        softened_parked=bool(rt.get("safety_parked")),
-        cognitive_support_mode=bool(rt.get("cognitive_support_mode")),
-        cognitive_mode=_s(rt, "cognitive_mode"),
-        paired=bool(rt.get("paired")),
-        visual_baseline=bool(rt.get("visual_baseline")),
-        visual_affect=_s(rt, "affect_state"),
-        visual_fresh=bool(visual_fresh),
-        fatigue_score=fatigue,
-        profile_onboarding_complete=bool(profile_onboarding_complete),
-        unanswered_profile_topics=tuple(unanswered_profile_topics or ()),
+        role=_s(assistant_role) or "interviewer",
+        current_pass=_s(current_pass),
+        effective_pass=_s(effective_pass),
+        current_era=_s(current_era),
+        current_mode=_s(current_mode),
+        identity_mode=bool(identity_mode),
+        identity_complete=bool(identity_complete),
+        identity_phase=_s(identity_phase),
+        session_style=_s(session_style).lower(),
+        style_directive=_s(style_directive),
+        speaker_name=_s(speaker_name),
+        device_date=_s(device_date),
+        device_time=_s(device_time),
+        location_label=_s(location_label),
+        media_count=_i(media_count),
+        memoir_state=_s(memoir_state),
+        story_momentum=_s(story_momentum),
+        thread_surface=_s(thread_surface),
+        anchored_surface=_s(anchored_surface),
+        witness_block=bool(witness_block),
+        era_definition_requested=bool(era_definition_requested),
+        softened_state=bool(softened_state),
+        softened_parked=bool(softened_parked),
+        cognitive_support_mode=bool(cognitive_support_mode),
+        cognitive_mode=_s(cognitive_mode),
+        paired=bool(paired),
+        visual_baseline=bool(visual_baseline),
+        visual_affect=_s(visual_affect),
+        visual_gaze=visual_gaze,
+        fatigue_score=_i(fatigue_score),
     )
 
 
-# Session styles that are NOT the oral-history default.
-_NON_ORAL_STYLES = frozenset({
-    "questionnaire_first", "clear_direct", "warm_storytelling",
-    "memory_exercise", "guided_trip_walk",
-})
+def _profile_walk_pass1(s: TurnState) -> bool:
+    """The ten-topic new-narrator walk. PRESERVED, trigger UNCHANGED.
 
+    ── REACHABILITY DEBT, RECORDED RATHER THAN PAPERED OVER ────────────
+    The intended gate is "onboarding incomplete AND topics remain". No
+    production caller computes either value: there is no server-owned
+    profile-completion resolver, and the browser promotes `pass1 ->
+    pass2a` as soon as chronology is ready. So an intended gate would
+    have been a gate on values nobody supplies.
 
-def _always(_s: TurnState) -> bool:
-    return True
+    Two wrong answers were available. Gating by narrator type is wrong --
+    the walk is about what is still unknown, not about who the narrator
+    is. Auto-activating on any incomplete profile is also wrong -- it
+    would start a ten-topic questionnaire for every historical narrator
+    whose profile has a gap, which is interrogation, not onboarding.
 
-
-def _profile_walk_active(s: TurnState) -> bool:
-    """The ten-topic new-narrator walk.
-
-    PRESERVED, and gated on what is still unknown rather than on who the
-    narrator is. Narrator type is deliberately absent from this function.
-
-    Three conditions, all required:
-      * identity is complete -- the walk builds on the anchors, it does
-        not replace collecting them;
-      * profile onboarding is not finished;
-      * at least one meaningful topic is still unanswered.
-
-    The caller computes the unanswered set, and it must not treat a
-    birthplace as proof of a childhood home, nor an age-derived life
-    stage as proof of retired-or-still-working.
+    So the EXISTING trigger is preserved exactly: `current_pass ==
+    "pass1"`. Behaviour is unchanged, no narrator gains or loses the
+    walk, and the debt is that its new-narrator reachability is not
+    proven here. Resolving it needs a real completion resolver and a
+    decision about the pass1 -> pass2a promotion, which is product work,
+    not a predicate.
     """
-    return (s.identity_complete
-            and not s.profile_onboarding_complete
-            and bool(s.unanswered_profile_topics))
+    return s.current_pass == "pass1"
 
 
-def _media_in_view(s: TurnState) -> bool:
-    """Narrowed deliberately.
+def _visual_affect_present(s: TurnState) -> bool:
+    """Exactly the composer's condition: `v_baseline and v_affect`.
 
-    Stored photographs are not an active photo task. This asks whether
-    media is in view for THIS turn, so a narrator with a large archive
-    and nothing on screen is not sent photo-handling instructions on
-    every turn of an ordinary conversation.
+    Not "freshness" -- there is no freshness signal in the payload, and
+    inventing one would be a claim the data does not support.
     """
-    return s.media_in_view > 0
-
-
-def _visual_affect_fresh(s: TurnState) -> bool:
-    """Requires a baseline AND a current reading AND freshness.
-
-    Stale evidence must produce nothing: the no-visual-claims rule is
-    what holds when this is absent, and it is unconditional.
-    """
-    return bool(s.visual_baseline and s.visual_affect and s.visual_fresh)
+    return bool(s.visual_baseline and s.visual_affect)
 
 
 PREDICATES: Dict[str, Callable[[TurnState], bool]] = {
-    "always": _always,
-    "runtime_present": lambda s: True,
+    "always": lambda s: True,
     "device_time_present": lambda s: bool(s.device_date or s.device_time),
     "location_shared": lambda s: bool(s.location_label),
-    "memoir_state_threads_or_draft": lambda s: s.memoir_state in ("threads", "draft"),
+    "memoir_state_threads_or_draft":
+        lambda s: s.memoir_state in ("threads", "draft"),
     "speaker_name_known": lambda s: bool(s.speaker_name),
-    "session_style_default_oral": lambda s: s.session_style not in _NON_ORAL_STYLES,
-    "session_style_non_default": lambda s: s.session_style in _NON_ORAL_STYLES,
-    "media_in_view": _media_in_view,
+    #: The capabilities-honesty preamble is ALWAYS emitted (BUG-218), so
+    #: this is non-empty even for oral history. Gating on the emitted
+    #: directive rather than on a list of style names is what the
+    #: composer actually does.
+    "style_directive_present": lambda s: bool(s.style_directive),
+    "media_present": lambda s: s.media_count > 0,
     "role_helper": lambda s: s.role == "helper",
     "role_onboarding": lambda s: s.role == "onboarding",
+    "role_interviewer": lambda s: s.role == "interviewer",
+    "session_style_default_oral":
+        lambda s: s.session_style not in NON_ORAL_STYLES,
     "story_mode_active": lambda s: s.story_momentum == "story",
-    "story_phase_active": lambda s: s.story_momentum in ("story", "emerging", "normal"),
+    "story_phase_active":
+        lambda s: s.story_momentum in ("story", "emerging", "normal"),
     "thread_surface_present": lambda s: bool(s.thread_surface),
     "bio_anchored_surface_present": lambda s: bool(s.anchored_surface),
     "witness_receipt_present": lambda s: bool(s.witness_block),
     "era_definition_requested": lambda s: bool(s.era_definition_requested),
     "softened_state_active_and_not_parked":
-        lambda s: bool(s.softened_active and not s.softened_parked),
+        lambda s: bool(s.softened_state and not s.softened_parked),
     "identity_mode_active": lambda s: bool(s.identity_mode),
-    "profile_walk_active": _profile_walk_active,
+    "profile_walk_pass1": _profile_walk_pass1,
     "pass_2a": lambda s: s.current_pass == "pass2a",
     "pass_2b": lambda s: s.current_pass == "pass2b",
-    "current_mode_set": lambda s: s.current_mode in ("recognition", "grounding", "light"),
+    "current_mode_set":
+        lambda s: s.current_mode in ("recognition", "grounding", "light"),
     "cognitive_support_mode": lambda s: bool(s.cognitive_support_mode),
-    "cognitive_variant_set": lambda s: s.cognitive_mode in ("recognition", "alongside"),
+    "cognitive_variant_set":
+        lambda s: s.cognitive_mode in ("recognition", "alongside"),
     "paired_interview": lambda s: bool(s.paired),
-    "visual_affect_fresh": _visual_affect_fresh,
+    "visual_affect_present": _visual_affect_present,
     "fatigue_elevated": lambda s: s.fatigue_score >= 50,
 }
 
@@ -238,15 +236,14 @@ def predicate_for(predicate_id: str) -> Callable[[TurnState], bool]:
     except KeyError:
         raise UnknownPredicateError(
             f"{predicate_id!r} has no implementation. A named predicate "
-            f"nobody evaluates is an inventory entry, not a gate -- add it "
-            f"to directive_predicates.PREDICATES."
+            f"nobody evaluates is an inventory entry, not a gate."
         ) from None
 
 
 def evaluate(predicate_id: str, state: TurnState) -> bool:
-    """Run a gate. Never raises; an unknown id or a failing predicate
-    reports FALSE and logs, because a family included by accident is a
-    narrator receiving an instruction nobody chose."""
+    """Run a gate. Never fatal; a failing gate reports INACTIVE and logs,
+    because a family included by accident is a narrator receiving an
+    instruction nobody chose."""
     try:
         return bool(predicate_for(predicate_id)(state))
     except UnknownPredicateError:

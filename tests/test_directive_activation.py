@@ -35,7 +35,7 @@ _MODULE = (_REPO / "server" / "code" / "api" / "services"
 
 # Concerns the work order requires to be separately diagnosable.
 _REQUIRED_CONCERNS = {
-    "interview_core", "session_style", "story_mode", "question_hierarchy",
+    "interview_core", "story_mode", "question_hierarchy",
     "thread_surfacing", "bio_anchored_ask", "witness_receipt",
     "era_explanation", "softened_response", "identity_mode",
     "profile_seed_walk", "pass_2a", "pass_2b", "current_mode",
@@ -43,8 +43,35 @@ _REQUIRED_CONCERNS = {
     "visual_affect", "fatigue", "media_hints",
     # Completed inventory.
     "runtime_state", "device_time", "narrator_location",
-    "oral_history_posture",
+    "oral_history_posture", "capabilities_honesty", "transparency_rule",
 }
+
+
+# ── composer-shaped state ───────────────────────────────────────────────
+# Tests build state the way the COMPOSER hands it over -- already
+# normalised -- not the way the browser sends it. The payload shape is
+# the composer's problem and is proven at the consumer boundary; mixing
+# the two here is what produced an adapter that read five nested
+# contexts as flat keys.
+_STATE_DEFAULTS = dict(
+    assistant_role="interviewer", current_pass="", effective_pass="",
+    current_era="not yet set", current_mode="open", identity_mode=False,
+    identity_complete=True, identity_phase="unknown", session_style="",
+    style_directive="", speaker_name="", device_date="", device_time="",
+    location_label="", media_count=0, memoir_state="empty",
+    story_momentum="", thread_surface="", anchored_surface="",
+    witness_block=False, era_definition_requested=False,
+    softened_state=False, softened_parked=False,
+    cognitive_support_mode=False, cognitive_mode="", paired=False,
+    visual_baseline=False, visual_affect="", visual_gaze=None,
+    fatigue_score=0,
+)
+
+
+def _state(**overrides):
+    kw = dict(_STATE_DEFAULTS)
+    kw.update(overrides)
+    return dp.state_from_composer(**kw)
 
 
 class TheRegistryIsComplete(unittest.TestCase):
@@ -93,89 +120,132 @@ class ActivationIsExecutable(unittest.TestCase):
     def test_every_predicate_has_positive_and_negative_coverage(self):
         """Both arms, for every gate. A predicate that can only ever
         answer one way is not a gate."""
-        base = dp.build_turn_state({})
-        on = dp.build_turn_state({
-            "assistant_role": "helper", "current_pass": "pass2a",
-            "current_mode": "recognition", "identity_mode": True,
-            "identity_complete": True, "session_style": "clear_direct",
-            "speaker_name": "Alex", "device_date": "2026-08-18",
-            "location_label": "Corpus Christi", "media_count": 2,
-            "memoir_state": "threads", "story_first_momentum_mode": "story",
-            "story_first_thread_surface_text": "t",
-            "bio_anchored_surface_text": "a", "witness_receipt_text": "w",
-            "era_definition_requested": True, "softened_state": True,
-            "cognitive_support_mode": True, "cognitive_mode": "alongside",
-            "paired": True, "visual_baseline": True,
-            "affect_state": "reflective", "fatigue_score": 80,
-        }, unanswered_profile_topics=("siblings",), visual_fresh=True)
+        base = _state()
+        on = _state(
+            assistant_role="helper", current_pass="pass2a",
+            current_mode="recognition", identity_mode=True,
+            session_style="clear_direct", style_directive="be honest",
+            speaker_name="Alex", device_date="2026-08-18",
+            location_label="Corpus Christi", media_count=2,
+            memoir_state="threads", story_momentum="story",
+            thread_surface="t", anchored_surface="a", witness_block=True,
+            era_definition_requested=True, softened_state=True,
+            cognitive_support_mode=True, cognitive_mode="alongside",
+            paired=True, visual_baseline=True, visual_affect="reflective",
+            fatigue_score=80)
         # Mutually exclusive with the "everything on" state: a turn has
         # ONE role and ONE pass, so these need their own positive case.
-        # Naming them is better than loosening the sweep, which would
-        # stop proving the others.
         exclusive = {
-            "role_onboarding": dp.build_turn_state(
-                {"assistant_role": "onboarding"}),
-            "pass_2b": dp.build_turn_state({"current_pass": "pass2b"}),
+            "role_onboarding": _state(assistant_role="onboarding"),
+            "role_interviewer": _state(assistant_role="interviewer"),
+            "pass_2b": _state(current_pass="pass2b"),
+            "profile_walk_pass1": _state(current_pass="pass1"),
+            "session_style_default_oral": _state(session_style=""),
         }
         for pid in dp.PREDICATES:
             with self.subTest(predicate=pid):
-                if pid in ("always", "runtime_present",
-                           "session_style_default_oral"):
-                    continue   # unconditional by design; covered below
+                if pid == "always":
+                    continue   # unconditional by design
                 positive = exclusive.get(pid, on)
                 self.assertTrue(dp.evaluate(pid, positive), f"{pid} never true")
-                self.assertFalse(dp.evaluate(pid, base), f"{pid} never false")
+                negative = base
+                if pid in ("session_style_default_oral", "role_interviewer"):
+                    negative = _state(session_style="companion",
+                                      assistant_role="helper")
+                self.assertFalse(dp.evaluate(pid, negative), f"{pid} never false")
 
-    def test_the_default_style_predicate_is_the_inverse_of_the_override(self):
-        oral = dp.build_turn_state({})
-        styled = dp.build_turn_state({"session_style": "clear_direct"})
-        self.assertTrue(dp.evaluate("session_style_default_oral", oral))
-        self.assertFalse(dp.evaluate("session_style_non_default", oral))
-        self.assertFalse(dp.evaluate("session_style_default_oral", styled))
-        self.assertTrue(dp.evaluate("session_style_non_default", styled))
+    def test_companion_is_a_non_oral_style(self):
+        """It was missing from the first cut's set, and `guided_trip_walk`
+        -- which the composer has never had -- was invented. The set is
+        now read from the composer."""
+        self.assertIn("companion", dp.NON_ORAL_STYLES)
+        self.assertNotIn("guided_trip_walk", dp.NON_ORAL_STYLES)
+        self.assertFalse(dp.evaluate("session_style_default_oral",
+                                     _state(session_style="companion")))
+
+    def test_an_unknown_style_falls_through_to_the_oral_posture(self):
+        """The composer's own behaviour: unrecognised styles get the
+        default posture rather than nothing."""
+        self.assertTrue(dp.evaluate("session_style_default_oral",
+                                    _state(session_style="invented_style")))
 
     def test_a_failing_predicate_is_inactive_rather_than_fatal(self):
         """A family included by accident is a narrator receiving an
         instruction nobody chose."""
         dp.PREDICATES["_boom"] = lambda s: 1 / 0
         try:
-            self.assertFalse(dp.evaluate("_boom", dp.build_turn_state({})))
+            self.assertFalse(dp.evaluate("_boom", _state()))
         finally:
             del dp.PREDICATES["_boom"]
 
 
-class RolesBranchRatherThanInherit(unittest.TestCase):
-    """A helper turn is not a quieter interview.
+class RolesMirrorTheComposersEarlyReturns(unittest.TestCase):
+    """Helper and onboarding each build a section and RETURN.
 
-    Before this field the role blocks APPENDED and execution fell through
-    into the interview passes, so a helper turn received the Profile Seed
-    walk and the era-walk directives.
+    The composer says so itself: "Helper and onboarding roles completely
+    replace the interview directives. They return early from the
+    directive block so no pass/era/mode rules fire."
+
+    An earlier draft modelled them as appending blocks that fell through
+    into the interview material. They do not, and the correction matters
+    in both directions: the interviewer tail is larger than it looked,
+    and the shared prelude is the ONLY thing helper and onboarding get
+    besides their own block.
     """
 
-    def test_a_helper_turn_never_considers_interviewer_only_families(self):
-        helper = set(da.families_for_role(voc.ROLE_HELPER))
-        for interviewer_only in ("profile_seed_walk", "pass_2a", "pass_2b",
-                                 "era_explanation", "story_mode",
-                                 "question_hierarchy", "session_style",
-                                 "oral_history_posture", "witness_receipt"):
-            with self.subTest(family=interviewer_only):
-                self.assertNotIn(interviewer_only, helper)
+    SHARED_PRELUDE = ["runtime_state", "device_time", "narrator_location",
+                      "memoir_arc", "speaker_name", "capabilities_honesty",
+                      "media_hints", "transparency_rule"]
 
-    def test_the_helper_family_belongs_only_to_the_helper_role(self):
-        self.assertEqual({voc.ROLE_HELPER},
-                         set(da.family_for("role_helper").roles))
+    def test_the_shared_prelude_reaches_every_role(self):
+        for role in voc.ROLES:
+            with self.subTest(role=role):
+                fams = da.families_for_role(role)
+                for fid in self.SHARED_PRELUDE:
+                    self.assertIn(fid, fams)
 
-    def test_onboarding_keeps_identity_collection_but_not_the_passes(self):
-        ob = set(da.families_for_role(voc.ROLE_ONBOARDING))
-        self.assertIn("identity_mode", ob)
-        self.assertIn("role_onboarding", ob)
-        self.assertNotIn("profile_seed_walk", ob)
-        self.assertNotIn("pass_2a", ob)
+    def test_helper_gets_the_prelude_plus_only_its_own_block(self):
+        self.assertEqual(self.SHARED_PRELUDE + ["role_helper"],
+                         da.families_for_role(voc.ROLE_HELPER))
 
-    def test_the_protective_core_belongs_to_every_role(self):
-        for fid in ("interview_core", "no_visual_claims", "runtime_state"):
+    def test_onboarding_gets_the_prelude_plus_only_its_own_block(self):
+        self.assertEqual(self.SHARED_PRELUDE + ["role_onboarding"],
+                         da.families_for_role(voc.ROLE_ONBOARDING))
+
+    def test_the_entire_interviewer_tail_is_interviewer_only(self):
+        """Including the interview discipline and the visual-claims ban,
+        which an earlier draft wrongly marked universal."""
+        for fid in ("interview_core", "no_visual_claims", "softened_response",
+                    "identity_mode", "cognitive_support", "cognitive_variant",
+                    "paired_interview", "visual_affect", "fatigue",
+                    "profile_seed_walk", "pass_2a", "pass_2b",
+                    "era_explanation", "oral_history_posture"):
             with self.subTest(family=fid):
-                self.assertEqual(voc.ROLES, set(da.family_for(fid).roles))
+                self.assertEqual({voc.ROLE_INTERVIEWER},
+                                 set(da.family_for(fid).roles))
+
+    def test_onboarding_does_not_reach_the_later_identity_mode_block(self):
+        """It returns before it. Its own block collects the anchors."""
+        ob = da.families_for_role(voc.ROLE_ONBOARDING)
+        self.assertIn("role_onboarding", ob)
+        self.assertNotIn("identity_mode", ob)
+
+    def test_render_order_places_the_prelude_before_the_role_blocks(self):
+        order = {f: da.family_for(f).render_order
+                 for f in da.family_ids_in_render_order()}
+        latest_prelude = max(order[f] for f in self.SHARED_PRELUDE)
+        self.assertLess(latest_prelude, order["role_helper"])
+        self.assertLess(latest_prelude, order["role_onboarding"])
+        self.assertLess(order["role_onboarding"], order["interview_core"])
+
+    def test_interview_core_follows_the_prelude_not_precedes_it(self):
+        """It was registered at order 10, before location, memoir,
+        speaker, style and media. The composer emits it after all of
+        them."""
+        order = da.family_for("interview_core").render_order
+        for earlier in self.SHARED_PRELUDE:
+            with self.subTest(family=earlier):
+                self.assertLess(da.family_for(earlier).render_order, order)
 
     def test_an_unknown_role_fails_at_build(self):
         bad = da.family_for("fatigue")._replace(roles=frozenset({"wizard"}))
@@ -242,46 +312,49 @@ class TheNarratorIsNotTheRecoveryMechanism(unittest.TestCase):
 
 
 class TheProfileSeedWalkIsPreserved(unittest.TestCase):
-    """The ten-topic new-narrator walk stays.
+    """The ten-topic new-narrator walk stays, and its TRIGGER is unchanged.
 
     It is the only conversational filler for the nine `profile_seed`
     buckets, and a new Lorevox narrator may have no operator to seed
     them.
+
+    An earlier draft gated it on "onboarding incomplete AND topics
+    remain". No production caller computes either value, and the browser
+    promotes `pass1 -> pass2a` once chronology is ready -- so that gate
+    would have depended on inputs nobody supplies. The existing trigger
+    is preserved exactly and the reachability gap is recorded as a debt.
     """
 
     def test_narrator_type_decides_nothing(self):
-        self.assertEqual("profile_walk_active",
+        self.assertEqual("profile_walk_pass1",
                          da.family_for("profile_seed_walk").activation)
         joined = " ".join(dp.PREDICATES)
         self.assertNotIn("reference", joined)
         self.assertNotIn("narrator_type", joined)
         self.assertNotIn("narrator_type", dp.TurnState._fields)
 
-    def test_it_activates_on_incomplete_onboarding(self):
-        active = dp.build_turn_state(
-            {"identity_complete": True},
-            unanswered_profile_topics=("siblings", "military"))
-        self.assertTrue(dp.evaluate("profile_walk_active", active))
+    def test_the_trigger_is_unchanged_from_the_composer(self):
+        self.assertTrue(dp.evaluate("profile_walk_pass1",
+                                    _state(current_pass="pass1")))
+        for other in ("pass2a", "pass2b", "identity", ""):
+            with self.subTest(current_pass=other):
+                self.assertFalse(dp.evaluate("profile_walk_pass1",
+                                             _state(current_pass=other)))
 
-    def test_it_stops_when_onboarding_is_complete(self):
-        done = dp.build_turn_state(
-            {"identity_complete": True},
-            unanswered_profile_topics=(),
-            profile_onboarding_complete=True)
-        self.assertFalse(dp.evaluate("profile_walk_active", done))
+    def test_it_does_not_auto_activate_for_historical_incomplete_profiles(self):
+        """Starting a ten-topic questionnaire for every narrator with a
+        profile gap is interrogation, not onboarding."""
+        self.assertFalse(dp.evaluate("profile_walk_pass1",
+                                     _state(current_pass="pass2a",
+                                            identity_complete=False)))
 
-    def test_it_does_not_start_before_identity_is_complete(self):
-        early = dp.build_turn_state(
-            {"identity_complete": False},
-            unanswered_profile_topics=("siblings",))
-        self.assertFalse(dp.evaluate("profile_walk_active", early))
-
-    def test_it_does_not_end_after_a_single_topic(self):
-        """"Do not terminate after one bucket becomes populated."""
-        still_going = dp.build_turn_state(
-            {"identity_complete": True},
-            unanswered_profile_topics=("military",))
-        self.assertTrue(dp.evaluate("profile_walk_active", still_going))
+    def test_the_reachability_debt_is_recorded_not_papered_over(self):
+        note = da.family_for("profile_seed_walk").note
+        self.assertIn("DEBT", note.upper())
+        self.assertIn("pass2a", note)
+        src = (_REPO / "server" / "code" / "api" / "services"
+               / "directive_predicates.py").read_text(encoding="utf-8")
+        self.assertIn("REACHABILITY DEBT", src)
 
     def test_it_is_required_and_evidence_bearing(self):
         f = da.family_for("profile_seed_walk")
@@ -290,27 +363,43 @@ class TheProfileSeedWalkIsPreserved(unittest.TestCase):
         self.assertEqual(voc.DEGRADE_NONE, f.degradation)
 
 
-class ActivationIsNarrow(unittest.TestCase):
-    """Stored data is not an active task."""
+class MediaCountIsNotAnInViewSignal(unittest.TestCase):
+    """`media_count` is the narrator's TOTAL uploaded photo count.
 
-    def test_archived_media_alone_does_not_activate_photo_instructions(self):
-        nothing_in_view = dp.build_turn_state({"media_count": 0})
-        self.assertFalse(dp.evaluate("media_in_view", nothing_in_view))
+    An earlier draft renamed the predicate `media_in_view`, which would
+    have claimed a turn-scoped signal the payload does not carry -- and
+    would have silently removed a hint that fires today. Behaviour is
+    preserved; narrowing it needs a real in-view signal first.
+    """
 
-    def test_media_in_view_does_activate_them(self):
-        in_view = dp.build_turn_state({"media_count": 3})
-        self.assertTrue(dp.evaluate("media_in_view", in_view))
+    def test_the_predicate_is_not_named_as_an_in_view_signal(self):
+        self.assertIn("media_present", dp.PREDICATES)
+        self.assertNotIn("media_in_view", dp.PREDICATES)
 
-    def test_stale_visual_evidence_produces_nothing(self):
-        stale = dp.build_turn_state(
-            {"visual_baseline": True, "affect_state": "reflective"},
-            visual_fresh=False)
-        self.assertFalse(dp.evaluate("visual_affect_fresh", stale))
+    def test_it_fires_on_any_uploaded_media_exactly_as_before(self):
+        self.assertTrue(dp.evaluate("media_present", _state(media_count=1)))
+        self.assertFalse(dp.evaluate("media_present", _state(media_count=0)))
 
-    def test_affect_without_a_baseline_produces_nothing(self):
-        no_base = dp.build_turn_state({"affect_state": "reflective"},
-                                      visual_fresh=True)
-        self.assertFalse(dp.evaluate("visual_affect_fresh", no_base))
+    def test_the_registry_records_that_it_is_a_total_not_a_view(self):
+        note = da.family_for("media_hints").note
+        self.assertIn("TOTAL", note)
+
+
+class VisualAffectMatchesTheComposerCondition(unittest.TestCase):
+    def test_it_requires_a_baseline_and_a_reading(self):
+        self.assertTrue(dp.evaluate("visual_affect_present",
+                                    _state(visual_baseline=True,
+                                           visual_affect="reflective")))
+        self.assertFalse(dp.evaluate("visual_affect_present",
+                                     _state(visual_affect="reflective")))
+        self.assertFalse(dp.evaluate("visual_affect_present",
+                                     _state(visual_baseline=True)))
+
+    def test_no_freshness_signal_is_invented(self):
+        """The payload carries none; claiming one would be a claim the
+        data does not support."""
+        self.assertNotIn("visual_fresh", dp.TurnState._fields)
+        self.assertNotIn("visual_affect_fresh", dp.PREDICATES)
 
     def test_the_visual_claim_ban_holds_when_affect_is_absent(self):
         ban = da.family_for("no_visual_claims")
@@ -318,6 +407,57 @@ class ActivationIsNarrow(unittest.TestCase):
         self.assertEqual("always", ban.activation)
         self.assertNotEqual(ban.activation,
                             da.family_for("visual_affect").activation)
+
+
+class TheEvaluatedAssembly(unittest.TestCase):
+    """Role eligibility AND predicate, in one place."""
+
+    def test_an_ordinary_ready_turn_omits_inactive_families(self):
+        active = {f.family_id for f in da.active_families(_state())}
+        for inactive in ("era_explanation", "witness_receipt", "story_mode",
+                         "paired_interview", "visual_affect", "fatigue",
+                         "cognitive_support", "pass_2a", "pass_2b",
+                         "softened_response", "media_hints"):
+            with self.subTest(family=inactive):
+                self.assertNotIn(inactive, active)
+
+    def test_an_ordinary_ready_turn_keeps_the_protective_core(self):
+        active = {f.family_id for f in da.active_families(_state())}
+        for core in ("runtime_state", "interview_core", "transparency_rule",
+                     "no_visual_claims", "oral_history_posture"):
+            with self.subTest(family=core):
+                self.assertIn(core, active)
+
+    def test_a_helper_turn_gets_helper_guidance_and_no_interview_tail(self):
+        active = {f.family_id
+                  for f in da.active_families(_state(assistant_role="helper"))}
+        self.assertIn("role_helper", active)
+        self.assertIn("transparency_rule", active)
+        for tail in ("interview_core", "profile_seed_walk", "pass_2a",
+                     "no_visual_claims", "oral_history_posture"):
+            with self.subTest(family=tail):
+                self.assertNotIn(tail, active)
+
+    def test_each_active_family_appears_exactly_once(self):
+        ids = [f.family_id for f in da.active_families(_state())]
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_active_families_come_back_in_render_order(self):
+        orders = [f.policy.render_order for f in da.active_families(_state())]
+        self.assertEqual(orders, sorted(orders))
+
+    def test_inactive_is_distinguished_from_role_ineligible(self):
+        """'your feature is off' and 'this is not that conversation' are
+        different answers."""
+        helper = _state(assistant_role="helper")
+        inactive = set(da.inactive_families(helper))
+        self.assertNotIn("pass_2a", inactive)      # role-ineligible, not inactive
+        self.assertIn("media_hints", inactive)     # eligible, condition false
+
+    def test_an_active_capability_is_present_exactly_once(self):
+        active = [f.family_id for f in
+                  da.active_families(_state(era_definition_requested=True))]
+        self.assertEqual(1, active.count("era_explanation"))
 
 
 class OneAuthorityForTheVocabulary(unittest.TestCase):

@@ -83,30 +83,25 @@ TRIM_DROP_WHOLE = "drop_whole"  # removable, but only in its entirety
 
 _TRIM_POLICIES = frozenset({TRIM_NEVER, TRIM_DROP_WHOLE})
 
-# ── priority tier ───────────────────────────────────────────────────────
-# Coarse editorial grouping, for diagnostics and for human argument about
-# the ladder. Deliberately NOT the drop order: the tier says what KIND of
-# thing this is, the order says which of two you lose first.
-TIER_IDENTITY = "identity"                    # who Lori and the narrator are
-TIER_DISCIPLINE = "discipline"                # how Lori is required to behave
-TIER_REVIEWED_EVIDENCE = "reviewed_evidence"  # a human read it and decided
-TIER_NARRATOR_CONTEXT = "narrator_context"    # durable context about this person
-TIER_TURN_HINT = "turn_hint"                  # rebuilt next turn at no cost
+# ── vocabulary ──────────────────────────────────────────────────────────
+#
+# MIGRATED 2026-08-18. These tier and source constants were declared here
+# AND in `directive_activation`, which is two authorities for one concept
+# and the beginning of the drift this lane exists to remove. They are now
+# re-exported from the shared module so every consumer keeps working
+# while there is only one definition.
+from .prompt_policy_vocab import (            # noqa: E402
+    SOURCE_DEVICE, SOURCE_PROFILE, SOURCE_REVIEWED_STORY, SOURCE_RUNTIME,
+    SOURCE_SERVER_DB, SOURCE_STATIC, SOURCE_TRANSPORT, SOURCES,
+    TIER_ACCESSIBILITY, TIER_DISCIPLINE, TIER_IDENTITY,
+    TIER_NARRATOR_CONTEXT, TIER_REVIEWED_EVIDENCE, TIER_TURN_HINT,
+    TIER_WORKFLOW, TIERS,
+)
 
-_TIERS = frozenset({TIER_IDENTITY, TIER_DISCIPLINE, TIER_REVIEWED_EVIDENCE,
-                    TIER_NARRATOR_CONTEXT, TIER_TURN_HINT})
-
-# ── source ──────────────────────────────────────────────────────────────
-# Where the section's CONTENT comes from. This is the field that answers
-# "if this is wrong, where do I go and fix it".
-SOURCE_STATIC = "static"                  # literal text in the composer
-SOURCE_PROFILE = "profile"                # profile / PROFILE_JSON
-SOURCE_RUNTIME = "runtime71"              # per-turn runtime context
-SOURCE_REVIEWED_STORY = "story_review"    # server-owned story projection
-SOURCE_TRANSPORT = "transport"            # appended by a transport, not the composer
-
-_SOURCES = frozenset({SOURCE_STATIC, SOURCE_PROFILE, SOURCE_RUNTIME,
-                      SOURCE_REVIEWED_STORY, SOURCE_TRANSPORT})
+#: Retained as the module's own name for the shared set, so existing
+#: readers of `_TIERS` / `_SOURCES` are unaffected.
+_TIERS = TIERS
+_SOURCES = SOURCES
 
 
 class UnknownSectionError(KeyError):
