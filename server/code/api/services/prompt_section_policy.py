@@ -162,10 +162,21 @@ _POLICIES: List[SectionPolicy] = [
        TRIM_DROP_WHOLE, SOURCE_PROFILE, TIER_NARRATOR_CONTEXT, False, 30,
        "PROFILE_JSON supplied by the UI. High value, dropped late."),
 
-    _p("pinned_facts", "operator-profile", "pinned_facts_present",
-       TRIM_DROP_WHOLE, SOURCE_PROFILE, TIER_NARRATOR_CONTEXT, False, 40,
-       "Operator-pinned truth. Dropped LAST of the optional set, because "
-       "it is the closest thing here to something a human chose."),
+    _p("pinned_facts", "lori-discipline", "pinned_guidance_present",
+       TRIM_DROP_WHOLE, SOURCE_STATIC, TIER_DISCIPLINE, False, 40,
+       "MISNAMED, and the misnomer is recorded rather than corrected here. "
+       "Verified 2026-08-18 against the composer: this section carries "
+       "[ORAL_HISTORY_GUIDELINES] (the oral-history manifesto) and "
+       "[GOLDEN_MOCK] (golden guidance). It does NOT carry "
+       "narrator-specific operator-pinned facts, which is what its name "
+       "and its previous rationale -- 'the closest thing here to something "
+       "a human chose' -- both asserted. Its owner, source and tier are "
+       "corrected to what it actually is: static discipline material, not "
+       "narrator profile context. THE ID IS DELIBERATELY NOT RENAMED in "
+       "this block: the id is stable and load-bearing across telemetry and "
+       "tests, and item 3 must classify the contents before its priority "
+       "is decided. Renaming it here would change a name without changing "
+       "the decision that name is wrong about."),
 
     _p("identity_facts", "lori-core", "runtime_present", TRIM_NEVER,
        SOURCE_RUNTIME, TIER_IDENTITY, True, 0,
@@ -216,11 +227,43 @@ _POLICIES: List[SectionPolicy] = [
        "undoes."),
 
     _p("memory_context", "lori-memory", "memory_block_present",
-       TRIM_DROP_WHOLE, SOURCE_RUNTIME, TIER_TURN_HINT, False, 5,
-       "Adaptive recall. Costs continuity, and the narrator can always be "
-       "asked again -- which is precisely why a reviewed story outranks "
-       "it."),
+       TRIM_DROP_WHOLE, SOURCE_RUNTIME, TIER_NARRATOR_CONTEXT, False, 5,
+       "Adaptive recall. ── RATIONALE CORRECTED 2026-08-18. This read "
+       "'the narrator can always be asked again', which is contrary to "
+       "Lorevox's purpose: an older narrator is not a recoverable storage "
+       "device, and asking them to repeat themselves is a cost borne by "
+       "the person this system exists to serve. The ONLY honest "
+       "justification is durability: this block is RECONSTRUCTED each turn "
+       "from the archive and rolling summary, which remain intact on the "
+       "server, so dropping it costs continuity within one turn and loses "
+       "nothing permanently. Its tier is narrator_context, not turn_hint -- "
+       "it is about this person, not about this turn."),
 ]
+
+
+# The harmful CLAIM, not the words. `approved_stories` legitimately says a
+# reviewed story "cannot be re-asked" -- it invokes the idea in order to
+# reject it -- so a bare substring ban would fire on the argument against
+# the very rationale it exists to forbid. That is the guard-on-prose
+# mistake this repository keeps making; the ban is on the assertion that
+# the NARRATOR is the recovery mechanism.
+_BANNED_RATIONALES = (
+    "narrator can always be asked",
+    "narrator can be asked again",
+    "can always be asked again",
+    "the narrator could be asked again",
+    "ask the narrator again",
+)
+
+
+def _unquoted(text: str) -> str:
+    """Text with single- and double-quoted spans removed.
+
+    So that quoting a retired rationale in order to withdraw it does not
+    read as asserting it.
+    """
+    import re
+    return re.sub(r"'[^']*'|\"[^\"]*\"", " ", text)
 
 
 def _build_registry(policies) -> Dict[str, SectionPolicy]:
@@ -257,6 +300,21 @@ def _build_registry(policies) -> Dict[str, SectionPolicy]:
             raise ValueError(
                 f"{pol.section_id}: drop_order is meaningless for a required "
                 f"section and must be 0")
+        # Lorevox's purpose forbids one justification outright: an older
+        # narrator is not a recoverable storage device. A section may be
+        # droppable because its SOURCE is durable, never because the
+        # person could be made to say it again.
+        # Quoted spans are STRIPPED before the check. This file's own
+        # correct-in-place rule requires quoting a retired claim when
+        # withdrawing it, and `memory_context` does exactly that -- so a
+        # naive scan fires on the withdrawal itself. A phrase inside
+        # quotes is being reported; only unquoted text is asserted.
+        low = _unquoted((pol.note or "").lower())
+        for banned in _BANNED_RATIONALES:
+            if banned in low:
+                raise ValueError(
+                    f"{pol.section_id}: a section may not be justified as "
+                    f"droppable because the narrator could be asked again")
         if not pol.owner or not pol.activation:
             raise ValueError(f"{pol.section_id}: owner and activation required")
         reg[pol.section_id] = pol

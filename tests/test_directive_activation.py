@@ -92,9 +92,52 @@ class TheProtectiveCoreStaysRequired(unittest.TestCase):
         self.assertFalse(affect.required)
         self.assertNotEqual(ban.activation, affect.activation)
 
-    def test_only_the_protective_core_is_required(self):
-        self.assertEqual({"interview_core", "no_visual_claims"},
-                         set(da.required_family_ids()))
+    def test_only_the_protective_core_is_unconditional(self):
+        """CORRECTED 2026-08-18. This read:
+
+            self.assertEqual({"interview_core", "no_visual_claims"},
+                             set(da.required_family_ids()))
+
+        which was true only while `required` wrongly implied
+        `always`. Under the corrected semantics 20 families are required
+        once active. What is still exactly two is the set that is present
+        on EVERY turn regardless of state -- the interview discipline and
+        the ban on unevidenced visual claims.
+        """
+        unconditional = {f.family_id for f in da.REGISTRY.values()
+                         if f.activation == "always"}
+        self.assertEqual({"interview_core", "no_visual_claims"}, unconditional)
+
+    def test_most_families_are_protected_once_their_feature_is_active(self):
+        """The philosophical correction, stated as a count.
+
+        Lean Lori withholds instructions for INACTIVE states. It does not
+        make active capabilities expendable. If this number collapses
+        toward two, someone has gone back to treating 'optional' as
+        'expendable'.
+        """
+        protected = [f for f in da.REGISTRY.values() if f.required]
+        self.assertGreater(len(protected), len(da.REGISTRY) // 2)
+        # And every unprotected one has said exactly how it degrades.
+        for f in da.REGISTRY.values():
+            if not f.required:
+                with self.subTest(family=f.family_id):
+                    self.assertTrue(f.degradation)
+                    self.assertFalse(f.affects_evidence)
+
+    def test_no_degradation_is_justified_by_re_asking_the_narrator(self):
+        """Lorevox's purpose forbids it.
+
+        An older narrator is not a recoverable storage device. A section
+        may be safe to drop because its source is DURABLE on the server,
+        never because the person could be made to say it again.
+        """
+        for f in da.REGISTRY.values():
+            with self.subTest(family=f.family_id):
+                text = (f.degradation + " " + f.note).lower()
+                for banned in ("asked again", "ask again", "re-ask",
+                               "repeat it", "narrator can always"):
+                    self.assertNotIn(banned, text)
 
 
 class NothingDefaultsSilently(unittest.TestCase):
@@ -127,33 +170,105 @@ class NothingDefaultsSilently(unittest.TestCase):
         with self.assertRaises(ValueError):
             da._build([a, b])
 
-    def test_a_required_family_cannot_be_conditional(self):
-        """"Never withheld" and "only sometimes present" cannot both
-        hold. A required family with a condition is a contradiction that
-        would read as protection while behaving as a gate."""
-        bad = da.family_for("interview_core")._replace(
-            activation="fatigue_elevated")
+    def test_a_conditional_family_may_be_required(self):
+        """INVERTED 2026-08-18, and the inversion is the point.
+
+        This asserted the opposite -- that a required family could not be
+        conditional -- and that conflated two independent words:
+
+            activation  decides whether the family is PRESENT
+            required    decides whether the budget may REMOVE it
+
+        A helper turn's guidance is both: conditional, because it appears
+        only in the helper role, and required, because a helper turn that
+        silently loses it does not become a shorter helper turn, it
+        becomes an interview.
+
+        The retired assertion read:
+
+            bad = da.family_for("interview_core")._replace(
+                activation="fatigue_elevated")
+            with self.assertRaises(ValueError):
+                da._build([bad])
+        """
+        conditional_and_required = [
+            f for f in da.REGISTRY.values()
+            if f.required and f.activation != "always"
+        ]
+        self.assertTrue(conditional_and_required,
+                        "no family is both conditional and protected, which "
+                        "means the two words have been conflated again")
+        # And the build accepts one, rather than rejecting it as before.
+        ok = da.family_for("role_helper")
+        self.assertTrue(ok.required)
+        self.assertNotEqual("always", ok.activation)
+        da._build([ok])
+
+    def test_a_droppable_family_must_name_its_degradation(self):
+        """A loss nobody described is a loss nobody can observe."""
+        bad = da.family_for("thread_surfacing")._replace(degradation="")
         with self.assertRaises(ValueError):
             da._build([bad])
 
+    def test_an_evidence_bearing_family_may_not_be_droppable(self):
+        """Dropping it could change what is persisted or attributed, and
+        that is not a degradation, it is a wrong record."""
+        bad = da.family_for("witness_receipt")._replace(
+            required=False, degradation="some words")
+        with self.assertRaises(ValueError):
+            da._build([bad])
 
-class TheProfileSeedWalkIsServerResolved(unittest.TestCase):
-    """The live-only retirement rests on this predicate.
+    def test_a_required_family_has_no_degradation(self):
+        """It is kept, or the turn refuses. There is no middle."""
+        bad = da.family_for("role_helper")._replace(degradation="quietly skip")
+        with self.assertRaises(ValueError):
+            da._build([bad])
 
-    A browser-supplied narrator type must never decide whether a live
-    narrator receives a ten-question questionnaire walk.
+    def test_every_family_records_the_capability_it_supports(self):
+        for fid in da.family_ids_in_render_order():
+            with self.subTest(family=fid):
+                self.assertTrue(da.family_for(fid).capability)
+
+
+class TheProfileSeedWalkIsPreserved(unittest.TestCase):
+    """The ten-topic new-narrator walk stays. The retirement was wrong.
+
+    It is the ONLY conversational filler for the nine `profile_seed`
+    buckets -- childhood_home, parents_work, heritage, education,
+    military, career, partner, children, life_stage. Everything else that
+    populates them is operator-side: the intake form, Bio Builder,
+    template preload. That is sufficient in Hornelore, where the operator
+    knows the narrator. It is not sufficient in Lorevox, where a new
+    narrator may have no operator at all, and where retiring the walk
+    would leave those buckets permanently empty and Lori's readback
+    permanently "(not on record yet)".
     """
 
-    def test_its_predicate_names_the_reference_narrator_condition(self):
-        f = da.family_for("profile_seed_walk")
-        self.assertEqual("pass1_and_reference_narrator", f.activation)
+    def test_the_walk_still_exists(self):
+        self.assertIn("profile_seed_walk", da.REGISTRY)
 
-    def test_its_source_declares_the_database(self):
+    def test_narrator_type_does_not_decide_whether_it_exists(self):
+        """The retired predicate was `pass1_and_reference_narrator`,
+        which made the walk a property of who the narrator IS rather than
+        of what is still unknown about them."""
         f = da.family_for("profile_seed_walk")
-        self.assertIn("db", f.source)
+        self.assertEqual("profile_walk_active", f.activation)
+        self.assertNotIn("reference", f.activation)
+        self.assertNotIn("reference", "".join(da.ACTIVATION_PREDICATES))
 
-    def test_it_is_droppable_rather_than_protective(self):
-        self.assertFalse(da.family_for("profile_seed_walk").required)
+    def test_it_is_required_once_active(self):
+        """An onboarding turn that loses its walk asks nothing and
+        records nothing."""
+        f = da.family_for("profile_seed_walk")
+        self.assertTrue(f.required)
+        self.assertEqual("", f.degradation)
+
+    def test_it_is_evidence_bearing(self):
+        self.assertTrue(da.family_for("profile_seed_walk").affects_evidence)
+
+    def test_its_capability_is_named_as_the_walk(self):
+        cap = da.family_for("profile_seed_walk").capability
+        self.assertIn("ten-topic", cap)
 
 
 class TheModuleIsPurePolicy(unittest.TestCase):

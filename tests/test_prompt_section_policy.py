@@ -284,6 +284,64 @@ class TheTwoLayersStaySeparate(unittest.TestCase):
         self.assertEqual("unregistered", plan.priority_tier)
 
 
+class TheNarratorIsNotTheRecoveryMechanism(unittest.TestCase):
+    """Lorevox's purpose forbids one justification outright.
+
+    `memory_context` was justified as droppable because "the narrator can
+    always be asked again". An older narrator is not a recoverable
+    storage device, and asking them to repeat themselves is a cost borne
+    by the person this system exists to serve. A section may be droppable
+    because its SOURCE is durable on the server. Never for that reason.
+    """
+
+    def test_no_section_is_justified_by_re_asking_the_narrator(self):
+        for sid in pol.known_section_ids():
+            with self.subTest(section=sid):
+                note = pol._unquoted((pol.policy_for(sid).note or "").lower())
+                for banned in pol._BANNED_RATIONALES:
+                    self.assertNotIn(banned, note)
+
+    def test_the_guard_fires_on_the_real_rationale(self):
+        bad = pol.policy_for("memory_context")._replace(
+            note="droppable because the narrator can always be asked again")
+        with self.assertRaises(ValueError):
+            pol._build_registry([bad])
+
+    def test_the_quote_stripper_is_not_vacuous(self):
+        """It strips quoted spans so a WITHDRAWN claim can be quoted. A
+        stripper that removed everything would make the guard useless."""
+        kept = pol._unquoted(pol.policy_for("memory_context").note.lower())
+        self.assertIn("durab", kept, "the stripper removed real content")
+        self.assertNotIn("can always be asked again", kept)
+
+    def test_memory_context_is_justified_by_durability(self):
+        note = pol.policy_for("memory_context").note.lower()
+        self.assertIn("reconstructed", note)
+        self.assertIn("server", note)
+
+
+class ThePinnedFactsMisnomerIsRecorded(unittest.TestCase):
+    """It carries the oral-history manifesto and golden guidance, not
+    narrator-specific operator-pinned facts. Item 3 classifies the
+    contents before its priority is decided; until then the name must
+    not go on asserting something false."""
+
+    def test_its_declared_source_is_static_not_profile(self):
+        p = pol.policy_for("pinned_facts")
+        self.assertEqual(pol.SOURCE_STATIC, p.source)
+        self.assertEqual(pol.TIER_DISCIPLINE, p.priority_tier)
+
+    def test_the_misnomer_is_stated_in_the_note(self):
+        note = pol.policy_for("pinned_facts").note
+        self.assertIn("MISNAMED", note)
+        self.assertIn("ORAL_HISTORY_GUIDELINES", note)
+
+    def test_the_id_is_deliberately_not_renamed_yet(self):
+        """Renaming would change a name without changing the decision the
+        name is wrong about, and the id is load-bearing in telemetry."""
+        self.assertIn("pinned_facts", pol.known_section_ids())
+
+
 class TrimPolicyDoesNotDecideGlobalOrdering(unittest.TestCase):
     """Item 3, not item 1.
 
