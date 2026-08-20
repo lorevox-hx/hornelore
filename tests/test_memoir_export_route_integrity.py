@@ -447,3 +447,60 @@ class TheTranslatorReceivesEachItemsOwnLanguage(_RouteCase):
         r = self._post(target_language="es")
         self.assertEqual(r.status_code, 500)
         self.assertIn("language metadata is misaligned", r.text)
+
+
+# ── The read contract is not the write flag ─────────────────────────────
+
+class SeeingEvidenceIsNotCreatingADocument(_RouteCase):
+    """`HORNELORE_MEMOIR_EXPORT_ENABLED` gates DOCX CREATION.
+
+    THE DEFECT (2026-08-19). `GET /api/memoir/canonical` called
+    `_require_enabled()` too, so with the flag off the panel got a 404
+    and showed nothing -- and the operator had no way to tell an empty
+    narrator from a switched-off feature. The route writes nothing,
+    approves nothing and places nothing; there is nothing for an export
+    flag to protect, and refusing to let someone LOOK at reviewed
+    evidence because document generation is disabled is a different
+    decision from the one that flag records.
+    """
+
+    def _flag_off(self):
+        from api import flags as _flags
+        _flags.memoir_export_enabled = lambda: False
+        self.addCleanup(setattr, _flags, "memoir_export_enabled",
+                        self._orig_flag)
+
+    def test_the_canonical_read_still_answers_with_the_flag_off(self):
+        self._story(_STORY_EN)
+        self._flag_off()
+        r = self.client.get("/api/memoir/canonical",
+                            params={"person_id": self.narrator})
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertEqual(body["person_id"], self.narrator)
+        self.assertEqual([s["text"] for s in body["stories"]], [_STORY_EN])
+
+    def test_the_docx_route_is_still_gated(self):
+        self._story(_STORY_EN)
+        self._flag_off()
+        r = self._post()
+        self.assertEqual(r.status_code, 404,
+                         "the flag still governs document creation")
+
+    def test_the_read_is_still_narrator_scoped_with_the_flag_off(self):
+        # Not gating it does not mean not checking it.
+        self._flag_off()
+        r = self.client.get("/api/memoir/canonical",
+                            params={"person_id": "no-such-person"})
+        self.assertEqual(r.status_code, 422)
+
+    def test_the_route_body_does_not_call_the_gate(self):
+        import ast
+        import inspect
+        tree = ast.parse(inspect.getsource(_me.api_memoir_canonical))
+        tree.body[0].body = [n for n in tree.body[0].body
+                             if not (isinstance(n, ast.Expr)
+                                     and isinstance(n.value, ast.Constant))]
+        self.assertNotIn("_require_enabled", ast.unparse(tree),
+                         "the docstring explains why the gate is absent; "
+                         "the CODE must not call it")

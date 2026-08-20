@@ -37,6 +37,33 @@ function ok(name, cond, detail) {
 }
 function section(t) { console.log('\n' + t); }
 
+/* Block and line comments out, string literals left alone. Enough for
+   the one function this file scans, and it carries its own positive
+   control below so a stripper that ate everything could not pass. */
+function stripJsComments(src) {
+  let out = '', i = 0, q = null;
+  while (i < src.length) {
+    const c = src[i], n = src[i + 1];
+    if (q) {
+      if (c === '\\') { out += c + (n || ''); i += 2; continue; }
+      if (c === q) q = null;
+      out += c; i++; continue;
+    }
+    if (c === '"' || c === "'" || c === '`') { q = c; out += c; i++; continue; }
+    if (c === '/' && n === '*') { const e = src.indexOf('*/', i + 2); i = e < 0 ? src.length : e + 2; continue; }
+    if (c === '/' && n === '/') { const e = src.indexOf('\n', i); i = e < 0 ? src.length : e; continue; }
+    out += c; i++;
+  }
+  return out;
+}
+(function stripperIsNotVacuous() {
+  const probe = 'const a = 1; /* await x */ // await y\nconst s = "/* await z */";';
+  const got = stripJsComments(probe);
+  ok('the comment stripper removes comments and keeps strings',
+     got.indexOf('await x') < 0 && got.indexOf('await y') < 0 &&
+     got.indexOf('await z') >= 0 && got.indexOf('const a = 1;') >= 0, got);
+})();
+
 /* ── Extract only the functions under test ───────────────────────────────
  * The shell's inline block is ~100KB and reaches for the whole app. We
  * lift the memoir-canonical lifecycle out by name and run it against a
@@ -83,16 +110,48 @@ const lifted = lift(inline, [
   '_memoirCanonicalReady',
   '_memoirResetForNarratorSwitch',
   '_memoirLoadCanonical',
+  '_memoirPaintCanonicalIfCurrent',
   '_memoirLoadCanonicalAndRender',
+  '_memoirCanonicalLinesRaw',
+  '_memoirCanonicalRecords',
   '_memoirCanonicalLines',
   '_memoirRenderCanonical',
+  '_memoirEvaluateState',
+  '_memoirBuildTxtContent',
   '_memoirExportBlockedReason',
+  '_memoirLoadStoredFacts',
+  '_memoirLoadFactsLane',
 ]);
 
-/* ── Minimal DOM double ─────────────────────────────────────────────── */
+/* ── Minimal DOM double ───────────────────────────────────────────────
+ * Enough CSS to run the SHIPPED selectors: tag, .class, [attr] and
+ * :not(...) of either. Written out rather than stubbed because the
+ * defects under test live IN those selectors -- `hasDraftProse`
+ * counting reviewed evidence as operator prose, and the evidence
+ * recognition that has to tell an item apart from an outage notice. */
+function matches(el, sel) {
+  const parts = sel.trim().match(/(:not\([^)]*\)|\[[^\]]*\]|\.[^.\[:\s]+|^[a-zA-Z]+)/g) || [];
+  for (const p of parts) {
+    if (p.startsWith(':not(')) {
+      if (matches(el, p.slice(5, -1))) return false;
+    } else if (p.startsWith('[')) {
+      const name = p.slice(1, -1).split('=')[0];
+      if (el.attrs[name] === undefined) return false;
+    } else if (p.startsWith('.')) {
+      if ((el.className || '').split(/\s+/).indexOf(p.slice(1)) < 0) return false;
+    } else {
+      if ((el.tagName || '').toLowerCase() !== p.toLowerCase()) return false;
+    }
+  }
+  return parts.length > 0;
+}
+
 function makeEl(tag) {
   return {
     tagName: tag, className: '', textContent: '', children: [], attrs: {},
+    dataset: {}, hidden: false, disabled: false,
+    set innerHTML(v) { if (v === '') this.children = []; },
+    get innerHTML() { return this.children.length ? '<...>' : ''; },
     setAttribute(k, v) { this.attrs[k] = String(v); },
     getAttribute(k) { return this.attrs[k]; },
     appendChild(c) { this.children.push(c); c.parent = this; return c; },
@@ -101,15 +160,16 @@ function makeEl(tag) {
       const i = this.parent.children.indexOf(this);
       if (i >= 0) this.parent.children.splice(i, 1);
     },
-    querySelector(sel) {
-      const want = sel.replace(/^\./, '');
+    descendants() {
+      const out = [];
       for (const c of this.children) {
-        if ((c.className || '').split(/\s+/).indexOf(want) >= 0) return c;
-        const deep = c.querySelector ? c.querySelector(sel) : null;
-        if (deep) return deep;
+        out.push(c);
+        if (c.descendants) out.push(...c.descendants());
       }
-      return null;
+      return out;
     },
+    querySelectorAll(sel) { return this.descendants().filter(e => matches(e, sel)); },
+    querySelector(sel) { return this.querySelectorAll(sel)[0] || null; },
     allText() {
       return [this.textContent].concat(
         this.children.map(c => (c.allText ? c.allText() : ''))).join('\n');
@@ -119,19 +179,47 @@ function makeEl(tag) {
 
 function freshCtx() {
   const content = makeEl('div');
+  const els = {
+    memoirScrollContent: content,
+    memoirScrollPopover: makeEl('div'),
+    memoirScrollIntro: makeEl('div'),
+    memoirScrollHeading: makeEl('h3'),
+    memoirPanelSubtitle: makeEl('p'),
+    memoirThreadsHint: makeEl('p'),
+    memoirEditBtn: makeEl('button'),
+    memoirExportTxtBtn: makeEl('button'),
+    memoirExportDocxBtn: makeEl('button'),
+  };
   const ctx = {
-    console,
+    console: { log() {}, warn() {}, error() {} },
     state: { person_id: null },
     document: {
-      getElementById: id => (id === 'memoirScrollContent' ? content : null),
+      getElementById: id => els[id] || null,
       createElement: makeEl,
       querySelector: sel => content.querySelector(sel),
+      querySelectorAll: () => [],
     },
     AbortController: class { constructor() { this.signal = {}; } abort() { this.aborted = true; } },
     alert: msg => { ctx.__alerted = msg; },
     fetch: null,
     window: {},
     __content: content,
+    __els: els,
+    /* Adjacent features the panel touches. Stubbed because they are not
+       what is under test -- but `lv80HasStructuredMemoirData` returns
+       FALSE on purpose, so nothing but reviewed evidence can make the
+       panel non-empty in these runs. */
+    API: { FACTS_LIST: pid => '/api/facts/list?person_id=' + pid },
+    _memoirState: 'empty',
+    _memoirQualityFilter: () => true,
+    _lv80AssignMemoirSection: () => 'story_details',
+    _LV80_MEMOIR_SECTIONS: [],
+    lv80HasStructuredMemoirData: () => false,
+    lv80RenderStructuredMemoirPreview: () => {},
+    _memoirRenderFragments: () => {},
+    _memoirIsDraft: () => false,
+    _memoirShowPromotionCue: () => {},
+    setTimeout, clearTimeout, Blob: class {}, URL: { createObjectURL: () => '', revokeObjectURL: () => {} },
   };
   vm.createContext(ctx);
   vm.runInContext(constants + '\n' + lifted, ctx);
@@ -156,6 +244,27 @@ function respond(ctx, body, opts) {
     opts.delay ? setTimeout(go, opts.delay) : go();
   });
 }
+
+/* Two lanes, answered independently, so the COMPLETION ORDER can be
+   controlled. That order is the defect this file exists to catch: the
+   panel used to show a different thing depending on which request won
+   the race. */
+function routes(ctx, spec) {
+  ctx.fetch = (url) => {
+    const which = String(url).indexOf('/api/memoir/canonical') >= 0
+      ? 'canonical' : 'facts';
+    const s = spec[which] || {};
+    return new Promise((res, rej) => {
+      const go = () => {
+        if (s.reject) return rej(new Error('network down'));
+        res({ ok: s.ok !== false, json: () => Promise.resolve(s.body) });
+      };
+      s.delay ? setTimeout(go, s.delay) : go();
+    });
+  };
+}
+
+const NO_FACTS = { items: [] };
 
 (async function main() {
   section('Loading is independent of the facts lane');
@@ -350,22 +459,239 @@ function respond(ctx, body, opts) {
       ctx._memoirBuildTxtFilename = () => 'x.txt';
       ctx._memoirBuildTxtContent = () => 'body';
       ctx._memoirDownloadTxt = () => { ctx.__downloaded = true; };
-      ctx._memoirState = 'threads';
+      /* NOT 'empty'. `memoirExportDOCX` returns early on the empty
+         state, BEFORE it reaches anything the gate protects -- so a
+         mutant that skipped the gate entirely still did nothing here,
+         and this check passed on the defect it was written for. The
+         state has to be one where the export would otherwise proceed. */
+      ctx._memoirState = 'evidence';
       ctx.lv80LogTurnDebug = () => {};
+      /* A REQUEST IS THE TELL. `memoirExportDOCX` catches its own
+         failures and alerts, so "something was alerted and nothing
+         downloaded" is ALSO what a skipped gate looks like once the
+         server call fails -- which is how a mutant that deleted the
+         gate outright passed the first version of this check. Counting
+         requests separates refusing from trying and failing. */
+      let requests = 0;
+      ctx.fetch = () => { requests++; return Promise.reject(new Error('no server')); };
       vm.runInContext(exports, ctx);
-      /* A THROW is not a refusal. Past the gate, both functions reach
-         DOM and network the double does not provide, so an export that
-         skipped the gate crashes here -- which must read as the failure
-         it is, not as an aborted harness run. */
       let threw = null;
       try { await vm.runInContext(name + '()', ctx); }
       catch (e) { threw = (e && e.message) || String(e); }
       ok(name + ' refuses while the evidence is not ready',
-         threw === null && ctx.__downloaded === false &&
-         typeof ctx.__alerted === 'string',
-         'downloaded=' + ctx.__downloaded + ' alert=' + ctx.__alerted +
-         (threw ? ' threw=' + threw : ''));
+         threw === null && requests === 0 && ctx.__downloaded === false &&
+         /reviewed/i.test(String(ctx.__alerted)),
+         'requests=' + requests + ' downloaded=' + ctx.__downloaded +
+         ' alert=' + ctx.__alerted + (threw ? ' threw=' + threw : ''));
     }
+  }
+
+  /* ── THE ENTRY POINT, NOT THE HELPER ─────────────────────────────
+     Everything above drives `_memoirLoadCanonicalAndRender()`. The
+     product does not: it calls `_memoirLoadStoredFacts()`, which runs
+     BOTH lanes, and every facts branch begins by clearing the panel.
+     Driving only the helper is why the coordination defect survived a
+     green harness. These run the real entry point. */
+
+  async function bothOrders(label, spec) {
+    const ctx = freshCtx();
+    ctx.state.person_id = 'A';
+    routes(ctx, spec);
+    await vm.runInContext('_memoirLoadStoredFacts("A")', ctx);
+    const text = ctx.__content.allText();
+    ok(label + ': the story is in the DOM',
+       text.indexOf('The porch and the peas.') >= 0);
+    ok(label + ': exactly once',
+       text.split('The porch and the peas.').length - 1 === 1);
+    ok(label + ': the panel is visible, not hidden',
+       ctx.__els.memoirScrollContent.hidden === false);
+    ok(label + ': the memoir state is not empty',
+       vm.runInContext('_memoirState', ctx) !== 'empty',
+       vm.runInContext('_memoirState', ctx));
+    ok(label + ': DOCX is offered',
+       ctx.__els.memoirExportDocxBtn.disabled === false);
+    return ctx;
+  }
+
+  section('Zero facts + one approved story — facts lane answers FIRST');
+  await bothOrders('facts first', {
+    facts: { body: NO_FACTS, delay: 5 },
+    canonical: { body: CANON('A'), delay: 40 },
+  });
+
+  section('Zero facts + one approved story — canonical answers FIRST');
+  {
+    const ctx = await bothOrders('canonical first', {
+      facts: { body: NO_FACTS, delay: 40 },
+      canonical: { body: CANON('A'), delay: 5 },
+    });
+    /* Same visible result either way. That equivalence IS the fix: the
+       operator must not see a different memoir because one request was
+       slower. */
+    ok('canonical first: TXT carries the story exactly once',
+       vm.runInContext('_memoirBuildTxtContent()', ctx)
+         .split('The porch and the peas.').length - 1 === 1);
+  }
+
+  section('A canonical-only memoir reaches the DOCX request');
+  {
+    const ctx = freshCtx();
+    ctx.state.person_id = 'A';
+    routes(ctx, { facts: { body: NO_FACTS }, canonical: { body: CANON('A') } });
+    await vm.runInContext('_memoirLoadStoredFacts("A")', ctx);
+    /* The DOCX route returns early on `_memoirState === "empty"`. A
+       narrator whose only content is reviewed evidence used to sit in
+       exactly that state, so the one thing they had said could not be
+       exported at all. */
+    ok('the empty-state guard does not fire',
+       vm.runInContext('_memoirState', ctx) !== 'empty');
+    ok('and the export gate permits it',
+       vm.runInContext('_memoirExportBlockedReason()', ctx) === null,
+       String(vm.runInContext('_memoirExportBlockedReason()', ctx)));
+    /* The state must be `evidence`, not `threads` or `draft`. "Not
+       empty" is too weak a claim: counting reviewed evidence as
+       operator prose ALSO produces a non-empty panel -- it just
+       presents the narrator's approved words back to the operator as
+       something they wrote, under a heading that says so. Content, but
+       not their authorship. */
+    ok('the evidence is recognised as evidence, not as their draft',
+       vm.runInContext('_memoirState', ctx) === 'evidence',
+       vm.runInContext('_memoirState', ctx));
+    ok('and the panel heading says whose words these are',
+       ctx.__els.memoirScrollHeading.textContent === 'In Their Own Words',
+       ctx.__els.memoirScrollHeading.textContent);
+  }
+
+  section('Identical tellings keep separate provenance');
+  {
+    const ctx = freshCtx();
+    ctx.state.person_id = 'A';
+    const twin = CANON('A');
+    twin.stories = [
+      { source_id: 'srcTWIN1', text: 'We walked to church.', era: 'adolescence',
+        placement: 'operator_set', language: 'en' },
+      { source_id: 'srcTWIN2', text: 'We walked to church.', era: 'later_years',
+        placement: 'operator_set', language: 'en' },
+    ];
+    routes(ctx, { facts: { body: NO_FACTS }, canonical: { body: twin } });
+    await vm.runInContext('_memoirLoadStoredFacts("A")', ctx);
+    const ids = ctx.__content.querySelectorAll('[data-source-id]')
+      .map(p => p.attrs['data-source-id']);
+    ok('two identical texts render two paragraphs', ids.length === 2,
+       JSON.stringify(ids));
+    ok('...each keeping its own source id',
+       ids[0] === 'srcTWIN1' && ids[1] === 'srcTWIN2', JSON.stringify(ids));
+  }
+  {
+    /* The retired renderer attached ids by scanning each line for a
+       substring of a known text, so a story CONTAINING another's words
+       inherited the wrong id. */
+    const ctx = freshCtx();
+    ctx.state.person_id = 'A';
+    const nested = CANON('A');
+    nested.stories = [
+      { source_id: 'srcSHORT', text: 'We walked.', era: 'adolescence',
+        placement: 'operator_set', language: 'en' },
+      { source_id: 'srcLONG', text: 'We walked. Then it rained.',
+        era: 'later_years', placement: 'operator_set', language: 'en' },
+    ];
+    routes(ctx, { facts: { body: NO_FACTS }, canonical: { body: nested } });
+    await vm.runInContext('_memoirLoadStoredFacts("A")', ctx);
+    const ids = ctx.__content.querySelectorAll('[data-source-id]')
+      .map(p => p.attrs['data-source-id']);
+    ok('a containing story does not steal the shorter one\'s id',
+       ids[0] === 'srcSHORT' && ids[1] === 'srcLONG', JSON.stringify(ids));
+  }
+
+  /* HONESTY NOTE, from the mutation pass. `_memoirCanonicalReady()`
+     reads `status === READY && !!owner && !!active && active === owner`.
+     Deleting the `!!owner` clause does NOT fail this harness, and that
+     is not a hole in the checks -- it is redundant by construction:
+     `!!active && active === owner` cannot be true with a null owner,
+     and no reachable path sets READY without first setting the owner.
+     It is kept as defence in depth, and recorded here as unproven by
+     mutation rather than left to look covered. */
+
+  section('Ownership is required, not merely non-contradicted');
+  {
+    const ctx = freshCtx();
+    ctx.state.person_id = 'A';
+    const anonymous = CANON('A');
+    delete anonymous.person_id;                 // says nothing about whose
+    routes(ctx, { facts: { body: NO_FACTS }, canonical: { body: anonymous } });
+    await vm.runInContext('_memoirLoadStoredFacts("A")', ctx);
+    ok('a response with no owner is rejected',
+       vm.runInContext('_memoirCanonicalStatus', ctx) === 'unavailable');
+    ok('...and nothing of it is painted',
+       ctx.__content.allText().indexOf('The porch and the peas.') < 0);
+  }
+  {
+    const ctx = freshCtx();
+    ctx.state.person_id = 'A';
+    routes(ctx, { facts: { body: NO_FACTS }, canonical: { body: CANON('A') } });
+    await vm.runInContext('_memoirLoadStoredFacts("A")', ctx);
+    ctx.state.person_id = null;                 // no narrator selected
+    ok('with no narrator selected the export is refused',
+       typeof vm.runInContext('_memoirExportBlockedReason()', ctx) === 'string');
+  }
+
+  section('The central switch resets before the incoming narrator loads');
+  {
+    /* `lvxSwitchNarratorSafe()` in app.js is the only place every
+       narrator switch passes through. The reset used to sit in the
+       shell AFTER that call returned, and three other call sites never
+       reached it -- so the shell was the sole protection for a switch
+       it does not own. */
+    const appSrc = fs.readFileSync(
+      path.join(REPO, 'ui', 'js', 'app.js'), 'utf8');
+    const fn = appSrc.slice(appSrc.indexOf('async function lvxSwitchNarratorSafe'));
+    /* COMMENTS STRIPPED FIRST. The first cut of this check fired on the
+       word `await` inside the comment that EXPLAINS why the reset moved
+       -- the sixth time in this repository that a guard has matched the
+       prose describing the thing it guards. A guard has to match what
+       the browser executes. */
+    const body = stripJsComments(fn.slice(0, fn.indexOf('\n}\n')));
+    /* The EXECUTABLE form, not merely the identifier. Asserting the
+       name appears is satisfied by `if (false) { …reset… }` -- which is
+       exactly the mutant this check exists to kill. */
+    const guarded = /if\s*\(\s*typeof\s+window\._memoirResetForNarratorSwitch\s*===\s*"function"\s*\)[\s\S]{0,200}?window\._memoirResetForNarratorSwitch\(\);/;
+    const resetAt = body.search(guarded);
+    ok('the central switch calls the reset, behind a real guard',
+       resetAt > 0, body.slice(0, 200));
+    const firstAwait = body.indexOf('await ');
+    ok('...before it awaits any hydration',
+       resetAt > 0 && (firstAwait < 0 || resetAt < firstAwait),
+       'reset@' + resetAt + ' firstAwait@' + firstAwait);
+    ok('the shell no longer carries the only copy',
+       (inline.match(/^\s*_memoirResetForNarratorSwitch\(\);/gm) || []).length === 0);
+    ok('and the reset is exported on purpose',
+       inline.indexOf(
+         'window._memoirResetForNarratorSwitch = _memoirResetForNarratorSwitch;') > 0);
+  }
+  {
+    /* Executed, not only read: A's evidence is on screen, the reset
+       runs, and B hydrates. */
+    const ctx = freshCtx();
+    ctx.state.person_id = 'A';
+    routes(ctx, { facts: { body: NO_FACTS }, canonical: { body: CANON('A') } });
+    await vm.runInContext('_memoirLoadStoredFacts("A")', ctx);
+    ok('A is painted first',
+       ctx.__content.allText().indexOf('The porch and the peas.') >= 0);
+    ctx.state.person_id = 'B';
+    vm.runInContext('_memoirResetForNarratorSwitch()', ctx);
+    ok('A\'s evidence is gone before B loads',
+       ctx.__content.allText().indexOf('The porch and the peas.') < 0);
+    ok('...and so is the cache that would have exported it',
+       vm.runInContext('_memoirCanonical === null', ctx) &&
+       typeof vm.runInContext('_memoirExportBlockedReason()', ctx) === 'string');
+    const forB = CANON('B');
+    forB.stories = [{ source_id: 'srcB1', text: 'B\'s own story.',
+                      era: 'today', placement: 'operator_set', language: 'en' }];
+    routes(ctx, { facts: { body: NO_FACTS }, canonical: { body: forB } });
+    await vm.runInContext('_memoirLoadStoredFacts("B")', ctx);
+    const t = ctx.__content.allText();
+    ok('B sees only B', t.indexOf('B\'s own story.') >= 0 &&
+       t.indexOf('The porch and the peas.') < 0);
   }
 
   section('The shipped harvesters exclude the block');

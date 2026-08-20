@@ -177,17 +177,121 @@ class LaneAvailabilityIsPartOfTheAnswer(_Base):
         self.assertEqual(out.lanes["captured_stories"], "empty")
         self.assertTrue(out.complete)
 
-    def test_trips_off_is_not_attempted_and_does_not_spoil_completeness(self):
+    def test_the_caller_can_switch_a_lane_off_and_that_is_not_a_failure(self):
+        """RENAMED AND REPOINTED 2026-08-19.
+
+        Retired as `test_trips_off_is_not_attempted_and_does_not_spoil_
+        completeness`, which popped `HORNELORE_TRIPS` and expected
+        `not_attempted`. That is no longer what the flag means: it
+        governs the trip UI, and an approved trip note is evidence an
+        operator already reviewed and the database already holds.
+        Reporting it `not_attempted` let a complete-looking export omit
+        it silently. See `TripNotesAreNotHiddenByTheTripUiFlag` below.
+
+        `not_attempted` still exists and still does not spoil
+        completeness -- it is what a lane the CALLER switched off
+        reports, which is a request, not a failure.
+        """
         os.environ.pop("HORNELORE_TRIPS", None)
-        out = _mc.canonical_memoir(self.narrator)
+        out = _mc.canonical_memoir(self.narrator, include_trip_notes=False)
         self.assertEqual(out.lanes["trip_notes"], "not_attempted")
         self.assertTrue(out.complete,
-                        "a switched-off feature is a configuration answer, "
-                        "not a failure")
+                        "a lane the caller declined is a configuration "
+                        "answer, not a failure")
 
     def test_the_status_vocabulary_is_shared(self):
         for v in ("read", "empty", "not_attempted", "partial", "unavailable"):
             self.assertIn(v, _mc.LANE_STATUSES)
+
+
+class TripNotesAreNotHiddenByTheTripUiFlag(_Base):
+    """`HORNELORE_TRIPS` governs the trip SCREENS, not whether approved
+    trip notes already in the database belong in the memoir.
+
+    THE DEFECT (2026-08-19). The lane returned `not_attempted` whenever
+    the flag was off, and `not_attempted` does not spoil completeness --
+    so an operator with the trip UI switched off got an export that
+    reported itself complete while silently omitting evidence they had
+    already reviewed and approved. Persisted evidence is never
+    `not_attempted`.
+    """
+
+    def _trip_note(self, *, include_in_memoir=1):
+        trip_id = str(uuid.uuid4())
+        note_id = str(uuid.uuid4())
+        con = sqlite3.connect(str(self.db_path))
+        con.execute(
+            "INSERT INTO trips (id, person_id, title, created_at, updated_at)"
+            " VALUES (?,?,?,?,?)",
+            (trip_id, self.narrator, "Germany 1971", "2026-08-19", "2026-08-19"))
+        con.execute(
+            "INSERT INTO trip_location_notes (id, trip_id, note_text,"
+            " include_in_memoir, created_at, updated_at) VALUES (?,?,?,?,?,?)",
+            (note_id, trip_id, "We arrived in Munich after dark.",
+             include_in_memoir, "2026-08-19", "2026-08-19"))
+        con.commit()
+        con.close()
+        return note_id
+
+    def test_an_approved_note_is_read_with_the_flag_off(self):
+        os.environ.pop("HORNELORE_TRIPS", None)
+        self._trip_note()
+        out = _mc.canonical_memoir(self.narrator)
+        self.assertEqual(out.lanes["trip_notes"], "read")
+        self.assertEqual([n["text"] for n in out.trip_notes],
+                         ["We arrived in Munich after dark."])
+
+    def test_the_same_holds_with_the_flag_on(self):
+        os.environ["HORNELORE_TRIPS"] = "1"
+        self.addCleanup(os.environ.pop, "HORNELORE_TRIPS", None)
+        self._trip_note()
+        out = _mc.canonical_memoir(self.narrator)
+        self.assertEqual(out.lanes["trip_notes"], "read")
+        self.assertEqual(len(out.trip_notes), 1)
+
+    def test_a_note_not_approved_for_the_memoir_is_still_excluded(self):
+        # The flag is not the review gate; `include_in_memoir` is.
+        os.environ.pop("HORNELORE_TRIPS", None)
+        self._trip_note(include_in_memoir=0)
+        out = _mc.canonical_memoir(self.narrator)
+        self.assertEqual(out.trip_notes, [])
+        self.assertEqual(out.lanes["trip_notes"], "empty")
+
+    def test_a_schema_with_no_trip_tables_reports_empty(self):
+        # Nothing is being omitted: there is nowhere for a note to be.
+        con = sqlite3.connect(str(self.db_path))
+        con.execute("DROP TABLE IF EXISTS trip_location_notes;")
+        con.execute("DROP TABLE IF EXISTS trips;")
+        con.commit()
+        con.close()
+        out = _mc.canonical_memoir(self.narrator)
+        self.assertEqual(out.lanes["trip_notes"], "empty")
+        self.assertTrue(out.complete)
+
+    def test_a_present_but_unreadable_lane_reports_unavailable(self):
+        self._trip_note()
+        from api.services import trip_repository as _tr
+        orig = _tr.trip_list
+        _tr.trip_list = lambda pid: (_ for _ in ()).throw(RuntimeError("db gone"))
+        self.addCleanup(setattr, _tr, "trip_list", orig)
+        out = _mc.canonical_memoir(self.narrator)
+        self.assertEqual(out.lanes["trip_notes"], "unavailable")
+        self.assertFalse(out.complete,
+                         "an outage on a lane that HAS evidence must refuse "
+                         "a complete-looking export")
+
+    def test_the_flag_is_not_consulted_at_all(self):
+        import ast
+        import inspect
+        src = inspect.getsource(_mc._trip_notes)
+        body = ast.get_source_segment(src, ast.parse(src).body[0]) or src
+        tree = ast.parse(src)
+        tree.body[0].body = [n for n in tree.body[0].body
+                             if not (isinstance(n, ast.Expr)
+                                     and isinstance(n.value, ast.Constant))]
+        self.assertNotIn("HORNELORE_TRIPS", ast.unparse(tree),
+                         "the docstring explains why the flag is not read; "
+                         "the CODE must not read it")
 
 
 # ── Every surface consumes it ───────────────────────────────────────────
@@ -205,16 +309,29 @@ class PreviewAndTxtReadTheSameContract(_Base):
     def test_one_function_feeds_both_the_panel_and_the_txt(self):
         """The preview and the file cannot drift if they are built by the
         same function -- which is the whole point of this commit."""
+        # REPOINTED 2026-08-19. The renderer used to call
+        # `_memoirCanonicalLines()` -- the flattened STRINGS -- and then
+        # attach provenance by matching displayed text back to data,
+        # which two identical tellings defeated. Both surfaces now come
+        # from ONE builder, `_memoirCanonicalLinesRaw()`: the TXT export
+        # takes the flattened form and the renderer takes the records.
+        # Still one source; the renderer just no longer throws away the
+        # provenance and then guess it back.
+        self.assertIn("function _memoirCanonicalLinesRaw(", self.js)
         self.assertIn("function _memoirCanonicalLines(", self.js)
         txt = self.js[self.js.index("function _memoirBuildTxtContent("):]
         txt = txt[:txt.index("function _memoirDownloadTxt(")]
         self.assertIn("_memoirCanonicalLines()", txt)
+        flat = self.js[self.js.index("function _memoirCanonicalLines("):]
+        flat = flat[:flat.index("function _memoirRenderCanonical(")]
+        self.assertIn("_memoirCanonicalRecords()", flat)
         render = self.js[self.js.index("function _memoirRenderCanonical("):]
         render = render[:render.index("function _memoirBuildTxtContent(")]
-        self.assertIn("_memoirCanonicalLines()", render)
+        self.assertIn("_memoirCanonicalRecords()", render)
 
     def test_an_unavailable_lane_is_stated_in_the_preview(self):
-        lines = self.js[self.js.index("function _memoirCanonicalLines("):]
+        # REPOINTED 2026-08-19: the builder is `_memoirCanonicalLinesRaw`.
+        lines = self.js[self.js.index("function _memoirCanonicalLinesRaw("):]
         lines = lines[:lines.index("function _memoirRenderCanonical(")]
         self.assertIn("UNAVAILABLE", lines)
         self.assertIn("INCOMPLETE", lines)
@@ -269,22 +386,44 @@ class DelayedNarratorAcannotRepaintB(_Base):
         `scripts/ui/run_memoir_canonical_lifecycle.js`, which a source
         assertion cannot do.
         """
-        i = self.js.index("function _memoirLoadCanonicalAndRender(")
+        # REPOINTED AGAIN 2026-08-19: the ownership check moved one step
+        # further out, into `_memoirPaintCanonicalIfCurrent()`, so that
+        # the paint AND the state re-evaluation it now triggers are
+        # guarded together. Same property, one place.
+        i = self.js.index("function _memoirPaintCanonicalIfCurrent(")
         fn = self.js[i:i + 600]
-        self.assertIn("_memoirCanonicalPerson === personId", fn)
-        self.assertIn("_memoirActivePerson() === personId", fn)
+        self.assertIn("_memoirCanonicalPerson !== personId", fn)
+        self.assertIn("active !== personId", fn)
+        self.assertIn("_memoirEvaluateState()", fn)
 
     def test_the_canonical_load_runs_independently_of_facts(self):
         """The defect a source scan could not see: the load sat inside
         the branch that runs only when `/api/facts/list` returned at
         least one fact, and the live database has zero facts."""
+        # REPOINTED 2026-08-19. The canonical READ still starts before
+        # and regardless of the facts request -- but it is now awaited
+        # and PAINTED after the facts lane has settled, because every
+        # facts branch clears the panel. Retired:
+        #
+        #     call = fn.index("_memoirLoadCanonicalAndRender(personId)")
+        #     gate = fn.index("const gen = ++_memoirFactsGen")
+        #     assertLess(call, gate)
+        #
+        # Both orderings are proven by execution in
+        # `scripts/ui/run_memoir_canonical_lifecycle.js`; a source scan
+        # cannot see which request wins a race.
         i = self.js.index("async function _memoirLoadStoredFacts(")
         fn = self.js[i:i + 1400]
-        call = fn.index("_memoirLoadCanonicalAndRender(personId)")
-        gate = fn.index("const gen = ++_memoirFactsGen")
-        self.assertLess(call, gate,
-                        "evidence must load before, and regardless of, the "
+        read = fn.index("const canonicalRead = _memoirLoadCanonical(personId)")
+        lane = fn.index("_memoirLoadFactsLane(personId, content)")
+        paint = fn.index("_memoirPaintCanonicalIfCurrent(personId)")
+        self.assertLess(read, lane,
+                        "the evidence request must start regardless of the "
                         "facts request")
+        self.assertLess(lane, paint,
+                        "and must be painted AFTER the facts lane settles, "
+                        "because every facts branch clears the panel")
+        self.assertIn("await canonicalRead", fn)
 
 
 # ── Placement coherence ─────────────────────────────────────────────────
