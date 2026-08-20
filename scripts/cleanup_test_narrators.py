@@ -94,6 +94,7 @@ import sys
 import urllib.error
 import urllib.request
 from collections import defaultdict
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -319,14 +320,49 @@ def commit_deletes(
         status, body = http_delete(
             api, f"/api/people/{r['id']}?mode=hard",
         )
-        if 200 <= status < 300:
+        # 2xx is not the same as erased (2026-08-20). The route now
+        # answers 207 for a partial deletion, and a 200 is only claimed
+        # when the filesystem agrees with the database. Reading the
+        # status class alone is what let a clean-looking cleanup run
+        # leave narrator transcripts on disk.
+        residue = _filesystem_residue(r["id"])
+        if 200 <= status < 300 and status != 207 and not residue:
             ok += 1
             print(f"    ✓ deleted {r['name']!r}  ({r['id']})")
+        elif 200 <= status < 300:
+            fail += 1
+            why = (f"HTTP {status} but residue remains: "
+                   + (", ".join(x["path"] for x in residue) or body[:120]))
+            failures.append((r.get("id") or "?", why))
+            print(f"    ⚠ PARTIAL {r['name']!r}  ({r['id']})  {why}")
         else:
             fail += 1
             failures.append((r.get("id") or "?", f"HTTP {status}: {body[:140]}"))
             print(f"    ✗ failed {r['name']!r}  ({r['id']})  HTTP {status}")
     return (ok, fail, failures)
+
+
+def _filesystem_residue(person_id: str) -> List[Dict[str, Any]]:
+    """Narrator-owned directories still on disk after a delete.
+
+    Read from the filesystem rather than from the delete response: a
+    harness that believed the response body would have passed on the
+    exact defect this check exists for -- the body said `hard_deleted`
+    and eight files, five of them narrator speech, were still there.
+
+    Returns [] when the check cannot run (no DATA_DIR on this machine,
+    or a remote API), because "I could not look" must not be reported
+    as "I looked and it was dirty".
+    """
+    try:
+        repo_root = Path(__file__).resolve().parent.parent
+        server_code = repo_root / "server" / "code"
+        if str(server_code) not in sys.path:
+            sys.path.insert(0, str(server_code))
+        from api.services import narrator_erasure as _ne  # noqa: WPS433
+        return _ne.person_file_residue(person_id)
+    except Exception:
+        return []
 
 
 # ─────────────────────────────────────────────────────────────────────

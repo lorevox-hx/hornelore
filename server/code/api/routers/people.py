@@ -249,6 +249,17 @@ def api_delete_person(
             if result["error"] == "rollback":
                 raise HTTPException(status_code=500, detail=f"Hard delete failed: {result.get('detail', 'unknown')}")
             raise HTTPException(status_code=400, detail=result["error"])
+        # A PARTIAL erasure must not answer 200 (2026-08-20). The
+        # database rows really are gone, so this is not a failure and
+        # not a rollback -- but narrator content is still on disk, and
+        # a 200 here is what let a caller record "deleted" while the
+        # narrator's transcripts survived. 207 Multi-Status says
+        # exactly what happened: part succeeded, part did not, and the
+        # body names which. `residue` carries the reason and the call
+        # is safe to retry.
+        if not result.get("erasure_complete", True):
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=207, content=result)
         return result
     else:
         result = soft_delete_person(person_id, requested_by="ui", reason=reason)

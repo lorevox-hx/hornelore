@@ -5,7 +5,12 @@ import logging
 import os
 import re
 import json
-import shutil
+# `shutil` was imported here for the one-directory Kawa cleanup inside
+# `hard_delete_person`. Filesystem erasure moved to
+# `services/narrator_erasure.py` on 2026-08-20 -- one inventory rather
+# than one remembered case -- and nothing in this module removes files
+# any more. Left as a comment rather than a silent deletion so the next
+# reader knows where the removal went.
 import sqlite3
 import threading
 import types
@@ -5582,11 +5587,31 @@ def hard_delete_person(person_id: str, requested_by: Optional[str] = None) -> Op
         con.commit()
         logger.info("hard_delete_person: id=%s name=%r counts=%s", person_id, display_name, counts)
 
-        # Clean up Kawa segment files (stored on disk, not in SQLite)
-        kawa_person_dir = DATA_DIR / "kawa" / "people" / person_id
-        if kawa_person_dir.exists():
-            shutil.rmtree(kawa_person_dir, ignore_errors=True)
-            logger.info("hard_delete_person: removed Kawa dir %s", kawa_person_dir)
+        # ── FILESYSTEM ERASURE ────────────────────────────────────
+        # Until 2026-08-20 this removed the Kawa directory and nothing
+        # else, and the function still answered "hard_deleted". The
+        # narrator's transcripts, captured stories and photographs
+        # stayed on disk -- measured live: eight files across two
+        # directories, five containing verbatim narrator speech.
+        #
+        # Every target is derived from the validated DATA_DIR inside
+        # `narrator_erasure`; nothing here can be pointed at a path by
+        # a caller. A failure does NOT roll the database back -- the
+        # rows really are gone and pretending otherwise would be a
+        # second lie -- but it makes `erasure_complete` False so the
+        # answer says partial rather than done.
+        try:
+            from .services import narrator_erasure as _erasure
+            erase = _erasure.erase_person_files(person_id).as_dict()
+        except Exception as exc:                       # pragma: no cover
+            logger.error("hard_delete_person: erasure raised for %s: %s",
+                         person_id, exc)
+            erase = {"ok": False, "directories_removed": [], "files_removed": 0,
+                     "removed_detail": [], "already_absent": [],
+                     "failed": [{"target": "*", "reason": exc.__class__.__name__}],
+                     "retained_by_design": [],
+                     "residue": [{"target": "*",
+                                  "reason": "erasure could not run"}]}
 
     except Exception as exc:
         con.rollback()
@@ -5603,12 +5628,45 @@ def hard_delete_person(person_id: str, requested_by: Optional[str] = None) -> Op
 
     con.close()
 
+    # `status` now depends on what is ACTUALLY gone. "hard_deleted" is
+    # a claim about the narrator's whole footprint, so it may only be
+    # made when the filesystem agrees with the database.
+    complete = bool(erase.get("ok"))
     return {
-        "status": "hard_deleted",
+        "status": "hard_deleted" if complete else "hard_deleted_partial",
+        "erasure_complete": complete,
         "person_id": person_id,
         "display_name": display_name,
         "counts_removed": counts,
+        "database_rows_removed": counts,
+        "files_removed": erase.get("files_removed", 0),
+        "directories_removed": erase.get("directories_removed", []),
+        "filesystem": erase,
+        "intentionally_retained": _retained_records(erase),
+        "residue": erase.get("residue", []),
     }
+
+
+def _retained_records(erase: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """What survives on purpose, named so nobody has to infer it.
+
+    The audit row is the important one: `narrator_delete_audit` is
+    append-only and deliberately outlives the person, because a record
+    that a deletion happened is the only thing that can answer "was
+    this narrator ever here" afterwards. It holds no narrator speech --
+    an id, a display name, dependency counts and a timestamp.
+    """
+    out: List[Dict[str, Any]] = [{
+        "record": "narrator_delete_audit",
+        "kind": "database",
+        "reason": "append-only deletion audit; retains ids, counts and a "
+                  "timestamp, and no narrator speech",
+    }]
+    for r in erase.get("retained_by_design", []) or []:
+        out.append({"record": r.get("target"), "kind": "filesystem",
+                    "path": r.get("path"), "files": r.get("files"),
+                    "reason": r.get("reason")})
+    return out
 
 
 def list_delete_audit(limit: int = 50) -> List[Dict[str, Any]]:

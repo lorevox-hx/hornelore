@@ -9004,6 +9004,19 @@ function _memoirEvaluateState() {
   const hasCanonicalEvidence =
     content.querySelectorAll(".memoir-canonical-line[data-source-id]").length > 0;
 
+  /* An UNAVAILABLE canonical read is not evidence -- it carries no
+     `data-source-id`, deliberately, so an outage notice can never be
+     counted as a story. But it must still be SEEN (2026-08-20).
+     Before this, a narrator with no facts, no structured profile and
+     an unreadable story lane landed in `empty`, which hides
+     `memoirScrollContent` -- so the notice explaining why the export
+     was refused was rendered into a hidden panel. The operator saw an
+     intro screen and a refusal with no stated reason. The export stays
+     blocked either way; what changes is that the panel says why. */
+  const hasUnavailableNotice =
+    _memoirCanonicalStatus === MEMOIR_CANON_UNAVAILABLE ||
+    content.querySelectorAll(".memoir-canonical-line").length > 0;
+
   // Check for structured data from Bio Builder questionnaire / profile
   const hasStructured = lv80HasStructuredMemoirData();
 
@@ -9044,7 +9057,7 @@ function _memoirEvaluateState() {
     if (!content.querySelector(".memoir-structured")) {
       lv80RenderStructuredMemoirPreview();
     }
-  } else if (hasCanonicalEvidence) {
+  } else if (hasCanonicalEvidence || hasUnavailableNotice) {
     /* Reviewed evidence and nothing else. A real, non-empty memoir:
        the panel shows it and the DOCX export is permitted, because the
        server appends this evidence from its own canonical read -- the
@@ -9052,8 +9065,17 @@ function _memoirEvaluateState() {
        draft to edit yet, so the edit button stays disabled and says
        why. */
     _memoirState             = "evidence";
-    heading.textContent      = "In Their Own Words";
-    if (subtitle) subtitle.textContent = "Reviewed Stories";
+    /* The heading must not promise stories when the lane could not be
+       read. Same visible, non-empty state either way -- the panel is
+       shown so the notice inside it can be read -- but it says which
+       of the two situations this is. */
+    if (hasCanonicalEvidence) {
+      heading.textContent    = "In Their Own Words";
+      if (subtitle) subtitle.textContent = "Reviewed Stories";
+    } else {
+      heading.textContent    = "Your Story";
+      if (subtitle) subtitle.textContent = "Reviewed Stories Unavailable";
+    }
     intro.hidden             = true;
     content.hidden           = false;
     if (threadsHint) threadsHint.hidden = true;

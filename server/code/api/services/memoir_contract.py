@@ -156,6 +156,12 @@ def _trip_storage_exists() -> Optional[bool]:
     to an export: a schema with no trip tables can hold no approved
     note, so nothing is being omitted; a schema that has them and will
     not answer is an outage and must not read as an empty narrator.
+
+    A schema with EXACTLY ONE of the two tables is the third case and
+    it answers None (2026-08-20). It is not "no storage" -- a partially
+    applied migration can leave real approved notes in the table that
+    survived, and calling that empty is how an export comes to look
+    complete while omitting them.
     """
     try:
         from .. import db as _db
@@ -167,7 +173,21 @@ def _trip_storage_exists() -> Optional[bool]:
         finally:
             con.close()
         names = {(r[0] if not isinstance(r, dict) else r["name"]) for r in rows}
-        return "trips" in names and "trip_location_notes" in names
+        if not names:
+            return False                      # neither table: no storage
+        if {"trips", "trip_location_notes"} <= names:
+            return True                       # both: readable storage
+        # EXACTLY ONE of the two (2026-08-20). This used to fall into
+        # the `False` arm and read as "no trip storage", so a
+        # half-applied migration produced an export that called itself
+        # complete. One table present means the schema is mid-flight or
+        # damaged, and an approved note may well exist in it -- which is
+        # a question this lane cannot answer, not an answer of "none".
+        logger.warning(
+            "[memoir-contract] trip schema is partially installed (%s); "
+            "reporting the lane unavailable rather than empty",
+            ", ".join(sorted(names)))
+        return None
     except Exception as exc:                       # pragma: no cover
         logger.warning("[memoir-contract] trip storage probe failed: %s", exc)
         return None
