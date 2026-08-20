@@ -243,13 +243,13 @@ def _translate_request_content(
 
     source_lang = (req.source_language or "en").strip().lower() or "en"
 
-    def _t(text: Optional[str]) -> str:
+    def _t(text: Optional[str], src: Optional[str] = None) -> str:
         if not text:
             return text or ""
         try:
             return _translation.translate_text(
                 text,
-                source_lang=source_lang,
+                source_lang=(src or source_lang),
                 target_lang=target_lang,
                 narrator_name=req.narrator_name or None,
             )
@@ -262,10 +262,29 @@ def _translate_request_content(
 
     translated_sections: List[MemoirSection] = []
     for sec in req.sections:
+        # ── PER-ITEM SOURCE LANGUAGE, 2026-08-19 ────────────────────
+        #
+        # Every item used to be translated with the request-level
+        # `source_language`, so a Spanish story in an otherwise English
+        # memoir was submitted to the translator AS ENGLISH -- and an
+        # item already in the target language was translated to itself,
+        # burning a call to produce the text it started with.
+        #
+        # `sec.languages[i]` is the item's own language where the server
+        # recorded one; client sections have none and keep the previous
+        # request-level behaviour exactly.
+        _langs = list(sec.languages or [])
+
+        def _t_item(text: str, idx: int) -> str:
+            item_lang = (_langs[idx] if idx < len(_langs) else "") or source_lang
+            if (item_lang or "").strip().lower() == target_lang:
+                return text or ""      # already in the requested language
+            return _t(text, src=item_lang)
+
         translated_sections.append(MemoirSection(
             id=sec.id,
             label=_t(sec.label),
-            items=[_t(item) for item in (sec.items or [])],
+            items=[_t_item(item, i) for i, item in enumerate(sec.items or [])],
             # Provenance survives translation. Dropping it here meant a
             # Spanish-only export lost every source digest -- the same
             # memoir, the same reviewed stories, and no way to trace a
@@ -1107,7 +1126,12 @@ def _trip_story_sections(person_id: str) -> Tuple[List[MemoirSection], str]:
 
     It now returns `(sections, status)`:
 
-        read           every requested trip was read
+        read           every requested trip was read, and there is
+                       something to show
+        empty          read successfully; this narrator has no approved
+                       trip notes. A separate word from `read` because a
+                       caller that logs the status should be able to say
+                       which happened without also counting sections.
         not_attempted  the trips feature is off for this deployment
         unavailable    the trip list itself could not be read
         partial        some trips read, at least one did not
@@ -1127,7 +1151,7 @@ def _trip_story_sections(person_id: str) -> Tuple[List[MemoirSection], str]:
         logger.warning("[memoir-docx] trip harvest failed: %s", exc)
         return [], "unavailable"
     if not trips:
-        return [], "read"
+        return [], "empty"
 
     def _order(t: Dict[str, Any]):
         """Dated trips in chronological order, undated ones after."""
@@ -1165,16 +1189,34 @@ def _trip_story_sections(person_id: str) -> Tuple[List[MemoirSection], str]:
             title = (n.get("note_title") or "").strip()
             items.append(f"{title} \u2014 {text}" if title else text)
             digests.append(_trip_note_source_digest(note_id))
-            languages.append(str(n.get("language") or "").strip().lower() or "en")
+            # THE COLUMN IS `target_language`, and the name is worth a
+            # sentence. Verified against the live schema on 2026-08-19:
+            # `trip_location_notes` has no `language` column at all -- the
+            # first cut read one, so every note silently defaulted to
+            # English. `target_language` is set once at note creation,
+            # defaults to 'en', and nothing translates a note afterwards,
+            # so in practice it records the language the note text IS in.
+            # That is how it is read here. No new field is invented; if
+            # the intent ever diverges from the usage, this is the line
+            # that has to change.
+            languages.append(
+                str(n.get("target_language") or "").strip().lower() or "en")
         if not items:
             continue
-        label = "From your travels \u2014 " + str(
-            trip.get("title") or "").strip() or "From your travels"
+        # PRECEDENCE. This was `"From your travels — " + str(...).strip()
+        # or "From your travels"`, and `+` binds tighter than `or`, so an
+        # untitled trip produced the dangling `"From your travels — "`
+        # rather than the intended fallback.
+        _title = str(trip.get("title") or "").strip()
+        label = ("From your travels \u2014 " + _title) if _title \
+            else "From your travels"
         sections.append(MemoirSection(
             id=f"trip_stories_{trip_id}", label=label, items=items,
             sources=digests, languages=languages))
 
-    return sections, ("partial" if unreadable else "read")
+    if unreadable:
+        return sections, "partial"
+    return sections, ("read" if sections else "empty")
 
 def _safe_filename_component(raw: Optional[str], *, fallback: str, max_len: int = 80) -> str:
     cleaned = "".join(
@@ -1319,6 +1361,15 @@ def api_memoir_export_docx(req: MemoirExportRequest):
         # would attribute a paragraph to the wrong candidate, which is
         # worse than having none.
         for sec in _server_sections:
+            if sec.languages and len(sec.languages) != len(sec.items):
+                logger.error(
+                    "[memoir-docx] language array misaligned section=%s "
+                    "items=%d languages=%d", sec.id, len(sec.items),
+                    len(sec.languages))
+                raise HTTPException(
+                    status_code=500,
+                    detail="server evidence language metadata is misaligned "
+                           "— export refused")
             if len(sec.sources) != len(sec.items):
                 logger.error(
                     "[memoir-docx] provenance misaligned section=%s items=%d "
@@ -1377,6 +1428,11 @@ def api_memoir_export_docx(req: MemoirExportRequest):
         # Source language defaults to 'en' for the v1 scope; future
         # work can extend bilingual to other source languages.
         translated = _translate_request_content(req, "es")
+        # Bilingual was NOT checked. The bilingual builder suppresses an
+        # identical second paragraph, so a failed translation produced a
+        # source-only document that looked deliberate -- the same silent
+        # loss the Spanish path already refused.
+        _assert_translation_covered(req, translated, "es")
         if req.memoir_state == "draft":
             docx_bytes = _build_draft_docx_bilingual(
                 req, translated, resolved_photos=resolved_photos)
