@@ -244,6 +244,21 @@ def api_delete_person(
     if mode == "hard":
         result = hard_delete_person(person_id, requested_by="ui")
         if result is None:
+            # THE PERSON ROW IS GONE, BUT THEIR FILES MAY NOT BE
+            # (2026-08-20). A partial deletion used to end here: the
+            # rows were deleted, the erasure failed, and the repeat
+            # request answered 404 while the narrator's transcripts sat
+            # on disk with no product route back to them. If a saved
+            # erasure plan exists, repeating the confirmed hard delete
+            # executes it instead of reporting "not found".
+            from ..db import erasure_job_get, retry_person_erasure
+            if erasure_job_get(person_id):
+                retried = retry_person_erasure(person_id, requested_by="ui")
+                if retried is not None:
+                    if not retried.get("erasure_complete", True):
+                        from fastapi.responses import JSONResponse
+                        return JSONResponse(status_code=207, content=retried)
+                    return retried
             raise HTTPException(status_code=404, detail="Person not found")
         if "error" in result:
             if result["error"] == "rollback":
@@ -270,6 +285,30 @@ def api_delete_person(
                 raise HTTPException(status_code=409, detail="Person is already soft-deleted")
             raise HTTPException(status_code=400, detail=result["error"])
         return result
+
+
+@router.post("/{person_id}/erase-retry",
+             summary="Re-run a saved filesystem erasure plan")
+def api_retry_person_erasure(person_id: str):
+    """Execute the saved erasure plan again.
+
+    A dedicated route as well as the repeat-DELETE path, because the
+    two read differently to an operator: DELETE says "remove this
+    narrator" about someone who no longer exists, and this says
+    "finish removing their files", which is what is actually being
+    asked. Idempotent -- targets already gone are counted absent -- so
+    it is safe to press twice.
+    """
+    from ..db import retry_person_erasure
+    result = retry_person_erasure(person_id, requested_by="ui")
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No saved erasure plan for this person")
+    if not result.get("erasure_complete", True):
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=207, content=result)
+    return result
 
 
 @router.post("/{person_id}/restore", summary="Restore a soft-deleted person")

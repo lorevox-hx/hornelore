@@ -5406,8 +5406,16 @@ def _log_delete_audit(
     result: str = "success",
     error_detail: Optional[str] = None,
     requested_by: Optional[str] = None,
-) -> None:
-    """Append a row to the narrator_delete_audit table (within caller's transaction)."""
+) -> str:
+    """Append a row to the narrator_delete_audit table (within caller's transaction).
+
+    Returns the row id (2026-08-20) so the caller can FINALISE the
+    result once the filesystem phase is known. It used to be written as
+    `success` before a file had been touched, which meant a partial
+    erasure still left a successful hard-delete record in the one place
+    an operator would look to find out whether a deletion worked.
+    """
+    audit_id = _uuid()
     con.execute(
         """
         INSERT INTO narrator_delete_audit
@@ -5415,7 +5423,7 @@ def _log_delete_audit(
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
         """,
         (
-            _uuid(),
+            audit_id,
             action,
             person_id,
             display_name,
@@ -5426,6 +5434,7 @@ def _log_delete_audit(
             _now_iso(),
         ),
     )
+    return audit_id
 
 
 def soft_delete_person(
@@ -5572,46 +5581,56 @@ def hard_delete_person(person_id: str, requested_by: Optional[str] = None) -> Op
     display_name = person["display_name"]
     counts = inv["counts"]
 
+    # ── PLAN BEFORE DESTROYING THE AUTHORITY ──────────────────────
+    # Trip-source directories, import-staging batches and legacy agent
+    # transcript exports are all named by rows that cascade away with
+    # the person. Once `people` is gone, so is the only record of which
+    # directories were ever theirs -- which is why the first cut of
+    # this could not be retried: the rows were deleted, the files
+    # survived, and nothing knew their names any more.
+    #
+    # The plan is committed on its OWN connection so it survives a
+    # rollback of the delete, and `pending` is written before the
+    # database phase so a crash between the two leaves a recoverable
+    # job rather than silence.
+    try:
+        from .services import narrator_erasure as _erasure
+        plan = _erasure.build_plan(person_id, con)
+    except Exception as exc:
+        logger.error("hard_delete_person: could not plan erasure for %s: %s",
+                     person_id, exc)
+        plan = []
+    _erasure_job_upsert(person_id, display_name, plan, "pending",
+                        requested_by=requested_by)
+
     try:
         # Extended person-scoped tables first (no FK to people — the
         # cascade can't reach them). See _EXTENDED_PERSON_SCOPED_TABLES.
         _extended_person_scoped_delete(con, person_id)
 
-        # FK CASCADE handles dependent rows automatically when we delete the people row.
-        # media.person_id and media_attachments.person_id get SET NULL.
+        # MEDIA IS DELETED, NOT DETACHED, on a confirmed hard erasure.
+        # Chris, 2026-08-20: `ON DELETE SET NULL` may remain as a
+        # database fallback, but an explicit hard deletion must not
+        # turn a narrator's photographs into ownerless rows that
+        # outlive them. Done BEFORE the people row so the FK cascade
+        # never gets the chance to null them instead.
+        media_deleted = _hard_delete_media(con, person_id)
+
+        # FK CASCADE handles the remaining dependent rows when the
+        # people row goes.
         con.execute("DELETE FROM people WHERE id = ?;", (person_id,))
 
-        _log_delete_audit(con, "hard_delete", person_id, display_name, counts,
-                           result="success", requested_by=requested_by)
+        # `pending` is the truthful audit result at this point: the
+        # rows are gone and the files have not been touched yet. It is
+        # finalised to `success` or `partial` after the filesystem
+        # phase. It used to be written as `success` here, which meant a
+        # failed erasure still left a successful hard-delete record.
+        audit_id = _log_delete_audit(
+            con, "hard_delete", person_id, display_name, counts,
+            result="pending", requested_by=requested_by)
 
         con.commit()
         logger.info("hard_delete_person: id=%s name=%r counts=%s", person_id, display_name, counts)
-
-        # ── FILESYSTEM ERASURE ────────────────────────────────────
-        # Until 2026-08-20 this removed the Kawa directory and nothing
-        # else, and the function still answered "hard_deleted". The
-        # narrator's transcripts, captured stories and photographs
-        # stayed on disk -- measured live: eight files across two
-        # directories, five containing verbatim narrator speech.
-        #
-        # Every target is derived from the validated DATA_DIR inside
-        # `narrator_erasure`; nothing here can be pointed at a path by
-        # a caller. A failure does NOT roll the database back -- the
-        # rows really are gone and pretending otherwise would be a
-        # second lie -- but it makes `erasure_complete` False so the
-        # answer says partial rather than done.
-        try:
-            from .services import narrator_erasure as _erasure
-            erase = _erasure.erase_person_files(person_id).as_dict()
-        except Exception as exc:                       # pragma: no cover
-            logger.error("hard_delete_person: erasure raised for %s: %s",
-                         person_id, exc)
-            erase = {"ok": False, "directories_removed": [], "files_removed": 0,
-                     "removed_detail": [], "already_absent": [],
-                     "failed": [{"target": "*", "reason": exc.__class__.__name__}],
-                     "retained_by_design": [],
-                     "residue": [{"target": "*",
-                                  "reason": "erasure could not run"}]}
 
     except Exception as exc:
         con.rollback()
@@ -5628,45 +5647,261 @@ def hard_delete_person(person_id: str, requested_by: Optional[str] = None) -> Op
 
     con.close()
 
-    # `status` now depends on what is ACTUALLY gone. "hard_deleted" is
-    # a claim about the narrator's whole footprint, so it may only be
-    # made when the filesystem agrees with the database.
-    complete = bool(erase.get("ok"))
+    # The database phase is done. Everything below is the filesystem
+    # phase plus honest reporting of both.
+    return _run_erasure_phase(
+        person_id, display_name, plan,
+        rows_deleted=counts, media_deleted=media_deleted,
+        audit_id=audit_id, requested_by=requested_by)
+
+
+# ── Media: deleted, not detached ────────────────────────────────────────
+
+def _hard_delete_media(con: sqlite3.Connection, person_id: str) -> Dict[str, int]:
+    """Delete this narrator's media rows and attachments.
+
+    The schema keeps `ON DELETE SET NULL` on both, which is right for
+    the ordinary cascade -- a shared asset should not vanish because
+    one link to it went away. It is NOT right for a confirmed hard
+    erasure, where the effect was to leave identifiable photographs on
+    disk as rows belonging to nobody. Chris ruled on 2026-08-20 that an
+    explicit hard delete removes them.
+
+    Attachments go first so the media rows are not left referenced.
+    """
+    out = {"media": 0, "media_attachments": 0}
+    try:
+        cur = con.execute(
+            "DELETE FROM media_attachments WHERE person_id = ? OR media_id IN "
+            "(SELECT id FROM media WHERE person_id = ?);",
+            (person_id, person_id))
+        out["media_attachments"] = int(cur.rowcount or 0)
+    except sqlite3.Error as exc:
+        logger.warning("hard_delete_media: attachments lane failed: %s", exc)
+    try:
+        cur = con.execute("DELETE FROM media WHERE person_id = ?;", (person_id,))
+        out["media"] = int(cur.rowcount or 0)
+    except sqlite3.Error as exc:
+        logger.warning("hard_delete_media: media lane failed: %s", exc)
+    return out
+
+
+# ── The erasure job: pending → complete | partial ───────────────────────
+
+def _erasure_job_upsert(person_id: str, display_name: str,
+                        plan: List[Dict[str, Any]], status: str,
+                        *, result: Optional[Dict[str, Any]] = None,
+                        requested_by: Optional[str] = None,
+                        bump_attempt: bool = False) -> None:
+    """Write the plan and its status on a SEPARATE connection.
+
+    Separate on purpose: the job must survive a rollback of the delete
+    it describes. A plan that vanished with the transaction would leave
+    exactly the situation this exists to prevent -- files on disk and
+    nothing that knows their names.
+    """
+    now = _now_iso()
+    try:
+        con = _connect()
+        try:
+            con.execute("BEGIN IMMEDIATE;")
+            row = con.execute(
+                "SELECT attempts FROM narrator_erasure_jobs WHERE person_id=?;",
+                (person_id,)).fetchone()
+            attempts = int((row["attempts"] if row else 0) or 0)
+            if bump_attempt:
+                attempts += 1
+            if row:
+                con.execute(
+                    "UPDATE narrator_erasure_jobs SET status=?, plan_json=?, "
+                    "result_json=?, attempts=?, updated_at=? WHERE person_id=?;",
+                    (status, _json_dump(plan), _json_dump(result or {}),
+                     attempts, now, person_id))
+            else:
+                con.execute(
+                    "INSERT INTO narrator_erasure_jobs (person_id, display_name,"
+                    " status, plan_json, result_json, attempts, requested_by,"
+                    " created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?);",
+                    (person_id, display_name or "", status, _json_dump(plan),
+                     _json_dump(result or {}), attempts, requested_by or "",
+                     now, now))
+            con.commit()
+        finally:
+            con.close()
+    except Exception as exc:
+        # Never let job bookkeeping break a deletion. The consequence
+        # is a lost retry, which is reported, not a lost deletion.
+        logger.error("erasure job write failed for %s: %s", person_id, exc)
+
+
+def erasure_job_get(person_id: str) -> Optional[Dict[str, Any]]:
+    """The saved plan for a narrator, if one exists."""
+    init_db()
+    con = _connect()
+    try:
+        row = con.execute(
+            "SELECT person_id, display_name, status, plan_json, result_json, "
+            "attempts, requested_by, created_at, updated_at "
+            "FROM narrator_erasure_jobs WHERE person_id=?;",
+            (person_id,)).fetchone()
+    finally:
+        con.close()
+    if not row:
+        return None
+    out = dict(row)
+    out["plan"] = _json_load(out.pop("plan_json", "[]"), [])
+    out["result"] = _json_load(out.pop("result_json", "{}"), {})
+    return out
+
+
+def _finalize_delete_audit(person_id: str, audit_id: Optional[str],
+                           result: str, detail: Optional[str] = None) -> None:
+    """Set the audit row's outcome once the filesystem phase is known.
+
+    It used to be committed as `success` before a single file was
+    touched, so a partial erasure still left a successful hard-delete
+    record -- the one place an operator would look to find out whether
+    a deletion had actually worked.
+    """
+    if not audit_id:
+        return
+    try:
+        con = _connect()
+        try:
+            con.execute(
+                "UPDATE narrator_delete_audit SET result=?, error_detail=? "
+                "WHERE id=?;", (result, detail, audit_id))
+            con.commit()
+        finally:
+            con.close()
+    except Exception as exc:                            # pragma: no cover
+        logger.error("delete audit finalize failed for %s: %s", person_id, exc)
+
+
+def _run_erasure_phase(person_id: str, display_name: str,
+                       plan: List[Dict[str, Any]],
+                       *, rows_deleted: Dict[str, Any],
+                       media_deleted: Dict[str, int],
+                       audit_id: Optional[str] = None,
+                       requested_by: Optional[str] = None,
+                       attempt: bool = False) -> Dict[str, Any]:
+    """Execute the plan and answer with what actually happened."""
+    try:
+        from .services import narrator_erasure as _erasure
+        erase = _erasure.execute_plan(plan).as_dict()
+    except Exception as exc:
+        logger.error("hard_delete_person: erasure could not run for %s: %s",
+                     person_id, exc)
+        erase = {
+            "active_data_erased": False,
+            "historical_residue_present": False,
+            "paths_removed": [], "files_removed": 0, "removed_detail": [],
+            "already_absent": [],
+            "failed": [{"target": "*", "reason": exc.__class__.__name__,
+                        "detail": str(exc)}],
+            "historical_residue": [],
+        }
+
+    active = bool(erase.get("active_data_erased"))
+    historical = bool(erase.get("historical_residue_present"))
+    complete = active and not historical
+    status = "complete" if active else "partial"
+    _erasure_job_upsert(person_id, display_name, plan, status,
+                        result=erase, requested_by=requested_by,
+                        bump_attempt=attempt)
+    _finalize_delete_audit(
+        person_id, audit_id,
+        "success" if active else "partial",
+        None if active else "filesystem erasure incomplete: " + ", ".join(
+            f.get("path") or f.get("target") or "?"
+            for f in erase.get("failed", [])) or None)
+
+    # `counts` from the pre-delete inventory is what MIGHT be affected,
+    # not what was removed. Rows that were detached rather than deleted
+    # must not be counted as deletions -- they used to be, which made
+    # the report overstate the erasure by exactly the rows that
+    # survived it.
+    deleted_by_table = {k: v for k, v in (rows_deleted or {}).items()
+                        if k not in ("media_owned", "media_attachments")}
+    deleted_by_table["media"] = int(media_deleted.get("media", 0))
+    deleted_by_table["media_attachments"] = int(
+        media_deleted.get("media_attachments", 0))
+
     return {
-        "status": "hard_deleted" if complete else "hard_deleted_partial",
+        "status": "hard_deleted" if active else "hard_deleted_partial",
         "erasure_complete": complete,
+        "active_data_erased": active,
+        "historical_residue_present": historical,
         "person_id": person_id,
         "display_name": display_name,
-        "counts_removed": counts,
-        "database_rows_removed": counts,
+        # Kept for existing callers; the same numbers now live under
+        # names that say which question they answer.
+        "counts_removed": deleted_by_table,
+        "database_rows_deleted": deleted_by_table,
+        "database_rows_detached": _detached_rows(),
         "files_removed": erase.get("files_removed", 0),
-        "directories_removed": erase.get("directories_removed", []),
+        "paths_removed": erase.get("paths_removed", []),
         "filesystem": erase,
-        "intentionally_retained": _retained_records(erase),
-        "residue": erase.get("residue", []),
+        "intentionally_retained": _retained_records(),
+        "historical_residue": erase.get("historical_residue", []),
+        "failed_targets": erase.get("failed", []),
+        "retry_available": not active,
+        "retry": {
+            "available": not active,
+            "endpoint": "POST /api/people/%s/erase-retry" % person_id,
+            "note": "the saved plan is executed again; targets already gone "
+                    "are counted as absent, so a repeat is safe",
+        },
     }
 
 
-def _retained_records(erase: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _detached_rows() -> List[Dict[str, Any]]:
+    """Rows deliberately kept with their owner nulled.
+
+    Empty for a hard delete now that media is deleted outright. The
+    key stays in the response because the DISTINCTION is what the
+    report is for: a caller must be able to see that nothing was merely
+    detached, rather than infer it from an absence.
+    """
+    return []
+
+
+def _retained_records() -> List[Dict[str, Any]]:
     """What survives on purpose, named so nobody has to infer it.
 
-    The audit row is the important one: `narrator_delete_audit` is
-    append-only and deliberately outlives the person, because a record
-    that a deletion happened is the only thing that can answer "was
-    this narrator ever here" afterwards. It holds no narrator speech --
-    an id, a display name, dependency counts and a timestamp.
+    `narrator_delete_audit` and `narrator_erasure_jobs` both outlive
+    the person deliberately: one records that a deletion happened, the
+    other is what makes a failed erasure retryable. Both hold ids,
+    paths, counts and timestamps -- and no narrator speech.
     """
-    out: List[Dict[str, Any]] = [{
-        "record": "narrator_delete_audit",
-        "kind": "database",
-        "reason": "append-only deletion audit; retains ids, counts and a "
-                  "timestamp, and no narrator speech",
-    }]
-    for r in erase.get("retained_by_design", []) or []:
-        out.append({"record": r.get("target"), "kind": "filesystem",
-                    "path": r.get("path"), "files": r.get("files"),
-                    "reason": r.get("reason")})
-    return out
+    return [
+        {"record": "narrator_delete_audit", "kind": "database",
+         "reason": "append-only deletion audit; ids, counts and a timestamp, "
+                   "and no narrator speech"},
+        {"record": "narrator_erasure_jobs", "kind": "database",
+         "reason": "the saved erasure plan; paths and counts only, and it is "
+                   "what makes a partial deletion retryable"},
+    ]
+
+
+def retry_person_erasure(person_id: str,
+                         requested_by: Optional[str] = None
+                         ) -> Optional[Dict[str, Any]]:
+    """Run a saved erasure plan again, after the person row is gone.
+
+    THIS IS THE PRODUCT CAPABILITY the first cut was missing. The
+    service was idempotent all along; what did not exist was any route
+    back to it once `people` no longer had the row, so `DELETE` just
+    answered 404 and the surviving files were unreachable.
+    """
+    init_db()
+    job = erasure_job_get(person_id)
+    if not job:
+        return None
+    return _run_erasure_phase(
+        person_id, job.get("display_name") or "", job.get("plan") or [],
+        rows_deleted={}, media_deleted={},
+        audit_id=None, requested_by=requested_by, attempt=True)
 
 
 def list_delete_audit(limit: int = 50) -> List[Dict[str, Any]]:

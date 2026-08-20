@@ -1,49 +1,50 @@
-"""Filesystem erasure for a deleted narrator.
+"""Filesystem erasure for a deleted narrator: planned, symlink-safe,
+fully inventoried and retryable.
 
 WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01 — deletion integrity
 (2026-08-20).
 
-THE DEFECT THIS EXISTS TO CLOSE. `hard_delete_person()` removed every
-database row for a narrator, returned `{"status": "hard_deleted"}` with
-HTTP 200, and left the narrator's own words on disk. Measured during
-the synthetic live acceptance: after a successful hard delete, eight
-files survived in two directories and five of them contained the
-narrator's verbatim speech --
+WHERE THIS STARTED. `hard_delete_person()` removed every database row,
+answered 200 `{"status": "hard_deleted"}`, and left the narrator's own
+words on disk -- measured live, eight files across two directories,
+five of them verbatim narrator speech. The first repair named four
+directories and reported partial honestly. Review then found three
+things that repair had not:
 
-    memory/archive/people/<pid>/sessions/<conv>/transcript.txt
-    memory/archive/people/<pid>/sessions/<conv>/transcript.jsonl
-    memory/archive/people/<pid>/sessions/<conv>/thread_anchor.json
-    memory/archive/people/<pid>/rolling_summary.json
-    stories-captured/<pid>/<stamp>__<cid>/transcript.txt
+  * **an internal symlink could delete a DIFFERENT narrator.**
+    `stories-captured/A -> stories-captured/B` resolves INSIDE the data
+    root, so a containment check that only asked "is the resolved path
+    under the root" said yes and `rmtree` took B. Containment was
+    necessary and nowhere near sufficient.
+  * **retry was not a product capability.** The plan lived in the
+    caller's memory and the `people` row was already gone, so the
+    second attempt got a 404. The service was idempotent; the product
+    could not reach it.
+  * **the inventory was a quarter of the surface.** Personal media
+    archive, media uploads, trip-source documents, import staging,
+    legacy agent transcript exports and the translation cache all held
+    narrator content and none were named.
 
-Only the Kawa directory was being removed, because it was the only one
-anybody had remembered to name. A deletion that reports success while
-retaining the thing it claimed to delete is worse than a deletion that
-fails: the operator stops looking.
+── THE THREE RULES ───────────────────────────────────────────────────
 
-── DESIGN RULES ──────────────────────────────────────────────────────
+**NO SYMLINK, ANYWHERE BELOW THE ROOT.** Every component of every
+target is `lstat`-ed on the way down and a link is refused, whether it
+points outside the root or at another narrator inside it. Resolving
+first and comparing afterwards is what made A-deletes-B possible: it
+asks where the path ENDS UP and never asks what it went through.
 
-**Every target is derived, never supplied.** A caller passes a person
-id and nothing else. Each path is built from the validated data root
-plus a fixed relative template plus that id. There is no parameter
-through which a client could name a directory to delete, because the
-one thing worse than not erasing a narrator is erasing something else.
+**THE PLAN IS BUILT BEFORE THE AUTHORITY IS DESTROYED.** Trip-source
+directories, staging batches and legacy transcript files are named by
+database rows that cascade away with the person. Planned first,
+persisted, then executed -- so a retry after the rows are gone still
+knows what to remove.
 
-**Containment is checked before every removal, on the RESOLVED path.**
-A person id is validated against a strict pattern first, and the
-resolved target must still be inside the resolved root afterwards.
-The second check is not redundant: a symlink placed inside the data
-root can carry an otherwise-valid path outside it, and the pattern
-cannot see that.
-
-**Absent is a SUCCESS, not a failure.** That is what makes a retry
-safe. A partial failure -- one directory removed, the next refused by a
-file lock -- must be re-runnable, and on the second run the first
-directory is simply already gone.
-
-**A failure is reported, never swallowed.** `ok` is false and the
-target appears in `residue` with the reason. The caller is expected to
-turn that into a partial-deletion answer rather than a 200.
+**SCOPE IS STATED, NEVER IMPLIED.** `active_data_erased` is what this
+narrator's live footprint looks like. `historical_residue_present`
+covers backups and exports -- shared artefacts that genuinely contain
+the narrator and that this path must NOT rewrite. `erasure_complete`
+is only true when the first is done and the second is empty, so
+"complete" can never quietly mean "complete apart from the backups".
 """
 from __future__ import annotations
 
@@ -52,19 +53,16 @@ import os
 import re
 import shutil
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 logger = logging.getLogger("narrator_erasure")
 
 __all__ = [
-    "ERASURE_TARGETS",
-    "RETAINED_BY_DESIGN",
-    "EraseResult",
-    "data_root",
-    "erase_person_files",
-    "person_file_residue",
-    "UnsafePersonId",
-    "UnsafeDataRoot",
+    "FIXED_TARGETS", "SHARED_PURGE", "HISTORICAL_STORES",
+    "EraseResult", "data_root", "validate_root",
+    "build_plan", "execute_plan", "erase_person_files",
+    "person_file_residue", "UnsafePersonId", "UnsafeDataRoot",
+    "UnsafeTarget",
 ]
 
 
@@ -73,112 +71,95 @@ class UnsafePersonId(ValueError):
 
 
 class UnsafeDataRoot(RuntimeError):
-    """DATA_DIR is missing, relative, or points somewhere no deletion
-    may be attempted."""
+    """A root that no deletion may be attempted against."""
 
 
-#: Person ids in this system are uuid4 strings, and the harness also
-#: creates `harness-test-...` ids. Both are covered by one conservative
-#: pattern. Anything else -- a path separator, a `..`, a NUL, a leading
-#: dot, an empty string -- is refused BEFORE it is ever joined to a
-#: path. Validating the id is cheaper and clearer than trying to
-#: sanitise a path after the fact.
+class UnsafeTarget(RuntimeError):
+    """A path that must not be removed: a symlink, an escape, or the
+    root itself."""
+
+
+#: uuid4 plus the `harness-test-...` ids the operator harness makes.
+#: Anything else -- a separator, `..`, a NUL, a leading dot, an empty
+#: string -- is refused BEFORE it is joined to a path.
 _SAFE_PERSON_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{2,127}$")
 
-#: Directories that hold this narrator's own content and must go when
-#: they do. `(key, *relative parts under the data root)` -- the person
-#: id is appended as the final component by the resolver, so no entry
-#: here can name a specific directory.
-ERASURE_TARGETS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
-    # Conversation transcripts: the narrator's speech, verbatim.
+#: The same shape rule for the ids that name dynamic targets. A trip
+#: source id or a batch id comes from our own database, but it reaches
+#: a path either way, so it is validated with the same rule rather than
+#: trusted for being ours.
+_SAFE_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+
+#: Directories named by the person id alone. `(key, relative parts)`.
+FIXED_TARGETS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
     ("memory_archive", ("memory", "archive", "people")),
-    # Captured stories mirror: transcript + metadata per candidate.
     ("stories_captured", ("stories-captured",)),
-    # Photographs. `photos.narrator_id` is ON DELETE CASCADE, so the
-    # rows go with the person and the files must follow them.
     ("photo_archive", ("memory", "archive", "photos")),
-    # Kawa segments. Already removed before this module existed; moved
-    # here so there is ONE inventory rather than one remembered case
-    # and four forgotten ones.
     ("kawa_segments", ("kawa", "people")),
+    # Personal archive documents. Distinct from `media/<pid>` below:
+    # this is the archive lane, that is the upload lane, and both hold
+    # the narrator's own material.
+    ("personal_media_archive", ("media", "archive", "people")),
+    # Uploads. Erased on a CONFIRMED HARD DELETE per Chris's ruling of
+    # 2026-08-20: `ON DELETE SET NULL` may stay as a database
+    # fallback, but an explicit hard erasure must not leave
+    # identifiable photographs behind as ownerless rows.
+    ("media_uploads", ("media",)),
 )
 
-#: Narrator-owned locations this module deliberately does NOT erase,
-#: and why. Reported on every call so "complete" can never be read as
-#: "nothing of this person remains" when something does.
-RETAINED_BY_DESIGN: Tuple[Tuple[str, Tuple[str, ...], str], ...] = (
-    ("media_uploads", ("media",),
-     "media.person_id and media_attachments.person_id are ON DELETE SET "
-     "NULL by schema design, so those rows deliberately outlive the "
-     "narrator; erasing the files would orphan rows the schema chose to "
-     "keep. Whether that design should change is a product decision, "
-     "not one this deletion path may take on its own."),
+#: Disposable, shared, and not attributable per narrator. Translated
+#: narrator text is written here keyed by content hash, so there is no
+#: way to select this person's entries -- and it is a CACHE, so the
+#: right answer is to drop all of it rather than leave narrator
+#: sentences in a file nobody can attribute.
+SHARED_PURGE: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
+    ("translation_cache", ("translations-cache",)),
+)
+
+#: Shared historical artefacts. REPORTED, never touched: a backup is a
+#: point-in-time copy of everybody, and silently rewriting one to
+#: remove a person destroys its value as a restore point. Naming them
+#: is what stops "erasure_complete" from meaning less than it says.
+HISTORICAL_STORES: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
+    ("backups", ("backups",)),
+    ("exports", ("exports",)),
 )
 
 
-class EraseResult:
-    """What actually happened on disk, in a shape a caller can report.
+# ── Root and path safety ────────────────────────────────────────────────
 
-    `ok` is False if ANY target failed. The caller must not answer 200
-    "complete" on a False.
+def validate_root(raw: Any) -> Path:
+    """The one root check, applied to the environment AND to an
+    explicit root passed by internal code.
+
+    The `root=` argument exists so tests can point at a tempdir. It
+    used to skip these checks, which meant internal callers had a
+    weaker safety contract than the environment did -- and internal
+    callers are the ones that run inside a `rmtree`.
     """
-
-    def __init__(self) -> None:
-        self.removed: List[Dict[str, Any]] = []
-        self.absent: List[str] = []
-        self.failed: List[Dict[str, Any]] = []
-        self.retained: List[Dict[str, Any]] = []
-        self.residue: List[Dict[str, Any]] = []
-
-    @property
-    def ok(self) -> bool:
-        return not self.failed and not self.residue
-
-    @property
-    def files_removed(self) -> int:
-        return sum(int(r.get("files") or 0) for r in self.removed)
-
-    def as_dict(self) -> Dict[str, Any]:
-        return {
-            "ok": self.ok,
-            "directories_removed": [r["target"] for r in self.removed],
-            "files_removed": self.files_removed,
-            "removed_detail": self.removed,
-            "already_absent": self.absent,
-            "failed": self.failed,
-            "retained_by_design": self.retained,
-            "residue": self.residue,
-        }
+    if isinstance(raw, Path):
+        text = str(raw)
+    else:
+        text = (raw or "").strip()
+    if not text:
+        raise UnsafeDataRoot(
+            "no data root; refusing to erase narrator files without one")
+    root = Path(text).expanduser()
+    if not root.is_absolute():
+        # Resolves against the process's working directory, which is
+        # not a property anybody reviewing a recursive delete can see.
+        raise UnsafeDataRoot("data root must be absolute, got %r" % text)
+    root = root.resolve()
+    if root == Path(root.anchor):
+        raise UnsafeDataRoot("data root resolves to the filesystem root")
+    if not root.is_dir():
+        raise UnsafeDataRoot("data root %s is not a directory" % root)
+    return root
 
 
 def data_root() -> Path:
-    """The validated erasure root.
-
-    Read at call time, not import time, so a test can point it at a
-    temporary directory the same way the rest of the stack does.
-
-    Refuses a relative root, a root that does not exist, and a root
-    that resolves to the filesystem root. Each refusal is a case where
-    a bug in configuration would otherwise be executed as a recursive
-    delete somewhere unintended.
-    """
-    raw = (os.getenv("DATA_DIR", "") or "").strip()
-    if not raw:
-        raise UnsafeDataRoot(
-            "DATA_DIR is not set; refusing to erase narrator files without "
-            "an explicit data root")
-    root = Path(raw).expanduser()
-    if not root.is_absolute():
-        # A relative root resolves against the process's working
-        # directory, which is not a property anybody reviewing a
-        # deletion can see.
-        raise UnsafeDataRoot("DATA_DIR must be an absolute path, got %r" % raw)
-    root = root.resolve()
-    if root == Path(root.anchor):
-        raise UnsafeDataRoot("DATA_DIR resolves to the filesystem root")
-    if not root.is_dir():
-        raise UnsafeDataRoot("DATA_DIR %s is not a directory" % root)
-    return root
+    """The validated root from the environment, read at call time."""
+    return validate_root(os.getenv("DATA_DIR", ""))
 
 
 def _validated_id(person_id: str) -> str:
@@ -189,114 +170,295 @@ def _validated_id(person_id: str) -> str:
     return pid
 
 
-def _resolve_target(root: Path, parts: Tuple[str, ...], person_id: str) -> Path:
-    """Build one target and prove it is inside the root.
+def _validated_segment(seg: Any) -> Optional[str]:
+    s = str(seg or "").strip()
+    return s if _SAFE_SEGMENT.match(s) else None
 
-    The containment check runs on the RESOLVED path. A symlink under
-    the data root pointing elsewhere would satisfy the id pattern and
-    the string join and still land outside; only resolving catches it.
+
+def safe_target(root: Path, parts: Iterable[str]) -> Path:
+    """Resolve one target under `root`, refusing every symlink on the way.
+
+    THE CHECK THAT MATTERS. `Path.resolve()` answers where a path ends
+    up; it does not answer what it passed through. So
+
+        stories-captured/A -> stories-captured/B
+
+    resolves to a directory INSIDE the root, satisfies containment, and
+    `rmtree` then deletes narrator B. Each component is `lstat`-ed
+    instead, and a link is refused wherever it points -- outside the
+    root or at another narrator inside it. Nothing is resolved and then
+    trusted.
     """
-    target = root.joinpath(*parts, person_id)
-    try:
-        resolved = target.resolve()
-    except OSError:                                   # pragma: no cover
-        resolved = target
-    try:
-        resolved.relative_to(root)
-    except ValueError:
-        raise UnsafePersonId(
-            "resolved deletion target escapes the data root")
-    if resolved == root:
-        raise UnsafePersonId("resolved deletion target IS the data root")
-    return resolved
+    current = root
+    walked: List[str] = []
+    for raw in parts:
+        seg = str(raw)
+        if seg in ("", ".", "..") or "/" in seg or "\\" in seg or "\x00" in seg:
+            raise UnsafeTarget("refusing path segment %r" % seg)
+        current = current / seg
+        walked.append(seg)
+        try:
+            st = current.lstat()
+        except FileNotFoundError:
+            # Nothing here yet. A component that does not exist cannot
+            # be a link, and the remaining components cannot exist
+            # either -- the caller treats an absent target as success.
+            continue
+        except OSError as exc:                          # pragma: no cover
+            raise UnsafeTarget("cannot inspect %s: %s"
+                               % ("/".join(walked), exc.__class__.__name__))
+        import stat as _stat
+        if _stat.S_ISLNK(st.st_mode):
+            raise UnsafeTarget(
+                "refusing to follow a symlink at %s; a link inside the data "
+                "root can point at ANOTHER narrator's directory"
+                % "/".join(walked))
+    if current == root:
+        raise UnsafeTarget("target IS the data root")
+    return current
+
+
+# ── The plan ────────────────────────────────────────────────────────────
+
+def _fixed_plan(person_id: str) -> List[Dict[str, Any]]:
+    out = [{"target": key, "parts": list(parts) + [person_id], "kind": "dir"}
+           for key, parts in FIXED_TARGETS]
+    out += [{"target": key, "parts": list(parts), "kind": "dir",
+             "shared": True}
+            for key, parts in SHARED_PURGE]
+    return out
+
+
+def _dynamic_plan(person_id: str, con: Any) -> List[Dict[str, Any]]:
+    """Targets named by rows that are about to cascade away.
+
+    Every failure here is swallowed to an empty list on purpose: a
+    missing table is a deployment without that feature, and it must not
+    stop the person's transcripts being erased. What it must NOT do is
+    silently reduce the plan on a table that exists and errors -- so
+    each lane logs.
+    """
+    out: List[Dict[str, Any]] = []
+
+    def _rows(sql: str, args: Tuple[Any, ...], lane: str):
+        try:
+            return con.execute(sql, args).fetchall()
+        except Exception as exc:
+            logger.warning("[erasure-plan] %s lane unreadable: %s", lane, exc)
+            return []
+
+    # Trip source documents: tickets, PDFs, receipts. Keyed by the
+    # source row id, reachable only through the narrator's trips.
+    for r in _rows(
+            "SELECT s.id FROM trip_sources s JOIN trips t ON t.id = s.trip_id "
+            "WHERE t.person_id = ?", (person_id,), "trip_sources"):
+        sid = _validated_segment(r[0] if not isinstance(r, dict) else r["id"])
+        if sid:
+            out.append({"target": "trip_sources", "parts": ["trip_sources", sid],
+                        "kind": "dir"})
+
+    # Import staging: the picked originals and the incoming scratch
+    # area, both keyed by batch id.
+    for r in _rows("SELECT id FROM import_batch WHERE person_id = ?",
+                   (person_id,), "import_batch"):
+        bid = _validated_segment(r[0] if not isinstance(r, dict) else r["id"])
+        if bid:
+            out.append({"target": "import_staging",
+                        "parts": ["import_staging", bid], "kind": "dir"})
+            out.append({"target": "import_staging_incoming",
+                        "parts": ["import_staging", ".incoming", bid],
+                        "kind": "dir"})
+
+    # Legacy REST transcript exports, one file per conversation per
+    # extension. These predate the archive store and are plain
+    # narrator speech on disk.
+    for r in _rows("SELECT conv_id FROM sessions WHERE person_id = ?",
+                   (person_id,), "sessions"):
+        raw = r[0] if not isinstance(r, dict) else r["conv_id"]
+        conv = _validated_segment(raw)
+        if not conv:
+            continue
+        for sub in ("interviews", "bot_tests", "sessions"):
+            for ext in ("json", "jsonl", "txt"):
+                out.append({"target": "agent_transcripts",
+                            "parts": ["memory", "agents", sub,
+                                      "%s.%s" % (conv, ext)],
+                            "kind": "file"})
+    return out
+
+
+def build_plan(person_id: str, con: Any = None) -> List[Dict[str, Any]]:
+    """Everything to remove, computed while the database still knows.
+
+    `con` is an open connection so the plan can be built inside the
+    same transaction that is about to delete the rows.
+    """
+    pid = _validated_id(person_id)
+    plan = _fixed_plan(pid)
+    if con is not None:
+        plan += _dynamic_plan(pid, con)
+    return plan
+
+
+# ── Execution ───────────────────────────────────────────────────────────
+
+class EraseResult:
+    """What actually happened on disk.
+
+    `active_data_erased` and `historical_residue_present` are separate
+    because they answer different questions, and collapsing them is how
+    "complete" comes to mean "complete apart from the backups".
+    """
+
+    def __init__(self) -> None:
+        self.removed: List[Dict[str, Any]] = []
+        self.absent: List[str] = []
+        self.failed: List[Dict[str, Any]] = []
+        self.historical: List[Dict[str, Any]] = []
+
+    @property
+    def active_data_erased(self) -> bool:
+        return not self.failed
+
+    @property
+    def historical_residue_present(self) -> bool:
+        return bool(self.historical)
+
+    @property
+    def ok(self) -> bool:
+        """Retained for callers that ask one question. It means the
+        ACTIVE erasure finished; historical residue is reported
+        separately and never hidden inside this flag."""
+        return self.active_data_erased
+
+    @property
+    def files_removed(self) -> int:
+        return sum(int(r.get("files") or 0) for r in self.removed)
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {
+            "active_data_erased": self.active_data_erased,
+            "historical_residue_present": self.historical_residue_present,
+            "paths_removed": [r["path"] for r in self.removed],
+            "files_removed": self.files_removed,
+            "removed_detail": self.removed,
+            "already_absent": self.absent,
+            "failed": self.failed,
+            "historical_residue": self.historical,
+        }
 
 
 def _count_files(path: Path) -> int:
     try:
+        if path.is_file():
+            return 1
         return sum(1 for p in path.rglob("*") if p.is_file())
-    except OSError:                                   # pragma: no cover
+    except OSError:                                     # pragma: no cover
         return 0
 
 
-def erase_person_files(person_id: str,
-                       *,
-                       root: Optional[Path] = None) -> EraseResult:
-    """Remove every narrator-owned directory for `person_id`.
+def _historical_inventory(root: Path) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for key, parts in HISTORICAL_STORES:
+        try:
+            target = safe_target(root, parts)
+        except UnsafeTarget:                            # pragma: no cover
+            continue
+        if not target.exists():
+            continue
+        out.append({
+            "store": key,
+            "path": "/".join(parts),
+            "files": _count_files(target),
+            "reason": "a shared point-in-time artefact that may contain this "
+                      "narrator; rewriting it to remove one person destroys "
+                      "its value as a restore point, so it is reported and "
+                      "left alone",
+        })
+    return out
 
-    Idempotent: a target that is already gone is recorded as `absent`
-    and is not an error, so a run that failed halfway can be repeated
-    without special handling.
+
+def execute_plan(plan: List[Dict[str, Any]], *,
+                 root: Optional[Any] = None) -> EraseResult:
+    """Remove everything in `plan`. Idempotent.
+
+    An entry already gone is `absent`, not an error -- that is what
+    makes a retry safe. A refusal or a failure is reported and the run
+    continues, so one locked directory does not strand the rest.
     """
     res = EraseResult()
-    pid = _validated_id(person_id)
-    base = root.resolve() if root is not None else data_root()
+    base = validate_root(root if root is not None else os.getenv("DATA_DIR", ""))
 
-    for key, parts in ERASURE_TARGETS:
+    for entry in plan or []:
+        key = entry.get("target") or "?"
+        parts = [str(p) for p in (entry.get("parts") or [])]
+        rel = "/".join(parts)
         try:
-            target = _resolve_target(base, parts, pid)
-        except UnsafePersonId as exc:
-            res.failed.append({"target": key, "reason": str(exc)})
+            target = safe_target(base, parts)
+        except (UnsafeTarget, UnsafePersonId) as exc:
+            logger.error("[erasure] refused %s: %s", rel, exc)
+            res.failed.append({"target": key, "path": rel,
+                               "reason": "refused", "detail": str(exc)})
             continue
-        rel = "/".join(parts) + "/" + pid
         if not target.exists():
             res.absent.append(key)
             continue
         n = _count_files(target)
         try:
-            shutil.rmtree(target)
+            if target.is_dir():
+                shutil.rmtree(target)
+            else:
+                target.unlink()
         except OSError as exc:
-            # Reported, never swallowed. A locked file here means the
-            # narrator's words are still on disk.
-            logger.error("[erasure] %s failed for %s: %s", key, pid, exc)
+            logger.error("[erasure] %s failed: %s", rel, exc)
             res.failed.append({"target": key, "path": rel,
                                "reason": exc.__class__.__name__})
             continue
-        if target.exists():                           # pragma: no cover
+        if target.exists():                             # pragma: no cover
             res.failed.append({"target": key, "path": rel,
                                "reason": "still present after removal"})
             continue
-        logger.info("[erasure] removed %s (%d file(s)) for %s", rel, n, pid)
+        logger.info("[erasure] removed %s (%d file(s))", rel, n)
         res.removed.append({"target": key, "path": rel, "files": n})
 
-    for key, parts, why in RETAINED_BY_DESIGN:
-        try:
-            target = _resolve_target(base, parts, pid)
-        except UnsafePersonId:                        # pragma: no cover
-            continue
-        if not target.exists():
-            continue
-        n = _count_files(target)
-        entry = {"target": key, "path": "/".join(parts) + "/" + pid,
-                 "files": n, "reason": why}
-        res.retained.append(entry)
-        # Retained-by-design still means narrator bytes are on disk.
-        # It is listed as residue too, so `ok` is False and no caller
-        # can answer "complete" while the files are there.
-        res.residue.append(entry)
-
+    res.historical = _historical_inventory(base)
     return res
 
 
-def person_file_residue(person_id: str,
-                        *,
-                        root: Optional[Path] = None) -> List[Dict[str, Any]]:
-    """Every narrator-owned directory still on disk for `person_id`.
+def erase_person_files(person_id: str, *,
+                       root: Optional[Any] = None,
+                       plan: Optional[List[Dict[str, Any]]] = None,
+                       con: Any = None) -> EraseResult:
+    """Plan (if not given one) and execute, for one narrator."""
+    pid = _validated_id(person_id)
+    return execute_plan(plan if plan is not None else build_plan(pid, con),
+                        root=root)
 
-    Read-only. Used to VERIFY an erasure rather than to trust its own
-    report -- a synthetic harness that checked only the response body
-    would have passed on the defect this module closes.
+
+def person_file_residue(person_id: str, *,
+                        root: Optional[Any] = None,
+                        plan: Optional[List[Dict[str, Any]]] = None
+                        ) -> List[Dict[str, Any]]:
+    """Every planned target still on disk. Read-only.
+
+    Used to VERIFY an erasure rather than to trust its own report -- a
+    harness that checked only the response body would have passed on
+    the defect this module exists to close.
     """
     pid = _validated_id(person_id)
-    base = root.resolve() if root is not None else data_root()
+    base = validate_root(root if root is not None else os.getenv("DATA_DIR", ""))
     out: List[Dict[str, Any]] = []
-    for key, parts in ERASURE_TARGETS + tuple(
-            (k, p) for k, p, _ in RETAINED_BY_DESIGN):
+    for entry in (plan if plan is not None else build_plan(pid)):
+        parts = [str(p) for p in (entry.get("parts") or [])]
         try:
-            target = _resolve_target(base, parts, pid)
-        except UnsafePersonId:                        # pragma: no cover
+            target = safe_target(base, parts)
+        except UnsafeTarget as exc:
+            # A refused target is residue: it is still there and this
+            # path will not remove it.
+            out.append({"target": entry.get("target"), "path": "/".join(parts),
+                        "files": 0, "reason": str(exc)})
             continue
         if target.exists():
-            out.append({"target": key,
-                        "path": "/".join(parts) + "/" + pid,
+            out.append({"target": entry.get("target"), "path": "/".join(parts),
                         "files": _count_files(target)})
     return out
