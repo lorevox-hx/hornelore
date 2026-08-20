@@ -88,9 +88,13 @@ class NoCallerCanNameATargetTests(_Base):
         thing, so its ABSENCE is the property under test."""
         import inspect
         sig = inspect.signature(_ne.erase_person_files)
-        self.assertEqual(list(sig.parameters), ["person_id", "root"],
-                         "erasure takes an id and a test root, nothing else")
-        for _key, parts in _ne.ERASURE_TARGETS:
+        # REPOINTED 2026-08-20: `plan` and `con` were added so the plan
+        # can be BUILT before the database authority is destroyed and
+        # RE-EXECUTED afterwards. Neither is a path. The property is
+        # unchanged: no parameter names a directory.
+        self.assertEqual(list(sig.parameters),
+                         ["person_id", "root", "plan", "con"])
+        for _key, parts in _ne.FIXED_TARGETS:
             with self.subTest(parts=parts):
                 self.assertNotIn(self.pid, parts,
                                  "a target template must not embed an id")
@@ -113,6 +117,141 @@ class NoCallerCanNameATargetTests(_Base):
                         "a symlinked target outside the root was followed")
         self.assertTrue(any(f["target"] == "memory_archive" for f in res.failed))
         self.assertFalse(res.ok)
+
+
+class AnInternalSymlinkCannotDeleteAnotherNarratorTests(_Base):
+    """THE DEFECT REVIEW FOUND, and the reason the containment check
+    was necessary but nowhere near sufficient.
+
+    `Path.resolve()` answers where a path ENDS UP; it does not answer
+    what it passed through. So
+
+        stories-captured/A -> stories-captured/B
+
+    resolved to a directory INSIDE the data root, satisfied
+    containment, and `rmtree` then deleted narrator B. Every component
+    is `lstat`-ed now and a link is refused wherever it points.
+    """
+
+    def _link(self, parts, other):
+        holder = self.root.joinpath(*parts)
+        holder.mkdir(parents=True, exist_ok=True)
+        victim = holder / other
+        victim.mkdir(parents=True, exist_ok=True)
+        (victim / "transcript.txt").write_text(
+            "narrator B's own words", encoding="utf-8")
+        try:
+            (holder / self.pid).symlink_to(victim, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks unavailable in this environment")
+        return victim
+
+    def test_narrator_b_survives_byte_identical(self):
+        other = str(uuid.uuid4())
+        victim = self._link(("stories-captured",), other)
+        before = (victim / "transcript.txt").read_bytes()
+        res = _ne.erase_person_files(self.pid, root=self.root)
+        self.assertTrue(victim.exists(), "narrator B's directory was deleted")
+        self.assertEqual((victim / "transcript.txt").read_bytes(), before)
+        self.assertIn("stories_captured", [f["target"] for f in res.failed])
+        self.assertFalse(res.active_data_erased)
+
+    def test_the_refusal_says_it_is_a_symlink(self):
+        self._link(("memory", "archive", "people"), str(uuid.uuid4()))
+        res = _ne.erase_person_files(self.pid, root=self.root)
+        why = [f for f in res.failed if f["target"] == "memory_archive"][0]
+        self.assertEqual(why["reason"], "refused")
+        self.assertIn("symlink", why["detail"])
+
+    def test_a_link_on_an_INTERMEDIATE_component_is_refused_too(self):
+        """Not only the last segment. A link two levels up carries
+        every target beneath it somewhere else."""
+        other = self.root / "elsewhere"
+        (other / "people").mkdir(parents=True)
+        (other / "people" / self.pid).mkdir()
+        (other / "people" / self.pid / "keep.txt").write_text(
+            "not this narrator's", encoding="utf-8")
+        archive = self.root / "memory" / "archive"
+        archive.mkdir(parents=True)
+        try:
+            (archive / "people").symlink_to(other / "people",
+                                            target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks unavailable in this environment")
+        res = _ne.erase_person_files(self.pid, root=self.root)
+        self.assertTrue((other / "people" / self.pid / "keep.txt").exists())
+        self.assertIn("memory_archive", [f["target"] for f in res.failed])
+
+    def test_a_refused_target_is_reported_as_residue(self):
+        self._link(("stories-captured",), str(uuid.uuid4()))
+        residue = _ne.person_file_residue(self.pid, root=self.root)
+        self.assertIn("stories_captured", [r["target"] for r in residue])
+
+
+class TheExplicitRootIsValidatedTooTests(_Base):
+    """Internal code deserves the same safety contract as the
+    environment. The `root=` argument used to skip these checks
+    entirely, which meant a caller inside a `rmtree` had weaker
+    guarantees than a deployment did."""
+
+    def test_a_relative_explicit_root_refuses(self):
+        with self.assertRaises(_ne.UnsafeDataRoot):
+            _ne.erase_person_files(self.pid, root="data")
+
+    def test_the_filesystem_root_refuses(self):
+        with self.assertRaises(_ne.UnsafeDataRoot):
+            _ne.erase_person_files(self.pid, root=os.path.abspath(os.sep))
+
+    def test_a_nonexistent_explicit_root_refuses(self):
+        with self.assertRaises(_ne.UnsafeDataRoot):
+            _ne.erase_person_files(self.pid, root=str(self.root / "nope"))
+
+    def test_an_empty_explicit_root_refuses(self):
+        with self.assertRaises(_ne.UnsafeDataRoot):
+            _ne.erase_person_files(self.pid, root="")
+
+
+class TheHistoricalStoresAreReportedNotErasedTests(_Base):
+
+    def test_backups_are_named_and_left_alone(self):
+        b = self.root / "backups"
+        b.mkdir()
+        (b / "2026-08-01.sqlite3").write_text("snapshot", encoding="utf-8")
+        res = _ne.erase_person_files(self.pid, root=self.root)
+        self.assertTrue((b / "2026-08-01.sqlite3").exists(),
+                        "a shared backup was rewritten by a per-person delete")
+        self.assertEqual([h["store"] for h in res.historical], ["backups"])
+        self.assertTrue(res.historical_residue_present)
+        self.assertTrue(res.active_data_erased,
+                        "historical residue is not an active-erasure failure")
+
+    def test_exports_are_named_too(self):
+        e = self.root / "exports"
+        e.mkdir()
+        (e / "memoir.docx").write_bytes(b"PK\x03\x04")
+        res = _ne.erase_person_files(self.pid, root=self.root)
+        self.assertIn("exports", [h["store"] for h in res.historical])
+
+    def test_no_backups_means_no_historical_residue(self):
+        res = _ne.erase_person_files(self.pid, root=self.root)
+        self.assertEqual(res.historical, [])
+        self.assertFalse(res.historical_residue_present)
+
+
+class TheTranslationCacheIsPurgedTests(_Base):
+    """Shared, disposable, and NOT attributable per narrator: entries
+    are keyed by content hash, so this person's translated sentences
+    cannot be selected out. It is a cache, so the honest answer is to
+    drop all of it rather than leave narrator text nobody can trace."""
+
+    def test_the_whole_cache_goes(self):
+        c = self.root / "translations-cache"
+        c.mkdir()
+        (c / "deadbeef.json").write_text("translated narrator text",
+                                         encoding="utf-8")
+        res = _ne.erase_person_files(self.pid, root=self.root)
+        self.assertFalse(c.exists())
+        self.assertIn("translation_cache", [r["target"] for r in res.removed])
 
 
 class TheDataRootIsValidatedTests(_Base):
@@ -177,12 +316,22 @@ class EveryNarratorOwnedLocationGoesTests(_Base):
         _ne.erase_person_files(self.pid, root=self.root)
         self.assertTrue((keep / "transcript.txt").exists())
 
-    def test_the_inventory_covers_the_archive_and_the_stories(self):
-        keys = {k for k, _ in _ne.ERASURE_TARGETS}
-        for required in ("memory_archive", "stories_captured"):
-            self.assertIn(required, keys,
-                          "the two locations the live run found still on "
-                          "disk must be in the inventory")
+    def test_the_inventory_covers_every_named_store(self):
+        """EXTENDED 2026-08-20 after review found the inventory was a
+        quarter of the surface: personal media archive, media uploads,
+        trip-source documents, import staging and legacy agent
+        transcript exports all held narrator content and none were
+        named."""
+        keys = {k for k, _ in _ne.FIXED_TARGETS}
+        for required in ("memory_archive", "stories_captured",
+                         "photo_archive", "kawa_segments",
+                         "personal_media_archive", "media_uploads"):
+            self.assertIn(required, keys)
+        # …and the DB-derived lanes are in the planner.
+        import inspect
+        planner = inspect.getsource(_ne._dynamic_plan)
+        for lane in ("trip_sources", "import_batch", "sessions"):
+            self.assertIn(lane, planner)
 
 
 class ErasureIsIdempotentTests(_Base):
@@ -231,24 +380,30 @@ class ErasureIsIdempotentTests(_Base):
 
 class WhatSurvivesIsNamedTests(_Base):
 
-    def test_media_is_reported_as_retained_and_as_residue(self):
-        """Retained-by-design still means narrator bytes on disk.
+    def test_media_uploads_are_now_ERASED_not_retained(self):
+        """REVERSED 2026-08-20 by Chris's ruling.
 
-        It appears in BOTH lists on purpose: `retained_by_design`
-        explains the decision, `residue` is what makes `ok` False so no
-        caller can answer "complete" while the files are there.
+        This test previously asserted the opposite -- that media was
+        reported as retained-by-design and left on disk, because
+        `media.person_id` is ON DELETE SET NULL. The ruling: that may
+        remain as a database fallback, but a confirmed hard erasure
+        must not preserve identifiable photographs. The old assertions
+        were:
+
+            assertEqual([r["target"] for r in res.retained],
+                        ["media_uploads"])
+            assertFalse(res.ok)
         """
-        self._seed(("media",), name="upload.jpg")
+        f = self._seed(("media",), name="upload.jpg")
         res = _ne.erase_person_files(self.pid, root=self.root)
-        self.assertEqual([r["target"] for r in res.retained], ["media_uploads"])
-        self.assertEqual([r["target"] for r in res.residue], ["media_uploads"])
-        self.assertFalse(res.ok)
-        self.assertIn("SET NULL", res.retained[0]["reason"])
+        self.assertIn("media_uploads", [r["target"] for r in res.removed])
+        self.assertFalse((f / "upload.jpg").exists())
+        self.assertTrue(res.active_data_erased)
 
-    def test_no_media_means_nothing_is_claimed_to_be_retained(self):
-        res = _ne.erase_person_files(self.pid, root=self.root)
-        self.assertEqual(res.retained, [])
-        self.assertTrue(res.ok)
+    def test_the_personal_media_archive_goes_too(self):
+        f = self._seed(("media", "archive", "people"), name="document.pdf")
+        _ne.erase_person_files(self.pid, root=self.root)
+        self.assertFalse((f / "document.pdf").exists())
 
     def test_a_failure_is_reported_rather_than_swallowed(self):
         import shutil as _shutil
