@@ -268,6 +268,31 @@ class TripNotesAreNotHiddenByTheTripUiFlag(_Base):
         self.assertEqual(out.lanes["trip_notes"], "empty")
         self.assertTrue(out.complete)
 
+    def _drop(self, table):
+        con = sqlite3.connect(str(self.db_path))
+        con.execute("DROP TABLE IF EXISTS %s;" % table)
+        con.commit()
+        con.close()
+
+    def test_only_the_trips_table_present_reports_unavailable(self):
+        """ADDED 2026-08-20. EXACTLY ONE of the two tables used to fall
+        into the "no trip storage" arm and report `empty`, so a
+        partially applied migration produced an export that called
+        itself complete while the surviving table might hold real
+        approved notes. One table present is a question this lane
+        cannot answer, not an answer of "none".
+        """
+        self._drop("trip_location_notes")
+        out = _mc.canonical_memoir(self.narrator)
+        self.assertEqual(out.lanes["trip_notes"], "unavailable")
+        self.assertFalse(out.complete)
+
+    def test_only_the_notes_table_present_reports_unavailable(self):
+        self._drop("trips")
+        out = _mc.canonical_memoir(self.narrator)
+        self.assertEqual(out.lanes["trip_notes"], "unavailable")
+        self.assertFalse(out.complete)
+
     def test_a_present_but_unreadable_lane_reports_unavailable(self):
         self._trip_note()
         from api.services import trip_repository as _tr

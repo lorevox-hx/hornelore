@@ -562,6 +562,33 @@ const NO_FACTS = { items: [] };
        ctx.__els.memoirScrollHeading.textContent);
   }
 
+  section('An unreadable lane is SEEN, not hidden behind the empty state');
+  {
+    /* The export was already blocked correctly. What was wrong is that
+       a narrator with no facts, no structured profile and an unreadable
+       story lane landed in `empty` -- which HIDES the panel -- so the
+       notice explaining the refusal was rendered into a hidden element.
+       The operator saw an intro screen and a refusal with no reason. */
+    const ctx = freshCtx();
+    ctx.state.person_id = 'A';
+    routes(ctx, { facts: { body: NO_FACTS }, canonical: { ok: false } });
+    await vm.runInContext('_memoirLoadStoredFacts("A")', ctx);
+    ok('the canonical read is unavailable',
+       vm.runInContext('_memoirCanonicalStatus', ctx) === 'unavailable');
+    ok('the panel is NOT hidden',
+       ctx.__els.memoirScrollContent.hidden === false,
+       'state=' + vm.runInContext('_memoirState', ctx));
+    ok('the notice is on screen',
+       /UNAVAILABLE/.test(ctx.__content.allText()));
+    ok('the heading does not promise stories it does not have',
+       ctx.__els.memoirScrollHeading.textContent !== 'In Their Own Words',
+       ctx.__els.memoirScrollHeading.textContent);
+    ok('the export is still refused',
+       typeof vm.runInContext('_memoirExportBlockedReason()', ctx) === 'string');
+    ok('and the notice is not counted as evidence',
+       ctx.__content.querySelectorAll('[data-source-id]').length === 0);
+  }
+
   section('Identical tellings keep separate provenance');
   {
     const ctx = freshCtx();

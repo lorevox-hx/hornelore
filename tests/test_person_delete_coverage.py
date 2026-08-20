@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import sqlite3
 import sys
+import os
 import tempfile
 import unittest
 import uuid
@@ -31,6 +32,20 @@ class _FullDbCase(unittest.TestCase):
         self._original = _db.DB_PATH
         _db.DB_PATH = self.db_path
         _db.init_db()
+        # A DATA ROOT, added 2026-08-20. `hard_delete_person` now erases
+        # the narrator's filesystem directories as well as their rows,
+        # and refuses to attempt that against an unset or relative
+        # DATA_DIR -- a relative root resolves against the process's
+        # working directory, which is not a property anybody reviewing
+        # a recursive delete can see. Without a root configured these
+        # cases got `hard_deleted_partial`, which is the correct answer
+        # for a deployment that cannot erase, and the wrong fixture for
+        # a test about the database.
+        self._data_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._data_dir.cleanup)
+        self._orig_data_dir = os.environ.get("DATA_DIR")
+        os.environ["DATA_DIR"] = self._data_dir.name
+        self.addCleanup(self._restore_data_dir)
         self.person_id = str(uuid.uuid4())
         con = self._con()
         con.execute(
@@ -40,6 +55,12 @@ class _FullDbCase(unittest.TestCase):
         )
         con.commit()
         con.close()
+
+    def _restore_data_dir(self):
+        if self._orig_data_dir is None:
+            os.environ.pop("DATA_DIR", None)
+        else:
+            os.environ["DATA_DIR"] = self._orig_data_dir
 
     def tearDown(self):
         _db.DB_PATH = self._original
