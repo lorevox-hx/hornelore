@@ -30,7 +30,7 @@
        ui/js/narrator-intake.js. -->
   <link rel="stylesheet" href="css/narrator-intake.css">
   <link rel="stylesheet" href="css/bug-panel-dashboard.css">
-  <link rel="stylesheet" href="css/bug-panel-story-review.css?v=2026-08-19a">
+  <link rel="stylesheet" href="css/bug-panel-story-review.css?v=2026-08-19b">
   <link rel="stylesheet" href="css/bug-panel-past-tense-review.css">
   <link rel="stylesheet" href="css/bug-panel-silence-ladder.css">
   <link rel="stylesheet" href="css/bug-panel-preflight.css">
@@ -5394,7 +5394,7 @@
      reader of canonical story evidence, consumed by BOTH Life Map
      renderers. Loaded before them so neither has to guard for it. -->
 <script src="js/story-evidence.js?v=2026-08-17c"></script>
-<script src="js/bug-panel-story-review.js?v=2026-08-19a"></script>
+<script src="js/bug-panel-story-review.js?v=2026-08-19b"></script>
 <script src="js/bug-panel-past-tense-review.js?v=2026-06-14"></script>
 <!-- WO-LORI-BIO-BUILDER-UNIVERSAL-01 Phase E+F (2026-06-14) — bio
      editor + bio gap map operator surfaces. Both default-OFF; the
@@ -5892,6 +5892,11 @@ async function lv80SwitchPerson(personId) {
     lv80ShowNarratorOpenError(personId, state.narratorOpen.openError);
     return;
   }
+  /* Reset BOTH memoir caches before the incoming narrator's reads begin.
+     Without this, narrator A's evidence stays on screen until B's fetch
+     happens to return, and an export in that window carries A's reviewed
+     words under B's name. 2026-08-19. */
+  _memoirResetForNarratorSwitch();
   _memoirLoadStoredFacts(personId);
 
   // 3. Update narrator card UI
@@ -8309,51 +8314,122 @@ function _memoirBuildTxtFilename() {
 
    An unreadable lane stays VISIBLY unavailable. Rendering it as nothing
    is how a memoir comes to look complete while missing a chapter. */
-let _memoirCanonical = null;      // last read, for this narrator
+/* ── EXPLICIT CANONICAL STATE ──────────────────────────────────────────
+   2026-08-19. The cache used to be a bare object or null, so "not loaded
+   yet" and "loaded and empty" were the same value and an export could not
+   tell them apart. It now carries its own status AND the narrator it
+   belongs to, because a cache that does not know whose it is cannot
+   refuse to be exported under somebody else's name. */
+const MEMOIR_CANON_IDLE = "idle";
+const MEMOIR_CANON_LOADING = "loading";
+const MEMOIR_CANON_READY = "ready";
+const MEMOIR_CANON_UNAVAILABLE = "unavailable";
+
+let _memoirCanonical = null;          // last successful read
+let _memoirCanonicalStatus = MEMOIR_CANON_IDLE;
+let _memoirCanonicalPerson = null;    // whose it is
 let _memoirCanonicalGen = 0;
 let _memoirCanonicalAbort = null;
 
+/* Ready AND about the narrator currently on screen. Both halves matter:
+   ready-but-narrator-A is exactly the state that would export A's
+   reviewed words in a document titled B. */
+function _memoirCanonicalReady() {
+  const active = _memoirActivePerson();
+  return _memoirCanonicalStatus === MEMOIR_CANON_READY &&
+         !!_memoirCanonicalPerson &&
+         (!active || active === _memoirCanonicalPerson);
+}
+
+/* Called at the START of a narrator switch, before anything for the
+   incoming narrator is requested. Aborts both in-flight reads, advances
+   both generations so a late answer is discarded, drops the cache and
+   removes the painted block -- otherwise A's evidence stays on screen
+   until B's fetch happens to return. */
+function _memoirResetForNarratorSwitch() {
+  try { if (_memoirFactsAbort) _memoirFactsAbort.abort(); } catch (_) {}
+  try { if (_memoirCanonicalAbort) _memoirCanonicalAbort.abort(); } catch (_) {}
+  _memoirFactsGen += 1;
+  _memoirCanonicalGen += 1;
+  _memoirCanonical = null;
+  _memoirCanonicalPerson = null;
+  _memoirCanonicalStatus = MEMOIR_CANON_IDLE;
+  try {
+    const old = document.querySelector(".memoir-canonical-evidence");
+    if (old) old.remove();
+  } catch (_) {}
+}
+
 async function _memoirLoadCanonical(personId) {
-  if (!personId) { _memoirCanonical = null; return null; }
+  if (!personId) { _memoirResetForNarratorSwitch(); return null; }
   const gen = ++_memoirCanonicalGen;
   try { if (_memoirCanonicalAbort) _memoirCanonicalAbort.abort(); } catch (_) {}
   const ctrl = (typeof AbortController !== "undefined")
     ? new AbortController() : null;
   _memoirCanonicalAbort = ctrl;
+  _memoirCanonicalStatus = MEMOIR_CANON_LOADING;
+  _memoirCanonicalPerson = personId;
+
   const stale = () => gen !== _memoirCanonicalGen ||
                       (_memoirActivePerson() && _memoirActivePerson() !== personId);
+
   try {
     const r = await fetch("/api/memoir/canonical?person_id="
                           + encodeURIComponent(personId),
                           ctrl ? { signal: ctrl.signal } : undefined);
     if (stale()) return null;
     if (!r.ok) {
-      // Not readable is not empty. Recorded as such so the panel says so.
-      _memoirCanonical = { person_id: personId, stories: [], trip_notes: [],
-                           lanes: { captured_stories: "unavailable",
-                                    trip_notes: "unavailable" },
-                           complete: false };
-      return _memoirCanonical;
+      // Not readable is not empty.
+      _memoirCanonical = null;
+      _memoirCanonicalStatus = MEMOIR_CANON_UNAVAILABLE;
+      return null;
     }
     const j = await r.json();
-    if (stale()) return null;
+    if (stale()) return null;       // the JSON parse is another await
+    /* The SERVER's own answer about whose data this is. A response that
+       disagrees with the request is not this narrator's memoir, whatever
+       else is true, and is discarded rather than displayed. */
+    if (j && j.person_id && j.person_id !== personId) {
+      _memoirCanonicalStatus = MEMOIR_CANON_UNAVAILABLE;
+      return null;
+    }
     _memoirCanonical = j;
+    _memoirCanonicalStatus = MEMOIR_CANON_READY;
     return j;
   } catch (e) {
     if (e && e.name === "AbortError") return null;
-    _memoirCanonical = { person_id: personId, stories: [], trip_notes: [],
-                         lanes: { captured_stories: "unavailable",
-                                  trip_notes: "unavailable" },
-                         complete: false };
-    return _memoirCanonical;
+    // Staleness is checked on the FAILURE arm too: a delayed narrator-A
+    // error must not mark narrator B's evidence unavailable.
+    if (stale()) return null;
+    _memoirCanonical = null;
+    _memoirCanonicalStatus = MEMOIR_CANON_UNAVAILABLE;
+    return null;
   }
+}
+
+/* Load and paint, for the narrator this call is about. */
+function _memoirLoadCanonicalAndRender(personId) {
+  return _memoirLoadCanonical(personId).then(function () {
+    if (_memoirCanonicalPerson === personId &&
+        (!_memoirActivePerson() || _memoirActivePerson() === personId)) {
+      _memoirRenderCanonical();
+    }
+  });
 }
 
 /* The evidence lines the operator sees AND the TXT export writes.
    One function, so the two cannot drift. */
 function _memoirCanonicalLines() {
-  const c = _memoirCanonical;
   const out = [];
+  if (_memoirCanonicalStatus === MEMOIR_CANON_UNAVAILABLE) {
+    out.push("REVIEWED EVIDENCE — UNAVAILABLE");
+    out.push("The narrator's reviewed stories could not be read. This "
+             + "preview is INCOMPLETE and an export will be refused until "
+             + "they can be read.");
+    out.push("");
+    return out;
+  }
+  const c = _memoirCanonical;
   if (!c) return out;
   const lanes = c.lanes || {};
 
@@ -8388,7 +8464,14 @@ function _memoirCanonicalLines() {
 }
 
 /* Paint the canonical evidence into the memoir panel, below whatever the
-   operator has authored. Clearly headed, never merged into their prose. */
+   operator has authored. Clearly headed, never merged into their prose.
+
+   EVERY element is marked so the export harvesters can EXCLUDE it: the
+   draft collectors take all non-placeholder paragraphs, so without this
+   the displayed evidence was harvested as operator prose and then
+   appended again as evidence -- the same story twice, once wearing the
+   operator's voice. Items also carry `data-source-id` so a paragraph on
+   screen stays attributable. */
 function _memoirRenderCanonical() {
   const content = document.getElementById("memoirScrollContent");
   if (!content) return;
@@ -8399,8 +8482,21 @@ function _memoirRenderCanonical() {
   const box = document.createElement("div");
   box.className = "memoir-canonical-evidence";
   box.setAttribute("data-purpose", "reviewed_evidence");
+  box.setAttribute("data-export-exclude", "true");
+
+  const byText = {};
+  const c = _memoirCanonical || {};
+  (c.stories || []).concat(c.trip_notes || []).forEach(function (it) {
+    if (it && it.text) byText[it.text] = it.source_id || "";
+  });
+
   lines.forEach(function (ln) {
     const p = document.createElement("p");
+    p.className = "memoir-canonical-line";
+    p.setAttribute("data-export-exclude", "true");
+    Object.keys(byText).forEach(function (t) {
+      if (ln.indexOf(t) >= 0) p.setAttribute("data-source-id", byText[t]);
+    });
     p.textContent = ln;
     box.appendChild(p);
   });
@@ -8467,7 +8563,7 @@ function _memoirBuildTxtContent() {
 
   } else if (_memoirState === "draft") {
     // Draft paragraphs — exclude placeholders and threads marks
-    const paras = Array.from(content?.querySelectorAll("p:not(.memoir-placeholder)") || [])
+    const paras = Array.from(content?.querySelectorAll("p:not(.memoir-placeholder):not([data-export-exclude])") || [])
       .filter(el => !el.querySelector("mark.new-fact"))
       .map(el => el.textContent.trim()).filter(Boolean);
 
@@ -8506,7 +8602,7 @@ function _memoirBuildTxtContent() {
       for (const sec of sections) {
         const sHeading  = sec.querySelector(".memoir-section-heading")?.textContent?.trim() || "";
         const sSubtitle = sec.querySelector(".memoir-section-subtitle")?.textContent?.trim() || "";
-        const realItems = Array.from(sec.querySelectorAll("p:not(.memoir-placeholder)"))
+        const realItems = Array.from(sec.querySelectorAll("p:not(.memoir-placeholder):not([data-export-exclude])"))
           .map(p => p.textContent.trim()).filter(Boolean);
         if (sHeading) lines.push(sHeading);
         if (sSubtitle && sSubtitle !== sHeading) lines.push(sSubtitle);
@@ -8538,7 +8634,35 @@ function _memoirDownloadTxt(filename, text) {
   document.body.removeChild(a); URL.revokeObjectURL(url);
 }
 
+/* Refuse rather than export a memoir whose reviewed evidence is missing,
+   still loading, or belongs to a different narrator. Downloading an
+   incomplete file is the worst outcome available: it looks finished, and
+   the person who would notice the gap is the one who will never see it.
+   2026-08-19. */
+function _memoirExportBlockedReason() {
+  if (_memoirCanonicalStatus === MEMOIR_CANON_LOADING) {
+    return "The narrator's reviewed stories are still loading. "
+         + "Please try again in a moment.";
+  }
+  if (_memoirCanonicalStatus === MEMOIR_CANON_UNAVAILABLE) {
+    return "The narrator's reviewed stories could not be read, so this "
+         + "export would be incomplete. Refresh and try again.";
+  }
+  if (!_memoirCanonicalReady()) {
+    return "The reviewed stories on screen do not belong to the selected "
+         + "narrator yet. Please wait a moment and try again.";
+  }
+  const c = _memoirCanonical || {};
+  if (c.complete === false) {
+    return "Some of the narrator's reviewed material could not be read, "
+         + "so this export would be incomplete.";
+  }
+  return null;
+}
+
 function memoirExportTXT() {
+  const blocked = _memoirExportBlockedReason();
+  if (blocked) { alert(blocked); return; }
   const filename = _memoirBuildTxtFilename();
   const text     = _memoirBuildTxtContent();
   _memoirDownloadTxt(filename, text);
@@ -8571,6 +8695,8 @@ function memoirExportTXT() {
 // POST /api/memoir/export-docx — returns a .docx blob and triggers download.
 // Falls back to a clear user message if the server is unavailable.
 async function memoirExportDOCX() {
+  const blocked = _memoirExportBlockedReason();
+  if (blocked) { alert(blocked); return; }
   if (_memoirState === "empty") return; // button should be disabled, but guard anyway
 
   const content   = document.getElementById("memoirScrollContent");
@@ -8634,7 +8760,7 @@ async function memoirExportDOCX() {
   // Prose (draft state) — collect paragraphs in textarea / panel
   let prose = null;
   if (_memoirState === "draft") {
-    const paras = Array.from(content?.querySelectorAll("p:not(.memoir-placeholder)") || [])
+    const paras = Array.from(content?.querySelectorAll("p:not(.memoir-placeholder):not([data-export-exclude])") || [])
       .filter(el => !el.querySelector("mark.new-fact"))
       .map(el => el.textContent.trim()).filter(Boolean);
     prose = paras.join("\n\n");
@@ -8764,7 +8890,7 @@ function _memoirQualityFilter(text) {
 // Intentionally a structural heuristic — see product notes.
 function _memoirIsDraft(contentEl) {
   // Draft = user-saved prose: plain <p> without marks, not placeholders, ≥120 chars
-  const substantial = Array.from(contentEl.querySelectorAll("p:not(.memoir-placeholder)"))
+  const substantial = Array.from(contentEl.querySelectorAll("p:not(.memoir-placeholder):not([data-export-exclude])"))
     .filter(p => !p.querySelector("mark.new-fact"))
     .map(p => p.textContent.trim())
     .filter(t => t.length >= 120);
@@ -9025,10 +9151,31 @@ function _memoirActivePerson() {
   try { return (state && state.person_id) || null; } catch (_) { return null; }
 }
 
+/* The Bug Panel's story review calls this after a successful promote or
+   discard, so the memoir the operator is looking at reflects the decision
+   they just made. Narrator-scoped: a refresh for A must not repaint B. */
+window.lvRefreshCanonicalMemoir = function (personId) {
+  const pid = personId || _memoirActivePerson();
+  if (!pid) return;
+  const active = _memoirActivePerson();
+  if (active && active !== pid) return;
+  return _memoirLoadCanonicalAndRender(pid);
+};
+
 async function _memoirLoadStoredFacts(personId) {
   if (!personId) return;
   const content = document.getElementById("memoirScrollContent");
   if (!content) return;
+
+  /* ── THE TWO LANES ARE INDEPENDENT, 2026-08-19 ────────────────────
+     The canonical load used to be started INSIDE the branch that runs
+     when `/api/facts/list` returns at least one fact. The measured live
+     database has zero facts, so a narrator with an approved story saw no
+     reviewed evidence at all -- the exact case this contract exists for,
+     and the one it silently skipped. A facts failure, an empty facts
+     list, and the structured-profile fallback must none of them decide
+     whether the narrator's own reviewed words are loaded. */
+  _memoirLoadCanonicalAndRender(personId);
 
   const gen = ++_memoirFactsGen;
   try { if (_memoirFactsAbort) _memoirFactsAbort.abort(); } catch (_) {}
@@ -9046,7 +9193,10 @@ async function _memoirLoadStoredFacts(personId) {
                           ctrl ? { signal: ctrl.signal } : undefined);
     if (stale()) return;
     if (!r.ok) {
-      // API error — fall back to structured preview
+      // API error — fall back to structured preview. Staleness is checked
+      // FIRST: a failure arm repaints too, so an unguarded one lets a
+      // delayed narrator-A failure wipe narrator B's panel. 2026-08-19.
+      if (stale()) return;
       const cnt = document.getElementById("memoirScrollContent");
       if (cnt && lv80HasStructuredMemoirData()) { cnt.innerHTML = ""; lv80RenderStructuredMemoirPreview(); }
       _memoirEvaluateState(); return;
@@ -9065,11 +9215,6 @@ async function _memoirLoadStoredFacts(personId) {
     }
 
     content.innerHTML = "";
-    // Reviewed evidence is fetched for the SAME narrator this load is
-    // about, and painted after the operator's own material below.
-    _memoirLoadCanonical(personId).then(function () {
-      if (!stale()) _memoirRenderCanonical();
-    });
     const seen    = new Set();
     const buckets = {};
     for (const sec of _LV80_MEMOIR_SECTIONS) buckets[sec.id] = [];
@@ -9487,7 +9632,7 @@ function openFocusTrappedEdit() {
       textArea.value = _lv80BuildAssemblyText();
     } else {
       // Draft state: collect prose paragraphs (no placeholders)
-      textArea.value = Array.from(scrollContent.querySelectorAll("p:not(.memoir-placeholder)"))
+      textArea.value = Array.from(scrollContent.querySelectorAll("p:not(.memoir-placeholder):not([data-export-exclude])"))
         .map(p => p.textContent.trim()).filter(Boolean).join("\n\n");
     }
   }

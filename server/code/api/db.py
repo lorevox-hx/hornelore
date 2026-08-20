@@ -7295,6 +7295,40 @@ def story_candidate_review_apply(
             "SELECT * FROM story_candidates WHERE id=? AND narrator_id=?;",
             (candidate_id, narrator_id),
         ).fetchone()
+
+        # ── THE FINAL STATE MUST BE COHERENT, 2026-08-19 ────────────────
+        #
+        # Validation used to apply only to what the REQUEST carried, so a
+        # caller could send `placement_source` alone and leave the row
+        # claiming a human placed it nowhere -- or send an era alone and
+        # leave a placed-looking story the projection reports as
+        # UNPLACED, with the operator's choice silently ignored. Neither
+        # is reachable through the panel any more, but the panel is not
+        # the only caller and a rule the API does not enforce is a rule
+        # that holds until somebody scripts against it.
+        #
+        # Checked on the ROW AS IT NOW STANDS, inside the same
+        # transaction, so a partial request is judged on the state it
+        # actually produces rather than on what it mentioned.
+        _final_eras = _json_load(fresh["era_candidates"], [])
+        _final_source = (fresh["placement_source"] or "unknown").strip()
+        if _final_source != "unknown" and not _final_eras:
+            con.rollback()
+            raise ValueError(
+                f"placement_source {_final_source!r} requires exactly one "
+                f"life era; this change would leave the story placed "
+                f"nowhere")
+        if _final_source == "unknown" and _final_eras:
+            con.rollback()
+            raise ValueError(
+                "an era without a placement source reads as UNPLACED "
+                "everywhere; record who placed it, or clear the era")
+        if len(_final_eras) > 1:
+            con.rollback()
+            raise ValueError(
+                "a placement resolves to exactly one era; two is a pair "
+                "of guesses and the Life Map would have to pick")
+
         con.commit()
         return _row_to_story_candidate(fresh)
     except Exception:

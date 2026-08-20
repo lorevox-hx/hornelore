@@ -450,6 +450,14 @@
   function afterReviewApplied(pid) {
     return fetchReview().then(function () {
       if (pid !== _narrator()) return;          // switched away mid-flight
+      /* THE MEMOIR IS A CONSUMER OF REVIEW STATE TOO, 2026-08-19.
+         The review list and the chronology were refreshed and the memoir
+         was not, so an operator could promote a story and go on looking
+         at a preview that predated their own decision -- then export it.
+         Approving a story is precisely the moment the memoir changed. */
+      if (typeof window.lvRefreshCanonicalMemoir === 'function') {
+        try { window.lvRefreshCanonicalMemoir(pid); } catch (e) { /* non-fatal */ }
+      }
       if (typeof window.lvRefreshNarratorChronology === 'function') {
         return window.lvRefreshNarratorChronology(pid, 'story_reviewed');
       }
@@ -549,7 +557,13 @@
         }
         render();
       },
-    }, ['unknown', 'narrator_stated', 'operator_set', 'dob_derived'].map(function (v) {
+      // `operator_set` is NOT offered: it is what choosing an era MEANS,
+      // and the comment claiming so shipped while the option was still in
+      // the list. `narrator_stated` and `dob_derived` remain because they
+      // are genuinely different claims about WHO placed it -- and each
+      // still requires an era, which the server now enforces on the final
+      // state rather than only when an era travels in the same request.
+    }, ['unknown', 'narrator_stated', 'dob_derived'].map(function (v) {
       const cur = edit.placement_source !== undefined
         ? edit.placement_source : (item.placement_source || 'unknown');
       return el('option', { value: v, selected: v === cur ? 'selected' : undefined }, [v]);

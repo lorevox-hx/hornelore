@@ -515,6 +515,80 @@ def _assert_translation_covered(req: "MemoirExportRequest",
                     "document as a translated one" % tgt))
 
 
+def _sections_from_canonical(canon) -> List[MemoirSection]:
+    """Adapt the ONE canonical read into DOCX sections.
+
+    WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01 Commit B follow-up
+    (2026-08-19).
+
+    The route used to call `_captured_story_sections` and
+    `_trip_story_sections` itself, each performing its own read, while
+    `/api/memoir/canonical` performed a third. Only the DIGEST helpers
+    delegated -- which made the ids agree and left two executable
+    interpretations of what the lanes contain. The preview and the export
+    could still disagree about eligibility, placement or ordering, and no
+    test comparing digests would have noticed.
+
+    `canonical_memoir()` is now the single executable authority and this
+    only reshapes its output. Stories group by canonical era in spine
+    order, unplaced trail in "More stories", and trip notes keep one
+    section per trip.
+    """
+    try:
+        from ..lv_eras import era_id_to_warm_label as _warm
+    except Exception:
+        _warm = lambda e: e  # noqa: E731
+
+    sections: List[MemoirSection] = []
+
+    by_era: Dict[str, List[Dict[str, Any]]] = {}
+    for row in canon.stories:
+        by_era.setdefault(row.get("era") or "_unplaced", []).append(row)
+
+    def _story_section(key: str, label: str, rows):
+        return MemoirSection(
+            id=f"{_RESERVED_STORY_SECTION_PREFIX}_{key}",
+            label=label,
+            items=[r["text"] for r in rows],
+            sources=[r["source_id"] for r in rows],
+            languages=[r.get("language") or "en" for r in rows],
+        )
+
+    ordered = [e for e in _MEMOIR_ERA_ORDER if e in by_era]
+    ordered += [e for e in by_era
+                if e not in _MEMOIR_ERA_ORDER and e != "_unplaced"]
+    for era in ordered:
+        try:
+            label = "In their own words \u2014 " + str(_warm(era))
+        except Exception:
+            label = "In their own words"
+        sections.append(_story_section(era, label, by_era[era]))
+    if "_unplaced" in by_era:
+        sections.append(_story_section(
+            "more", "In their own words \u2014 More stories",
+            by_era["_unplaced"]))
+
+    by_trip: Dict[str, List[Dict[str, Any]]] = {}
+    trip_titles: Dict[str, str] = {}
+    for note in canon.trip_notes:
+        tid = note.get("trip_id") or "unknown"
+        by_trip.setdefault(tid, []).append(note)
+        trip_titles.setdefault(tid, note.get("trip_title") or "")
+    for tid, notes in by_trip.items():
+        title = (trip_titles.get(tid) or "").strip()
+        label = ("From your travels \u2014 " + title) if title \
+            else "From your travels"
+        sections.append(MemoirSection(
+            id=f"trip_stories_{tid}",
+            label=label,
+            items=[(n["title"] + " \u2014 " + n["text"]) if n.get("title")
+                   else n["text"] for n in notes],
+            sources=[n["source_id"] for n in notes],
+            languages=[n.get("language") or "en" for n in notes],
+        ))
+    return sections
+
+
 def _stamp_source_provenance(doc, req: "MemoirExportRequest") -> None:
     """Record which captured stories this document was built from.
 
@@ -1317,43 +1391,35 @@ def api_memoir_export_docx(req: MemoirExportRequest):
     _server_sections: List[MemoirSection] = []
     _lane_status: Dict[str, str] = {}
 
-    if req.person_id and req.include_captured_stories:
-        _story_sections, _story_status = _captured_story_sections(req.person_id)
-        _lane_status["captured_stories"] = _story_status
-        if _story_status != "read":
-            raise HTTPException(
-                status_code=503,
-                detail=("reviewed stories could not be read (%s) — export "
-                        "refused rather than produce a memoir that looks "
-                        "complete" % _story_status))
-        _server_sections += _story_sections
-        if _story_sections:
-            logger.info(
-                "[memoir-docx] captured stories appended: %d section(s), "
-                "%d stor%s",
-                len(_story_sections),
-                sum(len(s.items) for s in _story_sections),
-                "y" if sum(len(s.items) for s in _story_sections) == 1 else "ies",
-            )
+    if req.person_id and (req.include_captured_stories or req.include_trip_stories):
+        from ..services.memoir_contract import canonical_memoir
+        _canon = canonical_memoir(
+            req.person_id,
+            include_stories=bool(req.include_captured_stories),
+            include_trip_notes=bool(req.include_trip_stories))
+        _lane_status = dict(_canon.lanes)
 
-    if req.person_id and req.include_trip_stories:
-        _trip_sections, _trip_status = _trip_story_sections(req.person_id)
-        _lane_status["trip_stories"] = _trip_status
-        # `not_attempted` is the trips feature being off for this
-        # deployment, which is a configuration answer rather than a
-        # failure, so it does not refuse.
-        if _trip_status in ("partial", "unavailable"):
+        # Refuse on a lane that exists and could not be read. A document
+        # missing an approved story looks complete, and the person who
+        # would notice is the one who will never see it. `not_attempted`
+        # and `empty` are answers, not failures.
+        _bad = {k: v for k, v in _lane_status.items()
+                if v in ("partial", "unavailable")}
+        if _bad:
             raise HTTPException(
                 status_code=503,
-                detail=("approved trip stories could not be fully read (%s) "
-                        "— export refused rather than produce a memoir that "
-                        "looks complete" % _trip_status))
-        _server_sections += _trip_sections
-        if _trip_sections:
+                detail=("reviewed evidence could not be fully read (%s) — "
+                        "export refused rather than produce a memoir that "
+                        "looks complete"
+                        % ", ".join(f"{k}={v}" for k, v in sorted(_bad.items()))))
+
+        _server_sections = _sections_from_canonical(_canon)
+        if _server_sections:
             logger.info(
-                "[memoir-docx] trip stories appended: %d section(s), %d note(s)",
-                len(_trip_sections),
-                sum(len(s.items) for s in _trip_sections))
+                "[memoir-docx] canonical evidence: %d section(s), %d item(s), "
+                "lanes=%s", len(_server_sections),
+                sum(len(s.items) for s in _server_sections),
+                ",".join(f"{k}:{v}" for k, v in sorted(_lane_status.items())))
 
     if _server_sections:
         # One digest per item, checked rather than assumed. A short or
