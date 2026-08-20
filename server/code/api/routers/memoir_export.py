@@ -1534,8 +1534,17 @@ def api_memoir_canonical(person_id: str):
     "exactly once" is checkable across all three rather than hoped for.
 
     Read-only. Approves nothing, places nothing, writes nothing.
+
+    NOT GATED ON `HORNELORE_MEMOIR_EXPORT_ENABLED`, deliberately
+    (2026-08-19). It was, and that made the operator's ability to SEE
+    the narrator's reviewed evidence depend on a flag about producing
+    .docx files. Those are different questions: the flag governs
+    document CREATION, not whether reviewed words may be looked at.
+    With the flag off the panel got a 404, showed nothing, and the
+    operator had no way to tell an empty narrator from a disabled
+    feature. This route writes nothing, so there is nothing for the
+    export flag to protect.
     """
-    _require_enabled()
     if not (person_id or "").strip():
         raise HTTPException(status_code=422, detail="person_id required")
     from .. import db as _db

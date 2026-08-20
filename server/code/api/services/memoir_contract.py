@@ -49,7 +49,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 from typing import Any, Dict, List, NamedTuple, Optional
 
 logger = logging.getLogger("memoir_contract")
@@ -149,11 +148,56 @@ def _stories(person_id: str) -> (List[Dict[str, Any]], str):
     return out, ("read" if out else "empty")
 
 
+def _trip_storage_exists() -> Optional[bool]:
+    """Do the tables that could HOLD an approved trip note exist?
+
+    True, False, or None when the question itself could not be asked.
+    The three answers are kept apart because they mean different things
+    to an export: a schema with no trip tables can hold no approved
+    note, so nothing is being omitted; a schema that has them and will
+    not answer is an outage and must not read as an empty narrator.
+    """
+    try:
+        from .. import db as _db
+        con = _db._connect()
+        try:
+            rows = con.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name IN ('trips','trip_location_notes')").fetchall()
+        finally:
+            con.close()
+        names = {(r[0] if not isinstance(r, dict) else r["name"]) for r in rows}
+        return "trips" in names and "trip_location_notes" in names
+    except Exception as exc:                       # pragma: no cover
+        logger.warning("[memoir-contract] trip storage probe failed: %s", exc)
+        return None
+
+
 def _trip_notes(person_id: str) -> (List[Dict[str, Any]], str):
-    if os.getenv("HORNELORE_TRIPS", "0").strip().lower() not in (
-        "1", "true", "yes", "on",
-    ):
-        return [], "not_attempted"
+    """
+    `HORNELORE_TRIPS` IS NOT CONSULTED HERE, DELIBERATELY (2026-08-19).
+
+    It used to be, and the lane returned `not_attempted` whenever the
+    trip UI was switched off. That was wrong in the one way that
+    matters: an approved trip note is EVIDENCE AN OPERATOR ALREADY
+    REVIEWED and the database already holds. A feature flag governs
+    whether an operator can reach the trip screens today; it says
+    nothing about whether words a narrator has already had approved
+    belong in their memoir. Reporting them `not_attempted` let a
+    complete-looking export omit them silently, which is the exact
+    failure this contract exists to prevent.
+
+    So the lane now reads what is stored, and the flag governs the UI
+    only. A deployment whose schema never had trip tables reports
+    `empty` -- it can hold no approved note, so nothing is being
+    omitted -- while a schema that HAS them and cannot be read reports
+    `unavailable`, and the export refuses rather than looking whole.
+    """
+    exists = _trip_storage_exists()
+    if exists is False:
+        return [], "empty"
+    if exists is None:
+        return [], "unavailable"
     try:
         from . import trip_repository as _tr
         trips = _tr.trip_list(person_id)

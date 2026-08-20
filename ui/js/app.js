@@ -3775,6 +3775,25 @@ async function lvxSwitchNarratorSafe(pid){
   if (!pid) return;
   if (pid === state.person_id) return;
 
+  /* ── MEMOIR RESET, BEFORE ANY HYDRATION ──────────────────────────
+     MOVED HERE 2026-08-19. The reset lived in the shell's narrator-open
+     handler, AFTER `await lvxSwitchNarratorSafe(...)` returned -- and
+     three other call sites reach this function directly and never ran
+     it at all. The shell was providing the only protection for a switch
+     it does not own.
+
+     What that costs is specific: narrator A's reviewed evidence stays
+     cached and painted while B hydrates, and an export taken in that
+     window carries A's reviewed words in a document titled B. The reset
+     aborts both in-flight memoir reads, advances both generations so a
+     late answer is discarded, drops the cache and removes the painted
+     block -- so it has to happen BEFORE anything for B is requested,
+     which is here. */
+  if (typeof window._memoirResetForNarratorSwitch === "function") {
+    try { window._memoirResetForNarratorSwitch(); }
+    catch (e) { console.warn("[memoir] reset on narrator switch failed:", e); }
+  }
+
   // WO-11 (TRAINER MODE REPAIR): trainer-active stomp guard.
   // When the trainer overlay is up, the narrator switch must NOT wipe
   // trainer state and must NOT reset the surrounding session posture

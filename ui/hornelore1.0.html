@@ -5892,11 +5892,14 @@ async function lv80SwitchPerson(personId) {
     lv80ShowNarratorOpenError(personId, state.narratorOpen.openError);
     return;
   }
-  /* Reset BOTH memoir caches before the incoming narrator's reads begin.
-     Without this, narrator A's evidence stays on screen until B's fetch
-     happens to return, and an export in that window carries A's reviewed
-     words under B's name. 2026-08-19. */
-  _memoirResetForNarratorSwitch();
+  /* The memoir reset MOVED into `lvxSwitchNarratorSafe()` on
+     2026-08-19 and is deliberately not repeated here. It used to run at
+     this line -- which is AFTER the switch has completed, and which
+     three other call sites of that function never reached at all, so
+     the shell was the only protection for a switch it does not own.
+     Repeating it now would also be worse than redundant: it would run
+     after hydration and could discard a canonical read hydration had
+     already started. */
   _memoirLoadStoredFacts(personId);
 
   // 3. Update narrator card UI
@@ -7912,7 +7915,12 @@ let _goldenThreadCleanup = null;
 
 /* ── 7a. MEMOIR STATE MACHINE ────────────────────────────────── */
 
-let _memoirState = "empty"; // "empty" | "structured" | "threads" | "draft"
+let _memoirState = "empty"; // "empty" | "evidence" | "structured" | "threads" | "draft"
+/* "evidence" added 2026-08-19: reviewed stories and/or approved trip
+   notes exist, but no extracted facts and no operator prose. It is a
+   NON-EMPTY state -- the narrator has said something and an operator
+   approved it -- and it must not be confused with "draft", which
+   means the operator has written. */
 
 /* ── 7a.1 MEMOIR SPINE RENDERER — structured data → memoir preview ────────
    Builds memoir sections from Bio Builder questionnaire + profile basics +
@@ -8336,9 +8344,14 @@ let _memoirCanonicalAbort = null;
    reviewed words in a document titled B. */
 function _memoirCanonicalReady() {
   const active = _memoirActivePerson();
+  /* TIGHTENED 2026-08-19. This read `(!active || active === owner)`, so
+     "no narrator selected" satisfied it. The absence of a selection is
+     not permission to export somebody's reviewed words -- it is the
+     state in which nobody can say whose words they are. An ACTIVE
+     narrator matching the owner exactly is now required. */
   return _memoirCanonicalStatus === MEMOIR_CANON_READY &&
          !!_memoirCanonicalPerson &&
-         (!active || active === _memoirCanonicalPerson);
+         !!active && active === _memoirCanonicalPerson;
 }
 
 /* Called at the START of a narrator switch, before anything for the
@@ -8359,6 +8372,14 @@ function _memoirResetForNarratorSwitch() {
     if (old) old.remove();
   } catch (_) {}
 }
+/* Explicit, because `lvxSwitchNarratorSafe()` in app.js -- the central
+   narrator switch, and the only place every switch passes through --
+   calls this before it hydrates the incoming narrator. A top-level
+   `function` in a classic script is already a window property, so this
+   changes nothing at runtime; it makes the cross-file contract
+   deliberate rather than an accident of scoping that a later refactor
+   could quietly remove. */
+window._memoirResetForNarratorSwitch = _memoirResetForNarratorSwitch;
 
 async function _memoirLoadCanonical(personId) {
   if (!personId) { _memoirResetForNarratorSwitch(); return null; }
@@ -8388,8 +8409,14 @@ async function _memoirLoadCanonical(personId) {
     if (stale()) return null;       // the JSON parse is another await
     /* The SERVER's own answer about whose data this is. A response that
        disagrees with the request is not this narrator's memoir, whatever
-       else is true, and is discarded rather than displayed. */
-    if (j && j.person_id && j.person_id !== personId) {
+       else is true, and is discarded rather than displayed.
+
+       TIGHTENED 2026-08-19: this read `j.person_id && j.person_id !==
+       personId`, so a response carrying NO owner was accepted. A body
+       that does not say whose evidence it is cannot be shown as this
+       narrator's; the contract always states it, and a body that does
+       not is not the contract. */
+    if (!j || j.person_id !== personId) {
       _memoirCanonicalStatus = MEMOIR_CANON_UNAVAILABLE;
       return null;
     }
@@ -8407,19 +8434,35 @@ async function _memoirLoadCanonical(personId) {
   }
 }
 
+/* Paint the canonical evidence for `personId`, if it is still theirs to
+   paint, and re-evaluate the panel state afterwards.
+
+   The re-evaluation is not decoration. Evidence is the ONLY content a
+   narrator with no extracted facts has, so a paint that did not
+   re-evaluate left the panel in "empty": content hidden, and the
+   operator looking at an intro screen while the DOM below it held the
+   narrator's own reviewed words. 2026-08-19. */
+function _memoirPaintCanonicalIfCurrent(personId) {
+  if (_memoirCanonicalPerson !== personId) return false;
+  const active = _memoirActivePerson();
+  if (active && active !== personId) return false;
+  _memoirRenderCanonical();
+  try { _memoirEvaluateState(); } catch (_) {}
+  return true;
+}
+
 /* Load and paint, for the narrator this call is about. */
 function _memoirLoadCanonicalAndRender(personId) {
   return _memoirLoadCanonical(personId).then(function () {
-    if (_memoirCanonicalPerson === personId &&
-        (!_memoirActivePerson() || _memoirActivePerson() === personId)) {
-      _memoirRenderCanonical();
-    }
+    _memoirPaintCanonicalIfCurrent(personId);
   });
 }
 
 /* The evidence lines the operator sees AND the TXT export writes.
-   One function, so the two cannot drift. */
-function _memoirCanonicalLines() {
+   One function, so the two cannot drift. Returns headings as plain
+   strings and items as `{text, sourceId}`; see `_memoirCanonicalLines`
+   below for the flattened form the TXT export writes. */
+function _memoirCanonicalLinesRaw() {
   const out = [];
   if (_memoirCanonicalStatus === MEMOIR_CANON_UNAVAILABLE) {
     out.push("REVIEWED EVIDENCE — UNAVAILABLE");
@@ -8449,18 +8492,48 @@ function _memoirCanonicalLines() {
     (c.stories || []).forEach(function (st) {
       const where = st.placement && st.placement !== "unplaced"
         ? (st.era || st.year || "") : "not yet placed";
-      out.push("- " + st.text + (where ? "  [" + where + "]" : ""));
+      out.push({
+        text: "- " + st.text + (where ? "  [" + where + "]" : ""),
+        sourceId: st.source_id || "",
+      });
     });
     out.push("");
   }
   if ((c.trip_notes || []).length) {
     out.push("From your travels");
     (c.trip_notes || []).forEach(function (n) {
-      out.push("- " + (n.title ? n.title + " \u2014 " : "") + n.text);
+      out.push({
+        text: "- " + (n.title ? n.title + " \u2014 " : "") + n.text,
+        sourceId: n.source_id || "",
+      });
     });
     out.push("");
   }
   return out;
+}
+
+/* \u2500\u2500 ONE BUILDER, TWO SHAPES \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+   `_memoirCanonicalRecords()` is the builder: each entry is either a
+   plain heading string or `{text, sourceId}` for an item that came from
+   a record. `_memoirCanonicalLines()` flattens it to strings, so the
+   TXT export and the preview still cannot drift.
+
+   REPLACED 2026-08-19: the renderer used to build `byText[text] =
+   source_id` and attach an id by scanning each rendered line for a
+   substring match. TWO LEGITIMATE STORIES WITH IDENTICAL TEXT
+   OVERWROTE EACH OTHER in that map -- and identical tellings are a
+   thing narrators genuinely do -- while a story whose text merely
+   CONTAINED another's picked up the wrong id. Provenance now travels
+   with the record it belongs to, by position, and never by matching
+   displayed text back to data. */
+function _memoirCanonicalRecords() {
+  return _memoirCanonicalLinesRaw();
+}
+
+function _memoirCanonicalLines() {
+  return _memoirCanonicalRecords().map(function (e) {
+    return (e && typeof e === "object") ? e.text : e;
+  });
 }
 
 /* Paint the canonical evidence into the memoir panel, below whatever the
@@ -8477,27 +8550,23 @@ function _memoirRenderCanonical() {
   if (!content) return;
   const old = content.querySelector(".memoir-canonical-evidence");
   if (old) old.remove();
-  const lines = _memoirCanonicalLines();
-  if (!lines.length) return;
+  const records = _memoirCanonicalRecords();
+  if (!records.length) return;
   const box = document.createElement("div");
   box.className = "memoir-canonical-evidence";
   box.setAttribute("data-purpose", "reviewed_evidence");
   box.setAttribute("data-export-exclude", "true");
 
-  const byText = {};
-  const c = _memoirCanonical || {};
-  (c.stories || []).concat(c.trip_notes || []).forEach(function (it) {
-    if (it && it.text) byText[it.text] = it.source_id || "";
-  });
-
-  lines.forEach(function (ln) {
+  records.forEach(function (rec) {
+    const isItem = rec && typeof rec === "object";
     const p = document.createElement("p");
     p.className = "memoir-canonical-line";
     p.setAttribute("data-export-exclude", "true");
-    Object.keys(byText).forEach(function (t) {
-      if (ln.indexOf(t) >= 0) p.setAttribute("data-source-id", byText[t]);
-    });
-    p.textContent = ln;
+    /* The id comes from the RECORD this paragraph was built from. Two
+       narrators can tell the same story in the same words; the two
+       tellings are still two pieces of evidence. */
+    if (isItem && rec.sourceId) p.setAttribute("data-source-id", rec.sourceId);
+    p.textContent = isItem ? rec.text : rec;
     box.appendChild(p);
   });
   content.appendChild(box);
@@ -8914,10 +8983,26 @@ function _memoirEvaluateState() {
   // Check for fact-based content (threads/draft) from /api/facts/list
   const hasRealFacts  = content.querySelectorAll("mark.new-fact").length > 0;
   const hasFragments  = content.querySelectorAll("mark.fragment-fact").length > 0;
+  /* `:not([data-export-exclude])` added 2026-08-19. The narrator's
+     REVIEWED EVIDENCE is painted as ordinary paragraphs, so without
+     this it counted as operator-authored draft prose -- and enough of
+     it flipped the panel into "Emerging Memoir Draft", presenting the
+     narrator's own reviewed words back to the operator as their
+     writing. It is content; it is not their draft. */
   const hasDraftProse = !hasRealFacts && !hasFragments &&
-    Array.from(content.querySelectorAll("p:not(.memoir-placeholder):not(.memoir-structured-item)"))
+    Array.from(content.querySelectorAll(
+      "p:not(.memoir-placeholder):not(.memoir-structured-item):not([data-export-exclude])"))
       .some(p => !p.querySelector("mark") && p.textContent.trim().length >= 20);
   const hasFactContent = hasRealFacts || hasFragments || hasDraftProse;
+
+  /* Reviewed evidence recognised in its own right. A narrator with zero
+     extracted facts and one approved story used to sit in "empty":
+     content hidden, DOCX refused by its own early return, and the one
+     thing they HAD said nowhere on screen. An item paragraph carries a
+     `data-source-id`; the UNAVAILABLE notice does not, so an outage
+     notice cannot masquerade as evidence. */
+  const hasCanonicalEvidence =
+    content.querySelectorAll(".memoir-canonical-line[data-source-id]").length > 0;
 
   // Check for structured data from Bio Builder questionnaire / profile
   const hasStructured = lv80HasStructuredMemoirData();
@@ -8959,6 +9044,22 @@ function _memoirEvaluateState() {
     if (!content.querySelector(".memoir-structured")) {
       lv80RenderStructuredMemoirPreview();
     }
+  } else if (hasCanonicalEvidence) {
+    /* Reviewed evidence and nothing else. A real, non-empty memoir:
+       the panel shows it and the DOCX export is permitted, because the
+       server appends this evidence from its own canonical read -- the
+       document is not built from what the operator typed. There is no
+       draft to edit yet, so the edit button stays disabled and says
+       why. */
+    _memoirState             = "evidence";
+    heading.textContent      = "In Their Own Words";
+    if (subtitle) subtitle.textContent = "Reviewed Stories";
+    intro.hidden             = true;
+    content.hidden           = false;
+    if (threadsHint) threadsHint.hidden = true;
+    editBtn.disabled         = true;
+    editBtn.setAttribute("aria-disabled", "true");
+    editBtn.textContent      = "✏️ Keep Sharing to Unlock";
   } else {
     // Empty state — nothing yet
     _memoirState             = "empty";
@@ -9162,21 +9263,48 @@ window.lvRefreshCanonicalMemoir = function (personId) {
   return _memoirLoadCanonicalAndRender(pid);
 };
 
+/* ── TWO LANES, ONE PANEL ────────────────────────────────────────────
+   `_memoirLoadStoredFacts` is the single entry point that loads the
+   memoir panel, and it drives two independent reads: extracted facts
+   and canonical reviewed evidence.
+
+   THE ORDER OF THE PAINTS IS THE WHOLE CORRECTNESS ARGUMENT, and it was
+   wrong in both directions (2026-08-19). The canonical load was started
+   fire-and-forget, while EVERY facts branch begins by clearing
+   `memoirScrollContent`. So whichever finished second decided what the
+   operator saw: canonical first meant the facts lane erased the
+   evidence a moment later; facts first meant the panel was judged empty
+   and HIDDEN, and the evidence was then appended into a hidden panel
+   that nothing re-evaluated. Two orderings, two different wrong
+   answers, and the second is worse because the DOM contains the words
+   and the operator cannot see them.
+
+   Both requests still start together -- the network work is
+   concurrent -- but the PAINTS are sequenced: facts render and settle,
+   then canonical evidence is appended, then the state is re-evaluated.
+   The visible result is now identical whichever request returns first,
+   and that is what the harness asserts by driving both orders. */
 async function _memoirLoadStoredFacts(personId) {
   if (!personId) return;
   const content = document.getElementById("memoirScrollContent");
   if (!content) return;
 
-  /* ── THE TWO LANES ARE INDEPENDENT, 2026-08-19 ────────────────────
-     The canonical load used to be started INSIDE the branch that runs
-     when `/api/facts/list` returns at least one fact. The measured live
-     database has zero facts, so a narrator with an approved story saw no
-     reviewed evidence at all -- the exact case this contract exists for,
-     and the one it silently skipped. A facts failure, an empty facts
-     list, and the structured-profile fallback must none of them decide
-     whether the narrator's own reviewed words are loaded. */
-  _memoirLoadCanonicalAndRender(personId);
+  /* Started here, awaited at the end. It must NOT be started inside the
+     branch that runs when `/api/facts/list` returns at least one fact:
+     the measured live database has zero facts, so a narrator with an
+     approved story saw no reviewed evidence at all -- the exact case
+     this contract exists for, and the one it silently skipped. */
+  const canonicalRead = _memoirLoadCanonical(personId);
 
+  try {
+    await _memoirLoadFactsLane(personId, content);
+  } finally {
+    try { await canonicalRead; } catch (_) {}
+    _memoirPaintCanonicalIfCurrent(personId);
+  }
+}
+
+async function _memoirLoadFactsLane(personId, content) {
   const gen = ++_memoirFactsGen;
   try { if (_memoirFactsAbort) _memoirFactsAbort.abort(); } catch (_) {}
   const ctrl = (typeof AbortController !== "undefined")
