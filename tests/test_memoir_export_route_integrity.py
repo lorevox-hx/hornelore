@@ -379,3 +379,62 @@ class ReviewedEvidenceReachesTheDocument(_RouteCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheTranslatorReceivesEachItemsOwnLanguage(_RouteCase):
+    """A SPY, not an output check.
+
+    The fake translator in every other test returns a value derived only
+    from the text, so a wrong `source_lang` argument produces an
+    identical document and the assertion passes anyway. This records the
+    actual calls.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from api.services import translation as _translation
+        self.calls = []
+
+        def _spy(text, source_lang="en", target_lang="es",
+                 narrator_name=None):
+            self.calls.append((text, source_lang, target_lang))
+            return _ES.get(text, "ES::" + text)
+
+        _translation.translate_text = _spy
+
+    def _src_lang_for(self, text):
+        for t, src, _tgt in self.calls:
+            if t == text:
+                return src
+        return None
+
+    def test_each_item_is_submitted_in_its_own_language(self):
+        self._story(_STORY_EN, language="en")
+        self._story(_STORY_ES, language="es")
+        r = self._post(target_language="es")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(self._src_lang_for(_STORY_EN), "en")
+
+    def test_an_item_already_in_the_target_is_never_submitted(self):
+        """Skipping is the point: translating Spanish to Spanish burns a
+        call to produce the text it started with, and its result would be
+        indistinguishable from a failure."""
+        self._story(_STORY_ES, language="es")
+        r = self._post(target_language="es")
+        self.assertEqual(r.status_code, 200)
+        self.assertIsNone(self._src_lang_for(_STORY_ES),
+                          "an already-Spanish item reached the translator")
+
+    def test_a_missing_language_array_refuses_rather_than_guesses(self):
+        self._story(_STORY_ES, language="es")
+        orig = _me._captured_story_sections
+
+        def _stripped(pid):
+            secs, status = orig(pid)
+            return ([s.model_copy(update={"languages": []}) for s in secs],
+                    status)
+        _me._captured_story_sections = _stripped
+        self.addCleanup(setattr, _me, "_captured_story_sections", orig)
+        r = self._post(target_language="es")
+        self.assertEqual(r.status_code, 500)
+        self.assertIn("language metadata is misaligned", r.text)

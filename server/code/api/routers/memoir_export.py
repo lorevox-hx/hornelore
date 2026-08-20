@@ -1002,8 +1002,8 @@ def _story_source_digest(candidate_id: str) -> str:
     nothing on its face, and lets an operator match a paragraph to its
     source by digesting the id again.
     """
-    return hashlib.sha256(
-        f"story:{candidate_id}".encode("utf-8")).hexdigest()[:12]
+    from ..services.memoir_contract import story_source_id as _sid
+    return _sid(candidate_id)
 
 
 def _captured_story_sections(person_id: str) -> Tuple[List[MemoirSection], str]:
@@ -1100,8 +1100,8 @@ def _trip_note_source_digest(note_id: str) -> str:
     they must carry none was over-cautious. The digest is namespaced
     apart from story candidates so the two lanes can never collide.
     """
-    return hashlib.sha256(
-        f"tripnote:{note_id}".encode("utf-8")).hexdigest()[:12]
+    from ..services.memoir_contract import trip_note_source_id as _nid
+    return _nid(note_id)
 
 
 def _trip_story_sections(person_id: str) -> Tuple[List[MemoirSection], str]:
@@ -1361,7 +1361,13 @@ def api_memoir_export_docx(req: MemoirExportRequest):
         # would attribute a paragraph to the wrong candidate, which is
         # worse than having none.
         for sec in _server_sections:
-            if sec.languages and len(sec.languages) != len(sec.items):
+            # EXACT equality, including an EMPTY array. `sec.languages and`
+            # let a server section with no language metadata through, and
+            # that is the case where the translator is then handed every
+            # item as the request-level language -- the defect this whole
+            # field exists to stop. Server evidence always knows its
+            # language; a section that has lost it is broken, not lenient.
+            if len(sec.languages) != len(sec.items):
                 logger.error(
                     "[memoir-docx] language array misaligned section=%s "
                     "items=%d languages=%d", sec.id, len(sec.items),
@@ -1445,3 +1451,31 @@ def api_memoir_export_docx(req: MemoirExportRequest):
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/canonical")
+def api_memoir_canonical(person_id: str):
+    """The reviewed evidence this narrator's memoir will contain.
+
+    WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01 Commit B (2026-08-19).
+
+    THE POINT OF THIS ROUTE IS THAT THE OPERATOR CAN SEE IT BEFORE
+    EXPORTING. Reviewed stories and approved trip notes used to be
+    appended server-side during DOCX generation and nowhere else, so the
+    preview and the TXT export showed a document the DOCX did not match.
+    The panel now reads this, the TXT export renders this, and the DOCX
+    harvests the same lanes -- and every item carries a `source_id` so
+    "exactly once" is checkable across all three rather than hoped for.
+
+    Read-only. Approves nothing, places nothing, writes nothing.
+    """
+    _require_enabled()
+    if not (person_id or "").strip():
+        raise HTTPException(status_code=422, detail="person_id required")
+    from .. import db as _db
+    if not _db.get_person(person_id):
+        raise HTTPException(
+            status_code=422,
+            detail=f"person_id '{person_id}' not found in people")
+    from ..services.memoir_contract import canonical_memoir
+    return canonical_memoir(person_id).as_dict()

@@ -532,9 +532,23 @@
         }),
       ]);
     }
+    // `operator_set` is no longer hand-selectable: it is what choosing an
+    // era MEANS, and offering it separately is what allowed the
+    // contradictory pair. `narrator_stated` and `dob_derived` remain,
+    // because those are genuinely different claims about who placed it --
+    // but each still requires an era, which the era control supplies.
     const sourceSel = el('select', {
       class: 'story-input',
-      oninput: function (e) { edit.placement_source = e.target.value; },
+      oninput: function (e) {
+        edit.placement_source = e.target.value;
+        if (e.target.value === 'unknown') {
+          // Clearing the source clears the era with it. The reverse
+          // pairing to the era control above; leaving an era behind
+          // would recreate the incoherent state from the other side.
+          edit.era_candidates = '';
+        }
+        render();
+      },
     }, ['unknown', 'narrator_stated', 'operator_set', 'dob_derived'].map(function (v) {
       const cur = edit.placement_source !== undefined
         ? edit.placement_source : (item.placement_source || 'unknown');
@@ -550,9 +564,26 @@
     const curEra = edit.era_candidates !== undefined
       ? edit.era_candidates
       : ((item.era_candidates || [])[0] || '');
+    // ── SELECTING AN ERA *IS* AN OPERATOR PLACEMENT, 2026-08-19 ──────
+    //
+    // Era and placement_source were two independent controls, so the
+    // panel let an operator build states the model has no meaning for:
+    // an era with source `unknown` (the server then reports it UNPLACED,
+    // and the operator sees their choice quietly ignored), or
+    // `operator_set` with no era (placed, by their own record, nowhere).
+    //
+    // Choosing an era now records `operator_set` in the same action, and
+    // choosing "not placed" returns the source to `unknown`. One gesture,
+    // one coherent state -- an operator should not have to know the
+    // model's internal vocabulary to avoid contradicting themselves.
     const eraSel = el('select', {
       class: 'story-input',
-      oninput: function (e) { edit.era_candidates = e.target.value; },
+      oninput: function (e) {
+        const chosen = e.target.value;
+        edit.era_candidates = chosen;
+        edit.placement_source = chosen ? 'operator_set' : 'unknown';
+        render();
+      },
     }, [el('option', { value: '', selected: curEra ? undefined : 'selected' },
            ['— not placed —'])].concat(_eraOptions().map(function (v) {
       return el('option', {

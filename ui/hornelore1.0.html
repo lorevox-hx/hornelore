@@ -8293,6 +8293,120 @@ function _memoirBuildTxtFilename() {
   return `lorevox_memoir_${safeName}_${_memoirState}.txt`;
 }
 
+/* ── ONE CANONICAL MEMOIR READ ─────────────────────────────────────────
+   WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01 Commit B (2026-08-19).
+
+   Reviewed stories and approved trip notes used to be appended INSIDE
+   the DOCX route and nowhere else, so the preview and the TXT export
+   showed a document the DOCX did not match. An operator approved a
+   story, saw no sign of it in the preview, and exported a file
+   containing it.
+
+   `GET /api/memoir/canonical` is the one read. The panel renders it, the
+   TXT export serialises it, and the DOCX harvests the same lanes — every
+   item carrying a `source_id`, so "exactly once" is checkable rather
+   than hoped for.
+
+   An unreadable lane stays VISIBLY unavailable. Rendering it as nothing
+   is how a memoir comes to look complete while missing a chapter. */
+let _memoirCanonical = null;      // last read, for this narrator
+let _memoirCanonicalGen = 0;
+let _memoirCanonicalAbort = null;
+
+async function _memoirLoadCanonical(personId) {
+  if (!personId) { _memoirCanonical = null; return null; }
+  const gen = ++_memoirCanonicalGen;
+  try { if (_memoirCanonicalAbort) _memoirCanonicalAbort.abort(); } catch (_) {}
+  const ctrl = (typeof AbortController !== "undefined")
+    ? new AbortController() : null;
+  _memoirCanonicalAbort = ctrl;
+  const stale = () => gen !== _memoirCanonicalGen ||
+                      (_memoirActivePerson() && _memoirActivePerson() !== personId);
+  try {
+    const r = await fetch("/api/memoir/canonical?person_id="
+                          + encodeURIComponent(personId),
+                          ctrl ? { signal: ctrl.signal } : undefined);
+    if (stale()) return null;
+    if (!r.ok) {
+      // Not readable is not empty. Recorded as such so the panel says so.
+      _memoirCanonical = { person_id: personId, stories: [], trip_notes: [],
+                           lanes: { captured_stories: "unavailable",
+                                    trip_notes: "unavailable" },
+                           complete: false };
+      return _memoirCanonical;
+    }
+    const j = await r.json();
+    if (stale()) return null;
+    _memoirCanonical = j;
+    return j;
+  } catch (e) {
+    if (e && e.name === "AbortError") return null;
+    _memoirCanonical = { person_id: personId, stories: [], trip_notes: [],
+                         lanes: { captured_stories: "unavailable",
+                                  trip_notes: "unavailable" },
+                         complete: false };
+    return _memoirCanonical;
+  }
+}
+
+/* The evidence lines the operator sees AND the TXT export writes.
+   One function, so the two cannot drift. */
+function _memoirCanonicalLines() {
+  const c = _memoirCanonical;
+  const out = [];
+  if (!c) return out;
+  const lanes = c.lanes || {};
+
+  const unreadable = Object.keys(lanes).filter(function (k) {
+    return lanes[k] === "unavailable" || lanes[k] === "partial";
+  });
+  if (unreadable.length) {
+    out.push("REVIEWED EVIDENCE — UNAVAILABLE");
+    out.push("Some reviewed material could not be read (" +
+             unreadable.join(", ") + "). This preview is INCOMPLETE and " +
+             "an export will be refused until it can be read.");
+    out.push("");
+  }
+
+  if ((c.stories || []).length) {
+    out.push("In their own words");
+    (c.stories || []).forEach(function (st) {
+      const where = st.placement && st.placement !== "unplaced"
+        ? (st.era || st.year || "") : "not yet placed";
+      out.push("- " + st.text + (where ? "  [" + where + "]" : ""));
+    });
+    out.push("");
+  }
+  if ((c.trip_notes || []).length) {
+    out.push("From your travels");
+    (c.trip_notes || []).forEach(function (n) {
+      out.push("- " + (n.title ? n.title + " \u2014 " : "") + n.text);
+    });
+    out.push("");
+  }
+  return out;
+}
+
+/* Paint the canonical evidence into the memoir panel, below whatever the
+   operator has authored. Clearly headed, never merged into their prose. */
+function _memoirRenderCanonical() {
+  const content = document.getElementById("memoirScrollContent");
+  if (!content) return;
+  const old = content.querySelector(".memoir-canonical-evidence");
+  if (old) old.remove();
+  const lines = _memoirCanonicalLines();
+  if (!lines.length) return;
+  const box = document.createElement("div");
+  box.className = "memoir-canonical-evidence";
+  box.setAttribute("data-purpose", "reviewed_evidence");
+  lines.forEach(function (ln) {
+    const p = document.createElement("p");
+    p.textContent = ln;
+    box.appendChild(p);
+  });
+  content.appendChild(box);
+}
+
 function _memoirBuildTxtContent() {
   const heading  = document.getElementById("memoirScrollHeading")?.textContent?.trim() || "Your Story";
   const subtitle = document.getElementById("memoirPanelSubtitle")?.textContent?.trim() || "";
@@ -8406,6 +8520,11 @@ function _memoirBuildTxtContent() {
       }
     }
   }
+
+  // The SAME canonical evidence the panel shows. One function feeds
+  // both, so the preview and the file cannot disagree. 2026-08-19.
+  const evidence = _memoirCanonicalLines();
+  if (evidence.length) { lines.push(""); evidence.forEach(l => lines.push(l)); }
 
   return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
 }
@@ -8882,13 +9001,50 @@ function _lv80AssignMemoirSection(fact) {
 
 // Fetch stored facts for a person, apply quality filter, populate memoir panel.
 // Called after loadPerson() and on narrator switch.
+/* ── NARRATOR-SCOPED LOAD GUARD ────────────────────────────────────────
+   WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01 Commit B (2026-08-19).
+
+   `_memoirLoadStoredFacts()` had no abort, no generation and no narrator
+   check. It is called on narrator switch (5895) and after a review
+   (9058), so two loads can be in flight at once — and a DELAYED response
+   for narrator A repainted the memoir panel for whoever was on screen,
+   after which the operator could export that panel under narrator B's
+   name. A memoir is the most consequential artifact this system makes,
+   and the failure is silent: the prose simply looks like B's.
+
+   Three guards, matching `_hydrateChronologyFromServer`:
+     * an AbortController cancels A's request the moment B is asked for;
+     * a generation counter discards an answer that arrives anyway;
+     * the person id is re-checked against the live selection before a
+       single pixel is painted.
+   Any one of them would close most of the window. All three close it. */
+let _memoirFactsAbort = null;
+let _memoirFactsGen = 0;
+
+function _memoirActivePerson() {
+  try { return (state && state.person_id) || null; } catch (_) { return null; }
+}
+
 async function _memoirLoadStoredFacts(personId) {
   if (!personId) return;
   const content = document.getElementById("memoirScrollContent");
   if (!content) return;
 
+  const gen = ++_memoirFactsGen;
+  try { if (_memoirFactsAbort) _memoirFactsAbort.abort(); } catch (_) {}
+  const ctrl = (typeof AbortController !== "undefined")
+    ? new AbortController() : null;
+  _memoirFactsAbort = ctrl;
+
+  /* Stale in EITHER direction: a newer load has started, or the operator
+     is no longer looking at the narrator this answer is about. */
+  const stale = () => gen !== _memoirFactsGen ||
+                      (_memoirActivePerson() && _memoirActivePerson() !== personId);
+
   try {
-    const r = await fetch(API.FACTS_LIST(personId));
+    const r = await fetch(API.FACTS_LIST(personId),
+                          ctrl ? { signal: ctrl.signal } : undefined);
+    if (stale()) return;
     if (!r.ok) {
       // API error — fall back to structured preview
       const cnt = document.getElementById("memoirScrollContent");
@@ -8896,6 +9052,7 @@ async function _memoirLoadStoredFacts(personId) {
       _memoirEvaluateState(); return;
     }
     const data  = await r.json();
+    if (stale()) return;          // the JSON parse is another await
     const facts = data?.items || data?.facts || data || [];
     if (!Array.isArray(facts) || facts.length === 0) {
       content.innerHTML = "";
@@ -8908,6 +9065,11 @@ async function _memoirLoadStoredFacts(personId) {
     }
 
     content.innerHTML = "";
+    // Reviewed evidence is fetched for the SAME narrator this load is
+    // about, and painted after the operator's own material below.
+    _memoirLoadCanonical(personId).then(function () {
+      if (!stale()) _memoirRenderCanonical();
+    });
     const seen    = new Set();
     const buckets = {};
     for (const sec of _LV80_MEMOIR_SECTIONS) buckets[sec.id] = [];

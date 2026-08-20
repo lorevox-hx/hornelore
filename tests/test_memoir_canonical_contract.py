@@ -1,0 +1,302 @@
+"""One canonical memoir read: preview, TXT and DOCX agree.
+
+WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01, Commit B (2026-08-19).
+
+The defect: three surfaces produced the narrator's memoir and none of
+them agreed. The panel built its own view from `/api/facts/list`; the TXT
+export serialised the panel; and the DOCX export took the browser's
+payload and then, server-side and INVISIBLY, appended reviewed captured
+stories and approved trip notes.
+
+So the reviewed evidence -- the narrator's own words, the thing the whole
+review pipeline exists to protect -- appeared in the DOCX and in neither
+of the other two. An operator approved a story, saw no sign of it in the
+preview, and exported a document containing it. The reverse is equally
+possible and worse: prose the operator wrote incorporating a story, plus
+the same story appended again underneath, because the visible prose
+carried no source id.
+
+Run with:
+
+    PYTHONPATH=server/code .venv/bin/python -m unittest tests.test_memoir_canonical_contract
+"""
+from __future__ import annotations
+
+import os
+import re
+import sqlite3
+import sys
+import tempfile
+import unittest
+import uuid
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_SERVER_CODE = _REPO_ROOT / "server" / "code"
+for _p in (str(_SERVER_CODE), str(_REPO_ROOT)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+from api import db as _db  # noqa: E402
+from api.services import memoir_contract as _mc  # noqa: E402
+from api.routers import memoir_export as _me  # noqa: E402
+from tests.source_scan_helpers import strip_js_comments  # noqa: E402
+
+_SHELL = _REPO_ROOT / "ui" / "hornelore1.0.html"
+_PANEL = _REPO_ROOT / "ui" / "js" / "bug-panel-story-review.js"
+
+
+def _read(p):
+    with open(p, encoding="utf-8") as fh:
+        return fh.read()
+
+
+class _Base(unittest.TestCase):
+    def setUp(self):
+        fd = tempfile.NamedTemporaryFile(suffix=".sqlite3", delete=False)
+        fd.close()
+        self.db_path = Path(fd.name)
+        self._orig = _db.DB_PATH
+        _db.DB_PATH = self.db_path
+        _db.init_db()
+        self.narrator = str(uuid.uuid4())
+        self.conv = "conv-" + uuid.uuid4().hex[:8]
+        con = sqlite3.connect(str(self.db_path))
+        con.execute("INSERT INTO people (id, display_name, created_at, updated_at)"
+                    " VALUES (?,?,?,?)",
+                    (self.narrator, "N", "2026-08-19", "2026-08-19"))
+        con.execute("INSERT INTO sessions (conv_id, updated_at) VALUES (?,?)",
+                    (self.conv, "2026-08-19"))
+        con.commit()
+        con.close()
+
+    def tearDown(self):
+        _db.DB_PATH = self._orig
+        try:
+            self.db_path.unlink()
+        except OSError:
+            pass
+
+    def _story(self, text, *, language="en", placed=True, status="promoted"):
+        cid = str(uuid.uuid4())
+        _db.story_candidate_insert(
+            cid, narrator_id=self.narrator, transcript=text,
+            trigger_reason="manual", scene_anchor_count=1,
+            session_id=self.conv, conversation_id=self.conv, turn_id=None,
+            language=language)
+        _db.story_candidate_review_apply(
+            cid, narrator_id=self.narrator, expected_version=1,
+            review_status=status, reviewed_by="test",
+            era_candidates=["adolescence"] if placed else None,
+            placement_source="operator_set" if placed else None)
+        return cid
+
+
+# ── The contract itself ─────────────────────────────────────────────────
+
+class TheContractIsOneRead(_Base):
+
+    def test_reviewed_stories_come_back_with_stable_source_ids(self):
+        cid = self._story("The porch and the peas.")
+        out = _mc.canonical_memoir(self.narrator)
+        self.assertEqual(len(out.stories), 1)
+        self.assertEqual(out.stories[0]["source_id"],
+                         _mc.story_source_id(cid))
+        self.assertEqual(out.stories[0]["era"], "adolescence")
+        self.assertEqual(out.stories[0]["language"], "en")
+
+    def test_the_export_delegates_rather_than_reimplements(self):
+        """Equality alone was a tautology.
+
+        Mutation testing: changing the contract's digest changed the
+        export's too, because the export CALLS it -- so asserting they
+        match proved nothing about whether they could drift. The property
+        that matters is the delegation: one definition, so the preview
+        and the DOCX cannot derive an id differently and leave a caller
+        unable to tell one telling from two.
+        """
+        cid = self._story("Told once.")
+        self.assertEqual(_mc.story_source_id(cid),
+                         _me._story_source_digest(cid))
+        src = _read(Path(_me.__file__))
+        for fn, expect in (("_story_source_digest", "story_source_id"),
+                           ("_trip_note_source_digest", "trip_note_source_id")):
+            body = src[src.index("def " + fn + "("):]
+            body = body[:body.index("\ndef ")]
+            with self.subTest(fn=fn):
+                self.assertIn("memoir_contract", body)
+                self.assertIn(expect, body)
+                self.assertNotIn("hashlib.sha256", body,
+                                 "a second implementation is a second answer")
+
+    def test_story_and_note_ids_are_namespaced_apart(self):
+        same = "shared-id"
+        self.assertNotEqual(_mc.story_source_id(same),
+                            _mc.trip_note_source_id(same))
+
+    def test_unreviewed_and_discarded_never_appear(self):
+        self._story("Promoted.", status="promoted")
+        self._story("Never reviewed.", status="unreviewed")
+        self._story("Discarded.", status="discarded")
+        texts = [s["text"] for s in _mc.canonical_memoir(self.narrator).stories]
+        self.assertEqual(texts, ["Promoted."])
+
+    def test_an_unplaced_story_carries_no_era(self):
+        self._story("Nobody placed this.", placed=False)
+        row = _mc.canonical_memoir(self.narrator).stories[0]
+        self.assertEqual(row["placement"], "unplaced")
+        self.assertIsNone(row["era"])
+
+    def test_two_identical_tellings_are_two_sources(self):
+        same = "We walked to the river."
+        a, b = self._story(same), self._story(same)
+        rows = _mc.canonical_memoir(self.narrator).stories
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(len({r["source_id"] for r in rows}), 2)
+
+    def test_each_candidate_appears_exactly_once(self):
+        self._story("Told once.")
+        rows = _mc.canonical_memoir(self.narrator).stories
+        self.assertEqual(len(rows), 1)
+
+
+class LaneAvailabilityIsPartOfTheAnswer(_Base):
+
+    def test_an_unreadable_story_lane_is_reported_not_hidden(self):
+        from api.services import story_projection as _sp
+        orig = _sp.memoir_projection
+        _sp.memoir_projection = lambda nid: _sp.MemoirProjection(
+            "unavailable", [])
+        self.addCleanup(setattr, _sp, "memoir_projection", orig)
+        out = _mc.canonical_memoir(self.narrator)
+        self.assertEqual(out.lanes["captured_stories"], "unavailable")
+        self.assertFalse(out.complete)
+
+    def test_empty_is_distinct_from_unavailable(self):
+        out = _mc.canonical_memoir(self.narrator)
+        self.assertEqual(out.lanes["captured_stories"], "empty")
+        self.assertTrue(out.complete)
+
+    def test_trips_off_is_not_attempted_and_does_not_spoil_completeness(self):
+        os.environ.pop("HORNELORE_TRIPS", None)
+        out = _mc.canonical_memoir(self.narrator)
+        self.assertEqual(out.lanes["trip_notes"], "not_attempted")
+        self.assertTrue(out.complete,
+                        "a switched-off feature is a configuration answer, "
+                        "not a failure")
+
+    def test_the_status_vocabulary_is_shared(self):
+        for v in ("read", "empty", "not_attempted", "partial", "unavailable"):
+            self.assertIn(v, _mc.LANE_STATUSES)
+
+
+# ── Every surface consumes it ───────────────────────────────────────────
+
+class PreviewAndTxtReadTheSameContract(_Base):
+
+    def setUp(self):
+        super().setUp()
+        self.js = strip_js_comments(_read(_SHELL))
+
+    def test_the_panel_fetches_the_canonical_route(self):
+        self.assertIn("/api/memoir/canonical?person_id=", self.js)
+        self.assertIn("function _memoirLoadCanonical(", self.js)
+
+    def test_one_function_feeds_both_the_panel_and_the_txt(self):
+        """The preview and the file cannot drift if they are built by the
+        same function -- which is the whole point of this commit."""
+        self.assertIn("function _memoirCanonicalLines(", self.js)
+        txt = self.js[self.js.index("function _memoirBuildTxtContent("):]
+        txt = txt[:txt.index("function _memoirDownloadTxt(")]
+        self.assertIn("_memoirCanonicalLines()", txt)
+        render = self.js[self.js.index("function _memoirRenderCanonical("):]
+        render = render[:render.index("function _memoirBuildTxtContent(")]
+        self.assertIn("_memoirCanonicalLines()", render)
+
+    def test_an_unavailable_lane_is_stated_in_the_preview(self):
+        lines = self.js[self.js.index("function _memoirCanonicalLines("):]
+        lines = lines[:lines.index("function _memoirRenderCanonical(")]
+        self.assertIn("UNAVAILABLE", lines)
+        self.assertIn("INCOMPLETE", lines)
+
+    def test_the_docx_route_still_serves_the_same_evidence(self):
+        src = _read(Path(_me.__file__))
+        self.assertIn("def api_memoir_canonical", src)
+        self.assertIn("canonical_memoir(person_id).as_dict()", src)
+
+
+# ── The narrator-switch race ────────────────────────────────────────────
+
+class DelayedNarratorAcannotRepaintB(_Base):
+
+    def setUp(self):
+        super().setUp()
+        self.js = strip_js_comments(_read(_SHELL))
+        i = self.js.index("async function _memoirLoadStoredFacts(")
+        self.fn = self.js[i:i + 2600]
+
+    def test_it_aborts_the_previous_request(self):
+        self.assertIn("AbortController", self.fn)
+        self.assertIn("_memoirFactsAbort.abort()", self.fn)
+
+    def test_it_carries_a_generation(self):
+        self.assertIn("++_memoirFactsGen", self.fn)
+        self.assertIn("gen !== _memoirFactsGen", self.fn)
+
+    def test_it_rechecks_the_narrator_before_painting(self):
+        self.assertIn("_memoirActivePerson() !== personId", self.fn)
+
+    def test_every_await_is_followed_by_a_staleness_check(self):
+        """A guard before the first await and nowhere else would still
+        let a response that arrived during the JSON parse repaint."""
+        self.assertGreaterEqual(self.fn.count("if (stale()) return"), 2)
+
+    def test_the_canonical_load_is_guarded_the_same_way(self):
+        i = self.js.index("async function _memoirLoadCanonical(")
+        fn = self.js[i:i + 2000]
+        self.assertIn("AbortController", fn)
+        self.assertIn("gen !== _memoirCanonicalGen", fn)
+        self.assertIn("_memoirActivePerson() !== personId", fn)
+
+    def test_the_canonical_paint_is_narrator_checked(self):
+        i = self.js.index("_memoirLoadCanonical(personId).then(")
+        self.assertIn("if (!stale())", self.js[i:i + 200])
+
+
+# ── Placement coherence ─────────────────────────────────────────────────
+
+class PlacementIsAtomicAndCoherent(_Base):
+
+    def setUp(self):
+        super().setUp()
+        self.js = strip_js_comments(_read(_PANEL))
+
+    def test_choosing_an_era_records_operator_set(self):
+        i = self.js.index("const eraSel = el('select'")
+        window = self.js[i:i + 700]
+        self.assertIn("edit.era_candidates = chosen;", window)
+        self.assertIn("edit.placement_source = chosen ? 'operator_set' : 'unknown';",
+                      window)
+
+    def test_clearing_the_source_clears_the_era(self):
+        i = self.js.index("const sourceSel = el('select'")
+        window = self.js[i:i + 700]
+        self.assertIn("edit.era_candidates = '';", window)
+
+    def test_the_server_still_sends_exactly_one_era(self):
+        self.assertIn("body.era_candidates = one ? [one] : [];", self.js)
+
+    def test_clear_placement_still_clears_both(self):
+        i = self.js.index("'Clear placement'")
+        window = self.js[max(0, i - 900):i]
+        self.assertIn("delete _edit(item.id).era_candidates;", window)
+        self.assertIn("delete _edit(item.id).placement_source;", window)
+
+    def test_the_server_refuses_an_era_it_does_not_know(self):
+        from api.services import story_projection as _sp
+        with self.assertRaises(_sp.PlacementRejected):
+            _sp.canonical_eras(["buidling_years"])
+
+
+if __name__ == "__main__":
+    unittest.main()
