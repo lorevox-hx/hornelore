@@ -320,21 +320,30 @@ class RouteWiringTest(unittest.TestCase):
         """
         i = _MEMOIR_SRC.index("def api_memoir_export_docx")
         block = _MEMOIR_SRC[i:]
-        self.assertIn("_trip_story_sections(req.person_id)", block)
-        self.assertIn("_server_sections += _trip_sections", block)
+        # REPOINTED 2026-08-19: the route now makes ONE call to `canonical_memoir()` instead of running each lane read itself. Two executable interpretations of the lanes was the defect; the property -- this lane reaches the export -- is unchanged.
+        self.assertIn("canonical_memoir(", block)
+        self.assertIn("_sections_from_canonical(_canon)", block)
         self.assertIn("list(req.sections) + _server_sections", block)
 
     def test_the_lane_is_opt_outable_and_needs_a_person(self):
         i = _MEMOIR_SRC.index("def api_memoir_export_docx")
         block = _MEMOIR_SRC[i:]
-        self.assertIn("if req.person_id and req.include_trip_stories:", block)
+        # REPOINTED 2026-08-19. Retired: `if req.person_id and
+        # req.include_trip_stories:` -- the lane no longer has a branch of
+        # its own. ONE `canonical_memoir()` call is the authority, so the
+        # opt-out travels as an argument to it and the person requirement
+        # is the gate on the whole read. Both properties still hold.
+        self.assertIn("include_trip_notes=bool(req.include_trip_stories)",
+                      block)
+        self.assertIn("if req.person_id and (req.include_captured_stories "
+                      "or req.include_trip_stories):", block)
         self.assertIn("include_trip_stories: bool = Field(default=True)",
                       _MEMOIR_SRC)
 
     def test_captured_story_lane_is_still_wired(self):
         # The trip lane is additive. It must not have displaced the
         # WO-MEMOIR-STORY-CANDIDATES-WIRE-01 harvest.
-        self.assertIn("_captured_story_sections(req.person_id)", _MEMOIR_SRC)
+        self.assertIn("canonical_memoir(", _MEMOIR_SRC)  # REPOINTED 2026-08-19: the route now makes ONE call to `canonical_memoir()` instead of running each lane read itself. Two executable interpretations of the lanes was the defect; the property -- this lane reaches the export -- is unchanged.
 
 
 class TripDocxUntouchedTest(unittest.TestCase):

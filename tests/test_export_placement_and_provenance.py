@@ -93,6 +93,35 @@ class _Base(unittest.TestCase):
             era_candidates=eras, estimated_year_low=year,
             estimated_year_high=year, placement_source=source)
 
+    def _force_placement(self, cid, *, eras=None, year=None, source=None,
+                         status="promoted"):
+        """Write a placement DIRECTLY, bypassing the review transaction.
+
+        ADDED 2026-08-19. `story_candidate_review_apply` now REFUSES to
+        create a placement that reads as one thing in the operator panel
+        and another everywhere else -- a source with no era, or an era
+        with no source. That guard is correct and is tested in
+        `test_story_placement_truthfulness`.
+
+        These tests are about a different question: legacy rows and
+        hand-edited databases already carry exactly those combinations,
+        and the projection's job is to read them HONESTLY rather than
+        promote a guess into a chapter heading. Routing them through the
+        API would now test the write guard a second time and would leave
+        the read path unproven, so they are written straight to the row.
+        """
+        import json as _json
+        import sqlite3 as _sqlite3
+        con = _sqlite3.connect(str(self.db_path))
+        con.execute(
+            "UPDATE story_candidates SET era_candidates=?, "
+            "estimated_year_low=?, estimated_year_high=?, "
+            "placement_source=?, review_status=? WHERE id=?",
+            (_json.dumps(list(eras or [])), year, year,
+             source or "unknown", status, cid))
+        con.commit()
+        con.close()
+
 
 # ── Gap 1 · the canonical era reaches the browser ───────────────────────
 
@@ -109,14 +138,14 @@ class TheCanonicalEraReachesTheChronologyPayload(_Base):
 
     def test_a_year_only_placement_stays_unplaced_with_no_era(self):
         cid = self._story("Sometime around then.")
-        self._review(cid, year=1948, source="operator_set")
+        self._force_placement(cid, year=1948, source="operator_set")
         row = _ca._collect_story_evidence(self.narrator).items[0]
         self.assertIsNone(row["era"])
         self.assertEqual(row["placement"], "unplaced")
 
     def test_an_unconfirmed_candidate_is_not_promoted_into_era(self):
         cid = self._story("A guessed placement.")
-        self._review(cid, eras=["earliest_years"])
+        self._force_placement(cid, eras=["earliest_years"])
         row = _ca._collect_story_evidence(self.narrator).items[0]
         self.assertIsNone(row["era"])
         self.assertEqual(row["placement"], "unplaced")
@@ -163,7 +192,7 @@ class ANoDobAnswerReplacesTheCache(_Base):
 
     def test_a_no_dob_narrator_still_gets_their_stories_server_side(self):
         cid = self._story("Told before any birthday was given.")
-        self._review(cid, source="operator_set")
+        self._force_placement(cid, source="operator_set")
         payload = _ca.build_chronology_accordion_payload(
             self.narrator, {}, {}, [])
         self.assertEqual(payload["reason"], "no_dob")

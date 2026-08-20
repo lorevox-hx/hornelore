@@ -269,9 +269,17 @@ class SanitisationIsUnconditional(_Base):
         # Anchored on the COLON: the strip block's own comment quotes the
         # gate it used to sit inside, and the first cut of this test
         # matched that explanation instead of the statement.
+        #
+        # REPOINTED 2026-08-19. Retired gate spelling:
+        #     "if req.person_id and req.include_captured_stories:"
+        # The two lane reads collapsed into ONE `canonical_memoir()` call,
+        # so the harvest now sits behind a single combined gate. The
+        # property under test -- the strip runs BEFORE and OUTSIDE any
+        # harvest gate -- is unchanged.
         strip_at = route.index("_client_sections = [")
         gate_at = route.index(
-            "if req.person_id and req.include_captured_stories:")
+            "if req.person_id and (req.include_captured_stories "
+            "or req.include_trip_stories):")
         self.assertLess(strip_at, gate_at,
                         "sanitisation must run before, and outside, the "
                         "harvest gates")
@@ -294,12 +302,29 @@ class AuthoritativeLanesRefuseRatherThanLookComplete(_Base):
                 self.assertIn(verdict, fn)
 
     def test_a_partial_trip_read_refuses_the_export(self):
+        """REPOINTED 2026-08-19. Retired:
+
+            i = route.index("_trip_status")
+            assertIn('_trip_status in ("partial", "unavailable")', window)
+
+        There is no per-lane status variable in the route any more. It
+        makes ONE `canonical_memoir()` call and refuses on ANY lane
+        reporting `partial` or `unavailable`, which covers the trip lane
+        and the story lane by the same rule rather than by two named
+        checks that could drift apart.
+        """
         src = Path(_me.__file__).read_text(encoding="utf-8")
         route = src[src.index("def api_memoir_export_docx"):]
-        i = route.index("_trip_status")
+        i = route.index("_lane_status = dict(_canon.lanes)")
         window = route[i:i + 900]
-        self.assertIn('_trip_status in ("partial", "unavailable")', window)
+        self.assertIn('v in ("partial", "unavailable")', window)
         self.assertIn("503", window)
+        # …and the trip lane really is one of the lanes being judged.
+        # This suite has no database, so the lane's PRESENCE in the
+        # contract output is proven behaviourally in
+        # `test_memoir_canonical_contract`; asserted here only that the
+        # route's rule reads every lane rather than a named subset.
+        self.assertIn("for k, v in _lane_status.items()", window)
 
     def test_provenance_alignment_is_checked_not_assumed(self):
         src = Path(_me.__file__).read_text(encoding="utf-8")

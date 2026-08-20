@@ -183,16 +183,29 @@ class AtomicReviewContract(_Base):
         self.assertEqual(row["reviewed_by"], "op")
 
     def test_a_year_range_can_be_taken_back_off(self):
+        """REPOINTED 2026-08-19. The final placement state is now
+        validated inside the review transaction, so a `placement_source`
+        with no era -- and an era with no source -- are both refused
+        however the request is shaped. These tests built exactly those
+        states, which was legitimate under the old permissive model and
+        is the incoherence the rule now prevents.
+
+        Each keeps the property it was really about, expressed as a
+        coherent placement.
+        """
         cid = self._story()
         _db.story_candidate_review_apply(
             cid, self.narrator, 1, estimated_year_low=1962,
-            estimated_year_high=1964, placement_source="operator_set")
+            estimated_year_high=1964, placement_source="operator_set",
+            era_candidates=["coming_of_age"])
+        # Clearing the years alone keeps the placement coherent: the era
+        # and its source both survive.
         _db.story_candidate_review_apply(
-            cid, self.narrator, 2, clear_year_range=True,
-            placement_source="unknown")
+            cid, self.narrator, 2, clear_year_range=True)
         row = self._row(cid)
         self.assertIsNone(row["estimated_year_low"])
         self.assertIsNone(row["estimated_year_high"])
+        self.assertEqual(row["placement_source"], "operator_set")
 
     def test_invalid_values_are_refused(self):
         cid = self._story()
@@ -387,13 +400,20 @@ class TheFiveTruths(_Base):
         year without an era is honestly unplaced.
         """
         cid = self._story()
+        # A source with no era is now REFUSED outright rather than
+        # accepted and reported unplaced -- the state cannot be created,
+        # so it cannot be misread. Both halves are asserted.
+        with self.assertRaises(ValueError):
+            _db.story_candidate_review_apply(
+                cid, self.narrator, 1, placement_source="narrator_stated",
+                estimated_year_low=1962)
         _db.story_candidate_review_apply(
             cid, self.narrator, 1, placement_source="narrator_stated",
-            estimated_year_low=1962)
+            estimated_year_low=1962, era_candidates=["coming_of_age"])
         item = story_projection.project_stories(self.narrator).items[0]
         self.assertEqual(item["placement_source"], "narrator_stated")
         self.assertEqual(item["year"], 1962)
-        self.assertEqual(item["placement"], "unplaced")
+        self.assertEqual(item["placement"], "stated")
 
     def test_a_recorded_source_with_an_era_is_reported_as_placed(self):
         """The other half, so the narrowing above did not simply make
@@ -410,9 +430,12 @@ class TheFiveTruths(_Base):
         cid = self._story()
         _db.story_candidate_review_apply(
             cid, self.narrator, 1, placement_source="operator_set",
-            estimated_year_low=1962)
+            estimated_year_low=1962, era_candidates=["coming_of_age"])
+        # Clearing the placement removes BOTH the era and the source, so
+        # the story returns to genuinely unplaced.
         _db.story_candidate_review_apply(
-            cid, self.narrator, 2, clear_year_range=True)
+            cid, self.narrator, 2, clear_eras=True,
+            placement_source="unknown")
         self.assertEqual(
             story_projection.project_stories(self.narrator).items[0]["placement"],
             "unplaced")

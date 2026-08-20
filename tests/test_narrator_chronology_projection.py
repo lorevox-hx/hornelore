@@ -264,10 +264,22 @@ class ALaneThatFailedSaysSo(_DbBase):
         self._drop("story_candidates")
         s = self._get().json()["sources"]
         self.assertEqual(s["story_evidence"]["status"], "unavailable")
-        self.assertEqual(s["story_evidence"]["count"], 0,
-                         "a failed lane still reports zero rows -- it HAS "
-                         "zero rows; `status` is what says the zero is not "
-                         "an answer about the narrator")
+        # REPOINTED 2026-08-19. Retired:
+        #
+        #     assertEqual(s["story_evidence"]["count"], 0,
+        #         "a failed lane still reports zero rows -- it HAS zero
+        #          rows; `status` is what says the zero is not an answer
+        #          about the narrator")
+        #
+        # That reasoning held only while every consumer read `status`.
+        # They did not: the browser drew "0 stories" from `count` and the
+        # operator saw a confident zero for a lane that was DOWN. A
+        # number is the thing people read, so an unreadable lane now
+        # reports `null` -- there is no answer, rather than the answer
+        # zero. `status` still says why.
+        self.assertIsNone(s["story_evidence"]["count"],
+                          "an unreadable lane must not publish a number a "
+                          "renderer can print as a fact about the narrator")
 
     def test_the_two_are_distinguishable_in_the_same_payload(self):
         # The whole point: one lane down, the others fine, and a consumer
@@ -288,9 +300,27 @@ class ALaneThatFailedSaysSo(_DbBase):
         self.assertEqual(body["trip_days"], [])
         self.assertEqual(body["sources"]["trip_days"]["status"], "unavailable")
 
-    def test_the_no_dob_payload_reports_lanes_as_not_attempted(self):
-        # A third state, and it must borrow neither of the other two: the
-        # lanes were not read AND did not fail. They were never tried.
+    def test_the_no_dob_payload_still_reads_the_lanes(self):
+        """RENAMED AND REPOINTED 2026-08-19.
+
+        Retired as `test_the_no_dob_payload_reports_lanes_as_not_attempted`:
+
+            for lane in (...):
+                assertEqual(s[lane]["status"], "not_attempted")
+                assertEqual(s[lane]["count"], 0)
+
+        `not_attempted` was correct for the ERA SPINE, which genuinely
+        cannot be drawn without a birth year, and the lanes were skipped
+        along with it. But a story, a trip day and a timeline event do
+        not need a date of birth to exist -- so a narrator with no DOB
+        recorded was told they had no stories, which is a different and
+        untrue statement. The three lanes are independent of the spine
+        and are now read on this branch too.
+
+        `not_attempted` remains a real state; it is what a lane the
+        CALLER switched off reports, and that is pinned in
+        `test_memoir_canonical_contract`.
+        """
         self._set_basics({})
         con = self._con()
         con.execute("UPDATE people SET date_of_birth='' WHERE id=?", (self.person_id,))
@@ -299,7 +329,7 @@ class ALaneThatFailedSaysSo(_DbBase):
         s = self._get().json()["sources"]
         for lane in ("timeline_events", "story_evidence", "trip_days"):
             with self.subTest(lane=lane):
-                self.assertEqual(s[lane]["status"], "not_attempted")
+                self.assertEqual(s[lane]["status"], "read")
                 self.assertEqual(s[lane]["count"], 0)
 
     def test_the_collectors_return_their_own_status(self):

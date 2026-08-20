@@ -41,11 +41,26 @@ function load(projection) {
   return sandbox.window.LorevoxStoryEvidence;
 }
 
+/* REPOINTED 2026-08-19. These fixtures used to describe a story's
+   position with `era_candidates` alone, because that is what the
+   chronology payload carried when this harness was written.
+
+   The server now resolves the position ONCE, in
+   `story_projection._placement_for`, and sends the answer as `era` --
+   null whenever the placement is `unplaced`. `era_candidates` survives
+   as the machine's unconfirmed guess and is deliberately NOT a position.
+
+   A fixture that still spoke the old shape was testing a payload the
+   product no longer produces, which is why six checks went red on a
+   correct reader. `era` is the position here now; `era_candidates` is
+   kept on the fixtures that had it so the harness keeps PROVING that a
+   guess alone does not place a story. */
 function story(o) {
   return Object.assign({
     id: "s" + Math.random().toString(16).slice(2, 8),
     status: "provisional",
     placement: "unplaced",
+    era: null,
     era_candidates: [],
     year: null,
   }, o);
@@ -93,11 +108,11 @@ const READ = { story_evidence: { source: "story_candidates", status: "read", cou
   const SE = load({
     story_evidence: [
       story({ status: "approved", placement: "operator_set",
-              era_candidates: ["building_years"] }),
+              era: "building_years", era_candidates: ["building_years"] }),
       story({ status: "provisional", placement: "derived",
-              era_candidates: ["building_years"] }),
+              era: "building_years", era_candidates: ["building_years"] }),
       story({ status: "approved", placement: "stated",
-              era_candidates: ["adolescence"] }),
+              era: "adolescence", era_candidates: ["adolescence"] }),
     ],
     sources: READ,
   });
@@ -116,7 +131,7 @@ const READ = { story_evidence: { source: "story_candidates", status: "read", cou
 (function anUnplacedStoryIsNeverSummedAway() {
   const SE = load({
     story_evidence: [
-      story({ status: "approved", placement: "stated", era_candidates: ["later_years"] }),
+      story({ status: "approved", placement: "stated", era: "later_years", era_candidates: ["later_years"] }),
       story({ status: "provisional", placement: "unplaced", era_candidates: [] }),
       story({ status: "provisional", placement: "unplaced", era_candidates: [] }),
     ],
@@ -172,7 +187,7 @@ const READ = { story_evidence: { source: "story_candidates", status: "read", cou
 (function noStateIsRetained() {
   const SE = load({
     story_evidence: [story({ status: "approved", placement: "stated",
-                             era_candidates: ["today"] })],
+                             era: "today", era_candidates: ["today"] })],
     sources: READ,
   });
   const first = SE.countsForEra("today").approved;

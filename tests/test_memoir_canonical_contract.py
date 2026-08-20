@@ -259,8 +259,32 @@ class DelayedNarratorAcannotRepaintB(_Base):
         self.assertIn("_memoirActivePerson() !== personId", fn)
 
     def test_the_canonical_paint_is_narrator_checked(self):
-        i = self.js.index("_memoirLoadCanonical(personId).then(")
-        self.assertIn("if (!stale())", self.js[i:i + 200])
+        """REPOINTED 2026-08-19. This pinned `if (!stale())` inside an
+        inline `.then`, which became `_memoirLoadCanonicalAndRender`
+        when the canonical load was lifted OUT of the facts branch --
+        the fix for the defect where zero facts meant no evidence.
+
+        The property is unchanged and is asserted in the helper. Its
+        behaviour is proven by execution in
+        `scripts/ui/run_memoir_canonical_lifecycle.js`, which a source
+        assertion cannot do.
+        """
+        i = self.js.index("function _memoirLoadCanonicalAndRender(")
+        fn = self.js[i:i + 600]
+        self.assertIn("_memoirCanonicalPerson === personId", fn)
+        self.assertIn("_memoirActivePerson() === personId", fn)
+
+    def test_the_canonical_load_runs_independently_of_facts(self):
+        """The defect a source scan could not see: the load sat inside
+        the branch that runs only when `/api/facts/list` returned at
+        least one fact, and the live database has zero facts."""
+        i = self.js.index("async function _memoirLoadStoredFacts(")
+        fn = self.js[i:i + 1400]
+        call = fn.index("_memoirLoadCanonicalAndRender(personId)")
+        gate = fn.index("const gen = ++_memoirFactsGen")
+        self.assertLess(call, gate,
+                        "evidence must load before, and regardless of, the "
+                        "facts request")
 
 
 # ── Placement coherence ─────────────────────────────────────────────────
@@ -300,3 +324,122 @@ class PlacementIsAtomicAndCoherent(_Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ── The DOCX consumes the contract, not a second read ───────────────────
+
+class TheDocxCallsTheContractOnce(_Base):
+
+    def test_the_route_no_longer_reads_the_lanes_itself(self):
+        """Only the digest helpers delegated before; the route still ran
+        `_captured_story_sections` and `_trip_story_sections`, so there
+        were TWO executable interpretations of what the lanes contain.
+        Ids agreeing did not make eligibility, placement or ordering
+        agree, and no digest comparison would have noticed."""
+        src = _read(Path(_me.__file__))
+        route = src[src.index("def api_memoir_export_docx"):]
+        route = route[:route.index("\n@router.get")]
+        self.assertIn("canonical_memoir(", route)
+        self.assertNotIn("_captured_story_sections(req.person_id)", route)
+        self.assertNotIn("_trip_story_sections(req.person_id)", route)
+
+    def test_the_adapter_only_reshapes(self):
+        src = _read(Path(_me.__file__))
+        fn = src[src.index("def _sections_from_canonical("):]
+        fn = fn[:fn.index("\ndef ")]
+        for forbidden in ("story_candidate_list_for_memoir", "trip_list(",
+                          "location_notes_list(", "memoir_projection("):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, fn,
+                                 "the adapter must not perform its own read")
+
+    def test_docx_and_the_endpoint_get_identical_ids_and_lanes(self):
+        cid = self._story("Shared by both surfaces.")
+        canon = _mc.canonical_memoir(self.narrator)
+        sections = _me._sections_from_canonical(canon)
+        self.assertEqual(sections[0].sources,
+                         [s["source_id"] for s in canon.stories])
+        self.assertEqual(sections[0].languages,
+                         [s["language"] for s in canon.stories])
+        self.assertEqual(canon.lanes["captured_stories"], "read")
+
+    def test_an_unplaced_story_lands_in_more_stories(self):
+        self._story("Nobody placed this.", placed=False)
+        canon = _mc.canonical_memoir(self.narrator)
+        ids = [s.id for s in _me._sections_from_canonical(canon)]
+        self.assertEqual(ids, ["captured_stories_more"])
+
+
+# ── Placement coherence, enforced server-side ───────────────────────────
+
+class PlacementCannotBeIncoherent(_Base):
+
+    def _fresh(self):
+        cid = str(uuid.uuid4())
+        _db.story_candidate_insert(
+            cid, narrator_id=self.narrator, transcript="A story.",
+            trigger_reason="manual", scene_anchor_count=1,
+            session_id=self.conv, conversation_id=self.conv, turn_id=None)
+        return cid
+
+    def test_a_source_without_an_era_is_refused(self):
+        """Directly through the API, not only through the panel. A rule
+        the API does not enforce holds until somebody scripts against
+        it."""
+        cid = self._fresh()
+        with self.assertRaises(ValueError) as ctx:
+            _db.story_candidate_review_apply(
+                cid, narrator_id=self.narrator, expected_version=1,
+                placement_source="operator_set")
+        self.assertIn("requires exactly one life era", str(ctx.exception))
+        self.assertEqual(_db.story_candidate_get(cid)["placement_source"],
+                         "unknown")
+
+    def test_an_era_without_a_source_is_refused(self):
+        cid = self._fresh()
+        with self.assertRaises(ValueError):
+            _db.story_candidate_review_apply(
+                cid, narrator_id=self.narrator, expected_version=1,
+                era_candidates=["adolescence"])
+        self.assertEqual(_db.story_candidate_get(cid)["era_candidates"], [])
+
+    def test_two_eras_are_refused(self):
+        cid = self._fresh()
+        with self.assertRaises(ValueError):
+            _db.story_candidate_review_apply(
+                cid, narrator_id=self.narrator, expected_version=1,
+                era_candidates=["adolescence", "coming_of_age"],
+                placement_source="operator_set")
+
+    def test_the_final_state_is_judged_not_the_request(self):
+        """A partial request that LEAVES an incoherent row is refused
+        even though the request itself mentioned only one field."""
+        cid = self._fresh()
+        _db.story_candidate_review_apply(
+            cid, narrator_id=self.narrator, expected_version=1,
+            era_candidates=["adolescence"], placement_source="operator_set")
+        with self.assertRaises(ValueError):
+            _db.story_candidate_review_apply(
+                cid, narrator_id=self.narrator, expected_version=2,
+                placement_source="unknown")     # would orphan the era
+
+    def test_a_coherent_placement_is_accepted(self):
+        cid = self._fresh()
+        out = _db.story_candidate_review_apply(
+            cid, narrator_id=self.narrator, expected_version=1,
+            era_candidates=["adolescence"], placement_source="operator_set")
+        self.assertEqual(out["placement_source"], "operator_set")
+        self.assertEqual(out["era_candidates"], ["adolescence"])
+
+    def test_operator_set_is_not_offered_as_a_manual_choice(self):
+        js = strip_js_comments(_read(_PANEL))
+        i = js.index("const sourceSel = el('select'")
+        window = js[i:i + 500]
+        self.assertIn("'unknown', 'narrator_stated', 'dob_derived'", window)
+        self.assertNotIn("'operator_set'", window)
+
+    def test_the_review_refreshes_the_memoir(self):
+        js = strip_js_comments(_read(_PANEL))
+        i = js.index("function afterReviewApplied(")
+        window = js[i:i + 900]
+        self.assertIn("lvRefreshCanonicalMemoir", window)

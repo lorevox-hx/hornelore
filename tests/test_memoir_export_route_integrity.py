@@ -213,35 +213,43 @@ class AnUnreadableLaneRefusesAtTheRoute(_RouteCase):
         self.addCleanup(setattr, _sp, "memoir_projection", orig)
         r = self._post()
         self.assertEqual(r.status_code, 503)
-        self.assertIn("reviewed stories could not be read", r.text)
+        self.assertIn("could not be fully read", r.text)  # one combined refusal now
 
     def test_a_partial_trip_lane_refuses(self):
-        orig = _me._trip_story_sections
-        _me._trip_story_sections = lambda pid: ([], "partial")
-        self.addCleanup(setattr, _me, "_trip_story_sections", orig)
+        from api.services import memoir_contract as _mc
+        orig = _mc.canonical_memoir
+        _mc.canonical_memoir = lambda pid, **kw: _mc.CanonicalMemoir(
+            pid, [], [], {"captured_stories": "read", "trip_notes": "partial"})
+        self.addCleanup(setattr, _mc, "canonical_memoir", orig)
         r = self._post()
         self.assertEqual(r.status_code, 503)
-        self.assertIn("trip stories could not be fully read", r.text)
+        self.assertIn("could not be fully read", r.text)
 
     def test_an_unavailable_trip_lane_refuses(self):
-        orig = _me._trip_story_sections
-        _me._trip_story_sections = lambda pid: ([], "unavailable")
-        self.addCleanup(setattr, _me, "_trip_story_sections", orig)
+        from api.services import memoir_contract as _mc
+        orig = _mc.canonical_memoir
+        _mc.canonical_memoir = lambda pid, **kw: _mc.CanonicalMemoir(
+            pid, [], [], {"captured_stories": "read", "trip_notes": "unavailable"})
+        self.addCleanup(setattr, _mc, "canonical_memoir", orig)
         self.assertEqual(self._post().status_code, 503)
 
     def test_not_attempted_does_not_refuse(self):
         """Trips being switched off is a configuration answer, not a
         failure -- refusing every export on those deployments would be
         wrong."""
-        orig = _me._trip_story_sections
-        _me._trip_story_sections = lambda pid: ([], "not_attempted")
-        self.addCleanup(setattr, _me, "_trip_story_sections", orig)
+        from api.services import memoir_contract as _mc
+        orig = _mc.canonical_memoir
+        _mc.canonical_memoir = lambda pid, **kw: _mc.CanonicalMemoir(
+            pid, [], [], {"captured_stories": "read", "trip_notes": "not_attempted"})
+        self.addCleanup(setattr, _mc, "canonical_memoir", orig)
         self.assertEqual(self._post().status_code, 200)
 
     def test_an_empty_lane_does_not_refuse(self):
-        orig = _me._trip_story_sections
-        _me._trip_story_sections = lambda pid: ([], "empty")
-        self.addCleanup(setattr, _me, "_trip_story_sections", orig)
+        from api.services import memoir_contract as _mc
+        orig = _mc.canonical_memoir
+        _mc.canonical_memoir = lambda pid, **kw: _mc.CanonicalMemoir(
+            pid, [], [], {"captured_stories": "read", "trip_notes": "empty"})
+        self.addCleanup(setattr, _mc, "canonical_memoir", orig)
         self.assertEqual(self._post().status_code, 200)
 
 
@@ -251,28 +259,29 @@ class ProvenanceFailuresRefuse(_RouteCase):
 
     def test_a_misaligned_sources_array_refuses(self):
         self._story(_STORY_EN)
-        orig = _me._captured_story_sections
+        # REPOINTED 2026-08-19: `_captured_story_sections` is no longer the
+        # route's executable authority -- `_sections_from_canonical()` is.
+        # Corrupting a retired reader would have proved nothing.
+        orig = _me._sections_from_canonical
 
-        def _bad(pid):
-            secs, status = orig(pid)
-            return ([s.model_copy(update={"sources": []}) for s in secs],
-                    status)
-        _me._captured_story_sections = _bad
-        self.addCleanup(setattr, _me, "_captured_story_sections", orig)
+        def _bad(canon):
+            return [s.model_copy(update={"sources": []}) for s in orig(canon)]
+        _me._sections_from_canonical = _bad
+        self.addCleanup(setattr, _me, "_sections_from_canonical", orig)
         r = self._post()
         self.assertEqual(r.status_code, 500)
         self.assertIn("provenance is misaligned", r.text)
 
     def test_a_misaligned_language_array_refuses(self):
         self._story(_STORY_EN)
-        orig = _me._captured_story_sections
+        # REPOINTED 2026-08-19, same reason as the sources guard above.
+        orig = _me._sections_from_canonical
 
-        def _bad(pid):
-            secs, status = orig(pid)
-            return ([s.model_copy(update={"languages": ["en", "es", "fr"]})
-                     for s in secs], status)
-        _me._captured_story_sections = _bad
-        self.addCleanup(setattr, _me, "_captured_story_sections", orig)
+        def _bad(canon):
+            return [s.model_copy(update={"languages": ["en", "es", "fr"]})
+                    for s in orig(canon)]
+        _me._sections_from_canonical = _bad
+        self.addCleanup(setattr, _me, "_sections_from_canonical", orig)
         r = self._post()
         self.assertEqual(r.status_code, 500)
         self.assertIn("language metadata is misaligned", r.text)
@@ -427,14 +436,14 @@ class TheTranslatorReceivesEachItemsOwnLanguage(_RouteCase):
 
     def test_a_missing_language_array_refuses_rather_than_guesses(self):
         self._story(_STORY_ES, language="es")
-        orig = _me._captured_story_sections
+        # REPOINTED 2026-08-19, same reason as the sources guard above.
+        orig = _me._sections_from_canonical
 
-        def _stripped(pid):
-            secs, status = orig(pid)
-            return ([s.model_copy(update={"languages": []}) for s in secs],
-                    status)
-        _me._captured_story_sections = _stripped
-        self.addCleanup(setattr, _me, "_captured_story_sections", orig)
+        def _stripped(canon):
+            return [s.model_copy(update={"languages": []})
+                    for s in orig(canon)]
+        _me._sections_from_canonical = _stripped
+        self.addCleanup(setattr, _me, "_sections_from_canonical", orig)
         r = self._post(target_language="es")
         self.assertEqual(r.status_code, 500)
         self.assertIn("language metadata is misaligned", r.text)

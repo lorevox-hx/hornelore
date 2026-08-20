@@ -98,6 +98,35 @@ class _Base(unittest.TestCase):
             era_candidates=eras, estimated_year_low=year,
             estimated_year_high=year, placement_source=source)
 
+    def _force_placement(self, cid, *, eras=None, year=None, source=None,
+                         status="promoted"):
+        """Write a placement DIRECTLY, bypassing the review transaction.
+
+        ADDED 2026-08-19. `story_candidate_review_apply` now REFUSES to
+        create a placement that reads as one thing in the operator panel
+        and another everywhere else -- a source with no era, or an era
+        with no source. That guard is correct and is tested in
+        `test_story_placement_truthfulness`.
+
+        These tests are about a different question: legacy rows and
+        hand-edited databases already carry exactly those combinations,
+        and the projection's job is to read them HONESTLY rather than
+        promote a guess into a chapter heading. Routing them through the
+        API would now test the write guard a second time and would leave
+        the read path unproven, so they are written straight to the row.
+        """
+        import json as _json
+        import sqlite3 as _sqlite3
+        con = _sqlite3.connect(str(self.db_path))
+        con.execute(
+            "UPDATE story_candidates SET era_candidates=?, "
+            "estimated_year_low=?, estimated_year_high=?, "
+            "placement_source=?, review_status=? WHERE id=?",
+            (_json.dumps(list(eras or [])), year, year,
+             source or "unknown", status, cid))
+        con.commit()
+        con.close()
+
     def _harvest(self):
         return _me._captured_story_sections(self.narrator)
 
@@ -194,7 +223,7 @@ class PlacementComesFromTheCanonicalService(_Base):
 
     def test_a_year_only_candidate_exports_as_unplaced(self):
         cid = self._story("Sometime around then.")
-        self._review(cid, "promoted", year=1948, source="operator_set")
+        self._force_placement(cid, year=1948, source="operator_set")
         sections, _ = self._harvest()
         self.assertEqual([s.id for s in sections], ["captured_stories_more"])
         self.assertIn("More stories", sections[0].label)
@@ -206,7 +235,7 @@ class PlacementComesFromTheCanonicalService(_Base):
         machine guess. It used to file the story under that era anyway.
         """
         cid = self._story("A guessed placement.")
-        self._review(cid, "promoted", eras=["earliest_years"])
+        self._force_placement(cid, eras=["earliest_years"])
         sections, _ = self._harvest()
         self.assertEqual([s.id for s in sections], ["captured_stories_more"])
 
@@ -282,11 +311,24 @@ class AnUnreadableStoryLaneRefusesTheExport(_Base):
 
     def test_the_route_refuses_rather_than_export_a_gap(self):
         """A family cannot tell that a chapter is absent; they simply
-        never see it. So the export refuses instead."""
+        never see it. So the export refuses instead.
+
+        REPOINTED 2026-08-19. Retired:
+
+            i = src.index("_story_sections, _story_status = "
+                          "_captured_story_sections")
+            assertIn('_story_status != "read"', window)
+
+        The route no longer reads each lane itself; it makes ONE
+        `canonical_memoir()` call and refuses on ANY lane that reports
+        `partial` or `unavailable`. The retired form named one lane, so
+        it would have stayed green on a route that shipped a gap in the
+        other one. The property is unchanged and now covers both lanes.
+        """
         src = _read(Path(_me.__file__))
-        i = src.index("_story_sections, _story_status = _captured_story_sections")
+        i = src.index("_lane_status = dict(_canon.lanes)")
         window = src[i:i + 1400]
-        self.assertIn('_story_status != "read"', window)
+        self.assertIn('v in ("partial", "unavailable")', window)
         self.assertIn("503", window)
 
 
@@ -475,7 +517,7 @@ class NoDobNarratorsStillSeeTheirStories(_Base):
     def test_a_no_dob_narrator_still_exposes_unplaced_stories(self):
         from api.routers import chronology_accordion as _ca
         cid = self._story("Told before any birthday was given.")
-        self._review(cid, "promoted", source="operator_set")
+        self._force_placement(cid, source="operator_set")
         payload = _ca.build_chronology_accordion_payload(
             self.narrator, {}, {}, [])
         self.assertEqual(payload.get("reason"), "no_dob")

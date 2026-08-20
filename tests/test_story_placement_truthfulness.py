@@ -111,6 +111,30 @@ class _Base(unittest.TestCase):
             era_candidates=eras, estimated_year_low=year,
             estimated_year_high=year, placement_source=source)
 
+    def _force_placement(self, cid, *, eras=None, year=None, source=None):
+        """Write a placement DIRECTLY, bypassing the review transaction.
+
+        Added 2026-08-19. The review API now refuses an incoherent final
+        state -- a source with no era, or an era with no source. That is
+        the right rule, and it means these tests can no longer BUILD the
+        rows they exist to describe.
+
+        They still matter: legacy rows and hand-edited databases carry
+        exactly these combinations, and the projection's job is to read
+        them honestly rather than assume they cannot occur. So the row is
+        written directly and the PROJECTION is what is under test.
+        """
+        import json as _json
+        con = sqlite3.connect(str(self.db_path))
+        con.execute(
+            "UPDATE story_candidates SET era_candidates=?, "
+            "estimated_year_low=?, estimated_year_high=?, "
+            "placement_source=?, review_status='promoted' WHERE id=?",
+            (_json.dumps(list(eras or [])), year, year,
+             source or "unknown", cid))
+        con.commit()
+        con.close()
+
 
 # ── Provenance is write-once ────────────────────────────────────────────
 
@@ -290,7 +314,7 @@ class UnplacedStoriesDoNotClaimADate(_Base):
         """`placement_source` stays `unknown` when nobody placed it, and
         an era candidate alone must not become a spoken date."""
         cid = self._candidate()
-        self._promote(cid, eras=["early_school_years"])
+        self._force_placement(cid, eras=["early_school_years"])
         proj = _sp.project_stories(self.narrator)
         item = proj.items[0]
         self.assertEqual(item["status"], "approved")
@@ -318,7 +342,7 @@ class UnplacedStoriesDoNotClaimADate(_Base):
         is what makes that safe, so this drives the real block."""
         from api.prompt_composer import _approved_story_block
         cid = self._candidate()
-        self._promote(cid, eras=["early_school_years"])
+        self._force_placement(cid, eras=["early_school_years"])
         ctx = _sp.grounding_context(self.narrator)
         block = _approved_story_block({"story_context": ctx})
         self.assertIn("grandmother", block)
@@ -333,7 +357,7 @@ class ServerAndBrowserAgreeOnUnplaced(_Base):
     def test_a_year_without_an_era_is_unplaced_on_the_server(self):
         """It has nowhere to be drawn: the Life Map is drawn in eras."""
         cid = self._candidate()
-        self._promote(cid, year=1945, source="operator_set")
+        self._force_placement(cid, year=1945, source="operator_set")
         proj = _sp.project_stories(self.narrator)
         self.assertEqual(proj.items[0]["placement"], _sp.PLACEMENT_UNPLACED)
         self.assertEqual(proj.counts["unplaced"], 1)
