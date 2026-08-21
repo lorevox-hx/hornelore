@@ -148,9 +148,49 @@ composers.
 
 ## 5. Development state
 
-The active lane is **`WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` — canonical narrator
-authority**: one server-owned answer for projection, session ownership and chronology, so that
-Life Map, Lori, sessions and (next) Travel Document stop disagreeing about who the narrator is.
+**`WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` is ACCEPTED AND COMPLETE (2026-08-20).**
+The pipeline a narrator actually experiences now runs end to end: Lori asks a natural question,
+the answer is preserved, the captured story is bound to both committed turn rows, extraction
+evidence reaches operator review, the operator's approval and era placement land atomically,
+the chronology and the Life Map agree, and the memoir preview, the TXT export and the DOCX
+export each contain the story **exactly once**, carrying the same provenance digest. Story
+chain **11/11**; deletion-integrity acceptance **10/10**; every claim verified against the
+filesystem and direct SQL rather than a response body. Record:
+[`docs/wo/WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01_Spec.md`](docs/wo/WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01_Spec.md).
+
+**That lane's own cleanup step exposed a privacy defect, and closing it is part of the same
+record.** `hard_delete_person` removed every database row, answered HTTP 200, and left eight
+files on disk — five of them verbatim narrator speech. Deletion now plans before it destroys
+the database authority those paths are named by, persists that plan bound to the canonical
+absolute data root, refuses every symlink beneath the root (including one pointing at another
+narrator inside it), covers eleven storage locations, deletes narrator media rather than
+detaching it, purges the translation cache, **reports shared backups and exports rather than
+rewriting them**, and is retryable through the product API with an audit trail that reads
+partial then success. **Do not describe a hard delete as complete unless the response says
+so** — three outcomes are distinguished, and HTTP 207 is reserved for the one an operator can
+act on.
+
+**Acceptance state, stated so nothing here reads as broader than it is.** All synthetic
+narrators and acceptance residue were removed; **the five family narrators are untouched**;
+`PRAGMA integrity_check` returns **ok**; and the **six pre-existing
+`harness-test-gate7p2` foreign-key violations in `interview_sessions` are unchanged — this
+lane did not create them and does not close them**. Gate B stays **OPEN**. Lean Lori L2 stays
+**PARTIAL** and closed by product-priority decision. The directive-family registry remains
+**inert** — built, gated and deliberately not activated. Kawa / Memory River appears here only
+as frozen legacy UI and as one storage directory in the erasure inventory; it is **not an
+active product surface**, and nothing in this lane revived it.
+
+**The next substantive lane is Profile Seed reachability.** The ten-topic Profile Seed
+onboarding is preserved for new Lorevox narrators **regardless of narrator type**; what is
+owed is that an ordinary new narrator reaches it. *(Several governing documents read
+"Option A, live narrators only" until 2026-08-20. That wording was false in the harmful
+direction — it read as licence to gate the onboarding on narrator type — and is corrected in
+place.)*
+
+**The previous lane, `WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` — canonical narrator
+authority**, is COMPLETE: one server-owned answer for projection, session ownership and
+chronology, so that Life Map, Lori, sessions and Travel Document stop disagreeing about who
+the narrator is.
 
 **Phase 1 is ACCEPTED (2026-08-17).** The ten-step live run passed on a non-family test
 narrator. Step 9 — rapid A→B narrator switching — is accepted with a stated limitation: it was

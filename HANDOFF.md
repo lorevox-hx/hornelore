@@ -109,7 +109,7 @@ reason to divert the authority phase.
 | Test-artifact **cleanup** | **DEFERRED — requires Chris's authorization** | The 22 harness narrators were deliberately **not** deleted. No destructive cleanup without an explicit decision. |
 | Photo Palette | **COMPLETE; P4 and P5 accepted 2026-08-14** | Close the work order; do not reopen for polish without a demonstrated defect. |
 | Legacy photo-day scalar retirement (Phase 6) | **DEFERRED by supervisor recommendation, 2026-08-14 — NOT the next build** | Leave deferred until there is a concrete reason to remove the column. The scalar is frozen, no longer written, ignored for authoritative decisions, correctly derived on read, and covered by tests and live evidence; dropping it buys no product benefit and costs a risky SQLite table rebuild. |
-| Lean Lori | **L1 COMPLETE 2026-08-14. L2 ran PARTIAL on 2026-08-16 and is CLOSED by product-priority decision — DO NOT RESUME IT.** *(This row said `NEXT: L2, awaiting Chris's authorization` until 2026-08-17. L2 had already run and been closed; a handoff that still names it as next is an instruction to redo a decision, which is the failure this file's own ordering rule exists to prevent.)* | **Substantial work is ALREADY LANDED — eleven commits, Gate A, 1A–1E, 5, 6, 7, Phase 8 first gate. Do not rebuild it.** Evidence for the partial run: `docs/reports/WO-LEAN-LORI-L2-PARTIAL-2026-08-16.md` (local-only, gitignored — live narrator data). **Gate B stays OPEN and Phase 10 stays open**; the deferred cases are deferred by decision, not failures. Profile Seed ownership is **DECIDED — Option A, live narrators only**. The three integration defects L2 surfaced are the active lane: `docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md`. The model / 8,192-token lock still binds. |
+| Lean Lori | **L1 COMPLETE 2026-08-14. L2 ran PARTIAL on 2026-08-16 and is CLOSED by product-priority decision — DO NOT RESUME IT.** *(This row said `NEXT: L2, awaiting Chris's authorization` until 2026-08-17. L2 had already run and been closed; a handoff that still names it as next is an instruction to redo a decision, which is the failure this file's own ordering rule exists to prevent.)* | **Substantial work is ALREADY LANDED — eleven commits, Gate A, 1A–1E, 5, 6, 7, Phase 8 first gate. Do not rebuild it.** Evidence for the partial run: `docs/reports/WO-LEAN-LORI-L2-PARTIAL-2026-08-16.md` (local-only, gitignored — live narrator data). **Gate B stays OPEN and Phase 10 stays open**; the deferred cases are deferred by decision, not failures. Profile Seed ownership is **CORRECTED 2026-08-20 — the ten-topic onboarding is PRESERVED for new Lorevox narrators REGARDLESS OF NARRATOR TYPE.** *(This read `DECIDED — Option A, live narrators only` until 2026-08-20. That wording was false and it was the harmful kind of false: it read as licence to gate the onboarding on narrator type, which would have removed the ten-topic workflow from exactly the narrators it exists for. Ordinary new-narrator reachability is still OWED and is the next substantive lane.)* The three integration defects L2 surfaced are the active lane: `docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md`. The model / 8,192-token lock still binds. |
 | **Narrator authority Phase 1** | **ACCEPTED 2026-08-17** | Step 9 accepted with its synthetic-B limitation. Closes no L2 gate. |
 | **Narrator authority Phase 2** | **ACCEPTED 2026-08-17 — 8/8 live steps** | Travel Doc ↔ chronology, shared narrator-context contract, migration 0045. Record: spec §12.7. |
 | **Harness `completed-turn`** | **PRODUCT ROUTE NOW EXERCISED LIVE (2026-08-18); the harness SCENARIO is still deferred** | Phase 3's live run drove two real Lori turns end to end: chat → `turn_extraction_ledger` rows → owned sessions, confirmed by the delete report removing 2 sessions and 2 interview_sessions scoped to that narrator. The harness's own scenario still needs `HORNELORE_OPERATOR_HARNESS=1` and a restart; what is no longer true is that the ROUTE is unexercised. |
@@ -117,6 +117,9 @@ reason to divert the authority phase.
 | **Phase 4 — section-aware prompt authority** | **ACCEPTED 2026-08-18** | *(Read "NEXT — not started" until 2026-08-18.)* The section classification finally has a production reader; all three transports budget through it. Spec §14. |
 | **`WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01`** | **COMPLETE — Phases 1–4 all accepted** | No Story Integration phases remain. Next lane is Lean Lori; see §4. |
 | **`turn_extraction_ledger` cleanup** | **FIXED in Phase 4** | *(Read "REPORTED, NOT FIXED" until 2026-08-18.)* The table joined `_EXTENDED_PERSON_SCOPED_TABLES`, so it is both inventoried before deletion and removed by it — 6 rows removed live. **Two orphans remain and are NOT new: `turnrow:1663` and `turnrow:1665`, from the Phase 3 narrator hard-deleted before the fix existed.** They carry keys and timings and no narrator text. Sweeping those two is a one-line data decision for Chris. |
+| **`WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01`** | **ACCEPTED AND COMPLETE 2026-08-20** | Story-to-memoir synthetic chain **11/11**; deletion-integrity acceptance **10/10**. Verified against the **filesystem and direct SQL**, never a response body. Lori asks naturally → the answer is preserved → the candidate binds to BOTH committed turn rows → extraction reaches operator review → approval and era placement are atomic → chronology and Life Map agree → preview, TXT and DOCX each contain it **exactly once** with one provenance digest. Spec: [`docs/wo/WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01_Spec.md`](docs/wo/WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01_Spec.md). **Gate B stays OPEN, L2 stays PARTIAL, the directive-family registry stays INERT, and Kawa appears here only as frozen legacy UI and one storage directory in the erasure inventory — not an active product surface.** **NEXT SUBSTANTIVE LANE: Profile Seed reachability — not another story/memoir testing pass.** |
+| **Deletion integrity** | **CLOSED 2026-08-20 — a privacy defect this lane's own cleanup exposed** | `hard_delete_person` removed every row, answered 200, and left eight files on disk, five of them verbatim narrator speech. Erasure is now planned before the database authority is destroyed and persisted (0049) bound to the canonical absolute root (0050); refuses every symlink below the root, including one pointing at ANOTHER narrator inside it; covers eleven stores; deletes media rather than detaching it; purges the translation cache; **reports backups and exports rather than rewriting them**; fails closed before touching a row; and is retryable through the product API with a truthful audit trail. |
+| **Family narrators after the acceptance** | **UNTOUCHED** | All **five family narrators** are untouched — Del, Melanie Zollner, Janice, Kent, Christopher Todd Horne. All synthetic narrators and acceptance residue removed; `integrity_check ok`; the **six pre-existing `harness-test-gate7p2` FK violations in `interview_sessions` are unchanged and NOT closed by this lane**. |
 | Kawa / Memory River | **REACHABLE FROZEN LEGACY UI** | Phase 2 did not extend it. Awaiting a deliberate removal decision. |
 | Runtime safety | **PARKED, server-authoritative** | Never reactivate through environment values. |
 | Model / 8,192-token window | **LOCKED** | Any proposed model change is stop-and-report. |
@@ -155,9 +158,18 @@ requires a separately reviewed SQLite rebuild and rollback plan.
 
 ## 4. Immediate execution order
 
-**Next action: finish Lean Lori, in one substantial implementation block.**
-`WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` is **COMPLETE** — Phases 1–4 all accepted, no
-phases remain. Do not resume the L2 matrix.
+**Next action: Profile Seed reachability — NOT another story/memoir testing pass.**
+
+*(This section read "finish Lean Lori, in one substantial implementation block" until
+2026-08-20. `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` ran and closed in between, and its
+closeout named the next lane explicitly. The Lean Lori block below is still the correct
+content and is still owed; what changed is what comes first.)*
+
+**The ten-topic Profile Seed onboarding is preserved for new Lorevox narrators REGARDLESS OF
+NARRATOR TYPE.** What is owed is reachability: an ordinary new narrator must actually reach
+it. That is the lane. `WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` is **COMPLETE** — Phases 1–4
+all accepted — and `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` is **ACCEPTED AND COMPLETE**.
+Do not resume the L2 matrix.
 
 *(This section read "Next action: open Phase 3 — Witness/story connection" until 2026-08-18,
 while Phase 3 and Phase 4 were both built and accepted beneath it. A control document naming
@@ -172,7 +184,11 @@ ordering rule exists to prevent.)*
    observable; the fields themselves are not there yet.
 2. **Finish directive gating.** Only the Era Explainer is gated by actual narrator state. Every
    other directive family must appear only when its state, feature or task is active. Profile
-   Seed is **DECIDED — Option A, live narrators only.**
+   Seed is **CORRECTED 2026-08-20 — the ten-topic onboarding is PRESERVED for
+   new Lorevox narrators REGARDLESS OF NARRATOR TYPE.** *(This read `DECIDED —
+   Option A, live narrators only` until 2026-08-20; that wording read as licence
+   to gate the onboarding on narrator type.)* Ordinary new-narrator reachability
+   is still OWED.
 3. **Decide history versus optional-section priority FROM MEASUREMENTS.** Phase 4 deliberately
    exhausts history before shedding any section, which preserved every working turn and is the
    reason that change was safe to land. Whether low-value optional material should instead go

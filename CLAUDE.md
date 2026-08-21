@@ -54,8 +54,9 @@ landed work from a stale status line.**
 | Travel Document | 🟢 **CLOSED on live evidence** (`WO-TRAVEL-DOC-CLOSEOUT-01`, live export 2026-08-06). |
 | **Multi-day photo placement** | 🟢 **PHASES 0–5 COMPLETE, Gate 3 closed 2026-08-14** on live acceptance (Stage B 83/0, `restore-verify` 45/0). A photograph is an asset with many explicit placements; `trip_photo_day_placements` is the authority and the legacy scalar is **derived, never authored** — 0 placements → null, 1 → that day, **≥2 → null always**. `PLACEMENT_BATCH_MAX = 50` bounds a *request*, not days-per-photograph. **Phase 6 (legacy-column removal) is NOT authorized by this closeout** and needs a SQLite table rebuild plus explicit approval. WO: [`docs/wo/WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01_Spec.md`](docs/wo/WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01_Spec.md). **Defect found in the post-acceptance sweep and FIXED:** the trip gallery set `loading="lazy"` inside `.tdl-main`, which is its own scrollport, so tiles past ~1 viewport were never requested; the native hint is gone from the file and deferral now runs through an `IntersectionObserver` rooted per image on the real scrollport (WO §8.1). **Live browser confirmation is owed** and folds into the Photo Palette acceptance cycle. |
 | **Photo Palette** | 🟢 **COMPLETE — P0–P5 accepted 2026-08-14.** *(This row read `🔵 ACTIVE — the next product build` until 2026-08-14.)* Offline 584 tests + 4 harnesses (113/32/16/56); P4 live final PASS; P5 restart persistence 14/14 then restoration 22/22. Evidence at `docs/reports/WO-TRIP-PHOTO-PALETTE-01_P4_LIVE_ACCEPTANCE.md` and `..._P5_PERSISTENCE.md` — **local-only, deliberately NOT in the repository** (`docs/reports/` is gitignored; live narrator data). Written as paths rather than links because a link would be broken for anyone cloning. **Two questions kept apart, and both matter:** *Not on a day* is `linkDayIds(l).length === 0` and is the filter; *completely unplaced* additionally requires no region and no stop and is a badge. **Neither ever reads the compatibility scalar** — null is also how a photo on several days appears there. **Do not reopen for polish without a demonstrated defect.** Carried forward, not blocking: the *Region assigned* badge has no operator route to create the state it describes (`PhotoLinkPatch` has neither a region field nor a clear-stop flag), and scale above 12 memberships stays the harness's evidence. |
+| **Conversation → Life Map → memoir** | ✅ **`WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` ACCEPTED AND COMPLETE 2026-08-20.** Story-to-memoir synthetic chain **11/11**; deletion-integrity acceptance **10/10**. Every claim verified against the **filesystem and direct SQL**, never a response body — a harness that believed the response would have passed on the exact defect this lane closed. Lori asks naturally, the answer is preserved, the candidate binds to BOTH committed turn rows, extraction evidence reaches operator review, approval and era placement land atomically, chronology and Life Map agree, and preview, TXT and DOCX each contain the story **exactly once** with the same provenance digest. **The lane's own cleanup step exposed a privacy defect and it is closed:** `hard_delete_person` removed every row, answered 200, and left eight files on disk, five of them verbatim narrator speech. Erasure is now planned before the database authority is destroyed, refuses every symlink below the data root — including one pointing at ANOTHER narrator inside it — covers eleven stores, deletes media rather than detaching it, purges the translation cache, reports backups and exports rather than rewriting them, and is retryable through the product API. Migrations 0047–0050. All synthetic narrators and acceptance residue removed; **the five family narrators are untouched**; `integrity_check ok`; the **six pre-existing `harness-test-gate7p2` FK violations are unchanged and are NOT closed by this lane**. Spec: [`docs/wo/WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01_Spec.md`](docs/wo/WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01_Spec.md). **Gate B stays OPEN, L2 stays PARTIAL, the directive registry stays inert, and Kawa appears here only as frozen legacy UI and one storage directory in the erasure inventory — not an active product surface.** **NEXT SUBSTANTIVE LANE: Profile Seed reachability — not another story/memoir testing pass.** |
 | **Narrator authority** | ✅ **WORK ORDER COMPLETE 2026-08-18 — Phases 1–4 ALL ACCEPTED. No Story Integration phases remain; the next lane is finishing Lean Lori (`HANDOFF.md` §4).** **Phase 4 (section-aware prompt authority) ACCEPTED 2026-08-18, spec §14** — the section classification the composer had carried since Lean Lori Phase 2A finally has a production reader, and **all three transports** (REST `/chat`, REST `/chat/stream`, WebSocket) budget through it. **Section removal is a rung BELOW history exhaustion**, so it engages only where the old code REFUSED: **no prompt that fits today changes at all**, and some turns that used to refuse now degrade gracefully. Live, three turns mapped the whole cascade — 6.8k chars `trimmed dropped_turns=1` with no section touched; 9.0k chars `trimmed_sections dropped_sections=2` **succeeding where the old code would have refused**, shedding `memory_context`(5) and `english_first`(20) while **KEEPING `approved_stories`**; 12.6k chars `REFUSING mandatory_too_large` with all four required sections kept and the narrator given an honest message. **Phase 3's owed item is CLOSED in the same run:** asked a direct memory question, Lori answered *"You mentioned your grandmother Elena from Corpus Christi"* — from the approved story, in her own words, no denial. **The trip-scope defect a supervisor review caught is proven fixed live:** `trip_context:DROP` → *"budget dropped trip_context; this turn is NOT trip-scoped"*, so a turn Lori never saw the trip on can no longer capture the narrator's next answer as that trip's evidence. Telemetry carries ids/counts/decisions/12-char digests and **no prompt text**. `turn_extraction_ledger` joined `hard_delete_person` (6 rows removed live; **2 orphans remain from the Phase 3 narrator deleted BEFORE the fix — `turnrow:1663`/`1665`, keys and timings only, no narrator text**). **NOT re-run in Phase 4 and stated as Phase 3's evidence rather than absorbed:** "Life Map, Chronology, Lori and Travel Document agree" was proven at Phase 3 step 7; Phase 4 touched none of those three surfaces. **Deliberately left to Lean Lori to decide from measurements:** whether low-value optional sections should be removed BEFORE recent narrator/Lori history. · 🟢 **PHASE 1 ACCEPTED 2026-08-17** · 🟢 **PHASE 2 ACCEPTED 2026-08-17 — 8/8 live acceptance steps (spec §12.7).** *(This row read `🔵 ACTIVE LANE — … Phase 1` with `Phases 2–4 are sequenced and NOT started` until 2026-08-17. Phase 1's live acceptance ran and passed; Phase 2 is built. A control document that still calls an accepted phase active is an instruction to redo it.)* Spec: [`docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md`](docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md) — Phase 1 in §3–§5, its acceptance in §8.1, the **Phase 2 contract in §12**. **Phase 1:** conflict-aware **field-level** projection authority (never a guarded whole-document replace); explicit **session ownership** reconciled across `sessions` and `interview_sessions`; **ONE** server chronology projection — the EXISTING Chronology Accordion (`GET /api/chronology-accordion`) **extended**, not a competing engine. **Step 9 of its acceptance is accepted with a stated synthetic-B limitation** — the rapid A→B switch was exercised against a synthetic second narrator, so the mechanism is proven and a full live history is not. **Phase 2:** the Travel Document reads that same projection through `travel-doc-lab.js`'s own `api()` choke point and reconciles it against `trip_days` **by stable day id** — the two models are CONNECTED, never merged, because the projection cannot hold photo placements, notes, sources or approvals and the detailed model is not narrator-wide; one shared narrator-context contract (`ui/js/narrator-context.js`) that **fails closed** on an invalid explicit `?narrator_id=` rather than falling back to a surface's cached narrator; and migration **0045** completing the legacy session-owner backfill. **Canonical taxonomy is unchanged: six historical eras PLUS the separate `today` current-life bucket; Travels is a special shelf and did not become a seventh era.** **Phase 3 (Reviewed story authority) is ACCEPTED WITH ONE ITEM OWED — 8 of 9 live steps, 2026-08-18** *(this read `Phase 3 (Witness/story) is NEXT and not yet started` until 2026-08-18)*; spec §13 carries the record. ONE server-owned review state and ONE projection every surface reads: approved stories reach Life Map, chronology and Lori; provisional are counted and never quoted; **discarded are ABSENT from every projection, not dimmed**; migration 0046 records `placement_source` + `review_version` and every review is an atomic compare-and-write. **The owed item is the positive half of step 6 — Lori SPEAKING an approved story.** The negative half (a provisional story is never asserted) passed twice and is the half that protects the narrator. Chasing the positive half found the prompt section shipped `required=False` with **no `drop_order`** (defaults to 0, ascending), ranking the one thing Phase 3 delivers below `memory_context`, whose own rationale is "the narrator can always be asked again" — **a reviewed story cannot be re-asked.** Now `drop_order=25`. **CORRECTED SAME DAY — the first diagnosis was wrong and is withdrawn.** It read: *"the one thing Phase 3 delivers was the FIRST section dropped from an over-budget prompt … Confirming live needs a restart."* Verified against the tree afterwards: `_PromptAssembly.render()` joins **every** section unconditionally; `sections()`/`drop_order`/`required` have **no production consumer anywhere** (only tests read them); `prompt_budget.fit_chat_messages` trims **history turns only** and its docstring states the system message is never modified; `_approved_story_block` renders non-empty for the exact shape the bridge produced; and `compose_system_prompt` has ONE call site, passed the same `runtime71` the bridge stamped. **So nothing was dropped, the block reached the model, and Lori had the story in front of her when she said she did not recall it.** The owed check is a prompt-authority/model-behaviour problem, needs no restart to reproduce, and folds into Phase 4. The `drop_order` fix is KEPT as a **latent** defect — correct in itself, and it becomes the live defect the moment enforcement lands. **The classification being declared but unenforced is Phase 4's most useful starting fact.** *Lesson, re-learned: a plausible mechanism found by reading source is a hypothesis, not a cause — the ladder comment was so precise it read as enforcement, and nobody had checked whether anything consumed it.* Two further live-only defects fixed in the same run: every review button rendered `disabled="undefined"` (attribute PRESENCE disables), and one generation counter answered two questions so `applyReview`'s own success path invalidated its cleanup arm and wedged the panel with every button disabled — now three counters, and **a write asks only "has the narrator switched".** **Reported, deliberately NOT fixed:** `turn_extraction_ledger` (migration 0038) is absent from `hard_delete_person`'s table list, so a hard-deleted narrator leaves ledger rows; 2 orphans measured and they are the only 2 in 40 rows; they carry keys/statuses/timings and **no narrator text**, so it is referential hygiene, not a privacy leak. **Phase 4 follows.** **The harness `completed-turn` PRODUCT ROUTE is now exercised live** (chat → `turn_extraction_ledger` → owned sessions, confirmed by the delete report); the harness SCENARIO still needs `HORNELORE_OPERATOR_HARNESS=1` plus a restart. *(This clause read "the harness `completed-turn` route … is GENUINELY UNEXERCISED" until 2026-08-18.)* `product-read` did not run because its reference personas are soft-deleted, and **soft deletion is respected — they are not restored**; making absent personas report `N/A` is a HARNESS commit, not Phase 2. |
-| **Lean Lori runtime** | ⏸️ **L1 COMPLETE · L2 PARTIAL — CLOSED by product-priority decision 2026-08-16. DO NOT RESUME L2.** Gate B stays **OPEN**; Phase 10 stays open. The unexercised cases (Case C, the remaining Case A branches, five styles, trip/photo fixtures, refusal matrix, Case E rows 2/4, final restart with Case F) are **deferred by decision, not failures**. Profile Seed ownership is **DECIDED — Option A, live narrators only**. **Substantial work is already in-tree (eleven commits) — do not rebuild it.** Evidence: `docs/reports/WO-LEAN-LORI-L2-PARTIAL-2026-08-16.md` (local-only, gitignored). Design history and the phase reconciliation live in [`docs/wo/WO-LEAN-LORI-PHASE-0-MAP-2026-08-14.md`](docs/wo/WO-LEAN-LORI-PHASE-0-MAP-2026-08-14.md), [`docs/wo/WO-LEAN-LORI-L2-RUNBOOK-2026-08-14.md`](docs/wo/WO-LEAN-LORI-L2-RUNBOOK-2026-08-14.md) (both now carry ERRATA banners) and [`docs/wo/WO-LEAN-LORI-RUNTIME-01-FINAL-R3-2026-08-04.md`](docs/wo/WO-LEAN-LORI-RUNTIME-01-FINAL-R3-2026-08-04.md). **Read those for *why* a subsystem behaves as it does; do not read them as a build queue.** Two rules earned here still bind: a token number is not quotable without its turn state, identity state and commit; and R3 phase numbers ≠ commit phase labels — cite a commit or a file, never a bare phase number. |
+| **Lean Lori runtime** | ⏸️ **L1 COMPLETE · L2 PARTIAL — CLOSED by product-priority decision 2026-08-16. DO NOT RESUME L2.** Gate B stays **OPEN**; Phase 10 stays open. The unexercised cases (Case C, the remaining Case A branches, five styles, trip/photo fixtures, refusal matrix, Case E rows 2/4, final restart with Case F) are **deferred by decision, not failures**. Profile Seed ownership is **CORRECTED 2026-08-20 — the ten-topic onboarding is PRESERVED for new Lorevox narrators REGARDLESS OF NARRATOR TYPE.** *(This read `DECIDED — Option A, live narrators only` until 2026-08-20. That wording was false and it was the harmful kind of false: it read as licence to gate the onboarding on narrator type, which would have removed the ten-topic workflow from exactly the narrators it exists for. Ordinary new-narrator reachability is still OWED and is the next substantive lane.)* **Substantial work is already in-tree (eleven commits) — do not rebuild it.** Evidence: `docs/reports/WO-LEAN-LORI-L2-PARTIAL-2026-08-16.md` (local-only, gitignored). Design history and the phase reconciliation live in [`docs/wo/WO-LEAN-LORI-PHASE-0-MAP-2026-08-14.md`](docs/wo/WO-LEAN-LORI-PHASE-0-MAP-2026-08-14.md), [`docs/wo/WO-LEAN-LORI-L2-RUNBOOK-2026-08-14.md`](docs/wo/WO-LEAN-LORI-L2-RUNBOOK-2026-08-14.md) (both now carry ERRATA banners) and [`docs/wo/WO-LEAN-LORI-RUNTIME-01-FINAL-R3-2026-08-04.md`](docs/wo/WO-LEAN-LORI-RUNTIME-01-FINAL-R3-2026-08-04.md). **Read those for *why* a subsystem behaves as it does; do not read them as a build queue.** Two rules earned here still bind: a token number is not quotable without its turn state, identity state and commit; and R3 phase numbers ≠ commit phase labels — cite a commit or a file, never a bare phase number. |
 | **What L2 found — the reason the lane above exists** | 📌 Three integration defects, each a disagreement between two individually-correct components where **nothing declared which one is the narrator**: **(1)** browser projection sync could rewrite a server row *merely because a narrator was loaded* — the payload happened to be byte-identical, which is a fact about that payload and not about the mechanism; **(2)** `sessions` rows carry **no narrator ownership** (`payload_json` was literally `{}` on 56 of 56 rows), so `user_turn_count` was structurally always 0 and every returning narrator looked new; **(3)** the Life Map spine was **browser-local** with no server row to reconcile against. A fourth finding is harness-side and is **not** product: the export verifier matches replies to turns *by text*, so two legitimate identical deterministic replies read as a duplicate write. |
 | Runtime safety | ⏸️ **PARKED 2026-08-04**, server-authoritative, code+corpus+tests preserved. [`docs/decisions/2026-08-04-park-safety-feature.md`](docs/decisions/2026-08-04-park-safety-feature.md). **Never reactivate through an environment value** — it takes Chris's explicit decision. |
 | System-directive persistence | ✅ **CLOSED 2026-08-09** — [`docs/wo/WO-SYSTEM-DIRECTIVE-PERSISTENCE-01_Spec.md`](docs/wo/WO-SYSTEM-DIRECTIVE-PERSISTENCE-01_Spec.md). Provenance is declared by the send path (`params.message_kind`), recorded in `turns.meta_json.origin`; `role` stays `'user'`. Zero undeclared `start_turn` senders in-tree. **Legacy limitation, by design:** the 120 pre-existing rows carry no flag, so an old narrator row that began `[SYSTEM:` stays indistinguishable from an old directive — no historical rewrite is authorised. **Rule this earned: when the producer knows provenance, transmit it; never reconstruct it later from prose.** |
@@ -405,6 +406,122 @@ The extraction pipeline is one output surface; **Lori is the companion** — des
 - **WO-STT-LIVE-02 fragile-fact transcript guard** is landed (7-pattern classifier + 30s staleness cap + typed-input fallback).
 
 ## Changelog
+
+### 2026-08-20 — WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01 CLOSES: a narrator can speak and be carried, and deletion finally tells the truth
+
+**ACCEPTED AND COMPLETE.** Story-to-memoir synthetic chain **11/11**;
+deletion-integrity acceptance **10/10**. Documentation only in this commit — no
+product code, no tests, no reports, no stack restart, no L2 work, no directive
+activation.
+
+**THE GAP WAS THE JOINT, NOT THE ENDS.** Lori asked well and answers were
+preserved; extraction ran and produced evidence; the operator had a review
+surface; the Life Map drew eras; the memoir exported. And a captured story could
+not be traced to the turns it came from, extraction output sat in
+`turn_extraction_results` where no reviewer could see it, a placed story did not
+reliably reach the chronology, and the preview, the TXT and the DOCX each
+produced a different document. The narrator could speak and the system could not
+carry what they said from one end of itself to the other.
+
+**What landed, across four commits.** Migrations 0047/0048 bind a story
+candidate to BOTH committed turn rows, write-once, proven against five
+conditions, with triggers that clear a column independently so a deleted turn
+never takes the story with it. `story_projection` became the ONE interpretation
+of `review_status`, and a placement REQUIRES an era — a year alone does not place
+a story, because the Life Map is drawn in eras. `services/memoir_contract.py` is
+the single reviewed-evidence read that preview, TXT and DOCX all consume, each
+item carrying a provenance digest so "exactly once" is checkable rather than
+hoped for. The browser lifecycle was made race-safe: both facts/canonical
+completion orders converge on one visible result, and a narrator switch resets
+memoir state inside `lvxSwitchNarratorSafe()` before hydration.
+
+**THE LANE'S OWN CLEANUP STEP FOUND A PRIVACY DEFECT, AND IT IS THE MOST
+IMPORTANT THING HERE.** `hard_delete_person` removed every database row, answered
+HTTP 200 `{"status": "hard_deleted"}`, and left EIGHT FILES on disk — five of them
+verbatim narrator speech. Only the Kawa directory was being removed, because it
+was the only one anybody had ever named. A deletion that reports success while
+keeping what it claimed to delete is worse than one that fails: the operator
+stops looking.
+
+**Three review rounds hardened the repair, and each found something the previous
+one had not.** An internal symlink `stories-captured/A → stories-captured/B`
+resolved INSIDE the data root, satisfied containment, and would have had `rmtree`
+delete narrator B — `Path.resolve()` answers where a path ENDS UP and never what
+it passed through, so every component is `lstat`-ed now. Retry was not a product
+capability: the plan lived in memory and the `people` row was already gone, so
+the second attempt got a 404 while the files sat there. The inventory was a
+quarter of the surface. And a saved plan held only relative paths, so a retry
+after a `DATA_DIR` change would erase the same narrator id under a DIFFERENT
+root — reproduced in review: plan for A, retry under B, A intact and B destroyed.
+
+**Deletion now:** plans before the authority is destroyed and persists that plan
+(0049) bound to the canonical absolute root it was built for (0050); refuses
+every symlink below the root; covers eleven stores including the personal media
+archive, trip-source documents, import staging and its `.incoming` scratch area,
+and legacy agent transcript exports named by the WRITER'S OWN function rather
+than a second guess at the same name; deletes media rather than detaching it, per
+Chris — `ON DELETE SET NULL` stays as a database fallback, but a confirmed hard
+erasure must not leave identifiable photographs as ownerless rows; purges the
+translation cache, which is keyed by content hash and therefore holds narrator
+sentences nobody can attribute; REPORTS backups and exports rather than rewriting
+them, because a snapshot is a point-in-time copy of everybody; fails closed
+before touching a row if the plan cannot be built or saved; and answers three
+distinct outcomes with 207 reserved for the one that is actionable.
+
+**Acceptance, verified against the FILESYSTEM AND DIRECT SQL rather than response
+bodies** — the discipline is the point, because a harness that believed the
+response would have passed on this lane's own defect. Chain: intake → one natural
+question grounded in seeded identity → one preserved story at 79 words and 3
+anchors → bound to rows 1710/1711 → extraction visible in review with
+`item_count: 4` → stale review version 409, correct version atomic → chronology
+`read/1` and Life Map `unplaced: 0` → preview, TXT and DOCX each ONCE, the DOCX
+carrying `captured_stories_early_school_years:0=0bf8661d1823`, the same digest the
+preview rendered. Deletion: clean delete 7 files across seven stores; an internal
+symlink obstruction producing 207 with the database authority gone, the plan
+saved with the correct root, and the link's target byte-identical; retry through
+`POST /api/people/{pid}/erase-retry` returning 200 with active residue zero and
+an audit trail reading `hard_delete/partial` → `hard_delete_retry/success`; a
+second retry answering `already_completed` without re-running.
+
+**Final state.** All synthetic narrators and acceptance residue removed. **The
+five family narrators are untouched.** `integrity_check ok`. **The six
+pre-existing `harness-test-gate7p2` foreign-key violations in
+`interview_sessions` are unchanged and are NOT closed by this lane.** Gate B stays
+**OPEN**; L2 stays **PARTIAL** and is not resumed; the directive-family registry
+stays **inert**; **Kawa appears here only as frozen legacy UI and one storage
+directory in the erasure inventory — not an active product surface.**
+
+**Corrections I made to my own claims, kept because the pattern outlives any one
+of them.** A missing `drop_order` was written into four governing documents as
+the cause of a failure; checked against the tree afterwards, nothing consumed the
+classification at all — **a plausible mechanism found by reading source is a
+hypothesis, not a cause.** "Operator review never happened" became *no retained
+operator-reviewed stories*; "extraction output is discarded" became *it is
+durable and the gap is a missing join*. A guard fired on the prose explaining the
+thing it guarded for the sixth time in this repository, so every source scan here
+strips comments first and carries a positive control. Mutation testing found
+survivors in nine rounds and in most of them the survivor was a weak TEST rather
+than correct code. And during the deletion acceptance **my own shell `mkdir`
+followed the symlink before I moved it aside, writing a stray file into the
+bystander narrator** — the product refused that exact link; the tool that
+followed it was me. Corrected and re-verified before continuing.
+
+**Profile Seed wording corrected across the governing files.** They read
+*"DECIDED — Option A, live narrators only"*, which was false in the harmful
+direction: it read as licence to gate the ten-topic onboarding on narrator type,
+removing it from exactly the narrators it exists for. The settled rule is that
+**the ten-topic Profile Seed onboarding is preserved for new Lorevox narrators
+regardless of narrator type**, and ordinary new-narrator reachability is still
+OWED.
+
+- Files added: `docs/wo/WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01_Spec.md`.
+- Files changed: `CLAUDE.md`, `HANDOFF.md`, `MASTER_WORK_ORDER_CHECKLIST.md`,
+  `README.md`.
+- **No `server/`, `ui/`, `scripts/` or `tests/` file is touched. No schema, no
+  migration, no flag, no `.env`, no model or safety-state change, and Kawa was
+  NOT extended.**
+- **NEXT SUBSTANTIVE LANE: Profile Seed reachability — not another story/memoir
+  testing pass.**
 
 ### 2026-08-18 (later) — Phase 4: the section ladder gets a reader, and WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 CLOSES
 
