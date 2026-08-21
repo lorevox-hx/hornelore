@@ -430,3 +430,40 @@ class WhatSurvivesIsNamedTests(_Base):
         self.assertEqual(before[0]["files"], 1)
         _ne.erase_person_files(self.pid, root=self.root)
         self.assertEqual(_ne.person_file_residue(self.pid, root=self.root), [])
+
+
+class AnInstalledLaneThatWillNotAnswerStopsThePlanTests(_Base):
+    """ADDED after mutation testing, 2026-08-20.
+
+    Replacing the `raise PlanIncomplete(...)` with `return []` left
+    every test green, because the delete-path tests patch `build_plan`
+    wholesale and never exercise a real lane failure. The distinction
+    the code makes -- a MISSING table is a feature that was never
+    installed, anything else is an outage -- was therefore unproven.
+    """
+
+    class _Boom:
+        """A connection whose tables exist and will not answer."""
+        def __init__(self, message):
+            self.message = message
+
+        def execute(self, *a, **kw):
+            import sqlite3
+            raise sqlite3.OperationalError(self.message)
+
+    def test_an_operational_error_stops_planning(self):
+        with self.assertRaises(_ne.PlanIncomplete):
+            _ne.build_plan(self.pid, self._Boom("database is locked"))
+
+    def test_a_missing_table_does_not(self):
+        plan = _ne.build_plan(self.pid, self._Boom("no such table: trips"))
+        self.assertTrue(plan, "the fixed targets should still be planned")
+        self.assertNotIn("trip_sources", [e["target"] for e in plan])
+
+    def test_the_message_names_the_lane(self):
+        try:
+            _ne.build_plan(self.pid, self._Boom("disk I/O error"))
+        except _ne.PlanIncomplete as exc:
+            self.assertIn("lane", str(exc))
+        else:
+            self.fail("no PlanIncomplete raised")

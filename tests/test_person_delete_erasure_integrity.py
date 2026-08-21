@@ -342,17 +342,31 @@ class APartialDeletionIsRetryableThroughTheApiTests(_Base):
         self.assertTrue(again.json()["erasure_complete"])
         self.assertFalse(f.exists())
 
-    def test_a_second_successful_retry_is_idempotent(self):
-        self._seed(("stories-captured",))
+    def test_a_second_successful_retry_is_an_idempotent_READ(self):
+        """REPOINTED 2026-08-20. This asserted the second retry reported
+        `files_removed == 0` -- i.e. that it RE-RAN the plan and found
+        nothing. A completed job is now READ BACK instead, so the same
+        result is returned rather than the filesystem walked again.
+        Idempotence is proven where it matters: on disk.
+        """
+        f = self._seed(("stories-captured",))
         state = self._fail_once()
         client = self._client()
         client.delete("/api/people/%s?mode=hard" % self.pid)
         state["boom"] = False
         one = client.post("/api/people/%s/erase-retry" % self.pid).json()
-        two = client.post("/api/people/%s/erase-retry" % self.pid).json()
         self.assertTrue(one["erasure_complete"])
-        self.assertTrue(two["erasure_complete"], "a repeat retry reported failure")
-        self.assertEqual(two["files_removed"], 0, "it removed something twice")
+        self.assertFalse(f.exists())
+
+        r = client.post("/api/people/%s/erase-retry" % self.pid)
+        two = r.json()
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(two["erasure_complete"])
+        self.assertTrue(two.get("already_completed"),
+                        "a completed deletion was re-run instead of read back")
+        self.assertEqual(two["database_rows_deleted"], {},
+                         "a read-back must not claim to have deleted rows")
+        self.assertFalse(f.exists())
 
     def test_retry_for_an_unknown_person_is_404(self):
         client = self._client()
@@ -591,3 +605,358 @@ class DetachedRowsAreNotCountedAsDeletionsTests(_Base):
                          "was reported as a deletion")
         # …and the real deletion count is the one the delete performed.
         self.assertEqual(rows["media"], 1)
+
+
+# ── Fail closed BEFORE authority is lost ────────────────────────────────
+
+class NothingIsDeletedWithoutARetryPlanTests(_Base):
+    """Review, 2026-08-20: several failure paths could delete database
+    authority and leave no reliable plan.
+
+    Both steps -- building the plan and saving it -- used to log and
+    continue. A plan-building failure substituted `plan=[]`; a
+    job-write failure was swallowed. Either way the rows were destroyed
+    and there was nothing left to retry with, so the files became
+    permanently unreachable. Refusing costs a second attempt; that is
+    the cheaper mistake by a wide margin.
+    """
+
+    def _client(self):
+        try:
+            from fastapi import FastAPI
+            from fastapi.testclient import TestClient
+        except Exception:
+            self.skipTest("fastapi not installed in this environment")
+        from api.routers import people as _people
+        app = FastAPI()
+        app.include_router(_people.router)
+        return TestClient(app)
+
+    def test_a_failed_plan_SAVE_leaves_everything_untouched(self):
+        f = self._seed(("memory", "archive", "people"))
+        orig = _db._erasure_job_upsert
+
+        def _boom(*a, **kw):
+            if kw.get("required"):
+                raise sqlite3.OperationalError("disk I/O error")
+            return orig(*a, **kw)
+        _db._erasure_job_upsert = _boom
+        self.addCleanup(setattr, _db, "_erasure_job_upsert", orig)
+
+        out = _db.hard_delete_person(self.pid, requested_by="test")
+        self.assertEqual(out.get("error"), "plan_unavailable")
+        self.assertIsNotNone(_db.get_person(self.pid), "the person was deleted")
+        self.assertTrue(f.exists(), "files were removed without a saved plan")
+        con = sqlite3.connect(str(self.db_path))
+        self.assertEqual(
+            con.execute("SELECT COUNT(*) FROM people WHERE id=?",
+                        (self.pid,)).fetchone()[0], 1)
+        con.close()
+
+    def test_a_failed_plan_BUILD_on_an_installed_lane_refuses(self):
+        """A MISSING table means the feature was never installed and is
+        tolerated. A table that exists and will not answer is not."""
+        f = self._seed(("stories-captured",))
+        from api.services import narrator_erasure as _svc
+        orig = _svc.build_plan
+        _svc.build_plan = lambda pid, con=None: (_ for _ in ()).throw(
+            _svc.PlanIncomplete("cannot plan the trip_sources lane"))
+        self.addCleanup(setattr, _svc, "build_plan", orig)
+
+        out = _db.hard_delete_person(self.pid, requested_by="test")
+        self.assertEqual(out.get("error"), "plan_unavailable")
+        self.assertIn("built", out["detail"])
+        self.assertIsNotNone(_db.get_person(self.pid))
+        self.assertTrue(f.exists())
+
+    def test_a_missing_optional_table_is_tolerated(self):
+        con = sqlite3.connect(str(self.db_path))
+        con.execute("DROP TABLE IF EXISTS trip_sources;")
+        con.commit()
+        con.close()
+        out = _db.hard_delete_person(self.pid, requested_by="test")
+        self.assertNotIn("error", out,
+                         "a feature that was never installed blocked a delete")
+        self.assertIsNone(_db.get_person(self.pid))
+
+    def test_the_route_answers_503_and_deletes_nothing(self):
+        f = self._seed(("memory", "archive", "people"))
+        from api.services import narrator_erasure as _svc
+        orig = _svc.build_plan
+        _svc.build_plan = lambda pid, con=None: (_ for _ in ()).throw(
+            _svc.PlanIncomplete("lane unreadable"))
+        self.addCleanup(setattr, _svc, "build_plan", orig)
+        r = self._client().delete("/api/people/%s?mode=hard" % self.pid)
+        self.assertEqual(r.status_code, 503)
+        self.assertIsNotNone(_db.get_person(self.pid))
+        self.assertTrue(f.exists())
+
+
+class AMediaFailureRollsBackTheWholeDeletionTests(_Base):
+    """It used to catch `sqlite3.Error` and continue, which could leave
+    ownerless media rows pointing at files the filesystem phase then
+    removed -- a row asserting a photograph exists, and no photograph.
+    """
+
+    def test_the_person_and_every_row_survive(self):
+        f = self._seed(("media",), name="upload.jpg")
+        con = sqlite3.connect(str(self.db_path))
+        con.execute("INSERT INTO media (id, person_id, kind, filename, mime,"
+                    " bytes, sha256, created_at) VALUES (?,?,?,?,?,?,?,?)",
+                    ("m1", self.pid, "image", "upload.jpg", "image/jpeg", 4,
+                     "abc", "2026-08-20"))
+        con.commit()
+        con.close()
+
+        orig = _db._hard_delete_media
+        _db._hard_delete_media = lambda c, p: (_ for _ in ()).throw(
+            sqlite3.OperationalError("database is locked"))
+        self.addCleanup(setattr, _db, "_hard_delete_media", orig)
+
+        out = _db.hard_delete_person(self.pid, requested_by="test")
+        self.assertEqual(out.get("error"), "rollback")
+        self.assertIsNotNone(_db.get_person(self.pid))
+        con = sqlite3.connect(str(self.db_path))
+        self.assertEqual(
+            con.execute("SELECT COUNT(*) FROM media WHERE person_id=?",
+                        (self.pid,)).fetchone()[0], 1,
+            "the media row was left in an in-between state")
+        con.close()
+        self.assertTrue(f.exists(), "the file went while its row survived")
+
+
+# ── Naming, counts and status semantics ─────────────────────────────────
+
+class LegacyTranscriptsAreNamedLikeTheWriterNamesThemTests(_Base):
+    """The writer slugs the conversation id and picks ONE subfolder.
+    The plan used the unslugged id and scheduled all three, so a
+    conversation whose id needed slugging kept its real file through a
+    "complete" erasure -- and two of the three scheduled paths were
+    never this narrator's at all."""
+
+    def test_an_id_needing_a_slug_removes_its_ACTUAL_file(self):
+        from api.services.chat_memory_paths import slug, subfolder_for
+        conv = "switch:weird/id?v=2"
+        con = sqlite3.connect(str(self.db_path))
+        con.execute("INSERT INTO sessions (conv_id, person_id, updated_at)"
+                    " VALUES (?,?,?)", (conv, self.pid, "2026-08-20"))
+        con.commit()
+        con.close()
+
+        d = self.root / "memory" / "agents" / subfolder_for(conv)
+        d.mkdir(parents=True)
+        real = d / (slug(conv) + ".txt")
+        real.write_text("narrator: I was born in Terre Haute", encoding="utf-8")
+        # A same-named file in the OTHER subfolder, which is not this
+        # narrator's and must survive.
+        other = self.root / "memory" / "agents" / "interviews"
+        other.mkdir(parents=True, exist_ok=True)
+        bystander = other / (slug(conv) + ".txt")
+        bystander.write_text("somebody else's export", encoding="utf-8")
+
+        _db.hard_delete_person(self.pid, requested_by="test")
+        self.assertFalse(real.exists(), "the real export survived")
+        self.assertTrue(bystander.exists(),
+                        "a file in a subfolder the writer never uses was "
+                        "removed")
+
+    def test_the_plan_never_schedules_the_unslugged_name(self):
+        conv = "switch:weird/id?v=2"
+        con = sqlite3.connect(str(self.db_path))
+        con.execute("INSERT INTO sessions (conv_id, person_id, updated_at)"
+                    " VALUES (?,?,?)", (conv, self.pid, "2026-08-20"))
+        con.commit()
+        con.close()
+        con = sqlite3.connect(str(self.db_path))
+        con.row_factory = sqlite3.Row
+        plan = _ne.build_plan(self.pid, con)
+        con.close()
+        names = [e["parts"][-1] for e in plan
+                 if e["target"] == "agent_transcripts"]
+        self.assertTrue(names)
+        for n in names:
+            self.assertNotIn("/", n)
+            self.assertNotIn(":", n)
+        subs = {e["parts"][-2] for e in plan
+                if e["target"] == "agent_transcripts"}
+        self.assertEqual(subs, {"bot_tests"},
+                         "the plan scheduled a subfolder the writer never "
+                         "uses for this conversation")
+
+
+class TheDeletedCountsAreDatabaseTablesOnlyTests(_Base):
+
+    def test_kawa_segments_is_not_reported_as_a_database_table(self):
+        """It is a count of JSON FILES on disk. Reporting it under
+        `database_rows_deleted` mixed a filesystem number into a
+        database answer.
+
+        Driven through the reporting function with a fabricated
+        inventory rather than through a live delete: `db.DATA_DIR` is
+        bound at import time, so `person_delete_inventory` reads the
+        process's original root and would report 0 here whatever the
+        test wrote. Fabricating the inventory tests the exclusion
+        itself, which is the property.
+        """
+        out = _db._run_erasure_phase(
+            self.pid, "Synthetic N", [],
+            rows_deleted={"profiles": 1, "kawa_segments": 7,
+                          "media_owned": 3, "story_candidates": 2},
+            media_deleted={"media": 0, "media_attachments": 0})
+        rows = out["database_rows_deleted"]
+        self.assertNotIn("kawa_segments", rows,
+                         "a count of files on disk was reported as deleted "
+                         "database rows")
+        self.assertNotIn("media_owned", rows)
+        self.assertEqual(rows["profiles"], 1)
+        self.assertEqual(rows["story_candidates"], 2)
+
+    def test_the_kawa_files_still_go_and_are_reported_as_filesystem_work(self):
+        seg = self.root / "kawa" / "people" / self.pid / "segments"
+        seg.mkdir(parents=True)
+        (seg / "a.json").write_text("{}", encoding="utf-8")
+        out = _db.hard_delete_person(self.pid, requested_by="test")
+        self.assertFalse(seg.exists())
+        self.assertIn("kawa_segments",
+                      [r["target"] for r in out["filesystem"]["removed_detail"]])
+        self.assertNotIn("kawa_segments", out["database_rows_deleted"])
+
+
+class ThreeOutcomesAndTheRightHttpCodeTests(_Base):
+
+    def _client(self):
+        try:
+            from fastapi import FastAPI
+            from fastapi.testclient import TestClient
+        except Exception:
+            self.skipTest("fastapi not installed in this environment")
+        from api.routers import people as _people
+        app = FastAPI()
+        app.include_router(_people.router)
+        return TestClient(app)
+
+    def test_a_clean_delete_is_200_hard_deleted(self):
+        self._seed(("stories-captured",))
+        r = self._client().delete("/api/people/%s?mode=hard" % self.pid)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["status"], "hard_deleted")
+
+    def test_a_backup_is_200_with_its_own_status(self):
+        """Historical residue is NOT an actionable retry failure.
+        Keying the code on `erasure_complete` made a backup produce a
+        permanent 207 on a deletion where nothing had failed."""
+        (self.root / "backups").mkdir()
+        (self.root / "backups" / "snap.sqlite3").write_text("x", encoding="utf-8")
+        self._seed(("stories-captured",))
+        r = self._client().delete("/api/people/%s?mode=hard" % self.pid)
+        body = r.json()
+        self.assertEqual(r.status_code, 200,
+                         "a shared backup produced an actionable error code")
+        self.assertEqual(body["status"], "hard_deleted_historical_residue")
+        self.assertTrue(body["active_data_erased"])
+        self.assertTrue(body["historical_residue_present"])
+        self.assertFalse(body["erasure_complete"])
+        self.assertFalse(body["retry_available"])
+        self.assertTrue((self.root / "backups" / "snap.sqlite3").exists())
+
+    def test_an_active_failure_is_207_with_retry_available(self):
+        import shutil as _shutil
+        self._seed(("memory", "archive", "people"))
+        real = _shutil.rmtree
+        _ne.shutil.rmtree = lambda *a, **kw: (_ for _ in ()).throw(
+            OSError("locked"))
+        self.addCleanup(setattr, _ne.shutil, "rmtree", real)
+        r = self._client().delete("/api/people/%s?mode=hard" % self.pid)
+        self.assertEqual(r.status_code, 207)
+        self.assertEqual(r.json()["status"], "hard_deleted_partial")
+        self.assertTrue(r.json()["retry_available"])
+
+    def test_repeating_a_completed_delete_reads_the_stored_job(self):
+        (self.root / "backups").mkdir()
+        (self.root / "backups" / "snap.sqlite3").write_text("x", encoding="utf-8")
+        self._seed(("stories-captured",))
+        client = self._client()
+        client.delete("/api/people/%s?mode=hard" % self.pid)
+        again = client.delete("/api/people/%s?mode=hard" % self.pid)
+        self.assertEqual(again.status_code, 200,
+                         "a finished deletion kept re-running because a "
+                         "backup held erasure_complete false")
+        self.assertTrue(again.json().get("already_completed"))
+
+
+class TheRetrySucceedsInTheAuditTooTests(_Base):
+
+    def _audit_trail(self):
+        con = sqlite3.connect(str(self.db_path))
+        con.row_factory = sqlite3.Row
+        rows = con.execute(
+            "SELECT action, result FROM narrator_delete_audit "
+            "WHERE person_id=? ORDER BY ts", (self.pid,)).fetchall()
+        con.close()
+        return [(r["action"], r["result"]) for r in rows]
+
+    def test_the_trail_reads_partial_then_completed(self):
+        """The first attempt left `partial` and a successful retry used
+        to leave it standing -- so the one place an operator checks
+        said the deletion had failed after it had been finished."""
+        import shutil as _shutil
+        self._seed(("memory", "archive", "people"))
+        real = _shutil.rmtree
+        state = {"boom": True}
+        _ne.shutil.rmtree = lambda *a, **kw: (
+            (_ for _ in ()).throw(OSError("locked")) if state["boom"]
+            else real(*a, **kw))
+        self.addCleanup(setattr, _ne.shutil, "rmtree", real)
+
+        _db.hard_delete_person(self.pid, requested_by="test")
+        self.assertEqual(self._audit_trail(), [("hard_delete", "partial")])
+
+        state["boom"] = False
+        out = _db.retry_person_erasure(self.pid, requested_by="test")
+        self.assertTrue(out["erasure_complete"])
+        self.assertEqual(
+            self._audit_trail(),
+            [("hard_delete", "partial"), ("hard_delete_retry", "success")],
+            "a successful retry left no record that the deletion finished")
+
+    def test_a_failed_retry_records_partial_too(self):
+        import shutil as _shutil
+        self._seed(("memory", "archive", "people"))
+        real = _shutil.rmtree
+        _ne.shutil.rmtree = lambda *a, **kw: (_ for _ in ()).throw(
+            OSError("locked"))
+        self.addCleanup(setattr, _ne.shutil, "rmtree", real)
+        _db.hard_delete_person(self.pid, requested_by="test")
+        _db.retry_person_erasure(self.pid, requested_by="test")
+        self.assertEqual(self._audit_trail(),
+                         [("hard_delete", "partial"),
+                          ("hard_delete_retry", "partial")])
+
+
+class TheRequiredPlanWriteRaisesRatherThanLogsTests(_Base):
+    """ADDED after mutation testing, 2026-08-20.
+
+    Deleting `if required: raise` from `_erasure_job_upsert` left every
+    test green: the fail-closed test replaces the whole function, so it
+    proved the CALLER refuses on an exception and never proved the
+    function raises one. Without that, a job-write failure is logged
+    and the deletion proceeds with no retry plan -- the exact path this
+    correction closes.
+    """
+
+    def test_a_required_write_propagates_its_failure(self):
+        orig = _db.DB_PATH
+        _db.DB_PATH = Path(self.tmp.name) / "no" / "such" / "dir" / "x.sqlite3"
+        self.addCleanup(setattr, _db, "DB_PATH", orig)
+        with self.assertRaises(Exception):
+            _db._erasure_job_upsert(self.pid, "N", [{"target": "x",
+                                                     "parts": ["a"]}],
+                                    "pending", required=True)
+
+    def test_a_best_effort_write_does_not(self):
+        """Later writes are bookkeeping on work already done and must
+        never break a deletion that succeeded."""
+        orig = _db.DB_PATH
+        _db.DB_PATH = Path(self.tmp.name) / "no" / "such" / "dir" / "x.sqlite3"
+        self.addCleanup(setattr, _db, "DB_PATH", orig)
+        _db._erasure_job_upsert(self.pid, "N", [], "complete")  # no raise
