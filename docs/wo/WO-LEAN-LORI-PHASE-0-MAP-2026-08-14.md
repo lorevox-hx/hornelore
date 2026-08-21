@@ -1,5 +1,26 @@
 # Lean Lori — Phase 0 reconciliation map
 
+> ## SUPERSEDED — 2026-08-20 · Profile Seed
+>
+> **The Profile Seed instruction in this document is SUPERSEDED and must not be
+> built from.** Whatever it says below about retiring the ten-topic walk, about
+> "Option A, live narrators only", or about Option D remaining live, is retired.
+>
+> **The settled rule: PRESERVE the ten-topic Profile Seed onboarding for new
+> Lorevox narrators REGARDLESS OF NARRATOR TYPE.** The earlier wording read as
+> licence to gate that onboarding on narrator type, which would have removed the
+> workflow from exactly the narrators it exists for.
+>
+> **Ordinary new-narrator REACHABILITY remains OWED** and is the next substantive
+> lane. It is a separate question from the decision above: the onboarding is
+> preserved; whether an ordinary new narrator actually reaches it is not yet
+> settled in code.
+>
+> **This document is design and decision HISTORY, not current build authority.**
+> Read it to understand why a subsystem behaves as it does. Do not read it as a
+> build queue, and do not resolve a present-day question from it. The body below
+> is left exactly as it was written, per this repository's correct-in-place rule.
+
 > ## ERRATA — 2026-08-17
 >
 > **L2 has since RUN and is CLOSED PARTIAL by product-priority decision (2026-08-16).**

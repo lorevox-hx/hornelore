@@ -46,7 +46,12 @@ All held. None was traded for progress.
 
 ## 3. What landed
 
-**Commit 1 — provenance.** Migration 0047 adds
+*Grouped as BUILD BLOCKS, not commits. The lane is twenty-two implementation and
+test commits — `3fc1467` through `73512dd` — and an earlier draft of this section
+labelled the blocks "Commit 1/2/3", which invented a smaller history than the log
+holds. Exact hashes are cited per block below.*
+
+**Build block A — provenance** (`d1c2742`, `61d946a`). Migration 0047 adds
 `source_user_turn_row_id` and `completed_assistant_turn_row_id` to
 `story_candidates`; 0048 adds two `AFTER DELETE ON turns` triggers that
 clear each column independently so a deleted turn never takes the story
@@ -56,7 +61,7 @@ narrator matches, the conversation matches, both rows are in that
 conversation, and each row has the expected role. Write-once, idempotent
 on the same pair.
 
-**Commit 2 — placement truthfulness.** `story_projection` became the
+**Build block B — placement truthfulness** (`61d946a`, `b2cc335`, `9250d6a`). `story_projection` became the
 ONE interpretation of `review_status`. A placement requires an era: a
 year alone does not place a story, because the Life Map is drawn in
 eras. `placement_source` is recorded, never inferred. The review
@@ -65,24 +70,25 @@ an era with no source — and the projection reads legacy rows carrying
 those combinations honestly rather than promoting a guess into a
 chapter heading.
 
-**Commit 3 / A / B — one canonical memoir.** `services/memoir_contract.py`
+**Build block C — one canonical memoir** (`aa61b23`, `28964fc`, `31057a2`). `services/memoir_contract.py`
 is the single reviewed-evidence read. Preview, TXT and DOCX consume it,
 and every item carries a provenance digest so "exactly once" is
 checkable across all three rather than hoped for. The DOCX route makes
 ONE `canonical_memoir()` call; the independent lane reads are gone as
 executable authorities.
 
-**Browser lifecycle.** The canonical load runs independently of the
+**Build block D — browser lifecycle** (`3ed05e8`, `422ae45`, `83107b1`, `0b43077`). The canonical load runs independently of the
 facts lane, both completion orders converge on one visible result, a
 narrator switch resets memoir state before hydration inside
 `lvxSwitchNarratorSafe()`, identical story texts keep separate source
 ids, and export is refused while the evidence is loading, unreadable,
 incomplete or owned by another narrator.
 
-**Deletion integrity.** The story chain's own cleanup step exposed a
-privacy defect: `hard_delete_person` removed every database row,
-answered 200, and left eight files on disk — five of them verbatim
-narrator speech. `services/narrator_erasure.py` now plans before the
+**Build block E — deletion integrity** (`1ebbbea` through `73512dd`, ten commits). The story chain's own cleanup step exposed a
+privacy defect: `hard_delete_person` removed all active
+narrator/person-scoped content rows — the delete audit and the erasure job are
+retained on purpose and hold no narrator speech — answered 200, and left eight
+files on disk, five of them verbatim narrator speech. `services/narrator_erasure.py` now plans before the
 database authority is destroyed, refuses every symlink below the data
 root, covers eleven stores, and reports three outcomes truthfully.
 Migrations 0049 and 0050 persist the plan and bind it to the canonical
@@ -107,7 +113,7 @@ was touched.
 | 8 | Preview contains it exactly once | 1 occurrence, 1 evidence block, `data-export-exclude="true"`, one `data-source-id` |
 | 9 | TXT and DOCX each contain it once | TXT 1; DOCX `word/document.xml` inflated and counted — 1, under *"In their own words — Early School Years"* |
 | 10 | A narrator switch shows nothing prior | before hydration: cache dropped, block removed, export refused by ownership; after: 0 evidence lines, chronology `read/0` |
-| 11 | Cleanup reports residue explicitly | DB clean; **filesystem residue found and reported, not glossed** — see §5 |
+| 11 | Cleanup reports residue explicitly | Active person-scoped content rows gone, audit and job metadata retained by design; **filesystem residue found and reported, not glossed** — see §5 |
 
 Provenance agreed across all three surfaces: the preview rendered
 `data-source-id="0bf8661d1823"` and the DOCX core properties carried
@@ -137,9 +143,12 @@ body said `hard_deleted` and the files were there.
 
 ## 5. Final state
 
-* All synthetic narrators removed; acceptance residue removed.
-* **The five family narrators are untouched** — Del, Melanie Zollner,
-  Janice, Kent, Christopher Todd Horne.
+* The synthetic narrators' **people rows, active content and filesystem
+  residue** are removed. Their `narrator_delete_audit` and
+  `narrator_erasure_jobs` metadata is **intentionally retained** and carries
+  ids, paths, counts and timestamps — **no narrator speech**.
+* **The four family narrators and the designated non-family narrator are all
+  untouched.**
 * `PRAGMA integrity_check` → **ok**.
 * **Six pre-existing `harness-test-gate7p2` foreign-key violations in
   `interview_sessions`, unchanged.** None is an acceptance id. They
@@ -152,9 +161,9 @@ body said `hard_deleted` and the files were there.
   reachability is still owed and is the next substantive lane.
 * The directive-family registry remains **inert** — built, gated, and
   deliberately not activated.
-* Kawa appears in this lane only as frozen legacy UI and as one storage
-  directory in the erasure inventory. **It is not an active product
-  surface** and nothing here revived it.
+* Kawa appears in this lane only as **reachable frozen legacy UI awaiting
+  adjudication** — non-authoritative; **do not extend or build on it** — plus
+  one storage directory in the erasure inventory. Nothing here revived it.
 
 ## 6. Corrections made during the lane, recorded rather than buried
 

@@ -159,8 +159,9 @@ filesystem and direct SQL rather than a response body. Record:
 [`docs/wo/WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01_Spec.md`](docs/wo/WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01_Spec.md).
 
 **That lane's own cleanup step exposed a privacy defect, and closing it is part of the same
-record.** `hard_delete_person` removed every database row, answered HTTP 200, and left eight
-files on disk — five of them verbatim narrator speech. Deletion now plans before it destroys
+record.** `hard_delete_person` removed all active narrator/person-scoped content rows — the
+deletion audit and the erasure job are retained on purpose and hold no narrator speech —
+answered HTTP 200, and left eight files on disk — five of them verbatim narrator speech. Deletion now plans before it destroys
 the database authority those paths are named by, persists that plan bound to the canonical
 absolute data root, refuses every symlink beneath the root (including one pointing at another
 narrator inside it), covers eleven storage locations, deletes narrator media rather than
@@ -170,15 +171,18 @@ partial then success. **Do not describe a hard delete as complete unless the res
 so** — three outcomes are distinguished, and HTTP 207 is reserved for the one an operator can
 act on.
 
-**Acceptance state, stated so nothing here reads as broader than it is.** All synthetic
-narrators and acceptance residue were removed; **the five family narrators are untouched**;
+**Acceptance state, stated so nothing here reads as broader than it is.** The synthetic narrators' people rows, active
+content and filesystem residue were removed, with their audit and erasure-job metadata
+intentionally retained and carrying no narrator speech; **the four family narrators and
+the designated non-family narrator are all untouched**;
 `PRAGMA integrity_check` returns **ok**; and the **six pre-existing
 `harness-test-gate7p2` foreign-key violations in `interview_sessions` are unchanged — this
 lane did not create them and does not close them**. Gate B stays **OPEN**. Lean Lori L2 stays
 **PARTIAL** and closed by product-priority decision. The directive-family registry remains
 **inert** — built, gated and deliberately not activated. Kawa / Memory River appears here only
-as frozen legacy UI and as one storage directory in the erasure inventory; it is **not an
-active product surface**, and nothing in this lane revived it.
+as **reachable frozen legacy UI awaiting adjudication** — non-authoritative; do not extend
+or build on it — plus one storage directory in the erasure inventory. Nothing in this lane
+revived it.
 
 **The next substantive lane is Profile Seed reachability.** The ten-topic Profile Seed
 onboarding is preserved for new Lorevox narrators **regardless of narrator type**; what is
