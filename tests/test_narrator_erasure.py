@@ -432,38 +432,94 @@ class WhatSurvivesIsNamedTests(_Base):
         self.assertEqual(_ne.person_file_residue(self.pid, root=self.root), [])
 
 
-class AnInstalledLaneThatWillNotAnswerStopsThePlanTests(_Base):
-    """ADDED after mutation testing, 2026-08-20.
+class LaneInstallationIsDeterminedNotInferredTests(_Base):
+    """REWRITTEN 2026-08-20 after review.
 
-    Replacing the `raise PlanIncomplete(...)` with `return []` left
-    every test green, because the delete-path tests patch `build_plan`
-    wholesale and never exercise a real lane failure. The distinction
-    the code makes -- a MISSING table is a feature that was never
-    installed, anything else is an outage -- was therefore unproven.
+    The first cut matched `"no such table"` in the text of whatever
+    error a query raised and called that "feature not installed". Three
+    different situations shared that string: a feature genuinely never
+    installed, a JOINED lane with one of its two tables missing, and a
+    missing CORE table. The last two are damage, and both produced a
+    short plan the caller then acted on by destroying the rows those
+    targets were named by.
+
+    Installation is now read once from `sqlite_master`.
     """
 
-    class _Boom:
-        """A connection whose tables exist and will not answer."""
-        def __init__(self, message):
-            self.message = message
+    class _Schema:
+        """A connection that reports a chosen set of tables and can be
+        told to fail the lane query afterwards."""
 
-        def execute(self, *a, **kw):
+        def __init__(self, tables, fail_lane=False):
+            self.tables = list(tables)
+            self.fail_lane = fail_lane
+
+        def execute(self, sql, args=()):
             import sqlite3
-            raise sqlite3.OperationalError(self.message)
+            if "sqlite_master" in sql:
+                return _Rows([(t,) for t in self.tables])
+            if self.fail_lane:
+                raise sqlite3.OperationalError("database is locked")
+            return _Rows([])
 
-    def test_an_operational_error_stops_planning(self):
-        with self.assertRaises(_ne.PlanIncomplete):
-            _ne.build_plan(self.pid, self._Boom("database is locked"))
-
-    def test_a_missing_table_does_not(self):
-        plan = _ne.build_plan(self.pid, self._Boom("no such table: trips"))
+    def test_both_optional_tables_absent_is_not_installed(self):
+        con = self._Schema(["sessions", "import_batch"])
+        plan = _ne.build_plan(self.pid, con)
         self.assertTrue(plan, "the fixed targets should still be planned")
         self.assertNotIn("trip_sources", [e["target"] for e in plan])
 
-    def test_the_message_names_the_lane(self):
-        try:
-            _ne.build_plan(self.pid, self._Boom("disk I/O error"))
-        except _ne.PlanIncomplete as exc:
-            self.assertIn("lane", str(exc))
-        else:
-            self.fail("no PlanIncomplete raised")
+    def test_a_PARTIALLY_installed_joined_lane_refuses(self):
+        """`trips` without `trip_sources` -- the surviving table can
+        hold real rows whose directories the plan would never name."""
+        for tables in (["sessions", "trips"], ["sessions", "trip_sources"]):
+            with self.subTest(tables=tables):
+                with self.assertRaises(_ne.PlanIncomplete) as ctx:
+                    _ne.build_plan(self.pid, self._Schema(tables))
+                self.assertIn("partially installed", str(ctx.exception))
+
+    def test_a_missing_CORE_table_refuses(self):
+        with self.assertRaises(_ne.PlanIncomplete) as ctx:
+            _ne.build_plan(self.pid, self._Schema(["trips", "trip_sources"]))
+        self.assertIn("core table", str(ctx.exception))
+
+    def test_a_query_error_on_installed_tables_refuses(self):
+        con = self._Schema(["sessions", "trips", "trip_sources",
+                            "import_batch"], fail_lane=True)
+        with self.assertRaises(_ne.PlanIncomplete) as ctx:
+            _ne.build_plan(self.pid, con)
+        self.assertIn("lane", str(ctx.exception))
+
+    def test_an_unreadable_schema_refuses(self):
+        class _NoSchema:
+            def execute(self, *a, **kw):
+                import sqlite3
+                raise sqlite3.OperationalError("disk I/O error")
+        with self.assertRaises(_ne.PlanIncomplete) as ctx:
+            _ne.build_plan(self.pid, _NoSchema())
+        self.assertIn("schema", str(ctx.exception))
+
+    def test_an_unplannable_row_id_refuses_rather_than_skips(self):
+        """A row exists and its id cannot become a safe path. Skipping
+        it silently -- which is what this used to do -- yields a plan
+        short by exactly the rows nobody could name."""
+        class _BadId(self._Schema):
+            def execute(self, sql, args=()):
+                if "sqlite_master" in sql:
+                    return _Rows([(t,) for t in self.tables])
+                if "trip_sources" in sql:
+                    return _Rows([("../escape",)])
+                return _Rows([])
+        con = _BadId(["sessions", "trips", "trip_sources", "import_batch"])
+        with self.assertRaises(_ne.PlanIncomplete) as ctx:
+            _ne.build_plan(self.pid, con)
+        self.assertIn("safely turned into a path", str(ctx.exception))
+
+
+class _Rows:
+    """The two-method cursor shape `build_plan` uses."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    def fetchall(self):
+        return self._rows

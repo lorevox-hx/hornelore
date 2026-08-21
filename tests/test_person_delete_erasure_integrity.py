@@ -378,8 +378,12 @@ class APartialDeletionIsRetryableThroughTheApiTests(_Base):
         that dies between the two is recoverable rather than silent."""
         self._seed(("memory", "archive", "people"))
         plan = _ne.build_plan(self.pid)
+        # The ROOT is written with the plan (2026-08-20). Without it a
+        # retry refuses, because the plan's relative paths exist under
+        # every root this deployment has ever had.
         _db._erasure_job_upsert(self.pid, "Synthetic N", plan, "pending",
-                                requested_by="test")
+                                requested_by="test",
+                                data_root=str(self.root))
         job = _db.erasure_job_get(self.pid)
         self.assertEqual(job["status"], "pending")
         self.assertTrue(job["plan"])
@@ -670,14 +674,25 @@ class NothingIsDeletedWithoutARetryPlanTests(_Base):
         self.assertTrue(f.exists())
 
     def test_a_missing_optional_table_is_tolerated(self):
+        # REPOINTED 2026-08-20: BOTH tables of the joined lane. Dropping
+        # only one is now a PARTIALLY installed lane and refuses -- the
+        # surviving table can hold real rows whose directories the plan
+        # would never name. "Never installed" means neither is there.
         con = sqlite3.connect(str(self.db_path))
         con.execute("DROP TABLE IF EXISTS trip_sources;")
+        con.execute("DROP TABLE IF EXISTS trips;")
         con.commit()
         con.close()
-        out = _db.hard_delete_person(self.pid, requested_by="test")
-        self.assertNotIn("error", out,
-                         "a feature that was never installed blocked a delete")
-        self.assertIsNone(_db.get_person(self.pid))
+        # The delete path also touches `trips` in its own cascade
+        # bookkeeping, so this asserts the PLAN, which is where lane
+        # installation is decided. A live delete on a schema without
+        # trips is a different (and pre-existing) concern.
+        con = sqlite3.connect(str(self.db_path))
+        con.row_factory = sqlite3.Row
+        plan = _ne.build_plan(self.pid, con)
+        con.close()
+        self.assertTrue(plan, "a feature never installed blocked the plan")
+        self.assertNotIn("trip_sources", [e["target"] for e in plan])
 
     def test_the_route_answers_503_and_deletes_nothing(self):
         f = self._seed(("memory", "archive", "people"))
@@ -960,3 +975,185 @@ class TheRequiredPlanWriteRaisesRatherThanLogsTests(_Base):
         _db.DB_PATH = Path(self.tmp.name) / "no" / "such" / "dir" / "x.sqlite3"
         self.addCleanup(setattr, _db, "DB_PATH", orig)
         _db._erasure_job_upsert(self.pid, "N", [], "complete")  # no raise
+
+
+# ── A plan belongs to the root it was built for ─────────────────────────
+
+class APlanCannotBeExecutedAgainstAnotherRootTests(_Base):
+    """THE DESTRUCTIVE DEFECT REVIEW REPRODUCED, 2026-08-20.
+
+    A saved plan holds RELATIVE paths. A retry used to execute them
+    against whatever `DATA_DIR` the process had at that moment -- so a
+    plan created for root A, retried under root B, left A intact and
+    deleted B. The same narrator id exists under both roots in any
+    deployment that has been migrated, restored from a snapshot, or
+    pointed at a staging copy, and the retry is exactly the moment
+    somebody is likely to be changing the environment.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.other = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(lambda: __import__("shutil").rmtree(
+            self.other, ignore_errors=True))
+        # The SAME narrator id, under a second root.
+        d = self.other / "memory" / "archive" / "people" / self.pid
+        d.mkdir(parents=True)
+        self.b_file = d / "transcript.txt"
+        self.b_file.write_text("root B's copy of this narrator",
+                               encoding="utf-8")
+
+    def _fail_once(self):
+        import shutil as _shutil
+        real = _shutil.rmtree
+        state = {"boom": True}
+
+        def _flaky(path, *a, **kw):
+            if state["boom"]:
+                raise OSError("locked")
+            return real(path, *a, **kw)
+        _ne.shutil.rmtree = _flaky
+        self.addCleanup(setattr, _ne.shutil, "rmtree", real)
+        return state
+
+    def test_the_root_is_saved_with_the_plan(self):
+        self._seed(("memory", "archive", "people"))
+        self._fail_once()
+        _db.hard_delete_person(self.pid, requested_by="test")
+        job = _db.erasure_job_get(self.pid)
+        self.assertEqual(job["data_root"], str(self.root))
+
+    def test_a_retry_under_a_DIFFERENT_root_deletes_nothing(self):
+        a_file = self._seed(("memory", "archive", "people"),
+                            body="root A's copy")
+        b_before = self.b_file.read_bytes()
+        state = self._fail_once()
+        _db.hard_delete_person(self.pid, requested_by="test")
+        self.assertTrue(a_file.exists(), "precondition: A survived the failure")
+
+        # The environment moves. This is the scenario.
+        os.environ["DATA_DIR"] = str(self.other)
+        state["boom"] = False
+        out = _db.retry_person_erasure(self.pid, requested_by="test")
+
+        self.assertTrue(self.b_file.exists(),
+                        "the retry deleted the OTHER root's copy")
+        self.assertEqual(self.b_file.read_bytes(), b_before)
+        # …and A is still erased, because the plan is bound to A.
+        self.assertFalse(a_file.exists(),
+                         "the retry did not act on the root it planned for")
+        self.assertTrue(out["erasure_complete"])
+
+    def test_a_root_that_no_longer_validates_refuses_and_removes_nothing(self):
+        a_file = self._seed(("memory", "archive", "people"))
+        b_before = self.b_file.read_bytes()
+        state = self._fail_once()
+        _db.hard_delete_person(self.pid, requested_by="test")
+
+        # The saved root is gone -- an unmounted volume, a moved data
+        # directory. There is no second-best root to fall back to.
+        import shutil as _shutil
+        real = _shutil.rmtree
+        state["boom"] = False
+        _ne.shutil.rmtree = real
+        saved = self.root
+        moved = Path(tempfile.mkdtemp()) / "gone"
+        _db._erasure_job_upsert(self.pid, "Synthetic N",
+                                _db.erasure_job_get(self.pid)["plan"],
+                                "partial", data_root=str(moved))
+
+        os.environ["DATA_DIR"] = str(self.other)
+        out = _db.retry_person_erasure(self.pid, requested_by="test")
+        self.assertEqual(out["status"], "hard_deleted_partial")
+        self.assertFalse(out["active_data_erased"])
+        self.assertEqual(out["failed_targets"][0]["reason"],
+                         "data_root_unconfirmed")
+        self.assertTrue(out["retry_available"])
+        self.assertTrue(self.b_file.exists(),
+                        "a refusal still touched the other root")
+        self.assertEqual(self.b_file.read_bytes(), b_before)
+        self.assertTrue(a_file.exists(), "a refusal removed something")
+        self.assertTrue(saved.exists())
+
+    def test_a_job_with_no_saved_root_refuses_rather_than_guesses(self):
+        """Rows written before the column existed. Their paths are true
+        of every root this deployment has ever had, so there is nothing
+        to infer from."""
+        a_file = self._seed(("memory", "archive", "people"))
+        state = self._fail_once()
+        _db.hard_delete_person(self.pid, requested_by="test")
+        con = sqlite3.connect(str(self.db_path))
+        con.execute("UPDATE narrator_erasure_jobs SET data_root='' "
+                    "WHERE person_id=?", (self.pid,))
+        con.commit()
+        con.close()
+
+        state["boom"] = False
+        out = _db.retry_person_erasure(self.pid, requested_by="test")
+        self.assertFalse(out["active_data_erased"])
+        self.assertIn("before its data root was recorded",
+                      out["failed_targets"][0]["detail"])
+        self.assertTrue(a_file.exists())
+        self.assertTrue(self.b_file.exists())
+
+    def test_the_route_reports_the_refusal_as_207_with_retry(self):
+        try:
+            from fastapi import FastAPI
+            from fastapi.testclient import TestClient
+        except Exception:
+            self.skipTest("fastapi not installed in this environment")
+        from api.routers import people as _people
+        app = FastAPI()
+        app.include_router(_people.router)
+        client = TestClient(app)
+
+        self._seed(("memory", "archive", "people"))
+        self._fail_once()
+        _db.hard_delete_person(self.pid, requested_by="test")
+        con = sqlite3.connect(str(self.db_path))
+        con.execute("UPDATE narrator_erasure_jobs SET data_root='' "
+                    "WHERE person_id=?", (self.pid,))
+        con.commit()
+        con.close()
+
+        r = client.post("/api/people/%s/erase-retry" % self.pid)
+        self.assertEqual(r.status_code, 207)
+        self.assertTrue(r.json()["retry_available"])
+
+    def test_a_root_that_now_RESOLVES_ELSEWHERE_refuses(self):
+        """ADDED after mutation testing, 2026-08-20.
+
+        Deleting the `validated != saved_root` check left every test
+        green, because the only existing case used a root that had
+        VANISHED -- which `validate_root` catches first. The branch
+        this check exists for is different and quieter: the path still
+        exists and now points somewhere else. A moved mount, a
+        re-pointed symlink. Same string, different directory, and the
+        plan's relative paths would be executed there.
+        """
+        a_file = self._seed(("memory", "archive", "people"))
+        b_before = self.b_file.read_bytes()
+        state = self._fail_once()
+        _db.hard_delete_person(self.pid, requested_by="test")
+
+        link = Path(tempfile.mkdtemp()) / "data-root"
+        try:
+            link.symlink_to(self.other, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks unavailable in this environment")
+        _db._erasure_job_upsert(self.pid, "Synthetic N",
+                                _db.erasure_job_get(self.pid)["plan"],
+                                "partial", data_root=str(link))
+        import shutil as _shutil
+        state["boom"] = False
+        _ne.shutil.rmtree = _shutil.rmtree
+
+        out = _db.retry_person_erasure(self.pid, requested_by="test")
+        self.assertFalse(out["active_data_erased"])
+        self.assertEqual(out["failed_targets"][0]["reason"],
+                         "data_root_unconfirmed")
+        self.assertIn("resolves to", out["failed_targets"][0]["detail"])
+        self.assertTrue(self.b_file.exists(),
+                        "the plan was executed against the resolved root")
+        self.assertEqual(self.b_file.read_bytes(), b_before)
+        self.assertTrue(a_file.exists())
