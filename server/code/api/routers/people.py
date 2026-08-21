@@ -255,27 +255,21 @@ def api_delete_person(
             if erasure_job_get(person_id):
                 retried = retry_person_erasure(person_id, requested_by="ui")
                 if retried is not None:
-                    if not retried.get("erasure_complete", True):
-                        from fastapi.responses import JSONResponse
-                        return JSONResponse(status_code=207, content=retried)
-                    return retried
+                    return _delete_response(retried)
             raise HTTPException(status_code=404, detail="Person not found")
         if "error" in result:
             if result["error"] == "rollback":
                 raise HTTPException(status_code=500, detail=f"Hard delete failed: {result.get('detail', 'unknown')}")
+            if result["error"] == "plan_unavailable":
+                # Nothing was deleted. The erasure plan could not be
+                # built or saved, so the deletion refused BEFORE
+                # touching a row rather than destroying the authority
+                # its own retry depends on. 503: try again.
+                raise HTTPException(status_code=503,
+                                    detail=result.get("detail")
+                                    or "erasure plan unavailable")
             raise HTTPException(status_code=400, detail=result["error"])
-        # A PARTIAL erasure must not answer 200 (2026-08-20). The
-        # database rows really are gone, so this is not a failure and
-        # not a rollback -- but narrator content is still on disk, and
-        # a 200 here is what let a caller record "deleted" while the
-        # narrator's transcripts survived. 207 Multi-Status says
-        # exactly what happened: part succeeded, part did not, and the
-        # body names which. `residue` carries the reason and the call
-        # is safe to retry.
-        if not result.get("erasure_complete", True):
-            from fastapi.responses import JSONResponse
-            return JSONResponse(status_code=207, content=result)
-        return result
+        return _delete_response(result)
     else:
         result = soft_delete_person(person_id, requested_by="ui", reason=reason)
         if result is None:
@@ -285,6 +279,30 @@ def api_delete_person(
                 raise HTTPException(status_code=409, detail="Person is already soft-deleted")
             raise HTTPException(status_code=400, detail=result["error"])
         return result
+
+
+def _delete_response(result):
+    """HTTP status from the deletion OUTCOME, not from a single flag.
+
+    Three outcomes, and only one of them is actionable (Chris,
+    2026-08-20):
+
+      * `hard_deleted`                      -> 200, nothing remains;
+      * `hard_deleted_historical_residue`   -> 200, active data gone,
+        shared backups or exports still contain the narrator and are
+        reported rather than rewritten;
+      * `hard_deleted_partial`              -> 207, the active erasure
+        failed and a retry is available.
+
+    Keying the code on `erasure_complete` made a backup produce a
+    permanent 207 on a deletion where nothing had failed and
+    `retry_available` was already false -- an error code an operator
+    could do nothing about, on every deletion, forever.
+    """
+    if result.get("status") == "hard_deleted_partial":
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=207, content=result)
+    return result
 
 
 @router.post("/{person_id}/erase-retry",
@@ -305,10 +323,7 @@ def api_retry_person_erasure(person_id: str):
         raise HTTPException(
             status_code=404,
             detail="No saved erasure plan for this person")
-    if not result.get("erasure_complete", True):
-        from fastapi.responses import JSONResponse
-        return JSONResponse(status_code=207, content=result)
-    return result
+    return _delete_response(result)
 
 
 @router.post("/{person_id}/restore", summary="Restore a soft-deleted person")

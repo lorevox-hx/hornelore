@@ -58,7 +58,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 logger = logging.getLogger("narrator_erasure")
 
 __all__ = [
-    "FIXED_TARGETS", "SHARED_PURGE", "HISTORICAL_STORES",
+    "FIXED_TARGETS", "SHARED_PURGE", "HISTORICAL_STORES", "PlanIncomplete",
     "EraseResult", "data_root", "validate_root",
     "build_plan", "execute_plan", "erase_person_files",
     "person_file_residue", "UnsafePersonId", "UnsafeDataRoot",
@@ -72,6 +72,13 @@ class UnsafePersonId(ValueError):
 
 class UnsafeDataRoot(RuntimeError):
     """A root that no deletion may be attempted against."""
+
+
+class PlanIncomplete(RuntimeError):
+    """A lane that IS installed could not be read, so the plan would be
+    short. Raised rather than logged: a short plan hands the caller
+    permission to destroy the database authority those targets are
+    named by, after which the files are unreachable."""
 
 
 class UnsafeTarget(RuntimeError):
@@ -232,11 +239,16 @@ def _fixed_plan(person_id: str) -> List[Dict[str, Any]]:
 def _dynamic_plan(person_id: str, con: Any) -> List[Dict[str, Any]]:
     """Targets named by rows that are about to cascade away.
 
-    Every failure here is swallowed to an empty list on purpose: a
-    missing table is a deployment without that feature, and it must not
-    stop the person's transcripts being erased. What it must NOT do is
-    silently reduce the plan on a table that exists and errors -- so
-    each lane logs.
+    FAILS CLOSED, corrected 2026-08-20. Every lane failure used to be
+    logged and swallowed to `[]`, which meant a transient error on an
+    INSTALLED table produced a short plan -- and the caller then
+    destroyed the database authority those targets were named by. The
+    files became unreachable and the answer said complete.
+
+    A MISSING TABLE is the one tolerated case, because it means the
+    feature was never installed in this deployment and there is
+    genuinely nothing to plan. Anything else stops planning, and the
+    caller refuses the deletion.
     """
     out: List[Dict[str, Any]] = []
 
@@ -244,8 +256,14 @@ def _dynamic_plan(person_id: str, con: Any) -> List[Dict[str, Any]]:
         try:
             return con.execute(sql, args).fetchall()
         except Exception as exc:
-            logger.warning("[erasure-plan] %s lane unreadable: %s", lane, exc)
-            return []
+            if "no such table" in str(exc).lower():
+                logger.info("[erasure-plan] %s lane not installed here", lane)
+                return []
+            # An installed table that will not answer. Refusing costs
+            # the operator a retry; continuing costs the narrator their
+            # files with nothing left that knows their names.
+            raise PlanIncomplete(
+                "cannot plan the %s lane: %s" % (lane, exc.__class__.__name__))
 
     # Trip source documents: tickets, PDFs, receipts. Keyed by the
     # source row id, reachable only through the narrator's trips.
@@ -269,21 +287,27 @@ def _dynamic_plan(person_id: str, con: Any) -> List[Dict[str, Any]]:
                         "parts": ["import_staging", ".incoming", bid],
                         "kind": "dir"})
 
-    # Legacy REST transcript exports, one file per conversation per
-    # extension. These predate the archive store and are plain
-    # narrator speech on disk.
+    # Legacy REST transcript exports. These predate the archive store
+    # and are plain narrator speech on disk.
+    #
+    # NAMED BY THE WRITER'S OWN FUNCTION, corrected 2026-08-20. This
+    # used the UNSLUGGED conversation id and scheduled all three of
+    # `interviews`, `bot_tests` and `sessions`. The writer slugs the id
+    # and picks exactly ONE subfolder -- so a conversation id needing
+    # slugging was written as one name and scheduled for deletion as
+    # another, and the real file survived a "complete" erasure, while
+    # two of the three scheduled paths were never this narrator's at
+    # all and an unrelated file of the same name would have gone.
+    from .chat_memory_paths import export_basenames
     for r in _rows("SELECT conv_id FROM sessions WHERE person_id = ?",
                    (person_id,), "sessions"):
         raw = r[0] if not isinstance(r, dict) else r["conv_id"]
-        conv = _validated_segment(raw)
-        if not conv:
-            continue
-        for sub in ("interviews", "bot_tests", "sessions"):
-            for ext in ("json", "jsonl", "txt"):
-                out.append({"target": "agent_transcripts",
-                            "parts": ["memory", "agents", sub,
-                                      "%s.%s" % (conv, ext)],
-                            "kind": "file"})
+        for sub, fname in export_basenames(str(raw or "")):
+            if not _validated_segment(fname):
+                continue
+            out.append({"target": "agent_transcripts",
+                        "parts": ["memory", "agents", sub, fname],
+                        "kind": "file"})
     return out
 
 

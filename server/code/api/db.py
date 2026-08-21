@@ -5593,15 +5593,31 @@ def hard_delete_person(person_id: str, requested_by: Optional[str] = None) -> Op
     # rollback of the delete, and `pending` is written before the
     # database phase so a crash between the two leaves a recoverable
     # job rather than silence.
+    # BOTH STEPS FAIL CLOSED (corrected 2026-08-20). They used to log
+    # and continue -- a plan-building failure substituted `plan=[]` and
+    # a job-write failure was swallowed -- so a deletion could destroy
+    # the database authority and then have no plan to execute or to
+    # retry. Refusing costs the operator a second attempt. Continuing
+    # costs the narrator their files, permanently, with nothing left
+    # that knows where they were.
     try:
         from .services import narrator_erasure as _erasure
         plan = _erasure.build_plan(person_id, con)
+        _erasure_job_upsert(person_id, display_name, plan, "pending",
+                            requested_by=requested_by, required=True)
     except Exception as exc:
-        logger.error("hard_delete_person: could not plan erasure for %s: %s",
+        con.rollback()
+        con.close()
+        logger.error("hard_delete_person REFUSED for %s — no retry plan: %s",
                      person_id, exc)
-        plan = []
-    _erasure_job_upsert(person_id, display_name, plan, "pending",
-                        requested_by=requested_by)
+        return {
+            "error": "plan_unavailable",
+            "person_id": person_id,
+            "detail": "the erasure plan could not be %s, so the deletion was "
+                      "refused before any row was removed: %s"
+                      % ("built" if isinstance(exc, _erasure.PlanIncomplete)
+                         else "saved", exc),
+        }
 
     try:
         # Extended person-scoped tables first (no FK to people — the
@@ -5668,21 +5684,22 @@ def _hard_delete_media(con: sqlite3.Connection, person_id: str) -> Dict[str, int
     explicit hard delete removes them.
 
     Attachments go first so the media rows are not left referenced.
+
+    NOTHING IS CAUGHT HERE (corrected 2026-08-20). Both statements used
+    to swallow `sqlite3.Error` and continue, which could leave
+    ownerless media rows pointing at files the filesystem phase then
+    removed -- a row asserting a photograph exists, and no photograph.
+    A failure propagates to the caller's rollback: the whole deletion
+    is undone and the operator can retry it intact.
     """
     out = {"media": 0, "media_attachments": 0}
-    try:
-        cur = con.execute(
-            "DELETE FROM media_attachments WHERE person_id = ? OR media_id IN "
-            "(SELECT id FROM media WHERE person_id = ?);",
-            (person_id, person_id))
-        out["media_attachments"] = int(cur.rowcount or 0)
-    except sqlite3.Error as exc:
-        logger.warning("hard_delete_media: attachments lane failed: %s", exc)
-    try:
-        cur = con.execute("DELETE FROM media WHERE person_id = ?;", (person_id,))
-        out["media"] = int(cur.rowcount or 0)
-    except sqlite3.Error as exc:
-        logger.warning("hard_delete_media: media lane failed: %s", exc)
+    cur = con.execute(
+        "DELETE FROM media_attachments WHERE person_id = ? OR media_id IN "
+        "(SELECT id FROM media WHERE person_id = ?);",
+        (person_id, person_id))
+    out["media_attachments"] = int(cur.rowcount or 0)
+    cur = con.execute("DELETE FROM media WHERE person_id = ?;", (person_id,))
+    out["media"] = int(cur.rowcount or 0)
     return out
 
 
@@ -5692,13 +5709,20 @@ def _erasure_job_upsert(person_id: str, display_name: str,
                         plan: List[Dict[str, Any]], status: str,
                         *, result: Optional[Dict[str, Any]] = None,
                         requested_by: Optional[str] = None,
-                        bump_attempt: bool = False) -> None:
+                        bump_attempt: bool = False,
+                        required: bool = False) -> None:
     """Write the plan and its status on a SEPARATE connection.
 
     Separate on purpose: the job must survive a rollback of the delete
     it describes. A plan that vanished with the transaction would leave
     exactly the situation this exists to prevent -- files on disk and
     nothing that knows their names.
+
+    `required=True` on the INITIAL pending write, which happens before
+    any row is deleted. That write is the retry contract: without it a
+    failed erasure is unrecoverable, so it raises rather than logging.
+    Later writes are bookkeeping on work already done and must never
+    break a deletion that succeeded, so they stay best-effort.
     """
     now = _now_iso()
     try:
@@ -5729,9 +5753,9 @@ def _erasure_job_upsert(person_id: str, display_name: str,
         finally:
             con.close()
     except Exception as exc:
-        # Never let job bookkeeping break a deletion. The consequence
-        # is a lost retry, which is reported, not a lost deletion.
         logger.error("erasure job write failed for %s: %s", person_id, exc)
+        if required:
+            raise
 
 
 def erasure_job_get(person_id: str) -> Optional[Dict[str, Any]]:
@@ -5805,6 +5829,17 @@ def _run_erasure_phase(person_id: str, display_name: str,
     active = bool(erase.get("active_data_erased"))
     historical = bool(erase.get("historical_residue_present"))
     complete = active and not historical
+    # THREE OUTCOMES, not two (Chris, 2026-08-20). Collapsing them made
+    # a backup produce a permanent 207 on a deletion where nothing had
+    # failed and `retry_available` was false -- an actionable error
+    # code for a situation with no action. `hard_deleted_partial` now
+    # means, and only means, that the active erasure failed.
+    if not active:
+        outcome = "hard_deleted_partial"
+    elif historical:
+        outcome = "hard_deleted_historical_residue"
+    else:
+        outcome = "hard_deleted"
     status = "complete" if active else "partial"
     _erasure_job_upsert(person_id, display_name, plan, status,
                         result=erase, requested_by=requested_by,
@@ -5817,18 +5852,19 @@ def _run_erasure_phase(person_id: str, display_name: str,
             for f in erase.get("failed", [])) or None)
 
     # `counts` from the pre-delete inventory is what MIGHT be affected,
-    # not what was removed. Rows that were detached rather than deleted
-    # must not be counted as deletions -- they used to be, which made
-    # the report overstate the erasure by exactly the rows that
-    # survived it.
+    # not what was removed, and it is not even all database: it carries
+    # `media_owned` (rows the cascade would DETACH, not delete) and
+    # `kawa_segments`, which is a count of FILES ON DISK. Reporting
+    # either under `database_rows_deleted` mixes three different
+    # actions into one number.
     deleted_by_table = {k: v for k, v in (rows_deleted or {}).items()
-                        if k not in ("media_owned", "media_attachments")}
+                        if k not in _NON_TABLE_INVENTORY_KEYS}
     deleted_by_table["media"] = int(media_deleted.get("media", 0))
     deleted_by_table["media_attachments"] = int(
         media_deleted.get("media_attachments", 0))
 
     return {
-        "status": "hard_deleted" if active else "hard_deleted_partial",
+        "status": outcome,
         "erasure_complete": complete,
         "active_data_erased": active,
         "historical_residue_present": historical,
@@ -5853,6 +5889,14 @@ def _run_erasure_phase(person_id: str, display_name: str,
                     "are counted as absent, so a repeat is safe",
         },
     }
+
+
+#: Keys `person_delete_inventory` returns that are NOT database tables
+#: this deletion removes. `media_owned` counts rows the FK cascade
+#: would detach; `kawa_segments` counts JSON files on disk. Both were
+#: being reported as deleted database rows.
+_NON_TABLE_INVENTORY_KEYS = ("media_owned", "media_attachments",
+                             "kawa_segments")
 
 
 def _detached_rows() -> List[Dict[str, Any]]:
@@ -5893,15 +5937,85 @@ def retry_person_erasure(person_id: str,
     service was idempotent all along; what did not exist was any route
     back to it once `people` no longer had the row, so `DELETE` just
     answered 404 and the surviving files were unreachable.
+
+    A job already `complete` is READ BACK, not re-run: pressing delete
+    again on a finished deletion should answer with what happened, not
+    walk the filesystem forever because a backup keeps
+    `erasure_complete` false.
     """
     init_db()
     job = erasure_job_get(person_id)
     if not job:
         return None
-    return _run_erasure_phase(
+    if job.get("status") == "complete":
+        return _completed_job_answer(person_id, job)
+    out = _run_erasure_phase(
         person_id, job.get("display_name") or "", job.get("plan") or [],
         rows_deleted={}, media_deleted={},
         audit_id=None, requested_by=requested_by, attempt=True)
+    # THE AUDIT MUST NOT STOP AT `partial`. The first attempt left a
+    # partial record; a successful retry used to update the job and
+    # leave that record standing, so the one place an operator checks
+    # said the deletion had failed after it had been finished. A
+    # separate event is appended rather than the original rewritten,
+    # so the history reads partial THEN completed.
+    _append_retry_audit(person_id, job.get("display_name") or "",
+                        out, requested_by=requested_by)
+    return out
+
+
+def _completed_job_answer(person_id: str, job: Dict[str, Any]) -> Dict[str, Any]:
+    """The stored result of a deletion that already finished."""
+    stored = job.get("result") or {}
+    active = bool(stored.get("active_data_erased", True))
+    historical = bool(stored.get("historical_residue_present"))
+    return {
+        "status": ("hard_deleted_historical_residue" if historical
+                   else "hard_deleted"),
+        "erasure_complete": active and not historical,
+        "active_data_erased": active,
+        "historical_residue_present": historical,
+        "person_id": person_id,
+        "display_name": job.get("display_name") or "",
+        "already_completed": True,
+        "completed_at": job.get("updated_at"),
+        "attempts": job.get("attempts"),
+        "counts_removed": {},
+        "database_rows_deleted": {},
+        "database_rows_detached": [],
+        "files_removed": stored.get("files_removed", 0),
+        "paths_removed": stored.get("paths_removed", []),
+        "filesystem": stored,
+        "intentionally_retained": _retained_records(),
+        "historical_residue": stored.get("historical_residue", []),
+        "failed_targets": [],
+        "retry_available": False,
+        "retry": {"available": False,
+                  "note": "this deletion already completed; the stored result "
+                          "is returned rather than re-running the plan"},
+    }
+
+
+def _append_retry_audit(person_id: str, display_name: str,
+                        out: Dict[str, Any],
+                        requested_by: Optional[str] = None) -> None:
+    """Append the outcome of a retry attempt to the delete audit."""
+    try:
+        con = _connect()
+        try:
+            _log_delete_audit(
+                con, "hard_delete_retry", person_id, display_name,
+                {"files_removed": out.get("files_removed", 0)},
+                result="success" if out.get("active_data_erased") else "partial",
+                error_detail=None if out.get("active_data_erased") else
+                ", ".join(f.get("path") or f.get("target") or "?"
+                          for f in out.get("failed_targets", [])) or None,
+                requested_by=requested_by)
+            con.commit()
+        finally:
+            con.close()
+    except Exception as exc:                            # pragma: no cover
+        logger.error("retry audit append failed for %s: %s", person_id, exc)
 
 
 def list_delete_audit(limit: int = 50) -> List[Dict[str, Any]]:

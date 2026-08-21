@@ -184,12 +184,21 @@ def _device() -> str:
 # ---------------- Helpers ----------------
 _safe = re.compile(r"[^A-Za-z0-9._ -]+")
 def _slug(s: str) -> str:
-    return _safe.sub("_", (s or "")).strip("_ ").replace(" ", "_") or "session"
+    """Delegates to `services.chat_memory_paths.slug` (2026-08-20).
+
+    It used to be defined here and re-derived, differently, by the
+    erasure planner -- which scheduled the UNSLUGGED id and therefore
+    missed the real file for any conversation whose id needed slugging.
+    One definition, imported by both.
+    """
+    from .services.chat_memory_paths import slug as _canonical_slug
+    return _canonical_slug(s)
 def _lf(s: str) -> str:
     return s.replace("\r\n", "\n").replace("\r", "\n")
 
 def _save_chat_memory_fs(conv_id: str, messages: List[Dict[str, Any]]) -> Dict[str, str]:
-    subfolder = "interviews" if conv_id.lower().startswith("legacy") else "bot_tests"
+    from .services.chat_memory_paths import subfolder_for as _subfolder_for
+    subfolder = _subfolder_for(conv_id)
     target_dir = MEMO_DIR / subfolder
     target_dir.mkdir(parents=True, exist_ok=True)
     base = _slug(conv_id)
