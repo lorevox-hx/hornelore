@@ -1,0 +1,26 @@
+-- 0050 — an erasure plan remembers which data root it was built for.
+--
+-- WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01, deletion integrity
+-- (2026-08-20).
+--
+-- THE DEFECT. A saved plan held RELATIVE paths and nothing else, and a
+-- retry executed them against whatever `DATA_DIR` the process happened
+-- to have at that moment. Reproduced in review: a plan created for
+-- root A, retried under root B, left A intact and deleted B. The same
+-- narrator id exists under both roots in any deployment that has ever
+-- been migrated, restored from a snapshot, or run against a staging
+-- copy -- and the retry is precisely the moment somebody is likely to
+-- be fixing the environment.
+--
+-- The root is therefore part of the plan. `data_root` is the
+-- validated, canonical, absolute path in force when the plan was
+-- built. A retry executes against THAT root, and refuses if it can no
+-- longer be validated as exactly the same place.
+--
+-- Existing rows get '' and are refused on retry rather than guessed
+-- at: a plan whose root is unknown may not be pointed at a root by
+-- inference. That is a small operational cost on jobs created in the
+-- last day, and the alternative is the deletion this migration exists
+-- to prevent.
+
+ALTER TABLE narrator_erasure_jobs ADD COLUMN data_root TEXT NOT NULL DEFAULT '';

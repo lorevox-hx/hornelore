@@ -227,6 +227,45 @@ def safe_target(root: Path, parts: Iterable[str]) -> Path:
 
 # ── The plan ────────────────────────────────────────────────────────────
 
+#: What each dynamic lane needs, and whether the lane is optional.
+#: `(required tables, optional)` -- an OPTIONAL lane whose tables are
+#: ALL missing was never installed here; a lane missing only some of
+#: them is damaged; a lane that is not optional is core and its absence
+#: is always a refusal.
+_LANE_TABLES: Dict[str, Tuple[Tuple[str, ...], bool]] = {
+    # Joined: a trip source is reachable only through its trip, so one
+    # table without the other cannot be planned from.
+    "trip_sources": (("trips", "trip_sources"), True),
+    "import_batch": (("import_batch",), True),
+    # `sessions` is CORE. If it is missing, this narrator's legacy
+    # transcript exports cannot be named at all, and a plan that
+    # quietly omits them is how narrator speech survives a deletion.
+    "sessions": (("sessions",), False),
+}
+
+
+def _installed_tables(con: Any) -> set:
+    """Which of the lane tables this schema actually has.
+
+    Asked ONCE, from `sqlite_master`, rather than inferred from the
+    text of whatever error a query happened to raise.
+    """
+    wanted = set()
+    for required, _optional in _LANE_TABLES.values():
+        wanted.update(required)
+    try:
+        rows = con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    except Exception as exc:
+        raise PlanIncomplete(
+            "cannot read the schema to plan the erasure: %s"
+            % exc.__class__.__name__)
+    names = set()
+    for r in rows:
+        names.add(r[0] if not isinstance(r, dict) else r["name"])
+    return {t for t in wanted if t in names}
+
+
 def _fixed_plan(person_id: str) -> List[Dict[str, Any]]:
     out = [{"target": key, "parts": list(parts) + [person_id], "kind": "dir"}
            for key, parts in FIXED_TARGETS]
@@ -251,41 +290,88 @@ def _dynamic_plan(person_id: str, con: Any) -> List[Dict[str, Any]]:
     caller refuses the deletion.
     """
     out: List[Dict[str, Any]] = []
+    present = _installed_tables(con)
+
+    def _lane_state(lane: str) -> str:
+        """`ready` | `not_installed` | refuse.
+
+        INSTALLATION IS DETERMINED, NOT INFERRED FROM AN ERROR STRING
+        (corrected 2026-08-20). Matching "no such table" treated three
+        different situations as one: a feature that was never
+        installed, a JOINED lane with one of its two tables missing,
+        and a missing CORE table. The second and third are damage, and
+        both used to produce a short plan that the caller then acted
+        on by destroying the rows those targets were named by.
+        """
+        required, optional = _LANE_TABLES[lane]
+        missing = [t for t in required if t not in present]
+        if not missing:
+            return "ready"
+        if not optional:
+            raise PlanIncomplete(
+                "cannot plan the %s lane: core table(s) %s are missing, so "
+                "this narrator's targets cannot be named"
+                % (lane, ", ".join(missing)))
+        if len(missing) == len(required):
+            logger.info("[erasure-plan] %s lane not installed here", lane)
+            return "not_installed"
+        # Some but not all: a partially installed lane. The surviving
+        # table can hold real rows whose directories this plan would
+        # then never name.
+        raise PlanIncomplete(
+            "cannot plan the %s lane: it is partially installed (missing %s "
+            "of %s), so the plan would be short"
+            % (lane, ", ".join(missing), ", ".join(required)))
 
     def _rows(sql: str, args: Tuple[Any, ...], lane: str):
+        if _lane_state(lane) == "not_installed":
+            return []
         try:
             return con.execute(sql, args).fetchall()
         except Exception as exc:
-            if "no such table" in str(exc).lower():
-                logger.info("[erasure-plan] %s lane not installed here", lane)
-                return []
-            # An installed table that will not answer. Refusing costs
-            # the operator a retry; continuing costs the narrator their
-            # files with nothing left that knows their names.
+            # The tables are there and the query still failed. Refusing
+            # costs the operator a retry; continuing costs the narrator
+            # their files with nothing left that knows their names.
             raise PlanIncomplete(
                 "cannot plan the %s lane: %s" % (lane, exc.__class__.__name__))
+
+    def _segment_or_refuse(value: Any, lane: str) -> str:
+        """A row exists and its id cannot be turned into a safe path.
+
+        Skipping it silently, which is what this used to do, produces a
+        plan that is short by exactly the rows nobody could name -- and
+        the caller then deletes the database authority that was the
+        only record of them.
+        """
+        seg = _validated_segment(value)
+        if not seg:
+            raise PlanIncomplete(
+                "cannot plan the %s lane: a row's id is not a shape that can "
+                "be safely turned into a path, so its files could not be "
+                "named" % lane)
+        return seg
 
     # Trip source documents: tickets, PDFs, receipts. Keyed by the
     # source row id, reachable only through the narrator's trips.
     for r in _rows(
             "SELECT s.id FROM trip_sources s JOIN trips t ON t.id = s.trip_id "
             "WHERE t.person_id = ?", (person_id,), "trip_sources"):
-        sid = _validated_segment(r[0] if not isinstance(r, dict) else r["id"])
-        if sid:
-            out.append({"target": "trip_sources", "parts": ["trip_sources", sid],
-                        "kind": "dir"})
+        sid = _segment_or_refuse(
+            r[0] if not isinstance(r, dict) else r["id"], "trip_sources")
+        out.append({"target": "trip_sources", "parts": ["trip_sources", sid],
+                    "kind": "dir"})
 
     # Import staging: the picked originals and the incoming scratch
     # area, both keyed by batch id.
     for r in _rows("SELECT id FROM import_batch WHERE person_id = ?",
                    (person_id,), "import_batch"):
-        bid = _validated_segment(r[0] if not isinstance(r, dict) else r["id"])
-        if bid:
-            out.append({"target": "import_staging",
-                        "parts": ["import_staging", bid], "kind": "dir"})
-            out.append({"target": "import_staging_incoming",
-                        "parts": ["import_staging", ".incoming", bid],
-                        "kind": "dir"})
+        bid = _segment_or_refuse(
+            r[0] if not isinstance(r, dict) else r["id"], "import_batch")
+        out.append({"target": "import_staging",
+                    "parts": ["import_staging", bid], "kind": "dir"})
+        out.append({"target": "import_staging_incoming",
+                    "parts": ["import_staging", ".incoming", bid],
+                    "kind": "dir"})
 
     # Legacy REST transcript exports. These predate the archive store
     # and are plain narrator speech on disk.
@@ -303,8 +389,7 @@ def _dynamic_plan(person_id: str, con: Any) -> List[Dict[str, Any]]:
                    (person_id,), "sessions"):
         raw = r[0] if not isinstance(r, dict) else r["conv_id"]
         for sub, fname in export_basenames(str(raw or "")):
-            if not _validated_segment(fname):
-                continue
+            _segment_or_refuse(fname, "sessions")
             out.append({"target": "agent_transcripts",
                         "parts": ["memory", "agents", sub, fname],
                         "kind": "file"})

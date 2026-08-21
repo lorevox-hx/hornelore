@@ -5602,9 +5602,20 @@ def hard_delete_person(person_id: str, requested_by: Optional[str] = None) -> Op
     # that knows where they were.
     try:
         from .services import narrator_erasure as _erasure
+        # THE ROOT IS PART OF THE PLAN (2026-08-20). A saved plan holds
+        # RELATIVE paths, so a retry used to execute them against
+        # whatever DATA_DIR the process had at that moment. Reproduced
+        # in review: a plan created for root A, retried under root B,
+        # left A intact and deleted B -- and the same narrator id
+        # exists under both roots in any deployment that has been
+        # migrated, restored, or pointed at a staging copy. The retry
+        # is exactly when somebody is likely to be changing the
+        # environment.
+        plan_root = str(_erasure.data_root())
         plan = _erasure.build_plan(person_id, con)
         _erasure_job_upsert(person_id, display_name, plan, "pending",
-                            requested_by=requested_by, required=True)
+                            requested_by=requested_by, required=True,
+                            data_root=plan_root)
     except Exception as exc:
         con.rollback()
         con.close()
@@ -5668,7 +5679,8 @@ def hard_delete_person(person_id: str, requested_by: Optional[str] = None) -> Op
     return _run_erasure_phase(
         person_id, display_name, plan,
         rows_deleted=counts, media_deleted=media_deleted,
-        audit_id=audit_id, requested_by=requested_by)
+        audit_id=audit_id, requested_by=requested_by,
+        data_root=plan_root)
 
 
 # ── Media: deleted, not detached ────────────────────────────────────────
@@ -5710,7 +5722,8 @@ def _erasure_job_upsert(person_id: str, display_name: str,
                         *, result: Optional[Dict[str, Any]] = None,
                         requested_by: Optional[str] = None,
                         bump_attempt: bool = False,
-                        required: bool = False) -> None:
+                        required: bool = False,
+                        data_root: Optional[str] = None) -> None:
     """Write the plan and its status on a SEPARATE connection.
 
     Separate on purpose: the job must survive a rollback of the delete
@@ -5736,19 +5749,32 @@ def _erasure_job_upsert(person_id: str, display_name: str,
             if bump_attempt:
                 attempts += 1
             if row:
-                con.execute(
-                    "UPDATE narrator_erasure_jobs SET status=?, plan_json=?, "
-                    "result_json=?, attempts=?, updated_at=? WHERE person_id=?;",
-                    (status, _json_dump(plan), _json_dump(result or {}),
-                     attempts, now, person_id))
+                # The root is written ONCE, with the plan. A later
+                # status update must never move it: the plan means the
+                # paths under THAT root and nowhere else.
+                if data_root:
+                    con.execute(
+                        "UPDATE narrator_erasure_jobs SET status=?, plan_json=?,"
+                        " result_json=?, attempts=?, updated_at=?, data_root=?"
+                        " WHERE person_id=?;",
+                        (status, _json_dump(plan), _json_dump(result or {}),
+                         attempts, now, data_root, person_id))
+                else:
+                    con.execute(
+                        "UPDATE narrator_erasure_jobs SET status=?, plan_json=?,"
+                        " result_json=?, attempts=?, updated_at=?"
+                        " WHERE person_id=?;",
+                        (status, _json_dump(plan), _json_dump(result or {}),
+                         attempts, now, person_id))
             else:
                 con.execute(
                     "INSERT INTO narrator_erasure_jobs (person_id, display_name,"
                     " status, plan_json, result_json, attempts, requested_by,"
-                    " created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?);",
+                    " created_at, updated_at, data_root)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?);",
                     (person_id, display_name or "", status, _json_dump(plan),
                      _json_dump(result or {}), attempts, requested_by or "",
-                     now, now))
+                     now, now, data_root or ""))
             con.commit()
         finally:
             con.close()
@@ -5765,7 +5791,7 @@ def erasure_job_get(person_id: str) -> Optional[Dict[str, Any]]:
     try:
         row = con.execute(
             "SELECT person_id, display_name, status, plan_json, result_json, "
-            "attempts, requested_by, created_at, updated_at "
+            "attempts, requested_by, created_at, updated_at, data_root "
             "FROM narrator_erasure_jobs WHERE person_id=?;",
             (person_id,)).fetchone()
     finally:
@@ -5808,11 +5834,19 @@ def _run_erasure_phase(person_id: str, display_name: str,
                        media_deleted: Dict[str, int],
                        audit_id: Optional[str] = None,
                        requested_by: Optional[str] = None,
-                       attempt: bool = False) -> Dict[str, Any]:
-    """Execute the plan and answer with what actually happened."""
+                       attempt: bool = False,
+                       data_root: Optional[str] = None) -> Dict[str, Any]:
+    """Execute the plan and answer with what actually happened.
+
+    `data_root` is the root the plan was BUILT for. A plan holds
+    relative paths, so executing it against the process's current root
+    is how a retry after a `DATA_DIR` change comes to delete the same
+    narrator id under a different data root -- proven in review: plan
+    for A, retry under B, A intact and B destroyed.
+    """
     try:
         from .services import narrator_erasure as _erasure
-        erase = _erasure.execute_plan(plan).as_dict()
+        erase = _erasure.execute_plan(plan, root=data_root or None).as_dict()
     except Exception as exc:
         logger.error("hard_delete_person: erasure could not run for %s: %s",
                      person_id, exc)
@@ -5949,10 +5983,39 @@ def retry_person_erasure(person_id: str,
         return None
     if job.get("status") == "complete":
         return _completed_job_answer(person_id, job)
+
+    # THE SAVED ROOT, OR NOTHING. Not the process's current root, and
+    # not a guess for a job that predates the column: a plan whose root
+    # is unknown may not be pointed at one by inference, because the
+    # paths it holds exist under every root this deployment has ever
+    # had.
+    saved_root = (job.get("data_root") or "").strip()
+    from .services import narrator_erasure as _erasure
+    if not saved_root:
+        return _plan_root_refusal(
+            person_id, job,
+            "this erasure plan was saved before its data root was recorded, "
+            "so there is no way to know which root its paths belong to")
+    try:
+        validated = str(_erasure.validate_root(saved_root))
+    except Exception as exc:
+        return _plan_root_refusal(
+            person_id, job,
+            "the data root this plan was built for (%s) cannot be validated: "
+            "%s" % (saved_root, exc))
+    if validated != saved_root:
+        # It resolves somewhere else now -- a moved mount, a changed
+        # symlink. Same paths, different place.
+        return _plan_root_refusal(
+            person_id, job,
+            "the data root this plan was built for (%s) now resolves to %s"
+            % (saved_root, validated))
+
     out = _run_erasure_phase(
         person_id, job.get("display_name") or "", job.get("plan") or [],
         rows_deleted={}, media_deleted={},
-        audit_id=None, requested_by=requested_by, attempt=True)
+        audit_id=None, requested_by=requested_by, attempt=True,
+        data_root=validated)
     # THE AUDIT MUST NOT STOP AT `partial`. The first attempt left a
     # partial record; a successful retry used to update the job and
     # leave that record standing, so the one place an operator checks
@@ -5962,6 +6025,42 @@ def retry_person_erasure(person_id: str,
     _append_retry_audit(person_id, job.get("display_name") or "",
                         out, requested_by=requested_by)
     return out
+
+
+def _plan_root_refusal(person_id: str, job: Dict[str, Any],
+                       why: str) -> Dict[str, Any]:
+    """Refuse a retry whose root cannot be confirmed.
+
+    NOTHING IS REMOVED. The alternative -- running relative paths
+    against whatever root happens to be configured -- is how a retry
+    deletes a different deployment's copy of the same narrator.
+    """
+    logger.error("[erasure] retry REFUSED for %s: %s", person_id, why)
+    return {
+        "status": "hard_deleted_partial",
+        "erasure_complete": False,
+        "active_data_erased": False,
+        "historical_residue_present": False,
+        "person_id": person_id,
+        "display_name": job.get("display_name") or "",
+        "counts_removed": {},
+        "database_rows_deleted": {},
+        "database_rows_detached": [],
+        "files_removed": 0,
+        "paths_removed": [],
+        "filesystem": {"active_data_erased": False, "failed": [], "removed_detail": []},
+        "intentionally_retained": _retained_records(),
+        "historical_residue": [],
+        "failed_targets": [{"target": "*", "reason": "data_root_unconfirmed",
+                            "detail": why}],
+        "retry_available": True,
+        "retry": {
+            "available": True,
+            "note": "nothing was removed. Restore the data root this plan was "
+                    "built for and retry; the plan's paths are relative to "
+                    "that root and to no other.",
+        },
+    }
 
 
 def _completed_job_answer(person_id: str, job: Dict[str, Any]) -> Dict[str, Any]:
