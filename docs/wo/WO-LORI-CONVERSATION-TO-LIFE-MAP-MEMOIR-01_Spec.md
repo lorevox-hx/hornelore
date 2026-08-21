@@ -46,53 +46,65 @@ All held. None was traded for progress.
 
 ## 3. What landed
 
-*Grouped as BUILD BLOCKS, not commits. The lane is twenty-two implementation and
-test commits — `3fc1467` through `73512dd` — and an earlier draft of this section
-labelled the blocks "Commit 1/2/3", which invented a smaller history than the log
-holds. Exact hashes are cited per block below.*
+*Grouped as BUILD BLOCKS, not commits. The lane is **22 implementation and test
+commits**, `3fc1467` through `73512dd`, and the blocks below partition them
+exactly: every commit appears once, none twice, none omitted.*
 
-**Build block A — provenance** (`d1c2742`, `61d946a`). Migration 0047 adds
-`source_user_turn_row_id` and `completed_assistant_turn_row_id` to
-`story_candidates`; 0048 adds two `AFTER DELETE ON turns` triggers that
-clear each column independently so a deleted turn never takes the story
-with it. `story_candidate_bind_turn_rows()` takes the write lock first
-and proves five things before binding — the candidate exists, the
-narrator matches, the conversation matches, both rows are in that
-conversation, and each row has the expected role. Write-once, idempotent
-on the same pair.
+*Two accounting errors are recorded rather than quietly fixed, because
+mis-stating the history is the same failure as inventing a cause from source —
+a plausible number is not a measured one. An early draft labelled the blocks
+"Commit 1/2/3", which invented a smaller history than the log holds. The next
+draft cited hashes but omitted the three approved-story-recall commits, listed
+`61d946a` in two blocks, and called deletion "ten commits" when it is **eight**.*
 
-**Build block B — placement truthfulness** (`61d946a`, `b2cc335`, `9250d6a`). `story_projection` became the
-ONE interpretation of `review_status`. A placement requires an era: a
-year alone does not place a story, because the Life Map is drawn in
-eras. `placement_source` is recorded, never inferred. The review
-transaction refuses an incoherent placement — a source with no era, or
-an era with no source — and the projection reads legacy rows carrying
-those combinations honestly rather than promoting a guess into a
-chapter heading.
+**Build block A — approved-story recall** (`3fc1467`, `c542c75`, `2c2da7d` — 3).
+The lane's starting point, and the reason the rest of it was reachable. Explicit
+narrator-requested recall routes through approved evidence rather than a profile
+summary; it does not depend on the always-on prompt-grounding flag, because a
+narrator asking what they have already told Lori is asking about the record, not
+about a feature; and a recall failure **fails closed** — it renders the
+unavailable notice rather than silently degrading into a profile summary that
+reads like an answer.
 
-**Build block C — one canonical memoir** (`aa61b23`, `28964fc`, `31057a2`). `services/memoir_contract.py`
-is the single reviewed-evidence read. Preview, TXT and DOCX consume it,
-and every item carries a provenance digest so "exactly once" is
-checkable across all three rather than hoped for. The DOCX route makes
-ONE `canonical_memoir()` call; the independent lane reads are gone as
-executable authorities.
+**Build block B — provenance and placement** (`d1c2742`, `61d946a` — 2).
+Migration 0047 adds `source_user_turn_row_id` and
+`completed_assistant_turn_row_id` to `story_candidates`; 0048 adds two
+`AFTER DELETE ON turns` triggers that clear each column independently, so a
+deleted turn never takes the story with it.
+`story_candidate_bind_turn_rows()` takes the write lock first and proves five
+things before binding — the candidate exists, the narrator matches, the
+conversation matches, both rows are in that conversation, and each row has the
+expected role. Write-once, idempotent on the same pair. `story_projection`
+became the ONE interpretation of `review_status`: a placement REQUIRES an era,
+because the Life Map is drawn in eras and a year alone places nothing;
+`placement_source` is recorded, never inferred.
 
-**Build block D — browser lifecycle** (`3ed05e8`, `422ae45`, `83107b1`, `0b43077`). The canonical load runs independently of the
-facts lane, both completion orders converge on one visible result, a
-narrator switch resets memoir state before hydration inside
-`lvxSwitchNarratorSafe()`, identical story texts keep separate source
-ids, and export is refused while the evidence is loading, unreadable,
-incomplete or owned by another narrator.
+**Build block C — canonical memoir and export** (`b2cc335`, `9250d6a`,
+`aa61b23`, `28964fc`, `31057a2` — 5). `services/memoir_contract.py` is the
+single reviewed-evidence read. Preview, TXT and DOCX consume it, and every item
+carries a provenance digest so "exactly once" is checkable across all three
+rather than hoped for. The DOCX route makes ONE `canonical_memoir()` call; the
+independent lane reads are gone as executable authorities. Per-item language is
+honoured, so a bilingual export does not silently render one narrator's words in
+the wrong one.
 
-**Build block E — deletion integrity** (`1ebbbea` through `73512dd`, ten commits). The story chain's own cleanup step exposed a
-privacy defect: `hard_delete_person` removed all active
-narrator/person-scoped content rows — the delete audit and the erasure job are
-retained on purpose and hold no narrator speech — answered 200, and left eight
-files on disk, five of them verbatim narrator speech. `services/narrator_erasure.py` now plans before the
-database authority is destroyed, refuses every symlink below the data
-root, covers eleven stores, and reports three outcomes truthfully.
-Migrations 0049 and 0050 persist the plan and bind it to the canonical
-absolute `DATA_DIR` it was built for.
+**Build block D — browser lifecycle** (`3ed05e8`, `422ae45`, `83107b1`,
+`0b43077` — 4). The canonical load runs independently of the facts lane and both
+completion orders converge on one visible result; a narrator switch resets
+memoir state before hydration inside `lvxSwitchNarratorSafe()`; identical story
+texts keep separate source ids; and export is refused while the evidence is
+loading, unreadable, incomplete, or owned by another narrator.
+
+**Build block E — deletion integrity** (`1ebbbea`, `d1367f7`, `b0609f9`,
+`1275541`, `105f10b`, `ff88d8a`, `30ab2d1`, `73512dd` — **8**). The story
+chain's own cleanup step exposed a privacy defect: `hard_delete_person` removed
+all active narrator/person-scoped content rows — the delete audit and the
+erasure job are retained on purpose and hold no narrator speech — answered 200,
+and left eight files on disk, five of them verbatim narrator speech.
+`services/narrator_erasure.py` now plans before the database authority is
+destroyed, refuses every symlink below the data root, covers eleven stores, and
+reports three outcomes truthfully. Migrations 0049 and 0050 persist the plan and
+bind it to the canonical absolute `DATA_DIR` it was built for.
 
 ## 4. Acceptance
 

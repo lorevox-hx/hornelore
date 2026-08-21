@@ -230,10 +230,13 @@ the only available answer was to refuse. Phase 4 built the reader, wired all thr
 gracefully instead. **The owed Phase 3 check passed in the same live run:** asked what she
 already knew, Lori answered from the approved story rather than saying she did not recall it.
 
-**No Story Integration phases remain. The next lane is finishing Lean Lori** — section metadata,
-directive gating, the history-versus-sections priority decision (from the measurements Phase 4's
-telemetry now emits), passive diagnostics, a small live acceptance, and reconciling that work
-order's stale status table.
+**No Story Integration phases remain. The next lane is Profile Seed reachability; finishing
+Lean Lori follows it.** *(This read "The next lane is finishing Lean Lori" until 2026-08-20,
+before `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` closed and named its successor.)* The Lean
+Lori block itself is unchanged and still owed — section metadata, directive gating, the
+history-versus-sections priority decision (from the measurements Phase 4's telemetry now
+emits), passive diagnostics, a small live acceptance, and reconciling that work order's stale
+status table.
 
 *(This paragraph said Phase 1 was "BUILT and AWAITING LIVE ACCEPTANCE" until 2026-08-17, and
 said "Phase 3 … is not opened" until 2026-08-18.)*
