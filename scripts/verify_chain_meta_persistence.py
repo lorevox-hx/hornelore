@@ -92,6 +92,24 @@ def _ensure_test_narrator(narrator_id: str) -> None:
         # Schema for the people table is opaque to this script — only
         # narrator_id is required for the FK. If the people table has
         # NOT NULL columns this insert will fail loud and we'll know.
+        #
+        # PROFILE_SEED_ENROLLMENT_EXEMPT — synthetic, temporary, and
+        # deleted by `_cleanup_test_rows()` in the same run.
+        #
+        # WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 1 (2026-08-26). Real
+        # narrator creation now enrolls in Profile Seed onboarding
+        # atomically. This row exists only to satisfy the
+        # `story_candidates` foreign key for the duration of one
+        # persistence check and is removed at the end of it, so there is
+        # no narrator left for a walk to be about.
+        #
+        # Worth recording how this insert was found, because the lesson
+        # generalises: the first sweep for direct insertions matched
+        # `INSERT INTO people` and `INSERT OR REPLACE INTO people` and
+        # missed this file, which uses `INSERT OR IGNORE`. The allowlist
+        # test now matches `INSERT (OR <verb> )?INTO people` — a sweep
+        # that misses a writer reports a clean result, which is worse
+        # than no sweep at all.
         con.execute(
             "INSERT OR IGNORE INTO people (id, display_name) VALUES (?, ?);",
             (narrator_id, "Chain Persistence Test"),

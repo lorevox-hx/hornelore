@@ -123,6 +123,26 @@ def upsert_narrator(conn: sqlite3.Connection, narrator: Dict[str, Any]) -> None:
     # marks created_at NOT NULL without a SQL-level default, so the UPSERT
     # must supply them on the INSERT side. On conflict, updated_at is bumped
     # but created_at is preserved (first-insert wins).
+    # PROFILE_SEED_ENROLLMENT_EXEMPT — synthetic fixed-id eval fixtures.
+    #
+    # WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 1 (2026-08-26). Person
+    # creation through `db.create_person()` now enrolls the narrator in
+    # Profile Seed onboarding inside the same transaction. This script
+    # bypasses that path deliberately: it UPSERTS a fixed set of
+    # synthetic eval narrators at hard-coded UUIDs, and those fixtures
+    # are meant to behave like pre-migration narrators — no walk, no
+    # progress row, nothing that would make an eval's prompt depend on
+    # onboarding state. It creates no real narrator and never runs
+    # against one.
+    #
+    # The exemption is EXACT, not a switch: this file is named in the
+    # allowlist in `tests/test_profile_seed_enrollment_coverage.py`, and
+    # that test fails if any other non-test module grows a direct
+    # `INSERT INTO people`. There is deliberately no environment
+    # variable, no `skip_enrollment=` argument and no narrator_type
+    # carve-out — any of those would be reusable, and a reusable
+    # enrollment opt-out is how the real intake path eventually acquires
+    # one.
     conn.execute(
         """
         INSERT INTO people (

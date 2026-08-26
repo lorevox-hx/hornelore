@@ -283,6 +283,16 @@ def ensure_disposable_person(narrator_id: str) -> Dict[str, Any]:
             "SELECT id FROM people WHERE id = ?", (narrator_id,)).fetchone()
         if existing is not None:
             return {"ok": True, "created": False, "id": narrator_id}
+        # PROFILE_SEED_ENROLLMENT_EXEMPT — disposable acceptance-harness
+        # narrator, created and torn down inside one run.
+        #
+        # WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 1 (2026-08-26). Real
+        # narrator creation now enrolls in Profile Seed onboarding
+        # atomically; this row is a scaffold for a Gate 7 acceptance
+        # check, not a narrator anyone will ever talk to, and enrolling
+        # it would put a progress row in the operator's onboarding queue
+        # for a person who does not exist. Named in the exact allowlist
+        # in `tests/test_profile_seed_enrollment_coverage.py`.
         conn.execute(
             "INSERT INTO people (id, display_name, role, created_at, "
             "updated_at, narrator_type) VALUES (?, ?, ?, ?, ?, ?)",

@@ -166,19 +166,42 @@ def _resolve_person_id(name_or_id: str) -> Tuple[str, str]:
     return matches[0]
 
 
-def _ensure_people_row(person_id: str, display_name: str) -> None:
-    """Ensure a row exists in the `people` table for `person_id`.
+class MissingNarrator(RuntimeError):
+    """The overlay target does not exist. This script will not create it."""
 
-    Harness UUIDs (e.g. Kent's `4aa0cc2b-…`) are sometimes used by
-    test scripts that run BEFORE the FE has had a chance to create
-    the people row via the normal new-narrator flow. Without this
-    row, `update_profile_json → ensure_profile` fails with
-    `FOREIGN KEY constraint failed` because `profiles.person_id`
-    has a FK to `people.id`.
 
-    This function is the operator-side equivalent of the chat_ws
-    auto-create path: idempotent INSERT OR IGNORE with sensible
-    defaults. Re-running is safe.
+def _require_people_row(person_id: str) -> None:
+    """Refuse to proceed unless the narrator already exists.
+
+    ── WHY THIS NO LONGER CREATES ANYTHING, 2026-08-26 ─────────────────
+    WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 1.
+
+    This function used to be `_ensure_people_row()` and did an
+    `INSERT INTO people` with `display_name="(harness-pinned)"` for any
+    UUID the operator passed to `--person-id`. It was added in 2026-05-10
+    to unblock a FOREIGN KEY error, and as a fix for that error it
+    worked. The trouble is what it quietly became: an OVERLAY UTILITY
+    THAT WAS ALSO A NARRATOR-CREATION UTILITY. This is a documented
+    operator tool — the module docstring above tells the operator to run
+    it before a live Kent session — so a mistyped `--person-id` created
+    a real, permanent, nameless narrator, and the only sign was one
+    line of stdout.
+
+    Phase 1 makes that unacceptable rather than merely untidy. Narrator
+    creation now enrolls the person in Profile Seed onboarding inside
+    `create_person()`'s transaction, and a person row inserted around
+    that path is HISTORICAL BY DEFINITION — permanently and silently
+    excluded from the ten-topic walk, indistinguishable from a narrator
+    created before the migration. A typo would have produced a narrator
+    who could never be onboarded, with nothing anywhere recording why.
+
+    So the tool now does the one job its name claims. If the narrator is
+    missing, it says so and points at the normal flow. The three
+    remaining direct-SQL inserts in this repository are synthetic test
+    fixtures on an exact allowlist checked by
+    `tests/test_profile_seed_enrollment_coverage.py`; this script is not
+    one of them and does not get an exemption, because it is the only
+    one a human runs against a real narrator.
     """
     from code.api import db as _db  # type: ignore[import-not-found]
     _db.init_db()
@@ -188,34 +211,21 @@ def _ensure_people_row(person_id: str, display_name: str) -> None:
             "SELECT 1 FROM people WHERE id=? LIMIT 1;", (person_id,),
         )
         if cur.fetchone():
-            return  # already exists
-        # Insert minimal row mirroring db.create_person() shape.
-        # Use display_name when known; "(harness-pinned)" otherwise.
-        # narrator_type="live" — the canonical default (was "primary"
-        # in an older schema; NARRATOR_TYPES tuple was tightened to
-        # ('live', 'reference') and the old literal here started
-        # failing _normalise_narrator_type at module load).
-        now = _db._now_iso()
-        nt = _db._normalise_narrator_type("live")
-        dn = display_name if display_name and display_name != "(no people row yet)" \
-            else "(harness-pinned)"
-        con.execute(
-            """
-            INSERT INTO people(
-                id, display_name, role, date_of_birth, place_of_birth,
-                created_at, updated_at, narrator_type
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?);
-            """,
-            (person_id, dn, "", "", "", now, now, nt),
-        )
-        con.commit()
-        print(
-            f"  + created people row for {person_id[:8]}… "
-            f"display_name={dn!r}"
-        )
+            return
     finally:
         con.close()
+    raise MissingNarrator(
+        f"No narrator exists with person_id {person_id!r}.\n"
+        "  This script sets an overlay on an EXISTING narrator; it does not "
+        "create one.\n"
+        "  Create the narrator through the normal new-narrator intake flow "
+        "first (the\n"
+        "  operator intake form, or POST /api/people/intake), then re-run "
+        "this command.\n"
+        "  Creating the row here would skip Profile Seed enrollment and "
+        "leave the\n"
+        "  narrator permanently unable to be onboarded."
+    )
 
 
 def _apply_overlay(
@@ -225,12 +235,10 @@ def _apply_overlay(
 ) -> None:
     from code.api import db as _db  # type: ignore[import-not-found]
     _db.init_db()
-    # 2026-05-10 fix — prevent FOREIGN KEY constraint failed when the
-    # operator pins an overlay on a harness-only UUID that never had
-    # a `people` row created (e.g. Kent's harness UUID). The chat_ws
-    # write path has the same FK issue; creating the people row here
-    # also unblocks softened/turn_count writes during live sessions.
-    _ensure_people_row(person_id, display_name)
+    # 2026-08-26 — was `_ensure_people_row(...)`, which CREATED the
+    # narrator when it was missing. See `_require_people_row` for why an
+    # overlay utility must not also be a narrator-creation utility.
+    _require_people_row(person_id)
     cur = _db.get_profile(person_id) or {}
     prof = dict(cur.get("profile_json") or {})
     prev = prof.get("narrator_voice_overlay") or "(unset)"
@@ -340,7 +348,12 @@ def main() -> int:
         return 2
 
     overlay = _normalize_overlay(args.overlay)
-    _apply_overlay(pid, display, overlay)
+    try:
+        _apply_overlay(pid, display, overlay)
+    except MissingNarrator as exc:
+        # A clear refusal with the remedy, not a traceback. 2026-08-26.
+        print(f"✗ {exc}", file=sys.stderr)
+        return 2
     return 0
 
 
