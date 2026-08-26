@@ -5,10 +5,9 @@
 **Authored:** 2026-08-26 against `main` at `6952ad0`  
 **Predecessor:** `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01`, accepted and complete.
 
-**Status:** IN IMPLEMENTATION — Phase 0 accepted 2026-08-26 at `661aa95`. **Phase 1 (server
-authority) is COMPLETE, PENDING ACCEPTANCE — built and reviewed once, held for two
-corrections, corrected, and awaiting a second review. It is NOT accepted.** Phase 2 has not
-begun. *(This line read "READY FOR IMPLEMENTATION" until 2026-08-26, contradicting §6's own
+**Status:** IN IMPLEMENTATION — Phase 0 accepted at `661aa95`; **Phase 1 (server authority)
+ACCEPTED at `1288baa`, both 2026-08-26. PHASE 2 — prompt and committed-turn wiring — IS NEXT
+AND HAS NOT BEGUN.** *(This line read "READY FOR IMPLEMENTATION" until 2026-08-26, contradicting §6's own
 `STATUS: COMPLETE, ACCEPTED` two hundred lines below. A spec whose header disagrees with its
 body is worse than one that is merely stale, because the header is the part a reader trusts
 without scrolling.)*
@@ -262,13 +261,17 @@ schema changed. Three modules, 46 tests, one expected failure —
   "FOREIGN KEY constraint failed" — which reads like a missing person row and is not.
   Reset `db._BIO_SEED_LOADED = False` before `init_db()`, as `db.py:62-70` documents.
 
-**Phase 1 — server authority — is next.**
+**All five findings above are CLOSED by Phase 1, which is ACCEPTED. Phase 2 — prompt and
+committed-turn wiring — is next and has not begun.** *(This line read "Phase 1 — server
+authority — is next" until 2026-08-26. It sat immediately above the Phase 1 heading, whose
+own status block already said the phase was complete, so the spec contradicted itself across
+two consecutive lines.)*
 
 ### Phase 1 — server authority
 
-**STATUS: COMPLETE, PENDING ACCEPTANCE (2026-08-26). NOT ACCEPTED.** Built at `f343031`,
-held on review for two corrections, corrected, and awaiting a second review. **Phase 2 has
-not begun and must not begin until this is accepted.**
+**STATUS: COMPLETE, ACCEPTED (2026-08-26) at `1288baa`.** Built at `f343031`, held on review
+for two corrections about silent failure, corrected, and accepted on the second review.
+**Phase 2 — prompt and committed-turn wiring — is next and has not begun.**
 
 - Migration 0051 and database accessors.
 - Canonical topic registry and completion resolver.
