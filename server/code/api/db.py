@@ -19,6 +19,13 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
+# WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 1 (2026-08-26).
+# Safe at module scope BECAUSE the service imports nothing from here:
+# every storage function it exposes takes an open connection. That is
+# what lets `create_person()` enroll inside its own transaction, and
+# what lets the PATCH accessor re-resolve inside `BEGIN IMMEDIATE`.
+from .services import profile_seed as _profile_seed
+
 logger = logging.getLogger(__name__)
 
 
@@ -2370,25 +2377,63 @@ def create_person(
     now = _now_iso()
     nt = _normalise_narrator_type(narrator_type)
     con = _connect()
-    con.execute(
-        """
-        INSERT INTO people(
-            id, display_name, role, date_of_birth, place_of_birth,
-            created_at, updated_at, narrator_type,
-            pronouns, pronouns_other, current_residence
+    # ── ATOMIC ENROLLMENT ────────────────────────────────────────────
+    # WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 1 (2026-08-26).
+    #
+    # The people row and the Profile Seed onboarding row land in ONE
+    # transaction. Work order §4.2 refuses "person created, onboarding
+    # best-effort" as a partial success, and the reason is worth stating
+    # plainly: a narrator with no onboarding row is HISTORICAL by
+    # definition — the deliberate absence of a row is how this system
+    # says "do not start a questionnaire on this person". A failed
+    # enrollment that left the person behind would not produce a
+    # narrator missing a feature. It would produce a brand-new narrator
+    # permanently indistinguishable from one created before the
+    # migration, silently excluded from the walk, with nothing anywhere
+    # recording that it happened.
+    #
+    # This function used to commit and close before calling
+    # ensure_profile(), so there was no transaction to join; the
+    # explicit BEGIN below is what creates one. `ensure_profile()` keeps
+    # its own later transaction — it is idempotent, its absence is
+    # recoverable, and widening this boundary further would mean
+    # rewriting the intake fan-out, which this lane is not.
+    try:
+        con.execute("BEGIN IMMEDIATE;")
+        con.execute(
+            """
+            INSERT INTO people(
+                id, display_name, role, date_of_birth, place_of_birth,
+                created_at, updated_at, narrator_type,
+                pronouns, pronouns_other, current_residence
+            )
+            VALUES(?,?,?,?,?,?,?,?,?,?,?);
+            """,
+            (
+                pid, display_name, role or "",
+                _sanitise_dob(date_of_birth), place_of_birth or "",
+                now, now, nt,
+                (pronouns or "").strip(),
+                (pronouns_other or "").strip(),
+                (current_residence or "").strip(),
+            ),
         )
-        VALUES(?,?,?,?,?,?,?,?,?,?,?);
-        """,
-        (
-            pid, display_name, role or "",
-            _sanitise_dob(date_of_birth), place_of_birth or "",
-            now, now, nt,
-            (pronouns or "").strip(),
-            (pronouns_other or "").strip(),
-            (current_residence or "").strip(),
-        ),
-    )
-    con.commit()
+        _profile_seed.enroll(con, pid, now)
+        con.commit()
+    except Exception:
+        # Both rows or neither. The rollback is what makes the sentence
+        # above true rather than aspirational.
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        con.close()
+        logger.exception(
+            "create_person ROLLED BACK for name=%r — Profile Seed enrollment "
+            "or the people insert failed; no person row was created",
+            display_name,
+        )
+        raise
     con.close()
     ensure_profile(pid)
     # v7.4D — log person creation for DB verification (Phase 0)
@@ -2399,6 +2444,148 @@ def create_person(
         nt, pronouns, current_residence,
     )
     return get_person(pid) or {"id": pid, "display_name": display_name}
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Profile Seed onboarding accessors
+# WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 1 (2026-08-26)
+# ─────────────────────────────────────────────────────────────────────
+def profile_seed_resolve(person_id: str) -> Optional[Dict[str, Any]]:
+    """Resolve one narrator's onboarding state, materializing any drift.
+
+    Returns `None` for a HISTORICAL narrator — one with no onboarding
+    row — and never creates one. Work order decision 3.
+
+    This is a WRITING read, and that is deliberate rather than
+    convenient. If evidence arrived since the last resolve (the operator
+    entered the sibling count in Bio Builder, an extraction promoted a
+    career), returning the new answer without persisting it would leave
+    `topic_state_json`, `active_topic_id`, `status` and `version`
+    describing the world before that answer. The next writer would then
+    compare `expected_version` against a number that never moved, and a
+    stale write would be accepted as fresh. `reconcile()` moves the
+    version only when the effective stored state actually changes, so a
+    resolve that finds nothing new costs one SELECT and invalidates
+    nobody.
+    """
+    init_db()
+    con = _connect()
+    try:
+        con.execute("BEGIN IMMEDIATE;")
+        state = _profile_seed.reconcile(con, person_id, now=_now_iso())
+        if state is None:
+            con.rollback()
+            return None
+        con.commit()
+        return state.as_dict()
+    except Exception:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
+
+
+def profile_seed_apply(
+    person_id: str,
+    *,
+    expected_version: int,
+    action: str,
+    topic_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Apply ONE client action to the onboarding row. All-or-nothing.
+
+    `action` is one of `addressed`, `declined`, `pause`, `resume`.
+    Deliberately NOT `known` and NOT `completed`: those are derived from
+    evidence and from the remaining topics, and a client able to declare
+    either could fake its way to the end of the walk, or un-answer a
+    question the narrator has already answered.
+
+    THE ORDER OF THE CHECKS IS THE CONTRACT, and it is the part that is
+    easy to get subtly wrong:
+
+      1. `BEGIN IMMEDIATE` takes the write lock BEFORE the first read.
+         A deferred transaction would read the version, then upgrade,
+         and lose a race it could not detect.
+      2. **Reconcile first.** Evidence may have changed since the
+         client's GET without the progress row's version moving — the
+         operator answering the active topic in another tab is the
+         ordinary case, not an exotic one. Reconciling first
+         materializes that change and bumps the version, so step 3 sees
+         a genuinely stale read for what it is.
+      3. Compare `expected_version` against the version AFTER
+         reconciliation. Mismatch -> `VersionConflict` carrying the
+         fresh state, and nothing is written.
+      4. For a topic disposition, the topic must still be THE ACTIVE
+         TOPIC. Testing only the version would let a write land on a
+         topic that reconciliation just answered.
+      5. Apply, reconcile again so the active topic advances and
+         completion derives, then commit.
+
+    Raises `NotEnrolled` (404), `UnknownTopic` (422), `VersionConflict`
+    (409) or `TopicNotActive` (409). Every one of them rolls back.
+    """
+    init_db()
+    valid_actions = ("addressed", "declined", "pause", "resume")
+    if action not in valid_actions:
+        raise ValueError(f"action must be one of {valid_actions}; got {action!r}")
+    if action in _profile_seed.CLIENT_DISPOSITIONS and not _profile_seed.is_known_topic(topic_id):
+        # Validated before any lock is taken — an unknown topic is a
+        # client bug, not a concurrency event.
+        raise _profile_seed.UnknownTopic(topic_id)
+    try:
+        expected = int(expected_version)
+    except (TypeError, ValueError):
+        raise ValueError("expected_version must be an integer")
+
+    now = _now_iso()
+    con = _connect()
+    try:
+        con.execute("BEGIN IMMEDIATE;")
+
+        if _profile_seed.read_row(con, person_id) is None:
+            con.rollback()
+            raise _profile_seed.NotEnrolled(person_id)
+
+        # Step 2 — materialize evidence drift before comparing versions.
+        state = _profile_seed.reconcile(con, person_id, now=now)
+        if state is None:  # pragma: no cover — row proven present above
+            con.rollback()
+            raise _profile_seed.NotEnrolled(person_id)
+
+        # Step 3 — the version comparison, against post-reconcile truth.
+        if state.version != expected:
+            fresh = state
+            con.rollback()
+            raise _profile_seed.VersionConflict(expected, fresh.version, fresh)
+
+        if action in _profile_seed.CLIENT_DISPOSITIONS:
+            # Step 4 — and this is the check `expected_version` cannot make.
+            if state.active_topic_id != topic_id:
+                active = state.active_topic_id
+                con.rollback()
+                raise _profile_seed.TopicNotActive(str(topic_id), active)
+            _profile_seed.apply_disposition(
+                con, person_id, topic_id=str(topic_id),
+                disposition=action, now=now)
+        else:
+            _profile_seed.set_paused(
+                con, person_id, paused=(action == "pause"), now=now)
+
+        # Step 5 — advance the active topic and derive completion.
+        final = _profile_seed.reconcile(con, person_id, now=now)
+        con.commit()
+        return (final or state).as_dict()
+    except Exception:
+        try:
+            con.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
 
 
 def update_person(
@@ -5355,6 +5542,19 @@ def person_delete_inventory(person_id: str) -> Optional[Dict[str, Any]]:
         # inventory, because deleting the narrator now removes them (and
         # their turns) rather than orphaning them.
         ("sessions", "person_id"),
+        # WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 1 (2026-08-26).
+        #
+        # THIS BELONGS HERE AND NOT IN `_EXTENDED_PERSON_SCOPED_TABLES`.
+        # That list exists for tables the FK cascade cannot reach —
+        # `sessions` is in it precisely because it has no SQLite FK to
+        # `people`. `profile_seed_onboarding` has a real
+        # `REFERENCES people(id) ON DELETE CASCADE`, `_connect()` sets
+        # `PRAGMA foreign_keys=ON`, and `hard_delete_person` deletes the
+        # people row inside its transaction. Adding it to the extended
+        # list as well would give a table with a working deletion path a
+        # second one, and two paths to one outcome is how the surviving
+        # one stops being tested.
+        ("profile_seed_onboarding", "person_id"),
     ]
     for table, col in tables:
         row = con.execute(

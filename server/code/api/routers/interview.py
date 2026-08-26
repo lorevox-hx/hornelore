@@ -25,6 +25,10 @@ from ..interview_engine import (
 )
 from ..llm_interview import draft_final_memoir, draft_section_summary, propose_followup_questions
 from ..safety import scan_answer, build_segment_flags, get_resources_for_category, set_softened, is_softened
+# WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 1 — ONE definition of the
+# identity precondition, shared with the Profile Seed resolver.
+from ..services import profile_seed as _profile_seed
+from ..services.profile_seed import identity_anchors_complete
 
 router = APIRouter(prefix="/api/interview", tags=["interview"])
 
@@ -509,11 +513,20 @@ def _identity_complete(person: dict, profile_basics: dict) -> bool:
 
     Requires: display_name (or preferred), date_of_birth, place_of_birth.
     Matches the thresholds used by prompt_composer's onboarding flow.
+
+    **The body moved to `services.profile_seed.identity_anchors_complete`
+    on 2026-08-26** (WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 1).
+    Behaviour is unchanged; this is now a thin alias so existing callers
+    and the five opener tests keep working against the same name.
+
+    Why it moved rather than being copied: the Profile Seed resolver
+    needs the identical predicate to decide whether the walk may start,
+    and the resolver must not import FastAPI. Two copies of "do we know
+    who this is" would drift, and the two consumers would then disagree
+    about whether to open onboarding — with the narrator paying for the
+    disagreement by being asked their own name again.
     """
-    name_ok = bool((person or {}).get("display_name") or (profile_basics or {}).get("preferred"))
-    dob_ok = bool((person or {}).get("date_of_birth"))
-    pob_ok = bool((person or {}).get("place_of_birth"))
-    return name_ok and dob_ok and pob_ok
+    return identity_anchors_complete(person or {}, profile_basics or {})
 
 
 def _build_opener_text(
@@ -729,3 +742,102 @@ def api_segment_flag_delete(req: SegFlagDeleteRequest):
     """Soft-delete a segment flag identified by session + question."""
     deleted = db.delete_segment_flag_by_question(req.session_id, req.question_id)
     return {"deleted": deleted}
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Profile Seed onboarding
+# WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 1 (2026-08-26)
+#
+# Under the EXISTING interview authority, per work order §4.4 — not a
+# second onboarding engine with its own prefix, its own state and its
+# own eventual disagreement with this one.
+# ─────────────────────────────────────────────────────────────────────
+class ProfileSeedPatchRequest(BaseModel):
+    person_id: str
+    expected_version: int
+    #: `addressed` | `declined` | `pause` | `resume`.
+    #: `known` and `completed` are absent BY DESIGN — see db.profile_seed_apply.
+    action: str
+    topic_id: Optional[str] = None
+
+
+@router.get("/profile-seed", summary="Resolved Profile Seed onboarding state")
+def api_profile_seed_get(person_id: str):
+    """Resolve the narrator's onboarding state.
+
+    A HISTORICAL narrator — one with no onboarding row — gets a 200
+    carrying `enrolled: false` and NOT a row. Two reasons it is a 200
+    rather than a 404: not being enrolled is a legitimate, settled state
+    rather than a missing resource, and a 404 invites a client to
+    "repair" it by creating one, which is exactly the auto-enrollment
+    work order decision 3 forbids.
+    """
+    if not (person_id or "").strip():
+        raise HTTPException(status_code=422, detail="person_id required")
+    state = db.profile_seed_resolve(person_id)
+    if state is None:
+        return _profile_seed.not_enrolled_body(person_id)
+    return state
+
+
+@router.patch("/profile-seed", summary="Record one Profile Seed disposition")
+def api_profile_seed_patch(req: ProfileSeedPatchRequest):
+    """Record `addressed` / `declined`, or pause / resume.
+
+    Status codes, each carrying the reason rather than a bare number:
+
+      404 — not enrolled. A PATCH must not enroll a historical narrator
+            through the back door that GET refuses through the front.
+      422 — unknown topic id, or an action outside the four.
+      409 — the caller's read is stale, OR the topic is no longer the
+            active one. Both mean "re-read and decide again", and both
+            write nothing. The 409 body carries the current state so the
+            client does not need a second round trip to recover.
+    """
+    if not (req.person_id or "").strip():
+        raise HTTPException(status_code=422, detail="person_id required")
+    try:
+        return db.profile_seed_apply(
+            req.person_id,
+            expected_version=req.expected_version,
+            action=req.action,
+            topic_id=req.topic_id,
+        )
+    except _profile_seed.NotEnrolled:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"{req.person_id} is not enrolled in Profile Seed onboarding. "
+                "Historical narrators are not enrolled on demand."
+            ),
+        )
+    except _profile_seed.UnknownTopic as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"unknown Profile Seed topic: {exc.topic_id!r}",
+        )
+    except _profile_seed.TopicNotActive as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "topic_not_active",
+                "topic_id": exc.topic_id,
+                "active_topic_id": exc.active_topic_id,
+                "message": (
+                    "the topic is no longer the active one — it was resolved "
+                    "by evidence or by another writer since your last read"
+                ),
+            },
+        )
+    except _profile_seed.VersionConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "version_conflict",
+                "expected_version": exc.expected,
+                "current_version": exc.actual,
+                "current": exc.current.as_dict(),
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))

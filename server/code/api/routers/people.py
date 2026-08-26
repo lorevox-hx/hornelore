@@ -753,6 +753,14 @@ def api_create_person_intake(payload: NarratorIntakePayload):
                 _try_write_fact("marriage_year", mar.spouses[0].year_married)
         if (mar.marital_status or "").strip():
             profile_patch.setdefault("marriage", {})["status"] = mar.marital_status
+            # WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 1 (2026-08-26) —
+            # the answer now also reaches bio_facts, which is where
+            # operator entry, extraction and the Profile Seed resolver
+            # all look. Until this line, "never married" existed only in
+            # `profile_json.marriage.status`, which nothing outside the
+            # intake form read, so the partner topic could return
+            # forever to a narrator who had already answered it plainly.
+            _try_write_fact("marital_status", mar.marital_status)
 
     # Children → profile_json only
     if payload.children:
@@ -794,7 +802,26 @@ def api_create_person_intake(payload: NarratorIntakePayload):
             _try_write_fact("primary_career", ew.primary_career)
 
     # Military
+    #
+    # WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 1 (2026-08-26) — AN
+    # EXPLICIT "NO" IS AN ANSWER AND MUST BE WRITTEN DOWN.
+    #
+    # This block used to be `if mil and mil.served:` alone, so an
+    # operator who opened the military section and left "served"
+    # unchecked produced exactly the same stored state as an operator
+    # who never opened it: nothing. "Did not serve" and "never asked"
+    # were indistinguishable, and Lori would go on asking a
+    # ninety-year-old about their service record because the system had
+    # no way to remember being told there wasn't one.
+    #
+    # The distinction that makes this safe is `mil is not None`: the
+    # section was PRESENT in the submission. An absent section still
+    # writes nothing, because an untouched form is not an answer and
+    # pretending otherwise would be the mirror-image defect.
     mil = payload.military
+    if mil is not None and not mil.served:
+        profile_patch["military"] = {"served": False}
+        _try_write_fact("military_served", "no")
     if mil and mil.served:
         military_block: Dict[str, Any] = {
             "served": True,
