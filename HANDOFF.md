@@ -120,6 +120,7 @@ reason to divert the authority phase.
 | **`WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01`** | **ACCEPTED AND COMPLETE 2026-08-20** | Story-to-memoir synthetic chain **11/11**; deletion-integrity acceptance **10/10**. Verified against the **filesystem and direct SQL**, never a response body. Lori asks naturally → the answer is preserved → the candidate binds to BOTH committed turn rows → extraction reaches operator review → approval and era placement are atomic → chronology and Life Map agree → preview, TXT and DOCX each contain it **exactly once** with one provenance digest. Spec: [`docs/wo/WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01_Spec.md`](docs/wo/WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01_Spec.md). **Gate B stays OPEN, L2 stays PARTIAL, the directive-family registry stays INERT, and Kawa appears here only as REACHABLE FROZEN LEGACY UI AWAITING ADJUDICATION — non-authoritative; do not extend or build on it — plus one storage directory in the erasure inventory.** **NEXT SUBSTANTIVE LANE: Profile Seed reachability — not another story/memoir testing pass.** |
 | **Deletion integrity** | **CLOSED 2026-08-20 — a privacy defect this lane's own cleanup exposed** | `hard_delete_person` removed all active narrator/person-scoped content rows, answered 200, and left eight files on disk, five of them verbatim narrator speech. Erasure is now planned before the database authority is destroyed and persisted (0049) bound to the canonical absolute root (0050); refuses every symlink below the root, including one pointing at ANOTHER narrator inside it; covers eleven stores; deletes media rather than detaching it; purges the translation cache; **reports backups and exports rather than rewriting them**; fails closed before touching a row; and is retryable through the product API with a truthful audit trail. |
 | **Narrators after the acceptance** | **UNTOUCHED** | **the four family narrators and the designated non-family narrator are all untouched**. The synthetic narrators' people rows, active content and filesystem residue are removed; their audit and erasure-job metadata is intentionally retained and carries no narrator speech. Also: `integrity_check ok`; the **six pre-existing `harness-test-gate7p2` FK violations in `interview_sessions` are unchanged and NOT closed by this lane**. |
+| **Profile Seed reachability** | 🔵 **ACTIVE — spec READY FOR IMPLEMENTATION, Phase 0 not started** | [`WO-LORI-PROFILE-SEED-REACHABILITY-01`](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md), authored by Chris 2026-08-26. **The ten-topic workflow is preserved and ordinarily unreachable, and the cause is a race the intake itself starts:** intake requires name, DOB and birthplace; those three anchors are exactly what chronology needs; chronology promotes `pass1 → pass2a`; and the composer emits the ten-topic block only for an identity-complete narrator STILL in `pass1`. So the ordinary path supplies what closes its own gate before the narrator's first normal turn, while a testing-only narrator without the anchors goes down identity mode instead — which mutually excludes the block. Present in source, covered as a predicate, and proven by nothing. The spec also records completion-data gaps: siblings, explicit "none" answers, education field naming, childhood home versus birthplace, and actual retired/working status. **Phase 0 is an executable map with NO behavior change** — pin every current promotion writer, add a FAILING ordinary-intake reachability test that demonstrates the skip, and add fixtures for all ten topic shapes including explicit negatives. |
 | Kawa / Memory River | **REACHABLE FROZEN LEGACY UI** | Phase 2 did not extend it. Awaiting a deliberate removal decision. |
 | Runtime safety | **PARKED, server-authoritative** | Never reactivate through environment values. |
 | Model / 8,192-token window | **LOCKED** | Any proposed model change is stop-and-report. |
@@ -158,7 +159,7 @@ requires a separately reviewed SQLite rebuild and rollback plan.
 
 ## 4. Immediate execution order
 
-**Next action: Profile Seed reachability — NOT another story/memoir testing pass.**
+**Next action: Profile Seed reachability — Phase 0 of [`WO-LORI-PROFILE-SEED-REACHABILITY-01`](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md).** NOT another story/memoir testing pass.
 
 *(This section read "finish Lean Lori, in one substantial implementation block" until
 2026-08-20. `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` ran and closed in between, and its
@@ -167,7 +168,13 @@ content and is still owed; what changed is what comes first.)*
 
 **The ten-topic Profile Seed onboarding is preserved for new Lorevox narrators REGARDLESS OF
 NARRATOR TYPE.** What is owed is reachability: an ordinary new narrator must actually reach
-it. That is the lane. `WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` is **COMPLETE** — Phases 1–4
+it. That is the lane, and it now has a spec — [`WO-LORI-PROFILE-SEED-REACHABILITY-01`](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md), authored by Chris against
+`6952ad0` on 2026-08-26 and READY FOR IMPLEMENTATION. It establishes server-owned,
+restart-safe onboarding progress; all ten topics preserved regardless of narrator type; NO
+automatic enrollment of historical narrators; chronology readiness separated from onboarding
+completion; known / negative / declined / unanswered topic states; one question per turn;
+versioned writes with narrator-switch isolation; and explicit offline and live acceptance
+gates. **Start at Phase 0, which changes no behavior.** `WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` is **COMPLETE** — Phases 1–4
 all accepted — and `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` is **ACCEPTED AND COMPLETE**.
 Do not resume the L2 matrix.
 

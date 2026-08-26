@@ -30,6 +30,7 @@ Run with:
 """
 from __future__ import annotations
 
+import os
 import sqlite3
 import sys
 import tempfile
@@ -49,6 +50,12 @@ from api.services.story_projection import _clip_to_boundary  # noqa: E402
 
 class _Base(unittest.TestCase):
     def setUp(self):
+        self.data_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.data_tmp.cleanup)
+        self._orig_data_dir = os.environ.get("DATA_DIR")
+        os.environ["DATA_DIR"] = str(Path(self.data_tmp.name).resolve())
+        self.addCleanup(self._restore_data_dir)
+
         fd = tempfile.NamedTemporaryFile(suffix=".sqlite3", delete=False)
         fd.close()
         self.db_path = Path(fd.name)
@@ -69,6 +76,12 @@ class _Base(unittest.TestCase):
             (self.conv, "2026-08-19"))
         con.commit()
         con.close()
+
+    def _restore_data_dir(self):
+        if self._orig_data_dir is None:
+            os.environ.pop("DATA_DIR", None)
+        else:
+            os.environ["DATA_DIR"] = self._orig_data_dir
 
     def tearDown(self):
         _db.DB_PATH = self._orig

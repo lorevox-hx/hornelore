@@ -184,9 +184,13 @@ as **reachable frozen legacy UI awaiting adjudication** — non-authoritative; d
 or build on it — plus one storage directory in the erasure inventory. Nothing in this lane
 revived it.
 
-**The next substantive lane is Profile Seed reachability.** The ten-topic Profile Seed
-onboarding is preserved for new Lorevox narrators **regardless of narrator type**; what is
-owed is that an ordinary new narrator reaches it. *(Several governing documents read
+**The next substantive lane is Profile Seed reachability, and it now has a spec —** [`WO-LORI-PROFILE-SEED-REACHABILITY-01`](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md), ready for implementation. The ten-topic Profile Seed onboarding is preserved for
+new Lorevox narrators **regardless of narrator type**; what is owed is that an ordinary new
+narrator reaches it. Today they do not, and the cause is a race the intake itself starts:
+intake requires name, date of birth and birthplace; those three anchors are exactly what the
+chronology needs; the chronology promotes the session past `pass1`; and the ten-topic block is
+emitted only for an identity-complete narrator still in `pass1`. The ordinary path closes its
+own gate before the narrator's first normal turn. *(Several governing documents read
 "Option A, live narrators only" until 2026-08-20. That wording was false in the harmful
 direction — it read as licence to gate the onboarding on narrator type — and is corrected in
 place.)*
@@ -230,8 +234,8 @@ the only available answer was to refuse. Phase 4 built the reader, wired all thr
 gracefully instead. **The owed Phase 3 check passed in the same live run:** asked what she
 already knew, Lori answered from the approved story rather than saying she did not recall it.
 
-**No Story Integration phases remain. The next lane is Profile Seed reachability; finishing
-Lean Lori follows it.** *(This read "The next lane is finishing Lean Lori" until 2026-08-20,
+**No Story Integration phases remain. The next lane is Profile Seed reachability — spec
+ready, starting at Phase 0; finishing Lean Lori follows it.** *(This read "The next lane is finishing Lean Lori" until 2026-08-20,
 before `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` closed and named its successor.)* The Lean
 Lori block itself is unchanged and still owed — section metadata, directive gating, the
 history-versus-sections priority decision (from the measurements Phase 4's telemetry now

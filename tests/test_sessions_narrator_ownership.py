@@ -18,6 +18,7 @@ pytest is not installed in this repo. Run with:
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import sys
 import tempfile
@@ -37,6 +38,24 @@ _MIGRATION = "0044_sessions_person_id.sql"
 
 class _Base(unittest.TestCase):
     def setUp(self):
+        # A DATA ROOT, added 2026-08-26 — the same stale-fixture repair Chris
+        # made to `test_story_turn_provenance.py`, found here by sweeping every
+        # suite that calls `hard_delete_person` without one.
+        #
+        # `hard_delete_person` now erases the narrator's filesystem directories
+        # as well as their rows, and REFUSES the whole deletion when it cannot
+        # build a retry plan against a validated absolute `DATA_DIR`. Without a
+        # root configured the delete correctly returns `plan_unavailable` and
+        # removes nothing — so two assertions here failed on rows that were
+        # never meant to survive. **The product was right and the fixture was
+        # stale**; that distinction is the reason this is a fixture change and
+        # not a product change.
+        self.data_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.data_tmp.cleanup)
+        self._orig_data_dir = os.environ.get("DATA_DIR")
+        os.environ["DATA_DIR"] = str(Path(self.data_tmp.name).resolve())
+        self.addCleanup(self._restore_data_dir)
+
         tmp = tempfile.NamedTemporaryFile(suffix=".sqlite3", delete=False)
         tmp.close()
         self.db_path = Path(tmp.name)
@@ -45,6 +64,12 @@ class _Base(unittest.TestCase):
         _db.init_db()
         self.person_id = self._insert_person("Test Narrator One")
         self.other_id = self._insert_person("Test Narrator Two")
+
+    def _restore_data_dir(self):
+        if self._orig_data_dir is None:
+            os.environ.pop("DATA_DIR", None)
+        else:
+            os.environ["DATA_DIR"] = self._orig_data_dir
 
     def tearDown(self):
         _db.DB_PATH = self._orig_db
