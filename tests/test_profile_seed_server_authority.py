@@ -842,6 +842,283 @@ class DeletionTests(_Base):
         self.assertNotIn("onboarding", blob)
 
 
+# ── 8b. A storage fault must never look like an answer ──────────────────
+class StorageFaultsAreNotAbsenceTests(_Base):
+    """Failure injection, because the failure mode is silent by nature.
+
+    Every empty result in the resolver is a PRODUCT DECISION:
+
+        no onboarding row -> "this narrator is HISTORICAL"
+        no people row     -> "the identity anchors are missing"
+        no bio_facts      -> "all ten topics are UNANSWERED"
+
+    The first version of the five readers caught `sqlite3.Error` and
+    returned an empty result — the ordinary defensive habit, and wrong
+    here. A closed connection, a lock or a corrupt page could produce a
+    narrator with ten unanswered topics, and the product's response to
+    ten unanswered topics is to ask all ten questions. Someone who
+    already told Lori about their siblings gets asked about their
+    siblings because a query failed, and nothing anywhere says so.
+
+    Principle 8 is that Lori must not interrogate the narrator for facts
+    the system already has. These tests exist so that principle cannot
+    be violated by infrastructure rather than by design.
+
+    A 500 is a bad afternoon for the operator. A silent re-interrogation
+    is a bad afternoon for the narrator, and only one of them is
+    visible.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.pid = self._new_person()
+        _db.bio_fact_create(
+            narrator_id=self.pid, field_key="sibling_count",
+            value_json=json.dumps(2), status="operator_entered")
+        self.healthy = _db.profile_seed_resolve(self.pid)
+        self.assertIn("siblings", self.healthy["known_topics"],
+                      "fixture did not establish evidence, so a failure "
+                      "injection below would prove nothing")
+
+    def _dead_connection(self):
+        """A connection that raises on every statement."""
+        con = sqlite3.connect(str(self.db_path))
+        con.row_factory = sqlite3.Row
+        con.close()
+        return con
+
+    # ── each reader ON ITS OWN ──────────────────────────────────────
+    #
+    # EVERY READER GETS ITS OWN CASE, and the reason is a mutation that
+    # survived. The first version tested `load_snapshot()` once, which
+    # calls its three readers in order — so restoring the suppression
+    # inside `_load_profile_root` or `_load_bio_values` was INVISIBLE:
+    # whichever reader still raised did so first, and the test passed
+    # while two of the three guards were gone. A composite call cannot
+    # prove anything about its components.
+    #
+    # Each entry names what the suppression WOULD have looked like, so a
+    # failure message says what was at stake rather than just which
+    # assertion tripped.
+    _DIRECT_READERS = (
+        ("_load_profile_root", "a narrator with no profile"),
+        ("_load_projection_values", "no provisional evidence"),
+        ("_load_bio_values", "ten unanswered topics"),
+        ("_person_and_basics", "incomplete identity anchors"),
+        ("read_row", "a historical narrator"),
+        ("person_exists", "a nonexistent narrator"),
+    )
+
+    def test_every_reader_propagates_on_its_own(self):
+        for reader_name, would_have_looked_like in self._DIRECT_READERS:
+            with self.subTest(reader=reader_name):
+                reader = getattr(_ps, reader_name)
+                con = self._dead_connection()
+                with self.assertRaises(
+                        sqlite3.Error,
+                        msg=f"{reader_name}() swallowed a database fault and "
+                            f"returned {would_have_looked_like}"):
+                    reader(con, self.pid)
+
+    def test_the_dead_connection_is_a_real_fault(self):
+        """Positive control: the same call succeeds on a live connection.
+
+        Without this, `_dead_connection()` returning something that
+        raises for an unrelated reason — or a reader that raises
+        unconditionally — would look like a passing guard.
+        """
+        con = self._con()
+        try:
+            for reader_name, _ in self._DIRECT_READERS:
+                with self.subTest(reader=reader_name):
+                    getattr(_ps, reader_name)(con, self.pid)
+        finally:
+            con.close()
+
+    def test_the_snapshot_propagates_instead_of_reporting_no_evidence(self):
+        """The composite, kept as well: an empty snapshot is ten
+        unanswered topics, and that is the shape callers act on."""
+        con = self._dead_connection()
+        with self.assertRaises(sqlite3.Error):
+            _ps.load_snapshot(con, self.pid)
+
+    def test_reconcile_propagates_instead_of_deciding(self):
+        con = self._dead_connection()
+        with self.assertRaises(sqlite3.Error):
+            _ps.reconcile(con, self.pid, now="2026-08-26T00:00:00Z")
+
+    # ── and through the real accessors ──────────────────────────────
+    #
+    # NOTE ON THE INSTRUMENT. The first version of this section injected
+    # the fault by renaming tables out from under the resolver. That
+    # instrument did not work and it FAILED SAFE ONLY BY LUCK: every
+    # accessor calls `init_db()` first, which recreated each renamed
+    # table as an empty one, so the resolver read a perfectly healthy
+    # empty database and returned real answers. Had the assertions been
+    # written the other way round it would have "proved" the opposite of
+    # the truth.
+    #
+    # Injecting at the reader is both simpler and more faithful. What is
+    # under test is the resolver's response to a failing query, not
+    # SQLite's response to a missing table.
+    _READERS = (
+        ("_load_bio_values", "ten unanswered topics"),
+        ("_load_profile_root", "incomplete identity"),
+        ("_load_projection_values", "no provisional evidence"),
+        ("_person_and_basics", "incomplete identity"),
+        ("read_row", "a historical narrator"),
+    )
+
+    def _fail(self, reader_name):
+        """Make one reader raise the way a locked database does."""
+        original = getattr(_ps, reader_name)
+
+        def _boom(*a, **kw):
+            raise sqlite3.OperationalError("database is locked")
+
+        setattr(_ps, reader_name, _boom)
+        self.addCleanup(setattr, _ps, reader_name, original)
+
+    def test_each_failing_reader_propagates_through_resolve(self):
+        for reader_name, would_have_looked_like in self._READERS:
+            with self.subTest(reader=reader_name):
+                original = getattr(_ps, reader_name)
+                self._fail(reader_name)
+                try:
+                    with self.assertRaises(
+                            sqlite3.Error,
+                            msg=f"a failing {reader_name}() was reported as "
+                                f"{would_have_looked_like}"):
+                        _db.profile_seed_resolve(self.pid)
+                finally:
+                    setattr(_ps, reader_name, original)
+
+    def test_no_fault_ever_produces_a_decision_shaped_answer(self):
+        """The claim stated positively, not merely as "something broke".
+
+        Each `assertRaises` above proves an exception escaped. This
+        proves what did NOT come back: `enrolled: false`, `pending`, or
+        ten unanswered topics — the three shapes a caller would have
+        acted on, the last of them by asking the narrator all ten
+        questions again.
+        """
+        forbidden = []
+        for reader_name, _ in self._READERS:
+            original = getattr(_ps, reader_name)
+            self._fail(reader_name)
+            try:
+                outcome = _db.profile_seed_resolve(self.pid)
+            except sqlite3.Error:
+                outcome = None
+            else:
+                forbidden.append((reader_name, outcome))
+            finally:
+                setattr(_ps, reader_name, original)
+        self.assertEqual(
+            forbidden, [],
+            "a storage fault returned an onboarding decision instead of "
+            "raising: " + repr(forbidden))
+
+    def test_the_injection_is_not_vacuous(self):
+        """A positive control on the instrument itself.
+
+        Without it, a `_fail()` that patched the wrong attribute would
+        make every test above pass for the wrong reason — and this
+        section has already shipped one instrument that did exactly
+        that.
+        """
+        self.assertEqual(_db.profile_seed_resolve(self.pid), self.healthy,
+                         "the resolver is not healthy before injection, so "
+                         "the failures below would prove nothing")
+        for reader_name, _ in self._READERS:
+            with self.subTest(reader=reader_name):
+                self.assertTrue(hasattr(_ps, reader_name),
+                                f"{reader_name} does not exist — the "
+                                "injection would patch nothing")
+
+    def test_a_broken_read_writes_nothing_and_leaves_state_intact(self):
+        """The failure must not be destructive either."""
+        before = dict(self._row(self.pid))
+        original = _ps._load_bio_values
+        self._fail("_load_bio_values")
+        try:
+            with self.assertRaises(sqlite3.Error):
+                _db.profile_seed_resolve(self.pid)
+        finally:
+            _ps._load_bio_values = original
+        self.assertEqual(dict(self._row(self.pid)), before,
+                         "a failed resolve mutated the onboarding row")
+        self.assertEqual(_db.profile_seed_resolve(self.pid), self.healthy,
+                         "state did not survive the fault")
+
+    def test_a_patch_over_a_broken_read_propagates_and_writes_nothing(self):
+        before = dict(self._row(self.pid))
+        original = _ps._load_bio_values
+        self._fail("_load_bio_values")
+        try:
+            with self.assertRaises(sqlite3.Error):
+                _db.profile_seed_apply(
+                    self.pid, expected_version=self.healthy["version"],
+                    action="addressed",
+                    topic_id=self.healthy["active_topic_id"])
+        finally:
+            _ps._load_bio_values = original
+        self.assertEqual(dict(self._row(self.pid)), before,
+                         "a rejected PATCH still changed the row")
+
+
+# ── 8c. Historical is not the same as nonexistent ───────────────────────
+class HistoricalIsNotNonexistentTests(_Base):
+    """`enrolled: false` is a claim about a REAL narrator.
+
+    It says: this person predates migration 0051 and is deliberately not
+    being walked through onboarding. Returning it for a `person_id` that
+    names nobody says that same reassuring thing about a typo, a stale
+    bookmark, or a narrator who was deleted — and the body gives the
+    client no way to tell which they are looking at.
+
+    Work order decision 3 governs HISTORICAL narrators. It is silent on
+    identifiers that name no one, and silence is not permission to
+    answer 200.
+    """
+
+    def test_a_historical_narrator_resolves_to_none_and_writes_nothing(self):
+        pid = self._historical_person()
+        self.assertIsNone(_db.profile_seed_resolve(pid))
+        self.assertIsNone(self._row(pid))
+
+    def test_a_nonexistent_person_raises_and_writes_nothing(self):
+        ghost = str(uuid.uuid4())
+        with self.assertRaises(_ps.PersonNotFound):
+            _db.profile_seed_resolve(ghost)
+        self.assertIsNone(self._row(ghost))
+
+    def test_patching_a_nonexistent_person_raises_and_writes_nothing(self):
+        ghost = str(uuid.uuid4())
+        with self.assertRaises(_ps.PersonNotFound):
+            _db.profile_seed_apply(ghost, expected_version=1, action="pause")
+        self.assertIsNone(self._row(ghost))
+
+    def test_the_two_are_different_exceptions(self):
+        """A caller must be able to act on the difference."""
+        self.assertFalse(issubclass(_ps.PersonNotFound, _ps.NotEnrolled))
+        self.assertFalse(issubclass(_ps.NotEnrolled, _ps.PersonNotFound))
+
+    def test_a_deleted_narrator_stops_being_historical(self):
+        """The case that makes this concrete.
+
+        Hard-delete removes the people row and cascades the onboarding
+        row, so the id afterwards names nobody. Before this correction
+        it would have reported `enrolled: false` — describing a deleted
+        narrator as a legitimate historical one.
+        """
+        pid = self._new_person()
+        _db.profile_seed_resolve(pid)
+        _db.hard_delete_person(pid, requested_by="test")
+        with self.assertRaises(_ps.PersonNotFound):
+            _db.profile_seed_resolve(pid)
+
+
 # ── 9. Phase 0 stays honest ─────────────────────────────────────────────
 @unittest.skipUnless(
     _HAS_FASTAPI,
@@ -956,6 +1233,49 @@ class RouteContractTests(_Base):
             "person_id": pid, "expected_version": 1, "action": "pause"})
         self.assertEqual(r.status_code, 404)
         self.assertIsNone(self._row(pid))
+
+    def test_get_on_a_nonexistent_person_is_404_not_enrolled_false(self):
+        """The correction, at the wire.
+
+        `enrolled: false` is an answer about a real narrator. A typo
+        must not receive it.
+        """
+        ghost = str(uuid.uuid4())
+        r = self.client.get("/api/interview/profile-seed",
+                            params={"person_id": ghost})
+        self.assertEqual(
+            r.status_code, 404,
+            "a person_id naming nobody was reported as a legitimate "
+            "historical narrator")
+        self.assertIsNone(self._row(ghost), "the 404 path wrote a row")
+
+    def test_the_two_404_details_are_distinguishable(self):
+        """Same status, different meaning, and the body says which.
+
+        One means the id names nobody; the other means a real narrator
+        is deliberately not enrolled. A client that cannot tell them
+        apart will eventually "fix" the wrong one.
+        """
+        ghost = str(uuid.uuid4())
+        historical = self._historical_person()
+
+        ghost_detail = self.client.patch("/api/interview/profile-seed", json={
+            "person_id": ghost, "expected_version": 1,
+            "action": "pause"}).json()["detail"]
+        hist_detail = self.client.patch("/api/interview/profile-seed", json={
+            "person_id": historical, "expected_version": 1,
+            "action": "pause"}).json()["detail"]
+
+        self.assertNotEqual(ghost_detail, hist_detail)
+        self.assertIn("no narrator exists", ghost_detail)
+        self.assertIn("not enrolled", hist_detail)
+
+    def test_patching_a_nonexistent_person_is_404_and_writes_nothing(self):
+        ghost = str(uuid.uuid4())
+        r = self.client.patch("/api/interview/profile-seed", json={
+            "person_id": ghost, "expected_version": 1, "action": "pause"})
+        self.assertEqual(r.status_code, 404)
+        self.assertIsNone(self._row(ghost))
 
     def test_the_identity_predicate_is_one_function(self):
         """The router alias and the service must be the same behaviour."""
