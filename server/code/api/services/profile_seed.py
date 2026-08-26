@@ -65,6 +65,40 @@ corrected or superseded does not leave a fossilised `known` behind.
 `addressed` and `declined` are STORED, because "they answered" and
 "they would rather not" are facts about the conversation that no truth
 store records.
+
+STORAGE FAULTS ARE NOT ABSENCE
+──────────────────────────────
+**No reader in this module catches `sqlite3.Error`.** The first version
+of all five caught it and returned an empty result, which is the
+ordinary defensive habit and was wrong here, because in this module
+EVERY EMPTY RESULT IS A PRODUCT DECISION:
+
+  * no onboarding row  -> "this narrator is HISTORICAL, never enrol
+    them";
+  * no `people` row    -> "the identity anchors are missing, hold the
+    walk at `pending`";
+  * no `bio_facts`     -> "all ten topics are UNANSWERED".
+
+The third is the one that matters most. A locked database, a corrupt
+page or a closed connection would have produced a narrator with ten
+unanswered topics — and the product's response to that is to ask them
+all ten questions again. Someone who has already told Lori about their
+siblings gets asked about their siblings because a query failed.
+Principle 8 is that Lori must not interrogate the narrator for facts
+the system already has; silently converting "could not read" into
+"nothing is known" is how that principle gets violated by
+infrastructure rather than by design.
+
+Every caller reaches these readers through `init_db()`, which applies
+migration 0051, so a missing table is a fault and not a phase. SQLite
+errors propagate and become 500s. A 500 is a bad afternoon for the
+operator; a silent re-interrogation is a bad afternoon for the
+narrator, and only one of them is visible.
+
+The narrow JSON-decoding defences are KEPT and are a different case: a
+malformed `profile_json` is a real, recoverable data condition that
+predates this lane, and treating one unparseable blob as "no profile"
+degrades one topic rather than inventing a lifecycle state.
 """
 from __future__ import annotations
 
@@ -297,6 +331,26 @@ class NotEnrolled(ProfileSeedError):
         self.person_id = person_id
 
 
+class PersonNotFound(ProfileSeedError):
+    """No `people` row at all — 404.
+
+    Distinct from `NotEnrolled`, and the distinction is the point.
+    `NotEnrolled` is a statement about a REAL narrator: they predate
+    migration 0051 and are deliberately not being walked through
+    onboarding, so `enrolled: false` is the truthful, settled answer and
+    a 200 is correct for it.
+
+    A `person_id` that names nobody is not that. Answering it with the
+    same reassuring 200 would tell a client that a typo, a stale
+    bookmark or a deleted narrator is a legitimate historical narrator,
+    and nothing in the response would let them tell the difference.
+    """
+
+    def __init__(self, person_id: str):
+        super().__init__(f"no narrator exists with person_id {person_id!r}")
+        self.person_id = person_id
+
+
 class UnknownTopic(ProfileSeedError):
     """A topic id that is not in the canonical registry — 422."""
 
@@ -418,13 +472,11 @@ class _Snapshot:
 
 
 def _load_profile_root(con: sqlite3.Connection, person_id: str) -> Mapping[str, Any]:
-    try:
-        row = con.execute(
-            "SELECT profile_json FROM profiles WHERE person_id=?;",
-            (person_id,),
-        ).fetchone()
-    except sqlite3.Error:
-        return {}
+    # NO `except sqlite3.Error` HERE — see STORAGE FAULTS ARE NOT ABSENCE.
+    row = con.execute(
+        "SELECT profile_json FROM profiles WHERE person_id=?;",
+        (person_id,),
+    ).fetchone()
     if not row:
         return {}
     try:
@@ -448,13 +500,11 @@ def _load_projection_values(con: sqlite3.Connection,
     Committed `fields` win over `pendingSuggestions` for the same path.
     """
     out: Dict[str, Any] = {}
-    try:
-        row = con.execute(
-            "SELECT projection_json FROM interview_projections WHERE person_id=?;",
-            (person_id,),
-        ).fetchone()
-    except sqlite3.Error:
-        return out
+    # NO `except sqlite3.Error` HERE — see STORAGE FAULTS ARE NOT ABSENCE.
+    row = con.execute(
+        "SELECT projection_json FROM interview_projections WHERE person_id=?;",
+        (person_id,),
+    ).fetchone()
     if not row:
         return out
     try:
@@ -490,15 +540,16 @@ def _load_bio_values(con: sqlite3.Connection, person_id: str) -> Dict[str, Any]:
     """
     out: Dict[str, Any] = {}
     placeholders = ",".join("?" * len(EVIDENCE_BIO_STATUSES))
-    try:
-        rows = con.execute(
-            "SELECT field_key, value FROM bio_facts "
-            f"WHERE narrator_id=? AND status IN ({placeholders}) "  # noqa: S608
-            "ORDER BY last_updated ASC;",
-            (person_id, *EVIDENCE_BIO_STATUSES),
-        ).fetchall()
-    except sqlite3.Error:
-        return out
+    # NO `except sqlite3.Error` HERE — see STORAGE FAULTS ARE NOT ABSENCE.
+    # This reader is the most dangerous of the five to suppress: an
+    # unreadable `bio_facts` makes every topic look unanswered, which is
+    # the exact shape of "ask this narrator all ten questions again".
+    rows = con.execute(
+        "SELECT field_key, value FROM bio_facts "
+        f"WHERE narrator_id=? AND status IN ({placeholders}) "  # noqa: S608
+        "ORDER BY last_updated ASC;",
+        (person_id, *EVIDENCE_BIO_STATUSES),
+    ).fetchall()
     for row in rows:
         key = row[0]
         raw = row[1]
@@ -650,21 +701,46 @@ def _coerce_topic_state(raw: Any) -> Dict[str, str]:
 
 
 def read_row(con: sqlite3.Connection, person_id: str) -> Optional[sqlite3.Row]:
-    try:
-        return con.execute(
-            f"SELECT person_id, status, topic_state_json, active_topic_id, "  # noqa: S608
-            f"version, created_at, updated_at, completed_at "
-            f"FROM {TABLE} WHERE person_id=?;",
-            (person_id,),
-        ).fetchone()
-    except sqlite3.Error:
-        # The table is absent only before migration 0051 has run, which
-        # means nobody is enrolled.
-        return None
+    """The onboarding row, or `None` when the narrator is not enrolled.
+
+    NO `except sqlite3.Error` HERE. The first version caught it and
+    returned `None`, reasoning that the table is absent only before
+    migration 0051 has run. That reasoning was wrong twice over: every
+    caller reaches this through `init_db()`, which applies 0051, so a
+    missing table is a fault rather than a phase; and `None` from this
+    function is not "no table", it is **"this narrator is HISTORICAL"**
+    — a settled product decision that a locked database or a corrupt
+    page must never be able to make.
+    """
+    return con.execute(
+        f"SELECT person_id, status, topic_state_json, active_topic_id, "  # noqa: S608
+        f"version, created_at, updated_at, completed_at "
+        f"FROM {TABLE} WHERE person_id=?;",
+        (person_id,),
+    ).fetchone()
 
 
 def is_enrolled(con: sqlite3.Connection, person_id: str) -> bool:
     return read_row(con, person_id) is not None
+
+
+def person_exists(con: sqlite3.Connection, person_id: str) -> bool:
+    """Is there a `people` row at all?
+
+    THE DISTINCTION THIS DRAWS IS PRODUCT-VISIBLE, not cosmetic.
+    "Enrolled: false" is a statement ABOUT A REAL NARRATOR — that they
+    predate migration 0051 and are deliberately not being walked
+    through onboarding. Returning it for a person_id that does not exist
+    says the same reassuring thing about a typo, a stale bookmark, or a
+    narrator who was deleted, and a client cannot tell the two apart.
+
+    Work order decision 3 governs HISTORICAL narrators. It says nothing
+    about identifiers that name nobody, and a 200 is the wrong answer
+    for those.
+    """
+    return con.execute(
+        "SELECT 1 FROM people WHERE id=? LIMIT 1;", (person_id,),
+    ).fetchone() is not None
 
 
 def enroll(con: sqlite3.Connection, person_id: str, now: str) -> None:
@@ -692,21 +768,23 @@ def enroll(con: sqlite3.Connection, person_id: str, now: str) -> None:
 
 def _person_and_basics(con: sqlite3.Connection,
                        person_id: str) -> Tuple[Dict[str, Any], Mapping[str, Any]]:
+    # NO `except sqlite3.Error` HERE — see STORAGE FAULTS ARE NOT
+    # ABSENCE. An empty `person` here reads as "the identity anchors are
+    # missing", which holds the walk at `pending` — a database fault
+    # would have looked exactly like a narrator whose name we do not
+    # know yet.
     person: Dict[str, Any] = {}
-    try:
-        row = con.execute(
-            "SELECT display_name, date_of_birth, place_of_birth "
-            "FROM people WHERE id=?;",
-            (person_id,),
-        ).fetchone()
-        if row:
-            person = {
-                "display_name": row[0],
-                "date_of_birth": row[1],
-                "place_of_birth": row[2],
-            }
-    except sqlite3.Error:
-        person = {}
+    row = con.execute(
+        "SELECT display_name, date_of_birth, place_of_birth "
+        "FROM people WHERE id=?;",
+        (person_id,),
+    ).fetchone()
+    if row:
+        person = {
+            "display_name": row[0],
+            "date_of_birth": row[1],
+            "place_of_birth": row[2],
+        }
     profile = _load_profile_root(con, person_id)
     basics = profile.get("basics")
     return person, (basics if isinstance(basics, Mapping) else {})
@@ -911,10 +989,11 @@ __all__: Sequence[str] = (
     "STATUS_PENDING", "STATUS_ACTIVE", "STATUS_PAUSED", "STATUS_COMPLETED",
     "STATUSES", "TABLE", "EVIDENCE_BIO_STATUSES",
     "TopicDefinition", "TOPIC_REGISTRY", "TOPIC_IDS", "topic", "is_known_topic",
-    "ProfileSeedError", "NotEnrolled", "UnknownTopic", "VersionConflict",
-    "TopicNotActive",
+    "ProfileSeedError", "NotEnrolled", "PersonNotFound", "UnknownTopic",
+    "VersionConflict", "TopicNotActive",
     "identity_anchors_complete", "has_value", "load_snapshot",
     "topic_has_evidence", "ResolvedState", "not_enrolled_body",
-    "initial_topic_state", "read_row", "is_enrolled", "enroll", "reconcile",
+    "initial_topic_state", "read_row", "is_enrolled", "person_exists",
+    "enroll", "reconcile",
     "apply_disposition", "set_paused", "contains_no_prose",
 )

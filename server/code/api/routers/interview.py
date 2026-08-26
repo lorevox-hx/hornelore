@@ -765,16 +765,36 @@ class ProfileSeedPatchRequest(BaseModel):
 def api_profile_seed_get(person_id: str):
     """Resolve the narrator's onboarding state.
 
-    A HISTORICAL narrator — one with no onboarding row — gets a 200
-    carrying `enrolled: false` and NOT a row. Two reasons it is a 200
-    rather than a 404: not being enrolled is a legitimate, settled state
-    rather than a missing resource, and a 404 invites a client to
-    "repair" it by creating one, which is exactly the auto-enrollment
-    work order decision 3 forbids.
+    THREE OUTCOMES, and the middle one used to be missing:
+
+      * **enrolled narrator** — 200 with the resolved state.
+      * **HISTORICAL narrator** (a real `people` row, no onboarding row)
+        — 200 with `enrolled: false`, and no row is created. It is a 200
+        rather than a 404 because not being enrolled is a legitimate,
+        settled state rather than a missing resource, and a 404 invites
+        a client to "repair" it by creating one — which is exactly the
+        auto-enrollment work order decision 3 forbids.
+      * **no such person** — 404.
+
+    The third case previously returned the second one's answer. That was
+    wrong and quietly so: `enrolled: false` is a claim about a REAL
+    narrator, and returning it for a typo, a stale bookmark or a deleted
+    narrator told the client something reassuring and false, with
+    nothing in the body to distinguish the two. Decision 3 governs
+    narrators who predate the migration; it says nothing about
+    identifiers that name nobody.
+
+    Neither the 200-not-enrolled nor the 404 path writes anything.
     """
     if not (person_id or "").strip():
         raise HTTPException(status_code=422, detail="person_id required")
-    state = db.profile_seed_resolve(person_id)
+    try:
+        state = db.profile_seed_resolve(person_id)
+    except _profile_seed.PersonNotFound:
+        raise HTTPException(
+            status_code=404,
+            detail=f"no narrator exists with person_id {person_id!r}",
+        )
     if state is None:
         return _profile_seed.not_enrolled_body(person_id)
     return state
@@ -786,8 +806,12 @@ def api_profile_seed_patch(req: ProfileSeedPatchRequest):
 
     Status codes, each carrying the reason rather than a bare number:
 
-      404 — not enrolled. A PATCH must not enroll a historical narrator
-            through the back door that GET refuses through the front.
+      404 — no such person, OR a real narrator who is not enrolled. Both
+            are 404 because neither can be patched, but the DETAIL
+            distinguishes them: one means the id names nobody, the other
+            means a historical narrator is deliberately not enrolled. A
+            PATCH must not enroll either through the back door that GET
+            refuses through the front.
       422 — unknown topic id, or an action outside the four.
       409 — the caller's read is stale, OR the topic is no longer the
             active one. Both mean "re-read and decide again", and both
@@ -802,6 +826,11 @@ def api_profile_seed_patch(req: ProfileSeedPatchRequest):
             expected_version=req.expected_version,
             action=req.action,
             topic_id=req.topic_id,
+        )
+    except _profile_seed.PersonNotFound:
+        raise HTTPException(
+            status_code=404,
+            detail=f"no narrator exists with person_id {req.person_id!r}",
         )
     except _profile_seed.NotEnrolled:
         raise HTTPException(

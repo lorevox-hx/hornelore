@@ -2453,8 +2453,16 @@ def create_person(
 def profile_seed_resolve(person_id: str) -> Optional[Dict[str, Any]]:
     """Resolve one narrator's onboarding state, materializing any drift.
 
-    Returns `None` for a HISTORICAL narrator — one with no onboarding
-    row — and never creates one. Work order decision 3.
+    Returns `None` for a HISTORICAL narrator — one with a `people` row
+    and no onboarding row — and never creates one. Work order decision 3.
+
+    Raises `PersonNotFound` when the id names NOBODY. That is a
+    different answer to a different question, and collapsing the two was
+    a real defect: a typo, a stale bookmark or a deleted narrator would
+    have been reported as a legitimate historical narrator, with nothing
+    in the response letting a client tell the difference. Decision 3 is
+    about narrators who predate the migration; it says nothing about
+    identifiers that name no one. **Neither case writes a row.**
 
     This is a WRITING read, and that is deliberate rather than
     convenient. If evidence arrived since the last resolve (the operator
@@ -2472,6 +2480,12 @@ def profile_seed_resolve(person_id: str) -> Optional[Dict[str, Any]]:
     con = _connect()
     try:
         con.execute("BEGIN IMMEDIATE;")
+        # Existence is checked on THE SAME CONNECTION, inside the same
+        # transaction as the resolve, so the two answers cannot describe
+        # different moments.
+        if not _profile_seed.person_exists(con, person_id):
+            con.rollback()
+            raise _profile_seed.PersonNotFound(person_id)
         state = _profile_seed.reconcile(con, person_id, now=_now_iso())
         if state is None:
             con.rollback()
@@ -2544,6 +2558,10 @@ def profile_seed_apply(
     con = _connect()
     try:
         con.execute("BEGIN IMMEDIATE;")
+
+        if not _profile_seed.person_exists(con, person_id):
+            con.rollback()
+            raise _profile_seed.PersonNotFound(person_id)
 
         if _profile_seed.read_row(con, person_id) is None:
             con.rollback()
