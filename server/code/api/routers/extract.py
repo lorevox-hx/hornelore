@@ -27,6 +27,10 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ..lv_eras import legacy_key_to_era_id
+# WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 2 — ONE definition of a
+# narrator refusal, shared with the Profile Seed walk. See
+# `_apply_refusal_guard` for why a second copy would be the defect.
+from ..services import narrator_refusal as _narrator_refusal
 
 logger = logging.getLogger("lorevox.extract")
 
@@ -6853,33 +6857,40 @@ def _apply_refusal_guard(items: List[dict], answer: str) -> List[dict]:
     Unlike the negation guard (which targets specific categories like
     "I never served"), a topic refusal strips everything from the answer
     because the narrator is refusing the entire line of questioning.
+
+    ── THE PATTERNS MOVED OUT 2026-08-26 ────────────────────────────
+    WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 2.
+
+    The eight regexes were a LOCAL list in this function and therefore
+    could not be imported. Phase 2 needs the same decision in the
+    Profile Seed walk, where an explicit refusal records `declined` —
+    and the obvious shortcut, copying them into a second list, is the
+    defect rather than the fix. Two lists drift, and the day they
+    diverge Lori strips a field from a sentence she did not treat as a
+    refusal in the conversation.
+
+    They now live in `services.narrator_refusal`, byte-identical and in
+    the same order, and both callers go through it. THIS FUNCTION'S
+    BEHAVIOUR IS UNCHANGED: same patterns, same first-match-wins, same
+    log line naming the pattern that fired, same `return []`, same
+    passthrough of the original list object when nothing matches.
+
+    `tests/test_narrator_refusal_characterization.py` landed BEFORE the
+    move against this function in its old shape, follows the patterns to
+    whichever module holds them, and is the proof of that claim rather
+    than the assurance of it.
     """
     if not items or not answer:
         return items
 
-    lower = answer.lower()
-
-    _REFUSAL_PATTERNS = [
-        # Direct privacy refusal — narrator says don't write / don't record
-        re.compile(r"(?:not |don\'?t )(?:think )?(?:that\'?s )?something I (?:want|need) (?:written|recorded|put (?:down|in))", re.IGNORECASE),
-        re.compile(r"not for (?:putting|writing) (?:in|down|into) (?:a book|the record|a record)", re.IGNORECASE),
-        # Topic avoidance — narrator deflects the question
-        re.compile(r"nothing I (?:want|need|care) to (?:go into|get into|talk about|discuss|share)", re.IGNORECASE),
-        re.compile(r"(?:I\'?d |I would |I\'?d just )rather (?:not|leave it|skip|move on)", re.IGNORECASE),
-        re.compile(r"(?:I\'?d |I would )prefer not to", re.IGNORECASE),
-        re.compile(r"(?:let\'?s |can we )(?:skip|move on|not go there|leave) (?:that|this|it)", re.IGNORECASE),
-        re.compile(r"I don\'?t (?:want|need|care) to (?:talk|go|get) (?:about |into )(?:that|this|it)", re.IGNORECASE),
-        re.compile(r"rather not (?:get into|talk about|discuss|say|share|go there)", re.IGNORECASE),
-    ]
-
-    for pat in _REFUSAL_PATTERNS:
-        if pat.search(lower):
-            logger.info(
-                "[extract][refusal-guard] topic refusal detected in answer, "
-                "stripping all %d items. Pattern: %s",
-                len(items), pat.pattern[:60]
-            )
-            return []
+    matched = _narrator_refusal.first_refusal_match(answer)
+    if matched is not None:
+        logger.info(
+            "[extract][refusal-guard] topic refusal detected in answer, "
+            "stripping all %d items. Pattern: %s",
+            len(items), matched.pattern[:60]
+        )
+        return []
 
     return items
 
