@@ -6,8 +6,10 @@
 **Predecessor:** `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01`, accepted and complete.
 
 **Status:** IN IMPLEMENTATION — Phase 0 accepted at `661aa95`; **Phase 1 (server authority)
-ACCEPTED at `1288baa`, both 2026-08-26. PHASE 2 — prompt and committed-turn wiring — IS NEXT
-AND HAS NOT BEGUN.** *(This line read "READY FOR IMPLEMENTATION" until 2026-08-26, contradicting §6's own
+ACCEPTED at `1288baa`, both 2026-08-26. PHASE 2 — prompt and committed-turn wiring — IS IN
+IMPLEMENTATION and is NOT ACCEPTED: steps 1–2 landed at `f23040b` and `5a1eb56`, moving
+production refusal detection into `services/narrator_refusal.py`; steps 3–7 are owed.**
+*(This line read "READY FOR IMPLEMENTATION" until 2026-08-26, contradicting §6's own
 `STATUS: COMPLETE, ACCEPTED` two hundred lines below. A spec whose header disagrees with its
 body is worse than one that is merely stale, because the header is the part a reader trusts
 without scrolling.)*
@@ -271,7 +273,7 @@ two consecutive lines.)*
 
 **STATUS: COMPLETE, ACCEPTED (2026-08-26) at `1288baa`.** Built at `f343031`, held on review
 for two corrections about silent failure, corrected, and accepted on the second review.
-**Phase 2 — prompt and committed-turn wiring — is next and has not begun.**
+**Phase 2 — prompt and committed-turn wiring — is IN IMPLEMENTATION and is NOT accepted.**
 
 - Migration 0051 and database accessors.
 - Canonical topic registry and completion resolver.

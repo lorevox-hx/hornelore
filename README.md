@@ -184,7 +184,7 @@ as **reachable frozen legacy UI awaiting adjudication** — non-authoritative; d
 or build on it — plus one storage directory in the erasure inventory. Nothing in this lane
 revived it.
 
-**The current substantive lane is Profile Seed reachability —** [`WO-LORI-PROFILE-SEED-REACHABILITY-01`](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md). **Phase 0, the executable map, is complete and accepted (2026-08-26, `661aa95`, 46 tests, one expected failure, no product or schema change); Phase 1 — server authority — is ACCEPTED (`1288baa`): the walk has a durable server owner, enrollment is atomic with narrator creation, and a storage fault can no longer masquerade as "this narrator has answered nothing". Phase 2 — prompt and committed-turn wiring — is next and has not begun.** *(This paragraph said the spec was "ready for implementation" until 2026-08-26, while the paragraph fifty lines below already said Phase 1 was current. Two paragraphs of one file disagreeing about the same lane is how a reader picks the wrong one.)* The ten-topic Profile Seed onboarding is preserved for
+**The current substantive lane is Profile Seed reachability —** [`WO-LORI-PROFILE-SEED-REACHABILITY-01`](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md). **Phase 0, the executable map, is complete and accepted (2026-08-26, `661aa95`, 46 tests, one expected failure, no product or schema change); Phase 1 — server authority — is ACCEPTED (`1288baa`): the walk has a durable server owner, enrollment is atomic with narrator creation, and a storage fault can no longer masquerade as "this narrator has answered nothing". Phase 2 — prompt and committed-turn wiring — is in implementation and is not accepted; steps 1–2 have landed and steps 3–7 are owed.** *(This paragraph said the spec was "ready for implementation" until 2026-08-26, while the paragraph fifty lines below already said Phase 1 was current. Two paragraphs of one file disagreeing about the same lane is how a reader picks the wrong one.)* The ten-topic Profile Seed onboarding is preserved for
 new Lorevox narrators **regardless of narrator type**; what is owed is that an ordinary new
 narrator reaches it. Today they do not, and the cause is a race the intake itself starts:
 intake requires name, date of birth and birthplace; those three anchors are exactly what the
@@ -236,7 +236,7 @@ already knew, Lori answered from the approved story rather than saying she did n
 
 **No Story Integration phases remain. The current lane is Profile Seed reachability — Phase 0
 (the executable map) and Phase 1 (server authority) are both complete and accepted, and
-Phase 2, prompt and committed-turn wiring, is next and has not begun; finishing Lean Lori
+Phase 2, prompt and committed-turn wiring, is IN IMPLEMENTATION and NOT accepted; finishing Lean Lori
 follows the lane.** *(This read "The next lane is finishing Lean Lori" until 2026-08-20,
 before `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` closed and named its successor, and
 "Phase 1, server authority, is the current work" until Phase 1 was accepted on 2026-08-26.)* The Lean
