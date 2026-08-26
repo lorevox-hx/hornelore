@@ -414,6 +414,26 @@ BIO_SCHEMA_SEED: Tuple[FieldDefinition, ...] = (
                                     "took a trip", "saw the country")),
 
     # ── relationships ────────────────────────────────────────────────
+    # WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 1 (2026-08-26) —
+    # THE CANONICAL HOME FOR AN EXPLICIT "NEVER MARRIED".
+    #
+    # Phase 0 measured the gap: this category had `spouse_name`,
+    # `marriage_year` and `marriage_place` and nothing that could hold
+    # the ANSWER "there was no marriage". The intake form's
+    # `marital_status` landed in `profile_json.marriage.status` alone,
+    # so a narrator who said plainly that they never married had that
+    # answer recorded nowhere the Profile Seed walk could see it — and
+    # the partner question could return forever.
+    #
+    # `enum` rather than free text because the walk needs to recognise
+    # the answer, not paraphrase it; the story of a marriage belongs in
+    # the chapter, not the field.
+    FieldDefinition("marital_status", "Marital status", "relationships", "enum",
+                    narrative_value="medium",
+                    asking_anchors=("never married", "i never married",
+                                    "we never married", "single all my life",
+                                    "widowed", "divorced", "my late husband",
+                                    "my late wife")),
     FieldDefinition("spouse_name", "Spouse name", "relationships", "person",
                     narrative_value="high",
                     asking_anchors=("my husband", "my wife", "we met", "married")),
