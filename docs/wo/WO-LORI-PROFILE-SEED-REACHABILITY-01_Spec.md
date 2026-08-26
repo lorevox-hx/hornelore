@@ -5,11 +5,13 @@
 **Authored:** 2026-08-26 against `main` at `6952ad0`  
 **Predecessor:** `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01`, accepted and complete.
 
-**Status:** IN IMPLEMENTATION — Phase 0 accepted 2026-08-26 at `661aa95`; **Phase 1 (server
-authority) is the current work.** *(This line read "READY FOR IMPLEMENTATION" until
-2026-08-26, contradicting §6's own `STATUS: COMPLETE, ACCEPTED` two hundred lines below. A
-spec whose header disagrees with its body is worse than one that is merely stale, because
-the header is the part a reader trusts without scrolling.)*
+**Status:** IN IMPLEMENTATION — Phase 0 accepted 2026-08-26 at `661aa95`. **Phase 1 (server
+authority) is COMPLETE, PENDING ACCEPTANCE — built and reviewed once, held for two
+corrections, corrected, and awaiting a second review. It is NOT accepted.** Phase 2 has not
+begun. *(This line read "READY FOR IMPLEMENTATION" until 2026-08-26, contradicting §6's own
+`STATUS: COMPLETE, ACCEPTED` two hundred lines below. A spec whose header disagrees with its
+body is worse than one that is merely stale, because the header is the part a reader trusts
+without scrolling.)*
 
 ---
 
@@ -264,10 +266,44 @@ schema changed. Three modules, 46 tests, one expected failure —
 
 ### Phase 1 — server authority
 
+**STATUS: COMPLETE, PENDING ACCEPTANCE (2026-08-26). NOT ACCEPTED.** Built at `f343031`,
+held on review for two corrections, corrected, and awaiting a second review. **Phase 2 has
+not begun and must not begin until this is accepted.**
+
 - Migration 0051 and database accessors.
 - Canonical topic registry and completion resolver.
 - Atomic enrollment on every person-creation path.
 - GET/PATCH contract with version conflicts and hard-delete cascade coverage.
+
+**What landed.** `profile_seed_onboarding` with a real `ON DELETE CASCADE` and no backfill;
+`services/profile_seed.py` holding the canonical ten-topic registry, the identity
+precondition and one connection-scoped evidence resolver; atomic enrollment inside
+`create_person()`'s transaction with rollback; versioned `GET`/`PATCH` under the existing
+interview authority; the onboarding row in the ORDINARY deletion inventory. Two bounded
+write-path corrections in `people.py` give an explicit non-service and an explicit
+"never married" somewhere to live, without which the evidence rules for Boolean `False`
+and marital status are correct but unreachable from the product path. `bio_schema` gains
+`marital_status`.
+
+**Two corrections after the first review, both about silent failure.**
+
+- **Storage faults are not absence.** Five readers caught `sqlite3.Error` and returned an
+  empty result. In this module every empty result is a PRODUCT DECISION — no onboarding row
+  means "historical", no `people` row means "identity incomplete", no `bio_facts` means "ten
+  topics unanswered" — so a locked database could have produced a narrator with ten
+  unanswered topics, and the product's response to that is to ask all ten questions again.
+  Someone who had already told Lori about their siblings would be asked about their siblings
+  because a query failed. The suppression is removed; SQLite errors propagate. The narrow
+  JSON-decoding defences are kept, because a malformed blob is a real recoverable data
+  condition rather than an invented lifecycle state.
+- **Historical is not nonexistent.** `GET` returned `200 enrolled:false` for any id with no
+  onboarding row, including ids naming nobody. `enrolled: false` is a claim about a REAL
+  narrator; a typo, a stale bookmark or a deleted narrator must not receive it. An existing
+  narrator without a row is still `200 enrolled:false`; an unknown `person_id` is now `404`.
+  Neither writes.
+
+**Phase 1 does NOT make the walk reachable.** That is Phases 2 and 3. Phase 0's ordinary
+reachability defect remains an `expectedFailure` and a Phase 1 test asserts it stays one.
 
 ### Phase 2 — prompt and completed-turn wiring
 
