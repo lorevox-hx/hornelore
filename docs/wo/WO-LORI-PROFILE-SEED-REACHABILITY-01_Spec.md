@@ -3,7 +3,12 @@
 **Make the preserved ten-topic Profile Seed onboarding reachable, durable and finite.**
 
 **Authored:** 2026-08-26 against `main` at `6952ad0`  
-**Status:** READY FOR IMPLEMENTATION — no product code has been changed by this work order.  
+**Status:** IN IMPLEMENTATION — Phase 0 accepted 2026-08-26 at `661aa95`; **Phase 1 (server
+authority) is the current work.** No product code or schema has been changed by this work
+order yet; Phase 0 was test-only. *(This line read "READY FOR IMPLEMENTATION" until
+2026-08-26, contradicting §6's own `STATUS: COMPLETE, ACCEPTED` two hundred lines below. A
+spec whose header disagrees with its body is worse than one that is merely stale, because
+the header is the part a reader trusts without scrolling.)*  
 **Predecessor:** `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01`, accepted and complete.
 
 ---
@@ -59,7 +64,7 @@ The ten questions and `_build_profile_seed()` are not the same contract.
 | Childhood home | `childhood_home` is populated from birthplace; being born somewhere does not prove the narrator grew up there. |
 | Siblings | The ten-topic walk asks it, but `_build_profile_seed()` has no `siblings` bucket. |
 | Education | Intake writes `education.highestLevel`; `_build_profile_seed()` reads `schooling` / `higherEducation`. An operator-supplied answer can look absent. |
-| Military | `served=false` is omitted from `profile_json`, so “did not serve” and “not answered” are indistinguishable. |
+| Military | **Two defects, not one.** Intake omits `served=False` from `profile_json`; *and* `_build_profile_seed()` ignores the Boolean **in both directions**, because `_first_str()` accepts only strings and `served` is never in its candidate list. So “served”, “did not serve” and “never asked” are all indistinguishable, and an affirmative survives only through a descriptive field such as `branch`. Storing the Boolean is necessary but not sufficient — the read adapter must be corrected too. *(This row named only the omitted `False` until 2026-08-26; Phase 0 measured the read side.)* |
 | Partner / children | Empty arrays cannot distinguish an explicit “none” from an unanswered optional section. |
 | Life stage | The seed derives an age band, not the question's actual “retired or still working” answer. |
 
