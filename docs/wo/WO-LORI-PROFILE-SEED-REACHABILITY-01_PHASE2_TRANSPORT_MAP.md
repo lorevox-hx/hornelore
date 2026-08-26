@@ -3,11 +3,19 @@
 **WO-LORI-PROFILE-SEED-REACHABILITY-01, Phase 2 checkpoint.**
 **Authored 2026-08-26 against `origin/main` at `8b2c392`. NO CODE HAS BEEN CHANGED.**
 
-**AMENDED 2026-08-26 at `92c4a39`.** Option B is the accepted transport-scope ruling, and
-five review findings are answered in §9–§13. **§4 as first written was WRONG and is
-superseded by §11** — it would have marked the very topic Lori had just asked as
-`addressed` in the same committed turn, before the narrator said anything about it. That
-correction is the most important thing in this file.
+**AMENDED TWICE, 2026-08-26** — at `92c4a39` (§9–§13) and at `eccb3fe` (§11 and §12).
+Option B is the accepted transport-scope ruling.
+
+**Two design errors were caught in review and both are corrected here, in §11.** The first
+would have marked the topic Lori had just ASKED as `addressed` in the same committed turn,
+before the narrator said anything about it. The second — my proposed repair for the first —
+used one event type and re-stamped it, which cannot tell *"Lori presented A"* from *"the
+narrator answered A and Lori acknowledged it"*, so the acknowledgement turn would have
+re-asked the question it was acknowledging. **§4 is superseded by §11 and §13.** Those
+corrections are the most important thing in this file.
+
+**Status of each section:** §9, §10 and §13 ACCEPTED. §12 ruled and rewritten to the
+ruling. §11 rewritten to two durable event types. Nothing here is implemented.
 
 Every line number was read from the tree, not recalled, and re-verified after writing.
 
@@ -159,7 +167,7 @@ non-advancement wiring for six of the seven modes.
 
 ---
 
-## 5. What "widening REST persistence" would actually mean — **STOPPING HERE FOR A RULING**
+## 5. What "widening REST persistence" would actually mean — **RULED: OPTION B**
 
 To give the REST paths a true two-row committed boundary:
 
@@ -247,6 +255,15 @@ Phase 2 introduces a **distinct** key — proposed `runtime71["profile_seed_onbo
 carrying `{status, active_topic_id, version, known_topics, remaining_topics}` and nothing
 else. No narrator prose, per work-order decision 8. A test will assert the legacy key is
 byte-identical with and without onboarding state present.
+
+---
+
+## 8. (renumbered)
+
+*What was §8, "What I have NOT done", is now §15 — the amendments were appended above it so
+that the section numbers §9–§13 the reviews refer to stay stable. The number is left
+standing rather than closed up, because silently renumbering sections that other documents
+cite by number is how a cross-reference stops meaning anything.*
 
 ---
 
@@ -390,36 +407,109 @@ order decision 8 holds. The topic id is one of ten fixed registry strings.
 
 `chat_ws.py:4376` already calls `export_turns(conv_id)` into `history` for the model, and
 `export_turns` (`db.py:2146`) returns each row's parsed `meta` dict (`db.py:2162`). **No
-new accessor is needed.** The last assistant row carrying
-`profile_seed_presented_topic` is the question this user turn is answering.
+new accessor is needed.**
 
-### The state machine
+### ONE EVENT TYPE IS NOT ENOUGH — corrected 2026-08-26
+
+*(This section first proposed a single `presented` event that was RE-STAMPED after a
+response. The review found the defect and it is real: one event type cannot distinguish
+**"Lori presented A"** from **"the narrator answered A and Lori acknowledged it"**. A
+re-stamp on the acknowledgement turn leaves the presentation looking outstanding, so the
+NEXT turn treats an already-consumed question as still open — and worse, the
+acknowledgement turn itself would be composed as though A still needed asking, so Lori
+would ask A again in the very breath she acknowledged the answer to it. Two events, not
+one restamp.)*
+
+### Two durable event types
+
+Both live in the assistant row's `meta_json`, both are scalars, neither carries prose.
+
+```python
+# Lori PRESENTS a topic
+"profile_seed_presented_topic":   <topic_id>
+"profile_seed_presented_version": <int>
+
+# Lori ACKNOWLEDGES a response to a previously presented topic
+"profile_seed_response_topic":      <topic_id>
+"profile_seed_response_version":    <int>
+"profile_seed_response_disposition": "addressed" | "declined"
+```
+
+The response event is what makes §13 **genuinely** retryable. Topic and version alone
+cannot reconstruct *whether the answer was `addressed` or `declined`* — a retry reading
+only a presentation event would have to re-derive the disposition from the narrator's text
+a second time, and could reach a different answer than the one the narrator was actually
+given. The disposition is committed alongside the turn it describes.
+
+### The reduction
+
+Scan `history` in committed row order. **The OUTSTANDING presentation is the latest
+`presented` event with no later `response` event for the same topic.** A response event
+consumes the presentation before it; that is the whole mechanism.
 
 ```
 COMPOSE (chat_ws.py:4371-4375)
   resolve -> status, active_topic_id A, version V
-  presented = the last assistant row in history carrying a presented topic
+  outstanding = reduce(history)          # presented events minus consumed ones
 
-  if status != "active":            render nothing; no advancement
-  if presented is None:             FIRST PRESENTATION.
-                                      render topic A
-                                      stamp A/V on THIS assistant row
-                                      ADVANCE NOTHING            <-- the bug, closed
-  if presented.topic == A:          the narrator is answering A now.
-                                      classify (see 12) -> addressed | declined | stationary
-                                      re-stamp A/V so a non-answer can be answered next turn
-  if presented.topic != A:          A moved underneath us (operator entry, superseded
-                                      evidence). Treat as first presentation of the new A.
-                                      ADVANCE NOTHING.
-COMMIT (persist_turn_transaction)
+  status != "active"
+      -> render nothing. advance nothing.
+
+  outstanding is None
+      -> PRESENT. Render exactly A.
+         Stamp presented(A, V) on THIS assistant row.
+         ADVANCE NOTHING.                          <-- the self-advancing bug, closed
+
+  outstanding.topic != A
+      -> STALE. A moved underneath the question (operator entry, superseded
+         evidence). Abandon the outstanding presentation, present the new A,
+         stamp presented(A, V). ADVANCE NOTHING.
+
+  outstanding.topic == A, classification is STATIONARY  (see 12)
+      -> RE-PRESENT gently. Stamp presented(A, V) again — a NEW presented
+         event, current version. ADVANCE NOTHING.
+         (A deferral is not an answer, so the question stays open.)
+
+  outstanding.topic == A, classification is ADDRESSED or DECLINED
+      -> ACKNOWLEDGE. Lori responds to what the narrator said.
+         SHE DOES NOT RE-ASK A. SHE DOES NOT ASK B.
+         Stamp response(A, outstanding.version, disposition).
+         NO presented event on this row.
+COMMIT
 POST-COMMIT (see 13)
-  apply the classification to presented.topic at presented.version
+      -> apply(A, outstanding.version, disposition)
+
+NEXT TURN
+      -> the response event consumed the presentation, so `outstanding` is
+         None again, the resolver returns the NEW active topic B, and B is
+         presented on its own turn.
 ```
 
+### Why B is not asked on A's answer turn
+
+**Until the post-commit apply succeeds, B is a prediction, not a fact.** Composition
+happens before the commit; the apply happens after it. If Lori asks B in the same breath
+she acknowledges A, and the apply then fails or conflicts, she has asked a question the
+server does not believe is active — and the next resolve may hand back A or a different B
+entirely. The narrator would be answering a question that no longer exists.
+
+Asking one thing per turn is also the work order's own §4.5 rule ("one question per turn,
+no menu") and matches how a person actually listens: you acknowledge what someone just
+told you before moving on.
+
+**The cost is honest and should be named: this makes the acknowledgement turn a turn
+without a question in it.** In Phase 2 that is correct and slightly stilted. **Phase 3 can
+initiate the next presentation automatically** once the browser is wired, so the narrator
+experiences a natural "thank you — and tell me about…" rather than a pause. That is
+deliberately deferred rather than faked here.
+
+### The version applied
+
 The version applied is **the one stamped on the assistant row that asked the question**,
-not the one read at composition. That is what makes a retry harmless: a duplicated hook
-re-applies the same topic at the same version and gets `VersionConflict` from Phase 1's
-`profile_seed_apply`, which writes nothing.
+not the one read at composition. A duplicated hook re-applies the same topic at the same
+version and gets `VersionConflict` from Phase 1's `profile_seed_apply`, which writes
+nothing. A retry after a crash re-derives topic, version *and* disposition from the
+committed response event, so it applies exactly what the narrator was told had happened.
 
 ---
 
@@ -440,37 +530,62 @@ because **treating every model-path message as an answer is a way of not listeni
   banked thread that conflation is harmless. Here it is not, and reusing this list whole
   would be the mistake.
 
-### The proposed classification
+### THE RULED CLASSIFICATION — decided 2026-08-26, not by me
 
-| Narrator turn | State | Why |
-|---|---|---|
-| Substantive response to the presented topic | `addressed` | they answered |
-| Explicit refusal (`extract` patterns) | `declined` | "I would rather not" is an answer, and final |
-| **"I don't remember"** | **RULING NEEDED — see below** | |
-| Meta / control / repeat / help | stationary | already routed to a deterministic branch |
-| Empty or whitespace | stationary | |
-| System directive (`params["_is_system_directive"]`, `chat_ws.py:1433`) | stationary | not the narrator speaking |
-| Cancelled (`ev.is_set()`, `:5961`) | stationary | the narrator did not hear the answer |
-| Persist failure (`:6040`) | stationary | see §13 |
+| Narrator response to the outstanding topic | State |
+|---|---|
+| Explicit privacy or topic refusal | `declined` |
+| Explicit inability to remember or know | **`addressed`** |
+| Clear TEMPORARY deferral — "let me think", "give me a moment", "come back to that" | **stationary** |
+| Empty / system directive / control / meta / cancelled / failed turn | stationary |
+| Any other non-empty interview response to a previously presented topic | `addressed` |
 
-### Two things I will not decide alone
+**"I don't remember" is `addressed`, and the recall difficulty is written nowhere.** This
+keeps the walk finite and stops the system confronting an older narrator, session after
+session, with something they cannot presently reach. It asserts no biographical fact — the
+progress row records only that the topic is closed, and the ordinary committed
+conversation is still there for a memory that surfaces later on its own.
 
-**1. "I don't remember" is genuinely ambiguous and it is a dignity question, not a
-technical one.** It is not a refusal. It is arguably an answer — asking a ninety-year-old
-the same question every session because they could not recall it the first time is the
-interrogation principle 8 forbids. It is also arguably *not* an answer — memory returns,
-and a topic they could not reach on Tuesday they may reach on Friday, which is much of the
-point of the system. I lean toward `addressed` **with the recall failure recorded nowhere
-in the progress row**, so the walk stays finite and the narrator is not re-asked. But this
-decides how Lori treats a narrator's memory loss, and it should be Chris's call.
+**No word-count threshold.** `thread_bank._SUBSTANTIVE_WORD_COUNT = 30` (`:156`) exists for
+a different job and is not borrowed: *"Devils Lake, North Dakota"* is four words and
+completely answers the childhood-home question, while thirty words of *"oh goodness, let me
+think, that was such a long time ago now"* answers nothing. **The ruling deliberately
+favours narrator dignity over algorithmically grading answer quality.** Thin evidence is
+the operator review surface's problem, later; it is not a reason to keep asking.
 
-**2. There is no defensible word-count threshold for "substantive".**
-`thread_bank._SUBSTANTIVE_WORD_COUNT = 30` (`:156`) exists for a different purpose and
-must not be borrowed: *"Devils Lake, North Dakota"* is four words and completely answers
-the childhood-home question, while thirty words of *"oh goodness, let me think, that was
-such a long time ago now"* answers nothing. I propose **any non-empty narrator turn on the
-model path that is neither a refusal nor a control turn counts as addressed**, and that
-the operator review surface, not a word counter, is where a thin answer gets caught.
+**The deferral category is narrow ON PURPOSE.** "Let me think about that" is the one case
+where the narrator has explicitly said they are still working on it, and re-asking is
+responsive rather than deaf. Everything vague, hesitant or short falls to `addressed` —
+because the failure mode being guarded against is asking again, not recording an incomplete
+answer.
+
+### The refusal patterns move to a shared helper — they are not copied
+
+`_REFUSAL_PATTERNS` is currently a local list inside `_apply_refusal_guard`
+(`routers/extract.py:6862–6873`), so it cannot be imported. Phase 2 moves it into one
+shared module — proposed `server/code/api/services/narrator_refusal.py`, free of FastAPI
+imports like every other service this lane has added — and **both** extraction and Profile
+Seed call it. A second copy of the list is exactly how the two would drift into disagreeing
+about what a refusal is, which would mean Lori's extractor and Lori's onboarding treating
+the same sentence differently.
+
+`_apply_refusal_guard` keeps its behaviour precisely: same patterns, same order, same
+`return []` on a match, same log line. It has **one** caller (`extract.py:7038`).
+
+**One honest gap to close while moving it.** I searched for unit coverage of
+`_apply_refusal_guard` and found none — its only exercise today is through the eval case
+banks in `data/qa/`. Moving code with no unit-level net under it is how behaviour changes
+without anyone noticing, so Phase 2 adds a characterization test over all seven patterns
+**before** the move, then re-runs it after. That test is not new coverage for its own sake;
+it is the thing that makes the move provable.
+
+### `thread_bank.DECLINATION_PATTERNS` is NOT reused
+
+It is not deleted or changed either — it keeps doing its own job for banked threads. But it
+is not the vocabulary for this, because it puts *"can't recall"*, *"nothing comes to mind"*
+and *"I don't remember much"* in the same list as *"I'd rather not"*. Under the ruling
+above those are opposite outcomes: forgetting is `addressed`, refusing is `declined`.
+Borrowing the list whole would record a narrator's memory loss as a refusal to speak.
 
 ---
 
@@ -509,16 +624,37 @@ Advancement gets its **own** `try`, after the persistence `try`, never inside it
 
 ## 14. Required tests, folded in
 
-Beyond the review's list, three that fall out of the sections above:
+Beyond the review's list, these fall out of the sections above:
 
-* **the first presentation advances nothing** — the §11 bug, as a named test;
+* **the first presentation advances nothing** — the §11 self-advancing bug, named;
+* **an acknowledgement turn re-asks nothing** — the assistant row carries a `response`
+  event and NO `presented` event, and the rendered prompt contains neither A's question nor
+  B's;
+* **a response event consumes its presentation** — the following turn reduces to
+  `outstanding is None` and presents B, once;
+* **a deferral leaves the presentation outstanding** — "let me think" re-presents A and
+  applies nothing;
+* **a retry reconstructs the disposition** — a crash between commit and apply, replayed
+  from the committed `response` event, applies `declined` where the narrator declined and
+  `addressed` where they answered. This is the test that justifies storing the disposition
+  at all;
+* **a stale presentation is abandoned, not applied** — evidence answers A between
+  presentation and response; the outstanding presentation is dropped and nothing is written
+  against it;
 * **three REST prompts are byte-identical** before and after Phase 2 (ownerless,
-  historical, completed) — §10, and `/api/warmup` and the translation caller with them;
-* **an owner/claim mismatch refuses and composes nothing** — §9.
+  historical, completed) — §10, with `/api/warmup` and the translation caller;
+* **an owner/claim mismatch refuses and composes nothing** — §9;
+* **a characterization test over all seven refusal patterns**, run before and after the
+  move to the shared helper — §12;
+* **forgetting is not refusing** — "I can't recall" resolves `addressed`, not `declined`,
+  and nothing about the recall difficulty reaches `topic_state_json`.
 
-And one control on the tests themselves: a mutation that removes the `presented is None`
-guard must fail the first-presentation test. Two instruments in this lane have already
-measured themselves instead of the code, so every new guard gets a mutation.
+And a control on the tests themselves: **every new guard gets a mutation.** Specifically, a
+mutation that removes the `outstanding is None` check must fail the first-presentation
+test, and one that re-stamps `presented` on an acknowledgement turn must fail the
+consumption test — because that second mutation is precisely the design this map carried
+until the review caught it, and a test suite that would not have noticed is not worth
+having. Two instruments in this lane have already measured themselves instead of the code.
 
 ---
 
@@ -528,5 +664,6 @@ No code, no schema, no tests, no migration. The eight browser promotion sites ar
 untouched — that is Phase 3. Nothing in chronology, Life Map, memoir or story authority,
 safety, model or context window, the directive registry, Kawa, or migrations `0001–0051`.
 
-**Option B is the accepted transport-scope ruling. Awaiting review of the §9–§13
-amendments before Phase 2 implementation begins.**
+**Option B is the accepted transport-scope ruling; §9, §10 and §13 are accepted; §12 is
+ruled. Awaiting review of the §11 state-machine correction before Phase 2 implementation
+begins.**
