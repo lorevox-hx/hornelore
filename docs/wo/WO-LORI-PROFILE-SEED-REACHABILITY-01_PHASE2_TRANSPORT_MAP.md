@@ -3,19 +3,30 @@
 **WO-LORI-PROFILE-SEED-REACHABILITY-01, Phase 2 checkpoint.**
 **Authored 2026-08-26 against `origin/main` at `8b2c392`. NO CODE HAS BEEN CHANGED.**
 
-**AMENDED TWICE, 2026-08-26** — at `92c4a39` (§9–§13) and at `eccb3fe` (§11 and §12).
+**AMENDED THREE TIMES, 2026-08-26** — at `92c4a39` (§9–§13), `eccb3fe` (§11 two-event
+rewrite, §12 rulings) and `dfda3c5` (§11 exact tuples and recovery, §12 count).
 Option B is the accepted transport-scope ruling.
 
-**Two design errors were caught in review and both are corrected here, in §11.** The first
+**FOUR design errors were caught across three reviews, and all are corrected in §11.**
+The first
 would have marked the topic Lori had just ASKED as `addressed` in the same committed turn,
 before the narrator said anything about it. The second — my proposed repair for the first —
 used one event type and re-stamped it, which cannot tell *"Lori presented A"* from *"the
 narrator answered A and Lori acknowledged it"*, so the acknowledgement turn would have
-re-asked the question it was acknowledging. **§4 is superseded by §11 and §13.** Those
-corrections are the most important thing in this file.
+re-asked the question it was acknowledging. The third compared topics where it had to
+compare `(topic, version)` tuples, so an answer to an old version of a still-active
+question could consume a newer presentation. And §13 claimed a durable retry that §11 did
+not implement — what the machine actually did was re-ask a question the narrator had
+already answered, which is repetition wearing retry's clothes.
 
-**Status of each section:** §9, §10 and §13 ACCEPTED. §12 ruled and rewritten to the
-ruling. §11 rewritten to two durable event types. Nothing here is implemented.
+**§4 is superseded by §11 and §13.** Those corrections are the most important thing in
+this file.
+
+**Status of each section:** §9, §10 and §13 ACCEPTED (§13 with one false sentence
+corrected — see below). §12 ruled, rewritten to the ruling, and its pattern count fixed
+from seven to EIGHT. §11 rewritten to two durable event types, then corrected again to
+compare exact `(topic, version)` tuples and to add the missing recovery stage. Nothing
+here is implemented.
 
 Every line number was read from the tree, not recalled, and re-verified after writing.
 
@@ -441,16 +452,36 @@ only a presentation event would have to re-derive the disposition from the narra
 a second time, and could reach a different answer than the one the narrator was actually
 given. The disposition is committed alongside the turn it describes.
 
+### Correlation is on the EXACT `(topic_id, version)` TUPLE — corrected 2026-08-26
+
+*(This section said "the same topic". That is not tight enough, and the case it misses is
+ordinary rather than exotic: **the same topic can stay active while the version moves.**
+Phase 1's `reconcile` bumps the version whenever effective stored state changes, so an
+operator entering an unrelated fact, a superseded row, or a pause and resume all advance
+the version with `siblings` still active. A response carrying the old version must not
+consume — or apply against — a presentation minted at the new one.)*
+
+Everywhere below, consumption and staleness compare the **tuple**:
+
+```
+consumed  iff  (response.topic, response.version) == (presented.topic, presented.version)
+stale     iff  (outstanding.topic, outstanding.version) != (active_topic, current_version)
+```
+
+Not `topic != active_topic`. The version is half the identity of a question.
+
 ### The reduction
 
 Scan `history` in committed row order. **The OUTSTANDING presentation is the latest
-`presented` event with no later `response` event for the same topic.** A response event
-consumes the presentation before it; that is the whole mechanism.
+`presented` event for which no later `response` event carries the same
+`(topic, version)` tuple.**
 
 ```
 COMPOSE (chat_ws.py:4371-4375)
+  RECOVERY FIRST — see "Recovery" below. It can change what follows.
+
   resolve -> status, active_topic_id A, version V
-  outstanding = reduce(history)          # presented events minus consumed ones
+  outstanding = reduce(history)     # presented tuples minus exactly-consumed ones
 
   status != "active"
       -> render nothing. advance nothing.
@@ -460,30 +491,74 @@ COMPOSE (chat_ws.py:4371-4375)
          Stamp presented(A, V) on THIS assistant row.
          ADVANCE NOTHING.                          <-- the self-advancing bug, closed
 
-  outstanding.topic != A
-      -> STALE. A moved underneath the question (operator entry, superseded
-         evidence). Abandon the outstanding presentation, present the new A,
-         stamp presented(A, V). ADVANCE NOTHING.
+  (outstanding.topic, outstanding.version) != (A, V)
+      -> STALE. Either the topic moved, or the SAME topic was re-versioned
+         underneath the question by an operator entry, superseded evidence,
+         or a pause/resume. Abandon the outstanding presentation, present A
+         fresh, stamp presented(A, V). ADVANCE NOTHING, and never apply a
+         disposition against a tuple that no longer exists.
 
-  outstanding.topic == A, classification is STATIONARY  (see 12)
+  (outstanding.topic, outstanding.version) == (A, V), STATIONARY  (see 12)
       -> RE-PRESENT gently. Stamp presented(A, V) again — a NEW presented
-         event, current version. ADVANCE NOTHING.
+         event at the current version. ADVANCE NOTHING.
          (A deferral is not an answer, so the question stays open.)
 
-  outstanding.topic == A, classification is ADDRESSED or DECLINED
+  (outstanding.topic, outstanding.version) == (A, V), ADDRESSED or DECLINED
       -> ACKNOWLEDGE. Lori responds to what the narrator said.
          SHE DOES NOT RE-ASK A. SHE DOES NOT ASK B.
-         Stamp response(A, outstanding.version, disposition).
+         Stamp response(A, V, disposition).   # V is the OUTSTANDING version
          NO presented event on this row.
 COMMIT
 POST-COMMIT (see 13)
-      -> apply(A, outstanding.version, disposition)
+      -> apply(A, V, disposition)
 
 NEXT TURN
-      -> the response event consumed the presentation, so `outstanding` is
-         None again, the resolver returns the NEW active topic B, and B is
+      -> the response tuple consumed the presentation tuple, so `outstanding`
+         is None again, the resolver returns the NEW active topic B, and B is
          presented on its own turn.
 ```
+
+### Recovery — a committed response whose apply never landed
+
+*(Added 2026-08-26. §13 described durable retry and the state machine did not implement
+it, which meant the words and the algorithm disagreed. The review is right that what the
+machine actually did was **repetition, not retry**: the response event consumes the
+presentation, onboarding still has `(A, V)` active, the next reduction finds nothing
+outstanding, and the machine presents A again — asking a narrator a question they had
+already answered, with their answer sitting committed one row above.)*
+
+**Recovery runs BEFORE composition, every turn, and can change what gets presented.**
+
+```
+RECOVER (before resolve)
+  last_response = latest committed response event in history
+  if none                    -> nothing to recover. proceed.
+
+  state = resolve(person_id)                       # authoritative
+  if (state.active_topic, state.version) == (last_response.topic,
+                                             last_response.version):
+        # The apply never landed. Onboarding still believes this question
+        # is open, and the narrator has already answered it.
+        RETRY apply(last_response.topic, last_response.version,
+                    last_response.disposition)
+        on success  -> resolve AGAIN. present the new B.
+        on conflict -> the state moved for some other reason. ACCEPT the
+                       authoritative state. NEVER force the stored
+                       disposition onto a tuple it no longer matches.
+  else
+        # Already applied on the original turn, or superseded. Nothing owed.
+        proceed with the authoritative state.
+
+  if the recovery READ ITSELF fails (storage fault)
+        -> REFUSE COMPOSITION, visibly. Do not fall back, do not
+           silently re-ask. Phase 1's rule holds: a storage fault must
+           never become an onboarding decision, and "ask it again" is an
+           onboarding decision.
+```
+
+The recovery is **idempotent by the same mechanism as everything else**: it applies a
+tuple, and Phase 1's `profile_seed_apply` refuses a stale one. Running it on every turn
+when there is nothing to recover costs one resolve, which the turn was doing anyway.
 
 ### Why B is not asked on A's answer turn
 
@@ -521,7 +596,7 @@ because **treating every model-path message as an answer is a way of not listeni
 ### Two refusal vocabularies already exist, and neither is quite right
 
 * `extract._apply_refusal_guard._REFUSAL_PATTERNS` (`routers/extract.py:6862–6873`) —
-  seven regexes for explicit topic and privacy refusal: *"I'd rather not get into that"*,
+  **eight** regexes for explicit topic and privacy refusal: *"I'd rather not get into that"*,
   *"not for putting in a book"*, *"nothing I want to go into"*. **This is what `declined`
   means** and Phase 2 should reuse it rather than write an eighth list.
 * `thread_bank.DECLINATION_PATTERNS` (`services/thread_bank.py:136–152`) — fifteen
@@ -575,7 +650,7 @@ the same sentence differently.
 **One honest gap to close while moving it.** I searched for unit coverage of
 `_apply_refusal_guard` and found none — its only exercise today is through the eval case
 banks in `data/qa/`. Moving code with no unit-level net under it is how behaviour changes
-without anyone noticing, so Phase 2 adds a characterization test over all seven patterns
+without anyone noticing, so Phase 2 adds a characterization test over all EIGHT patterns
 **before** the move, then re-runs it after. That test is not new coverage for its own sake;
 it is the thing that makes the move provable.
 
@@ -610,12 +685,23 @@ Advancement gets its **own** `try`, after the persistence `try`, never inside it
   `BEGIN IMMEDIATE` + rollback on every raise), so a failure leaves the row as it was.
 * **the failure is visible.** A distinct log line naming the narrator, the topic and the
   version — not the persistence message, and not a swallowed exception.
-* **it is retryable and idempotent.** The topic and version are on the committed assistant
-  row (§11), so a retry re-derives them from durable state rather than from anything held
-  in memory. Re-applying at the same version conflicts and changes nothing.
-* **the narrator sees nothing.** They have already been answered. A failed onboarding
-  advance costs one repeated question next turn, which is a smaller harm than an error
-  frame after a turn that worked.
+* **it is retryable and idempotent, and §11's RECOVERY stage is what performs the retry.**
+  Topic, version and disposition are all on the committed assistant row, so the next turn
+  re-derives them from durable state rather than from anything held in memory. Recovery
+  runs before composition, compares the authoritative `(topic, version)` against the
+  committed response tuple, and re-applies only if onboarding still believes that question
+  is open.
+
+  *(This bullet said the failure "costs one repeated question next turn". **That was
+  false, and it was the sentence that hid a missing transition.** Without a recovery stage
+  the next turn does not retry anything: the response event has consumed the presentation,
+  onboarding still has the old tuple active, the reduction finds nothing outstanding, and
+  the machine presents the same question again — asking the narrator something they had
+  already answered, with their answer committed one row above. That is repetition wearing
+  retry's clothes, and describing it as a small cost was how it went unnoticed. With §11's
+  recovery, the cost is one extra resolve.)*
+* **the narrator sees nothing.** They have already been answered. Recovery happens before
+  the next composition, so in the ordinary case they never learn anything went wrong.
 * **archive, extraction, story and trip hooks keep their existing behaviour**, gated
   exactly as they are today on `_persisted_turn_row_id` / `_persisted_user_turn_row_id` /
   `_archive_event_persisted`. Advancement adds no key any of them reads.
@@ -641,20 +727,41 @@ Beyond the review's list, these fall out of the sections above:
 * **a stale presentation is abandoned, not applied** — evidence answers A between
   presentation and response; the outstanding presentation is dropped and nothing is written
   against it;
+* **SAME TOPIC, NEW VERSION does not advance** — `siblings` stays active while the version
+  moves (an unrelated operator entry, a superseded row, a pause and resume). A response
+  carrying the old version must neither consume the new presentation nor apply against it.
+  This is the case a topic-only comparison silently gets wrong;
+* **recovery retries a committed response whose apply never landed** — the turn after a
+  post-commit failure re-applies the stored disposition and presents B, rather than
+  re-asking A;
+* **recovery accepts an authoritative conflict** — if the state moved for some other
+  reason, the stored disposition is NOT forced onto a tuple it no longer matches;
+* **a recovery read failure refuses composition visibly** — it does not fall back and does
+  not silently re-ask, because "ask it again" is an onboarding decision and Phase 1's rule
+  is that a storage fault must never make one;
 * **three REST prompts are byte-identical** before and after Phase 2 (ownerless,
   historical, completed) — §10, with `/api/warmup` and the translation caller;
 * **an owner/claim mismatch refuses and composes nothing** — §9;
-* **a characterization test over all seven refusal patterns**, run before and after the
-  move to the shared helper — §12;
+* **a characterization test over all EIGHT refusal patterns**, landed in its own commit
+  BEFORE the shared-helper move and re-run after — §12;
 * **forgetting is not refusing** — "I can't recall" resolves `addressed`, not `declined`,
   and nothing about the recall difficulty reaches `topic_state_json`.
 
-And a control on the tests themselves: **every new guard gets a mutation.** Specifically, a
-mutation that removes the `outstanding is None` check must fail the first-presentation
-test, and one that re-stamps `presented` on an acknowledgement turn must fail the
-consumption test — because that second mutation is precisely the design this map carried
-until the review caught it, and a test suite that would not have noticed is not worth
-having. Two instruments in this lane have already measured themselves instead of the code.
+And a control on the tests themselves: **every new guard gets a mutation.** Four are
+mandatory, and each is a design this map actually carried at some point:
+
+1. removing the `outstanding is None` check must fail the first-presentation test;
+2. re-stamping `presented` on an acknowledgement turn must fail the consumption test;
+3. **comparing `topic` instead of the `(topic, version)` tuple** — in either the
+   consumption or the staleness check — must fail the same-topic/new-version test;
+4. **disabling the recovery stage** must fail the retry test, and the failure must be that
+   A is re-asked rather than B presented.
+
+Mutations 1, 2 and 3 were each the live design of this document until a review caught
+them, and 4 was described in §13 without existing anywhere in §11. A suite that would not
+have noticed any of the four is not worth having. Two instruments in this lane have
+already measured themselves instead of the code, which is why the mutations are named here
+rather than left to judgement at implementation time.
 
 ---
 
@@ -664,6 +771,6 @@ No code, no schema, no tests, no migration. The eight browser promotion sites ar
 untouched — that is Phase 3. Nothing in chronology, Life Map, memoir or story authority,
 safety, model or context window, the directive registry, Kawa, or migrations `0001–0051`.
 
-**Option B is the accepted transport-scope ruling; §9, §10 and §13 are accepted; §12 is
-ruled. Awaiting review of the §11 state-machine correction before Phase 2 implementation
-begins.**
+**Option B is the accepted transport-scope ruling. §9, §10 and §13 are accepted; §12 is
+ruled. §11 now carries exact `(topic, version)` correlation and the recovery stage.
+Awaiting the implementation-readiness review before Phase 2 code begins.**
