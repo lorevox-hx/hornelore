@@ -208,9 +208,54 @@ not infer completion from the mere existence of a chronology.
 
 ### Phase 0 — executable map, no behavior change
 
+**STATUS: COMPLETE, ACCEPTED (2026-08-26).** Test-only; no product code or
+schema changed. Three modules, 46 tests, one expected failure —
+`tests/test_profile_seed_reachability_map.py` (13),
+`tests/test_profile_seed_topic_fixtures.py` (23),
+`tests/test_profile_seed_ordinary_intake_reachability.py` (10). Run with
+`PYTHONPATH=server/code python3` — **not** `.venv`, which has no fastapi.
+
 - Pin every current `pass1 → pass2a` writer and every composer activation path in tests.
+  **Done:** eight distinct client sites, each pinned by enclosing function, plus per-file
+  counts and a whole-tree stray sweep. Includes the direct ready-narrator initialisation,
+  which seats a narrator in `pass2a` **and** `identityPhase: "complete"` in one object
+  literal — so a "ready" narrator never occupies `pass1` for a single turn.
 - Add a failing ordinary-intake reachability test that demonstrates the present skip.
+  **Done** as one `expectedFailure`, proven to report an unexpected success when the fix is
+  simulated. The identity-incomplete exclusion is pinned as CORRECT behaviour — Profile Seed
+  must not run before the anchors are collected — and guards against an over-broad fix.
 - Add fixtures for all ten topic evidence shapes, including explicit negatives.
+  **Done** against this work order's `unanswered | known | addressed | declined`. An explicit
+  negative is evidence resolving to `known` or `addressed`, never a fifth state.
+
+**Findings that change Phase 1's inputs:**
+
+- **The pass is browser-owned.** No file under `server/code/api` assigns a pass value, and
+  `db.py` never persists one. Onboarding progress has no server-side owner today.
+- **`_build_profile_seed()` returns five keys** — `age_years`, `childhood_home`,
+  `full_name`, `life_stage`, `preferred_name` — of which only **two** correspond to walk
+  topics, and **both are derived wrongly**. It does not answer five of the ten questions; it
+  answers approximately none of them.
+- **Military is worse than §2.2 stated.** `_first_str()` accepts only strings, so the
+  `served` Boolean is ignored **in both directions**. "Served", "did not serve" and "never
+  asked" are indistinguishable; an affirmative survives only through a descriptive field
+  such as `branch`.
+- **Childhood home overrides a real fact.** A `bio_facts.childhood_home_address` written
+  through `bio_fact_create()` does not reach the seed; the bucket is sourced entirely from
+  birthplace, so it is named for a question it never answers.
+- **`community.retirementStatus` never reaches `life_stage`**, which stays an age band even
+  when the narrator has stated they still work.
+- **There is no canonical marital-status field.** `bio_schema` has `spouse_name`,
+  `marriage_year`, `marriage_place`. Intake's `marital_status` lands in
+  `profile_json.marriage.status`, which the seed does not read — so an explicit "never
+  married" has nowhere to live. Phase 1 must give it one.
+- **Test-harness constraint.** `bio_facts.field_key` has a foreign key to `bio_fields`, and
+  `db._BIO_SEED_LOADED` is a once-per-process seed gate. A suite that switches `DB_PATH`
+  more than once gets an empty registry, after which every `bio_fact_create()` fails with
+  "FOREIGN KEY constraint failed" — which reads like a missing person row and is not.
+  Reset `db._BIO_SEED_LOADED = False` before `init_db()`, as `db.py:62-70` documents.
+
+**Phase 1 — server authority — is next.**
 
 ### Phase 1 — server authority
 

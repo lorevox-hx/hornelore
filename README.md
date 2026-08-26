@@ -235,8 +235,8 @@ gracefully instead. **The owed Phase 3 check passed in the same live run:** aske
 already knew, Lori answered from the approved story rather than saying she did not recall it.
 
 **No Story Integration phases remain. The next lane is Profile Seed reachability — Phase 0
-(the executable map) is complete pending acceptance and Phase 1 is server authority;
-finishing Lean Lori follows it.** *(This read "The next lane is finishing Lean Lori" until 2026-08-20,
+(the executable map) is complete and accepted, and Phase 1, server authority, is the current
+work; finishing Lean Lori follows it.** *(This read "The next lane is finishing Lean Lori" until 2026-08-20,
 before `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` closed and named its successor.)* The Lean
 Lori block itself is unchanged and still owed — section metadata, directive gating, the
 history-versus-sections priority decision (from the measurements Phase 4's telemetry now
