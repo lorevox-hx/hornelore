@@ -331,6 +331,71 @@ class ReductionTests(unittest.TestCase):
         h = [presented(A, 7), said("Let me think."), presented(A, 7)]
         self.assertEqual(_turn.outstanding_presentation(h).tuple, (A, 7))
 
+    def test_a_response_consumes_EVERY_earlier_identical_presentation(self):
+        """The deferral-then-answer history, which is ordinary.
+
+        *(This case was a live defect. The reducer modelled consumption
+        as one-for-one — it discarded the tuple after matching a single
+        presentation — so the reverse scan consumed the newer
+        presentation, emptied the set, and handed back the OLDER
+        identical one as still outstanding. A question the narrator had
+        just answered would be re-presented, and re-presented again
+        after every deferral. The deferral path is what makes this
+        reachable in normal conversation rather than only under a
+        race.)*
+
+        Consumption is TEMPORAL: a response answers every earlier
+        presentation of its exact tuple, however many times Lori asked.
+        """
+        h = [presented(A, 7), said("Let me think."),
+             presented(A, 7), said("Devils Lake."), responded(A, 7)]
+        self.assertIsNone(
+            _turn.outstanding_presentation(h),
+            "an already-answered question was left outstanding, so Lori "
+            "would ask it again")
+
+    def test_three_deferrals_then_an_answer_leaves_nothing_outstanding(self):
+        h = [presented(A, 7), said("Let me think."),
+             presented(A, 7), said("Hold on."),
+             presented(A, 7), said("Give me a moment."),
+             presented(A, 7), said("Devils Lake."), responded(A, 7)]
+        self.assertIsNone(_turn.outstanding_presentation(h))
+
+    def test_a_LATER_presentation_of_the_same_tuple_stays_outstanding(self):
+        """The other side of the same rule, and the reason it is not
+        simply "ignore every presentation whose tuple was ever answered".
+
+        If Lori asks A/7 again AFTER the response — because evidence has
+        not moved and the topic is genuinely still open — that question
+        is live and must be answerable.
+        """
+        h = [presented(A, 7), said(), responded(A, 7),
+             presented(A, 7), said()]
+        outstanding = _turn.outstanding_presentation(h)
+        self.assertIsNotNone(
+            outstanding,
+            "a genuinely later re-presentation was swallowed by an older "
+            "response, so the narrator's answer could never be recorded")
+        self.assertEqual(outstanding.tuple, (A, 7))
+
+    def test_two_full_rounds_on_the_same_tuple_leave_nothing_outstanding(self):
+        h = [presented(A, 7), said(), responded(A, 7),
+             presented(A, 7), said(), responded(A, 7)]
+        self.assertIsNone(_turn.outstanding_presentation(h))
+
+    def test_a_deferral_round_then_a_plan_acknowledges_rather_than_re_asking(self):
+        """End to end, because the defect's cost was behavioural.
+
+        With the old reducer this planned RE_PRESENT — asking the
+        narrator the same question a third time — instead of
+        acknowledging the answer they had just given.
+        """
+        h = [presented(A, 7), said("Let me think."), presented(A, 7)]
+        plan = _turn.plan_turn(state=state(active=A, version=7), history=h,
+                               narrator_text="Devils Lake, North Dakota.")
+        self.assertEqual(plan.action, _turn.ACKNOWLEDGE)
+        self.assertEqual((plan.topic_id, plan.version), (A, 7))
+
     def test_a_full_walk_of_three_topics_reduces_correctly(self):
         h = [presented(A, 7), said(), responded(A, 7),
              presented(B, 8), said(), responded(B, 8),

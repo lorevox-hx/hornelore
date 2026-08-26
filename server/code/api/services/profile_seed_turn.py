@@ -294,6 +294,32 @@ def outstanding_presentation(
     to `("siblings", 4)` does not consume a presentation of
     `("siblings", 5)` — the version moved, so it is a different
     question.
+
+    ── CONSUMPTION IS TEMPORAL, NOT ONE-FOR-ONE ────────────────────────
+
+    *(Corrected 2026-08-26. The first version `discard`ed the tuple after
+    matching a single presentation, modelling "one response consumes one
+    presentation". That is a COUNTING model, and the correct one is
+    temporal. It broke on an ordinary history:*
+
+        presented(A,7) · "let me think" · presented(A,7) · answer · response(A,7)
+
+    *The reverse scan consumed the newer presentation, emptied the set,
+    and then handed back the OLDER identical presentation as still
+    outstanding — so a question the narrator had just answered would be
+    re-presented, and re-presented again after every deferral. The
+    deferral path made it reachable in normal conversation rather than
+    only under a race.)*
+
+    **A response consumes EVERY EARLIER presentation of its tuple.** The
+    scan runs newest-first, so any presentation reached after a response
+    for the same tuple is by construction earlier in time and is
+    therefore answered. Nothing is discarded from `consumed`.
+
+    A genuinely LATER presentation of the same tuple — Lori asking again
+    after the response, because evidence has not moved and the topic is
+    still open — is returned before the scan ever reaches that response,
+    so it correctly stays outstanding.
     """
     events = read_events(history)
     consumed: set = set()
@@ -302,7 +328,9 @@ def outstanding_presentation(
             consumed.add(event.tuple)
             continue
         if event.tuple in consumed:
-            consumed.discard(event.tuple)
+            # Earlier than the response that answered it. Keep the tuple
+            # in `consumed`: every still-earlier presentation of the same
+            # question was answered by that same response.
             continue
         return event
     return None
