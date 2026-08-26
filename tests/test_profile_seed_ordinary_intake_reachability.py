@@ -24,9 +24,12 @@ two things a red test cannot:
     unexpected success as a FAILURE. The test actively announces the fix
     rather than sitting there quietly succeeding.
 
-So: the expected failures below are the defect. If they ever pass, read
-the message on `test_the_ordinary_narrator_reaches_the_walk` — it says
-what to do next.
+**ONE expected failure, not two.** An earlier version marked the
+identity-incomplete case as a defect awaiting repair too. That was
+wrong: Profile Seed must not run before the identity anchors are
+collected, so that exclusion is CORRECT behaviour and is pinned as
+such. Only the ordinary-intake skip is a defect. If it ever passes, read
+the message on `test_the_ordinary_narrator_reaches_the_walk`.
 
 ── THE RACE, DRIVEN RATHER THAN ASSERTED FROM PROSE ──────────────────
 
@@ -43,11 +46,23 @@ Every step below is executed against the real product code:
      not identity mode — both arms driven below.
 
 Nothing here is wrong on its own. The skip is what the four correct
-behaviours compose into.
+behaviours compose into — and the identity-mode arm is not part of the
+defect at all: it is the gate doing its job, keeping the walk from
+running before the system knows the narrator's name.
 
-Run with:
+── HOW TO RUN THIS ───────────────────────────────────────────────────
 
-    PYTHONPATH=server/code .venv/bin/python -m unittest tests.test_profile_seed_ordinary_intake_reachability
+    PYTHONPATH=server/code python3 -m unittest tests.test_profile_seed_ordinary_intake_reachability
+
+**NOT `.venv/bin/python`.** The first version of this header said to use
+it and was wrong: this module imports `prompt_composer`, whose chain
+reaches fastapi, and `.venv` is Python 3.10.12 with NO fastapi. In a
+clean checkout it does not skip — it fails at import. `CLAUDE.md` records
+this trap under **Environment**, and I wrote a header contradicting the
+doctrine file I had just corrected, which is worth saying plainly.
+
+The interpreter used for every count reported in this lane is the
+sandbox `python3` — Python 3.10.12 with fastapi 0.135.1.
 """
 from __future__ import annotations
 
@@ -171,9 +186,10 @@ class IntakeAnchorsAloneMakeChronologyReadyTests(_Base):
 
     def test_without_a_birthplace_and_dob_it_is_not_ready(self):
         """The contrast case. A narrator lacking the anchors gets
-        `no_dob`, which is the branch a testing-only narrator lands in —
-        and that narrator is excluded from the walk by identity mode
-        instead. Two different exclusions, one outcome."""
+        `no_dob`, which is the branch a testing-only narrator lands in.
+        That narrator is excluded from the walk by identity mode — which
+        is CORRECT, not a second defect: onboarding waits for the
+        anchors."""
         p = _ca.build_chronology_accordion_payload(
             person_id=self.pid, profile={"basics": {}}, questionnaire={},
             promoted_rows=[])
@@ -186,7 +202,10 @@ class IntakeAnchorsAloneMakeChronologyReadyTests(_Base):
 class TheComposerGateHasTwoExclusionsTests(_Base):
     """Both arms driven through the real composer.
 
-    Neither is a bug. Together they leave no ordinary path in.
+    Neither is a bug, and they are not symmetrical. The identity arm is
+    a deliberate precondition — the walk waits for the anchors. The
+    pass2a arm is the one that closes on an ordinary narrator who has
+    already supplied them, and that is the defect.
     """
 
     def test_pass1_with_identity_complete_DOES_emit_the_walk(self):
@@ -203,7 +222,8 @@ class TheComposerGateHasTwoExclusionsTests(_Base):
         self.assertFalse(self._walk_emitted(current_pass="pass2a"))
 
     def test_identity_mode_excludes_it_even_in_pass1(self):
-        """And the narrator WITHOUT the anchors is excluded here."""
+        """The precondition, working. Not a defect — see the corrected
+        `test_identity_incomplete_correctly_excludes_the_walk` below."""
         self.assertFalse(
             self._walk_emitted(current_pass="pass1", identity_complete=False))
 
@@ -255,25 +275,36 @@ class TheOrdinaryNarratorSkipsTheWalkTests(_Base):
             "an ordinary new narrator did not reach the ten-topic Profile "
             "Seed walk")
 
-    @unittest.expectedFailure
-    def test_a_testing_only_narrator_reaches_it_either(self):
-        """The other creation path, excluded for the other reason.
+    def test_identity_incomplete_correctly_excludes_the_walk(self):
+        """**CORRECTED 2026-08-26. This was an expected failure and it
+        should never have been one.**
 
-        Without the three anchors the narrator is in identity mode, and
-        identity mode mutually excludes the walk. Recorded so that a fix
-        aimed only at the promotion does not leave this path skipping.
+        The earlier version asserted that a narrator with
+        `identity_complete=False` OUGHT to reach the walk, and marked
+        the fact that they do not as a defect awaiting repair. That was
+        my design error, not the product's: **Profile Seed must not run
+        before the identity anchors are collected.** Asking someone
+        about their siblings before knowing their name is the
+        interrogation this project's principles forbid, and the walk's
+        own first topic is phrased around a birthplace the system would
+        not yet have.
+
+        So this exclusion is correct behaviour and is pinned as such. A
+        later phase that makes the walk reachable must NOT make it
+        reachable here.
         """
-        self.assertTrue(
+        self.assertFalse(
             self._walk_emitted(current_pass="pass1", identity_complete=False),
-            "a testing-only narrator did not reach the walk either")
+            "the walk ran before identity was complete; Profile Seed must "
+            "begin AFTER the anchors are collected, not before")
 
     def test_the_two_exclusions_are_genuinely_different(self):
         """Not an expected failure — this is the shape of the problem.
 
-        One narrator is excluded for having ENOUGH information, the
-        other for having too little. A single-gate fix that only moves
-        the promotion will not close both, which is why the work order
-        asks for server-owned progress rather than a gate tweak.
+        One narrator is excluded for having ENOUGH information; that is
+        the defect. The other is excluded for not yet having supplied
+        their anchors; that is the precondition working. **Only the
+        first needs repair**, and a fix must not open the second.
         """
         ordinary_pass = self._pass_after_ordinary_intake()
         self.assertEqual(ordinary_pass, "pass2a")

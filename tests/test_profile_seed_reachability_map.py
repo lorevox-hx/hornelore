@@ -3,44 +3,52 @@
 WO-LORI-PROFILE-SEED-REACHABILITY-01, Phase 0 (2026-08-26).
 
 **THIS PHASE CHANGES NO BEHAVIOUR.** It makes the present situation
-executable, so that a later phase cannot move a promotion or a gate
-without a test noticing, and so the defect is demonstrated rather than
-described.
+executable, so a later phase cannot move a promotion or a gate without a
+test noticing.
+
+── HOW TO RUN THIS ───────────────────────────────────────────────────
+
+    PYTHONPATH=server/code python3 -m unittest tests.test_profile_seed_reachability_map
+
+**NOT `.venv/bin/python`.** An earlier version of this header said to use
+it, which was wrong and was caught in review after the module failed to
+import in a clean checkout. `CLAUDE.md` records the reason under
+**Environment**: `.venv` is Python 3.10.12 with NO fastapi, so any module
+whose import chain reaches the app skips or dies there. This particular
+file happens to import cleanly under `.venv` — it only reads source text
+— but its sibling
+`tests/test_profile_seed_ordinary_intake_reachability.py` does not, and
+publishing two different run commands for one phase invites the wrong
+one to be copied. One command, and it is the interpreter that has
+fastapi.
 
 ── THE DEFECT, STATED AS A RACE ──────────────────────────────────────
 
 The ten-topic Profile Seed walk is preserved in the composer and is
-ordinarily unreachable, and no single line is wrong. Four correct
-behaviours compose into a skip:
+ordinarily unreachable, and no single line is wrong. Correct behaviours
+compose into a skip:
 
   1. ordinary intake REQUIRES name, date of birth and place of birth;
   2. those three anchors are exactly what the chronology needs;
-  3. a ready chronology promotes the browser `pass1 -> pass2a`;
+  3. a ready chronology promotes the browser `pass1 -> pass2a` — and a
+     narrator classified "ready" is initialised **directly into
+     `pass2a`**, never passing through `pass1` at all;
   4. the composer emits the walk only for an identity-complete narrator
      whose browser-supplied `current_pass` is STILL `pass1`.
 
-So the ordinary path supplies what closes its own gate, before the
-narrator's first normal turn. A testing-only narrator without the three
-anchors goes down identity mode instead, and identity mode mutually
-excludes the walk. The workflow is present in source, covered as a
-predicate, and proven by nothing.
-
 ── WHAT THIS FILE PINS ───────────────────────────────────────────────
 
-* **Every promotion writer**, by file and line, including the direct
-  `currentPass: "pass2a"` initialisation that is not a `setPass()` call
-  and would be missed by grepping for the function alone.
-* **The composer gate**, both halves: `current_pass == "pass1"` AND not
-  identity mode.
-* **All ten topics**, by name, so a later edit cannot quietly drop one.
-* **The pass is browser-owned.** The server reads `current_pass` off the
-  turn parameters and never writes it. That is the structural reason the
-  spec calls for server-owned onboarding progress: today the only record
-  of how far a narrator has got is a value the browser sends.
-
-Run with:
-
-    PYTHONPATH=server/code .venv/bin/python -m unittest tests.test_profile_seed_reachability_map
+* **Eight DISTINCT promotion sites**, each by enclosing function, plus a
+  per-file occurrence count. An earlier version listed six `(file,
+  needle)` patterns and relied on a global count of eight — which proved
+  eight literals existed somewhere, not that these eight sites survived.
+  Two `app.js` patterns each matched two different functions, so a site
+  could vanish and be replaced elsewhere with the suite still green.
+* **The composer gate**, both halves.
+* **All ten topics**, by name and in order.
+* **Pass ownership**, swept across the WHOLE of `server/code/api` rather
+  than one file — the previous version examined only `prompt_composer.py`
+  and could not support the claim it made.
 """
 from __future__ import annotations
 
@@ -57,6 +65,7 @@ for _p in (str(_SERVER_CODE), str(_REPO_ROOT)):
 
 _COMPOSER = _SERVER_CODE / "api" / "prompt_composer.py"
 _PREDICATES = _SERVER_CODE / "api" / "services" / "directive_predicates.py"
+_API = _SERVER_CODE / "api"
 _UI = _REPO_ROOT / "ui"
 
 
@@ -64,103 +73,198 @@ def _read(p: Path) -> str:
     return p.read_text(encoding="utf-8")
 
 
-#: Every client site that moves a narrator to `pass2a`, verified against
-#: the tree on 2026-08-26. `(path, needle)` — the line number is
-#: deliberately NOT pinned, because line numbers churn on every edit and
-#: a test that fails for churn gets muted. The SITE is what matters.
-PROMOTION_WRITERS = [
-    # The direct initialisation. Not a `setPass()` call, so a sweep that
-    # greps only for the function misses it — which is why it is first.
-    ("ui/hornelore1.0.html", 'currentPass: "pass2a"'),
-    ("ui/js/app.js", 'if (state.session.currentPass === "pass1") setPass("pass2a");'),
-    ("ui/js/app.js", 'setPass("pass2a");'),
-    ("ui/js/chronology-accordion.js", 'if (typeof setPass === "function") setPass("pass2a");'),
-    ("ui/js/interview.js", 'if(interviewMode==="chronological") setPass("pass2a");'),
-    ("ui/js/interview.js", 'if(mode==="chronological") setPass("pass2a");'),
+#: Matches any client write that lands a narrator in `pass2a`.
+_PROMOTION_RE = re.compile(
+    r'setPass\(\s*["\']pass2a["\']\s*\)|currentPass\s*[:=]\s*["\']pass2a["\']')
+
+#: Finds the nearest preceding function name, for a stable site id.
+_FUNCTION_RE = re.compile(
+    r'(?:async\s+)?function\s+([A-Za-z_$][\w$]*)'
+    r'|([A-Za-z_$][\w$]*)\s*[:=]\s*(?:async\s*)?function')
+
+#: THE EIGHT SITES, each identified by its enclosing function rather than
+#: by a line number (line numbers churn; a test that fails for churn gets
+#: muted) and rather than by the matched text alone (two of these share
+#: identical text and would collapse into one entry).
+#:
+#: `(path, enclosing_context, matched_text)`
+PROMOTION_SITES = [
+    # 1. THE DIRECT READY-NARRATOR INITIALISATION. Not a `setPass()` call,
+    #    so a sweep for the function alone misses it. It is also the most
+    #    direct expression of the defect: a narrator classified "ready" is
+    #    seated in `pass2a` AND `identityPhase: "complete"` in the same
+    #    object literal, so they never occupy `pass1` for even one turn.
+    ("ui/hornelore1.0.html", 'openState === "ready"', 'currentPass: "pass2a"'),
+    # 2-5. Four distinct functions in app.js, two sharing identical text.
+    ("ui/js/app.js", "_hydrateChronologyFromServer",
+     'if (state.session.currentPass === "pass1") setPass("pass2a");'),
+    ("ui/js/app.js", "selectEra", 'setPass("pass2a");'),
+    ("ui/js/app.js", "loadPerson",
+     'if (state.session.currentPass === "pass1") setPass("pass2a");'),
+    ("ui/js/app.js", "initTimelineSpine", 'setPass("pass2a");'),
+    # 6.
+    ("ui/js/chronology-accordion.js", "crJumpToEra",
+     'if (typeof setPass === "function") setPass("pass2a");'),
+    # 7-8.
+    ("ui/js/interview.js", "renderRoadmap",
+     'if(interviewMode==="chronological") setPass("pass2a");'),
+    ("ui/js/interview.js", "setInterviewMode",
+     'if(mode==="chronological") setPass("pass2a");'),
 ]
+
+#: Expected promotion writes per file. Catches a site being deleted from
+#: one file and added to another, which a total-only count cannot see.
+PROMOTIONS_PER_FILE = {
+    "ui/hornelore1.0.html": 1,
+    "ui/js/app.js": 4,
+    "ui/js/chronology-accordion.js": 1,
+    "ui/js/interview.js": 2,
+}
 
 #: The ten topics, in the composer's own order and wording.
 TEN_TOPICS = [
-    "1. CHILDHOOD HOME",
-    "2. SIBLINGS",
-    "3. PARENTS' WORK",
-    "4. HERITAGE",
-    "5. EDUCATION",
-    "6. MILITARY",
-    "7. CAREER",
-    "8. PARTNER",
-    "9. CHILDREN",
+    "1. CHILDHOOD HOME", "2. SIBLINGS", "3. PARENTS' WORK", "4. HERITAGE",
+    "5. EDUCATION", "6. MILITARY", "7. CAREER", "8. PARTNER", "9. CHILDREN",
     "10. LIFE STAGE",
 ]
 
 
-class EveryPromotionWriterIsPinnedTests(unittest.TestCase):
-    """Eight sites move a narrator out of `pass1`. All eight are here.
+def _sites_in(rel: str):
+    """Every promotion in one file, as `(enclosing_context, text)`."""
+    lines = _read(_REPO_ROOT / rel).splitlines()
+    out = []
+    for i, line in enumerate(lines):
+        if not _PROMOTION_RE.search(line):
+            continue
+        ctx = "<module>"
+        for j in range(i, max(-1, i - 400), -1):
+            m = _FUNCTION_RE.search(lines[j])
+            if m:
+                ctx = m.group(1) or m.group(2)
+                break
+        out.append((ctx, line.strip(), i + 1))
+    return out
 
-    ChatGPT's review supplied the list; it was verified line by line
-    against the tree and then swept independently, because a list that
-    is merely accepted is a list nobody checked.
+
+class EightDistinctPromotionSitesTests(unittest.TestCase):
+    """Eight sites, each pinned individually.
+
+    ChatGPT's review supplied the list of eight; it was verified line by
+    line and swept independently. The review then caught that the FIRST
+    version of this file pinned only six patterns — the count was right
+    and the pinning was not.
     """
 
-    def test_each_named_writer_still_exists(self):
-        for rel, needle in PROMOTION_WRITERS:
-            with self.subTest(site=rel, needle=needle[:48]):
-                self.assertIn(needle, _read(_REPO_ROOT / rel),
-                              f"a promotion writer vanished from {rel}; the "
-                              f"map is stale and Phase 1 would plan against "
-                              f"a tree that no longer exists")
+    def test_each_of_the_eight_sites_is_present_in_its_own_function(self):
+        for rel, ctx, text in PROMOTION_SITES:
+            with self.subTest(site=f"{rel}::{ctx}"):
+                if rel.endswith(".html"):
+                    # The HTML site sits in an inline branch, not a named
+                    # function, so it is anchored on the branch condition
+                    # and the adjacency that makes it meaningful.
+                    src = _read(_REPO_ROOT / rel)
+                    self.assertIn(ctx, src)
+                    i = src.index(ctx)
+                    window = src[i:i + 900]
+                    self.assertIn(text, window,
+                                  "the ready-narrator branch no longer seats "
+                                  "the narrator in pass2a")
+                    self.assertIn('identityPhase: "complete"', window,
+                                  "the ready branch no longer marks identity "
+                                  "complete; the defect's shape has changed")
+                    continue
+                found = [(c, t) for c, t, _ in _sites_in(rel)]
+                self.assertIn(
+                    (ctx, text), found,
+                    f"no promotion in {ctx}() of {rel}; the map is stale and "
+                    f"Phase 1 would plan against a tree that moved.\n"
+                    f"Present: {found}")
 
-    def test_the_total_count_of_writers_is_eight(self):
-        """A COUNT, not just a presence check.
+    def test_the_per_file_counts_are_unchanged(self):
+        """Per-file, not just a global total.
 
-        Presence tests pass while somebody adds a ninth promotion
-        nobody mapped. If this number changes, the map must change with
-        it — that is the point of asserting it.
+        A global count of eight stays eight when a site is deleted from
+        one file and a new one appears in another. Per-file counts do
+        not.
         """
-        pattern = re.compile(
-            r'setPass\(\s*["\']pass2a["\']\s*\)|currentPass\s*[:=]\s*["\']pass2a["\']')
-        found = []
+        for rel, expected in PROMOTIONS_PER_FILE.items():
+            with self.subTest(file=rel):
+                self.assertEqual(
+                    len(_sites_in(rel)), expected,
+                    f"{rel} promotion count changed; update PROMOTION_SITES "
+                    f"and the work order's map.\nFound: {_sites_in(rel)}")
+
+    def test_no_promotion_exists_outside_the_mapped_files(self):
+        """The whole client tree, so a ninth site cannot hide elsewhere."""
+        stray = []
         for path in sorted(_UI.rglob("*")):
             if path.suffix not in (".js", ".html") or "vendor" in path.parts:
                 continue
+            rel = str(path.relative_to(_REPO_ROOT)).replace("\\", "/")
+            if rel in PROMOTIONS_PER_FILE:
+                continue
             for n, line in enumerate(_read(path).splitlines(), 1):
-                if pattern.search(line):
-                    found.append(f"{path.relative_to(_REPO_ROOT)}:{n}")
-        self.assertEqual(
-            len(found), 8,
-            "the population of pass2a writers changed; update "
-            "PROMOTION_WRITERS and the work order's map.\nFound:\n  "
-            + "\n  ".join(found))
+                if _PROMOTION_RE.search(line):
+                    stray.append(f"{rel}:{n}")
+        self.assertEqual(stray, [],
+                         "a promotion appeared in an unmapped file")
+
+    def test_the_eight_sites_are_eight_distinct_functions(self):
+        contexts = {(rel, ctx) for rel, ctx, _ in PROMOTION_SITES}
+        self.assertEqual(len(PROMOTION_SITES), 8)
+        self.assertEqual(len(contexts), 8,
+                         "two mapped sites share a context, so one of them "
+                         "is not independently pinned")
 
     def test_setPass_is_a_single_plain_setter(self):
-        """No indirection, so the literal sites ARE the population.
-
-        If `setPass` ever grows a branch, a caller could reach `pass2a`
-        without the literal appearing at the call site, and the count
-        above would silently under-report.
-        """
-        src = _read(_UI / "js" / "state.js")
+        """No indirection, so the literal sites ARE the population."""
         self.assertIn(
             'function setPass(p)  { if (state.session) state.session.currentPass = p; }',
-            src,
+            _read(_UI / "js" / "state.js"),
             "setPass is no longer a one-line setter; indirect promotions "
             "are now possible and the map must account for them")
 
-    def test_no_server_side_writer_exists(self):
-        """The pass is BROWSER-OWNED, and that is the structural defect.
 
-        The server reads `current_pass` off the turn parameters and
-        never assigns it. So the only record of how far a narrator has
-        got through onboarding is a value the client sends — which is
-        why the spec calls for server-owned, restart-safe progress
-        rather than a fix to any one promotion site.
+class ThePassIsBrowserOwnedTests(unittest.TestCase):
+    """Swept across the whole server API tree.
+
+    The previous version of this claim examined `prompt_composer.py`
+    alone and asserted "the server never writes the pass" — a statement
+    about the server proved from one file. The sweep below is what the
+    claim actually needs.
+    """
+
+    def test_no_server_file_assigns_a_pass_value(self):
+        writer = re.compile(
+            r'\bcurrent_pass\b\s*=\s*["\'](?:pass1|pass2a|pass2b)["\']')
+        offenders = []
+        for path in sorted(_API.rglob("*.py")):
+            for n, line in enumerate(_read(path).splitlines(), 1):
+                if writer.search(line):
+                    offenders.append(
+                        f"{path.relative_to(_REPO_ROOT)}:{n}  {line.strip()[:70]}")
+        self.assertEqual(
+            offenders, [],
+            "the server now writes the pass; ownership moved and the work "
+            "order's premise — that onboarding progress has no server-side "
+            "owner — needs revisiting.\n  " + "\n  ".join(offenders))
+
+    def test_the_server_only_reads_what_the_browser_sends(self):
+        self.assertIn('current_pass   = runtime71.get("current_pass", "pass1")',
+                      _read(_COMPOSER))
+
+    def test_no_persistence_layer_stores_a_pass(self):
+        """Nothing writes it to the database either.
+
+        If a column existed, progress would already have a durable
+        owner and the lane would be a different shape.
         """
-        composer = _read(_COMPOSER)
-        self.assertIn('current_pass   = runtime71.get("current_pass", "pass1")', composer)
-        for bad in ('current_pass = "pass2a"', "current_pass = 'pass2a'"):
-            self.assertNotIn(bad, composer,
-                             "the server now writes the pass; ownership moved "
-                             "and the map is wrong")
+        db_src = _read(_API / "db.py")
+        for marker in ("current_pass", "currentPass"):
+            self.assertNotIn(
+                marker, db_src,
+                f"db.py now references {marker!r}; a persistence path may "
+                f"have appeared")
 
 
 class TheComposerGateIsPinnedTests(unittest.TestCase):
@@ -173,43 +277,28 @@ class TheComposerGateIsPinnedTests(unittest.TestCase):
         self.assertIn('if current_pass == "pass1":', self.src)
 
     def test_the_walk_requires_identity_to_be_complete(self):
-        """`elif not identity_mode:` encloses it.
-
-        This is the half that makes a testing-only narrator — created
-        without the three anchors — go down identity mode instead, which
-        mutually excludes the walk. Both exclusions have to hold for the
-        race to be a race.
-        """
         i = self.src.index('if current_pass == "pass1":')
-        window = self.src[max(0, i - 400):i]
-        self.assertIn("elif not identity_mode:", window)
+        self.assertIn("elif not identity_mode:", self.src[max(0, i - 400):i])
 
     def test_pass2a_is_the_mutually_exclusive_alternative(self):
         i = self.src.index('if current_pass == "pass1":')
         # The pass1 branch is long — the ten topics are string literals —
-        # so the window has to clear it. Measured at ~7.5 KB; 12 KB gives
-        # headroom without reaching into an unrelated branch.
+        # so the window has to clear it. Measured ~7.5 KB; 12 KB gives
+        # headroom without reaching an unrelated branch.
         self.assertIn('elif current_pass == "pass2a":', self.src[i:i + 12000])
 
     def test_all_ten_topics_are_present_and_ordered(self):
         i = self.src.index('if current_pass == "pass1":')
-        block = self.src[i:i + 6000]
+        block = self.src[i:i + 12000]
         positions = []
         for topic in TEN_TOPICS:
             with self.subTest(topic=topic):
-                self.assertIn(topic, block, f"topic {topic!r} is missing from "
-                                            f"the preserved walk")
+                self.assertIn(topic, block)
             positions.append(block.index(topic))
         self.assertEqual(positions, sorted(positions),
-                         "the ten topics are no longer in their documented "
-                         "order")
+                         "the ten topics are no longer in documented order")
 
     def test_the_predicate_records_the_same_gate(self):
-        """The inert directive registry carries the same condition.
-
-        It is NOT the live gate — the registry is deliberately inert —
-        but it must not drift from the composer, or a later activation
-        would change behaviour while looking like a no-op.
-        """
-        src = _read(_PREDICATES)
-        self.assertIn('return s.current_pass == "pass1" and not s.identity_mode', src)
+        """The inert registry must not drift from the live composer."""
+        self.assertIn('return s.current_pass == "pass1" and not s.identity_mode',
+                      _read(_PREDICATES))
