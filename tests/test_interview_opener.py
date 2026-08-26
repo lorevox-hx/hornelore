@@ -27,6 +27,26 @@ if "fastapi" not in sys.modules:
         def get(self, *a, **kw):
             def deco(fn): return fn
             return deco
+        # 2026-08-26, WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 1: the
+        # interview router gained `PATCH /api/interview/profile-seed`,
+        # and this hand-rolled stub only knew about GET and POST — so
+        # importing the router raised AttributeError at decoration time
+        # and every test in this module failed at collection, none of
+        # them for a reason that had anything to do with openers.
+        #
+        # A stub of a framework is a claim about that framework, and an
+        # incomplete one fails loudly somewhere unrelated. Adding the
+        # remaining verbs now so the next real route does not cost
+        # somebody the same confusing half hour.
+        def patch(self, *a, **kw):
+            def deco(fn): return fn
+            return deco
+        def put(self, *a, **kw):
+            def deco(fn): return fn
+            return deco
+        def delete(self, *a, **kw):
+            def deco(fn): return fn
+            return deco
     class _HTTPException(Exception):
         def __init__(self, status_code=500, detail=""):
             self.status_code = status_code

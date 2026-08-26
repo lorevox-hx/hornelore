@@ -507,22 +507,46 @@ class TheSixCompletionDataGapsTests(_SeedBase):
         seed = self._seed(bio_facts=[("military_served", "yes")])
         self.assertIsNone(seed.get("military"))
 
-    # ── Gap 3 · partner ──────────────────────────────────────────────
-    def test_gap_3_there_is_no_canonical_never_married_field(self):
-        """**DOCUMENTED ABSENCE, not an invented key.** I previously
-        passed `never_married` as though it were storage. It is not:
-        `bio_schema` has `spouse_name`, `marriage_year`, `marriage_place`
-        and no marital-status field. Intake accepts a `marital_status`
-        input and folds it into `profile_json` as `marriage.status`,
-        which the seed does not read.
+    # ── Gap 3 · partner — CLOSED BY PHASE 1, 2026-08-26 ──────────────
+    def test_gap_3_never_married_now_has_a_canonical_field(self):
+        """**THIS GAP IS CLOSED. The seed half of it is not.**
 
-        So an explicit "never married" has nowhere canonical to live —
-        which is itself the gap Phase 1 must close.
+        *(Until 2026-08-26 this test was named
+        `test_gap_3_there_is_no_canonical_never_married_field` and its
+        first line asserted `assertIsNone(get_field_by_key(
+        "marital_status"))`. Phase 1 added that field, so the assertion
+        began failing — which is the test doing its job: a gap record
+        that cannot notice its own repair is a comment. It is rewritten
+        rather than deleted, because the measurement is still the reason
+        the field exists.)*
+
+        Phase 0 measured a real absence: `bio_schema` had `spouse_name`,
+        `marriage_year` and `marriage_place` and nowhere to record that
+        there was no marriage. Intake accepted `marital_status` and
+        folded it into `profile_json.marriage.status` alone, which
+        nothing outside intake read.
+
+        Phase 1 added `marital_status` to the seed, made intake write it
+        as a bio fact, and taught the Profile Seed resolver to read it.
+
+        **`_build_profile_seed()` still does not see it, and that is
+        expected.** The seed builds Lori's memory-echo readback; the
+        resolver is the completion authority. The two are different
+        contracts and Phase 1 deliberately did not merge them — see
+        `tests/test_profile_seed_server_authority.py` for the resolver
+        side, which is where "never married" now answers the partner
+        topic.
         """
-        self.assertIsNone(_bs.get_field_by_key("marital_status"))
+        self.assertIsNotNone(
+            _bs.get_field_by_key("marital_status"),
+            "Phase 1's canonical marital-status field has gone missing")
         self.assertIsNotNone(_bs.get_field_by_key("spouse_name"))
         stated = self._seed({"marriage": {"status": "never married"}})
-        self.assertIsNone(stated.get("partner"))
+        self.assertIsNone(
+            stated.get("partner"),
+            "the memory-echo seed started reading marriage.status — if that "
+            "is deliberate, this expectation needs rewriting rather than "
+            "muting")
         self.assertEqual(stated.get("partner"), self._seed({}).get("partner"))
 
     # ── Gap 4 · children ─────────────────────────────────────────────
