@@ -3,13 +3,13 @@
 **Make the preserved ten-topic Profile Seed onboarding reachable, durable and finite.**
 
 **Authored:** 2026-08-26 against `main` at `6952ad0`  
+**Predecessor:** `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01`, accepted and complete.
+
 **Status:** IN IMPLEMENTATION — Phase 0 accepted 2026-08-26 at `661aa95`; **Phase 1 (server
-authority) is the current work.** No product code or schema has been changed by this work
-order yet; Phase 0 was test-only. *(This line read "READY FOR IMPLEMENTATION" until
+authority) is the current work.** *(This line read "READY FOR IMPLEMENTATION" until
 2026-08-26, contradicting §6's own `STATUS: COMPLETE, ACCEPTED` two hundred lines below. A
 spec whose header disagrees with its body is worse than one that is merely stale, because
-the header is the part a reader trusts without scrolling.)*  
-**Predecessor:** `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01`, accepted and complete.
+the header is the part a reader trusts without scrolling.)*
 
 ---
 
