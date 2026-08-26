@@ -3,7 +3,13 @@
 **WO-LORI-PROFILE-SEED-REACHABILITY-01, Phase 2 checkpoint.**
 **Authored 2026-08-26 against `origin/main` at `8b2c392`. NO CODE HAS BEEN CHANGED.**
 
-Every line number below was read from the tree at `8b2c392`, not recalled.
+**AMENDED 2026-08-26 at `92c4a39`.** Option B is the accepted transport-scope ruling, and
+five review findings are answered in §9–§13. **§4 as first written was WRONG and is
+superseded by §11** — it would have marked the very topic Lori had just asked as
+`addressed` in the same committed turn, before the narrator said anything about it. That
+correction is the most important thing in this file.
+
+Every line number was read from the tree, not recalled, and re-verified after writing.
 
 ---
 
@@ -126,6 +132,12 @@ be sure. There is no user row. There is nothing to make a boundary out of.
 
 ## 4. The exact shared post-commit advancement point
 
+> **SUPERSEDED IN TWO RESPECTS — read §11 and §13 before implementing this section.**
+> As written below it advances the topic that was *asked* in the same turn, which is the
+> self-advancing bug §11 exists to prevent; and it sits inside the persistence `try`,
+> whose failure message would then lie, which §13 corrects. The location and the
+> version-conflict reasoning are still right.
+
 One implementation, in a new `server/code/api/services/profile_seed_turn.py`, called from
 **one** place: `chat_ws.py`, immediately after the `params["_persisted_turn_row_id"]`
 assignment at `:5977–5982` and inside the same `try` that already guards persistence.
@@ -238,10 +250,283 @@ byte-identical with and without onboarding state present.
 
 ---
 
-## 8. What I have NOT done
+## 9. First-turn REST identity resolution — §1's "nowhere" was too pessimistic
+
+**The correction stands and I was wrong to write it off.** §1 said `person_id` is only
+recoverable from a session that has already had a turn. That is true of
+`get_session_owner`, and it is not the whole picture: **both REST routes already parse
+`PROFILE_JSON` before composition**, at `api.py:640` and `:775`, via
+`extract_profile_json_from_ui_system` (`prompt_composer.py:489`), and both already read
+`profile_obj.get('person_id')` out of it — at `:692` and `:897`, to write
+`payload['active_person_id']`. The identifier is in scope on the *first* turn. It is
+simply used only afterwards.
+
+`ui/js/app.js:6634` confirms the SSE caller puts `person_id` into that blob.
+
+### The resolution rule
+
+```
+owner   = db.get_session_owner(conv_id)          # db.py:1817
+claimed = (profile_obj or {}).get("person_id")   # already parsed, api.py:640 / :775
+
+owner and claimed and owner != claimed  ->  REFUSE. 409. Compose nothing.
+owner                                   ->  use owner        (established, authoritative)
+claimed                                 ->  use claimed      (first turn only)
+neither                                 ->  legacy ownerless prompt, BYTE-STABLE
+```
+
+**Why the mismatch is a refusal and not a preference.** An established session owner is a
+server fact; a browser-supplied id is a claim. Letting the claim win would let a stale tab
+or a mid-switch race compose one narrator's onboarding state into another narrator's
+conversation — the cross-person failure the Picker identity boundary in `CLAUDE.md` is
+written to prevent, arriving through a different door. Silently preferring the owner would
+be safer than preferring the claim and still wrong: the caller believes it is talking to
+somebody else, and it should be told.
+
+**The claim identifies; it never carries state.** `PROFILE_JSON` may say *who*. Onboarding
+status, active topic and version are read from `profile_seed_onboarding` by that id and
+from nowhere else. A browser cannot assert that a topic is answered, on any transport.
+
+**Ownerless stays byte-stable.** No owner and no claim means no `runtime71` is constructed
+at all, and the prompt is the one that path produces today. §10 is what makes that
+guarantee testable rather than hoped for.
+
+---
+
+## 10. Sparse-runtime isolation — the finding that would have broken REST
+
+**This is real and I had not seen it.** `prompt_composer.py:3942` opens `if runtime71:`,
+and inside it `:4100` reads
+
+```python
+identity_complete = bool(runtime71.get("identity_complete", False))
+...
+identity_mode     = (effective_pass == "identity") or (not identity_complete)
+```
+
+So a runtime object carrying only `{"person_id": ..., "profile_seed_onboarding": ...}`
+does not merely add a section. **It flips `identity_complete` to `False`, which flips
+`identity_mode` to `True`, which puts REST into identity interrogation** — Lori asking a
+narrator she has known for months for their name, because a dict gained two keys. The same
+block also defaults `current_pass` to `"pass1"` (`:4078`), `current_era` to
+`"not yet set"` (`:4086`), `current_mode` to `"open"`, `affect_state` to `"neutral"`, and
+`assistant_role` to `"interviewer"`.
+
+### The rule
+
+**Onboarding rendering must be gated on its own key, independently of `if runtime71:`.**
+Two requirements, both testable:
+
+1. **The onboarding section is emitted iff `runtime71["profile_seed_onboarding"]` is
+   present and its status is `active`.** Not iff `runtime71` is truthy.
+2. **A runtime object built by Phase 2 for a REST turn must either be complete enough to
+   be truthful, or absent.** Concretely: when REST resolves a narrator, it supplies
+   `person_id` **and** the real `identity_complete` from
+   `profile_seed.identity_anchors_complete` — the same predicate the resolver uses, so the
+   two cannot disagree — rather than letting the default decide. When REST resolves
+   nobody, it passes no `runtime71` and the prompt is unchanged.
+
+### The byte-stability test this needs
+
+Three REST prompts must be **byte-identical** before and after Phase 2:
+
+* an ownerless conversation (no owner, no claim);
+* a historical narrator (owner exists, `profile_seed_resolve` returns `None`);
+* an enrolled narrator whose onboarding status is `completed`.
+
+Byte-identical, not "equivalent". A diff of one character means an unrelated default moved,
+and the whole point of this section is that those defaults are load-bearing on a path that
+has never carried them.
+
+Also byte-stable, and named because they call the same composer: the translation caller and
+`/api/warmup` (`api.py:702`), which skips composition entirely and must keep doing so.
+
+---
+
+## 11. The prior-question correlation — §4 as written was a self-advancing bug
+
+**The review is right, the sequence it describes is exactly what §4 would have produced,
+and it is worth stating in full because it is the failure mode the whole lane exists to
+prevent.**
+
+With §4 as first written:
+
+1. onboarding resolves `active_topic_id="childhood_home"`, version 7;
+2. Lori's prompt receives it and she asks where the narrator grew up;
+3. the turn commits;
+4. the post-commit hook applies `addressed` to `childhood_home` at version 7;
+5. **the narrator has not answered. They have not spoken since before the question
+   existed.**
+
+The next turn would move to `siblings`. Ten turns later the walk would report itself
+complete having received zero answers, and the narrator would have been asked ten
+questions and heard none of them acknowledged. That is worse than the defect being fixed.
+
+### The correlation rule
+
+**A topic advances only when the current user row is a response to a topic presented in a
+PREVIOUS committed assistant row.**
+
+The turn Lori *asks* in and the turn the narrator *answers* in are different turns, and the
+state machine has to hold that fact across a commit boundary.
+
+### Where the presented topic is recorded — no schema change, no prose
+
+`persist_turn_transaction` already merges caller `meta` into the assistant row's
+`meta_json` (`db.py:2308`, `assistant_meta = {"model": ..., **(meta or {})}`), and the WS
+model path already passes `meta={"ws": True, "cancelled": ev.is_set()}` at `:5961`. Phase 2
+adds two scalars there:
+
+```python
+meta={"ws": True, "cancelled": ev.is_set(),
+      "profile_seed_presented_topic": <topic_id>,
+      "profile_seed_presented_version": <version>}
+```
+
+Two identifiers and an integer. No narrator text, no question wording, no answer — work
+order decision 8 holds. The topic id is one of ten fixed registry strings.
+
+### Where it is read back — already in scope
+
+`chat_ws.py:4376` already calls `export_turns(conv_id)` into `history` for the model, and
+`export_turns` (`db.py:2146`) returns each row's parsed `meta` dict (`db.py:2162`). **No
+new accessor is needed.** The last assistant row carrying
+`profile_seed_presented_topic` is the question this user turn is answering.
+
+### The state machine
+
+```
+COMPOSE (chat_ws.py:4371-4375)
+  resolve -> status, active_topic_id A, version V
+  presented = the last assistant row in history carrying a presented topic
+
+  if status != "active":            render nothing; no advancement
+  if presented is None:             FIRST PRESENTATION.
+                                      render topic A
+                                      stamp A/V on THIS assistant row
+                                      ADVANCE NOTHING            <-- the bug, closed
+  if presented.topic == A:          the narrator is answering A now.
+                                      classify (see 12) -> addressed | declined | stationary
+                                      re-stamp A/V so a non-answer can be answered next turn
+  if presented.topic != A:          A moved underneath us (operator entry, superseded
+                                      evidence). Treat as first presentation of the new A.
+                                      ADVANCE NOTHING.
+COMMIT (persist_turn_transaction)
+POST-COMMIT (see 13)
+  apply the classification to presented.topic at presented.version
+```
+
+The version applied is **the one stamped on the assistant row that asked the question**,
+not the one read at composition. That is what makes a retry harmless: a duplicated hook
+re-applies the same topic at the same version and gets `VersionConflict` from Phase 1's
+`profile_seed_apply`, which writes nothing.
+
+---
+
+## 12. `addressed` versus `declined` versus stationary
+
+The map excluded deterministic and meta turns and stopped there. It has to go further,
+because **treating every model-path message as an answer is a way of not listening.**
+
+### Two refusal vocabularies already exist, and neither is quite right
+
+* `extract._apply_refusal_guard._REFUSAL_PATTERNS` (`routers/extract.py:6862–6873`) —
+  seven regexes for explicit topic and privacy refusal: *"I'd rather not get into that"*,
+  *"not for putting in a book"*, *"nothing I want to go into"*. **This is what `declined`
+  means** and Phase 2 should reuse it rather than write an eighth list.
+* `thread_bank.DECLINATION_PATTERNS` (`services/thread_bank.py:136–152`) — fifteen
+  substrings, but it **mixes refusal with forgetting**: *"can't recall"*, *"nothing comes
+  to mind"*, *"I don't remember much"* sit beside *"I'd rather not"*. For surfacing a
+  banked thread that conflation is harmless. Here it is not, and reusing this list whole
+  would be the mistake.
+
+### The proposed classification
+
+| Narrator turn | State | Why |
+|---|---|---|
+| Substantive response to the presented topic | `addressed` | they answered |
+| Explicit refusal (`extract` patterns) | `declined` | "I would rather not" is an answer, and final |
+| **"I don't remember"** | **RULING NEEDED — see below** | |
+| Meta / control / repeat / help | stationary | already routed to a deterministic branch |
+| Empty or whitespace | stationary | |
+| System directive (`params["_is_system_directive"]`, `chat_ws.py:1433`) | stationary | not the narrator speaking |
+| Cancelled (`ev.is_set()`, `:5961`) | stationary | the narrator did not hear the answer |
+| Persist failure (`:6040`) | stationary | see §13 |
+
+### Two things I will not decide alone
+
+**1. "I don't remember" is genuinely ambiguous and it is a dignity question, not a
+technical one.** It is not a refusal. It is arguably an answer — asking a ninety-year-old
+the same question every session because they could not recall it the first time is the
+interrogation principle 8 forbids. It is also arguably *not* an answer — memory returns,
+and a topic they could not reach on Tuesday they may reach on Friday, which is much of the
+point of the system. I lean toward `addressed` **with the recall failure recorded nowhere
+in the progress row**, so the walk stays finite and the narrator is not re-asked. But this
+decides how Lori treats a narrator's memory loss, and it should be Chris's call.
+
+**2. There is no defensible word-count threshold for "substantive".**
+`thread_bank._SUBSTANTIVE_WORD_COUNT = 30` (`:156`) exists for a different purpose and
+must not be borrowed: *"Devils Lake, North Dakota"* is four words and completely answers
+the childhood-home question, while thirty words of *"oh goodness, let me think, that was
+such a long time ago now"* answers nothing. I propose **any non-empty narrator turn on the
+model path that is neither a refusal nor a control turn counts as addressed**, and that
+the operator review surface, not a word counter, is where a thin answer gets caught.
+
+---
+
+## 13. Post-commit advancement failure is NOT turn-persistence failure
+
+**The review is right and the existing error string would have lied.**
+
+`chat_ws.py:6040–6042` catches persistence failure and sends the client
+`"Turn persist failed — no state written"`. §4 placed advancement inside that same `try`.
+But advancement runs **after** `persist_turn_transaction` has returned, which means both
+turn rows are already committed — so a `profile_seed_apply` failure would emit a frame
+saying no state was written when the entire conversation turn had just been durably
+written. An operator reading that would look for a lost turn that is sitting in the
+database.
+
+### The rule
+
+Advancement gets its **own** `try`, after the persistence `try`, never inside it:
+
+* **conversation rows stay committed.** They are not rolled back and are not the failure.
+* **onboarding stays unchanged.** `profile_seed_apply` is all-or-nothing (Phase 1,
+  `BEGIN IMMEDIATE` + rollback on every raise), so a failure leaves the row as it was.
+* **the failure is visible.** A distinct log line naming the narrator, the topic and the
+  version — not the persistence message, and not a swallowed exception.
+* **it is retryable and idempotent.** The topic and version are on the committed assistant
+  row (§11), so a retry re-derives them from durable state rather than from anything held
+  in memory. Re-applying at the same version conflicts and changes nothing.
+* **the narrator sees nothing.** They have already been answered. A failed onboarding
+  advance costs one repeated question next turn, which is a smaller harm than an error
+  frame after a turn that worked.
+* **archive, extraction, story and trip hooks keep their existing behaviour**, gated
+  exactly as they are today on `_persisted_turn_row_id` / `_persisted_user_turn_row_id` /
+  `_archive_event_persisted`. Advancement adds no key any of them reads.
+
+---
+
+## 14. Required tests, folded in
+
+Beyond the review's list, three that fall out of the sections above:
+
+* **the first presentation advances nothing** — the §11 bug, as a named test;
+* **three REST prompts are byte-identical** before and after Phase 2 (ownerless,
+  historical, completed) — §10, and `/api/warmup` and the translation caller with them;
+* **an owner/claim mismatch refuses and composes nothing** — §9.
+
+And one control on the tests themselves: a mutation that removes the `presented is None`
+guard must fail the first-presentation test. Two instruments in this lane have already
+measured themselves instead of the code, so every new guard gets a mutation.
+
+---
+
+## 15. What I have NOT done
 
 No code, no schema, no tests, no migration. The eight browser promotion sites are
 untouched — that is Phase 3. Nothing in chronology, Life Map, memoir or story authority,
 safety, model or context window, the directive registry, Kawa, or migrations `0001–0051`.
 
-**Awaiting a ruling on §5 before Phase 2 implementation begins.**
+**Option B is the accepted transport-scope ruling. Awaiting review of the §9–§13
+amendments before Phase 2 implementation begins.**
