@@ -11,7 +11,7 @@
 |---|---|
 | 0 — executable map | **ACCEPTED** at `661aa95` |
 | 1 — server authority | **ACCEPTED** at `1288baa` |
-| 2 — prompt and committed-turn wiring | **IN IMPLEMENTATION, NOT ACCEPTED** |
+| 2 — prompt and committed-turn wiring | **IN IMPLEMENTATION, NOT ACCEPTED** — steps 1–4 accepted, step 5 current, steps 6–7 owed |
 | 3–5 | not begun |
 
 Phase 2 steps 1–3 have landed: `f23040b` characterizes all eight refusal patterns;
@@ -22,17 +22,43 @@ earlier presentation of its tuple; `c6c9ae4` adds a reproducible checked-in muta
 gate; and `0335cd3` makes that gate refuse an unclean tree or a red baseline, without
 which every mutation could report CAUGHT against a suite that was already failing.
 
-**Step 4 — the isolated composer section — landed at `620d692` and is UNDER CORRECTION.
-It is NOT ACCEPTED.** Review found the composer still holding a second hand-written
-question order, a sparse-runtime byte-stability test asserting a subset rather than
-equality, a suppression predicate broader than the renderer (so malformed state could
-silently remove existing directives), an identity result inferred from a composer payload
-rather than supplied by the server, and an artificial FastAPI skip hiding the suite.
+**Step 4 — the isolated composer section — is ACCEPTED at `9f31d9f`.** It landed at
+`620d692` and took six rounds of correction before acceptance. The full range, which is
+the ledger for this step:
 
-Steps 5–7 are owed: REST read authority, WebSocket presentation metadata and post-commit
-advancement, then the suites. **No live transport supplies `profile_seed_onboarding` yet,
-so none of the step-4 code is reachable by a narrator** — which is why correcting it now
-costs nothing and rolls back no accepted work.
+| Commit | What it corrected |
+|---|---|
+| `620d692` | Step 4 lands — one canonical topic reaches Lori, nothing else moves |
+| `da96cc0` | Control sweep: five control documents, not four — this map is one |
+| `2cfffae` | Apostrophes in two modules; the completion Lori could never deliver |
+| `890e181` | Honest instruments — real idle mutation, baseline counts, policy note |
+| `75e81c2` | One registry, one validated plan, tests measuring equality not subset |
+| `e9e3cd3` | Strict `completes_walk`; three comments that pointed at nothing |
+| `a1fe350` | The acknowledgement stops claiming the walk is over |
+| `9f31d9f` | The asking turn stops claiming a last topic — **ACCEPTED** |
+
+Review found, across those rounds: a second hand-written question order in the composer; a
+sparse-runtime byte-stability test asserting a subset rather than equality; a suppression
+predicate broader than the renderer, so malformed state could silently remove existing
+directives; an identity result inferred from a composer payload rather than supplied by the
+server; an artificial FastAPI skip hiding thirty-five tests; and — twice, in two different
+branches — **an authoritative claim about server state made before the versioned apply.**
+The acknowledgement said the walk was complete; the asking turn said a topic was the last
+one whenever `remaining_topics` was missing, empty or not a list. Both are gone. The
+recurring lesson is recorded because it will recur: *the composer cannot know the outcome
+of an apply it has not made.*
+
+**Step 5 — REST read authority — is the current action.** Steps 6–7 remain owed: WebSocket
+presentation metadata and post-commit advancement, then the suites.
+
+**Owed to Step 7, non-blocking, raised at Step 4 acceptance:** the AST guard in
+`tests/test_profile_seed_composer_section.py` that proves the `remaining` count is gone
+currently bans the NAME `remaining` across the whole composer module. That is broader than
+the thing it protects, and the failure mode is a nuisance rather than a risk — unrelated
+future code using an ordinary variable name would trip a guard about Profile Seed. Scope
+the assertion to `_profile_seed_onboarding_block` rather than the module. **No live transport
+supplies `profile_seed_onboarding` yet, so none of the step-4 code is reachable by a
+narrator.**
 
 *(This block read "READY FOR IMPLEMENTATION" until 2026-08-26, contradicting §6's own
 `STATUS: COMPLETE, ACCEPTED` two hundred lines below. A spec whose header disagrees with its

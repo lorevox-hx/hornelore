@@ -783,8 +783,8 @@ exist.)*
 | 1 — characterize the eight refusal patterns | landed |
 | 2 — one shared refusal helper | landed |
 | 3 — turn state machine, exact tuples, recovery | landed |
-| 4 — isolated composer section | landed, **UNDER CORRECTION, not accepted** |
-| 5 — REST read authority | not begun |
+| 4 — isolated composer section | **ACCEPTED** at `9f31d9f` (landed `620d692`) |
+| 5 — REST read authority | 🔵 **CURRENT ACTION** |
 | 6 — WebSocket presentation metadata and advancement | not begun |
 | 7 — suites and control reconciliation | not begun |
 
@@ -793,7 +793,8 @@ a new commit does not make five documents stale at once.
 
 **Still true, and still the boundary:** no REST, WebSocket or UI wiring has landed, and no
 live transport supplies `profile_seed_onboarding`, so none of the step-3 or step-4 code is
-reachable by a narrator. The eight browser promotion sites are untouched — that is Phase 3
+reachable by a narrator. Step 5 is what begins to change that, on the READ side only — it
+supplies onboarding state to REST chat and REST stream and **advances nothing**. The eight browser promotion sites are untouched — that is Phase 3
 — and nothing in chronology, Life Map, memoir or story authority, safety, model or context
 window, the directive registry, Kawa, or migrations `0001–0051` has changed.
 
