@@ -75,6 +75,31 @@ _API_SKIP_REASON = (f"needs api.api, which could not be imported here "
                     f"({_API_IMPORT_ERROR}). Route behaviour must be run "
                     f"on the real stack before Step 5 is accepted.")
 
+# ── HOW TO REFUSE THE SKIP, 2026-08-26 ────────────────────────────────
+#
+# `OK (skipped=6)` is not a pass, and the route classes are the ONLY
+# place Step 5 touches the live transport — so the run that matters is
+# the one where they do not skip.
+#
+#     HORNELORE_REQUIRE_ROUTE_TESTS=1 PYTHONPATH=server/code \
+#         python3 -m unittest tests.test_profile_seed_rest_read_authority
+#
+# With that set, an un-importable `api.api` FAILS instead of skipping.
+# It exists so acceptance can be run as a gate rather than as a report
+# someone has to read the skip count out of.
+#
+# Stubbing torch and transformers to remove the skip here was considered
+# and rejected: `api.py` needs `AutoModelForCausalLM` and `PeftModel` at
+# import, and a stub deep enough to satisfy that is a stub deep enough
+# to make these tests pass for reasons unrelated to the routes.
+_REQUIRE_ROUTES = os.environ.get("HORNELORE_REQUIRE_ROUTE_TESTS") == "1"
+if _REQUIRE_ROUTES and not _HAS_API:                         # pragma: no cover
+    raise ImportError(
+        "HORNELORE_REQUIRE_ROUTE_TESTS=1 but api.api could not be "
+        f"imported: {_API_IMPORT_ERROR}. Route behaviour is the only "
+        "part of Step 5 that touches the live transport; a skipped run "
+        "is not evidence about it.")
+
 KEY = _pc.PROFILE_SEED_ONBOARDING_KEY
 
 
@@ -422,6 +447,67 @@ class ByteStabilityTests(_Base):
 
 
 # ── the walk actually becomes reachable ──────────────────────────────
+class OtherRestCallerTests(_Base):
+    """The two NON-NARRATOR callers of these routes. Both unchanged.
+
+    ── FOUND BY AUDIT, NOT BY THE SUITE, 2026-08-26 ────────────────────
+
+    *(Step 5's boundary names warmup and translation as prompts that
+    must be preserved byte-for-byte, and nothing tested either. Both
+    turned out to be safe, but "safe by reasoning" is what this lane
+    keeps having to retract — `services/translation.py` posts to
+    `/api/chat` on loopback for every memoir translation, so a mistake
+    here would have silently attached a narrator's onboarding questions
+    to a translation prompt, or refused the translation with a 409.)*
+    """
+
+    def test_a_TRANSLATION_shaped_request_resolves_to_nothing(self):
+        """`services/translation.py` sends no conv_id and no PROFILE_JSON.
+
+        Its system prompt is the translator instruction, which carries
+        no `PROFILE_JSON:` blob, so `extract_profile_json_from_ui_system`
+        yields `None` and there is no claim to resolve.
+        """
+        translator_system = (
+            "You are a precise translator working on a personal memoir. "
+            "Your only job is to translate the narrator's text.")
+        profile_obj, _base = _pc.extract_profile_json_from_ui_system(
+            translator_system)
+        self.assertIsNone(profile_obj,
+                          "the translator prompt parsed as a profile claim")
+        self.assertEqual({}, self.runtime(None, profile_obj))
+        self.assertEqual(self.compose(None),
+                         self.compose(self.runtime(None, profile_obj) or None))
+
+    def test_a_WARMUP_shaped_request_resolves_to_nothing(self):
+        """`scripts/warm_llm.py` falls back to `/api/chat/stream`.
+
+        A warmup that could 503 on a locked database would turn a
+        transient fault into a failed start, and cold boot already takes
+        four minutes.
+        """
+        for conv in (None, "", "   "):
+            with self.subTest(conv_id=conv):
+                self.assertEqual({}, self.runtime(conv, None))
+
+    def test_the_warmup_ROUTE_never_resolves_authority(self):
+        """`/api/warmup` must not have acquired this behaviour at all.
+
+        It documents itself as skipping prompt composition, profile
+        lookup and DB writes; adding a narrator resolution to it would
+        contradict that and put storage on the startup path.
+        """
+        import ast
+        src = (_SERVER_CODE / "api" / "api.py").read_text(encoding="utf-8")
+        warmup = next(n for n in ast.walk(ast.parse(src))
+                      if isinstance(n, ast.FunctionDef)
+                      and n.name == "warmup_endpoint")
+        called = {getattr(n.func, "id", "") for n in ast.walk(warmup)
+                  if isinstance(n, ast.Call)}
+        self.assertNotIn("_profile_seed_runtime", called,
+                         "/api/warmup now resolves narrator authority")
+
+
 class ReachabilityTests(_Base):
     """The point of the whole work order, measured on the REST path."""
 
@@ -537,21 +623,46 @@ class SnapshotConsistencyTests(_Base):
     """
 
     def test_a_write_BETWEEN_the_two_reads_cannot_split_the_runtime(self):
-        pid = self._person("Snapshot Narrator")
+        """Race ANCHORLESS -> ANCHORED, which is the damaging direction.
+
+        ── THE RACE WAS POINTED THE WRONG WAY, 2026-08-26 ─────────────
+
+        *(This started anchored and DELETED the anchors between the two
+        reads. Removing the transaction then produced an idle plan and
+        `{}` — no contradiction to detect — and the test excused itself
+        with `if not runtime: return`. So it passed with the snapshot
+        gone, and S5 was caught only by the STRUCTURAL check noticing
+        `BEGIN DEFERRED` was missing. A structural guard reported as
+        behavioural proof, which is the pattern this lane keeps
+        repeating.*
+
+        *Measured in the correct direction, with the transaction
+        removed: `identity_complete=True`, `speaker_name` present, `dob`
+        and `pob` GONE. That is the self-contradicting runtime the
+        requirement exists to prevent, and it is what this test must
+        fail on.)*
+
+        The narrator starts with a name only. The anchors ARRIVE between
+        the identity read and the resolve. One snapshot means both reads
+        see the world before that write: still pending, no runtime. Two
+        reads mean the resolver sees anchors the facts never saw.
+        """
+        pid = self._person("Racing Narrator", anchors=False)
 
         original = _ps._person_and_basics
-        state = {"n": 0}
+        fired = {"n": 0}
 
         def racing(con, person_id):
-            """Erase the anchors after the identity read, before resolve."""
+            """Complete the anchors after the identity read."""
             result = original(con, person_id)
-            if state["n"] == 0:
-                state["n"] = 1
+            if fired["n"] == 0:
+                fired["n"] = 1
                 other = sqlite3.connect(str(self.db_path))
                 try:
                     other.execute(
-                        "UPDATE people SET date_of_birth='', "
-                        "place_of_birth='' WHERE id=?;", (pid,))
+                        "UPDATE people SET date_of_birth='1936-11-08', "
+                        "place_of_birth='Spokane, Washington' WHERE id=?;",
+                        (pid,))
                     other.commit()
                 finally:
                     other.close()
@@ -563,16 +674,84 @@ class SnapshotConsistencyTests(_Base):
         finally:
             _ps._person_and_basics = original
 
-        self.assertEqual(1, state["n"], "the race never fired, so this "
-                                        "test proves nothing")
-        if not runtime:
-            return   # resolved consistently as pending — also coherent
+        self.assertEqual(1, fired["n"],
+                         "the race never fired, so this test proves nothing")
+        # NO early return. A coherent old snapshot is the ONLY acceptable
+        # answer; anything else is two moments stitched together.
+        self.assertEqual(
+            {}, runtime,
+            "the runtime was assembled from two different moments: the "
+            "resolver saw anchors that the identity read did not, so the "
+            "narrator is reported identity-complete with facts missing")
+
+    def test_the_race_helper_actually_changes_the_row(self):
+        """Non-vacuity for the race above.
+
+        If the injected write silently failed, the test would pass by
+        describing a race that never happened.
+        """
+        pid = self._person("Control Narrator", anchors=False)
+        con = sqlite3.connect(str(self.db_path))
+        try:
+            con.execute("UPDATE people SET date_of_birth='1936-11-08', "
+                        "place_of_birth='Spokane, Washington' WHERE id=?;",
+                        (pid,))
+            con.commit()
+        finally:
+            con.close()
+        runtime = self.runtime("c1", {"person_id": pid})
+        self.assertTrue(runtime, "completing the anchors did not start the "
+                                 "walk, so the race's write is inert and the "
+                                 "test above proves nothing")
         self.assertTrue(runtime["identity_complete"])
-        for key in ("speaker_name", "dob", "pob"):
-            self.assertIn(key, runtime,
-                          f"identity_complete is True but {key} is missing — "
-                          "the runtime was assembled from two different "
-                          "moments")
+        self.assertIn("dob", runtime)
+        self.assertIn("pob", runtime)
+
+    def test_a_storage_fault_is_not_MASKED_by_the_rollback(self):
+        """The fault the caller must see is the one they get.
+
+        *(Unguarded, a `ROLLBACK` failing inside `finally` REPLACES the
+        exception passing through it — so "database is locked" would
+        reach the operator as a rollback error from a line where nothing
+        went wrong. Storage faults are not absence, and they are also
+        not to be overwritten by their own cleanup.)*
+        """
+        class Failing:
+            """Raises on the resolve, then again on the ROLLBACK."""
+
+            def __init__(self, real):
+                self._real = real
+
+            def execute(self, sql, *a):
+                if sql.strip().upper().startswith("ROLLBACK"):
+                    raise sqlite3.OperationalError("rollback failed too")
+                return self._real.execute(sql, *a)
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+        real = sqlite3.connect(str(self.db_path))
+        real.row_factory = sqlite3.Row
+        self.addCleanup(real.close)
+
+        original = _ps.resolve_effective
+
+        def boom(con, person_id, *, now):
+            raise sqlite3.OperationalError("database is locked")
+
+        _ps.resolve_effective = boom
+        try:
+            with self.assertRaises(sqlite3.OperationalError) as caught:
+                _rest.onboarding_runtime(
+                    "c1", {"person_id": "p1"},
+                    owner_lookup=lambda c: "p1",
+                    connect=lambda: Failing(real))
+        finally:
+            _ps.resolve_effective = original
+
+        self.assertIn("database is locked", str(caught.exception),
+                      "the rollback's own failure replaced the storage fault "
+                      "the caller needed to see")
 
     def test_the_read_opens_a_transaction_and_rolls_it_back(self):
         """Structural: the snapshot is a transaction, and it never commits.
@@ -655,6 +834,17 @@ class RouteStructureTests(unittest.TestCase):
     runs everywhere, and the genuinely un-runnable part says plainly
     what it needs.)*
     """
+
+    #: The EXACT mapping, stated once and asserted as a whole.
+    #:
+    #: An identity refusal tells the caller to re-select the narrator; a
+    #: storage fault tells them to try again. Getting these the wrong way
+    #: round sends the reader to fix the wrong thing.
+    EXPECTED_STATUS = {
+        "ContradictoryClaim": 409,
+        "OwnerClaimMismatch": 409,
+        "Error": 503,                 # `sqlite3.Error`
+    }
 
     def source(self):
         return (_SERVER_CODE / "api" / "api.py").read_text(encoding="utf-8")
@@ -746,6 +936,44 @@ class RouteStructureTests(unittest.TestCase):
                                 f"{fn.name}() loads the model before "
                                 "resolving who the turn is for")
 
+    def test_the_helper_RETURNS_what_it_resolved(self):
+        """A helper that resolves and then returns a constant is a
+        silent no-op with a working refusal path.
+
+        *(Found by mutation S9, which replaced `return runtime or None`
+        with `return None` and SURVIVED. Every other guard still held:
+        ownership still refused, the route still bound the value, the
+        value still reached `runtime71=`. It was just always `None`, so
+        no narrator would ever be asked anything and the whole step
+        would be inert. The wiring test could not see it because it
+        follows the NAME, and the route-behaviour tests that would have
+        caught it are the ones that skip without the real stack.)*
+        """
+        import ast
+        helper = next(n for n in ast.walk(ast.parse(self.source()))
+                      if isinstance(n, ast.FunctionDef)
+                      and n.name == "_profile_seed_runtime")
+        # The success path — returns not inside an `except` — must
+        # mention the name the resolution was bound to.
+        handled = {id(n) for h in ast.walk(helper)
+                   if isinstance(h, ast.ExceptHandler)
+                   for n in ast.walk(h)}
+        returns = [n for n in ast.walk(helper)
+                   if isinstance(n, ast.Return) and id(n) not in handled]
+        self.assertTrue(returns, "the helper has no success-path return")
+        bound = {t.id for n in ast.walk(helper) if isinstance(n, ast.Assign)
+                 for t in n.targets if isinstance(t, ast.Name)}
+        self.assertTrue(bound, "the helper binds nothing, so it cannot be "
+                               "returning what it resolved")
+        for ret in returns:
+            with self.subTest(line=ret.lineno):
+                names = {n.id for n in ast.walk(ret)
+                         if isinstance(n, ast.Name)}
+                self.assertTrue(
+                    names & bound,
+                    f"the return at line {ret.lineno} does not reference the "
+                    "resolved value — the helper discards what it computed")
+
     def test_the_helper_refuses_rather_than_falling_back(self):
         """Structural cover for what the sandbox cannot execute.
 
@@ -793,15 +1021,142 @@ class RouteStructureTests(unittest.TestCase):
                           if isinstance(n, ast.Raise)]
                 self.assertTrue(raises, "a handler swallowed its exception "
                                         "instead of refusing")
-        codes = sorted(kw.value.value for h in handlers
-                       for n in ast.walk(h) if isinstance(n, ast.Call)
-                       for kw in n.keywords if kw.arg == "status_code")
-        # One 409 per identity refusal the service defines, plus one 503
-        # for the storage fault. `sqlite3.Error` is not ours, so it is
-        # not in `refusals` and is counted separately.
-        self.assertEqual([409] * len(refusals) + [503], sorted(codes),
-                         "every identity refusal must be a 409 and the "
-                         "storage fault a 503")
+        # ── AN EXACT MAPPING, NOT A MULTISET, 2026-08-26 ──────────────
+        #
+        # *(This compared `sorted(codes) == [409, 409, 503]`. A multiset
+        # says how many of each code exist and NOTHING about which
+        # exception raises which — so swapping `ContradictoryClaim` to
+        # 503 and `sqlite3.Error` to 409 produced the same sorted list
+        # and passed. A caller would have been told "Lori cannot reach
+        # her notes" for a contradictory payload, and "reload and select
+        # the narrator" for a locked database: both refusals still fire,
+        # both are the wrong answer, and the test could not tell.)*
+        actual = {}
+        for handler in handlers:
+            names = {n.attr for n in ast.walk(handler.type)
+                     if isinstance(n, ast.Attribute)} or {
+                n.id for n in ast.walk(handler.type) if isinstance(n, ast.Name)}
+            codes = {kw.value.value for n in ast.walk(handler)
+                     if isinstance(n, ast.Call)
+                     for kw in n.keywords if kw.arg == "status_code"}
+            self.assertEqual(1, len(codes),
+                             f"handler for {sorted(names)} raises "
+                             f"{sorted(codes)} — one refusal, one code")
+            for name in names:
+                actual[name] = codes.pop() if codes else None
+                codes = {actual[name]}
+
+        self.assertEqual(self.EXPECTED_STATUS, actual,
+                         "the exception-to-status mapping is wrong: an "
+                         "identity refusal and a storage fault mean "
+                         "different things to the caller and must not be "
+                         "interchangeable")
+
+
+@unittest.skipUnless(_HAS_API, _API_SKIP_REASON)
+class RouteBehaviourTests(_Base):
+    """The ROUTES themselves refuse — `chat()` and `chat_stream()`.
+
+    *(`RouteContractTests` calls `_profile_seed_runtime()` directly, so
+    even with zero skips it never exercised a route. A helper that
+    refuses correctly proves nothing about a route that might not call
+    it, might call it after loading the model, or might swallow it. This
+    class calls the route functions.)*
+
+    `_load_model`, the composer and the generator are all replaced with
+    tripwires: reaching any of them during a refusal is a failure, which
+    is how "the refusal happens FIRST" is proven rather than asserted.
+    """
+
+    def setUp(self):
+        super().setUp()
+        import api.api as api_module
+        self.api = api_module
+        self.tripped = []
+
+        def tripwire(name):
+            def _fail(*a, **k):
+                self.tripped.append(name)
+                raise AssertionError(f"{name} was reached during a refusal")
+            return _fail
+
+        for name in ("_load_model", "compose_prompt_sections",
+                     "_generate_text"):
+            original = getattr(self.api, name)
+            setattr(self.api, name, tripwire(name))
+            self.addCleanup(setattr, self.api, name, original)
+
+    def _req(self, profile_json, conv_id="c-route"):
+        """A request body carrying a PROFILE_JSON claim, as the browser sends."""
+        import json as _json
+        system = ("You are Lorevox.\nPROFILE_JSON:"
+                  + _json.dumps(profile_json))
+        return self.api._ChatReq(
+            messages=[self.api.ChatTurn(role="system", content=system),
+                      self.api.ChatTurn(role="user", content="Hello")],
+            conv_id=conv_id)
+
+    def _assert_refused(self, route, profile_json, *, status, error,
+                        owner=None, fault=False):
+        from fastapi import HTTPException
+        if owner is not None:
+            self._session("c-route", owner)
+        if fault:
+            original = _rest.onboarding_runtime
+            _rest.onboarding_runtime = self._raise_locked
+            self.addCleanup(setattr, _rest, "onboarding_runtime", original)
+        with self.assertRaises(HTTPException) as caught:
+            route(self._req(profile_json))
+        self.assertEqual(status, caught.exception.status_code)
+        self.assertEqual(error, caught.exception.detail["error"])
+        self.assertEqual([], self.tripped,
+                         "the refusal happened AFTER the model, composer or "
+                         "generator was reached")
+
+    @staticmethod
+    def _raise_locked(*a, **k):
+        raise sqlite3.OperationalError("database is locked")
+
+    # ── both routes, all three refusals ─────────────────────────────
+    def test_a_contradictory_claim_is_refused_by_both_routes(self):
+        for route in (self.api.chat, self.api.chat_stream):
+            with self.subTest(route=route.__name__):
+                self.tripped.clear()
+                self._assert_refused(
+                    route, {"person_id": "p-a", "personId": "p-b"},
+                    status=409, error="CONTRADICTORY_NARRATOR_CLAIM")
+
+    def test_an_owner_mismatch_is_refused_by_both_routes(self):
+        pid = self._person("Route Narrator")
+        for route in (self.api.chat, self.api.chat_stream):
+            with self.subTest(route=route.__name__):
+                self.tripped.clear()
+                self._assert_refused(
+                    route, {"person_id": "p-claim"},
+                    status=409, error="SESSION_OWNER_MISMATCH", owner=pid)
+
+    def test_a_storage_fault_is_refused_by_both_routes(self):
+        for route in (self.api.chat, self.api.chat_stream):
+            with self.subTest(route=route.__name__):
+                self.tripped.clear()
+                self._assert_refused(
+                    route, {"person_id": "p-any"},
+                    status=503, error="PROFILE_SEED_UNAVAILABLE", fault=True)
+
+    def test_the_tripwires_ARE_reachable_on_a_non_refusing_turn(self):
+        """Non-vacuity for every assertion above.
+
+        If the tripwires could never fire — wrong attribute names, a
+        route that returns before reaching them — then `self.tripped ==
+        []` would be true for reasons having nothing to do with the
+        refusal happening first.
+        """
+        pid = self._person("Ordinary Narrator")
+        self._session("c-route", pid)
+        with self.assertRaises(AssertionError) as caught:
+            self.api.chat(self._req({"person_id": pid}))
+        self.assertIn("_load_model", str(caught.exception))
+        self.assertEqual(["_load_model"], self.tripped)
 
 
 @unittest.skipUnless(_HAS_API, _API_SKIP_REASON)

@@ -132,6 +132,7 @@ POLICY = "server/code/api/services/prompt_section_policy.py"
 # A gate scoped to the suite written alongside the feature only ever
 # asks "did I break my own new tests". The sections a new section has to
 # coexist with are exactly where a regression lands.
+API = "server/code/api/api.py"
 REST = "server/code/api/services/profile_seed_rest.py"
 REST_TESTS = "tests.test_profile_seed_rest_read_authority"
 
@@ -176,6 +177,30 @@ class Mutation:
 # and the refusal names both colliding mutations.
 
 MUTATIONS: Tuple[Mutation, ...] = (
+    Mutation(
+        "S7", "STATUS CODES SWAPPED: a contradictory payload is reported as a storage fault, so the caller is told to try again instead of to re-select the narrator",
+        API,
+        '        print(f"[profile-seed][{where}] {contradiction}")\n        raise HTTPException(\n            status_code=409,',
+        '        print(f"[profile-seed][{where}] {contradiction}")\n        raise HTTPException(\n            status_code=503,',
+        REST_TESTS, was_real=True),
+    Mutation(
+        "S8", "ROUTE ORDERING REVERSED: the model loads before authority is resolved, so a model failure masks the refusal the route promises",
+        API,
+        '    _seed_runtime = _profile_seed_runtime(req.conv_id, profile_obj,\n                                          where="rest-chat")\n    model, tok = _load_model()',
+        '    model, tok = _load_model()\n    _seed_runtime = _profile_seed_runtime(req.conv_id, profile_obj,\n                                          where="rest-chat")',
+        REST_TESTS, was_real=True),
+    Mutation(
+        "S9", "THE RESOLVED RUNTIME IS DISCARDED: the helper still refuses, but onboarding state never reaches the prompt",
+        API,
+        '    return runtime or None',
+        '    return None',
+        REST_TESTS, was_real=True),
+    Mutation(
+        "S10", "THE CONTRADICTION HANDLER IS REMOVED, so a payload naming two narrators escapes as an unhandled 500",
+        API,
+        '    except _profile_seed_rest.ContradictoryClaim as contradiction:',
+        '    except _profile_seed_rest.OwnerClaimMismatch as contradiction:',
+        REST_TESTS, was_real=True),
     Mutation(
         "S4", "CLAIM SCOPE WIDENED: undocumented aliases satisfy a claim again and a contradictory payload silently resolves to whichever key is met first - a coin toss deciding which narrator is asked",
         REST,
@@ -835,8 +860,22 @@ def classify_result(code: int, output: str) -> Tuple[str, str]:
 def run_one(mutation: Mutation, env: dict) -> Tuple[str, str]:
     path = REPO / mutation.target
     original = path.read_text(encoding="utf-8")
-    if mutation.old not in original:
+    matches = original.count(mutation.old)
+    if matches == 0:
         return BROKEN, "anchor not found — the code moved under this mutation"
+    if matches > 1:
+        # `str.replace(old, new, 1)` takes the FIRST occurrence, so an
+        # ambiguous anchor mutates whichever site happens to come first
+        # and leaves the others intact — a HALF mutation reported as a
+        # whole one.
+        #
+        # *(Caught writing S9, whose anchor `runtime71=_seed_runtime`
+        # appears once per REST route. It would have mutated `/api/chat`
+        # only, and a CAUGHT verdict would have said nothing about
+        # `/api/chat/stream`.)*
+        return BROKEN, (f"anchor matches {matches} places — it must identify "
+                        "ONE site, or the mutation is applied to whichever "
+                        "comes first and the rest are untouched")
     _journal_write(mutation, original)
     path.write_text(original.replace(mutation.old, mutation.new, 1),
                     encoding="utf-8")
