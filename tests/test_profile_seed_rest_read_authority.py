@@ -52,12 +52,17 @@ from api import prompt_composer as _pc                       # noqa: E402
 from api.services import profile_seed as _ps                 # noqa: E402
 from api.services import profile_seed_rest as _rest          # noqa: E402
 
-#: Can `api.api` be imported at all? It pulls in torch at module scope.
+#: Can `api.api` be imported at all? It pulls in heavy dependencies at
+#: module scope, and which one is missing DEPENDS ON THE ENVIRONMENT.
 #:
-#: The reason is captured and reported in the skip message rather than
-#: guessed at, because an earlier guard in this lane named fastapi while
-#: the real blocker was something else — and a skip whose stated reason
-#: is wrong is worse than no skip, since it stops anyone investigating.
+#: *(This named torch, because torch was what the agent sandbox was
+#: missing. In a review clone the import failed on fastapi FIRST, so the
+#: decorator read "needs api.api, which imports torch
+#: (ModuleNotFoundError: No module named 'fastapi')" — a skip reason
+#: contradicting itself in one line. An earlier guard in this lane named
+#: fastapi while the real blocker was torch, which is the same mistake
+#: with the names swapped. Hard-coding ANY dependency here is guessing;
+#: the captured exception is the only thing that is true everywhere.)*
 try:
     import api.api as _api_module                            # noqa: F401
     _HAS_API = True
@@ -65,6 +70,10 @@ try:
 except Exception as _exc:                                    # pragma: no cover
     _HAS_API = False
     _API_IMPORT_ERROR = f"{type(_exc).__name__}: {_exc}"
+
+_API_SKIP_REASON = (f"needs api.api, which could not be imported here "
+                    f"({_API_IMPORT_ERROR}). Route behaviour must be run "
+                    f"on the real stack before Step 5 is accepted.")
 
 KEY = _pc.PROFILE_SEED_ONBOARDING_KEY
 
@@ -235,21 +244,78 @@ class IdentityFactTests(_Base):
         sparse = self._person("Sparse Narrator", anchors=False)
         self.assertTrue(self.runtime("c1", {"person_id": anchored})
                         ["identity_complete"])
-        self.assertFalse(self.runtime("c2", {"person_id": sparse})
-                         .get("identity_complete", False))
+        # The anchorless narrator is held at `pending`, so no runtime is
+        # supplied at all — which is a STRONGER guarantee than
+        # `identity_complete=False`, and the reason this asserts on the
+        # whole runtime rather than the one key.
+        self.assertEqual({}, self.runtime("c2", {"person_id": sparse}))
 
     def test_a_partially_known_narrator_states_only_what_is_known(self):
         """Empty anchors are OMITTED, not sent as empty strings.
 
         `_known_identity_facts_block` renders whichever keys are present;
-        an empty string would still be a key, and the block would have to
-        decide what to print for it.
+        an empty string would still be a key, and the block would have
+        to decide what to print for it.
+
+        Exercised through `_identity_facts` directly, because a narrator
+        missing an anchor is held at `pending` and supplies no runtime
+        at all — the composed-prompt route cannot reach this.
         """
-        pid = self._person("Half Known", anchors=False)
-        runtime = self.runtime("c1", {"person_id": pid})
-        self.assertEqual("Half Known", runtime.get("speaker_name"))
-        self.assertNotIn("dob", runtime)
-        self.assertNotIn("pob", runtime)
+        facts = _rest._identity_facts(
+            {"display_name": "Half Known", "date_of_birth": "",
+             "place_of_birth": None}, {})
+        self.assertEqual({"speaker_name": "Half Known"}, facts)
+
+    def test_identity_facts_travel_ONLY_with_an_active_walk(self):
+        """The Step 5 boundary, as a property rather than three cases.
+
+        *(I first supplied facts to any narrator who had them. That is
+        defensible on its own merits and was not Step 5's call to make:
+        supplying ANY runtime dict makes the composer emit its whole
+        runtime block, so historical and completed prompts grew by
+        17,760 characters — measured — against a boundary that preserves
+        them byte-for-byte.)*
+        """
+        # `pending` is deliberately NOT in this list, and the reason is
+        # worth stating: writing `status='pending'` onto an ANCHORED
+        # narrator does not produce a pending narrator. The resolver
+        # recomputes status from the identity anchors, so the row
+        # promotes straight back to `active` — the stored status is not
+        # authoritative on its own. A real pending narrator is one whose
+        # anchors are missing, covered by
+        # `test_a_PENDING_narrator_is_byte_identical`.
+        #
+        # *(This test asserted it anyway and failed, which is the fixture
+        # being unrealistic rather than the code being wrong — but a
+        # fixture that cannot occur would have been a permanent false
+        # alarm for whoever met it next.)*
+        for status in (_ps.STATUS_PAUSED, _ps.STATUS_COMPLETED):
+            with self.subTest(status=status):
+                pid = self._person(f"Narrator {status}")
+                self._set_status(pid, status)
+                self.assertEqual({}, self.runtime("c1", {"person_id": pid}))
+
+    def test_forcing_pending_on_an_anchored_narrator_RESOLVES_BACK(self):
+        """The behaviour the list above had to work around, pinned.
+
+        Left as a test rather than a comment because it is the reason
+        the list is short, and a future reader adding `pending` back
+        should meet this instead of a puzzling failure.
+        """
+        pid = self._person("Anchored Narrator")
+        self._set_status(pid, _ps.STATUS_PENDING)
+        self.assertIn(KEY, self.runtime("c1", {"person_id": pid}),
+                      "the resolver stopped recomputing status from the "
+                      "anchors — the comment above is now wrong")
+
+    def _set_status(self, pid, status):
+        con = sqlite3.connect(str(self.db_path))
+        try:
+            con.execute("UPDATE profile_seed_onboarding SET status=? "
+                        "WHERE person_id=?;", (status, pid))
+            con.commit()
+        finally:
+            con.close()
 
 
 # ── byte stability ───────────────────────────────────────────────────
@@ -277,27 +343,31 @@ class ByteStabilityTests(_Base):
                          self.compose(self.runtime("c1", {"person_id": "ghost"})
                                       or None))
 
-    def test_a_COMPLETED_walk_adds_no_onboarding_section(self):
-        """`completed` is terminal — that is what stops a narrator being
-        walked through onboarding a second time."""
-        pid = self._person()
-        con = sqlite3.connect(str(self.db_path))
-        try:
-            con.execute("UPDATE profile_seed_onboarding SET status=? "
-                        "WHERE person_id=?;", (_ps.STATUS_COMPLETED, pid))
-            con.commit()
-        finally:
-            con.close()
+    def test_a_COMPLETED_walk_is_byte_identical_with_a_KNOWN_narrator(self):
+        """A POPULATED identity, not an empty fixture.
+
+        *(The first version asserted only that no onboarding key was
+        supplied, and separately that `identity_complete` was True — so
+        it PASSED while the prompt grew by 17,760 characters. A narrator
+        with no name would have hidden the defect entirely; this one has
+        a name, a DOB and a birthplace, which is the case that exposes
+        it.)*
+        """
+        pid = self._person("Completed Narrator")
+        self._set_status(pid, _ps.STATUS_COMPLETED)
         runtime = self.runtime("c1", {"person_id": pid})
-        self.assertNotIn(KEY, runtime,
-                         "a completed walk supplied an onboarding plan")
-        self.assertTrue(runtime["identity_complete"],
-                        "completing the walk did not un-know the narrator")
+        self.assertEqual({}, runtime,
+                         "a completed walk supplied runtime state")
+        self.assertEqual(self.baseline(), self.compose(runtime or None))
 
-    def test_a_historical_narrator_gets_facts_but_no_walk(self):
-        """No onboarding row, and none will be created.
+    def test_a_HISTORICAL_narrator_is_byte_identical_with_a_KNOWN_identity(self):
+        """No onboarding row, and none is created.
 
-        Knowing who someone is was never conditional on enrolling them.
+        Supplying this narrator's facts would be a defensible prompt
+        change on its own merits — and it is not Step 5's to make, whose
+        boundary preserves historical prompts byte-for-byte. Supplying
+        ANY runtime dict makes the composer emit its whole runtime
+        block, so "just the three facts" is never just three facts.
         """
         pid = self._person("Historical Narrator")
         con = sqlite3.connect(str(self.db_path))
@@ -308,10 +378,41 @@ class ByteStabilityTests(_Base):
         finally:
             con.close()
         runtime = self.runtime("c1", {"person_id": pid})
-        self.assertNotIn(KEY, runtime)
-        self.assertEqual("Historical Narrator", runtime["speaker_name"])
+        self.assertEqual({}, runtime)
+        self.assertEqual(self.baseline(), self.compose(runtime or None))
         self.assertIsNone(_ps.read_row(self._open(), pid),
                           "the read CREATED an onboarding row")
+
+    def test_a_PENDING_narrator_is_byte_identical(self):
+        """Anchors incomplete, so the walk must not begin — Phase 0
+        pinned that as correct, not part of the reachability defect."""
+        pid = self._person("Anchorless Narrator", anchors=False)
+        runtime = self.runtime("c1", {"person_id": pid})
+        self.assertEqual({}, runtime)
+        self.assertEqual(self.baseline(), self.compose(runtime or None))
+
+    def test_the_preserved_cases_are_measured_against_a_POPULATED_narrator(self):
+        """Non-vacuity for the three tests above.
+
+        Each asserts equality against a baseline. If the fixtures were
+        empty, or the composer ignored runtime entirely, they would pass
+        for the wrong reason forever. An ACTIVE narrator built the same
+        way must CHANGE the prompt.
+        """
+        pid = self._person("Active Narrator")
+        runtime = self.runtime("c1", {"person_id": pid})
+        self.assertTrue(runtime, "the active fixture supplied nothing, so the "
+                                 "byte-equality tests above prove nothing")
+        self.assertNotEqual(self.baseline(), self.compose(runtime))
+
+    def _set_status(self, pid, status):
+        con = sqlite3.connect(str(self.db_path))
+        try:
+            con.execute("UPDATE profile_seed_onboarding SET status=? "
+                        "WHERE person_id=?;", (status, pid))
+            con.commit()
+        finally:
+            con.close()
 
     def _open(self):
         con = sqlite3.connect(str(self.db_path))
@@ -376,6 +477,169 @@ class ReachabilityTests(_Base):
         return con
 
 
+class ClaimScopeTests(_Base):
+    """`person_id` is the claim. Aliases are read only to catch conflicts."""
+
+    def test_only_the_specified_key_satisfies_a_claim(self):
+        """*(`personId` and `active_person_id` used to satisfy it on
+        their own, widening an identity boundary the transport map
+        scopes to one key.)*"""
+        for alias in ("personId", "active_person_id"):
+            with self.subTest(alias=alias):
+                self.assertIsNone(_rest.resolve_rest_identity(
+                    "c1", {alias: "p-alias"}, owner_lookup=lambda c: None),
+                    f"{alias} satisfied a claim by itself")
+
+    def test_a_CONTRADICTORY_payload_is_refused_not_silently_resolved(self):
+        """First-match was a coin toss deciding whose childhood is asked about."""
+        for payload in ({"person_id": "p-a", "personId": "p-b"},
+                        {"person_id": "p-a", "active_person_id": "p-b"},
+                        {"personId": "p-a", "active_person_id": "p-b"}):
+            with self.subTest(payload=payload):
+                with self.assertRaises(_rest.ContradictoryClaim):
+                    _rest.resolve_rest_identity("c1", payload,
+                                                owner_lookup=lambda c: None)
+
+    def test_a_contradiction_composes_NOTHING(self):
+        """Refused before storage is opened, like an owner mismatch.
+
+        Same property, and it needs its own test: the two refusals are
+        raised from different helpers, so covering one says nothing
+        about the other.
+        """
+        def must_not_connect():
+            raise AssertionError("storage was opened before the "
+                                 "contradictory-claim refusal")
+
+        with self.assertRaises(_rest.ContradictoryClaim):
+            _rest.onboarding_runtime("c1", {"person_id": "p-a",
+                                            "personId": "p-b"},
+                                     owner_lookup=lambda c: None,
+                                     connect=must_not_connect)
+
+    def test_agreeing_aliases_are_not_a_contradiction(self):
+        """Redundant is not conflicting — refusing here would break
+        callers who send both keys with the same value."""
+        self.assertEqual("p-a", _rest.resolve_rest_identity(
+            "c1", {"person_id": "p-a", "personId": "p-a",
+                   "active_person_id": "p-a"},
+            owner_lookup=lambda c: None))
+
+
+class SnapshotConsistencyTests(_Base):
+    """Identity facts and effective state come from ONE snapshot.
+
+    *(They were two independent reads of `people`. Review reproduced a
+    concurrent update between them and got `identity_complete=True` with
+    a name but no DOB and no birthplace — the self-contradicting runtime
+    the requirement exists to prevent, assembled from two moments that
+    never both existed.)*
+    """
+
+    def test_a_write_BETWEEN_the_two_reads_cannot_split_the_runtime(self):
+        pid = self._person("Snapshot Narrator")
+
+        original = _ps._person_and_basics
+        state = {"n": 0}
+
+        def racing(con, person_id):
+            """Erase the anchors after the identity read, before resolve."""
+            result = original(con, person_id)
+            if state["n"] == 0:
+                state["n"] = 1
+                other = sqlite3.connect(str(self.db_path))
+                try:
+                    other.execute(
+                        "UPDATE people SET date_of_birth='', "
+                        "place_of_birth='' WHERE id=?;", (pid,))
+                    other.commit()
+                finally:
+                    other.close()
+            return result
+
+        _ps._person_and_basics = racing
+        try:
+            runtime = self.runtime("c1", {"person_id": pid})
+        finally:
+            _ps._person_and_basics = original
+
+        self.assertEqual(1, state["n"], "the race never fired, so this "
+                                        "test proves nothing")
+        if not runtime:
+            return   # resolved consistently as pending — also coherent
+        self.assertTrue(runtime["identity_complete"])
+        for key in ("speaker_name", "dob", "pob"):
+            self.assertIn(key, runtime,
+                          f"identity_complete is True but {key} is missing — "
+                          "the runtime was assembled from two different "
+                          "moments")
+
+    def test_the_read_opens_a_transaction_and_rolls_it_back(self):
+        """Structural: the snapshot is a transaction, and it never commits.
+
+        *(First written against every string in the module and it FAILED
+        — on "committed-turn path" in the docstring. Guard-on-prose, the
+        eighth time in this lane. It reads SQL passed to `execute()`
+        now, which is the only place a COMMIT could actually be.)*
+        """
+        import ast
+        src = (_SERVER_CODE / "api" / "services"
+               / "profile_seed_rest.py").read_text(encoding="utf-8")
+        sql = []
+        for node in ast.walk(ast.parse(src)):
+            if (isinstance(node, ast.Call)
+                    and getattr(node.func, "attr", "") == "execute"
+                    and node.args
+                    and isinstance(node.args[0], ast.Constant)
+                    and isinstance(node.args[0].value, str)):
+                sql.append(node.args[0].value)
+        self.assertTrue(sql, "no execute() calls found, so this proves "
+                             "nothing about the transaction")
+        self.assertIn("BEGIN DEFERRED;", sql)
+        self.assertIn("ROLLBACK;", sql)
+        for statement in sql:
+            with self.subTest(sql=statement):
+                self.assertNotIn("COMMIT", statement.upper(),
+                                 "the read path commits")
+
+
+class PersonIdTests(_Base):
+    """`person_id` reaches the runtime, because a layer depends on it."""
+
+    def test_the_resolved_person_id_is_supplied(self):
+        """Without it the composer's person-dependent memory layer is
+        skipped, so the narrator is named in the prompt and has no
+        memory attached to them."""
+        pid = self._person("Named Narrator")
+        runtime = self.runtime("c1", {"person_id": pid})
+        self.assertEqual(pid, runtime["person_id"])
+
+    def test_the_supplied_id_is_the_RESOLVED_one_not_the_claim(self):
+        """An unowned session's claim resolves to itself; an owned one
+        resolves to the owner. Supplying the claim would re-introduce
+        the payload as authority one key later."""
+        pid = self._person("Owned Narrator")
+        self._session("c-owned", pid)
+        runtime = _rest.onboarding_runtime("c-owned", None,
+                                           owner_lookup=lambda c: pid)
+        self.assertEqual(pid, runtime["person_id"])
+
+    def test_the_composer_ACTS_on_the_person_id(self):
+        """Non-vacuity: prove the key is not merely present.
+
+        A key nothing reads would pass the assertions above forever.
+        """
+        pid = self._person("Memory Narrator")
+        runtime = self.runtime("c1", {"person_id": pid})
+        with_id = self.compose(runtime)
+        without = self.compose({k: v for k, v in runtime.items()
+                                if k != "person_id"})
+        self.assertNotEqual(with_id, without,
+                            "removing person_id changed nothing, so the "
+                            "composer is not reading it and this "
+                            "requirement is unmet")
+
+
 class RouteStructureTests(unittest.TestCase):
     """What can be proven from `api.py`'s SOURCE, with no import.
 
@@ -408,6 +672,80 @@ class RouteStructureTests(unittest.TestCase):
                         if kw.arg == "where")
         self.assertEqual(["rest-chat", "rest-stream"], wheres)
 
+    def test_each_route_PASSES_the_resolved_runtime_to_the_composer(self):
+        """Discarding the result must fail this.
+
+        *(The first version only COUNTED two `_profile_seed_runtime`
+        calls. A route that called the helper and then threw the value
+        away — or passed `runtime71=None` beside it — would have passed,
+        which is precisely the defect worth catching: the ownership
+        refusal would still fire, and the onboarding state would never
+        reach the prompt.)*
+
+        This follows the value: the helper's result must be bound to a
+        name, and that same name must be what `runtime71=` receives in
+        the same function.
+        """
+        import ast
+        tree = ast.parse(self.source())
+        routes = {}
+        for fn in ast.walk(tree):
+            if not isinstance(fn, ast.FunctionDef):
+                continue
+            bound = {t.id for node in ast.walk(fn)
+                     if isinstance(node, ast.Assign)
+                     and isinstance(node.value, ast.Call)
+                     and getattr(node.value.func, "id", "") == "_profile_seed_runtime"
+                     for t in node.targets if isinstance(t, ast.Name)}
+            if not bound:
+                continue
+            passed = {kw.value.id for node in ast.walk(fn)
+                      if isinstance(node, ast.Call)
+                      and getattr(node.func, "id", "") == "compose_prompt_sections"
+                      for kw in node.keywords
+                      if kw.arg == "runtime71" and isinstance(kw.value, ast.Name)}
+            routes[fn.name] = (bound, passed)
+
+        self.assertEqual({"chat", "chat_stream"}, set(routes),
+                         "expected exactly the two REST chat routes to "
+                         "resolve onboarding state")
+        for name, (bound, passed) in routes.items():
+            with self.subTest(route=name):
+                self.assertTrue(
+                    bound & passed,
+                    f"{name}() calls _profile_seed_runtime but the value it "
+                    "binds is not what reaches compose_prompt_sections' "
+                    "runtime71 — the result is being discarded")
+
+    def test_authority_is_resolved_BEFORE_the_model_loads(self):
+        """Otherwise a model-loading failure masks the 409 or 503.
+
+        Line order inside each route, because that IS the property: a
+        refusal that runs after several gigabytes of weights cannot be
+        guaranteed to run at all.
+        """
+        import ast
+        tree = ast.parse(self.source())
+        for fn in ast.walk(tree):
+            if not (isinstance(fn, ast.FunctionDef)
+                    and fn.name in ("chat", "chat_stream")):
+                continue
+            resolve = min((n.lineno for n in ast.walk(fn)
+                           if isinstance(n, ast.Call)
+                           and getattr(n.func, "id", "") == "_profile_seed_runtime"),
+                          default=None)
+            load = min((n.lineno for n in ast.walk(fn)
+                        if isinstance(n, ast.Call)
+                        and getattr(n.func, "id", "") == "_load_model"),
+                       default=None)
+            with self.subTest(route=fn.name):
+                self.assertIsNotNone(resolve, "no authority resolution")
+                self.assertIsNotNone(load, "no model load — has this route "
+                                           "changed shape?")
+                self.assertLess(resolve, load,
+                                f"{fn.name}() loads the model before "
+                                "resolving who the turn is for")
+
     def test_the_helper_refuses_rather_than_falling_back(self):
         """Structural cover for what the sandbox cannot execute.
 
@@ -422,9 +760,33 @@ class RouteStructureTests(unittest.TestCase):
                       and n.name == "_profile_seed_runtime")
         handlers = [h for h in ast.walk(helper)
                     if isinstance(h, ast.ExceptHandler)]
-        self.assertEqual(2, len(handlers),
-                         "expected exactly two handlers: mismatch and "
-                         "storage fault")
+
+        # ── DERIVED, NOT COUNTED, 2026-08-26 ───────────────────────────
+        #
+        # *(This asserted "exactly two handlers". That is a count, and a
+        # count cannot tell you WHICH exceptions are handled — so when
+        # `ContradictoryClaim` was added to the service and never wired
+        # into the route, a contradictory payload escaped as an
+        # unhandled 500 and this test PASSED. Worse, the assertion would
+        # have BLOCKED the fix: adding the third handler makes a
+        # hard-coded 2 fail. A test that both hides a defect and
+        # obstructs its repair is worse than no test.)*
+        #
+        # Every refusal the SERVICE defines must have a handler here.
+        # New refusals arrive from the service, so the requirement is
+        # read from there rather than restated.
+        refusals = {name for name in _rest.__all__
+                    if isinstance(getattr(_rest, name, None), type)
+                    and issubclass(getattr(_rest, name), Exception)}
+        self.assertTrue(refusals, "no refusal classes exported, so this "
+                                  "check proves nothing")
+        handled = {n.attr for h in handlers if h.type is not None
+                   for n in ast.walk(h.type) if isinstance(n, ast.Attribute)}
+        missing = refusals - handled
+        self.assertEqual(set(), missing,
+                         f"the service defines {sorted(missing)} but the "
+                         "route helper does not handle it — it would escape "
+                         "as an unhandled 500")
         for handler in handlers:
             with self.subTest(handler=ast.dump(handler.type)[:40]):
                 raises = [n for n in ast.walk(handler)
@@ -434,11 +796,15 @@ class RouteStructureTests(unittest.TestCase):
         codes = sorted(kw.value.value for h in handlers
                        for n in ast.walk(h) if isinstance(n, ast.Call)
                        for kw in n.keywords if kw.arg == "status_code")
-        self.assertEqual([409, 503], codes)
+        # One 409 per identity refusal the service defines, plus one 503
+        # for the storage fault. `sqlite3.Error` is not ours, so it is
+        # not in `refusals` and is counted separately.
+        self.assertEqual([409] * len(refusals) + [503], sorted(codes),
+                         "every identity refusal must be a 409 and the "
+                         "storage fault a 503")
 
 
-@unittest.skipUnless(_HAS_API, f"needs api.api, which imports torch "
-                               f"({_API_IMPORT_ERROR})")
+@unittest.skipUnless(_HAS_API, _API_SKIP_REASON)
 class RouteContractTests(_Base):
     """Both REST routes behave identically, because they share one helper."""
 

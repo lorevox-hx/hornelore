@@ -156,7 +156,53 @@ class Mutation:
     was_real: bool = False
 
 
+# ── WHY THERE IS NO MUTATION FOR `_assert_unique_ids()` ───────────────
+#
+# It was written, and it was UNSOUND. A mutation whose target is this
+# file embeds its own `old` text in this file, so the anchor matches
+# twice — and `run_one()` replaces the FIRST occurrence, which is the
+# mutation's own definition rather than the code it names. Measured:
+# anchor at line 166 (inside the Mutation call) and line 683 (the
+# guard). The mutation would have edited itself and reported on nothing.
+#
+# No clever anchor fixes this; any text unique enough to find the guard
+# is also present verbatim in the definition that names it. **This
+# runner cannot mutate itself**, and that is a property worth stating
+# rather than working around.
+#
+# The guard is covered directly instead, in
+# `tests/test_mutation_gate_classifier.py`: a duplicate refuses, a
+# unique list passes, the checked-in list is asserted duplicate-free,
+# and the refusal names both colliding mutations.
+
 MUTATIONS: Tuple[Mutation, ...] = (
+    Mutation(
+        "S4", "CLAIM SCOPE WIDENED: undocumented aliases satisfy a claim again and a contradictory payload silently resolves to whichever key is met first - a coin toss deciding which narrator is asked",
+        REST,
+        '    claim = _clean(CLAIM_KEY)\n    present = {k: v for k, v in\n               ((a, _clean(a)) for a in _CLAIM_ALIASES) if v}',
+        '    claim = _clean(CLAIM_KEY) or next(\n        (v for v in (_clean(a) for a in _CLAIM_ALIASES) if v), None)\n    present = {}',
+        REST_TESTS, was_real=True),
+    Mutation(
+        "S5", "THE SNAPSHOT IS SPLIT: identity facts and effective state are read outside one transaction, so a concurrent write can produce identity_complete=True with no DOB and no birthplace",
+        REST,
+        '    con.execute("BEGIN DEFERRED;")',
+        '    pass',
+        REST_TESTS, was_real=True),
+    Mutation(
+        "S6", "person_id IS DROPPED from the runtime, so the composer's person-dependent memory layer is skipped and the narrator is named with no memory attached",
+        REST,
+        '    runtime["person_id"] = person_id',
+        '    pass',
+        REST_TESTS, was_real=True),
+    Mutation(
+        "S3", "THE PRESERVATION BOUNDARY IS BREACHED: identity facts are "
+              "supplied to narrators with no active walk, so historical "
+              "and completed prompts gain the composer's whole runtime "
+              "block - measured at 17,760 characters",
+        REST,
+        '    if plan.action == _turn.IDLE:\n        return {}',
+        '    if False and plan.action == _turn.IDLE:\n        return {}',
+        REST_TESTS, was_real=True),
     Mutation(
         "S1", "OWNERSHIP INVERTED: the PROFILE_JSON claim beats the "
               "recorded session owner, and a mismatch is not refused - "

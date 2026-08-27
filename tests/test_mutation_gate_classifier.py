@@ -196,6 +196,64 @@ class ClassifierTests(unittest.TestCase):
         self.assertEqual(gate.BROKEN, self.verdict(1, noisy))
 
 
+class DuplicateIdGuardTests(unittest.TestCase):
+    """`_assert_unique_ids()` was added after a real defect. Now tested.
+
+    *(It was added because Step 5 introduced `S1`/`S2` as `R1`/`R2`,
+    which were already the Step 1 refusal mutations — and nothing
+    noticed, because ids are how mutations are selected and reported, so
+    `--only R1` silently meant two unrelated things. Adding the guard
+    without covering it repeated the shape of the original problem: a
+    protection nobody has seen work.)*
+    """
+
+    def make(self, *ids):
+        return tuple(
+            gate.Mutation(i, f"what {i}", "target.py", "old", "new", "tests")
+            for i in ids)
+
+    def test_duplicate_ids_REFUSE(self):
+        original = gate.MUTATIONS
+        try:
+            gate.MUTATIONS = self.make("A1", "A2", "A1")
+            with self.assertRaises(SystemExit) as caught:
+                gate._assert_unique_ids()
+            self.assertIn("A1", str(caught.exception))
+        finally:
+            gate.MUTATIONS = original
+
+    def test_unique_ids_PASS(self):
+        """Positive control. A guard that refused everything, or nothing,
+        would pass the test above."""
+        original = gate.MUTATIONS
+        try:
+            gate.MUTATIONS = self.make("A1", "A2", "A3")
+            gate._assert_unique_ids()          # must not raise
+        finally:
+            gate.MUTATIONS = original
+
+    def test_the_REAL_mutation_list_has_no_duplicates(self):
+        """The condition the guard exists to maintain, checked directly
+        rather than only through the guard."""
+        ids = [m.id for m in gate.MUTATIONS]
+        self.assertEqual(sorted(set(ids)), sorted(ids),
+                         "the checked-in mutation list has duplicate ids")
+
+    def test_the_refusal_names_BOTH_colliding_mutations(self):
+        """A duplicate-id error that names only the id sends the reader
+        looking for one of two identical strings."""
+        original = gate.MUTATIONS
+        try:
+            gate.MUTATIONS = self.make("A1", "A1")
+            with self.assertRaises(SystemExit) as caught:
+                gate._assert_unique_ids()
+            message = str(caught.exception)
+            self.assertEqual(2, message.count("what A1"),
+                             "the refusal did not describe both mutations")
+        finally:
+            gate.MUTATIONS = original
+
+
 class ClassifierIsNotVacuousTests(unittest.TestCase):
     """The synthetic summaries must resemble real unittest output.
 
