@@ -88,6 +88,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import py_compile
 import subprocess
 import sys
@@ -191,13 +192,11 @@ MUTATIONS: Tuple[Mutation, ...] = (
         REDUCER_TESTS, was_real=True),
 
     # ── Phase 2 step 4: the composer section ────────────────────────
-    Mutation(
-        "C1", "a sparse onboarding runtime activates identity mode — Lori "
-              "asks a narrator she has known for months for their name",
-        COMPOSER,
-        "        if not identity_complete and profile_seed_onboarding_active(runtime71):\n            identity_complete = True",
-        "        if False and profile_seed_onboarding_active(runtime71):\n            identity_complete = True",
-        COMPOSER_TESTS),
+    # C1 ("a sparse onboarding runtime activates identity mode") was
+    # RETIRED 2026-08-26. Its anchor was the `identity_complete = True`
+    # inference, which review required be withdrawn; C8 reintroduces
+    # exactly that defect against the current code and is the live
+    # version of this check.
     Mutation(
         "C2", "the legacy ten-question list renders alongside the canonical "
               "one — two topic orders in one prompt",
@@ -216,18 +215,74 @@ MUTATIONS: Tuple[Mutation, ...] = (
         '    action = state.get("action")\n    if action == "acknowledge":',
         '    action = state.get("action")\n    if action == "acknowledge":\n        action = "present"\n    if False:',
         COMPOSER_TESTS),
+    # C4 ("an unknown topic id renders something") was RETIRED
+    # 2026-08-26. Topic validation moved into `_validated_onboarding_plan`
+    # so the renderer and the suppression gate cannot disagree, and C6
+    # mutates that single check — which now reproduces BOTH halves of
+    # the defect: rendering nothing while still suppressing.
+    # C5 was described as "an idle plan still renders" and did not
+    # mutate the idle action at all — it turned a MISSING action into
+    # `present`, and was caught by a malformed-state fixture. Renamed to
+    # what it does; C5b is the real idle mutation.
     Mutation(
-        "C4", "an unknown topic id renders something instead of nothing",
+        "C5", "an unrecognised or missing action is treated as renderable",
         COMPOSER,
-        "    if definition is None:\n        return \"\"",
-        "    if definition is None:\n        return \"PROFILE SEED — ONE QUESTION.\"",
+        '    if state.get("action") not in ("present", "re_present", "acknowledge"):\n        return None',
+        '    if False and state.get("action") not in ("present", "re_present", "acknowledge"):\n        return None',
         COMPOSER_TESTS),
     Mutation(
-        "C5", "an idle plan still renders the section",
+        "C5b", "an IDLE plan with a valid topic renders the section",
         COMPOSER,
-        '    state = runtime71.get(PROFILE_SEED_ONBOARDING_KEY)\n    if not isinstance(state, dict):\n        return ""\n\n    action = state.get("action")',
-        '    state = runtime71.get(PROFILE_SEED_ONBOARDING_KEY)\n    if not isinstance(state, dict):\n        return ""\n\n    action = state.get("action") or "present"',
+        '    if state.get("action") not in ("present", "re_present", "acknowledge"):\n        return None',
+        '    if state.get("action") not in ("present", "re_present", "acknowledge", "idle"):\n        return None',
         COMPOSER_TESTS),
+    Mutation(
+        "C9", "the unreachable completion promise returns to the ASKING "
+              "turn and the acknowledgement never closes the walk",
+        COMPOSER,
+        '        if state.get("completes_walk"):',
+        '        if False and state.get("completes_walk"):',
+        COMPOSER_TESTS),
+    Mutation(
+        "T1", "apostrophes are not folded — \"I\'ll come back to that\" "
+              "closes the topic instead of leaving it open",
+        TURN,
+        '    deapostrophised = _APOSTROPHES.sub("", (text or "").lower())',
+        '    deapostrophised = (text or "").lower()',
+        REDUCER_TESTS, was_real=True),
+    Mutation(
+        "T2", "the last answer does not complete the walk",
+        TURN,
+        "    completes = remaining == [outstanding.topic_id]",
+        "    completes = False",
+        REDUCER_TESTS),
+    Mutation(
+        "R2", "curly apostrophes hide a refusal from extraction and from "
+              "Profile Seed",
+        "server/code/api/services/narrator_refusal.py",
+        '    lowered = _CURLY_APOSTROPHES.sub("\'", text.lower())',
+        "    lowered = text.lower()",
+        REFUSAL_TESTS, was_real=True),
+    Mutation(
+        "C6", "malformed onboarding state suppresses the legacy pass "
+              "directive — working instructions vanish and nothing "
+              "replaces them",
+        COMPOSER,
+        "    from .services.profile_seed import is_known_topic\n    if not is_known_topic(state.get(\"topic_id\")):\n        return None",
+        "    from .services.profile_seed import is_known_topic\n    if False and not is_known_topic(state.get(\"topic_id\")):\n        return None",
+        COMPOSER_TESTS, was_real=True),
+    Mutation(
+        "C7", "the composer keeps a second hand-written topic order",
+        COMPOSER,
+        "    for number, topic_def in enumerate(TOPIC_REGISTRY, 1):",
+        "    TOPIC_REGISTRY = TOPIC_REGISTRY[:1]\n    for number, topic_def in enumerate(TOPIC_REGISTRY, 1):",
+        COMPOSER_TESTS, was_real=True),
+    Mutation(
+        "C8", "identity_complete inferred from an onboarding payload again",
+        COMPOSER,
+        "        identity_complete = bool(runtime71.get(\"identity_complete\", False))",
+        "        identity_complete = bool(runtime71.get(\"identity_complete\", False)) or profile_seed_onboarding_active(runtime71)",
+        COMPOSER_TESTS, was_real=True),
 
     # ── Phase 1 guards, kept runnable from one place ────────────────
     Mutation(
@@ -434,12 +489,36 @@ def _unclean_paths() -> List[str]:
     return sorted(unclean)
 
 
+_RAN_RE = re.compile(r"^Ran (\d+) tests?", re.MULTILINE)
+_SKIP_RE = re.compile(r"skipped=(\d+)")
+
+
 def _run_tests(tests: str, env: dict) -> Tuple[int, str]:
     proc = subprocess.run(
         [sys.executable, "-m", "unittest", *tests.split()],
         cwd=REPO, env=env, capture_output=True, text=True, timeout=900)
     tail = (proc.stderr.strip().splitlines() or [""])[-1]
     return proc.returncode, tail
+
+
+def _counts(tests: str, env: dict) -> Tuple[int, int, int, str]:
+    """Return (exit, ran, skipped, tail).
+
+    RAN AND SKIPPED ARE REPORTED, not merely the exit code. "Exit zero"
+    calls an all-skipped baseline green, which is the same class of
+    false assurance as a mutation caught by a SyntaxError — and this
+    lane has already shipped one suite where 35 tests were skipped on a
+    capable interpreter and the run said OK.
+    """
+    proc = subprocess.run(
+        [sys.executable, "-m", "unittest", *tests.split()],
+        cwd=REPO, env=env, capture_output=True, text=True, timeout=900)
+    out = proc.stderr
+    ran_m, skip_m = _RAN_RE.search(out), _SKIP_RE.search(out)
+    ran = int(ran_m.group(1)) if ran_m else -1
+    skipped = int(skip_m.group(1)) if skip_m else 0
+    tail = (out.strip().splitlines() or [""])[-1]
+    return proc.returncode, ran, skipped, tail
 
 
 def _baseline_green(selected: List["Mutation"], env: dict) -> bool:
@@ -453,11 +532,22 @@ def _baseline_green(selected: List["Mutation"], env: dict) -> bool:
     print(f"baseline — {len(commands)} unique test command(s), unmutated:")
     ok = True
     for tests in commands:
-        code, tail = _run_tests(tests, env)
+        code, ran, skipped, tail = _counts(tests, env)
         mark = "green" if code == 0 else "RED  "
-        print(f"  {mark}  {tests}")
+        detail = f"{ran} ran"
+        if skipped:
+            detail += f", {skipped} SKIPPED"
+        print(f"  {mark}  {detail:22}  {tests}")
         if code != 0:
             print(f"         -> {tail}")
+            ok = False
+        elif ran <= 0:
+            print("         -> baseline ran NO tests; 'exit zero' here "
+                  "means nothing")
+            ok = False
+        elif skipped and skipped >= ran:
+            print("         -> every baseline test skipped; a mutation "
+                  "cannot be caught by a suite that does not run")
             ok = False
     if not ok:
         print("\nREFUSING THE GATE — a baseline is red. Every mutation would "

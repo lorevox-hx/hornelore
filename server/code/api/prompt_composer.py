@@ -4098,29 +4098,24 @@ def _compose_prompt_assembly(
 
         # v7.4D Phase 6B — identity gating
         #
-        # ── WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 2 step 4 ─────────
+        # ── WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 2, corrected ─────
         #
-        # ACTIVE ONBOARDING IS PROOF OF COMPLETE IDENTITY, so it satisfies
-        # this gate on its own.
+        # Step 4 briefly inferred `identity_complete = True` from the mere
+        # presence of an action-shaped onboarding payload. **Withdrawn.**
+        # The reasoning was that Phase 1 holds the row at `pending` until
+        # the three anchors exist, so `active` implies them — which is true
+        # of the DATABASE ROW and says nothing about a dict some caller
+        # put in `runtime71`. Inferring a security-shaped fact from an
+        # unvalidated composer payload is the wrong direction of trust,
+        # and it would let any caller switch off identity mode by
+        # supplying two keys.
         #
-        # Not a convenience: it follows from Phase 1's contract. `reconcile`
-        # holds the row at `pending` until `identity_anchors_complete()` —
-        # name, date of birth and place of birth — is true, so a status of
-        # `active` cannot exist without those three anchors. The server has
-        # already made this determination against the database.
-        #
-        # Without this, `identity_complete` defaults to `False` here, which
-        # makes `identity_mode` True, and a caller supplying a sparse
-        # runtime object purely to carry onboarding state would flip Lori
-        # into identity interrogation — asking a narrator she has known for
-        # months for their name, because a dict gained a key. That defect
-        # is the reason the onboarding section itself is composed outside
-        # this block, and closing it there without closing it here would
-        # have left the trap open for exactly the caller most likely to
-        # spring it.
+        # The real server-derived identity result is Step 5's job to
+        # supply, per transport map §10: a REST caller that resolves a
+        # narrator passes `identity_complete` from
+        # `profile_seed.identity_anchors_complete()` — the same predicate
+        # the resolver uses — rather than letting this default decide.
         identity_complete = bool(runtime71.get("identity_complete", False))
-        if not identity_complete and profile_seed_onboarding_active(runtime71):
-            identity_complete = True
         identity_phase    = runtime71.get("identity_phase") or "unknown"
         effective_pass    = runtime71.get("effective_pass") or current_pass
         identity_mode     = (effective_pass == "identity") or (not identity_complete)
@@ -4837,18 +4832,8 @@ def _compose_prompt_assembly(
                     "GOAL: Gather the following 10 facts, one per turn, in natural conversation. "
                     "Check the conversation history — do NOT re-ask anything already answered.\n"
                     "\n"
-                    "PROFILE SEED QUESTIONS (ask in this order, skipping what you already know):\n"
-                    "  1. CHILDHOOD HOME — Did they grow up in [their birthplace], or did the family move?\n"
-                    "  2. SIBLINGS — Were they an only child, or did they have brothers and sisters?\n"
-                    "  3. PARENTS' WORK — What did their parents do for a living?\n"
-                    "  4. HERITAGE — Do they know where the family originally came from — grandparents' background?\n"
-                    "  5. EDUCATION — How far did they go in school — did they go to college?\n"
-                    "  6. MILITARY — Did they serve in the military? (Ask warmly — many older narrators did.)\n"
-                    "  7. CAREER — What was their main work or career over the years?\n"
-                    "  8. PARTNER — Have they been married, or do they have a long-term partner?\n"
-                    "  9. CHILDREN — Do they have children? Grandchildren?\n"
-                    " 10. LIFE STAGE — Are they retired now, or still working?\n"
-                    "\n"
+                    + _legacy_profile_seed_question_list()
+                    +
                     "RULES:\n"
                     "  - Ask EXACTLY ONE question per turn.\n"
                     "  - Be warm and curious — not clinical. This is a conversation, not a form.\n"
@@ -5230,6 +5215,42 @@ def _compose_prompt_assembly(
 # what the prompt says. A second builder is precisely the failure this lane
 # has spent three phases removing from other surfaces.
 
+def _legacy_profile_seed_question_list() -> str:
+    """The historical Pass-1 ten-question list, GENERATED from the registry.
+
+    ── WHY THIS FUNCTION EXISTS, 2026-08-26 ────────────────────────────
+
+    Phase 2 step 4 moved the question wording into
+    `services.profile_seed.TOPIC_REGISTRY` and claimed the composer no
+    longer kept a list. **That claim was false.** The wording moved; the
+    complete ordered ten-item list stayed here, hard-coded, and the two
+    were kept identical only by a test comparing strings. That is two
+    hand-written authorities, which is exactly what work order §4.1
+    forbids: *"The composer must render from this registry; it must not
+    keep a second hand-written order."*
+
+    Historical narrators still need this block — they have no onboarding
+    row and never will (decision 3) — so it is generated rather than
+    deleted, and the ORDER now comes from the registry like everything
+    else.
+
+    THE BYTES ARE UNCHANGED, and that is asserted rather than intended.
+    `tests/test_profile_seed_composer_section.py` pins this block by
+    SHA-256 against the bytes measured before the change, including the
+    right-aligned numbering that gives item 10 one leading space where
+    items 1–9 have two.
+    """
+    from .services.profile_seed import TOPIC_REGISTRY
+    lines = ["PROFILE SEED QUESTIONS (ask in this order, skipping what "
+             "you already know):\n"]
+    for number, topic_def in enumerate(TOPIC_REGISTRY, 1):
+        # `{n:>3}` reproduces the original alignment exactly: "  1." and
+        # " 10.". A plain f"{n}." would silently reflow item ten.
+        lines.append(f"{number:>3}. {topic_def.question}\n")
+    lines.append("\n")
+    return "".join(lines)
+
+
 #: The runtime key carrying server-owned onboarding state.
 #
 # NOT `profile_seed`. That legacy dictionary is load-bearing for memory
@@ -5237,6 +5258,52 @@ def _compose_prompt_assembly(
 # seeded-fact guards and welcome-back behaviour, and it has six live
 # readers. Phase 2 adds a DISTINCT key and does not touch it.
 PROFILE_SEED_ONBOARDING_KEY = "profile_seed_onboarding"
+
+
+def _validated_onboarding_plan(
+        runtime71: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """The onboarding payload, ONLY if it is renderable. Else `None`.
+
+    ── ONE PREDICATE, BECAUSE TWO DISAGREED, 2026-08-26 ────────────────
+
+    *(Step 4 first had the renderer validate the topic id while a
+    separate `profile_seed_onboarding_active()` checked only the action.
+    They disagreed, and the disagreement was harmful in the one
+    direction that matters. Given*
+    `{"action": "present", "topic_id": "bad"}`*:*
+
+    *  * the renderer correctly produced nothing;*
+    *  * the predicate returned True anyway;*
+    *  * so the legacy pass directive was SUPPRESSED and identity was
+        treated as complete — and no canonical question replaced them.*
+
+    *A malformed payload therefore removed working instructions and put
+    nothing in their place. "Malformed means silence" has to mean the
+    existing prompt is untouched, not that existing prompt content
+    quietly disappears.)*
+
+    Both the renderer and the suppression gate now call THIS, so they
+    cannot reach different conclusions about the same payload.
+
+    Renderable means:
+      * `action` is one of the three the composer knows;
+      * for `present` / `re_present`, `topic_id` is in the canonical
+        registry — an unknown id is not a question Lori can ask;
+      * for `acknowledge`, `topic_id` is likewise a real topic, because
+        acknowledging an answer to a topic that does not exist is not a
+        turn either.
+    """
+    if not isinstance(runtime71, dict):
+        return None
+    state = runtime71.get(PROFILE_SEED_ONBOARDING_KEY)
+    if not isinstance(state, dict):
+        return None
+    if state.get("action") not in ("present", "re_present", "acknowledge"):
+        return None
+    from .services.profile_seed import is_known_topic
+    if not is_known_topic(state.get("topic_id")):
+        return None
+    return state
 
 
 def _profile_seed_onboarding_block(runtime71: Optional[Dict[str, Any]]) -> str:
@@ -5265,31 +5332,49 @@ def _profile_seed_onboarding_block(runtime71: Optional[Dict[str, Any]]) -> str:
     costs one turn without a question, while a guessed one asks a
     narrator something the server never decided to ask.
     """
-    if not isinstance(runtime71, dict):
-        return ""
-    state = runtime71.get(PROFILE_SEED_ONBOARDING_KEY)
-    if not isinstance(state, dict):
+    state = _validated_onboarding_plan(runtime71)
+    if state is None:
         return ""
 
     action = state.get("action")
     if action == "acknowledge":
-        return (
-            "PROFILE SEED — ACKNOWLEDGE ONLY.\n"
+        lines = [
+            "PROFILE SEED — ACKNOWLEDGE ONLY.",
             "The narrator has just answered the question you asked. "
-            "Respond warmly to what they said.\n"
-            "RULES:\n"
-            "  - Do NOT ask that question again.\n"
-            "  - Do NOT ask the next Profile Seed question this turn. "
-            "You will be given it when it is settled.\n"
-            "  - One short, human acknowledgement. Then stop."
-        )
-
-    if action not in ("present", "re_present"):
-        return ""
+            "Respond warmly to what they said.",
+            "RULES:",
+            "  - Do NOT ask that question again.",
+        ]
+        if state.get("completes_walk"):
+            # ── THE TRANSITION, ON THE TURN THAT CAN DELIVER IT ─────
+            #
+            # This instruction used to live on the turn that ASKED the
+            # last question — "when they have answered, tell them
+            # warmly..." — where it could never execute, because by the
+            # time they answered the block was gone and the
+            # acknowledgement had no idea the walk had just finished.
+            #
+            # It is carried here by `TurnPlan.completes_walk`, which is
+            # set only when the topic being closed is the last one
+            # unanswered. Still no question: the walk ends by Lori
+            # saying she has a sense of their story, not by her asking
+            # an eleventh thing.
+            lines.append(
+                "  - This was the LAST thing you needed. Tell them warmly "
+                "that you now have a sense of their story and you are "
+                "ready to hear it properly.")
+            lines.append(
+                "  - Do NOT ask another question of any kind this turn.")
+        else:
+            lines.append(
+                "  - Do NOT ask the next Profile Seed question this turn. "
+                "You will be given it when it is settled.")
+        lines.append("  - One short, human acknowledgement. Then stop.")
+        return "\n".join(lines)
 
     from .services.profile_seed import topic as _topic_def
     definition = _topic_def(state.get("topic_id"))
-    if definition is None:
+    if definition is None:  # pragma: no cover — the validator proved it
         return ""
 
     known = [t for t in (state.get("known_topics") or [])
@@ -5321,25 +5406,23 @@ def _profile_seed_onboarding_block(runtime71: Optional[Dict[str, Any]]) -> str:
         "an answer.",
     ])
     if remaining <= 1:
-        lines.append(
-            "  - This is the last thing you need. When they have answered, "
-            "tell them warmly that you now have a sense of their story."
-        )
+        # A heads-up only. The instruction to CLOSE the walk warmly used
+        # to live here and was unreachable — it told Lori what to do
+        # "when they have answered", by which turn this block is gone.
+        # It now rides on the acknowledgement, where it can be acted on.
+        lines.append("  - This is the last topic still open.")
     return "\n".join(lines)
 
 
 def profile_seed_onboarding_active(runtime71: Optional[Dict[str, Any]]) -> bool:
-    """Is authoritative onboarding state present and asking for a turn?
+    """Is there a VALIDATED, RENDERABLE onboarding plan for this turn?
 
-    The legacy hard-coded pass-1 list is suppressed when this is true,
-    so the two can never both render. See its call site for why that is
-    a suppression rather than a deletion.
+    The legacy pass directive is suppressed when this is true, so this
+    must agree with the renderer exactly — both delegate to
+    `_validated_onboarding_plan`. See that function for the malformed
+    payload that made a disagreement dangerous.
     """
-    if not isinstance(runtime71, dict):
-        return False
-    state = runtime71.get(PROFILE_SEED_ONBOARDING_KEY)
-    return isinstance(state, dict) and state.get("action") in (
-        "present", "re_present", "acknowledge")
+    return _validated_onboarding_plan(runtime71) is not None
 
 
 def make_section(name: str, text: str) -> "_Section":

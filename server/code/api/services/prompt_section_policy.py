@@ -236,9 +236,11 @@ _POLICIES: List[SectionPolicy] = [
        "profile_seed_onboarding_active", TRIM_NEVER, SOURCE_SERVER_DB,
        TIER_WORKFLOW, True, 0,
        "The ten-topic Profile Seed walk, rendered ONE topic at a time "
-       "from the server-owned canonical registry. Replaces the "
-       "hard-coded ten-question list that lived inside the pass-1 "
-       "directive block; there is no second list."),
+       "from the server-owned canonical registry. The legacy pass-1 "
+       "ten-question block still EXISTS for historical narrators, who "
+       "have no onboarding row and never will — but it is generated "
+       "from that same registry, so there is one list and two "
+       "renderings of it, not two lists. *(This note said the legacy block was REPLACED and that there was \"no second list\" while the composer still held a hard-coded copy of it. Both halves were false at the time.)*"),
 
     _p("memory_context", "lori-memory", "memory_block_present",
        TRIM_DROP_WHOLE, SOURCE_RUNTIME, TIER_NARRATOR_CONTEXT, False, 5,

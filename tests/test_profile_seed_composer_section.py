@@ -6,8 +6,14 @@ WO-LORI-PROFILE-SEED-REACHABILITY-01, Phase 2 step 4 (2026-08-26).
 
     PYTHONPATH=server/code python3 -m unittest tests.test_profile_seed_composer_section
 
-`prompt_composer`'s import chain reaches fastapi, so `.venv` cannot run
-this module at all. **A skip is not a pass** — report the interpreter.
+**Runs on BOTH interpreters with zero skips.**
+
+*(This module first carried a `skipUnless(_HAS_FASTAPI)` on every class,
+with a header claiming "prompt_composer's import chain reaches fastapi".
+That was simply wrong — `prompt_composer` imports cleanly without it,
+verified by importing it under `.venv`. The gate hid all 35 tests on an
+interpreter perfectly capable of running them, which is worse than a
+missing test: it reports OK. Removed.)*
 
 ── THIS IS THE FIRST CHANGE TO WHAT LORI IS TOLD ─────────────────────
 
@@ -42,16 +48,9 @@ for _p in (str(_SERVER_CODE), str(_REPO_ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-try:
-    import fastapi  # noqa: F401
-    _HAS_FASTAPI = True
-except Exception:  # pragma: no cover
-    _HAS_FASTAPI = False
-
-if _HAS_FASTAPI:
-    from api import prompt_composer as _pc
-    from api.services import profile_seed as _seed
-    from api.services import profile_seed_turn as _turn
+from api import prompt_composer as _pc  # noqa: E402
+from api.services import profile_seed as _seed  # noqa: E402
+from api.services import profile_seed_turn as _turn  # noqa: E402
 
 KEY = "profile_seed_onboarding"
 A = "childhood_home"
@@ -73,14 +72,13 @@ FULL_RUNTIME = {
 }
 
 
-def onboarding(action, topic_id=None, known=(), remaining=()):
+def onboarding(action, topic_id=None, known=(), remaining=(),
+               completes_walk=False):
     return {"action": action, "topic_id": topic_id,
-            "known_topics": list(known), "remaining_topics": list(remaining)}
+            "known_topics": list(known), "remaining_topics": list(remaining),
+            "completes_walk": completes_walk}
 
 
-@unittest.skipUnless(_HAS_FASTAPI,
-                     "prompt_composer imports fastapi; .venv has none — "
-                     "a skip is not a pass, report the interpreter")
 class SectionRenderTests(unittest.TestCase):
     """What the block says, given a plan."""
 
@@ -131,13 +129,15 @@ class SectionRenderTests(unittest.TestCase):
                          "a settled topic was re-asked as a question")
 
     def test_the_last_remaining_topic_says_it_is_the_last(self):
+        """A neutral heads-up now — see CompletionTransitionTests for why
+        the closing instruction moved to the acknowledgement turn."""
         text = self.block(onboarding("present", "life_stage",
                                      remaining=["life_stage"]))
-        self.assertIn("last thing you need", text)
+        self.assertIn("last topic still open", text)
 
     def test_a_mid_walk_topic_does_not_claim_to_be_the_last(self):
         text = self.block(onboarding("present", A, remaining=[A, B]))
-        self.assertNotIn("last thing you need", text)
+        self.assertNotIn("last topic still open", text)
 
     # ── silence, in every shape that must produce it ────────────────
     def test_idle_and_malformed_states_render_nothing(self):
@@ -149,6 +149,19 @@ class SectionRenderTests(unittest.TestCase):
             with self.subTest(state=state):
                 self.assertEqual(
                     _pc._profile_seed_onboarding_block({KEY: state}), "")
+
+    def test_an_IDLE_action_with_a_VALID_topic_renders_nothing(self):
+        """The idle case that a topic check cannot catch.
+
+        `onboarding("idle")` has `topic_id=None`, so the topic guard
+        rejects it and the ACTION guard is never exercised. A plan that
+        is idle but carries a perfectly valid topic is the case that
+        proves the action guard does its own work.
+        """
+        for topic_id in _seed.TOPIC_IDS:
+            with self.subTest(topic=topic_id):
+                self.assertEqual(
+                    self.block({"action": "idle", "topic_id": topic_id}), "")
 
     def test_an_absent_key_and_an_absent_runtime_render_nothing(self):
         self.assertEqual(_pc._profile_seed_onboarding_block({}), "")
@@ -174,36 +187,111 @@ class SectionRenderTests(unittest.TestCase):
             self.assertNotIn(word, text)
 
 
-@unittest.skipUnless(_HAS_FASTAPI, "needs fastapi")
+class CompletionTransitionTests(unittest.TestCase):
+    """The walk ends warmly, on the turn that can actually say so."""
+
+    def block(self, state):
+        return _pc._profile_seed_onboarding_block({KEY: state})
+
+    def test_a_completing_acknowledgement_closes_the_walk_warmly(self):
+        text = self.block(onboarding("acknowledge", A, completes_walk=True))
+        self.assertIn("LAST thing you needed", text)
+        self.assertIn("sense of their story", text)
+
+    def test_a_completing_acknowledgement_STILL_asks_nothing(self):
+        """Ending the walk must not become an eleventh question."""
+        text = self.block(onboarding("acknowledge", A, completes_walk=True))
+        for topic_id in _seed.TOPIC_IDS:
+            with self.subTest(topic=topic_id):
+                self.assertNotIn(_seed.topic(topic_id).question, text)
+        self.assertIn("Do NOT ask another question of any kind", text)
+
+    def test_an_ordinary_acknowledgement_does_not_claim_completion(self):
+        text = self.block(onboarding("acknowledge", A, completes_walk=False))
+        self.assertNotIn("sense of their story", text)
+        self.assertIn("Do NOT ask the next Profile Seed question", text)
+
+    def test_the_ASKING_turn_no_longer_makes_an_unreachable_promise(self):
+        """*(The presentation block used to say "when they have
+        answered, tell them warmly that you now have a sense of their
+        story" on the turn that ASKED the last question. That describes
+        the NEXT turn, by which point the block is gone — Lori could not
+        keep it. It is a neutral heads-up now, and the instruction that
+        can be acted on rides on the acknowledgement.)*"""
+        text = self.block(onboarding("present", "life_stage",
+                                     remaining=["life_stage"]))
+        self.assertIn("last topic still open", text)
+        self.assertNotIn("when they have answered", text.lower())
+        self.assertNotIn("sense of their story", text)
+
+    def test_the_plan_and_the_prompt_agree_end_to_end(self):
+        """The reducer's own completes_walk drives the block."""
+        state = {"person_id": "p1", "status": _seed.STATUS_ACTIVE,
+                 "active_topic_id": A, "version": 7,
+                 "known_topics": [t for t in _seed.TOPIC_IDS if t != A],
+                 "remaining_topics": [A]}
+        history = [{"role": "assistant",
+                    "meta": {_turn.PRESENTED_TOPIC: A,
+                             _turn.PRESENTED_VERSION: 7}},
+                   {"role": "user", "content": "Still working.", "meta": {}}]
+        plan = _turn.plan_turn(state=state, history=history,
+                               narrator_text="Still working.")
+        self.assertTrue(plan.completes_walk)
+        text = self.block({"action": plan.action, "topic_id": plan.topic_id,
+                           "known_topics": state["known_topics"],
+                           "remaining_topics": state["remaining_topics"],
+                           "completes_walk": plan.completes_walk})
+        self.assertIn("sense of their story", text)
+
+
 class NoSecondTopicListTests(unittest.TestCase):
-    """The registry is the only list of questions in the system."""
+    """`TOPIC_REGISTRY` is the ONLY list of questions in the system."""
 
-    def test_the_composer_holds_no_hard_coded_question_list(self):
-        source = (_SERVER_CODE / "api" / "prompt_composer.py").read_text(
+    def setUp(self):
+        self.source = (_SERVER_CODE / "api" / "prompt_composer.py").read_text(
             encoding="utf-8")
-        # The legacy block is SUPPRESSED for enrolled narrators, not
-        # deleted — historical narrators still reach it — so it is still
-        # in the file. What must not exist is a SECOND copy.
-        for question in (t.question for t in _seed.TOPIC_REGISTRY):
-            with self.subTest(question=question[:30]):
-                self.assertLessEqual(
-                    source.count(question), 1,
-                    "a question string appears more than once in the "
-                    "composer — that is the second list the work order "
-                    "forbids")
 
-    def test_the_registry_wording_matches_the_legacy_block(self):
-        """The legacy block still serves historical narrators.
+    def test_the_composer_source_contains_ZERO_registry_questions(self):
+        """The structural requirement, stated as zero rather than one.
 
-        Its wording and the registry's must be the same strings, or the
-        two populations get different questions and the difference is
-        invisible until somebody reads both.
+        *(This first asserted "at most once" and, separately, that each
+        question string WAS present — which together permitted exactly
+        the defect review found: the wording moved to the registry while
+        the complete ordered ten-item list stayed hard-coded here, kept
+        identical only by a test comparing strings. Two hand-written
+        authorities is what §4.1 forbids, and "at most once" could never
+        have caught it.)*
         """
-        source = (_SERVER_CODE / "api" / "prompt_composer.py").read_text(
-            encoding="utf-8")
-        for topic_def in _seed.TOPIC_REGISTRY:
+        offenders = [t.topic_id for t in _seed.TOPIC_REGISTRY
+                     if t.question in self.source]
+        self.assertEqual(
+            offenders, [],
+            "these question strings are literals in prompt_composer.py — "
+            "the composer is keeping a second hand-written list instead of "
+            "rendering from TOPIC_REGISTRY: " + ", ".join(offenders))
+
+    def test_the_legacy_list_is_generated_from_the_registry(self):
+        self.assertIn("_legacy_profile_seed_question_list()", self.source)
+        generated = _pc._legacy_profile_seed_question_list()
+        for number, topic_def in enumerate(_seed.TOPIC_REGISTRY, 1):
             with self.subTest(topic=topic_def.topic_id):
-                self.assertIn(topic_def.question, source)
+                self.assertIn(f"{number:>3}. {topic_def.question}", generated)
+
+    def test_reordering_the_registry_reorders_the_legacy_list(self):
+        """Non-vacuity: prove the list really is derived.
+
+        A generator that happened to emit the same constant text would
+        pass every assertion above. This one cannot.
+        """
+        original = _seed.TOPIC_REGISTRY
+        try:
+            _seed.TOPIC_REGISTRY = tuple(reversed(original))
+            reordered = _pc._legacy_profile_seed_question_list()
+        finally:
+            _seed.TOPIC_REGISTRY = original
+        self.assertIn(f"  1. {original[-1].question}", reordered)
+        self.assertNotEqual(reordered,
+                            _pc._legacy_profile_seed_question_list())
 
     def test_every_registry_topic_has_a_question(self):
         for topic_def in _seed.TOPIC_REGISTRY:
@@ -211,123 +299,234 @@ class NoSecondTopicListTests(unittest.TestCase):
                 self.assertTrue(topic_def.question.strip())
 
 
-@unittest.skipUnless(_HAS_FASTAPI, "needs fastapi")
+class LegacyBlockGoldenBytesTests(unittest.TestCase):
+    """The historical block's rendered bytes are unchanged.
+
+    Generating the list from the registry must not reflow it. The hash
+    below was measured from the rendered prompt BEFORE the change, so it
+    pins the previous bytes rather than the current implementation's
+    opinion of them — including the right-aligned numbering that gives
+    item 10 one leading space where items 1–9 have two.
+    """
+
+    #: sha256 of the rendered `PROFILE SEED QUESTIONS ... ` block,
+    #: measured at `620d692` before generation was introduced.
+    GOLDEN_SHA256 = "c5b4f9e74ca07c2b"
+
+    def _rendered_block(self):
+        runtime = dict(FULL_RUNTIME)
+        runtime["current_pass"] = "pass1"
+        text = _pc.compose_system_prompt("golden", runtime71=runtime)
+        start = text.index("PROFILE SEED QUESTIONS")
+        return text[start:text.index("RULES:", start)]
+
+    def test_the_rendered_block_matches_the_golden_hash(self):
+        import hashlib
+        digest = hashlib.sha256(
+            self._rendered_block().encode("utf-8")).hexdigest()[:16]
+        self.assertEqual(
+            digest, self.GOLDEN_SHA256,
+            "the historical Pass-1 question block changed bytes. Every "
+            "pre-migration narrator sees this block and only this block, "
+            "so a reflow is a silent behaviour change for all of them.")
+
+    def test_item_ten_keeps_its_single_leading_space(self):
+        block = self._rendered_block()
+        self.assertIn("\n  1. ", block)
+        self.assertIn("\n 10. ", block)
+        self.assertNotIn("\n  10. ", block)
+
+    def test_the_block_still_lists_all_ten_in_registry_order(self):
+        block = self._rendered_block()
+        positions = [block.index(t.question) for t in _seed.TOPIC_REGISTRY]
+        self.assertEqual(positions, sorted(positions),
+                         "the legacy list is no longer in registry order")
+
+
 class ByteStabilityTests(unittest.TestCase):
-    """Adding onboarding state adds a section and moves NOTHING else."""
+    """Onboarding state adds the section and moves NOTHING else.
+
+    ── THE SUBSET ASSERTION WAS THE WRONG PROPERTY, 2026-08-26 ─────────
+
+    *(These tests first asserted only that every baseline line still
+    appeared SOMEWHERE in the new prompt. Review measured what that
+    actually permitted: no runtime at all renders 7,365 characters; a
+    sparse onboarding runtime renders 23,023; the onboarding block
+    itself is 557. So 15,101 characters of unrelated runtime content —
+    identity grounding, LORI_RUNTIME, English-first rules, interview
+    discipline, default pass/era/mode values — arrived, and every
+    assertion still passed.*
+
+    *A subset test cannot express "old prompt PLUS exactly this
+    section". These compare bytes and section lists instead.)*
+    """
 
     def compose(self, runtime=None):
         return _pc.compose_system_prompt("conv-stability", runtime71=runtime)
 
-    def test_no_runtime_at_all_is_unchanged_by_this_phase(self):
-        """The ownerless REST prompt. It has no runtime object today and
-        must still compose without one."""
-        self.assertTrue(self.compose(None))
+    def sections(self, runtime=None):
+        composed = _pc.compose_prompt_sections("conv-stability",
+                                               runtime71=runtime)
+        return [(sec.name, sec.text) for sec in composed.sections]
 
-    def test_an_absent_onboarding_key_composes_identically(self):
-        """A HISTORICAL narrator: full runtime, no onboarding row, so no
-        key. Byte-identical to the same runtime with the key explicitly
-        absent — which is the state every existing caller is in."""
-        without = self.compose(dict(FULL_RUNTIME))
-        again = self.compose(dict(FULL_RUNTIME))
-        self.assertEqual(without, again)
+    # ── malformed and idle: BYTE-IDENTICAL to the key being absent ──
+    def test_malformed_state_is_byte_identical_to_no_key(self):
+        """THE DEFECT REVIEW FOUND, as an equality.
 
-    def test_idle_onboarding_state_is_byte_identical_to_none(self):
-        """`pending`, `paused`, `completed` and historical all reduce to
-        an IDLE plan, and an idle plan must be indistinguishable from
-        having no onboarding state at all."""
+        `{"action": "present", "topic_id": "bad"}` rendered no block —
+        correctly — while the suppression predicate returned True
+        anyway, so the legacy pass directive vanished and nothing
+        replaced it. Malformed state must leave the ENTIRE prompt
+        untouched, not quietly remove working instructions.
+        """
+        baseline = self.compose(dict(FULL_RUNTIME))
+        malformed = (
+            {"action": "present", "topic_id": "bad"},
+            {"action": "present", "topic_id": None},
+            {"action": "present"},
+            {"action": "re_present", "topic_id": "not_a_topic"},
+            {"action": "acknowledge", "topic_id": "bad"},
+            {"action": "acknowledge"},
+            {"action": "banana", "topic_id": A},
+            {"action": None, "topic_id": A},
+            {}, "not a dict", None, 3, [],
+        )
+        for state in malformed:
+            with self.subTest(state=state):
+                runtime = dict(FULL_RUNTIME)
+                runtime[KEY] = state
+                self.assertEqual(
+                    self.compose(runtime), baseline,
+                    "malformed onboarding state changed the prompt — it must "
+                    "be indistinguishable from the key being absent")
+
+    def test_malformed_state_leaves_the_section_list_identical(self):
+        baseline = self.sections(dict(FULL_RUNTIME))
+        runtime = dict(FULL_RUNTIME)
+        runtime[KEY] = {"action": "present", "topic_id": "bad"}
+        self.assertEqual(self.sections(runtime), baseline)
+
+    def test_idle_state_is_byte_identical_to_no_key(self):
         baseline = self.compose(dict(FULL_RUNTIME))
         for state in (onboarding("idle"), {}, None):
             with self.subTest(state=state):
                 runtime = dict(FULL_RUNTIME)
                 runtime[KEY] = state
-                self.assertEqual(self.compose(runtime), baseline,
-                                 "an idle onboarding state changed the prompt")
+                self.assertEqual(self.compose(runtime), baseline)
 
-    def test_an_active_plan_adds_the_question_and_replaces_ONLY_the_pass_directive(self):
-        """The one deliberate displacement, pinned as deliberate.
+    def test_pending_paused_completed_plans_are_byte_identical(self):
+        """Every non-active lifecycle reduces to an IDLE plan, and an
+        idle plan must be invisible."""
+        baseline = self.compose(dict(FULL_RUNTIME))
+        for status in (_seed.STATUS_PENDING, _seed.STATUS_PAUSED,
+                       _seed.STATUS_COMPLETED):
+            state = {"person_id": "p1", "status": status,
+                     "active_topic_id": A, "version": 7,
+                     "known_topics": [], "remaining_topics": [A]}
+            plan = _turn.plan_turn(state=state, history=[],
+                                   narrator_text="Hi")
+            with self.subTest(status=status):
+                self.assertEqual(plan.action, _turn.IDLE)
+                runtime = dict(FULL_RUNTIME)
+                runtime[KEY] = {"action": plan.action,
+                                "topic_id": plan.topic_id,
+                                "known_topics": [], "remaining_topics": []}
+                self.assertEqual(self.compose(runtime), baseline)
 
-        *(This test first asserted that EVERY baseline line survived.
-        It failed, and the code was right: an active plan suppresses the
-        pass directive. That is supervisory boundary 1 — server
-        onboarding state overrides the browser's opinion of the pass.
-        The browser may say `pass2a` because its chronology cache
-        promoted it, which is the original defect, while the server
-        knows the walk is still active. Rendering both would hand Lori
-        the Profile Seed question AND "ask ONE open, place-anchored
-        question about this era".*
+    # ── active: exactly one section added, one deliberately replaced ──
+    def test_an_active_plan_adds_ONLY_the_canonical_section(self):
+        baseline = dict(self.sections(dict(FULL_RUNTIME)))
+        runtime = dict(FULL_RUNTIME)
+        runtime[KEY] = onboarding("present", A, remaining=[A, B])
+        active = dict(self.sections(runtime))
 
-        *So the assertion is narrowed to what is true and checked: the
-        ONLY thing displaced is the pass directive, and everything else
-        survives line for line.)*
+        added = set(active) - set(baseline)
+        self.assertEqual(added, {"profile_seed_onboarding"},
+                         "an active plan added sections other than the "
+                         "canonical onboarding block")
+
+        for name, text in baseline.items():
+            with self.subTest(section=name):
+                if name == "directives_interview":
+                    continue
+                self.assertEqual(active.get(name), text,
+                                 f"section {name!r} changed bytes")
+
+    def test_section_ORDER_is_unchanged_apart_from_the_addition(self):
+        baseline = [n for n, _ in self.sections(dict(FULL_RUNTIME))]
+        runtime = dict(FULL_RUNTIME)
+        runtime[KEY] = onboarding("present", A, remaining=[A, B])
+        active = [n for n, _ in self.sections(runtime)]
+        self.assertEqual([n for n in active if n != "profile_seed_onboarding"],
+                         baseline,
+                         "adding the onboarding section reordered the prompt")
+
+    def test_the_only_changed_section_is_the_pass_directive(self):
+        """The one deliberate replacement, named and bounded.
+
+        Supervisory boundary 1: a valid server-authoritative plan
+        overrides the browser's opinion of the pass. Rendering both
+        would hand Lori the canonical question AND "ask ONE open,
+        place-anchored question about this era".
         """
-        baseline = self.compose(dict(FULL_RUNTIME))
+        baseline = dict(self.sections(dict(FULL_RUNTIME)))
         runtime = dict(FULL_RUNTIME)
         runtime[KEY] = onboarding("present", A, remaining=[A, B])
-        active = self.compose(runtime)
+        active = dict(self.sections(runtime))
+        changed = [n for n in baseline if active.get(n) != baseline[n]]
+        self.assertEqual(changed, ["directives_interview"],
+                         "something other than the pass directive changed")
+        self.assertIn("Pass 2A", baseline["directives_interview"])
+        self.assertNotIn("Pass 2A", active["directives_interview"])
 
-        self.assertIn(_seed.topic(A).question, active)
-
-        dropped = [ln for ln in baseline.splitlines()
-                   if ln.strip() and ln not in active]
-        self.assertTrue(dropped, "the pass directive was not suppressed")
-        for line in dropped:
-            with self.subTest(line=line[:60]):
-                self.assertIn(
-                    "Pass 2A", " ".join(dropped[:1]),
-                    "something other than the pass directive was displaced")
-
-        # Nothing outside the pass directive moved. Identity, discipline,
-        # safety and thread guidance must all survive intact.
-        head = baseline.split("DIRECTIVE: You are in Pass 2A")[0]
-        for line in head.splitlines():
-            if line.strip():
-                self.assertIn(line, active,
-                              "the onboarding section displaced prompt "
-                              "content ahead of the pass directive")
-
-    def test_an_active_plan_does_not_suppress_safety_or_discipline(self):
+    def test_an_acknowledge_plan_adds_only_its_own_section(self):
+        baseline = dict(self.sections(dict(FULL_RUNTIME)))
         runtime = dict(FULL_RUNTIME)
-        runtime[KEY] = onboarding("present", A, remaining=[A, B])
-        active = self.compose(runtime)
-        baseline = self.compose(dict(FULL_RUNTIME))
-        for marker in ("FORBIDDEN OBSERVATION LANGUAGE",):
-            with self.subTest(marker=marker):
-                if marker in baseline:
-                    self.assertIn(marker, active)
+        runtime[KEY] = onboarding("acknowledge", A)
+        active = dict(self.sections(runtime))
+        self.assertEqual(set(active) - set(baseline),
+                         {"profile_seed_onboarding"})
 
-    def test_a_sparse_runtime_does_not_activate_identity_mode(self):
-        """THE FINDING THIS TEST EXISTS FOR.
+    # ── the sparse-runtime trap ─────────────────────────────────────
+    def test_a_sparse_runtime_must_supply_a_truthful_identity_result(self):
+        """Step 4 briefly INFERRED identity from the payload. Withdrawn.
 
-        `if runtime71:` defaults `identity_complete` to False, which
-        makes `identity_mode` True. A caller passing only a person id
-        and onboarding state must not thereby be told to interrogate the
-        narrator for their name.
+        Phase 1 holds the row at `pending` until the anchors exist, so
+        `active` implies them — of the DATABASE ROW. It implies nothing
+        about a dict a caller put in `runtime71`, and inferring a
+        gate-shaped fact from an unvalidated payload is the wrong
+        direction of trust. Step 5 supplies the real server-derived
+        result (transport map §10); a test may state it truthfully.
+        """
+        sparse = {"person_id": "p-fixture",
+                  "identity_complete": True,
+                  KEY: onboarding("present", A, remaining=[A])}
+        text = self.compose(sparse)
+        self.assertIn(_seed.topic(A).question, text)
+        for phrase in ("single next missing piece of identity",
+                       "name, date of birth, and place of birth are all "
+                       "confirmed"):
+            with self.subTest(phrase=phrase[:30]):
+                self.assertNotIn(phrase, text)
+
+    def test_an_untruthful_sparse_runtime_does_NOT_get_identity_for_free(self):
+        """The inference stays withdrawn.
+
+        Omitting `identity_complete` must leave identity mode ON. If a
+        caller can switch it off by supplying two onboarding keys, the
+        gate is not a gate.
         """
         sparse = {"person_id": "p-fixture",
                   KEY: onboarding("present", A, remaining=[A])}
         text = self.compose(sparse)
-        self.assertIn(_seed.topic(A).question, text)
-        for phrase in ("IDENTITY MODE", "single next missing piece of identity",
-                       "name, date of birth, and place of birth are all "
-                       "confirmed"):
-            with self.subTest(phrase=phrase[:30]):
-                self.assertNotIn(
-                    phrase, text,
-                    "a sparse onboarding runtime activated identity mode")
+        self.assertIn("single next missing piece of identity", text,
+                      "onboarding state switched off identity mode without "
+                      "a server-derived identity result")
 
-    def test_a_sparse_runtime_composes_the_same_as_no_runtime_plus_the_section(self):
-        """Stronger than the previous test: the sparse object must add
-        the section and NOTHING ELSE relative to no runtime at all."""
-        bare = self.compose(None)
-        sparse = self.compose({KEY: onboarding("present", A, remaining=[A])})
-        for line in bare.splitlines():
-            if line.strip():
-                self.assertIn(line, sparse,
-                              "a sparse onboarding runtime changed or "
-                              "dropped baseline prompt content")
+    def test_no_runtime_at_all_still_composes(self):
+        self.assertTrue(self.compose(None))
 
 
-@unittest.skipUnless(_HAS_FASTAPI, "needs fastapi")
 class LegacyBlockSuppressionTests(unittest.TestCase):
     """Two lists must never both render."""
 
@@ -341,10 +540,34 @@ class LegacyBlockSuppressionTests(unittest.TestCase):
         """No onboarding row means no key. Decision 3: they are never
         enrolled, so the legacy block is the only Profile Seed behaviour
         they have, and removing it would change every pre-migration
-        narrator."""
-        text = _pc.compose_system_prompt("conv-legacy",
-                                         runtime71=self._pass1_runtime())
+        narrator.
+
+        *(This asserted ONE phrase was present, which would pass with
+        the ten questions gone. It compares the whole rendered prompt to
+        the same runtime with an explicitly absent key, and pins the
+        question block by hash.)*
+        """
+        import hashlib
+        runtime = self._pass1_runtime()
+        text = _pc.compose_system_prompt("conv-legacy", runtime71=runtime)
+
+        explicit_absent = dict(runtime)
+        explicit_absent.pop(KEY, None)
+        self.assertEqual(
+            text,
+            _pc.compose_system_prompt("conv-legacy",
+                                      runtime71=explicit_absent))
+
         self.assertIn("Gather the following 10 facts", text)
+        start = text.index("PROFILE SEED QUESTIONS")
+        block = text[start:text.index("RULES:", start)]
+        self.assertEqual(
+            hashlib.sha256(block.encode("utf-8")).hexdigest()[:16],
+            "c5b4f9e74ca07c2b",
+            "the historical narrator's question block changed bytes")
+        for topic_def in _seed.TOPIC_REGISTRY:
+            with self.subTest(topic=topic_def.topic_id):
+                self.assertIn(topic_def.question, block)
 
     def test_an_enrolled_narrator_gets_the_canonical_block_only(self):
         runtime = self._pass1_runtime()
@@ -375,7 +598,6 @@ class LegacyBlockSuppressionTests(unittest.TestCase):
         self.assertIn("Gather the following 10 facts", text)
 
 
-@unittest.skipUnless(_HAS_FASTAPI, "needs fastapi")
 class SectionPolicyTests(unittest.TestCase):
     """Budgeting goes through the existing named-section machinery."""
 
@@ -418,7 +640,6 @@ class SectionPolicyTests(unittest.TestCase):
             _pc.compose_system_prompt("conv-agree", runtime71=runtime))
 
 
-@unittest.skipUnless(_HAS_FASTAPI, "needs fastapi")
 class LegacyProfileSeedKeyUntouchedTests(unittest.TestCase):
     """`runtime71["profile_seed"]` is load-bearing and is NOT this key."""
 
@@ -457,7 +678,6 @@ class LegacyProfileSeedKeyUntouchedTests(unittest.TestCase):
                                   "onboarding state was added")
 
 
-@unittest.skipUnless(_HAS_FASTAPI, "needs fastapi")
 class PlanToPromptTests(unittest.TestCase):
     """The reducer's own output drives the composer, unmodified."""
 
