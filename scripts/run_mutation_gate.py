@@ -35,6 +35,27 @@ Python can read. An earlier round of this lane mistook two such results
 for evidence, so the runner classifies them separately and treats them
 as NOT caught.
 
+── THE TWO PRECONDITIONS, AND WHY THEY ARE THE POINT ─────────────────
+
+"Non-zero exit means caught" is only true if the suite was GREEN
+BEFORE the mutation. Without that, this script would happily report
+22/22 against a suite that was already failing — every mutation
+"caught" by a failure that had nothing to do with it, and the strongest
+claim in the report would be the emptiest.
+
+So, before any mutation is applied:
+
+  1. **No tracked modifications anywhere in the tree.** Not merely in
+     the mutation targets — an edited TEST file introduces failures the
+     runner would credit to a mutation. Untracked files are allowed;
+     they cannot change what an existing test does.
+  2. **Every unique selected test command runs once against the
+     unmodified baseline.** A red baseline REFUSES the gate, and says
+     which command failed.
+
+Both are skippable only with an explicit `--allow-dirty`, which exists
+for proving the runner itself and is not the acceptance gate.
+
 ── SAFETY, AND WHY THERE IS A JOURNAL ────────────────────────────────
 
 Each mutation is applied to a file, run, and restored in a `finally`.
@@ -49,9 +70,9 @@ would not have announced itself.
 
 Two mitigations, because one is not enough:
 
-  * **the dirty-target refusal** — the runner will not start if any
-    target file already has uncommitted changes, so `git checkout` is
-    always a clean recovery;
+  * **the tracked-modification refusal** above — the runner will not
+    start against a modified tree, so `git checkout` is always a clean
+    recovery;
   * **the journal** — before applying anything the runner writes
     `.runtime/mutation_gate.json` holding the mutation id, the target
     and the ORIGINAL bytes. It is removed on clean completion. If it
@@ -332,12 +353,62 @@ def _journal_restore() -> int:
     return 0
 
 
-def _dirty_targets() -> List[str]:
+def _tracked_modifications() -> List[str]:
+    """Every tracked path with uncommitted changes. Untracked excluded.
+
+    NOT just the mutation targets. A modified TEST file is the more
+    dangerous case: it introduces failures the runner would credit to a
+    mutation, and every mutation would report CAUGHT for a reason that
+    has nothing to do with the mutation.
+
+    Untracked files (`??`) are allowed — a new file cannot change what
+    an existing test does, and refusing them would make the runner
+    unusable while a new mutation module is being written.
+    """
     out = subprocess.run(["git", "status", "--porcelain"], cwd=REPO,
                          capture_output=True, text=True).stdout
-    dirty = {line[3:].strip() for line in out.splitlines() if line.strip()}
-    targets = {m.target for m in MUTATIONS}
-    return sorted(dirty & targets)
+    modified = []
+    for line in out.splitlines():
+        if not line.strip() or line.startswith("??"):
+            continue
+        path = line[3:].strip()
+        # Renames arrive as "old -> new"; the new path is what matters.
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        modified.append(path)
+    return sorted(modified)
+
+
+def _run_tests(tests: str, env: dict) -> Tuple[int, str]:
+    proc = subprocess.run(
+        [sys.executable, "-m", "unittest", *tests.split()],
+        cwd=REPO, env=env, capture_output=True, text=True, timeout=900)
+    tail = (proc.stderr.strip().splitlines() or [""])[-1]
+    return proc.returncode, tail
+
+
+def _baseline_green(selected: List["Mutation"], env: dict) -> bool:
+    """Every unique selected test command must PASS unmutated.
+
+    This is what makes a later non-zero exit mean something. A mutation
+    cannot be "caught" by a suite that was already failing, and without
+    this check the runner cannot tell the two apart.
+    """
+    commands = sorted({m.tests for m in selected})
+    print(f"baseline — {len(commands)} unique test command(s), unmutated:")
+    ok = True
+    for tests in commands:
+        code, tail = _run_tests(tests, env)
+        mark = "green" if code == 0 else "RED  "
+        print(f"  {mark}  {tests}")
+        if code != 0:
+            print(f"         -> {tail}")
+            ok = False
+    if not ok:
+        print("\nREFUSING THE GATE — a baseline is red. Every mutation would "
+              "report CAUGHT for a failure that has nothing to do with it.")
+    print()
+    return ok
 
 
 def run_one(mutation: Mutation, env: dict) -> Tuple[str, str]:
@@ -353,13 +424,10 @@ def run_one(mutation: Mutation, env: dict) -> Tuple[str, str]:
             py_compile.compile(str(path), cfile=tempfile.mktemp(), doraise=True)
         except Exception as exc:
             return BROKEN, f"mutation does not compile: {exc}"
-        proc = subprocess.run(
-            [sys.executable, "-m", "unittest", *mutation.tests.split()],
-            cwd=REPO, env=env, capture_output=True, text=True, timeout=900)
-        tail = (proc.stderr.strip().splitlines() or [""])[-1]
-        if proc.returncode == 0:
+        code, tail = _run_tests(mutation.tests, env)
+        if code == 0:
             return MISSED, tail
-        if "SyntaxError" in proc.stderr or "IndentationError" in proc.stderr:
+        if "SyntaxError" in tail or "IndentationError" in tail:
             # Not evidence. Python failing to parse says nothing about
             # whether the tests would have noticed the behaviour change.
             return BROKEN, "caught only by a syntax error — not evidence"
@@ -387,18 +455,21 @@ def main() -> int:
     if _journal_check():
         return 1
 
-    dirty = _dirty_targets()
+    dirty = _tracked_modifications()
     if dirty and not args.allow_dirty:
-        print("REFUSING TO RUN — these mutation targets have uncommitted "
-              "changes, and a crash mid-run would restore the wrong bytes:")
+        print("REFUSING TO RUN — the working tree has tracked modifications. "
+              "A modified TEST file would make every mutation report CAUGHT "
+              "for a failure that has nothing to do with it, and a crash "
+              "mid-run would restore the wrong bytes:")
         for name in dirty:
             print("   ", name)
         print("\nCommit first, or pass --allow-dirty if you are deliberately "
               "testing the runner.")
         return 1
     if dirty:
-        print("WARNING: --allow-dirty. These targets are modified, so an "
-              "interrupted run restores the WORKING copy, not HEAD:")
+        print("WARNING: --allow-dirty. The tree is modified, so CAUGHT may "
+              "mean 'the suite was already failing' and an interrupted run "
+              "restores the WORKING copy, not HEAD:")
         for name in dirty:
             print("   ", name)
         print()
@@ -411,6 +482,9 @@ def main() -> int:
     selected = [m for m in MUTATIONS if not args.only or m.id in args.only]
     if not selected:
         print("no mutations matched --only")
+        return 1
+
+    if not _baseline_green(selected, env):
         return 1
 
     results = []
