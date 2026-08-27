@@ -5303,6 +5303,13 @@ def _validated_onboarding_plan(
     from .services.profile_seed import is_known_topic
     if not is_known_topic(state.get("topic_id")):
         return None
+    # `completes_walk` is optional, but when present it must be a real
+    # Boolean. `"false"` is a truthy string, and a loose read of it would
+    # have Lori speak as though the walk were over. Validated HERE so the
+    # renderer and the suppression gate cannot disagree about it either.
+    completes = state.get("completes_walk")
+    if completes is not None and not isinstance(completes, bool):
+        return None
     return state
 
 
@@ -5345,30 +5352,43 @@ def _profile_seed_onboarding_block(runtime71: Optional[Dict[str, Any]]) -> str:
             "RULES:",
             "  - Do NOT ask that question again.",
         ]
-        # `is True`, not truthiness. A caller sending "yes" or 1 would
-        # otherwise have Lori tell the narrator the walk is finished when
-        # the plan never said so — a claim made to a person on the
-        # strength of a loose comparison. Same posture as every other
-        # field here: a malformed value means the ordinary behaviour,
-        # never the louder one.
         if state.get("completes_walk") is True:
-            # ── THE TRANSITION, ON THE TURN THAT CAN DELIVER IT ─────
+            # ── SOFT WORDING ONLY. NO COMPLETION CLAIM. ─────────────
             #
-            # This instruction used to live on the turn that ASKED the
-            # last question — "when they have answered, tell them
-            # warmly..." — where it could never execute, because by the
-            # time they answered the block was gone and the
-            # acknowledgement had no idea the walk had just finished.
+            # This said "This was the LAST thing you needed", and that
+            # was a STATE CLAIM the composer is in no position to make.
             #
-            # It is carried here by `TurnPlan.completes_walk`, which is
-            # set only when the topic being closed is the last one
-            # unanswered. Still no question: the walk ends by Lori
-            # saying she has a sense of their story, not by her asking
-            # an eleventh thing.
+            # `completes_walk` is computed BEFORE the versioned
+            # post-commit apply. Evidence or operator activity can move
+            # the onboarding version between composition and that apply:
+            #
+            #   1. Lori presents A at version 7.
+            #   2. The narrator answers; the plan says this completes.
+            #   3. Lori says "that was the last thing you needed".
+            #   4. Concurrent evidence moves the server to version 8,
+            #      A still active.
+            #   5. Applying (A, 7) CONFLICTS and correctly writes
+            #      nothing — which is the exact-tuple protection this
+            #      lane designed working as intended.
+            #   6. The next turn presents A again, at version 8.
+            #
+            # The narrator would hear that they were finished and then
+            # be asked the same question again. The conflict is not the
+            # bug; ANNOUNCING COMPLETION BEFORE IT IS DURABLE is.
+            #
+            # So the wording is now relational rather than
+            # authoritative: how Lori FEELS about what she has heard,
+            # which is true whatever the version does. It must never say
+            # LAST, complete, completed, finished, or that anything has
+            # advanced — a test asserts those words are absent.
+            #
+            # The authoritative transition belongs to the server, after
+            # the apply succeeds, and reaches the narrator as the next
+            # turn simply not asking another Profile Seed question.
             lines.append(
-                "  - This was the LAST thing you needed. Tell them warmly "
-                "that you now have a sense of their story and you are "
-                "ready to hear it properly.")
+                "  - Respond warmly and say that you feel you now have a "
+                "good sense of their story and are ready to hear it "
+                "properly.")
             lines.append(
                 "  - Do NOT ask another question of any kind this turn.")
         else:

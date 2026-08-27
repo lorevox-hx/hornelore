@@ -193,13 +193,83 @@ class CompletionTransitionTests(unittest.TestCase):
     def block(self, state):
         return _pc._profile_seed_onboarding_block({KEY: state})
 
-    def test_a_completing_acknowledgement_closes_the_walk_warmly(self):
+    #: Words that would be an authoritative claim about server state.
+    FORBIDDEN_CLAIMS = ("LAST", "last thing", "complete", "completed",
+                        "finished", "done with", "all the questions")
+
+    def test_a_completing_acknowledgement_is_WARM_not_authoritative(self):
+        """Soft relational wording only. No state claim.
+
+        *(This asserted "LAST thing you needed" was PRESENT. That was a
+        claim about the server, made before the versioned apply, and it
+        can be false — see the conflict test below.)*
+        """
         text = self.block(onboarding("acknowledge", A, completes_walk=True))
-        self.assertIn("LAST thing you needed", text)
-        self.assertIn("sense of their story", text)
+        self.assertIn("good sense of their story", text)
+        self.assertIn("ready to hear it properly", text)
+
+    def test_a_completing_acknowledgement_claims_NOTHING_about_state(self):
+        text = self.block(onboarding("acknowledge", A, completes_walk=True))
+        for word in self.FORBIDDEN_CLAIMS:
+            with self.subTest(word=word):
+                self.assertNotIn(
+                    word, text,
+                    f"the acknowledgement claims {word!r} — that is a "
+                    "statement about server state made BEFORE the versioned "
+                    "apply, and a conflict can make it false")
+
+    def test_a_STALE_VERSION_completion_still_claims_nothing(self):
+        """THE CONCURRENCY CASE, end to end.
+
+        1. Lori presents A at version 7.
+        2. The narrator answers; the plan says this completes the walk.
+        3. Meanwhile evidence moves the server to version 8, A still
+           active — so applying (A, 7) will CONFLICT and write nothing.
+        4. The next turn presents A again.
+
+        If the acknowledgement had claimed completion, the narrator
+        would have been told they were finished and then asked the same
+        question again. The claim is gone, so the only cost of the
+        conflict is one repeated question — which the recovery stage
+        exists to avoid and which is survivable when it happens.
+        """
+        state = {"person_id": "p1", "status": _seed.STATUS_ACTIVE,
+                 "active_topic_id": A, "version": 7,
+                 "known_topics": [t for t in _seed.TOPIC_IDS if t != A],
+                 "remaining_topics": [A]}
+        history = [{"role": "assistant",
+                    "meta": {_turn.PRESENTED_TOPIC: A,
+                             _turn.PRESENTED_VERSION: 7}},
+                   {"role": "user", "content": "Still working.", "meta": {}}]
+        plan = _turn.plan_turn(state=state, history=history,
+                               narrator_text="Still working.")
+        self.assertTrue(plan.completes_walk)
+        self.assertEqual(plan.version, 7)
+
+        text = self.block({"action": plan.action, "topic_id": plan.topic_id,
+                           "known_topics": state["known_topics"],
+                           "remaining_topics": state["remaining_topics"],
+                           "completes_walk": plan.completes_walk})
+        for word in self.FORBIDDEN_CLAIMS:
+            with self.subTest(word=word):
+                self.assertNotIn(word, text)
+
+        # The server moved to 8 underneath. Applying (A, 7) conflicts and
+        # writes nothing, so A is still active and gets presented again.
+        moved = dict(state, version=8)
+        nxt = _turn.plan_turn(state=moved, history=history + [
+            {"role": "assistant",
+             "meta": {_turn.RESPONSE_TOPIC: A, _turn.RESPONSE_VERSION: 7,
+                      _turn.RESPONSE_DISPOSITION: _seed.ADDRESSED}}],
+            narrator_text="Hello again")
+        self.assertIn(nxt.action, (_turn.PRESENT, _turn.RE_PRESENT))
+        self.assertEqual(nxt.topic_id, A,
+                         "the conflicted topic must still be asked — this "
+                         "is why the acknowledgement must not have claimed "
+                         "the walk was over")
 
     def test_a_completing_acknowledgement_STILL_asks_nothing(self):
-        """Ending the walk must not become an eleventh question."""
+        """Closing warmly must not become an eleventh question."""
         text = self.block(onboarding("acknowledge", A, completes_walk=True))
         for topic_id in _seed.TOPIC_IDS:
             with self.subTest(topic=topic_id):
@@ -213,13 +283,14 @@ class CompletionTransitionTests(unittest.TestCase):
             with self.subTest(value=value):
                 text = self.block({"action": "acknowledge", "topic_id": A,
                                    "completes_walk": value})
-                self.assertNotIn("sense of their story", text)
-                self.assertIn("Do NOT ask the next Profile Seed question",
-                              text)
+                self.assertEqual(
+                    text, "",
+                    "a non-Boolean completes_walk must make the whole plan "
+                    "invalid, not merely soften one line")
 
     def test_an_ordinary_acknowledgement_does_not_claim_completion(self):
         text = self.block(onboarding("acknowledge", A, completes_walk=False))
-        self.assertNotIn("sense of their story", text)
+        self.assertNotIn("good sense of their story", text)
         self.assertIn("Do NOT ask the next Profile Seed question", text)
 
     def test_the_ASKING_turn_no_longer_makes_an_unreachable_promise(self):
@@ -252,7 +323,7 @@ class CompletionTransitionTests(unittest.TestCase):
                            "known_topics": state["known_topics"],
                            "remaining_topics": state["remaining_topics"],
                            "completes_walk": plan.completes_walk})
-        self.assertIn("sense of their story", text)
+        self.assertIn("good sense of their story", text)
 
 
 class NoSecondTopicListTests(unittest.TestCase):
@@ -320,9 +391,16 @@ class LegacyBlockGoldenBytesTests(unittest.TestCase):
     item 10 one leading space where items 1–9 have two.
     """
 
-    #: sha256 of the rendered `PROFILE SEED QUESTIONS ... ` block,
+    #: FULL sha256 of the rendered `PROFILE SEED QUESTIONS ...` block,
     #: measured at `620d692` before generation was introduced.
-    GOLDEN_SHA256 = "c5b4f9e74ca07c2b"
+    #:
+    #: *(This stored and compared `hexdigest()[:16]` — a truncated
+    #: 64-bit digest presented as SHA-256 evidence. Truncation is not
+    #: free: it is the difference between a collision being infeasible
+    #: and merely unlikely, and the claim in the name was stronger than
+    #: the check underneath it. All 64 characters now.)*
+    GOLDEN_SHA256 = ("c5b4f9e74ca07c2b213f2694cda41b9e"
+                     "7b8ebf44cb1e4686b6f71c7a1e6bcfc7")
 
     def _rendered_block(self):
         runtime = dict(FULL_RUNTIME)
@@ -334,7 +412,7 @@ class LegacyBlockGoldenBytesTests(unittest.TestCase):
     def test_the_rendered_block_matches_the_golden_hash(self):
         import hashlib
         digest = hashlib.sha256(
-            self._rendered_block().encode("utf-8")).hexdigest()[:16]
+            self._rendered_block().encode("utf-8")).hexdigest()
         self.assertEqual(
             digest, self.GOLDEN_SHA256,
             "the historical Pass-1 question block changed bytes. Every "
@@ -573,7 +651,7 @@ class LegacyBlockSuppressionTests(unittest.TestCase):
         start = text.index("PROFILE SEED QUESTIONS")
         block = text[start:text.index("RULES:", start)]
         self.assertEqual(
-            hashlib.sha256(block.encode("utf-8")).hexdigest()[:16],
+            hashlib.sha256(block.encode("utf-8")).hexdigest(),
             LegacyBlockGoldenBytesTests.GOLDEN_SHA256,
             "the historical narrator's question block changed bytes")
         for topic_def in _seed.TOPIC_REGISTRY:

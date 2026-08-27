@@ -236,16 +236,31 @@ MUTATIONS: Tuple[Mutation, ...] = (
         '    if state.get("action") not in ("present", "re_present", "acknowledge"):\n        return None',
         '    if state.get("action") not in ("present", "re_present", "acknowledge", "idle"):\n        return None',
         COMPOSER_TESTS),
+    # C10 ("completes_walk read by truthiness") is RETIRED 2026-08-26.
+    # The VALIDATOR now rejects a non-Boolean `completes_walk` outright
+    # (C11), so the renderer's `is True` is unobservable defence in
+    # depth: loosening it changes nothing a test can see, and the
+    # mutation could never be caught. A mutation that cannot fail is
+    # not evidence, and keeping it would make the gate red forever for
+    # the wrong reason. The renderer keeps `is True` anyway — cheap, and
+    # correct on its own terms — but the guard that DOES the work, and
+    # is measured, is C11.
     Mutation(
-        "C10", "completes_walk read by truthiness — a non-boolean makes "
-               "Lori tell the narrator her walk is over",
+        "C11", "the validator accepts a non-Boolean completes_walk",
         COMPOSER,
-        '        if state.get("completes_walk") is True:',
-        '        if state.get("completes_walk"):',
+        '    completes = state.get("completes_walk")\n    if completes is not None and not isinstance(completes, bool):\n        return None',
+        '    completes = state.get("completes_walk")\n    if False and completes is not None and not isinstance(completes, bool):\n        return None',
         COMPOSER_TESTS),
     Mutation(
-        "C9", "the unreachable completion promise returns to the ASKING "
-              "turn and the acknowledgement never closes the walk",
+        "C12", "the acknowledgement makes an AUTHORITATIVE completion claim "
+               "before the versioned apply — a conflict then leaves the "
+               "narrator told they were finished and asked again",
+        COMPOSER,
+        '                "  - Respond warmly and say that you feel you now have a "\n                "good sense of their story and are ready to hear it "\n                "properly.")',
+        '                "  - This was the LAST thing you needed. Tell them the "\n                "walk is complete.")',
+        COMPOSER_TESTS, was_real=True),
+    Mutation(
+        "C9", "the soft closing line never reaches the acknowledgement turn",
         COMPOSER,
         '        if state.get("completes_walk") is True:',
         '        if False and state.get("completes_walk") is True:',
