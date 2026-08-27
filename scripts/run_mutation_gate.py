@@ -100,11 +100,13 @@ REPO = Path(__file__).resolve().parent.parent
 TURN = "server/code/api/services/profile_seed_turn.py"
 SEED = "server/code/api/services/profile_seed.py"
 DB = "server/code/api/db.py"
+COMPOSER = "server/code/api/prompt_composer.py"
 
 REDUCER_TESTS = "tests.test_profile_seed_turn_reducer"
 AUTHORITY_TESTS = "tests.test_profile_seed_server_authority"
 COVERAGE_TESTS = "tests.test_profile_seed_enrollment_coverage"
 REFUSAL_TESTS = "tests.test_narrator_refusal_characterization"
+COMPOSER_TESTS = "tests.test_profile_seed_composer_section"
 
 
 @dataclass(frozen=True)
@@ -187,6 +189,45 @@ MUTATIONS: Tuple[Mutation, ...] = (
         "        if event.tuple in consumed:\n            # Earlier than the response",
         "        if event.tuple in consumed:\n            consumed.discard(event.tuple)\n            # Earlier than the response",
         REDUCER_TESTS, was_real=True),
+
+    # ── Phase 2 step 4: the composer section ────────────────────────
+    Mutation(
+        "C1", "a sparse onboarding runtime activates identity mode — Lori "
+              "asks a narrator she has known for months for their name",
+        COMPOSER,
+        "        if not identity_complete and profile_seed_onboarding_active(runtime71):\n            identity_complete = True",
+        "        if False and profile_seed_onboarding_active(runtime71):\n            identity_complete = True",
+        COMPOSER_TESTS),
+    Mutation(
+        "C2", "the legacy ten-question list renders alongside the canonical "
+              "one — two topic orders in one prompt",
+        COMPOSER,
+        "            if profile_seed_onboarding_active(runtime71):\n                pass\n            elif current_pass == \"pass1\":",
+        "            if False:\n                pass\n            elif current_pass == \"pass1\":",
+        COMPOSER_TESTS),
+    # C3 first read `("present","re_present")` -> `(...,"acknowledge")`.
+    # That was a NO-OP: `acknowledge` returns above that line, so the
+    # mutation tested nothing and "survived" for the emptiest possible
+    # reason. It now routes acknowledge through the asking path, which
+    # is the defect it was meant to reproduce.
+    Mutation(
+        "C3", "an ACKNOWLEDGE turn asks a question anyway",
+        COMPOSER,
+        '    action = state.get("action")\n    if action == "acknowledge":',
+        '    action = state.get("action")\n    if action == "acknowledge":\n        action = "present"\n    if False:',
+        COMPOSER_TESTS),
+    Mutation(
+        "C4", "an unknown topic id renders something instead of nothing",
+        COMPOSER,
+        "    if definition is None:\n        return \"\"",
+        "    if definition is None:\n        return \"PROFILE SEED — ONE QUESTION.\"",
+        COMPOSER_TESTS),
+    Mutation(
+        "C5", "an idle plan still renders the section",
+        COMPOSER,
+        '    state = runtime71.get(PROFILE_SEED_ONBOARDING_KEY)\n    if not isinstance(state, dict):\n        return ""\n\n    action = state.get("action")',
+        '    state = runtime71.get(PROFILE_SEED_ONBOARDING_KEY)\n    if not isinstance(state, dict):\n        return ""\n\n    action = state.get("action") or "present"',
+        COMPOSER_TESTS),
 
     # ── Phase 1 guards, kept runnable from one place ────────────────
     Mutation(

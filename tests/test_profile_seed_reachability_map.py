@@ -274,11 +274,36 @@ class TheComposerGateIsPinnedTests(unittest.TestCase):
         self.src = _read(_COMPOSER)
 
     def test_the_walk_requires_pass1(self):
-        self.assertIn('if current_pass == "pass1":', self.src)
+        self.assertIn('elif current_pass == "pass1":', self.src)
 
     def test_the_walk_requires_identity_to_be_complete(self):
-        i = self.src.index('if current_pass == "pass1":')
-        self.assertIn("elif not identity_mode:", self.src[max(0, i - 400):i])
+        """The legacy pass-1 branch still sits under the identity gate.
+
+        *(Widened from 400 characters to 3,000 on 2026-08-26, and the
+        marker gained its `elif`. Phase 2 step 4 inserted an onboarding
+        suppression branch plus its rationale between the two, so the
+        gate was unchanged and the DISTANCE was not — this pin failed on
+        a comment.*
+
+        *That is the cost of measuring structure by character
+        proximity, and it is worth naming rather than quietly widening:
+        the number has no meaning, so it will drift again. The claim
+        being pinned is "the pass-1 branch is nested inside
+        `elif not identity_mode:`", which a real parse would answer
+        exactly. Left as a proximity check because Phase 0 is accepted
+        and this lane should not rewrite its instrument mid-flight;
+        recorded here so the next reader knows the number is arbitrary
+        and the claim is not.)*
+        """
+        i = self.src.index('elif current_pass == "pass1":')
+        self.assertIn("elif not identity_mode:", self.src[max(0, i - 3000):i])
+
+    def test_the_legacy_branch_is_suppressed_for_enrolled_narrators(self):
+        """Phase 2 step 4: enrolled narrators get the canonical section
+        instead, so the two topic lists can never both render."""
+        i = self.src.index('elif current_pass == "pass1":')
+        window = self.src[max(0, i - 3000):i]
+        self.assertIn("if profile_seed_onboarding_active(runtime71):", window)
 
     def test_pass2a_is_the_mutually_exclusive_alternative(self):
         i = self.src.index('if current_pass == "pass1":')

@@ -171,9 +171,20 @@ class TopicDefinition:
     it must not keep a second hand-written order."""
 
     topic_id: str
-    #: Narrator-facing INTENT, not the wording. Phase 2 owns the wording,
-    #: and the session style owns the voice.
+    #: Narrator-facing INTENT — what the topic is for.
     intent: str
+    #: THE NARRATOR-FACING QUESTION, and there is exactly one of these.
+    #:
+    #: Moved VERBATIM from the hard-coded ten-item list that lived inside
+    #: `prompt_composer`'s pass-1 directive block (Phase 2 step 4). The
+    #: work order requires the composer to render from this registry and
+    #: forbids a second hand-written order — so the wording lives with
+    #: the id it belongs to, and the composer holds no list at all.
+    #:
+    #: This is an INSTRUCTION TO LORI, not a script. She asks it in her
+    #: own voice and in the active session style; the words here fix
+    #: WHICH question, never how it sounds.
+    question: str
     #: Whether an explicit negative is a meaningful answer for this topic
     #: ("no siblings", "I did not serve", "no children", "never married").
     negative_meaningful: bool
@@ -195,6 +206,7 @@ TOPIC_REGISTRY: Tuple[TopicDefinition, ...] = (
     TopicDefinition(
         "childhood_home",
         "where the narrator grew up",
+        "CHILDHOOD HOME — Did they grow up in [their birthplace], or did the family move?",
         negative_meaningful=False,
         bio_keys=("childhood_home_address", "childhood_homes",
                   "childhood_geography"),
@@ -207,6 +219,7 @@ TOPIC_REGISTRY: Tuple[TopicDefinition, ...] = (
     TopicDefinition(
         "siblings",
         "brothers and sisters, and where the narrator came in the order",
+        "SIBLINGS — Were they an only child, or did they have brothers and sisters?",
         negative_meaningful=True,
         bio_keys=("sibling_count", "siblings_named", "birth_order"),
         profile_paths=("family.siblingCount", "siblings"),
@@ -216,6 +229,7 @@ TOPIC_REGISTRY: Tuple[TopicDefinition, ...] = (
     TopicDefinition(
         "parents_work",
         "what the narrator's parents did for a living",
+        "PARENTS' WORK — What did their parents do for a living?",
         negative_meaningful=False,
         bio_keys=("father_occupation", "mother_occupation"),
         # DELIBERATELY EMPTY. `parents` and `kinship` were listed here in
@@ -230,6 +244,7 @@ TOPIC_REGISTRY: Tuple[TopicDefinition, ...] = (
     TopicDefinition(
         "heritage",
         "where the family came from, and what they carried with them",
+        "HERITAGE — Do they know where the family originally came from — grandparents' background?",
         negative_meaningful=True,
         bio_keys=("ethnicity_heritage", "grandparents_origin"),
         profile_paths=("personal.culture", "basics.culture",
@@ -239,6 +254,7 @@ TOPIC_REGISTRY: Tuple[TopicDefinition, ...] = (
     TopicDefinition(
         "education",
         "how far the narrator went in school",
+        "EDUCATION — How far did they go in school — did they go to college?",
         negative_meaningful=True,
         bio_keys=("highest_education_level", "high_school", "college_attended"),
         # `education.highestLevel` is what the intake form actually
@@ -251,6 +267,7 @@ TOPIC_REGISTRY: Tuple[TopicDefinition, ...] = (
     TopicDefinition(
         "military",
         "whether the narrator served, and what that was like",
+        "MILITARY — Did they serve in the military? (Ask warmly — many older narrators did.)",
         negative_meaningful=True,
         bio_keys=("military_served", "military_branch",
                   "military_service_period"),
@@ -262,6 +279,7 @@ TOPIC_REGISTRY: Tuple[TopicDefinition, ...] = (
     TopicDefinition(
         "career",
         "the work the narrator did",
+        "CAREER — What was their main work or career over the years?",
         negative_meaningful=True,
         bio_keys=("primary_career", "first_job", "primary_employer"),
         profile_paths=("education.careerProgression", "community.role",
@@ -272,6 +290,7 @@ TOPIC_REGISTRY: Tuple[TopicDefinition, ...] = (
     TopicDefinition(
         "partner",
         "who the narrator married or shared their life with",
+        "PARTNER — Have they been married, or do they have a long-term partner?",
         negative_meaningful=True,
         # `marital_status` is added to the bio schema by this phase — it
         # is the canonical home an explicit "never married" did not have.
@@ -282,6 +301,7 @@ TOPIC_REGISTRY: Tuple[TopicDefinition, ...] = (
     TopicDefinition(
         "children",
         "the narrator's children",
+        "CHILDREN — Do they have children? Grandchildren?",
         negative_meaningful=True,
         bio_keys=("children_count", "children_named"),
         profile_paths=("children",),
@@ -291,6 +311,7 @@ TOPIC_REGISTRY: Tuple[TopicDefinition, ...] = (
     TopicDefinition(
         "life_stage",
         "whether the narrator is retired or still working",
+        "LIFE STAGE — Are they retired now, or still working?",
         negative_meaningful=False,
         bio_keys=("retirement_year",),
         # NOTE the absence of every date-of-birth path. An age band is

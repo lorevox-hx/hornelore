@@ -221,6 +221,25 @@ _POLICIES: List[SectionPolicy] = [
        "generic assistant, which is the behaviour every LORI bug fix "
        "undoes."),
 
+    # WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 2 step 4 (2026-08-26).
+    #
+    # TRIM_NEVER, and the reason is a coupling rather than importance.
+    # Step 6 stamps a `presented(topic, version)` event on the assistant
+    # row for the turn that ASKS. If this section could be dropped by the
+    # budget, the event would record a question Lori never asked — and
+    # the reducer would then wait for an answer to it forever, or worse,
+    # treat the narrator's next unrelated sentence as that answer.
+    #
+    # It is one short block naming ONE topic, so it is also cheap enough
+    # that never dropping it costs almost nothing.
+    _p("profile_seed_onboarding", "lori-onboarding",
+       "profile_seed_onboarding_active", TRIM_NEVER, SOURCE_SERVER_DB,
+       TIER_WORKFLOW, True, 0,
+       "The ten-topic Profile Seed walk, rendered ONE topic at a time "
+       "from the server-owned canonical registry. Replaces the "
+       "hard-coded ten-question list that lived inside the pass-1 "
+       "directive block; there is no second list."),
+
     _p("memory_context", "lori-memory", "memory_block_present",
        TRIM_DROP_WHOLE, SOURCE_RUNTIME, TIER_NARRATOR_CONTEXT, False, 5,
        "Adaptive recall. ── RATIONALE CORRECTED 2026-08-18. This read "

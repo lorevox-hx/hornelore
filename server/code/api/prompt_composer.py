@@ -4097,7 +4097,30 @@ def _compose_prompt_assembly(
         assistant_role  = (runtime71.get("assistant_role") or "interviewer").strip().lower()
 
         # v7.4D Phase 6B — identity gating
+        #
+        # ── WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 2 step 4 ─────────
+        #
+        # ACTIVE ONBOARDING IS PROOF OF COMPLETE IDENTITY, so it satisfies
+        # this gate on its own.
+        #
+        # Not a convenience: it follows from Phase 1's contract. `reconcile`
+        # holds the row at `pending` until `identity_anchors_complete()` —
+        # name, date of birth and place of birth — is true, so a status of
+        # `active` cannot exist without those three anchors. The server has
+        # already made this determination against the database.
+        #
+        # Without this, `identity_complete` defaults to `False` here, which
+        # makes `identity_mode` True, and a caller supplying a sparse
+        # runtime object purely to carry onboarding state would flip Lori
+        # into identity interrogation — asking a narrator she has known for
+        # months for their name, because a dict gained a key. That defect
+        # is the reason the onboarding section itself is composed outside
+        # this block, and closing it there without closing it here would
+        # have left the trap open for exactly the caller most likely to
+        # spring it.
         identity_complete = bool(runtime71.get("identity_complete", False))
+        if not identity_complete and profile_seed_onboarding_active(runtime71):
+            identity_complete = True
         identity_phase    = runtime71.get("identity_phase") or "unknown"
         effective_pass    = runtime71.get("effective_pass") or current_pass
         identity_mode     = (effective_pass == "identity") or (not identity_complete)
@@ -4724,7 +4747,44 @@ def _compose_prompt_assembly(
             )
         elif not identity_mode:
             # Pass-level directive — only fires once identity is established
-            if current_pass == "pass1":
+            #
+            # ── WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 2 step 4 ─────
+            #
+            # The hard-coded ten-question list below is SUPPRESSED, not
+            # deleted, when server-owned onboarding state is present.
+            #
+            # Suppressed, because two lists would both render and Lori
+            # would receive the canonical single topic AND the legacy
+            # "gather the following 10 facts" block in the same prompt —
+            # which is the second topic order the work order forbids, and
+            # would tell her to do the opposite of one question per turn.
+            #
+            # Not deleted, because HISTORICAL narrators have no onboarding
+            # row and never will (decision 3). For them this block is the
+            # only Profile Seed behaviour there is, and removing it would
+            # silently change what Lori does with every pre-migration
+            # narrator — a far larger behaviour change than this phase is
+            # chartered to make. The wording itself now lives in
+            # `TOPIC_REGISTRY`, so the two cannot drift apart.
+            #
+            # THE SUPPRESSION COVERS EVERY PASS BRANCH, NOT ONLY PASS 1,
+            # and that is supervisory boundary 1 landing here: server
+            # onboarding state overrides the browser's opinion of the
+            # pass. The browser may say `pass2a` — its chronology cache
+            # promoted it, which is the original defect — while the
+            # server knows the ten-topic walk is still ACTIVE. Rendering
+            # both would hand Lori the canonical single Profile Seed
+            # question AND "ask ONE open, place-anchored question about
+            # this era": two instructions to ask two different questions
+            # in one turn, which is the conflict this lane exists to end.
+            #
+            # Only the PASS DIRECTIVE is replaced. Identity facts, the
+            # interview discipline, safety, forbidden-language and thread
+            # guidance are all outside this branch and are untouched —
+            # asserted line by line in the byte-stability tests.
+            if profile_seed_onboarding_active(runtime71):
+                pass
+            elif current_pass == "pass1":
                 # Build a "what we already know" hint so Lori doesn't re-ask things
                 # that came through the identity anchors or the existing profile.
                 _known_facts = []
@@ -5129,6 +5189,31 @@ def _compose_prompt_assembly(
             if memory_block:
                 parts.add("memory_context", memory_block)
 
+    # ── Profile Seed onboarding ─────────────────────────────────────────
+    #
+    # WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 2 step 4 (2026-08-26).
+    #
+    # DELIBERATELY OUTSIDE the `if runtime71:` block above, and this is
+    # the whole point of the placement rather than a tidiness choice.
+    #
+    # That block reads `identity_complete` with a default of `False`
+    # (`:4100`), which makes `identity_mode` True, and it also defaults
+    # `current_pass` to "pass1", `current_era` to "not yet set",
+    # `current_mode` to "open" and `assistant_role` to "interviewer". So
+    # a caller that supplied a SPARSE runtime object just to carry
+    # onboarding state would not merely gain a section — it would flip
+    # Lori into identity interrogation, asking a narrator she has known
+    # for months for their name, because a dict gained a key.
+    #
+    # Gating here, on the presence and status of the onboarding state
+    # ALONE, means adding that state activates this section and nothing
+    # else. The byte-stability tests in
+    # `tests/test_profile_seed_composer_section.py` are what hold that
+    # true rather than the comment.
+    _onboarding_block = _profile_seed_onboarding_block(runtime71)
+    if _onboarding_block:
+        parts.add("profile_seed_onboarding", _onboarding_block)
+
     return parts
 
 
@@ -5144,6 +5229,118 @@ def _compose_prompt_assembly(
 # Both go through `_compose_prompt_assembly`, so they cannot disagree about
 # what the prompt says. A second builder is precisely the failure this lane
 # has spent three phases removing from other surfaces.
+
+#: The runtime key carrying server-owned onboarding state.
+#
+# NOT `profile_seed`. That legacy dictionary is load-bearing for memory
+# echo, name recovery, age recall, the Spanish/session-language contract,
+# seeded-fact guards and welcome-back behaviour, and it has six live
+# readers. Phase 2 adds a DISTINCT key and does not touch it.
+PROFILE_SEED_ONBOARDING_KEY = "profile_seed_onboarding"
+
+
+def _profile_seed_onboarding_block(runtime71: Optional[Dict[str, Any]]) -> str:
+    """Render ONE canonical topic, or nothing at all.
+
+    Reads `runtime71["profile_seed_onboarding"]`, which the transport
+    populates from `services.profile_seed_turn.plan_turn()`. This
+    function makes no decisions about WHICH topic — the plan already
+    did, against durable committed events — and it holds no topic list:
+    every question comes from `services.profile_seed.TOPIC_REGISTRY`.
+
+    Four actions, and the two that ask are not the interesting ones:
+
+      * `present` / `re_present` — ask exactly one topic.
+      * `acknowledge` — respond to what the narrator just said and ASK
+        NOTHING. Not the topic they answered, and not the next one.
+        Until the post-commit apply succeeds the next topic is a
+        prediction, not a fact, and a narrator answering a question the
+        server does not believe is open is the failure this whole lane
+        exists to prevent.
+      * `idle` (and anything unrecognised) — render nothing.
+
+    Returns `""` for every state that must not render — historical
+    narrators, `pending`, `paused`, `completed`, a malformed payload, an
+    unknown topic id. Silence is the safe direction: a missing block
+    costs one turn without a question, while a guessed one asks a
+    narrator something the server never decided to ask.
+    """
+    if not isinstance(runtime71, dict):
+        return ""
+    state = runtime71.get(PROFILE_SEED_ONBOARDING_KEY)
+    if not isinstance(state, dict):
+        return ""
+
+    action = state.get("action")
+    if action == "acknowledge":
+        return (
+            "PROFILE SEED — ACKNOWLEDGE ONLY.\n"
+            "The narrator has just answered the question you asked. "
+            "Respond warmly to what they said.\n"
+            "RULES:\n"
+            "  - Do NOT ask that question again.\n"
+            "  - Do NOT ask the next Profile Seed question this turn. "
+            "You will be given it when it is settled.\n"
+            "  - One short, human acknowledgement. Then stop."
+        )
+
+    if action not in ("present", "re_present"):
+        return ""
+
+    from .services.profile_seed import topic as _topic_def
+    definition = _topic_def(state.get("topic_id"))
+    if definition is None:
+        return ""
+
+    known = [t for t in (state.get("known_topics") or [])
+             if _topic_def(t) is not None]
+    remaining = len([t for t in (state.get("remaining_topics") or [])
+                     if _topic_def(t) is not None])
+
+    lines = ["PROFILE SEED — ONE QUESTION."]
+    if known:
+        # Naming what is already settled is what stops Lori re-asking it.
+        # Principle 8: she must not interrogate the narrator for facts
+        # the system already has.
+        labels = ", ".join((_topic_def(t).intent or t) for t in known)
+        lines.append(f"Already settled, and NOT to be asked again: {labels}.")
+    lines.append(f"ASK ONLY THIS: {definition.question}")
+    if action == "re_present":
+        lines.append(
+            "You asked this before and the narrator asked for a moment. "
+            "Come back to it gently — do not repeat yourself word for word."
+        )
+    lines.extend([
+        "RULES:",
+        "  - Ask EXACTLY ONE question this turn. Do not stack, and do not "
+        "preview the next topic.",
+        "  - Be warm and curious — a conversation, not a form.",
+        "  - If they volunteer something else, receive it; do not chase it "
+        "with questions yet.",
+        "  - If they would rather not say, accept that and move on. It is "
+        "an answer.",
+    ])
+    if remaining <= 1:
+        lines.append(
+            "  - This is the last thing you need. When they have answered, "
+            "tell them warmly that you now have a sense of their story."
+        )
+    return "\n".join(lines)
+
+
+def profile_seed_onboarding_active(runtime71: Optional[Dict[str, Any]]) -> bool:
+    """Is authoritative onboarding state present and asking for a turn?
+
+    The legacy hard-coded pass-1 list is suppressed when this is true,
+    so the two can never both render. See its call site for why that is
+    a suppression rather than a deletion.
+    """
+    if not isinstance(runtime71, dict):
+        return False
+    state = runtime71.get(PROFILE_SEED_ONBOARDING_KEY)
+    return isinstance(state, dict) and state.get("action") in (
+        "present", "re_present", "acknowledge")
+
 
 def make_section(name: str, text: str) -> "_Section":
     """Build a classified section outside the composer.
