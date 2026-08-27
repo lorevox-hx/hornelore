@@ -1,7 +1,8 @@
 # Phase 2 transport mapping — read before any Phase 2 code
 
 **WO-LORI-PROFILE-SEED-REACHABILITY-01, Phase 2 checkpoint.**
-**Authored 2026-08-26 against `origin/main` at `8b2c392`. NO CODE HAS BEEN CHANGED.**
+**Authored 2026-08-26 against `origin/main` at `8b2c392`.**
+**Phase 2 steps 1–4 have since landed; see §15 for the current state.**
 
 **AMENDED THREE TIMES, 2026-08-26** — at `92c4a39` (§9–§13), `eccb3fe` (§11 two-event
 rewrite, §12 rulings) and `dfda3c5` (§11 exact tuples and recovery, §12 count).
@@ -25,8 +26,9 @@ this file.
 **Status of each section:** §9, §10 and §13 ACCEPTED (§13 with one false sentence
 corrected — see below). §12 ruled, rewritten to the ruling, and its pattern count fixed
 from seven to EIGHT. §11 rewritten to two durable event types, then corrected again to
-compare exact `(topic, version)` tuples and to add the missing recovery stage. Nothing
-here is implemented.
+compare exact `(topic, version)` tuples and to add the missing recovery stage.
+
+**The DESIGN is settled; the IMPLEMENTATION state is §15, not this paragraph.**
 
 Every line number was read from the tree, not recalled, and re-verified after writing.
 
@@ -765,12 +767,36 @@ rather than left to judgement at implementation time.
 
 ---
 
-## 15. What I have NOT done
+## 15. Implementation status — THIS MAP IS NO LONGER A PLAN ONLY
 
-No code, no schema, no tests, no migration. The eight browser promotion sites are
-untouched — that is Phase 3. Nothing in chronology, Life Map, memoir or story authority,
-safety, model or context window, the directive registry, Kawa, or migrations `0001–0051`.
+*(This section read "No code, no schema, no tests, no migration" and "Awaiting the
+implementation-readiness review before Phase 2 code begins." Both became false at step 1
+and are substantially false now. This document was missed by four rounds of
+control-document reconciliation because the sweep covered four files and there are FIVE —
+this map is a control document too, and a stale one says the code it describes does not
+exist.)*
 
-**Option B is the accepted transport-scope ruling. §9, §10 and §13 are accepted; §12 is
-ruled. §11 now carries exact `(topic, version)` correlation and the recovery stage.
-Awaiting the implementation-readiness review before Phase 2 code begins.**
+**Phase 2 is IN IMPLEMENTATION and is NOT ACCEPTED.**
+
+| Step | State |
+|---|---|
+| 1 — characterize the eight refusal patterns | landed |
+| 2 — one shared refusal helper | landed |
+| 3 — turn state machine, exact tuples, recovery | landed |
+| 4 — isolated composer section | landed, **UNDER CORRECTION, not accepted** |
+| 5 — REST read authority | not begun |
+| 6 — WebSocket presentation metadata and advancement | not begun |
+| 7 — suites and control reconciliation | not begun |
+
+The commit ledger lives in the primary work order's status block, not here — one home, so
+a new commit does not make five documents stale at once.
+
+**Still true, and still the boundary:** no REST, WebSocket or UI wiring has landed, and no
+live transport supplies `profile_seed_onboarding`, so none of the step-3 or step-4 code is
+reachable by a narrator. The eight browser promotion sites are untouched — that is Phase 3
+— and nothing in chronology, Life Map, memoir or story authority, safety, model or context
+window, the directive registry, Kawa, or migrations `0001–0051` has changed.
+
+**Design rulings, all settled:** Option B is the accepted transport-scope ruling; §9, §10
+and §13 are accepted; §12 is ruled; §11 carries exact `(topic, version)` correlation and
+the recovery stage.

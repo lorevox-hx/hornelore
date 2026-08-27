@@ -22,9 +22,17 @@ earlier presentation of its tuple; `c6c9ae4` adds a reproducible checked-in muta
 gate; and `0335cd3` makes that gate refuse an unclean tree or a red baseline, without
 which every mutation could report CAUGHT against a suite that was already failing.
 
-Steps 4–7 are owed: the isolated composer section, REST read authority, WebSocket
-presentation metadata and post-commit advancement, then the suites. **Nothing in production
-imports the turn service yet, so no narrator behaviour has changed.**
+**Step 4 — the isolated composer section — landed at `620d692` and is UNDER CORRECTION.
+It is NOT ACCEPTED.** Review found the composer still holding a second hand-written
+question order, a sparse-runtime byte-stability test asserting a subset rather than
+equality, a suppression predicate broader than the renderer (so malformed state could
+silently remove existing directives), an identity result inferred from a composer payload
+rather than supplied by the server, and an artificial FastAPI skip hiding the suite.
+
+Steps 5–7 are owed: REST read authority, WebSocket presentation metadata and post-commit
+advancement, then the suites. **No live transport supplies `profile_seed_onboarding` yet,
+so none of the step-4 code is reachable by a narrator** — which is why correcting it now
+costs nothing and rolls back no accepted work.
 
 *(This block read "READY FOR IMPLEMENTATION" until 2026-08-26, contradicting §6's own
 `STATUS: COMPLETE, ACCEPTED` two hundred lines below. A spec whose header disagrees with its
