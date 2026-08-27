@@ -5291,7 +5291,10 @@ def _validated_onboarding_plan(
         registry — an unknown id is not a question Lori can ask;
       * for `acknowledge`, `topic_id` is likewise a real topic, because
         acknowledging an answer to a topic that does not exist is not a
-        turn either.
+        turn either;
+      * `completes_walk`, when present, is a real Boolean;
+      * `known_topics`, when present, is a LIST OF STRINGS, and does not
+        contain the very topic the plan is about.
     """
     if not isinstance(runtime71, dict):
         return None
@@ -5310,6 +5313,43 @@ def _validated_onboarding_plan(
     completes = state.get("completes_walk")
     if completes is not None and not isinstance(completes, bool):
         return None
+    # ── `known_topics` MUST BE A LIST OF STRINGS, 2026-08-26 ───────────
+    #
+    # This field was read straight into a comprehension, and every
+    # malformed shape did something worse than nothing:
+    #
+    #   3, object()      TypeError — not iterable
+    #   [{}], [[]]       TypeError — unhashable, inside the registry lookup
+    #   "childhood_home" ITERATED AS CHARACTERS, silently
+    #   {"childhood_home": True}
+    #                    a dict iterates its KEYS, so Lori was told
+    #                    "Already settled, and NOT to be asked again:
+    #                    where the narrator grew up" — about a topic
+    #                    nothing had established
+    #
+    # The last one is the reason this is a validator and not a
+    # try/except. A crash is loud; a FALSE "already settled" is quiet,
+    # and it makes Lori refuse to ask a question the narrator was never
+    # asked. Principle 8 says the operator seeds what is known and Lori
+    # does not re-interrogate — which only holds while "known" is true.
+    #
+    # Absent stays equivalent to empty: a plan that has settled nothing
+    # is ordinary, especially at the start of a walk. PRESENT means it
+    # must be a list of strings. Unknown ids are still ignored, because
+    # a retired topic id is stale data rather than a malformed payload.
+    known = state.get("known_topics")
+    if known is not None:
+        if not isinstance(known, list):
+            return None
+        if any(not isinstance(t, str) for t in known):
+            return None
+        # A plan cannot ask what it says is already settled. That is not
+        # a shape error, it is a CONTRADICTION, and rendering it makes
+        # Lori announce the topic as known in the same breath she asks
+        # about it.
+        if state.get("action") in ("present", "re_present"):
+            if state.get("topic_id") in known:
+                return None
     return state
 
 
