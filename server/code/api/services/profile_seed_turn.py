@@ -126,6 +126,8 @@ _DEFERRAL_PHRASES = frozenset({
     "hang on",
     "i need a moment",
     "i need a minute",
+    "id like a moment",
+    "id like a minute",
     "come back to that",
     "come back to it",
     "can we come back to that",
@@ -142,12 +144,34 @@ _FILLERS = frozenset({
     "please", "sorry", "yes", "no", "alright", "right", "and", "but",
 })
 
+#: Apostrophes are ELIDED, not turned into spaces, and the order matters.
+#
+# ── THE DEFECT THIS CLOSES, 2026-08-26 ──────────────────────────────────
+#
+# `_PUNCT` replaces punctuation with a SPACE, so "I'll come back to that"
+# normalised to "i ll come back to that" and "Let's come back to it" to
+# "let s come back to it" — neither of which matches the configured
+# phrases `ill come back to that` and `lets come back to it`.
+#
+# So a narrator who said "I'll come back to that" — the single most
+# natural way to ask for time — was classified `addressed`, and the
+# topic was CLOSED. The one phrasing the deferral category exists to
+# catch was the one it could not see, and the fixture phrases had been
+# written apostrophe-free, which is why the tests agreed.
+#
+# Curly apostrophes are included because a phone keyboard and most word
+# processors produce them by default, and a narrator dictating through
+# STT may get either.
+_APOSTROPHES = re.compile("['’‘ʼ´`]")
 _PUNCT = re.compile(r"[^\w\s]+", re.UNICODE)
 _WS = re.compile(r"\s+")
 
 
 def _normalise(text: str) -> str:
-    lowered = _PUNCT.sub(" ", (text or "").lower())
+    # Elide apostrophes FIRST so contractions collapse to one word;
+    # then the general punctuation pass can safely use spaces.
+    deapostrophised = _APOSTROPHES.sub("", (text or "").lower())
+    lowered = _PUNCT.sub(" ", deapostrophised)
     words = [w for w in _WS.split(lowered) if w]
     while words and words[0] in _FILLERS:
         words.pop(0)
@@ -352,6 +376,19 @@ class TurnPlan:
     topic_id: Optional[str] = None
     version: Optional[int] = None
     disposition: Optional[str] = None
+    #: True when THIS acknowledgement closes the last remaining topic.
+    #:
+    #: ── WHY THIS FIELD EXISTS, 2026-08-26 ───────────────────────────
+    #:
+    #: The presentation block used to carry "when they have answered,
+    #: tell them warmly that you now have a sense of their story" on the
+    #: turn that ASKED the final question. That instruction could never
+    #: execute: it describes what to do on the NEXT turn, and by then
+    #: the block is gone — the acknowledgement turn had no idea the walk
+    #: had just finished. A promise Lori was structurally unable to keep.
+    #:
+    #: The flag moves the instruction to the turn that can act on it.
+    completes_walk: bool = False
 
     @property
     def advances(self) -> bool:
@@ -432,8 +469,19 @@ def plan_turn(
     # ACKNOWLEDGE. Lori responds to what was said and asks NOTHING —
     # not A again, and not B, because until the post-commit apply
     # succeeds B is a prediction rather than a fact.
+    #
+    # `completes_walk` is NOT a prediction in the same sense. It says
+    # only that the topic being closed right now is the last one still
+    # unanswered, which this turn's own disposition settles. If the apply
+    # later conflicts, recovery re-resolves and the next turn presents
+    # whatever the server actually believes — and nothing false was said
+    # to the narrator, because the block it drives asks no question and
+    # claims no fact beyond "I have a sense of your story now".
+    remaining = [t for t in (state.get("remaining_topics") or [])
+                 if _seed.is_known_topic(t)]
+    completes = remaining == [outstanding.topic_id]
     return TurnPlan(ACKNOWLEDGE, outstanding.topic_id, outstanding.version,
-                    outcome)
+                    outcome, completes_walk=completes)
 
 
 # ── Recovery ────────────────────────────────────────────────────────────

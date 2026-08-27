@@ -79,6 +79,24 @@ REFUSAL_PATTERNS: Tuple[Pattern[str], ...] = (
 )
 
 
+#: Typographic apostrophes, folded to the straight one before matching.
+#
+# ── FOUND 2026-08-26, WHILE FIXING THE SAME BUG NEXT DOOR ───────────────
+#
+# Every pattern spells its contractions with an OPTIONAL STRAIGHT
+# apostrophe — `let\'?s`, `don\'?t`, `I\'?d` — so `let's skip that` and
+# `lets skip that` both match and **`let’s skip that` does not**. A
+# narrator typing on a phone, in most word processors, or through an STT
+# engine that punctuates gets the curly form by default, so the refusal
+# would simply not be seen: extraction would keep the fields the narrator
+# asked not to have written down, and Profile Seed would record
+# `addressed` where the narrator had refused.
+#
+# Folding the INPUT leaves the eight patterns byte-identical, so the
+# characterization suite still pins exactly what it pinned before.
+_CURLY_APOSTROPHES = re.compile("[’‘ʼ´`]")
+
+
 def first_refusal_match(text: Optional[str]) -> Optional[Pattern[str]]:
     """The first pattern this text refuses by, or `None`.
 
@@ -95,7 +113,7 @@ def first_refusal_match(text: Optional[str]) -> Optional[Pattern[str]]:
     """
     if not text:
         return None
-    lowered = text.lower()
+    lowered = _CURLY_APOSTROPHES.sub("'", text.lower())
     for pattern in REFUSAL_PATTERNS:
         if pattern.search(lowered):
             return pattern

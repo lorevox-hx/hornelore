@@ -156,6 +156,48 @@ class ClassificationTests(unittest.TestCase):
                 self.assertEqual(_turn.classify_response(text),
                                  _seed.ADDRESSED)
 
+    def test_CONTRACTED_deferrals_are_stationary(self):
+        """The defect that made the category nearly useless.
+
+        *(`_PUNCT` turned punctuation into a SPACE, so "I'll come back to
+        that" normalised to "i ll come back to that" and never matched
+        the configured `ill come back to that`. The single most natural
+        way to ask for a moment was classified `addressed` and the topic
+        was CLOSED. The fixtures had all been written apostrophe-free,
+        which is exactly why they agreed.)*
+
+        Both apostrophe forms, because a phone keyboard and most word
+        processors produce the curly one by default.
+        """
+        for text in ("I'll come back to that.", "I’ll come back to that.",
+                     "Let's come back to it.", "Let’s come back to it.",
+                     "I'll come back to it", "I’d like a moment.",
+                     "I'd like a minute."):
+            with self.subTest(text=text):
+                self.assertEqual(_turn.classify_response(text),
+                                 _turn.STATIONARY,
+                                 f"{text!r} closed the topic instead of "
+                                 "leaving it open")
+
+    def test_contracted_REFUSALS_are_still_declined(self):
+        """The apostrophe change must not reclassify refusals."""
+        for text in ("I'd rather not talk about that.",
+                     "I’d rather not talk about that.",
+                     "Let's skip that.", "Let’s skip that."):
+            with self.subTest(text=text):
+                self.assertEqual(_turn.classify_response(text),
+                                 _seed.DECLINED)
+
+    def test_contracted_ANSWERS_are_still_addressed(self):
+        """And must not turn ordinary contracted speech into a deferral."""
+        for text in ("Devils Lake, that's where.",
+                     "I'll tell you — Devils Lake.",
+                     "I’ll tell you — Devils Lake.",
+                     "That's my brother's name.", "I don't remember."):
+            with self.subTest(text=text):
+                self.assertEqual(_turn.classify_response(text),
+                                 _seed.ADDRESSED)
+
     def test_empty_and_whitespace_are_stationary(self):
         for text in ("", "   ", "\n\t", None):
             with self.subTest(text=text):
@@ -544,6 +586,68 @@ class TurnPlanTests(unittest.TestCase):
                     self.assertNotIn("rather", blob)
                     self.assertTrue(
                         set(plan.turn_meta()).issubset(set(_turn.META_KEYS)))
+
+
+class CompletionTransitionTests(unittest.TestCase):
+    """The last answer ends the walk warmly, on a turn that can say so.
+
+    *(The presentation block used to carry "when they have answered,
+    tell them warmly that you now have a sense of their story" on the
+    turn that ASKED the final question. That instruction described the
+    NEXT turn, by which point the block was gone and the acknowledgement
+    had no idea the walk had finished — a promise Lori was structurally
+    unable to keep.)*
+    """
+
+    def _state(self, remaining):
+        return {"person_id": "p1", "status": _seed.STATUS_ACTIVE,
+                "active_topic_id": remaining[0], "version": 7,
+                "known_topics": [t for t in TOPICS if t not in remaining],
+                "remaining_topics": list(remaining)}
+
+    def test_answering_the_last_topic_sets_completes_walk(self):
+        state = self._state([A])
+        plan = _turn.plan_turn(state=state, history=[presented(A, 7), said()],
+                               narrator_text="Devils Lake.")
+        self.assertEqual(plan.action, _turn.ACKNOWLEDGE)
+        self.assertTrue(plan.completes_walk)
+
+    def test_DECLINING_the_last_topic_also_completes_the_walk(self):
+        """A refusal is an answer. It must end the walk like one."""
+        state = self._state([A])
+        plan = _turn.plan_turn(state=state, history=[presented(A, 7), said()],
+                               narrator_text="I'd rather not talk about that.")
+        self.assertEqual(plan.disposition, _seed.DECLINED)
+        self.assertTrue(plan.completes_walk)
+
+    def test_answering_a_mid_walk_topic_does_not(self):
+        state = self._state([A, B])
+        plan = _turn.plan_turn(state=state, history=[presented(A, 7), said()],
+                               narrator_text="Devils Lake.")
+        self.assertFalse(plan.completes_walk)
+
+    def test_a_deferral_on_the_last_topic_does_not_complete_it(self):
+        state = self._state([A])
+        plan = _turn.plan_turn(state=state, history=[presented(A, 7), said()],
+                               narrator_text="Let me think.")
+        self.assertEqual(plan.action, _turn.RE_PRESENT)
+        self.assertFalse(plan.completes_walk,
+                         "a request for time ended the walk")
+
+    def test_a_presentation_never_completes(self):
+        state = self._state([A])
+        plan = _turn.plan_turn(state=state, history=[], narrator_text="Hi")
+        self.assertEqual(plan.action, _turn.PRESENT)
+        self.assertFalse(plan.completes_walk)
+
+    def test_unknown_remaining_topics_do_not_fake_completion(self):
+        state = self._state([A])
+        state["remaining_topics"] = [A, "favourite_colour"]
+        plan = _turn.plan_turn(state=state, history=[presented(A, 7), said()],
+                               narrator_text="Devils Lake.")
+        self.assertTrue(plan.completes_walk,
+                        "an unknown id in remaining_topics blocked a real "
+                        "completion")
 
 
 # ── 5. Recovery ─────────────────────────────────────────────────────────

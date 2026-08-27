@@ -322,5 +322,59 @@ class GuardBehaviourTests(unittest.TestCase):
         self.assertEqual(self.guard(list(self.items), long_answer), [])
 
 
+class ApostropheFoldingTests(unittest.TestCase):
+    """Runs on BOTH interpreters — the helper needs no fastapi.
+
+    Found while fixing the same bug in the deferral normalizer. Every
+    pattern spells its contractions with an optional STRAIGHT
+    apostrophe, so `let's skip that` matched and `let's skip that` with
+    a CURLY apostrophe did not. A narrator on a phone, in a word
+    processor, or through a punctuating STT engine gets the curly form
+    by default — and their refusal would simply not be seen. Extraction
+    would keep the fields they asked not to have written down, and
+    Profile Seed would record `addressed` where they had refused.
+
+    The INPUT is folded; the eight patterns are untouched, so the
+    inventory tests above still pin exactly what they pinned before.
+    """
+
+    def setUp(self):
+        from api.services import narrator_refusal as _refusal
+        self.refusal = _refusal
+
+    def test_curly_refusals_are_recognised(self):
+        for phrase in ("I\u2019d rather not talk about that.",
+                       "Let\u2019s skip that, if you don\u2019t mind.",
+                       "I don\u2019t want to talk about that.",
+                       "I\u2019d prefer not to answer that.",
+                       "That\u2019s not for putting in a book."):
+            with self.subTest(phrase=phrase):
+                self.assertTrue(self.refusal.is_topic_refusal(phrase),
+                                "a curly apostrophe hid a refusal")
+
+    def test_curly_and_straight_forms_agree(self):
+        for _, straight in _POSITIVES:
+            curly = straight.replace("'", "\u2019")
+            with self.subTest(phrase=straight):
+                self.assertEqual(self.refusal.is_topic_refusal(straight),
+                                 self.refusal.is_topic_refusal(curly))
+
+    def test_curly_negatives_are_still_not_refusals(self):
+        for phrase in ("I don\u2019t remember.",
+                       "I can\u2019t recall that at all.",
+                       "I don\u2019t want to forget that.",
+                       "Devils Lake, that\u2019s where."):
+            with self.subTest(phrase=phrase):
+                self.assertFalse(self.refusal.is_topic_refusal(phrase))
+
+    def test_the_eight_patterns_are_unchanged_by_the_folding(self):
+        """Folding the INPUT must not have edited the patterns."""
+        self.assertEqual(len(self.refusal.REFUSAL_PATTERNS),
+                         _EXPECTED_PATTERN_COUNT)
+        for pattern in self.refusal.REFUSAL_PATTERNS:
+            with self.subTest(pattern=pattern.pattern[:30]):
+                self.assertNotIn("\u2019", pattern.pattern)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
