@@ -5,14 +5,30 @@
 **Authored:** 2026-08-26 against `main` at `6952ad0`  
 **Predecessor:** `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01`, accepted and complete.
 
-**Status:** IN IMPLEMENTATION — Phase 0 accepted at `661aa95`; **Phase 1 (server authority)
-ACCEPTED at `1288baa`, both 2026-08-26. PHASE 2 — prompt and committed-turn wiring — IS IN
-IMPLEMENTATION and is NOT ACCEPTED: steps 1–2 landed at `f23040b` and `5a1eb56`, moving
-production refusal detection into `services/narrator_refusal.py`; steps 3–7 are owed.**
-*(This line read "READY FOR IMPLEMENTATION" until 2026-08-26, contradicting §6's own
+**Status:** IN IMPLEMENTATION, all dates 2026-08-26.
+
+| Phase | State |
+|---|---|
+| 0 — executable map | **ACCEPTED** at `661aa95` |
+| 1 — server authority | **ACCEPTED** at `1288baa` |
+| 2 — prompt and committed-turn wiring | **IN IMPLEMENTATION, NOT ACCEPTED** |
+| 3–5 | not begun |
+
+Phase 2 steps 1–3 have landed: `f23040b` characterizes all eight refusal patterns;
+`5a1eb56` moves them to one shared helper called by extraction and Profile Seed; `1875821`
+adds the turn state-machine service — two durable events, exact `(topic, version)` tuples,
+classification and recovery; `b069680` corrects consumption so a response answers every
+earlier presentation of its tuple; `c6c9ae4` adds a reproducible checked-in mutation gate.
+
+Steps 4–7 are owed: the isolated composer section, REST read authority, WebSocket
+presentation metadata and post-commit advancement, then the suites. **Nothing in production
+imports the turn service yet, so no narrator behaviour has changed.**
+
+*(This block read "READY FOR IMPLEMENTATION" until 2026-08-26, contradicting §6's own
 `STATUS: COMPLETE, ACCEPTED` two hundred lines below. A spec whose header disagrees with its
 body is worse than one that is merely stale, because the header is the part a reader trusts
-without scrolling.)*
+without scrolling. It became a table on the same day, after prose bold nested inside prose
+bold for the third time in this lane — a table cannot nest.)*
 
 ---
 
