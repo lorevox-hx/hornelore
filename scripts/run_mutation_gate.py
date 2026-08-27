@@ -271,6 +271,18 @@ MUTATIONS: Tuple[Mutation, ...] = (
         '        lines.append("  - This is the last topic still open.")',
         COMPOSER_TESTS, was_real=True),
     Mutation(
+        "C14", "THE HALF-FIX: the last-topic LINE is gone but the `remaining` "
+               "count that existed only to produce it is left behind, ready "
+               "for the next person who wants a heads-up to misuse",
+        COMPOSER,
+        '    known = [t for t in (state.get("known_topics") or [])\n'
+        '             if _topic_def(t) is not None]',
+        '    known = [t for t in (state.get("known_topics") or [])\n'
+        '             if _topic_def(t) is not None]\n'
+        '    remaining = len([t for t in (state.get("remaining_topics") or [])\n'
+        '                     if _topic_def(t) is not None])',
+        COMPOSER_TESTS),
+    Mutation(
         "C9", "the soft closing line never reaches the acknowledgement turn",
         COMPOSER,
         '        if state.get("completes_walk") is True:',

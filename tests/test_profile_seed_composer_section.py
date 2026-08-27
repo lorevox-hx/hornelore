@@ -222,61 +222,137 @@ class SectionRenderTests(NoStateClaimMixin, unittest.TestCase):
                         self.assertNotIn(_seed.topic(other).question, text)
                 self.assertNoStateClaim(text, "malformed remaining_topics: ")
 
-    def test_the_composer_no_longer_reads_remaining_topics_for_a_claim(self):
+    #: The one function these structural checks are ABOUT.
+    TARGET_FUNCTION = "_profile_seed_onboarding_block"
+
+    #: Synthetic source for the isolation controls, assembled rather
+    #: than written as a literal so this file contains no nested triple
+    #: quotes. `unrelated_helper()` deliberately uses `remaining` AND the
+    #: forbidden phrase; the target function has neither outside its own
+    #: docstring.
+    _SYNTHETIC_HEAD = (
+        "def unrelated_helper(rows):\n"
+        "    remaining = len(rows)\n"
+        '    return "This is the last topic still open." if remaining else ""\n'
+        "\n\n"
+        "def _profile_seed_onboarding_block(runtime71):\n"
+        "    QQQMentions the last topic still open, in a DOCSTRING.QQQ\n"
+        '    lines = ["PROFILE SEED — ONE QUESTION."]\n'
+    ).replace("QQQ", '"' * 3)
+
+    @classmethod
+    def synthetic(cls, body):
+        return cls._SYNTHETIC_HEAD + body + "\n    return lines\n"
+
+    @staticmethod
+    def function_symbols(source, name):
+        """`(names, literals)` for ONE function. Docstrings excluded.
+
+        *(Both checks below scanned the WHOLE composer module. That was
+        raised at Step 4 acceptance and deferred; deferring it was the
+        wrong call and it is corrected here. A module-wide ban on the
+        NAME `remaining` is a Profile Seed guard that unrelated future
+        code would trip, and a guard that fails for reasons outside its
+        own subject teaches people to switch it off. Scope is the fix.
+
+        Docstrings stay excluded for the separate reason established
+        earlier in this lane: the first version of this check failed on
+        the comment explaining the removal — a guard firing on the prose
+        that describes the guarded thing.)*
+        """
+        import ast
+        target = None
+        for node in ast.walk(ast.parse(source)):
+            if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and node.name == name):
+                target = node
+                break
+        if target is None:
+            raise AssertionError(
+                f"{name}() is not in this source — the guard has no subject, "
+                "which is a broken instrument and not a passing test")
+        docstrings = set()
+        for node in ast.walk(target):
+            body = getattr(node, "body", None)
+            if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                  ast.ClassDef))
+                    and body and isinstance(body[0], ast.Expr)
+                    and isinstance(body[0].value, ast.Constant)
+                    and isinstance(body[0].value.value, str)):
+                docstrings.add(id(body[0].value))
+        names = {n.id for n in ast.walk(target) if isinstance(n, ast.Name)}
+        literals = [n.value for n in ast.walk(target)
+                    if isinstance(n, ast.Constant)
+                    and isinstance(n.value, str) and id(n) not in docstrings]
+        return names, literals
+
+    def composer_symbols(self):
+        return self.function_symbols(
+            (_SERVER_CODE / "api" / "prompt_composer.py")
+            .read_text(encoding="utf-8"), self.TARGET_FUNCTION)
+
+    def test_the_asking_block_no_longer_reads_remaining_topics_for_a_claim(self):
         """Structural: the count that produced the claim is gone.
 
         Kept because deleting the LINE while leaving the count would be
         a natural half-fix, and the next person wanting a heads-up would
         find the count sitting there ready to be misused again.
-
-        *(First written against raw source, and it FAILED — on the
-        comment I had just written explaining the removal. That is
-        guard-on-prose, for the seventh time in this lane: a check that
-        fires on the sentence describing the guarded thing. It reads
-        STRING LITERALS and CODE now, so the explanation can stay
-        without the test mistaking it for the code it describes.)*
         """
-        import ast
-        tree = ast.parse((_SERVER_CODE / "api" / "prompt_composer.py")
-                         .read_text(encoding="utf-8"))
-        docstrings = set()
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
-                                 ast.AsyncFunctionDef)):
-                body = getattr(node, "body", None)
-                if (body and isinstance(body[0], ast.Expr)
-                        and isinstance(body[0].value, ast.Constant)
-                        and isinstance(body[0].value.value, str)):
-                    docstrings.add(id(body[0].value))
-        literals = [n.value for n in ast.walk(tree)
-                    if isinstance(n, ast.Constant)
-                    and isinstance(n.value, str) and id(n) not in docstrings]
+        names, literals = self.composer_symbols()
         for phrase in ("last topic still open", "last topic"):
             with self.subTest(phrase=phrase):
                 self.assertNotIn(
                     phrase, " ".join(literals),
-                    "the composer can still emit a last-topic claim")
-        # And the count itself is gone from the executable code.
-        names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+                    f"{self.TARGET_FUNCTION}() can still emit a last-topic "
+                    "claim")
         self.assertNotIn("remaining", names,
                          "the `remaining` count survived the deletion of the "
                          "line it existed to produce")
 
     def test_the_structural_check_is_not_vacuous(self):
-        """Positive control on the literal extractor.
-
-        Without it, an extractor that returned nothing would pass the
-        test above forever.
-        """
-        import ast
-        tree = ast.parse((_SERVER_CODE / "api" / "prompt_composer.py")
-                         .read_text(encoding="utf-8"))
-        literals = [n.value for n in ast.walk(tree)
-                    if isinstance(n, ast.Constant) and isinstance(n.value, str)]
-        joined = " ".join(literals)
-        self.assertIn("PROFILE SEED — ONE QUESTION.", joined,
+        """It really is reading the target function's own symbols."""
+        names, literals = self.composer_symbols()
+        self.assertIn("PROFILE SEED — ONE QUESTION.", " ".join(literals),
                       "the literal extractor found nothing, so the check "
                       "above proves nothing")
+        self.assertIn("lines", names,
+                      "the name extractor found nothing, so the check above "
+                      "proves nothing")
+
+    def test_the_guard_DETECTS_the_defect_inside_the_target_function(self):
+        """Control 1. A live `remaining` in the target IS caught."""
+        source = self.synthetic(
+            "    remaining = 1\n"
+            "    if remaining <= 1:\n"
+            '        lines.append("This is the last topic still open.")')
+        names, literals = self.function_symbols(source, self.TARGET_FUNCTION)
+        self.assertIn("remaining", names,
+                      "the guard missed the count inside its own subject")
+        self.assertIn("last topic still open", " ".join(literals),
+                      "the guard missed the claim inside its own subject")
+
+    def test_the_guard_IGNORES_an_unrelated_function(self):
+        """Control 2. The false failure the deferred fix would have caused.
+
+        `unrelated_helper()` uses `remaining` and contains the forbidden
+        phrase. The target has neither, except in its DOCSTRING. A
+        module-wide scan fails here; a scoped one passes, and that
+        difference is the whole correction.
+        """
+        names, literals = self.function_symbols(self.synthetic("    pass"),
+                                                self.TARGET_FUNCTION)
+        self.assertNotIn("remaining", names,
+                         "an unrelated function's local tripped a Profile "
+                         "Seed guard")
+        self.assertNotIn("last topic still open", " ".join(literals),
+                         "an unrelated function's string, or the target's own "
+                         "docstring, tripped the guard")
+
+    def test_a_missing_target_function_FAILS_rather_than_passes(self):
+        """A guard whose subject vanished must not report success."""
+        with self.assertRaises(AssertionError):
+            self.function_symbols("def other():\n    pass\n",
+                                  self.TARGET_FUNCTION)
 
     # ── silence, in every shape that must produce it ────────────────
     def test_idle_and_malformed_states_render_nothing(self):
