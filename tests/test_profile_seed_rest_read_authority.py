@@ -6,10 +6,24 @@ WO-LORI-PROFILE-SEED-REACHABILITY-01, Phase 2, Step 5 (2026-08-26).
 
     PYTHONPATH=server/code python3 -m unittest tests.test_profile_seed_rest_read_authority
 
-**NOT `.venv/bin/python`.** `.venv` is Python 3.10.12 with NO fastapi,
-and the route class below imports `api.api`. There those tests SKIP and
-unittest still prints `OK` — a skip count is not a pass. Read the skip
-count before calling anything verified.
+**Which interpreter, and why it matters.**
+
+  * `.venv` — Python 3.10, NO fastapi. Route tests SKIP and unittest
+    still prints `OK`. A skip count is not a pass.
+  * system `python3` on WSL — Python 3.12, also no fastapi. Same.
+  * **`.venv-gpu` — Python 3.12 WITH fastapi 0.135.1 and torch 2.12.**
+    This is the SERVING venv (`launchers/hornelore_run_gpu_8000.sh`
+    activates it), and it is the only interpreter that can import
+    `api.api`. The zero-skip route run must use it:
+
+        HORNELORE_REQUIRE_ROUTE_TESTS=1 PYTHONPATH=server/code \
+            .venv-gpu/bin/python -m unittest \
+            tests.test_profile_seed_rest_read_authority
+
+*(Running a test suite in the serving venv is a departure from the
+standard command in `CLAUDE.md`, and it is deliberate: the route classes
+exercise FastAPI route functions, so they need the stack's own
+dependencies. Everything else in this module runs anywhere.)*
 
 ── WHAT STEP 5 IS, AND WHAT IT IS NOT ────────────────────────────────
 
@@ -82,7 +96,8 @@ _API_SKIP_REASON = (f"needs api.api, which could not be imported here "
 # the one where they do not skip.
 #
 #     HORNELORE_REQUIRE_ROUTE_TESTS=1 PYTHONPATH=server/code \
-#         python3 -m unittest tests.test_profile_seed_rest_read_authority
+#         .venv-gpu/bin/python -m unittest \
+#         tests.test_profile_seed_rest_read_authority
 #
 # With that set, an un-importable `api.api` FAILS instead of skipping.
 # It exists so acceptance can be run as a gate rather than as a report
@@ -542,8 +557,19 @@ class ReachabilityTests(_Base):
                          "a READ moved the version")
         self.assertEqual(before["active_topic_id"], after["active_topic_id"])
 
-    def test_a_REAL_answer_over_REST_is_never_recorded(self):
+    def test_an_answer_recorded_as_REST_SHAPED_TURNS_is_never_applied(self):
         """The Option B limitation, with an answer actually persisted.
+
+        **WHAT THIS DOES AND DOES NOT EXERCISE.** It does NOT call
+        `/api/chat`. It writes REST-SHAPED TURN ROWS directly through
+        `db.add_turn` — the same writer the transports use — and then
+        reads through `onboarding_runtime()`. So it covers the
+        *recording* gap, which is the claim; it does not cover the route.
+        Route behaviour lives in `RouteBehaviourTests`.
+
+        *(Named `..._over_REST_...` at first, which implied a route call
+        that never happens. Two reads through the service and a direct
+        row write is an allowed approach, but the name has to say so.)*
 
         ── THE FIRST VERSION PROVED THE WEAKER PROPERTY, 2026-08-27 ────
 
@@ -553,8 +579,7 @@ class ReachabilityTests(_Base):
         name of the sharper claim. No user turn, no assistant turn, no
         answer of any kind was ever written.)*
 
-        Now the narrator ANSWERS, through the real turn writer
-        (`db.add_turn`, the sibling of the committed-turn path), and the
+        Now the narrator ANSWERS, through the real turn writer, and the
         durable Profile Seed row is shown to be untouched — then a NEW
         conversation asks the same topic again.
 
@@ -1267,8 +1292,12 @@ class RouteBehaviourTests(_Base):
         """*(The owned session used to be inserted INSIDE the loop, on a
         conv_id shared by both routes, so the second iteration died on
         `UNIQUE constraint failed: sessions.conv_id` before
-        `chat_stream()` was ever entered. One session, created once,
-        before the loop.)*"""
+        `chat_stream()` was ever entered.*
+
+        *TWO sessions are now created — one per route, each on its own
+        conv_id — before either route is exercised. Not "one session":
+        sessions are keyed by conv_id and the routes need distinct ones,
+        which is the whole point of the fix.)*"""
         pid = self._person("Route Narrator")
         for route in (self.api.chat, self.api.chat_stream):
             conv_id = self._conv_for(route)
