@@ -83,7 +83,7 @@ failure** — with the classifier's own tests running as an unconditional prefli
 able to refuse the gate rather than merely present in it.
 
 **Step 5 — REST read authority — is ACCEPTED at `9127adb`.** It landed at `687c655` and
-took six corrective commits:
+took EIGHT corrective commits:
 
 | Commit | What it corrected |
 |---|---|
@@ -94,7 +94,15 @@ took six corrective commits:
 | `b0b20b7` | The rollback must not mask the fault it follows |
 | `3d7aa83` | The Option B limitation stated accurately, and pinned |
 | `ef597ae` | Both-routes tests entered one route; answered-topic test never answered |
+| `a612ee0` | Ambiguous-anchor guard covered; S11 added; `was_real` corrected |
 | `9127adb` | Truthful test labels; the interpreter that can run the route gate — **ACCEPTED** |
+
+*(The count first read "six" and the table omitted `a612ee0`. It is a lane commit —
+it changes `run_mutation_gate.py` and `test_mutation_gate_classifier.py`, both Step 5
+files — and it was dropped because it had been filed mentally as "gate work" rather than
+as part of the step. That is the seventh miscount in this lane, and the same cause every
+time: a number read off a narrative instead of derived. The eight are enumerated by
+`git log --reverse 687c655..HEAD` filtered to lane files.)*
 
 Git-derived, `687c655~1..9127adb`, lane files only: **6 files, +2203 / −10**.
 
@@ -120,12 +128,17 @@ sentence has been removed everywhere it appeared.** REST supplies it now, verifi
 the running API: a narrator created through the real intake form was asked her first
 canonical topic over `/api/chat`. What remains true, and is the more useful statement:
 
-> **The narrator product path is still unwired.** `ui/js/api.js` drives
+> **The PRODUCTION NARRATOR UI path is still unwired.** `ui/js/api.js` drives
 > `/api/chat/ws`; a complete narrator turn produces **zero HTTP requests matching
 > "chat"**. `/api/chat` has no UI caller at all, and `/api/chat/stream` is reachable only
 > behind `window.LV_ALLOW_SSE_FALLBACK === true`, a dev-only escape hatch guarded by
-> `BUG-SSE-FALLBACK-BYPASSES-CHAT-WS-GUARDS-01`. **A real narrator reaches the walk at
-> Step 6, not Step 5.**
+> `BUG-SSE-FALLBACK-BYPASSES-CHAT-WS-GUARDS-01`. **A narrator using the production UI
+> reaches the walk at Step 6.**
+>
+> *(This said "a real narrator reaches the walk at Step 6, not Step 5", which contradicts
+> the live probe recorded immediately above it — a narrator WAS asked her first canonical
+> topic over `/api/chat`. REST has already reached the walk. What Step 6 adds is the
+> transport the product actually uses.)*
 
 **Option B, preserved and unchanged: REST reads authority and does not advance.** Nothing
 in Step 5 writes a turn event. The consequence, measured live: a narrator answers a topic

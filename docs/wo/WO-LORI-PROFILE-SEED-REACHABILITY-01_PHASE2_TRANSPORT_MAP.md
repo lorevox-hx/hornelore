@@ -802,8 +802,8 @@ retired as FALSE. It was true through step 4 and stopped being true at `687c655`
 **The boundary that replaces it:** the narrator product path is still unwired. The UI drives
 `/api/chat/ws`; a complete narrator turn makes zero HTTP requests matching "chat".
 `/api/chat` has no UI caller, and `/api/chat/stream` is reachable only behind the dev-only
-`window.LV_ALLOW_SSE_FALLBACK`. **Step 6 is what puts the walk in front of a narrator**, and
-no UI promotion site has been touched — that remains Phase 3. The eight browser promotion sites are untouched — that is Phase 3
+`window.LV_ALLOW_SSE_FALLBACK`. **Step 6 is what puts the walk in front of a narrator using
+the production UI** — the walk is already live over REST. The eight browser promotion sites are untouched — that is Phase 3
 — and nothing in chronology, Life Map, memoir or story authority, safety, model or context
 window, the directive registry, Kawa, or migrations `0001–0051` has changed.
 
