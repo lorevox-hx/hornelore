@@ -306,22 +306,51 @@ class TheComposerGateIsPinnedTests(unittest.TestCase):
         self.assertIn("if profile_seed_onboarding_active(runtime71):", window)
 
     def test_pass2a_is_the_mutually_exclusive_alternative(self):
-        i = self.src.index('if current_pass == "pass1":')
-        # The pass1 branch is long — the ten topics are string literals —
-        # so the window has to clear it. Measured ~7.5 KB; 12 KB gives
-        # headroom without reaching an unrelated branch.
+        i = self.src.index('elif current_pass == "pass1":')
+        # The pass-1 branch used to be long because the ten questions
+        # were string literals here. They are generated from the registry
+        # now, so the branch is short — but the window is left wide, since
+        # a window that is too big only risks a false PASS on a claim the
+        # next test makes exactly.
         self.assertIn('elif current_pass == "pass2a":', self.src[i:i + 12000])
 
     def test_all_ten_topics_are_present_and_ordered(self):
-        i = self.src.index('if current_pass == "pass1":')
-        block = self.src[i:i + 12000]
+        """Pinned against the RENDERED list, not the source.
+
+        *(This asserted the ten topic labels were string literals inside
+        the pass-1 branch. Phase 2 step 4 generates them from
+        `TOPIC_REGISTRY` — precisely so the composer stops holding a
+        second hand-written order — so the literals are gone and this
+        pin failed on the improvement it was watching for.*
+
+        *The CLAIM is still exactly right: all ten, in documented order,
+        reach the historical narrator's prompt. It is now checked
+        against what is rendered, which is what the claim was always
+        about; the literals were only ever a proxy for it.)*
+        """
+        from api.prompt_composer import _legacy_profile_seed_question_list
+        rendered = _legacy_profile_seed_question_list()
         positions = []
         for topic in TEN_TOPICS:
             with self.subTest(topic=topic):
-                self.assertIn(topic, block)
-            positions.append(block.index(topic))
+                self.assertIn(topic, rendered)
+            positions.append(rendered.index(topic))
         self.assertEqual(positions, sorted(positions),
                          "the ten topics are no longer in documented order")
+
+    def test_the_composer_holds_no_topic_literals(self):
+        """The other half, and the reason the test above changed shape.
+
+        Work order §4.1: the composer renders from the registry and
+        "must not keep a second hand-written order". A literal here is
+        that second order.
+        """
+        for topic in TEN_TOPICS:
+            with self.subTest(topic=topic):
+                self.assertNotIn(
+                    topic, self.src,
+                    "a topic label is a literal in prompt_composer.py — "
+                    "the second hand-written list is back")
 
     def test_the_predicate_records_the_same_gate(self):
         """The inert registry must not drift from the live composer."""
