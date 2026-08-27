@@ -542,40 +542,88 @@ class ReachabilityTests(_Base):
                          "a READ moved the version")
         self.assertEqual(before["active_topic_id"], after["active_topic_id"])
 
-    def test_an_ANSWERED_topic_stays_unanswered_across_a_session(self):
-        """The Option B limitation, pinned as behaviour rather than prose.
+    def test_a_REAL_answer_over_REST_is_never_recorded(self):
+        """The Option B limitation, with an answer actually persisted.
 
-        Observed live 2026-08-27: the narrator answered `childhood_home`
-        over REST and the durable row still read
-        `active=childhood_home · remaining=10 · version=2`.
+        ── THE FIRST VERSION PROVED THE WEAKER PROPERTY, 2026-08-27 ────
 
-        Within a session the conversation history hides this — Lori sees
-        what was just said and follows it. Across a SESSION BOUNDARY she
-        cannot: the history is gone, the row still says the topic is
-        open, and she asks for something the narrator already gave her.
+        *(It did two reads with different conv_ids and asserted the topic
+        had not moved — which is just "reads do not advance", already
+        covered by `test_the_read_does_NOT_advance_the_walk`, wearing the
+        name of the sharper claim. No user turn, no assistant turn, no
+        answer of any kind was ever written.)*
 
-        This test exists so the limitation cannot be quietly forgotten,
-        and so **Step 6 has something that changes colour when it lands**
-        — when the committed-turn path records responses, the second
-        read here should no longer plan the same topic, and this test
-        should be REPLACED rather than deleted.
+        Now the narrator ANSWERS, through the real turn writer
+        (`db.add_turn`, the sibling of the committed-turn path), and the
+        durable Profile Seed row is shown to be untouched — then a NEW
+        conversation asks the same topic again.
+
+        The CONTROL at the bottom is what makes this the sharper claim
+        rather than the weaker one: applying the disposition through the
+        real writer DOES move the walk. So the topic staying open is a
+        statement about REST not recording, not about the walk being
+        incapable of moving.
         """
-        pid = self._person()
-        first = self.runtime("c1", {"person_id": pid})
+        pid = self._person("Answering Narrator")
+        first = self.runtime("c-answer-1", {"person_id": pid})
         asked = first[KEY]["topic_id"]
 
-        # A brand-new conversation: no history, exactly as a returning
-        # narrator's next session looks.
-        second = self.runtime("c2-fresh-session", {"person_id": pid})
+        # The narrator answers, for real, on the same conversation.
+        _db.add_turn("c-answer-1", "assistant",
+                     _ps.topic(asked).question, person_id=pid)
+        _db.add_turn("c-answer-1", "user",
+                     "We moved to Minot when I was four, so I grew up there.",
+                     person_id=pid)
+        turns = self._turn_count("c-answer-1")
+        self.assertEqual(2, turns, "the answer was not persisted, so this "
+                                   "test proves nothing about recording")
 
-        self.assertEqual(asked, second[KEY]["topic_id"],
-                         "the topic changed without an answer being applied")
+        # The durable row has not noticed.
         row = _ps.read_row(self._open(), pid)
-        self.assertEqual(_ps.UNANSWERED, _ps._coerce_topic_state(
-            row["topic_state_json"])[asked],
-            "the topic is no longer unanswered — if the committed-turn "
-            "path now records responses, Step 6 has landed and this test "
-            "should be replaced, not deleted")
+        self.assertEqual(
+            _ps.UNANSWERED,
+            _ps._coerce_topic_state(row["topic_state_json"])[asked],
+            "the topic moved without a disposition being applied")
+
+        # A NEW conversation — a returning narrator's next session.
+        second = self.runtime("c-answer-2-fresh", {"person_id": pid})
+        self.assertEqual(
+            asked, second[KEY]["topic_id"],
+            "Lori asks the same topic again in a new session, after the "
+            "narrator has already answered it — the re-interrogation "
+            "Principle 8 forbids")
+
+        # ── CONTROL: the walk CAN move, when something records it ─────
+        #
+        # The version comes from `profile_seed_resolve()`, not from the
+        # row read above. *(Using the row's version raised
+        # `VersionConflict: expected 1, current is 2` — because REST
+        # never materializes, so the row still said 1, while the first
+        # real writer reconciles `pending -> active` and lands on 2. A
+        # neat demonstration of the same gap this test is about: the
+        # read path had resolved that state repeatedly and written none
+        # of it.)*
+        current = _db.profile_seed_resolve(pid)
+        applied = _db.profile_seed_apply(
+            pid, expected_version=current["version"],
+            action=_ps.ADDRESSED, topic_id=asked)
+        self.assertNotEqual(
+            asked, applied["active_topic_id"],
+            "applying a disposition did not advance the walk, so the "
+            "assertions above describe a broken walk rather than an "
+            "unrecorded answer")
+        third = self.runtime("c-answer-3", {"person_id": pid})
+        self.assertNotEqual(asked, third[KEY]["topic_id"],
+                            "the recorded answer did not reach composition")
+
+    def _turn_count(self, conv_id):
+        con = sqlite3.connect(str(self.db_path))
+        try:
+            return con.execute(
+                "SELECT COUNT(*) FROM turns WHERE conv_id=?;",
+                (conv_id,)).fetchone()[0]
+        finally:
+            con.close()
 
     def test_a_storage_fault_is_VISIBLE_not_an_empty_plan(self):
         """Never converted into "this narrator has nothing to do".
@@ -1108,6 +1156,7 @@ class RouteBehaviourTests(_Base):
         import api.api as api_module
         self.api = api_module
         self.tripped = []
+        self.exercised = set()
 
         def tripwire(name):
             def _fail(*a, **k):
@@ -1121,8 +1170,12 @@ class RouteBehaviourTests(_Base):
             setattr(self.api, name, tripwire(name))
             self.addCleanup(setattr, self.api, name, original)
 
-    def _req(self, profile_json, conv_id="c-route"):
-        """A request body carrying a PROFILE_JSON claim, as the browser sends."""
+    def _req(self, profile_json, conv_id):
+        """A request body carrying a PROFILE_JSON claim, as the browser sends.
+
+        `conv_id` is REQUIRED and must be unique per route within a
+        test — see `_assert_refused`.
+        """
         import json as _json
         system = ("You are Lorevox.\nPROFILE_JSON:"
                   + _json.dumps(profile_json))
@@ -1133,20 +1186,68 @@ class RouteBehaviourTests(_Base):
 
     def _assert_refused(self, route, profile_json, *, status, error,
                         owner=None, fault=False):
+        """Drive ONE route and assert it refused before doing any work.
+
+        ── ONE CONV_ID PER ROUTE, 2026-08-27 ──────────────────────────
+
+        *(This hard-coded `c-route` for both the session insert and the
+        request. The `both routes` tests loop over `chat` and
+        `chat_stream`, so the owner-mismatch case inserted the SAME
+        `conv_id` twice inside one test and the second iteration died on
+        `UNIQUE constraint failed: sessions.conv_id` BEFORE reaching
+        `chat_stream()`. Reproduced directly. The test was named "both
+        routes" and exercised one — and because the failure lands in
+        setup rather than in an assertion, a reader seeing it go red on
+        WSL would have gone looking for a route bug that was not
+        there.)*
+        """
         from fastapi import HTTPException
+        conv_id = self._conv_for(route)
         if owner is not None:
-            self._session("c-route", owner)
+            self._session(conv_id, owner)
         if fault:
-            original = _rest.onboarding_runtime
-            _rest.onboarding_runtime = self._raise_locked
-            self.addCleanup(setattr, _rest, "onboarding_runtime", original)
+            self._break_storage()
         with self.assertRaises(HTTPException) as caught:
-            route(self._req(profile_json))
+            route(self._req(profile_json, conv_id))
         self.assertEqual(status, caught.exception.status_code)
         self.assertEqual(error, caught.exception.detail["error"])
         self.assertEqual([], self.tripped,
                          "the refusal happened AFTER the model, composer or "
                          "generator was reached")
+        self.exercised.add(route.__name__)
+
+    @staticmethod
+    def _conv_for(route):
+        """One conv_id per route. Sessions are keyed by conv_id, so two
+        routes sharing one is a primary-key collision waiting for the
+        second iteration."""
+        return f"c-route-{route.__name__}"
+
+    def _break_storage(self):
+        """Patch ONCE per test, restore to the true original.
+
+        *(Patching inside a loop captured the already-patched function as
+        `original` on the second pass. LIFO cleanup happened to unwind it
+        correctly, which is worse than being wrong: it worked by accident
+        and would stop working the moment the order changed.)*
+        """
+        if getattr(self, "_storage_broken", False):
+            return
+        self._storage_broken = True
+        original = _rest.onboarding_runtime
+        _rest.onboarding_runtime = self._raise_locked
+        self.addCleanup(setattr, _rest, "onboarding_runtime", original)
+
+    def assertBothRoutesExercised(self):
+        """A `both routes` test must actually enter both routes.
+
+        Without this, anything that fails during setup on the second
+        iteration leaves the first route tested, the second untouched,
+        and the test name lying about it.
+        """
+        self.assertEqual({"chat", "chat_stream"}, self.exercised,
+                         "this test claims to cover both REST routes but "
+                         f"only entered {sorted(self.exercised)}")
 
     @staticmethod
     def _raise_locked(*a, **k):
@@ -1160,15 +1261,25 @@ class RouteBehaviourTests(_Base):
                 self._assert_refused(
                     route, {"person_id": "p-a", "personId": "p-b"},
                     status=409, error="CONTRADICTORY_NARRATOR_CLAIM")
+        self.assertBothRoutesExercised()
 
     def test_an_owner_mismatch_is_refused_by_both_routes(self):
+        """*(The owned session used to be inserted INSIDE the loop, on a
+        conv_id shared by both routes, so the second iteration died on
+        `UNIQUE constraint failed: sessions.conv_id` before
+        `chat_stream()` was ever entered. One session, created once,
+        before the loop.)*"""
         pid = self._person("Route Narrator")
+        for route in (self.api.chat, self.api.chat_stream):
+            conv_id = self._conv_for(route)
+            self._session(conv_id, pid)
         for route in (self.api.chat, self.api.chat_stream):
             with self.subTest(route=route.__name__):
                 self.tripped.clear()
                 self._assert_refused(
                     route, {"person_id": "p-claim"},
-                    status=409, error="SESSION_OWNER_MISMATCH", owner=pid)
+                    status=409, error="SESSION_OWNER_MISMATCH")
+        self.assertBothRoutesExercised()
 
     def test_a_storage_fault_is_refused_by_both_routes(self):
         for route in (self.api.chat, self.api.chat_stream):
@@ -1177,6 +1288,7 @@ class RouteBehaviourTests(_Base):
                 self._assert_refused(
                     route, {"person_id": "p-any"},
                     status=503, error="PROFILE_SEED_UNAVAILABLE", fault=True)
+        self.assertBothRoutesExercised()
 
     def test_the_tripwires_ARE_reachable_on_a_non_refusing_turn(self):
         """Non-vacuity for every assertion above.
@@ -1187,11 +1299,19 @@ class RouteBehaviourTests(_Base):
         refusal happening first.
         """
         pid = self._person("Ordinary Narrator")
-        self._session("c-route", pid)
-        with self.assertRaises(AssertionError) as caught:
-            self.api.chat(self._req({"person_id": pid}))
-        self.assertIn("_load_model", str(caught.exception))
-        self.assertEqual(["_load_model"], self.tripped)
+        for route in (self.api.chat, self.api.chat_stream):
+            conv_id = self._conv_for(route)
+            self._session(conv_id, pid)
+            with self.subTest(route=route.__name__):
+                self.tripped.clear()
+                with self.assertRaises(AssertionError) as caught:
+                    route(self._req({"person_id": pid}, conv_id))
+                self.assertIn("_load_model", str(caught.exception))
+                self.assertEqual(["_load_model"], self.tripped,
+                                 "the non-refusing turn did not reach the "
+                                 "model, so the refusal tests' "
+                                 "`tripped == []` proves nothing for this "
+                                 "route")
 
 
 @unittest.skipUnless(_HAS_API, _API_SKIP_REASON)
