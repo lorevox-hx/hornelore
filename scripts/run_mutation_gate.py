@@ -29,11 +29,22 @@ anchor no longer matches, or if a mutation fails to compile.
 
 ── WHAT COUNTS AS CAUGHT ─────────────────────────────────────────────
 
-A non-zero unittest exit **that is not a SyntaxError**. A mutation
-caught by a syntax error proves nothing about the tests: it proves
-Python can read. An earlier round of this lane mistook two such results
-for evidence, so the runner classifies them separately and treats them
-as NOT caught.
+**At least one real unittest ASSERTION FAILURE.** Not merely a non-zero
+exit. An assertion failure means a test looked at behaviour and
+disagreed with it; an ERROR means the test never got that far.
+
+  green after mutation             -> MISSED
+  >=1 assertion failure            -> CAUGHT (mixed with errors is fine)
+  errors only, zero failures       -> BROKEN
+  no recognizable unittest summary -> BROKEN
+
+*(This rule read "a non-zero exit that is not a SyntaxError", which
+named ONE way to break a module instead of the property that made it
+worthless as evidence. C16 was then written against `TRIM_ALLOWED`, a
+constant that does not exist: the module raised NameError, every test in
+three suites errored, and the gate reported CAUGHT having tested
+nothing. Same failure as the syntax-error case, one rule too narrow to
+catch it.)*
 
 ── THE TWO PRECONDITIONS, AND WHY THEY ARE THE POINT ─────────────────
 
@@ -299,12 +310,27 @@ MUTATIONS: Tuple[Mutation, ...] = (
         '                     if _topic_def(t) is not None])',
         COMPOSER_TESTS),
     Mutation(
-        "C15", "`known_topics` validation is weakened back to a truthiness "
-               "check, so a dict iterates its KEYS and Lori is told a topic "
-               "is already settled that nothing established",
+        "C15a", "CONTAINER SHAPE: `known_topics` may be a dict again, so "
+               "its KEYS become falsely settled topics and Lori refuses "
+               "to ask a question nothing answered",
         COMPOSER,
-        '        if not isinstance(known, list):\n            return None\n        if any(not isinstance(t, str) for t in known):\n            return None',
-        '        if False:\n            return None',
+        '        if not isinstance(known, list):',
+        '        if not isinstance(known, (list, dict)):',
+        COMPOSER_TESTS, was_real=True),
+    Mutation(
+        "C15b", "ELEMENT TYPE: non-string members are accepted again, so "
+               "a plan carrying junk ids renders as though it were valid",
+        COMPOSER,
+        '        if any(not isinstance(t, str) for t in known):',
+        '        if any(False for t in known):',
+        COMPOSER_TESTS),
+    Mutation(
+        "C15c", "CONTRADICTION: a plan may again call its own active "
+               "topic settled, so Lori announces the topic as known and "
+               "asks it in the same turn",
+        COMPOSER,
+        '        if state.get("action") in ("present", "re_present"):',
+        '        if False and state.get("action") in ("present", "re_present"):',
         COMPOSER_TESTS, was_real=True),
     Mutation(
         "C16", "the onboarding section becomes DROPPABLE, so a tight budget "
@@ -570,11 +596,17 @@ _SKIP_RE = re.compile(r"skipped=(\d+)")
 
 
 def _run_tests(tests: str, env: dict) -> Tuple[int, str]:
+    """`(exit code, FULL stderr)`.
+
+    *(This returned only the last line. `classify_result()` needs the
+    whole run: an errors-only NameError and a real assertion failure can
+    produce the same tail, and telling them apart is the difference
+    between evidence and a mutation that was never tested at all.)*
+    """
     proc = subprocess.run(
         [sys.executable, "-m", "unittest", *tests.split()],
         cwd=REPO, env=env, capture_output=True, text=True, timeout=900)
-    tail = (proc.stderr.strip().splitlines() or [""])[-1]
-    return proc.returncode, tail
+    return proc.returncode, proc.stderr
 
 
 def _counts(tests: str, env: dict) -> Tuple[int, int, int, str]:
@@ -632,6 +664,55 @@ def _baseline_green(selected: List["Mutation"], env: dict) -> bool:
     return ok
 
 
+_SUMMARY_RE = re.compile(r"^(OK|FAILED)\b(.*)$", re.MULTILINE)
+_FAILURES_RE = re.compile(r"failures=(\d+)")
+_ERRORS_RE = re.compile(r"errors=(\d+)")
+_BROKEN_MARKERS = ("SyntaxError", "IndentationError", "NameError",
+                   "ImportError", "ModuleNotFoundError", "AttributeError")
+
+
+def classify_result(code: int, output: str) -> Tuple[str, str]:
+    """CAUGHT / MISSED / BROKEN from one unittest run.
+
+    ── AN ERRORS-ONLY RUN IS NOT EVIDENCE, 2026-08-26 ─────────────────
+
+    *(This credited almost any non-zero exit as CAUGHT, rejecting only
+    SyntaxError. C16 was written against `TRIM_ALLOWED`, a constant that
+    does not exist; the mutated module raised NameError, every test in
+    three suites ERRORED, and the gate called it CAUGHT. Nothing had
+    been tested. The rule the gate already stated for syntax errors —
+    "Python failing to parse says nothing about whether the tests would
+    have noticed" — is the same rule, and it was written too narrowly:
+    it named one way to break a module rather than the property that
+    made it worthless as evidence.*
+
+    *The property is that SOME ASSERTION FAILED. An assertion failure
+    means a test looked at behaviour and disagreed with it. An error
+    means the test never got that far.)*
+
+    Mixed failures and errors DO count as caught, and both counts are
+    reported — C13 and C14 legitimately produce a real assertion failure
+    alongside errors from malformed-state cases that now raise.
+    """
+    summary = _SUMMARY_RE.search(output or "")
+    if summary is None:
+        return BROKEN, ("no recognizable unittest summary — the run did not "
+                        "reach a verdict, so it is not evidence")
+    verdict, detail = summary.group(1), summary.group(2)
+    if verdict == "OK":
+        return MISSED, (output.strip().splitlines() or [""])[-1]
+    failures = int(m.group(1)) if (m := _FAILURES_RE.search(detail)) else 0
+    errors = int(m.group(1)) if (m := _ERRORS_RE.search(detail)) else 0
+    tail = f"FAILED (failures={failures}, errors={errors})"
+    if failures == 0:
+        marker = next((b for b in _BROKEN_MARKERS if b in output), None)
+        reason = f" — {marker} in the mutated module" if marker else ""
+        return BROKEN, (f"{tail}: errors only, no assertion failed{reason}. "
+                        "The tests never reached the behaviour, so this "
+                        "mutation was not tested.")
+    return CAUGHT, tail
+
+
 def run_one(mutation: Mutation, env: dict) -> Tuple[str, str]:
     path = REPO / mutation.target
     original = path.read_text(encoding="utf-8")
@@ -645,14 +726,8 @@ def run_one(mutation: Mutation, env: dict) -> Tuple[str, str]:
             py_compile.compile(str(path), cfile=tempfile.mktemp(), doraise=True)
         except Exception as exc:
             return BROKEN, f"mutation does not compile: {exc}"
-        code, tail = _run_tests(mutation.tests, env)
-        if code == 0:
-            return MISSED, tail
-        if "SyntaxError" in tail or "IndentationError" in tail:
-            # Not evidence. Python failing to parse says nothing about
-            # whether the tests would have noticed the behaviour change.
-            return BROKEN, "caught only by a syntax error — not evidence"
-        return CAUGHT, tail
+        code, out = _run_tests(mutation.tests, env)
+        return classify_result(code, out)
     finally:
         path.write_text(original, encoding="utf-8")
         _journal_clear()

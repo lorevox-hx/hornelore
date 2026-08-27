@@ -55,6 +55,13 @@ from api.services import profile_seed_turn as _turn  # noqa: E402
 KEY = "profile_seed_onboarding"
 A = "childhood_home"
 B = "siblings"
+#: A third REAL topic id. *(These fixtures used
+#: "military_service", which is not in the registry at all —
+#: the id is `military`. It silently behaved as an unknown id,
+#: so a "valid other topic" positive control was really
+#: testing the unknown-id path, and one failure message raised
+#: AttributeError while formatting itself.)*
+C = "military"
 
 #: A full, realistic runtime object — an identity-complete narrator mid
 #: interview. Used as the "existing prompt" whose bytes must not move.
@@ -754,6 +761,10 @@ class ByteStabilityTests(unittest.TestCase):
         [{}],                           # TypeError — unhashable dict
         [[]],                           # TypeError — unhashable list
         {"childhood_home": True},       # iterates KEYS → false "settled"
+        {"military": True},             # the SAME defect, on another topic
+                                        # — see the dedicated test below for
+                                        # why this shape is the one that
+                                        # discriminates
         [1, 2],                         # non-string members
         "childhood_home",               # a str iterates its CHARACTERS
         [A],                            # contradiction: asking what it
@@ -792,6 +803,41 @@ class ByteStabilityTests(unittest.TestCase):
                                      "malformed known_topics changed the "
                                      "section list")
 
+    def test_a_DICT_never_announces_its_keys_as_settled(self):
+        """The quiet defect, isolated so a mutation can discriminate.
+
+        *(The aggregate fixture used `{"childhood_home": True}` while
+        asking `childhood_home` — so the CONTRADICTION guard rejected it
+        before dict-iteration was ever reached, and a mutation weakening
+        only the container check was caught by a different guard than
+        the one it targeted. Caught for the wrong reason is the failure
+        this gate already names for syntax errors, and I walked into it
+        anyway. The key here is a DIFFERENT topic, so nothing but the
+        container check stands between the dict and the prompt.)*
+        """
+        runtime = dict(FULL_RUNTIME)
+        runtime[KEY] = {"action": "present", "topic_id": A,
+                        "known_topics": {C: True}}
+        text = self.compose(runtime)
+        self.assertEqual(
+            text, self.compose(dict(FULL_RUNTIME)),
+            f"a dict was accepted, so Lori is told {_seed.topic(C).intent!r} "
+            "is already settled when nothing established it — and she will "
+            "not ask about it")
+
+    def test_NON_STRING_members_never_render_as_a_valid_plan(self):
+        """Element type, isolated. Ints are hashable, so this shape
+        reaches the renderer without an unhashable error — which is what
+        makes it the discriminating case for the element check."""
+        for known in ([1, 2], [None], [A, 7]):
+            with self.subTest(known=known):
+                runtime = dict(FULL_RUNTIME)
+                runtime[KEY] = {"action": "present", "topic_id": B,
+                                "known_topics": known}
+                self.assertEqual(self.compose(runtime),
+                                 self.compose(dict(FULL_RUNTIME)),
+                                 "non-string members were accepted")
+
     def test_a_VALID_plan_still_changes_the_prompt(self):
         """Positive control, so the equalities above cannot pass vacuously.
 
@@ -802,7 +848,7 @@ class ByteStabilityTests(unittest.TestCase):
             runtime_base = dict(FULL_RUNTIME)
             runtime_base["current_pass"] = pass_name
             baseline = self.compose(runtime_base)
-            for known in ([], ["military_service"], ["retired_topic_id"]):
+            for known in ([], [C], ["retired_topic_id"]):
                 with self.subTest(pass_name=pass_name, known=known):
                     runtime = dict(runtime_base)
                     runtime[KEY] = {"action": "present", "topic_id": A,
@@ -832,7 +878,7 @@ class ByteStabilityTests(unittest.TestCase):
             with self.subTest(action=action):
                 runtime = dict(FULL_RUNTIME)
                 runtime[KEY] = {"action": action, "topic_id": A,
-                                "known_topics": [A, "military_service"]}
+                                "known_topics": [A, C]}
                 self.assertEqual(self.compose(runtime),
                                  self.compose(dict(FULL_RUNTIME)))
 
