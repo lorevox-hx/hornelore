@@ -288,7 +288,22 @@ def _resolved_read(con: sqlite3.Connection,
         # merely intended — `resolve_effective()` is shared with the
         # write path, and a future change there must not be able to
         # persist through this caller.
-        con.execute("ROLLBACK;")
+        #
+        # The rollback's OWN failure is swallowed, and only its own.
+        #
+        # *(Unguarded, a `ROLLBACK` that failed inside `finally` would
+        # REPLACE the exception propagating through it — so "database is
+        # locked", the fault this module exists to keep visible, would
+        # reach the operator as a rollback error from a line that is not
+        # where anything went wrong. Storage faults are not absence, and
+        # they are also not to be overwritten by the cleanup that
+        # follows them. The connection is closed by the caller either
+        # way, and SQLite rolls back an open transaction on close, so
+        # nothing is left dangling.)*
+        try:
+            con.execute("ROLLBACK;")
+        except sqlite3.Error:
+            pass
 
     if resolved is None:
         # HISTORICAL narrator: no onboarding row, and none is created.
