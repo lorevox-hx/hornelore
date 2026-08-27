@@ -37,18 +37,36 @@ STATUS_FILE = TEST_LAB_ROOT / "status.json"
 # Resolve scripts/run_test_lab.sh relative to this file.
 # routers → api → code → server → (repo root)
 REPO_ROOT = Path(__file__).resolve().parents[4]
-# BUG-TESTLAB-RUNNER-PATH-STALE-01 (2026-08-27): this pointed at
-# `scripts/run_test_lab.sh`, which commit c4ca24e ("archive
-# non-essential scripts to keep start/stop folder clean") MOVED to
-# `scripts/archive/`. Nothing updated this constant, so POST
-# /api/test-lab/run had been returning
-# "Runner script not found at .../scripts/run_test_lab.sh" — a 500 with
-# a message naming a path that is correct about the file being absent
-# and wrong about where it should be.
+# ── THIS PATH IS DELIBERATELY UNCHANGED. DO NOT "FIX" IT. ─────────────
 #
-# The same commit moved the eval runner, and CLAUDE.md's standard eval
-# block WAS updated for it; this router was the reference nobody swept.
-RUNNER_SCRIPT = REPO_ROOT / "scripts" / "archive" / "run_test_lab.sh"
+# `scripts/run_test_lab.sh` does not exist. Commit c4ca24e ("archive
+# non-essential scripts to keep start/stop folder clean") moved it to
+# `scripts/archive/`, so `POST /api/test-lab/run` returns
+# "Runner script not found at .../scripts/run_test_lab.sh" — a loud,
+# immediate 500.
+#
+# **Repointing this constant at the archived copy is NOT the fix, and
+# was tried on 2026-08-27 and reverted.** The archived harness is not
+# location-aware:
+#
+#   * `ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"` resolves to
+#     `<repo>/scripts` from `scripts/archive/`, not the repo root;
+#   * it then invokes `scripts/seed_test_narrators.py` and
+#     `scripts/test_lab_runner.py`, both of which now live under
+#     `scripts/archive/` too.
+#
+# So repointing makes the endpoint return `{"ok": true}` and the child
+# process die afterwards in `runner.log`. **That is strictly worse than
+# the current failure**: a caller is told the run started, and the
+# breakage moves from an HTTP response into a log nobody is watching.
+#
+# Restoring Test Lab is a bounded task of its own — either reverse the
+# archive decision for this harness, or make the whole harness
+# location-aware (`run_test_lab.sh`, `seed_test_narrators.py`'s
+# `parents[1]`, and the two `run_john_baldy_*` scripts that still
+# reference the root path) with focused tests. It is NOT a one-line
+# path edit, and it is not Profile Seed work.
+RUNNER_SCRIPT = REPO_ROOT / "scripts" / "run_test_lab.sh"
 
 
 def _ensure_root() -> None:
