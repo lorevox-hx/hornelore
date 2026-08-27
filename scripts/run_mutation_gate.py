@@ -260,6 +260,17 @@ MUTATIONS: Tuple[Mutation, ...] = (
         '                "  - This was the LAST thing you needed. Tell them the "\n                "walk is complete.")',
         COMPOSER_TESTS, was_real=True),
     Mutation(
+        "C13", "the ASKING turn reintroduces the last-topic state claim, "
+               "which missing/empty/non-list `remaining_topics` all satisfy "
+               "by filtering to zero",
+        COMPOSER,
+        '    lines.append(f"ASK ONLY THIS: {definition.question}")',
+        '    lines.append(f"ASK ONLY THIS: {definition.question}")\n'
+        '    if len([t for t in (state.get("remaining_topics") or [])\n'
+        '            if _topic_def(t) is not None]) <= 1:\n'
+        '        lines.append("  - This is the last topic still open.")',
+        COMPOSER_TESTS, was_real=True),
+    Mutation(
         "C9", "the soft closing line never reaches the acknowledgement turn",
         COMPOSER,
         '        if state.get("completes_walk") is True:',

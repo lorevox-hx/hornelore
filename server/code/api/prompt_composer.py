@@ -5405,8 +5405,28 @@ def _profile_seed_onboarding_block(runtime71: Optional[Dict[str, Any]]) -> str:
 
     known = [t for t in (state.get("known_topics") or [])
              if _topic_def(t) is not None]
-    remaining = len([t for t in (state.get("remaining_topics") or [])
-                     if _topic_def(t) is not None])
+
+    # ── NO `remaining` COUNT, AND NO "LAST TOPIC" LINE, 2026-08-26 ──────
+    #
+    # This block used to end with "This is the last topic still open"
+    # whenever a filtered count of `remaining_topics` was `<= 1`. That is
+    # a STATE CLAIM, and it fired on payloads that said nothing of the
+    # kind:
+    #
+    #   {"action": "present", "topic_id": "childhood_home"}
+    #   {"action": "present", ..., "remaining_topics": "junk"}
+    #   {"action": "present", ..., "remaining_topics": []}
+    #
+    # Missing, empty or non-list metadata all filtered to zero, and
+    # `0 <= 1`. So the ASKING turn could tell a narrator they were on
+    # their last question at the very start of the walk, purely because a
+    # field was absent — the same class of unsupported claim that was
+    # removed from the acknowledgement, still live one branch away.
+    #
+    # The line is DELETED rather than defended with more validation. It
+    # was only ever a heads-up, the acknowledgement now owns the warm
+    # transition, and `remaining_topics` has no other reader here — so
+    # the smallest safe correction is to stop making the claim at all.
 
     lines = ["PROFILE SEED — ONE QUESTION."]
     if known:
@@ -5431,12 +5451,6 @@ def _profile_seed_onboarding_block(runtime71: Optional[Dict[str, Any]]) -> str:
         "  - If they would rather not say, accept that and move on. It is "
         "an answer.",
     ])
-    if remaining <= 1:
-        # A heads-up only. The instruction to CLOSE the walk warmly used
-        # to live here and was unreachable — it told Lori what to do
-        # "when they have answered", by which turn this block is gone.
-        # It now rides on the acknowledgement, where it can be acted on.
-        lines.append("  - This is the last topic still open.")
     return "\n".join(lines)
 
 

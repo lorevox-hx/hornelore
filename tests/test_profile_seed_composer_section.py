@@ -79,7 +79,63 @@ def onboarding(action, topic_id=None, known=(), remaining=(),
             "completes_walk": completes_walk}
 
 
-class SectionRenderTests(unittest.TestCase):
+class NoStateClaimMixin:
+    """The one place that knows what an unsupported state claim is.
+
+    *(Written twice, once per class that needed it, and the two copies
+    had ALREADY drifted apart before either was committed — one knew
+    about "that's all" and "we're done", the other did not. That is the
+    same defect as the suppression predicate disagreeing with the
+    renderer, at test-instrument scale, and it fails in the worse
+    direction: the weaker copy passes and reports the prompt clean.)*
+
+    Compared CASE-FOLDED, because a lowercase-only assertion lets
+    `Complete`, `COMPLETE`, `Last` and `FINISHED` walk straight past a
+    guard that then only catches the spelling I happened to think of.
+    """
+
+    #: Wording that would assert something about server state.
+    FORBIDDEN_CLAIMS = ("last", "complete", "completed", "finished",
+                        "done with", "all the questions", "that's all",
+                        "we're done")
+
+    def state_claim_words(self, text):
+        """Detection, separated from assertion.
+
+        *(The two were one method, and the positive control below could
+        not test it: `subTest` RECORDS a failure against the running
+        test rather than raising, so `assertRaises(AssertionError)` saw
+        nothing raised and failed while the guard underneath was working
+        perfectly. A control that cannot observe the thing it controls
+        is worse than none — it reports green either way.)*
+        """
+        folded = text.casefold()
+        return tuple(w for w in self.FORBIDDEN_CLAIMS
+                     if w.casefold() in folded)
+
+    def assertNoStateClaim(self, text, context=""):
+        for word in self.state_claim_words(text):
+            with self.subTest(word=word, context=context):
+                self.fail(
+                    f"{context}the prompt claims {word!r} — that is a "
+                    "statement about server state, and the composer "
+                    "cannot know it before the versioned apply")
+
+    def test_the_state_claim_guard_is_not_vacuous(self):
+        """Positive control. A guard nobody has seen fail is a rumour."""
+        self.assertEqual(
+            self.state_claim_words("This is the LAST topic still open."),
+            ("last",), "the guard missed a capitalised claim")
+        self.assertEqual(
+            self.state_claim_words("We are DONE WITH all the questions."),
+            ("done with", "all the questions"),
+            "the guard missed a multi-word claim")
+        self.assertEqual(
+            self.state_claim_words("Ask warmly about their childhood home."),
+            (), "the guard fires on innocent wording")
+
+
+class SectionRenderTests(NoStateClaimMixin, unittest.TestCase):
     """What the block says, given a plan."""
 
     def block(self, state):
@@ -128,16 +184,99 @@ class SectionRenderTests(unittest.TestCase):
         self.assertNotIn(_seed.topic(A).question, text,
                          "a settled topic was re-asked as a question")
 
-    def test_the_last_remaining_topic_says_it_is_the_last(self):
-        """A neutral heads-up now — see CompletionTransitionTests for why
-        the closing instruction moved to the acknowledgement turn."""
-        text = self.block(onboarding("present", "life_stage",
-                                     remaining=["life_stage"]))
-        self.assertIn("last topic still open", text)
+    def test_an_ASKING_turn_never_claims_a_last_topic(self):
+        """*(The block used to end with "This is the last topic still
+        open" whenever a filtered `remaining_topics` count was `<= 1`.
+        Missing, empty and non-list metadata ALL filtered to zero, and
+        `0 <= 1` — so the very first question of a ten-topic walk could
+        be announced as the last one, purely because a field was absent.
+        The line is deleted; the acknowledgement owns the warm
+        transition and nothing here claims state.)*"""
+        for remaining in ([A, B], [A], list(_seed.TOPIC_IDS)):
+            with self.subTest(remaining=remaining):
+                self.assertNoStateClaim(
+                    self.block(onboarding("present", A, remaining=remaining)))
 
-    def test_a_mid_walk_topic_does_not_claim_to_be_the_last(self):
-        text = self.block(onboarding("present", A, remaining=[A, B]))
-        self.assertNotIn("last topic still open", text)
+    def test_MALFORMED_remaining_topics_asks_the_topic_and_claims_nothing(self):
+        """The three payloads review reproduced, plus the shapes beside
+        them. Each must ask exactly its own topic and claim nothing."""
+        malformed = ({"action": "present", "topic_id": A},
+                     {"action": "present", "topic_id": A,
+                      "remaining_topics": "junk"},
+                     {"action": "present", "topic_id": A,
+                      "remaining_topics": []},
+                     {"action": "present", "topic_id": A,
+                      "remaining_topics": None},
+                     {"action": "present", "topic_id": A,
+                      "remaining_topics": 3},
+                     {"action": "re_present", "topic_id": A},
+                     {"action": "re_present", "topic_id": A,
+                      "remaining_topics": "junk"})
+        for state in malformed:
+            with self.subTest(state=state):
+                text = self.block(state)
+                self.assertIn(_seed.topic(A).question, text,
+                              "the selected topic was not asked")
+                for other in _seed.TOPIC_IDS:
+                    if other != A:
+                        self.assertNotIn(_seed.topic(other).question, text)
+                self.assertNoStateClaim(text, "malformed remaining_topics: ")
+
+    def test_the_composer_no_longer_reads_remaining_topics_for_a_claim(self):
+        """Structural: the count that produced the claim is gone.
+
+        Kept because deleting the LINE while leaving the count would be
+        a natural half-fix, and the next person wanting a heads-up would
+        find the count sitting there ready to be misused again.
+
+        *(First written against raw source, and it FAILED — on the
+        comment I had just written explaining the removal. That is
+        guard-on-prose, for the seventh time in this lane: a check that
+        fires on the sentence describing the guarded thing. It reads
+        STRING LITERALS and CODE now, so the explanation can stay
+        without the test mistaking it for the code it describes.)*
+        """
+        import ast
+        tree = ast.parse((_SERVER_CODE / "api" / "prompt_composer.py")
+                         .read_text(encoding="utf-8"))
+        docstrings = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                                 ast.AsyncFunctionDef)):
+                body = getattr(node, "body", None)
+                if (body and isinstance(body[0], ast.Expr)
+                        and isinstance(body[0].value, ast.Constant)
+                        and isinstance(body[0].value.value, str)):
+                    docstrings.add(id(body[0].value))
+        literals = [n.value for n in ast.walk(tree)
+                    if isinstance(n, ast.Constant)
+                    and isinstance(n.value, str) and id(n) not in docstrings]
+        for phrase in ("last topic still open", "last topic"):
+            with self.subTest(phrase=phrase):
+                self.assertNotIn(
+                    phrase, " ".join(literals),
+                    "the composer can still emit a last-topic claim")
+        # And the count itself is gone from the executable code.
+        names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+        self.assertNotIn("remaining", names,
+                         "the `remaining` count survived the deletion of the "
+                         "line it existed to produce")
+
+    def test_the_structural_check_is_not_vacuous(self):
+        """Positive control on the literal extractor.
+
+        Without it, an extractor that returned nothing would pass the
+        test above forever.
+        """
+        import ast
+        tree = ast.parse((_SERVER_CODE / "api" / "prompt_composer.py")
+                         .read_text(encoding="utf-8"))
+        literals = [n.value for n in ast.walk(tree)
+                    if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+        joined = " ".join(literals)
+        self.assertIn("PROFILE SEED — ONE QUESTION.", joined,
+                      "the literal extractor found nothing, so the check "
+                      "above proves nothing")
 
     # ── silence, in every shape that must produce it ────────────────
     def test_idle_and_malformed_states_render_nothing(self):
@@ -187,16 +326,14 @@ class SectionRenderTests(unittest.TestCase):
             self.assertNotIn(word, text)
 
 
-class CompletionTransitionTests(unittest.TestCase):
+class CompletionTransitionTests(NoStateClaimMixin, unittest.TestCase):
     """The walk ends warmly, on the turn that can actually say so."""
 
     def block(self, state):
         return _pc._profile_seed_onboarding_block({KEY: state})
 
     #: Words that would be an authoritative claim about server state.
-    FORBIDDEN_CLAIMS = ("LAST", "last thing", "complete", "completed",
-                        "finished", "done with", "all the questions")
-
+    #:
     def test_a_completing_acknowledgement_is_WARM_not_authoritative(self):
         """Soft relational wording only. No state claim.
 
@@ -209,14 +346,9 @@ class CompletionTransitionTests(unittest.TestCase):
         self.assertIn("ready to hear it properly", text)
 
     def test_a_completing_acknowledgement_claims_NOTHING_about_state(self):
-        text = self.block(onboarding("acknowledge", A, completes_walk=True))
-        for word in self.FORBIDDEN_CLAIMS:
-            with self.subTest(word=word):
-                self.assertNotIn(
-                    word, text,
-                    f"the acknowledgement claims {word!r} — that is a "
-                    "statement about server state made BEFORE the versioned "
-                    "apply, and a conflict can make it false")
+        self.assertNoStateClaim(
+            self.block(onboarding("acknowledge", A, completes_walk=True)),
+            "acknowledgement: ")
 
     def test_a_STALE_VERSION_completion_still_claims_nothing(self):
         """THE CONCURRENCY CASE, end to end.
@@ -230,8 +362,19 @@ class CompletionTransitionTests(unittest.TestCase):
         If the acknowledgement had claimed completion, the narrator
         would have been told they were finished and then asked the same
         question again. The claim is gone, so the only cost of the
-        conflict is one repeated question — which the recovery stage
-        exists to avoid and which is survivable when it happens.
+        conflict is one repeated question, which is survivable.
+
+        *(This said the repeated question was "what the recovery stage
+        exists to avoid". That was wrong, and wrong in the direction
+        that would have licensed a bad change. Recovery re-applies an
+        unapplied response on the EXACT SAME `(topic, version)` tuple —
+        a commit whose apply never landed. What happens here is a
+        DIFFERENT thing: the tuple is same-topic but NEW-version,
+        because independent evidence legitimately moved the server on.
+        That conflict is real, and recovery must re-resolve and yield to
+        it rather than force `(A, 7)` over the top of version 8. Reading
+        the old comment as a to-do would have produced exactly the
+        override the reducer is built to refuse.)*
         """
         state = {"person_id": "p1", "status": _seed.STATUS_ACTIVE,
                  "active_topic_id": A, "version": 7,
@@ -250,9 +393,7 @@ class CompletionTransitionTests(unittest.TestCase):
                            "known_topics": state["known_topics"],
                            "remaining_topics": state["remaining_topics"],
                            "completes_walk": plan.completes_walk})
-        for word in self.FORBIDDEN_CLAIMS:
-            with self.subTest(word=word):
-                self.assertNotIn(word, text)
+        self.assertNoStateClaim(text, "stale-version acknowledgement: ")
 
         # The server moved to 8 underneath. Applying (A, 7) conflicts and
         # writes nothing, so A is still active and gets presented again.
@@ -293,18 +434,25 @@ class CompletionTransitionTests(unittest.TestCase):
         self.assertNotIn("good sense of their story", text)
         self.assertIn("Do NOT ask the next Profile Seed question", text)
 
-    def test_the_ASKING_turn_no_longer_makes_an_unreachable_promise(self):
-        """*(The presentation block used to say "when they have
-        answered, tell them warmly that you now have a sense of their
-        story" on the turn that ASKED the last question. That describes
-        the NEXT turn, by which point the block is gone — Lori could not
-        keep it. It is a neutral heads-up now, and the instruction that
-        can be acted on rides on the acknowledgement.)*"""
-        text = self.block(onboarding("present", "life_stage",
-                                     remaining=["life_stage"]))
-        self.assertIn("last topic still open", text)
-        self.assertNotIn("when they have answered", text.lower())
-        self.assertNotIn("sense of their story", text)
+    def test_the_ASKING_turn_makes_no_promise_and_no_claim(self):
+        """The asking turn says nothing about where the walk stands.
+
+        *(It first carried "when they have answered, tell them warmly
+        that you now have a sense of their story" — an instruction for a
+        turn on which this block no longer exists. That was replaced by
+        "This is the last topic still open", which was a STATE CLAIM
+        that fired whenever `remaining_topics` was missing, empty or not
+        a list. Both are gone: the acknowledgement owns the transition,
+        and the asking turn asks.)*
+        """
+        for remaining in (["life_stage"], [A, B], []):
+            with self.subTest(remaining=remaining):
+                text = self.block(onboarding("present", "life_stage",
+                                             remaining=remaining))
+                folded = text.casefold()
+                self.assertNotIn("when they have answered", folded)
+                self.assertNotIn("sense of their story", folded)
+                self.assertNoStateClaim(text, "asking turn: ")
 
     def test_the_plan_and_the_prompt_agree_end_to_end(self):
         """The reducer's own completes_walk drives the block."""
