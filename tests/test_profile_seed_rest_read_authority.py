@@ -542,6 +542,41 @@ class ReachabilityTests(_Base):
                          "a READ moved the version")
         self.assertEqual(before["active_topic_id"], after["active_topic_id"])
 
+    def test_an_ANSWERED_topic_stays_unanswered_across_a_session(self):
+        """The Option B limitation, pinned as behaviour rather than prose.
+
+        Observed live 2026-08-27: the narrator answered `childhood_home`
+        over REST and the durable row still read
+        `active=childhood_home · remaining=10 · version=2`.
+
+        Within a session the conversation history hides this — Lori sees
+        what was just said and follows it. Across a SESSION BOUNDARY she
+        cannot: the history is gone, the row still says the topic is
+        open, and she asks for something the narrator already gave her.
+
+        This test exists so the limitation cannot be quietly forgotten,
+        and so **Step 6 has something that changes colour when it lands**
+        — when the committed-turn path records responses, the second
+        read here should no longer plan the same topic, and this test
+        should be REPLACED rather than deleted.
+        """
+        pid = self._person()
+        first = self.runtime("c1", {"person_id": pid})
+        asked = first[KEY]["topic_id"]
+
+        # A brand-new conversation: no history, exactly as a returning
+        # narrator's next session looks.
+        second = self.runtime("c2-fresh-session", {"person_id": pid})
+
+        self.assertEqual(asked, second[KEY]["topic_id"],
+                         "the topic changed without an answer being applied")
+        row = _ps.read_row(self._open(), pid)
+        self.assertEqual(_ps.UNANSWERED, _ps._coerce_topic_state(
+            row["topic_state_json"])[asked],
+            "the topic is no longer unanswered — if the committed-turn "
+            "path now records responses, Step 6 has landed and this test "
+            "should be replaced, not deleted")
+
     def test_a_storage_fault_is_VISIBLE_not_an_empty_plan(self):
         """Never converted into "this narrator has nothing to do".
 

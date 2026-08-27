@@ -27,13 +27,34 @@ two durable events — `presented` and `response` — live on the
 committed-turn path, which is Step 6's work over WebSocket. REST reads
 the resolved row and composes from it.
 
-The honest consequence, stated because it is a real limitation rather
-than an oversight: a REST caller can be shown the same question on
-consecutive turns, because nothing here records that it was asked. That
-is bounded and safe — the durable `active_topic_id` only moves when a
-real answer is applied — and it is strictly better than the status quo,
-where the question could not be asked at all. It is not a reason to make
-REST write.
+**The consequence is sharper than "the question repeats", and the first
+version of this note understated it.** Measured on the live stack,
+2026-08-27:
+
+    narrator: "We moved to Minot when I was four, so I grew up there."
+    Lori:     "Minot is coming through clearly. What was your family's
+               reason for moving?"
+    durable:  active=childhood_home · remaining=10 · version=2  UNCHANGED
+
+The narrator ANSWERED the topic and it stays `unanswered` permanently.
+Within a session the conversation history hides that, because Lori can
+see what was just said and follows it naturally. **Across a session
+boundary she cannot** — the history is gone, the durable row still says
+the topic is open, and she asks for something the narrator already told
+her. That is the re-interrogation Principle 8 forbids, arriving through
+a gap in recording rather than through a design that intended to ask.
+
+It is bounded: `active_topic_id` only moves when a real answer is
+applied, so nothing is lost or corrupted, and this is still strictly
+better than the status quo where the question could not be asked at all.
+But it is a REASON TO FINISH STEP 6, not a reason to make REST write —
+recording a presentation belongs on the committed-turn path, where the
+response event that consumes it also lives.
+
+*(The earlier wording — "a REST caller can be shown the same question on
+consecutive turns" — described a cosmetic annoyance. What is actually at
+risk is a narrator being asked twice for something they have already
+given, which is the specific harm this work order exists to prevent.)*
 
 `reconcile()` is NOT called here either. It materializes changes and
 this path must not. `read_row()` plus the pure resolution is all a read
