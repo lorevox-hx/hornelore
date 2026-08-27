@@ -71,17 +71,6 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Dict, Mapping, Optional, Tuple
 
-
-def _now() -> str:
-    """Passed to the resolver, which needs it only for `completed_at`.
-
-    Nothing here writes, so this timestamp never reaches storage. It is
-    supplied because the shared resolver's signature requires it, and
-    because a resolver that invented its own clock would be harder to
-    test than one that is handed a value.
-    """
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
 from . import profile_seed as _seed
 from . import profile_seed_turn as _turn
 
@@ -92,10 +81,23 @@ from . import profile_seed_turn as _turn
 from ..prompt_composer import PROFILE_SEED_ONBOARDING_KEY
 
 __all__ = [
+    "CLAIM_KEY",
+    "ContradictoryClaim",
     "OwnerClaimMismatch",
-    "resolve_rest_identity",
     "onboarding_runtime",
+    "resolve_rest_identity",
 ]
+
+
+def _now() -> str:
+    """Passed to the resolver, which needs it only for `completed_at`.
+
+    Nothing here writes, so this timestamp never reaches storage. It is
+    supplied because the shared resolver's signature requires it, and a
+    resolver that invented its own clock would be harder to test than
+    one handed a value.
+    """
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 class OwnerClaimMismatch(Exception):
@@ -115,8 +117,46 @@ class OwnerClaimMismatch(Exception):
         self.claimed = claimed
 
 
+class ContradictoryClaim(Exception):
+    """A PROFILE_JSON blob names more than one narrator.
+
+    Refused for the same reason an owner/claim mismatch is: two answers
+    to "who is this" is not a tie to be broken, and picking one would
+    put a narrator's onboarding questions in front of someone else.
+    """
+
+    def __init__(self, keys: Mapping[str, str]) -> None:
+        named = ", ".join(f"{k}={v!r}" for k, v in sorted(keys.items()))
+        super().__init__(
+            f"PROFILE_JSON names more than one narrator ({named}) — "
+            "refusing to choose between them")
+        self.keys = dict(keys)
+
+
+#: The ONLY key the transport map specifies. The aliases are read solely
+#: to DETECT a contradiction, never to satisfy a claim on their own.
+CLAIM_KEY = "person_id"
+_CLAIM_ALIASES = ("personId", "active_person_id")
+
+
 def _claimed_person_id(profile_obj: Optional[Mapping[str, Any]]) -> Optional[str]:
     """The `person_id` a PROFILE_JSON blob asserts, if it asserts one.
+
+    ── ONE SPECIFIED KEY, 2026-08-26 ──────────────────────────────────
+
+    *(This accepted `person_id`, `personId` and `active_person_id`, and
+    returned whichever it met first. Two problems, and the second is the
+    worse one. The specification names `person_id` alone, so the others
+    widened an identity boundary with no stated contract — and this
+    repository's Picker doctrine is explicit that destination identity is
+    never inferred. Worse, first-match meant a payload whose keys
+    DISAGREED silently resolved to whichever the loop happened to reach
+    first, which is a coin toss deciding which narrator gets asked about
+    their childhood.)*
+
+    So `person_id` is the claim. The aliases are still READ, because a
+    payload carrying a conflicting one is evidence of a confused caller
+    and must not be quietly ignored either — it raises.
 
     Only a non-empty string counts. A number, a dict or a blank is not a
     narrator id, and coercing one would manufacture a claim the caller
@@ -124,11 +164,22 @@ def _claimed_person_id(profile_obj: Optional[Mapping[str, Any]]) -> Optional[str
     """
     if not isinstance(profile_obj, Mapping):
         return None
-    for key in ("person_id", "personId", "active_person_id"):
+
+    def _clean(key):
         value = profile_obj.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return None
+        return value.strip() if isinstance(value, str) and value.strip() else None
+
+    claim = _clean(CLAIM_KEY)
+    present = {k: v for k, v in
+               ((a, _clean(a)) for a in _CLAIM_ALIASES) if v}
+    if present:
+        distinct = set(present.values()) | ({claim} if claim else set())
+        if len(distinct) > 1:
+            named = dict(present)
+            if claim:
+                named[CLAIM_KEY] = claim
+            raise ContradictoryClaim(named)
+    return claim
 
 
 def resolve_rest_identity(
@@ -213,10 +264,32 @@ def _resolved_read(con: sqlite3.Connection,
     the rules live in one place and this path simply declines to
     write.)*
     """
-    person, basics = _seed._person_and_basics(con, person_id)
-    facts = _identity_facts(person, basics)
+    # ── ONE SNAPSHOT, 2026-08-26 ───────────────────────────────────────
+    #
+    # These were two independent reads of `people`: identity facts here,
+    # then `resolve_effective()` reading the same row again. Review
+    # reproduced a concurrent update landing between them and got
+    # `identity_complete=True` with `speaker_name` present but `dob` and
+    # `pob` GONE — the self-contradicting runtime this whole requirement
+    # exists to prevent, assembled from two moments that never both
+    # existed.
+    #
+    # `BEGIN DEFERRED` opens the read transaction, so every SELECT below
+    # sees one consistent view of the database. It takes no write lock
+    # and this path still writes nothing.
+    con.execute("BEGIN DEFERRED;")
+    try:
+        person, basics = _seed._person_and_basics(con, person_id)
+        facts = _identity_facts(person, basics)
+        resolved = _seed.resolve_effective(con, person_id, now=_now())
+    finally:
+        # ROLLBACK, not commit. Nothing here may write, and rolling back
+        # a read-only transaction is how that is enforced rather than
+        # merely intended — `resolve_effective()` is shared with the
+        # write path, and a future change there must not be able to
+        # persist through this caller.
+        con.execute("ROLLBACK;")
 
-    resolved = _seed.resolve_effective(con, person_id, now=_now())
     if resolved is None:
         # HISTORICAL narrator: no onboarding row, and none is created.
         # Identity facts still travel — knowing who someone is was never
@@ -262,23 +335,43 @@ def onboarding_runtime(
     finally:
         con.close()
 
-    runtime: Dict[str, Any] = dict(facts)
-    if not facts and state is None:
-        # Nothing known and nothing enrolled. `identity_complete=False`
-        # is already the composer's default, so sending it would change
-        # no bytes while making this path look like it did something.
-        return {}
-    runtime["identity_complete"] = bool(anchors_ok)
-
     plan = _turn.plan_turn(state=state, history=[], narrator_text=None)
-    if plan.action != _turn.IDLE:
-        runtime[PROFILE_SEED_ONBOARDING_KEY] = {
-            "action": plan.action,
-            "topic_id": plan.topic_id,
-            "known_topics": list(state.get("known_topics") or []),
-            "remaining_topics": list(state.get("remaining_topics") or []),
-        }
-        if plan.completes_walk is not None:
-            runtime[PROFILE_SEED_ONBOARDING_KEY]["completes_walk"] = bool(
-                plan.completes_walk)
+
+    # ── NO PLAN MEANS NO RUNTIME AT ALL, 2026-08-26 ────────────────────
+    #
+    # This returned the identity facts whenever the narrator had any —
+    # including for HISTORICAL and COMPLETED narrators, who have no walk
+    # to run. It read as generosity and was a boundary violation, and
+    # the size of it is the point: **supplying ANY runtime dict makes
+    # the composer emit its whole runtime block**, so a historical
+    # narrator's prompt grew by 17,760 characters. Measured, not
+    # estimated. Step 4's byte-stability tests had already recorded this
+    # exact effect on a sparse runtime — 7,365 characters with no
+    # runtime, 23,023 with a nearly empty one — and I reintroduced it
+    # one module over.
+    #
+    # Step 5's boundary is explicit that ownerless, historical,
+    # completed, warmup and translation prompts are preserved
+    # byte-for-byte. Identity facts for narrators with no active walk
+    # may well be worth supplying; that is a prompt change on its own
+    # merits, for a step that is scoped to make it and review it.
+    if plan.action == _turn.IDLE:
+        return {}
+
+    runtime: Dict[str, Any] = dict(facts)
+    # The transport map requires `person_id` alongside the facts, and it
+    # is load-bearing rather than informational: the composer's
+    # person-dependent memory layer is skipped without it, so a narrator
+    # would be named in the prompt and still have no memory attached.
+    runtime["person_id"] = person_id
+    runtime["identity_complete"] = bool(anchors_ok)
+    runtime[PROFILE_SEED_ONBOARDING_KEY] = {
+        "action": plan.action,
+        "topic_id": plan.topic_id,
+        "known_topics": list((state or {}).get("known_topics") or []),
+        "remaining_topics": list((state or {}).get("remaining_topics") or []),
+    }
+    if plan.completes_walk is not None:
+        runtime[PROFILE_SEED_ONBOARDING_KEY]["completes_walk"] = bool(
+            plan.completes_walk)
     return runtime

@@ -657,6 +657,25 @@ def _profile_seed_runtime(conv_id: Optional[str],
     """
     try:
         runtime = _profile_seed_rest.onboarding_runtime(conv_id, profile_obj)
+    except _profile_seed_rest.ContradictoryClaim as contradiction:
+        # SAME FAMILY AS A MISMATCH: two answers to "who is this".
+        #
+        # *(Added when this exception was introduced and NOT wired up —
+        # a contradictory PROFILE_JSON escaped as an unhandled 500,
+        # which is the one outcome that tells the caller nothing and
+        # looks identical to a crash. Introducing a refusal without a
+        # route handler is how a fail-closed design becomes a fail-loud
+        # one.)*
+        print(f"[profile-seed][{where}] {contradiction}")
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "CONTRADICTORY_NARRATOR_CLAIM",
+                "message": ("This request names more than one narrator. "
+                            "Reload and select the narrator again before "
+                            "continuing."),
+            },
+        )
     except _profile_seed_rest.OwnerClaimMismatch as mismatch:
         # REFUSE. A mismatch means a stale tab pointed at another
         # narrator, or a caller asserting an identity that is not theirs.
@@ -700,10 +719,20 @@ def chat(req: _ChatReq) -> Dict[str, Any]:
     # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 (follow-up hardening):
     # the public surface is composed-only; raw mode cannot be reached here.
     _reject_smuggled_raw_mode(req)
-    model, tok = _load_model()
-    # Unified system prompt (pinned RAG + stable role rules)
-    ui_system = next((m.content for m in (req.messages or []) if _normalize_role(m.role) == 'system'), None)
+    # ── AUTHORITY IS RESOLVED BEFORE THE MODEL LOADS, 2026-08-26 ──────
+    #
+    # `_load_model()` used to run first, which meant an owner/claim
+    # mismatch or a storage fault could be MASKED by a model-loading
+    # failure — the route could not guarantee the 409 or 503 it promises,
+    # because it might never reach the code that raises them. Refusing to
+    # compose is a decision about WHO this turn is for, and it costs one
+    # cheap lookup; it belongs before several gigabytes of weights.
+    ui_system = next((m.content for m in (req.messages or [])
+                      if _normalize_role(m.role) == 'system'), None)
     profile_obj, ui_base = extract_profile_json_from_ui_system(ui_system)
+    _seed_runtime = _profile_seed_runtime(req.conv_id, profile_obj,
+                                          where="rest-chat")
+    model, tok = _load_model()
 
     # Phase G: Defer profile persist until AFTER successful generation (fail-closed).
     # Captured here but written only after generation completes without error.
@@ -719,8 +748,7 @@ def chat(req: _ChatReq) -> Dict[str, Any]:
     base_system = (ui_base or ui_system or 'You are Lorevox, a warm oral historian and memoir biographer.').strip()
     _composed = compose_prompt_sections(
         conv_for_prompt, ui_system=base_system, user_text=user_text,
-        runtime71=_profile_seed_runtime(req.conv_id, profile_obj,
-                                        where="rest-chat"))
+        runtime71=_seed_runtime)
     unified_system = _composed.text
 
     msgs = [{'role': 'system', 'content': unified_system}] + [
@@ -833,14 +861,24 @@ def chat_stream(req: _ChatReq):
     # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 (follow-up hardening):
     # the public surface is composed-only; raw mode cannot be reached here.
     _reject_smuggled_raw_mode(req)
+    # ── AUTHORITY IS RESOLVED BEFORE THE MODEL LOADS, 2026-08-26 ──────
+    #
+    # `_load_model()` used to run first, which meant an owner/claim
+    # mismatch or a storage fault could be MASKED by a model-loading
+    # failure — the route could not guarantee the 409 or 503 it promises,
+    # because it might never reach the code that raises them. Refusing to
+    # compose is a decision about WHO this turn is for, and it costs one
+    # cheap lookup; it belongs before several gigabytes of weights.
+    ui_system = next((m.content for m in (req.messages or [])
+                      if _normalize_role(m.role) == 'system'), None)
+    profile_obj, ui_base = extract_profile_json_from_ui_system(ui_system)
+    _seed_runtime = _profile_seed_runtime(req.conv_id, profile_obj,
+                                          where="rest-stream")
     model, tok = _load_model()
     conv_id = (req.conv_id or "").strip()
     anchor_id = (req.anchor_id or "").strip()
     section = (req.section or "").strip()
     stream_id = (req.stream_id or "").strip()
-    # Unified system prompt (pinned RAG + stable role rules)
-    ui_system = next((m.content for m in (req.messages or []) if _normalize_role(m.role) == 'system'), None)
-    profile_obj, ui_base = extract_profile_json_from_ui_system(ui_system)
 
     # Phase G: Defer profile persist until AFTER streaming completes (fail-closed).
     _deferred_stream_profile = profile_obj if (req.conv_id and profile_obj is not None) else None
@@ -855,8 +893,7 @@ def chat_stream(req: _ChatReq):
     base_system = (ui_base or ui_system or 'You are Lorevox, a warm oral historian and memoir biographer.').strip()
     _composed = compose_prompt_sections(
         conv_for_prompt, ui_system=base_system, user_text=user_text,
-        runtime71=_profile_seed_runtime(req.conv_id, profile_obj,
-                                        where="rest-stream"))
+        runtime71=_seed_runtime)
     unified_system = _composed.text
 
     msgs = [{'role': 'system', 'content': unified_system}] + [

@@ -1065,6 +1065,12 @@ __all__: Sequence[str] = (
     "identity_anchors_complete", "has_value", "load_snapshot",
     "topic_has_evidence", "ResolvedState", "not_enrolled_body",
     "initial_topic_state", "read_row", "is_enrolled", "person_exists",
-    "enroll", "reconcile",
+    "enroll",
+    # `resolve_effective` is DECLARED, not internal. It was extracted
+    # from `reconcile()` for the REST read path, which makes it a
+    # shared contract — and an extracted helper that nothing declares
+    # is one refactor away from being inlined back by someone who
+    # cannot see it has a second caller.
+    "resolve_effective", "reconcile",
     "apply_disposition", "set_paused", "contains_no_prose",
 )
