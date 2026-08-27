@@ -132,6 +132,8 @@ POLICY = "server/code/api/services/prompt_section_policy.py"
 # A gate scoped to the suite written alongside the feature only ever
 # asks "did I break my own new tests". The sections a new section has to
 # coexist with are exactly where a regression lands.
+CLASSIFIER_TESTS = "tests.test_mutation_gate_classifier"
+
 COMPOSER_TESTS = ("tests.test_profile_seed_composer_section "
                   "tests.test_prompt_section_policy "
                   "tests.test_prompt_sections")
@@ -636,7 +638,15 @@ def _baseline_green(selected: List["Mutation"], env: dict) -> bool:
     cannot be "caught" by a suite that was already failing, and without
     this check the runner cannot tell the two apart.
     """
-    commands = sorted({m.tests for m in selected})
+    # ── THE CLASSIFIER'S OWN TESTS ARE A PRECONDITION ──────────────────
+    #
+    # The baseline was built ONLY from the selected mutations' test
+    # commands, so the gate could run with a broken `classify_result()`
+    # and never notice — the one function whose job is deciding whether
+    # any of this is evidence. It runs unconditionally, once per
+    # invocation, BEFORE anything it would be asked to judge.
+    commands = [CLASSIFIER_TESTS] + sorted({m.tests for m in selected}
+                                           - {CLASSIFIER_TESTS})
     print(f"baseline — {len(commands)} unique test command(s), unmutated:")
     ok = True
     for tests in commands:
@@ -694,11 +704,34 @@ def classify_result(code: int, output: str) -> Tuple[str, str]:
     reported — C13 and C14 legitimately produce a real assertion failure
     alongside errors from malformed-state cases that now raise.
     """
-    summary = _SUMMARY_RE.search(output or "")
-    if summary is None:
+    # ── THE **LAST** SUMMARY, NOT THE FIRST ────────────────────────────
+    #
+    # `.search()` returned the FIRST line starting with OK or FAILED,
+    # and tests print to stderr. A run whose output contained an earlier
+    # line beginning "FAILED" — captured output, a logged message, a
+    # subprocess of its own — was read as the verdict while the REAL
+    # summary below it said OK. That scores a surviving mutation as
+    # caught, which is the direction that quietly retires a test.
+    summaries = _SUMMARY_RE.findall(output or "")
+    if not summaries:
         return BROKEN, ("no recognizable unittest summary — the run did not "
                         "reach a verdict, so it is not evidence")
-    verdict, detail = summary.group(1), summary.group(2)
+    verdict, detail = summaries[-1]
+
+    # ── THE EXIT CODE AND THE SUMMARY MUST AGREE ───────────────────────
+    #
+    # This ignored the exit code entirely, on the reasoning that "the
+    # summary is the authority". That was wrong: the two are independent
+    # observations of one run, and when they disagree the run itself is
+    # inconsistent — a harness fault, a killed process, a wrapper eating
+    # the status. Neither reading is trustworthy, and picking the one
+    # that suits the verdict is how an instrument starts agreeing with
+    # whatever it is pointed at.
+    if (code == 0) != (verdict == "OK"):
+        return BROKEN, (f"exit={code} but the final summary says {verdict} — "
+                        "the two disagree, so this run is inconsistent and "
+                        "not evidence either way")
+
     if verdict == "OK":
         return MISSED, (output.strip().splitlines() or [""])[-1]
     failures = int(m.group(1)) if (m := _FAILURES_RE.search(detail)) else 0

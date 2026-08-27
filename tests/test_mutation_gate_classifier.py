@@ -146,9 +146,54 @@ class ClassifierTests(unittest.TestCase):
         self.assertEqual(gate.BROKEN, status)
         self.assertIn("no assertion failed", tail)
 
-    def test_a_zero_exit_with_a_FAILED_summary_still_counts_failures(self):
-        """Exit code is not the authority; the summary is."""
-        self.assertEqual(gate.CAUGHT, self.verdict(0, summary(failures=2)))
+    # ── the exit code and the summary are TWO observations of one run ──
+    def test_a_zero_exit_with_a_FAILED_summary_is_BROKEN(self):
+        """*(This asserted CAUGHT, with the docstring "exit code is not
+        the authority; the summary is". That was backwards. They are two
+        independent observations of one run, and when they disagree the
+        run is inconsistent — a harness fault, a killed process, a
+        wrapper eating the status. Neither reading is trustworthy, and
+        preferring whichever suits the verdict is how an instrument
+        starts agreeing with whatever it is pointed at.)*"""
+        status, tail = gate.classify_result(0, summary(failures=2))
+        self.assertEqual(gate.BROKEN, status)
+        self.assertIn("disagree", tail)
+
+    def test_a_nonzero_exit_with_an_OK_summary_is_BROKEN(self):
+        status, tail = gate.classify_result(1, summary(ok=True))
+        self.assertEqual(gate.BROKEN, status)
+        self.assertIn("disagree", tail)
+
+    # ── the LAST summary is the verdict, not the first ────────────────
+    def test_noise_beginning_with_FAILED_does_not_become_the_verdict(self):
+        """A surviving mutation must not be scored as caught.
+
+        Tests print to stderr. A captured message, a logged line, or a
+        subprocess of the suite's own can start with "FAILED", and
+        `.search()` took the FIRST match as the verdict while the real
+        summary below it said OK.
+        """
+        noisy = ("FAILED (failures=9)\n"
+                 "some captured output from the test itself\n"
+                 + summary(ok=True))
+        self.assertEqual(gate.MISSED, self.verdict(0, noisy))
+
+    def test_noise_beginning_with_OK_does_not_hide_a_real_failure(self):
+        """The same defect in the other direction."""
+        noisy = "OK, here is some captured output\n" + summary(failures=1)
+        self.assertEqual(gate.CAUGHT, self.verdict(1, noisy))
+
+    def test_the_last_summary_wins_even_after_several(self):
+        stacked = (summary(failures=3) + summary(ok=True)
+                   + summary(failures=1))
+        status, tail = gate.classify_result(1, stacked)
+        self.assertEqual(gate.CAUGHT, status)
+        self.assertIn("failures=1", tail)
+
+    def test_noise_cannot_rescue_an_inconsistent_run(self):
+        """Agreement is checked against the FINAL summary, not the noise."""
+        noisy = "FAILED (failures=9)\n" + summary(ok=True)
+        self.assertEqual(gate.BROKEN, self.verdict(1, noisy))
 
 
 class ClassifierIsNotVacuousTests(unittest.TestCase):
