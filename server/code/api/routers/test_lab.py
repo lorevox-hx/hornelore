@@ -37,7 +37,18 @@ STATUS_FILE = TEST_LAB_ROOT / "status.json"
 # Resolve scripts/run_test_lab.sh relative to this file.
 # routers → api → code → server → (repo root)
 REPO_ROOT = Path(__file__).resolve().parents[4]
-RUNNER_SCRIPT = REPO_ROOT / "scripts" / "run_test_lab.sh"
+# BUG-TESTLAB-RUNNER-PATH-STALE-01 (2026-08-27): this pointed at
+# `scripts/run_test_lab.sh`, which commit c4ca24e ("archive
+# non-essential scripts to keep start/stop folder clean") MOVED to
+# `scripts/archive/`. Nothing updated this constant, so POST
+# /api/test-lab/run had been returning
+# "Runner script not found at .../scripts/run_test_lab.sh" — a 500 with
+# a message naming a path that is correct about the file being absent
+# and wrong about where it should be.
+#
+# The same commit moved the eval runner, and CLAUDE.md's standard eval
+# block WAS updated for it; this router was the reference nobody swept.
+RUNNER_SCRIPT = REPO_ROOT / "scripts" / "archive" / "run_test_lab.sh"
 
 
 def _ensure_root() -> None:
