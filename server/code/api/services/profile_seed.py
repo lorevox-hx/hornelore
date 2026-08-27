@@ -820,9 +820,31 @@ def _person_and_basics(con: sqlite3.Connection,
     return person, (basics if isinstance(basics, Mapping) else {})
 
 
-def reconcile(con: sqlite3.Connection, person_id: str, *,
-              now: str) -> Optional[ResolvedState]:
-    """Resolve evidence and MATERIALIZE any effective change. No commit.
+def resolve_effective(con: sqlite3.Connection, person_id: str, *,
+                      now: str) -> Optional[Tuple[ResolvedState, bool]]:
+    """The resolution, with NO WRITE. `(state, changed)`, or `None`.
+
+    ── EXTRACTED SO THERE IS ONE RESOLVER, 2026-08-26 ──────────────────
+
+    Step 5 needs a narrator's onboarding state in order to compose a
+    prompt, and must not write to find out: a read that materializes
+    turns every page refresh into a version bump.
+
+    The alternative was for the REST path to recompute status and active
+    topic itself, and that would have been a SECOND definition of "what
+    state is this narrator in". This lane has already paid twice for
+    that exact shape — a renderer and a suppression predicate that
+    disagreed about the same payload, and a baseline inventory
+    duplicated beside the registry it described. Two definitions of one
+    truth do not stay equal; they stay equal until the first change.
+
+    So the computation lives here once. `reconcile()` calls it and
+    writes when `changed` is True; a read-only caller ignores `changed`.
+
+    **`state.version` is what the version WOULD BECOME had this been
+    materialized.** A caller that does not write must not treat it as
+    durable, nor use it to author a versioned write — that belongs to
+    the committed-turn path, which reconciles first.
 
     Returning the resolved state without writing it would leave the
     durable row disagreeing with the API: a topic answered in Bio
@@ -848,6 +870,10 @@ def reconcile(con: sqlite3.Connection, person_id: str, *,
         which is what stops a narrator being walked through onboarding a
         second time;
       * a narrator with no row gets `None` and NO INSERT.
+
+    *(That list describes the RESOLUTION, which is why it lives on this
+    function now rather than on `reconcile()`. `reconcile()` is the
+    write half and says so.)*
     """
     row = read_row(con, person_id)
     if row is None:
@@ -871,7 +897,7 @@ def reconcile(con: sqlite3.Connection, person_id: str, *,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             completed_at=completed_at,
-        )
+        ), False
 
     person, basics = _person_and_basics(con, person_id)
     anchors_ok = identity_anchors_complete(person, basics)
@@ -919,18 +945,8 @@ def reconcile(con: sqlite3.Connection, person_id: str, *,
         or next_completed_at != completed_at
     )
 
-    version = stored_version
-    updated_at = row["updated_at"]
-    if changed:
-        version = stored_version + 1
-        updated_at = now
-        con.execute(
-            f"UPDATE {TABLE} SET status=?, topic_state_json=?, "  # noqa: S608
-            "active_topic_id=?, version=?, updated_at=?, completed_at=? "
-            "WHERE person_id=?;",
-            (next_status, json.dumps(next_state), next_active, version,
-             updated_at, next_completed_at, person_id),
-        )
+    version = stored_version + 1 if changed else stored_version
+    updated_at = now if changed else row["updated_at"]
 
     return ResolvedState(
         person_id=person_id,
@@ -942,7 +958,32 @@ def reconcile(con: sqlite3.Connection, person_id: str, *,
         created_at=row["created_at"],
         updated_at=updated_at,
         completed_at=next_completed_at,
-    )
+    ), changed
+
+
+def reconcile(con: sqlite3.Connection, person_id: str, *,
+              now: str) -> Optional[ResolvedState]:
+    """MATERIALIZE the resolution. No commit.
+
+    The write half of `resolve_effective()`, which holds the rules and
+    the reasoning. Behaviour is unchanged by the split: this still
+    writes exactly when the effective stored state changes, and the
+    version still moves only then.
+    """
+    resolved = resolve_effective(con, person_id, now=now)
+    if resolved is None:
+        return None
+    state, changed = resolved
+    if changed:
+        con.execute(
+            f"UPDATE {TABLE} SET status=?, topic_state_json=?, "  # noqa: S608
+            "active_topic_id=?, version=?, updated_at=?, completed_at=? "
+            "WHERE person_id=?;",
+            (state.status, json.dumps(dict(state.topic_state)),
+             state.active_topic_id, state.version, state.updated_at,
+             state.completed_at, person_id),
+        )
+    return state
 
 
 def apply_disposition(con: sqlite3.Connection, person_id: str, *,
