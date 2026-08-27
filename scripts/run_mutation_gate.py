@@ -45,10 +45,12 @@ claim in the report would be the emptiest.
 
 So, before any mutation is applied:
 
-  1. **No tracked modifications anywhere in the tree.** Not merely in
-     the mutation targets — an edited TEST file introduces failures the
-     runner would credit to a mutation. Untracked files are allowed;
-     they cannot change what an existing test does.
+  1. **The tree is clean — every `git status --porcelain` entry,
+     untracked included.** Not merely the mutation targets: an edited
+     TEST file introduces failures the runner would credit to a
+     mutation, and an UNTRACKED file can do the same without appearing
+     in any diff (`sitecustomize.py` is imported by every Python
+     process; so is a stray `conftest.py` or a shadowing module).
   2. **Every unique selected test command runs once against the
      unmodified baseline.** A red baseline REFUSES the gate, and says
      which command failed.
@@ -70,8 +72,8 @@ would not have announced itself.
 
 Two mitigations, because one is not enough:
 
-  * **the tracked-modification refusal** above — the runner will not
-    start against a modified tree, so `git checkout` is always a clean
+  * **the clean-tree refusal** above — the runner will not start
+    against an unclean tree, so `git checkout` is always a clean
     recovery;
   * **the journal** — before applying anything the runner writes
     `.runtime/mutation_gate.json` holding the mutation id, the target
@@ -353,30 +355,42 @@ def _journal_restore() -> int:
     return 0
 
 
-def _tracked_modifications() -> List[str]:
-    """Every tracked path with uncommitted changes. Untracked excluded.
+def _unclean_paths() -> List[str]:
+    """EVERY `git status --porcelain` entry, untracked included.
 
     NOT just the mutation targets. A modified TEST file is the more
-    dangerous case: it introduces failures the runner would credit to a
-    mutation, and every mutation would report CAUGHT for a reason that
-    has nothing to do with the mutation.
+    dangerous case than a modified target: it introduces failures the
+    runner would credit to a mutation, so every mutation reports CAUGHT
+    for a reason that has nothing to do with the mutation.
 
-    Untracked files (`??`) are allowed — a new file cannot change what
-    an existing test does, and refusing them would make the runner
-    unusable while a new mutation module is being written.
+    ── UNTRACKED FILES COUNT TOO, corrected 2026-08-26 ─────────────────
+
+    *(This function skipped `??` entries, and its docstring asserted
+    that "a new file cannot change what an existing test does". That is
+    not universally true, and the counter-example is ordinary rather
+    than exotic: an untracked `sitecustomize.py` is imported
+    automatically by every Python process that starts. So is a stray
+    `conftest.py`, an `__init__.py` that turns a directory into a
+    package, or any module earlier on `sys.path` than the one a test
+    means to import. Each changes what a test measures while appearing
+    in no diff.)*
+
+    For an acceptance gate the bar is "the tree is what the commit
+    says", and that includes files the commit does not mention.
+    `--allow-dirty` remains the development escape hatch.
     """
     out = subprocess.run(["git", "status", "--porcelain"], cwd=REPO,
                          capture_output=True, text=True).stdout
-    modified = []
+    unclean = []
     for line in out.splitlines():
-        if not line.strip() or line.startswith("??"):
+        if not line.strip():
             continue
         path = line[3:].strip()
         # Renames arrive as "old -> new"; the new path is what matters.
         if " -> " in path:
             path = path.split(" -> ", 1)[1]
-        modified.append(path)
-    return sorted(modified)
+        unclean.append(f"{line[:2].strip() or '??'} {path}")
+    return sorted(unclean)
 
 
 def _run_tests(tests: str, env: dict) -> Tuple[int, str]:
@@ -455,12 +469,13 @@ def main() -> int:
     if _journal_check():
         return 1
 
-    dirty = _tracked_modifications()
+    dirty = _unclean_paths()
     if dirty and not args.allow_dirty:
-        print("REFUSING TO RUN — the working tree has tracked modifications. "
-              "A modified TEST file would make every mutation report CAUGHT "
-              "for a failure that has nothing to do with it, and a crash "
-              "mid-run would restore the wrong bytes:")
+        print("REFUSING TO RUN — the working tree is not clean. A modified "
+              "TEST file would make every mutation report CAUGHT for a "
+              "failure that has nothing to do with it; an UNTRACKED file can "
+              "do the same (sitecustomize.py, conftest.py, a shadowing "
+              "module); and a crash mid-run would restore the wrong bytes:")
         for name in dirty:
             print("   ", name)
         print("\nCommit first, or pass --allow-dirty if you are deliberately "
