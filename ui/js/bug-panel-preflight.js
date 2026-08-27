@@ -89,10 +89,34 @@
   }
 
   function _narratorLabel() {
+    // BUG-BUGPANEL-NARRATOR-ALWAYS-UNNAMED-01 (2026-08-27): this read
+    // `state.session.narratorName || .preferredName || .fullName` and
+    // NONE OF THOSE THREE KEYS EXIST on `state.session`. Enumerated
+    // live, it holds: currentPass, identityPhase, assistantRole,
+    // identityCapture, profileSeed, onboarding, sessionStyle,
+    // priorUserTurns, currentEra, loop, turnMode, confusionTurnCount,
+    // currentMode, lastTurnMode, pendingCorrection.
+    //
+    // So the label had NEVER worked — every narrator, always
+    // "(unnamed)" — while the header two inches above showed the name,
+    // and the server held display_name plus both other anchors. That is
+    // a "mechanical truth must visibly project" violation on the
+    // operator's own diagnostic surface, which is the one place it is
+    // most expensive: it invites the reader to conclude identity is
+    // broken when identity is fine.
+    //
+    // `identityCapture` is where the three anchors actually land
+    // (verified live: {name: "Del", dob: "1950-03-04", birthplace:
+    // "Fargo, North Dakota"}). The old keys are KEPT in the chain — if
+    // some other surface ever populates them the label should still
+    // work — but they are no longer the only thing consulted.
     try {
       if (typeof state !== "undefined" && state && state.session) {
+        var cap = state.session.identityCapture || {};
         return (
-          state.session.narratorName
+          cap.name
+          || cap.preferredName
+          || state.session.narratorName
           || state.session.preferredName
           || state.session.fullName
           || "(unnamed)"
