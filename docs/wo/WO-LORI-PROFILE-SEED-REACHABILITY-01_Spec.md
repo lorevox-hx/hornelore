@@ -29,7 +29,6 @@ and it lives HERE and nowhere else:
 | Commit | What it corrected |
 |---|---|
 | `620d692` | Step 4 lands — one canonical topic reaches Lori, nothing else moves |
-| `da96cc0` | Control sweep: five control documents, not four — this map is one |
 | `2cfffae` | Apostrophes in two modules; the completion Lori could never deliver |
 | `890e181` | Honest instruments — real idle mutation, baseline counts, policy note |
 | `75e81c2` | One registry, one validated plan, tests measuring equality not subset |
@@ -43,11 +42,22 @@ and it lives HERE and nowhere else:
 | `b269184` | The last summary decides, and must agree with the exit code — **ACCEPTED** |
 
 **`9f31d9f` is NOT the acceptance hash.** It was accepted there and the acceptance was
-premature: four further rounds followed, one of them a real product defect. It is recorded
-above as what it is — a step in the range — and any document still naming it as the
-acceptance point is stale. *(Recording it this way is deliberate. The tidier option is to
-list only the final hash, and it would erase the fact that this step was declared finished
-five commits before it was.)*
+premature: **FIVE further corrective commits followed** — `c99eb5f`, `3e4c56a`, `a966a37`,
+`b5148ed`, `b269184` — one of them a real product defect. It is recorded above as what it
+is, a step in the range, and any document still naming it as the acceptance point is stale.
+*(Recording it this way is deliberate. The tidier option is to list only the final hash,
+and it would erase the fact that this step was declared finished five commits before it
+was. The count itself first read "four", which is the sixth miscount in this lane and the
+reason every number in this block is now derived from `git log` rather than read off the
+table above.)*
+
+**Two documentation commits sit inside this range and are deliberately NOT ledger rows:**
+`da96cc0`, the five-control sweep during the corrections, and `d6e775a`, the reconciliation
+that recorded the premature acceptance at `9f31d9f`. The ledger is the CODE AND TEST range
+— twelve commits, one landing plus eleven corrections. *(`da96cc0` was a row here until
+2026-08-26, which made the table inconsistent with itself: one docs commit listed, the
+other excluded. A ledger that admits some non-code commits and not others cannot be counted
+from.)*
 
 Review found, across those rounds: a second hand-written question order in the composer; a
 sparse-runtime byte-stability test asserting a subset rather than equality; a suppression
