@@ -18,7 +18,9 @@ Phase 2 steps 1–3 have landed: `f23040b` characterizes all eight refusal patte
 `5a1eb56` moves them to one shared helper called by extraction and Profile Seed; `1875821`
 adds the turn state-machine service — two durable events, exact `(topic, version)` tuples,
 classification and recovery; `b069680` corrects consumption so a response answers every
-earlier presentation of its tuple; `c6c9ae4` adds a reproducible checked-in mutation gate.
+earlier presentation of its tuple; `c6c9ae4` adds a reproducible checked-in mutation
+gate; and `0335cd3` makes that gate refuse an unclean tree or a red baseline, without
+which every mutation could report CAUGHT against a suite that was already failing.
 
 Steps 4–7 are owed: the isolated composer section, REST read authority, WebSocket
 presentation metadata and post-commit advancement, then the suites. **Nothing in production
@@ -280,7 +282,7 @@ schema changed. Three modules, 46 tests, one expected failure —
   Reset `db._BIO_SEED_LOADED = False` before `init_db()`, as `db.py:62-70` documents.
 
 **All five findings above are CLOSED by Phase 1, which is ACCEPTED. Phase 2 — prompt and
-committed-turn wiring — is next and has not begun.** *(This line read "Phase 1 — server
+committed-turn wiring — is IN IMPLEMENTATION and is NOT ACCEPTED; see the status table at the top of this file for which steps have landed.** *(This line read "Phase 1 — server
 authority — is next" until 2026-08-26. It sat immediately above the Phase 1 heading, whose
 own status block already said the phase was complete, so the spec contradicted itself across
 two consecutive lines.)*
