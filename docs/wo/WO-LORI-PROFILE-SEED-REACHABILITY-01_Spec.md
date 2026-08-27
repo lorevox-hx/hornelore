@@ -22,9 +22,9 @@ earlier presentation of its tuple; `c6c9ae4` adds a reproducible checked-in muta
 gate; and `0335cd3` makes that gate refuse an unclean tree or a red baseline, without
 which every mutation could report CAUGHT against a suite that was already failing.
 
-**Step 4 — the isolated composer section — is ACCEPTED at `9f31d9f`.** It landed at
-`620d692` and took six rounds of correction before acceptance. The full range, which is
-the ledger for this step:
+**Step 4 — the isolated composer section — is ACCEPTED at `b269184`.** It landed at
+`620d692` and took eleven rounds of correction. The full range is the ledger for this step,
+and it lives HERE and nowhere else:
 
 | Commit | What it corrected |
 |---|---|
@@ -35,7 +35,19 @@ the ledger for this step:
 | `75e81c2` | One registry, one validated plan, tests measuring equality not subset |
 | `e9e3cd3` | Strict `completes_walk`; three comments that pointed at nothing |
 | `a1fe350` | The acknowledgement stops claiming the walk is over |
-| `9f31d9f` | The asking turn stops claiming a last topic — **ACCEPTED** |
+| `9f31d9f` | The asking turn stops claiming a last topic |
+| `c99eb5f` | The AST guards scoped to `_profile_seed_onboarding_block` |
+| `3e4c56a` | **Product:** malformed `known_topics` can no longer crash or invent settled topics |
+| `a966a37` | Post-baseline additions inventory; three-module Step 4 gate |
+| `b5148ed` | Errors-only runs are BROKEN; C15 split into three discriminating mutations |
+| `b269184` | The last summary decides, and must agree with the exit code — **ACCEPTED** |
+
+**`9f31d9f` is NOT the acceptance hash.** It was accepted there and the acceptance was
+premature: four further rounds followed, one of them a real product defect. It is recorded
+above as what it is — a step in the range — and any document still naming it as the
+acceptance point is stale. *(Recording it this way is deliberate. The tidier option is to
+list only the final hash, and it would erase the fact that this step was declared finished
+five commits before it was.)*
 
 Review found, across those rounds: a second hand-written question order in the composer; a
 sparse-runtime byte-stability test asserting a subset rather than equality; a suppression
@@ -48,17 +60,28 @@ one whenever `remaining_topics` was missing, empty or not a list. Both are gone.
 recurring lesson is recorded because it will recur: *the composer cannot know the outcome
 of an apply it has not made.*
 
-**Step 5 — REST read authority — is the current action.** Steps 6–7 remain owed: WebSocket
-presentation metadata and post-commit advancement, then the suites.
+**Three lessons about the INSTRUMENT, which cost as many rounds as the product did.** A
+guard that fails for reasons outside its own subject teaches people to switch it off, so
+the AST checks read one function rather than the module. A mutation caught by a guard it
+was not aiming at proves nothing about the guard it was — `C15`'s fixture collided with the
+active topic and was rejected before the defect it targeted was ever reached, so it is now
+three mutations, each discriminating one check. And a mutation that breaks the module
+outright is not evidence at all: `C16` was written against a constant that does not exist,
+the module failed at import, and the gate reported CAUGHT having tested nothing. The rule
+is now the property rather than a list of exception names — **at least one real assertion
+failure** — with the classifier's own tests running as an unconditional preflight, proven
+able to refuse the gate rather than merely present in it.
 
-**Owed to Step 7, non-blocking, raised at Step 4 acceptance:** the AST guard in
-`tests/test_profile_seed_composer_section.py` that proves the `remaining` count is gone
-currently bans the NAME `remaining` across the whole composer module. That is broader than
-the thing it protects, and the failure mode is a nuisance rather than a risk — unrelated
-future code using an ordinary variable name would trip a guard about Profile Seed. Scope
-the assertion to `_profile_seed_onboarding_block` rather than the module. **No live transport
+**Step 5 — REST read authority — is the current action.** Steps 6–7 remain owed: WebSocket
+presentation metadata and post-commit advancement, then the suites. **No live transport
 supplies `profile_seed_onboarding` yet, so none of the step-4 code is reachable by a
 narrator.**
+
+**Binding requirement for Step 5, set at Step 4 acceptance:** REST must supply the actual
+server-derived narrator **name, DOB and birthplace** alongside `identity_complete`.
+Supplying `identity_complete=True` alone produces prompt text stating that no verified
+identity facts are available — a sparse runtime that contradicts itself. Step 5 stops after
+REST read authority and its focused tests, for review, before any WebSocket work begins.
 
 *(This block read "READY FOR IMPLEMENTATION" until 2026-08-26, contradicting §6's own
 `STATUS: COMPLETE, ACCEPTED` two hundred lines below. A spec whose header disagrees with its

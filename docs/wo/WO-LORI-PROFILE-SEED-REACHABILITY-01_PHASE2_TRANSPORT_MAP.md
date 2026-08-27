@@ -783,7 +783,7 @@ exist.)*
 | 1 — characterize the eight refusal patterns | landed |
 | 2 — one shared refusal helper | landed |
 | 3 — turn state machine, exact tuples, recovery | landed |
-| 4 — isolated composer section | **ACCEPTED** at `9f31d9f` (landed `620d692`) |
+| 4 — isolated composer section | **ACCEPTED** at `b269184` (landed `620d692`; `9f31d9f` was premature) |
 | 5 — REST read authority | 🔵 **CURRENT ACTION** |
 | 6 — WebSocket presentation metadata and advancement | not begun |
 | 7 — suites and control reconciliation | not begun |
