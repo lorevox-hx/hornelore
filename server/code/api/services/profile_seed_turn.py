@@ -49,8 +49,13 @@ reach a different answer.
 
 No FastAPI, no `api.db`, no connection. `recover()` takes the resolve
 and apply functions as arguments. That keeps the whole state machine
-testable without a database, and it is why the four mandatory mutations
-below can be exercised behaviourally rather than by reading source.
+testable without a database, and it is why every mutation against this
+module can be exercised BEHAVIOURALLY rather than by reading source.
+
+Those mutations are NOT in this file. They live in
+`scripts/run_mutation_gate.py`, checked in with exact anchors so a
+reviewer can reproduce the result instead of taking a commit message's
+word for it. Eleven of them target this module today.
 """
 from __future__ import annotations
 

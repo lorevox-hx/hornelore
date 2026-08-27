@@ -237,11 +237,18 @@ MUTATIONS: Tuple[Mutation, ...] = (
         '    if state.get("action") not in ("present", "re_present", "acknowledge", "idle"):\n        return None',
         COMPOSER_TESTS),
     Mutation(
+        "C10", "completes_walk read by truthiness — a non-boolean makes "
+               "Lori tell the narrator her walk is over",
+        COMPOSER,
+        '        if state.get("completes_walk") is True:',
+        '        if state.get("completes_walk"):',
+        COMPOSER_TESTS),
+    Mutation(
         "C9", "the unreachable completion promise returns to the ASKING "
               "turn and the acknowledgement never closes the walk",
         COMPOSER,
-        '        if state.get("completes_walk"):',
-        '        if False and state.get("completes_walk"):',
+        '        if state.get("completes_walk") is True:',
+        '        if False and state.get("completes_walk") is True:',
         COMPOSER_TESTS),
     Mutation(
         "T1", "apostrophes are not folded — \"I\'ll come back to that\" "

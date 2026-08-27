@@ -4,10 +4,19 @@ WO-LORI-PROFILE-SEED-REACHABILITY-01, Phase 1 (2026-08-26).
 
 WHAT THIS MODULE OWNS
 ─────────────────────
-The canonical topic registry, the identity precondition, the evidence
-resolver, and the reconciliation that keeps the durable row honest.
-Nothing else. It holds no narrator prose, composes no prompt, and has
-no opinion about the browser.
+The canonical topic registry — INCLUDING the narrator-facing wording of
+all ten questions — the identity precondition, the evidence resolver,
+and the reconciliation that keeps the durable row honest.
+
+Nothing else. It composes no prompt and has no opinion about the
+browser, and it holds no NARRATOR prose: the ten questions are Lori's
+words, not the narrator's, and no answer text ever reaches this module.
+
+*(The wording moved here in Phase 2 step 4. Work order 4.1 requires the
+composer to render FROM this registry and forbids it keeping a second
+hand-written order — so the questions live with the ids they belong to,
+and both the live walk and the historical Pass-1 block are generated
+from this one list.)*
 
 THREE RULES ABOUT ITS SHAPE, EACH OF WHICH IS LOAD-BEARING
 ──────────────────────────────────────────────────────────

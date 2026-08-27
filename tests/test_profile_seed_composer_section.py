@@ -206,6 +206,17 @@ class CompletionTransitionTests(unittest.TestCase):
                 self.assertNotIn(_seed.topic(topic_id).question, text)
         self.assertIn("Do NOT ask another question of any kind", text)
 
+    def test_a_NON_BOOLEAN_completes_walk_does_not_claim_completion(self):
+        """A loose comparison would let a caller make Lori tell the
+        narrator her walk is over when the plan never said so."""
+        for value in ("yes", 1, "true", [1], {"a": 1}, "False"):
+            with self.subTest(value=value):
+                text = self.block({"action": "acknowledge", "topic_id": A,
+                                   "completes_walk": value})
+                self.assertNotIn("sense of their story", text)
+                self.assertIn("Do NOT ask the next Profile Seed question",
+                              text)
+
     def test_an_ordinary_acknowledgement_does_not_claim_completion(self):
         text = self.block(onboarding("acknowledge", A, completes_walk=False))
         self.assertNotIn("sense of their story", text)
@@ -563,7 +574,7 @@ class LegacyBlockSuppressionTests(unittest.TestCase):
         block = text[start:text.index("RULES:", start)]
         self.assertEqual(
             hashlib.sha256(block.encode("utf-8")).hexdigest()[:16],
-            "c5b4f9e74ca07c2b",
+            LegacyBlockGoldenBytesTests.GOLDEN_SHA256,
             "the historical narrator's question block changed bytes")
         for topic_def in _seed.TOPIC_REGISTRY:
             with self.subTest(topic=topic_def.topic_id):

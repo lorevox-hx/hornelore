@@ -5345,7 +5345,13 @@ def _profile_seed_onboarding_block(runtime71: Optional[Dict[str, Any]]) -> str:
             "RULES:",
             "  - Do NOT ask that question again.",
         ]
-        if state.get("completes_walk"):
+        # `is True`, not truthiness. A caller sending "yes" or 1 would
+        # otherwise have Lori tell the narrator the walk is finished when
+        # the plan never said so — a claim made to a person on the
+        # strength of a loose comparison. Same posture as every other
+        # field here: a malformed value means the ordinary behaviour,
+        # never the louder one.
+        if state.get("completes_walk") is True:
             # ── THE TRANSITION, ON THE TURN THAT CAN DELIVER IT ─────
             #
             # This instruction used to live on the turn that ASKED the

@@ -30,9 +30,11 @@ and one thing the map DESCRIBED but never implemented:
      question they had already answered, with their answer committed one
      row above.
 
-**Every one of those is a mutation in `mutations.py`-style form below,
-and every one must fail behaviourally.** A suite that would not have
-noticed any of the four is not worth having.
+**Every one of those is a checked-in mutation, and every one must fail
+behaviourally.** They are in `scripts/run_mutation_gate.py` — not in
+this file and not in a `mutations.py`, neither of which exists — so a
+reviewer runs them rather than believing a report. A suite that would
+not have noticed any of the four is not worth having.
 """
 from __future__ import annotations
 
