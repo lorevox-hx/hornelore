@@ -22,7 +22,9 @@ These run against captured unittest output rather than real subprocesses
 so the awkward cases — errors-only, no summary, mixed — can be stated
 exactly, including the ones that are tedious to reproduce on demand.
 """
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -252,6 +254,69 @@ class DuplicateIdGuardTests(unittest.TestCase):
                              "the refusal did not describe both mutations")
         finally:
             gate.MUTATIONS = original
+
+
+class AmbiguousAnchorTests(unittest.TestCase):
+    """`run_one()` refuses an anchor that matches more than one place.
+
+    *(Added with the guard, not after it. `str.replace(old, new, 1)`
+    takes the FIRST occurrence, so an ambiguous anchor mutates whichever
+    site comes first and leaves the rest intact — a HALF mutation
+    reported as a whole one. Caught writing S9, whose original anchor
+    appeared once per REST route: it would have mutated `/api/chat` only
+    and reported CAUGHT while `/api/chat/stream` was untouched.)*
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.target = Path(self.tmp.name) / "target.py"
+        self.rel = str(self.target)
+
+    def _mutation(self, old, new="REPLACED"):
+        return gate.Mutation("X1", "what", self.rel, old, new,
+                             "tests.does_not_matter")
+
+    def _run(self, old):
+        original = self.target.read_text(encoding="utf-8")
+        status, tail = gate.run_one(self._mutation(old), dict(os.environ))
+        return status, tail, self.target.read_text(encoding="utf-8"), original
+
+    def test_ZERO_matches_is_BROKEN_and_leaves_the_file_alone(self):
+        self.target.write_text("alpha = 1\n", encoding="utf-8")
+        status, tail, after, before = self._run("nonexistent anchor")
+        self.assertEqual(gate.BROKEN, status)
+        self.assertIn("anchor not found", tail)
+        self.assertEqual(before, after, "the target was modified")
+
+    def test_MULTIPLE_matches_is_BROKEN_and_leaves_the_file_alone(self):
+        """The defect the guard exists for. The file must be untouched —
+        a half-mutated target left on disk is worse than no run."""
+        self.target.write_text("x = 1\nsame = 2\ny = 3\nsame = 4\n",
+                               encoding="utf-8")
+        status, tail, after, before = self._run("same")
+        self.assertEqual(gate.BROKEN, status)
+        self.assertIn("matches 2 places", tail)
+        self.assertEqual(before, after,
+                         "an ambiguous anchor still edited the target")
+
+    def test_EXACTLY_ONE_match_PASSES_the_anchor_check(self):
+        """Positive control: a guard refusing everything would satisfy
+        both tests above forever.
+
+        The verdict here is still BROKEN, because the fixture names a
+        test module that does not exist so the run reaches no summary —
+        but it must be broken for THAT reason, not for an anchor one.
+        Asserting on the reason is the only thing that distinguishes
+        "the anchor was accepted" from "the anchor was refused".
+        """
+        self.target.write_text("keep = 0\nunique_line = 1\n",
+                               encoding="utf-8")
+        status, tail, after, before = self._run("unique_line = 1")
+        self.assertNotIn("anchor", tail.lower(),
+                         "a UNIQUE anchor was refused by the anchor check")
+        self.assertEqual(before, after,
+                         "run_one did not restore the target afterwards")
 
 
 class ClassifierIsNotVacuousTests(unittest.TestCase):

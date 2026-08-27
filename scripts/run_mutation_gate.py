@@ -166,23 +166,47 @@ class Mutation:
 # anchor at line 166 (inside the Mutation call) and line 683 (the
 # guard). The mutation would have edited itself and reported on nothing.
 #
-# No clever anchor fixes this; any text unique enough to find the guard
-# is also present verbatim in the definition that names it. **This
-# runner cannot mutate itself**, and that is a property worth stating
-# rather than working around.
+# The claim was first written as "this runner cannot mutate itself".
+# **That is too strong.** What is true is narrower: *the current
+# first-occurrence literal mechanism* cannot target this file, because
+# any anchor literal enough to find the guard also appears verbatim in
+# the Mutation that names it. A constructed anchor (assembled at import
+# from fragments, so the source text never matches) or an
+# occurrence/function locator would both work. Neither is built, and
+# building one for a single guard is not obviously worth the machinery —
+# so the guard is covered by DIRECT TESTS instead, and this comment
+# records the limitation as mechanical rather than fundamental.
 #
 # The guard is covered directly instead, in
 # `tests/test_mutation_gate_classifier.py`: a duplicate refuses, a
 # unique list passes, the checked-in list is asserted duplicate-free,
 # and the refusal names both colliding mutations.
 
+# ── `was_real` MEANS SHIPPED, NOT PLAUSIBLE ───────────────────────────
+#
+# The flag marks a design THIS LANE ACTUALLY CARRIED before a review
+# caught it — those are the mutations that prove the tests catch real
+# regressions rather than imagined ones. S7 (swapped status codes) and
+# S9 (discarded runtime) were never shipped; they are hypotheses, and
+# labelling them `was_real` inflated the "designs this lane carried"
+# count in every report. Corrected 2026-08-27.
+
 MUTATIONS: Tuple[Mutation, ...] = (
+    Mutation(
+        "S11", "THE ROLLBACK MASKS THE FAULT IT FOLLOWS: an unguarded "
+               "ROLLBACK inside finally replaces the exception passing "
+               "through it, so 'database is locked' reaches the operator "
+               "as a rollback error from a line where nothing went wrong",
+        REST,
+        '        try:\n            con.execute("ROLLBACK;")\n        except sqlite3.Error:\n            pass',
+        '        con.execute("ROLLBACK;")',
+        REST_TESTS, was_real=True),
     Mutation(
         "S7", "STATUS CODES SWAPPED: a contradictory payload is reported as a storage fault, so the caller is told to try again instead of to re-select the narrator",
         API,
         '        print(f"[profile-seed][{where}] {contradiction}")\n        raise HTTPException(\n            status_code=409,',
         '        print(f"[profile-seed][{where}] {contradiction}")\n        raise HTTPException(\n            status_code=503,',
-        REST_TESTS, was_real=True),
+        REST_TESTS, ),
     Mutation(
         "S8", "ROUTE ORDERING REVERSED: the model loads before authority is resolved, so a model failure masks the refusal the route promises",
         API,
@@ -194,13 +218,13 @@ MUTATIONS: Tuple[Mutation, ...] = (
         API,
         '    return runtime or None',
         '    return None',
-        REST_TESTS, was_real=True),
+        REST_TESTS, ),
     Mutation(
         "S10", "THE CONTRADICTION HANDLER IS REMOVED, so a payload naming two narrators escapes as an unhandled 500",
         API,
         '    except _profile_seed_rest.ContradictoryClaim as contradiction:',
         '    except _profile_seed_rest.OwnerClaimMismatch as contradiction:',
-        REST_TESTS, was_real=True),
+        REST_TESTS, ),
     Mutation(
         "S4", "CLAIM SCOPE WIDENED: undocumented aliases satisfy a claim again and a contradictory payload silently resolves to whichever key is met first - a coin toss deciding which narrator is asked",
         REST,
@@ -235,7 +259,7 @@ MUTATIONS: Tuple[Mutation, ...] = (
         REST,
         '    if owner and claimed and owner != claimed:\n        raise OwnerClaimMismatch(conv, owner, claimed)\n    return owner or claimed',
         '    if False and owner and claimed and owner != claimed:\n        raise OwnerClaimMismatch(conv, owner, claimed)\n    return claimed or owner',
-        REST_TESTS, was_real=True),
+        REST_TESTS, ),
     Mutation(
         "S2", "A STORAGE FAULT IN THE OWNER LOOKUP FALLS BACK to the "
               "unverified claim, so the most ordinary failure there is "
