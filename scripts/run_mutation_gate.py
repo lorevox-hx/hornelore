@@ -107,7 +107,23 @@ REDUCER_TESTS = "tests.test_profile_seed_turn_reducer"
 AUTHORITY_TESTS = "tests.test_profile_seed_server_authority"
 COVERAGE_TESTS = "tests.test_profile_seed_enrollment_coverage"
 REFUSAL_TESTS = "tests.test_narrator_refusal_characterization"
-COMPOSER_TESTS = "tests.test_profile_seed_composer_section"
+POLICY = "server/code/api/services/prompt_section_policy.py"
+
+# -- THE STEP 4 BASELINE IS THREE MODULES, NOT ONE, 2026-08-26 ---------
+#
+# It was `tests.test_profile_seed_composer_section` alone, and that is
+# why the gate reported green while two ESTABLISHED prompt-preservation
+# tests were red at `c99eb5f`: registering `profile_seed_onboarding`
+# broke the completeness inventories in `test_prompt_section_policy` and
+# `test_prompt_sections`, and the gate never ran them, so nothing in the
+# Step 4 evidence could see it.
+#
+# A gate scoped to the suite written alongside the feature only ever
+# asks "did I break my own new tests". The sections a new section has to
+# coexist with are exactly where a regression lands.
+COMPOSER_TESTS = ("tests.test_profile_seed_composer_section "
+                  "tests.test_prompt_section_policy "
+                  "tests.test_prompt_sections")
 
 
 @dataclass(frozen=True)
@@ -281,6 +297,21 @@ MUTATIONS: Tuple[Mutation, ...] = (
         '             if _topic_def(t) is not None]\n'
         '    remaining = len([t for t in (state.get("remaining_topics") or [])\n'
         '                     if _topic_def(t) is not None])',
+        COMPOSER_TESTS),
+    Mutation(
+        "C15", "`known_topics` validation is weakened back to a truthiness "
+               "check, so a dict iterates its KEYS and Lori is told a topic "
+               "is already settled that nothing established",
+        COMPOSER,
+        '        if not isinstance(known, list):\n            return None\n        if any(not isinstance(t, str) for t in known):\n            return None',
+        '        if False:\n            return None',
+        COMPOSER_TESTS, was_real=True),
+    Mutation(
+        "C16", "the onboarding section becomes DROPPABLE, so a tight budget "
+               "silently drops the question and Lori stops asking mid-walk",
+        POLICY,
+        '    _p("profile_seed_onboarding", "lori-onboarding",\n       "profile_seed_onboarding_active", TRIM_NEVER, SOURCE_SERVER_DB,\n       TIER_WORKFLOW, True, 0,',
+        '    _p("profile_seed_onboarding", "lori-onboarding",\n       "profile_seed_onboarding_active", TRIM_DROP_WHOLE, SOURCE_SERVER_DB,\n       TIER_WORKFLOW, False, 35,',
         COMPOSER_TESTS),
     Mutation(
         "C9", "the soft closing line never reaches the acknowledgement turn",

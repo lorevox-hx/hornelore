@@ -61,6 +61,18 @@ _PRE_ITEM_1 = {
     "memory_context":           (False, 5),
 }
 
+# Sections added AFTER item 1, deliberately kept OUT of the table above.
+# `_PRE_ITEM_1` is transcribed from the call sites item 1 replaced and is
+# the evidence for behaviour neutrality; putting a later section in it
+# would claim the section existed in a baseline it postdates. New work
+# adds a row HERE, and the completeness test asserts the union.
+_POST_ITEM_1_ADDITIONS = {
+    # WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 2 step 4. Required and
+    # never trimmed: the walk asks one question per turn, and a dropped
+    # section would mean Lori silently stops asking mid-onboarding.
+    "profile_seed_onboarding": (True, 0),
+}
+
 
 class TheRegistryIsComplete(unittest.TestCase):
     def test_every_section_declares_the_full_policy_set(self):
@@ -213,7 +225,40 @@ class ItemOneIsBehaviourNeutral(unittest.TestCase):
                 self.assertEqual(order, p.drop_order)
 
     def test_the_registry_covers_exactly_the_known_sections(self):
-        self.assertEqual(set(_PRE_ITEM_1), set(pol.known_section_ids()))
+        """The baseline PLUS intentional additions, exactly.
+
+        *(This compared `_PRE_ITEM_1` alone against the live registry,
+        so registering `profile_seed_onboarding` turned it red. The
+        tempting repair — drop the new id into `_PRE_ITEM_1` — would
+        have been a FALSE CLAIM: that table is transcribed from the call
+        sites item 1 replaced, and it is what
+        `test_every_registered_value_matches_the_call_site_it_replaced`
+        checks behaviour neutrality against. A section that did not
+        exist then cannot be evidence about then. Additions get their
+        own inventory, and the completeness assertion is the union.)*
+        """
+        self.assertEqual(set(_PRE_ITEM_1) | set(_POST_ITEM_1_ADDITIONS),
+                         set(pol.known_section_ids()),
+                         "a section is registered but recorded in neither "
+                         "the historical baseline nor the additions "
+                         "inventory — one of the two is stale")
+
+    def test_the_baseline_and_the_additions_do_not_overlap(self):
+        """Nothing may be both historical and an addition.
+
+        Without this, the union above would still pass if a later id
+        were quietly copied into `_PRE_ITEM_1` — the exact false claim
+        the split exists to prevent.
+        """
+        self.assertEqual(set(), set(_PRE_ITEM_1) & set(_POST_ITEM_1_ADDITIONS))
+
+    def test_every_intentional_addition_matches_its_declared_policy(self):
+        """Additions are held to the same standard as the baseline."""
+        for sid, (required, order) in sorted(_POST_ITEM_1_ADDITIONS.items()):
+            with self.subTest(section=sid):
+                p = pol.policy_for(sid)
+                self.assertEqual(required, p.required)
+                self.assertEqual(order, p.drop_order)
 
 
 class TheTwoLayersStaySeparate(unittest.TestCase):

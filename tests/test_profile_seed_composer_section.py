@@ -746,6 +746,96 @@ class ByteStabilityTests(unittest.TestCase):
                                 "known_topics": [], "remaining_topics": []}
                 self.assertEqual(self.compose(runtime), baseline)
 
+    # ── malformed `known_topics`: crash, or a FALSE "already settled" ──
+    #: Every shape review reproduced, plus the two found reproducing it.
+    MALFORMED_KNOWN = (
+        3,                              # TypeError — not iterable
+        object(),                       # TypeError — not iterable
+        [{}],                           # TypeError — unhashable dict
+        [[]],                           # TypeError — unhashable list
+        {"childhood_home": True},       # iterates KEYS → false "settled"
+        [1, 2],                         # non-string members
+        "childhood_home",               # a str iterates its CHARACTERS
+        [A],                            # contradiction: asking what it
+                                        # calls settled
+    )
+
+    def test_malformed_known_topics_is_byte_identical_to_no_key(self):
+        """Two failure modes, and the quiet one is worse.
+
+        `3` and `object()` raised TypeError; `[{}]` and `[[]]` raised
+        unhashable TypeError inside the registry lookup; a bare string
+        was iterated as CHARACTERS. Those are loud or inert.
+
+        `{"childhood_home": True}` was the dangerous one. A dict
+        iterates its keys, so the block rendered *"Already settled, and
+        NOT to be asked again: where the narrator grew up"* — about a
+        topic nothing had established. Lori then would not ask it, and
+        the narrator would never be asked a question they were owed.
+        Principle 8 holds only while "known" is TRUE.
+        """
+        for pass_name in ("pass1", "pass2a"):
+            runtime_base = dict(FULL_RUNTIME)
+            runtime_base["current_pass"] = pass_name
+            baseline = self.compose(runtime_base)
+            for known in self.MALFORMED_KNOWN:
+                with self.subTest(pass_name=pass_name, known=known):
+                    runtime = dict(runtime_base)
+                    runtime[KEY] = {"action": "present", "topic_id": A,
+                                    "known_topics": known}
+                    self.assertEqual(
+                        self.compose(runtime), baseline,
+                        "malformed known_topics changed the prompt — it must "
+                        "be indistinguishable from the key being absent")
+                    self.assertEqual(self.sections(runtime),
+                                     self.sections(runtime_base),
+                                     "malformed known_topics changed the "
+                                     "section list")
+
+    def test_a_VALID_plan_still_changes_the_prompt(self):
+        """Positive control, so the equalities above cannot pass vacuously.
+
+        If the validator rejected everything, every byte-equality test
+        would report green while the feature was dead.
+        """
+        for pass_name in ("pass1", "pass2a"):
+            runtime_base = dict(FULL_RUNTIME)
+            runtime_base["current_pass"] = pass_name
+            baseline = self.compose(runtime_base)
+            for known in ([], ["military_service"], ["retired_topic_id"]):
+                with self.subTest(pass_name=pass_name, known=known):
+                    runtime = dict(runtime_base)
+                    runtime[KEY] = {"action": "present", "topic_id": A,
+                                    "known_topics": known}
+                    self.assertNotEqual(
+                        self.compose(runtime), baseline,
+                        f"a VALID plan (known_topics={known!r}) left the "
+                        "prompt unchanged — the validator is rejecting good "
+                        "state, so the equality tests above prove nothing")
+
+    def test_absent_known_topics_is_still_a_valid_plan(self):
+        """Absent stays equivalent to empty — a plan that has settled
+        nothing is ordinary, especially at the start of a walk."""
+        runtime = dict(FULL_RUNTIME)
+        runtime[KEY] = {"action": "present", "topic_id": A}
+        text = self.compose(runtime)
+        self.assertIn(_seed.topic(A).question, text)
+        self.assertNotIn("Already settled", text)
+
+    def test_a_plan_never_calls_its_OWN_topic_already_settled(self):
+        """The contradiction, stated as the narrator experiences it.
+
+        `known_topics=[A]` with `topic_id=A` rendered the settled line
+        and the question about the same topic in one turn.
+        """
+        for action in ("present", "re_present"):
+            with self.subTest(action=action):
+                runtime = dict(FULL_RUNTIME)
+                runtime[KEY] = {"action": action, "topic_id": A,
+                                "known_topics": [A, "military_service"]}
+                self.assertEqual(self.compose(runtime),
+                                 self.compose(dict(FULL_RUNTIME)))
+
     # ── active: exactly one section added, one deliberately replaced ──
     def test_an_active_plan_adds_ONLY_the_canonical_section(self):
         baseline = dict(self.sections(dict(FULL_RUNTIME)))

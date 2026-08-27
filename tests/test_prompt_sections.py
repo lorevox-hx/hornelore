@@ -658,7 +658,16 @@ class SectionClassificationTest(unittest.TestCase):
 
     REQUIRED = ("identity_facts", "identity_grounding",
                 "directives_interview", "directives_bio_builder",
-                "directives_questionnaire")
+                "directives_questionnaire", "profile_seed_onboarding")
+    # `profile_seed_onboarding` joined REQUIRED on 2026-08-26
+    # (WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 2 step 4). It is
+    # REQUIRED and never trimmed, not droppable at any order: the walk
+    # asks exactly one question per turn, so a budget that dropped this
+    # section would make Lori silently stop asking mid-onboarding, and
+    # the narrator would experience it as her losing interest. A section
+    # whose absence is indistinguishable from abandonment cannot be
+    # spendable under pressure. It also carries no fallback -- there is
+    # no shorter version of the question to degrade to.
     # `approved_stories` joined the ladder at 25 on 2026-08-18
     # (WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 Phase 3). It sits above the
     # three sections that rebuild themselves on the next turn and below the
