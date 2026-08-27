@@ -2,6 +2,8 @@ from __future__ import annotations
 import os
 import re
 import json
+import sqlite3
+import traceback
 import time
 import pathlib
 import threading
@@ -158,6 +160,7 @@ from .services.extraction_budget import (            # noqa: E402
 # prompt outright because no subset of it is safe to lose, while chat can
 # drop old conversation and carry on. Same shape, opposite policy, and
 # one module doing both would blur which policy applied where.
+from .services import profile_seed_rest as _profile_seed_rest  # noqa: E402
 from .services.prompt_budget import (  # noqa: E402
     fit_chat_messages, fit_chat_messages_with_sections)
 
@@ -627,6 +630,69 @@ def _reject_smuggled_raw_mode(req: _ChatReq) -> None:
                    "— raw drafting is an internal server-side API only")
 
 
+
+# ── WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 2 Step 5 ────────────────
+#
+# The two REST chat paths composed with `runtime71=None`, which is not a
+# neutral default: with no runtime the composer renders "KNOWN IDENTITY
+# FACTS: - none yet" and treats identity as incomplete, so a narrator the
+# server knows is described to Lori as a stranger.
+#
+# ONE helper, called identically from both routes. They are otherwise
+# near-duplicates of each other, and this lane has already paid for a
+# renderer and a predicate that disagreed about the same payload — two
+# copies of an ownership check would be the same defect with a worse
+# blast radius.
+#
+# READ ONLY. Nothing here advances the walk or writes a turn event; that
+# is Step 6, on the committed-turn path.
+def _profile_seed_runtime(conv_id: Optional[str],
+                          profile_obj: Optional[Dict[str, Any]],
+                          *, where: str) -> Optional[Dict[str, Any]]:
+    """The Step 5 runtime fragment, or `None` to compose as before.
+
+    `None` and `{}` are deliberately the same instruction to the caller —
+    pass `runtime71=None` — so that "nothing to add" is byte-identical to
+    the state before this step existed rather than merely similar.
+    """
+    try:
+        runtime = _profile_seed_rest.onboarding_runtime(conv_id, profile_obj)
+    except _profile_seed_rest.OwnerClaimMismatch as mismatch:
+        # REFUSE. A mismatch means a stale tab pointed at another
+        # narrator, or a caller asserting an identity that is not theirs.
+        # Guessing between them would put one narrator's onboarding
+        # questions in front of another narrator, so nothing is composed.
+        print(f"[profile-seed][{where}] {mismatch}")
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "SESSION_OWNER_MISMATCH",
+                "message": ("This conversation belongs to a different "
+                            "narrator. Reload and select the narrator "
+                            "again before continuing."),
+            },
+        )
+    except sqlite3.Error:
+        # STORAGE FAULTS ARE NOT ABSENCE. Falling back to "no onboarding
+        # state" is indistinguishable from a historical narrator and
+        # would silently retire the walk for someone mid-way through it.
+        # traceback.format_exc() rather than a logger: this module
+        # reports with print() throughout, and a second logging style
+        # here would put half of one lane's diagnostics somewhere the
+        # other half is not.
+        print(f"[profile-seed][{where}] storage fault resolving onboarding "
+              f"state:\n{traceback.format_exc()}")
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "PROFILE_SEED_UNAVAILABLE",
+                "message": ("Lori cannot reach her notes right now. "
+                            "Please try again in a moment."),
+            },
+        )
+    return runtime or None
+
+
 # ---------------- REST chat ----------------
 @router.post("/chat")
 def chat(req: _ChatReq) -> Dict[str, Any]:
@@ -652,7 +718,9 @@ def chat(req: _ChatReq) -> Dict[str, Any]:
     conv_for_prompt = (req.conv_id or 'default').strip() or 'default'
     base_system = (ui_base or ui_system or 'You are Lorevox, a warm oral historian and memoir biographer.').strip()
     _composed = compose_prompt_sections(
-        conv_for_prompt, ui_system=base_system, user_text=user_text)
+        conv_for_prompt, ui_system=base_system, user_text=user_text,
+        runtime71=_profile_seed_runtime(req.conv_id, profile_obj,
+                                        where="rest-chat"))
     unified_system = _composed.text
 
     msgs = [{'role': 'system', 'content': unified_system}] + [
@@ -786,7 +854,9 @@ def chat_stream(req: _ChatReq):
     conv_for_prompt = (req.conv_id or 'default').strip() or 'default'
     base_system = (ui_base or ui_system or 'You are Lorevox, a warm oral historian and memoir biographer.').strip()
     _composed = compose_prompt_sections(
-        conv_for_prompt, ui_system=base_system, user_text=user_text)
+        conv_for_prompt, ui_system=base_system, user_text=user_text,
+        runtime71=_profile_seed_runtime(req.conv_id, profile_obj,
+                                        where="rest-stream"))
     unified_system = _composed.text
 
     msgs = [{'role': 'system', 'content': unified_system}] + [

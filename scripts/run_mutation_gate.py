@@ -132,6 +132,9 @@ POLICY = "server/code/api/services/prompt_section_policy.py"
 # A gate scoped to the suite written alongside the feature only ever
 # asks "did I break my own new tests". The sections a new section has to
 # coexist with are exactly where a regression lands.
+REST = "server/code/api/services/profile_seed_rest.py"
+REST_TESTS = "tests.test_profile_seed_rest_read_authority"
+
 CLASSIFIER_TESTS = "tests.test_mutation_gate_classifier"
 
 COMPOSER_TESTS = ("tests.test_profile_seed_composer_section "
@@ -154,6 +157,22 @@ class Mutation:
 
 
 MUTATIONS: Tuple[Mutation, ...] = (
+    Mutation(
+        "S1", "OWNERSHIP INVERTED: the PROFILE_JSON claim beats the "
+              "recorded session owner, and a mismatch is not refused - "
+              "one narrator's onboarding questions reach another",
+        REST,
+        '    if owner and claimed and owner != claimed:\n        raise OwnerClaimMismatch(conv, owner, claimed)\n    return owner or claimed',
+        '    if False and owner and claimed and owner != claimed:\n        raise OwnerClaimMismatch(conv, owner, claimed)\n    return claimed or owner',
+        REST_TESTS, was_real=True),
+    Mutation(
+        "S2", "A STORAGE FAULT IN THE OWNER LOOKUP FALLS BACK to the "
+              "unverified claim, so the most ordinary failure there is "
+              "promotes a caller assertion to authority",
+        REST,
+        '    owner = owner_lookup(conv)',
+        '    try:\n        owner = owner_lookup(conv)\n    except Exception:\n        owner = None',
+        REST_TESTS),
     Mutation(
         "M1", "the first presentation advances its own question",
         TURN,
@@ -631,6 +650,27 @@ def _counts(tests: str, env: dict) -> Tuple[int, int, int, str]:
     return proc.returncode, ran, skipped, tail
 
 
+def _assert_unique_ids() -> None:
+    """No two mutations may share an id.
+
+    *(Step 5 added `R1` and `R2` without checking, and `R1`/`R2` were
+    already the Step 1 refusal mutations. Nothing noticed: the gate
+    keyed reports off the id, so `--only R1` selected two unrelated
+    mutations and a report line could describe either. An identifier
+    that does not identify is worse than a missing one, because every
+    downstream reference silently means something ambiguous.)*
+    """
+    seen = {}
+    for m in MUTATIONS:
+        if m.id in seen:
+            raise SystemExit(
+                f"DUPLICATE MUTATION ID {m.id!r}:\n"
+                f"  {seen[m.id]}\n  {m.what}\n"
+                "Ids are how mutations are selected and reported; two "
+                "cannot share one.")
+        seen[m.id] = m.what
+
+
 def _baseline_green(selected: List["Mutation"], env: dict) -> bool:
     """Every unique selected test command must PASS unmutated.
 
@@ -814,6 +854,7 @@ def main() -> int:
         print("no mutations matched --only")
         return 1
 
+    _assert_unique_ids()
     if not _baseline_green(selected, env):
         return 1
 
