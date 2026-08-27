@@ -784,17 +784,26 @@ exist.)*
 | 2 — one shared refusal helper | landed |
 | 3 — turn state machine, exact tuples, recovery | landed |
 | 4 — isolated composer section | **ACCEPTED** at `b269184` (landed `620d692`; `9f31d9f` was premature) |
-| 5 — REST read authority | 🔵 **CURRENT ACTION** |
-| 6 — WebSocket presentation metadata and advancement | not begun |
+| 5 — REST read authority | **ACCEPTED** at `9127adb` (landed `687c655`) |
+| 6 — WebSocket presentation metadata and advancement | 🔵 **CURRENT ACTION** |
 | 7 — suites and control reconciliation | not begun |
 
 The commit ledger lives in the primary work order's status block, not here — one home, so
 a new commit does not make five documents stale at once.
 
-**Still true, and still the boundary:** no REST, WebSocket or UI wiring has landed, and no
-live transport supplies `profile_seed_onboarding`, so none of the step-3 or step-4 code is
-reachable by a narrator. Step 5 is what begins to change that, on the READ side only — it
-supplies onboarding state to REST chat and REST stream and **advances nothing**. The eight browser promotion sites are untouched — that is Phase 3
+**UPDATED AT STEP 5 ACCEPTANCE.** REST wiring HAS landed: `/api/chat` and
+`/api/chat/stream` supply `profile_seed_onboarding` for composition, on the READ side only
+— they **advance nothing**. Verified against the running API, and by a zero-skip route run
+in `.venv-gpu` that entered both route functions for all three refusals.
+
+*(The previous wording — "no live transport supplies `profile_seed_onboarding`" — is
+retired as FALSE. It was true through step 4 and stopped being true at `687c655`.)*
+
+**The boundary that replaces it:** the narrator product path is still unwired. The UI drives
+`/api/chat/ws`; a complete narrator turn makes zero HTTP requests matching "chat".
+`/api/chat` has no UI caller, and `/api/chat/stream` is reachable only behind the dev-only
+`window.LV_ALLOW_SSE_FALLBACK`. **Step 6 is what puts the walk in front of a narrator**, and
+no UI promotion site has been touched — that remains Phase 3. The eight browser promotion sites are untouched — that is Phase 3
 — and nothing in chronology, Life Map, memoir or story authority, safety, model or context
 window, the directive registry, Kawa, or migrations `0001–0051` has changed.
 

@@ -120,7 +120,7 @@ reason to divert the authority phase.
 | **`WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01`** | **ACCEPTED AND COMPLETE 2026-08-20** | Story-to-memoir synthetic chain **11/11**; deletion-integrity acceptance **10/10**. Verified against the **filesystem and direct SQL**, never a response body. Lori asks naturally → the answer is preserved → the candidate binds to BOTH committed turn rows → extraction reaches operator review → approval and era placement are atomic → chronology and Life Map agree → preview, TXT and DOCX each contain it **exactly once** with one provenance digest. Spec: [`docs/wo/WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01_Spec.md`](docs/wo/WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01_Spec.md). **Gate B stays OPEN, L2 stays PARTIAL, the directive-family registry stays INERT, and Kawa appears here only as REACHABLE FROZEN LEGACY UI AWAITING ADJUDICATION — non-authoritative; do not extend or build on it — plus one storage directory in the erasure inventory.** **NEXT SUBSTANTIVE LANE: Profile Seed reachability — not another story/memoir testing pass.** |
 | **Deletion integrity** | **CLOSED 2026-08-20 — a privacy defect this lane's own cleanup exposed** | `hard_delete_person` removed all active narrator/person-scoped content rows, answered 200, and left eight files on disk, five of them verbatim narrator speech. Erasure is now planned before the database authority is destroyed and persisted (0049) bound to the canonical absolute root (0050); refuses every symlink below the root, including one pointing at ANOTHER narrator inside it; covers eleven stores; deletes media rather than detaching it; purges the translation cache; **reports backups and exports rather than rewriting them**; fails closed before touching a row; and is retryable through the product API with a truthful audit trail. |
 | **Narrators after the acceptance** | **UNTOUCHED** | **the four family narrators and the designated non-family narrator are all untouched**. The synthetic narrators' people rows, active content and filesystem residue are removed; their audit and erasure-job metadata is intentionally retained and carries no narrator speech. Also: `integrity_check ok`; the **six pre-existing `harness-test-gate7p2` FK violations in `interview_sessions` are unchanged and NOT closed by this lane**. |
-| **Profile Seed reachability** | 🔵 **ACTIVE — PHASE 0 ACCEPTED (`661aa95`); PHASE 1 ACCEPTED (`1288baa`); PHASE 2 (prompt and committed-turn wiring) IS IN IMPLEMENTATION and NOT ACCEPTED — steps 1–4 ACCEPTED (step 4 at `b269184`, NOT the premature `9f31d9f`), STEP 5 (REST read authority) IS THE CURRENT ACTION, steps 6–7 owed; detail below** | [`WO-LORI-PROFILE-SEED-REACHABILITY-01`](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md), authored by Chris 2026-08-26. **The ten-topic workflow is preserved and ordinarily unreachable, and the cause is a race the intake itself starts:** intake requires name, DOB and birthplace; those three anchors are exactly what chronology needs; chronology promotes `pass1 → pass2a`; and the composer emits the ten-topic block only for an identity-complete narrator STILL in `pass1`. So the ordinary path supplies what closes its own gate before the narrator's first normal turn, while a testing-only narrator without the anchors goes down identity mode instead — which mutually excludes the block. Present in source, covered as a predicate, and — since Phase 0 — **proven executably**: `tests/test_profile_seed_ordinary_intake_reachability.py` drives the real composer and the real chronology builder to demonstrate the skip, as one `expectedFailure` that will report an unexpected success the moment the defect is repaired. The spec also records completion-data gaps: siblings, explicit "none" answers, education field naming, childhood home versus birthplace, and actual retired/working status. **Phase 0 is COMPLETE AND ACCEPTED** (2026-08-26, at `661aa95`) — 46 tests, three modules, one expected failure, no product or schema change. It pinned eight distinct promotion sites (including the direct ready-narrator initialisation that seats a narrator in `pass2a` AND identity-complete at once), demonstrated the skip as an `expectedFailure` proven to announce its own repair, and built the ten-topic fixtures on the work order's `unanswered | known | addressed | declined`. **Five findings change Phase 1's inputs:** the pass is browser-owned with no server writer anywhere under `server/code/api`; `_build_profile_seed()` returns five keys of which only two are walk topics and both are derived wrongly; the military `served` Boolean is ignored in BOTH directions, not just when false; a real `bio_facts.childhood_home_address` is overridden by birthplace; and there is no canonical marital-status field for an explicit "never married". **All five are CLOSED by Phase 1: the pass has a server owner in `profile_seed_onboarding`, the resolver is a separate contract from `_build_profile_seed()`, the military Boolean is read in both directions and written by intake when the section is present, childhood home reads no birthplace path, and `bio_schema` gained `marital_status`.** **PHASE 2 — prompt and committed-turn wiring — IS IN IMPLEMENTATION and is NOT ACCEPTED. Steps 1–4 are accepted; step 4, the composer section, landed at `620d692` and is ACCEPTED at `b269184` after eleven rounds of correction. It was accepted once at `9f31d9f` and that was PREMATURE — FIVE further corrective commits followed (`c99eb5f`, `3e4c56a`, `a966a37`, `b5148ed`, `b269184`), one of them a real product defect: malformed `known_topics` crashed, or told Lori a topic was settled that nothing had established. STEP 5 — REST read authority — IS THE CURRENT ACTION. Steps 6–7 remain owed: WebSocket presentation metadata and post-commit advancement, then the suites.** The commit ledger lives in the work order's status block. No live transport supplies onboarding state yet, so none of the step-4 code is reachable by a narrator. *(This sentence nested bold inside bold for the fourth time in this lane — a `**` opened inside an already-open `**`, which markdown resolves as a CLOSE, so the emphasis inverted and the words meant to stand out were the only ones that did not. Emphasis is now opened and closed once.)* *(This row ended "Phase 1 — server authority — is next" until 2026-08-26, after Phase 1 was accepted at `1288baa`. A row naming accepted work as next is an instruction to rebuild it.)* |
+| **Profile Seed reachability** | 🔵 **ACTIVE — PHASE 0 ACCEPTED (`661aa95`); PHASE 1 ACCEPTED (`1288baa`); PHASE 2 (prompt and committed-turn wiring) IS IN IMPLEMENTATION and NOT ACCEPTED — steps 1–5 ACCEPTED (step 4 at `b269184`, step 5 at `9127adb`), STEP 6 (WebSocket presentation metadata and post-commit advancement) IS THE CURRENT ACTION AND IS NOT STARTED, step 7 owed; detail below** | [`WO-LORI-PROFILE-SEED-REACHABILITY-01`](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md), authored by Chris 2026-08-26. **The ten-topic workflow is preserved and ordinarily unreachable, and the cause is a race the intake itself starts:** intake requires name, DOB and birthplace; those three anchors are exactly what chronology needs; chronology promotes `pass1 → pass2a`; and the composer emits the ten-topic block only for an identity-complete narrator STILL in `pass1`. So the ordinary path supplies what closes its own gate before the narrator's first normal turn, while a testing-only narrator without the anchors goes down identity mode instead — which mutually excludes the block. Present in source, covered as a predicate, and — since Phase 0 — **proven executably**: `tests/test_profile_seed_ordinary_intake_reachability.py` drives the real composer and the real chronology builder to demonstrate the skip, as one `expectedFailure` that will report an unexpected success the moment the defect is repaired. The spec also records completion-data gaps: siblings, explicit "none" answers, education field naming, childhood home versus birthplace, and actual retired/working status. **Phase 0 is COMPLETE AND ACCEPTED** (2026-08-26, at `661aa95`) — 46 tests, three modules, one expected failure, no product or schema change. It pinned eight distinct promotion sites (including the direct ready-narrator initialisation that seats a narrator in `pass2a` AND identity-complete at once), demonstrated the skip as an `expectedFailure` proven to announce its own repair, and built the ten-topic fixtures on the work order's `unanswered | known | addressed | declined`. **Five findings change Phase 1's inputs:** the pass is browser-owned with no server writer anywhere under `server/code/api`; `_build_profile_seed()` returns five keys of which only two are walk topics and both are derived wrongly; the military `served` Boolean is ignored in BOTH directions, not just when false; a real `bio_facts.childhood_home_address` is overridden by birthplace; and there is no canonical marital-status field for an explicit "never married". **All five are CLOSED by Phase 1: the pass has a server owner in `profile_seed_onboarding`, the resolver is a separate contract from `_build_profile_seed()`, the military Boolean is read in both directions and written by intake when the section is present, childhood home reads no birthplace path, and `bio_schema` gained `marital_status`.** **PHASE 2 — prompt and committed-turn wiring — IS IN IMPLEMENTATION and is NOT ACCEPTED. Steps 1–4 are accepted; step 4, the composer section, landed at `620d692` and is ACCEPTED at `b269184` after eleven rounds of correction. It was accepted once at `9f31d9f` and that was PREMATURE — FIVE further corrective commits followed (`c99eb5f`, `3e4c56a`, `a966a37`, `b5148ed`, `b269184`), one of them a real product defect: malformed `known_topics` crashed, or told Lori a topic was settled that nothing had established. STEP 5 — REST read authority — IS ACCEPTED at `9127adb`, after six corrective commits and a ZERO-SKIP route gate (48 tests, `OK`, no skips, run in `.venv-gpu` — the only interpreter that can import `api.api`). Both `chat` and `chat_stream` were entered for contradictory claim, owner mismatch, storage fault and the non-refusal tripwire. STEP 6 — WebSocket presentation metadata and post-commit advancement — IS THE CURRENT ACTION AND IS NOT STARTED. Step 7 remains owed.** The commit ledger lives in the work order's status block. **REST now supplies onboarding state — the old line "no live transport supplies onboarding state" is RETIRED AS FALSE.** What is still true: the narrator product path is unwired. The UI drives `/api/chat/ws`, a real turn makes zero HTTP requests matching "chat", and `/api/chat/stream` is reachable only behind the dev-only `LV_ALLOW_SSE_FALLBACK`. **REST READS AUTHORITY AND DOES NOT ADVANCE** — a narrator can answer a topic and the durable row will still call it unanswered, which is why Step 6 exists. *(This sentence nested bold inside bold for the fourth time in this lane — a `**` opened inside an already-open `**`, which markdown resolves as a CLOSE, so the emphasis inverted and the words meant to stand out were the only ones that did not. Emphasis is now opened and closed once.)* *(This row ended "Phase 1 — server authority — is next" until 2026-08-26, after Phase 1 was accepted at `1288baa`. A row naming accepted work as next is an instruction to rebuild it.)* |
 | Kawa / Memory River | **REACHABLE FROZEN LEGACY UI** | Phase 2 did not extend it. Awaiting a deliberate removal decision. |
 | Runtime safety | **PARKED, server-authoritative** | Never reactivate through environment values. |
 | Model / 8,192-token window | **LOCKED** | Any proposed model change is stop-and-report. |
@@ -159,7 +159,7 @@ requires a separately reviewed SQLite rebuild and rollback plan.
 
 ## 4. Immediate execution order
 
-**Next action: Profile Seed reachability — PHASE 2, prompt and committed-turn wiring, STEP 5: REST read authority. Phase 2 is IN IMPLEMENTATION and NOT ACCEPTED.** Steps 1 and 2 landed first — production refusal detection now lives in `services/narrator_refusal.py`, so implementation has begun even though behaviour is preserved. Step 3 landed too — the turn state-machine service and a reproducible mutation gate. **Step 4, the composer section, is ACCEPTED at `b269184`** — it landed at `620d692` and took eleven rounds. Two removed authoritative claims about server state made before the versioned apply; one was a real product defect in `known_topics` validation; four were the ACCEPTANCE INSTRUMENT itself — a guard that failed for reasons outside its own subject, a mutation caught by a guard it was not aiming at, and a runner that scored a module broken at import as evidence. **The earlier acceptance at `9f31d9f` was premature and is superseded.** The ledger is in the work order's status block. **STEP 5 — REST READ AUTHORITY — IS THE CURRENT ACTION. STEPS 6–7 REMAIN OWED:** WebSocket presentation metadata and post-commit advancement, then the suites. The commit ledger is in the work order's status block, not here. No live transport supplies `profile_seed_onboarding` yet, so none of the step-4 code is reachable by a narrator. *(This line said "NOT YET BEGUN" until 2026-08-26, after production code had moved. A control document that calls started work unstarted is the same defect as one that calls finished work unfinished.)* Phase 0 is ACCEPTED at `661aa95` and Phase 1 is **ACCEPTED at `1288baa`** — do not redo either. Everything Phase 1 owed is in-tree and green: migration `0051`, `services/profile_seed.py`, atomic enrollment inside `create_person()`, the versioned `GET`/`PATCH`, and the deletion cascade coverage. *(This line read "PHASE 1, server authority" as the next action until 2026-08-26 and "PHASE 1 REVIEW" until acceptance the same day. A next-action line naming accepted work is an instruction to rebuild it, which is the failure this file's own ordering rule exists to prevent.)* Phase 1 was migration `0051`, the canonical topic registry, the completion resolver, atomic enrollment, the versioned GET/PATCH API and deletion coverage. **Phase 2 is: resolve onboarding by narrator BEFORE all three transports compose; render exactly one topic from `TOPIC_REGISTRY`; advance only from the committed-turn path with meta and control turns stationary; complete into an effective `pass2a`.** See [`WO-LORI-PROFILE-SEED-REACHABILITY-01`](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md) §6. **Phase 2 must NOT touch the UI promotion sites — that is Phase 3** — and NOT another story/memoir testing pass. *(This read "Phase 0" until 2026-08-26; Phase 0 ran and was accepted beneath it, and a control document naming accepted work as next is an instruction to redo it.)*
+**Next action: Profile Seed reachability — PHASE 2, STEP 6: WebSocket presentation metadata, response correlation, recovery and post-commit advancement, on the accepted two-event exact-tuple state machine. NOT STARTED. Phase 2 remains IN IMPLEMENTATION and NOT ACCEPTED.** Steps 1 and 2 landed first — production refusal detection now lives in `services/narrator_refusal.py`, so implementation has begun even though behaviour is preserved. Step 3 landed too — the turn state-machine service and a reproducible mutation gate. **Step 4, the composer section, is ACCEPTED at `b269184`** — it landed at `620d692` and took eleven rounds. Two removed authoritative claims about server state made before the versioned apply; one was a real product defect in `known_topics` validation; four were the ACCEPTANCE INSTRUMENT itself — a guard that failed for reasons outside its own subject, a mutation caught by a guard it was not aiming at, and a runner that scored a module broken at import as evidence. **The earlier acceptance at `9f31d9f` was premature and is superseded.** The ledger is in the work order's status block. **STEP 5 IS ACCEPTED at `9127adb`. STEP 6 — WEBSOCKET PRESENTATION METADATA AND POST-COMMIT ADVANCEMENT — IS THE CURRENT ACTION AND HAS NOT BEEN STARTED. STEP 7 REMAINS OWED.** The commit ledger is in the work order's status block, not here. REST supplies `profile_seed_onboarding` now and **advances nothing**; the narrator product path still runs over WebSocket, so a real narrator reaches the walk at Step 6. *(This line said "NOT YET BEGUN" until 2026-08-26, after production code had moved. A control document that calls started work unstarted is the same defect as one that calls finished work unfinished.)* Phase 0 is ACCEPTED at `661aa95` and Phase 1 is **ACCEPTED at `1288baa`** — do not redo either. Everything Phase 1 owed is in-tree and green: migration `0051`, `services/profile_seed.py`, atomic enrollment inside `create_person()`, the versioned `GET`/`PATCH`, and the deletion cascade coverage. *(This line read "PHASE 1, server authority" as the next action until 2026-08-26 and "PHASE 1 REVIEW" until acceptance the same day. A next-action line naming accepted work is an instruction to rebuild it, which is the failure this file's own ordering rule exists to prevent.)* Phase 1 was migration `0051`, the canonical topic registry, the completion resolver, atomic enrollment, the versioned GET/PATCH API and deletion coverage. **Phase 2 is: resolve onboarding by narrator BEFORE all three transports compose; render exactly one topic from `TOPIC_REGISTRY`; advance only from the committed-turn path with meta and control turns stationary; complete into an effective `pass2a`.** See [`WO-LORI-PROFILE-SEED-REACHABILITY-01`](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md) §6. **Phase 2 must NOT touch the UI promotion sites — that is Phase 3** — and NOT another story/memoir testing pass. *(This read "Phase 0" until 2026-08-26; Phase 0 ran and was accepted beneath it, and a control document naming accepted work as next is an instruction to redo it.)*
 
 *(This section read "finish Lean Lori, in one substantial implementation block" until
 2026-08-20. `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` ran and closed in between, and its
@@ -281,6 +281,109 @@ original baseline.
   1,000, `Load more` and the mounted-window distinction remain proven by
   `run_photo_palette_behaviour.js` and `run_photo_window_arithmetic.js`. No rows were
   manufactured to change that.
+
+## 4b. Step 6 boundary, and what Step 5 leaves behind
+
+**Recorded at Step 5 acceptance, 2026-08-27. Clean `main` HEAD: `9127adb`.**
+
+### Acceptance state
+
+| Item | State |
+|---|---|
+| Phase 0 — executable map | **ACCEPTED** `661aa95` |
+| Phase 1 — server authority | **ACCEPTED** `1288baa` |
+| Phase 2 steps 1–3 | accepted (`f23040b` `5a1eb56` `1875821` `b069680` `c6c9ae4` `0335cd3`) |
+| Phase 2 step 4 — composer section | **ACCEPTED** `b269184` |
+| Phase 2 step 5 — REST read authority | **ACCEPTED** `9127adb` |
+| Phase 2 step 6 — WebSocket wiring | 🔵 **CURRENT ACTION — NOT STARTED** |
+| Phase 2 step 7 — suites and reconciliation | owed |
+| Phases 3–5 | not begun |
+
+Step 5 lane, git-derived (`687c655~1..9127adb`, lane files only): **6 files,
++2203 / −10**.
+
+**Test evidence at `9127adb`:**
+
+* **Zero-skip route gate: 48 tests, `OK`, NO SKIPS** —
+  `HORNELORE_REQUIRE_ROUTE_TESTS=1 PYTHONPATH=server/code .venv-gpu/bin/python -m unittest
+  tests.test_profile_seed_rest_read_authority`. Both `chat` and `chat_stream` entered for
+  contradictory-claim 409, owner-mismatch 409, storage-fault 503, and the non-refusal
+  tripwire control.
+* Step 4 + gate + bug-panel **168 OK** · reducer + refusal **84 OK** ·
+  preservation **156 OK (expected failures=1)** · mutations **S1–S11, 11/11 CAUGHT**,
+  six marked as designs this lane actually shipped.
+* **`.venv-gpu` is the only interpreter that can run the route tests** — Python 3.12 with
+  fastapi 0.135.1 and torch 2.12. `.venv` (3.10) and system `python3` (3.12) both lack
+  fastapi and make those tests SKIP, which is not a pass.
+* A `RequestsDependencyWarning` (urllib3 2.6.3 / chardet 7.4.3) appears on that run. It is
+  **non-blocking dependency maintenance** and did not affect the gate.
+
+### What Step 6 must know
+
+**REST reads authority and DOES NOT ADVANCE.** Nothing in Step 5 writes a turn event.
+Measured live: a narrator answers a topic and the durable row still reads
+`active=childhood_home · remaining=10 · version=2`. Within a session the history hides it;
+across a session boundary Lori asks for something she was already told. **Step 6 is the fix
+for that**, and `test_an_answer_recorded_as_REST_SHAPED_TURNS_is_never_applied` is written
+to be REPLACED when it lands, not deleted.
+
+**WebSocket is the actual narrator transport.** `ui/js/api.js` drives `/api/chat/ws`; a
+complete narrator turn produces **zero HTTP requests matching "chat"**. `/api/chat` has no
+UI caller; `/api/chat/stream` is reachable only behind `window.LV_ALLOW_SSE_FALLBACK`, a
+dev-only hatch guarded by `BUG-SSE-FALLBACK-BYPASSES-CHAT-WS-GUARDS-01`. **So the walk is
+live over REST and still not in front of a narrator.**
+
+**No historical-narrator auto-enrollment.** Enrollment happens only inside
+`create_person()`. Measured on the live database: **all five existing narrators — Del,
+Melanie Zollner, Janice, Kent, Christopher — are `enrolled: false`**, so the walk is
+permanently unreachable for them. Doctrine working as written. Extending it to family
+narrators is a **backfill decision**, not a code change.
+
+**Step 6 scope:** add WebSocket presentation metadata, response correlation, recovery and
+post-commit advancement, using the accepted two-event exact-tuple state machine.
+
+**Step 6 must NOT touch:** REST persistence · UI promotion sites (Phase 3) · schema or
+migrations · chronology · Life Map · memoir · story authority · safety (PARKED) ·
+model / 8,192-token window (LOCKED) · directive-family registry (INERT) · Kawa (frozen
+legacy). **Stop after focused implementation and tests, before Step 7 reconciliation.**
+
+### Separate issues — NOT Step 5 evidence, NOT Step 6 scope
+
+* **Test Lab restoration.** `POST /api/test-lab/run` returns a 500: `scripts/run_test_lab.sh`
+  was moved to `scripts/archive/` by `c4ca24e`. **Repointing the constant is NOT the fix** —
+  tried at `8e93262`, reverted at `b61f4a8`. The archived harness is not location-aware
+  (`ROOT_DIR` resolves to `<repo>/scripts`; it calls `scripts/seed_test_narrators.py` and
+  `scripts/test_lab_runner.py`, both also archived), so repointing returns `{"ok": true}`
+  and the child dies in a log — worse than the loud failure. A bounded task of its own.
+* **Bug Panel narrator label.** `_narratorLabel()` read three keys that do not exist on
+  `state.session`, so it rendered `(unnamed)` for every narrator, always. Fixed `23cbdec`,
+  covered by eight Node-run tests at `5e7571c`. **Recorded here separately and deliberately
+  NOT counted as Step 5 evidence.**
+* **Narrator composer collapses on a narrow viewport.** `#chatInput` is `flex: 1` with
+  default `min-width: auto`; measured 39 px wide × 240 px tall at a 697 px viewport, which
+  renders the placeholder as a vertical column of letters. Needs ~500 px of row width. A
+  `min-width` fix was written and **withdrawn unverified** — it may clip Send at narrow
+  widths. Open.
+
+### Live-review artifacts — PRESERVE, NO DELETION AUTHORIZED
+
+| What | Exact IDs |
+|---|---|
+| **Del** (`6ad678ee-b295-49de-8578-da00200848ba`) | turns **1712–1717** on `switch_mtbn3x4a_ifo9`; **22 turns total** across all sessions |
+| **`ZZ Step5 Probe (delete me)`** (`6e606ace-2a72-439a-8474-04140409098b`) | owns `zz-probe-seed-1`, turns **1718–1721** |
+| `zz-probe-contradiction` | **no session, no turns** — the 409 fired before anything was written |
+
+**Nothing has been deleted and no deletion is authorized.** The synthetic probe may be hard
+-deleted through the product erasure path **only on Chris's explicit instruction**. Del and
+all of his data are to be left alone.
+
+### Standing state, unchanged by this lane
+
+Gate B **OPEN** · Lean Lori L2 **PARTIAL, do not resume** · runtime safety **PARKED** ·
+directive-family registry **INERT** · model + 8,192-token window **LOCKED** · Kawa
+**reachable frozen legacy UI awaiting adjudication**.
+
+---
 
 ## 5. Photo Palette product boundary
 

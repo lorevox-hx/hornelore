@@ -11,7 +11,7 @@
 |---|---|
 | 0 — executable map | **ACCEPTED** at `661aa95` |
 | 1 — server authority | **ACCEPTED** at `1288baa` |
-| 2 — prompt and committed-turn wiring | **IN IMPLEMENTATION, NOT ACCEPTED** — steps 1–4 accepted, step 5 current, steps 6–7 owed |
+| 2 — prompt and committed-turn wiring | **IN IMPLEMENTATION, NOT ACCEPTED** — steps 1–5 ACCEPTED (step 5 at `9127adb`), step 6 CURRENT, step 7 owed |
 | 3–5 | not begun |
 
 Phase 2 steps 1–3 have landed: `f23040b` characterizes all eight refusal patterns;
@@ -82,16 +82,75 @@ is now the property rather than a list of exception names — **at least one rea
 failure** — with the classifier's own tests running as an unconditional preflight, proven
 able to refuse the gate rather than merely present in it.
 
-**Step 5 — REST read authority — is the current action.** Steps 6–7 remain owed: WebSocket
-presentation metadata and post-commit advancement, then the suites. **No live transport
-supplies `profile_seed_onboarding` yet, so none of the step-4 code is reachable by a
-narrator.**
+**Step 5 — REST read authority — is ACCEPTED at `9127adb`.** It landed at `687c655` and
+took six corrective commits:
 
-**Binding requirement for Step 5, set at Step 4 acceptance:** REST must supply the actual
-server-derived narrator **name, DOB and birthplace** alongside `identity_complete`.
-Supplying `identity_complete=True` alone produces prompt text stating that no verified
-identity facts are available — a sparse runtime that contradicts itself. Step 5 stops after
-REST read authority and its focused tests, for review, before any WebSocket work begins.
+| Commit | What it corrected |
+|---|---|
+| `687c655` | Step 5 lands — REST composes from server-authoritative onboarding state |
+| `4c075b4` | Byte stability, route ordering, one snapshot, claim scope, `person_id` |
+| `850f145` | Handler requirement derived from the service, not counted |
+| `8d99a5e` | Race pointed the right way; exact status mapping; routes actually called |
+| `b0b20b7` | The rollback must not mask the fault it follows |
+| `3d7aa83` | The Option B limitation stated accurately, and pinned |
+| `ef597ae` | Both-routes tests entered one route; answered-topic test never answered |
+| `9127adb` | Truthful test labels; the interpreter that can run the route gate — **ACCEPTED** |
+
+Git-derived, `687c655~1..9127adb`, lane files only: **6 files, +2203 / −10**.
+
+**THE ZERO-SKIP ROUTE GATE PASSED** — 48 tests, `OK`, **zero skips**, run on WSL with the
+serving venv:
+
+```bash
+HORNELORE_REQUIRE_ROUTE_TESTS=1 PYTHONPATH=server/code \
+    .venv-gpu/bin/python -m unittest tests.test_profile_seed_rest_read_authority
+```
+
+Both `chat` and `chat_stream` were entered for **contradictory claim**, **owner mismatch**,
+**storage failure**, and the **non-refusal tripwire control** — asserted by
+`assertBothRoutesExercised()`, so a partial pass is not possible. `.venv-gpu` is the only
+interpreter that can import `api.api` (`.venv` and system `python3` both lack fastapi).
+
+Focused **48 OK** · Step 4 + gate + bug-panel **168 OK** · reducer + refusal **84 OK** ·
+preservation **156 OK (expected failures=1)** · mutations **S1–S11 11/11 CAUGHT**, six
+marked as designs this lane actually shipped.
+
+**"No live transport supplies `profile_seed_onboarding`" IS NO LONGER TRUE, and the
+sentence has been removed everywhere it appeared.** REST supplies it now, verified against
+the running API: a narrator created through the real intake form was asked her first
+canonical topic over `/api/chat`. What remains true, and is the more useful statement:
+
+> **The narrator product path is still unwired.** `ui/js/api.js` drives
+> `/api/chat/ws`; a complete narrator turn produces **zero HTTP requests matching
+> "chat"**. `/api/chat` has no UI caller at all, and `/api/chat/stream` is reachable only
+> behind `window.LV_ALLOW_SSE_FALLBACK === true`, a dev-only escape hatch guarded by
+> `BUG-SSE-FALLBACK-BYPASSES-CHAT-WS-GUARDS-01`. **A real narrator reaches the walk at
+> Step 6, not Step 5.**
+
+**Option B, preserved and unchanged: REST reads authority and does not advance.** Nothing
+in Step 5 writes a turn event. The consequence, measured live: a narrator answers a topic
+and the durable row still reads `active=childhood_home · remaining=10 · version=2`. Within
+a session the conversation history hides it; **across a session boundary Lori asks for
+something she was already told** — the re-interrogation Principle 8 forbids, arriving
+through a gap in recording rather than by design. Pinned by
+`test_an_answer_recorded_as_REST_SHAPED_TURNS_is_never_applied`, which is written to be
+REPLACED when Step 6 lands rather than deleted.
+
+**No historical-narrator auto-enrollment, and the consequence is live.** Enrollment happens
+only inside `create_person()`. Measured against the running database: **all five existing
+narrators — Del, Melanie Zollner, Janice, Kent and Christopher — are `enrolled: false`**,
+so the ten-topic walk is permanently unreachable for them. That is doctrine working as
+written, not a defect; extending the walk to family narrators is a **backfill decision**,
+not a code change.
+
+**Binding requirement, met:** REST supplies the server-derived narrator **name, DOB and
+birthplace** alongside `identity_complete` and the resolved `person_id`. Supplying the
+Boolean alone produces prompt text stating no verified identity facts are available — a
+runtime that contradicts itself — and `person_id` is load-bearing because the composer's
+person-dependent memory layer is skipped without it.
+
+**Step 6 — WebSocket presentation metadata and post-commit advancement — is the current
+action.** Step 7 remains owed.
 
 *(This block read "READY FOR IMPLEMENTATION" until 2026-08-26, contradicting §6's own
 `STATUS: COMPLETE, ACCEPTED` two hundred lines below. A spec whose header disagrees with its
