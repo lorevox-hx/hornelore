@@ -13,7 +13,7 @@ stack — **`pydantic` AND `fastapi`** — and are skipped, with the reason
 named, where a dependency is genuinely absent.
 
     generic interpreter, no fastapi   ->  green, 5 explicit route skips
-    `.venv-gpu` (the serving venv)    ->  13/13 green, ZERO skips
+    `.venv-gpu` (the serving venv)    ->  22/22 green, ZERO skips
 
 *(Corrected 2026-08-28. This guard checked `pydantic` alone while the
 paragraph above it promised skips for unavailable route dependencies.
@@ -373,6 +373,47 @@ class AccessorStrictnessTests(_StrictBase):
 _ROUTE_DEPENDENCIES: Tuple[str, ...] = ("pydantic", "fastapi")
 
 
+def _dependency_unavailable(name: str) -> Optional[str]:
+    """Import ONE route dependency. Missing -> a reason; else it RAISES.
+
+    ── THE SWEEP WAS STILL BROAD, 2026-08-28 ──────────────────────────
+
+    *(The router-import step below was narrowed to `ModuleNotFoundError`
+    and the sweep above it was left catching bare `ImportError` — the
+    same defect the narrowing was for, one call earlier. Reproduced with
+    a circular-import-style fastapi failure:*
+
+        RESULT RETURNED: fastapi is not installed
+        (cannot import name 'X' from partially initialized module 'fastapi')
+
+    *A partially initialized module is INSTALLED. Reporting it as absent
+    turns a real defect — the likeliest being a circular import
+    introduced by Step 6 — into a skip, and the suite then reports `OK`
+    having measured nothing.)*
+
+    Two conditions, both required, before this is called a skip:
+
+      1. the failure is a `ModuleNotFoundError`, not any other
+         `ImportError` — `ModuleNotFoundError` is a SUBCLASS, so
+         catching the parent catches circular imports too;
+      2. **the module that is missing IS the one being imported.**
+         `import fastapi` failing because `starlette` is absent is a
+         BROKEN INSTALL, not an absent dependency, and it is not this
+         suite's business to paper over it.
+    """
+    import importlib
+    try:
+        module = importlib.import_module(name)
+    except ModuleNotFoundError as exc:
+        missing = (exc.name or "").split(".")[0]
+        if missing == name:
+            return f"{name} is not installed ({exc})"
+        raise
+    if getattr(module, "__file__", None) is None:
+        return f"the offline {name} stub is installed, and it validates nothing"
+    return None
+
+
 def _router_import_unavailable() -> Optional[str]:
     """Import the router. Missing dependency -> a reason; else it RAISES.
 
@@ -410,16 +451,10 @@ def _route_stack_unavailable() -> Optional[str]:
 
     Anything else raises. See `_router_import_unavailable`.
     """
-    import importlib
-
     for name in _ROUTE_DEPENDENCIES:
-        try:
-            module = importlib.import_module(name)
-        except ImportError as exc:
-            return f"{name} is not installed ({exc})"
-        if getattr(module, "__file__", None) is None:
-            return (f"the offline {name} stub is installed, and it "
-                    "validates nothing")
+        reason = _dependency_unavailable(name)
+        if reason is not None:
+            return reason
 
     import pydantic
     if not hasattr(pydantic, "StrictInt"):
@@ -507,6 +542,85 @@ class RouteGuardTests(unittest.TestCase):
         self.assertIsNotNone(reason)
         self.assertIn("fastapi", reason)
 
+    # ── Controls for the OUTER DEPENDENCY SWEEP ────────────────────────
+    #
+    # The router-import step was narrowed first and the sweep above it
+    # was left catching bare `ImportError`, so the same defect survived
+    # one call earlier and nothing tested that call at all. These four
+    # drive `_dependency_unavailable` directly.
+
+    def _patched_import(self, raiser):
+        """Run `_dependency_unavailable('fastapi')` with a scripted import."""
+        import importlib
+        real = importlib.import_module
+
+        def fake(name, *a, **k):
+            if name == "fastapi":
+                raise raiser
+            return real(name, *a, **k)
+
+        importlib.import_module = fake
+        try:
+            return _dependency_unavailable("fastapi")
+        finally:
+            importlib.import_module = real
+
+    def test_the_sweep_reraises_an_ARBITRARY_ImportError(self):
+        """A partially initialized module is INSTALLED.
+
+        The reproduction that reopened this: a circular-import fastapi
+        failure came back as `fastapi is not installed`. `ImportError`
+        is the parent of `ModuleNotFoundError`, so catching the parent
+        catches circular imports — the likeliest way Step 6 breaks this
+        route — and calls them an environment fact.
+        """
+        with self.assertRaises(ImportError) as caught:
+            self._patched_import(ImportError(
+                "cannot import name 'X' from partially initialized module "
+                "'fastapi' (most likely due to a circular import)"))
+        self.assertIn("circular", str(caught.exception))
+
+    def test_the_sweep_reraises_a_NESTED_missing_module(self):
+        """`import fastapi` failing on a MISSING `starlette` is a broken
+        install, not an absent dependency. The missing root must BE the
+        module being imported, or this suite is covering for a
+        half-installed environment it did not diagnose."""
+        with self.assertRaises(ModuleNotFoundError):
+            self._patched_import(ModuleNotFoundError(
+                "No module named 'starlette'", name="starlette"))
+
+    def test_the_sweep_treats_a_GENUINELY_ABSENT_dependency_as_a_skip(self):
+        """The other half, so the guard is not merely strict."""
+        reason = self._patched_import(ModuleNotFoundError(
+            "No module named 'fastapi'", name="fastapi"))
+        self.assertIsNotNone(reason)
+        self.assertIn("fastapi", reason)
+        self.assertIn("not installed", reason)
+
+    def test_the_sweep_rejects_an_OFFLINE_STUB_as_unavailable(self):
+        """A stub that validates nothing must not count as present.
+
+        ~30 modules under `tests/` install one. A "passing" strictness
+        test against `class _BaseModel: pass` would be measuring a class
+        that accepts everything — worse than a skip, because it reports
+        OK.
+        """
+        import importlib
+        import types
+        real = importlib.import_module
+        stub = types.ModuleType("fastapi")   # no __file__
+
+        def fake(name, *a, **k):
+            return stub if name == "fastapi" else real(name, *a, **k)
+
+        importlib.import_module = fake
+        try:
+            reason = _dependency_unavailable("fastapi")
+        finally:
+            importlib.import_module = real
+        self.assertIsNotNone(reason)
+        self.assertIn("stub", reason)
+
     def test_a_NON_ModuleNotFound_router_failure_is_NOT_swallowed(self):
         """A syntax error is not a missing dependency.
 
@@ -538,7 +652,7 @@ class RouteStrictnessTests(unittest.TestCase):
 
     SKIPPED ONLY for an explicitly named missing dependency. On any
     interpreter that has the real `fastapi` + `pydantic` route stack —
-    `.venv-gpu` — these run, and the suite reports 13/13 with ZERO
+    `.venv-gpu` — these run, and the suite reports 22/22 with ZERO
     skips.
     """
 

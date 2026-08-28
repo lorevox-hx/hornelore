@@ -996,11 +996,25 @@ still unwired. All five are closed here; **none is accepted yet.**
 ### 16a. Two ACCEPTANCE-INSTRUMENT defects found reviewing `157af46` — 2026-08-28
 
 The five product corrections were reviewed and found sound. Two of the instruments
-proving them were not, and both failed in the direction that reports success.
+proving them were not — **and they failed in OPPOSITE directions, which is the part worth
+recording.**
+
+* **Defect 6 failed LOUDLY.** It did not report success: it produced **eight errors**, and
+  `run_mutation_gate.py --only P11` then **refused its red baseline**, so the mutation
+  could not run at all. That is the gate working correctly against a broken instrument.
+  The damage was that a mutation could not be exercised, not that a false pass was issued.
+* **Defect 7 failed SILENTLY, and only defect 7.** The inventory counted distinct modes,
+  called them paths, and **reported green** on a tree carrying a tenth path.
+
+*(This section first said both "failed in the direction that reports success". That is
+true of exactly one of them, and flattening the two together loses the distinction that
+decides how worried to be: a loud instrument failure costs a run, a quiet one costs the
+guarantee. Corrected 2026-08-28.)*
 
 | # | Instrument defect | Closed by |
 |---|---|---|
-| 6 | **The strict-version suite checked `pydantic` and not `fastapi`,** while promising skips for unavailable route dependencies. On an ordinary interpreter with pydantic present and fastapi absent it produced **8 ERRORS**, and `run_mutation_gate.py --only P11` then correctly refused its red baseline — so the mutation could not run at all | `_ROUTE_DEPENDENCIES = ("pydantic", "fastapi")`; `_router_import_unavailable()` skips ONLY for a `ModuleNotFoundError` naming one of them and re-raises everything else; five `RouteGuardTests` that run on every interpreter, including the ones that skip |
+| 6 | **The strict-version suite checked `pydantic` and not `fastapi`,** while promising skips for unavailable route dependencies. On an ordinary interpreter with pydantic present and fastapi absent it produced **8 ERRORS**, and `run_mutation_gate.py --only P11` then correctly refused its red baseline — so the mutation could not run at all | `_ROUTE_DEPENDENCIES = ("pydantic", "fastapi")`; `_dependency_unavailable()` and `_router_import_unavailable()` skip ONLY for a `ModuleNotFoundError` whose missing root IS the dependency being imported, and re-raise everything else; nine `RouteGuardTests` that run on every interpreter, including the ones that skip |
+| 6b | **The narrowing was applied to the router import and NOT to the dependency sweep above it** — the same defect, one call earlier, in the half that had no tests. A circular-import fastapi failure came back as `fastapi is not installed (cannot import name 'X' from partially initialized module 'fastapi')` | `_dependency_unavailable()` catches `ModuleNotFoundError` only, requires `exc.name` to BE the dependency (so a missing `starlette` under `import fastapi` re-raises as the broken install it is), and has four direct controls of its own |
 | 7 | **The nine-path inventory collapsed duplicates.** `_deterministic_sites()` returned a dict keyed by `turn_mode`, so two call sites sharing a mode overwrote one another and the file counted DISTINCT MODES while claiming to count PATHS | a `Site` sequence in source order; assertions on the number of call sites, on each mode occurring exactly once, on no unlisted mode, and on each site's classification; a synthetic duplicate positive control; mutation **`D4`** |
 
 **Why 7 mattered more than it looks.** It falsified this map's own headline guarantee —

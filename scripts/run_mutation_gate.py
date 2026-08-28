@@ -799,7 +799,14 @@ MUTATIONS: Tuple[Mutation, ...] = (
         '                    meta={"ws": True, "turn_mode": "floor_buffer"},\n'
         '                )\n'
         '            await _ws_send(ws, {"type": "token", "delta": _buffer_ack})',
-        DETERMINISTIC_TESTS, was_real=True),
+        # NOT `was_real`. The DEFECTIVE INSTRUMENT was real — a dict
+        # keyed by turn_mode, shipped and reviewed. A tenth production
+        # path reusing an existing mode was never written; it is the
+        # hypothesis that discriminates the repair. Starring it made
+        # the footer report 25 designs this lane carried when the
+        # truthful number is 24 — the same inflation the flag's own
+        # note was added to stop, on 2026-08-27, for S7 and S9.
+        DETERMINISTIC_TESTS),
 )
 
 CAUGHT, MISSED, BROKEN = "CAUGHT", "MISSED", "BROKEN"
