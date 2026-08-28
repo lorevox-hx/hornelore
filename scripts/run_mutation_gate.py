@@ -765,6 +765,41 @@ MUTATIONS: Tuple[Mutation, ...] = (
         '    turn_meta: Dict[str, Any] = {"ws": True, "turn_mode": turn_mode,\n'
         '                                 "profile_seed_response_topic": "childhood_home"}',
         DETERMINISTIC_TESTS),
+
+    # ── D4: THE DUPLICATE-MODE TENTH PATH, 2026-08-28 ──────────────────
+    #
+    # D2 renames a path, which changes the SET of modes and was caught by
+    # the old dict-keyed inventory too. D4 is the discriminating case
+    # that inventory could not see: a TENTH persist site that reuses an
+    # existing `turn_mode`.
+    #
+    # Under the dict, two sites keyed `floor_buffer` overwrote one
+    # another, so ten call sites reported as nine modes and the file's
+    # own headline claim — "a tenth path fails this file rather than
+    # joining silently" — was false. Measured on a two-line synthetic
+    # module: 2 call sites in, 1 site reported.
+    #
+    # This is also the likeliest shape for a real tenth path, which is
+    # what makes it worth a mutation rather than a comment: a branch
+    # arrives by COPYING an existing one, and the copy keeps its
+    # predecessor's mode.
+    Mutation(
+        "D4", "A TENTH deterministic persist site reusing an existing "
+              "`turn_mode`, which an inventory keyed by mode counts as nine "
+              "and reports green",
+        WS,
+        '            await _ws_send(ws, {"type": "token", "delta": _buffer_ack})',
+        '            if False:\n'
+        '                persist_turn_transaction(\n'
+        '                    conv_id=conv_id,\n'
+        '                    user_message=user_text,\n'
+        '                    assistant_message=_buffer_ack,\n'
+        '                    model_name="floor-buffer-deterministic",\n'
+        '                    person_id=person_id,\n'
+        '                    meta={"ws": True, "turn_mode": "floor_buffer"},\n'
+        '                )\n'
+        '            await _ws_send(ws, {"type": "token", "delta": _buffer_ack})',
+        DETERMINISTIC_TESTS, was_real=True),
 )
 
 CAUGHT, MISSED, BROKEN = "CAUGHT", "MISSED", "BROKEN"

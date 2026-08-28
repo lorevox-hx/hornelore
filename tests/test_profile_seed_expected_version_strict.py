@@ -8,9 +8,21 @@ WO-LORI-PROFILE-SEED-REACHABILITY-01 — pre-Step-6 correction checkpoint,
     PYTHONPATH=server/code python3 -m unittest \\
         tests.test_profile_seed_expected_version_strict
 
-The accessor tests run everywhere. The ROUTE tests need a real
-`pydantic`; where it is absent they are skipped, and the skip is
-reported rather than swallowed — see `RouteStrictnessTests`.
+The accessor tests run everywhere. The ROUTE tests need the real route
+stack — **`pydantic` AND `fastapi`** — and are skipped, with the reason
+named, where a dependency is genuinely absent.
+
+    generic interpreter, no fastapi   ->  green, 5 explicit route skips
+    `.venv-gpu` (the serving venv)    ->  13/13 green, ZERO skips
+
+*(Corrected 2026-08-28. This guard checked `pydantic` alone while the
+paragraph above it promised skips for unavailable route dependencies.
+Measured on an ordinary interpreter with pydantic present and fastapi
+absent: 13 tests ran and EIGHT ERRORED with `ModuleNotFoundError: No
+module named 'fastapi'`, and `run_mutation_gate.py --only P11` then
+refused its red baseline. `api.routers.interview` imports fastapi one
+line above pydantic; a guard naming one of the two was covering for the
+other with prose.)*
 
 ── THE DEFECT, REPRODUCED BEFORE IT WAS CLOSED ───────────────────────
 
@@ -53,6 +65,7 @@ import tempfile
 import unittest
 import uuid
 from pathlib import Path
+from typing import Optional, Tuple
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _SERVER_CODE = _REPO_ROOT / "server" / "code"
@@ -333,40 +346,201 @@ class AccessorStrictnessTests(_StrictBase):
         self.fail("a numeric string expected_version was accepted")
 
 
-class _NoRealPydantic(Exception):
-    pass
+# ── THE ROUTE STACK IS pydantic AND fastapi, 2026-08-28 ───────────────
+#
+# *(This checked `pydantic` ALONE and asserted in its own docstring that
+# unavailable route dependencies would produce skips. That was false and
+# measured false: on an ordinary interpreter with pydantic installed and
+# fastapi absent, the suite ran 13 tests and produced EIGHT ERRORS —
+# `ModuleNotFoundError: No module named 'fastapi'`, raised inside
+# `_model()` — and `run_mutation_gate.py --only P11` then refused its
+# red baseline, which is the gate working correctly against a broken
+# instrument.*
+#
+# *`api.routers.interview` imports `fastapi` at line 7 and `pydantic` at
+# line 8. A guard that names one of the two is not a guard on the route
+# stack; it is a guard on half of it, with a docstring covering for the
+# other half.)*
+#
+# THE DEPENDENCY LIST IS EXPLICIT, and that is the second half of the
+# correction. "Skip when the router will not import" is the wrong rule:
+# it converts a REAL defect — a syntax error in the router, a bad
+# relative import, a circular import introduced by Step 6 — into a
+# silent skip, and this file would then report OK while measuring
+# nothing. Only a ModuleNotFoundError naming one of the modules below is
+# a skip. Every other import failure propagates and is a collection
+# ERROR, loudly.
+_ROUTE_DEPENDENCIES: Tuple[str, ...] = ("pydantic", "fastapi")
 
 
-def _real_pydantic_or_skip():
-    """The route tests need REAL validation, not the offline stub.
+def _router_import_unavailable() -> Optional[str]:
+    """Import the router. Missing dependency -> a reason; else it RAISES.
 
-    ~30 modules under `tests/` install a minimal `pydantic` stub whose
-    `BaseModel` validates nothing. If one of them ran first in this
-    process, a "passing" strictness test here would be measuring a class
-    that accepts everything — which is worse than a skip, because it
-    reports OK.
+    Separated from the dependency sweep below so it is DIRECTLY
+    testable. Folded into one function it was unreachable on the very
+    interpreter whose behaviour matters most — the one without fastapi
+    returns at the sweep and never reaches this import, so a test of
+    this rule could not observe it there.
     """
+    import importlib
+    try:
+        importlib.import_module("api.routers.interview")
+    except ModuleNotFoundError as exc:
+        missing = (exc.name or "").split(".")[0]
+        if missing in _ROUTE_DEPENDENCIES:
+            return f"route dependency {missing!r} is not installed ({exc})"
+        raise
+    return None
+
+
+def _route_stack_unavailable() -> Optional[str]:
+    """`None` when the route tests can run, else WHY they cannot.
+
+    Three distinct unavailabilities, each reported rather than swallowed:
+
+      * a dependency is genuinely not installed;
+      * a dependency is present as one of the OFFLINE STUBS that ~30
+        modules under `tests/` install. The pydantic stub's `BaseModel`
+        is `class _BaseModel: pass` — it validates nothing, so a
+        "passing" strictness test against it would be measuring a class
+        that accepts everything. That is worse than a skip, because it
+        reports OK;
+      * the router itself cannot be imported FOR A MISSING DEPENDENCY —
+        the same environment fact, reached one import deeper.
+
+    Anything else raises. See `_router_import_unavailable`.
+    """
+    import importlib
+
+    for name in _ROUTE_DEPENDENCIES:
+        try:
+            module = importlib.import_module(name)
+        except ImportError as exc:
+            return f"{name} is not installed ({exc})"
+        if getattr(module, "__file__", None) is None:
+            return (f"the offline {name} stub is installed, and it "
+                    "validates nothing")
+
     import pydantic
-    if getattr(pydantic, "__file__", None) is None:
-        raise _NoRealPydantic("the offline pydantic stub is installed")
     if not hasattr(pydantic, "StrictInt"):
-        raise _NoRealPydantic("pydantic has no StrictInt")
-    return pydantic
+        return "pydantic has no StrictInt"
+
+    return _router_import_unavailable()
 
 
-try:
-    _real_pydantic_or_skip()
-    _HAS_REAL_PYDANTIC = True
-    _PYDANTIC_SKIP_REASON = ""
-except Exception as _exc:  # pragma: no cover
-    _HAS_REAL_PYDANTIC = False
-    _PYDANTIC_SKIP_REASON = str(_exc)
+_ROUTE_SKIP_REASON = _route_stack_unavailable()
 
 
-@unittest.skipUnless(_HAS_REAL_PYDANTIC,
-                     "needs a real pydantic: " + _PYDANTIC_SKIP_REASON)
+class RouteGuardTests(unittest.TestCase):
+    """The guard itself, on every interpreter — INCLUDING the ones that
+    skip the route tests.
+
+    A skip guard is the one piece of a suite that nothing else checks:
+    when it is wrong in the permissive direction the suite errors, and
+    when it is wrong in the other direction the suite reports OK having
+    measured nothing. Both were live here.
+    """
+
+    def test_the_reason_is_None_or_NAMES_a_dependency(self):
+        """A skip must say which dependency, not merely that it skipped."""
+        if _ROUTE_SKIP_REASON is None:
+            return
+        self.assertTrue(
+            any(dep in _ROUTE_SKIP_REASON for dep in _ROUTE_DEPENDENCIES),
+            f"the route tests skip for a reason that names no dependency: "
+            f"{_ROUTE_SKIP_REASON!r}")
+
+    def test_fastapi_is_part_of_the_route_stack(self):
+        """The defect, as a named test.
+
+        `api.routers.interview` imports fastapi at line 7. A guard that
+        omits it lets the suite ERROR where it promised to skip.
+        """
+        self.assertIn("fastapi", _ROUTE_DEPENDENCIES)
+        self.assertIn("pydantic", _ROUTE_DEPENDENCIES)
+        source = (_SERVER_CODE / "api" / "routers"
+                  / "interview.py").read_text(encoding="utf-8")
+        for dep in _ROUTE_DEPENDENCIES:
+            with self.subTest(dep=dep):
+                self.assertIn(f"from {dep} import", source)
+
+    def test_a_NON_dependency_import_failure_is_NOT_swallowed(self):
+        """"The router would not import" must never be a blanket skip.
+
+        A syntax error in the router, a bad relative import, or a
+        circular import introduced by Step 6 are DEFECTS. If those
+        skipped, this file would report OK while measuring nothing —
+        which is the failure mode the whole checkpoint is about.
+        """
+        import importlib
+        real = importlib.import_module
+
+        def fake(name, *a, **k):
+            if name == "api.routers.interview":
+                raise ModuleNotFoundError("No module named 'not_a_dependency'",
+                                          name="not_a_dependency")
+            return real(name, *a, **k)
+
+        importlib.import_module = fake
+        try:
+            with self.assertRaises(ModuleNotFoundError):
+                _router_import_unavailable()
+        finally:
+            importlib.import_module = real
+
+    def test_a_MISSING_DEPENDENCY_import_failure_IS_a_skip(self):
+        """The other half, so the guard is not merely strict."""
+        import importlib
+        real = importlib.import_module
+
+        def fake(name, *a, **k):
+            if name == "api.routers.interview":
+                raise ModuleNotFoundError("No module named 'fastapi'",
+                                          name="fastapi")
+            return real(name, *a, **k)
+
+        importlib.import_module = fake
+        try:
+            reason = _router_import_unavailable()
+        finally:
+            importlib.import_module = real
+        self.assertIsNotNone(reason)
+        self.assertIn("fastapi", reason)
+
+    def test_a_NON_ModuleNotFound_router_failure_is_NOT_swallowed(self):
+        """A syntax error is not a missing dependency.
+
+        `ModuleNotFoundError` is a subclass of `ImportError`; a broader
+        `except ImportError` here would turn a circular import — the
+        most likely way Step 6 breaks this router — into a silent skip.
+        """
+        import importlib
+        real = importlib.import_module
+
+        def fake(name, *a, **k):
+            if name == "api.routers.interview":
+                raise ImportError("cannot import name 'X' (circular)")
+            return real(name, *a, **k)
+
+        importlib.import_module = fake
+        try:
+            with self.assertRaises(ImportError):
+                _router_import_unavailable()
+        finally:
+            importlib.import_module = real
+
+
+@unittest.skipUnless(
+    _ROUTE_SKIP_REASON is None,
+    f"the route stack is unavailable: {_ROUTE_SKIP_REASON}")
 class RouteStrictnessTests(unittest.TestCase):
-    """The request model refuses the same three types the accessor does."""
+    """The request model refuses the same three types the accessor does.
+
+    SKIPPED ONLY for an explicitly named missing dependency. On any
+    interpreter that has the real `fastapi` + `pydantic` route stack —
+    `.venv-gpu` — these run, and the suite reports 13/13 with ZERO
+    skips.
+    """
 
     def _model(self):
         from api.routers.interview import ProfileSeedPatchRequest

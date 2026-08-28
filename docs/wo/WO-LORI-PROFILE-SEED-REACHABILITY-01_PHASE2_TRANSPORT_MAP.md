@@ -259,10 +259,20 @@ it should be named rather than slipped in under "read authority".
 > than by six authors each remembering. The other three inherit nothing at all, which is
 > exactly why they need their own guards and their own rows here.
 >
-> Pinned executably in `tests/test_profile_seed_deterministic_paths.py`: the set of
-> deterministic `turn_mode` values in `chat_ws.py` must be EXACTLY these nine, so a tenth
-> path fails a named test rather than joining silently — and that test also asserts this
-> document names all nine, so the map and the code cannot drift apart again.
+> Pinned executably in `tests/test_profile_seed_deterministic_paths.py`: the number of
+> deterministic persist **call sites** in `chat_ws.py` must be exactly nine, every mode
+> above must occur exactly once, no unlisted mode may appear, and each site must carry its
+> expected finalized/bypassing classification — so a tenth path fails a named test rather
+> than joining silently. That test also asserts this document names all nine, so the map
+> and the code cannot drift apart again.
+>
+> *(Corrected 2026-08-28. This said "the SET of deterministic `turn_mode` values", and the
+> extractor behind it returned a dict keyed by mode — so two call sites sharing a mode
+> collapsed into one, and the "a tenth path cannot join silently" claim was false in
+> exactly the case a tenth path is likeliest to arise: a branch copied from an existing one
+> that keeps its predecessor's `turn_mode`. Proved on a two-line synthetic module: 2 call
+> sites in, 1 site reported. Mutation `D4` adds a tenth site reusing `floor_buffer`; the
+> old extractor reported 9 and passed, the corrected one reports 10 and fails.)*
 
 ### The nine persisted deterministic paths
 
@@ -982,6 +992,35 @@ still unwired. All five are closed here; **none is accepted yet.**
 | 3 | §6 said six deterministic paths; there are **nine** | §6 rewritten above; `tests/test_profile_seed_deterministic_paths.py`; mutations `D1`–`D3` |
 | 4 | `eligible=False` returned `IDLE`, reviving the legacy browser block mid-walk; controls classified `addressed` | §6b above: the `HOLD` action and `services/conversation_control.py`; mutations `H1`–`H7` |
 | 5 | `HANDOFF.md` named a hash as "current `main`" | replaced with `git rev-parse origin/main` |
+
+### 16a. Two ACCEPTANCE-INSTRUMENT defects found reviewing `157af46` — 2026-08-28
+
+The five product corrections were reviewed and found sound. Two of the instruments
+proving them were not, and both failed in the direction that reports success.
+
+| # | Instrument defect | Closed by |
+|---|---|---|
+| 6 | **The strict-version suite checked `pydantic` and not `fastapi`,** while promising skips for unavailable route dependencies. On an ordinary interpreter with pydantic present and fastapi absent it produced **8 ERRORS**, and `run_mutation_gate.py --only P11` then correctly refused its red baseline — so the mutation could not run at all | `_ROUTE_DEPENDENCIES = ("pydantic", "fastapi")`; `_router_import_unavailable()` skips ONLY for a `ModuleNotFoundError` naming one of them and re-raises everything else; five `RouteGuardTests` that run on every interpreter, including the ones that skip |
+| 7 | **The nine-path inventory collapsed duplicates.** `_deterministic_sites()` returned a dict keyed by `turn_mode`, so two call sites sharing a mode overwrote one another and the file counted DISTINCT MODES while claiming to count PATHS | a `Site` sequence in source order; assertions on the number of call sites, on each mode occurring exactly once, on no unlisted mode, and on each site's classification; a synthetic duplicate positive control; mutation **`D4`** |
+
+**Why 7 mattered more than it looks.** It falsified this map's own headline guarantee —
+"a tenth path fails a named test rather than joining silently" — in precisely the case a
+tenth path is likeliest to arise: a branch copied from an existing one that keeps its
+predecessor's `turn_mode`. Measured against the mutated tree, the old extractor reported
+**9 sites and passed**; the corrected one reports **10 and fails**.
+
+**Why 6 mattered.** A skip guard is the one part of a suite nothing else checks. Wrong in
+the permissive direction it errors loudly; wrong in the other direction it reports `OK`
+having measured nothing. The correction also refuses to treat an arbitrary router-import
+failure as a skip — a circular import introduced by Step 6 is a defect, not an
+environment fact, and must not be able to silence this suite.
+
+Two-environment proof, required and produced:
+
+| Interpreter | Result |
+|---|---|
+| generic, real `pydantic`, no `fastapi` | `OK (skipped=5)` — five route tests skipped, each naming `fastapi` |
+| real `fastapi` + `pydantic` route stack | `OK`, **zero skips** |
 
 **Deliberately NOT touched, and this is the boundary that makes the checkpoint
 reviewable:** the WebSocket wiring itself, the eight UI promotion sites, REST

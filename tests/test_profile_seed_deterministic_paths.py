@@ -40,9 +40,20 @@ about is a persist site nobody thinks to check.
 
 Asserted:
 
-  * the set of deterministic `turn_mode` values in `chat_ws.py` is
-    EXACTLY the nine named here — so a tenth path fails this file rather
-    than joining silently;
+  * the number of deterministic persist CALL SITES in `chat_ws.py` is
+    exactly nine, every expected mode occurs exactly once, no unlisted
+    mode is present, and each site carries its expected
+    finalized/bypassing classification — so a tenth path fails this file
+    rather than joining silently;
+
+    *(Corrected 2026-08-28. This read "the SET of deterministic
+    `turn_mode` values", and the extractor returned a dict keyed by
+    mode, so two sites sharing a mode collapsed into one. The claim in
+    the same sentence — that a tenth path cannot join silently — was
+    therefore false in exactly the case a tenth path is most likely to
+    arise: a copied branch that keeps its predecessor's `turn_mode`. A
+    set answers "which modes exist"; the question here is "how many
+    paths persist a turn", and only a sequence can answer it.)*
   * no `meta` dict literal anywhere in `chat_ws.py` carries a Profile
     Seed metadata key;
   * `_finalize_deterministic_turn` mentions no Profile Seed key and
@@ -65,6 +76,7 @@ import ast
 import sys
 import unittest
 from pathlib import Path
+from typing import List, NamedTuple
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _SERVER_CODE = _REPO_ROOT / "server" / "code"
@@ -121,9 +133,40 @@ def _dict_literal(node):
     return out
 
 
-def _deterministic_sites(tree):
-    """`{turn_mode: (lineno, kind)}` for every deterministic path."""
-    found = {}
+class Site(NamedTuple):
+    """One deterministic persist site. ONE PER CALL, never per mode."""
+    turn_mode: str
+    lineno: int
+    kind: str          # "finalized" | "bypassing"
+
+
+def _deterministic_sites(tree) -> List[Site]:
+    """EVERY deterministic call site, in source order.
+
+    ── A DICT KEYED BY `turn_mode` COLLAPSED DUPLICATES, 2026-08-28 ─────
+
+    *(This returned `{turn_mode: (lineno, kind)}`. Two call sites using
+    the same mode overwrote one another, so the inventory reported the
+    number of DISTINCT MODES and called it the number of paths. Proved
+    directly against a two-line synthetic module:*
+
+        call sites in source: 2
+        sites reported:       1   {'floor_hold': (2, 'finalized')}
+
+    *Which makes this file's own headline claim — "a tenth path fails
+    this file rather than joining silently" — FALSE in exactly the case
+    a tenth path is most likely to arise: someone copying an existing
+    branch, keeping its `turn_mode`, and adding a persist call. The
+    inventory would have counted nine and reported green.*
+
+    *A container that deduplicates is the wrong instrument for a
+    question about COUNTING call sites, and it hid that by answering a
+    different question fluently.)*
+
+    A list, in source order. `test_the_extractor_does_NOT_collapse_two_sites_sharing_a_mode`
+    is the positive control that keeps it one.
+    """
+    found: List[Site] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -132,35 +175,108 @@ def _deterministic_sites(tree):
         if name == "_finalize_deterministic_turn":
             mode = _const(kwargs.get("turn_mode"))
             if isinstance(mode, str):
-                found[mode] = (node.lineno, "finalized")
+                found.append(Site(mode, node.lineno, "finalized"))
         elif name == "persist_turn_transaction":
             meta = _dict_literal(kwargs.get("meta"))
             if not meta:
                 continue
             mode = _const(meta.get("turn_mode"))
             if isinstance(mode, str):
-                found[mode] = (node.lineno, "bypassing")
-    return found
+                found.append(Site(mode, node.lineno, "bypassing"))
+    return sorted(found, key=lambda s: s.lineno)
+
+
+def _sites_for(sites: List[Site], mode: str) -> List[Site]:
+    return [s for s in sites if s.turn_mode == mode]
 
 
 class InventoryTests(unittest.TestCase):
-    """The map said six. There are nine, and the count is asserted."""
+    """The map said six. There are nine, and the COUNT OF SITES is asserted."""
 
     def setUp(self):
         self.sites = _deterministic_sites(_tree())
 
-    def test_exactly_nine_deterministic_paths_exist(self):
+    def test_exactly_NINE_CALL_SITES_exist(self):
+        """The count of SITES, not of distinct modes.
+
+        This is the assertion the dict could not make. A tenth path that
+        reuses an existing `turn_mode` — the likeliest kind, since it
+        arrives by copying a branch — left the mode set unchanged and
+        the old inventory reported green.
+        """
         self.assertEqual(
-            sorted(self.sites), sorted(ALL_DETERMINISTIC_MODES),
-            "the set of deterministic turn_modes in chat_ws.py no longer "
-            "matches this inventory. A NEW path must be added here, to the "
-            "transport map §6, and given a guard below — it does not "
-            "inherit one by existing.")
+            len(self.sites), len(ALL_DETERMINISTIC_MODES),
+            "the number of deterministic persist SITES in chat_ws.py is "
+            f"{len(self.sites)}, not {len(ALL_DETERMINISTIC_MODES)}. Sites "
+            f"found: {self.sites}. A NEW path must be added to this "
+            "inventory, to transport map §6, and given a guard below — it "
+            "does not inherit one by existing.")
+
+    def test_every_expected_mode_occurs_EXACTLY_ONCE(self):
+        for mode in ALL_DETERMINISTIC_MODES:
+            with self.subTest(mode=mode):
+                hits = _sites_for(self.sites, mode)
+                self.assertEqual(
+                    len(hits), 1,
+                    f"{mode} appears at {len(hits)} deterministic persist "
+                    f"sites: {hits}. Each mode names ONE path; two sites "
+                    "sharing a mode are two paths wearing one name, and the "
+                    "guards below are written per path.")
+
+    def test_no_UNEXPECTED_mode_is_present(self):
+        unexpected = [s for s in self.sites
+                      if s.turn_mode not in ALL_DETERMINISTIC_MODES]
+        self.assertEqual(unexpected, [], f"unlisted deterministic paths: "
+                                         f"{unexpected}")
+
+    def test_every_site_carries_its_expected_classification(self):
+        """Per SITE, not per mode.
+
+        `finalized` inherits the shared finalizer's structural guarantee;
+        `bypassing` inherits nothing and is guarded individually. A site
+        that changed category silently would move between two different
+        proofs.
+        """
+        expected = dict.fromkeys(FINALIZED_MODES, "finalized")
+        expected.update(dict.fromkeys(BYPASSING_MODES, "bypassing"))
+        for site in self.sites:
+            with self.subTest(mode=site.turn_mode, line=site.lineno):
+                self.assertEqual(
+                    site.kind, expected.get(site.turn_mode),
+                    f"chat_ws.py:{site.lineno} ({site.turn_mode}) is "
+                    f"{site.kind}, not {expected.get(site.turn_mode)}")
+
+    def test_the_extractor_does_NOT_collapse_two_sites_sharing_a_mode(self):
+        """THE POSITIVE CONTROL for the 2026-08-28 defect.
+
+        Synthetic, because the real module deliberately has no duplicate
+        — so nothing in the tree can demonstrate that the extractor
+        would see one. Without this, the count assertion above passes
+        whether or not the collapse was ever fixed.
+        """
+        duplicated = ast.parse(
+            '_finalize_deterministic_turn(ws, turn_mode="floor_hold")\n'
+            '_finalize_deterministic_turn(ws, turn_mode="floor_hold")\n'
+            'persist_turn_transaction(conv_id=c, '
+            'meta={"ws": True, "turn_mode": "floor_buffer"})\n'
+            'persist_turn_transaction(conv_id=c, '
+            'meta={"ws": True, "turn_mode": "floor_buffer"})\n')
+        sites = _deterministic_sites(duplicated)
+        self.assertEqual(
+            len(sites), 4,
+            f"the extractor collapsed four call sites into {len(sites)}: "
+            f"{sites}. Keyed by turn_mode it reported 2, and an inventory "
+            "that deduplicates cannot count paths.")
+        self.assertEqual(len(_sites_for(sites, "floor_hold")), 2)
+        self.assertEqual(len(_sites_for(sites, "floor_buffer")), 2)
+        self.assertEqual([s.kind for s in sites],
+                         ["finalized", "finalized", "bypassing", "bypassing"])
 
     def test_the_six_finalized_paths_route_through_the_shared_finalizer(self):
         for mode in FINALIZED_MODES:
             with self.subTest(mode=mode):
-                self.assertEqual(self.sites[mode][1], "finalized")
+                self.assertEqual(_sites_for(self.sites, mode)[0].kind,
+                                 "finalized")
 
     def test_the_three_bypassing_paths_persist_directly(self):
         """Named as a property, not as trivia.
@@ -172,7 +288,8 @@ class InventoryTests(unittest.TestCase):
         """
         for mode in BYPASSING_MODES:
             with self.subTest(mode=mode):
-                self.assertEqual(self.sites[mode][1], "bypassing")
+                self.assertEqual(_sites_for(self.sites, mode)[0].kind,
+                                 "bypassing")
 
     def test_the_transport_map_lists_all_nine(self):
         """The document and the code agree, or this fails.
@@ -332,13 +449,21 @@ class BypassingPathGuardTests(unittest.TestCase):
                 return node
         self.fail(f"no enclosing block containing a return found at {lineno}")
 
-    def _sites(self):
-        return _deterministic_sites(_tree())
+    def _site_line(self, mode):
+        """The ONE call site for `mode`, or a named failure.
+
+        `InventoryTests` proves each mode occurs exactly once; this
+        asserts it again at the point of use so a duplicate cannot
+        silently make these guards inspect only the first site.
+        """
+        hits = _sites_for(_deterministic_sites(_tree()), mode)
+        self.assertEqual(len(hits), 1,
+                         f"{mode} has {len(hits)} call sites: {hits}")
+        return hits[0].lineno
 
     def test_each_bypassing_path_stamps_no_profile_seed_key(self):
-        sites = self._sites()
         for mode in BYPASSING_MODES:
-            lineno = sites[mode][0]
+            lineno = self._site_line(mode)
             region = ast.dump(self._enclosing_region(lineno))
             for key in _turn.META_KEYS:
                 with self.subTest(mode=mode, key=key):
@@ -347,9 +472,8 @@ class BypassingPathGuardTests(unittest.TestCase):
                         f"the {mode} early return stamps {key}")
 
     def test_each_bypassing_path_applies_no_onboarding_progress(self):
-        sites = self._sites()
         for mode in BYPASSING_MODES:
-            lineno = sites[mode][0]
+            lineno = self._site_line(mode)
             region = self._enclosing_region(lineno)
             called = {_call_name(n) for n in ast.walk(region)
                       if isinstance(n, ast.Call)}
@@ -367,9 +491,8 @@ class BypassingPathGuardTests(unittest.TestCase):
         and be covered by Step 6's plan instead — a different contract,
         and one this file should stop claiming to cover.
         """
-        sites = self._sites()
         for mode in BYPASSING_MODES:
-            lineno = sites[mode][0]
+            lineno = self._site_line(mode)
             region = self._enclosing_region(lineno)
             returns = [n for n in ast.walk(region) if isinstance(n, ast.Return)]
             with self.subTest(mode=mode):
@@ -388,9 +511,8 @@ class BypassingPathGuardTests(unittest.TestCase):
         particular.
         """
         total = len(_CHAT_WS.read_text(encoding="utf-8").splitlines())
-        sites = self._sites()
         for mode in BYPASSING_MODES:
-            region = self._enclosing_region(sites[mode][0])
+            region = self._enclosing_region(self._site_line(mode))
             span = getattr(region, "end_lineno", 0) - region.lineno
             with self.subTest(mode=mode, span=span):
                 self.assertGreater(span, 0)
@@ -412,7 +534,9 @@ class Step6TripwireTests(unittest.TestCase):
         left them.
         """
         sites = _deterministic_sites(_tree())
-        self.assertEqual(len(sites), 9)
+        self.assertEqual(len(sites), 9, f"sites: {sites}")
+        self.assertEqual(sorted(s.turn_mode for s in sites),
+                         sorted(ALL_DETERMINISTIC_MODES))
         source = _CHAT_WS.read_text(encoding="utf-8")
         self.assertNotIn("profile_seed_apply", source)
         for key in _turn.META_KEYS:
