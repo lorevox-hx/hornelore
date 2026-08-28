@@ -257,3 +257,143 @@ Parked runtime safety (server-authoritative; reactivation takes Chris's explicit
 decision) · frozen Kawa / Memory River, reachable legacy UI awaiting adjudication · the
 inert directive-family registry · compatibility readers · migrations `0001–0051` · the
 main `tests/` tree · Profile Seed onboarding preservation tests.
+
+---
+
+## 9. First Step 3 cohort — obligations preserved from dated artifacts
+
+**Precondition for the move, not a record of it.** `WO-REPOSITORY-HYGIENE-01` §4 schedules
+four root dated artifacts as the first Step 3 cohort. Three of them carry live obligations
+that exist nowhere else, so under the rule in *Why this file exists* they are written down
+here **before** the files move. The fourth, `clock_mockups_v1.html`, carries none — it is a
+design mockup with no runtime references.
+
+**Every entry cites its source artifact and section.** Where a checklist row or work order
+already owns an item, the entry points at that owner rather than restating its status;
+acceptance hashes are deliberately absent, because `HANDOFF.md` §1 is their one home.
+
+**A classification here is evidence, not old status prose.** "Verified" means the defect
+condition was observed in the current tree during the 2026-08-28 pre-move audit.
+"Unverified" means the finding is an August-2026 review measurement that a read-only audit
+could not reproduce — the cited line numbers have moved, or the claim is about the operator's
+machine rather than the repository. **An unverified finding is not a current defect claim.**
+
+### 9.1 Verified current defects
+
+| Item | Source | Observed 2026-08-28 |
+|---|---|---|
+| WS receive loop catches only `WebSocketDisconnect` | Review §2 S3 | `chat_ws.py` receive loop; a malformed frame still skips cancel-event cleanup |
+| REST `/api/chat/stream` stop event is dead wiring | Review §2 S4 | `ev.set()` occurs **zero** times in `server/code/api/api.py` |
+| REST chat persists `msgs[-1]` as `role='user'` regardless | Review §2 S6 | `api.py:793` — the misattribution class `WO-SYSTEM-DIRECTIVE-PERSISTENCE-01` exists to prevent |
+| `index.json` read-modify-write is neither locked nor atomic | Review §2 S9 | no `os.replace` in `server/code/api/archive.py` |
+| No size cap on the direct photo upload lane | Review §2 S10 | no cap constant in `routers/photos.py`; the picker lane it "matches" enforces 50MB |
+| No `PRAGMA user_version`; migration correctness rests on permanent DDL idempotence | Review §2 S11 | zero occurrences in `db.py` |
+| DST-skewed log-timestamp conversion | Review §2 S15 | two `mktime` uses remain in `services/stack_monitor.py` |
+| Memoir save replaces the structured `<section>`/`<mark data-narrative-role>` DOM | Review §3 U4, §11.3, §12.4 | escaping half landed; the structural half was recorded as needing its own WO and none exists |
+| Production shell starts Test Lab polling unconditionally | Review §3 U9 | `ui/hornelore1.0.html:10091` — two never-cleared intervals per operator session. **Repointing Test Lab is a known false-success lane; treat as bounded.** |
+| `sysBubble()` narrator-dignity pass | `PLAN_2026-07-13` §C2 | 28 calls in `ui/js/app.js`, 7 gated. Design principle 2 (no operator leakage) applies to the remainder |
+| Dead `_UNTRUSTED_DATE_LEVELS` constant | `PLAN_2026-07-13` §C6 | still at `services/trip_photo_clustering.py:103` |
+| `story_candidates` extraction Path 2 | `PLAN_2026-07-13` §D2 | `extraction_status` / `extracted_fields` and a working setter, with **no callers outside `db.py`**. Preserved narrator memories unused. Draft candidates behind operator review only — never auto-promote |
+| `utterance_frame` has no product consumer | `PLAN_2026-07-13` §D3 | `chat_ws.py` builds a frame behind `HORNELORE_UTTERANCE_FRAME_LOG` and passes it to `logger.info` and nowhere else. Still log-only |
+| `.env` flag-audit work order | `PLAN_2026-07-13` §C4 | never written. Documented-versus-read flag drift already cost real time |
+| Whole-tree `discover` isolation acceptance undemonstrated | `PLAN_2026-07-13` §A1 | the two named `DB_PATH` sites now save and restore, and `tests/__init__.py` sets a temp path — but A1's acceptance ("no spurious trips-table errors under full discover") has never been shown, and `CLAUDE.md` still mandates per-module runs |
+| `CLAUDE.md` cross-suite contamination reference is **semantically misdirected** | found during the 2026-08-28 pre-move audit | `CLAUDE.md` sends the reader to `HANDOFF.md` §7 for cross-suite state contamination. **§7 exists; it does not document that subject.** The section link resolves — the claim it makes about the target does not. Introduced by the Step 2 `HANDOFF.md` reduction. Fix the pointer or restore the content; do not describe this as a broken link |
+| Gate 7 truth-pipeline observability has no stated current colour | `PLAN_2026-07-13` §C3 and its parked list | `docs/architecture/LORI-RUNTIME-ARCHITECTURE.md` documents the design and a 2026-07-30 Phase 2, but no live control document states Gate 7's status. PLAN called it "the biggest parent-session blocker" |
+
+**Travel Doc binding-eval corpus** — `PLAN_2026-07-13` §D1. Report-only, no truth writes.
+The trip lane supplies free labels: when the narrator is scoped to a trip/day/stop/photo,
+the correct binding target is already known, so per captured turn it can store expected
+binding (UI scope) against predicted binding (extractor) with pass/fail/reason.
+**Recorded as a distinct obligation.** `MASTER_WORK_ORDER_CHECKLIST.md` §B item 4
+(extraction improvement, four-persona harness) may absorb it, but **only through an
+explicit later scoping decision** — it is not the same work, and folding it in silently
+would lose the trip-scope label source that makes it cheap.
+
+### 9.2 Deferred or separately authorized — scheduled in checklist §F
+
+`MASTER_WORK_ORDER_CHECKLIST.md` §F owns scheduling and authorization for these; this file
+owns the record that they are unresolved. **Both entries are intended — neither replaces
+the other, and §F rows are not to be removed on account of this section.**
+
+| Item | Source | Owner |
+|---|---|---|
+| Shared-token authentication | Review §1 C3, §11.1 (recorded as deliberately not done — origin allowlist and loopback bind closed the browser and LAN classes; a token adds defense in depth and touches ~30 UI files) | checklist §F |
+| Hard-delete / archive atomicity, and the six orphaned-session FK violations | Review §2 S12, §12.4 | checklist §F |
+| Comprehensive test runner, plus the conftest-level isolation the runner would encode | Review §5.1 | checklist §F |
+| ESLint / lint / build / typecheck for the UI JavaScript, and cache-busting | Review §5.3 | checklist §F |
+| One unified boot entrypoint | Review §5.5 | checklist §F |
+| `ws_chat`, extraction-router and giant-module decomposition | Review §4, §8 step 5 | checklist §F |
+
+### 9.3 Parked safety-reactivation preconditions
+
+Runtime safety is **PARKED** by the decision of 2026-08-04 and reactivation takes Chris's
+explicit decision. **Parking removes current reachability; it does not settle these.** Each
+must be reconsidered before any reactivation — they are preconditions, not scheduled work.
+
+| Item | Source | Why it is not closed |
+|---|---|---|
+| End-to-end runtime safety routing proof | `PLAN_2026-07-13` §C1b | **Partially covered.** `tests/test_safety_e2e_routing.py` mirrors the WebSocket hook in a subprocess and duplicates `_LLM_CAT_MAP` and the routing order. C1b required extracting the real safety block into a callable function and testing *that function*; the extraction never happened. Before reactivation, replace or supplement the mirrored composition test with a callable or live-route proof |
+| Sensitive-segment flags stored plaintext in `localStorage` | Review §3 U11 | Cleaned on narrator delete, unencrypted per browser profile. Parking makes it unreachable today; it does not decide the storage question |
+| `_SAFETY_LLM_PARSE_FAILURES` grows unbounded per `conv_id` | Review §2 S13 | The trip caches took a 500-entry cap for exactly this reason. **Unverified** — six references found, no cap confirmed. Re-audit belongs with reactivation, not with hygiene |
+
+### 9.4 Unverified August-review findings — bounded re-audit before closure
+
+**From the 2026-08-12 review, not reproduced on 2026-08-28.** Cited line numbers have moved,
+the measurement was of the operator's machine rather than the repository, or the grep shape
+could not confirm the specific site. **None of these may be closed, and none may be asserted
+as a current defect, without a bounded re-audit.** Do not investigate them during hygiene.
+
+| Item | Source |
+|---|---|
+| Blocking DB work and whole-transcript rewrite on the event loop inside the async WS handler | Review §2 S5 |
+| Photo people/events PATCH is delete-all-then-re-add across separate connections, with no rollback | Review §2 S7 |
+| `_json_dumps` trusts any string as pre-serialized JSON; the read side masks corruption as `{}` | Review §2 S14 |
+| Stale-narrator race in the WO-10 panels — `pid` captured once, no re-check, no `AbortController` | Review §3 U6 |
+| WebSocket reconnect has no backoff; `catch{}` on `onmessage` silently drops frames | Review §3 U8 |
+| Uncleared module-level `setInterval`s (the review's 22-versus-14 count did not reproduce) | Review §3 U10 |
+| Per-narrator `localStorage` keys cleaned by two duplicated hand-written removal lists | Review §3 U12 |
+| E2E plumbing broken — `playwright.config.ts` points at a nonexistent script; npm scripts reference missing specs | Review §5.2 |
+| Roughly 45% of Python tests are source-shape scans; the pre-doctrine backlog remains | Review §5.4 |
+| `.runtime/logs/api.log` retention not enforced; narrator prose accumulating | Review §6 |
+| `package.json` rot — `main`, license, duplicated Playwright dependency | Review §6 |
+| **No backup strategy for `C:\hornelore_data`** — the 93MB memory archive reported as having no backup at all | Review §10 hygiene |
+| Retention date owed for the pre-wipe narrator backup | Review §10 privacy, LOW |
+| `import_staging/` holds Picker originals with no expiry | Review §10 hygiene, LOW |
+| `.env.bak*` deletion and Google refresh-token rotation | Review §1 C2, §12.4 — operator-machine action, not a repository change |
+
+### 9.5 Banked historical options — not scheduled, and not promises
+
+Recorded so an old parked option is not later mistaken for a current commitment, and not
+lost either. **None of these is scheduled. None may be promoted without Chris's decision.**
+
+* **SearXNG / Brave public-lookup Phase 3** — `PLAN_2026-07-13`, "Explicitly parked".
+* **Vision drafts Phase 4** — same.
+* **New Travel Doc features** — same, under the July freeze ("the lane is code-complete; it
+  is not proven"). The Trip and Palette work accepted later does not reopen this.
+* **Direct master-eval movement work** — same. PLAN's own ground rule 3 records that the
+  trip lane will not move the master eval and that we would not claim it does.
+
+### 9.6 Deliberately not carried forward
+
+Listed so their absence is not mistaken for an oversight, in the manner of §7.
+
+**Resolved with current evidence:** the `_looks_spanish` two-tier fix, thematic-chain and
+anchor-echo follow-ups, and the sensory-invention guard (`HANDOFF_2026-07-01`) · the
+`SafetyResult` import-contract test and the `memory_exercise` doctrine conflict
+(`PLAN_2026-07-13` §A2, §C5) · S1, S2, S8, U1, U2, U3, U5, U7 and the `docs/reports/`
+doctrine conflict (Review §11, §12.2) · the `hard_delete_person` archive residue and the
+orphan photo directories (Review §10), closed by the 2026-08-20 erasure work, whose fixed
+targets name `memory/archive/people` and `memory/archive/photos` directly.
+
+**Superseded:** `WO-TRIP-TAB-DB-01`, never written, its substance landed in the trip lane
+(`HANDOFF_2026-07-01`) · README and checklist reconciliation, done by hygiene Step 2, Gate 7
+excepted and carried at §9.1 (`PLAN_2026-07-13` §C3).
+
+**Historical-only:** the B0–B6 live-test procedure and its pre-flight
+(`PLAN_2026-07-13` Track B, §A3) · **and §C1, "fix whatever B exposes"** — a conditional
+instruction with no surviving specific B-test failure, superseded by the independently
+accepted Trip and Palette testing. It is recorded as historical, **not** as an unknown
+defect · session close-out mechanics: push, restart, smoke test, venv re-verification
+(Review §12.2) · root clutter and control-document size, owned by this work order's own
+Steps 3–5 (Review §6) · the published-PII history purge, owned by
+`WO-PRIVACY-CANON-EXTRACTION-01` (Review §1 C1).
