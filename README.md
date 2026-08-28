@@ -148,118 +148,29 @@ composers.
 
 ## 5. Development state
 
-**`WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` is ACCEPTED AND COMPLETE (2026-08-20).**
-The pipeline a narrator actually experiences now runs end to end: Lori asks a natural question,
-the answer is preserved, the captured story is bound to both committed turn rows, extraction
-evidence reaches operator review, the operator's approval and era placement land atomically,
-the chronology and the Life Map agree, and the memoir preview, the TXT export and the DOCX
-export each contain the story **exactly once**, carrying the same provenance digest. Story
-chain **11/11**; deletion-integrity acceptance **10/10**; every claim verified against the
-filesystem and direct SQL rather than a response body. Record:
-[`docs/wo/WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01_Spec.md`](docs/wo/WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01_Spec.md).
+**This section deliberately carries no lane status and no commit ledger.** It did, in
+duplicate, and the duplicates disagreed — a status paragraph here contradicted another one
+fifty lines below it about the same lane. A reader then picks whichever they reach first.
+Current state has exactly one home.
 
-**That lane's own cleanup step exposed a privacy defect, and closing it is part of the same
-record.** `hard_delete_person` removed all active narrator/person-scoped content rows — the
-deletion audit and the erasure job are retained on purpose and hold no narrator speech —
-answered HTTP 200, and left eight files on disk — five of them verbatim narrator speech. Deletion now plans before it destroys
-the database authority those paths are named by, persists that plan bound to the canonical
-absolute data root, refuses every symlink beneath the root (including one pointing at another
-narrator inside it), covers eleven storage locations, deletes narrator media rather than
-detaching it, purges the translation cache, **reports shared backups and exports rather than
-rewriting them**, and is retryable through the product API with an audit trail that reads
-partial then success. **Do not describe a hard delete as complete unless the response says
-so** — three outcomes are distinguished, and HTTP 207 is reserved for the one an operator can
-act on.
-
-**Acceptance state, stated so nothing here reads as broader than it is.** The synthetic narrators' people rows, active
-content and filesystem residue were removed, with their audit and erasure-job metadata
-intentionally retained and carrying no narrator speech; **the four family narrators and
-the designated non-family narrator are all untouched**;
-`PRAGMA integrity_check` returns **ok**; and the **six pre-existing
-`harness-test-gate7p2` foreign-key violations in `interview_sessions` are unchanged — this
-lane did not create them and does not close them**. Gate B stays **OPEN**. Lean Lori L2 stays
-**PARTIAL** and closed by product-priority decision. The directive-family registry remains
-**inert** — built, gated and deliberately not activated. Kawa / Memory River appears here only
-as **reachable frozen legacy UI awaiting adjudication** — non-authoritative; do not extend
-or build on it — plus one storage directory in the erasure inventory. Nothing in this lane
-revived it.
-
-**The current substantive lane is Profile Seed reachability —** [`WO-LORI-PROFILE-SEED-REACHABILITY-01`](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md). **Phase 0, the executable map, is complete and accepted (2026-08-26, `661aa95`, 46 tests, one expected failure, no product or schema change); Phase 1 — server authority — is ACCEPTED (`1288baa`): the walk has a durable server owner, enrollment is atomic with narrator creation, and a storage fault can no longer masquerade as "this narrator has answered nothing". Phase 2 — prompt and committed-turn wiring — is in implementation and is not accepted. Steps 1–3 have landed: refusal detection is characterized and shared, and the turn state machine — two durable events, exact `(topic, version)` tuples, classification and recovery — exists behind a reproducible mutation gate that refuses an unclean tree or a red baseline. Step 4, the composer section, is ACCEPTED at `b269184` after eleven rounds of correction — an earlier acceptance at `9f31d9f` was premature and is superseded. Step 5 — REST read authority — is ACCEPTED at `9127adb`, with a zero-skip route gate that entered both `chat` and `chat_stream`. REST supplies onboarding state now and advances nothing; the production narrator UI still runs over WebSocket, so a narrator using that UI reaches the walk at Step 6, which is the current action and has not been started. Step 7 remains owed. The production narrator UI behaviour has not changed: the walk is live over REST, and that UI does not use REST. The work order's status block carries the commit ledger.** *("Steps 5–7 are owed" appeared TWICE in this paragraph, four sentences apart, once bare and once enumerated. A duplicated status sentence is how the two copies start to disagree — which is the same defect, at paragraph scale, that moved the commit ledger into a single home.)* *(This paragraph said the spec was "ready for implementation" until 2026-08-26, while the paragraph fifty lines below already said Phase 1 was current. Two paragraphs of one file disagreeing about the same lane is how a reader picks the wrong one.)* The ten-topic Profile Seed onboarding is preserved for
-new Lorevox narrators **regardless of narrator type**; what is owed is that an ordinary new
-narrator reaches it. Today they do not, and the cause is a race the intake itself starts:
-intake requires name, date of birth and birthplace; those three anchors are exactly what the
-chronology needs; the chronology promotes the session past `pass1`; and the ten-topic block is
-emitted only for an identity-complete narrator still in `pass1`. The ordinary path closes its
-own gate before the narrator's first normal turn. *(Several governing documents read
-"Option A, live narrators only" until 2026-08-20. That wording was false in the harmful
-direction — it read as licence to gate the onboarding on narrator type — and is corrected in
-place.)*
-
-**The previous lane, `WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` — canonical narrator
-authority**, is COMPLETE: one server-owned answer for projection, session ownership and
-chronology, so that Life Map, Lori, sessions and Travel Document stop disagreeing about who
-the narrator is.
-
-**Phase 1 is ACCEPTED (2026-08-17).** The ten-step live run passed on a non-family test
-narrator. Step 9 — rapid A→B narrator switching — is accepted with a stated limitation: it was
-exercised against a *synthetic* narrator B, so the mechanism is proven but not against a
-second narrator carrying a full live history.
-
-**Phase 2 is ACCEPTED (2026-08-17) — 8/8.** It connects the Travel Document to that chronology
-authority, reconciles narrator selection across shell-launched surfaces behind one shared
-contract, and completes the legacy session-owner backfill in migration 0045.
-*(This paragraph read "is BUILT … and its focused live acceptance is owed … the eight-step
-focused live run has not" until 2026-08-18. The run happened and passed.)*
-
-**Phase 3 (Reviewed story authority) is ACCEPTED (2026-08-18), and its one owed item is now
-CLOSED by Phase 4.** A captured
-story now has one server-owned review state, and the surfaces read it from one projection:
-approved stories reach the Life Map, the chronology and Lori; provisional ones are counted but
-never asserted; discarded ones are absent rather than dimmed. The nine-step live run passed
-8 of 9 on a synthetic narrator. **The owed item is the half of step 6 that says Lori SPEAKS an
-approved story** — the run proved the bridge attaches it (`approved=1 provisional=1`) and
-proved the more important negative (a provisional story is never asserted), but Lori did not
-use it. *(This paragraph first blamed a missing `drop_order` on the prompt section. That claim
-was withdrawn the same day: nothing in production reads the section classification, so nothing
-was dropped and the story did reach the model. The ranking fix is kept as a latent defect.)*
-The owed check is therefore a prompt-authority question and folds into Phase 4.
-
-**Phase 4 (Section-aware prompt authority) is ACCEPTED (2026-08-18), and this work order is
-COMPLETE.** The composer has classified the system prompt into named sections since Lean Lori
-Phase 2A and nothing in production read that classification: the budget could drop whole
-conversation turns and nothing else, so when the mandatory content alone exceeded the window
-the only available answer was to refuse. Phase 4 built the reader, wired all three transports
-(REST chat, REST streaming, WebSocket) to it, and made removal a rung BELOW history exhaustion
-— so no prompt that fits today changes, and some turns that used to refuse now degrade
-gracefully instead. **The owed Phase 3 check passed in the same live run:** asked what she
-already knew, Lori answered from the approved story rather than saying she did not recall it.
-
-**No Story Integration phases remain. The current lane is Profile Seed reachability — Phase 0
-(the executable map) and Phase 1 (server authority) are both complete and accepted, and
-Phase 2, prompt and committed-turn wiring, is IN IMPLEMENTATION and NOT accepted; finishing Lean Lori
-follows the lane.** *(This read "The next lane is finishing Lean Lori" until 2026-08-20,
-before `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` closed and named its successor, and
-"Phase 1, server authority, is the current work" until Phase 1 was accepted on 2026-08-26.)* The Lean
-Lori block itself is unchanged and still owed — section metadata, directive gating, the
-history-versus-sections priority decision (from the measurements Phase 4's telemetry now
-emits), passive diagnostics, a small live acceptance, and reconciling that work order's stale
-status table.
-
-*(This paragraph said Phase 1 was "BUILT and AWAITING LIVE ACCEPTANCE" until 2026-08-17, and
-said "Phase 3 … is not opened" until 2026-08-18.)*
-
-Read, in this order:
-
-1. [`HANDOFF.md`](HANDOFF.md) — current state. **Outranks everything below.**
-2. [`MASTER_WORK_ORDER_CHECKLIST.md`](MASTER_WORK_ORDER_CHECKLIST.md) — the critical path.
-3. [`CLAUDE.md`](CLAUDE.md) — operating doctrine, environment facts and hazards.
-4. [`docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md`](docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md) — the active work order.
-5. [`docs/architecture/`](docs/architecture/) — pivot strategy, runtime architecture, Travel
-   Document doctrine.
+| Question | Read |
+|---|---|
+| What is the current state? What is next? | [`HANDOFF.md`](HANDOFF.md) — **outranks everything below** |
+| What is the ordered queue? | [`MASTER_WORK_ORDER_CHECKLIST.md`](MASTER_WORK_ORDER_CHECKLIST.md) |
+| What are the standing rules and hazards? | [`CLAUDE.md`](CLAUDE.md) |
+| What is still owed, and how do we know? | [`docs/BACKLOG.md`](docs/BACKLOG.md) |
+| Where does documentation authority live? | [`docs/INDEX.md`](docs/INDEX.md) |
+| Why does a subsystem behave like this? | [`docs/architecture/`](docs/architecture/) |
 
 **Truth order when documents disagree:** current code → current tests and live evidence →
 accepted closeouts and ADRs → `HANDOFF.md` → the checklist → old work-order status lines →
 archived history. **Never rebuild finished work from a stale status line.**
+
+Derive the live head rather than reading a hash from any document:
+
+```bash
+git rev-parse origin/main
+```
 
 ---
 

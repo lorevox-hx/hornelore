@@ -1,107 +1,113 @@
 # MASTER WORK ORDER CHECKLIST
 
-**Active as of:** 2026-08-26 (`WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` ACCEPTED AND COMPLETE. **Profile Seed reachability: Phase 0 ACCEPTED (`661aa95`); Phase 1 — server authority — ACCEPTED (`1288baa`); Phase 2 — prompt and committed-turn wiring — IS IN IMPLEMENTATION and is NOT accepted. Steps 1–5 are accepted — step 4 at `b269184`, step 5 at `9127adb`; step 6 — WebSocket presentation metadata and post-commit advancement — is the current action and is NOT started; step 7 owed.**)
+**Authority:** code and live evidence outrank this list. Start with
+[`HANDOFF.md`](HANDOFF.md).
 
-*(This read `2026-08-18 (Story Integration COMPLETE — Phases 1–4 accepted; next lane is finishing Lean Lori)` until 2026-08-20, while the conversation-to-memoir lane ran and closed beneath it. Lean Lori is still owed and is still the block described at row 12; what changed is what comes first.)*
+**Reduced 2026-08-28** by `WO-REPOSITORY-HYGIENE-01` Step 2 to active / next / deferred /
+separately-authorized work. Completed rows became the ledger in §D; their evidence lives in
+the work orders and in Git history. Nothing was added.
 
-*(This read `2026-08-18 (Phase 3 accepted 8/9, one item owed; Phase 4 is next)` earlier the
-same day, `2026-08-17 (Phase 2 accepted; Phase 3 is next)` before that, and `2026-08-14`
-before that, while the L2 partial closed and the narrator-authority lane opened beneath it —
-the exact staleness this file's own authority line warns about. The two lines above carried
-trailing double-space hard breaks; replaced with blank-line separation, which renders the same
-and leaves no trailing whitespace.)*
+**Derive the head, do not read it from here:** `git rev-parse origin/main`.
 
-**Authority:** code and live evidence outrank this coordination list. Start with
-`HANDOFF.md`.
+---
 
-## A. Critical path
+## A. Active
 
-| Order | Work | State | Exit gate |
-|---:|---|---|---|
-| 1 | `WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01` | **COMPLETE** | 83/0/0 verify; 45/0/0 restore; live restart persistence. |
-| 2 | Multi-day closeout record | **DONE 2026-08-14** | Recorded in the WO and in `CLAUDE.md`. The final F12/API-log inspection is **not a separate stack cycle** — the post-acceptance sweep is done and clean, and the one item still owed (live confirmation of the deferred-thumbnail fix) folds into P4. |
-| 3 | Artifact inventory and classification **(classification only — cleanup is a separate, unauthorized action)** | **CLASSIFICATION DONE 2026-08-14; CLEANUP DEFERRED, requires Chris.** The 22 harness narrators were deliberately not deleted, and none of them owns a trip. | Every artifact classified; genuine memories preserved; test noise hidden reversibly; no destructive deletion without Chris. *(This row named `WO-LIVE-TRIP-CLEANUP-01`, a work order that was never written. Rather than leave the queue pointing at a document that does not exist, the requirement now lives in `WO-TRIP-PHOTO-PALETTE-01_Spec.md` §9 P0, which was already doing the inventory.)* |
-| 4 | `WO-TRIP-PHOTO-PALETTE-01` | **COMPLETE 2026-08-14** | All three gates met: offline 584 tests + 4 harnesses (113/32/16/56); P4 live acceptance final PASS; P5 restart persistence 14/14 and restoration 22/22. Evidence: `docs/reports/WO-TRIP-PHOTO-PALETTE-01_P4_LIVE_ACCEPTANCE.md` and `..._P5_PERSISTENCE.md` — **local-only, not in the repository** (`docs/reports/` is gitignored; live narrator data). |
-| 5 | Legacy-column retirement (Palette Phase 6) | **DEFERRED by supervisor recommendation 2026-08-14 — NOT the next build** | Leave deferred until there is a concrete reason. The scalar is frozen, unwritten, ignored for authoritative decisions, correctly derived on read and covered by tests; dropping it buys no product benefit and costs a risky SQLite rebuild. |
-| 6 | **Lean Lori — Phase 0 map + L1** | **COMPLETE 2026-08-14** — [map](docs/wo/WO-LEAN-LORI-PHASE-0-MAP-2026-08-14.md) · [L2 runbook](docs/wo/WO-LEAN-LORI-L2-RUNBOOK-2026-08-14.md) · [Profile Seed brief](docs/wo/WO-LEAN-LORI-PROFILE-SEED-DECISION-BRIEF-2026-08-14.md) | **Substantial work is ALREADY LANDED (11 commits) — do not rebuild it.** L1 delivered: errata banners, executable rollback, corrected gate commands, decision brief, L2 runbook. Safety-preservation evidence is now reproducible from a clean clone. |
-| 7 | **Lean Lori — L2 live acceptance** | **L2 PARTIAL — closed for now by product-priority decision, 2026-08-16.** **DO NOT RESUME.** | Evidence: `docs/reports/WO-LEAN-LORI-L2-PARTIAL-2026-08-16.md` (local-only, gitignored). Case C, remaining Case A branches, five styles, trip/photo fixtures, refusal matrix, Case E rows 2/4 and the final restart with Case F are **DEFERRED by decision — not failures.** **Gate B stays OPEN.** L2 established: identity completion promotes `pass1→pass2a` and the spine is browser-local; deterministic turns archive 1:1; memory echo sees the server profile seed; LLR-19 did not reproduce; export ZIP valid; identity completion *raised* the prompt 6,008→6,709 tok; **no family narrator content changed (proven byte-identical)**. Three integration defects surfaced and feed the next lane: text-based export verification is invalid for identical deterministic replies; `sessions` rows carry no narrator ownership; browser projection sync can rewrite a server row merely on narrator load. |
-| 8 | **`WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` — Phase 1, canonical narrator authority** | **ACCEPTED 2026-08-17.** *(This row read `IN BUILD 2026-08-17` until the live acceptance ran.)* Step 9 accepted with its synthetic-B limitation — spec §8.1. Closes no L2 gate. Spec: [`docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md`](docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md) | Three commits: conflict-aware field-level projection authority; explicit session ownership reconciled across both session systems; ONE server chronology projection consumed by both Life Map renderers. Absorbs Lean Lori Gate D. Travel Document connects to this authority **after** it works. *(This row previously appeared TWICE at order 8, alongside a separate Profile Seed row. Two rows cannot both be eighth; the Profile Seed decision is now row 9, where it belongs, and is no longer open.)* |
-| 9 | **Profile Seed ownership** | **CORRECTED 2026-08-20 — the ten-topic onboarding is PRESERVED for new Lorevox narrators REGARDLESS OF NARRATOR TYPE; ordinary new-narrator reachability is still OWED.** *(This row read `DECIDED — Option A, live narrators only` until 2026-08-20. That wording was false and read as licence to gate the onboarding on narrator type.)* *(This row read `DECISION REQUESTED` until 2026-08-17. The decision had already been made; the row had not caught up, and a control document that calls a settled question open is an instruction to re-open it.)* | Brief: [`docs/wo/WO-LEAN-LORI-PROFILE-SEED-DECISION-BRIEF-2026-08-14.md`](docs/wo/WO-LEAN-LORI-PROFILE-SEED-DECISION-BRIEF-2026-08-14.md). Option D remains unconfirmed live because L2 Case C was never run; that is an unexercised measurement, **not** a re-opening of the decision. |
-| 10 | **`WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` — Phase 2** | **ACCEPTED 2026-08-17 — 8/8 live acceptance steps passed (spec §12.7).** *(This row read `Phases 2–4 — NOT STARTED` until 2026-08-17.)* | Contract in spec §12. Travel Document reads the same chronology projection through the module's own API choke point; one shared narrator-context contract across shell-launched surfaces, fail-closed on an invalid explicit id; migration 0045 completes the legacy session-owner backfill without editing 0044. Acceptance steps: §12.6 — one stack start, the designated non-family acceptance narrator, no family narrator, no L2 resumption. |
-| 11 | **`WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01`** | ✅ **COMPLETE 2026-08-18 — Phases 1–4 ALL ACCEPTED** | *(This row read `PHASE 3 ACCEPTED 8/9, ONE ITEM OWED · PHASE 4 IS NEXT` earlier the same day, and `PHASE 3 IS NEXT — not yet started` before that.)* Phase 3: one server-owned review state and one projection — approved stories reach Life Map, chronology and Lori; provisional counted, never quoted; **discarded absent, not dimmed**; migration 0046 + atomic compare-and-write (spec §13). Phase 4: the section classification finally has a production reader, **all three transports** budget through it, and **section removal sits BELOW history exhaustion so no working turn changes** (spec §14). **Phase 3's owed item is CLOSED** — Lori answered a direct memory question from the approved story. **No Story Integration phases remain.** |
-| 11a | **`turn_extraction_ledger` cleanup** | ✅ **FIXED in Phase 4, 2026-08-18** | *(This row read `REPORTED, NOT FIXED — needs Chris's call` earlier the same day.)* The table joined `_EXTENDED_PERSON_SCOPED_TABLES`, so it is inventoried before deletion and removed by it; 6 rows removed live, with a residue sweep over the whole table list rather than hand-named tables. **Two orphans remain and are NOT new — `turnrow:1663`/`1665` from the Phase 3 narrator deleted before the fix existed.** Keys and timings only, no narrator text. Sweeping those two is a one-line data decision. |
-| 11b | **`WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01`** | ✅ **ACCEPTED AND COMPLETE 2026-08-20** | Story-to-memoir synthetic chain **11/11**; deletion-integrity acceptance **10/10**. Every claim verified against the **filesystem and direct SQL**, never a response body. Conversation → capture → extraction → operator review → chronology/Life Map → preview/TXT/DOCX, the story appearing **exactly once** in all three with one provenance digest. Migrations 0047–0050. Spec: [`docs/wo/WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01_Spec.md`](docs/wo/WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01_Spec.md). Synthetic narrators' people rows, active content and filesystem residue removed — audit and erasure-job metadata intentionally retained, carrying no narrator speech; **the four family narrators and the designated non-family narrator are all untouched**; `integrity_check ok`; the **six pre-existing `harness-test-gate7p2` FK violations are unchanged and NOT closed here**. Gate B **OPEN**, L2 **PARTIAL**, directive registry **inert**, Kawa only as **reachable frozen legacy UI awaiting adjudication** — non-authoritative; do not extend or build on it — plus one erasure-inventory directory. |
-| 11c | **Deletion integrity** | ✅ **CLOSED 2026-08-20 — a privacy defect the lane's own cleanup exposed** | `hard_delete_person` removed all active narrator/person-scoped content rows, answered 200, and left eight files on disk, five of them verbatim narrator speech. Erasure now plans before the database authority is destroyed and persists that plan bound to the canonical absolute root; refuses every symlink below the root, including one pointing at ANOTHER narrator inside it; covers eleven stores; **deletes media rather than detaching it** (Chris, 2026-08-20 — `ON DELETE SET NULL` stays as a database fallback, but a confirmed hard erasure must not leave identifiable photographs as ownerless rows); purges the translation cache; **reports backups and exports rather than rewriting them**; fails closed before touching a row; and is retryable through the product API with a truthful audit trail. |
-| 11d | **Profile Seed reachability** | 🔵 **ACTIVE — PHASE 0 ACCEPTED (`661aa95`); PHASE 1 ACCEPTED (`1288baa`); PHASE 2 (prompt and committed-turn wiring) IS IN IMPLEMENTATION and NOT ACCEPTED — steps 1–5 ACCEPTED (step 4 at `b269184`, step 5 at `9127adb`), STEP 6 (WebSocket presentation metadata and post-commit advancement) IS THE CURRENT ACTION AND IS NOT STARTED, step 7 owed; detail below** | Spec: [`WO-LORI-PROFILE-SEED-REACHABILITY-01`](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md), authored by Chris against `6952ad0`. **The ten-topic onboarding is preserved for new Lorevox narrators REGARDLESS OF NARRATOR TYPE** (row 9); what is owed is REACHABILITY. **The cause is a race the ordinary intake itself starts:** intake requires name, DOB and birthplace, those three anchors are exactly what chronology needs, chronology promotes `pass1 → pass2a`, and the composer emits the ten-topic block only for an identity-complete narrator still in `pass1` — so the ordinary path closes its own gate before the first normal turn, while a testing-only narrator without the anchors goes down identity mode, which mutually excludes the block. Also records completion-data gaps: siblings, explicit "none" answers, education field naming, childhood home versus birthplace, retired/working status. Establishes server-owned restart-safe progress, no automatic enrollment of historical narrators, chronology readiness separated from onboarding completion, `unanswered | known | addressed | declined` states, one question per turn, versioned writes with narrator-switch isolation, and explicit offline + live acceptance gates. **Phase 0 is COMPLETE AND ACCEPTED** — 46 tests, three modules, one expected failure, no product or schema change. Findings that change Phase 1: the pass is browser-owned with no server writer; the seed's five keys include only two walk topics and both derive wrongly; the military `served` Boolean is ignored in both directions; a real childhood-home fact is overridden by birthplace; and no canonical marital-status field exists. **All five are CLOSED by Phase 1.** **PHASE 2 — prompt and committed-turn wiring — IS IN IMPLEMENTATION and is NOT ACCEPTED. Steps 1–4 are accepted; step 4, the composer section, landed at `620d692` and is ACCEPTED at `b269184` after eleven rounds of correction. It was accepted once at `9f31d9f` and that was PREMATURE — FIVE further corrective commits followed (`c99eb5f`, `3e4c56a`, `a966a37`, `b5148ed`, `b269184`), one of them a real product defect: malformed `known_topics` crashed, or told Lori a topic was settled that nothing had established. STEP 5 — REST read authority — IS ACCEPTED at `9127adb`, after EIGHT corrective commits and a ZERO-SKIP route gate (48 tests, `OK`, no skips, run in `.venv-gpu` — the only interpreter that can import `api.api`). Both `chat` and `chat_stream` were entered for contradictory claim, owner mismatch, storage fault and the non-refusal tripwire. STEP 6 — WebSocket presentation metadata and post-commit advancement — IS THE CURRENT ACTION AND IS NOT STARTED. Step 7 remains owed.** The commit ledger lives in the work order's status block. **REST now supplies onboarding state — the old line "no live transport supplies onboarding state" is RETIRED AS FALSE.** What is still true: the narrator product path is unwired. The UI drives `/api/chat/ws`, a real turn makes zero HTTP requests matching "chat", and `/api/chat/stream` is reachable only behind the dev-only `LV_ALLOW_SSE_FALLBACK`. **REST READS AUTHORITY AND DOES NOT ADVANCE** — a narrator can answer a topic and the durable row will still call it unanswered, which is why Step 6 exists. *(This sentence nested bold inside bold for the fourth time in this lane — a `**` opened inside an already-open `**`, which markdown resolves as a CLOSE, so the emphasis inverted and the words meant to stand out were the only ones that did not. Emphasis is now opened and closed once.)* *(This row ended "Phase 1 — server authority — is next" until 2026-08-26, after Phase 1 was accepted at `1288baa`.)* **Not another story/memoir testing pass, and Phase 2 must not touch the UI promotion sites — that is Phase 3.** |
-| 12 | **Finish Lean Lori — one substantial implementation block** | ⬜ **AFTER Profile Seed reachability — not started** | *(This row read `NEXT LANE` / `🔵 NEXT` until 2026-08-20; the conversation-to-memoir closeout named Profile Seed reachability as the next lane. The content below is unchanged and still owed.)*  Six items in order, detailed in `HANDOFF.md` §4: (1) complete prompt-section metadata — owner, activation condition, trim policy, source, priority tier, real token count, redacted hash; (2) finish directive gating so each family appears only when its state/feature/task is active (**Profile Seed: the ten-topic onboarding is PRESERVED for new Lorevox narrators regardless of narrator type — corrected 2026-08-20**); (3) **decide history-versus-optional-section priority FROM MEASUREMENTS** — Phase 4 exhausts history first, which preserved every working turn, and its telemetry now emits the per-section token costs that decision needs; (4) finish passive diagnostics — one operator-readable record across REST chat, REST streaming and WebSocket, no narrator prose; (5) a SMALL live acceptance replacing the abandoned L2 campaign — ordinary conversation, one state-heavy turn, one trip turn, one approved-story turn, one safe oversized refusal; (6) reconcile the Lean Lori WO's stale status table and remove its abandoned runtime-profile rollback language and unsatisfiable Gate F assumptions. |
-| 13 | **Extraction improvement with the new four-persona harness** | ⬜ **AFTER Lean Lori** | Run the core and challenge packs against the REAL extractor; identify **binding** failures rather than reporting pass counts; improve against representative failures; compare the new runner with the old evaluator and retire the old one **only after scoring parity**, preserving it under `scripts/archive/`. |
-| 14 | **Remove the frozen Kawa / Memory River UI** | ⬜ **AFTER extraction work** | Button, popover, `chronology_river` mode and `js/lori-kawa.js` are still reachable in `ui/hornelore1.0.html`. Remove them **after** confirming Life Map covers the active navigation paths. **Do not build anything new on Kawa.** |
+| # | Work | State |
+|---:|---|---|
+| 1 | **`WO-REPOSITORY-HYGIENE-01`** — indexed reorganization | 🔵 **CURRENT.** Commit 1 (indexes) accepted `5f6b01b`. Step 2 (control authority) delivered, awaiting review. Steps 2b–5 not started. [Spec](docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md) |
+| 2 | **`WO-LORI-PROFILE-SEED-REACHABILITY-01`** — Phase 2 | 🔵 **ACTIVE, FROZEN for hygiene.** Phase 0 `661aa95` · Phase 1 `1288baa` · steps 1–5 accepted (4 → `b269184`, 5 → `9127adb`) · pre-Step-6 corrections `d0e5294` · **Step 6 NOT STARTED**, step 7 owed. [Spec](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md) · [Transport map](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_PHASE2_TRANSPORT_MAP.md) |
 
-## B. Photo Palette delivery blocks
+**Step 6 may not begin until the whole hygiene checkpoint is accepted.** Its scope,
+inheritance and prohibitions are in `HANDOFF.md` §3.
 
-| Block | Deliverable | Stack cycle |
-|---|---|---|
-| P0 | Reconcile existing Palette surfaces/APIs and cleanup dependencies. **DONE 2026-08-14** — [`WO-TRIP-PHOTO-PALETTE-01_P0_MAP.md`](docs/wo/WO-TRIP-PHOTO-PALETTE-01_P0_MAP.md). Verdict: no new endpoint needed; P1 is three small changes; artifact contamination does not reach the Palette. **One decision open — see map §6.** | Stack down; no restart. |
-| P1 | Query/filter contract and any missing repository/API support. **DONE 2026-08-14** — soft-deleted exclusion, total read order, batch visibility endpoint; 33 tests. | Stack stays down. |
-| P2 | Palette UI, selection, batch actions, bounded thumbnails and truthful errors. **DONE 2026-08-14** — plus nine post-review corrections. | Stack stays down. |
-| P3 | One consolidated regression run and review of P1+P2 together. **DONE** — 584 tests + 4 harnesses. | Stack stays down. |
-| P4 | Live browser acceptance and F12/log review. **DONE 2026-08-14 — final PASS.** Carried the owed deferred-thumbnail confirmation. One reproduced defect found and fixed mid-phase (`b991353`, `88429cc`): the Hidden pool was not refreshed after Add/Remove/Move/caption-save. Eight genuine photographs uploaded. | Started once. |
-| P5 | Persistence verification and closeout. **DONE 2026-08-14 — 14/14 read-only, then restoration 22/22.** | Restarted once. |
+## B. Next, in order
 
-## B.1 Deferred out of Phase 2, owed separately
+| # | Work | Precondition |
+|---:|---|---|
+| 3 | **Finish Lean Lori** — one substantial implementation block | After Profile Seed reachability. Six items, in order: (1) complete prompt-section metadata — owner, activation condition, trim policy, source, priority tier, real token count, redacted hash; (2) finish directive gating so each family appears only when its state/feature/task is active — **the ten-topic Profile Seed onboarding is PRESERVED for new Lorevox narrators regardless of narrator type**; (3) decide history-versus-optional-section priority **from measurements** — Phase 4 exhausts history first and its telemetry emits the per-section costs that decision needs; (4) finish passive diagnostics — one operator-readable record across all three transports, no narrator prose; (5) a SMALL live acceptance replacing the abandoned L2 campaign — ordinary conversation, one state-heavy turn, one trip turn, one approved-story turn, one safe oversized refusal; (6) reconcile the Lean Lori WO's stale status table and remove its abandoned rollback language and unsatisfiable Gate F assumptions. **Substantial work is ALREADY LANDED (11 commits) — do not rebuild it. Gate B stays OPEN.** |
+| 4 | **Extraction improvement** with the four-persona harness | After Lean Lori. Run the core and challenge packs against the REAL extractor; identify **binding** failures rather than reporting pass counts; retire the old evaluator **only after scoring parity**, preserving it under `scripts/archive/` |
+| 5 | **Remove the frozen Kawa / Memory River UI** | After extraction work. The button, popover, `chronology_river` mode and `js/lori-kawa.js` are still reachable in `ui/hornelore1.0.html`. Remove **after** confirming Life Map covers the active navigation paths. **Do not build anything new on Kawa** |
 
-- **Harness `completed-turn`** — the chat → extraction ledger → result → owned-session route is
-  **genuinely unexercised.** Phase 2 proved session ownership and nothing beyond it. Needs
-  `HORNELORE_OPERATOR_HARNESS=1` and a deliberate restart; not duplicated evidence.
-- **Harness reference-persona handling** — absent or soft-deleted reference personas should
-  report `N/A` while the writable synthetic personas continue. **A harness commit, not Phase 2.**
+## C. Owed separately — small, unscheduled
+
+* **Harness `completed-turn` scenario** — needs `HORNELORE_OPERATOR_HARNESS=1` and a
+  deliberate restart. The product ROUTE was exercised live in Phase 3; the harness's own
+  scenario was not.
+* **Harness reference-persona handling** — absent or soft-deleted reference personas should
+  report `N/A` while writable synthetic personas continue. A harness commit.
   **Soft deletion is respected; those narrators are not restored.**
+* **Two `turn_extraction_ledger` orphans** — `turnrow:1663` / `1665`, from a narrator
+  hard-deleted before the Phase 4 fix existed. Keys and timings only, no narrator text.
+  A one-line data decision.
+* Everything registered in [`docs/BACKLOG.md`](docs/BACKLOG.md), including the 16 root
+  specifications with unresolved obligations and the four tooling defects.
 
-## C. Banked / preserve
+## D. Complete — ledger only
 
-- Google Photos Picker live workflow.
-- Travel Document editable timeline → DOCX projection.
-- Multi-day photo placement and placement-aware counts.
-- S2 photo hash-clash protection.
-- S8 chronology failure visibility.
-- U7 legacy Documenter socket-race guards.
-- Loopback bind, origin allowlist, DB close-on-exception and applied XSS fixes.
-- Four-mode WO-02 acceptance harness and separate ATTEST accounting.
+Do not reopen without a demonstrated regression. Evidence is in each work order; acceptance
+detail is deliberately **not** repeated here.
 
-Do not reopen banked work for polish without a demonstrated regression.
+| Work | Accepted |
+|---|---|
+| `WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01` + closeout | 2026-08-14, Gate 3 |
+| `WO-TRIP-PHOTO-PALETTE-01` — P0 through P5 | 2026-08-14 |
+| Artifact inventory and **classification** (cleanup is separate and unauthorized) | 2026-08-14 |
+| Lean Lori Phase 0 map + L1 | 2026-08-14 |
+| `WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` — Phases 1–4 | 2026-08-17 / 08-18 |
+| `turn_extraction_ledger` cleanup | 2026-08-18, in Phase 4 |
+| `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` | 2026-08-20 — 11/11 and 10/10 |
+| Deletion / erasure integrity | 2026-08-20 |
+| Profile Seed Phases 0–1, Phase 2 steps 1–5, pre-Step-6 corrections | `661aa95` · `1288baa` · `9127adb` · `d0e5294` |
+| Repository hygiene Commit 1 | `5f6b01b` |
 
-## D. Deferred, separately authorized
+**Profile Seed ownership is settled**, and the settlement is the durable part: the
+ten-topic onboarding is **preserved for new Lorevox narrators regardless of narrator
+type**. Only reachability was ever owed.
 
-- Drop `trip_photo_links.trip_day_id` and delete pre-0043 compatibility branches.
-- Privacy canon extraction, prose fictionalization and Git history purge.
-- Shared-token authentication.
-- Multi-operator Google authorization.
-- Hard-delete/archive atomicity repair and the six orphaned-session FK violations.
-- One unified boot entrypoint, comprehensive test runner and ESLint/toolchain work.
-- `ws_chat`, extraction-router and giant-module structural decomposition.
-- Lean Lori continuation, prompt architecture, safety reactivation or model changes.
+## E. Banked — preserve, do not reopen for polish
 
-## E. Work discipline
+Google Photos Picker live workflow · Travel Document editable timeline → DOCX projection ·
+multi-day photo placement and placement-aware counts · S2 photo hash-clash protection ·
+S8 chronology failure visibility · U7 legacy Documenter socket-race guards · loopback bind,
+origin allowlist, DB close-on-exception and applied XSS fixes · the four-mode WO-02
+acceptance harness and its separate ATTEST accounting.
+
+## F. Deferred — separately authorized only
+
+Drop `trip_photo_links.trip_day_id` and delete pre-0043 compatibility branches · privacy
+canon extraction, prose fictionalization and Git history purge · shared-token
+authentication · multi-operator Google authorization · hard-delete/archive atomicity repair
+and the six orphaned-session FK violations · one unified boot entrypoint, comprehensive
+test runner and ESLint/toolchain work · `ws_chat`, extraction-router and giant-module
+decomposition · Lean Lori continuation beyond §B, prompt architecture, safety reactivation,
+model changes · legacy photo-day scalar retirement (Palette Phase 6) · test-artifact
+**cleanup** — the 22 harness narrators were deliberately not deleted.
+
+**Deferred is not forgotten. Deferred means intentionally not active.**
+
+## G. Work discipline
 
 1. One coherent product slice may contain multiple closely coupled fixes.
-2. Do not stop for review after trivial test/import/comment corrections.
+2. Do not stop for review after trivial test, import or comment corrections.
 3. Keep unrelated fixes distinguishable in the commit message or a small adjacent commit.
 4. Focused tests during development; consolidated regression once per product block.
-5. Mutation tests are required for critical guards, transactions, destructive boundaries and
-   error truthfulness—not for every token or comment.
+5. Mutation tests are required for critical guards, transactions, destructive boundaries
+   and error truthfulness — not for every token or comment.
 6. No stack restart for docs, unit tests or harness-only changes.
 7. One live acceptance start and one final persistence restart per product gate.
-8. Claude prepares copy-paste commit blocks, Chris runs them and pushes, Chris + ChatGPT
-   review current pushed `main`. Agents do not run `git add`/`commit`/`push` here — see the
-   `.git/index.lock` hazard in `CLAUDE.md` and `HANDOFF.md` §6. Read-only git is fine.
+8. **Report skip counts.** `OK (skipped=N)` is not a pass, and a result must name the
+   interpreter it came from.
+9. **Never combine product corrections, indexing, file moves and deletion in one commit.**
+10. Claude prepares copy-paste `git add` + `git commit` blocks; Chris runs them and pushes
+    from GitHub Desktop. Agents do not run `git add`/`commit`/`push` here — see the
+    `.git/index.lock` hazard in `CLAUDE.md` and `HANDOFF.md` §6. Read-only git is fine.
 
-## F. Governing documents
+## H. Governing documents
 
-- `HANDOFF.md`
-- `docs/wo/WO-TRIP-PHOTO-PALETTE-01_Spec.md`
-- `docs/wo/WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01_Spec.md`
-- `docs/architecture/TRAVEL_DOCUMENT_DOCTRINE.md`
-- `docs/wo/HORNELORE_CORRECTED_EXECUTION_PLAN_2026-08-01.md` (historical sequence;
-  Palette scalar wording is superseded by the new Palette WO)
+[`HANDOFF.md`](HANDOFF.md) · [`CLAUDE.md`](CLAUDE.md) ·
+[`docs/INDEX.md`](docs/INDEX.md) · [`docs/BACKLOG.md`](docs/BACKLOG.md) ·
+[`docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md`](docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md) ·
+[`docs/architecture/TRAVEL_DOCUMENT_DOCTRINE.md`](docs/architecture/TRAVEL_DOCUMENT_DOCTRINE.md)
 
-Old dated blocks belong in git history or archives, not in this active checklist.
+Old dated blocks belong in Git history or `docs/archive/`, not in this active checklist.

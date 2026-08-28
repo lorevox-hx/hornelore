@@ -1,56 +1,32 @@
 # HORNELORE HANDOFF
 
-**Updated:** 2026-08-17  
-**Repository:** `lorevox-hx/hornelore`  
-**Branch:** `main`
+**Repository:** `lorevox-hx/hornelore` · **Branch:** `main`
+**Reduced 2026-08-28** by `WO-REPOSITORY-HYGIENE-01` Step 2. Superseded narrative and
+retirement notes were removed, not lost — they are in Git history and in the work orders
+this file points to. **Nothing was added.**
 
 ---
 
 > # ⛔ HOLD — REPOSITORY HYGIENE IS THE CURRENT ACTION. STEP 6 IS FROZEN.
 >
-> **Temporary banner, added 2026-08-28.** It is removed when the hygiene checkpoint is
-> accepted. Until then it **overrides every "current action" statement below**, all of
-> which refer to the product lane.
+> **Temporary banner.** Removed when the hygiene checkpoint is accepted.
 >
 > | | |
 > |---|---|
-> | **Current REPOSITORY action** | `WO-REPOSITORY-HYGIENE-01` **Step 2 — control-authority cleanup.** Not started. See [`docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md`](docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md) |
-> | **Last accepted** | **Commit 1 — indexes only — ACCEPTED at `5f6b01b`** (delivered across `ddb22c8` + `5f6b01b`). Seven additions, zero moves, zero product change |
+> | **Current REPOSITORY action** | `WO-REPOSITORY-HYGIENE-01` **Step 2 — control-authority cleanup.** This commit. [`docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md`](docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md) |
+> | **Last accepted** | **Commit 1 — indexes only — `5f6b01b`**, reconciled at `e558002`. Safety tags published |
 > | **Next PRODUCT action** | Profile Seed Phase 2 **Step 6** — WebSocket presentation metadata and post-commit advancement |
-> | **May Step 6 begin?** | **NO.** Step 6 is **BLOCKED** until the whole hygiene checkpoint is complete and accepted — not merely until Step 2 lands |
->
-> **Why the distinction is spelled out.** §4 below names Step 6 as the next action, and it
-> is right about the *product* order — Step 6 is what comes next once the repository work
-> is done. It is wrong as an instruction *today*. Two documents naming different "current
-> actions" is exactly the drift this file's own governing order exists to prevent, so the
-> conflict is resolved here, in the document that wins, rather than by editing §4 into
-> something that has to be edited back.
->
-> **Accepted and not to be redone:** the pre-Step-6 correction checkpoint, at `d0e5294`.
-> Five product corrections and two acceptance-instrument corrections. Full clean-tree gate
-> at `34cdf54` 63/63 caught with nine green baselines; `.venv-gpu` and `.venv` both 22/22
-> zero skips; truthful shipped-design count 24.
->
-> **Pre-hygiene rollback point:** tag `archive/pre-hygiene-2026-08-28` at `d0e5294`.
-> The audited baseline `ea3ab27` is tagged `audit/repository-baseline-2026-08-28` and is
-> **not** the rollback point.
+> | **May Step 6 begin?** | **NO.** Blocked until the **whole** hygiene checkpoint is complete and accepted — not merely until Step 2 lands |
 >
 > **Frozen during hygiene:** WebSocket and UI onboarding work · production behaviour ·
 > migrations · bulk deletion · Test Lab repair · combining product corrections, indexing,
 > moves and deletion in one commit.
->
-> Derive the live head; never read it from a document:
->
-> ```bash
-> git rev-parse origin/main
-> git status --porcelain      # must be empty before any gate
-> ```
 
 ---
 
 ## 1. Read this first
 
-This file is the current operational starting point. When documents disagree, use:
+When documents disagree:
 
 ```text
 current code
@@ -62,396 +38,130 @@ current code
 > archived history
 ```
 
-Do not restart work from an old status line. Read the current implementation, its tests,
-and its latest live evidence first.
+**Do not restart work from an old status line.** Read the implementation, its tests and its
+latest live evidence first.
 
-## 2. Current project state
+**Derive the live head. Never read it from a document:**
 
-**Phase 1 is ACCEPTED (2026-08-17).** Conflict-aware field-level projection authority;
-explicit session ownership reconciled across `sessions` and `interview_sessions`; ONE server
-chronology projection, extended from `/api/chronology-accordion` rather than added beside it,
-consumed by both Life Map renderers. Live acceptance ran on the designated non-family acceptance narrator.
-**Step 9 — rapid A→B narrator switching — is accepted with its synthetic-B limitation:** the
-mechanism is proven, but not against a second narrator carrying a full live history, because
-no such narrator exists outside the family set. Recorded in §8.1 of the spec, not only in a
-local report.
-
-**Phase 2 is ACCEPTED (2026-08-17) — 8/8 live acceptance steps passed.** Travel Document
-connects to the chronology authority; narrator selection is reconciled across shell-launched
-surfaces behind one shared contract; the legacy session-owner backfill is completed by
-migration 0045. Contract in §12 and the acceptance record in §12.7 of
-[`docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md`](docs/wo/WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md).
-
-**Ownership results, aggregate:** 721 sessions — 8 recovered from unambiguous legacy payload,
-1 newly explicit, 712 older rows with unrecorded provenance and deliberately not retro-stamped.
-**Zero malformed payload rows currently exist; the `list_sessions` guard is preventive.**
-
-**Two things this acceptance did NOT prove, and does not claim to.** The harness's
-`completed-turn` route — chat → extraction ledger → result → owned-session — is **genuinely
-unexercised**; the acceptance proved session *ownership* only. It needs
-`HORNELORE_OPERATOR_HARNESS=1` and a deliberate restart, and is deferred until then rather than
-counted as duplicated evidence. And `product-read` did not run because its reference personas
-are soft-deleted; **soft deletion is respected and they are not restored.**
-
-**Phase 3 (Reviewed story authority) is ACCEPTED WITH ONE ITEM OWED — 8 of 9 live steps,
-2026-08-18.** A captured story now has ONE server-owned review state and ONE projection every
-surface reads: approved stories reach the Life Map, the chronology and Lori's prompt;
-provisional ones are counted and never quoted; discarded ones are ABSENT from every projection
-rather than dimmed. Migration 0046 records `placement_source` and `review_version`, and every
-review is an atomic compare-and-write.
-
-**THE OWED ITEM, stated plainly:** step 6 has two halves and only one is proven live. The
-negative half — *a provisional story is never asserted* — passed twice. The positive half —
-*Lori speaks an approved story* — did NOT, and chasing it is what found the defect below. It
-needs a restart to confirm.
-
-**The live run found three real defects that 530 offline tests did not**, which is the argument
-for keeping the live step a gate rather than a formality. All three are fixed:
-
-1. **Every review action button was `disabled="undefined"`.** The panel's `el()` helper wrote
-   attributes whose value was `undefined`, and an attribute's PRESENCE disables a control. No
-   source scan can see this; it needs a browser.
-2. **The panel wedged after every successful write.** One generation counter was answering two
-   different questions, and `applyReview`'s own success path bumped it — so the cleanup arm
-   decided it was stale and never cleared the busy latch. Now three counters: list reads,
-   detail reads, and narrator switches. A write asks only the third.
-3. **The reviewed-story prompt section carried no `drop_order`** — `required=False` with an
-   implicit 0, ranked below a per-turn hint. Now 25: above the sections that rebuild themselves
-   next turn, below the identity sections that must never be traded for episodic material.
-   **CORRECTED the same day:** this was first written up as the CAUSE of the owed check. It is
-   not. `render()` emits every section, `sections()`/`drop_order`/`required` have no production
-   consumer at all, and the token budget trims history turns while leaving the system message
-   untouched by contract — so **nothing was being dropped and the story reached the model.**
-   The fix is kept as a LATENT defect, correct in itself and dangerous the moment enforcement
-   lands. The retired claim read: *"The reviewed-story prompt section was the FIRST thing
-   dropped … so the one thing Phase 3 exists to deliver ranked below a per-turn hint."*
-
-**What the owed check actually is, now that the wrong cause has been withdrawn:** Lori received
-the approved story and still said she did not recall it. That is a prompt-authority and
-model-behaviour problem, not a budgeting one, and it does **not** need a restart to reproduce.
-It folds into the Phase 4 block, which is chartered to make prompt assembly authoritative — and
-the fact that the section classification is **declared but unenforced** is that block's single
-most useful starting fact.
-
-*(This section read "Phase 1 — canonical narrator authority … Phases 2–4 are sequenced and not
-started" until 2026-08-17, and "Phase 3 (Witness/story connection) is NEXT and not yet started"
-until 2026-08-18. A handoff that still names an accepted phase as active is an instruction to
-redo it, which is the failure this file's own ordering rule exists to prevent.)*
-
-**Known, deliberate and not this lane's work:** seven assertions in the older
-`tests/test_lori_witness_mode` module conflict with later deliberate behaviour — four still
-demand three-anchor cascade output despite the newer two-anchor cap, and three expect the
-retired broad correction behaviour. That is reconciliation work for the Witness lane, not a
-reason to divert the authority phase.
-
-| Lane | State | Next decision |
-|---|---|---|
-| Google Photos Picker | **BANKED** | Reopen only for a demonstrated defect. |
-| Travel Document core/export | **CLOSED on live evidence** | Preserve the editable timeline → DOCX projection rule. |
-| Multi-day trip-photo placement | **COMPLETE; Gate 3 accepted 2026-08-14** | Close documentation; do not begin legacy-column removal. |
-| Test-artifact inventory/classification | **DONE in Palette P0** | Classification complete; genuine memories preserved. |
-| Test-artifact **cleanup** | **DEFERRED — requires Chris's authorization** | The 22 harness narrators were deliberately **not** deleted. No destructive cleanup without an explicit decision. |
-| Photo Palette | **COMPLETE; P4 and P5 accepted 2026-08-14** | Close the work order; do not reopen for polish without a demonstrated defect. |
-| Legacy photo-day scalar retirement (Phase 6) | **DEFERRED by supervisor recommendation, 2026-08-14 — NOT the next build** | Leave deferred until there is a concrete reason to remove the column. The scalar is frozen, no longer written, ignored for authoritative decisions, correctly derived on read, and covered by tests and live evidence; dropping it buys no product benefit and costs a risky SQLite table rebuild. |
-| Lean Lori | **L1 COMPLETE 2026-08-14. L2 ran PARTIAL on 2026-08-16 and is CLOSED by product-priority decision — DO NOT RESUME IT.** *(This row said `NEXT: L2, awaiting Chris's authorization` until 2026-08-17. L2 had already run and been closed; a handoff that still names it as next is an instruction to redo a decision, which is the failure this file's own ordering rule exists to prevent.)* | **Substantial work is ALREADY LANDED — eleven commits, Gate A, 1A–1E, 5, 6, 7, Phase 8 first gate. Do not rebuild it.** Evidence for the partial run: `docs/reports/WO-LEAN-LORI-L2-PARTIAL-2026-08-16.md` (local-only, gitignored — live narrator data). **Gate B stays OPEN and Phase 10 stays open**; the deferred cases are deferred by decision, not failures. Profile Seed ownership is **CORRECTED 2026-08-20 — the ten-topic onboarding is PRESERVED for new Lorevox narrators REGARDLESS OF NARRATOR TYPE.** *(This read `DECIDED — Option A, live narrators only` until 2026-08-20. That wording was false and it was the harmful kind of false: it read as licence to gate the onboarding on narrator type, which would have removed the ten-topic workflow from exactly the narrators it exists for. Ordinary new-narrator reachability is still OWED and is the next substantive lane.)* **The three integration defects L2 surfaced were CLOSED by `WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01`, which is COMPLETE — they are no longer the active lane.** *(This read `The three integration defects L2 surfaced are the active lane` until 2026-08-20, after that work order had been accepted; a handoff naming closed work as active is an instruction to redo it.)* **Profile Seed reachability is the active/next lane**; Lean Lori follows it, with its content unchanged at §4. The model / 8,192-token lock still binds. |
-| **Narrator authority Phase 1** | **ACCEPTED 2026-08-17** | Step 9 accepted with its synthetic-B limitation. Closes no L2 gate. |
-| **Narrator authority Phase 2** | **ACCEPTED 2026-08-17 — 8/8 live steps** | Travel Doc ↔ chronology, shared narrator-context contract, migration 0045. Record: spec §12.7. |
-| **Harness `completed-turn`** | **PRODUCT ROUTE NOW EXERCISED LIVE (2026-08-18); the harness SCENARIO is still deferred** | Phase 3's live run drove two real Lori turns end to end: chat → `turn_extraction_ledger` rows → owned sessions, confirmed by the delete report removing 2 sessions and 2 interview_sessions scoped to that narrator. The harness's own scenario still needs `HORNELORE_OPERATOR_HARNESS=1` and a restart; what is no longer true is that the ROUTE is unexercised. |
-| **Phase 3 — Reviewed story authority** | **ACCEPTED 2026-08-18; its owed item is CLOSED** | *(Read "ACCEPTED WITH ONE ITEM OWED — 8/9 live" until Phase 4's acceptance.)* Lori answered a direct memory question from the approved story: *"You mentioned your grandmother Elena from Corpus Christi."* Spec §14.2. |
-| **Phase 4 — section-aware prompt authority** | **ACCEPTED 2026-08-18** | *(Read "NEXT — not started" until 2026-08-18.)* The section classification finally has a production reader; all three transports budget through it. Spec §14. |
-| **`WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01`** | **COMPLETE — Phases 1–4 all accepted** | No Story Integration phases remain, and the three L2 integration defects are closed with it. **Next lane is Profile Seed reachability; Lean Lori follows it — see §4.** *(This row read `Next lane is Lean Lori` until 2026-08-20.)* |
-| **`turn_extraction_ledger` cleanup** | **FIXED in Phase 4** | *(Read "REPORTED, NOT FIXED" until 2026-08-18.)* The table joined `_EXTENDED_PERSON_SCOPED_TABLES`, so it is both inventoried before deletion and removed by it — 6 rows removed live. **Two orphans remain and are NOT new: `turnrow:1663` and `turnrow:1665`, from the Phase 3 narrator hard-deleted before the fix existed.** They carry keys and timings and no narrator text. Sweeping those two is a one-line data decision for Chris. |
-| **`WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01`** | **ACCEPTED AND COMPLETE 2026-08-20** | Story-to-memoir synthetic chain **11/11**; deletion-integrity acceptance **10/10**. Verified against the **filesystem and direct SQL**, never a response body. Lori asks naturally → the answer is preserved → the candidate binds to BOTH committed turn rows → extraction reaches operator review → approval and era placement are atomic → chronology and Life Map agree → preview, TXT and DOCX each contain it **exactly once** with one provenance digest. Spec: [`docs/wo/WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01_Spec.md`](docs/wo/WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01_Spec.md). **Gate B stays OPEN, L2 stays PARTIAL, the directive-family registry stays INERT, and Kawa appears here only as REACHABLE FROZEN LEGACY UI AWAITING ADJUDICATION — non-authoritative; do not extend or build on it — plus one storage directory in the erasure inventory.** **NEXT SUBSTANTIVE LANE: Profile Seed reachability — not another story/memoir testing pass.** |
-| **Deletion integrity** | **CLOSED 2026-08-20 — a privacy defect this lane's own cleanup exposed** | `hard_delete_person` removed all active narrator/person-scoped content rows, answered 200, and left eight files on disk, five of them verbatim narrator speech. Erasure is now planned before the database authority is destroyed and persisted (0049) bound to the canonical absolute root (0050); refuses every symlink below the root, including one pointing at ANOTHER narrator inside it; covers eleven stores; deletes media rather than detaching it; purges the translation cache; **reports backups and exports rather than rewriting them**; fails closed before touching a row; and is retryable through the product API with a truthful audit trail. |
-| **Narrators after the acceptance** | **UNTOUCHED** | **the four family narrators and the designated non-family narrator are all untouched**. The synthetic narrators' people rows, active content and filesystem residue are removed; their audit and erasure-job metadata is intentionally retained and carries no narrator speech. Also: `integrity_check ok`; the **six pre-existing `harness-test-gate7p2` FK violations in `interview_sessions` are unchanged and NOT closed by this lane**. |
-| **Profile Seed reachability** | 🔵 **ACTIVE — PHASE 0 ACCEPTED (`661aa95`); PHASE 1 ACCEPTED (`1288baa`); PHASE 2 (prompt and committed-turn wiring) IS IN IMPLEMENTATION and NOT ACCEPTED — steps 1–5 ACCEPTED (step 4 at `b269184`, step 5 at `9127adb`), STEP 6 (WebSocket presentation metadata and post-commit advancement) IS THE CURRENT ACTION AND IS NOT STARTED, step 7 owed; detail below** | [`WO-LORI-PROFILE-SEED-REACHABILITY-01`](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md), authored by Chris 2026-08-26. **The ten-topic workflow is preserved and ordinarily unreachable, and the cause is a race the intake itself starts:** intake requires name, DOB and birthplace; those three anchors are exactly what chronology needs; chronology promotes `pass1 → pass2a`; and the composer emits the ten-topic block only for an identity-complete narrator STILL in `pass1`. So the ordinary path supplies what closes its own gate before the narrator's first normal turn, while a testing-only narrator without the anchors goes down identity mode instead — which mutually excludes the block. Present in source, covered as a predicate, and — since Phase 0 — **proven executably**: `tests/test_profile_seed_ordinary_intake_reachability.py` drives the real composer and the real chronology builder to demonstrate the skip, as one `expectedFailure` that will report an unexpected success the moment the defect is repaired. The spec also records completion-data gaps: siblings, explicit "none" answers, education field naming, childhood home versus birthplace, and actual retired/working status. **Phase 0 is COMPLETE AND ACCEPTED** (2026-08-26, at `661aa95`) — 46 tests, three modules, one expected failure, no product or schema change. It pinned eight distinct promotion sites (including the direct ready-narrator initialisation that seats a narrator in `pass2a` AND identity-complete at once), demonstrated the skip as an `expectedFailure` proven to announce its own repair, and built the ten-topic fixtures on the work order's `unanswered | known | addressed | declined`. **Five findings change Phase 1's inputs:** the pass is browser-owned with no server writer anywhere under `server/code/api`; `_build_profile_seed()` returns five keys of which only two are walk topics and both are derived wrongly; the military `served` Boolean is ignored in BOTH directions, not just when false; a real `bio_facts.childhood_home_address` is overridden by birthplace; and there is no canonical marital-status field for an explicit "never married". **All five are CLOSED by Phase 1: the pass has a server owner in `profile_seed_onboarding`, the resolver is a separate contract from `_build_profile_seed()`, the military Boolean is read in both directions and written by intake when the section is present, childhood home reads no birthplace path, and `bio_schema` gained `marital_status`.** **PHASE 2 — prompt and committed-turn wiring — IS IN IMPLEMENTATION and is NOT ACCEPTED. Steps 1–4 are accepted; step 4, the composer section, landed at `620d692` and is ACCEPTED at `b269184` after eleven rounds of correction. It was accepted once at `9f31d9f` and that was PREMATURE — FIVE further corrective commits followed (`c99eb5f`, `3e4c56a`, `a966a37`, `b5148ed`, `b269184`), one of them a real product defect: malformed `known_topics` crashed, or told Lori a topic was settled that nothing had established. STEP 5 — REST read authority — IS ACCEPTED at `9127adb`, after EIGHT corrective commits and a ZERO-SKIP route gate (48 tests, `OK`, no skips, run in `.venv-gpu` — the only interpreter that can import `api.api`). Both `chat` and `chat_stream` were entered for contradictory claim, owner mismatch, storage fault and the non-refusal tripwire. STEP 6 — WebSocket presentation metadata and post-commit advancement — IS THE CURRENT ACTION AND IS NOT STARTED. Step 7 remains owed.** The commit ledger lives in the work order's status block. **REST now supplies onboarding state — the old line "no live transport supplies onboarding state" is RETIRED AS FALSE.** What is still true: the narrator product path is unwired. The UI drives `/api/chat/ws`, a real turn makes zero HTTP requests matching "chat", and `/api/chat/stream` is reachable only behind the dev-only `LV_ALLOW_SSE_FALLBACK`. **REST READS AUTHORITY AND DOES NOT ADVANCE** — a narrator can answer a topic and the durable row will still call it unanswered, which is why Step 6 exists. *(This sentence nested bold inside bold for the fourth time in this lane — a `**` opened inside an already-open `**`, which markdown resolves as a CLOSE, so the emphasis inverted and the words meant to stand out were the only ones that did not. Emphasis is now opened and closed once.)* *(This row ended "Phase 1 — server authority — is next" until 2026-08-26, after Phase 1 was accepted at `1288baa`. A row naming accepted work as next is an instruction to rebuild it.)* |
-| Kawa / Memory River | **REACHABLE FROZEN LEGACY UI** | Phase 2 did not extend it. Awaiting a deliberate removal decision. |
-| Runtime safety | **PARKED, server-authoritative** | Never reactivate through environment values. |
-| Model / 8,192-token window | **LOCKED** | Any proposed model change is stop-and-report. |
-| Privacy canon extraction/history purge | **PARKED work order** | Not on the current product critical path. |
-
-## 3. Multi-day placement closeout
-
-`WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01` changed the authoritative model from one
-nullable day on `trip_photo_links` to a set of placement rows in
-`trip_photo_day_placements`.
-
-Binding behavior now proven live:
-
-- one permanent photo and one trip membership may have zero, one, or many day placements;
-- one day may hold many photos;
-- **Add to this day**, **Remove from this day**, and **Move** are distinct;
-- removing one occurrence preserves every other placement, membership, original,
-  thumbnail, caption, approval and context;
-- the compatibility scalar is `null` for zero or multiple placements and must never be
-  used to decide whether a photo is unplaced;
-- explicit placements and taken-date suggestions are counted separately;
-- shared captions project consistently across placements and do not grant Lori approval;
-- bounded thumbnail windows keep every item reachable without unbounded DOM growth.
-
-Live evidence, Bismarck Trip, 2026-08-14:
-
-- Stage B persistence: **83 passed, 0 failed, 0 not exercised, 1 attested**;
-- restoration: **45 passed, 0 failed, 0 not exercised**;
-- photo links remained 4 → 4; placement total restored 3 → 3;
-- conversation link and turn rows survived byte-identically;
-- original placement sets were restored with no duplicate links;
-- rail counts matched timeline rows on all six days.
-
-Phase 6 is not implied by this acceptance. Dropping `trip_photo_links.trip_day_id`
-requires a separately reviewed SQLite rebuild and rollback plan.
-
-## 4. Immediate execution order
-
-> **NEXT ACTION, 2026-08-27: SUPERVISORY REVIEW OF THE PRE-STEP-6 CORRECTION
-> CHECKPOINT. STEP 6 IS BLOCKED UNTIL THAT REVIEW LANDS.**
->
-> A review of the pushed Step 5 tree found five bounded defects, none of them
-> narrator-reachable through the production UI because WebSocket onboarding is not
-> wired. They are closed in the correction checkpoint below `9127adb`'s successor and
-> are **awaiting acceptance**, not accepted:
->
-> 1. **the mutation gate was not green** — `M1` disabled the first-presentation branch
->    and crashed with `AttributeError`; `M8` retried against a permanently-raising
->    recorder. Both scored `BROKEN`: errors only, nothing asserted. Repaired to fail by
->    ASSERTION.
-> 2. **`expected_version` was not strict** — Pydantic coerced `true` to `1` and the
->    accessor called `int()`. Reproduced: a pending narrator at version 1 accepted
->    `expected_version=True` and moved to version 2. Closed at both layers.
-> 3. **the deterministic inventory said six and there are NINE** — `floor_buffer`,
->    `past_tense_acknowledge` and `bank_flush` bypass `_finalize_deterministic_turn`.
-> 4. **control and system-directive turns** — `eligible=False` returned `IDLE`, which
->    revives the legacy browser block mid-walk, and the classifier called "repeat that",
->    "pause", "help" and "change narrator" `addressed`. A `HOLD` action and one shared
->    control detector close both.
-> 5. **this document named a hash as "current `main`"** — see §4b; it is derived now.
->
-> **The next session does not start Step 6 until Chris accepts this checkpoint.**
-> The Step 6 order itself is unchanged and stands below.
-
-**Next action: Profile Seed reachability — PHASE 2, STEP 6: WebSocket presentation metadata, response correlation, recovery and post-commit advancement, on the accepted two-event exact-tuple state machine. NOT STARTED. Phase 2 remains IN IMPLEMENTATION and NOT ACCEPTED.** Steps 1 and 2 landed first — production refusal detection now lives in `services/narrator_refusal.py`, so implementation has begun even though behaviour is preserved. Step 3 landed too — the turn state-machine service and a reproducible mutation gate. **Step 4, the composer section, is ACCEPTED at `b269184`** — it landed at `620d692` and took eleven rounds. Two removed authoritative claims about server state made before the versioned apply; one was a real product defect in `known_topics` validation; four were the ACCEPTANCE INSTRUMENT itself — a guard that failed for reasons outside its own subject, a mutation caught by a guard it was not aiming at, and a runner that scored a module broken at import as evidence. **The earlier acceptance at `9f31d9f` was premature and is superseded.** The ledger is in the work order's status block. **STEP 5 IS ACCEPTED at `9127adb`. STEP 6 — WEBSOCKET PRESENTATION METADATA AND POST-COMMIT ADVANCEMENT — IS THE CURRENT ACTION AND HAS NOT BEEN STARTED. STEP 7 REMAINS OWED.** The commit ledger is in the work order's status block, not here. REST supplies `profile_seed_onboarding` now and **advances nothing**; the production narrator UI still runs over WebSocket, so a narrator using that UI reaches the walk at Step 6. The walk itself is already live over REST — verified against the running API — so "unreachable by a narrator" would be false. *(This line said "NOT YET BEGUN" until 2026-08-26, after production code had moved. A control document that calls started work unstarted is the same defect as one that calls finished work unfinished.)* Phase 0 is ACCEPTED at `661aa95` and Phase 1 is **ACCEPTED at `1288baa`** — do not redo either. Everything Phase 1 owed is in-tree and green: migration `0051`, `services/profile_seed.py`, atomic enrollment inside `create_person()`, the versioned `GET`/`PATCH`, and the deletion cascade coverage. *(This line read "PHASE 1, server authority" as the next action until 2026-08-26 and "PHASE 1 REVIEW" until acceptance the same day. A next-action line naming accepted work is an instruction to rebuild it, which is the failure this file's own ordering rule exists to prevent.)* Phase 1 was migration `0051`, the canonical topic registry, the completion resolver, atomic enrollment, the versioned GET/PATCH API and deletion coverage. **Phase 2 is: resolve onboarding by narrator BEFORE all three transports compose; render exactly one topic from `TOPIC_REGISTRY`; advance only from the committed-turn path with meta and control turns stationary; complete into an effective `pass2a`.** See [`WO-LORI-PROFILE-SEED-REACHABILITY-01`](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md) §6. **Phase 2 must NOT touch the UI promotion sites — that is Phase 3** — and NOT another story/memoir testing pass. *(This read "Phase 0" until 2026-08-26; Phase 0 ran and was accepted beneath it, and a control document naming accepted work as next is an instruction to redo it.)*
-
-*(This section read "finish Lean Lori, in one substantial implementation block" until
-2026-08-20. `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` ran and closed in between, and its
-closeout named the next lane explicitly. The Lean Lori block below is still the correct
-content and is still owed; what changed is what comes first.)*
-
-**The ten-topic Profile Seed onboarding is preserved for new Lorevox narrators REGARDLESS OF
-NARRATOR TYPE.** What is owed is reachability: an ordinary new narrator must actually reach
-it. That is the lane, and it now has a spec — [`WO-LORI-PROFILE-SEED-REACHABILITY-01`](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md), authored by Chris against
-`6952ad0` on 2026-08-26. **Phase 0 accepted at `661aa95`; Phase 1 accepted at `1288baa`; PHASE 2 IS IN IMPLEMENTATION AND NOT ACCEPTED — the spec carries the commit ledger.** It establishes server-owned,
-restart-safe onboarding progress; all ten topics preserved regardless of narrator type; NO
-automatic enrollment of historical narrators; chronology readiness separated from onboarding
-completion; `unanswered | known | addressed | declined` topic states; one question per turn;
-versioned writes with narrator-switch isolation; and explicit offline and live acceptance
-gates. **Phases 0 and 1 are complete and accepted; PHASE 2 — prompt and committed-turn wiring — is IN IMPLEMENTATION.** *(This read "Start at Phase 0, which changes no behavior" until 2026-08-26, and then "start Phase 1 — server authority" until Phase 1 was accepted at `1288baa` later the same day. Both were the same instruct-a-redo failure this file's own ordering rule exists to prevent, and the second one survived a correction pass aimed at the first — which is the argument for sweeping the whole tree rather than the paragraph you happen to be editing.)* `WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` is **COMPLETE** — Phases 1–4
-all accepted — and `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` is **ACCEPTED AND COMPLETE**.
-Do not resume the L2 matrix.
-
-*(This section read "Next action: open Phase 3 — Witness/story connection" until 2026-08-18,
-while Phase 3 and Phase 4 were both built and accepted beneath it. A control document naming
-an accepted phase as next is an instruction to redo it, which is the failure this file's own
-ordering rule exists to prevent.)*
-
-**The Lean Lori block, in the order it should be built:**
-
-1. **Complete prompt-section metadata.** Sections carry `required` and `drop_order` today.
-   They still need owner, activation condition, trim policy, source, priority tier, real token
-   count and redacted hash. Phase 4 built the reader and the telemetry that make the last two
-   observable; the fields themselves are not there yet.
-2. **Finish directive gating.** Only the Era Explainer is gated by actual narrator state. Every
-   other directive family must appear only when its state, feature or task is active. Profile
-   Seed is **CORRECTED 2026-08-20 — the ten-topic onboarding is PRESERVED for
-   new Lorevox narrators REGARDLESS OF NARRATOR TYPE.** *(This read `DECIDED —
-   Option A, live narrators only` until 2026-08-20; that wording read as licence
-   to gate the onboarding on narrator type.)* Ordinary new-narrator reachability
-   is still OWED.
-3. **Decide history versus optional-section priority FROM MEASUREMENTS.** Phase 4 deliberately
-   exhausts history before shedding any section, which preserved every working turn and is the
-   reason that change was safe to land. Whether low-value optional material should instead go
-   before recent narrator/Lori conversation is a product decision, and the per-section token
-   costs the new telemetry emits are the measurement it needs. **Not another test matrix.**
-4. **Finish passive diagnostics.** One operator-readable record of which sections were
-   activated, kept or removed across REST chat, REST streaming and the WebSocket — without
-   storing narrator prose. The per-transport wiring exists; the unified record does not.
-5. **Close the remaining Lean Lori live evidence.** A SMALL acceptance replacing the abandoned
-   broad L2 campaign: ordinary conversation, one state-heavy turn, one trip turn, one
-   approved-story turn, one safe oversized-prompt refusal.
-6. **Reconcile the Lean Lori work order itself.** Its status table is stale now that
-   optional-section budgeting has landed, and it still carries abandoned runtime-profile
-   rollback language and Gate F assumptions that the architecture cannot satisfy. Replace them
-   with what actually exists.
-
-**After Lean Lori, in order:** extraction improvement against the new four-persona core and
-challenge packs — finding BINDING failures rather than reporting pass counts, and retiring the
-old evaluator only after scoring parity, preserved under `scripts/archive/`; then removal of
-the frozen Kawa / Memory River UI once Life Map is confirmed to cover the active navigation
-paths.
-
-**Owed separately, and not part of any of the above:** the harness `completed-turn` SCENARIO
-(the product route is now exercised live — see the lane table), deferred until a deliberate
-operator-harness restart; and the harness usability fix so absent or soft-deleted reference
-personas report `N/A` while the writable synthetic personas continue.
-
-The Palette / multi-day sequence below is **historical and complete**. It is kept because
-item 6 is still an open decision, not because any of it is the next lane.
-
-Items 1–5 are **complete as of 2026-08-14**; item 6 remains an open decision.
-
-1. Record the multi-day closeout. **Done.**
-2. Inventory contaminated acceptance/test artifacts. **Done in Palette P0** — no genuine
-   family material deleted, and the contamination proved not to reach the Palette at all
-   (22 of 36 narrators are harness residue and none owns a trip).
-3. Execute the Photo Palette work order. **Done — P0 through P5.**
-4. Run one consolidated Palette regression gate. **Done** — 584 tests plus four harnesses
-   at 113 / 32 / 16 / 56, verified in `.venv`.
-5. Start once for live acceptance, restart once for persistence. **Done** — P4 final PASS
-   after one correction; P5 persistence 14/14 and restoration 22/22.
-6. **NEXT: decide separately whether to authorize legacy-column retirement.** Palette
-   acceptance does **not** imply it.
-
-### 4.1 Photo Palette closeout
-
-**Reports are LOCAL-ONLY and deliberately not in the repository** — `docs/reports/` is
-gitignored because those files carry live narrator data. Not links, because a link would be
-broken for anyone cloning:
-
-```text
-docs/reports/WO-TRIP-PHOTO-PALETTE-01_P4_LIVE_ACCEPTANCE.md   (local working copy only)
-docs/reports/WO-TRIP-PHOTO-PALETTE-01_P5_PERSISTENCE.md       (local working copy only)
+```bash
+git rev-parse origin/main      # the live head, always
+git status --porcelain         # must be empty before any gate
 ```
 
-The summary below is the tracked evidence and is intended to stand on its own.
-
-Proven live and across a restart: placement identity preserved byte-for-byte; the derived
-compatibility scalar correct at zero, one and many placements while the stored column is
-never written; membership rendered once however many placements it has; filter counts equal
-to their cards on every chip; batch Add, eligibility-checked Remove, source-named Move, and
-reversible Hide/Restore; caption and Lori approval kept apart on the wire; dirty guards;
-thumbnail-only grid with deferred loading on the modal's real scrollport; no duplicate
-writes, no originals in the grid, no legacy-scalar writes.
-
-**One defect was found live and fixed inside P4** (`b991353` code, `88429cc` tests): Add,
-Remove, Move and a caption save refreshed the visible photo pool but not the Palette's own
-hidden pool, so a hidden card kept showing a day it no longer had. `reloadPalettePhotoPools`
-now owns that rule in one place, wired into five sites; eight mutations, eight killed.
-
-Eight genuine Bismarck photographs were uploaded during acceptance and are **preserved** —
-memberships only, no day placements, no approvals granted. Every temporary acceptance
-caption, placement and hidden flag was restored afterwards and re-verified against the
-original baseline.
-
-**Two things carried forward, neither blocking:**
-
-- **Region-only placement has no operator route.** `PhotoLinkPatch` carries no
-  `trip_region_id` field and no clear-stop flag, so nothing in the Travel Document can
-  create a region-only photo link. The Palette renders the badge; the state is
-  unreachable. A product decision, not a defect.
-- **Scale evidence is the harness's.** The trip holds 12 memberships, so 49/50/51/200/500/
-  1,000, `Load more` and the mounted-window distinction remain proven by
-  `run_photo_palette_behaviour.js` and `run_photo_window_arithmetic.js`. No rows were
-  manufactured to change that.
-
-## 4b. Step 6 boundary, and what Step 5 leaves behind
-
-**Recorded at Step 5 acceptance, 2026-08-27.**
+Fixed acceptance checkpoints stay written down, because they describe trees that have
+stopped moving:
 
 | Hash | What it is |
 |---|---|
-| `9127adb` | **Step 5 accepted checkpoint** — the last lane commit, and where the zero-skip gate was run. A FIXED point: it names one tree that was accepted once, and it stays correct forever. |
-| *derive it* | **The live head.** There is deliberately no hash here. Run `git rev-parse origin/main`. |
+| `9127adb` | Profile Seed Step 5 accepted |
+| `d0e5294` | Pre-Step-6 correction checkpoint accepted; tagged `archive/pre-hygiene-2026-08-28` |
+| `ea3ab27` | Tree inspected by the repository audit; tagged `audit/repository-baseline-2026-08-28`. **Not** the rollback point |
+| `5f6b01b` | Repository hygiene Commit 1 accepted |
 
-**DO NOT RECORD "current `main`" AS A HASH IN THIS FILE — DERIVE IT.**
+Where everything else lives: [`docs/INDEX.md`](docs/INDEX.md) ·
+[`docs/BACKLOG.md`](docs/BACKLOG.md) · [`scripts/INDEX.md`](scripts/INDEX.md) ·
+[`docs/archive/INDEX.md`](docs/archive/INDEX.md).
 
-```bash
-git fetch origin && git rev-parse origin/main   # the live head, always
-git rev-parse HEAD                              # what your tree is actually on
-git status --porcelain                          # must be empty before any gate
-```
+## 2. Current state
 
-*(Corrected 2026-08-27. This table read `78fa12e` — **"Current clean `main`"** — and by the time it was read `main` was `ea3ab27`. That is not a typo that got fixed; it is a sentence that CANNOT stay true, because committing the correction moves the thing it describes. The first attempt at this line conflated two different hashes into one "clean `main` HEAD: `9127adb`", which was already two commits behind when it was written; the second attempt split them and pinned the moving one anyway. A self-referential fact belongs in a command, not in prose. An ACCEPTANCE checkpoint is the opposite case — it describes a tree that has stopped moving — so `9127adb` stays written down.)*
-
-### Acceptance state
-
-| Item | State |
+| Lane | State |
 |---|---|
-| Phase 0 — executable map | **ACCEPTED** `661aa95` |
-| Phase 1 — server authority | **ACCEPTED** `1288baa` |
-| Phase 2 steps 1–3 | accepted (`f23040b` `5a1eb56` `1875821` `b069680` `c6c9ae4` `0335cd3`) |
-| Phase 2 step 4 — composer section | **ACCEPTED** `b269184` |
-| Phase 2 step 5 — REST read authority | **ACCEPTED** `9127adb` |
-| Phase 2 step 6 — WebSocket wiring | 🔵 **CURRENT ACTION — NOT STARTED** |
-| Phase 2 step 7 — suites and reconciliation | owed |
-| Phases 3–5 | not begun |
+| **Repository hygiene** | 🔵 **ACTIVE** — Step 2 of 5. Commit 1 accepted `5f6b01b` |
+| **Profile Seed reachability** | 🔵 **ACTIVE, FROZEN for hygiene.** Phase 0 `661aa95` · Phase 1 `1288baa` · Phase 2 steps 1–5 accepted (step 4 `b269184`, step 5 `9127adb`) · pre-Step-6 corrections `d0e5294` · **Step 6 NOT STARTED**, step 7 owed |
+| `WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` | **COMPLETE** — Phases 1–4 accepted. Closes the three L2 integration defects |
+| `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` | **ACCEPTED AND COMPLETE 2026-08-20** — story-to-memoir 11/11, deletion integrity 10/10, verified against filesystem and SQL |
+| Deletion / erasure integrity | **CLOSED 2026-08-20.** Erasure planned before the DB authority is destroyed, persisted (0049), bound to the canonical absolute root (0050); refuses every symlink below the root; eleven stores; deletes media; purges the translation cache; reports backups rather than rewriting them; fails closed; retryable with a truthful audit trail |
+| Multi-day trip-photo placement | **COMPLETE**, Gate 3 accepted 2026-08-14. §4 |
+| Photo Palette | **COMPLETE**, P4/P5 accepted 2026-08-14. Do not reopen for polish. §4 |
+| Travel Document core/export | **CLOSED on live evidence.** Preserve the editable timeline → DOCX projection rule |
+| Google Photos Picker | **BANKED.** Reopen only for a demonstrated defect |
+| Lean Lori | **L1 COMPLETE. L2 PARTIAL and CLOSED by product-priority decision — DO NOT RESUME.** Eleven commits already landed; do not rebuild. **Gate B stays OPEN**, Phase 10 open |
+| Legacy photo-day scalar retirement (Phase 6) | **DEFERRED.** The scalar is frozen, unwritten, ignored for authoritative decisions, correctly derived on read. Dropping it buys nothing and costs a risky SQLite rebuild |
+| Test-artifact **cleanup** | **DEFERRED — needs Chris's authorization.** The 22 harness narrators were deliberately not deleted |
+| Kawa / Memory River | **REACHABLE FROZEN LEGACY UI.** Non-authoritative; do not extend or build on it. Awaiting a deliberate removal decision |
+| Runtime safety | **PARKED**, server-authoritative. Never reactivate through an environment value |
+| Model / 8,192-token window | **LOCKED.** Any proposed change is stop-and-report |
+| Directive-family registry | **INERT** — built, gated, deliberately not activated |
+| Privacy canon extraction / history purge | **PARKED work order.** The authority for any history rewrite |
 
-Step 5 lane, git-derived (`687c655~1..9127adb`, lane files only): **6 files,
-+2203 / −10**.
+**Profile Seed, why it exists:** the ten-topic workflow is preserved and ordinarily
+unreachable, because the intake supplies exactly what closes its own gate. Intake requires
+name, DOB and birthplace; those three anchors are what chronology needs; chronology
+promotes `pass1 → pass2a`; and the composer emits the ten-topic block only for an
+identity-complete narrator **still in `pass1`**. The onboarding is **preserved for new
+Lorevox narrators regardless of narrator type**; what is owed is reachability.
 
-**Test evidence at `9127adb`:**
+**Narrators are untouched.** The four family narrators and the designated non-family
+narrator are all untouched. Six pre-existing `harness-test-gate7p2` FK violations in
+`interview_sessions` are unchanged and are **not** closed by any current lane.
 
-* **Zero-skip route gate: 48 tests, `OK`, NO SKIPS** —
-  `HORNELORE_REQUIRE_ROUTE_TESTS=1 PYTHONPATH=server/code .venv-gpu/bin/python -m unittest
-  tests.test_profile_seed_rest_read_authority`. Both `chat` and `chat_stream` entered for
-  contradictory-claim 409, owner-mismatch 409, storage-fault 503, and the non-refusal
-  tripwire control.
-* Step 4 + gate + bug-panel **168 OK** · reducer + refusal **84 OK** ·
-  preservation **156 OK (expected failures=1)** · mutations **S1–S11, 11/11 CAUGHT**,
-  six marked as designs this lane actually shipped.
-* **`.venv-gpu` is the only interpreter that can run the route tests** — Python 3.12 with
-  fastapi 0.135.1 and torch 2.12. `.venv` (3.10) and system `python3` (3.12) both lack
-  fastapi and make those tests SKIP, which is not a pass.
-* A `RequestsDependencyWarning` (urllib3 2.6.3 / chardet 7.4.3) appears on that run. It is
-  **non-blocking dependency maintenance** and did not affect the gate.
+## 3. Step 6 — what it inherits and what it must not touch
 
-### What Step 6 must know
+**REST reads authority and DOES NOT ADVANCE.** Measured live: a narrator answers a topic
+and the durable row still reads `active=childhood_home · remaining=10 · version=2`. Within
+a session the history hides it; across a session boundary Lori asks for something she was
+already told. **Step 6 is the fix**, and
+`test_an_answer_recorded_as_REST_SHAPED_TURNS_is_never_applied` is written to be REPLACED
+when it lands, not deleted.
 
-**REST reads authority and DOES NOT ADVANCE.** Nothing in Step 5 writes a turn event.
-Measured live: a narrator answers a topic and the durable row still reads
-`active=childhood_home · remaining=10 · version=2`. Within a session the history hides it;
-across a session boundary Lori asks for something she was already told. **Step 6 is the fix
-for that**, and `test_an_answer_recorded_as_REST_SHAPED_TURNS_is_never_applied` is written
-to be REPLACED when it lands, not deleted.
-
-**WebSocket is the production narrator transport.** `ui/js/api.js` drives `/api/chat/ws`; a
-complete narrator turn produces **zero HTTP requests matching "chat"**. `/api/chat` has no
-UI caller; `/api/chat/stream` is reachable only behind `window.LV_ALLOW_SSE_FALLBACK`, a
-dev-only hatch guarded by `BUG-SSE-FALLBACK-BYPASSES-CHAT-WS-GUARDS-01`. **A narrator using the production
-UI reaches the walk at Step 6.** The walk itself is already live over REST — that was
-verified against the running API, so "not reachable by a narrator" would be false.
+**WebSocket is the production narrator transport.** `ui/js/api.js` drives `/api/chat/ws`;
+a complete narrator turn produces **zero HTTP requests matching "chat"**. `/api/chat` has
+no UI caller; `/api/chat/stream` is reachable only behind the dev-only
+`window.LV_ALLOW_SSE_FALLBACK`. **A narrator using the production UI reaches the walk at
+Step 6.** The walk is already live over REST.
 
 **No historical-narrator auto-enrollment.** Enrollment happens only inside
-`create_person()`. Measured on the live database: **all five existing narrators — Del,
-Melanie Zollner, Janice, Kent, Christopher — are `enrolled: false`**, so the walk is
-permanently unreachable for them. Doctrine working as written. Extending it to family
-narrators is a **backfill decision**, not a code change.
+`create_person()`. All five existing narrators are `enrolled: false`. Extending it to
+family narrators is a **backfill decision**, not a code change.
 
-**Step 6 scope:** add WebSocket presentation metadata, response correlation, recovery and
-post-commit advancement, using the accepted two-event exact-tuple state machine.
+**Step 6 inherits, and must not undo** — from the accepted correction checkpoint:
+
+* the **nine** deterministic persist paths, and the test that fails if a tenth appears;
+* `HOLD` for every ineligible turn on an active walk — Step 6 supplies `eligible`, it does
+  not re-decide what ineligibility means;
+* one conversation-control vocabulary, in `services/conversation_control.py`;
+* `expected_version` strict at **both** layers — the WebSocket path calls the accessor
+  directly and inherits the second one, not the first.
+
+`tests/test_profile_seed_deterministic_paths.py::Step6TripwireTests` fails the moment Step
+6 adds Profile Seed metadata to `chat_ws.py`. That is deliberate: narrow it to the model
+path, leave the nine covered.
 
 **Step 6 must NOT touch:** REST persistence · UI promotion sites (Phase 3) · schema or
-migrations · chronology · Life Map · memoir · story authority · safety (PARKED) ·
-model / 8,192-token window (LOCKED) · directive-family registry (INERT) · Kawa (frozen
-legacy). **Stop after focused implementation and tests, before Step 7 reconciliation.**
+migrations · chronology · Life Map · memoir · story authority · safety (PARKED) · model /
+8,192-token window (LOCKED) · directive-family registry (INERT) · Kawa (frozen legacy).
+**Stop after focused implementation and tests, before Step 7.**
 
-### Separate issues — NOT Step 5 evidence, NOT Step 6 scope
+Detail: [`docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_PHASE2_TRANSPORT_MAP.md`](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_PHASE2_TRANSPORT_MAP.md)
+§6, §6b, §16, §16a.
 
-* **Test Lab restoration.** `POST /api/test-lab/run` returns a 500: `scripts/run_test_lab.sh`
-  was moved to `scripts/archive/` by `c4ca24e`. **Repointing the constant is NOT the fix** —
-  tried at `8e93262`, reverted at `b61f4a8`. The archived harness is not location-aware
-  (`ROOT_DIR` resolves to `<repo>/scripts`; it calls `scripts/seed_test_narrators.py` and
-  `scripts/test_lab_runner.py`, both also archived), so repointing returns `{"ok": true}`
-  and the child dies in a log — worse than the loud failure. A bounded task of its own.
-* **Bug Panel narrator label.** `_narratorLabel()` read three keys that do not exist on
-  `state.session`, so it rendered `(unnamed)` for every narrator, always. Fixed `23cbdec`,
-  covered by eight Node-run tests at `5e7571c`. **Recorded here separately and deliberately
-  NOT counted as Step 5 evidence.**
-* **Narrator composer collapses on a narrow viewport.** `#chatInput` is `flex: 1` with
-  default `min-width: auto`; measured 39 px wide × 240 px tall at a 697 px viewport, which
-  renders the placeholder as a vertical column of letters. Needs ~500 px of row width. A
-  `min-width` fix was written and **withdrawn unverified** — it may clip Send at narrow
-  widths. Open.
+## 4. Product boundaries that bind
 
-### Live-review artifacts — PRESERVE, NO DELETION AUTHORIZED
+**Multi-day placement.** The authoritative model is a set of rows in
+`trip_photo_day_placements`, not one nullable day on `trip_photo_links`. One photo and one
+trip membership may have zero, one or many placements; one day may hold many photos; **Add
+to this day**, **Remove from this day** and **Move** are distinct; removing one occurrence
+preserves every other placement, membership, original, thumbnail, caption, approval and
+context; explicit placements and taken-date suggestions are counted separately; shared
+captions project across placements and **do not grant Lori approval**.
+
+**The compatibility scalar is `null` for zero OR multiple placements and must never be
+used to decide whether a photo is unplaced.** The authoritative unplaced rule is:
+
+```text
+zero trip_photo_day_placements
+```
+
+Never `trip_day_id IS NULL`.
+
+**Photo Palette** is a mode inside the existing Travel Document workspace — not a second
+product, not a nested modal. It reuses the landed inventory, thumbnails, placement APIs,
+bounded-window helpers and trip/day state. It does **not** include destructive deletion,
+face recognition, AI photo interpretation, duplicate originals or a schema rewrite.
+
+Rulings: [`docs/architecture/TRAVEL_DOCUMENT_DOCTRINE.md`](docs/architecture/TRAVEL_DOCUMENT_DOCTRINE.md) 1.16.
+
+## 5. Live-review artifacts — PRESERVE, NO DELETION AUTHORIZED
 
 | What | Exact IDs |
 |---|---|
@@ -459,88 +169,64 @@ legacy). **Stop after focused implementation and tests, before Step 7 reconcilia
 | **`ZZ Step5 Probe (delete me)`** (`6e606ace-2a72-439a-8474-04140409098b`) | owns `zz-probe-seed-1`, turns **1718–1721** |
 | `zz-probe-contradiction` | **no session, no turns** — the 409 fired before anything was written |
 
-**Nothing has been deleted and no deletion is authorized.** The synthetic probe may be hard
--deleted through the product erasure path **only on Chris's explicit instruction**. Del and
-all of his data are to be left alone.
+**Nothing has been deleted and no deletion is authorized.** The synthetic probe may be
+hard-deleted through the product erasure path **only on Chris's explicit instruction**. Del
+and all of his data are to be left alone.
 
-### Standing state, unchanged by this lane
+## 6. Working and verification policy
 
-Gate B **OPEN** · Lean Lori L2 **PARTIAL, do not resume** · runtime safety **PARKED** ·
-directive-family registry **INERT** · model + 8,192-token window **LOCKED** · Kawa
-**reachable frozen legacy UI awaiting adjudication**.
-
----
-
-## 5. Photo Palette product boundary
-
-The Palette is a mode inside the existing Travel Document workspace, not a second product
-or nested modal. It reuses the photo inventory, thumbnails, placement APIs, bounded window
-helpers, current trip and selected-day state already landed.
-
-The authoritative unplaced rule is:
-
-```text
-zero trip_photo_day_placements
-```
-
-Never use `trip_day_id IS NULL`; that is also the compatibility representation of a photo
-placed on multiple days.
-
-The Palette MVP includes filters, selection, batch Add, per-placement Remove/Move,
-caption/approval separation, hidden/review states, and honest partial-failure reporting.
-It does not include destructive deletion, face recognition, AI photo interpretation,
-duplicate originals, or a schema rewrite.
-
-Canonical plan:
-
-- `docs/wo/WO-TRIP-PHOTO-PALETTE-01_Spec.md`
-- `docs/wo/WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01_Spec.md`
-- `docs/architecture/TRAVEL_DOCUMENT_DOCTRINE.md` ruling 1.16
-
-## 6. Efficient work and verification policy
-
-- Work in coherent product blocks, not one-line review cycles.
-- Focused tests while coding; one consolidated regression run at the end of the block.
-- Mutation/non-vacuity tests only for load-bearing behavior.
-- Do not restart for documentation, tests, or harness-only changes.
-- Keep the stack down through an implementation block.
-- Start once for live acceptance and restart once for final persistence proof.
-- Stop early only for schema risk, destructive live-data action, security boundary,
+* Work in coherent product blocks, not one-line review cycles.
+* Focused tests while coding; one consolidated regression run at the end of the block.
+* Mutation and non-vacuity tests only for load-bearing behaviour.
+* Do not restart for documentation, tests, or harness-only changes.
+* Keep the stack down through an implementation block. Start once for live acceptance,
+  restart once for final persistence proof.
+* Stop early only for schema risk, destructive live-data action, a security boundary, a
   model/configuration change, or a real design decision.
-- **Claude prepares copy-paste `git add` + `git commit` blocks; Chris runs them and pushes;
-  Chris and ChatGPT review the pushed block.** Agents do not run git here. The reason is in
-  `CLAUDE.md`: a sandbox git command that hits the agent timeout on the `/mnt/c` 9p mount
-  leaves `.git/index.lock` behind and silently blocks GitHub Desktop and Chris's own WSL
-  git, presenting as "add succeeded, commit says nothing to commit, Desktop still shows N
-  changed files." Read-only git (`log`, `status`, `diff`, `rev-parse`) is fine.
+* **Report skip counts.** `OK (skipped=N)` is not a pass. Name the interpreter a result
+  came from.
+* **Claude prepares copy-paste `git add` + `git commit` blocks; Chris runs them and pushes
+  from GitHub Desktop.** Agents do not run git here. A sandbox git command that hits the
+  agent timeout on the `/mnt/c` 9p mount leaves `.git/index.lock` behind and silently
+  blocks GitHub Desktop and Chris's own WSL git — presenting as "add succeeded, commit says
+  nothing to commit, Desktop still shows N changed files". Read-only git is fine.
 
-## 7. Known separate issues—not Palette scope
+## 7. Known separate issues — not the current lane
 
-- six pre-existing `interview_sessions → people` foreign-key violations from old harness
-  narrators;
-- hard-delete filesystem residue root cause;
-- legacy-column retirement;
-- privacy canon extraction and public-history purge;
-- broad `ws_chat`/extract-router decomposition;
-- giant control-document archival;
-- model, prompt-window, STT, TTS and runtime-safety changes;
-- **`scripts/ui/run_test23_two_person_resume.py` does not parse** — `IndentationError`
-  at line 2082, from `df82215` (2026-05-06), so Test 23 has not run since. Pre-existing
-  and unrelated to Profile Seed; found by a repository-wide compile during the Step 6
-  review. Spec: [`BUG-HARNESS-TEST23-INDENTATION-01_Spec.md`](BUG-HARNESS-TEST23-INDENTATION-01_Spec.md).
-  **Do not repair it inside the Profile Seed lane.**
+Full register with evidence: [`docs/BACKLOG.md`](docs/BACKLOG.md).
 
-Do not fold these into Palette implementation.
+* **Test Lab returns a 500.** `scripts/run_test_lab.sh` was archived by `c4ca24e`.
+  **Repointing the constant is NOT the fix** — tried at `8e93262`, reverted at `b61f4a8`.
+  The archived harness is not location-aware, so repointing returns `{"ok": true}` and the
+  child dies in a log. Worse than the loud failure. A bounded task of its own.
+* **Narrator composer collapses on a narrow viewport.** `#chatInput` is `flex: 1` with
+  default `min-width: auto`; measured 39 px wide × 240 px tall at a 697 px viewport. Needs
+  ~500 px of row width. A `min-width` fix was written and **withdrawn unverified** — it may
+  clip Send. Open.
+* **`scripts/ui/run_test23_two_person_resume.py` does not parse** — `IndentationError` at
+  line 2082 from `df82215` (2026-05-06), so Test 23 has not run since. Spec:
+  [`BUG-HARNESS-TEST23-INDENTATION-01_Spec.md`](BUG-HARNESS-TEST23-INDENTATION-01_Spec.md).
+  **Do not repair it inside a product lane.**
+* Six pre-existing `interview_sessions → people` FK violations from old harness narrators.
+* Hard-delete filesystem residue root cause · legacy-column retirement · privacy canon
+  extraction and public-history purge · broad `ws_chat`/extract-router decomposition ·
+  model, prompt-window, STT, TTS and runtime-safety changes.
+* **Bug Panel narrator label** — `_narratorLabel()` read three keys that do not exist on
+  `state.session`, rendering `(unnamed)` for every narrator. Fixed `23cbdec`, covered at
+  `5e7571c`. Recorded separately and deliberately not counted as lane evidence.
 
 ## 8. Required document set
 
 | Document | Purpose |
 |---|---|
-| `HANDOFF.md` | Truthful current state and next action. |
-| `MASTER_WORK_ORDER_CHECKLIST.md` | Small active/next/deferred coordination list. |
-| `docs/wo/WO-TRIP-PHOTO-PALETTE-01_Spec.md` | Executable researched Palette plan. |
-| `docs/wo/WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01_Spec.md` | Landed placement authority and acceptance history. |
-| `docs/architecture/TRAVEL_DOCUMENT_DOCTRINE.md` | Binding Travel Document rulings. |
+| `HANDOFF.md` | Current state and next action. Nothing else |
+| `MASTER_WORK_ORDER_CHECKLIST.md` | Active / next / deferred coordination |
+| `CLAUDE.md` | Durable doctrine and prohibitions |
+| `docs/INDEX.md` | Where documentation authority lives |
+| `docs/BACKLOG.md` | Unresolved obligations, with evidence |
+| `docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md` | The current repository action |
+| `docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md` + `..._PHASE2_TRANSPORT_MAP.md` | The current product lane |
+| `docs/architecture/TRAVEL_DOCUMENT_DOCTRINE.md` | Binding Travel Document rulings |
 
-Historical handoffs and long status narratives remain in git history or `docs/archive/`;
-they must not be appended back into this operational brief.
+Historical handoffs and long status narratives live in Git history and `docs/archive/`.
+**They must not be appended back into this operational brief.**

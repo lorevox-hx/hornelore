@@ -73,10 +73,20 @@ for compatibility and testing.
 - [`docs/architecture/MEMORY-EXERCISE-DECISION.md`](docs/architecture/MEMORY-EXERCISE-DECISION.md) — design history for `memory_exercise`. **The style is REMOVED FROM THE PICKER and legacy values redirect to `warm_storytelling`.** The record explains why the concept was not discarded; it is not a statement that the style is selectable today.
 - [`docs/architecture/COWORK-HANDOFF.md`](docs/architecture/COWORK-HANDOFF.md) — the operational brief that landed the pivot
 
-Active WO specs live in `docs/wo/`. Pre-pivot WO/BUG specs (114 files) are
+Active WO specs live in `docs/wo/`. Pre-pivot WO/BUG specs are
 archived at `docs/archive/workorders-pre-pivot/` and are NOT the active source
 of truth; pre-pivot handoffs and checklists at
 `docs/archive/handoffs-pre-pivot/`.
+
+**Counts are derived, never written down here.** This line said "(114 files)"; Git derives
+113, and it had been quoted forward since. A hand-maintained count of a directory is wrong
+the moment anything moves, and the archive cohorts still to come will move plenty:
+
+```bash
+git ls-tree -r --name-only origin/main -- docs/archive/workorders-pre-pivot | wc -l
+```
+
+The manifest of every archived file is [`docs/archive/INDEX.md`](docs/archive/INDEX.md).
 
 ## Standing prohibitions
 
@@ -195,11 +205,24 @@ to be built without Chris explicitly opening that work order. Full statement:
 - **Chris commits from the WSL command line, then pushes from GitHub Desktop.** DO produce copy-paste `git add` + `git commit` blocks that he runs from `/mnt/c/Users/chris/hornelore` — this is the intended workflow. Rules for those blocks: stage with specific file paths only (NEVER `git add -A` or `git add .`), one `git add` + `git commit` pair per logical commit, and use `-m` for the subject plus a second `-m` for the body when the change wants one. Do NOT include `git push` in the block — after committing, Chris checks GitHub Desktop for a clean tree and pushes from there. `git status` / `git diff --stat` / `git log` copy-paste blocks are also fine (read-only inspection). Do NOT suggest SSH key swaps, `gh auth setup-git`, PAT entry, or any other auth dance — his auth is already wired through GitHub Desktop and is none of the agent's business.
 - **Work directly on main; do NOT create feature branches.** Chris is the only developer on this repo and the branch/PR workflow is overkill. Going forward, every commit lands on `main` directly via GitHub Desktop. Do NOT suggest creating a new branch, opening a PR, or any branch-rename workflow. (Branches created earlier — e.g. `feat/operator-narrator-intake-form` from 2026-06-15 — can be deleted locally after they're merged. New work commits straight to main.)
 - **GPU**: NVIDIA RTX 50-series (Blackwell). Local LLM serves from this machine.
-- **There are TWO virtualenvs, and NEITHER runs every suite. Check before you claim a verification.** *(Corrected 2026-08-20. This bullet read "since 2026-07-27 they carry the SAME web stack" and concluded that "a green TestClient result in `.venv` is now evidence about the same framework that answers Chris's requests." **Measured on 2026-08-20: `.venv` is Python 3.10.12 and has NO fastapi at all.** Whatever was true after `WO-WEB-STACK-TEST-ENV-ALIGNMENT-01`, it is not true of this machine now.)*
-  - `.venv` — the TEST venv, what `PYTHONPATH=server/code .venv/bin/python -m unittest tests.<module>` runs in. It is the verification for suites that do NOT need fastapi.
-  - `.venv-gpu` — the SERVING venv, what the running stack uses. Model work belongs here.
-  - **THE TRAP, and it is silent.** A suite whose route tests need fastapi does not FAIL in `.venv` — it **skips**, and unittest still prints `OK`. During the deletion lane this produced `OK (skipped=12)`, where the twelve were every route-level test in the file. **`OK` with skips is not a pass.** Always read the skip count, and say so when reporting: *"38 + 51 (12 skipped) + 6"* is honest; *"95 green"* is not.
-  - **So verification is SPLIT, and reports should say which interpreter ran what.** Non-route suites: `.venv`. Route/TestClient suites: an interpreter that has fastapi. Neither run alone covers everything; both together do.
+- **THREE interpreters, and they do not carry the same stack. MEASURE, never assume — including from this bullet.** *(Corrected twice. It first claimed both venvs carried the same web stack. It then said, measured 2026-08-20, that "`.venv` is Python 3.10.12 and has NO fastapi at all" — and on **2026-08-28 `.venv` ran a route suite 22/22 with ZERO skips**, which is only possible if fastapi imports. The bullet whose whole purpose is warning that a skip is not a pass had itself gone stale. Any environment claim written here is a measurement with a date, not a standing fact.)*
+  - **Check before claiming a verification, in one command:**
+
+    ```bash
+    for p in python3 .venv/bin/python .venv-gpu/bin/python; do
+      printf '%-24s ' "$p"; "$p" -c "
+    import sys;print(sys.version.split()[0],end=' ')
+    for m in ('fastapi','pydantic'):
+        try: __import__(m); print(m,end=' ')
+        except ImportError: print(m+'=ABSENT',end=' ')
+    print()"
+    done
+    ```
+
+  - `.venv` — the TEST venv. `.venv-gpu` — the SERVING venv, what the running stack uses; model work belongs there. **Measured 2026-08-28: both ran the strict-version route suite 22/22, zero skips.** Bare `python3` did not — it reported 5 route skips.
+  - **THE TRAP, and it is silent.** A suite whose route tests need fastapi does not FAIL on an interpreter without it — it **skips**, and unittest still prints `OK`. During the deletion lane this produced `OK (skipped=12)`, where the twelve were every route-level test in the file. **`OK` with skips is not a pass.** Always read the skip count and report it: *"38 + 51 (12 skipped) + 6"* is honest; *"95 green"* is not.
+  - **Reports must name the interpreter a result came from.** A result without one cannot be reproduced or trusted.
+  - **The mutation gate's documented command is `python3`**, which is the interpreter least able to exercise route tests — its baselines show `22 ran, 5 SKIPPED` for the strict suite and `48 ran, 6 SKIPPED` for the REST route suite, while the `S`-series mutations target `api.py` and `profile_seed_rest.py`. Whether the gate should run under `.venv` instead is registered in [`docs/BACKLOG.md`](docs/BACKLOG.md) §6 and is not yet decided.
   - Other missing-dependency symptoms are confusing rather than obvious and are not product defects: a missing `PIL` surfaces as `ModuleNotFoundError` at collection, and a missing `python-docx` surfaces as every memoir-export assertion getting `503 != 200`, because the route's own `_DOCX_AVAILABLE` guard (`server/code/api/routers/memoir_export.py`) fires first. `requirements-test.txt` (2026-07-27) is the companion to `requirements-gpu.txt`; if a suite fails on an import or a blanket 503, compare against it first.
 
 ## Stack ownership
@@ -360,7 +383,7 @@ Re-publishing reports requires the redaction plan in
 | Stubborn-pack reports | `/mnt/c/Users/chris/hornelore/docs/reports/stubborn_pack_*.json` (+ `_stability.console.txt`) |
 | Eval case source | `/mnt/c/Users/chris/hornelore/data/qa/question_bank_extraction_cases.json` |
 | Extract router | `/mnt/c/Users/chris/hornelore/server/code/api/routers/extract.py` |
-| WO specs | Active: `/mnt/c/Users/chris/hornelore/docs/wo/<NAME>_Spec.md`. Legacy: 29 `WO-*_Spec.md` / `BUG-*_Spec.md` still sit at the repo root. Pre-pivot: `docs/archive/workorders-pre-pivot/` (114 files, history only). **Corrected 2026-07-28** — this row named the repo root as *the* location, contradicting the `docs/wo/` convention stated at the top of this file and the checklist's own tree. Half-true rows are the worst kind to leave, because they read as confirmation. |
+| WO specs | **Active: `docs/wo/<NAME>_Spec.md`** — the only location for current work. Legacy `WO-*_Spec.md` / `BUG-*_Spec.md` still sit at the repo root awaiting the hygiene lane's archive cohort; their unresolved obligations are registered in [`docs/BACKLOG.md`](docs/BACKLOG.md) §2. Pre-pivot: `docs/archive/workorders-pre-pivot/`, history only. **Counts are derived, not written here** — `git ls-tree -r --name-only origin/main \| grep -cE '^(WO-\|BUG-)[^/]*\.md$'`. *(This row once named the repo root as* the *location, contradicting the `docs/wo/` convention stated at the top of this file. A half-true row is the worst kind to leave, because it reads as confirmation.)* |
 | WO reports | `/mnt/c/Users/chris/hornelore/docs/reports/WO-*_REPORT.md` |
 | Canonical architecture spec | `/mnt/c/Users/chris/hornelore/docs/specs/LOREVOX-EXTRACTOR-ARCHITECTURE-v1.md` |
 | SECTION-EFFECT Phase 1 output | `/mnt/c/Users/chris/hornelore/docs/reports/WO-EX-SECTION-EFFECT-01_ADJUDICATION.md` (pending) |
