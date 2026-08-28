@@ -162,8 +162,9 @@ decision is outstanding did not.)*
 
 ## 4. Control-document corrections — RESOLVED
 
-All five landed in `659896c` (Step 2) and `db0c5e7` (Step 2 correction). Retained as a
-record so a later session does not re-open them; **nothing here is owed.**
+All five landed in `659896c` (Step 2), `db0c5e7` (Step 2 correction) and — the changelog
+row — hygiene **Step 2b**. Retained as a record so a later session does not re-open them;
+**nothing here is owed.**
 
 | Where | Was | Resolved by |
 |---|---|---|
@@ -171,7 +172,7 @@ record so a later session does not re-open them; **nothing here is owed.**
 | `CLAUDE.md` | stale `.venv` fastapi claim | a measure-it probe, plus the interpreter-probe block |
 | `CLAUDE.md` | "where files live" row naming the repo root as *the* WO location | `docs/wo/` named as the only active location |
 | `README.md` | duplicated lane status | a pointer table; current state has one home |
-| `docs/CHANGELOG-AGENT.md` | 614,130 bytes, pointed at by `CLAUDE.md` | **still owed — scheduled as hygiene Step 2b**, not a control-document defect |
+| `docs/CHANGELOG-AGENT.md` | 614,130 bytes, pointed at by `CLAUDE.md` | **RESOLVED by hygiene Step 2b** — preserved byte-for-byte at [`archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md`](archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md); the live path is now a small decision index |
 
 ---
 

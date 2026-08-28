@@ -8,7 +8,7 @@ about 85% of a context window, while instructing every session to read it
 first. A control document nobody can afford to read in full stops controlling
 anything. Two changes, no content destroyed:
 
-* the changelog moved **verbatim** to [`docs/CHANGELOG-AGENT.md`](docs/CHANGELOG-AGENT.md)
+* the changelog moved **verbatim** to [`docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md`](docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md)
   — 610 KB of it, 90% of the old file;
 * the lane state table was **removed rather than duplicated**. `HANDOFF.md`
   already carried the same state, and this file's own governing order already
@@ -26,7 +26,7 @@ happening right now — active lane, what is next, what is owed — read
 |---|---|
 | What is the current lane? What is next? | **`HANDOFF.md`** — the current-state document |
 | What is the ordered work queue? | `MASTER_WORK_ORDER_CHECKLIST.md` |
-| Why does this subsystem behave like this? | `docs/CHANGELOG-AGENT.md`, then the lane's WO in `docs/wo/` |
+| Why does this subsystem behave like this? | [`docs/CHANGELOG-AGENT.md`](docs/CHANGELOG-AGENT.md) — the decision INDEX — then the lane's WO in `docs/wo/` |
 | What are the standing rules and hazards? | **this file** |
 | Who is Lori for, and how is her behaviour produced? | `docs/architecture/` (see below) |
 
@@ -62,7 +62,7 @@ finished work. In 2026-08-09 it named six WOs as "the next build sessions" when
 all six had landed a fortnight earlier, and its first item said *build first*
 about a feature that had been PARKED. In 2026-08-20 a second stale queue was
 found 300 lines below the first, still naming an April extractor sequence as
-active. **Both are recorded in `docs/CHANGELOG-AGENT.md`. The structural fix is
+active. **Both are recorded in [`docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md`](docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md). The structural fix is
 that current work is no longer tracked in this file at all.**
 
 ## Universal pivot framing (2026-06-14)
@@ -448,7 +448,7 @@ SPANTAG, SCHEMA-ANCESTOR-EXPAND and VALUE-ALT-CREDIT as the next items, plus a
 locked baseline dated 2026-05-03. It was roughly four months stale and it
 contradicted the real lane — the second time this file has carried a stale
 current-work list. The numbers and the sequence are preserved in
-`docs/CHANGELOG-AGENT.md`, where they are dated history rather than an
+[`docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md`](docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md), where they are dated history rather than an
 instruction. **The commands below are still correct and still useful; the
 priorities are not this file's to state.** For the current lane, read
 `HANDOFF.md`.)*

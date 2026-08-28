@@ -1,13 +1,19 @@
 # Archive index — what is in `docs/archive/`, and what it is not
 
-**Derived at:** `d0e52946aa77096841612df176f4cbb70d4edacd`, 2026-08-28
-**Contents:** 130 files, 2,097,967 bytes, in three cohorts
-**Status:** index only. **Nothing has been moved into or out of this directory.**
+**Derived at:** `d0e52946aa77096841612df176f4cbb70d4edacd`, then updated by hygiene Step 2b
+**Contents:** **131 archived files, 2,712,097 bytes**, in **four** cohorts
+**Status:** **one file has been moved in** — the agent changelog, Step 2b. Nothing has ever
+been moved *out*, and nothing has been deleted.
+
+**The count excludes this index.** `INDEX.md` lives in `docs/archive/` but is not archived
+content, and counting it would drift the figure by its own 15,305 bytes:
 
 ```bash
-git ls-tree -r --name-only d0e5294 -- docs/archive | wc -l          # 130
-git ls-tree -r -l d0e5294 -- docs/archive | awk '{s+=$4} END{print s}'
+find docs/archive -type f ! -name INDEX.md | wc -l                                  # 131
+find docs/archive -type f ! -name INDEX.md -printf '%s\n' | awk '{s+=$1} END{print s}'  # 2712097
 ```
+
+
 
 ---
 
@@ -43,6 +49,7 @@ not remove it from Git history, and this archive is not a privacy mechanism — 
 | `workorders-pre-pivot/` | 113 | 1,697,413 | 2026-06-14 | Work orders and bug specs predating the universal pivot. **Not the active source of truth** |
 | `handoffs-pre-pivot/` | 16 | 374,461 | 2026-06-14 | Handoffs and checklists from the same era |
 | `handoffs/` | 1 | 26,093 | 2026-08-09 | A single post-pivot handoff |
+| **`changelogs/`** | **1** | **614,130** | 2026-08-28 | The agent changelog, preserved byte-for-byte by Step 2b |
 
 Both pre-pivot cohorts were moved together on **2026-06-14**, the day the universal pivot
 landed. That is a single deliberate act, not accumulation, and it is why they read as a
@@ -116,6 +123,25 @@ it was archived, so the recorded path is still the real one. "Added" is the comm
 that first introduced the file at this path.
 
 <!-- BEGIN GENERATED MANIFEST — derived from `git ls-tree -r -l d0e5294 -- docs/archive` -->
+
+### `docs/archive/changelogs/` — 1 file, 614,130 bytes
+
+**Added by `WO-REPOSITORY-HYGIENE-01` Step 2b, 2026-08-28.**
+
+| | |
+|---|---|
+| File | `CHANGELOG-AGENT-through-2026-08-20.md` |
+| **Original path** | **`docs/CHANGELOG-AGENT.md`** |
+| Destination | `docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md` |
+| Date range | 2026-04-11 → 2026-08-20 |
+| Bytes | **614,130** |
+| Lines | 1,407 |
+| SHA-256 | `2e91723267d85bf2ee262645d605546f7e5025193022089c3ebdf22f7facd4c3` |
+| Git blob | `4edbdc80bd2917299d2c835494b705b3043e8cfe` |
+
+Preserved **byte-for-byte**; `cmp` reports identical and both checksums are unchanged. The
+live path `docs/CHANGELOG-AGENT.md` still exists and now holds a small **decision index**
+pointing here — the entry point moved, the history did not.
 
 ### `docs/archive/handoffs/` — 1 files, 26,093 bytes
 

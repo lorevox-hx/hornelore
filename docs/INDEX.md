@@ -25,7 +25,7 @@ current code
 > MASTER_WORK_ORDER_CHECKLIST.md
 > old WO status lines
 > archived design history
-> docs/CHANGELOG-AGENT.md
+> docs/CHANGELOG-AGENT.md — the decision index
 ```
 
 *(This copy repeated `CLAUDE.md`'s order faithfully — including the missing `HANDOFF.md`.
@@ -96,7 +96,8 @@ deadness.*
 | Path | Files | What it is |
 |---|---:|---|
 | [`archive/`](archive/) | 130 | Pre-pivot work orders and handoffs, plus one post-pivot handoff. See [`archive/INDEX.md`](archive/INDEX.md) |
-| `CHANGELOG-AGENT.md` | 1 | **614,130 bytes.** Dated history, not a work queue. Consult for *why a subsystem behaves like this*, after the code and the ADRs |
+| [`CHANGELOG-AGENT.md`](CHANGELOG-AGENT.md) | 1 | The **decision index** — subsystem → current ADR/work order, plus a link to the archived history. Small by design |
+| [`archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md`](archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md) | 1 | The agent changelog **verbatim**, 2026-04-11 → 2026-08-20, 614,130 bytes, `sha256 2e917232…`. Consult for *why a subsystem behaves like this*, after the code and the ADRs |
 | `wo-qa/` | 11 | April-era QA notes |
 | `handoffs/`, `drafts/`, `mockups/` | 4 / 3 / 16 | Dated historical material |
 | `reports/` | — | **Gitignored since `a87e865`.** Reports are written here and are local-only: they carry live narrator data and the repository is public. Do not `git add` them, and do not "fix" the ignore rule when one refuses to stage — the refusal is the feature |

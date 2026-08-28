@@ -66,6 +66,14 @@ misses. Neither number authorizes a deletion. The 10 are marked for adjudication
 
 ---
 
+**Evidence that moved, 2026-08-28.** Nine rows below cite the agent changelog. Their
+evidence now lives in the archived snapshot, and the cells point there. **No classification
+and no in-refs count changed** — a script's status does not depend on where its evidence
+file sits, and re-deriving those numbers because a document moved would be the wrong
+lesson.
+
+---
+
 ## 3. Must not move, and why
 
 * **`scripts/run_mutation_gate.py`** — the reproducible acceptance gate. 63 mutations,
@@ -151,7 +159,7 @@ Sorted by path. `scripts/archive/` is included and is **not** to be read as a de
 | `scripts/archive/run_memory_archive_smoke.py` | 2026-04 | 3 | referenced — classify | `scripts/archive/README.md` |
 | `scripts/archive/run_question_bank_extraction_eval.py` | 2026-08 | 31 | referenced — classify | `CLAUDE.md` |
 | `scripts/archive/run_section_effect_matrix.py` | 2026-04 | 4 | referenced — classify | `scripts/archive/README.md` |
-| `scripts/archive/run_sentence_diagram_story_survey.py` | 2026-05 | 4 | referenced — classify | `docs/CHANGELOG-AGENT.md` |
+| `scripts/archive/run_sentence_diagram_story_survey.py` | 2026-05 | 4 | referenced — classify | [`docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md`](../docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md) |
 | `scripts/archive/run_stubborn_pack_eval.py` | 2026-04 | 8 | referenced — classify | `CLAUDE.md` |
 | `scripts/archive/run_test_lab.sh` | 2026-04 | 11 | referenced — classify | `HANDOFF.md` |
 | `scripts/archive/seed_interview_plan.py` | 2026-04 | 2 | referenced — classify | `scripts/archive/README.md` |
@@ -208,7 +216,7 @@ Sorted by path. `scripts/archive/` is included and is **not** to be read as a de
 | `scripts/run_spanish_live_smoke.py` | 2026-06 | 3 | referenced — classify | `BUG-ML-SPANISH-DETECT-FRENCH-PLACE-OVERFIRE-01_Spec.md` |
 | `scripts/run_trip_2019_france_italy_canary_harness.py` | 2026-06 | 4 | referenced — classify | `BUG-LORI-THEMATIC-TRIP-CHAIN-DETECTION-01_Spec.md` |
 | `scripts/run_trip_route_canary_harness.py` | 2026-06 | 10 | referenced — classify | `scripts/run_factual_chain_live_harness.py` |
-| `scripts/run_utterance_frame_survey.py` | 2026-05 | 4 | referenced — classify | `docs/CHANGELOG-AGENT.md` |
+| `scripts/run_utterance_frame_survey.py` | 2026-05 | 4 | referenced — classify | [`docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md`](../docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md) |
 | `scripts/seed_timeline_context_events.py` | 2026-05 | 3 | referenced — classify | `docs/archive/handoffs-pre-pivot/MASTER_WORK_ORDER_CHECKLIST.md` |
 | `scripts/set_narrator_overlay.py` | 2026-08 | 3 | referenced — classify | `scripts/stress_kent_full_arc.py` |
 | `scripts/set_session_language_mode.py` | 2026-05 | 9 | referenced — classify | `scripts/set_narrator_overlay.py` |
@@ -231,19 +239,19 @@ Sorted by path. `scripts/archive/` is included and is **not** to be read as a de
 | `scripts/tail_harness_log.sh` | 2026-06 | 3 | referenced — classify | `BUG-CHATWS-CONV-FK-01_Spec.md` |
 | `scripts/test_photo_exif.py` | 2026-04 | 5 | referenced — classify | `docs/archive/handoffs-pre-pivot/HANDOFF.md` |
 | `scripts/ui/README.md` | 2026-07 | 22 | referenced — classify | `CLAUDE.md` |
-| `scripts/ui/run_chronology_connection_behaviour.js` | 2026-08 | 3 | referenced — classify | `docs/CHANGELOG-AGENT.md` |
+| `scripts/ui/run_chronology_connection_behaviour.js` | 2026-08 | 3 | referenced — classify | [`docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md`](../docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md) |
 | `scripts/ui/run_extraction_result_consumer.js` | 2026-07 | 1 | referenced — classify | `tests/test_extraction_result_delivery.py` |
-| `scripts/ui/run_lazy_thumb_scrollport.js` | 2026-08 | 4 | referenced — classify | `docs/CHANGELOG-AGENT.md` |
+| `scripts/ui/run_lazy_thumb_scrollport.js` | 2026-08 | 4 | referenced — classify | [`docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md`](../docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md) |
 | `scripts/ui/run_memoir_canonical_lifecycle.js` | 2026-08 | 1 | referenced — classify | `tests/test_memoir_canonical_contract.py` |
-| `scripts/ui/run_narrator_context_behaviour.js` | 2026-08 | 3 | referenced — classify | `docs/CHANGELOG-AGENT.md` |
+| `scripts/ui/run_narrator_context_behaviour.js` | 2026-08 | 3 | referenced — classify | [`docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md`](../docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md) |
 | `scripts/ui/run_parent_session_readiness_harness.py` | 2026-05 | 9 | referenced — classify | `scripts/ui/README.md` |
-| `scripts/ui/run_parent_session_rehearsal_harness.py` | 2026-05 | 7 | referenced — classify | `docs/CHANGELOG-AGENT.md` |
+| `scripts/ui/run_parent_session_rehearsal_harness.py` | 2026-05 | 7 | referenced — classify | [`docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md`](../docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md) |
 | `scripts/ui/run_photo_palette_behaviour.js` | 2026-08 | 6 | referenced — classify | `HANDOFF.md` |
-| `scripts/ui/run_photo_placement_safety.js` | 2026-08 | 4 | referenced — classify | `docs/CHANGELOG-AGENT.md` |
+| `scripts/ui/run_photo_placement_safety.js` | 2026-08 | 4 | referenced — classify | [`docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md`](../docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md) |
 | `scripts/ui/run_photo_window_arithmetic.js` | 2026-08 | 5 | referenced — classify | `HANDOFF.md` |
 | `scripts/ui/run_photo_window_liveness.js` | 2026-08 | 3 | referenced — classify | `scripts/ui/run_photo_window_arithmetic.js` |
 | `scripts/ui/run_safety_latch_exit_check.js` | 2026-08 | 1 | referenced — classify | `tests/test_safety_parked.py` |
-| `scripts/ui/run_story_evidence_behaviour.js` | 2026-08 | 2 | referenced — classify | `docs/CHANGELOG-AGENT.md` |
+| `scripts/ui/run_story_evidence_behaviour.js` | 2026-08 | 2 | referenced — classify | [`docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md`](../docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md) |
 | `scripts/ui/run_test23_two_person_resume.py` | 2026-05 | 8 | **BROKEN** | `HANDOFF.md` |
 | `scripts/ui/run_travel_doc_mount_liveness.js` | 2026-07 | 7 | referenced — classify | `scripts/ui/README.md` |
 | `scripts/ui/run_travel_doc_preview_race_check.js` | 2026-08 | 0 | UNREFERENCED — adjudicate | — |
@@ -255,7 +263,7 @@ Sorted by path. `scripts/archive/` is included and is **not** to be read as a de
 | `scripts/vs1_trip_companion_acceptance.py` | 2026-07 | 1 | referenced — classify | `tests/test_trip_story_capture.py` |
 | `scripts/warm_llm.py` | 2026-04 | 10 | operational | `scripts/archive/README.md` |
 | `scripts/warm_tts.py` | 2026-04 | 4 | operational | `scripts/archive/README.md` |
-| `scripts/wipe_narrator_identity.py` | 2026-07 | 2 | referenced — classify | `docs/CHANGELOG-AGENT.md` |
+| `scripts/wipe_narrator_identity.py` | 2026-07 | 2 | referenced — classify | [`docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md`](../docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md) |
 | `scripts/wo02_acceptance.py` | 2026-08 | 6 | referenced — classify | `docs/archive/handoffs/HANDOFF_2026-07-31_TRIP-NARRATOR-BRIDGE.md` |
 | `scripts/wo_narrator_bridge_acceptance.py` | 2026-08 | 6 | referenced — classify | `docs/architecture/LEAN-LORI-RUNTIME-SPEC-FINAL-R3-2026-08-04.md` |
 <!-- END GENERATED INVENTORY -->
