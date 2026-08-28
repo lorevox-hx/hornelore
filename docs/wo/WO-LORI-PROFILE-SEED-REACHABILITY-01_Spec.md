@@ -11,7 +11,7 @@
 |---|---|
 | 0 — executable map | **ACCEPTED** at `661aa95` |
 | 1 — server authority | **ACCEPTED** at `1288baa` |
-| 2 — prompt and committed-turn wiring | **IN IMPLEMENTATION, NOT ACCEPTED** — steps 1–5 ACCEPTED (step 5 at `9127adb`), step 6 CURRENT, step 7 owed |
+| 2 — prompt and committed-turn wiring | **IN IMPLEMENTATION, NOT ACCEPTED** — steps 1–5 ACCEPTED (step 5 at `9127adb`); **pre-Step-6 correction checkpoint ACCEPTED at `d0e5294`**; step 6 NOT STARTED and frozen behind repository hygiene; step 7 owed |
 | 3–5 | not begun |
 
 Phase 2 steps 1–3 have landed: `f23040b` characterizes all eight refusal patterns;
@@ -105,6 +105,27 @@ time: a number read off a narrative instead of derived. The eight are enumerated
 `git log --reverse 687c655..HEAD` filtered to lane files.)*
 
 Git-derived, `687c655~1..9127adb`, lane files only: **6 files, +2203 / −10**.
+
+### Pre-Step-6 correction checkpoint — ACCEPTED at `d0e5294`
+
+**Accepted 2026-08-28**, between Step 5 and Step 6. Three commits:
+
+| Commit | What |
+|---|---|
+| `157af46` | five product corrections — `M1`/`M8` repaired to fail by assertion; `expected_version` strict at request and accessor; the deterministic inventory corrected from six paths to **nine**; `HOLD` for control and system-directive turns with one shared control vocabulary; the derived-head rule in `HANDOFF.md` |
+| `34cdf54` | acceptance-instrument corrections — route-stack guard names `fastapi` as well as `pydantic`; the nine-path inventory counts **call sites**, not distinct labels |
+| `d0e5294` | the dependency sweep narrowed to `ModuleNotFoundError` with a matching root; `D4` unstarred; §16a's account of the two instrument defects corrected. **The acceptance point** |
+
+**Evidence:** full clean-tree gate at `34cdf54` — **63/63 caught**, nine baselines green;
+targeted gate at `d0e5294` — `P11` and `D4` **2/2**; strict suite `.venv-gpu` and `.venv`
+both **22/22 with zero skips**; truthful shipped-design count **24**; tree clean, mutation
+journal cleared.
+
+**Step 6 is NOT STARTED**, its design is unchanged by this acceptance, and it is
+additionally frozen until the repository-hygiene checkpoint is accepted. What Step 6
+inherits and must not undo is in
+[`WO-LORI-PROFILE-SEED-REACHABILITY-01_PHASE2_TRANSPORT_MAP.md`](WO-LORI-PROFILE-SEED-REACHABILITY-01_PHASE2_TRANSPORT_MAP.md)
+§16 and §16a.
 
 **THE ZERO-SKIP ROUTE GATE PASSED** — 48 tests, `OK`, **zero skips**, run on WSL with the
 serving venv:

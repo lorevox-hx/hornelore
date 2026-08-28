@@ -16,11 +16,12 @@ rule back. The claim that matters is the one about obligations.)*
 >
 > | | |
 > |---|---|
-> | **Current REPOSITORY action** | `WO-REPOSITORY-HYGIENE-01` **Step 2 — control-authority cleanup. DELIVERED AND UNDER CORRECTION**, not accepted. [`docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md`](docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md) |
-> | **Last accepted** | **Step 1 — indexes only — `5f6b01b`**, reconciled at `e558002`. Safety tags published |
-> | **Frozen behind Step 2's acceptance** | Step 2b (changelog) · Steps 3–5 (archive moves, legacy tests/scripts, tracked-byte reduction) · Profile Seed Step 6 |
+> | **Current REPOSITORY action** | `WO-REPOSITORY-HYGIENE-01` **Step 2b — changelog snapshot and a small live decision index. NOT STARTED.** [`docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md`](docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md) |
+> | **Last accepted** | **Step 2 — control authority — `db0c5e7`.** Step 1 (indexes) `5f6b01b`. Safety tags published |
+> | **Released by Step 2's acceptance** | **Step 2b may begin.** Steps 3–5 follow it in order; none started |
+> | **Frozen until the WHOLE hygiene checkpoint is accepted** | **Profile Seed Step 6.** Step 2's acceptance does not release it |
 > | **Next PRODUCT action** | Profile Seed Phase 2 **Step 6** — WebSocket presentation metadata and post-commit advancement |
-> | **May Step 6 begin?** | **NO.** Blocked until the **whole** hygiene checkpoint is complete and accepted — not merely until Step 2 lands |
+> | **May Step 6 begin?** | **NO.** Steps 2b–5 and the verification checkpoint come first |
 >
 > **Frozen during hygiene:** WebSocket and UI onboarding work · production behaviour ·
 > migrations · bulk deletion · Test Lab repair · combining product corrections, indexing,
@@ -61,6 +62,7 @@ stopped moving:
 | `d0e5294` | Pre-Step-6 correction checkpoint accepted; tagged `archive/pre-hygiene-2026-08-28` |
 | `ea3ab27` | Tree inspected by the repository audit; tagged `audit/repository-baseline-2026-08-28`. **Not** the rollback point |
 | `5f6b01b` | Repository hygiene **Step 1** (indexes) accepted |
+| `db0c5e7` | Repository hygiene **Step 2** (control authority) accepted |
 
 Where everything else lives: [`docs/INDEX.md`](docs/INDEX.md) ·
 [`docs/BACKLOG.md`](docs/BACKLOG.md) · [`scripts/INDEX.md`](scripts/INDEX.md) ·
@@ -70,7 +72,7 @@ Where everything else lives: [`docs/INDEX.md`](docs/INDEX.md) ·
 
 | Lane | State |
 |---|---|
-| **Repository hygiene** | 🔵 **ACTIVE.** Step 0 done (tags published) · Step 1 accepted `5f6b01b` · **Step 2 delivered and UNDER CORRECTION** · Steps 2b, 3, 4, 5 remain, none started. *("Step 2 of 5" was shorthand and it stopped being true the moment 2b was split out — the sequence is 0, 1, 2, 2b, 3, 4, 5.)* |
+| **Repository hygiene** | 🔵 **ACTIVE.** Sequence 0, 1, 2, 2b, 3, 4, 5. Step 0 done · Step 1 accepted `5f6b01b` · Step 2 accepted `db0c5e7` · **Step 2b CURRENT, not started** · Steps 3–5 remain, none started |
 | **Profile Seed reachability** | 🔵 **ACTIVE, FROZEN for hygiene.** Phase 0 `661aa95` · Phase 1 `1288baa` · Phase 2 steps 1–5 accepted (step 4 `b269184`, step 5 `9127adb`) · pre-Step-6 corrections `d0e5294` · **Step 6 NOT STARTED**, step 7 owed |
 | `WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` | **COMPLETE** — Phases 1–4 accepted. Closes the three L2 integration defects |
 | `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` | **ACCEPTED AND COMPLETE 2026-08-20** — story-to-memoir 11/11, deletion integrity 10/10, verified against filesystem and SQL |

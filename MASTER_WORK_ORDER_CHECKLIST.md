@@ -20,11 +20,12 @@ two places is a hash that will disagree in one of them.
 
 | # | Work | State |
 |---:|---|---|
-| 1 | **`WO-REPOSITORY-HYGIENE-01`** — indexed reorganization | 🔵 **CURRENT.** Step 1 (indexes) accepted. **Step 2 (control authority) delivered and under correction.** Steps 2b–5 not started. [Spec](docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md) |
+| 1 | **`WO-REPOSITORY-HYGIENE-01`** — indexed reorganization | 🔵 **CURRENT.** Steps 1 and 2 accepted. **Step 2b (changelog snapshot + live decision index) is current and not started.** Steps 3–5 not started. Hashes: `HANDOFF.md` §1. [Spec](docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md) |
 | 2 | **`WO-LORI-PROFILE-SEED-REACHABILITY-01`** — Phase 2 | 🔵 **ACTIVE, FROZEN for hygiene.** Phases 0–1 accepted; Phase 2 steps 1–5 accepted; pre-Step-6 corrections accepted. **Step 6 NOT STARTED**, step 7 owed. Hashes: `HANDOFF.md` §1 and the spec's status block. [Spec](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md) · [Transport map](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_PHASE2_TRANSPORT_MAP.md) |
 
-**Step 6 may not begin until the whole hygiene checkpoint is accepted.** Its scope,
-inheritance and prohibitions are in `HANDOFF.md` §3.
+**Step 2b may begin now. Profile Seed Step 6 may not** — it waits for the whole hygiene
+checkpoint, not merely Step 2. Step 6's scope, inheritance and prohibitions are in
+`HANDOFF.md` §3.
 
 ## B. Next, in order
 
@@ -64,7 +65,7 @@ detail is deliberately **not** repeated here.
 | `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` | 2026-08-20 — 11/11 and 10/10 | its spec |
 | Deletion / erasure integrity | 2026-08-20 | same spec |
 | Profile Seed Phases 0–1, Phase 2 steps 1–5, pre-Step-6 corrections | through 2026-08-28 | `HANDOFF.md` §1 + spec status block |
-| Repository hygiene Step 1 | 2026-08-28 | `HANDOFF.md` §1 |
+| Repository hygiene Steps 1 and 2 | 2026-08-28 | `HANDOFF.md` §1 |
 
 **Profile Seed ownership is settled**, and the settlement is the durable part: the
 ten-topic onboarding is **preserved for new Lorevox narrators regardless of narrator

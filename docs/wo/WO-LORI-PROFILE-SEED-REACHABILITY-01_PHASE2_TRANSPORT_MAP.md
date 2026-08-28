@@ -979,11 +979,19 @@ the recovery stage.
 
 ---
 
-## 16. Pre-Step-6 correction checkpoint — 2026-08-27, AWAITING ACCEPTANCE
+## 16. Pre-Step-6 correction checkpoint — ACCEPTED at `d0e5294`
+
+**Accepted 2026-08-28.** The checkpoint is three commits:
+
+| Commit | What |
+|---|---|
+| `157af46` | the five product corrections below |
+| `34cdf54` | acceptance-instrument corrections — route-stack guard, duplicate-collapse inventory |
+| `d0e5294` | the remaining instrument corrections; **the acceptance point** |
 
 Step 6 was **blocked** by a review of the pushed Step 5 tree. Five bounded defects, none
 of them narrator-reachable through the production UI, because WebSocket onboarding is
-still unwired. All five are closed here; **none is accepted yet.**
+still unwired. All five are closed and accepted.
 
 | # | Defect | Closed by |
 |---|---|---|
@@ -1035,6 +1043,9 @@ Two-environment proof, required and produced:
 |---|---|
 | generic, real `pydantic`, no `fastapi` | `OK (skipped=5)` — five route tests skipped, each naming `fastapi` |
 | real `fastapi` + `pydantic` route stack | `OK`, **zero skips** |
+
+**Step 6 is still NOT STARTED, and its design below is unchanged by this acceptance.**
+It is additionally frozen behind the repository-hygiene checkpoint — see `HANDOFF.md`.
 
 **Deliberately NOT touched, and this is the boundary that makes the checkpoint
 reviewable:** the WebSocket wiring itself, the eight UI promotion sites, REST

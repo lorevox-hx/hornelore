@@ -197,12 +197,6 @@ suite whose route tests need `fastapi` does not fail where it is absent — it *
 before quoting a result, and say which one produced it. The probe and the current
 measurement live in [`CLAUDE.md`](CLAUDE.md) under **Environment → Interpreter probe**.
 
-*(This paragraph said both venvs "carry the same pinned web stack, so a green TestClient
-result in `.venv` is evidence about the framework that actually serves". `CLAUDE.md`
-retired that exact claim on 2026-08-20 and this copy survived, then outlived a second
-correction of the same bullet — which is the argument for one authoritative home per fact
-rather than a true sentence written down twice.)*
-
 Feature flags live in `.env`, which is untracked — **a tracked README cannot truthfully state
 which flags are on for your machine.** See `.env.example` for the full documented set.
 

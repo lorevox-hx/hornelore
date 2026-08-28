@@ -1,7 +1,8 @@
 # Backlog — unresolved obligations, with their evidence
 
 **Derived at:** `d0e52946aa77096841612df176f4cbb70d4edacd`, 2026-08-28
-**Status:** registry only. Nothing here is scheduled, and nothing here has been repaired.
+**Status:** registry only — nothing here is scheduled. Sections 1–3b and 5–8 are
+**unresolved**; §4 is a **resolved record**, kept so a later session does not re-open it.
 
 ---
 
@@ -159,21 +160,18 @@ inside it can quietly disappear.
 lost its last live home in Step 2. The deferral survived in the checklist; the fact that a
 decision is outstanding did not.)*
 
-## 4. Control-document corrections
+## 4. Control-document corrections — RESOLVED
 
-Each is real, each is small, and **none belongs in an index-only or a file-move commit.**
-They land in the control-authority commit.
+All five landed in `659896c` (Step 2) and `db0c5e7` (Step 2 correction). Retained as a
+record so a later session does not re-open them; **nothing here is owed.**
 
-| Where | Defect | Evidence |
+| Where | Was | Resolved by |
 |---|---|---|
-| `CLAUDE.md` | Says the pre-pivot archive holds **114** work orders; Git derives **113** | `git ls-tree -r --name-only d0e5294 -- docs/archive/workorders-pre-pivot \| wc -l` |
-| `CLAUDE.md` | Environment bullet asserts `.venv` has **no fastapi** (measured 2026-08-20) and that route tests skip there silently. On 2026-08-28 `.venv` ran the strict suite **22/22 with zero skips** | Chris's run, `.venv/bin/python -m unittest tests.test_profile_seed_expected_version_strict` |
-| `CLAUDE.md` | "Where files live" table names the repo root as *the* location for WO specs, contradicting the `docs/wo/` convention stated at the top of the same file | Already flagged in-file, 2026-07-28 |
-| `README.md` | Duplicates lane status that `HANDOFF.md` owns | Audit §12 |
-| `docs/CHANGELOG-AGENT.md` | 614,130 bytes, 1,407 very long lines. `CLAUDE.md` points agents at it | Audit §7 |
-
-The second row deserves emphasis: **the bullet that is wrong is the one warning agents
-that `OK` with skips is not a pass.**
+| `CLAUDE.md` | hand-written count of the pre-pivot archive | a derived command |
+| `CLAUDE.md` | stale `.venv` fastapi claim | a measure-it probe, plus the interpreter-probe block |
+| `CLAUDE.md` | "where files live" row naming the repo root as *the* WO location | `docs/wo/` named as the only active location |
+| `README.md` | duplicated lane status | a pointer table; current state has one home |
+| `docs/CHANGELOG-AGENT.md` | 614,130 bytes, pointed at by `CLAUDE.md` | **still owed — scheduled as hygiene Step 2b**, not a control-document defect |
 
 ---
 

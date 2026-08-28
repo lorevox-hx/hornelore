@@ -1,7 +1,7 @@
 # WO-REPOSITORY-HYGIENE-01 — indexed reorganization, not a deletion sweep
 
-**Status:** ACTIVE — **commit 1 ACCEPTED at `5f6b01b`. Step 2 (control authority) is
-delivered and awaiting review.** No file has moved.
+**Status:** ACTIVE — **Step 1 ACCEPTED `5f6b01b`; Step 2 ACCEPTED `db0c5e7`. Step 2b is
+the current step and is not started.** Steps 3–5 not started. No file has moved.
 **Opened:** 2026-08-28
 **Authority:** [`../reviews/HORNELORE_REPOSITORY_ARCHIVE_AUDIT_2026-08-28.md`](../reviews/HORNELORE_REPOSITORY_ARCHIVE_AUDIT_2026-08-28.md)
 and its [verification addendum](../reviews/HORNELORE_REPOSITORY_ARCHIVE_AUDIT_2026-08-28_VERIFICATION_ADDENDUM.md)
@@ -59,8 +59,8 @@ next begins.
 |---|---|---|---|
 | 0 | Safety marker | Annotated tags `archive/pre-hygiene-2026-08-28` → `d0e5294` and `audit/repository-baseline-2026-08-28` → `ea3ab27` — the second is the audited baseline and **not the rollback point** | **DONE — both published on GitHub and peel correctly** |
 | 1 | **Indexes only** | This file, `docs/INDEX.md`, `docs/BACKLOG.md`, `docs/archive/INDEX.md`, `scripts/INDEX.md`, the audit verbatim, the verification addendum. **No moves** | **ACCEPTED `5f6b01b`** |
-| 2 | Control authority | `HANDOFF.md` → current state and next action. Checklist → active/next/deferred. README → product and operation, not commit history. `CLAUDE.md` → durable doctrine, with the corrections in `BACKLOG.md` §4 | 🔵 **CURRENT — delivered, awaiting review** |
-| 2b | Changelog | Archive a dated snapshot of `docs/CHANGELOG-AGENT.md` and expose a small indexed decision history. **Split from step 2 deliberately: it is a MOVE**, and §2's standing rule forbids combining a documentation rewrite with a file move in one commit | not started |
+| 2 | Control authority | `HANDOFF.md` → current state and next action. Checklist → active/next/deferred. README → product and operation, not commit history. `CLAUDE.md` → durable doctrine, with the corrections in `BACKLOG.md` §4 | **ACCEPTED `db0c5e7`** |
+| 2b | Changelog | Archive a dated snapshot of `docs/CHANGELOG-AGENT.md` and establish a small live decision index. **Split from step 2 deliberately: it is a MOVE**, and §2's standing rule forbids combining a documentation rewrite with a file move in one commit | 🔵 **CURRENT — not started** |
 | 3 | Historical moves | Small, separately reviewable **cohorts**. Links updated and validated after **every** cohort | not started |
 | 4 | Legacy tests and scripts | Map the singular `test/` tree's coverage to current tests **before** moving it. Move only tools whose purpose and replacement are both named | not started |
 | 5 | Tracked-byte reduction | Preserve and checksum research documents outside Git, then remove the tracked binaries. Remove the unused SIMD asset behind a focused gate. Remove empty `wsl`, the old result JSON, the duplicate cue candidate | not started |
