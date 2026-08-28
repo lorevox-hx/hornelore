@@ -14,9 +14,10 @@
 >
 > | | |
 > |---|---|
-> | **Current REPOSITORY action** | `WO-REPOSITORY-HYGIENE-01` — indexed reorganization. Commit 1 (indexes only) is pushed and **awaiting review**. See [`docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md`](docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md) |
+> | **Current REPOSITORY action** | `WO-REPOSITORY-HYGIENE-01` **Step 2 — control-authority cleanup.** Not started. See [`docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md`](docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md) |
+> | **Last accepted** | **Commit 1 — indexes only — ACCEPTED at `5f6b01b`** (delivered across `ddb22c8` + `5f6b01b`). Seven additions, zero moves, zero product change |
 > | **Next PRODUCT action** | Profile Seed Phase 2 **Step 6** — WebSocket presentation metadata and post-commit advancement |
-> | **May Step 6 begin?** | **NO.** Step 6 is **BLOCKED** until the hygiene checkpoint is complete and accepted |
+> | **May Step 6 begin?** | **NO.** Step 6 is **BLOCKED** until the whole hygiene checkpoint is complete and accepted — not merely until Step 2 lands |
 >
 > **Why the distinction is spelled out.** §4 below names Step 6 as the next action, and it
 > is right about the *product* order — Step 6 is what comes next once the repository work
