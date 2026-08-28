@@ -10,22 +10,25 @@ rule back. The claim that matters is the one about obligations.)*
 
 ---
 
-> # ⛔ HOLD — REPOSITORY HYGIENE IS THE CURRENT ACTION. STEP 6 IS FROZEN.
->
-> **Temporary banner.** Removed when the hygiene checkpoint is accepted.
+> # ▶ CURRENT ACTION — PROFILE SEED PHASE 2 STEP 6. HYGIENE PHASE A IS ACCEPTED AND PAUSED.
 >
 > | | |
 > |---|---|
-> | **Current REPOSITORY action** | `WO-REPOSITORY-HYGIENE-01` **Step 3 — historical moves. NOT STARTED.** First cohort is the four root dated artifacts, and only those. [`docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md`](docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md) |
-> | **Last accepted** | **Step 2b — changelog preservation — `ff1ff4f`**, comprising `fbc50fc`, `0d49bd0` and `ff1ff4f`. Step 2 `db0c5e7`; Step 1 `5f6b01b`. Safety tags published |
-> | **After Step 3** | Steps 4 and 5 follow, in order; neither started |
-> | **Frozen until the WHOLE hygiene checkpoint is accepted** | **Profile Seed Step 6.** No individual step's acceptance releases it — only Steps 3–5 **and** the final verification checkpoint together |
-> | **Next PRODUCT action** | Profile Seed Phase 2 **Step 6** — WebSocket presentation metadata and post-commit advancement |
-> | **May Step 6 begin?** | **NO.** Steps 3–5 and the final verification checkpoint come first |
+> | **Current action** | Profile Seed Phase 2 **Step 6** — WebSocket presentation metadata and post-commit advancement. **NOT STARTED.** §3 below; design in the [transport map](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_PHASE2_TRANSPORT_MAP.md) |
+> | **Hygiene Phase A** | **ACCEPTED** through the first Step 3 cohort — Steps 0, 1, 2, 2b and the four root dated artifacts |
+> | **Hygiene remainder** | **DEFERRED by Chris's product-priority decision:** the remaining Step 3 cohorts, Steps 4–5, and the final verification checkpoint. They remain indexed, not cancelled |
+> | **Is the hygiene work order complete?** | **NO — incomplete and PAUSED.** Phase A acceptance is not completion of `WO-REPOSITORY-HYGIENE-01` |
+> | **May Step 6 begin?** | **YES.** The rule that Step 6 waited for the whole hygiene checkpoint is **superseded** by that decision |
 >
-> **Frozen during hygiene:** WebSocket and UI onboarding work · production behaviour ·
-> migrations · bulk deletion · Test Lab repair · combining product corrections, indexing,
-> moves and deletion in one commit.
+> **The supersession is deliberate and is recorded so it is not mistaken for drift.** The
+> earlier rule — that no individual hygiene step's acceptance releases Step 6, only Steps 3–5
+> and the final verification together — was correct when hygiene was the priority. Chris
+> changed the priority. **What that decision does not do is claim the hygiene work is
+> finished**, and no document may say it is.
+>
+> **Still frozen, and not by hygiene:** the boundaries in §3 are Step 6's own, and they do
+> not relax. Runtime safety, the model and its window, the directive registry and Kawa are
+> governed by `CLAUDE.md`, which no priority decision touches.
 
 ---
 
@@ -64,6 +67,7 @@ stopped moving:
 | `5f6b01b` | Repository hygiene **Step 1** (indexes) accepted |
 | `db0c5e7` | Repository hygiene **Step 2** (control authority) accepted |
 | `ff1ff4f` | Repository hygiene **Step 2b** (changelog preservation) accepted |
+| `5086490` | Repository hygiene **Step 3, first cohort** — the four root dated artifacts, moved byte-for-byte. **The last accepted hygiene commit; Phase A ends here** |
 
 Where everything else lives: [`docs/INDEX.md`](docs/INDEX.md) ·
 [`docs/BACKLOG.md`](docs/BACKLOG.md) · [`scripts/INDEX.md`](scripts/INDEX.md) ·
@@ -73,8 +77,8 @@ Where everything else lives: [`docs/INDEX.md`](docs/INDEX.md) ·
 
 | Lane | State |
 |---|---|
-| **Repository hygiene** | 🔵 **ACTIVE.** Sequence 0, 1, 2, 2b, 3, 4, 5. Step 0 done · Step 1 `5f6b01b` · Step 2 `db0c5e7` · Step 2b `ff1ff4f` — all accepted · **Step 3 CURRENT, not started** · Steps 4–5 remain, neither started |
-| **Profile Seed reachability** | 🔵 **ACTIVE, FROZEN for hygiene.** Phase 0 `661aa95` · Phase 1 `1288baa` · Phase 2 steps 1–5 accepted (step 4 `b269184`, step 5 `9127adb`) · pre-Step-6 corrections `d0e5294` · **Step 6 NOT STARTED**, step 7 owed |
+| **Repository hygiene** | ⏸️ **PHASE A ACCEPTED, REMAINDER PAUSED — the work order is INCOMPLETE.** Steps 0, 1 `5f6b01b`, 2 `db0c5e7`, 2b `ff1ff4f` and the first Step 3 cohort `5086490` are accepted. **Deferred by product-priority decision:** the remaining Step 3 cohorts, Steps 4–5, and the final verification checkpoint. Still indexed, still owed, not scheduled |
+| **Profile Seed reachability** | 🔵 **ACTIVE — Step 6 is the current action.** Phase 0 `661aa95` · Phase 1 `1288baa` · Phase 2 steps 1–5 accepted (step 4 `b269184`, step 5 `9127adb`) · pre-Step-6 corrections `d0e5294` · **Step 6 NOT STARTED** · step 7 owed · Phases 3–5 not started |
 | `WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` | **COMPLETE** — Phases 1–4 accepted. Closes the three L2 integration defects |
 | `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` | **ACCEPTED AND COMPLETE 2026-08-20** — story-to-memoir 11/11, deletion integrity 10/10, verified against filesystem and SQL |
 | Deletion / erasure integrity | **CLOSED 2026-08-20.** Erasure planned before the DB authority is destroyed, persisted (0049), bound to the canonical absolute root (0050); refuses every symlink below the root; eleven stores; deletes media; purges the translation cache; reports backups rather than rewriting them; fails closed; retryable with a truthful audit trail |

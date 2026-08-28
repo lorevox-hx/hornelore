@@ -36,8 +36,16 @@ differ, what the tree actually shows.
 ## 1. Blocking the current lane — nothing
 
 The five pre-Step-6 product corrections and the two acceptance-instrument corrections are
-**accepted at `d0e5294`**. Phase 2 Step 6 is blocked only by the repository-hygiene
-checkpoint, which is a deliberate sequencing decision and not an obligation.
+**accepted at `d0e5294`**. **Phase 2 Step 6 is no longer blocked** — the hygiene sequencing
+gate was superseded on 2026-08-28 by Chris's product-priority decision, and Step 6 is the
+current action. Nothing in this file blocks it.
+
+**One consequence belongs here rather than in a status document.** That decision defers the
+remaining hygiene Step 3 cohorts and Steps 4–5, and those steps carried a precondition:
+**the root `WO-*`/`BUG-*` specs may not move until their unresolved obligations appear in
+§2, and the later cohorts owe the same treatment §9 gave the first.** Deferring the moves
+defers that work too. §2 and §9 stay accurate for what has been examined; they are **not** a
+complete registry of the unexamined cohorts, and no later session should read them as one.
 
 ---
 

@@ -20,12 +20,14 @@ two places is a hash that will disagree in one of them.
 
 | # | Work | State |
 |---:|---|---|
-| 1 | **`WO-REPOSITORY-HYGIENE-01`** — indexed reorganization | 🔵 **CURRENT.** Steps 1, 2 and 2b accepted. **Step 3 (historical moves) is current and not started** — first cohort is the four root dated artifacts, and only those. Steps 4–5 not started. Hashes: `HANDOFF.md` §1. [Spec](docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md) |
-| 2 | **`WO-LORI-PROFILE-SEED-REACHABILITY-01`** — Phase 2 | 🔵 **ACTIVE, FROZEN for hygiene.** Phases 0–1 accepted; Phase 2 steps 1–5 accepted; pre-Step-6 corrections accepted. **Step 6 NOT STARTED**, step 7 owed. Hashes: `HANDOFF.md` §1 and the spec's status block. [Spec](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md) · [Transport map](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_PHASE2_TRANSPORT_MAP.md) |
+| 1 | **`WO-LORI-PROFILE-SEED-REACHABILITY-01`** — Phase 2 Step 6 | 🔵 **CURRENT.** Phases 0–1 accepted; Phase 2 steps 1–5 accepted; pre-Step-6 corrections accepted. **Step 6 NOT STARTED**, step 7 owed, Phases 3–5 not started. Hashes: `HANDOFF.md` §1 and the spec's status block. [Spec](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md) · [Transport map](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_PHASE2_TRANSPORT_MAP.md) |
+| 2 | **`WO-REPOSITORY-HYGIENE-01`** — indexed reorganization | ⏸️ **PHASE A ACCEPTED, REMAINDER PAUSED — INCOMPLETE.** Steps 0, 1, 2, 2b and the first Step 3 cohort accepted. **Deferred by Chris's product-priority decision:** the remaining Step 3 cohorts, Steps 4–5, and the final verification checkpoint. Hashes: `HANDOFF.md` §1. [Spec](docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md) |
 
-**Profile Seed Step 6 waits for the whole hygiene checkpoint** — Steps 3–5 **and** the final
-verification — not merely for the steps accepted so far. Its scope, inheritance and
-prohibitions are in `HANDOFF.md` §3.
+**Step 6 no longer waits for hygiene.** The earlier rule — that it was released only by
+Steps 3–5 **and** the final verification together — is **superseded** by Chris's
+product-priority decision. That decision defers the hygiene remainder; it does **not** claim
+the hygiene work order finished, and this list must not describe it as complete. Step 6's
+scope, inheritance and prohibitions are in `HANDOFF.md` §3, and they are unchanged.
 
 ## B. Next, in order
 

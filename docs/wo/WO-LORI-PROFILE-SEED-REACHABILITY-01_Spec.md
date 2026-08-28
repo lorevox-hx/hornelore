@@ -11,7 +11,7 @@
 |---|---|
 | 0 — executable map | **ACCEPTED** at `661aa95` |
 | 1 — server authority | **ACCEPTED** at `1288baa` |
-| 2 — prompt and committed-turn wiring | **IN IMPLEMENTATION, NOT ACCEPTED** — steps 1–5 ACCEPTED (step 5 at `9127adb`); **pre-Step-6 correction checkpoint ACCEPTED at `d0e5294`**; step 6 NOT STARTED and frozen behind repository hygiene; step 7 owed |
+| 2 — prompt and committed-turn wiring | **IN IMPLEMENTATION, NOT ACCEPTED** — steps 1–5 ACCEPTED (step 5 at `9127adb`); **pre-Step-6 correction checkpoint ACCEPTED at `d0e5294`**; **step 6 NOT STARTED and is the CURRENT action** — the hygiene freeze on it is superseded, `HANDOFF.md`; step 7 owed |
 | 3–5 | not begun |
 
 Phase 2 steps 1–3 have landed: `f23040b` characterizes all eight refusal patterns;
@@ -121,9 +121,11 @@ targeted gate at `d0e5294` — `P11` and `D4` **2/2**; strict suite `.venv-gpu` 
 both **22/22 with zero skips**; truthful shipped-design count **24**; tree clean, mutation
 journal cleared.
 
-**Step 6 is NOT STARTED**, its design is unchanged by this acceptance, and it is
-additionally frozen until the repository-hygiene checkpoint is accepted. What Step 6
-inherits and must not undo is in
+**Step 6 is NOT STARTED**, and its design is unchanged by this acceptance. *(This also said
+Step 6 was "additionally frozen until the repository-hygiene checkpoint is accepted". That
+freeze is **superseded** — Chris's product-priority decision of 2026-08-28 accepted hygiene
+Phase A, deferred the remainder, and made Step 6 the current action. See `HANDOFF.md`.)*
+What Step 6 inherits and must not undo is in
 [`WO-LORI-PROFILE-SEED-REACHABILITY-01_PHASE2_TRANSPORT_MAP.md`](WO-LORI-PROFILE-SEED-REACHABILITY-01_PHASE2_TRANSPORT_MAP.md)
 §16 and §16a.
 

@@ -1045,7 +1045,10 @@ Two-environment proof, required and produced:
 | real `fastapi` + `pydantic` route stack | `OK`, **zero skips** |
 
 **Step 6 is still NOT STARTED, and its design below is unchanged by this acceptance.**
-It is additionally frozen behind the repository-hygiene checkpoint — see `HANDOFF.md`.
+**It is the current action.** *(This said Step 6 was "additionally frozen behind the
+repository-hygiene checkpoint". Superseded 2026-08-28: Chris accepted hygiene Phase A,
+deferred the remainder, and made Step 6 the current product action — `HANDOFF.md`. The
+design below is what that acceptance protects, and none of it moves.)*
 
 **Deliberately NOT touched, and this is the boundary that makes the checkpoint
 reviewable:** the WebSocket wiring itself, the eight UI promotion sites, REST

@@ -1,13 +1,18 @@
 # WO-REPOSITORY-HYGIENE-01 — indexed reorganization, not a deletion sweep
 
-**Status:** ACTIVE — **Steps 1 `5f6b01b`, 2 `db0c5e7` and 2b `ff1ff4f` all ACCEPTED.
-Step 3 is the current step; its first cohort is not started.** Steps 4–5 not started.
-**One historical file preserved to `docs/archive/changelogs/`; nothing else has moved.**
+**Status:** ⏸️ **PHASE A ACCEPTED — REMAINDER PAUSED. THE WORK ORDER IS INCOMPLETE.**
+Steps 0, 1 `5f6b01b`, 2 `db0c5e7`, 2b `ff1ff4f` and the **first Step 3 cohort** `5086490`
+are accepted. **Deferred by Chris's product-priority decision of 2026-08-28:** the remaining
+Step 3 cohorts, Steps 4–5, and the §6 final verification checkpoint. They stay indexed here
+and in `docs/archive/INDEX.md` §4 — **deferred, not cancelled, and not done.**
+**Do not record this work order as complete.**
 **Opened:** 2026-08-28
 **Authority:** [`../reviews/HORNELORE_REPOSITORY_ARCHIVE_AUDIT_2026-08-28.md`](../reviews/HORNELORE_REPOSITORY_ARCHIVE_AUDIT_2026-08-28.md)
 and its [verification addendum](../reviews/HORNELORE_REPOSITORY_ARCHIVE_AUDIT_2026-08-28_VERIFICATION_ADDENDUM.md)
 **Pre-hygiene rollback point:** tag `archive/pre-hygiene-2026-08-28` at `d0e5294`
-**Blocks:** Phase 2 Step 6
+**Blocks:** nothing. *(This read "Blocks: Phase 2 Step 6". That gate is **superseded** by the
+product-priority decision of 2026-08-28 — see `HANDOFF.md`. Step 6 is the current action and
+proceeds while this work order is paused.)*
 
 ---
 
@@ -32,7 +37,10 @@ product code and the main `tests/` tree are not archive candidates.
 **Do not, at any point in this work order:**
 
 * touch **production source**, UI, schemas or migrations;
-* start **WebSocket Step 6** or any onboarding wiring;
+* start **WebSocket Step 6** or any onboarding wiring **inside a commit belonging to this
+  work order** — the boundary is that hygiene commits stay documentation-and-moves only, and
+  it still holds. It is **not** a claim that Step 6 may not proceed elsewhere: Step 6 is the
+  current product action and runs in its own commits while this work order is paused;
 * change **product behaviour** in any way;
 * **bulk delete** anything;
 * assume `scripts/archive/`, `docs/wo/`, or the singular `test/` directory is dead;
@@ -67,7 +75,11 @@ next begins.
 | 5 | Tracked-byte reduction | Preserve and checksum research documents outside Git, then remove the tracked binaries. Remove the unused SIMD asset behind a focused gate. Remove empty `wsl`, the old result JSON, the duplicate cue candidate | not started |
 | — | Verification checkpoint | §6 below | not started |
 
-**Step 6 begins only after that checkpoint is accepted.**
+**Step 6 no longer waits for that checkpoint.** *(This said "Step 6 begins only after that
+checkpoint is accepted." Superseded 2026-08-28 by Chris's product-priority decision: Phase A
+— Steps 0 through the first Step 3 cohort — is accepted, everything below it is deferred,
+and Step 6 became the current action. The rows above are unchanged because the plan is
+unchanged; what changed is when it runs.)*
 
 ---
 

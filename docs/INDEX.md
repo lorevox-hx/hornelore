@@ -10,9 +10,13 @@ sentence is wrong the moment anything moves, and this lane has now produced that
 four times — including a self-referential one, where this file stated its own byte size and
 the number drifted inside the very commit that added it.
 
-**Status:** **one move has happened** — hygiene Step 2b preserved the agent changelog to
-`archive/changelogs/` and replaced the live path with a decision index. Nothing has been
-renamed or deleted, and nothing else has moved.
+**This index does not carry current status.** What is active, what is paused and what comes
+next live in [`../HANDOFF.md`](../HANDOFF.md); sequencing questions are answered there and
+nowhere else. This file answers *where a document is and whether it is authoritative*.
+
+Two moves have happened so far — the agent changelog to `archive/changelogs/`, and the four
+root dated artifacts to `archive/handoffs/` and `archive/mockups/`. Nothing has been deleted.
+Every archived path and its identity evidence are in [`archive/INDEX.md`](archive/INDEX.md).
 
 ---
 
@@ -148,4 +152,8 @@ falsify it again; the index records moves, it does not promise there are none.)*
 The hygiene sequence, its boundaries, and its prohibitions are in
 [`wo/WO-REPOSITORY-HYGIENE-01_Spec.md`](wo/WO-REPOSITORY-HYGIENE-01_Spec.md).
 
-**Phase 2 Step 6 does not begin until that checkpoint is complete and accepted.**
+**Sequencing is not this index's to state.** *(This said "Phase 2 Step 6 does not begin until
+that checkpoint is complete and accepted." It was true when written and stopped being true
+without this file knowing — which is the whole argument for keeping current status out of an
+index.)* For what is active and what is next, read
+[`../HANDOFF.md`](../HANDOFF.md).
