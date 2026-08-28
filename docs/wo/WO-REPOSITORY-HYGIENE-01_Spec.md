@@ -84,8 +84,17 @@ Proven historical or misplaced. Moving them changes navigation, not behaviour.
 | `docs/wo-qa/` | 11 | update the one `.env.example` rationale link **first** |
 | **Root `WO-*` / `BUG-*` specs** | **30** | **every unresolved obligation already in `BACKLOG.md`** — §2 there covers 16 of the 30 |
 | `docs/wo/` completed / superseded | — | per `docs/archive/INDEX.md` §4 destinations |
-| Singular `test/` tree | 9 | **coverage equivalence mapped to current `tests/` first** |
-| `docs/CHANGELOG-AGENT.md` | 1 | dated snapshot archived; live file replaced by a small indexed decision history |
+
+**Not in this step, and each belongs to exactly one:**
+
+| Not here | Owned by |
+|---|---|
+| `docs/CHANGELOG-AGENT.md` | **Step 2b** |
+| Singular `test/` tree — 9 files | **Step 4**, and only after coverage equivalence is mapped to current `tests/` |
+
+*(Both appeared here **and** in their own step, so each was scheduled twice. A cohort table
+that repeats a dedicated step is how two commits both believe they own a move, and how one
+of them does it without the precondition the other recorded. Corrected 2026-08-28.)*
 
 The root-spec cohort is **30, not the audit's 29** — `BUG-HARNESS-TEST23-INDENTATION-01`
 was filed at `157af46`, and it is **open**, so it belongs in the backlog as unresolved

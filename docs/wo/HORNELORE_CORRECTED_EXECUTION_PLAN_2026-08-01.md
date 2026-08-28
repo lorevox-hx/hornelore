@@ -1,5 +1,28 @@
 # Hornelore Trip Companion — Corrected Execution Plan
 
+> # ⚠ SUPERSEDED — HISTORICAL PLAN, NOT CURRENT AUTHORITY
+>
+> **Banner added 2026-08-28. The body below is unchanged and is kept as history.**
+>
+> **Do not execute this plan and do not take any status from it.** It describes the state
+> of the work on **2026-08-01**; the checkpoint it names, `66d51c9`, is long superseded.
+> Derive the live head with `git rev-parse origin/main`.
+>
+> **Its Photo Palette scalar wording is SUPERSEDED**, and that is the specific reason this
+> banner exists rather than a general caution. The authoritative rules are now:
+>
+> * **A photo is unplaced when it has zero `trip_photo_day_placements`** — never
+>   `trip_day_id IS NULL`. The compatibility scalar is `null` for zero **or multiple**
+>   placements, so using it to decide "unplaced" silently mis-classifies every multi-day
+>   photo.
+> * [`WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01_Spec.md`](WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01_Spec.md)
+>   and [`WO-TRIP-PHOTO-PALETTE-01_Spec.md`](WO-TRIP-PHOTO-PALETTE-01_Spec.md) own the
+>   placement model; [`../architecture/TRAVEL_DOCUMENT_DOCTRINE.md`](../architecture/TRAVEL_DOCUMENT_DOCTRINE.md)
+>   ruling 1.16 is the binding doctrine.
+>
+> **For current state:** [`../../HANDOFF.md`](../../HANDOFF.md). **For the ordered queue:**
+> [`../../MASTER_WORK_ORDER_CHECKLIST.md`](../../MASTER_WORK_ORDER_CHECKLIST.md).
+
 **Repository:** `lorevox-hx/hornelore`  
 **Branch:** `main`  
 **Current pushed checkpoint:** `66d51c9`  

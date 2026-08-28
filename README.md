@@ -188,9 +188,20 @@ and extractor warmup continue for another 2–3 minutes; a `curl /` health check
 that a socket is listening.
 
 Two virtualenvs, deliberately: **`.venv`** is the test environment, **`.venv-gpu`** serves.
-Both carry the same pinned web stack (`requirements-test.txt` / `requirements-gpu.txt`), so a
-green TestClient result in `.venv` is evidence about the framework that actually serves.
 Model work belongs in `.venv-gpu`.
+
+**They do not necessarily carry the same stack, and this README does not claim they do.**
+Evidence must come from an interpreter that can actually exercise the path under test: a
+suite whose route tests need `fastapi` does not fail where it is absent — it **skips**, and
+`unittest` still prints `OK`. **`OK` with skips is not a pass.** Measure the interpreters
+before quoting a result, and say which one produced it. The probe and the current
+measurement live in [`CLAUDE.md`](CLAUDE.md) under **Environment → Interpreter probe**.
+
+*(This paragraph said both venvs "carry the same pinned web stack, so a green TestClient
+result in `.venv` is evidence about the framework that actually serves". `CLAUDE.md`
+retired that exact claim on 2026-08-20 and this copy survived, then outlived a second
+correction of the same bullet — which is the argument for one authoritative home per fact
+rather than a true sentence written down twice.)*
 
 Feature flags live in `.env`, which is untracked — **a tracked README cannot truthfully state
 which flags are on for your machine.** See `.env.example` for the full documented set.

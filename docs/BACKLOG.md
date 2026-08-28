@@ -113,6 +113,52 @@ Gate B stays open and substantial work is already in-tree.
 
 ---
 
+## 3a. Test-expectation reconciliation owed — `tests/test_lori_witness_mode`
+
+**Seven assertions conflict with later deliberate behaviour.** They split cleanly:
+
+| Count | Expectation | Conflicts with |
+|---:|---|---|
+| **4** | three-anchor cascade output | the **accepted two-anchor cap** |
+| **3** | the retired broad correction behaviour | its deliberate retirement |
+
+**These are test-expectation reconciliation, NOT automatically product defects.** The
+behaviour they contradict was changed on purpose and accepted; what is unresolved is that
+the older module still asserts the earlier contract. Reconciling it means deciding, per
+assertion, whether the test encodes something still wanted — in which case the product
+question reopens — or whether it encodes a superseded contract and should be updated to the
+accepted one. **Do not "fix" them by loosening assertions until that decision is made.**
+
+Owned by the Witness lane, not by any current lane, and explicitly not a reason to divert
+the active work.
+
+*(Recorded here 2026-08-28. This was in `HANDOFF.md` §2 and Step 2's reduction removed it;
+its only surviving copy was inside `WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01_Spec.md`,
+which is marked **COMPLETE**. A live obligation reachable only from a completed work order
+is the "archived means decided" failure this file exists to prevent — committed, in this
+instance, by the same commit that wrote the rule.)*
+
+## 3b. Deferred authorization boundaries — reopening requires Chris
+
+Not backlog items to schedule. Recorded so that neither the deferral nor the open question
+inside it can quietly disappear.
+
+**Palette legacy-column retirement (Phase 6) — drop `trip_photo_links.trip_day_id`.**
+
+* **NOT approved, NOT scheduled, and NOT a decision currently on the table.** Reopening it
+  requires **Chris's explicit authorization**.
+* Palette and multi-day acceptance **do not imply it**, and the old handoff said so.
+* The scalar is frozen, no longer written, ignored for authoritative decisions, correctly
+  derived on read, and covered by tests and live evidence. Dropping it buys no product
+  benefit and costs a risky SQLite table rebuild with its own rollback plan.
+* **The compatibility scalar is `null` for zero OR multiple placements**, so it must never
+  be used to decide whether a photo is unplaced. Authoritative rule: zero
+  `trip_photo_day_placements`. `HANDOFF.md` §4.
+
+*(The open decision — "decide separately whether to authorize legacy-column retirement" —
+lost its last live home in Step 2. The deferral survived in the checklist; the fact that a
+decision is outstanding did not.)*
+
 ## 4. Control-document corrections
 
 Each is real, each is small, and **none belongs in an index-only or a file-move commit.**

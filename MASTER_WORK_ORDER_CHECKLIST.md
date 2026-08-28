@@ -5,7 +5,7 @@
 
 **Reduced 2026-08-28** by `WO-REPOSITORY-HYGIENE-01` Step 2 to active / next / deferred /
 separately-authorized work. Completed rows became the ledger in §D; their evidence lives in
-the work orders and in Git history. Nothing was added.
+the work orders and in Git history. **No new obligation was introduced.**
 
 **Derive the head, do not read it from here:** `git rev-parse origin/main`.
 
@@ -13,10 +13,15 @@ the work orders and in Git history. Nothing was added.
 
 ## A. Active
 
+**Acceptance hashes are NOT repeated here.** `HANDOFF.md` §1 is their authoritative home,
+and each work order carries its own ledger. **One authoritative home does not mean zero
+references** — this list points at state, it does not restate it, because a hash written in
+two places is a hash that will disagree in one of them.
+
 | # | Work | State |
 |---:|---|---|
-| 1 | **`WO-REPOSITORY-HYGIENE-01`** — indexed reorganization | 🔵 **CURRENT.** Commit 1 (indexes) accepted `5f6b01b`. Step 2 (control authority) delivered, awaiting review. Steps 2b–5 not started. [Spec](docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md) |
-| 2 | **`WO-LORI-PROFILE-SEED-REACHABILITY-01`** — Phase 2 | 🔵 **ACTIVE, FROZEN for hygiene.** Phase 0 `661aa95` · Phase 1 `1288baa` · steps 1–5 accepted (4 → `b269184`, 5 → `9127adb`) · pre-Step-6 corrections `d0e5294` · **Step 6 NOT STARTED**, step 7 owed. [Spec](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md) · [Transport map](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_PHASE2_TRANSPORT_MAP.md) |
+| 1 | **`WO-REPOSITORY-HYGIENE-01`** — indexed reorganization | 🔵 **CURRENT.** Step 1 (indexes) accepted. **Step 2 (control authority) delivered and under correction.** Steps 2b–5 not started. [Spec](docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md) |
+| 2 | **`WO-LORI-PROFILE-SEED-REACHABILITY-01`** — Phase 2 | 🔵 **ACTIVE, FROZEN for hygiene.** Phases 0–1 accepted; Phase 2 steps 1–5 accepted; pre-Step-6 corrections accepted. **Step 6 NOT STARTED**, step 7 owed. Hashes: `HANDOFF.md` §1 and the spec's status block. [Spec](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md) · [Transport map](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_PHASE2_TRANSPORT_MAP.md) |
 
 **Step 6 may not begin until the whole hygiene checkpoint is accepted.** Its scope,
 inheritance and prohibitions are in `HANDOFF.md` §3.
@@ -27,7 +32,7 @@ inheritance and prohibitions are in `HANDOFF.md` §3.
 |---:|---|---|
 | 3 | **Finish Lean Lori** — one substantial implementation block | After Profile Seed reachability. Six items, in order: (1) complete prompt-section metadata — owner, activation condition, trim policy, source, priority tier, real token count, redacted hash; (2) finish directive gating so each family appears only when its state/feature/task is active — **the ten-topic Profile Seed onboarding is PRESERVED for new Lorevox narrators regardless of narrator type**; (3) decide history-versus-optional-section priority **from measurements** — Phase 4 exhausts history first and its telemetry emits the per-section costs that decision needs; (4) finish passive diagnostics — one operator-readable record across all three transports, no narrator prose; (5) a SMALL live acceptance replacing the abandoned L2 campaign — ordinary conversation, one state-heavy turn, one trip turn, one approved-story turn, one safe oversized refusal; (6) reconcile the Lean Lori WO's stale status table and remove its abandoned rollback language and unsatisfiable Gate F assumptions. **Substantial work is ALREADY LANDED (11 commits) — do not rebuild it. Gate B stays OPEN.** |
 | 4 | **Extraction improvement** with the four-persona harness | After Lean Lori. Run the core and challenge packs against the REAL extractor; identify **binding** failures rather than reporting pass counts; retire the old evaluator **only after scoring parity**, preserving it under `scripts/archive/` |
-| 5 | **Remove the frozen Kawa / Memory River UI** | After extraction work. The button, popover, `chronology_river` mode and `js/lori-kawa.js` are still reachable in `ui/hornelore1.0.html`. Remove **after** confirming Life Map covers the active navigation paths. **Do not build anything new on Kawa** |
+| 5 | **ADJUDICATE removal of the frozen Kawa / Memory River UI** | After extraction work. **Removal is NOT decided and is NOT scheduled.** The button, popover, `chronology_river` mode and `js/lori-kawa.js` are still reachable in `ui/hornelore1.0.html`. Removal requires **Chris's explicit decision AND confirmed Life Map coverage of the active navigation paths** — both, not either. Until then the surface is frozen: **do not extend it, do not build anything new on it, and do not describe it as retired in code.** *(This row read "Remove the frozen Kawa / Memory River UI", which schedules as settled a decision nobody has made. `CLAUDE.md` is explicit that retiring the metaphor in doctrine is not the same as removing the surface from the tree.)* |
 
 ## C. Owed separately — small, unscheduled
 
@@ -48,18 +53,18 @@ inheritance and prohibitions are in `HANDOFF.md` §3.
 Do not reopen without a demonstrated regression. Evidence is in each work order; acceptance
 detail is deliberately **not** repeated here.
 
-| Work | Accepted |
-|---|---|
-| `WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01` + closeout | 2026-08-14, Gate 3 |
-| `WO-TRIP-PHOTO-PALETTE-01` — P0 through P5 | 2026-08-14 |
-| Artifact inventory and **classification** (cleanup is separate and unauthorized) | 2026-08-14 |
-| Lean Lori Phase 0 map + L1 | 2026-08-14 |
-| `WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` — Phases 1–4 | 2026-08-17 / 08-18 |
-| `turn_extraction_ledger` cleanup | 2026-08-18, in Phase 4 |
-| `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` | 2026-08-20 — 11/11 and 10/10 |
-| Deletion / erasure integrity | 2026-08-20 |
-| Profile Seed Phases 0–1, Phase 2 steps 1–5, pre-Step-6 corrections | `661aa95` · `1288baa` · `9127adb` · `d0e5294` |
-| Repository hygiene Commit 1 | `5f6b01b` |
+| Work | Accepted | Ledger |
+|---|---|---|
+| `WO-TRIP-PHOTO-MULTI-DAY-PLACEMENT-01` + closeout | 2026-08-14, Gate 3 | its spec |
+| `WO-TRIP-PHOTO-PALETTE-01` — P0 through P5 | 2026-08-14 | its spec |
+| Artifact inventory and **classification** (cleanup is separate and unauthorized) | 2026-08-14 | Palette spec §9 P0 |
+| Lean Lori Phase 0 map + L1 | 2026-08-14 | the L1 map |
+| `WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` — Phases 1–4 | 2026-08-17 / 08-18 | its spec §12.7, §13, §14 |
+| `turn_extraction_ledger` cleanup | 2026-08-18, in Phase 4 | same spec |
+| `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` | 2026-08-20 — 11/11 and 10/10 | its spec |
+| Deletion / erasure integrity | 2026-08-20 | same spec |
+| Profile Seed Phases 0–1, Phase 2 steps 1–5, pre-Step-6 corrections | through 2026-08-28 | `HANDOFF.md` §1 + spec status block |
+| Repository hygiene Step 1 | 2026-08-28 | `HANDOFF.md` §1 |
 
 **Profile Seed ownership is settled**, and the settlement is the durable part: the
 ten-topic onboarding is **preserved for new Lorevox narrators regardless of narrator
@@ -81,8 +86,14 @@ authentication · multi-operator Google authorization · hard-delete/archive ato
 and the six orphaned-session FK violations · one unified boot entrypoint, comprehensive
 test runner and ESLint/toolchain work · `ws_chat`, extraction-router and giant-module
 decomposition · Lean Lori continuation beyond §B, prompt architecture, safety reactivation,
-model changes · legacy photo-day scalar retirement (Palette Phase 6) · test-artifact
-**cleanup** — the 22 harness narrators were deliberately not deleted.
+model changes · test-artifact **cleanup** — the 22 harness narrators were deliberately not
+deleted.
+
+**Legacy photo-day scalar retirement (Palette Phase 6)** — dropping
+`trip_photo_links.trip_day_id` — is **deferred and requires Chris's explicit authorization
+to reopen. It is not approved, not scheduled, and not a decision currently on the table.**
+Palette and multi-day acceptance do not imply it. Detail and the reasoning:
+[`docs/BACKLOG.md`](docs/BACKLOG.md) §3b.
 
 **Deferred is not forgotten. Deferred means intentionally not active.**
 

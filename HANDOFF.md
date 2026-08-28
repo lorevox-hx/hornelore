@@ -3,7 +3,10 @@
 **Repository:** `lorevox-hx/hornelore` · **Branch:** `main`
 **Reduced 2026-08-28** by `WO-REPOSITORY-HYGIENE-01` Step 2. Superseded narrative and
 retirement notes were removed, not lost — they are in Git history and in the work orders
-this file points to. **Nothing was added.**
+this file points to. **No new obligation was introduced** — the reduction removed
+superseded narrative, not owed work. *(This said "nothing was added", which was literally
+false: the reduction rewrote and restructured, and a later correction added the hard-delete
+rule back. The claim that matters is the one about obligations.)*
 
 ---
 
@@ -13,8 +16,9 @@ this file points to. **Nothing was added.**
 >
 > | | |
 > |---|---|
-> | **Current REPOSITORY action** | `WO-REPOSITORY-HYGIENE-01` **Step 2 — control-authority cleanup.** This commit. [`docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md`](docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md) |
-> | **Last accepted** | **Commit 1 — indexes only — `5f6b01b`**, reconciled at `e558002`. Safety tags published |
+> | **Current REPOSITORY action** | `WO-REPOSITORY-HYGIENE-01` **Step 2 — control-authority cleanup. DELIVERED AND UNDER CORRECTION**, not accepted. [`docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md`](docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md) |
+> | **Last accepted** | **Step 1 — indexes only — `5f6b01b`**, reconciled at `e558002`. Safety tags published |
+> | **Frozen behind Step 2's acceptance** | Step 2b (changelog) · Steps 3–5 (archive moves, legacy tests/scripts, tracked-byte reduction) · Profile Seed Step 6 |
 > | **Next PRODUCT action** | Profile Seed Phase 2 **Step 6** — WebSocket presentation metadata and post-commit advancement |
 > | **May Step 6 begin?** | **NO.** Blocked until the **whole** hygiene checkpoint is complete and accepted — not merely until Step 2 lands |
 >
@@ -56,7 +60,7 @@ stopped moving:
 | `9127adb` | Profile Seed Step 5 accepted |
 | `d0e5294` | Pre-Step-6 correction checkpoint accepted; tagged `archive/pre-hygiene-2026-08-28` |
 | `ea3ab27` | Tree inspected by the repository audit; tagged `audit/repository-baseline-2026-08-28`. **Not** the rollback point |
-| `5f6b01b` | Repository hygiene Commit 1 accepted |
+| `5f6b01b` | Repository hygiene **Step 1** (indexes) accepted |
 
 Where everything else lives: [`docs/INDEX.md`](docs/INDEX.md) ·
 [`docs/BACKLOG.md`](docs/BACKLOG.md) · [`scripts/INDEX.md`](scripts/INDEX.md) ·
@@ -66,7 +70,7 @@ Where everything else lives: [`docs/INDEX.md`](docs/INDEX.md) ·
 
 | Lane | State |
 |---|---|
-| **Repository hygiene** | 🔵 **ACTIVE** — Step 2 of 5. Commit 1 accepted `5f6b01b` |
+| **Repository hygiene** | 🔵 **ACTIVE.** Step 0 done (tags published) · Step 1 accepted `5f6b01b` · **Step 2 delivered and UNDER CORRECTION** · Steps 2b, 3, 4, 5 remain, none started. *("Step 2 of 5" was shorthand and it stopped being true the moment 2b was split out — the sequence is 0, 1, 2, 2b, 3, 4, 5.)* |
 | **Profile Seed reachability** | 🔵 **ACTIVE, FROZEN for hygiene.** Phase 0 `661aa95` · Phase 1 `1288baa` · Phase 2 steps 1–5 accepted (step 4 `b269184`, step 5 `9127adb`) · pre-Step-6 corrections `d0e5294` · **Step 6 NOT STARTED**, step 7 owed |
 | `WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` | **COMPLETE** — Phases 1–4 accepted. Closes the three L2 integration defects |
 | `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` | **ACCEPTED AND COMPLETE 2026-08-20** — story-to-memoir 11/11, deletion integrity 10/10, verified against filesystem and SQL |
@@ -76,9 +80,9 @@ Where everything else lives: [`docs/INDEX.md`](docs/INDEX.md) ·
 | Travel Document core/export | **CLOSED on live evidence.** Preserve the editable timeline → DOCX projection rule |
 | Google Photos Picker | **BANKED.** Reopen only for a demonstrated defect |
 | Lean Lori | **L1 COMPLETE. L2 PARTIAL and CLOSED by product-priority decision — DO NOT RESUME.** Eleven commits already landed; do not rebuild. **Gate B stays OPEN**, Phase 10 open |
-| Legacy photo-day scalar retirement (Phase 6) | **DEFERRED.** The scalar is frozen, unwritten, ignored for authoritative decisions, correctly derived on read. Dropping it buys nothing and costs a risky SQLite rebuild |
+| Legacy photo-day scalar retirement (Phase 6) | **DEFERRED — reopening requires Chris's explicit authorization. Not approved, not scheduled, not a decision currently on the table.** Palette and multi-day acceptance do not imply it. The scalar is frozen, unwritten, ignored for authoritative decisions and correctly derived on read; dropping it buys nothing and costs a risky SQLite rebuild. [`docs/BACKLOG.md`](docs/BACKLOG.md) §3b |
 | Test-artifact **cleanup** | **DEFERRED — needs Chris's authorization.** The 22 harness narrators were deliberately not deleted |
-| Kawa / Memory River | **REACHABLE FROZEN LEGACY UI.** Non-authoritative; do not extend or build on it. Awaiting a deliberate removal decision |
+| Kawa / Memory River | **REACHABLE FROZEN LEGACY UI.** Non-authoritative; do not extend, build on it, or describe it as retired in code. **Removal is NOT decided and NOT scheduled** — it needs Chris's explicit decision AND confirmed Life Map coverage |
 | Runtime safety | **PARKED**, server-authoritative. Never reactivate through an environment value |
 | Model / 8,192-token window | **LOCKED.** Any proposed change is stop-and-report |
 | Directive-family registry | **INERT** — built, gated, deliberately not activated |
@@ -153,6 +157,19 @@ zero trip_photo_day_placements
 ```
 
 Never `trip_day_id IS NULL`.
+
+**Hard-delete truthfulness.** **A deletion is complete only when the erasure result says
+complete.** Three outcomes are distinguished and must stay distinguished; **HTTP 207 is the
+operator-actionable partial** — something was removed, something was not, and the operator
+can act on the difference. Never describe a hard delete as complete because the call
+returned without raising. Retained audit and erasure-job metadata is kept on purpose and
+**must contain no narrator speech**.
+
+This is here, not only in its work order, because it is a rule a reader needs at the moment
+they are looking at deletion behaviour. The defect it exists for was real:
+`hard_delete_person` removed every active narrator-scoped row, answered **200**, and left
+eight files on disk — five of them verbatim narrator speech. Detail:
+[`docs/wo/WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01_Spec.md`](docs/wo/WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01_Spec.md).
 
 **Photo Palette** is a mode inside the existing Travel Document workspace — not a second
 product, not a nested modal. It reuses the landed inventory, thumbnails, placement APIs,

@@ -15,11 +15,22 @@
 | What is still owed, and how do we know? | [`BACKLOG.md`](BACKLOG.md) | Unresolved obligations with evidence |
 | What is the product, and how is it operated? | [`../README.md`](../README.md) | Product and operator documentation |
 
-**The governing order, from `CLAUDE.md`, unchanged:**
+**The governing order, from `CLAUDE.md`:**
 
-> current code → current tests and live evidence → accepted reports / ADRs / closeout
-> records → `MASTER_WORK_ORDER_CHECKLIST.md` → old WO status lines → archived design
-> history → `docs/CHANGELOG-AGENT.md`
+```text
+current code
+> current tests and live evidence
+> accepted reports / ADRs / closeout records
+> HANDOFF.md
+> MASTER_WORK_ORDER_CHECKLIST.md
+> old WO status lines
+> archived design history
+> docs/CHANGELOG-AGENT.md
+```
+
+*(This copy repeated `CLAUDE.md`'s order faithfully — including the missing `HANDOFF.md`.
+Both corrected 2026-08-28. Copying a list is how a defect in it propagates; the copy is
+kept because a reader here needs the order, and it is now checked against its source.)*
 
 A status line in a document never outranks the code and the tests. This repository has
 twice carried a stale current-work list that read as an instruction to rebuild finished

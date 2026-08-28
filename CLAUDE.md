@@ -30,10 +30,26 @@ happening right now — active lane, what is next, what is owed — read
 | What are the standing rules and hazards? | **this file** |
 | Who is Lori for, and how is her behaviour produced? | `docs/architecture/` (see below) |
 
-**The governing order, unchanged:** current code → current tests and live
-evidence → accepted reports / ADRs / closeout records →
-`MASTER_WORK_ORDER_CHECKLIST.md` → old WO status lines → archived design
-history → `docs/CHANGELOG-AGENT.md`.
+**The governing order:**
+
+```text
+current code
+> current tests and live evidence
+> accepted reports / ADRs / closeout records
+> HANDOFF.md
+> MASTER_WORK_ORDER_CHECKLIST.md
+> old WO status lines
+> archived design history
+> docs/CHANGELOG-AGENT.md
+```
+
+*(**`HANDOFF.md` was MISSING from this list, corrected 2026-08-28** — and the omission was
+self-contradictory: the restructuring note at the top of this file says "this file's own
+governing order already said `HANDOFF.md` wins", and it did not. Every other control
+document ranked the handoff above the checklist while this one skipped it entirely, so the
+one file agents are told to read first was the one place its authority was not written
+down. Restored in the position the other four documents already used: below accepted
+closeout records, above the checklist.)*
 
 Before changing product code in a lane: read recent commits, read that lane's
 implementation and tests, check for a later closeout, *then* reconcile the
@@ -206,24 +222,39 @@ to be built without Chris explicitly opening that work order. Full statement:
 - **Work directly on main; do NOT create feature branches.** Chris is the only developer on this repo and the branch/PR workflow is overkill. Going forward, every commit lands on `main` directly via GitHub Desktop. Do NOT suggest creating a new branch, opening a PR, or any branch-rename workflow. (Branches created earlier — e.g. `feat/operator-narrator-intake-form` from 2026-06-15 — can be deleted locally after they're merged. New work commits straight to main.)
 - **GPU**: NVIDIA RTX 50-series (Blackwell). Local LLM serves from this machine.
 - **THREE interpreters, and they do not carry the same stack. MEASURE, never assume — including from this bullet.** *(Corrected twice. It first claimed both venvs carried the same web stack. It then said, measured 2026-08-20, that "`.venv` is Python 3.10.12 and has NO fastapi at all" — and on **2026-08-28 `.venv` ran a route suite 22/22 with ZERO skips**, which is only possible if fastapi imports. The bullet whose whole purpose is warning that a skip is not a pass had itself gone stale. Any environment claim written here is a measurement with a date, not a standing fact.)*
-  - **Check before claiming a verification, in one command:**
-
-    ```bash
-    for p in python3 .venv/bin/python .venv-gpu/bin/python; do
-      printf '%-24s ' "$p"; "$p" -c "
-    import sys;print(sys.version.split()[0],end=' ')
-    for m in ('fastapi','pydantic'):
-        try: __import__(m); print(m,end=' ')
-        except ImportError: print(m+'=ABSENT',end=' ')
-    print()"
-    done
-    ```
-
-  - `.venv` — the TEST venv. `.venv-gpu` — the SERVING venv, what the running stack uses; model work belongs there. **Measured 2026-08-28: both ran the strict-version route suite 22/22, zero skips.** Bare `python3` did not — it reported 5 route skips.
+  - **Check before claiming a verification.** The probe is at the end of this section, unindented and with no multi-line Python payload — see **Interpreter probe** below.
+  - `.venv` — the TEST venv. `.venv-gpu` — the SERVING venv, what the running stack uses; model work belongs there. **Measured 2026-08-28 in WSL: both ran the strict-version route suite 22/22, zero skips.** Bare `python3` did not — it reported 5 route skips.
   - **THE TRAP, and it is silent.** A suite whose route tests need fastapi does not FAIL on an interpreter without it — it **skips**, and unittest still prints `OK`. During the deletion lane this produced `OK (skipped=12)`, where the twelve were every route-level test in the file. **`OK` with skips is not a pass.** Always read the skip count and report it: *"38 + 51 (12 skipped) + 6"* is honest; *"95 green"* is not.
   - **Reports must name the interpreter a result came from.** A result without one cannot be reproduced or trusted.
   - **The mutation gate's documented command is `python3`**, which is the interpreter least able to exercise route tests — its baselines show `22 ran, 5 SKIPPED` for the strict suite and `48 ran, 6 SKIPPED` for the REST route suite, while the `S`-series mutations target `api.py` and `profile_seed_rest.py`. Whether the gate should run under `.venv` instead is registered in [`docs/BACKLOG.md`](docs/BACKLOG.md) §6 and is not yet decided.
   - Other missing-dependency symptoms are confusing rather than obvious and are not product defects: a missing `PIL` surfaces as `ModuleNotFoundError` at collection, and a missing `python-docx` surfaces as every memoir-export assertion getting `503 != 200`, because the route's own `_DOCX_AVAILABLE` guard (`server/code/api/routers/memoir_export.py`) fires first. `requirements-test.txt` (2026-07-27) is the companion to `requirements-gpu.txt`; if a suite fails on an import or a blanket 503, compare against it first.
+
+### Interpreter probe
+
+**Unindented on purpose, and with no multi-line Python payload.**
+
+*(The first version of this probe lived inside the bullet list above, so its fenced block
+carried four leading spaces. Copying the block copies that indent, and the Python payload
+was multi-line — so it died on `IndentationError: unexpected indent` at line 2, every
+time. A verification command that cannot be pasted is not a verification command. Every
+payload below is a single line, which cannot be broken by indentation at all.)*
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+for p in python3 .venv/bin/python .venv-gpu/bin/python; do
+  printf '%-24s ' "$p"
+  "$p" -c 'import sys; print(sys.version.split()[0], end=" ")' 2>/dev/null || { echo "(not runnable)"; continue; }
+  for m in fastapi pydantic; do
+    if "$p" -c "import $m" 2>/dev/null; then printf '%s ' "$m"; else printf '%s=ABSENT ' "$m"; fi
+  done
+  echo
+done
+```
+
+**Run it in WSL, not from an agent sandbox.** A sandboxed container can execute
+`.venv/bin/python` and still resolve none of its `site-packages`, so it reports every
+module ABSENT for both venvs — which is an artifact of the container boundary, not a fact
+about the laptop. The authoritative reading of these venvs is the one taken in WSL.
 
 ## Stack ownership
 
@@ -383,13 +414,31 @@ Re-publishing reports requires the redaction plan in
 | Stubborn-pack reports | `/mnt/c/Users/chris/hornelore/docs/reports/stubborn_pack_*.json` (+ `_stability.console.txt`) |
 | Eval case source | `/mnt/c/Users/chris/hornelore/data/qa/question_bank_extraction_cases.json` |
 | Extract router | `/mnt/c/Users/chris/hornelore/server/code/api/routers/extract.py` |
-| WO specs | **Active: `docs/wo/<NAME>_Spec.md`** — the only location for current work. Legacy `WO-*_Spec.md` / `BUG-*_Spec.md` still sit at the repo root awaiting the hygiene lane's archive cohort; their unresolved obligations are registered in [`docs/BACKLOG.md`](docs/BACKLOG.md) §2. Pre-pivot: `docs/archive/workorders-pre-pivot/`, history only. **Counts are derived, not written here** — `git ls-tree -r --name-only origin/main \| grep -cE '^(WO-\|BUG-)[^/]*\.md$'`. *(This row once named the repo root as* the *location, contradicting the `docs/wo/` convention stated at the top of this file. A half-true row is the worst kind to leave, because it reads as confirmation.)* |
+| WO specs | **Active: `docs/wo/<NAME>_Spec.md`** — the only location for current work. Legacy `WO-*_Spec.md` / `BUG-*_Spec.md` still sit at the repo root awaiting the hygiene lane's archive cohort; their unresolved obligations are registered in [`docs/BACKLOG.md`](docs/BACKLOG.md) §2. Pre-pivot: `docs/archive/workorders-pre-pivot/`, history only. **Counts are derived — see the block below this table.** *(This row once named the repo root as* the *location, contradicting the `docs/wo/` convention stated at the top of this file. A half-true row is the worst kind to leave, because it reads as confirmation.)* |
 | WO reports | `/mnt/c/Users/chris/hornelore/docs/reports/WO-*_REPORT.md` |
 | Canonical architecture spec | `/mnt/c/Users/chris/hornelore/docs/specs/LOREVOX-EXTRACTOR-ARCHITECTURE-v1.md` |
 | SECTION-EFFECT Phase 1 output | `/mnt/c/Users/chris/hornelore/docs/reports/WO-EX-SECTION-EFFECT-01_ADJUDICATION.md` (pending) |
 | SECTION-EFFECT Phase 3 output | `/mnt/c/Users/chris/hornelore/docs/reports/WO-EX-SECTION-EFFECT-01_CAUSAL.md` (pending) |
 
 All of these are readable from the agent workspace mount via the session prefix. After an eval runs, read the console + JSON directly — do not ask Chris to paste them.
+
+### Derived counts
+
+**Outside the table on purpose.** A markdown table cell must escape `|` as `\|`, and a
+command copied out of one carries the backslashes — `git ls-tree … \| grep …` passes `\|`
+to `git` as an argument, which prints usage text and no count at all. Commands live in
+fenced blocks; tables point at them.
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+git ls-tree -r --name-only origin/main | grep -cE '^(WO-|BUG-)[^/]*\.md$'   # root WO/BUG specs
+git ls-tree -r --name-only origin/main -- docs/archive/workorders-pre-pivot | wc -l
+git ls-tree -r --name-only origin/main -- docs/wo | wc -l
+```
+
+**Current result of the first: `30`** (2026-08-28) — 29 from the audit baseline plus
+`BUG-HARNESS-TEST23-INDENTATION-01_Spec.md`, filed at `157af46` and open. Do not write a
+count into prose; run the command.
 
 ## Extractor lane — reference, not a queue
 
