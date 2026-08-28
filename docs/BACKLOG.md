@@ -1,8 +1,8 @@
 # Backlog — unresolved obligations, with their evidence
 
 **Derived at:** `d0e52946aa77096841612df176f4cbb70d4edacd`, 2026-08-28
-**Status:** registry only — nothing here is scheduled. Sections 1–3b and 5–8 are
-**unresolved**; §4 is a **resolved record**, kept so a later session does not re-open it.
+**Status:** registry only — nothing here is scheduled. Everything is **unresolved**
+except **§4**, which is a **resolved record** kept so a later session does not re-open it.
 
 ---
 
@@ -173,6 +173,30 @@ row — hygiene **Step 2b**. Retained as a record so a later session does not re
 | `CLAUDE.md` | "where files live" row naming the repo root as *the* WO location | `docs/wo/` named as the only active location |
 | `README.md` | duplicated lane status | a pointer table; current state has one home |
 | `docs/CHANGELOG-AGENT.md` | 614,130 bytes, pointed at by `CLAUDE.md` | **RESOLVED by hygiene Step 2b** — preserved byte-for-byte at [`archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md`](archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md); the live path is now a small decision index |
+
+---
+
+## 4a. Documentation portability — a link no clone can resolve
+
+`docs/wo/WO-LEAN-LORI-RUNTIME-01-FINAL-R3-2026-08-04.md` links to
+`docs/reports/LEAN-LORI-PHASE-8-STATE-MATRIX-2026-08-09.md`. **`docs/reports/` is gitignored**
+(since `a87e865`, because reports carry live narrator data and this repository is public), so
+that target exists on Chris's machine and **in no clone at all**. A whole-tree link check
+reports it broken, correctly.
+
+**Pre-existing, and not a Step 2b regression.** The link predates the hygiene lane; the file
+is untouched by it. It surfaced only because Step 2b ran the first whole-tree link validation.
+
+**Do NOT resolve it by adding the report or editing `.gitignore`.** The gitignore rule is
+deliberate and load-bearing — `CLAUDE.md` is explicit that a report refusing to stage is the
+feature, and re-publishing reports requires the redaction plan in
+`WO-PRIVACY-CANON-EXTRACTION-01`, which is parked.
+
+**What is actually owed** is a convention for citing local-only evidence, so a reader can tell
+"this link is broken" from "this evidence is deliberately local". The Palette closeout already
+solved it once, by naming report paths as plain text with `(local working copy only)` rather
+than as links. Applying that convention here is the small fix; deciding it repository-wide is
+the durable one. Either way it is a documentation commit, not a hygiene move.
 
 ---
 

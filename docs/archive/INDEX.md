@@ -9,9 +9,15 @@ been moved *out*, and nothing has been deleted.
 content, and counting it would drift the figure by its own 15,305 bytes:
 
 ```bash
-find docs/archive -type f ! -name INDEX.md | wc -l                                  # 131
-find docs/archive -type f ! -name INDEX.md -printf '%s\n' | awk '{s+=$1} END{print s}'  # 2712097
+find docs/archive -type f ! -path 'docs/archive/INDEX.md' | wc -l                     # 131
+find docs/archive -type f ! -path 'docs/archive/INDEX.md' -printf '%s\n' \
+  | awk '{s+=$1} END{print s}'                                                        # 2712097
 ```
+
+**`! -path` on the exact root file, not `! -name INDEX.md`.** The name form excludes *any*
+file called `INDEX.md` anywhere beneath `docs/archive/`, so a future cohort that archives a
+document with that name would vanish from its own count — silently, and in the direction
+that makes the archive look smaller than it is.
 
 
 
@@ -42,7 +48,7 @@ not remove it from Git history, and this archive is not a privacy mechanism — 
 
 ---
 
-## 2. The three cohorts, and why they are not one thing
+## 2. The four cohorts, and why they are not one thing
 
 | Cohort | Files | Bytes | Last touched | What it is |
 |---|---:|---:|---|---|
@@ -53,24 +59,20 @@ not remove it from Git history, and this archive is not a privacy mechanism — 
 
 Both pre-pivot cohorts were moved together on **2026-06-14**, the day the universal pivot
 landed. That is a single deliberate act, not accumulation, and it is why they read as a
-coherent set.
+coherent set. `changelogs/` arrived separately, at Step 2b.
 
-### A number to correct, recorded not fixed
+### A number that was corrected — RESOLVED at Step 2
 
-`CLAUDE.md` says the pre-pivot archive holds **114** work-order files. **Git derives 113.**
+`CLAUDE.md` used to say the pre-pivot archive held **114** work-order files. Git derives
+**113**, and the wrong figure had been quoted forward for some time.
+
+**Resolved by hygiene Step 2 (`db0c5e7`)**, and resolved in the durable way: the hand-written
+count was replaced by a command, not by a better number. A count written into prose is wrong
+the moment anything moves, and every cohort still to come will move something.
 
 ```bash
-git ls-tree -r --name-only d0e5294 -- docs/archive/workorders-pre-pivot | wc -l   # 113
+git ls-tree -r --name-only origin/main -- docs/archive/workorders-pre-pivot | wc -l
 ```
-
-Off by one, and it has been quoted forward since. The correction belongs in the
-control-document commit, not this one — this commit adds indexes and changes nothing
-else. It is in [`../BACKLOG.md`](../BACKLOG.md).
-
-**The durable fix is not the number.** A hand-maintained count of a directory drifts the
-moment anything moves, and every archive cohort still to come will move something. The
-replacement wording should be a command, exactly as `HANDOFF.md`'s "current `main`" hash
-became `git rev-parse origin/main`.
 
 ---
 
@@ -122,7 +124,17 @@ Original path is `docs/archive/<cohort>/<file>` — none of these files has been
 it was archived, so the recorded path is still the real one. "Added" is the commit date
 that first introduced the file at this path.
 
-<!-- BEGIN GENERATED MANIFEST — derived from `git ls-tree -r -l d0e5294 -- docs/archive` -->
+**Manifest provenance.** The three pre-existing cohorts below were generated from
+`git ls-tree -r -l d0e5294 -- docs/archive`. **The `changelogs/` cohort was not** — it did
+not exist at `d0e5294`; it was added by Step 2b at `fbc50fc` and its row is recorded from
+the move itself. A single "derived from" marker over both would misdate a third of the
+manifest.
+
+<!-- BEGIN GENERATED MANIFEST
+     cohorts handoffs/, handoffs-pre-pivot/, workorders-pre-pivot/
+       — derived from `git ls-tree -r -l d0e5294 -- docs/archive`
+     cohort changelogs/
+       — added by hygiene Step 2b at `fbc50fc`, recorded from the move -->
 
 ### `docs/archive/changelogs/` — 1 file, 614,130 bytes
 

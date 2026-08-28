@@ -1,7 +1,9 @@
 # Documentation index — what is authoritative, and what is history
 
 **Derived at:** `d0e52946aa77096841612df176f4cbb70d4edacd`, 2026-08-28
-**Status:** index only. **Nothing has been moved, renamed or deleted.**
+**Status:** **one move has happened** — hygiene Step 2b preserved the agent changelog to
+`archive/changelogs/` and replaced the live path with a decision index. Nothing has been
+renamed or deleted, and nothing else has moved.
 
 ---
 
@@ -95,7 +97,7 @@ deadness.*
 
 | Path | Files | What it is |
 |---|---:|---|
-| [`archive/`](archive/) | 130 | Pre-pivot work orders and handoffs, plus one post-pivot handoff. See [`archive/INDEX.md`](archive/INDEX.md) |
+| [`archive/`](archive/) | **131** | Pre-pivot work orders and handoffs, one post-pivot handoff, and the archived agent changelog. See [`archive/INDEX.md`](archive/INDEX.md) for the manifest and the deriving command |
 | [`CHANGELOG-AGENT.md`](CHANGELOG-AGENT.md) | 1 | The **decision index** — subsystem → current ADR/work order, plus a link to the archived history. Small by design |
 | [`archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md`](archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md) | 1 | The agent changelog **verbatim**, 2026-04-11 → 2026-08-20, 614,130 bytes, `sha256 2e917232…`. Consult for *why a subsystem behaves like this*, after the code and the ADRs |
 | `wo-qa/` | 11 | April-era QA notes |
@@ -120,8 +122,12 @@ deadness.*
 
 ## 7. What this index does not do
 
-It does not move anything, and it does not decide anything. It records where the authority
-currently is so that the cleanup can proceed one reviewable cohort at a time.
+It does not decide anything. It records where the authority currently is, so that the
+cleanup can proceed one reviewable cohort at a time.
+
+*(It used to say "it does not move anything" as well. Step 2b moved one file — the agent
+changelog — so that sentence stopped being true and is gone. Every future cohort will
+falsify it again; the index records moves, it does not promise there are none.)*
 
 The hygiene sequence, its boundaries, and its prohibitions are in
 [`wo/WO-REPOSITORY-HYGIENE-01_Spec.md`](wo/WO-REPOSITORY-HYGIENE-01_Spec.md).
