@@ -1,8 +1,17 @@
 # Scripts index — executable status, derived rather than assumed
 
-**Derived at:** `d0e52946aa77096841612df176f4cbb70d4edacd`, 2026-08-28
-**Population:** 127 tracked files — 95 under `scripts/`, 32 under `scripts/archive/`
-**Status:** index only. **Nothing has been moved, renamed, repaired or deleted.**
+**Baseline derived at:** `d0e52946aa77096841612df176f4cbb70d4edacd`
+**Maintained live** by `WO-REPOSITORY-HYGIENE-01`. The inventory below — population, states,
+in-refs — is a **measurement taken at `d0e5294`** and is not re-derived on every edit; Step 2b
+later repointed nine evidence cells without changing any classification. **Treat the numbers
+as dated evidence, not as live truth**, and re-derive when it matters:
+
+```bash
+git ls-tree -r --name-only origin/main -- scripts | wc -l
+```
+
+**Population at `d0e5294`:** 127 tracked files — 95 under `scripts/`, 32 under `scripts/archive/`
+**Status:** no script has been moved, renamed, repaired or deleted.
 
 ---
 

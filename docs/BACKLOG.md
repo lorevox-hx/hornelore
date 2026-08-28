@@ -1,6 +1,9 @@
 # Backlog — unresolved obligations, with their evidence
 
-**Derived at:** `d0e52946aa77096841612df176f4cbb70d4edacd`, 2026-08-28
+**Baseline derived at:** `d0e52946aa77096841612df176f4cbb70d4edacd`
+**Maintained live** by `WO-REPOSITORY-HYGIENE-01` — entries are added and resolved as work
+lands, so **this is not a snapshot of the `d0e5294` tree.** Any figure that is a `d0e5294`
+measurement says so; volatile populations are commands, not prose.
 **Status:** registry only — nothing here is scheduled. Everything is **unresolved**
 except **§4**, which is a **resolved record** kept so a later session does not re-open it.
 
@@ -40,8 +43,13 @@ checkpoint, which is a deliberate sequencing decision and not an obligation.
 
 ## 2. Root specifications with unresolved or unclear obligations
 
-Thirty specs sit at the repository root. These sixteen must be represented here before
-their full specs move. **The audit named fifteen; the sixteenth is new** — see §2.1.
+The root specs must each be represented here before their full specs move. **The sixteen
+below carry unresolved or unclear obligations** — the audit named fifteen; the sixteenth is
+new, see §2.1. For the current root population:
+
+```bash
+git ls-tree -r --name-only origin/main | grep -cE '^(WO-|BUG-)[^/]*\.md$'
+```
 
 | Spec | Header claims | What is owed |
 |---|---|---|
@@ -68,18 +76,25 @@ their full specs move. **The audit named fifteen; the sixteenth is new** — see
 |---|---|---|
 | `BUG-HARNESS-TEST23-INDENTATION-01_Spec.md` | **OPEN, bounded, unscheduled** | `scripts/ui/run_test23_two_person_resume.py` has not parsed since `df82215` (2026-05-06). Repair owes: correct indentation *deliberately* (inside or outside the per-narrator loop — the traceback does not say which was meant), a live run, **and a compile gate over `scripts/` and `tests/`**. The gate is the part that matters; three and a half months of silence is the real defect |
 
-**Appendix A of the audit lists 29 root specs. There are 30.** The audit is not edited; the
+**Appendix A of the audit enumerates the root specs as they stood at `ea3ab27`. At least one
+has been filed since** — `BUG-HARNESS-TEST23-INDENTATION-01`, at `157af46`. The audit is
+never edited; the
 [verification addendum](reviews/HORNELORE_REPOSITORY_ARCHIVE_AUDIT_2026-08-28_VERIFICATION_ADDENDUM.md)
-§3 records the amendment.
+§3 records the amendment, and the command above gives the current figure.
 
 ---
 
 ## 3. `docs/wo/` — parked, banked, and spec-only work
 
-Fifty-one files, mixing active implementation specs with completed, superseded, parked and
-future-only documents. **Twenty-nine are not named by the four governing documents — a
-triage signal, not proof of deadness.** The active Profile Seed transport map is itself
-unreferenced by filename and is the most current design document in the tree.
+A mix of active implementation specs and completed, superseded, parked and future-only
+documents. **Many are not named by any governing document — a triage signal, not proof of
+deadness.** The Profile Seed transport map was itself unreferenced by filename while being
+the most current design document in the tree; it is linked now, and that episode is the
+reason an absent reference never authorizes a move.
+
+```bash
+git ls-tree -r --name-only origin/main -- docs/wo | wc -l
+```
 
 Deliberately not built, and each must stay reachable:
 

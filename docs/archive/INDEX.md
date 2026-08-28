@@ -1,18 +1,25 @@
 # Archive index — what is in `docs/archive/`, and what it is not
 
-**Derived at:** `d0e52946aa77096841612df176f4cbb70d4edacd`, then updated by hygiene Step 2b
-**Contents:** **131 archived files, 2,712,097 bytes**, in **four** cohorts
+**Baseline derived at:** `d0e52946aa77096841612df176f4cbb70d4edacd`
+**Maintained live** by `WO-REPOSITORY-HYGIENE-01`. The manifest's three pre-pivot cohorts
+were measured at `d0e5294`; `changelogs/` was added later, at Step 2b. **This file is not a
+snapshot of the `d0e5294` tree.**
 **Status:** **one file has been moved in** — the agent changelog, Step 2b. Nothing has ever
 been moved *out*, and nothing has been deleted.
 
-**The count excludes this index.** `INDEX.md` lives in `docs/archive/` but is not archived
-content, and counting it would drift the figure by its own 15,305 bytes:
+**Derive the population; it is not written here.**
 
 ```bash
-find docs/archive -type f ! -path 'docs/archive/INDEX.md' | wc -l                     # 131
+find docs/archive -type f ! -path 'docs/archive/INDEX.md' | wc -l
 find docs/archive -type f ! -path 'docs/archive/INDEX.md' -printf '%s\n' \
-  | awk '{s+=$1} END{print s}'                                                        # 2712097
+  | awk '{s+=$1} END{print s}'
+wc -c docs/archive/INDEX.md      # what including this index would add
 ```
+
+**The count excludes this index.** `INDEX.md` lives in `docs/archive/` but is not archived
+content. **Its size is deliberately not written down** — the previous revision stated it,
+and the figure was already wrong in the commit that added it. A file that reports its own
+size is the purest case of the defect this whole lane exists to remove.
 
 **`! -path` on the exact root file, not `! -name INDEX.md`.** The name form excludes *any*
 file called `INDEX.md` anywhere beneath `docs/archive/`, so a future cohort that archives a
@@ -50,12 +57,16 @@ not remove it from Git history, and this archive is not a privacy mechanism — 
 
 ## 2. The four cohorts, and why they are not one thing
 
-| Cohort | Files | Bytes | Last touched | What it is |
+Per-cohort figures below are **measurements, not maintained totals** — the three pre-pivot
+cohorts at `d0e5294`, `changelogs/` at Step 2b. Re-derive with the commands above rather
+than trusting these when it matters.
+
+| Cohort | Files | Bytes | Measured | What it is |
 |---|---:|---:|---|---|
-| `workorders-pre-pivot/` | 113 | 1,697,413 | 2026-06-14 | Work orders and bug specs predating the universal pivot. **Not the active source of truth** |
-| `handoffs-pre-pivot/` | 16 | 374,461 | 2026-06-14 | Handoffs and checklists from the same era |
-| `handoffs/` | 1 | 26,093 | 2026-08-09 | A single post-pivot handoff |
-| **`changelogs/`** | **1** | **614,130** | 2026-08-28 | The agent changelog, preserved byte-for-byte by Step 2b |
+| `workorders-pre-pivot/` | 113 | 1,697,413 | `d0e5294` | Work orders and bug specs predating the universal pivot. **Not the active source of truth** |
+| `handoffs-pre-pivot/` | 16 | 374,461 | `d0e5294` | Handoffs and checklists from the same era |
+| `handoffs/` | 1 | 26,093 | `d0e5294` | A single post-pivot handoff |
+| **`changelogs/`** | **1** | **614,130** | Step 2b | The agent changelog, preserved byte-for-byte. A frozen file, so these are fixed properties |
 
 Both pre-pivot cohorts were moved together on **2026-06-14**, the day the universal pivot
 landed. That is a single deliberate act, not accumulation, and it is why they read as a
@@ -85,10 +96,10 @@ The audit is explicit about three populations that look archivable and are not:
   [`../../scripts/INDEX.md`](../../scripts/INDEX.md). Nothing there may be bulk-deleted or
   assumed dead.
 * **`docs/wo/`** mixes active implementation specs with completed, superseded, parked and
-  future-only documents. Twenty-nine of its 51 files are not named by the governing
-  documents — **a triage signal, not proof of deadness.** The active Profile Seed transport
-  map is itself unreferenced by filename from the four control documents, and it is the
-  most current design document in the repository.
+  future-only documents. Many are not named by any governing document — **a triage signal,
+  not proof of deadness.** The Profile Seed transport map was itself unreferenced by
+  filename while being the most current design document in the repository; it is linked now,
+  and that episode is why an absent reference never authorizes a move.
 * **The main `tests/` tree** is the preservation contract for accepted behaviour. It is
   never archived on age. Source-shape tests may be replaced behaviourally; they are not
   deleted for being old.

@@ -1,6 +1,15 @@
 # Documentation index — what is authoritative, and what is history
 
-**Derived at:** `d0e52946aa77096841612df176f4cbb70d4edacd`, 2026-08-28
+**Baseline derived at:** `d0e52946aa77096841612df176f4cbb70d4edacd`
+**Maintained live** by `WO-REPOSITORY-HYGIENE-01`. **Not every statement below describes the
+`d0e5294` tree** — the baseline inventory was measured there; later hygiene steps have
+updated this file since. Any figure that is a `d0e5294` measurement says so.
+
+**Volatile counts are commands, not prose.** A repository population written into a
+sentence is wrong the moment anything moves, and this lane has now produced that defect
+four times — including a self-referential one, where this file stated its own byte size and
+the number drifted inside the very commit that added it.
+
 **Status:** **one move has happened** — hygiene Step 2b preserved the agent changelog to
 `archive/changelogs/` and replaced the live path with a decision index. Nothing has been
 renamed or deleted, and nothing else has moved.
@@ -63,9 +72,13 @@ git status --porcelain      # must be empty before any gate
 
 ## 3. Active work orders
 
-Live implementation specs are in [`wo/`](wo/) — 51 files. It is **not** a clean cohort: it
-mixes active specs with completed, superseded, parked and future-only documents. See
+Live implementation specs are in [`wo/`](wo/). It is **not** a clean cohort: it mixes
+active specs with completed, superseded, parked and future-only documents. See
 [`BACKLOG.md`](BACKLOG.md) §3 before assuming any of them is dead.
+
+```bash
+git ls-tree -r --name-only origin/main -- docs/wo | wc -l
+```
 
 The current lane:
 
@@ -74,10 +87,10 @@ The current lane:
 | `wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md` | The work order |
 | `wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_PHASE2_TRANSPORT_MAP.md` | **The most current design document in the repository.** Read §6, §6b and §16 before any Step 6 work |
 
-*Both are now linked from a governing document. The transport map previously had **no
-incoming filename reference** from any of the four control documents while being the live
-design authority — which is why "unreferenced" is a triage signal and never proof of
-deadness.*
+*The transport map is now linked from `HANDOFF.md`, the checklist and this index. It once
+had none of those while being the live design authority — **which is why "unreferenced" is a
+triage signal and never proof of deadness.** That is the durable lesson; the reference count
+itself is not a fact worth writing down.*
 
 ---
 
@@ -95,14 +108,17 @@ deadness.*
 
 ## 5. History — kept, and not to be read as instruction
 
-| Path | Files | What it is |
-|---|---:|---|
-| [`archive/`](archive/) | **131** | Pre-pivot work orders and handoffs, one post-pivot handoff, and the archived agent changelog. See [`archive/INDEX.md`](archive/INDEX.md) for the manifest and the deriving command |
-| [`CHANGELOG-AGENT.md`](CHANGELOG-AGENT.md) | 1 | The **decision index** — subsystem → current ADR/work order, plus a link to the archived history. Small by design |
-| [`archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md`](archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md) | 1 | The agent changelog **verbatim**, 2026-04-11 → 2026-08-20, 614,130 bytes, `sha256 2e917232…`. Consult for *why a subsystem behaves like this*, after the code and the ADRs |
-| `wo-qa/` | 11 | April-era QA notes |
-| `handoffs/`, `drafts/`, `mockups/` | 4 / 3 / 16 | Dated historical material |
-| `reports/` | — | **Gitignored since `a87e865`.** Reports are written here and are local-only: they carry live narrator data and the repository is public. Do not `git add` them, and do not "fix" the ignore rule when one refuses to stage — the refusal is the feature |
+**No file counts in this table.** They drift with every cohort;
+[`archive/INDEX.md`](archive/INDEX.md) carries the manifest and the command that derives it.
+
+| Path | What it is |
+|---|---|
+| [`archive/`](archive/) | Pre-pivot work orders and handoffs, one post-pivot handoff, and the archived agent changelog |
+| [`CHANGELOG-AGENT.md`](CHANGELOG-AGENT.md) | The **decision index** — subsystem → current ADR/work order, plus a link to the archived history. Small by design |
+| [`archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md`](archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md) | The agent changelog **verbatim**. Its bytes, lines, checksum and blob are fixed properties of a frozen file and are recorded in `archive/INDEX.md`. Consult for *why a subsystem behaves like this*, after the code and the ADRs |
+| `wo-qa/` | April-era QA notes |
+| `handoffs/`, `drafts/`, `mockups/` | Dated historical material |
+| `reports/` | **Gitignored since `a87e865`.** Reports are written here and are local-only: they carry live narrator data and the repository is public. Do not `git add` them, and do not "fix" the ignore rule when one refuses to stage — the refusal is the feature |
 
 ---
 
@@ -114,7 +130,7 @@ deadness.*
 | Eval JSON / console reports | `docs/reports/master_loop01_*.json` / `.console.txt` |
 | Eval case source | `data/qa/question_bank_extraction_cases.json` |
 | Active WO specs | `docs/wo/<NAME>_Spec.md` |
-| Legacy WO/BUG specs | **30 still at the repository root** — see [`BACKLOG.md`](BACKLOG.md) §2 |
+| Legacy WO/BUG specs | Still at the repository root — see [`BACKLOG.md`](BACKLOG.md) §2. Count: `git ls-tree -r --name-only origin/main \| grep -cE '^(WO-\|BUG-)[^/]*\.md$'` |
 | Pre-pivot specs | `docs/archive/workorders-pre-pivot/` — history only |
 | Scripts | [`../scripts/INDEX.md`](../scripts/INDEX.md) |
 
