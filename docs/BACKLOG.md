@@ -263,10 +263,13 @@ main `tests/` tree · Profile Seed onboarding preservation tests.
 ## 9. First Step 3 cohort — obligations preserved from dated artifacts
 
 **Precondition for the move, not a record of it.** `WO-REPOSITORY-HYGIENE-01` §4 schedules
-four root dated artifacts as the first Step 3 cohort. Three of them carry live obligations
-that exist nowhere else, so under the rule in *Why this file exists* they are written down
-here **before** the files move. The fourth, `clock_mockups_v1.html`, carries none — it is a
-design mockup with no runtime references.
+four root dated artifacts as the first Step 3 cohort. **The dated artifacts contain
+actionable claims that were not fully represented in the live backlog. This section records
+their current disposition before the artifacts move.** Several of those claims already have
+owners in `MASTER_WORK_ORDER_CHECKLIST.md` or in a work order, and are cross-referenced
+rather than restated; `HANDOFF_2026-07-01.md` contributes only resolved or superseded items,
+recorded at §9.6. `clock_mockups_v1.html` contributes none — it is a design mockup with no
+runtime references.
 
 **Every entry cites its source artifact and section.** Where a checklist row or work order
 already owns an item, the entry points at that owner rather than restating its status;
@@ -287,8 +290,7 @@ machine rather than the repository. **An unverified finding is not a current def
 | REST chat persists `msgs[-1]` as `role='user'` regardless | Review §2 S6 | `api.py:793` — the misattribution class `WO-SYSTEM-DIRECTIVE-PERSISTENCE-01` exists to prevent |
 | `index.json` read-modify-write is neither locked nor atomic | Review §2 S9 | no `os.replace` in `server/code/api/archive.py` |
 | No size cap on the direct photo upload lane | Review §2 S10 | no cap constant in `routers/photos.py`; the picker lane it "matches" enforces 50MB |
-| No `PRAGMA user_version`; migration correctness rests on permanent DDL idempotence | Review §2 S11 | zero occurrences in `db.py` |
-| DST-skewed log-timestamp conversion | Review §2 S15 | two `mktime` uses remain in `services/stack_monitor.py` |
+| DST-skewed log-timestamp conversion skews warm/idle classification | Review §2 S15 | one `time.mktime` use remains, at `services/stack_monitor.py:546` |
 | Memoir save replaces the structured `<section>`/`<mark data-narrative-role>` DOM | Review §3 U4, §11.3, §12.4 | escaping half landed; the structural half was recorded as needing its own WO and none exists |
 | Production shell starts Test Lab polling unconditionally | Review §3 U9 | `ui/hornelore1.0.html:10091` — two never-cleared intervals per operator session. **Repointing Test Lab is a known false-success lane; treat as bounded.** |
 | `sysBubble()` narrator-dignity pass | `PLAN_2026-07-13` §C2 | 28 calls in `ui/js/app.js`, 7 gated. Design principle 2 (no operator leakage) applies to the remainder |
@@ -384,6 +386,17 @@ anchor-echo follow-ups, and the sensory-invention guard (`HANDOFF_2026-07-01`) �
 doctrine conflict (Review §11, §12.2) · the `hard_delete_person` archive residue and the
 orphan photo directories (Review §10), closed by the 2026-08-20 erasure work, whose fixed
 targets name `memory/archive/people` and `memory/archive/photos` directly.
+
+**Withdrawn on evidence — recorded so it is not re-raised:** Review §2 S11 recommended
+`PRAGMA user_version` migrations on the premise that migration correctness rested on every
+DDL statement staying idempotent forever. **The premise is wrong.** Hornelore tracks applied
+migrations by filename: `server/code/db/migrations_runner.py` creates `schema_migrations`,
+reads the applied filenames, applies each unapplied file in its own transaction, and inserts
+the filename only after that transaction succeeds — so a failed migration records no row and
+is retried on the next run. The absence of `PRAGMA user_version` is a design difference, not
+a demonstrated defect, and it is **not** carried forward as one. S11's separate remark about
+`init_db()` re-running per call is a performance observation, not a correctness claim, and
+is likewise not carried forward.
 
 **Superseded:** `WO-TRIP-TAB-DB-01`, never written, its substance landed in the trip lane
 (`HANDOFF_2026-07-01`) · README and checklist reconciliation, done by hygiene Step 2, Gate 7
