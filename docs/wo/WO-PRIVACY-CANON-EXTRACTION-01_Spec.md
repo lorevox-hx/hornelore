@@ -1,6 +1,6 @@
 # WO-PRIVACY-CANON-EXTRACTION-01 — Canon extraction, fictionalization, and history purge
 
-**Status:** PARKED — deliberately deferred. Opened 2026-08-12 after the public-repository privacy audit (`HANDOFF_CODE_REVIEW_2026-08-12.md` §1/§11.4). Product work (Travel Doc) takes priority; this WO exists so the remaining privacy work is a planned job, not a lost thread.
+**Status:** PARKED — deliberately deferred. Opened 2026-08-12 after the public-repository privacy audit ([`../archive/handoffs/HANDOFF_CODE_REVIEW_2026-08-12.md`](../archive/handoffs/HANDOFF_CODE_REVIEW_2026-08-12.md) §1/§11.4). Product work (Travel Doc) takes priority; this WO exists so the remaining privacy work is a planned job, not a lost thread.
 
 **Context.** The repo is public by requirement (ChatGPT reviews it over the web). Commit `a87e865` (2026-08-12) already untracked the raw private artifacts — `transfer/hornelore_data.zip` (3 SQLite DBs + transcripts), `wo12b_evidence/`, wo13 proof dirs, 767 `docs/reports/` files, the three real-person templates, the live-test docx, and the Janice timeline pack — with `.gitignore` rules so they cannot return. That commit fixed the *visible tree only*. Two things remain:
 

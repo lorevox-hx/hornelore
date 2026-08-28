@@ -113,7 +113,7 @@ itself is not a fact worth writing down.*
 
 | Path | What it is |
 |---|---|
-| [`archive/`](archive/) | Pre-pivot work orders and handoffs, one post-pivot handoff, and the archived agent changelog |
+| [`archive/`](archive/) | Pre-pivot work orders and handoffs, post-pivot handoffs, the archived agent changelog, and — from the hygiene Step 3 first cohort — the dated artifacts that used to sit at the repository root: two handoffs, one plan, and one interview-clock mockup. Obligations that were live inside them were preserved in [`BACKLOG.md`](BACKLOG.md) §9 **before** they moved |
 | [`CHANGELOG-AGENT.md`](CHANGELOG-AGENT.md) | The **decision index** — subsystem → current ADR/work order, plus a link to the archived history. Small by design |
 | [`archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md`](archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md) | The agent changelog **verbatim**. Its bytes, lines, checksum and blob are fixed properties of a frozen file and are recorded in `archive/INDEX.md`. Consult for *why a subsystem behaves like this*, after the code and the ADRs |
 | `wo-qa/` | April-era QA notes |

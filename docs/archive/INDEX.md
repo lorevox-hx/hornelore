@@ -119,8 +119,8 @@ announces an intention is another thing that can go stale.
 | `docs/archive/workorders/completed/` | Accepted or landed work orders, with their acceptance hash |
 | `docs/archive/workorders/superseded/` | Replaced by a later spec, which the entry must name |
 | `docs/archive/workorders/banked/` | Designed, deliberately not built; summarized in `BACKLOG.md` first |
-| `docs/archive/handoffs/` | Dated handoffs and plans — exists already |
-| `docs/archive/mockups/` | `docs/mockups/`, `ui/mockups/`, `clock_mockups_v1.html` |
+| `docs/archive/handoffs/` | Dated handoffs and plans — exists already; **the Step 3 first cohort has arrived**, §5 |
+| `docs/archive/mockups/` | `docs/mockups/`, `ui/mockups/`. **Created by the Step 3 first cohort**, which delivered `clock_mockups_v1.html`; the two directories remain to come |
 | `docs/archive/reviews/` | Superseded review and audit documents |
 
 Every cohort move owes: an entry in this index naming **the original path**, a link check
@@ -145,7 +145,9 @@ manifest.
      cohorts handoffs/, handoffs-pre-pivot/, workorders-pre-pivot/
        — derived from `git ls-tree -r -l d0e5294 -- docs/archive`
      cohort changelogs/
-       — added by hygiene Step 2b at `fbc50fc`, recorded from the move -->
+       — added by hygiene Step 2b at `fbc50fc`, recorded from the move
+     Step 3 first cohort (handoffs/ x3, mockups/ x1)
+       — moved by hygiene Step 3, 2026-08-28, recorded from the move -->
 
 ### `docs/archive/changelogs/` — 1 file, 614,130 bytes
 
@@ -166,11 +168,50 @@ Preserved **byte-for-byte**; `cmp` reports identical and both checksums are unch
 live path `docs/CHANGELOG-AGENT.md` still exists and now holds a small **decision index**
 pointing here — the entry point moved, the history did not.
 
-### `docs/archive/handoffs/` — 1 files, 26,093 bytes
+### `docs/archive/handoffs/` — as measured at `d0e5294`: 1 file, 26,093 bytes
 
 | File | Bytes | Added |
 |---|---:|---|
 | `HANDOFF_2026-07-31_TRIP-NARRATOR-BRIDGE.md` | 26,093 | 2026-08-09 |
+
+**Three further files arrived after that baseline**, in the Step 3 first cohort recorded
+immediately below. The count in this heading is the `d0e5294` measurement and is not
+maintained; for the live population run
+`git ls-tree -r --name-only origin/main -- docs/archive/handoffs | wc -l`.
+
+### First Step 3 cohort — the four root dated artifacts
+
+**Moved by `WO-REPOSITORY-HYGIENE-01` Step 3, 2026-08-28**, after the obligation intake at
+`97428d9` and its correction. **Recorded from the move, not derived from `d0e5294`.**
+
+Every file moved **byte-for-byte**: destination Git blob, SHA-256 and byte count were each
+compared against the source before the commit and are identical. Nothing inside these
+documents was edited — historical filename mentions, stale commands and superseded status
+prose all remain exactly as written. **Their obligations were preserved first**, in
+[`../BACKLOG.md`](../BACKLOG.md) §9; that section, not these files, is the live record.
+
+| Original path | Destination | Bytes | Git blob | SHA-256 |
+|---|---|---:|---|---|
+| `HANDOFF_2026-07-01.md` | `docs/archive/handoffs/HANDOFF_2026-07-01.md` | 13,218 | `1ee2df389a721d4e69f9aea09afc9207983b9ebc` | `54211edd048c06d6daf8acf9d186f07ae101dd136779ca5261cfa3dafcaefbd9` |
+| `HANDOFF_CODE_REVIEW_2026-08-12.md` | `docs/archive/handoffs/HANDOFF_CODE_REVIEW_2026-08-12.md` | 37,526 | `7f7f62346f83ea70ead6adf64995dac15bb58b9b` | `421a2cfdb180dd5960fc4d6591d7d6cf9d25e37fb67d5fe9df3733a81b3d30ec` |
+| `PLAN_2026-07-13.md` | `docs/archive/handoffs/PLAN_2026-07-13.md` | 13,599 | `b167bc63de2251d752500387caec6dbcd7480174` | `000a04f5d0a18d52e9f982a5cd103e203860502c5d968b33330c70178bbb9071` |
+| `clock_mockups_v1.html` | `docs/archive/mockups/clock_mockups_v1.html` | 17,738 | `e92419bc6b1d01ac9f92ad8aa79f81ed26bdd511` | `10640fc135b2649ff0623ed9044aad30f38f5a0a00f400830bdff02f66a7be53` |
+
+`docs/archive/mockups/` was **created by this move**, per §4's rule that a destination
+directory is made when a cohort actually arrives rather than in advance.
+
+**One live reference was repointed** and only one existed:
+`docs/wo/WO-PRIVACY-CANON-EXTRACTION-01_Spec.md` cites the code-review handoff §1/§11.4 as
+the audit that opened it, and now links to the archived path. The remaining references were
+deliberately left unchanged because of what they are: the two repository audit files and the
+frozen changelog snapshot are immutable history, the hygiene work order's row in §4 is a
+cohort description rather than a live path, and `HANDOFF_CODE_REVIEW_2026-08-12.md`'s own
+mention of the other three artifacts is a historical observation inside a moved document.
+
+`clock_mockups_v1.html` had **no runtime dependency** — no reference from `ui/`, `server/`,
+`scripts/` or `tests/`. The narrator clock ships as Variant B in `ui/js/lori-clock.js`, and
+the mockup's owning `WO-INTERVIEW-CLOCK-01_Spec.md` was already archived under
+`workorders-pre-pivot/`.
 
 ### `docs/archive/handoffs-pre-pivot/` — 16 files, 374,461 bytes
 
