@@ -23,6 +23,43 @@ and misleading by the next commit.
 
 So the original stands, and everything below is **dated, scoped, and reproducible**.
 
+### 0.1 The audit carries two trailing-whitespace lines, and they are kept ON PURPOSE
+
+```
+$ git show --check ddb22c8
+docs/reviews/HORNELORE_REPOSITORY_ARCHIVE_AUDIT_2026-08-28.md:3: trailing whitespace.
+docs/reviews/HORNELORE_REPOSITORY_ARCHIVE_AUDIT_2026-08-28.md:4: trailing whitespace.
+```
+
+Lines 3 and 4 are the report's header:
+
+```
+**Audit date:** 2026-08-28··
+**Reviewed authority:** clean `origin/main` at `ea3ab27…`··
+```
+
+The two trailing spaces are **Markdown hard line breaks** — CommonMark's two-space
+syntax. They are part of the document as written, and stripping them would merge the
+header into one line.
+
+**This is a documented exception, not an oversight.** The two claims are compatible and
+both are precise:
+
+* `git show --check` reports whitespace, and **should** — this repository does not
+  otherwise tolerate trailing whitespace, and the check is not disabled or suppressed for
+  it;
+* the file is byte-identical to the delivered report,
+  `sha256 0ebce5ab7cf4620d03d930fae177c1eeed38a3004fdc35710fd8d54d8b4c181a`, **because** the
+  whitespace was preserved.
+
+Normalizing would silence the check and forfeit byte identity. Byte identity is the more
+valuable of the two here: it is what lets anyone confirm this file is the report that was
+reviewed, and it is the whole reason the document was taken in verbatim. **The exception
+applies to this file only**, and to no other file in the repository.
+
+`git diff --check` on any future working tree is unaffected — this file is committed and
+is not modified again.
+
 ---
 
 ## 1. The three figures that did not reproduce, and what each one actually means
@@ -40,48 +77,74 @@ extra one is `server/schema/`, which is not a migration. Two different questions
 correct answers. Nothing to correct in the report; this row exists so a future reader who
 runs the obvious `grep -c '\.sql$'` and gets 51 does not think the audit was wrong.
 
-### 1.2 "Commits across all refs: 1,280" — **correct at its snapshot; the number is time-sensitive by construction**
+### 1.2 "Commits across all refs: 1,280" — **the audit is correct; the earlier version of this section was not**
 
-| Measurement | Value |
-|---|---:|
-| Audit's figure at `ea3ab27` | 1,280 |
-| All refs, measured 2026-08-28 | 1,286 |
-| Reachable from `d0e5294` | 1,279 |
-| Reachable from `ea3ab27` | 1,276 |
+> **CORRECTED 2026-08-28, and the error was mine.** This section first reported 1,286 and
+> attributed the gap to "eight old remote branches carrying seven commits". Both halves
+> were wrong. `git rev-list --all --count` includes **`refs/stash`**, and a stash entry is
+> a commit — with an index commit as a second parent. This clone carries two stashes
+> contributing **three commits that are local by construction and can never exist on any
+> remote.** I then compounded it: seeing a mismatch caused by my own ref scope, I
+> concluded the audit's table was inconsistent. It was not. **An instrument defect
+> reported as a subject defect** — the same failure class this checkpoint has been
+> correcting all week, this time in my own measurement.
 
-Three commits landed after the audit (`157af46`, `34cdf54`, `d0e5294`), and the remaining
-gap is ref scope: `--all` includes eight old remote branches carrying seven commits not
-reachable from `main`.
+**Measure with origin-scoped refs, and every figure reconciles:**
 
-**A later all-ref count does not disprove an earlier one.** This row is not a correction.
-It records that "commits across all refs" is a moving measurement and must always be
-quoted with its date and its ref scope, which the audit's own Appendix B commands do.
+```bash
+ORIGIN=$(git for-each-ref --format='%(refname)' refs/remotes/origin)
+git rev-list --count $ORIGIN          # origin-scoped union
+git rev-list --count origin/main      # main-reachable
+```
 
-### 1.3 The per-month commit table — **qualified, not corrected**
+| Snapshot | Main-reachable | Origin-scoped union |
+|---|---:|---:|
+| `ea3ab27` — the audited tree | 1,276 | **1,280** |
+| `d0e5294` — pre-hygiene tag | 1,279 | **1,283** |
+| `ddb22c8` — index commit | 1,280 | **1,284** |
 
-The audit's monthly rows do not reproduce from any single command, because they mix two
-ref scopes. Measured on **committer** date, 2026-08-28:
+**The audit's 1,280 is the origin-scoped union at `ea3ab27`. Exact.**
 
-| Month | Audit | All refs | Reachable from `ea3ab27` |
-|---|---:|---:|---:|
-| 2026-04 | 347 | 347 | 347 |
-| 2026-05 | 218 | 218 | 214 |
-| 2026-06 | 108 | 108 | 108 |
-| 2026-07 | 347 | 347 | 347 |
-| 2026-08 | 260 | 264 | 260 |
+The union exceeds main-reachable by exactly four, and they come from one branch:
 
-April, June and July agree under both scopes. **May 218 matches `--all`; August 260
-matches `ea3ab27`-only.** So the table is internally consistent (it sums to its stated
-1,280) but is not the output of one command.
+```bash
+git rev-list --count origin/claude/sad-ramanujan-9c6032 --not origin/main   # 4
+```
 
-The audit used **committer** date, not author date — `git log --all --format=%ad`
-returns May 220, and `%cd` returns 218. That is worth recording because the two differ
-for real commits in this history, and a future reader reproducing the table with the
-wrong flag will find a discrepancy that is not there.
+Only `origin/claude/sad-ramanujan-9c6032` contributes commits not reachable from `main` —
+the four the audit already identified as patch-equivalent (`git cherry` marks all four
+`-`). The other seven remote branches are ancestors of `main` and contribute nothing.
 
-**Disposition:** the table is qualified here rather than rewritten there. Its
-conclusion — that development is concentrated in April and July with a sustained August
-— is unaffected.
+**Rule for every future count in this repository: scope to `refs/remotes/origin`.** `--all`
+silently includes local branches, local tags and the stash, none of which a reviewer with
+a fresh clone can reproduce.
+
+### 1.3 The per-month commit table — **reproduces exactly; no qualification needed**
+
+**It comes from one consistent origin-scoped command**, on **committer** date, at the
+`ea3ab27` snapshot:
+
+```bash
+git log --format=%cd --date=format:%Y-%m ea3ab27 \
+    $(git for-each-ref --format='%(refname)' refs/remotes/origin \
+      | grep -v '/main$' | grep -v origin/HEAD) | sort | uniq -c
+```
+
+| Month | Audit | Reproduced |
+|---|---:|---:|
+| 2026-04 | 347 | **347** |
+| 2026-05 | 218 | **218** |
+| 2026-06 | 108 | **108** |
+| 2026-07 | 347 | **347** |
+| 2026-08 | 260 | **260** |
+
+Sum 1,280, matching §1.2. **Nothing about this table was mixed, inconsistent or
+qualified**, and the claim that it was has been withdrawn.
+
+One genuine reproduction note survives, and it is about the flag, not the table: the audit
+used **committer** date. `%ad` (author date) returns May 220 where `%cd` returns 218, so a
+reader reproducing with the wrong flag will find a two-commit discrepancy that is not
+there.
 
 ---
 
@@ -238,18 +301,36 @@ adds indexes and changes nothing else — and both are in `docs/BACKLOG.md`.
 
 ## 6. Reproduction
 
+**Every count is origin-scoped.** `--all` includes local branches, local tags and the
+stash; none of those is reproducible from a fresh clone, and using it is what produced the
+wrong figures in §1.2 before they were corrected.
+
 ```bash
 cd /mnt/c/Users/chris/hornelore
+ORIGIN=$(git for-each-ref --format='%(refname)' refs/remotes/origin)
+
 git rev-parse origin/main
 git status --short --branch
+
+# tree shape at a named snapshot
 git ls-tree -r --name-only d0e5294 | wc -l
 git ls-tree -r -l d0e5294 | awk '{s+=$4} END{print s}'
-git rev-list --count d0e5294
-git rev-list --all --count
-git log --all --format=%cd --date=format:%Y-%m | sort | uniq -c
 git ls-tree -r --name-only d0e5294 | grep -cE '^(WO-|BUG-)[^/]*\.md$'
+
+# commit counts — main-reachable, then the origin-scoped union
+git rev-list --count origin/main
+git rev-list --count $ORIGIN
+git rev-list --count origin/claude/sad-ramanujan-9c6032 --not origin/main   # 4
+
+# the monthly table, at the audited snapshot, committer date
+git log --format=%cd --date=format:%Y-%m ea3ab27 \
+    $(git for-each-ref --format='%(refname)' refs/remotes/origin \
+      | grep -v '/main$' | grep -v origin/HEAD) | sort | uniq -c
+
 git diff --stat ea3ab27..d0e5294
+git show --check ddb22c8      # reports §0.1's two intentional hard-break lines
 ```
 
 Appendix B of the audit remains the reproduction for its own `ea3ab27` figures; run those
-against `ea3ab27` explicitly, not against `HEAD`.
+against `ea3ab27` explicitly, not against `HEAD`, and scope the ref-walking ones to
+`refs/remotes/origin`.

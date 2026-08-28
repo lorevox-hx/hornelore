@@ -4,6 +4,49 @@
 **Repository:** `lorevox-hx/hornelore`  
 **Branch:** `main`
 
+---
+
+> # ⛔ HOLD — REPOSITORY HYGIENE IS THE CURRENT ACTION. STEP 6 IS FROZEN.
+>
+> **Temporary banner, added 2026-08-28.** It is removed when the hygiene checkpoint is
+> accepted. Until then it **overrides every "current action" statement below**, all of
+> which refer to the product lane.
+>
+> | | |
+> |---|---|
+> | **Current REPOSITORY action** | `WO-REPOSITORY-HYGIENE-01` — indexed reorganization. Commit 1 (indexes only) is pushed and **awaiting review**. See [`docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md`](docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md) |
+> | **Next PRODUCT action** | Profile Seed Phase 2 **Step 6** — WebSocket presentation metadata and post-commit advancement |
+> | **May Step 6 begin?** | **NO.** Step 6 is **BLOCKED** until the hygiene checkpoint is complete and accepted |
+>
+> **Why the distinction is spelled out.** §4 below names Step 6 as the next action, and it
+> is right about the *product* order — Step 6 is what comes next once the repository work
+> is done. It is wrong as an instruction *today*. Two documents naming different "current
+> actions" is exactly the drift this file's own governing order exists to prevent, so the
+> conflict is resolved here, in the document that wins, rather than by editing §4 into
+> something that has to be edited back.
+>
+> **Accepted and not to be redone:** the pre-Step-6 correction checkpoint, at `d0e5294`.
+> Five product corrections and two acceptance-instrument corrections. Full clean-tree gate
+> at `34cdf54` 63/63 caught with nine green baselines; `.venv-gpu` and `.venv` both 22/22
+> zero skips; truthful shipped-design count 24.
+>
+> **Pre-hygiene rollback point:** tag `archive/pre-hygiene-2026-08-28` at `d0e5294`.
+> The audited baseline `ea3ab27` is tagged `audit/repository-baseline-2026-08-28` and is
+> **not** the rollback point.
+>
+> **Frozen during hygiene:** WebSocket and UI onboarding work · production behaviour ·
+> migrations · bulk deletion · Test Lab repair · combining product corrections, indexing,
+> moves and deletion in one commit.
+>
+> Derive the live head; never read it from a document:
+>
+> ```bash
+> git rev-parse origin/main
+> git status --porcelain      # must be empty before any gate
+> ```
+
+---
+
 ## 1. Read this first
 
 This file is the current operational starting point. When documents disagree, use:
