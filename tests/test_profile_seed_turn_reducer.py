@@ -543,13 +543,52 @@ class TurnPlanTests(unittest.TestCase):
                          (_turn.PRESENT, B, 8))
         self.assertFalse(plan.advances)
 
-    def test_an_ineligible_turn_is_idle(self):
+    def test_an_ineligible_turn_on_an_ACTIVE_walk_HOLDS(self):
+        """DEFECT 5, as a named test — and it is a suppression defect.
+
+        This asserted `IDLE`, and `IDLE` is the action that leaves the
+        LEGACY BROWSER BLOCK STANDING. So an internal system directive,
+        a deterministic mode or a cancelled turn arriving mid-walk
+        advanced nothing — correct — and handed Lori back "Gather the
+        following 10 facts", the pass the server had taken ownership of.
+
+        `HOLD` is the same "do nothing", with the suppression kept.
+        """
         h = [presented(A, 7), said()]
         plan = _turn.plan_turn(state=state(), history=h,
                                narrator_text="Devils Lake.", eligible=False)
-        self.assertEqual(plan.action, _turn.IDLE)
+        self.assertEqual(plan.action, _turn.HOLD)
         self.assertFalse(plan.advances)
-        self.assertEqual(plan.turn_meta(), {})
+        self.assertEqual(plan.turn_meta(), {},
+                         "an ineligible turn stamped an event")
+
+    def test_an_ineligible_turn_with_NO_active_walk_is_still_idle(self):
+        """`HOLD` must not enrol anybody.
+
+        A historical narrator, and a pending / paused / completed row,
+        have no walk to hold. They stay `IDLE`, which is what keeps their
+        prompt byte-identical to the pre-onboarding one.
+        """
+        self.assertEqual(
+            _turn.plan_turn(state=None, history=[], narrator_text="Hi",
+                            eligible=False).action, _turn.IDLE)
+        for status in (_seed.STATUS_PENDING, _seed.STATUS_PAUSED,
+                       _seed.STATUS_COMPLETED):
+            with self.subTest(status=status):
+                self.assertEqual(
+                    _turn.plan_turn(state=state(status=status), history=[],
+                                    narrator_text="Hi",
+                                    eligible=False).action, _turn.IDLE)
+
+    def test_an_ineligible_turn_with_a_CORRUPT_state_is_idle(self):
+        """Malformed is not "active". A state too broken to plan against
+        is not a walk to hold, and treating it as one would suppress the
+        legacy block on the strength of a payload nothing validated."""
+        bad = {"status": _seed.STATUS_ACTIVE, "active_topic_id": "nonsense",
+               "version": 7}
+        self.assertEqual(
+            _turn.plan_turn(state=bad, history=[], narrator_text="Hi",
+                            eligible=False).action, _turn.IDLE)
 
     def test_a_historical_narrator_is_idle(self):
         plan = _turn.plan_turn(state=None, history=[], narrator_text="Hi")
@@ -588,6 +627,244 @@ class TurnPlanTests(unittest.TestCase):
                     self.assertNotIn("rather", blob)
                     self.assertTrue(
                         set(plan.turn_meta()).issubset(set(_turn.META_KEYS)))
+
+
+class ConversationControlTests(unittest.TestCase):
+    """A turn that operates the conversation is never an answer.
+
+    ── WHAT THE CLASSIFIER ACTUALLY REPORTED, 2026-08-27 ───────────────
+
+        "repeat that"     -> addressed
+        "say that again"  -> addressed
+        "pause"           -> addressed
+        "help"            -> addressed
+        "change narrator" -> addressed
+
+    Every one of those CLOSED the open topic. A narrator asking to hear
+    the question again would have had it recorded as answered and never
+    hear it again — the failure this module exists to prevent, arriving
+    through the one category of turn that says plainly it is not an
+    answer.
+
+    The rule "everything else non-empty is `addressed`" was written
+    against ANSWERS of varying quality, and refusing to grade answers is
+    right. A control is not a low-quality answer.
+
+    ── ONE VOCABULARY, NOT A SECOND ONE ────────────────────────────────
+
+    The detector is `services/conversation_control.py`, which is the
+    trip-capture detector EXTRACTED rather than copied. A test below
+    asserts this module holds no phrase list of its own, because "we
+    reused it" is a claim that decays silently.
+    """
+
+    HOLDING = ("pause", "stop", "help", "change narrator", "never mind",
+               "forget it", "go on", "start over")
+    REPEATING = ("repeat that", "say that again", "say it again",
+                 "what was that", "come again", "louder", "slower",
+                 "read that back")
+
+    def test_no_control_is_ever_addressed(self):
+        for text in self.HOLDING + self.REPEATING:
+            with self.subTest(text=text):
+                self.assertNotEqual(
+                    _turn.classify_response(text), _seed.ADDRESSED,
+                    f"{text!r} closed the open topic")
+
+    def test_controls_survive_politeness_and_punctuation(self):
+        for text in ("Repeat that, please.", "Lori, say that again!",
+                     "Can you say it again?", "  PAUSE  ", "Help, please."):
+            with self.subTest(text=text):
+                self.assertNotEqual(_turn.classify_response(text),
+                                    _seed.ADDRESSED)
+
+    def test_a_HOLDING_control_asks_nothing_and_stamps_nothing(self):
+        h = [presented(A, 7), said()]
+        for text in self.HOLDING:
+            with self.subTest(text=text):
+                plan = _turn.plan_turn(state=state(), history=h,
+                                       narrator_text=text)
+                self.assertEqual(plan.action, _turn.HOLD)
+                self.assertFalse(plan.advances)
+                self.assertEqual(plan.turn_meta(), {})
+                self.assertFalse(plan.completes_walk)
+
+    def test_a_REPEATING_control_re_presents_the_SAME_tuple(self):
+        """"Say that again" is a request FOR the question. Re-present it
+        at the version it was asked at — a new presentation, no response
+        event, and nothing advanced."""
+        h = [presented(A, 7), said()]
+        for text in self.REPEATING:
+            with self.subTest(text=text):
+                plan = _turn.plan_turn(state=state(), history=h,
+                                       narrator_text=text)
+                self.assertEqual(plan.action, _turn.RE_PRESENT)
+                self.assertEqual((plan.topic_id, plan.version), (A, 7))
+                self.assertEqual(plan.response_meta(), {})
+                self.assertFalse(plan.advances)
+
+    def test_a_DEFERRAL_still_beats_a_control(self):
+        """"hold on" is in both vocabularies. Step 3's accepted rule for
+        a request for time is to come back to the question gently, and
+        that is unchanged: a narrator who says "hold on" is still working
+        on the answer, and falling silent on them would be a regression
+        dressed as a correction."""
+        h = [presented(A, 7), said()]
+        for text in ("hold on", "just a minute", "hang on", "one moment"):
+            with self.subTest(text=text):
+                plan = _turn.plan_turn(state=state(), history=h,
+                                       narrator_text=text)
+                self.assertEqual(plan.action, _turn.RE_PRESENT)
+                self.assertEqual(plan.presented_meta(),
+                                 {_turn.PRESENTED_TOPIC: A,
+                                  _turn.PRESENTED_VERSION: 7})
+
+    def test_real_narration_containing_control_words_is_still_addressed(self):
+        """The anchoring, from the consumer side.
+
+        Each of these CONTAINS a command and IS a memory. A substring
+        match would eat all of them, and this is the direction that
+        costs something the narrator cannot get back.
+        """
+        h = [presented(A, 7), said()]
+        for text in ("We had to go back to the hotel that night.",
+                     "She would say that again every Christmas.",
+                     "We stopped at the school and continued to the cemetery.",
+                     "I had to wait for my brother at the station.",
+                     "Help was a long way off in those days.",
+                     # SHORT ones that BEGIN with a command word. These
+                     # are the cases the trailing anchor earns its keep
+                     # on: they are inside the six-word ceiling, so the
+                     # ceiling cannot save them, and a starts-with match
+                     # would read every one as a button press.
+                     "Stop signs were rare out there.",
+                     "Go back roads, we always did.",
+                     "Wait tables? I did for years.",
+                     "Help came from the neighbours."):
+            with self.subTest(text=text[:30]):
+                self.assertEqual(_turn.classify_response(text),
+                                 _seed.ADDRESSED)
+                self.assertEqual(
+                    _turn.plan_turn(state=state(), history=h,
+                                    narrator_text=text).action,
+                    _turn.ACKNOWLEDGE)
+
+    def test_a_control_never_completes_the_walk(self):
+        """The last topic is the dangerous one: a control read as an
+        answer there would end the walk on a turn that answered nothing.
+        """
+        last = {"person_id": "p1", "status": _seed.STATUS_ACTIVE,
+                "active_topic_id": A, "version": 7,
+                "known_topics": [t for t in TOPICS if t != A],
+                "remaining_topics": [A]}
+        h = [presented(A, 7), said()]
+        for text in self.HOLDING + self.REPEATING:
+            with self.subTest(text=text):
+                plan = _turn.plan_turn(state=last, history=h,
+                                       narrator_text=text)
+                self.assertFalse(plan.completes_walk)
+                self.assertFalse(plan.advances)
+
+    def test_a_control_on_the_FIRST_turn_does_not_skip_the_question(self):
+        """No presentation outstanding yet. A holding control still holds
+        — it must not ask — and the question is simply asked on a later
+        turn, because nothing was consumed."""
+        plan = _turn.plan_turn(state=state(), history=[],
+                               narrator_text="pause")
+        self.assertEqual(plan.action, _turn.HOLD)
+        self.assertEqual(plan.turn_meta(), {})
+
+    def test_this_module_keeps_NO_phrase_list_for_controls(self):
+        """"Reuse the detector" is a claim that decays silently.
+
+        The one vocabulary lives in `conversation_control`. If a phrase
+        from it appears literally in `profile_seed_turn.py`, a second
+        list has started — and the first divergence is a turn one
+        detector skips and the other records as `addressed`.
+
+        The DEFERRAL list is a different category and stays here: it is
+        about a narrator who is still answering, not one who is
+        operating the conversation.
+
+        Scanned over the AST rather than the raw text, and DOCSTRINGS
+        ARE EXCLUDED — a module that explains why it does not keep the
+        list has to be able to name what it is not keeping. Comments
+        never reach the AST at all. What is checked is the string
+        constants the code can actually match against.
+        """
+        import ast
+        path = _SERVER_CODE / "api" / "services" / "profile_seed_turn.py"
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+
+        docstrings = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Module, ast.ClassDef,
+                                     ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            body = getattr(node, "body", None) or []
+            first = body[0] if body else None
+            if (isinstance(first, ast.Expr)
+                    and isinstance(first.value, ast.Constant)
+                    and isinstance(first.value.value, str)):
+                docstrings.add(id(first.value))
+
+        literals = [n.value for n in ast.walk(tree)
+                    if isinstance(n, ast.Constant)
+                    and isinstance(n.value, str)
+                    and id(n) not in docstrings]
+
+        for phrase in ("say that again", "repeat that", "change narrator",
+                       "never mind", "speak up", "slow down", "what was that"):
+            with self.subTest(phrase=phrase):
+                hit = next((s for s in literals if phrase in s), None)
+                self.assertIsNone(
+                    hit,
+                    f"{phrase!r} is a live string constant in "
+                    f"profile_seed_turn.py ({hit!r}); the control "
+                    "vocabulary has been copied instead of imported")
+
+    def test_the_no_phrase_list_guard_is_not_vacuous(self):
+        """The guard above must be able to fail.
+
+        A source scan that finds nothing because it is looking in the
+        wrong place passes forever. This runs the same extraction over a
+        module that DOES carry a phrase list — `conversation_control`
+        itself — and requires a hit.
+        """
+        import ast
+        path = _SERVER_CODE / "api" / "services" / "conversation_control.py"
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        docstrings = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Module, ast.ClassDef,
+                                     ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            body = getattr(node, "body", None) or []
+            first = body[0] if body else None
+            if (isinstance(first, ast.Expr)
+                    and isinstance(first.value, ast.Constant)
+                    and isinstance(first.value.value, str)):
+                docstrings.add(id(first.value))
+        literals = [n.value for n in ast.walk(tree)
+                    if isinstance(n, ast.Constant)
+                    and isinstance(n.value, str)
+                    and id(n) not in docstrings]
+        self.assertTrue(
+            any("say (?:that|it) again" in s for s in literals),
+            "the extraction found no vocabulary in the module that owns "
+            "it, so finding none in profile_seed_turn proves nothing")
+
+    def test_the_shared_detector_is_the_one_trip_capture_uses(self):
+        """Extraction, asserted rather than described.
+
+        `trip_story_capture` must resolve to the SAME function object.
+        A copy that happens to agree today is exactly what this checks
+        against.
+        """
+        from api.services import conversation_control as _cc
+        from api.services import trip_story_capture as _tsc
+        self.assertIs(_tsc._is_conversation_command, _cc.is_conversation_command)
+        self.assertIs(_tsc._normalize, _cc.normalize)
 
 
 class CompletionTransitionTests(unittest.TestCase):
@@ -654,13 +931,35 @@ class CompletionTransitionTests(unittest.TestCase):
 
 # ── 5. Recovery ─────────────────────────────────────────────────────────
 class _Recorder:
-    """A resolve/apply pair with scripted behaviour and a call log."""
+    """A resolve/apply pair with scripted behaviour and a call log.
 
-    def __init__(self, states, apply_raises=None):
+    ── `raise_once`, AND WHY A PERMANENT RAISER IS A BAD INSTRUMENT ─────
+
+    *(Added 2026-08-27. `apply_raises` raised on EVERY call, and mutation
+    M8 — "a version conflict forces the stored disposition anyway" — was
+    written against exactly this fixture. Under M8 the illicit second
+    apply hit the same permanent raiser, the `VersionConflict` escaped
+    `recover()`, and every test in the module ERRORED. The gate scored
+    M8 `BROKEN`: errors only, no assertion failed.*
+
+    *That is not a scoring quirk. An instrument that CONVERTS THE DEFECT
+    INTO AN EXCEPTION cannot observe the defect. The claim M8 exists to
+    prove is "the apply is not retried after a conflict", and proving it
+    requires a second apply that would SUCCEED — otherwise the test
+    cannot tell "it did not retry" from "it retried and blew up".*
+
+    *So the conflict recorder now raises ONCE and then succeeds. Correct
+    code calls apply exactly once and never sees the difference; M8 calls
+    it twice, the second call is recorded, and `len(applies) == 1` fails
+    as an assertion. Same defect, evidence instead of a traceback.)*
+    """
+
+    def __init__(self, states, apply_raises=None, raise_once=False):
         self._states = list(states)
         self.resolves = 0
         self.applies = []
         self._apply_raises = apply_raises
+        self._raise_once = raise_once
 
     def resolve(self, person_id):
         self.resolves += 1
@@ -670,7 +969,8 @@ class _Recorder:
     def apply(self, person_id, *, expected_version, action, topic_id):
         self.applies.append((person_id, expected_version, action, topic_id))
         if self._apply_raises is not None:
-            raise self._apply_raises
+            if not (self._raise_once and len(self.applies) > 1):
+                raise self._apply_raises
         return {}
 
 
@@ -724,9 +1024,17 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(r.applies, [])
 
     def test_a_conflict_re_resolves_and_never_forces_the_disposition(self):
+        """The CONFLICT-ONCE recorder is the point of this test.
+
+        Its second apply would SUCCEED. So "one apply" is a measurement
+        rather than a side effect of a fixture that cannot do anything
+        else — see `_Recorder` for the version of this that could not
+        observe its own defect.
+        """
         moved = state(active=B, version=9)
         r = _Recorder([state(active=A, version=7), moved],
-                      apply_raises=_seed.VersionConflict(7, 9, None))
+                      apply_raises=_seed.VersionConflict(7, 9, None),
+                      raise_once=True)
         history = [presented(A, 7), said(), responded(A, 7)]
         out = _turn.recover("p1", history,
                             resolve_fn=r.resolve, apply_fn=r.apply)
@@ -736,6 +1044,45 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(out.state["active_topic_id"], B,
                          "the authoritative state was not re-resolved after "
                          "the conflict")
+
+    def test_the_conflict_recorder_CAN_succeed_on_a_second_apply(self):
+        """The instrument itself, proved.
+
+        If `raise_once` did not work, the test above would pass for the
+        emptiest possible reason: a second apply that was impossible
+        rather than absent. This drives the recorder directly and shows
+        the second call returning normally.
+        """
+        r = _Recorder([state()], apply_raises=_seed.VersionConflict(7, 9, None),
+                      raise_once=True)
+        with self.assertRaises(_seed.VersionConflict):
+            r.apply("p1", expected_version=7, action=_seed.ADDRESSED,
+                    topic_id=A)
+        self.assertEqual(
+            r.apply("p1", expected_version=7, action=_seed.ADDRESSED,
+                    topic_id=A), {},
+            "the second apply raised too, so a forced re-apply would be "
+            "invisible to every test using this fixture")
+        self.assertEqual(len(r.applies), 2)
+
+    def test_a_conflict_records_EXACTLY_ONE_apply_call(self):
+        """The same claim as the test above, stated as the call log.
+
+        Two assertions on one behaviour, deliberately: this one names
+        the ARGUMENTS, so a forced re-apply is caught even if some future
+        edit made the second call look like a different operation.
+        """
+        r = _Recorder([state(active=A, version=7), state(active=B, version=9)],
+                      apply_raises=_seed.VersionConflict(7, 9, None),
+                      raise_once=True)
+        history = [presented(A, 7), said(), responded(A, 7, _seed.DECLINED)]
+        _turn.recover("p1", history, resolve_fn=r.resolve, apply_fn=r.apply)
+        self.assertEqual(
+            r.applies, [("p1", 7, _seed.DECLINED, A)],
+            "after a conflict the stored disposition was applied a second "
+            "time — the state moved for a reason this turn cannot see, and "
+            "forcing (A, 7) onto it writes a disposition against a tuple "
+            "that no longer exists")
 
     def test_a_non_conflict_storage_error_propagates(self):
         """The caller must refuse composition visibly.

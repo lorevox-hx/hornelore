@@ -362,6 +362,45 @@ class SectionRenderTests(NoStateClaimMixin, unittest.TestCase):
                                   self.TARGET_FUNCTION)
 
     # ── silence, in every shape that must produce it ────────────────
+    def test_a_HOLD_block_asks_nothing_names_no_topic_and_claims_nothing(self):
+        """The whole content of a held turn, in one test.
+
+        Naming the parked question is one edit away from asking it, so
+        the block must not carry the topic label either — even though
+        the plan knows which topic is being held.
+        """
+        block = self.block(onboarding("hold", A, remaining=[A, B]))
+        self.assertTrue(block, "a held turn rendered nothing, so it "
+                               "suppressed the legacy block and replaced it "
+                               "with a hole")
+        self.assertIn("PROFILE SEED — HOLD", block)
+        self.assertNotIn("?", block, "the held block contains a question mark")
+        for topic_id in _seed.TOPIC_IDS:
+            with self.subTest(topic=topic_id):
+                self.assertNotIn(_seed.topic(topic_id).question, block)
+                self.assertNotIn(_seed.topic(topic_id).intent or topic_id,
+                                 block)
+        self.assertNoStateClaim(block, "hold: ")
+
+    def test_a_HOLD_block_renders_for_every_registry_topic(self):
+        for topic_def in _seed.TOPIC_REGISTRY:
+            with self.subTest(topic=topic_def.topic_id):
+                block = self.block(onboarding("hold", topic_def.topic_id))
+                self.assertIn("PROFILE SEED — HOLD", block)
+                self.assertNotIn(topic_def.question, block)
+
+    def test_a_HOLD_plan_with_an_UNKNOWN_topic_renders_nothing(self):
+        """`hold` is validated like every other action.
+
+        A held plan naming a topic that does not exist is a malformed
+        payload, and a malformed payload must leave the existing prompt
+        alone — it must NOT suppress. Otherwise `hold` becomes a way to
+        delete the legacy block by sending junk.
+        """
+        state = onboarding("hold", "favourite_colour")
+        self.assertEqual(self.block(state), "")
+        self.assertFalse(_pc.profile_seed_onboarding_active({KEY: state}))
+
     def test_idle_and_malformed_states_render_nothing(self):
         for state in (onboarding("idle"), {}, {"action": "present"},
                       {"action": "present", "topic_id": "favourite_colour"},
@@ -1045,6 +1084,50 @@ class LegacyBlockSuppressionTests(unittest.TestCase):
         runtime[KEY] = onboarding("idle")
         text = _pc.compose_system_prompt("conv-idle", runtime71=runtime)
         self.assertIn("Gather the following 10 facts", text)
+
+    def test_a_HOLD_plan_suppresses_the_legacy_block(self):
+        """THE DEFECT THIS CLOSES, 2026-08-27.
+
+        Every turn that must not participate — a system directive, a
+        deterministic mode, a cancelled turn, a narrator saying "pause" —
+        used to plan `idle`, and the test directly above shows what
+        `idle` does: it leaves the browser's ten-question list standing.
+
+        So a directive arriving mid-walk advanced nothing (correct) and
+        handed Lori back the pass the server had taken ownership of
+        (not correct), on a turn nobody was watching. "Server state
+        overrides browser pass" has to hold on the turns that do nothing.
+        """
+        runtime = self._pass1_runtime()
+        runtime[KEY] = onboarding("hold", A)
+        text = _pc.compose_system_prompt("conv-hold", runtime71=runtime)
+        self.assertNotIn(
+            "Gather the following 10 facts", text,
+            "a held turn revived the legacy browser Profile Seed block")
+
+    def test_a_HOLD_plan_asks_NO_question_at_all(self):
+        runtime = self._pass1_runtime()
+        runtime[KEY] = onboarding("hold", A)
+        text = _pc.compose_system_prompt("conv-hold-silent", runtime71=runtime)
+        for topic_id in _seed.TOPIC_IDS:
+            with self.subTest(topic=topic_id):
+                self.assertNotIn(_seed.topic(topic_id).question, text)
+
+    def test_a_HOLD_plan_REPLACES_the_legacy_block_rather_than_deleting_it(self):
+        """The distinction from the malformed-payload case.
+
+        A malformed payload renders nothing AND suppresses nothing, so
+        the existing prompt is untouched — that is C6, and it is right.
+        `hold` suppresses, so it owes a replacement: removing working
+        instructions and putting nothing in their place is the shape C6
+        exists to punish.
+        """
+        runtime = self._pass1_runtime()
+        runtime[KEY] = onboarding("hold", A)
+        text = _pc.compose_system_prompt("conv-hold-replaced",
+                                         runtime71=runtime)
+        self.assertIn("PROFILE SEED — HOLD", text)
+        self.assertIn("Do NOT ask a Profile Seed question this turn", text)
 
 
 class SectionPolicyTests(unittest.TestCase):

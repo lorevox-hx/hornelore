@@ -2549,10 +2549,41 @@ def profile_seed_apply(
         # Validated before any lock is taken — an unknown topic is a
         # client bug, not a concurrency event.
         raise _profile_seed.UnknownTopic(topic_id)
-    try:
-        expected = int(expected_version)
-    except (TypeError, ValueError):
-        raise ValueError("expected_version must be an integer")
+    # ── STRICTLY AN INTEGER. `int(...)` WAS NOT STRICT, 2026-08-27 ─────
+    #
+    # This read `expected = int(expected_version)`, which is a CONVERTER
+    # wearing a validator's clothes. `int()` accepts `True`, `"1"`,
+    # `1.0`, `Decimal("1")` and anything with `__int__`, and the request
+    # model on the route above it was no stricter — Pydantic coerced
+    # `true` to `1`.
+    #
+    # Reproduced against a temporary database before this changed: a
+    # pending narrator at version 1 accepted `expected_version=True` and
+    # moved to version 2. The optimistic-concurrency contract is that a
+    # caller states the exact version it read; `True` states nothing, and
+    # it happened to win because `True == 1`.
+    #
+    # `float` is refused for the same reason and one more: `int(1.9)` is
+    # `1`, so a client with an arithmetic bug would silently address a
+    # version it never read. Rounding is not a decision this accessor is
+    # entitled to make on a value whose whole job is to be exact.
+    #
+    # RANGE IS NOT CHECKED HERE, deliberately. A version of `0` or `-5`
+    # is a well-typed claim that is simply wrong, and the comparison
+    # below answers it correctly with `VersionConflict` carrying the
+    # fresh state — more useful to a client than a 422, because it says
+    # what the version actually is. Only the TYPE is a contract
+    # violation, because a wrongly-typed version cannot be compared at
+    # all without first inventing a value for it.
+    if isinstance(expected_version, bool) or not isinstance(expected_version, int):
+        raise ValueError(
+            "expected_version must be an int; got "
+            f"{type(expected_version).__name__} {expected_version!r}. "
+            "Booleans, floats and numeric strings are refused rather than "
+            "coerced: a version is read from the server and echoed back "
+            "exactly, and a value that had to be converted was not the "
+            "value that was read.")
+    expected = expected_version
 
     now = _now_iso()
     con = _connect()

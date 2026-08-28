@@ -5285,8 +5285,28 @@ def _validated_onboarding_plan(
     Both the renderer and the suppression gate now call THIS, so they
     cannot reach different conclusions about the same payload.
 
+    ── `hold` IS RENDERABLE, AND THAT IS THE POINT, 2026-08-27 ─────────
+
+    *(`hold` means: there IS an active server-owned walk, and this turn
+    asks nothing — an internal system directive, a deterministic mode, a
+    cancelled turn, or the narrator saying "pause" / "help" / "change
+    narrator". Before it existed, all of those short-circuited to `idle`,
+    and `idle` UN-SUPPRESSES the legacy browser block. So a directive
+    arriving mid-walk would correctly advance nothing and incorrectly
+    hand Lori back "Gather the following 10 facts" — the pass the server
+    had taken ownership of, returning on a turn nobody was watching.*
+
+    *`hold` is therefore renderable in the exact sense this function
+    means: it is a payload the composer acts on. What it renders is a
+    short block that asks nothing. Note the difference from the
+    malformed-payload case above, which looks superficially similar and
+    is its opposite: MALFORMED renders nothing AND suppresses nothing,
+    so the existing prompt is untouched; HOLD suppresses the legacy list
+    and puts an explicit instruction in its place. Neither leaves a hole
+    where working instructions used to be.)*
+
     Renderable means:
-      * `action` is one of the three the composer knows;
+      * `action` is one of the four the composer knows;
       * for `present` / `re_present`, `topic_id` is in the canonical
         registry — an unknown id is not a question Lori can ask;
       * for `acknowledge`, `topic_id` is likewise a real topic, because
@@ -5301,7 +5321,8 @@ def _validated_onboarding_plan(
     state = runtime71.get(PROFILE_SEED_ONBOARDING_KEY)
     if not isinstance(state, dict):
         return None
-    if state.get("action") not in ("present", "re_present", "acknowledge"):
+    if state.get("action") not in ("present", "re_present", "acknowledge",
+                                   "hold"):
         return None
     from .services.profile_seed import is_known_topic
     if not is_known_topic(state.get("topic_id")):
@@ -5371,6 +5392,10 @@ def _profile_seed_onboarding_block(runtime71: Optional[Dict[str, Any]]) -> str:
         prediction, not a fact, and a narrator answering a question the
         server does not believe is open is the failure this whole lane
         exists to prevent.
+      * `hold` — there is an active walk and this turn is not part of
+        it. Ask nothing, claim nothing, and say so, so that the legacy
+        block this plan suppresses is REPLACED rather than merely
+        removed.
       * `idle` (and anything unrecognised) — render nothing.
 
     Returns `""` for every state that must not render — historical
@@ -5384,6 +5409,34 @@ def _profile_seed_onboarding_block(runtime71: Optional[Dict[str, Any]]) -> str:
         return ""
 
     action = state.get("action")
+    if action == "hold":
+        # ── ASKS NOTHING, CLAIMS NOTHING, SUPPRESSES THE LEGACY LIST ───
+        #
+        # Every line here is a prohibition. There is deliberately no
+        # topic name, no count, no "you were asking about…" — the walk
+        # is parked, and naming the parked question is one edit away
+        # from asking it.
+        #
+        # It renders TEXT rather than "" on purpose. An empty string
+        # would still suppress the legacy block (suppression keys off
+        # the validated plan, not off the rendered bytes), and that is
+        # exactly the shape C6 exists to punish: working instructions
+        # removed with nothing in their place. This block is the
+        # replacement.
+        return "\n".join([
+            "PROFILE SEED — HOLD.",
+            "A Profile Seed walk is in progress and is PAUSED FOR THIS "
+            "TURN ONLY.",
+            "RULES:",
+            "  - Do NOT ask a Profile Seed question this turn.",
+            "  - Do NOT list, preview or summarise the Profile Seed "
+            "topics.",
+            "  - Do NOT say anything about the narrator's progress "
+            "through them.",
+            "  - Answer what the narrator actually said, and nothing "
+            "more.",
+        ])
+
     if action == "acknowledge":
         lines = [
             "PROFILE SEED — ACKNOWLEDGE ONLY.",

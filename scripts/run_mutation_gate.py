@@ -138,6 +138,12 @@ REST_TESTS = "tests.test_profile_seed_rest_read_authority"
 
 CLASSIFIER_TESTS = "tests.test_mutation_gate_classifier"
 
+# ── Pre-Step-6 correction checkpoint, 2026-08-27 ──────────────────────
+STRICT_VERSION_TESTS = "tests.test_profile_seed_expected_version_strict"
+DETERMINISTIC_TESTS = "tests.test_profile_seed_deterministic_paths"
+WS = "server/code/api/routers/chat_ws.py"
+CONTROL = "server/code/api/services/conversation_control.py"
+
 COMPOSER_TESTS = ("tests.test_profile_seed_composer_section "
                   "tests.test_prompt_section_policy "
                   "tests.test_prompt_sections")
@@ -268,11 +274,38 @@ MUTATIONS: Tuple[Mutation, ...] = (
         '    owner = owner_lookup(conv)',
         '    try:\n        owner = owner_lookup(conv)\n    except Exception:\n        owner = None',
         REST_TESTS),
+    # ── M1 REPAIRED 2026-08-27: IT CRASHED INSTEAD OF MISBEHAVING ──────
+    #
+    # It read:
+    #
+    #     "    if outstanding is None:\n        # FIRST PRESENTATION."
+    #  -> "    if False and outstanding is None:\n        # FIRST PRE…"
+    #
+    # which DISABLES the branch instead of corrupting it. With nothing
+    # outstanding, execution fell straight to `outstanding.tuple` and
+    # raised `AttributeError: 'NoneType' has no attribute 'tuple'`. Every
+    # test in the module errored, none asserted anything, and the gate
+    # scored it BROKEN — correctly, and after the classifier was
+    # tightened; before that it would have been scored CAUGHT, on the
+    # strength of a crash.
+    #
+    # The defect M1 names is "the first presentation ADVANCES ITS OWN
+    # QUESTION", and a crash does not demonstrate it. The mutation now
+    # RETURNS THE DEFECTIVE PLAN: the first presentation reports itself
+    # as advancing and stamps `addressed` against a question the narrator
+    # has not been asked yet — the original Phase 2 design, exactly as it
+    # was written before review caught it. `plan.action` is then
+    # `acknowledge` where the test expects `present`, and it fails by
+    # assertion in five places with no errors at all.
     Mutation(
-        "M1", "the first presentation advances its own question",
+        "M1", "the first presentation advances its own question — it "
+              "returns an ACKNOWLEDGE plan stamping `addressed` against a "
+              "topic the narrator has not been asked about yet",
         TURN,
-        "    if outstanding is None:\n        # FIRST PRESENTATION.",
-        "    if False and outstanding is None:\n        # FIRST PRESENTATION.",
+        "        # not had a chance to answer a question that does not yet exist.\n"
+        "        return TurnPlan(PRESENT, active, version)",
+        "        # not had a chance to answer a question that does not yet exist.\n"
+        "        return TurnPlan(ACKNOWLEDGE, active, version, ADDRESSED)",
         REDUCER_TESTS, was_real=True),
     Mutation(
         "M2", "an acknowledgement re-stamps `presented`, so Lori re-asks "
@@ -319,8 +352,28 @@ MUTATIONS: Tuple[Mutation, ...] = (
         "        return raw if raw >= 1 else None",
         "        return raw",
         REDUCER_TESTS),
+    # ── M8's REPAIR IS IN THE FIXTURE, NOT IN THIS ANCHOR, 2026-08-27 ──
+    #
+    # The mutation was right and the INSTRUMENT could not observe it.
+    # `_Recorder(apply_raises=…)` raised `VersionConflict` on EVERY call,
+    # so the illicit second apply hit the same permanent raiser, the
+    # exception escaped `recover()`, and every test in the module
+    # errored: BROKEN, errors only, nothing asserted.
+    #
+    # A fixture that converts the defect into an exception cannot measure
+    # the defect. The claim is "the apply is not retried after a
+    # conflict", and proving it needs a second apply that WOULD SUCCEED —
+    # otherwise "it did not retry" and "it retried and blew up" are the
+    # same observation.
+    #
+    # `_Recorder` now takes `raise_once`. Correct code applies once and
+    # never notices; this mutation applies twice, the second call is
+    # recorded and returns normally, and `len(applies) == 1` fails as an
+    # assertion. Same defect, evidence instead of a traceback.
     Mutation(
-        "M8", "a version conflict forces the stored disposition anyway",
+        "M8", "a version conflict forces the stored disposition anyway — "
+              "the apply is retried against a state that has moved for a "
+              "reason this turn cannot see",
         TURN,
         "    except _seed.VersionConflict:\n        return RecoveryOutcome(CONFLICT_RESOLVED, resolve_fn(person_id),",
         "    except _seed.VersionConflict:\n        apply_fn(person_id, expected_version=last.version,\n                 action=last.disposition, topic_id=last.topic_id)\n        return RecoveryOutcome(CONFLICT_RESOLVED, resolve_fn(person_id),",
@@ -352,11 +405,21 @@ MUTATIONS: Tuple[Mutation, ...] = (
     # mutation tested nothing and "survived" for the emptiest possible
     # reason. It now routes acknowledge through the asking path, which
     # is the defect it was meant to reproduce.
+    #
+    # ── THE ANCHOR MOVED, 2026-08-27 ───────────────────────────────────
+    #
+    # It included the `action = state.get("action")` line immediately
+    # above, and the `hold` branch was inserted between the two. The
+    # anchor stopped matching and the gate reported BROKEN — "the code
+    # moved under this mutation", which is exactly what it is for, and
+    # it was only seen because the COMPLETE gate was run rather than the
+    # ids that had changed. The anchor is now the narrowest text that
+    # identifies the branch: the `if` and the line it opens.
     Mutation(
         "C3", "an ACKNOWLEDGE turn asks a question anyway",
         COMPOSER,
-        '    action = state.get("action")\n    if action == "acknowledge":',
-        '    action = state.get("action")\n    if action == "acknowledge":\n        action = "present"\n    if False:',
+        '    if action == "acknowledge":\n        lines = [',
+        '    if action == "acknowledge":\n        action = "present"\n    if False:\n        lines = [',
         COMPOSER_TESTS),
     # C4 ("an unknown topic id renders something") was RETIRED
     # 2026-08-26. Topic validation moved into `_validated_onboarding_plan`
@@ -367,17 +430,19 @@ MUTATIONS: Tuple[Mutation, ...] = (
     # mutate the idle action at all — it turned a MISSING action into
     # `present`, and was caught by a malformed-state fixture. Renamed to
     # what it does; C5b is the real idle mutation.
+    # C5/C5b anchors follow the action tuple, which gained "hold" on
+    # 2026-08-27. The mutations are unchanged in intent.
     Mutation(
         "C5", "an unrecognised or missing action is treated as renderable",
         COMPOSER,
-        '    if state.get("action") not in ("present", "re_present", "acknowledge"):\n        return None',
-        '    if False and state.get("action") not in ("present", "re_present", "acknowledge"):\n        return None',
+        '    if state.get("action") not in ("present", "re_present", "acknowledge",\n                                   "hold"):\n        return None',
+        '    if False and state.get("action") not in ("present", "re_present", "acknowledge",\n                                   "hold"):\n        return None',
         COMPOSER_TESTS),
     Mutation(
         "C5b", "an IDLE plan with a valid topic renders the section",
         COMPOSER,
-        '    if state.get("action") not in ("present", "re_present", "acknowledge"):\n        return None',
-        '    if state.get("action") not in ("present", "re_present", "acknowledge", "idle"):\n        return None',
+        '    if state.get("action") not in ("present", "re_present", "acknowledge",\n                                   "hold"):\n        return None',
+        '    if state.get("action") not in ("present", "re_present", "acknowledge",\n                                   "hold", "idle"):\n        return None',
         COMPOSER_TESTS),
     # C10 ("completes_walk read by truthiness") is RETIRED 2026-08-26.
     # The VALIDATOR now rejects a non-Boolean `completes_walk` outright
@@ -602,6 +667,104 @@ MUTATIONS: Tuple[Mutation, ...] = (
         '    re.compile(r"rather not (?:get into|talk about|discuss|say|share|go there)", re.IGNORECASE),\n',
         "",
         REFUSAL_TESTS),
+
+    # ══ Pre-Step-6 correction checkpoint, 2026-08-27 ═══════════════════
+    #
+    # Three defects the review found, each with a mutation that
+    # reproduces it against the corrected code.
+
+    # ── P11: `expected_version` was not actually strict ────────────────
+    Mutation(
+        "P11", "expected_version is COERCED rather than checked, so `True` "
+               "matches version 1 and a narrator advances on a Boolean",
+        DB,
+        "    if isinstance(expected_version, bool) or not isinstance(expected_version, int):",
+        "    if False and (isinstance(expected_version, bool) or not isinstance(expected_version, int)):",
+        STRICT_VERSION_TESTS, was_real=True),
+
+    # ── H1–H7: the control / system-directive gap ──────────────────────
+    Mutation(
+        "H1", "an INELIGIBLE turn on an active walk goes IDLE again, so a "
+              "system directive revives the browser's legacy ten-question "
+              "block mid-walk",
+        TURN,
+        "    if not eligible:\n        return TurnPlan(HOLD, active, version)",
+        "    if not eligible:\n        return TurnPlan(IDLE)",
+        REDUCER_TESTS, was_real=True),
+    Mutation(
+        "H2", "a holding control stops holding: \"pause\" and \"help\" "
+              "re-present the question instead of parking the walk",
+        TURN,
+        "    if holds_the_walk(narrator_text):",
+        "    if False and holds_the_walk(narrator_text):",
+        REDUCER_TESTS),
+    Mutation(
+        "H3", "a conversation control is `addressed` again — \"repeat "
+              "that\" CLOSES the question it is asking to hear again",
+        TURN,
+        "    if _control.control_intent(text) is not None:\n        return STATIONARY",
+        "    if False and _control.control_intent(text) is not None:\n        return STATIONARY",
+        REDUCER_TESTS, was_real=True),
+    Mutation(
+        "H4", "a held turn renders NOTHING while still suppressing, so the "
+              "legacy block is removed and nothing replaces it",
+        COMPOSER,
+        '        return "\\n".join([\n            "PROFILE SEED — HOLD.",',
+        '        return "" if True else "\\n".join([\n            "PROFILE SEED — HOLD.",',
+        COMPOSER_TESTS),
+    Mutation(
+        "H5", "`hold` is not a renderable action, so a held turn hands the "
+              "legacy ten-question block back to Lori",
+        COMPOSER,
+        '    if state.get("action") not in ("present", "re_present", "acknowledge",\n                                   "hold"):\n        return None',
+        '    if state.get("action") not in ("present", "re_present", "acknowledge"):\n        return None',
+        COMPOSER_TESTS),
+    Mutation(
+        "H6", "every control is treated as a REPEAT, so a narrator who says "
+              "\"stop\" is asked the onboarding question again",
+        CONTROL,
+        "    return CONTROL_REPEAT if _REPEAT_RX.match(norm) else CONTROL_HOLD",
+        "    return CONTROL_REPEAT",
+        REDUCER_TESTS),
+    Mutation(
+        "H7", "THE ANCHORING IS LOST: the whole-turn match becomes a "
+              "starts-with match, so \"Stop signs were rare out there\" is a "
+              "command and a memory is read as a button press",
+        CONTROL,
+        '_CONVERSATION_COMMAND_RX = re.compile(\n    _PREFIX + r"(?:" + _COMMAND_CORE + r")" + _SUFFIX, re.I)',
+        '_CONVERSATION_COMMAND_RX = re.compile(\n    _PREFIX + r"(?:" + _COMMAND_CORE + r")", re.I)',
+        REDUCER_TESTS),
+
+    # ── D1–D3: the deterministic inventory said six, and there are nine ─
+    Mutation(
+        "D1", "the floor_buffer early return stamps a Profile Seed "
+              "presentation, so a narrator talking in buffered chunks is "
+              "recorded as having been asked a question Lori never asked",
+        WS,
+        '                        "turn_mode": "floor_buffer",\n'
+        '                        "turn_final": False,',
+        '                        "turn_mode": "floor_buffer",\n'
+        '                        "profile_seed_presented_topic": "childhood_home",\n'
+        '                        "profile_seed_presented_version": 1,\n'
+        '                        "turn_final": False,',
+        DETERMINISTIC_TESTS),
+    Mutation(
+        "D2", "a deterministic path is renamed and the inventory silently "
+              "stops covering it — the exact way the map came to say six",
+        WS,
+        '                                    "turn_mode": "bank_flush",\n'
+        '                                    "bank_flush_reason": _flush_reason,',
+        '                                    "turn_mode": "bank_flush_v2",\n'
+        '                                    "bank_flush_reason": _flush_reason,',
+        DETERMINISTIC_TESTS),
+    Mutation(
+        "D3", "the SHARED finalizer stamps Profile Seed metadata, which "
+              "advances six deterministic branches at once",
+        WS,
+        '    turn_meta: Dict[str, Any] = {"ws": True, "turn_mode": turn_mode}',
+        '    turn_meta: Dict[str, Any] = {"ws": True, "turn_mode": turn_mode,\n'
+        '                                 "profile_seed_response_topic": "childhood_home"}',
+        DETERMINISTIC_TESTS),
 )
 
 CAUGHT, MISSED, BROKEN = "CAUGHT", "MISSED", "BROKEN"

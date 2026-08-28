@@ -7,6 +7,25 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+try:
+    from pydantic import StrictInt
+except ImportError:  # pragma: no cover
+    # ── THE OFFLINE TEST STUB, AND WHY THIS LOSES NOTHING ──────────────
+    #
+    # ~30 modules under `tests/` install a minimal `pydantic` stub when
+    # the real package is absent, and its `BaseModel` is `class
+    # _BaseModel: pass` — it validates NOTHING. So under the stub there
+    # is no strictness to lose: annotating the field `int` and
+    # annotating it `StrictInt` are equally inert, and this fallback
+    # exists so the router still IMPORTS there rather than to soften the
+    # contract.
+    #
+    # The contract is enforced a second time, unconditionally, inside
+    # `db.profile_seed_apply` — which is where it has to live anyway,
+    # because that accessor has callers that never pass through this
+    # model.
+    StrictInt = int  # type: ignore[assignment,misc]
+
 from .. import db, flags
 
 logger = logging.getLogger(__name__)
@@ -754,7 +773,25 @@ def api_segment_flag_delete(req: SegFlagDeleteRequest):
 # ─────────────────────────────────────────────────────────────────────
 class ProfileSeedPatchRequest(BaseModel):
     person_id: str
-    expected_version: int
+    #: ── `StrictInt`, NOT `int`, 2026-08-27 ─────────────────────────────
+    #:
+    #: Pydantic's default int coerces. `{"expected_version": true}`
+    #: arrived as `1`, and `{"expected_version": "1"}` and `1.0` did too.
+    #: Reproduced end to end before this changed: a pending narrator at
+    #: version 1 accepted `true` and advanced to version 2.
+    #:
+    #: This field is one half of an optimistic-concurrency check. Its
+    #: only meaning is "the exact version I read from your GET" — a
+    #: value that had to be converted to become an integer was not the
+    #: value that was read, so refusing it with a 422 tells the client
+    #: something true, and coercing it tells them nothing at all.
+    #:
+    #: The accessor refuses the same three types independently. That is
+    #: not redundancy for its own sake: `db.profile_seed_apply` has
+    #: callers that never pass through this model — the tests, and the
+    #: Step 6 WebSocket path — and a validation rule that lives only in
+    #: a request model does not hold for them.
+    expected_version: StrictInt
     #: `addressed` | `declined` | `pause` | `resume`.
     #: `known` and `completed` are absent BY DESIGN — see db.profile_seed_apply.
     action: str

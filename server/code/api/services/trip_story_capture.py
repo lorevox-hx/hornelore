@@ -31,6 +31,7 @@ import os
 import re
 from typing import Any, Dict, List, Optional
 
+from . import conversation_control as _control
 from . import trip_repository
 
 # ── Tunables ────────────────────────────────────────────────────────────────
@@ -74,14 +75,15 @@ _TRIVIAL_PHRASES = {
 
 
 # ── Text helpers ────────────────────────────────────────────────────────────
-def _normalize(text: Optional[str]) -> str:
-    """Lowercase, strip punctuation/quotes, collapse whitespace — for the
-    trivial-reply check only. The stored note keeps the original text."""
-    s = str(text or "").lower()
-    s = s.replace("’", "'")
-    s = re.sub(r"[^\w\s']", " ", s)     # drop punctuation but keep apostrophes
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
+#: Lowercase, strip punctuation/quotes, collapse whitespace — for the
+#: trivial-reply check only. The stored note keeps the original text.
+#:
+#: MOVED to `conversation_control`, 2026-08-27, unchanged. It was defined
+#: here and used by both the trivial-reply check and the conversation-
+#: command check; the second of those now has a second caller (Profile
+#: Seed), and a normaliser that differs between the detector and its
+#: callers is how two detectors start disagreeing about the same turn.
+_normalize = _control.normalize
 
 
 def _light_clean(text: Optional[str]) -> str:
@@ -172,6 +174,27 @@ def _is_question_or_meta(narrator_text: str) -> bool:
 # question, and it addresses Lori without any of the phrasings that lane
 # looks for. A control is its own category.
 #
+# ── EXTRACTED TO `conversation_control.py`, 2026-08-27 ──────────────────
+#
+# The vocabulary, the anchoring regex and the six-word ceiling all moved
+# to `services/conversation_control.py`, WHOLE. They are not copied:
+# there is exactly one definition and this module imports it.
+#
+# The reason is a second caller. Profile Seed onboarding
+# (WO-LORI-PROFILE-SEED-REACHABILITY-01) must not read "repeat that" as
+# an ANSWER to the question it just asked, and a review of that lane
+# found the same list about to be written a second time. Two lists agree
+# on the day they are written and never again — the first divergence
+# would have been a turn that trip capture correctly skipped and
+# onboarding wrongly recorded as `addressed`, closing a topic nobody
+# spoke to.
+#
+# The shared module added exactly two families to the vocabulary, both
+# named in that review: `help` and `change/switch narrator`. Both are the
+# narrator operating the conversation by this module's own definition,
+# so honouring them here is the same rule applied, not a new one.
+#
+# The design note is worth keeping in front of whoever edits the list:
 # THE WHOLE DESIGN IS THE ANCHORING. Every one of these words appears
 # inside real narration -- "we had to GO BACK to the hotel", "she would
 # SAY THAT AGAIN every Christmas", "we STOPPED at the school and
@@ -179,49 +202,16 @@ def _is_question_or_meta(narrator_text: str) -> bool:
 # the pattern must match the ENTIRE normalised turn, with nothing before
 # it and nothing after it but politeness. A turn that is a command says
 # only the command; a turn that is a memory says more.
-_COMMAND_CORE = (
-    r"say (?:that|it) again|say again|"
-    r"repeat(?:\s+(?:that|it|again))*|"
-    r"read (?:that|it) (?:again|back)|"
-    r"go back|back up|"
-    r"pause|"
-    r"stop(?:\s+(?:talking|that|it))?|"
-    r"continue|go on|keep going|carry on|"
-    r"wait|hold on|hang on|(?:just )?a (?:second|moment|minute)|"
-    r"never ?mind|forget it|"
-    r"louder|speak up|slower|slow down|speak (?:slower|slowly|up)|"
-    r"start over|say that one more time|"
-    r"what was that|come again"
-)
+_COMMAND_CORE = _control._COMMAND_CORE
+_CONVERSATION_COMMAND_RX = _control._CONVERSATION_COMMAND_RX
+_MAX_COMMAND_WORDS = _control.MAX_COMMAND_WORDS
 
-_CONVERSATION_COMMAND_RX = re.compile(
-    r"^(?:hey\s+)?(?:lori\s+)?"
-    r"(?:please\s+|can you\s+|could you\s+|would you\s+|will you\s+)?"
-    r"(?:" + _COMMAND_CORE + r")"
-    r"(?:\s+please)?(?:\s+lori)?$",
-    re.I,
-)
-
-# A control is short by nature. This is a second wall, not the first one:
-# if a future edit loosens an alternative above so that it can match a
-# long sentence, this stops that edit from swallowing a memory.
-_MAX_COMMAND_WORDS = 6
-
-
-def _is_conversation_command(narrator_text: str) -> bool:
-    """True when the whole turn is the narrator operating the
-    conversation rather than telling something.
-
-    Deliberately conservative in one direction only. A missed command
-    costs the operator one junk row they can hide; a false positive
-    silently discards a memory, and nothing downstream would ever show
-    that it had happened."""
-    norm = _normalize(narrator_text).replace("'", "")
-    if not norm:
-        return False
-    if len(norm.split()) > _MAX_COMMAND_WORDS:
-        return False
-    return bool(_CONVERSATION_COMMAND_RX.match(norm))
+#: True when the whole turn is the narrator operating the conversation
+#: rather than telling something. Deliberately conservative in one
+#: direction only: a missed command costs the operator one junk row they
+#: can hide; a false positive silently discards a memory, and nothing
+#: downstream would ever show that it had happened.
+_is_conversation_command = _control.is_conversation_command
 
 
 def _title_from_question(previous_lori_text: Optional[str]) -> Optional[str]:

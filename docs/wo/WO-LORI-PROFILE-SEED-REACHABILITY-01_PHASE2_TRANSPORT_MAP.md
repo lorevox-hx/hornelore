@@ -238,21 +238,177 @@ it should be named rather than slipped in under "read authority".
 
 ## 6. Turns that must not advance — the complete inventory
 
+> ### ⚠ AMENDED 2026-08-27 — THIS TABLE SAID SIX AND THERE ARE **NINE**
+>
+> The deterministic list below was called "the complete inventory" and contained the
+> six branches that route through `_finalize_deterministic_turn`. **Three more
+> persisted deterministic early returns exist and BYPASS that function**, each calling
+> `persist_turn_transaction` directly with its own inline `meta` dict and then
+> returning: `floor_buffer`, `past_tense_acknowledge` and `bank_flush`.
+>
+> This is the most dangerous shape a wrong inventory can take. The six that were listed
+> make the three that were not look considered — a reader checking "are the
+> deterministic paths covered?" finds a table, a mechanism column, and line numbers, and
+> stops. Step 6 merges Profile Seed metadata into the assistant row's turn commit; a
+> persist site the map does not know about is a persist site nobody thinks to check.
+>
+> **The six inherit their guarantee. The three do not.** `_finalize_deterministic_turn`
+> is structural: it never writes `_persisted_turn_row_id`, `_persisted_user_turn_row_id`
+> or `_archive_event_persisted` into `params`, and one test asserts that over the
+> function's own AST — so anything routed through it is held out by construction rather
+> than by six authors each remembering. The other three inherit nothing at all, which is
+> exactly why they need their own guards and their own rows here.
+>
+> Pinned executably in `tests/test_profile_seed_deterministic_paths.py`: the set of
+> deterministic `turn_mode` values in `chat_ws.py` must be EXACTLY these nine, so a tenth
+> path fails a named test rather than joining silently — and that test also asserts this
+> document names all nine, so the map and the code cannot drift apart again.
+
+### The nine persisted deterministic paths
+
+| # | `turn_mode` | Persist site | Routing | Guard |
+|---|---|---|---|---|
+| 1 | `floor_hold` | `chat_ws.py:3855` | `_finalize_deterministic_turn` | structural — the finalizer never sets the params keys, never names a Profile Seed key, never applies |
+| 2 | `meta_question` | `:3963` | same | same |
+| 3 | `witness` | `:3993` | same | same |
+| 4 | `memory_echo` | `:4237` | same | same |
+| 5 | `age_recall` | `:4281` | same | same |
+| 6 | `correction` | `:4354` | same | same |
+| 7 | **`floor_buffer`** | `:1672` | **direct `persist_turn_transaction`, then `return`** | **its own** — the early-return region carries no Profile Seed key and calls no apply |
+| 8 | **`past_tense_acknowledge`** | `:3071` | **direct, then `return`** | **its own**, as above |
+| 9 | **`bank_flush`** | `:3654` | **direct, then `return`** | **its own**, as above |
+
+`floor_buffer` is worth a sentence of its own: it answers `"I'm listening."` to a
+buffered chunk and is the ONE deterministic path a narrator can hit repeatedly and
+deliberately, by talking in pieces with the floor held. If it could stamp a
+presentation, a narrator mid-sentence would answer questions Lori never asked.
+
+### The rest of the inventory
+
 | Class | Where it is already decided | Mechanism Phase 2 uses |
 |---|---|---|
-| `floor_hold` | `chat_ws.py:3839` → `:3855` | `_finalize_deterministic_turn` never sets the params keys |
-| `meta_question` | `:3878` → `:3963` | same |
-| `witness` | `:3991` → `:3993` | same |
-| `memory_echo` | `:4016` → `:4237` | same |
-| `age_recall` | `:4256` → `:4281` | same |
-| `correction` | `:4294` → `:4354` | same |
-| System directive | `params["_is_system_directive"]`, set `:1433` from declared kind `internal_directive` or a `[SYSTEM` prefix | explicit check before advancing |
-| Cancelled | `ev.is_set()`, already recorded in turn meta at `:5961` | explicit check before advancing |
+| System directive | `params["_is_system_directive"]`, set `:1433` from declared kind `internal_directive` or a `[SYSTEM` prefix | `plan_turn(eligible=False)` → **`HOLD`**, not `IDLE` — see §6b |
+| Conversation control | `services/conversation_control.py`, the detector extracted from `trip_story_capture` | `HOLD` or `RE_PRESENT` by intent; never `addressed` — see §6b |
+| Cancelled | `ev.is_set()`, already recorded in turn meta at `:5961` | `eligible=False` → `HOLD` |
 | Safety turn | `_is_safety_turn` / `_safety_enabled` gate at `:1535` | explicit check; safety stays parked and untouched |
 | Persistence failure | `except` at `:6040` — sends an error frame and writes nothing | advancement lives inside that same `try`, so a failed persist cannot reach it |
-| Paused onboarding | Phase 1 `reconcile` returns `status="paused"` with `active_topic_id=None` | nothing to advance; no Life Map advancement either |
+| Paused onboarding | Phase 1 `reconcile` returns `status="paused"` with `active_topic_id=None` | `IDLE`; nothing to advance, and no Life Map advancement either |
 | Narrator switch | `person_id` is bound per turn (`:6178`, `:6180`, `:6217`) | the captured version belongs to the narrator composed for; a switch makes it stale and it conflicts |
-| Historical narrator | Phase 1 `profile_seed_resolve` returns `None` | byte-stable legacy behaviour; nothing added to `runtime71` |
+| Historical narrator | Phase 1 `profile_seed_resolve` returns `None` | `IDLE` — byte-stable legacy behaviour; nothing added to `runtime71` |
+
+---
+
+## 6b. `HOLD` — the suppress-only state, and how a control is identified
+
+**Decided 2026-08-27, BEFORE Step 6 code, because it is not a decision that belongs
+inside a WebSocket hook.**
+
+### The hole `IDLE` left
+
+`plan_turn(..., eligible=False)` returned `IDLE`, and §7's suppression gate is driven by
+whether there is a validated renderable plan. So `IDLE` **un-suppresses the legacy
+browser Profile Seed block** — correctly, for a historical narrator who was never
+enrolled and for whom that block is the only Profile Seed behaviour there is.
+
+For a narrator with an **active server-owned walk** it was wrong in the direction this
+whole lane exists to prevent. An internal system directive arriving mid-walk would:
+
+* advance nothing — correct;
+* and hand Lori back **"Gather the following 10 facts"**, the browser pass the server had
+  just taken ownership of.
+
+"Server state overrides browser pass" has to hold on the turns that do nothing as much
+as on the turns that ask.
+
+### The state
+
+`HOLD` — a fifth action on `TurnPlan`, alongside `PRESENT`, `RE_PRESENT`, `ACKNOWLEDGE`
+and `IDLE`:
+
+| | `IDLE` | `HOLD` |
+|---|---|---|
+| there is an active walk | no | **yes** |
+| asks a question | no | no |
+| stamps `presented` / `response` | no | no |
+| applies progress | no | no |
+| legacy browser block | **left standing** | **suppressed** |
+| renders | nothing | a short block that asks nothing |
+
+`HOLD` renders TEXT rather than `""` on purpose. An empty string would still suppress —
+suppression keys off the validated plan, not the rendered bytes — and that is precisely
+the shape mutation **C6** exists to punish: working instructions removed with nothing in
+their place. The held block is the replacement. It names no topic, contains no question
+mark, and makes no claim about progress; naming the parked question is one edit away
+from asking it.
+
+`HOLD` is validated like every other action. A held plan naming an unknown topic is a
+malformed payload and falls back to rendering nothing AND suppressing nothing — so
+`hold` cannot become a way to delete the legacy block by sending junk.
+
+### Which turns HOLD
+
+* every ineligible turn **on an active walk** — the nine deterministic paths, system
+  directives, cancelled turns;
+* every ineligible turn with **no** active walk stays `IDLE` — historical, `pending`,
+  `paused`, `completed`, or a state too malformed to plan against. Those four are what
+  the byte-stability tests pin, and they do not move.
+
+### How a conversation control is identified — ONE vocabulary, not a second list
+
+The classifier reported, measured:
+
+```
+"repeat that"     -> addressed
+"say that again"  -> addressed
+"pause"           -> addressed
+"help"            -> addressed
+"change narrator" -> addressed
+```
+
+Every one of those **closed the open topic**. A narrator asking to hear the question
+again would have had it recorded as answered and never hear it again.
+
+The rule "everything else non-empty is `addressed`" (§12) was written against ANSWERS of
+varying quality, and refusing to grade answers is right. **A control is not a
+low-quality answer.**
+
+A whole-turn control detector already existed, privately, in `trip_story_capture.py` —
+written after "say that again" was saved as a Bismarck travel note on 2026-07-31. It has
+been **extracted, not copied**, into `services/conversation_control.py`;
+`trip_story_capture` imports it and a test asserts both modules resolve to the SAME
+function object. Two lists agree on the day they are written and never again, and the
+first divergence here would be a turn trip capture correctly skips and onboarding
+records as `addressed`.
+
+The shared vocabulary gained exactly two families, both named in the review: **`help`**
+and **`change`/`switch narrator`**. Both are the narrator operating the conversation by
+that module's own definition, so honouring them is the same rule applied, not a new one.
+
+Two intents, both stationary, differing only in what Lori does next:
+
+| Intent | Examples | Plan |
+|---|---|---|
+| `CONTROL_REPEAT` | "repeat that", "say it again", "what was that", "louder", "slower" | **`RE_PRESENT`** — a new presentation at the current version, no response event |
+| `CONTROL_HOLD` | "pause", "stop", "help", "change narrator", "never mind", "go on" | **`HOLD`** — asks nothing, stamps nothing |
+
+The split is deliberately lopsided: REPEAT is enumerated and everything else that is a
+control falls to HOLD, because HOLD is the conservative outcome. Mis-filing a control as
+HOLD costs one turn without a question; mis-filing it as REPEAT asks a narrator who said
+"stop" the onboarding question again.
+
+**A deferral still beats a control.** "hold on" and "just a minute" are in both
+vocabularies. Step 3's accepted rule for a request for time is to come back to the
+question gently, and that is unchanged — a narrator who says "hold on" is still working
+on the answer, and falling silent on them would be a regression dressed as a correction.
+
+### The anchoring is the whole design
+
+Every one of these words appears inside real narration — "we had to GO BACK to the
+hotel", "she would SAY THAT AGAIN every Christmas", "we STOPPED at the school and
+CONTINUED to the cemetery". A substring match would eat all three. The pattern matches
+the ENTIRE normalised turn with nothing before it and nothing after it but politeness,
+under a six-word ceiling as a second wall. A turn that is a command says only the
+command; a turn that is a memory says more.
 
 ---
 
@@ -810,3 +966,39 @@ window, the directive registry, Kawa, or migrations `0001–0051` has changed.
 **Design rulings, all settled:** Option B is the accepted transport-scope ruling; §9, §10
 and §13 are accepted; §12 is ruled; §11 carries exact `(topic, version)` correlation and
 the recovery stage.
+
+---
+
+## 16. Pre-Step-6 correction checkpoint — 2026-08-27, AWAITING ACCEPTANCE
+
+Step 6 was **blocked** by a review of the pushed Step 5 tree. Five bounded defects, none
+of them narrator-reachable through the production UI, because WebSocket onboarding is
+still unwired. All five are closed here; **none is accepted yet.**
+
+| # | Defect | Closed by |
+|---|---|---|
+| 1 | `M1` disabled the first-presentation branch and crashed with `AttributeError`; `M8` retried against a permanently-raising recorder. Both `BROKEN` — errors only, nothing asserted | `M1` now returns the defective ACKNOWLEDGE plan; `_Recorder` gained `raise_once` so the illicit second apply SUCCEEDS and is observable. Both fail by assertion |
+| 2 | `expected_version` coerced: Pydantic turned `true` into `1`, `db.profile_seed_apply` called `int()`. **Reproduced: a pending narrator at version 1 accepted `True` and moved to version 2** | `StrictInt` on the request model, a type check in the accessor, `tests/test_profile_seed_expected_version_strict.py`, mutation `P11` |
+| 3 | §6 said six deterministic paths; there are **nine** | §6 rewritten above; `tests/test_profile_seed_deterministic_paths.py`; mutations `D1`–`D3` |
+| 4 | `eligible=False` returned `IDLE`, reviving the legacy browser block mid-walk; controls classified `addressed` | §6b above: the `HOLD` action and `services/conversation_control.py`; mutations `H1`–`H7` |
+| 5 | `HANDOFF.md` named a hash as "current `main`" | replaced with `git rev-parse origin/main` |
+
+**Deliberately NOT touched, and this is the boundary that makes the checkpoint
+reviewable:** the WebSocket wiring itself, the eight UI promotion sites, REST
+persistence, safety, model/window, chronology, Life Map, memoir, story authority,
+migrations, the directive registry and Kawa. `chat_ws.py` is **byte-identical** — the
+nine-path guard reads it as source and parses it, which is also why that guard needs no
+`fastapi` and skips on no interpreter.
+
+**What Step 6 inherits, and must not undo:**
+
+* the nine-path inventory, and the test that fails if a tenth appears;
+* `HOLD` for every ineligible turn on an active walk — Step 6 supplies `eligible`, it
+  does not re-decide what ineligibility means;
+* one control vocabulary, in `conversation_control`;
+* `expected_version` strict at both layers — the WebSocket path calls the accessor
+  directly and inherits the second one, not the first.
+
+`tests/test_profile_seed_deterministic_paths.py::Step6TripwireTests` will FAIL the moment
+Step 6 adds Profile Seed metadata to `chat_ws.py`. That is deliberate: narrow it to the
+model path, and leave the nine deterministic paths covered.

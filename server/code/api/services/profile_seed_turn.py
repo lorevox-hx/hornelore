@@ -63,6 +63,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, List, Mapping, Optional, Sequence, Tuple
 
+from . import conversation_control as _control
 from . import narrator_refusal as _refusal
 from . import profile_seed as _seed
 
@@ -95,9 +96,36 @@ CLASSIFICATIONS: Tuple[str, ...] = (ADDRESSED, DECLINED, STATIONARY)
 PRESENT = "present"          # ask A for the first time
 RE_PRESENT = "re_present"    # ask A again after a deferral or a stale tuple
 ACKNOWLEDGE = "acknowledge"  # respond to an answer; ask NOTHING
+HOLD = "hold"                # active walk, but this turn asks nothing
 IDLE = "idle"                # onboarding is not active; render nothing
 
-ACTIONS: Tuple[str, ...] = (PRESENT, RE_PRESENT, ACKNOWLEDGE, IDLE)
+ACTIONS: Tuple[str, ...] = (PRESENT, RE_PRESENT, ACKNOWLEDGE, HOLD, IDLE)
+
+# ── WHY `HOLD` IS NOT `IDLE`, 2026-08-27 ────────────────────────────────
+#
+# They differ in ONE observable way and it is the whole reason the action
+# exists: **`IDLE` leaves the legacy browser Profile Seed block standing,
+# and `HOLD` suppresses it.**
+#
+# Before this, every turn that must not participate — a system directive,
+# a deterministic mode, a cancelled turn — short-circuited to `IDLE`. For
+# a HISTORICAL narrator that is right: they were never enrolled, the
+# legacy pass-1 ten-question block is the only Profile Seed behaviour
+# they have, and Phase 0 decision 3 says it must not change.
+#
+# For a narrator with an ACTIVE SERVER-OWNED WALK it was wrong, and
+# wrong in the direction the whole lane exists to prevent. The server
+# believes it is asking one canonical question at a time. `IDLE` un-
+# suppresses the browser's list, so an internal system directive
+# arriving mid-walk would hand Lori "Gather the following 10 facts" —
+# the pass the server had taken ownership of, back in force, on a turn
+# nobody could see it happen. "Server state overrides browser pass" has
+# to hold on the turns that do nothing as much as on the turns that ask.
+#
+# So `HOLD` means: an active walk exists, this turn asks nothing, stamps
+# nothing and advances nothing — AND the legacy block stays suppressed.
+# It is the ineligible-turn answer and the conversation-control answer,
+# which are the same requirement reached from two directions.
 
 
 # ── Temporary deferral ──────────────────────────────────────────────────
@@ -215,6 +243,35 @@ def classify_response(text: Optional[str]) -> str:
     row; it closes the topic so that an older narrator is not confronted
     with the same unreachable question every session. The ordinary
     committed conversation is still there if the memory surfaces later.
+
+    ── A CONVERSATION CONTROL IS NOT AN ANSWER, 2026-08-27 ─────────────
+
+    *(This function reported, measured:*
+
+        "repeat that"     -> addressed
+        "say that again"  -> addressed
+        "pause"           -> addressed
+        "help"            -> addressed
+        "change narrator" -> addressed
+
+    *Every one of those would have CLOSED the open topic. A narrator who
+    asked to hear the question again would have had it recorded as
+    answered and never hear it again — the exact failure this module
+    exists to prevent, arriving through the one category of turn that
+    says plainly it is not an answer.*
+
+    *"Everything else non-empty is `addressed`" was written against
+    ANSWERS of varying quality, and grading answers is what it correctly
+    refuses to do. A control is not a low-quality answer. It is the
+    narrator operating the conversation, and the detector for that
+    already existed — see `services/conversation_control.py`, which now
+    owns the one shared vocabulary rather than this module keeping a
+    second copy of it.)*
+
+    Order matters here too: the DEFERRAL check runs first. "hold on" and
+    "just a minute" are in both vocabularies, and as a deferral they are
+    already `STATIONARY` — the same verdict, reached by the accepted
+    Step 3 rule, so nothing about deferral handling changes.
     """
     if not text or not text.strip():
         return STATIONARY
@@ -222,7 +279,23 @@ def classify_response(text: Optional[str]) -> str:
         return DECLINED
     if is_temporary_deferral(text):
         return STATIONARY
+    if _control.control_intent(text) is not None:
+        return STATIONARY
     return ADDRESSED
+
+
+def holds_the_walk(text: Optional[str]) -> bool:
+    """Is this turn a control that should HOLD rather than re-ask?
+
+    Deferral beats control, deliberately. "hold on" appears in both
+    vocabularies, and Step 3's accepted behaviour for a request for time
+    is to re-present the question gently — not to fall silent. A narrator
+    who says "let me think" is still working on the answer; a narrator
+    who says "pause" is not.
+    """
+    if is_temporary_deferral(text):
+        return False
+    return _control.control_intent(text) == _control.CONTROL_HOLD
 
 
 # ── Events ──────────────────────────────────────────────────────────────
@@ -437,10 +510,22 @@ def plan_turn(
     `state` is a resolved-state dict (Phase 1 `as_dict()`), or `None` for
     a historical narrator. `eligible` is False for every turn that must
     not participate at all — deterministic modes, system directives,
-    cancelled turns — and short-circuits to `IDLE` before anything else
-    is considered.
+    cancelled turns.
+
+    ── `eligible=False` NO LONGER MEANS `IDLE`, 2026-08-27 ─────────────
+
+    *(It did, and that was a hole. `IDLE` un-suppresses the legacy
+    browser block; an ineligible turn arriving during an ACTIVE walk
+    would therefore avoid advancing — correctly — and revive the ten-
+    question pass the server had taken over. See the `HOLD` note above.)*
+
+    An ineligible turn now yields `HOLD` when there is a live walk to
+    hold, and `IDLE` only when there is genuinely nothing active: a
+    historical narrator, a pending, paused or completed row, or a state
+    too malformed to trust. Those four cases are unchanged, and they are
+    the ones the byte-stability tests pin.
     """
-    if not eligible or not state:
+    if not state:
         return TurnPlan(IDLE)
     if state.get("status") != _seed.STATUS_ACTIVE:
         return TurnPlan(IDLE)
@@ -449,6 +534,21 @@ def plan_turn(
     version = _valid_version(state.get("version"))
     if not _seed.is_known_topic(active) or version is None:
         return TurnPlan(IDLE)
+
+    # From here down there IS a live, well-formed walk. Everything that
+    # follows either asks about it or holds it; nothing falls back to
+    # `IDLE`, because from here `IDLE` would mean handing the walk back
+    # to the browser.
+    if not eligible:
+        return TurnPlan(HOLD, active, version)
+
+    if holds_the_walk(narrator_text):
+        # "pause", "stop", "help", "change narrator". Ask nothing, stamp
+        # nothing, apply nothing — and keep the legacy block suppressed.
+        # A control that asks for the question BACK ("repeat that") is
+        # not here: `classify_response` returns STATIONARY for it, which
+        # re-presents through the ordinary deferral path below.
+        return TurnPlan(HOLD, active, version)
 
     outstanding = outstanding_presentation(history)
 
@@ -571,9 +671,10 @@ __all__: Sequence[str] = (
     "PRESENTED_TOPIC", "PRESENTED_VERSION", "RESPONSE_TOPIC",
     "RESPONSE_VERSION", "RESPONSE_DISPOSITION", "META_KEYS",
     "ADDRESSED", "DECLINED", "STATIONARY", "CLASSIFICATIONS",
-    "PRESENT", "RE_PRESENT", "ACKNOWLEDGE", "IDLE", "ACTIONS",
+    "PRESENT", "RE_PRESENT", "ACKNOWLEDGE", "HOLD", "IDLE", "ACTIONS",
     "PRESENTED", "RESPONSE", "TurnEvent", "TurnPlan",
-    "is_temporary_deferral", "classify_response", "event_from_meta",
+    "is_temporary_deferral", "holds_the_walk", "classify_response",
+    "event_from_meta",
     "read_events", "outstanding_presentation", "latest_response",
     "plan_turn", "RecoveryOutcome", "recover",
     "NOTHING_OWED", "RETRIED", "CONFLICT_RESOLVED", "RECOVERY_OUTCOMES",

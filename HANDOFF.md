@@ -159,6 +159,32 @@ requires a separately reviewed SQLite rebuild and rollback plan.
 
 ## 4. Immediate execution order
 
+> **NEXT ACTION, 2026-08-27: SUPERVISORY REVIEW OF THE PRE-STEP-6 CORRECTION
+> CHECKPOINT. STEP 6 IS BLOCKED UNTIL THAT REVIEW LANDS.**
+>
+> A review of the pushed Step 5 tree found five bounded defects, none of them
+> narrator-reachable through the production UI because WebSocket onboarding is not
+> wired. They are closed in the correction checkpoint below `9127adb`'s successor and
+> are **awaiting acceptance**, not accepted:
+>
+> 1. **the mutation gate was not green** — `M1` disabled the first-presentation branch
+>    and crashed with `AttributeError`; `M8` retried against a permanently-raising
+>    recorder. Both scored `BROKEN`: errors only, nothing asserted. Repaired to fail by
+>    ASSERTION.
+> 2. **`expected_version` was not strict** — Pydantic coerced `true` to `1` and the
+>    accessor called `int()`. Reproduced: a pending narrator at version 1 accepted
+>    `expected_version=True` and moved to version 2. Closed at both layers.
+> 3. **the deterministic inventory said six and there are NINE** — `floor_buffer`,
+>    `past_tense_acknowledge` and `bank_flush` bypass `_finalize_deterministic_turn`.
+> 4. **control and system-directive turns** — `eligible=False` returned `IDLE`, which
+>    revives the legacy browser block mid-walk, and the classifier called "repeat that",
+>    "pause", "help" and "change narrator" `addressed`. A `HOLD` action and one shared
+>    control detector close both.
+> 5. **this document named a hash as "current `main`"** — see §4b; it is derived now.
+>
+> **The next session does not start Step 6 until Chris accepts this checkpoint.**
+> The Step 6 order itself is unchanged and stands below.
+
 **Next action: Profile Seed reachability — PHASE 2, STEP 6: WebSocket presentation metadata, response correlation, recovery and post-commit advancement, on the accepted two-event exact-tuple state machine. NOT STARTED. Phase 2 remains IN IMPLEMENTATION and NOT ACCEPTED.** Steps 1 and 2 landed first — production refusal detection now lives in `services/narrator_refusal.py`, so implementation has begun even though behaviour is preserved. Step 3 landed too — the turn state-machine service and a reproducible mutation gate. **Step 4, the composer section, is ACCEPTED at `b269184`** — it landed at `620d692` and took eleven rounds. Two removed authoritative claims about server state made before the versioned apply; one was a real product defect in `known_topics` validation; four were the ACCEPTANCE INSTRUMENT itself — a guard that failed for reasons outside its own subject, a mutation caught by a guard it was not aiming at, and a runner that scored a module broken at import as evidence. **The earlier acceptance at `9f31d9f` was premature and is superseded.** The ledger is in the work order's status block. **STEP 5 IS ACCEPTED at `9127adb`. STEP 6 — WEBSOCKET PRESENTATION METADATA AND POST-COMMIT ADVANCEMENT — IS THE CURRENT ACTION AND HAS NOT BEEN STARTED. STEP 7 REMAINS OWED.** The commit ledger is in the work order's status block, not here. REST supplies `profile_seed_onboarding` now and **advances nothing**; the production narrator UI still runs over WebSocket, so a narrator using that UI reaches the walk at Step 6. The walk itself is already live over REST — verified against the running API — so "unreachable by a narrator" would be false. *(This line said "NOT YET BEGUN" until 2026-08-26, after production code had moved. A control document that calls started work unstarted is the same defect as one that calls finished work unfinished.)* Phase 0 is ACCEPTED at `661aa95` and Phase 1 is **ACCEPTED at `1288baa`** — do not redo either. Everything Phase 1 owed is in-tree and green: migration `0051`, `services/profile_seed.py`, atomic enrollment inside `create_person()`, the versioned `GET`/`PATCH`, and the deletion cascade coverage. *(This line read "PHASE 1, server authority" as the next action until 2026-08-26 and "PHASE 1 REVIEW" until acceptance the same day. A next-action line naming accepted work is an instruction to rebuild it, which is the failure this file's own ordering rule exists to prevent.)* Phase 1 was migration `0051`, the canonical topic registry, the completion resolver, atomic enrollment, the versioned GET/PATCH API and deletion coverage. **Phase 2 is: resolve onboarding by narrator BEFORE all three transports compose; render exactly one topic from `TOPIC_REGISTRY`; advance only from the committed-turn path with meta and control turns stationary; complete into an effective `pass2a`.** See [`WO-LORI-PROFILE-SEED-REACHABILITY-01`](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md) §6. **Phase 2 must NOT touch the UI promotion sites — that is Phase 3** — and NOT another story/memoir testing pass. *(This read "Phase 0" until 2026-08-26; Phase 0 ran and was accepted beneath it, and a control document naming accepted work as next is an instruction to redo it.)*
 
 *(This section read "finish Lean Lori, in one substantial implementation block" until
@@ -288,10 +314,18 @@ original baseline.
 
 | Hash | What it is |
 |---|---|
-| `9127adb` | **Step 5 accepted checkpoint** — the last lane commit, and where the zero-skip gate was run |
-| `78fa12e` | **Current clean `main`** at this reconciliation — the documentation commit that recorded the acceptance |
+| `9127adb` | **Step 5 accepted checkpoint** — the last lane commit, and where the zero-skip gate was run. A FIXED point: it names one tree that was accepted once, and it stays correct forever. |
+| *derive it* | **The live head.** There is deliberately no hash here. Run `git rev-parse origin/main`. |
 
-*(These were conflated into one "clean `main` HEAD: `9127adb`", which is the acceptance checkpoint and was already two commits behind `main` by the time the sentence was written. A handoff that names the wrong HEAD sends the next session to the wrong tree.)*
+**DO NOT RECORD "current `main`" AS A HASH IN THIS FILE — DERIVE IT.**
+
+```bash
+git fetch origin && git rev-parse origin/main   # the live head, always
+git rev-parse HEAD                              # what your tree is actually on
+git status --porcelain                          # must be empty before any gate
+```
+
+*(Corrected 2026-08-27. This table read `78fa12e` — **"Current clean `main`"** — and by the time it was read `main` was `ea3ab27`. That is not a typo that got fixed; it is a sentence that CANNOT stay true, because committing the correction moves the thing it describes. The first attempt at this line conflated two different hashes into one "clean `main` HEAD: `9127adb`", which was already two commits behind when it was written; the second attempt split them and pinned the moving one anyway. A self-referential fact belongs in a command, not in prose. An ACCEPTANCE checkpoint is the opposite case — it describes a tree that has stopped moving — so `9127adb` stays written down.)*
 
 ### Acceptance state
 
@@ -445,7 +479,12 @@ Canonical plan:
 - privacy canon extraction and public-history purge;
 - broad `ws_chat`/extract-router decomposition;
 - giant control-document archival;
-- model, prompt-window, STT, TTS and runtime-safety changes.
+- model, prompt-window, STT, TTS and runtime-safety changes;
+- **`scripts/ui/run_test23_two_person_resume.py` does not parse** — `IndentationError`
+  at line 2082, from `df82215` (2026-05-06), so Test 23 has not run since. Pre-existing
+  and unrelated to Profile Seed; found by a repository-wide compile during the Step 6
+  review. Spec: [`BUG-HARNESS-TEST23-INDENTATION-01_Spec.md`](BUG-HARNESS-TEST23-INDENTATION-01_Spec.md).
+  **Do not repair it inside the Profile Seed lane.**
 
 Do not fold these into Palette implementation.
 
