@@ -1,8 +1,8 @@
 # WO-REPOSITORY-HYGIENE-01 — indexed reorganization, not a deletion sweep
 
-**Status:** ACTIVE — **Step 1 ACCEPTED `5f6b01b`; Step 2 ACCEPTED `db0c5e7`; Step 2b
-DELIVERED and awaiting review.** Steps 3–5 not started. **One historical file preserved to
-`docs/archive/changelogs/`; nothing else has moved.**
+**Status:** ACTIVE — **Steps 1 `5f6b01b`, 2 `db0c5e7` and 2b `ff1ff4f` all ACCEPTED.
+Step 3 is the current step; its first cohort is not started.** Steps 4–5 not started.
+**One historical file preserved to `docs/archive/changelogs/`; nothing else has moved.**
 **Opened:** 2026-08-28
 **Authority:** [`../reviews/HORNELORE_REPOSITORY_ARCHIVE_AUDIT_2026-08-28.md`](../reviews/HORNELORE_REPOSITORY_ARCHIVE_AUDIT_2026-08-28.md)
 and its [verification addendum](../reviews/HORNELORE_REPOSITORY_ARCHIVE_AUDIT_2026-08-28_VERIFICATION_ADDENDUM.md)
@@ -61,8 +61,8 @@ next begins.
 | 0 | Safety marker | Annotated tags `archive/pre-hygiene-2026-08-28` → `d0e5294` and `audit/repository-baseline-2026-08-28` → `ea3ab27` — the second is the audited baseline and **not the rollback point** | **DONE — both published on GitHub and peel correctly** |
 | 1 | **Indexes only** | This file, `docs/INDEX.md`, `docs/BACKLOG.md`, `docs/archive/INDEX.md`, `scripts/INDEX.md`, the audit verbatim, the verification addendum. **No moves** | **ACCEPTED `5f6b01b`** |
 | 2 | Control authority | `HANDOFF.md` → current state and next action. Checklist → active/next/deferred. README → product and operation, not commit history. `CLAUDE.md` → durable doctrine, with the corrections in `BACKLOG.md` §4 | **ACCEPTED `db0c5e7`** |
-| 2b | Changelog | Snapshot preserved byte-for-byte at `docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md`; the live path replaced by a small decision index. **Split from step 2 deliberately: it is a MOVE**, and §2's standing rule forbids combining a documentation rewrite with a file move in one commit | 🔵 **DELIVERED — awaiting review** |
-| 3 | Historical moves | Small, separately reviewable **cohorts**. Links updated and validated after **every** cohort | not started |
+| 2b | Changelog | Snapshot preserved byte-for-byte at `docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md`; the live path replaced by a small decision index. **Split from step 2 deliberately: it is a MOVE**, and §2's standing rule forbids combining a documentation rewrite with a file move in one commit | **ACCEPTED `ff1ff4f`** — comprising `fbc50fc`, `0d49bd0`, `ff1ff4f` |
+| 3 | Historical moves | Small, separately reviewable **cohorts**. Links updated and validated after **every** cohort. **First cohort: the four root dated artifacts, and nothing else** | 🔵 **CURRENT — first cohort not started** |
 | 4 | Legacy tests and scripts | Map the singular `test/` tree's coverage to current tests **before** moving it. Move only tools whose purpose and replacement are both named | not started |
 | 5 | Tracked-byte reduction | Preserve and checksum research documents outside Git, then remove the tracked binaries. Remove the unused SIMD asset behind a focused gate. Remove empty `wsl`, the old result JSON, the duplicate cue candidate | not started |
 | — | Verification checkpoint | §6 below | not started |
