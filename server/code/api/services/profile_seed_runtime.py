@@ -20,13 +20,34 @@ work order exists to end.
 
 **So the payload is built once, here, and both transports call it.**
 
-── WHAT THIS MODULE MUST NOT BECOME ───────────────────────────────────
+── WHAT THIS MODULE IS, STATED ACCURATELY ─────────────────────────────
 
-It is a serializer. It resolves nothing, writes nothing, and decides
-nothing about the walk — `profile_seed.py` owns the state,
-`profile_seed_turn.py` owns the plan, and this module owns only the
-shape handed to the composer. A read or a write appearing here would
-put onboarding authority in a formatting helper.
+*(An earlier version of this note called the module "a serializer" that
+"resolves nothing, writes nothing". That was true of the payload half
+and FALSE of the module — `prepare_turn` drives a recovery that can
+apply a disposition to durable state. Describing an orchestrator as a
+formatting helper is how a reader concludes it is safe to call twice, or
+safe to call from a read-only path, and neither is true.)*
+
+Two halves, with different characters, and the difference is the thing
+to keep straight:
+
+  * **`onboarding_payload` and `attach_onboarding` are pure.** Given a
+    plan and a state they compute a dict. No I/O, no ordering
+    requirement, safe anywhere.
+  * **`prepare_turn` ORCHESTRATES.** It runs recovery before resolution
+    before planning, and recovery calls the injected `apply_fn` — so a
+    call to `prepare_turn` CAN WRITE, advancing the walk by re-applying
+    a response committed on an earlier turn. It is once-per-turn, on the
+    committed-turn path, and it is not safe to call speculatively.
+  * `commit_meta` and `should_advance` are pure decisions over that
+    plan, kept here so both live beside the orchestration they gate.
+
+What the module still does NOT own is authority: `profile_seed.py` owns
+the state and its transitions, `profile_seed_turn.py` owns the reducer
+and the plan. Storage access arrives only as injected callables, never
+imported here — which is what keeps the write confined to the caller's
+own database session and testable without one.
 
 ── BYTE-STABILITY IS A CONSTRAINT, NOT AN ASPIRATION ──────────────────
 
@@ -155,6 +176,12 @@ def prepare_turn(
     apply_fn: Callable[..., Any],
 ) -> PreparedTurn:
     """Recover, then resolve, then plan. **In that order, every turn.**
+
+    **THIS CAN WRITE.** Recovery calls `apply_fn`, so a call here may
+    advance the walk by re-applying a response committed on an earlier
+    turn whose apply never landed. It is once per committed turn and it
+    is not safe to call speculatively, from a read-only path, or twice.
+
 
     Recovery runs FIRST and composition uses the state it re-resolved,
     never the snapshot from before it. Reversing those two produces a

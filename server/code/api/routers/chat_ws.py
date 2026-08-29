@@ -4403,16 +4403,29 @@ async def ws_chat(ws: WebSocket):
         # onboarding decision. The narrator sees an error and their
         # conversation is untouched, which is recoverable; a wrong
         # question asked from degraded state is not.
-        history = export_turns(conv_id)
+        history = None
         _ps_plan = None
         _ps_state: Optional[Dict[str, Any]] = None
+        _ps_planned_meta: Dict[str, Any] = {}
         # Ineligible turns do not participate. `plan_turn` turns that into
         # HOLD when a walk is live — NOT `IDLE`, because `IDLE` would
         # un-suppress the legacy browser block and hand the walk back to
         # the ten-question pass the server took over.
         _ps_eligible = not bool(params.get("_is_system_directive")) and not ev.is_set()
-        if person_id:
-            try:
+        try:
+            # ── THE HISTORY READ IS INSIDE THE BOUNDARY, 2026-08-28 ────
+            #
+            # *(It was one line above the `try`, which meant a failing
+            # `export_turns` escaped the handler without the visible
+            # refusal this block promises — and `export_turns` is THE
+            # RECOVERY READ. A recovery read that fails silently is the
+            # precise case the refusal rule was written for, and it was
+            # the one case not covered.)*
+            #
+            # It is also read unconditionally, for every narrator: the
+            # model path below needs it whether or not Profile Seed does.
+            history = export_turns(conv_id)
+            if person_id:
                 from ..db import (profile_seed_resolve as _ps_resolve,
                                   profile_seed_apply as _ps_apply)
                 from ..services import profile_seed_turn as _ps_turn
@@ -4425,6 +4438,24 @@ async def ws_chat(ws: WebSocket):
                 )
                 _ps_plan = _ps_prepared.plan
                 _ps_state = _ps_prepared.state
+                # ── THE EVENT IS BUILT HERE, NOT AT THE COMMIT ────────
+                #
+                # *(It was built at the commit inside a `try` that fell
+                # back to `{}` — "cost the metadata, never the turn".
+                # That reasoning is right for a prompt fragment and WRONG
+                # for this state machine, because the metadata IS the
+                # correlation and the retry record. Falling back left the
+                # worst reachable state: the narrator's answer committed,
+                # no response event, no advancement, nothing for recovery
+                # to find, the old presentation still outstanding — and a
+                # LATER answer then matched against that stale question.)*
+                #
+                # Built before the model runs, with cancellation excluded
+                # so this is the event the turn WOULD carry. A failure to
+                # construct it refuses the turn below, while refusing is
+                # still free: nothing has been persisted yet.
+                _ps_planned_meta = _ps_runtime.commit_meta(
+                    _ps_plan, eligible=_ps_eligible, cancelled=False)
                 if _ps_prepared.recovery.status != _ps_turn.NOTHING_OWED:
                     logger.info(
                         "[chat_ws][profile-seed][recover] outcome=%s topic=%s "
@@ -4443,23 +4474,36 @@ async def ws_chat(ws: WebSocket):
                     _ps_plan.action, _ps_plan.topic_id, _ps_plan.version,
                     _ps_eligible, conv_id, person_id,
                 )
-            except Exception as _ps_exc:
-                # DELIBERATELY NOT SWALLOWED INTO A DEFAULT. Every other
-                # runtime contributor on this path logs and continues,
-                # because a missing prompt fragment costs prompt quality.
-                # This one costs onboarding correctness, and the two are
-                # not comparable.
-                logger.error(
-                    "[chat_ws][profile-seed] REFUSING TURN — onboarding "
-                    "state unavailable conv=%s person=%s: %s",
-                    conv_id, person_id, _ps_exc, exc_info=True,
-                )
-                await _ws_send(ws, {
-                    "type": "error",
-                    "message": ("Onboarding state unavailable — this turn was "
-                                "not answered and nothing was written."),
-                })
-                return
+        except Exception as _ps_exc:
+            # DELIBERATELY NOT SWALLOWED INTO A DEFAULT. Every other
+            # runtime contributor on this path logs and continues,
+            # because a missing prompt fragment costs prompt quality.
+            # This one costs onboarding correctness, and the two are not
+            # comparable.
+            logger.error(
+                "[chat_ws][profile-seed] REFUSING TURN — onboarding state "
+                "unavailable conv=%s person=%s: %s",
+                conv_id, person_id, _ps_exc, exc_info=True,
+            )
+            # ── THE MESSAGE MUST BE TRUE, 2026-08-28 ──────────────────
+            #
+            # *(It said "nothing was written". That is false by the time
+            # this line runs: the narrator's turn has already been
+            # appended to the life-story archive thousands of lines
+            # above, and a story candidate may already be preserved. A
+            # refusal that misdescribes what is on disk teaches the
+            # operator to distrust the one message whose whole job is to
+            # be trusted.)*
+            #
+            # What IS true: Lori did not answer, and no onboarding event
+            # or advancement was recorded.
+            await _ws_send(ws, {
+                "type": "error",
+                "message": ("Onboarding state is temporarily unavailable. "
+                            "Lori did not answer this turn; please try "
+                            "again."),
+            })
+            return
 
         model, tok = _load_model()
 
@@ -6047,22 +6091,20 @@ async def ws_chat(ws: WebSocket):
         # The plan decides WHICH keys, and it decides alone —
         # PRESENT/RE_PRESENT stamp only `presented`, ACKNOWLEDGE stamps
         # only `response`, HOLD and IDLE stamp nothing at all.
-        _ps_commit_meta: Dict[str, Any] = {}
+        # NO `try` HERE, AND THAT IS THE CORRECTION. The event was built
+        # before the model ran; if it could not be built, the turn was
+        # already refused while refusing was still free. What remains is
+        # a dictionary copy, and a dictionary copy that could fail would
+        # mean the interpreter is gone.
+        #
+        # CANCELLATION IS OBSERVED HERE, for the first of two times. A
+        # turn cancelled before the commit writes no event at all: a
+        # presentation the narrator never saw would leave a question
+        # recorded as asked, and a response matched against it later
+        # would apply a disposition to an answer that does not exist.
         _ps_cancelled_at_commit = ev.is_set()
-        try:
-            from ..services import profile_seed_runtime as _ps_runtime_commit
-            _ps_commit_meta = _ps_runtime_commit.commit_meta(
-                _ps_plan, eligible=_ps_eligible,
-                cancelled=_ps_cancelled_at_commit)
-        except Exception as _ps_meta_exc:
-            # A metadata build that raised must cost the metadata, never
-            # the turn. The narrator's words are the thing that matters
-            # and they are about to be committed.
-            logger.error(
-                "[chat_ws][profile-seed] commit_meta raised conv=%s: %s",
-                conv_id, _ps_meta_exc, exc_info=True,
-            )
-            _ps_commit_meta = {}
+        _ps_commit_meta: Dict[str, Any] = (
+            {} if _ps_cancelled_at_commit else dict(_ps_planned_meta))
         _turn_meta: Dict[str, Any] = {"ws": True,
                                       "cancelled": _ps_cancelled_at_commit}
         _turn_meta.update(_ps_commit_meta)
@@ -6198,6 +6240,17 @@ async def ws_chat(ws: WebSocket):
         _ps_may_advance = False
         try:
             from ..services import profile_seed_runtime as _ps_runtime_apply
+            # THE SECOND CANCELLATION OBSERVATION, and it is deliberately
+            # a fresh read rather than `_ps_cancelled_at_commit`.
+            #
+            # LATE CANCELLATION — false at the commit, true by now — is a
+            # real state and its handling is asymmetric ON PURPOSE. The
+            # response event IS committed and stays committed, because it
+            # describes something that genuinely happened: the narrator
+            # answered and the turn was written. Only the advancement is
+            # skipped. The next turn's recovery pass finds that durable
+            # event and applies it, so a late cancellation costs a
+            # deferral, never the answer.
             _ps_may_advance = bool(person_id) and _ps_runtime_apply.should_advance(
                 _ps_plan, persisted=_persist_ok, eligible=_ps_eligible,
                 cancelled=ev.is_set())

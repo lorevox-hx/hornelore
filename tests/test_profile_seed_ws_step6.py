@@ -24,11 +24,19 @@ history list, which is precisely the shape `db.export_turns()` returns
 and precisely what the reducer reads. The durable event is the metadata
 on that row, so a list of rows is a faithful stand-in for the table.
 
+**`RealPersistenceSeamTests` uses no stand-in at all** — it writes with
+`db.persist_turn_transaction` and reads back with `db.export_turns`,
+because the list-of-rows form assumes the two things only those
+functions can prove: that the writer merges caller metadata onto the
+assistant row, and that the reader returns it in the shape the reducer
+parses.
+
 **The wiring — that the router actually calls these in this order, and
 that no deterministic path does — is asserted structurally in
 `tests/test_profile_seed_deterministic_paths.py`.** Neither file is
 sufficient alone, and saying so is the honest scope: this one proves the
-rules are right, that one proves the router runs them.
+rules are right and that events survive the real commit seam; that one
+proves the router runs them in the right order at the right points.
 
 ── THE OPERATIONAL FACT THIS SUITE DOES NOT CHANGE ───────────────────
 
@@ -583,6 +591,234 @@ class SharedPayloadTests(_Base):
                     "profile_seed_rest builds the payload by hand again; "
                     "two builders drift one field at a time and the "
                     "narrator gets a different prompt per transport")
+
+
+# ── 6. The REAL commit seam ─────────────────────────────────────────────
+class RealPersistenceSeamTests(_Base):
+    """`persist_turn_transaction` → `export_turns`, with no stand-ins.
+
+    ── WHY THE CLASSES ABOVE WERE NOT ENOUGH, 2026-08-28 ───────────────
+
+    *(They append `{"role": "assistant", "meta": ...}` to a list and call
+    it a committed row. That is the right shape and it proved the rules,
+    but it assumes the two things this class actually tests: that
+    `persist_turn_transaction` MERGES caller metadata onto the assistant
+    row rather than dropping or relocating it, and that `export_turns`
+    hands it back in the form the reducer reads. Both are real functions
+    with real JSON round-trips, and "end to end" was too strong a label
+    for a suite that never called either.)*
+
+    Everything here goes through the product writer and the product
+    reader. If the metadata does not survive that trip, the walk cannot
+    work no matter how correct the rules are.
+    """
+
+    CONV = "step6-real-seam"
+
+    def _commit(self, user_text, assistant_text, meta):
+        row_ids: Dict[str, Any] = {}
+        assistant_row = _db.persist_turn_transaction(
+            conv_id=self.CONV,
+            user_message=user_text,
+            assistant_message=assistant_text,
+            model_name="local-llm-ws",
+            person_id=self.person_id,
+            meta=dict(meta),
+            row_ids_out=row_ids,
+        )
+        return assistant_row, row_ids
+
+    def _exported(self):
+        return _db.export_turns(self.CONV)
+
+    def _run_turn(self, narrator_text, *, cancelled_at_commit=False,
+                  cancelled_at_advance=None, eligible=True):
+        """The router's sequence, over the real writer and reader."""
+        if cancelled_at_advance is None:
+            cancelled_at_advance = cancelled_at_commit
+        history = self._exported()
+        prepared = _rt.prepare_turn(
+            self.person_id, history, narrator_text=narrator_text,
+            eligible=eligible, resolve_fn=_db.profile_seed_resolve,
+            apply_fn=_db.profile_seed_apply)
+        planned = _rt.commit_meta(prepared.plan, eligible=eligible,
+                                  cancelled=False)
+        commit = {} if cancelled_at_commit else dict(planned)
+        turn_meta = {"ws": True, "cancelled": bool(cancelled_at_commit)}
+        turn_meta.update(commit)
+        assistant_row, _ids = self._commit(narrator_text, "Lori says…",
+                                           turn_meta)
+        advanced = False
+        if _rt.should_advance(prepared.plan, persisted=True, eligible=eligible,
+                              cancelled=cancelled_at_advance):
+            _db.profile_seed_apply(
+                self.person_id,
+                expected_version=int(prepared.plan.version or 0),
+                action=prepared.plan.disposition,
+                topic_id=prepared.plan.topic_id)
+            advanced = True
+        return prepared, assistant_row, advanced
+
+    def test_the_event_SURVIVES_the_writer_and_the_reader(self):
+        prepared, row_id, _ = self._run_turn("Hello.")
+        self.assertEqual(prepared.plan.action, _turn.PRESENT)
+        self.assertIsNotNone(row_id, "no assistant row id was returned")
+
+        rows = self._exported()
+        events = _turn.read_events(rows)
+        self.assertEqual(len(events), 1,
+                         f"the reducer read {len(events)} events back out of "
+                         f"the real database: {rows}")
+        self.assertEqual(events[0].kind, _turn.PRESENTED)
+        self.assertEqual(events[0].topic_id, prepared.plan.topic_id)
+        self.assertEqual(events[0].version, prepared.plan.version)
+
+    def test_the_metadata_lands_ONLY_on_the_assistant_row(self):
+        """The narrator's own row must carry no onboarding event.
+
+        `read_events` skips non-assistant rows, so a leak here would be
+        invisible to the reducer and visible to anything else reading
+        `turns` — an event attributed to the narrator rather than to
+        Lori.
+        """
+        self._run_turn("Hello.")
+        rows = self._exported()
+        user_rows = [r for r in rows if r.get("role") == "user"]
+        self.assertTrue(user_rows, "no narrator row was committed")
+        for row in user_rows:
+            for key in _turn.META_KEYS:
+                with self.subTest(key=key):
+                    self.assertNotIn(key, row.get("meta") or {})
+        assistant = [r for r in rows if r.get("role") == "assistant"]
+        self.assertTrue(
+            any(_turn.PRESENTED_TOPIC in (r.get("meta") or {})
+                for r in assistant),
+            "no committed assistant row carries the presentation")
+
+    def test_the_full_walk_over_real_rows(self):
+        """Present → answer → acknowledge → next topic, all committed."""
+        p1, _, adv1 = self._run_turn("Hello.")
+        first_topic = p1.plan.topic_id
+        self.assertFalse(adv1)
+        self.assertEqual(self._state()["active_topic_id"], first_topic)
+
+        p2, _, adv2 = self._run_turn("We lived in Devils Lake.")
+        self.assertEqual(p2.plan.action, _turn.ACKNOWLEDGE)
+        self.assertTrue(adv2, "the committed acknowledgement did not advance")
+        second_topic = self._state()["active_topic_id"]
+        self.assertNotEqual(second_topic, first_topic)
+
+        p3, _, _ = self._run_turn("Tell me more.")
+        self.assertEqual(p3.plan.action, _turn.PRESENT)
+        self.assertEqual(p3.plan.topic_id, second_topic,
+                         "the next turn did not present the next topic")
+
+    def test_a_failed_apply_is_recovered_FROM_EXPORTED_HISTORY(self):
+        """The retry record is a real row, read back by the real reader."""
+        self._run_turn("Hello.")
+        topic = self._state()["active_topic_id"]
+
+        history = self._exported()
+        prepared = _rt.prepare_turn(
+            self.person_id, history, narrator_text="Devils Lake.",
+            eligible=True, resolve_fn=_db.profile_seed_resolve,
+            apply_fn=_db.profile_seed_apply)
+        meta = _rt.commit_meta(prepared.plan, eligible=True, cancelled=False)
+        turn_meta = {"ws": True, "cancelled": False}
+        turn_meta.update(meta)
+        self._commit("Devils Lake.", "Lori says…", turn_meta)
+        # The apply does not run — this is the failure being modelled.
+        self.assertEqual(self._state()["active_topic_id"], topic)
+
+        prepared2 = _rt.prepare_turn(
+            self.person_id, self._exported(), narrator_text="Go on.",
+            eligible=True, resolve_fn=_db.profile_seed_resolve,
+            apply_fn=_db.profile_seed_apply)
+        self.assertEqual(prepared2.recovery.status, _turn.RETRIED)
+        self.assertNotEqual(self._state()["active_topic_id"], topic)
+        self.assertNotEqual(prepared2.plan.topic_id, topic)
+
+    def test_reconnecting_preserves_the_OUTSTANDING_state(self):
+        """A fresh read of the same conversation sees the same walk.
+
+        This is the session-boundary case the REST module's note calls
+        the real harm: history in memory hides an unrecorded presentation,
+        and a reconnect does not.
+        """
+        p1, _, _ = self._run_turn("Hello.")
+        outstanding = _turn.outstanding_presentation(self._exported())
+        self.assertIsNotNone(outstanding, "nothing outstanding after a "
+                                          "committed presentation")
+        self.assertEqual(outstanding.tuple,
+                         (p1.plan.topic_id, p1.plan.version))
+
+        # A "reconnect": nothing cached, everything re-read.
+        prepared = _rt.prepare_turn(
+            self.person_id, self._exported(), narrator_text=None,
+            eligible=True, resolve_fn=_db.profile_seed_resolve,
+            apply_fn=_db.profile_seed_apply)
+        self.assertEqual(prepared.plan.action, _turn.RE_PRESENT,
+                         "an empty turn after a reconnect did not re-present "
+                         "the outstanding question")
+        self.assertEqual(prepared.plan.topic_id, p1.plan.topic_id)
+
+
+class LateCancellationTests(RealPersistenceSeamTests):
+    """Cancellation is observed TWICE, and the two are not the same event."""
+
+    def test_cancellation_BEFORE_the_commit_writes_no_event(self):
+        self._run_turn("Hello.")
+        before = self._state()
+        prepared, _row, advanced = self._run_turn(
+            "Devils Lake.", cancelled_at_commit=True)
+
+        self.assertEqual(prepared.plan.action, _turn.ACKNOWLEDGE)
+        self.assertFalse(advanced)
+        responses = [e for e in _turn.read_events(self._exported())
+                     if e.kind == _turn.RESPONSE]
+        self.assertEqual(responses, [],
+                         "a turn cancelled before the commit still recorded "
+                         "a response event")
+        self.assertEqual(self._state()["active_topic_id"],
+                         before["active_topic_id"])
+
+    def test_LATE_cancellation_keeps_the_event_and_defers_the_advance(self):
+        """False at the commit, true by the advancement gate.
+
+        The asymmetry is deliberate and it is the interesting case. The
+        response event describes something that genuinely happened — the
+        narrator answered and the turn was committed — so it stays. Only
+        the advancement is skipped, and the next turn's recovery applies
+        it. A late cancellation costs a deferral, never the answer.
+        """
+        self._run_turn("Hello.")
+        topic = self._state()["active_topic_id"]
+
+        prepared, _row, advanced = self._run_turn(
+            "Devils Lake.", cancelled_at_commit=False,
+            cancelled_at_advance=True)
+
+        self.assertEqual(prepared.plan.action, _turn.ACKNOWLEDGE)
+        self.assertFalse(advanced, "a late cancellation still advanced")
+        self.assertEqual(self._state()["active_topic_id"], topic,
+                         "the walk moved despite the cancelled advancement")
+
+        committed = [e for e in _turn.read_events(self._exported())
+                     if e.kind == _turn.RESPONSE]
+        self.assertEqual(
+            len(committed), 1,
+            "the committed response event was lost, so the answer is "
+            "unrecoverable — a late cancellation must cost a deferral, "
+            "not the narrator's answer")
+
+        prepared2 = _rt.prepare_turn(
+            self.person_id, self._exported(), narrator_text="Go on.",
+            eligible=True, resolve_fn=_db.profile_seed_resolve,
+            apply_fn=_db.profile_seed_apply)
+        self.assertEqual(prepared2.recovery.status, _turn.RETRIED)
+        self.assertNotEqual(
+            self._state()["active_topic_id"], topic,
+            "recovery did not pick up the event a late cancellation left")
 
 
 if __name__ == "__main__":  # pragma: no cover

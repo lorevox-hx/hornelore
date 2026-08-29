@@ -706,17 +706,131 @@ class Step6WiringTests(unittest.TestCase):
         self.assertLess(lines["commit_meta"], lines["should_advance"],
                         f"advancement is gated before the commit: {lines}")
 
-    def test_the_apply_comes_AFTER_the_persist_call(self):
-        """Post-commit means post-commit."""
-        persist = [n.lineno for n in self._calls()
-                   if _call_name(n) == "persist_turn_transaction"]
+    def _model_path_persist_line(self):
+        """THE ordinary model-path commit, identified by `meta=_turn_meta`.
+
+        ── "ANY PERSIST CALL" WAS NOT AN ASSERTION, 2026-08-28 ─────────
+
+        *(This used to check that the apply followed SOME
+        `persist_turn_transaction` in the module. Nine deterministic
+        persist sites occur thousands of lines earlier, so the test
+        passed on their account alone — it would have kept passing if
+        the Step 6 apply had moved ABOVE the ordinary model-path commit,
+        which is the single thing it exists to forbid. A landmark that
+        can be satisfied by unrelated code is not a landmark.)*
+
+        The ordinary commit is the only persist site whose `meta` is the
+        computed `_turn_meta` name; every deterministic site passes a
+        dict literal. Requiring exactly one is part of the assertion.
+        """
+        hits = []
+        for node in self._calls():
+            if _call_name(node) != "persist_turn_transaction":
+                continue
+            meta = _kwargs(node).get("meta")
+            if isinstance(meta, ast.Name) and meta.id == "_turn_meta":
+                hits.append(node.lineno)
+        self.assertEqual(
+            len(hits), 1,
+            f"expected exactly one persist site passing meta=_turn_meta, "
+            f"found {len(hits)} at {hits}. That name identifies the ordinary "
+            "model-path commit; without exactly one, the ordering assertions "
+            "below do not know which commit they are talking about.")
+        return hits[0]
+
+    def test_the_apply_comes_AFTER_the_ORDINARY_MODEL_PATH_commit(self):
+        commit = self._model_path_persist_line()
         apply_calls = [n.lineno for n in self._calls()
                        if _call_name(n) == "_ps_apply_now"]
         self.assertEqual(len(apply_calls), 1, f"apply sites: {apply_calls}")
+        self.assertGreater(
+            apply_calls[0], commit,
+            "the onboarding apply runs BEFORE the ordinary model-path "
+            "commit, so it would advance the walk past an answer whose rows "
+            "are not yet written")
+
+    def test_the_whole_sequence_is_in_the_required_order(self):
+        """prepare → commit_meta → the ordinary commit → gate → apply.
+
+        Asserted as one chain rather than as separate pairs, because the
+        pairs can each hold while the chain is broken.
+        """
+        positions = {"persist(_turn_meta)": self._model_path_persist_line()}
+        for name in ("prepare_turn", "commit_meta", "should_advance",
+                     "_ps_apply_now"):
+            hits = [n.lineno for n in self._calls() if _call_name(n) == name]
+            self.assertEqual(len(hits), 1, f"{name} sites: {hits}")
+            positions[name] = hits[0]
+        expected = ["prepare_turn", "commit_meta", "persist(_turn_meta)",
+                    "should_advance", "_ps_apply_now"]
+        actual = sorted(expected, key=lambda k: positions[k])
+        self.assertEqual(
+            actual, expected,
+            f"Step 6 runs out of order. By source position: "
+            f"{sorted(positions.items(), key=lambda kv: kv[1])}")
+
+    def test_the_planned_metadata_is_built_BEFORE_the_model_loads(self):
+        """A build that fails must refuse while refusing is still free.
+
+        *(The metadata was built at the commit inside a `try` that fell
+        back to `{}`. That persisted an acknowledgement with no response
+        event: answer committed, nothing recorded, nothing for recovery
+        to find, and the stale presentation still outstanding to catch a
+        later answer. Building it before the model means a failure
+        refuses the turn before anything is written.)*
+        """
+        meta_calls = [n.lineno for n in self._calls()
+                      if _call_name(n) == "commit_meta"]
+        load = [n.lineno for n in self._calls()
+                if _call_name(n) == "_load_model"]
+        self.assertEqual(len(meta_calls), 1, f"commit_meta sites: {meta_calls}")
+        self.assertTrue(load, "_load_model is gone; landmark lost")
+        self.assertLess(
+            meta_calls[0], min(load),
+            "the turn metadata is built after the model loads, so a build "
+            "failure can no longer refuse the turn for free")
+
+    def test_the_history_read_is_INSIDE_the_refusal_boundary(self):
+        """`export_turns` is the recovery read. It must not escape.
+
+        *(It sat one line above the `try`, so a failing recovery read
+        left the handler without the visible refusal the block promises
+        — the one storage fault the rule was written for was the one
+        case not covered.)*
+        """
+        tree = _tree()
+        prepare = [n.lineno for n in ast.walk(tree)
+                   if isinstance(n, ast.Call)
+                   and _call_name(n) == "prepare_turn"]
+        self.assertEqual(len(prepare), 1)
+        guarded = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Try):
+                continue
+            start, end = node.lineno, getattr(node, "end_lineno", node.lineno)
+            if not (start <= prepare[0] <= end):
+                continue
+            body = ast.dump(ast.Module(body=list(node.body), type_ignores=[]))
+            if "export_turns" in body:
+                guarded.append(node.lineno)
         self.assertTrue(
-            any(p < apply_calls[0] for p in persist),
-            "the onboarding apply does not follow any persist call, so it "
-            "is not post-commit")
+            guarded,
+            "no try block contains BOTH the history export and the profile "
+            "seed preparation, so a failing export_turns escapes without the "
+            "visible refusal")
+
+    def test_the_refusal_message_does_not_claim_nothing_was_written(self):
+        """By then, the archive event and possibly a story already exist.
+
+        A refusal that misdescribes what is on disk teaches the operator
+        to distrust the one message whose entire job is to be trusted.
+        """
+        source = _CHAT_WS.read_text(encoding="utf-8")
+        self.assertNotIn(
+            "not answered and nothing was written", source,
+            "the Profile Seed refusal claims nothing was written, but the "
+            "narrator's archive event is committed thousands of lines "
+            "earlier and a story candidate may already be preserved")
 
     def test_the_advancement_is_NOT_inside_the_persistence_handler(self):
         """A failed apply must never be reported as a failed persist.

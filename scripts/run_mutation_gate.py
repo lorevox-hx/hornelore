@@ -877,11 +877,29 @@ MUTATIONS: Tuple[Mutation, ...] = (
         '    return bool(persisted and eligible and not cancelled\n'
         '                and plan is not None)',
         STEP6_TESTS),
+    # ── X6 IS A STRUCTURAL GUARD, NOT A BEHAVIOURAL MUTATION ──────────
+    #
+    # Stated plainly because the distinction is easy to lose in a report
+    # that prints CAUGHT for both. X1–X5 change what the code DOES and
+    # are caught by assertions about a real database — a walk that
+    # advances wrongly, an event that is or is not written.
+    #
+    # X6 restores REST's hand-built payload, which is BEHAVIOURALLY
+    # IDENTICAL today. That is exactly why it needs a guard: nothing
+    # observable breaks at the moment the second builder appears, and
+    # the drift arrives later, one field at a time. So it is caught by a
+    # SOURCE ASSERTION — `test_REST_and_the_websocket_cannot_disagree`
+    # reads `profile_seed_rest.py` and fails on the reintroduced literal.
+    #
+    # Reporting it as behavioural coverage would overstate what the
+    # gate proves about this class of defect.
     Mutation(
-        "X6", "REST REBUILDS THE PAYLOAD BY HAND: two builders for one "
-              "composer contract, which drift a field at a time until the "
-              "same narrator gets a different prompt depending on whether "
-              "they arrived over REST or the WebSocket",
+        "X6", "STRUCTURAL GUARD (not behavioural): REST rebuilds the "
+              "payload by hand — behaviourally identical today, which is "
+              "the danger. Two builders for one composer contract drift a "
+              "field at a time until the same narrator gets a different "
+              "prompt depending on whether they arrived over REST or the "
+              "WebSocket",
         REST,
         '    runtime[PROFILE_SEED_ONBOARDING_KEY] = _runtime.onboarding_payload(\n'
         '        plan, state)',
