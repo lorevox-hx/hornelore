@@ -93,6 +93,18 @@ lesson.
   cd /mnt/c/Users/chris/hornelore
   grep -c '^    Mutation(' scripts/run_mutation_gate.py
   ```
+* **`scripts/run_narrator_cohort_acceptance.py`** — the consolidated live
+  acceptance runner for the narrator cohort. It **imports** the existing
+  `run_*_harness.py` fixtures and calls their `build_config()`, so no
+  biography is duplicated and a fixture edit reaches this run for free.
+  `--plan` is the default and writes nothing; `--live` is required for any
+  network or database work. **It contains no deletion path** — an
+  `erasure-manifest.json` is written for a human to act on later, with
+  Chris's authorization, through the product hard-delete path. Excludes
+  Jake (Kent-derived, the only harness with `testing_only=False`) and the
+  writable Shatner fixture (Shatner is a read-only reference persona).
+  Guards refuse any narrator that is not testing-only or a declared
+  reference. Location-aware, unlike `harness_lib.REPO_ROOT`.
 * **`scripts/step6_ws_probe.py`** — the Profile Seed Step 6 **live acceptance instrument**,
   and the evidence for an accepted step. It creates one clearly synthetic narrator through
   the product endpoint, drives five turns over the production WebSocket, and verifies the
