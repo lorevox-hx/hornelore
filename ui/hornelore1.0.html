@@ -3693,6 +3693,18 @@
       <span id="summaryGen"></span>
       <span id="summaryProg"></span>
     </div>
+    <!-- Profile Seed onboarding — OPERATOR chrome, server-derived.
+         Hidden unless the server says this narrator is enrolled, so an
+         ordinary narrator session is visually unchanged. Never rendered
+         into #chatMessages: design principle 2, no operator leakage.
+         WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 3, Commit B. -->
+    <div id="psOnboarding" style="display:none;margin-top:6px;font-size:11px;
+         color:#475569;border-top:1px solid #e2e8f0;padding-top:5px">
+      <span id="psProgress"></span>
+      <button id="psPauseBtn" type="button"
+              style="margin-left:6px;font-size:10px;padding:1px 6px"></button>
+      <span id="psNote" style="margin-left:6px;color:#94a3b8"></span>
+    </div>
     <table id="tblKinship"></table>
     <table id="tblPets"></table>
     <!-- Chat/reply elements referenced without null guards -->
@@ -5356,6 +5368,10 @@
      app.js uses window.onload. lv80 init wraps that onload and
      runs AFTER it completes — identical pattern to lori7.5.html.
 ──────────────────────────────────────────────────────────────-->
+<!-- Profile Seed authority: the browser's view of who owns the walk.
+     BEFORE state.js, whose setPass() is the single promotion choke point.
+     WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 3, Commit B. -->
+<script src="js/profile-seed-authority.js"></script>
 <script src="js/state.js"></script>
 <!-- WO-CANONICAL-LIFE-SPINE-01 — Canonical Life Spine taxonomy.
      Single source of truth for life-period buckets across Timeline,

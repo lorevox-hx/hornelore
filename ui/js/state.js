@@ -565,7 +565,59 @@ function getCognitiveSupportMode() { return !!(state.session?.cognitiveSupportMo
 function setCognitiveSupportMode(on) { if (state.session) state.session.cognitiveSupportMode = !!on; }
 
 /* ── v7.1 — Pass / era / mode setters ──────────────────────── */
-function setPass(p)  { if (state.session) state.session.currentPass = p; }
+/* ── THE ONE PROMOTION CHOKE POINT ────────────────────────────────────
+   WO-LORI-PROFILE-SEED-REACHABILITY-01, Phase 3, Commit B.
+
+   Eight call sites promote `pass1 → pass2a`: three on chronology
+   readiness, three on an era click, two on a mode button. None of them
+   knows anything about Profile Seed onboarding, and the alternative to
+   this guard was eight copies of the same rule — eight places to forget
+   it, and eight places a future ninth caller would not inherit.
+
+   So the rule lives HERE, once, and every caller gets it by construction.
+
+   THREE OUTCOMES:
+     * allowed   — apply, exactly as before;
+     * deferred  — the server has not answered yet, so REMEMBER the
+                   request instead of guessing. `applyDeferred` replays
+                   it once hydration resolves;
+     * blocked   — a walk is genuinely active. Keep the current safe
+                   pass and record why, so the operator can see it.
+
+   DEGRADES OPEN, DELIBERATELY. If the authority module is absent —
+   an older page, a load-order change, a test harness — this behaves
+   exactly as it did before. A navigation control that silently stops
+   working because a script failed to load is worse than one that
+   promotes slightly too eagerly, and the server ignores the browser's
+   pass while a walk is active regardless. This guard improves the
+   browser's honesty; it is not what protects the walk.
+──────────────────────────────────────────────────────────────────── */
+function setPass(p)  {
+  if (!state.session) return;
+  var auth = (typeof window !== "undefined")
+    ? window.LorevoxProfileSeedAuthority : null;
+  if (!auth || typeof auth.promotionDecision !== "function") {
+    state.session.currentPass = p;
+    return;
+  }
+  var decision = auth.promotionDecision(p);
+  if (decision.defer) {
+    auth.rememberDeferred(p);
+    state.session.passDeferredReason = decision.reason;
+    return;
+  }
+  state.session.passDeferredReason = null;
+  if (!decision.allow) {
+    state.session.passBlockedReason = decision.reason;
+    try {
+      console.info("[profile-seed][promotion] " + p + " BLOCKED: " +
+                   decision.reason);
+    } catch (e) {}
+    return;
+  }
+  state.session.passBlockedReason = null;
+  state.session.currentPass = p;
+}
 
 /* WO-CANONICAL-LIFE-SPINE-01 — _fallbackCanonicalEra(e) is a local
    normalizer used when window.LorevoxEras isn't loaded yet. state.js

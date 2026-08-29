@@ -3001,8 +3001,22 @@ function buildRuntime71() {
     /* v7.4E — profile basics: DOB and birthplace for Pass 1 profile-seed context */
     dob: state.profile?.basics?.dob || state.session?.identityCapture?.dob || null,
     pob: state.profile?.basics?.pob || state.session?.identityCapture?.birthplace || null,
-    /* v7.4E — profile seed tracking: what seed questions have been answered */
-    profile_seed: state.session?.profileSeed || null,
+    /* ── THE BROWSER'S SEED TRACKER IS GONE, Phase 3 Commit B ────────
+       This sent `state.session.profileSeed` — a ten-key dict written
+       ONCE, at onboarding start, with every value `null`, and never
+       updated by anything. It was a tracker that tracked nothing.
+
+       It was also confusingly named: the server's `profile_seed` is
+       identity FACTS (preferred name, age, life stage), while this was
+       an answered-questions map. They shared a key, and the server's
+       merge — "UI takes precedence per-bucket" — filtered the nulls out,
+       which is the only reason a ten-key answered-map never corrupted
+       the identity facts it was being merged into.
+
+       The server owns onboarding progress now and the browser reads it
+       through `LorevoxProfileSeedAuthority`. Removing the key is
+       byte-stable: the merge already resolved to the server's seed
+       alone, because every value it filtered was null. */
     /* Step 3 — device context: local date, time, timezone.
        Gives Lori reliable temporal grounding on every turn.
        date/time are re-evaluated each call so they stay current. */
@@ -3613,11 +3627,100 @@ window.LorevoxEraDispatch = (function () {
   return { selectEra: selectEra, dispatchEraPrompt: dispatchEraPrompt };
 })();
 
+/* ── Profile Seed operator progress + pause/resume ────────────────────
+   WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 3, Commit B.
+
+   OPERATOR CHROME ONLY. It renders into `#psOnboarding` in the operator
+   header, never into `#chatMessages` — design principle 2 forbids
+   operator surfaces in the narrator flow, and a progress counter is
+   exactly the kind of thing that leaks if it is rendered anywhere the
+   narrator can see.
+
+   Every value shown is SERVER-DERIVED. The browser computes no progress
+   of its own: `answered` is `total - remaining` from the resolved row,
+   and the pause/resume button reflects the server's status rather than
+   a local toggle. That is the whole point of the phase — one definition
+   of onboarding state, and it lives on the server.
+──────────────────────────────────────────────────────────────────── */
+function renderProfileSeedProgress(){
+  const box = document.getElementById("psOnboarding");
+  if (!box) return;
+  const auth = window.LorevoxProfileSeedAuthority;
+  const prog = auth && typeof auth.progress === "function" ? auth.progress() : null;
+  if (!prog) { box.style.display = "none"; return; }   // not enrolled, or unresolved
+
+  box.style.display = "";
+  const label = document.getElementById("psProgress");
+  if (label) {
+    label.textContent = "Profile Seed: " + prog.answered + "/" + prog.total +
+      " · " + (prog.status || "?") +
+      (prog.activeTopic ? " · " + prog.activeTopic.replace(/_/g, " ") : "");
+  }
+  const btn = document.getElementById("psPauseBtn");
+  if (btn) {
+    const paused = prog.status === "paused";
+    btn.textContent = paused ? "Resume" : "Pause";
+    btn.onclick = function(){
+      btn.disabled = true;
+      auth.setPaused(paused ? "resume" : "pause").then(function(res){
+        btn.disabled = false;
+        const note = document.getElementById("psNote");
+        if (note) {
+          // A CONFLICT IS REPORTED, NOT RETRIED. The row moved for a
+          // reason this client cannot see; the module has already
+          // re-read it, so the operator sees current truth next render.
+          note.textContent = res && res.conflict
+            ? "changed elsewhere — refreshed"
+            : (res && res.ok ? "" : (res && res.reason) || "");
+        }
+        renderProfileSeedProgress();
+      });
+    };
+  }
+  const note = document.getElementById("psNote");
+  if (note && state.session && state.session.passBlockedReason) {
+    note.textContent = "pass held: " + state.session.passBlockedReason;
+  }
+}
+
 let _loadGeneration=0;
 async function loadPerson(pid){
   const gen=++_loadGeneration;
   const _prevPersonId = state.person_id;
   state.person_id=pid;
+  // ── PROFILE SEED AUTHORITY: RESET FIRST, THEN HYDRATE ──────────────
+  //
+  // WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 3, Commit B.
+  //
+  // Reset BEFORE anything else can promote. The reset bumps the module's
+  // generation, so any hydrate still in flight for the previous narrator
+  // is discarded when it lands rather than describing this one — the
+  // failure BUG-208 documents for the questionnaire, in a second place.
+  //
+  // Between here and the moment the server answers, `setPass` DEFERS
+  // promotions instead of guessing. That is why the reset must precede
+  // the chronology work below: the cached spine paints early and would
+  // otherwise promote off localStorage before anyone had asked the
+  // server whether a walk was running.
+  try {
+    const _psa = window.LorevoxProfileSeedAuthority;
+    if (_psa && pid) {
+      _psa.reset(pid);
+      _psa.hydrate(pid).then(function () {
+        if (state.person_id !== pid) return;   // switched again meanwhile
+        _psa.applyDeferred(function (deferred) {
+          if (state.session) state.session.currentPass = deferred;
+        });
+        if (typeof renderProfileSeedProgress === "function") {
+          renderProfileSeedProgress();
+        }
+      });
+    }
+  } catch (_psaErr) {
+    // Never fatal. A narrator must load whether or not onboarding state
+    // can be read; `setPass` degrades open for exactly this case.
+    console.warn("[profile-seed] authority hydrate skipped:", _psaErr);
+  }
   document.getElementById("activePerson").textContent=`person_id: ${pid}`;
   localStorage.setItem(LS_ACTIVE,pid);
   // WO-11C: If footer was locked pending narrator selection (post-trainer handoff),
@@ -5129,21 +5232,11 @@ function startIdentityOnboarding(){
   console.log("[onboarding] startIdentityOnboarding() — new user path, phase=askName");
   state.session.identityPhase   = "askName";
   state.session.identityCapture = { name: null, dob: null, birthplace: null };
-  // v7.4E — profile seed tracking: records which of the 10 seed questions have been answered.
-  // Keys map to the 10 profile-seed questions in the Pass 1 directive.
-  // null = not yet asked; true = answered (from any source — explicit or conversational).
-  state.session.profileSeed = {
-    childhood_home: null,
-    siblings:       null,
-    parents_work:   null,
-    heritage:       null,
-    education:      null,
-    military:       null,
-    career:         null,
-    partner:        null,
-    children:       null,
-    life_stage:     null,
-  };
+  // The ten-key `state.session.profileSeed` tracker was initialised here
+  // and never updated. Removed in Phase 3 Commit B — the server owns
+  // onboarding progress and the browser reads it through
+  // `LorevoxProfileSeedAuthority`. See the note at its former reader in
+  // the runtime71 builder.
   setAssistantRole("onboarding");
   // v7.4E — Tell Lori to briefly explain WHY she needs the three anchors before asking.
   // This sets expectations, builds trust, and gets more accurate answers.
