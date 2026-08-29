@@ -78,10 +78,15 @@ from . import profile_seed_turn as _turn
 #: import rather than leave two transports writing a key nobody reads —
 #: and a key nobody reads looks exactly like a narrator who has finished
 #: the walk, which is the quietest possible way to lose the feature.
-from ..prompt_composer import PROFILE_SEED_ONBOARDING_KEY
+from ..prompt_composer import (PROFILE_SEED_ONBOARDING_KEY,
+                               PROFILE_SEED_SERVER_ATTESTED_KEY,
+                               PROFILE_SEED_RESERVED_RUNTIME_KEYS)
 
 __all__ = [
     "PROFILE_SEED_ONBOARDING_KEY",
+    "PROFILE_SEED_SERVER_ATTESTED_KEY",
+    "PROFILE_SEED_RESERVED_RUNTIME_KEYS",
+    "sanitize_client_runtime",
     "onboarding_payload",
     "attach_onboarding",
     "PreparedTurn",
@@ -136,6 +141,11 @@ def attach_onboarding(
     payload = onboarding_payload(plan, state)
     if payload is not None:
         out[PROFILE_SEED_ONBOARDING_KEY] = payload
+        # THE ATTESTATION IS SET HERE AND NOWHERE ELSE. Reaching this line
+        # means a resolver ran against the database for this narrator on
+        # this turn. A client cannot forge it: `sanitize_client_runtime`
+        # removes the key from browser input before any resolution starts.
+        out[PROFILE_SEED_SERVER_ATTESTED_KEY] = True
     else:
         # ── THE SERVER'S ANSWER IS AUTHORITATIVE BOTH WAYS, Phase 3 ────
         #
@@ -151,7 +161,8 @@ def attach_onboarding(
         # composer side. This closes the transport half: on any path that
         # calls this, the key is present when the SERVER resolved a plan
         # and absent when it did not.)*
-        out.pop(PROFILE_SEED_ONBOARDING_KEY, None)
+        for _key in PROFILE_SEED_RESERVED_RUNTIME_KEYS:
+            out.pop(_key, None)
     return out
 
 
@@ -264,3 +275,34 @@ def should_advance(
     """
     return bool(persisted and eligible and not cancelled
                 and plan is not None and plan.advances)
+
+
+def sanitize_client_runtime(
+    runtime: Optional[Mapping[str, Any]],
+) -> Dict[str, Any]:
+    """Strip every server-only Profile Seed key from CLIENT input.
+
+    ── RUN THIS BEFORE ANYTHING RESOLVES, AND UNCONDITIONALLY ──────────
+
+    On the WebSocket path `runtime71` is the browser's own dictionary. It
+    is composed into the system prompt, so anything a client puts in it
+    reaches Lori unless something removes it.
+
+    `attach_onboarding` cleans the reserved keys, but it only runs for a
+    turn that HAS a resolved narrator — the production call sits inside
+    `if person_id:`. An anonymous or historical turn never reached it, so
+    a forged `profile_seed_onboarding` payload, or a forged attestation
+    marker, survived into composition on exactly the paths with no
+    narrator identity to check them against.
+
+    This is the unconditional half of that guarantee: every turn, before
+    any lookup, whatever the client sent under a reserved name is gone.
+    The server then puts back only what it resolved itself.
+
+    Returns a COPY. The caller's dict is left alone, because it is shared
+    with other consumers on the same turn.
+    """
+    out: Dict[str, Any] = dict(runtime or {})
+    for key in PROFILE_SEED_RESERVED_RUNTIME_KEYS:
+        out.pop(key, None)
+    return out

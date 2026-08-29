@@ -413,4 +413,13 @@ def onboarding_runtime(
     # REST's output is unchanged, and the byte-stability tests pin that.
     runtime[PROFILE_SEED_ONBOARDING_KEY] = _runtime.onboarding_payload(
         plan, state)
+    # ── SERVER ATTESTATION, Phase 3 ────────────────────────────────────
+    #
+    # This runtime is BUILT here from a database resolution — REST never
+    # copies a client dictionary into it, so reaching this line is the
+    # same proof the WebSocket path's `attach_onboarding` records. Without
+    # the marker the composer would treat a genuinely resolved REST walk
+    # as unattested and keep reporting the caller's `effective_pass`,
+    # which is the browser-authority defect this phase exists to remove.
+    runtime[_runtime.PROFILE_SEED_SERVER_ATTESTED_KEY] = True
     return runtime

@@ -3289,7 +3289,25 @@ async def ws_chat(ws: WebSocket):
         # correction acknowledgments. Both compose deterministically with
         # no LLM call. Loading the model first defeats the whole purpose
         # of having a no-LLM fallback path.
-        runtime71: Dict[str, Any] = params.get("runtime71") or {}
+        # ── SANITIZE CLIENT RUNTIME, UNCONDITIONALLY, Phase 3 ─────────────
+        #
+        # `params["runtime71"]` is the BROWSER'S dictionary and it is
+        # composed into the system prompt, so anything a client puts in it
+        # reaches Lori unless something removes it first.
+        #
+        # `attach_onboarding` cleans the reserved Profile Seed keys — but it
+        # runs inside `if person_id:` further down, so an ANONYMOUS or
+        # HISTORICAL turn never reached it. Those are precisely the turns
+        # with no narrator identity to check a forged payload against, and a
+        # fabricated `profile_seed_onboarding` block, or a fabricated
+        # attestation marker, survived into composition there.
+        #
+        # This runs before any lookup, on every turn, for every narrator and
+        # for none: whatever the client sent under a reserved name is gone,
+        # and the server puts back only what it resolves itself.
+        from ..services.profile_seed_runtime import (
+            sanitize_client_runtime as _ps_sanitize)
+        runtime71: Dict[str, Any] = _ps_sanitize(params.get("runtime71") or {})
         turn_mode = (params.get("turn_mode") or "interview").strip() or "interview"
 
         # BUG-LORI-IDENTITY-META-QUESTION-DETERMINISTIC-ROUTE-01 — if the

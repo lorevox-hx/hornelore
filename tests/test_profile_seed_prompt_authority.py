@@ -59,6 +59,10 @@ from api.services import profile_seed as _seed    # noqa: E402
 from api.services import profile_seed_turn as _turn  # noqa: E402
 
 KEY = _pc.PROFILE_SEED_ONBOARDING_KEY
+ATTEST = _pc.PROFILE_SEED_SERVER_ATTESTED_KEY
+
+#: The marker the identity-collection directive puts in the prompt.
+IDENTITY_DIRECTIVE = "single next missing piece of identity"
 A = "childhood_home"
 B = "siblings"
 
@@ -89,11 +93,20 @@ def compose(runtime, conv="conv-phase3"):
     return _pc.compose_system_prompt(conv, runtime71=runtime)
 
 
-def runtime_with(plan_state=None, **over):
+def runtime_with(plan_state=None, *, attested=True, **over):
+    """A runtime as a TRANSPORT would hand it to the composer.
+
+    `attested=True` by default because that is what production produces:
+    both transports set the marker when a resolver actually ran.
+    `attested=False` models a FORGED payload — one sitting in the
+    browser's `runtime71` that no server resolution put there.
+    """
     r = dict(BASE_RUNTIME)
     r.update(over)
     if plan_state is not None:
         r[KEY] = plan_state
+        if attested:
+            r[ATTEST] = True
     return r
 
 
@@ -146,10 +159,39 @@ class ActiveWalkTests(unittest.TestCase):
         self.assertIn("effective_pass: profile_seed", text)
         self.assertNotIn("effective_pass: identity", text)
 
-    def test_a_stale_identity_complete_FALSE_does_not_either(self):
+    def test_a_stale_identity_complete_FALSE_produces_NO_IDENTITY_DIRECTIVE(self):
+        """The blocking defect, asserted BEHAVIOURALLY this time.
+
+        *(The first version of this test only checked that
+        `effective_pass` said `profile_seed`. That is not the property
+        that matters and it passed while the defect was live: the
+        production code still read `identity_mode = not
+        identity_complete`, so a stale browser `identity_complete: false`
+        alongside a genuine server walk rendered identity instructions
+        AND Profile Seed in the same turn. A test that checks a label
+        instead of the behaviour it is named for is worse than no test —
+        it reports the defect closed.)*
+
+        A server-attested active plan means the resolver already
+        established the identity anchors, because that is what promotes a
+        row out of `pending`. So the identity directive must be ABSENT.
+        """
         text = compose(runtime_with(onboarding("present"),
                                     identity_complete=False))
         self.assertIn("effective_pass: profile_seed", text)
+        self.assertNotIn(
+            IDENTITY_DIRECTIVE, text,
+            "a stale browser identity_complete=False produced identity "
+            "instructions alongside an attested Profile Seed walk — the "
+            "narrator is asked for their name and their childhood home in "
+            "the same turn")
+
+    def test_the_identity_directive_is_absent_for_every_attested_action(self):
+        for action in ("present", "re_present", "acknowledge", "hold"):
+            with self.subTest(action=action):
+                text = compose(runtime_with(onboarding(action),
+                                            identity_complete=False))
+                self.assertNotIn(IDENTITY_DIRECTIVE, text)
 
 
 class InactiveStatesPreserveBytesTests(unittest.TestCase):
@@ -266,6 +308,122 @@ class TransportAuthorityTests(unittest.TestCase):
                                          None)
         self.assertEqual(out, plain)
         self.assertIsNot(out, plain, "the runtime was mutated in place")
+
+
+class UnattestedPayloadGetsNoAuthorityTests(unittest.TestCase):
+    """A payload nobody attested renders, but commands nothing.
+
+    The split is deliberate. RENDERING a forged question is harmless —
+    the narrator is asked something ordinary. GRANTING IT AUTHORITY is
+    not: if a fabricated payload could set `effective_pass` or switch off
+    identity collection, a client would control both by inventing a walk.
+
+    So attestation gates authority, not rendering, and the transport
+    strips the marker from client input so it can only ever be true
+    because a resolver put it there.
+    """
+
+    def test_an_unattested_payload_does_not_get_the_server_phase(self):
+        text = compose(runtime_with(onboarding("present"), attested=False))
+        self.assertNotIn("effective_pass: profile_seed", text)
+        self.assertNotIn("profile_seed_active", text)
+        self.assertNotIn("browser_pass", text)
+
+    def test_an_unattested_payload_does_not_grant_identity_completion(self):
+        """Point 6 of the ruling, as a behavioural assertion."""
+        text = compose(runtime_with(onboarding("present"), attested=False,
+                                    identity_complete=False))
+        self.assertIn(
+            IDENTITY_DIRECTIVE, text,
+            "a fabricated onboarding payload switched identity collection "
+            "off — the gate is not a gate")
+
+    def test_a_forged_attestation_alone_grants_nothing(self):
+        """The marker without a valid plan is inert."""
+        text = compose(runtime_with(None, **{ATTEST: True}))
+        self.assertNotIn("effective_pass: profile_seed", text)
+        self.assertNotIn("profile_seed_active", text)
+
+    def test_attested_and_unattested_really_differ(self):
+        """Non-vacuity for this whole class."""
+        self.assertNotEqual(
+            compose(runtime_with(onboarding("present"), attested=True)),
+            compose(runtime_with(onboarding("present"), attested=False)))
+
+
+class ProductionPathSanitizationTests(unittest.TestCase):
+    """The PERSONLESS WebSocket turn, which the helper test did not cover.
+
+    ── WHY A SOURCE TEST, 2026-08-29 ───────────────────────────────────
+
+    `TransportAuthorityTests` calls `attach_onboarding` directly and
+    proves the helper strips forged keys when invoked. It cannot prove
+    the production route invokes it — and it did not: the call sits
+    inside `if person_id:`, so an anonymous or historical turn reached
+    composition with client keys intact. Those are exactly the turns with
+    no narrator identity to check a forgery against.
+
+    Driving the real handler needs fastapi, torch and a model. So the
+    behaviour is proven in `sanitize_client_runtime`'s own tests, and the
+    WIRING — that the route calls it unconditionally, before the
+    `person_id` branch — is pinned here over the source.
+    """
+
+    def setUp(self):
+        import ast
+        self.ast = ast
+        self.src = (_SERVER_CODE / "api" / "routers" / "chat_ws.py").read_text(
+            encoding="utf-8")
+        self.tree = ast.parse(self.src)
+
+    def _calls(self, name):
+        return [n for n in self.ast.walk(self.tree)
+                if isinstance(n, self.ast.Call)
+                and (getattr(n.func, "id", None) == name
+                     or getattr(n.func, "attr", None) == name)]
+
+    def test_the_route_sanitizes_client_runtime(self):
+        hits = self._calls("_ps_sanitize") or self._calls(
+            "sanitize_client_runtime")
+        self.assertTrue(
+            hits, "chat_ws.py never sanitizes the client runtime, so forged "
+                  "reserved keys reach the composer")
+
+    def test_sanitization_happens_BEFORE_the_person_id_branch(self):
+        """The whole point. Inside `if person_id:` is not good enough."""
+        san = min(n.lineno for n in
+                  (self._calls("_ps_sanitize")
+                   or self._calls("sanitize_client_runtime")))
+        attach = [n.lineno for n in self._calls("attach_onboarding")]
+        self.assertTrue(attach, "attach_onboarding is no longer called")
+        self.assertLess(
+            san, min(attach),
+            "the runtime is sanitized after the narrator-scoped attach, so a "
+            "turn with no resolved person_id never gets cleaned")
+
+    def test_sanitization_is_not_itself_inside_a_person_id_guard(self):
+        san_line = min(n.lineno for n in
+                       (self._calls("_ps_sanitize")
+                        or self._calls("sanitize_client_runtime")))
+        for node in self.ast.walk(self.tree):
+            if not isinstance(node, self.ast.If):
+                continue
+            start, end = node.lineno, getattr(node, "end_lineno", node.lineno)
+            if not (start <= san_line <= end):
+                continue
+            test_src = self.ast.dump(node.test)
+            self.assertNotIn(
+                "person_id", test_src,
+                f"the sanitize call at line {san_line} is inside an "
+                f"`if` testing person_id at line {node.lineno} — anonymous "
+                "turns would skip it")
+
+    def test_the_source_scan_is_not_vacuous(self):
+        import ast
+        fake = ast.parse("if person_id:\n    sanitize_client_runtime(x)\n")
+        found = [n for n in ast.walk(fake) if isinstance(n, ast.Call)]
+        self.assertTrue(found, "the call scan finds nothing in a module that "
+                               "plainly contains a call")
 
 
 class NonVacuityTests(unittest.TestCase):

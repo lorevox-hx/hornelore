@@ -4137,9 +4137,20 @@ def _compose_prompt_assembly(
         # rewritten to `pass1` — faking it would hide real client state from
         # anyone debugging a live turn, and the browser's belief is a fact
         # about the system even when it is not authoritative.
+        # ── AUTHORITY REQUIRES ATTESTATION, NOT JUST A PAYLOAD ────────────
+        #
+        # A validated plan is enough to RENDER the onboarding block — that
+        # is Phase 2's accepted behaviour and it is unchanged. It is NOT
+        # enough to override identity state, because on the WebSocket path
+        # `runtime71` is the browser's dict and a payload in it may be a
+        # forgery. The transport strips both reserved keys from client
+        # input before resolving, so this marker is present only when a
+        # server resolution put it there.
         _ps_active = profile_seed_onboarding_active(runtime71)
+        _ps_attested = _ps_active and bool(
+            runtime71.get(PROFILE_SEED_SERVER_ATTESTED_KEY))
         _browser_effective_pass = runtime71.get("effective_pass") or current_pass
-        if _ps_active:
+        if _ps_attested:
             effective_pass = "profile_seed"
             # ── ONLY THE `identity` PASS DISJUNCT IS DROPPED ───────────────
             #
@@ -4148,16 +4159,28 @@ def _compose_prompt_assembly(
             # running — the narrator would be asked for their name and their
             # childhood home in the same breath.
             #
-            # **`identity_complete` is still honoured**, and the first cut of
-            # this change wrongly set `identity_mode = False` outright.
-            # `test_an_untruthful_sparse_runtime_does_NOT_get_identity_for_free`
-            # caught it, and it was defending the right rule: if supplying an
-            # onboarding payload could switch identity mode off, the gate is
-            # not a gate. Identity completeness is a SERVER-ATTESTED fact
-            # carried in its own key; the presence of a plan is not a
-            # substitute for it, and treating it as one would let a client
-            # disable identity collection by claiming a walk.
-            identity_mode = not identity_complete
+            # ── A SERVER-ATTESTED ACTIVE WALK SETTLES IDENTITY ────────────
+            #
+            # The resolver promotes a row out of `pending` only once the
+            # identity anchors are complete, so an ATTESTED active plan is
+            # itself proof that the server established them. A stale browser
+            # `identity_complete: false` arriving alongside it is out of
+            # date, and honouring it would put identity interrogation and
+            # Profile Seed in the same turn — the narrator asked for their
+            # name and their childhood home in one breath.
+            #
+            # *(Two earlier cuts were wrong in opposite directions. The
+            # first set `identity_mode = False` for any validated plan,
+            # which let an unattested payload switch identity collection
+            # off — caught by
+            # `test_an_untruthful_sparse_runtime_does_NOT_get_identity_for_free`.
+            # The second honoured `identity_complete` unconditionally, which
+            # left the stale-false case live and made the commit message's
+            # "server-attested" claim false on the WebSocket path, where
+            # `identity_complete` comes from the browser. Attestation is
+            # what separates the two cases, and it is why the marker exists
+            # rather than being inferred from the payload.)*
+            identity_mode = False
         else:
             effective_pass = _browser_effective_pass
             identity_mode = (effective_pass == "identity") or (not identity_complete)
@@ -4206,10 +4229,10 @@ def _compose_prompt_assembly(
         # machine owns the turn.
         directive_lines = [
             "LORI_RUNTIME:",
-            (f"  browser_pass: {current_pass}" if _ps_active
+            (f"  browser_pass: {current_pass}" if _ps_attested
              else f"  pass: {current_pass}"),
             f"  effective_pass: {effective_pass}",
-        ] + ([f"  profile_seed_active: true"] if _ps_active else []) + [
+        ] + ([f"  profile_seed_active: true"] if _ps_attested else []) + [
             f"  identity_phase: {identity_phase}",
             f"  identity_complete: {identity_complete}",
             f"  era: {current_era}",
@@ -5312,6 +5335,31 @@ def _legacy_profile_seed_question_list() -> str:
 # seeded-fact guards and welcome-back behaviour, and it has six live
 # readers. Phase 2 adds a DISTINCT key and does not touch it.
 PROFILE_SEED_ONBOARDING_KEY = "profile_seed_onboarding"
+
+#: Set ONLY by a transport that resolved the walk against the database.
+#:
+#: ── WHY A SEPARATE MARKER, 2026-08-29 ─────────────────────────────────
+#:
+#: The onboarding payload alone cannot prove where it came from. On the
+#: WebSocket path `runtime71` is the BROWSER'S dict, so a payload sitting
+#: in it may be a server resolution or a forgery, and the composer cannot
+#: tell by looking. That is tolerable while the payload only renders a
+#: question — a forged one asks the narrator something harmless — and it
+#: is NOT tolerable once the payload starts overriding identity state,
+#: because then a client could switch off identity collection by claiming
+#: a walk it invented.
+#:
+#: So authority is carried by this marker rather than by the payload, and
+#: the transport STRIPS both keys from client input before resolving.
+#: A browser cannot set it: anything it sends under this name is removed
+#: before the server decides anything.
+PROFILE_SEED_SERVER_ATTESTED_KEY = "profile_seed_server_attested"
+
+#: Reserved: server-only, never accepted from a client.
+PROFILE_SEED_RESERVED_RUNTIME_KEYS = (
+    PROFILE_SEED_ONBOARDING_KEY,
+    PROFILE_SEED_SERVER_ATTESTED_KEY,
+)
 
 
 def _validated_onboarding_plan(
