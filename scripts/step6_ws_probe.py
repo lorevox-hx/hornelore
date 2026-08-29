@@ -69,10 +69,48 @@ WS_URL = API.replace("http://", "ws://").replace("https://", "wss://") + "/api/c
 #
 # Recorded here BEFORE the probe runs, so the artifacts it creates were
 # named in advance rather than discovered afterwards.
-PROBE_NAME = "ZZ Step6 WebSocket Probe (delete me)"
+#
+# ── A CLOSED REGISTRY, NOT A `--name` FLAG, 2026-08-29 ────────────────
+#
+# Run 1 was performed with an uncommitted working copy of this script.
+# The product tree was byte-identical to the accepted commit and the
+# result stands on its own, but the INSTRUMENT was not in Git, so that
+# run is not reproducible from a revision — which is exactly the
+# property the repository's clean-tree rule exists to protect. Run 2
+# repeats it from a committed instrument on a clean tree.
+#
+# That needs a second identity, and the obvious way to get one — a
+# `--name` argument — is the wrong way. A free-text narrator name on a
+# script that CREATES narrators and drives live turns is one typo away
+# from pointing at a real person. The identities are therefore a closed
+# registry: two entries, chosen by number, and anything else refuses.
+#
+# Run 1's identity is kept here rather than deleted. It names a narrator
+# that still exists and whose inventory is preserved for review, and a
+# probe that forgot its own earlier subject could recreate it.
+PROBES: Dict[int, Dict[str, str]] = {
+    1: {"name": "ZZ Step6 WebSocket Probe (delete me)",
+        "conv": "step6-ws-probe-2026-08-28"},
+    2: {"name": "ZZ Step6 WebSocket Probe 2 (delete me)",
+        "conv": "step6-ws-probe-2-2026-08-28"},
+}
+#: Run 2 is the clean-tree acceptance run and is therefore the default.
+#
+# Parsed defensively: `int()` on a non-numeric value raises `ValueError`
+# and would reach the operator as a traceback from a line that looks
+# like configuration. A script that creates narrators refuses clearly.
+_RAW_PROBE = os.environ.get("STEP6_PROBE", "2").strip()
+if not _RAW_PROBE.isdigit() or int(_RAW_PROBE) not in PROBES:
+    sys.exit(f"STEP6_PROBE must be one of {sorted(PROBES)}; got "
+             f"{_RAW_PROBE!r}. The identities are a closed registry on "
+             "purpose — this script creates narrators and drives live turns, "
+             "and a free-text name is one typo away from a real person.")
+PROBE_N = int(_RAW_PROBE)
+
+PROBE_NAME = PROBES[PROBE_N]["name"]
+CONV_ID = PROBES[PROBE_N]["conv"]
 PROBE_DOB = "1901-01-01"
 PROBE_POB = "Probeville, Testland"
-CONV_ID = "step6-ws-probe-2026-08-28"
 #: The person id is minted by the product path and inventoried below.
 
 DB_PATH = Path(os.environ.get(
@@ -159,6 +197,7 @@ async def say(person_id: str, text: str, *, turn_mode: str = "interview",
 
 async def main() -> int:
     print(f"Step 6 live acceptance — {API}")
+    print(f"  probe number     : {PROBE_N} of {sorted(PROBES)}")
     print(f"  reserved conv_id : {CONV_ID}")
     print(f"  narrator name    : {PROBE_NAME}")
     print(f"  database         : {DB_PATH}\n")
@@ -187,7 +226,10 @@ async def main() -> int:
         "testing_only": True,
     }, timeout=30)
     resp.raise_for_status()
-    person_id = (resp.json() or {}).get("id")
+    # The endpoint returns `person_id` alongside the full `person` row and
+    # the consent attestations — NOT a bare `id`. Read the documented key.
+    body = resp.json() or {}
+    person_id = body.get("person_id") or (body.get("person") or {}).get("id")
     print(f"  MINTED person_id : {person_id}\n")
     if not person_id:
         return int(not check(False, "product endpoint returned a person id",
@@ -198,27 +240,52 @@ async def main() -> int:
           "migration 0051 enrolled the new narrator (product path, not INSERT)")
     if row is None:
         return 1
-    check(row["status"] == "active",
-          "identity is complete, so the walk is ACTIVE", row["status"])
-    first_topic, first_version = row["active_topic_id"], row["version"]
-    print(f"         first topic: {first_topic} @ v{first_version}\n")
+    # ── ENROLLMENT STARTS `pending`, AND THAT IS CORRECT ──────────────
+    #
+    # *(An earlier version of this probe asserted `active` here and
+    # captured the topic and version BEFORE any turn. Both were wrong,
+    # and they would have failed on the first live run for a reason that
+    # has nothing to do with Step 6. `enroll()` writes `pending` at
+    # version 1; `resolve_effective()` materializes it to `active` once
+    # the identity anchors resolve, and it BUMPS THE VERSION when it
+    # changes anything. So the presentation is stamped at version 2,
+    # and a pre-turn capture would have compared against version 1.)*
+    #
+    # The pre-turn claim is therefore about enrollment only. The walk's
+    # tuple is read after the first turn, from the row the WebSocket's
+    # own resolve materialized.
+    check(row["status"] == "pending" and row["version"] == 1,
+          "enrollment starts pending at version 1, as Phase 1 accepted",
+          f"{row['status']} @ v{row['version']}")
 
     # ── 2. Lori presents ──────────────────────────────────────────────
-    print("TURN 1 — the narrator says hello; Lori should present topic one")
+    print("\nTURN 1 — the narrator says hello; Lori should present topic one")
     reply1 = await say(person_id, "Hello Lori.")
     print(f"         Lori: {reply1[:160]}")
+
+    row = onboarding(person_id)
+    check(row["status"] == "active",
+          "the WebSocket's resolve materialized the walk to ACTIVE",
+          f"{row['status']} @ v{row['version']}")
+    first_topic, first_version = row["active_topic_id"], row["version"]
+    print(f"         walk now at: {first_topic} @ v{first_version}")
+
     metas = assistant_meta()
     check(any(m.get("profile_seed_presented_topic") == first_topic
               and m.get("profile_seed_presented_version") == first_version
               for m in metas),
-          "the committed assistant row carries presented(topic, version)",
+          "the committed assistant row carries presented(topic, version) "
+          "matching the authoritative row",
           metas[-1] if metas else "no assistant row")
     check(all("profile_seed_response_topic" not in m for m in metas),
           "no response event was stamped by a presentation")
-    row = onboarding(person_id)
-    check(row["active_topic_id"] == first_topic
-          and row["version"] == first_version,
-          "asking advanced NOTHING",
+    # "Advanced nothing" cannot be a before/after version comparison,
+    # because materialization legitimately moves the version on this
+    # first turn. The claim that matters is that the walk still sits on
+    # the topic it just asked about — asking is not answering.
+    check(row["active_topic_id"] == first_topic,
+          "asking advanced NOTHING — the walk still sits on the topic "
+          "it just presented",
           f"{row['active_topic_id']} @ v{row['version']}")
 
     # ── 3. The narrator answers ───────────────────────────────────────
@@ -265,12 +332,31 @@ async def main() -> int:
           f"{after['active_topic_id']} @ v{after['version']}")
 
     # ── 6. Reconnect ──────────────────────────────────────────────────
+    #
+    # A DEFERRAL, deliberately, and the earlier draft got this wrong.
+    #
+    # *(It said "Sorry, I'm back." — which `classify_response` reads as
+    # an ANSWER, because everything non-empty that is not a refusal, a
+    # deferral or a control is `addressed`. The HOLD on turn 4 stamped
+    # nothing, so topic two's presentation was still outstanding, and
+    # that turn would have ACKNOWLEDGED it and advanced the walk — then
+    # failed the very check it was written to make.)*
+    #
+    # A deferral re-presents the same question and applies nothing, so
+    # what it proves is exactly the claim: the outstanding tuple
+    # survived a control turn and a fresh socket.
     print("\nTURN 5 — a NEW socket; the outstanding question must survive")
-    reply5 = await say(person_id, "Sorry, I'm back.")
+    reply5 = await say(person_id, "let me think")
     print(f"         Lori: {reply5[:160]}")
+    last = assistant_meta()[-1]
     after = onboarding(person_id)
+    check(last.get("profile_seed_presented_topic") == second_topic,
+          "the reconnected turn re-presented the SAME outstanding topic",
+          last)
+    check("profile_seed_response_topic" not in last,
+          "a deferral recorded no response event", last)
     check(after["active_topic_id"] == second_topic,
-          "reconnecting preserved the outstanding state",
+          "reconnecting preserved the outstanding state and advanced nothing",
           f"{after['active_topic_id']} @ v{after['version']}")
 
     # ── INVENTORY — everything this probe created ─────────────────────
