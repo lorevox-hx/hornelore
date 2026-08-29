@@ -85,9 +85,19 @@ lesson.
 
 ## 3. Must not move, and why
 
-* **`scripts/run_mutation_gate.py`** — the reproducible acceptance gate. 63 mutations,
-  every anchor checked in. Moving it breaks every acceptance claim in the Profile Seed
-  lane.
+* **`scripts/run_mutation_gate.py`** — the reproducible acceptance gate; every anchor is
+  checked in. Moving it breaks every acceptance claim in the Profile Seed lane. **The
+  mutation count is derived, not written here** — it was "63" and is now larger:
+  `grep -c '^        "[A-Z]' scripts/run_mutation_gate.py` is wrong for the same reason,
+  so read `python3 scripts/run_mutation_gate.py --help` or count `Mutation(` call sites.
+* **`scripts/step6_ws_probe.py`** — the Profile Seed Step 6 **live acceptance instrument**,
+  and the evidence for an accepted step. It creates one clearly synthetic narrator through
+  the product endpoint, drives five turns over the production WebSocket, and verifies the
+  committed metadata, the durable advance and the reconnect. **It has no deletion path at
+  all** and refuses to run if its narrator already exists. Identities are a closed registry
+  of two selected by `STEP6_PROBE`, never free text, because a script that creates
+  narrators and drives live turns must not accept a name that could match a real one.
+  Chris runs it; it needs the serving stack.
 * **The eval runners under `scripts/archive/`** — `run_question_bank_extraction_eval.py`
   and `run_stubborn_pack_eval.py` are the commands `CLAUDE.md` prints verbatim.
 * **Launchers and their dependencies** — `start_all.sh`, `stop_all.sh`, `status_all.sh`,

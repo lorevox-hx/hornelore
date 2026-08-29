@@ -11,7 +11,7 @@
 |---|---|
 | 0 — executable map | **ACCEPTED** at `661aa95` |
 | 1 — server authority | **ACCEPTED** at `1288baa` |
-| 2 — prompt and committed-turn wiring | **IN IMPLEMENTATION, NOT ACCEPTED** — steps 1–5 ACCEPTED (step 5 at `9127adb`); **pre-Step-6 correction checkpoint ACCEPTED at `d0e5294`**; **step 6 NOT STARTED and is the CURRENT action** — the hygiene freeze on it is superseded, `HANDOFF.md`; step 7 owed |
+| 2 — prompt and committed-turn wiring | **IN IMPLEMENTATION, NOT ACCEPTED** — steps 1–5 ACCEPTED (step 5 at `9127adb`); **pre-Step-6 correction checkpoint ACCEPTED at `d0e5294`**; **step 6 ACCEPTED 2026-08-29 on live evidence** — 16/16 through the production WebSocket and the real model, two independent runs; **step 7 NOT STARTED and is the CURRENT action** |
 | 3–5 | not begun |
 
 Phase 2 steps 1–3 have landed: `f23040b` characterizes all eight refusal patterns;

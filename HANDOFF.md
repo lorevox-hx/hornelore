@@ -10,15 +10,16 @@ rule back. The claim that matters is the one about obligations.)*
 
 ---
 
-> # ▶ CURRENT ACTION — PROFILE SEED PHASE 2 STEP 6. HYGIENE PHASE A IS ACCEPTED AND PAUSED.
+> # ▶ CURRENT ACTION — PROFILE SEED PHASE 2 STEP 7. HYGIENE PHASE A IS ACCEPTED AND PAUSED.
 >
 > | | |
 > |---|---|
-> | **Current action** | Profile Seed Phase 2 **Step 6** — WebSocket presentation metadata and post-commit advancement. **IMPLEMENTED AT `12221e0`, CORRECTED AT `58dfc40`; LIVE ACCEPTANCE OWED.** §3 below; design in the [transport map](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_PHASE2_TRANSPORT_MAP.md) |
+> | **Current action** | Profile Seed Phase 2 **Step 7. NOT STARTED.** |
+> | **Step 6** | ✅ **ACCEPTED 2026-08-29 on live evidence.** Implemented `12221e0`, corrected `58dfc40`, instrument committed `525a43f`. Two independent runs of `scripts/step6_ws_probe.py` through the **production WebSocket and the real model — 16/16 each.** Run 2 was made from a committed instrument on a clean tree |
 > | **Hygiene Phase A** | **ACCEPTED** through the first Step 3 cohort — Steps 0, 1, 2, 2b and the four root dated artifacts |
 > | **Hygiene remainder** | **DEFERRED by Chris's product-priority decision:** the remaining Step 3 cohorts, Steps 4–5, and the final verification checkpoint. They remain indexed, not cancelled |
 > | **Is the hygiene work order complete?** | **NO — incomplete and PAUSED.** Phase A acceptance is not completion of `WO-REPOSITORY-HYGIENE-01` |
-> | **May Step 6 begin?** | **YES.** The rule that Step 6 waited for the whole hygiene checkpoint is **superseded** by that decision |
+> | **May Step 7 begin?** | **YES.** The rule that Profile Seed waited for the whole hygiene checkpoint is **superseded** by that decision |
 >
 > **The supersession is deliberate and is recorded so it is not mistaken for drift.** The
 > earlier rule — that no individual hygiene step's acceptance releases Step 6, only Steps 3–5
@@ -26,7 +27,7 @@ rule back. The claim that matters is the one about obligations.)*
 > changed the priority. **What that decision does not do is claim the hygiene work is
 > finished**, and no document may say it is.
 >
-> **Still frozen, and not by hygiene:** the boundaries in §3 are Step 6's own, and they do
+> **Still frozen, and not by hygiene:** the boundaries in §3 are the lane's own, and they do
 > not relax. Runtime safety, the model and its window, the directive registry and Kawa are
 > governed by `CLAUDE.md`, which no priority decision touches.
 
@@ -68,6 +69,8 @@ stopped moving:
 | `db0c5e7` | Repository hygiene **Step 2** (control authority) accepted |
 | `ff1ff4f` | Repository hygiene **Step 2b** (changelog preservation) accepted |
 | `5086490` | Repository hygiene **Step 3, first cohort** — the four root dated artifacts, moved byte-for-byte. **The last accepted hygiene commit; Phase A ends here** |
+| `12221e0`…`58dfc40` | Profile Seed **Phase 2 Step 6** — implementation and correction block. **ACCEPTED 2026-08-29**, 16/16 live through the production WebSocket |
+| `525a43f` | The Step 6 live probe, committed. Run 2's provenance rests on this |
 
 Where everything else lives: [`docs/INDEX.md`](docs/INDEX.md) ·
 [`docs/BACKLOG.md`](docs/BACKLOG.md) · [`scripts/INDEX.md`](scripts/INDEX.md) ·
@@ -78,7 +81,7 @@ Where everything else lives: [`docs/INDEX.md`](docs/INDEX.md) ·
 | Lane | State |
 |---|---|
 | **Repository hygiene** | ⏸️ **PHASE A ACCEPTED, REMAINDER PAUSED — the work order is INCOMPLETE.** Steps 0, 1 `5f6b01b`, 2 `db0c5e7`, 2b `ff1ff4f` and the first Step 3 cohort `5086490` are accepted. **Deferred by product-priority decision:** the remaining Step 3 cohorts, Steps 4–5, and the final verification checkpoint. Still indexed, still owed, not scheduled |
-| **Profile Seed reachability** | 🔵 **ACTIVE — Step 6 is the current action.** Phase 0 `661aa95` · Phase 1 `1288baa` · Phase 2 steps 1–5 accepted (step 4 `b269184`, step 5 `9127adb`) · pre-Step-6 corrections `d0e5294` · **Step 6 IMPLEMENTED, LIVE ACCEPTANCE OWED** · step 7 owed · Phases 3–5 not started |
+| **Profile Seed reachability** | 🔵 **ACTIVE — Step 7 is the current action.** Phase 0 `661aa95` · Phase 1 `1288baa` · Phase 2 steps 1–5 accepted (step 4 `b269184`, step 5 `9127adb`) · pre-Step-6 corrections `d0e5294` · **Step 6 ACCEPTED on live evidence** · **Step 7 NOT STARTED** · Phases 3–5 not started. **Phase 3 is the next narrator-facing block:** reconcile the eight browser promotion sites with server authority and remove the remaining browser-controlled race |
 | `WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` | **COMPLETE** — Phases 1–4 accepted. Closes the three L2 integration defects |
 | `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` | **ACCEPTED AND COMPLETE 2026-08-20** — story-to-memoir 11/11, deletion integrity 10/10, verified against filesystem and SQL |
 | Deletion / erasure integrity | **CLOSED 2026-08-20.** Erasure planned before the DB authority is destroyed, persisted (0049), bound to the canonical absolute root (0050); refuses every symlink below the root; eleven stores; deletes media; purges the translation cache; reports backups rather than rewriting them; fails closed; retryable with a truthful audit trail |
@@ -187,10 +190,18 @@ Rulings: [`docs/architecture/TRAVEL_DOCUMENT_DOCTRINE.md`](docs/architecture/TRA
 
 ## 5. Live-review artifacts — PRESERVE, NO DELETION AUTHORIZED
 
+**Five synthetic narrators and one real one.** Erasure of any of them takes Chris's
+explicit authorization and must go through the product erasure path, with the result
+reported truthfully. **No family narrator appears here and none was touched:** only the
+three `ZZ` probes are enrolled in a Profile Seed walk, verified against the live database
+on 2026-08-29.
+
 | What | Exact IDs |
 |---|---|
 | **Del** (`6ad678ee-b295-49de-8578-da00200848ba`) | turns **1712–1717** on `switch_mtbn3x4a_ifo9`; **22 turns total** across all sessions |
 | **`ZZ Step5 Probe (delete me)`** (`6e606ace-2a72-439a-8474-04140409098b`) | owns `zz-probe-seed-1`, turns **1718–1721** |
+| **`ZZ Step6 WebSocket Probe (delete me)`** (`7d64b8be-8bbb-48a1-98cc-9ab1ce09421a`) | owns `step6-ws-probe-2026-08-28`, turns **1722–1731**; onboarding `active/siblings/v3`; `memory/archive/people/<id>` exists. **Step 6 live acceptance run 1** |
+| **`ZZ Step6 WebSocket Probe 2 (delete me)`** (`9ae02617-6c6d-41f0-832d-41e82caba976`) | owns `step6-ws-probe-2-2026-08-28`, turns **1732–1741**; onboarding `active/siblings/v3`. **Step 6 live acceptance run 2 — the clean-tree, committed-instrument run** |
 | `zz-probe-contradiction` | **no session, no turns** — the 409 fired before anything was written |
 
 **Nothing has been deleted and no deletion is authorized.** The synthetic probe may be
@@ -248,7 +259,7 @@ Full register with evidence: [`docs/BACKLOG.md`](docs/BACKLOG.md).
 | `CLAUDE.md` | Durable doctrine and prohibitions |
 | `docs/INDEX.md` | Where documentation authority lives |
 | `docs/BACKLOG.md` | Unresolved obligations, with evidence |
-| `docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md` | The current repository action |
+| `docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md` | The **paused** repository lane — Phase A accepted, remainder deferred and incomplete. **Not the current action;** Profile Seed is |
 | `docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md` + `..._PHASE2_TRANSPORT_MAP.md` | The current product lane |
 | `docs/architecture/TRAVEL_DOCUMENT_DOCTRINE.md` | Binding Travel Document rulings |
 

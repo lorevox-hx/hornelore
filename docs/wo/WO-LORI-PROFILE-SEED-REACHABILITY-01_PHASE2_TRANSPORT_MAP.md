@@ -1044,8 +1044,11 @@ Two-environment proof, required and produced:
 | generic, real `pydantic`, no `fastapi` | `OK (skipped=5)` — five route tests skipped, each naming `fastapi` |
 | real `fastapi` + `pydantic` route stack | `OK`, **zero skips** |
 
-**Step 6 is still NOT STARTED, and its design below is unchanged by this acceptance.**
-**It is the current action.** *(This said Step 6 was "additionally frozen behind the
+**Step 6 IS NOW ACCEPTED — 2026-08-29, on live evidence.** Implemented `12221e0`,
+corrected `58dfc40`, instrument committed `525a43f`; `scripts/step6_ws_probe.py` ran twice
+through the production WebSocket and the real model, 16/16 each, the second from a
+committed instrument on a clean tree. **The design below is what was built, and it is
+unchanged.** Step 7 is now the current action. *(This said Step 6 was "additionally frozen behind the
 repository-hygiene checkpoint". Superseded 2026-08-28: Chris accepted hygiene Phase A,
 deferred the remainder, and made Step 6 the current product action — `HANDOFF.md`. The
 design below is what that acceptance protects, and none of it moves.)*

@@ -20,13 +20,13 @@ two places is a hash that will disagree in one of them.
 
 | # | Work | State |
 |---:|---|---|
-| 1 | **`WO-LORI-PROFILE-SEED-REACHABILITY-01`** — Phase 2 Step 6 | 🔵 **CURRENT.** Phases 0–1 accepted; Phase 2 steps 1–5 accepted; pre-Step-6 corrections accepted. **Step 6 NOT STARTED**, step 7 owed, Phases 3–5 not started. Hashes: `HANDOFF.md` §1 and the spec's status block. [Spec](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md) · [Transport map](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_PHASE2_TRANSPORT_MAP.md) |
+| 1 | **`WO-LORI-PROFILE-SEED-REACHABILITY-01`** — Phase 2 Step 7 | 🔵 **CURRENT.** Phases 0–1 accepted; Phase 2 steps 1–5 accepted; pre-Step-6 corrections accepted; **Step 6 ACCEPTED 2026-08-29 on live evidence — 16/16 through the production WebSocket. Step 7 NOT STARTED**, Phases 3–5 not started. Hashes: `HANDOFF.md` §1 and the spec's status block. [Spec](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md) · [Transport map](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_PHASE2_TRANSPORT_MAP.md) |
 | 2 | **`WO-REPOSITORY-HYGIENE-01`** — indexed reorganization | ⏸️ **PHASE A ACCEPTED, REMAINDER PAUSED — INCOMPLETE.** Steps 0, 1, 2, 2b and the first Step 3 cohort accepted. **Deferred by Chris's product-priority decision:** the remaining Step 3 cohorts, Steps 4–5, and the final verification checkpoint. Hashes: `HANDOFF.md` §1. [Spec](docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md) |
 
-**Step 6 no longer waits for hygiene.** The earlier rule — that it was released only by
-Steps 3–5 **and** the final verification together — is **superseded** by Chris's
+**Profile Seed no longer waits for hygiene.** The earlier rule — that it was released only
+by Steps 3–5 **and** the final verification together — is **superseded** by Chris's
 product-priority decision. That decision defers the hygiene remainder; it does **not** claim
-the hygiene work order finished, and this list must not describe it as complete. Step 6's
+the hygiene work order finished, and this list must not describe it as complete. The lane's
 scope, inheritance and prohibitions are in `HANDOFF.md` §3, and they are unchanged.
 
 ## B. Next, in order
@@ -68,6 +68,7 @@ detail is deliberately **not** repeated here.
 | Deletion / erasure integrity | 2026-08-20 | same spec |
 | Profile Seed Phases 0–1, Phase 2 steps 1–5, pre-Step-6 corrections | through 2026-08-28 | `HANDOFF.md` §1 + spec status block |
 | Repository hygiene Steps 1, 2 and 2b | 2026-08-28 | `HANDOFF.md` §1 |
+| **Profile Seed Phase 2 Step 6** — the committed-turn walk over the production WebSocket | 2026-08-29, **live** 16/16 | `HANDOFF.md` §1 + §5 · spec status block |
 
 **Profile Seed ownership is settled**, and the settlement is the durable part: the
 ten-topic onboarding is **preserved for new Lorevox narrators regardless of narrator
