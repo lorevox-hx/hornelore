@@ -5438,8 +5438,31 @@ def _profile_seed_onboarding_block(runtime71: Optional[Dict[str, Any]]) -> str:
         ])
 
     if action == "acknowledge":
+        # ── ONE ORGANIC FOLLOW-UP IS ALLOWED, 2026-08-29 ────────────────
+        #
+        # Chris's ruling, after watching the live Step 6 probe. Lori was
+        # told "One short, human acknowledgement. Then stop." and she
+        # did not stop — she said *"Probeville has a special place in
+        # your childhood memories. What was one of your favorite…"*,
+        # staying inside the topic the narrator had just opened.
+        #
+        # **That is the behaviour we want, and the instruction was
+        # wrong.** A companion who receives an answer and immediately
+        # falls silent is not warm; she is transactional. Forbidding
+        # every question was written to stop ONE specific failure — Lori
+        # racing ahead to the next registry topic before the server had
+        # settled it — and it overshot into forbidding conversation.
+        #
+        # The prohibitions that actually matter are unchanged and are
+        # still stated below: do not re-ask the settled question, and do
+        # not ask the next Profile Seed topic. **Nothing about the state
+        # machine moves.** A follow-up is ordinary conversation; it
+        # creates no presentation event, so the reducer never sees it,
+        # and the exact-tuple correlation is untouched. The live probe
+        # proves that directly: turn 2 carried a response event and no
+        # presentation event, while Lori asked her follow-up.
         lines = [
-            "PROFILE SEED — ACKNOWLEDGE ONLY.",
+            "PROFILE SEED — ACKNOWLEDGE.",
             "The narrator has just answered the question you asked. "
             "Respond warmly to what they said.",
             "RULES:",
@@ -5488,7 +5511,17 @@ def _profile_seed_onboarding_block(runtime71: Optional[Dict[str, Any]]) -> str:
             lines.append(
                 "  - Do NOT ask the next Profile Seed question this turn. "
                 "You will be given it when it is settled.")
-        lines.append("  - One short, human acknowledgement. Then stop.")
+            # ORDINARY TURN ONLY. The `completes_walk` branch above
+            # deliberately keeps "no question of any kind": a follow-up
+            # in the same breath as "I feel I have a good sense of your
+            # story" reads as a fresh start rather than a close, and
+            # that branch carries its own no-completion-claim design.
+            # Left alone on purpose.
+            lines.append(
+                "  - You MAY ask at most ONE short, natural follow-up about "
+                "what they just told you — the same subject, not a new one. "
+                "Or simply reflect it back. Either is right; a bare "
+                "acknowledgement is never wrong.")
         return "\n".join(lines)
 
     from .services.profile_seed import topic as _topic_def

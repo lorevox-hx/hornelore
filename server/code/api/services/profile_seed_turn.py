@@ -571,9 +571,17 @@ def plan_turn(
         # event.
         return TurnPlan(RE_PRESENT, active, version)
 
-    # ACKNOWLEDGE. Lori responds to what was said and asks NOTHING —
-    # not A again, and not B, because until the post-commit apply
-    # succeeds B is a prediction rather than a fact.
+    # ACKNOWLEDGE. Lori responds to what was said and stamps NO
+    # PRESENTATION EVENT — not A again, and not B, because until the
+    # post-commit apply succeeds B is a prediction rather than a fact.
+    #
+    # **That is a claim about EVENTS, not about whether Lori speaks a
+    # question.** Chris's ruling of 2026-08-29: she may ask at most one
+    # natural follow-up about what the narrator just said. A follow-up
+    # is ordinary conversation — it creates no presentation event, the
+    # reducer never sees it, and the exact-tuple correlation is
+    # untouched. What stays forbidden is the NEXT REGISTRY TOPIC, and
+    # the composer forbids that separately.
     #
     # `completes_walk` is NOT a prediction in the same sense. It says
     # only that the topic being closed right now is the last one still

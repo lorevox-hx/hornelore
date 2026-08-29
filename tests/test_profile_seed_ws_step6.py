@@ -203,12 +203,18 @@ class RealAnswerTests(_Base):
         self.assertTrue(advanced)
         self.assertNotEqual(self._state()["active_topic_id"], topic_before)
 
-    def test_the_acknowledgement_turn_asks_NOTHING(self):
+    def test_the_acknowledgement_stamps_NO_PRESENTATION_EVENT(self):
         """`ACKNOWLEDGE` must not present the next topic in the same turn.
 
         Until the post-commit apply succeeds, the next topic is a
         prediction rather than a fact, and a question asked from a
         prediction is a question that may be about the wrong thing.
+
+        **This is about EVENTS, not about whether Lori speaks.** Per
+        Chris's ruling of 2026-08-29 she may ask one natural follow-up
+        on the subject the narrator just raised; that is conversation
+        and creates no event, so nothing here changes. What must never
+        appear is a second PRESENTATION — the registry topic.
         """
         self._turn("Hello.")
         _, meta, _ = self._turn("Devils Lake.")

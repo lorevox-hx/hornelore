@@ -170,7 +170,7 @@ class SectionRenderTests(NoStateClaimMixin, unittest.TestCase):
         self.assertIn(_seed.topic(B).question, text)
         self.assertIn("asked for a moment", text)
 
-    def test_acknowledge_asks_nothing_at_all(self):
+    def test_acknowledge_asks_no_REGISTRY_question(self):
         """The acknowledgement turn is the one most likely to regress.
 
         It must not re-ask the answered topic and must not ask the next
@@ -178,11 +178,19 @@ class SectionRenderTests(NoStateClaimMixin, unittest.TestCase):
         prediction rather than a fact.
         """
         text = self.block(onboarding("acknowledge", A))
+        # THE GUARANTEE THAT MATTERS, and it is unchanged: not one
+        # registry question appears anywhere in the block. This is what
+        # stops Lori running ahead of the server, and it holds whether
+        # or not she asks a follow-up of her own.
         for topic_id in _seed.TOPIC_IDS:
             with self.subTest(topic=topic_id):
                 self.assertNotIn(_seed.topic(topic_id).question, text)
-        self.assertIn("ACKNOWLEDGE ONLY", text)
+        self.assertIn("PROFILE SEED — ACKNOWLEDGE", text)
         self.assertIn("Do NOT ask the next Profile Seed question", text)
+        self.assertIn("Do NOT ask that question again", text)
+        # ONE follow-up is now permitted, and the permission is bounded.
+        self.assertIn("at most ONE short, natural follow-up", text)
+        self.assertIn("the same subject, not a new one", text)
 
     def test_known_topics_are_named_so_they_are_not_re_asked(self):
         text = self.block(onboarding("present", B, known=[A],
@@ -1245,7 +1253,7 @@ class PlanToPromptTests(unittest.TestCase):
         self.assertEqual(plan.action, _turn.ACKNOWLEDGE)
         text = _pc.compose_system_prompt(
             "conv-plan-ack", runtime71=self._runtime_from_plan(plan, state))
-        self.assertIn("ACKNOWLEDGE ONLY", text)
+        self.assertIn("PROFILE SEED — ACKNOWLEDGE", text)
         for topic_id in _seed.TOPIC_IDS:
             with self.subTest(topic=topic_id):
                 self.assertNotIn(_seed.topic(topic_id).question, text)
