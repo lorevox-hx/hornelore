@@ -5,14 +5,16 @@
 **Authored:** 2026-08-26 against `main` at `6952ad0`  
 **Predecessor:** `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01`, accepted and complete.
 
-**Status:** IN IMPLEMENTATION, all dates 2026-08-26.
+**Status:** IN IMPLEMENTATION — **Phases 0, 1 and 2 are ACCEPTED; Phase 3 is current and
+not started.**
 
 | Phase | State |
 |---|---|
 | 0 — executable map | **ACCEPTED** at `661aa95` |
 | 1 — server authority | **ACCEPTED** at `1288baa` |
-| 2 — prompt and committed-turn wiring | **IN IMPLEMENTATION, NOT ACCEPTED** — steps 1–5 ACCEPTED (step 5 at `9127adb`); **pre-Step-6 correction checkpoint ACCEPTED at `d0e5294`**; **step 6 ACCEPTED 2026-08-29 on live evidence** — 16/16 through the production WebSocket and the real model, two independent runs; **step 7 NOT STARTED and is the CURRENT action** |
-| 3–5 | not begun |
+| 2 — prompt and committed-turn wiring | ✅ **ACCEPTED 2026-08-29, steps 1–7 complete.** Steps 1–5 (step 5 `9127adb`); pre-Step-6 checkpoint `d0e5294`; **step 6 `12221e0`…`58dfc40`, proven live 16/16 twice through the production WebSocket and the real model**; step 7 — consolidated closure — `6885bb2`. Evidence by checkpoint: `HANDOFF.md` §1a |
+| 3 — browser promotion sites and server authority | 🔵 **CURRENT, NOT STARTED.** Eight sites; remove the remaining browser-controlled race. **Begins with a bounded read-only review, before any UI edit** |
+| 4–5 | not begun |
 
 Phase 2 steps 1–3 have landed: `f23040b` characterizes all eight refusal patterns;
 `5a1eb56` moves them to one shared helper called by extraction and Profile Seed; `1875821`
@@ -189,7 +191,8 @@ person-dependent memory layer is skipped without it.
 
 **Step 6 is ACCEPTED — 2026-08-29, on live evidence.** Implemented `12221e0`, corrected
 `58dfc40`, instrument committed `525a43f`; 16/16 twice through the production WebSocket and
-the real model. **Step 7 — consolidated closure — is the current action.**
+the real model. **Step 7 — consolidated closure — is ACCEPTED at `6885bb2`, and Phase 2
+with it. Phase 3 is the current action.**
 
 *(This block read "READY FOR IMPLEMENTATION" until 2026-08-26, contradicting §6's own
 `STATUS: COMPLETE, ACCEPTED` two hundred lines below. A spec whose header disagrees with its

@@ -949,7 +949,7 @@ control-document reconciliation because the sweep covered four files and there a
 this map is a control document too, and a stale one says the code it describes does not
 exist.)*
 
-**Phase 2 steps 1–6 are ACCEPTED. Step 7 — consolidated closure — is the current action.**
+**Phase 2 is ACCEPTED — steps 1–7 complete, 2026-08-29. Phase 3 is the current action.**
 
 | Step | State |
 |---|---|
@@ -959,7 +959,7 @@ exist.)*
 | 4 — isolated composer section | **ACCEPTED** at `b269184` (landed `620d692`; `9f31d9f` was premature) |
 | 5 — REST read authority | **ACCEPTED** at `9127adb` (landed `687c655`) |
 | 6 — WebSocket presentation metadata and advancement | **ACCEPTED** `12221e0`…`58dfc40`, live 16/16 through the production WebSocket |
-| 7 — consolidated closure: verification, control reconciliation, no new behaviour | 🔵 **CURRENT ACTION** |
+| 7 — consolidated closure: verification, control reconciliation, no new behaviour | **ACCEPTED** `6885bb2` |
 
 The commit ledger lives in the primary work order's status block, not here — one home, so
 a new commit does not make five documents stale at once.

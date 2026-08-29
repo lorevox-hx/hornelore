@@ -10,16 +10,17 @@ rule back. The claim that matters is the one about obligations.)*
 
 ---
 
-> # ▶ CURRENT ACTION — PROFILE SEED PHASE 2 STEP 7. HYGIENE PHASE A IS ACCEPTED AND PAUSED.
+> # ▶ CURRENT ACTION — PROFILE SEED PHASE 3. PHASE 2 IS ACCEPTED. HYGIENE PHASE A PAUSED.
 >
 > | | |
 > |---|---|
-> | **Current action** | Profile Seed Phase 2 **Step 7. NOT STARTED.** |
-> | **Step 6** | ✅ **ACCEPTED 2026-08-29 on live evidence.** Implemented `12221e0`, corrected `58dfc40`, instrument committed `525a43f`. Two independent runs of `scripts/step6_ws_probe.py` through the **production WebSocket and the real model — 16/16 each.** Run 2 was made from a committed instrument on a clean tree |
+> | **Current action** | Profile Seed **Phase 3 — NOT STARTED.** Reconcile the eight browser promotion sites with server authority and remove the remaining browser-controlled race. Begins with a bounded read-only review, before any UI edit |
+> | **Phase 2** | ✅ **ACCEPTED 2026-08-29.** Steps 1–7 complete. Step 6 proven live; Step 7 — consolidated closure — delivered at `6885bb2` |
+> | **Step 6** | ✅ **ACCEPTED on live evidence.** `12221e0`…`58dfc40`, instrument `525a43f`. Two runs of `scripts/step6_ws_probe.py` through the **production WebSocket and the real model — 16/16 each**; run 2 from a committed instrument on a clean tree |
 > | **Hygiene Phase A** | **ACCEPTED** through the first Step 3 cohort — Steps 0, 1, 2, 2b and the four root dated artifacts |
 > | **Hygiene remainder** | **DEFERRED by Chris's product-priority decision:** the remaining Step 3 cohorts, Steps 4–5, and the final verification checkpoint. They remain indexed, not cancelled |
 > | **Is the hygiene work order complete?** | **NO — incomplete and PAUSED.** Phase A acceptance is not completion of `WO-REPOSITORY-HYGIENE-01` |
-> | **May Step 7 begin?** | **YES.** The rule that Profile Seed waited for the whole hygiene checkpoint is **superseded** by that decision |
+> | **May Phase 3 begin?** | **YES** — after its read-only review. The rule that Profile Seed waited for the whole hygiene checkpoint is **superseded** by that decision |
 >
 > **The supersession is deliberate and is recorded so it is not mistaken for drift.** The
 > earlier rule — that no individual hygiene step's acceptance releases Step 6, only Steps 3–5
@@ -71,17 +72,42 @@ stopped moving:
 | `5086490` | Repository hygiene **Step 3, first cohort** — the four root dated artifacts, moved byte-for-byte. **The last accepted hygiene commit; Phase A ends here** |
 | `12221e0`…`58dfc40` | Profile Seed **Phase 2 Step 6** — implementation and correction block. **ACCEPTED 2026-08-29**, 16/16 live through the production WebSocket |
 | `525a43f` | The Step 6 live probe, committed. Run 2's provenance rests on this |
+| `6885bb2` | Profile Seed **Phase 2 Step 7** — consolidated closure and control reconciliation |
 
 Where everything else lives: [`docs/INDEX.md`](docs/INDEX.md) ·
 [`docs/BACKLOG.md`](docs/BACKLOG.md) · [`scripts/INDEX.md`](scripts/INDEX.md) ·
 [`docs/archive/INDEX.md`](docs/archive/INDEX.md).
+
+## 1a. Phase 2 acceptance evidence — by checkpoint and changed target
+
+**Recorded this way deliberately.** A single "69/69 in one invocation" figure was NOT
+produced and must not be claimed: the one full-gate attempt was interrupted, and stitching
+its partial results onto earlier runs would manufacture an aggregate no invocation ever
+reported. What follows is what was actually run, against what.
+
+| Evidence | Scope | Result |
+|---|---|---|
+| Last complete clean-tree gate | all mutations at that checkpoint | **63/63 CAUGHT** |
+| Step 6 changed-file mutations | WebSocket, runtime, REST — `D1`–`D4`, `S1`–`S6`, `S11`, `X1`–`X6` | **17/17 CAUGHT** |
+| Follow-up-ruling composer mutations | `prompt_composer.py` after `8cc51b4` | **14/14 CAUGHT** |
+| `C3` after its anchor repair | the instrument itself | **CAUGHT** (reported `BROKEN` first — the runner refusing to score a mutation it could not apply) |
+| `C8`, `H4`, `H5`, `C16` at `291197a` | remaining composer guards | **4/4 CAUGHT** |
+| Consolidated Phase 2 suites | eleven modules, derived from the tree | **436 ran, 6 skipped, 0 failed** on `python3` |
+| Route coverage, zero skips | `.venv-gpu`, REST authority + strict version | **70/70, 0 skipped** |
+| Live production WebSocket | two probe runs, real model | **16/16 each** |
+
+**The untouched Phase 1 and reducer mutations were deliberately NOT re-run.** Documentation
+changed; that code did not. Re-testing unchanged code to raise a count is ceremony, and
+the count it produces is not evidence about this change.
+
+---
 
 ## 2. Current state
 
 | Lane | State |
 |---|---|
 | **Repository hygiene** | ⏸️ **PHASE A ACCEPTED, REMAINDER PAUSED — the work order is INCOMPLETE.** Steps 0, 1 `5f6b01b`, 2 `db0c5e7`, 2b `ff1ff4f` and the first Step 3 cohort `5086490` are accepted. **Deferred by product-priority decision:** the remaining Step 3 cohorts, Steps 4–5, and the final verification checkpoint. Still indexed, still owed, not scheduled |
-| **Profile Seed reachability** | 🔵 **ACTIVE — Step 7 is the current action.** Phase 0 `661aa95` · Phase 1 `1288baa` · Phase 2 steps 1–5 accepted (step 4 `b269184`, step 5 `9127adb`) · pre-Step-6 corrections `d0e5294` · **Step 6 ACCEPTED on live evidence** · **Step 7 NOT STARTED** · Phases 3–5 not started. **Phase 3 is the next narrator-facing block:** reconcile the eight browser promotion sites with server authority and remove the remaining browser-controlled race |
+| **Profile Seed reachability** | 🔵 **ACTIVE — Phase 3 is the current action, NOT STARTED.** Phase 0 `661aa95` · Phase 1 `1288baa` · **Phase 2 ACCEPTED 2026-08-29, steps 1–7 complete** (step 4 `b269184`, step 5 `9127adb`, pre-Step-6 corrections `d0e5294`, step 6 `12221e0`…`58dfc40` live, step 7 `6885bb2`) · Phases 4–5 not started. **Phase 3:** reconcile the eight browser promotion sites with server authority and remove the remaining browser-controlled race. It begins with a bounded read-only review, before any UI edit |
 | `WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` | **COMPLETE** — Phases 1–4 accepted. Closes the three L2 integration defects |
 | `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` | **ACCEPTED AND COMPLETE 2026-08-20** — story-to-memoir 11/11, deletion integrity 10/10, verified against filesystem and SQL |
 | Deletion / erasure integrity | **CLOSED 2026-08-20.** Erasure planned before the DB authority is destroyed, persisted (0049), bound to the canonical absolute root (0050); refuses every symlink below the root; eleven stores; deletes media; purges the translation cache; reports backups rather than rewriting them; fails closed; retryable with a truthful audit trail |
@@ -109,14 +135,26 @@ Lorevox narrators regardless of narrator type**; what is owed is reachability.
 narrator are all untouched. Six pre-existing `harness-test-gate7p2` FK violations in
 `interview_sessions` are unchanged and are **not** closed by any current lane.
 
-## 3. Step 6 — what it inherits and what it must not touch
+## 3. Step 6 — ACCEPTED: the boundary it honoured, and the result
 
-**REST reads authority and DOES NOT ADVANCE.** Measured live: a narrator answers a topic
-and the durable row still reads `active=childhood_home · remaining=10 · version=2`. Within
-a session the history hides it; across a session boundary Lori asks for something she was
-already told. **Step 6 is the fix**, and
-`test_an_answer_recorded_as_REST_SHAPED_TURNS_is_never_applied` is written to be REPLACED
-when it lands, not deleted.
+**Preserved as the accepted record, not as a plan.** *(This section spoke about Step 6 in
+the future tense — "Step 6 is the fix", "what it must not touch". Step 6 landed and was
+accepted on live evidence; a section that still describes it as upcoming is the exact
+stale-status defect this file has twice been reduced to remove. The boundaries below were
+honoured and are kept because they still bind Phase 3.)*
+
+**Result:** the walk reaches a narrator through the production WebSocket. Two probe runs,
+16/16 each, real model. Presentation and response events commit on the assistant row;
+advancement happens only after that commit; recovery runs before composition; the nine
+deterministic paths stamp nothing.
+
+### What it inherited and did not touch
+
+**REST reads authority and DOES NOT ADVANCE**, and that is still true — Option B is
+unchanged. The defect it caused: a narrator answered a topic and the durable row still
+read `active=childhood_home · remaining=10 · version=2`, so across a session boundary Lori
+asked for something she had already been told. **Step 6 fixed that on the WebSocket path**,
+which is the path the narrator UI actually uses.
 
 **WebSocket is the production narrator transport.** `ui/js/api.js` drives `/api/chat/ws`;
 a complete narrator turn produces **zero HTTP requests matching "chat"**. `/api/chat` has
