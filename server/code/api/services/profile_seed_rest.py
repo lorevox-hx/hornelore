@@ -94,6 +94,7 @@ from typing import Any, Dict, Mapping, Optional, Tuple
 
 from . import profile_seed as _seed
 from . import profile_seed_turn as _turn
+from . import profile_seed_runtime as _runtime
 
 #: The runtime key the composer's section reads. Imported rather than
 #: retyped so a rename cannot leave this transport writing a key nobody
@@ -401,13 +402,15 @@ def onboarding_runtime(
     # would be named in the prompt and still have no memory attached.
     runtime["person_id"] = person_id
     runtime["identity_complete"] = bool(anchors_ok)
-    runtime[PROFILE_SEED_ONBOARDING_KEY] = {
-        "action": plan.action,
-        "topic_id": plan.topic_id,
-        "known_topics": list((state or {}).get("known_topics") or []),
-        "remaining_topics": list((state or {}).get("remaining_topics") or []),
-    }
-    if plan.completes_walk is not None:
-        runtime[PROFILE_SEED_ONBOARDING_KEY]["completes_walk"] = bool(
-            plan.completes_walk)
+    # ── ONE PAYLOAD DEFINITION, SHARED WITH THE WEBSOCKET, Step 6 ──────
+    #
+    # This dict used to be built here by hand. Step 6 needs the same
+    # fragment on the committed-turn path, and writing it a second time
+    # there would give the composer two authors — which drifts one field
+    # at a time, silently, because each transport's own tests keep
+    # passing while the narrator gets a different prompt depending on how
+    # they connected. `profile_seed_runtime` is the single builder;
+    # REST's output is unchanged, and the byte-stability tests pin that.
+    runtime[PROFILE_SEED_ONBOARDING_KEY] = _runtime.onboarding_payload(
+        plan, state)
     return runtime

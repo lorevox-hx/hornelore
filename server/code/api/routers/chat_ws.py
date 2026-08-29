@@ -4372,8 +4372,96 @@ async def ws_chat(ws: WebSocket):
         # Deterministic turn modes (memory_echo, correction) returned above
         # without touching the model, so a cold/slow/wedged LLM never blocks
         # the trust-behavior fallback path.
-        model, tok = _load_model()
+        # ── PROFILE SEED, STEP 6 — recovery and resolve, BEFORE the model ──
+        #
+        # WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 2 Step 6.
+        #
+        # This is the only place in this module allowed to carry Profile
+        # Seed presentation or response metadata. The nine deterministic
+        # paths returned long before here and stay metadata-free by
+        # construction; `tests/test_profile_seed_deterministic_paths.py`
+        # asserts that separately and must keep doing so.
+        #
+        # ORDER IS THE WHOLE DESIGN, and it is why the history export
+        # moved above `_load_model()` rather than staying below it:
+        #
+        #   1. export the COMMITTED history — the durable events, not
+        #      this turn's in-flight text;
+        #   2. RECOVER, so a response committed on an earlier turn whose
+        #      post-commit apply never landed is applied now. Without
+        #      this the machine does not retry, it REPEATS: the response
+        #      event consumed the presentation, the state still holds the
+        #      old tuple, and the narrator is asked a question whose
+        #      answer sits committed one row above;
+        #   3. compose from the state recovery RE-RESOLVED, never from
+        #      the pre-recovery snapshot.
+        #
+        # A storage fault REFUSES THE TURN. It does not fall back to the
+        # browser's onboarding pass and it does not compose from a stale
+        # read: Phase 1's accepted rule is that a storage fault must
+        # never make an onboarding decision, and "ask it again" is an
+        # onboarding decision. The narrator sees an error and their
+        # conversation is untouched, which is recoverable; a wrong
+        # question asked from degraded state is not.
         history = export_turns(conv_id)
+        _ps_plan = None
+        _ps_state: Optional[Dict[str, Any]] = None
+        # Ineligible turns do not participate. `plan_turn` turns that into
+        # HOLD when a walk is live — NOT `IDLE`, because `IDLE` would
+        # un-suppress the legacy browser block and hand the walk back to
+        # the ten-question pass the server took over.
+        _ps_eligible = not bool(params.get("_is_system_directive")) and not ev.is_set()
+        if person_id:
+            try:
+                from ..db import (profile_seed_resolve as _ps_resolve,
+                                  profile_seed_apply as _ps_apply)
+                from ..services import profile_seed_turn as _ps_turn
+                from ..services import profile_seed_runtime as _ps_runtime
+                _ps_prepared = _ps_runtime.prepare_turn(
+                    person_id, history,
+                    narrator_text=user_text,
+                    eligible=_ps_eligible,
+                    resolve_fn=_ps_resolve, apply_fn=_ps_apply,
+                )
+                _ps_plan = _ps_prepared.plan
+                _ps_state = _ps_prepared.state
+                if _ps_prepared.recovery.status != _ps_turn.NOTHING_OWED:
+                    logger.info(
+                        "[chat_ws][profile-seed][recover] outcome=%s topic=%s "
+                        "version=%s disposition=%s conv=%s person=%s",
+                        _ps_prepared.recovery.status,
+                        _ps_prepared.recovery.topic_id,
+                        _ps_prepared.recovery.version,
+                        _ps_prepared.recovery.disposition,
+                        conv_id, person_id,
+                    )
+                runtime71 = _ps_runtime.attach_onboarding(
+                    runtime71, _ps_plan, _ps_state)
+                logger.info(
+                    "[chat_ws][profile-seed][plan] action=%s topic=%s "
+                    "version=%s eligible=%s conv=%s person=%s",
+                    _ps_plan.action, _ps_plan.topic_id, _ps_plan.version,
+                    _ps_eligible, conv_id, person_id,
+                )
+            except Exception as _ps_exc:
+                # DELIBERATELY NOT SWALLOWED INTO A DEFAULT. Every other
+                # runtime contributor on this path logs and continues,
+                # because a missing prompt fragment costs prompt quality.
+                # This one costs onboarding correctness, and the two are
+                # not comparable.
+                logger.error(
+                    "[chat_ws][profile-seed] REFUSING TURN — onboarding "
+                    "state unavailable conv=%s person=%s: %s",
+                    conv_id, person_id, _ps_exc, exc_info=True,
+                )
+                await _ws_send(ws, {
+                    "type": "error",
+                    "message": ("Onboarding state unavailable — this turn was "
+                                "not answered and nothing was written."),
+                })
+                return
+
+        model, tok = _load_model()
 
         # WO-LORI-SOFTENED-RESPONSE-01 — thread softened state into
         # runtime71 BEFORE compose_system_prompt is called. The
@@ -5942,6 +6030,44 @@ async def ws_chat(ws: WebSocket):
             # client bubble via the deferred single-delta emit.
             _deferred_emit_pending = True
 
+        # ── PROFILE SEED, STEP 6 — the ONE sanctioned metadata merge ───────
+        #
+        # Built as a NAMED DICT rather than inline in the call, so the
+        # deterministic-path scanner keeps inspecting literal `meta=`
+        # dicts and this allowed site is not one of them. The nine
+        # deterministic paths still pass literals and are still scanned.
+        #
+        # RE-CHECKED AT COMMIT, not inherited from composition. `ev` may
+        # have been set while the model was generating, and a cancelled
+        # turn must write no event: a presentation the narrator never saw
+        # would leave a question outstanding that was never asked, and a
+        # response to it would then be applied against an answer that
+        # does not exist.
+        #
+        # The plan decides WHICH keys, and it decides alone —
+        # PRESENT/RE_PRESENT stamp only `presented`, ACKNOWLEDGE stamps
+        # only `response`, HOLD and IDLE stamp nothing at all.
+        _ps_commit_meta: Dict[str, Any] = {}
+        _ps_cancelled_at_commit = ev.is_set()
+        try:
+            from ..services import profile_seed_runtime as _ps_runtime_commit
+            _ps_commit_meta = _ps_runtime_commit.commit_meta(
+                _ps_plan, eligible=_ps_eligible,
+                cancelled=_ps_cancelled_at_commit)
+        except Exception as _ps_meta_exc:
+            # A metadata build that raised must cost the metadata, never
+            # the turn. The narrator's words are the thing that matters
+            # and they are about to be committed.
+            logger.error(
+                "[chat_ws][profile-seed] commit_meta raised conv=%s: %s",
+                conv_id, _ps_meta_exc, exc_info=True,
+            )
+            _ps_commit_meta = {}
+        _turn_meta: Dict[str, Any] = {"ws": True,
+                                      "cancelled": _ps_cancelled_at_commit}
+        _turn_meta.update(_ps_commit_meta)
+
+        _persist_ok = False
         try:
             # WO-LIVE-TRIP-COMPANION-01 VS1 — the trip timeline renders a
             # conversation moment, which is both sides of it. It reads
@@ -5958,11 +6084,17 @@ async def ws_chat(ws: WebSocket):
                 # narrator bound at the top of this turn, recorded on the
                 # sessions row instead of being dropped.
                 person_id=person_id,
-                meta={"ws": True, "cancelled": ev.is_set()},
+                # Carries the Profile Seed presentation or response event
+                # when this turn produced one — see the merge above.
+                meta=_turn_meta,
                 row_ids_out=_persisted_row_ids,
                 # WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 Phase 1 (2026-08-09).
                 is_system_directive=bool(params.get("_is_system_directive")),
             )
+            # The rows are durable from here. Everything below is
+            # provenance and progress, and none of it may re-report a
+            # persistence failure that did not happen.
+            _persist_ok = True
             # WO-TRUTH-PIPELINE-01 Phase 2 (Gate 7, 2026-07-30) — hand the
             # committed assistant rowid to the post-response extraction
             # hook in generate_and_stream(). `params` is the only object
@@ -6040,6 +6172,68 @@ async def ws_chat(ws: WebSocket):
         except Exception as persist_err:
             logger.error("[chat-ws] Phase G: persist_turn_transaction failed — %s", persist_err)
             await _ws_send(ws, {"type": "error", "message": "Turn persist failed — no state written"})
+
+        # ── PROFILE SEED, STEP 6 — post-commit advancement ────────────────
+        #
+        # ITS OWN `try`, OUTSIDE THE PERSISTENCE HANDLER, and that
+        # placement is the requirement rather than a tidiness choice.
+        # Inside it, a failed apply would reach the narrator as
+        # "Turn persist failed — no state written" — a message that is
+        # simply untrue by then: both conversation rows are committed and
+        # durable. The narrator would be told their turn was lost while
+        # it sits safely in the database, and the honest failure — that
+        # onboarding did not advance — would be hidden behind it.
+        #
+        # ONLY A COMMITTED ACKNOWLEDGE ADVANCES. `plan.advances` is
+        # exactly that, and the three other conditions are each a way the
+        # answer could turn out not to exist: persistence failed, the
+        # turn was cancelled between composition and commit, or the plan
+        # never produced a response event at all.
+        #
+        # A FAILED APPLY IS NOT LOST. The response event is committed on
+        # the assistant row, so the recovery pass at the top of the NEXT
+        # turn finds it, re-applies it, and re-resolves before
+        # composition. That is why this may be non-fatal without being
+        # careless — the durable event is the retry record.
+        _ps_may_advance = False
+        try:
+            from ..services import profile_seed_runtime as _ps_runtime_apply
+            _ps_may_advance = bool(person_id) and _ps_runtime_apply.should_advance(
+                _ps_plan, persisted=_persist_ok, eligible=_ps_eligible,
+                cancelled=ev.is_set())
+        except Exception as _ps_gate_exc:
+            logger.error(
+                "[chat_ws][profile-seed] advancement gate raised conv=%s: %s "
+                "— NOT advancing", conv_id, _ps_gate_exc, exc_info=True,
+            )
+            _ps_may_advance = False
+        if _ps_may_advance:
+            try:
+                from ..db import profile_seed_apply as _ps_apply_now
+                _ps_applied = _ps_apply_now(
+                    person_id,
+                    expected_version=int(_ps_plan.version or 0),
+                    action=_ps_plan.disposition,
+                    topic_id=_ps_plan.topic_id,
+                )
+                logger.info(
+                    "[chat_ws][profile-seed][apply] topic=%s version=%s "
+                    "disposition=%s -> active=%s version=%s conv=%s person=%s",
+                    _ps_plan.topic_id, _ps_plan.version, _ps_plan.disposition,
+                    (_ps_applied or {}).get("active_topic_id"),
+                    (_ps_applied or {}).get("version"), conv_id, person_id,
+                )
+            except Exception as _ps_apply_exc:
+                # Loud, and never fatal. Named as recoverable so the log
+                # does not read like data loss, because it is not.
+                logger.warning(
+                    "[chat_ws][profile-seed][apply] DID NOT ADVANCE topic=%s "
+                    "version=%s conv=%s person=%s: %s — the turn is committed "
+                    "and the response event is durable; the next turn's "
+                    "recovery pass re-applies it",
+                    _ps_plan.topic_id, _ps_plan.version, conv_id, person_id,
+                    _ps_apply_exc,
+                )
 
         # Memory Archive — log assistant reply + rebuild transcript.
         # Same surface gate as the user-turn write above

@@ -144,6 +144,11 @@ DETERMINISTIC_TESTS = "tests.test_profile_seed_deterministic_paths"
 WS = "server/code/api/routers/chat_ws.py"
 CONTROL = "server/code/api/services/conversation_control.py"
 
+#: Step 6. The three committed-turn rules live here rather than inline in
+#: the websocket handler, which is what makes them mutable at all.
+RUNTIME = "server/code/api/services/profile_seed_runtime.py"
+STEP6_TESTS = "tests.test_profile_seed_ws_step6"
+
 COMPOSER_TESTS = ("tests.test_profile_seed_composer_section "
                   "tests.test_prompt_section_policy "
                   "tests.test_prompt_sections")
@@ -807,6 +812,87 @@ MUTATIONS: Tuple[Mutation, ...] = (
         # truthful number is 24 — the same inflation the flag's own
         # note was added to stop, on 2026-08-27, for S7 and S9.
         DETERMINISTIC_TESTS),
+
+    # ── X-SERIES: STEP 6, THE COMMITTED-TURN WALK, 2026-08-28 ──────────
+    #
+    # The three rules that decide whether a narrator's answer is
+    # recorded live in `profile_seed_runtime.py` — extracted there
+    # precisely so they could be mutated, because the router that calls
+    # them is an async websocket handler wrapped around a model load and
+    # nothing can mutate that usefully.
+    #
+    # Every X mutation below breaks ONE rule and is caught by an
+    # assertion in `tests/test_profile_seed_ws_step6.py` running against
+    # a real database — not by an import error and not by a crash.
+    Mutation(
+        "X1", "A FAILED PERSIST STILL ADVANCES: the walk moves past a "
+              "question whose answer was never written, so the narrator's "
+              "answer is lost AND the topic is never asked again",
+        RUNTIME,
+        '    return bool(persisted and eligible and not cancelled\n'
+        '                and plan is not None and plan.advances)',
+        '    return bool(eligible and not cancelled\n'
+        '                and plan is not None and plan.advances)',
+        STEP6_TESTS),
+    Mutation(
+        "X2", "A CANCELLED TURN STAMPS AN EVENT: a presentation the "
+              "narrator never saw is recorded as asked, and a later "
+              "response is matched against a question that never happened",
+        RUNTIME,
+        '    if plan is None or not eligible or cancelled:\n        return {}',
+        '    if plan is None or not eligible:\n        return {}',
+        STEP6_TESTS),
+    Mutation(
+        "X3", "COMPOSITION SEES PRE-RECOVERY STATE: a response committed "
+              "on an earlier turn is re-applied, but the prompt is built "
+              "from the state before it — so the narrator is asked again "
+              "for something whose answer sits committed one row above. "
+              "This is repetition wearing retry's clothes",
+        RUNTIME,
+        '    recovery = _turn.recover(person_id, history,\n'
+        '                             resolve_fn=resolve_fn, apply_fn=apply_fn)\n'
+        '    state = dict(recovery.state) if recovery.state else None',
+        '    _pre = resolve_fn(person_id)\n'
+        '    recovery = _turn.recover(person_id, history,\n'
+        '                             resolve_fn=resolve_fn, apply_fn=apply_fn)\n'
+        '    state = dict(_pre) if _pre else None',
+        STEP6_TESTS),
+    Mutation(
+        "X4", "HOLD IS TREATED AS IDLE: a held turn emits no onboarding "
+              "payload, the composer's section disappears, and the legacy "
+              "browser ten-question pass is un-suppressed underneath a "
+              "walk the server owns",
+        RUNTIME,
+        '    if plan is None or plan.action == _turn.IDLE:\n        return None',
+        '    if plan is None or plan.action in (_turn.IDLE, _turn.HOLD):\n'
+        '        return None',
+        STEP6_TESTS),
+    Mutation(
+        "X5", "ANY PLAN ADVANCES: a presentation applies a disposition, "
+              "so asking a question closes the topic it just asked about "
+              "and the narrator never gets to answer",
+        RUNTIME,
+        '    return bool(persisted and eligible and not cancelled\n'
+        '                and plan is not None and plan.advances)',
+        '    return bool(persisted and eligible and not cancelled\n'
+        '                and plan is not None)',
+        STEP6_TESTS),
+    Mutation(
+        "X6", "REST REBUILDS THE PAYLOAD BY HAND: two builders for one "
+              "composer contract, which drift a field at a time until the "
+              "same narrator gets a different prompt depending on whether "
+              "they arrived over REST or the WebSocket",
+        REST,
+        '    runtime[PROFILE_SEED_ONBOARDING_KEY] = _runtime.onboarding_payload(\n'
+        '        plan, state)',
+        '    runtime[PROFILE_SEED_ONBOARDING_KEY] = {\n'
+        '        "action": plan.action,\n'
+        '        "topic_id": plan.topic_id,\n'
+        '        "known_topics": list((state or {}).get("known_topics") or []),\n'
+        '        "remaining_topics": list((state or {}).get("remaining_topics") or []),\n'
+        '        "completes_walk": bool(plan.completes_walk),\n'
+        '    }',
+        STEP6_TESTS),
 )
 
 CAUGHT, MISSED, BROKEN = "CAUGHT", "MISSED", "BROKEN"

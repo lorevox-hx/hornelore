@@ -338,23 +338,31 @@ class NoSeedMetadataTests(unittest.TestCase):
             "the meta-dict scan found fewer literals than there are "
             "bypassing paths, so it is not looking where it claims to")
 
-    def test_no_profile_seed_key_appears_anywhere_in_chat_ws_yet(self):
-        """The Step 6 tripwire, stated as a fact about today's tree.
+    def test_no_metadata_key_is_SPELLED_OUT_anywhere_in_chat_ws(self):
+        """Still a whole-module claim after Step 6, and still true.
 
-        Step 6 will legitimately add these keys ON THE MODEL PATH. When
-        it does, this test fails — and that is the point: the author has
-        to come here, narrow it to the model path, and leave the nine
-        deterministic paths covered by the test above.
+        *(Before Step 6 this asserted the same thing under the name
+        `..._yet`, as a tripwire. Step 6 did not trip it, and the reason
+        is worth recording rather than leaving as luck: the model path
+        never NAMES a metadata key. It merges `plan.turn_meta()`, so
+        `profile_seed_turn` stays the only module that spells these
+        strings — which is what keeps the reducer and the transport from
+        drifting apart one literal at a time.*
+
+        *So the claim survives verbatim and gets a name that describes
+        what it protects. A literal key appearing here would mean someone
+        hand-built an event next to the transport instead of asking the
+        planner for one, and that is worth failing over wherever in the
+        module it happens.)*
         """
         source = _CHAT_WS.read_text(encoding="utf-8")
         for key in _turn.META_KEYS:
             with self.subTest(key=key):
                 self.assertNotIn(
                     key, source,
-                    "Profile Seed metadata has reached chat_ws.py. If this "
-                    "is Step 6, narrow this test to the model path rather "
-                    "than deleting it — the deterministic paths still owe "
-                    "the guarantee.")
+                    f"chat_ws.py spells out {key}. Events are built by "
+                    "profile_seed_turn.TurnPlan.turn_meta(); a hand-written "
+                    "key here is a second definition of the event format.")
 
     def test_the_scan_would_SEE_a_seed_key_if_one_were_there(self):
         """Positive control on the extractor, not on the source.
@@ -523,24 +531,232 @@ class BypassingPathGuardTests(unittest.TestCase):
 
 
 class Step6TripwireTests(unittest.TestCase):
-    """What Step 6 is allowed to change here, written down in advance."""
+    """What Step 6 was allowed to change here — NARROWED, not deleted.
 
-    def test_no_deterministic_path_advances_today(self):
-        """The single claim this whole file supports, restated plainly.
+    ── THE TRIPWIRE FIRED, AND THIS IS THE NARROWING, 2026-08-28 ────────
 
-        Nine paths persist a turn and return. None of them stamps a
-        presentation or a response, and none applies progress. A narrator
-        whose turn resolves deterministically is exactly where the walk
-        left them.
-        """
+    Before Step 6 this class asserted a fact about the whole module:
+    `profile_seed_apply` appeared nowhere in `chat_ws.py`, and neither
+    did any metadata key. That was the correct claim while the model path
+    carried no onboarding work, and the docstring said in advance what
+    should happen when it stopped being correct — *narrow it to the model
+    path rather than deleting it, because the deterministic paths still
+    owe the guarantee.*
+
+    Step 6 added exactly what was predicted: a recover, a resolve, a plan,
+    one metadata merge and one post-commit apply, all on the ordinary
+    model path. So the claim moves from **"nowhere"** to **"nowhere except
+    the one sanctioned place"**, which is a strictly stronger statement
+    about the nine deterministic paths than the original made — the old
+    version would have passed if a deterministic branch had been the
+    thing that introduced the first apply.
+    """
+
+    def _regions(self):
+        """Every deterministic early-return region, plus the finalizer."""
+        guard = BypassingPathGuardTests("test_the_region_finder_is_not_vacuous")
+        tree = _tree()
+        regions = []
+        for mode in BYPASSING_MODES:
+            hits = _sites_for(_deterministic_sites(tree), mode)
+            self.assertEqual(len(hits), 1, f"{mode}: {hits}")
+            regions.append((mode, guard._enclosing_region(hits[0].lineno)))
+        for node in ast.walk(tree):
+            if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and node.name == "_finalize_deterministic_turn"):
+                regions.append(("_finalize_deterministic_turn", node))
+        self.assertEqual(
+            len(regions), len(BYPASSING_MODES) + 1,
+            "the finalizer or a bypassing region could not be located, so "
+            "the guarantees below would be asserted about nothing")
+        return regions
+
+    def test_the_inventory_is_still_exactly_the_nine(self):
         sites = _deterministic_sites(_tree())
         self.assertEqual(len(sites), 9, f"sites: {sites}")
         self.assertEqual(sorted(s.turn_mode for s in sites),
                          sorted(ALL_DETERMINISTIC_MODES))
-        source = _CHAT_WS.read_text(encoding="utf-8")
-        self.assertNotIn("profile_seed_apply", source)
-        for key in _turn.META_KEYS:
-            self.assertNotIn(key, source)
+
+    def test_no_deterministic_region_applies_or_plans(self):
+        """The narrowed claim. None of the nine touches onboarding.
+
+        Scoped to each branch's own early-return region and to the shared
+        finalizer, so the model path's sanctioned work is invisible here
+        — which is the point of scoping rather than scanning the file.
+        """
+        for name, region in self._regions():
+            dumped = ast.dump(region)
+            called = {_call_name(n) for n in ast.walk(region)
+                      if isinstance(n, ast.Call)}
+            for apply_name in _APPLY_NAMES:
+                with self.subTest(region=name, name=apply_name):
+                    self.assertNotIn(
+                        apply_name, called,
+                        f"{name} calls {apply_name} — a turn the narrator "
+                        "never answered would advance the walk")
+            for key in _turn.META_KEYS:
+                with self.subTest(region=name, key=key):
+                    self.assertNotIn(key, dumped, f"{name} stamps {key}")
+
+    def test_the_apply_appears_EXACTLY_ONCE_in_the_whole_module(self):
+        """One sanctioned advancement site, and one only.
+
+        A second `profile_seed_apply` anywhere in this module is either a
+        deterministic path that gained one or a duplicated model-path
+        advancement — a double apply against one committed response.
+        Counting is the assertion; the region test above says where the
+        one may live.
+        """
+        calls = [n for n in ast.walk(_tree())
+                 if isinstance(n, ast.Call)
+                 and _call_name(n) in ("profile_seed_apply", "_ps_apply_now")]
+        self.assertEqual(
+            len(calls), 1,
+            f"{len(calls)} onboarding apply call sites in chat_ws.py "
+            f"(lines {[n.lineno for n in calls]}). Step 6 sanctions exactly "
+            "one, on the ordinary model path, after a committed turn.")
+
+    def test_the_model_path_merge_is_NOT_a_meta_dict_literal(self):
+        """Why `NoSeedMetadataTests` still means something after Step 6.
+
+        That class scans literal `meta=` dicts. The model path now passes
+        a NAMED dict it builds from the validated plan, so it is not a
+        literal and is correctly not scanned — while all nine
+        deterministic sites keep passing literals and keep being scanned.
+        If the model path ever went back to a literal carrying seed keys,
+        the scan would start failing and this test explains why that is
+        not a false alarm.
+        """
+        for node in ast.walk(_tree()):
+            if (isinstance(node, ast.Call)
+                    and _call_name(node) == "persist_turn_transaction"):
+                meta = _kwargs(node).get("meta")
+                if meta is None or _dict_literal(meta) is not None:
+                    continue
+                self.assertIsInstance(
+                    meta, ast.Name,
+                    f"chat_ws.py:{node.lineno} passes a computed meta that is "
+                    "neither a literal nor a plain name; the deterministic "
+                    "scan cannot classify it")
+
+    def test_the_region_scan_would_CATCH_a_deterministic_apply(self):
+        """Positive control. Without it, 'not found' could mean 'not looked'."""
+        fake = ast.parse(
+            "if x:\n"
+            "    persist_turn_transaction(conv_id=c, "
+            "meta={'ws': True, 'turn_mode': 'floor_buffer'})\n"
+            "    profile_seed_apply(pid, expected_version=1, action='addressed')\n"
+            "    return\n")
+        called = {_call_name(n) for n in ast.walk(fake)
+                  if isinstance(n, ast.Call)}
+        self.assertIn("profile_seed_apply", called,
+                      "the call-name scan cannot see an apply it is meant to "
+                      "reject")
+
+
+class Step6WiringTests(unittest.TestCase):
+    """The router runs the shared rules, in order, at the right points.
+
+    ── WHY THIS CLASS IS NECESSARY, 2026-08-28 ─────────────────────────
+
+    `tests/test_profile_seed_ws_step6.py` proves the RULES are right by
+    calling them against a real database. It cannot prove the router
+    calls them, because the router is an async websocket handler around a
+    model load. Without the assertions below, Step 6's logic could be
+    perfect and simply unreachable — the same class of defect this whole
+    work order exists to close, since Phase 2 Step 5 shipped a walk that
+    no narrator could reach.
+
+    So: the rules are tested where they live, and the wiring is pinned
+    here. Neither file is sufficient alone.
+    """
+
+    _RULES = ("prepare_turn", "commit_meta", "should_advance")
+
+    def _calls(self):
+        return [n for n in ast.walk(_tree()) if isinstance(n, ast.Call)]
+
+    def test_the_router_calls_each_shared_rule_exactly_once(self):
+        """Once each. A second call is a second, divergent decision."""
+        names = [_call_name(n) for n in self._calls()]
+        for rule in self._RULES:
+            with self.subTest(rule=rule):
+                self.assertEqual(
+                    names.count(rule), 1,
+                    f"chat_ws.py calls {rule} {names.count(rule)} times; "
+                    "Step 6 has exactly one preparation, one metadata "
+                    "build and one advancement gate")
+
+    def test_the_rules_run_in_the_ORDER_the_design_requires(self):
+        """prepare → commit_meta → should_advance, by source position.
+
+        The order is the design, not a preference. `commit_meta` before
+        `prepare_turn` would stamp from no plan; `should_advance` before
+        the persist would gate on a commit that had not happened.
+        """
+        lines = {}
+        for node in self._calls():
+            name = _call_name(node)
+            if name in self._RULES:
+                lines[name] = node.lineno
+        self.assertEqual(sorted(lines), sorted(self._RULES),
+                         f"a shared rule is not called at all: {lines}")
+        self.assertLess(lines["prepare_turn"], lines["commit_meta"],
+                        f"metadata is built before the plan exists: {lines}")
+        self.assertLess(lines["commit_meta"], lines["should_advance"],
+                        f"advancement is gated before the commit: {lines}")
+
+    def test_the_apply_comes_AFTER_the_persist_call(self):
+        """Post-commit means post-commit."""
+        persist = [n.lineno for n in self._calls()
+                   if _call_name(n) == "persist_turn_transaction"]
+        apply_calls = [n.lineno for n in self._calls()
+                       if _call_name(n) == "_ps_apply_now"]
+        self.assertEqual(len(apply_calls), 1, f"apply sites: {apply_calls}")
+        self.assertTrue(
+            any(p < apply_calls[0] for p in persist),
+            "the onboarding apply does not follow any persist call, so it "
+            "is not post-commit")
+
+    def test_the_advancement_is_NOT_inside_the_persistence_handler(self):
+        """A failed apply must never be reported as a failed persist.
+
+        By then both conversation rows are committed. Telling the
+        narrator "no state written" would be false, and it would hide the
+        real and lesser failure — that onboarding did not advance.
+        """
+        for node in ast.walk(_tree()):
+            if not isinstance(node, ast.Try):
+                continue
+            handlers = ast.dump(ast.Module(body=list(node.handlers),
+                                           type_ignores=[]))
+            if "Turn persist failed" not in handlers:
+                continue
+            body = ast.dump(ast.Module(body=list(node.body), type_ignores=[]))
+            self.assertNotIn(
+                "_ps_apply_now", body,
+                "the onboarding apply sits inside the try whose handler "
+                "emits 'Turn persist failed'; an apply failure would be "
+                "reported to the narrator as lost conversation")
+
+    def test_the_recovery_runs_BEFORE_the_model_is_loaded(self):
+        """Composition must never see pre-recovery state.
+
+        `_load_model()` is the boundary: everything the prompt is built
+        from is decided before it, so a recovery that ran afterwards
+        would compose from a state it then changed.
+        """
+        prepare = [n.lineno for n in self._calls()
+                   if _call_name(n) == "prepare_turn"]
+        load = [n.lineno for n in self._calls()
+                if _call_name(n) == "_load_model"]
+        self.assertEqual(len(prepare), 1, f"prepare_turn sites: {prepare}")
+        self.assertTrue(load, "_load_model is no longer called; this "
+                              "assertion has lost its landmark")
+        self.assertLess(
+            prepare[0], min(load),
+            "profile seed preparation runs after the model is loaded, so "
+            "composition can see pre-recovery state")
 
 
 if __name__ == "__main__":  # pragma: no cover
