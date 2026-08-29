@@ -53,6 +53,20 @@ from api.services import profile_seed as _seed  # noqa: E402
 from api.services import profile_seed_turn as _turn  # noqa: E402
 
 KEY = "profile_seed_onboarding"
+#: ── ATTESTATION IS PART OF VALIDITY, Phase 3 (2026-08-29) ─────────────
+#:
+#: This file's subject is what the section RENDERS, not where the payload
+#: came from. Phase 3 made the server attestation part of a plan's
+#: validity — fail closed, so a payload no transport produced is ignored
+#: entirely — which means every hand-built runtime here must now carry
+#: the marker a real transport would have set. Adding it is what makes
+#: these fixtures resemble production rather than a shortcut around it.
+#:
+#: The attestation gate itself is tested in
+#: `tests/test_profile_seed_prompt_authority.py`, including the case
+#: this file no longer covers: an UNATTESTED payload composing
+#: byte-identically to no payload at all.
+ATTEST = _pc.PROFILE_SEED_SERVER_ATTESTED_KEY
 A = "childhood_home"
 B = "siblings"
 #: A third REAL topic id. *(These fixtures used
@@ -146,7 +160,7 @@ class SectionRenderTests(NoStateClaimMixin, unittest.TestCase):
     """What the block says, given a plan."""
 
     def block(self, state):
-        return _pc._profile_seed_onboarding_block({KEY: state})
+        return _pc._profile_seed_onboarding_block({KEY: state, ATTEST: True})
 
     def test_present_asks_exactly_one_registry_question(self):
         text = self.block(onboarding("present", A, remaining=[A, B]))
@@ -407,7 +421,7 @@ class SectionRenderTests(NoStateClaimMixin, unittest.TestCase):
         """
         state = onboarding("hold", "favourite_colour")
         self.assertEqual(self.block(state), "")
-        self.assertFalse(_pc.profile_seed_onboarding_active({KEY: state}))
+        self.assertFalse(_pc.profile_seed_onboarding_active({KEY: state, ATTEST: True}))
 
     def test_idle_and_malformed_states_render_nothing(self):
         for state in (onboarding("idle"), {}, {"action": "present"},
@@ -417,7 +431,7 @@ class SectionRenderTests(NoStateClaimMixin, unittest.TestCase):
                       "not a dict", None, 3, []):
             with self.subTest(state=state):
                 self.assertEqual(
-                    _pc._profile_seed_onboarding_block({KEY: state}), "")
+                    _pc._profile_seed_onboarding_block({KEY: state, ATTEST: True}), "")
 
     def test_an_IDLE_action_with_a_VALID_topic_renders_nothing(self):
         """The idle case that a topic check cannot catch.
@@ -460,7 +474,7 @@ class CompletionTransitionTests(NoStateClaimMixin, unittest.TestCase):
     """The walk ends warmly, on the turn that can actually say so."""
 
     def block(self, state):
-        return _pc._profile_seed_onboarding_block({KEY: state})
+        return _pc._profile_seed_onboarding_block({KEY: state, ATTEST: True})
 
     #: Words that would be an authoritative claim about server state.
     #:
@@ -762,6 +776,7 @@ class ByteStabilityTests(unittest.TestCase):
             with self.subTest(state=state):
                 runtime = dict(FULL_RUNTIME)
                 runtime[KEY] = state
+                runtime[ATTEST] = True
                 self.assertEqual(
                     self.compose(runtime), baseline,
                     "malformed onboarding state changed the prompt — it must "
@@ -771,6 +786,7 @@ class ByteStabilityTests(unittest.TestCase):
         baseline = self.sections(dict(FULL_RUNTIME))
         runtime = dict(FULL_RUNTIME)
         runtime[KEY] = {"action": "present", "topic_id": "bad"}
+        runtime[ATTEST] = True
         self.assertEqual(self.sections(runtime), baseline)
 
     def test_idle_state_is_byte_identical_to_no_key(self):
@@ -779,6 +795,7 @@ class ByteStabilityTests(unittest.TestCase):
             with self.subTest(state=state):
                 runtime = dict(FULL_RUNTIME)
                 runtime[KEY] = state
+                runtime[ATTEST] = True
                 self.assertEqual(self.compose(runtime), baseline)
 
     def test_pending_paused_completed_plans_are_byte_identical(self):
@@ -798,6 +815,7 @@ class ByteStabilityTests(unittest.TestCase):
                 runtime[KEY] = {"action": plan.action,
                                 "topic_id": plan.topic_id,
                                 "known_topics": [], "remaining_topics": []}
+                runtime[ATTEST] = True
                 self.assertEqual(self.compose(runtime), baseline)
 
     # ── malformed `known_topics`: crash, or a FALSE "already settled" ──
@@ -841,6 +859,7 @@ class ByteStabilityTests(unittest.TestCase):
                     runtime = dict(runtime_base)
                     runtime[KEY] = {"action": "present", "topic_id": A,
                                     "known_topics": known}
+                    runtime[ATTEST] = True
                     self.assertEqual(
                         self.compose(runtime), baseline,
                         "malformed known_topics changed the prompt — it must "
@@ -865,6 +884,7 @@ class ByteStabilityTests(unittest.TestCase):
         runtime = dict(FULL_RUNTIME)
         runtime[KEY] = {"action": "present", "topic_id": A,
                         "known_topics": {C: True}}
+        runtime[ATTEST] = True
         text = self.compose(runtime)
         self.assertEqual(
             text, self.compose(dict(FULL_RUNTIME)),
@@ -881,6 +901,7 @@ class ByteStabilityTests(unittest.TestCase):
                 runtime = dict(FULL_RUNTIME)
                 runtime[KEY] = {"action": "present", "topic_id": B,
                                 "known_topics": known}
+                runtime[ATTEST] = True
                 self.assertEqual(self.compose(runtime),
                                  self.compose(dict(FULL_RUNTIME)),
                                  "non-string members were accepted")
@@ -900,6 +921,7 @@ class ByteStabilityTests(unittest.TestCase):
                     runtime = dict(runtime_base)
                     runtime[KEY] = {"action": "present", "topic_id": A,
                                     "known_topics": known}
+                    runtime[ATTEST] = True
                     self.assertNotEqual(
                         self.compose(runtime), baseline,
                         f"a VALID plan (known_topics={known!r}) left the "
@@ -911,6 +933,7 @@ class ByteStabilityTests(unittest.TestCase):
         nothing is ordinary, especially at the start of a walk."""
         runtime = dict(FULL_RUNTIME)
         runtime[KEY] = {"action": "present", "topic_id": A}
+        runtime[ATTEST] = True
         text = self.compose(runtime)
         self.assertIn(_seed.topic(A).question, text)
         self.assertNotIn("Already settled", text)
@@ -926,6 +949,7 @@ class ByteStabilityTests(unittest.TestCase):
                 runtime = dict(FULL_RUNTIME)
                 runtime[KEY] = {"action": action, "topic_id": A,
                                 "known_topics": [A, C]}
+                runtime[ATTEST] = True
                 self.assertEqual(self.compose(runtime),
                                  self.compose(dict(FULL_RUNTIME)))
 
@@ -934,6 +958,7 @@ class ByteStabilityTests(unittest.TestCase):
         baseline = dict(self.sections(dict(FULL_RUNTIME)))
         runtime = dict(FULL_RUNTIME)
         runtime[KEY] = onboarding("present", A, remaining=[A, B])
+        runtime[ATTEST] = True
         active = dict(self.sections(runtime))
 
         added = set(active) - set(baseline)
@@ -952,6 +977,7 @@ class ByteStabilityTests(unittest.TestCase):
         baseline = [n for n, _ in self.sections(dict(FULL_RUNTIME))]
         runtime = dict(FULL_RUNTIME)
         runtime[KEY] = onboarding("present", A, remaining=[A, B])
+        runtime[ATTEST] = True
         active = [n for n, _ in self.sections(runtime)]
         self.assertEqual([n for n in active if n != "profile_seed_onboarding"],
                          baseline,
@@ -968,6 +994,7 @@ class ByteStabilityTests(unittest.TestCase):
         baseline = dict(self.sections(dict(FULL_RUNTIME)))
         runtime = dict(FULL_RUNTIME)
         runtime[KEY] = onboarding("present", A, remaining=[A, B])
+        runtime[ATTEST] = True
         active = dict(self.sections(runtime))
         changed = [n for n in baseline if active.get(n) != baseline[n]]
         self.assertEqual(changed, ["directives_interview"],
@@ -979,6 +1006,7 @@ class ByteStabilityTests(unittest.TestCase):
         baseline = dict(self.sections(dict(FULL_RUNTIME)))
         runtime = dict(FULL_RUNTIME)
         runtime[KEY] = onboarding("acknowledge", A)
+        runtime[ATTEST] = True
         active = dict(self.sections(runtime))
         self.assertEqual(set(active) - set(baseline),
                          {"profile_seed_onboarding"})
@@ -996,7 +1024,8 @@ class ByteStabilityTests(unittest.TestCase):
         """
         sparse = {"person_id": "p-fixture",
                   "identity_complete": True,
-                  KEY: onboarding("present", A, remaining=[A])}
+                  KEY: onboarding("present", A, remaining=[A]),
+                  ATTEST: True}
         text = self.compose(sparse)
         self.assertIn(_seed.topic(A).question, text)
         for phrase in ("single next missing piece of identity",
@@ -1006,11 +1035,26 @@ class ByteStabilityTests(unittest.TestCase):
                 self.assertNotIn(phrase, text)
 
     def test_an_untruthful_sparse_runtime_does_NOT_get_identity_for_free(self):
-        """The inference stays withdrawn.
+        """The inference stays withdrawn — and it is about a CALLER.
 
-        Omitting `identity_complete` must leave identity mode ON. If a
-        caller can switch it off by supplying two onboarding keys, the
-        gate is not a gate.
+        Omitting `identity_complete` must leave identity mode ON when the
+        onboarding keys came from the caller. If supplying them could
+        switch it off, the gate is not a gate.
+
+        ── DELIBERATELY UNATTESTED, Phase 3 (2026-08-29) ────────────────
+
+        *(A mechanical sweep added `ATTEST: True` to every hand-built
+        runtime in this file, and it was WRONG here — it inverted the
+        one test whose subject is an untrustworthy caller. Attestation is
+        precisely what a caller cannot supply: transports strip it from
+        client input before resolving, and the composer requires it.*
+
+        *So this fixture stays unattested, because that is what "an
+        untruthful sparse runtime" MEANS. An attested plan legitimately
+        does settle identity — the resolver established the anchors
+        before promoting the row out of `pending` — and that case is
+        covered in `test_profile_seed_prompt_authority.py`. The two are
+        opposite halves of the same rule and must not be merged.)*
         """
         sparse = {"person_id": "p-fixture",
                   KEY: onboarding("present", A, remaining=[A])}
@@ -1049,6 +1093,7 @@ class LegacyBlockSuppressionTests(unittest.TestCase):
 
         explicit_absent = dict(runtime)
         explicit_absent.pop(KEY, None)
+        explicit_absent.pop(ATTEST, None)
         self.assertEqual(
             text,
             _pc.compose_system_prompt("conv-legacy",
@@ -1068,6 +1113,7 @@ class LegacyBlockSuppressionTests(unittest.TestCase):
     def test_an_enrolled_narrator_gets_the_canonical_block_only(self):
         runtime = self._pass1_runtime()
         runtime[KEY] = onboarding("present", A, remaining=[A, B])
+        runtime[ATTEST] = True
         text = _pc.compose_system_prompt("conv-enrolled", runtime71=runtime)
         self.assertIn("PROFILE SEED — ONE QUESTION", text)
         self.assertNotIn(
@@ -1079,6 +1125,7 @@ class LegacyBlockSuppressionTests(unittest.TestCase):
     def test_an_acknowledge_turn_also_suppresses_the_legacy_block(self):
         runtime = self._pass1_runtime()
         runtime[KEY] = onboarding("acknowledge", A)
+        runtime[ATTEST] = True
         text = _pc.compose_system_prompt("conv-ack", runtime71=runtime)
         self.assertNotIn("Gather the following 10 facts", text)
         for topic_id in _seed.TOPIC_IDS:
@@ -1090,6 +1137,7 @@ class LegacyBlockSuppressionTests(unittest.TestCase):
         legacy pass-1 path behaves exactly as before."""
         runtime = self._pass1_runtime()
         runtime[KEY] = onboarding("idle")
+        runtime[ATTEST] = True
         text = _pc.compose_system_prompt("conv-idle", runtime71=runtime)
         self.assertIn("Gather the following 10 facts", text)
 
@@ -1108,6 +1156,7 @@ class LegacyBlockSuppressionTests(unittest.TestCase):
         """
         runtime = self._pass1_runtime()
         runtime[KEY] = onboarding("hold", A)
+        runtime[ATTEST] = True
         text = _pc.compose_system_prompt("conv-hold", runtime71=runtime)
         self.assertNotIn(
             "Gather the following 10 facts", text,
@@ -1116,6 +1165,7 @@ class LegacyBlockSuppressionTests(unittest.TestCase):
     def test_a_HOLD_plan_asks_NO_question_at_all(self):
         runtime = self._pass1_runtime()
         runtime[KEY] = onboarding("hold", A)
+        runtime[ATTEST] = True
         text = _pc.compose_system_prompt("conv-hold-silent", runtime71=runtime)
         for topic_id in _seed.TOPIC_IDS:
             with self.subTest(topic=topic_id):
@@ -1132,6 +1182,7 @@ class LegacyBlockSuppressionTests(unittest.TestCase):
         """
         runtime = self._pass1_runtime()
         runtime[KEY] = onboarding("hold", A)
+        runtime[ATTEST] = True
         text = _pc.compose_system_prompt("conv-hold-replaced",
                                          runtime71=runtime)
         self.assertIn("PROFILE SEED — HOLD", text)
@@ -1157,6 +1208,7 @@ class SectionPolicyTests(unittest.TestCase):
     def test_the_section_appears_in_the_classified_assembly(self):
         runtime = dict(FULL_RUNTIME)
         runtime[KEY] = onboarding("present", A, remaining=[A])
+        runtime[ATTEST] = True
         composed = _pc.compose_prompt_sections("conv-sections",
                                                runtime71=runtime)
         names = [s.name for s in composed.sections]
@@ -1165,6 +1217,7 @@ class SectionPolicyTests(unittest.TestCase):
     def test_the_section_is_absent_from_the_assembly_when_idle(self):
         runtime = dict(FULL_RUNTIME)
         runtime[KEY] = onboarding("idle")
+        runtime[ATTEST] = True
         composed = _pc.compose_prompt_sections("conv-sections-idle",
                                                runtime71=runtime)
         names = [s.name for s in composed.sections]
@@ -1175,6 +1228,7 @@ class SectionPolicyTests(unittest.TestCase):
         section added to one cannot be missing from the other."""
         runtime = dict(FULL_RUNTIME)
         runtime[KEY] = onboarding("present", A, remaining=[A])
+        runtime[ATTEST] = True
         self.assertEqual(
             _pc.compose_prompt_sections("conv-agree", runtime71=runtime).text,
             _pc.compose_system_prompt("conv-agree", runtime71=runtime))
@@ -1195,6 +1249,7 @@ class LegacyProfileSeedKeyUntouchedTests(unittest.TestCase):
 
         with_onboarding = dict(runtime)
         with_onboarding[KEY] = onboarding("present", A, remaining=[A])
+        with_onboarding[ATTEST] = True
         text = _pc.compose_system_prompt("conv-seed", runtime71=with_onboarding)
 
         self.assertEqual(runtime["profile_seed"],
@@ -1242,6 +1297,7 @@ class PlanToPromptTests(unittest.TestCase):
             "known_topics": state["known_topics"],
             "remaining_topics": state["remaining_topics"],
         }
+        runtime[ATTEST] = True
         return runtime
 
     def _state(self, active=A, version=7):
@@ -1279,6 +1335,7 @@ class PlanToPromptTests(unittest.TestCase):
         runtime = dict(FULL_RUNTIME)
         runtime[KEY] = {"action": plan.action, "topic_id": plan.topic_id,
                         "known_topics": [], "remaining_topics": []}
+        runtime[ATTEST] = True
         composed = _pc.compose_prompt_sections("conv-plan-idle",
                                                runtime71=runtime)
         self.assertNotIn("profile_seed_onboarding",

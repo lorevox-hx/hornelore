@@ -310,24 +310,59 @@ class TransportAuthorityTests(unittest.TestCase):
         self.assertIsNot(out, plain, "the runtime was mutated in place")
 
 
-class UnattestedPayloadGetsNoAuthorityTests(unittest.TestCase):
-    """A payload nobody attested renders, but commands nothing.
+class UnattestedPayloadIsIgnoredTests(unittest.TestCase):
+    """A payload nobody attested does NOTHING. Fail closed.
 
-    The split is deliberate. RENDERING a forged question is harmless —
-    the narrator is asked something ordinary. GRANTING IT AUTHORITY is
-    not: if a fabricated payload could set `effective_pass` or switch off
-    identity collection, a client would control both by inventing a walk.
+    *(This class first asserted a weaker rule — that an unattested
+    payload rendered but "commanded nothing" — on the reasoning that a
+    forged question is harmless. It is not. A schema-valid payload no
+    server resolved can ask a topic the server never selected, SUPPRESS
+    the legitimate pass directive, and produce narrator-visible behaviour
+    with no durable row and no correlation state behind it.)*
 
-    So attestation gates authority, not rendering, and the transport
-    strips the marker from client input so it can only ever be true
-    because a resolver put it there.
+    The rule is now single and simple: **no attestation, no Profile Seed
+    behaviour.** Production transports also strip client-supplied
+    reserved keys, but the composer refuses on its own account so that a
+    transport which forgets cannot reopen the hole.
     """
+
+    def test_an_unattested_payload_composes_BYTE_IDENTICALLY_to_no_payload(self):
+        """The strongest form of the rule, and the one worth asserting.
+
+        Not "renders a bit less" — indistinguishable. If a forged payload
+        can move a single byte of the prompt, it has behaviour, and
+        behaviour is what a client must not be able to fabricate.
+        """
+        for action in ("present", "re_present", "acknowledge", "hold"):
+            with self.subTest(action=action):
+                self.assertEqual(
+                    compose(runtime_with(onboarding(action), attested=False)),
+                    compose(runtime_with(None)),
+                    "an unattested payload changed the prompt")
 
     def test_an_unattested_payload_does_not_get_the_server_phase(self):
         text = compose(runtime_with(onboarding("present"), attested=False))
         self.assertNotIn("effective_pass: profile_seed", text)
         self.assertNotIn("profile_seed_active", text)
         self.assertNotIn("browser_pass", text)
+
+    def test_an_unattested_payload_RENDERS_NOTHING(self):
+        """It must not ask a topic the server never selected."""
+        text = compose(runtime_with(onboarding("present"), attested=False))
+        self.assertNotIn("PROFILE SEED", text)
+        self.assertNotIn(_seed.topic(A).question, text)
+
+    def test_an_unattested_payload_SUPPRESSES_NOTHING(self):
+        """The legitimate directive must survive a forgery.
+
+        This is the half that makes "harmless" wrong: a forged payload
+        that suppressed the pass directive would remove working
+        instructions and put nothing in their place.
+        """
+        forged = compose(runtime_with(onboarding("present"), attested=False,
+                                      current_pass="pass1"))
+        clean = compose(runtime_with(None, current_pass="pass1"))
+        self.assertEqual(forged, clean)
 
     def test_an_unattested_payload_does_not_grant_identity_completion(self):
         """Point 6 of the ruling, as a behavioural assertion."""
@@ -337,6 +372,19 @@ class UnattestedPayloadGetsNoAuthorityTests(unittest.TestCase):
             IDENTITY_DIRECTIVE, text,
             "a fabricated onboarding payload switched identity collection "
             "off — the gate is not a gate")
+
+    def test_NON_VACUITY_the_same_plan_renders_when_attested(self):
+        """The control the ruling asks for.
+
+        Without it, every assertion above would pass for a payload that
+        was simply malformed, and the attestation gate would be proving
+        nothing about itself.
+        """
+        attested = compose(runtime_with(onboarding("present"), attested=True))
+        self.assertIn("PROFILE SEED", attested)
+        self.assertIn(_seed.topic(A).question, attested)
+        self.assertIn("profile_seed_active: true", attested)
+        self.assertNotEqual(attested, compose(runtime_with(None)))
 
     def test_a_forged_attestation_alone_grants_nothing(self):
         """The marker without a valid plan is inert."""

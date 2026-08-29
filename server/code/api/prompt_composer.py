@@ -4137,18 +4137,19 @@ def _compose_prompt_assembly(
         # rewritten to `pass1` — faking it would hide real client state from
         # anyone debugging a live turn, and the browser's belief is a fact
         # about the system even when it is not authoritative.
-        # ── AUTHORITY REQUIRES ATTESTATION, NOT JUST A PAYLOAD ────────────
+        # ── AN UNATTESTED PAYLOAD IS IGNORED ENTIRELY ─────────────────────
         #
-        # A validated plan is enough to RENDER the onboarding block — that
-        # is Phase 2's accepted behaviour and it is unchanged. It is NOT
-        # enough to override identity state, because on the WebSocket path
-        # `runtime71` is the browser's dict and a payload in it may be a
-        # forgery. The transport strips both reserved keys from client
-        # input before resolving, so this marker is present only when a
-        # server resolution put it there.
-        _ps_active = profile_seed_onboarding_active(runtime71)
-        _ps_attested = _ps_active and bool(
-            runtime71.get(PROFILE_SEED_SERVER_ATTESTED_KEY))
+        # Not "rendered but powerless" — ignored. `_validated_onboarding_plan`
+        # requires the server attestation, so a payload no resolver produced
+        # renders nothing, suppresses nothing and reports nothing, and the
+        # prompt is byte-identical to the same runtime with both reserved
+        # keys absent. Production transports also strip client-supplied
+        # reserved keys; this is the composer refusing on its own account so
+        # that a transport which forgets cannot reopen the hole.
+        # ONE predicate. `profile_seed_onboarding_active` now requires the
+        # server attestation itself, so "active" and "authoritative" are
+        # the same question and cannot drift apart.
+        _ps_attested = profile_seed_onboarding_active(runtime71)
         _browser_effective_pass = runtime71.get("effective_pass") or current_pass
         if _ps_attested:
             effective_pass = "profile_seed"
@@ -5343,16 +5344,22 @@ PROFILE_SEED_ONBOARDING_KEY = "profile_seed_onboarding"
 #: The onboarding payload alone cannot prove where it came from. On the
 #: WebSocket path `runtime71` is the BROWSER'S dict, so a payload sitting
 #: in it may be a server resolution or a forgery, and the composer cannot
-#: tell by looking. That is tolerable while the payload only renders a
-#: question — a forged one asks the narrator something harmless — and it
-#: is NOT tolerable once the payload starts overriding identity state,
-#: because then a client could switch off identity collection by claiming
-#: a walk it invented.
+#: tell by looking.
 #:
-#: So authority is carried by this marker rather than by the payload, and
-#: the transport STRIPS both keys from client input before resolving.
-#: A browser cannot set it: anything it sends under this name is removed
-#: before the server decides anything.
+#: **THE RULE IS: no attestation, no Profile Seed behaviour.** An
+#: unattested payload is IGNORED — it renders nothing, suppresses nothing
+#: and reports nothing.
+#:
+#: *(An earlier version of this note said a forged payload was tolerable
+#: while it "only renders a question". That was wrong. A schema-valid
+#: payload no server resolved can ask a topic the server never selected,
+#: suppress the legitimate pass directive, and produce narrator-visible
+#: behaviour with no durable row and no correlation state behind it.)*
+#:
+#: The transport also STRIPS both keys from client input before resolving,
+#: so a browser cannot set this. That is defence in depth — the composer
+#: refuses on its own account, so a transport that forgets to sanitize
+#: cannot reopen the hole.
 PROFILE_SEED_SERVER_ATTESTED_KEY = "profile_seed_server_attested"
 
 #: Reserved: server-only, never accepted from a client.
@@ -5419,6 +5426,32 @@ def _validated_onboarding_plan(
         contain the very topic the plan is about.
     """
     if not isinstance(runtime71, dict):
+        return None
+    # ── ATTESTATION IS PART OF VALIDITY, 2026-08-29 ────────────────────
+    #
+    # **FAIL CLOSED: no attestation, no Profile Seed behaviour at all.**
+    #
+    # *(The first cut of Phase 3 gated only the effective-phase reporting
+    # and the identity override on attestation, and let an unattested
+    # payload still render. The reasoning written down for that — "a
+    # forged question is harmless" — was wrong. A schema-valid payload
+    # that no server resolved can make Lori ask a topic the server never
+    # selected, SUPPRESS the legitimate pass directive, and produce
+    # narrator-visible behaviour with no durable row and no correlation
+    # state behind it. None of that is harmless.)*
+    #
+    # Production transports also strip client-supplied reserved keys
+    # before resolving, and that stays. But defence in depth must not be
+    # the ONLY defence: a future transport, or an internal caller, that
+    # forgets to sanitize would otherwise recreate the defect silently.
+    # So the composer refuses on its own account.
+    #
+    # This lives inside the ONE validated-plan predicate deliberately —
+    # the renderer, the suppression gate and the phase reporting all call
+    # it, so they cannot reach different conclusions about the same
+    # payload. That is the same lesson recorded above, applied to a
+    # second property.
+    if runtime71.get(PROFILE_SEED_SERVER_ATTESTED_KEY) is not True:
         return None
     state = runtime71.get(PROFILE_SEED_ONBOARDING_KEY)
     if not isinstance(state, dict):
