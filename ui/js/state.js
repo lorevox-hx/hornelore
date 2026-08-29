@@ -596,28 +596,17 @@ function setPass(p)  {
   if (!state.session) return;
   var auth = (typeof window !== "undefined")
     ? window.LorevoxProfileSeedAuthority : null;
-  if (!auth || typeof auth.promotionDecision !== "function") {
-    state.session.currentPass = p;
+  // DELEGATES. The policy body lives in the authority module so there is
+  // exactly one implementation of it — see `applyPass` there, and the
+  // source assertion in tests/test_profile_seed_authority.js that proves
+  // this delegation is still wired.
+  if (auth && typeof auth.applyPass === "function") {
+    auth.applyPass(state.session, p);
     return;
   }
-  var decision = auth.promotionDecision(p);
-  if (decision.defer) {
-    auth.rememberDeferred(p);
-    state.session.passDeferredReason = decision.reason;
-    return;
-  }
-  state.session.passDeferredReason = null;
-  if (!decision.allow) {
-    state.session.passBlockedReason = decision.reason;
-    try {
-      console.info("[profile-seed][promotion] " + p + " BLOCKED: " +
-                   decision.reason);
-    } catch (e) {}
-    return;
-  }
-  state.session.passBlockedReason = null;
   state.session.currentPass = p;
 }
+
 
 /* WO-CANONICAL-LIFE-SPINE-01 — _fallbackCanonicalEra(e) is a local
    normalizer used when window.LorevoxEras isn't loaded yet. state.js

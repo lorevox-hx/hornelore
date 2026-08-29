@@ -4143,9 +4143,14 @@ def _compose_prompt_assembly(
         # requires the server attestation, so a payload no resolver produced
         # renders nothing, suppresses nothing and reports nothing, and the
         # prompt is byte-identical to the same runtime with both reserved
-        # keys absent. Production transports also strip client-supplied
-        # reserved keys; this is the composer refusing on its own account so
-        # that a transport which forgets cannot reopen the hole.
+        # keys absent.
+        #
+        # The composer FAILS CLOSED when attestation is absent; it cannot
+        # verify the marker's ORIGIN, because a Boolean proves nothing
+        # about who set it. The boundary is held by the transports — the
+        # WebSocket strips reserved keys from client input, REST builds
+        # its runtime from server state — and every future client-derived
+        # transport must preserve that.
         # ONE predicate. `profile_seed_onboarding_active` now requires the
         # server attestation itself, so "active" and "authoritative" are
         # the same question and cannot drift apart.
@@ -5356,10 +5361,16 @@ PROFILE_SEED_ONBOARDING_KEY = "profile_seed_onboarding"
 #: suppress the legitimate pass directive, and produce narrator-visible
 #: behaviour with no durable row and no correlation state behind it.)*
 #:
-#: The transport also STRIPS both keys from client input before resolving,
-#: so a browser cannot set this. That is defence in depth — the composer
-#: refuses on its own account, so a transport that forgets to sanitize
-#: cannot reopen the hole.
+#: **WHAT THIS MARKER DOES AND DOES NOT PROVE.** It is a Boolean, so it
+#: cannot prove its own origin — a future transport that copied a client
+#: dictionary wholesale, attestation included, would defeat it. What the
+#: composer guarantees is narrower: it FAILS CLOSED when the marker is
+#: absent.
+#:
+#: The boundary itself is held by the transports, and every client-derived
+#: transport must preserve it: the WebSocket strips both reserved keys
+#: from `runtime71` before resolving, and REST builds its runtime from
+#: server state rather than copying a caller's.
 PROFILE_SEED_SERVER_ATTESTED_KEY = "profile_seed_server_attested"
 
 #: Reserved: server-only, never accepted from a client.

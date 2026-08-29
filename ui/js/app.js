@@ -3646,6 +3646,36 @@ function renderProfileSeedProgress(){
   const box = document.getElementById("psOnboarding");
   if (!box) return;
   const auth = window.LorevoxProfileSeedAuthority;
+  const snap = auth && typeof auth.snapshot === "function" ? auth.snapshot() : null;
+
+  // A FAILED READ IS SHOWN, NOT HIDDEN. The operator needs to know the
+  // browser could not reach onboarding state — that is why the pass is
+  // being held — and needs a way to try again.
+  if (snap && snap.status === auth.FAILED) {
+    box.style.display = "";
+    const lbl = document.getElementById("psProgress");
+    if (lbl) lbl.textContent = "Profile Seed: unavailable (" +
+      (snap.error || "unknown error") + ")";
+    const rb = document.getElementById("psPauseBtn");
+    if (rb) {
+      rb.textContent = "Retry";
+      rb.disabled = false;
+      rb.onclick = function(){
+        rb.disabled = true;
+        auth.hydrate(snap.personId).then(function(){
+          auth.reconcile(state.session);
+          auth.applyDeferred(function(p){
+            if (state.session) state.session.currentPass = p;
+          });
+          renderProfileSeedProgress();
+        });
+      };
+    }
+    const nt = document.getElementById("psNote");
+    if (nt) nt.textContent = "pass held until this resolves";
+    return;
+  }
+
   const prog = auth && typeof auth.progress === "function" ? auth.progress() : null;
   if (!prog) { box.style.display = "none"; return; }   // not enrolled, or unresolved
 
@@ -3708,6 +3738,11 @@ async function loadPerson(pid){
       _psa.reset(pid);
       _psa.hydrate(pid).then(function () {
         if (state.person_id !== pid) return;   // switched again meanwhile
+        // Reconcile FIRST. The browser may already be sitting in
+        // pass2a — restored from persisted state, or promoted while the
+        // walk was paused and since resumed. Blocking the next click
+        // would leave that stale promotion standing.
+        _psa.reconcile(state.session);
         _psa.applyDeferred(function (deferred) {
           if (state.session) state.session.currentPass = deferred;
         });

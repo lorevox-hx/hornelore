@@ -141,10 +141,16 @@ def attach_onboarding(
     payload = onboarding_payload(plan, state)
     if payload is not None:
         out[PROFILE_SEED_ONBOARDING_KEY] = payload
-        # THE ATTESTATION IS SET HERE AND NOWHERE ELSE. Reaching this line
-        # means a resolver ran against the database for this narrator on
-        # this turn. A client cannot forge it: `sanitize_client_runtime`
-        # removes the key from browser input before any resolution starts.
+        # Reaching this line means a resolver ran against the database for
+        # this narrator on this turn. A client cannot forge it ON THIS
+        # PATH because `sanitize_client_runtime` removes the key from
+        # browser input before any resolution starts.
+        #
+        # **The marker is a Boolean and proves nothing by itself** — it
+        # cannot show who set it. That stripping is what actually holds
+        # the boundary, and every client-derived transport must keep
+        # doing it. The composer's contribution is narrower and still
+        # worth having: it FAILS CLOSED when the marker is absent.
         out[PROFILE_SEED_SERVER_ATTESTED_KEY] = True
     else:
         # ── THE SERVER'S ANSWER IS AUTHORITATIVE BOTH WAYS, Phase 3 ────

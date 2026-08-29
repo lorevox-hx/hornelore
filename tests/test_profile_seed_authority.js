@@ -60,19 +60,19 @@ global.console = console;
 const AUTH = require(path.join(__dirname, "..", "ui", "js",
                                "profile-seed-authority.js"));
 
-/* A stand-in for state.js's setPass, byte-for-byte in policy terms.
-   The real one lives in state.js, which cannot be required without the
-   whole UI; this mirrors its THREE OUTCOMES so the policy is exercised
-   exactly as the choke point applies it. */
+/* ── NO STAND-IN. THE REAL FUNCTION. ────────────────────────────────
+   *(This file used to carry its own copy of setPass's policy, described
+   as "byte-for-byte in policy terms". Two implementations of one rule
+   is precisely the drift this work order exists to remove, and the copy
+   could not catch the production one changing — all 35 tests would have
+   stayed green while `state.js` diverged.)*
+
+   The policy body now lives in the authority module as `applyPass`, and
+   `state.js::setPass()` delegates to it. This calls the same function
+   production calls; `ProductionDelegationTests` below proves the
+   delegation is still wired. */
 function makeSession() { return { currentPass: "pass1" }; }
-function setPass(session, p) {
-  const d = AUTH.promotionDecision(p);
-  if (d.defer) { AUTH.rememberDeferred(p); session.passDeferredReason = d.reason; return; }
-  session.passDeferredReason = null;
-  if (!d.allow) { session.passBlockedReason = d.reason; return; }
-  session.passBlockedReason = null;
-  session.currentPass = p;
-}
+function setPass(session, p) { return AUTH.applyPass(session, p); }
 
 function serverState(over) {
   return Object.assign({
@@ -244,17 +244,21 @@ atest("a narrator switch mid-flight leaves the new narrator unresolved-safe",
   });
 
 /* ── 6. Failure is not absence ─────────────────────────────────────── */
-atest("a failed read resolves and permits the ordinary pass engine", async () => {
+atest("a failed read is FAILED, not resolved-empty", async () => {
+  /* *(This test formerly asserted the opposite — that a failed read
+     resolved and PERMITTED promotion, on the reasoning that a network
+     blip should not strand a narrator. That reasoning is wrong: a 500
+     tells us nothing about whether a walk is running, so treating it as
+     "no walk" hands out permission the server never gave. The narrator
+     is not stranded either, because FAILED defers and retries.)* */
   AUTH.reset("p-1");
   await AUTH.hydrate("p-1", {
     fetchFn: function () { return Promise.reject(new Error("network down")); } });
   const snap = AUTH.snapshot();
-  assert.strictEqual(snap.status, AUTH.RESOLVED, "the UI would wait forever");
+  assert.strictEqual(snap.status, AUTH.FAILED,
+    "a failed read was recorded as an answer about the world");
   assert.ok(snap.error, "the failure was not recorded for the operator");
-  const s = makeSession();
-  setPass(s, "pass2a");
-  assert.strictEqual(s.currentPass, "pass2a",
-    "a network blip stranded the narrator in pass1");
+  assert.notStrictEqual(snap.status, AUTH.LOADING, "the UI would wait forever");
 });
 
 /* ── 7. Progress, for the operator ─────────────────────────────────── */
@@ -332,5 +336,161 @@ atest("the active fixture really does block, so the ALLOW cases mean something",
     assert.strictEqual(AUTH.promotionDecision("pass2a").allow, false);
     assert.strictEqual(AUTH.promotionDecision("pass2b").allow, false);
   });
+
+/* ── 10. The corrections of 2026-08-29 ─────────────────────────────── */
+
+atest("a NETWORK FAILURE does not authorize promotion", async () => {
+  AUTH.reset("p-1");
+  await AUTH.hydrate("p-1", {
+    fetchFn: () => Promise.reject(new Error("network down")) });
+  assert.strictEqual(AUTH.snapshot().status, AUTH.FAILED,
+    "a failed read was recorded as resolved");
+  const s = makeSession();
+  setPass(s, "pass2a");
+  assert.strictEqual(s.currentPass, "pass1",
+    "a network failure became permission to promote past a possibly-active walk");
+  assert.strictEqual(AUTH.deferredPass(), "pass2a",
+    "the request was dropped rather than held for retry");
+});
+
+[500, 503, 404].forEach(code => {
+  atest("HTTP " + code + " does not authorize promotion", async () => {
+    AUTH.reset("p-1");
+    await AUTH.hydrate("p-1", {
+      fetchFn: () => Promise.resolve({ ok: false, status: code,
+                                       json: () => Promise.resolve(null) }) });
+    assert.strictEqual(AUTH.snapshot().status, AUTH.FAILED);
+    const d = AUTH.promotionDecision("pass2a");
+    assert.strictEqual(d.allow, false, "HTTP " + code + " allowed a promotion");
+    assert.strictEqual(d.defer, true, "no retry path was offered");
+    assert.ok(d.retry, "the operator is not told this is retryable");
+  });
+});
+
+atest("a successful RETRY after a failure honours the deferred promotion",
+  async () => {
+    AUTH.reset("p-1");
+    await AUTH.hydrate("p-1", {
+      fetchFn: () => Promise.reject(new Error("network down")) });
+    const s = makeSession();
+    setPass(s, "pass2a");
+    assert.strictEqual(s.currentPass, "pass1");
+    await AUTH.hydrate("p-1", {
+      fetchFn: fetchOK(serverState({ status: "completed" })) });
+    AUTH.applyDeferred(pass => { s.currentPass = pass; });
+    assert.strictEqual(s.currentPass, "pass2a", "the retry did not honour the request");
+  });
+
+atest("a LATE 409 for narrator A never rehydrates over narrator B", async () => {
+  AUTH.reset("A");
+  await AUTH.hydrate("A", { fetchFn: fetchOK(serverState({ person_id: "A" })) });
+  let hydrateCalls = 0;
+  const patch = AUTH.setPaused("pause", {
+    fetchFn: function (url, init) {
+      if (init && init.method === "PATCH") {
+        return new Promise(r => setTimeout(() => r({
+          ok: false, status: 409,
+          json: () => Promise.resolve({ detail: { error: "version_conflict" } })
+        }), 25));
+      }
+      hydrateCalls++;
+      return Promise.resolve({ ok: true, status: 200,
+        json: () => Promise.resolve(serverState({ person_id: "A" })) });
+    } });
+  AUTH.reset("B");                                   // operator switches
+  await AUTH.hydrate("B", {
+    fetchFn: fetchOK(serverState({ person_id: "B", status: "completed" })) });
+  const res = await patch;                           // A's 409 lands late
+  assert.strictEqual(res.stale, true, "a stale conflict was processed as current");
+  assert.strictEqual(hydrateCalls, 0,
+    "the 409 handler re-read narrator A while the operator was on B");
+  const snap = AUTH.snapshot();
+  assert.strictEqual(snap.personId, "B", "A's conflict overwrote B's authority");
+  assert.strictEqual(snap.data.person_id, "B");
+});
+
+atest("a LATE PATCH SUCCESS for narrator A never overwrites narrator B",
+  async () => {
+    AUTH.reset("A");
+    await AUTH.hydrate("A", { fetchFn: fetchOK(serverState({ person_id: "A" })) });
+    const patch = AUTH.setPaused("pause", {
+      fetchFn: () => new Promise(r => setTimeout(() => r({
+        ok: true, status: 200,
+        json: () => Promise.resolve(serverState({ person_id: "A", status: "paused" }))
+      }), 25)) });
+    AUTH.reset("B");
+    await AUTH.hydrate("B", {
+      fetchFn: fetchOK(serverState({ person_id: "B", status: "active" })) });
+    const res = await patch;
+    assert.strictEqual(res.ok, false, "a stale PATCH success was applied");
+    assert.strictEqual(AUTH.snapshot().data.person_id, "B");
+    assert.strictEqual(AUTH.snapshot().data.status, "active",
+      "A's pause landed on B");
+  });
+
+atest("A -> B -> A generation drift: the FIRST A response is still discarded",
+  async () => {
+    AUTH.reset("A");
+    const first = AUTH.hydrate("A", {
+      fetchFn: fetchOK(serverState({ person_id: "A", status: "completed" }),
+                       { delay: 30 }) });
+    AUTH.reset("B");
+    AUTH.reset("A");                       // back to A — a NEW generation
+    await AUTH.hydrate("A", {
+      fetchFn: fetchOK(serverState({ person_id: "A", status: "active" })) });
+    await first;                           // the stale A response lands
+    assert.strictEqual(AUTH.snapshot().data.status, "active",
+      "a stale response for the SAME narrator overwrote the current read — " +
+      "person id alone cannot catch this, only the generation can");
+  });
+
+atest("an ACTIVE walk found after resume DEMOTES an already-promoted pass",
+  async () => {
+    AUTH.reset("p-1");
+    await AUTH.hydrate("p-1", { fetchFn: fetchOK(serverState({ status: "paused" })) });
+    const s = makeSession();
+    setPass(s, "pass2a");
+    assert.strictEqual(s.currentPass, "pass2a", "paused should have allowed it");
+    await AUTH.hydrate("p-1", { fetchFn: fetchOK(serverState({ status: "active" })) });
+    const r = AUTH.reconcile(s);
+    assert.strictEqual(r.changed, true, "the stale promotion was left standing");
+    assert.strictEqual(s.currentPass, "pass1",
+      "the browser stayed in pass2a while the server conducted a walk");
+    assert.ok(/active/.test(s.passBlockedReason || ""));
+  });
+
+atest("reconcile does NOT demote when the server permits the pass", async () => {
+  AUTH.reset("p-1");
+  await AUTH.hydrate("p-1", { fetchFn: fetchOK(serverState({ status: "completed" })) });
+  const s = makeSession(); s.currentPass = "pass2a";
+  assert.strictEqual(AUTH.reconcile(s).changed, false);
+  assert.strictEqual(s.currentPass, "pass2a", "a legitimate pass was demoted");
+});
+
+atest("reconcile does not demote while authority is unresolved", async () => {
+  AUTH.reset("p-1");
+  const s = makeSession(); s.currentPass = "pass2a";
+  assert.strictEqual(AUTH.reconcile(s).changed, false,
+    "an unresolved authority demoted a pass it knows nothing about");
+});
+
+/* ── 11. The production choke point really delegates ────────────────── */
+const fs = require("fs");
+test("state.js::setPass delegates to applyPass and keeps no second policy", () => {
+  const src = fs.readFileSync(
+    path.join(__dirname, "..", "ui", "js", "state.js"), "utf8");
+  const body = src.slice(src.indexOf("function setPass(p)"),
+                         src.indexOf("function setPass(p)") + 900);
+  assert.ok(/auth\.applyPass\(/.test(body),
+    "state.js no longer delegates to the shared policy");
+  assert.ok(!/promotionDecision\(/.test(body),
+    "state.js has grown its own copy of the promotion policy again — " +
+    "that is the drift this delegation exists to prevent");
+});
+
+test("applyPass is exported, so the delegation target exists", () => {
+  assert.strictEqual(typeof AUTH.applyPass, "function");
+  assert.strictEqual(typeof AUTH.reconcile, "function");
+});
 
 runAll();
