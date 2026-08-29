@@ -421,10 +421,27 @@ MUTATIONS: Tuple[Mutation, ...] = (
     # ids that had changed. The anchor is now the narrowest text that
     # identifies the branch: the `if` and the line it opens.
     Mutation(
-        "C3", "an ACKNOWLEDGE turn asks a question anyway",
+        "C3", "an ACKNOWLEDGE turn asks a REGISTRY question anyway — the "
+              "walk runs ahead of the server and asks a topic it has not "
+              "settled",
         COMPOSER,
-        '    if action == "acknowledge":\n        lines = [',
-        '    if action == "acknowledge":\n        action = "present"\n    if False:\n        lines = [',
+        # ── ANCHOR REPAIRED 2026-08-29 ─────────────────────────────────
+        #
+        # This anchored on `if action == "acknowledge":\n        lines = [`
+        # — the two lines with nothing between them. The follow-up ruling
+        # put a comment block between them, the anchor stopped matching,
+        # and the gate reported **BROKEN**, which is the runner working
+        # exactly as designed: it refused to claim CAUGHT for a mutation
+        # it could not apply.
+        #
+        # Re-anchored on the branch's own first rendered line, which is
+        # unique in the module. The MECHANISM is unchanged — reassign the
+        # action and make the acknowledge body unreachable, so control
+        # falls through to the presenting branch and a registry question
+        # reaches a turn that must not carry one.
+        '        lines = [\n            "PROFILE SEED — ACKNOWLEDGE.",',
+        '        action = "present"\n    if False:\n        lines = [\n'
+        '            "PROFILE SEED — ACKNOWLEDGE.",',
         COMPOSER_TESTS),
     # C4 ("an unknown topic id renders something") was RETIRED
     # 2026-08-26. Topic validation moved into `_validated_onboarding_plan`
