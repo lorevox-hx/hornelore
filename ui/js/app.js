@@ -3692,8 +3692,15 @@ function renderProfileSeedProgress(){
     btn.textContent = paused ? "Resume" : "Pause";
     btn.onclick = function(){
       btn.disabled = true;
-      auth.setPaused(paused ? "resume" : "pause").then(function(res){
-        btn.disabled = false;
+      const finish = function(res){
+        btn.disabled = false;                     // ALWAYS, on every path
+        // ── RECONCILE BEFORE RENDERING ──────────────────────────────
+        //
+        // *(This used to only rerender. Resuming a paused walk turns it
+        // ACTIVE, and a browser sitting in `pass2a` — legitimately, since
+        // paused permits promotion — stayed there. Blocking the next
+        // click is not enough when the current view is already wrong.)*
+        auth.reconcile(state.session);
         const note = document.getElementById("psNote");
         if (note) {
           // A CONFLICT IS REPORTED, NOT RETRIED. The row moved for a
@@ -3704,7 +3711,13 @@ function renderProfileSeedProgress(){
             : (res && res.ok ? "" : (res && res.reason) || "");
         }
         renderProfileSeedProgress();
-      });
+      };
+      // `setPaused` resolves on every path, including network failure.
+      // The catch is belt-and-braces so a future change there can never
+      // strand the button disabled again.
+      auth.setPaused(paused ? "resume" : "pause")
+        .then(finish)
+        .catch(function(err){ finish({ ok: false, reason: String(err) }); });
     };
   }
   const note = document.getElementById("psNote");
@@ -3736,6 +3749,22 @@ async function loadPerson(pid){
     const _psa = window.LorevoxProfileSeedAuthority;
     if (_psa && pid) {
       _psa.reset(pid);
+      // ── DEMOTE AND CLEAR IMMEDIATELY, BEFORE ANY AWAIT ───────────────
+      //
+      // Two separate cross-narrator problems, both fixed here:
+      //
+      //   * the pass. A browser sitting in B's `pass2a` must not carry
+      //     that view into A. Reset makes the authority UNKNOWN, and
+      //     reconcile now demotes on "not affirmatively allowed", so this
+      //     returns the view to `pass1` and remembers the pass for replay.
+      //   * the progress panel. Nothing subscribed to `onChange`, so
+      //     narrator A's "Profile Seed: 3/10 · active" stayed on screen
+      //     for the whole of B's hydrate — one narrator's onboarding
+      //     progress displayed under another's name.
+      _psa.reconcile(state.session);
+      if (typeof renderProfileSeedProgress === "function") {
+        renderProfileSeedProgress();
+      }
       _psa.hydrate(pid).then(function () {
         if (state.person_id !== pid) return;   // switched again meanwhile
         // Reconcile FIRST. The browser may already be sitting in

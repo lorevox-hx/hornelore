@@ -359,6 +359,18 @@ window.LorevoxProfileSeedAuthority = (function () {
         _emit();
         return { ok: true, data: fresh };
       });
+    }).catch(function (err) {
+      // ── NEVER REJECT. ────────────────────────────────────────────────
+      //
+      // *(`fetch` rejects on a dropped connection, and this promise
+      // carried that rejection straight to the button handler, which had
+      // only a `.then`. The button stayed disabled, the operator lost
+      // pause/resume entirely, and the browser logged an unhandled
+      // rejection.)*
+      //
+      // Every outcome is a resolved result the caller can render.
+      return { ok: false,
+               reason: String((err && err.message) || err) };
     });
   }
 
@@ -408,10 +420,27 @@ window.LorevoxProfileSeedAuthority = (function () {
       return { changed: false };
     }
     var decision = promotionDecision(session.currentPass);
-    if (decision.allow || decision.defer) return { changed: false };
+    // ── NOT-ALLOWED IS ENOUGH. `defer` DEMOTES TOO. ───────────────────
+    //
+    // *(This returned early on `defer`, so an UNKNOWN or FAILED
+    // authority left an already-promoted `pass2a` standing. The claim
+    // "the pass stays safe" was therefore only true for a session that
+    // began at `pass1` — a browser restored from persisted state, or one
+    // whose read failed after promotion, stayed promoted while the
+    // server may well have been conducting a walk.)*
+    //
+    // The safe view is `pass1` whenever we cannot AFFIRMATIVELY confirm
+    // otherwise. Deferral still records the request, so a successful
+    // read re-promotes it; nothing is lost, and nothing is asserted on
+    // no evidence.
+    if (decision.allow) return { changed: false };
     var was = session.currentPass;
     session.currentPass = "pass1";
     session.passBlockedReason = decision.reason;
+    // Demoting because we do not KNOW is different from demoting because
+    // the server said no. Remember the pass so a successful read can
+    // restore it rather than silently losing the operator's position.
+    if (decision.defer) rememberDeferred(was);
     try {
       console.info("[profile-seed][promotion] demoted " + was +
                    " -> pass1: " + decision.reason);

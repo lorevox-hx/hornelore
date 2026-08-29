@@ -444,20 +444,30 @@ atest("A -> B -> A generation drift: the FIRST A response is still discarded",
       "person id alone cannot catch this, only the generation can");
   });
 
-atest("an ACTIVE walk found after resume DEMOTES an already-promoted pass",
-  async () => {
-    AUTH.reset("p-1");
-    await AUTH.hydrate("p-1", { fetchFn: fetchOK(serverState({ status: "paused" })) });
-    const s = makeSession();
-    setPass(s, "pass2a");
-    assert.strictEqual(s.currentPass, "pass2a", "paused should have allowed it");
-    await AUTH.hydrate("p-1", { fetchFn: fetchOK(serverState({ status: "active" })) });
-    const r = AUTH.reconcile(s);
-    assert.strictEqual(r.changed, true, "the stale promotion was left standing");
-    assert.strictEqual(s.currentPass, "pass1",
-      "the browser stayed in pass2a while the server conducted a walk");
-    assert.ok(/active/.test(s.passBlockedReason || ""));
-  });
+atest("a REAL resume() demotes an already-promoted pass", async () => {
+  /* *(The previous version of this test never called setPaused. It
+     hydrated an active state by hand and called reconcile by hand, so it
+     proved the helper worked while the production resume path did not
+     call it at all. This drives the actual pause/resume function.)* */
+  AUTH.reset("p-1");
+  await AUTH.hydrate("p-1", { fetchFn: fetchOK(serverState({ status: "paused" })) });
+  const s = makeSession();
+  setPass(s, "pass2a");
+  assert.strictEqual(s.currentPass, "pass2a", "paused should have allowed it");
+
+  // The real resume: PATCH returns the row now ACTIVE.
+  const res = await AUTH.setPaused("resume", {
+    fetchFn: () => Promise.resolve({ ok: true, status: 200,
+      json: () => Promise.resolve(serverState({ status: "active" })) }) });
+  assert.strictEqual(res.ok, true, "resume did not succeed");
+
+  // What the button handler does next, and must do.
+  const r = AUTH.reconcile(s);
+  assert.strictEqual(r.changed, true, "the stale promotion was left standing");
+  assert.strictEqual(s.currentPass, "pass1",
+    "the browser stayed in pass2a while the server conducted a walk");
+  assert.ok(/active/.test(s.passBlockedReason || ""));
+});
 
 atest("reconcile does NOT demote when the server permits the pass", async () => {
   AUTH.reset("p-1");
@@ -467,11 +477,87 @@ atest("reconcile does NOT demote when the server permits the pass", async () => 
   assert.strictEqual(s.currentPass, "pass2a", "a legitimate pass was demoted");
 });
 
-atest("reconcile does not demote while authority is unresolved", async () => {
+atest("a FAILED read DEMOTES an already-promoted pass", async () => {
   AUTH.reset("p-1");
-  const s = makeSession(); s.currentPass = "pass2a";
-  assert.strictEqual(AUTH.reconcile(s).changed, false,
-    "an unresolved authority demoted a pass it knows nothing about");
+  await AUTH.hydrate("p-1", { fetchFn: fetchOK(serverState({ status: "completed" })) });
+  const s = makeSession();
+  setPass(s, "pass2a");
+  assert.strictEqual(s.currentPass, "pass2a");
+  await AUTH.hydrate("p-1", {
+    fetchFn: () => Promise.reject(new Error("network down")) });
+  const r = AUTH.reconcile(s);
+  assert.strictEqual(r.changed, true,
+    "a failed read left an already-promoted pass standing — 'the pass stays " +
+    "safe' was only true for a session that began at pass1");
+  assert.strictEqual(s.currentPass, "pass1");
+  assert.strictEqual(AUTH.deferredPass(), "pass2a",
+    "the operator's position was lost rather than held for retry");
+});
+
+atest("a demoted-on-failure pass is RESTORED by a successful retry", async () => {
+  AUTH.reset("p-1");
+  await AUTH.hydrate("p-1", { fetchFn: fetchOK(serverState({ status: "completed" })) });
+  const s = makeSession();
+  setPass(s, "pass2a");
+  await AUTH.hydrate("p-1", {
+    fetchFn: () => Promise.reject(new Error("network down")) });
+  AUTH.reconcile(s);
+  assert.strictEqual(s.currentPass, "pass1");
+  await AUTH.hydrate("p-1", { fetchFn: fetchOK(serverState({ status: "completed" })) });
+  AUTH.applyDeferred(pass => { s.currentPass = pass; });
+  assert.strictEqual(s.currentPass, "pass2a", "the retry did not restore the pass");
+});
+
+atest("RESET demotes immediately, before any hydrate resolves", async () => {
+  AUTH.reset("A");
+  await AUTH.hydrate("A", {
+    fetchFn: fetchOK(serverState({ person_id: "A", status: "completed" })) });
+  const s = makeSession();
+  setPass(s, "pass2a");
+  assert.strictEqual(s.currentPass, "pass2a",
+    "the fixture did not resolve — check person_id matches the hydrate target");
+  AUTH.reset("B");                       // switch — nothing awaited
+  const r = AUTH.reconcile(s);
+  assert.strictEqual(r.changed, true,
+    "narrator A's pass2a carried into narrator B's session");
+  assert.strictEqual(s.currentPass, "pass1");
+});
+
+atest("RESET clears the previous narrator's progress immediately", async () => {
+  AUTH.reset("A");
+  await AUTH.hydrate("A", {
+    fetchFn: fetchOK(serverState({ person_id: "A", status: "active" })) });
+  assert.ok(AUTH.progress(), "narrator A has no progress to clear");
+  AUTH.reset("B");
+  assert.strictEqual(AUTH.progress(), null,
+    "narrator A's progress survived the switch and would render under B's name");
+  assert.strictEqual(AUTH.snapshot().personId, "B");
+});
+
+atest("a PATCH NETWORK REJECTION resolves instead of throwing", async () => {
+  AUTH.reset("p-1");
+  await AUTH.hydrate("p-1", { fetchFn: fetchOK(serverState({ status: "paused" })) });
+  let threw = false;
+  const res = await AUTH.setPaused("resume", {
+    fetchFn: () => Promise.reject(new Error("connection reset"))
+  }).catch(() => { threw = true; return null; });
+  assert.strictEqual(threw, false,
+    "setPaused rejected — the button handler's .then never runs, so " +
+    "pause/resume stays disabled and the browser logs an unhandled rejection");
+  assert.ok(res, "no result to render");
+  assert.strictEqual(res.ok, false);
+  assert.ok(/connection reset/.test(res.reason || ""),
+    "the operator is not told why it failed");
+});
+
+atest("a PATCH non-OK status also resolves with a reason", async () => {
+  AUTH.reset("p-1");
+  await AUTH.hydrate("p-1", { fetchFn: fetchOK(serverState({ status: "paused" })) });
+  const res = await AUTH.setPaused("resume", {
+    fetchFn: () => Promise.resolve({ ok: false, status: 500,
+                                     json: () => Promise.resolve({}) }) });
+  assert.strictEqual(res.ok, false);
+  assert.ok(res.reason, "no reason for the operator");
 });
 
 /* ── 11. The production choke point really delegates ────────────────── */
