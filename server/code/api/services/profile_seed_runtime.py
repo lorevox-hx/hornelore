@@ -136,6 +136,22 @@ def attach_onboarding(
     payload = onboarding_payload(plan, state)
     if payload is not None:
         out[PROFILE_SEED_ONBOARDING_KEY] = payload
+    else:
+        # ── THE SERVER'S ANSWER IS AUTHORITATIVE BOTH WAYS, Phase 3 ────
+        #
+        # *(This used to only ADD the key. When the server had no plan it
+        # left `runtime` untouched — and `runtime` is the browser's
+        # `runtime71`, so a CLIENT-SUPPLIED onboarding payload survived
+        # into composition unchallenged. A fabricated one would then have
+        # rendered an onboarding block and suppressed the legacy pass
+        # directive for a narrator the server says has no walk at all.*
+        #
+        # *`test_an_untruthful_sparse_runtime_does_NOT_get_identity_for_free`
+        # already guarded the identity half of that hole from the
+        # composer side. This closes the transport half: on any path that
+        # calls this, the key is present when the SERVER resolved a plan
+        # and absent when it did not.)*
+        out.pop(PROFILE_SEED_ONBOARDING_KEY, None)
     return out
 
 

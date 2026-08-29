@@ -4117,8 +4117,50 @@ def _compose_prompt_assembly(
         # the resolver uses — rather than letting this default decide.
         identity_complete = bool(runtime71.get("identity_complete", False))
         identity_phase    = runtime71.get("identity_phase") or "unknown"
-        effective_pass    = runtime71.get("effective_pass") or current_pass
-        identity_mode     = (effective_pass == "identity") or (not identity_complete)
+        # ── SERVER-DERIVED EFFECTIVE PHASE, Phase 3 (2026-08-29) ───────────
+        #
+        # `current_pass` and `effective_pass` arrive FROM THE BROWSER. Eight
+        # UI sites promote `pass1 → pass2a` on chronology readiness or a mere
+        # era click, none of which knows anything about onboarding — so the
+        # browser can assert `pass2a` while the server is conducting a
+        # Profile Seed walk.
+        #
+        # Phase 2 already stopped that from suppressing the walk: the pass
+        # DIRECTIVE is skipped whenever a validated plan exists. What it did
+        # not fix is the prompt still *stating* the browser's pass, so one
+        # system message could say `pass: pass2a` while the turn it describes
+        # is an onboarding turn. That is a contradiction Lori is asked to
+        # reconcile, and it is the composer's to remove.
+        #
+        # **BOTH TRUTHS ARE PRESERVED, and that is deliberate.** The raw
+        # browser value stays visible as `browser_pass` rather than being
+        # rewritten to `pass1` — faking it would hide real client state from
+        # anyone debugging a live turn, and the browser's belief is a fact
+        # about the system even when it is not authoritative.
+        _ps_active = profile_seed_onboarding_active(runtime71)
+        _browser_effective_pass = runtime71.get("effective_pass") or current_pass
+        if _ps_active:
+            effective_pass = "profile_seed"
+            # ── ONLY THE `identity` PASS DISJUNCT IS DROPPED ───────────────
+            #
+            # A stale browser `effective_pass == "identity"` must not drag
+            # the turn into identity interrogation while a validated walk is
+            # running — the narrator would be asked for their name and their
+            # childhood home in the same breath.
+            #
+            # **`identity_complete` is still honoured**, and the first cut of
+            # this change wrongly set `identity_mode = False` outright.
+            # `test_an_untruthful_sparse_runtime_does_NOT_get_identity_for_free`
+            # caught it, and it was defending the right rule: if supplying an
+            # onboarding payload could switch identity mode off, the gate is
+            # not a gate. Identity completeness is a SERVER-ATTESTED fact
+            # carried in its own key; the presence of a plan is not a
+            # substitute for it, and treating it as one would let a client
+            # disable identity collection by claiming a walk.
+            identity_mode = not identity_complete
+        else:
+            effective_pass = _browser_effective_pass
+            identity_mode = (effective_pass == "identity") or (not identity_complete)
         # v7.4E — speaker name anchor (prevents Lori from confusing the speaker
         # with a person named "Lori" or any other name mentioned in conversation)
         speaker_name      = (runtime71.get("speaker_name") or "").strip() or None
@@ -4152,10 +4194,22 @@ def _compose_prompt_assembly(
         arc_roles_missing = [r for r in _ALL_ARC_ROLES if r not in arc_roles_present]
 
         # Base runtime block (always present)
+        # ── TWO TRUTHS, LABELLED, Phase 3 ─────────────────────────────────
+        #
+        # Inactive walk: byte-identical to before — `pass:` then
+        # `effective_pass:`, and no third line. Every historical, completed,
+        # malformed and no-row narrator therefore composes exactly as it did.
+        #
+        # Active walk: the browser's claim is relabelled `browser_pass` so it
+        # cannot be read as authoritative, `effective_pass` carries the
+        # server's answer, and `profile_seed_active` states plainly which
+        # machine owns the turn.
         directive_lines = [
             "LORI_RUNTIME:",
-            f"  pass: {current_pass}",
+            (f"  browser_pass: {current_pass}" if _ps_active
+             else f"  pass: {current_pass}"),
             f"  effective_pass: {effective_pass}",
+        ] + ([f"  profile_seed_active: true"] if _ps_active else []) + [
             f"  identity_phase: {identity_phase}",
             f"  identity_complete: {identity_complete}",
             f"  era: {current_era}",

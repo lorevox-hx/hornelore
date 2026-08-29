@@ -1205,8 +1205,21 @@ class LegacyProfileSeedKeyUntouchedTests(unittest.TestCase):
         # directive is deliberately replaced (see the byte-stability
         # suite); nothing the seed produced is.
         head = baseline.split("DIRECTIVE: You are in Pass 2A")[0]
+        # ── TWO RUNTIME LINES ARE DELIBERATELY DIFFERENT, Phase 3 ────────
+        #
+        # This walks the whole prompt head, which contains the LORI_RUNTIME
+        # block as well as the legacy seed's output. Phase 3 relabels the
+        # browser's pass to `browser_pass` and sets `effective_pass:
+        # profile_seed` while a validated walk is active — a change this
+        # test is not about and must not silently forbid.
+        #
+        # They are exempted BY PREFIX rather than by dropping the walk,
+        # because the claim being made — that nothing the LEGACY SEED
+        # contributed moved — is still asserted line for line, and it is
+        # the claim worth keeping.
+        _phase3_runtime_lines = ("  pass: ", "  effective_pass: ")
         for line in head.splitlines():
-            if line.strip():
+            if line.strip() and not line.startswith(_phase3_runtime_lines):
                 self.assertIn(line, text,
                               "adding onboarding state changed what the "
                               "legacy profile_seed contributed")
