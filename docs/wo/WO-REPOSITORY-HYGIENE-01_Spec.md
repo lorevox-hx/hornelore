@@ -11,8 +11,9 @@ and in `docs/archive/INDEX.md` §4 — **deferred, not cancelled, and not done.*
 and its [verification addendum](../reviews/HORNELORE_REPOSITORY_ARCHIVE_AUDIT_2026-08-28_VERIFICATION_ADDENDUM.md)
 **Pre-hygiene rollback point:** tag `archive/pre-hygiene-2026-08-28` at `d0e5294`
 **Blocks:** nothing. *(This read "Blocks: Phase 2 Step 6". That gate is **superseded** by the
-product-priority decision of 2026-08-28 — see `HANDOFF.md`. Step 6 is the current action and
-proceeds while this work order is paused.)*
+product-priority decision of 2026-08-28.)* **The product lane's status is not restated here.**
+Read [`../../HANDOFF.md`](../../HANDOFF.md) — a status written in two places is a status that
+will disagree in one of them, which is the defect this whole work order exists to remove.
 
 ---
 
@@ -37,10 +38,9 @@ product code and the main `tests/` tree are not archive candidates.
 **Do not, at any point in this work order:**
 
 * touch **production source**, UI, schemas or migrations;
-* start **WebSocket Step 6** or any onboarding wiring **inside a commit belonging to this
-  work order** — the boundary is that hygiene commits stay documentation-and-moves only, and
-  it still holds. It is **not** a claim that Step 6 may not proceed elsewhere: Step 6 is the
-  current product action and runs in its own commits while this work order is paused;
+* start **WebSocket or onboarding wiring inside a commit belonging to this work order** —
+  hygiene commits stay documentation-and-moves only. This is a rule about THIS work order's
+  commits, not a claim about the product lane, whose status lives in `HANDOFF.md`;
 * change **product behaviour** in any way;
 * **bulk delete** anything;
 * assume `scripts/archive/`, `docs/wo/`, or the singular `test/` directory is dead;
@@ -70,16 +70,17 @@ next begins.
 | 1 | **Indexes only** | This file, `docs/INDEX.md`, `docs/BACKLOG.md`, `docs/archive/INDEX.md`, `scripts/INDEX.md`, the audit verbatim, the verification addendum. **No moves** | **ACCEPTED `5f6b01b`** |
 | 2 | Control authority | `HANDOFF.md` → current state and next action. Checklist → active/next/deferred. README → product and operation, not commit history. `CLAUDE.md` → durable doctrine, with the corrections in `BACKLOG.md` §4 | **ACCEPTED `db0c5e7`** |
 | 2b | Changelog | Snapshot preserved byte-for-byte at `docs/archive/changelogs/CHANGELOG-AGENT-through-2026-08-20.md`; the live path replaced by a small decision index. **Split from step 2 deliberately: it is a MOVE**, and §2's standing rule forbids combining a documentation rewrite with a file move in one commit | **ACCEPTED `ff1ff4f`** — comprising `fbc50fc`, `0d49bd0`, `ff1ff4f` |
-| 3 | Historical moves | Small, separately reviewable **cohorts**. Links updated and validated after **every** cohort. **First cohort: the four root dated artifacts, and nothing else** | 🔵 **CURRENT — first cohort not started** |
+| 3 | Historical moves | Small, separately reviewable **cohorts**. Links updated and validated after **every** cohort | ⏸️ **FIRST COHORT ACCEPTED `5086490`** — the four root dated artifacts, moved byte-for-byte. **Remaining cohorts DEFERRED** |
 | 4 | Legacy tests and scripts | Map the singular `test/` tree's coverage to current tests **before** moving it. Move only tools whose purpose and replacement are both named | not started |
-| 5 | Tracked-byte reduction | Preserve and checksum research documents outside Git, then remove the tracked binaries. Remove the unused SIMD asset behind a focused gate. Remove empty `wsl`, the old result JSON, the duplicate cue candidate | not started |
-| — | Verification checkpoint | §6 below | not started |
+| 5 | Tracked-byte reduction | Preserve and checksum research documents outside Git, then remove the tracked binaries. Remove the unused SIMD asset behind a focused gate. Remove empty `wsl`, the old result JSON, the duplicate cue candidate | **DEFERRED** |
+| — | Verification checkpoint | §6 below | **DEFERRED** |
 
-**Step 6 no longer waits for that checkpoint.** *(This said "Step 6 begins only after that
-checkpoint is accepted." Superseded 2026-08-28 by Chris's product-priority decision: Phase A
-— Steps 0 through the first Step 3 cohort — is accepted, everything below it is deferred,
-and Step 6 became the current action. The rows above are unchanged because the plan is
-unchanged; what changed is when it runs.)*
+**The product lane no longer waits for that checkpoint.** *(This said "Step 6 begins only
+after that checkpoint is accepted." Superseded 2026-08-28 by Chris's product-priority
+decision: Phase A — Steps 0 through the first Step 3 cohort — is accepted and everything
+below it is deferred. The rows above are unchanged because the plan is unchanged; what
+changed is when it runs. **Which product step is current is `HANDOFF.md`'s to say, not
+this file's.**)*
 
 ---
 

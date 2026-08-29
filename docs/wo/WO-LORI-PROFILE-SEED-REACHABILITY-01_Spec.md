@@ -121,7 +121,8 @@ targeted gate at `d0e5294` — `P11` and `D4` **2/2**; strict suite `.venv-gpu` 
 both **22/22 with zero skips**; truthful shipped-design count **24**; tree clean, mutation
 journal cleared.
 
-**Step 6 is NOT STARTED**, and its design is unchanged by this acceptance. *(This also said
+**Step 6 was NOT STARTED at that checkpoint**, and its design was unchanged by it.
+*(Dated statement, kept as history. Step 6 is now ACCEPTED — see the phase table.)* *(This also said
 Step 6 was "additionally frozen until the repository-hygiene checkpoint is accepted". That
 freeze is **superseded** — Chris's product-priority decision of 2026-08-28 accepted hygiene
 Phase A, deferred the remainder, and made Step 6 the current action. See `HANDOFF.md`.)*
@@ -151,7 +152,8 @@ sentence has been removed everywhere it appeared.** REST supplies it now, verifi
 the running API: a narrator created through the real intake form was asked her first
 canonical topic over `/api/chat`. What remains true, and is the more useful statement:
 
-> **The PRODUCTION NARRATOR UI path is still unwired.** `ui/js/api.js` drives
+> **The PRODUCTION NARRATOR UI path was still unwired when this was written, and is not
+> now — Step 6 wired it and it is accepted on live evidence.** `ui/js/api.js` drives
 > `/api/chat/ws`; a complete narrator turn produces **zero HTTP requests matching
 > "chat"**. `/api/chat` has no UI caller at all, and `/api/chat/stream` is reachable only
 > behind `window.LV_ALLOW_SSE_FALLBACK === true`, a dev-only escape hatch guarded by
@@ -185,8 +187,9 @@ Boolean alone produces prompt text stating no verified identity facts are availa
 runtime that contradicts itself — and `person_id` is load-bearing because the composer's
 person-dependent memory layer is skipped without it.
 
-**Step 6 — WebSocket presentation metadata and post-commit advancement — is the current
-action.** Step 7 remains owed.
+**Step 6 is ACCEPTED — 2026-08-29, on live evidence.** Implemented `12221e0`, corrected
+`58dfc40`, instrument committed `525a43f`; 16/16 twice through the production WebSocket and
+the real model. **Step 7 — consolidated closure — is the current action.**
 
 *(This block read "READY FOR IMPLEMENTATION" until 2026-08-26, contradicting §6's own
 `STATUS: COMPLETE, ACCEPTED` two hundred lines below. A spec whose header disagrees with its

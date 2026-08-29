@@ -87,9 +87,12 @@ lesson.
 
 * **`scripts/run_mutation_gate.py`** — the reproducible acceptance gate; every anchor is
   checked in. Moving it breaks every acceptance claim in the Profile Seed lane. **The
-  mutation count is derived, not written here** — it was "63" and is now larger:
-  `grep -c '^        "[A-Z]' scripts/run_mutation_gate.py` is wrong for the same reason,
-  so read `python3 scripts/run_mutation_gate.py --help` or count `Mutation(` call sites.
+  mutation count is derived, not written here** — it was "63" and has grown since:
+
+  ```bash
+  cd /mnt/c/Users/chris/hornelore
+  grep -c '^    Mutation(' scripts/run_mutation_gate.py
+  ```
 * **`scripts/step6_ws_probe.py`** — the Profile Seed Step 6 **live acceptance instrument**,
   and the evidence for an accepted step. It creates one clearly synthetic narrator through
   the product endpoint, drives five turns over the production WebSocket, and verifies the

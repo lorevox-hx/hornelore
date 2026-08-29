@@ -190,7 +190,7 @@ Rulings: [`docs/architecture/TRAVEL_DOCUMENT_DOCTRINE.md`](docs/architecture/TRA
 
 ## 5. Live-review artifacts — PRESERVE, NO DELETION AUTHORIZED
 
-**Five synthetic narrators and one real one.** Erasure of any of them takes Chris's
+**Erasure of any narrator listed below takes Chris's
 explicit authorization and must go through the product erasure path, with the result
 reported truthfully. **No family narrator appears here and none was touched:** only the
 three `ZZ` probes are enrolled in a Profile Seed walk, verified against the live database

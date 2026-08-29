@@ -740,11 +740,18 @@ Asking one thing per turn is also the work order's own §4.5 rule ("one question
 no menu") and matches how a person actually listens: you acknowledge what someone just
 told you before moving on.
 
-**The cost is honest and should be named: this makes the acknowledgement turn a turn
-without a question in it.** In Phase 2 that is correct and slightly stilted. **Phase 3 can
-initiate the next presentation automatically** once the browser is wired, so the narrator
-experiences a natural "thank you — and tell me about…" rather than a pause. That is
-deliberately deferred rather than faked here.
+**The cost this named — an acknowledgement turn with no question in it — did not survive
+contact with a real narrator, and the fix was not the one proposed here.** Chris's ruling
+of 2026-08-29, after watching the live probe: Lori may ask **one natural follow-up about
+what the narrator just said**, on the same subject. She may not ask the next registry
+topic, and she stamps no second presentation event — so the state machine is untouched
+and the turn stops being stilted.
+
+**The proposal that Phase 3 should "initiate the next presentation automatically" is
+WITHDRAWN.** It would have had the browser drive onboarding, which is the authority
+inversion this entire work order exists to remove. Phase 3 reconciles the eight browser
+promotion sites *with* server authority; it does not hand them a new way to advance the
+walk.
 
 ### The version applied
 
@@ -942,7 +949,7 @@ control-document reconciliation because the sweep covered four files and there a
 this map is a control document too, and a stale one says the code it describes does not
 exist.)*
 
-**Phase 2 is IN IMPLEMENTATION and is NOT ACCEPTED.**
+**Phase 2 steps 1–6 are ACCEPTED. Step 7 — consolidated closure — is the current action.**
 
 | Step | State |
 |---|---|
@@ -951,8 +958,8 @@ exist.)*
 | 3 — turn state machine, exact tuples, recovery | landed |
 | 4 — isolated composer section | **ACCEPTED** at `b269184` (landed `620d692`; `9f31d9f` was premature) |
 | 5 — REST read authority | **ACCEPTED** at `9127adb` (landed `687c655`) |
-| 6 — WebSocket presentation metadata and advancement | 🔵 **CURRENT ACTION** |
-| 7 — suites and control reconciliation | not begun |
+| 6 — WebSocket presentation metadata and advancement | **ACCEPTED** `12221e0`…`58dfc40`, live 16/16 through the production WebSocket |
+| 7 — consolidated closure: verification, control reconciliation, no new behaviour | 🔵 **CURRENT ACTION** |
 
 The commit ledger lives in the primary work order's status block, not here — one home, so
 a new commit does not make five documents stale at once.
@@ -965,11 +972,12 @@ in `.venv-gpu` that entered both route functions for all three refusals.
 *(The previous wording — "no live transport supplies `profile_seed_onboarding`" — is
 retired as FALSE. It was true through step 4 and stopped being true at `687c655`.)*
 
-**The boundary that replaces it:** the narrator product path is still unwired. The UI drives
-`/api/chat/ws`; a complete narrator turn makes zero HTTP requests matching "chat".
-`/api/chat` has no UI caller, and `/api/chat/stream` is reachable only behind the dev-only
-`window.LV_ALLOW_SSE_FALLBACK`. **Step 6 is what puts the walk in front of a narrator using
-the production UI** — the walk is already live over REST. The eight browser promotion sites are untouched — that is Phase 3
+**That boundary is now closed too.** The UI drives `/api/chat/ws`; a complete narrator turn
+makes zero HTTP requests matching "chat"; `/api/chat` has no UI caller and
+`/api/chat/stream` sits behind the dev-only `window.LV_ALLOW_SSE_FALLBACK`. **Step 6 wired
+that WebSocket path and it is accepted on live evidence** — two probe runs, 16/16 each,
+through the production socket and the real model. *(This paragraph said the narrator
+product path "is still unwired". True until `12221e0`; false from `58dfc40`.)* The eight browser promotion sites are untouched — that is Phase 3
 — and nothing in chronology, Life Map, memoir or story authority, safety, model or context
 window, the directive registry, Kawa, or migrations `0001–0051` has changed.
 
@@ -990,8 +998,9 @@ the recovery stage.
 | `d0e5294` | the remaining instrument corrections; **the acceptance point** |
 
 Step 6 was **blocked** by a review of the pushed Step 5 tree. Five bounded defects, none
-of them narrator-reachable through the production UI, because WebSocket onboarding is
-still unwired. All five are closed and accepted.
+of them narrator-reachable through the production UI **at that time**, because WebSocket
+onboarding was not yet wired — it is now, and this sentence is dated history rather than
+a current statement. All five are closed and accepted.
 
 | # | Defect | Closed by |
 |---|---|---|
