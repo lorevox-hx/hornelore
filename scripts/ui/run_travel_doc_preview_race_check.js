@@ -56,8 +56,17 @@ function api(path) {
 function renderAll() {}
 `;
 
+// The "\n" before `return` is load-bearing, 2026-08-30. `slice` stops
+// immediately BEFORE the "\n  function reloadDays(" marker, so the text
+// it returns ends on whatever the previous line was — and that line is
+// now a `//` comment. Concatenating the return statement straight onto
+// it commented the return out, so this Function returned `undefined`
+// and the harness died at its first `runner.st` with an opaque
+// "Cannot read properties of undefined". The product source is fine;
+// the harness simply grew a comment above `reloadDays` and the slice
+// had no newline of its own.
 const runner = new Function(
-  prelude + invalidateSrc +
+  prelude + invalidateSrc + "\n" +
   "return { st, parked, invalidate: invalidateMemoirPreview, " +
   "setTab: (t) => { st.tab = t; }, " +
   "setTrip: (id) => { st.trip = { id: id }; }, " +

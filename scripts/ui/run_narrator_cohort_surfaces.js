@@ -61,7 +61,28 @@ function writeJson(filename, value) {
 }
 
 /* Exactly one enabled button whose text is "Open" and whose handler names this
- * UUID.  Every other outcome throws rather than guessing. */
+ * UUID.  Every other outcome throws rather than guessing.
+ *
+ * ── A LOCATOR, NOT AN elementHandle, 2026-08-30 ─────────────────────────
+ *
+ * This collected `elementHandles()` and clicked one of them, and the live
+ * run failed on BOTH narrators with "Element is not attached to the DOM":
+ * the narrator list re-renders between collecting the handles and clicking,
+ * so every handle is stale by the time it is used.  `tabs` came back empty
+ * and the whole UI lane — tabs, Travel Document, isolation, reload — never
+ * ran at all.
+ *
+ * A locator re-resolves its selector at click time, which is exactly the
+ * property a re-rendering list needs.  The safety contract is unchanged and
+ * is if anything tighter: the selector itself carries the exact UUID, and
+ * the text, handler shape and destructive-verb checks all still run — they
+ * now run against the freshly resolved element rather than a stale one.
+ */
+function openLocator(page, personId) {
+  // Exact UUID in the selector. Never a position, never an index.
+  return page.locator(`button[onclick*="${personId}"]`).filter({ hasText: /^Open$/ });
+}
+
 async function exactOpenButton(page, personId) {
   await page.waitForFunction(
     (pid) => Array.from(document.querySelectorAll("button")).some((button) => {
@@ -71,21 +92,20 @@ async function exactOpenButton(page, personId) {
     personId,
     { timeout: 30000 },
   );
-  const handles = await page.locator("button", { hasText: /^Open$/ }).elementHandles();
-  const matches = [];
-  for (const handle of handles) {
-    const details = await handle.evaluate((button, pid) => ({
-      text: button.textContent.trim(),
-      onclick: button.getAttribute("onclick") || "",
-      disabled: Boolean(button.disabled),
-      containsPerson: (button.getAttribute("onclick") || "").includes(pid),
-    }), personId);
-    if (details.containsPerson) matches.push({ handle, details });
+  const locator = openLocator(page, personId);
+  const count = await locator.count();
+  if (count !== 1) {
+    throw new Error(`expected one semantic Open for ${personId}; found ${count}`);
   }
-  if (matches.length !== 1) {
-    throw new Error(`expected one semantic Open for ${personId}; found ${matches.length}`);
+  const details = await locator.evaluate((button, pid) => ({
+    text: button.textContent.trim(),
+    onclick: button.getAttribute("onclick") || "",
+    disabled: Boolean(button.disabled),
+    containsPerson: (button.getAttribute("onclick") || "").includes(pid),
+  }), personId);
+  if (!details.containsPerson) {
+    throw new Error(`the resolved Open does not name ${personId}`);
   }
-  const { details, handle } = matches[0];
   if (details.text !== "Open" || details.disabled) {
     throw new Error("the exact narrator action is not an enabled Open button");
   }
@@ -95,12 +115,14 @@ async function exactOpenButton(page, personId) {
   if (!OPEN_HANDLER.test(details.onclick.trim())) {
     throw new Error(`unexpected Open handler: ${details.onclick}`);
   }
-  return handle;
+  return locator;
 }
 
 async function openExactNarrator(page, personId, expectedName) {
   const button = await exactOpenButton(page, personId);
-  await button.click();
+  // Re-resolved at click time, so a list that re-rendered since the checks
+  // above is clicked correctly rather than throwing on a detached node.
+  await button.click({ timeout: 30000 });
   await page.waitForFunction(
     ({ pid, name }) => {
       const current = window.state && window.state.person_id;
