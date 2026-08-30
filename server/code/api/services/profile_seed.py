@@ -654,6 +654,12 @@ class ResolvedState:
     created_at: str
     updated_at: str
     completed_at: Optional[str]
+    #: WHICH QUESTION IS OUTSTANDING — not how many times the row has
+    #: been written. See migration 0052. `version` guards writes; this
+    #: identifies the question, and the two must never be conflated
+    #: again. Defaulted so every existing constructor call keeps working
+    #: and so a malformed or pre-0052 row reads as "no question".
+    presentation_epoch: int = 0
 
     @property
     def known_topics(self) -> List[str]:
@@ -675,6 +681,10 @@ class ResolvedState:
             "known_topics": self.known_topics,
             "remaining_topics": self.remaining_topics,
             "version": self.version,
+            # Exposed because the turn reducer correlates on it. A client
+            # may READ it; nothing lets a client author it, and the
+            # composer only trusts an attested server-resolved payload.
+            "presentation_epoch": self.presentation_epoch,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "completed_at": self.completed_at,
@@ -697,6 +707,10 @@ def not_enrolled_body(person_id: str) -> Dict[str, Any]:
         "known_topics": [],
         "remaining_topics": [],
         "version": None,
+        # `None`, not 0. A historical narrator has no question outstanding
+        # and never will; 0 is a real epoch belonging to a real enrolled
+        # row that has not started yet, and the two must not read alike.
+        "presentation_epoch": None,
     }
 
 
@@ -730,6 +744,25 @@ def _coerce_topic_state(raw: Any) -> Dict[str, str]:
     return out
 
 
+def _valid_epoch(raw: Any) -> int:
+    """A stored epoch, or 0 for anything unusable.
+
+    Defensive for the same reason `_coerce_topic_state` is: a value this
+    function cannot trust must not become a crash on every subsequent
+    turn. 0 is the safe reading — it means "no question outstanding",
+    which makes the next resolve mint a fresh epoch and re-present, and
+    that is the direction that asks rather than assumes.
+
+    Booleans are rejected explicitly. `True` is an `int` in Python and
+    would compare equal to epoch 1, silently correlating an answer with a
+    question it never belonged to — the same trap `_valid_version`
+    documents in the reducer.
+    """
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        return 0
+    return raw if raw >= 0 else 0
+
+
 def read_row(con: sqlite3.Connection, person_id: str) -> Optional[sqlite3.Row]:
     """The onboarding row, or `None` when the narrator is not enrolled.
 
@@ -744,7 +777,7 @@ def read_row(con: sqlite3.Connection, person_id: str) -> Optional[sqlite3.Row]:
     """
     return con.execute(
         f"SELECT person_id, status, topic_state_json, active_topic_id, "  # noqa: S608
-        f"version, created_at, updated_at, completed_at "
+        f"version, presentation_epoch, created_at, updated_at, completed_at "
         f"FROM {TABLE} WHERE person_id=?;",
         (person_id,),
     ).fetchone()
@@ -789,8 +822,12 @@ def enroll(con: sqlite3.Connection, person_id: str, now: str) -> None:
     con.execute(
         f"INSERT INTO {TABLE} "  # noqa: S608
         "(person_id, status, topic_state_json, active_topic_id, version, "
-        " created_at, updated_at, completed_at) "
-        "VALUES (?, ?, ?, NULL, 1, ?, ?, NULL);",
+        " presentation_epoch, created_at, updated_at, completed_at) "
+        # Epoch 0 means "no question has ever been outstanding". The first
+        # reconcile that promotes this row to `active` moves it to 1.
+        # Starting at 1 here would make a pending row indistinguishable
+        # from a row with a live question.
+        "VALUES (?, ?, ?, NULL, 1, 0, ?, ?, NULL);",
         (person_id, STATUS_PENDING, json.dumps(initial_topic_state()),
          now, now),
     )
@@ -883,6 +920,7 @@ def resolve_effective(con: sqlite3.Connection, person_id: str, *,
     stored_status = row["status"] if row["status"] in STATUSES else STATUS_PENDING
     stored_active = row["active_topic_id"]
     stored_version = int(row["version"] or 1)
+    stored_epoch = _valid_epoch(row["presentation_epoch"])
     completed_at = row["completed_at"]
 
     if stored_status == STATUS_COMPLETED:
@@ -897,6 +935,10 @@ def resolve_effective(con: sqlite3.Connection, person_id: str, *,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             completed_at=completed_at,
+            # Carried, never reset. A completed walk is terminal, so this
+            # is only ever read; zeroing it would let some future reopen
+            # reuse an epoch that old turn metadata still refers to.
+            presentation_epoch=stored_epoch,
         ), False
 
     person, basics = _person_and_basics(con, person_id)
@@ -931,18 +973,54 @@ def resolve_effective(con: sqlite3.Connection, person_id: str, *,
     else:
         next_status = STATUS_ACTIVE
 
-    next_active = remaining[0] if next_status == STATUS_ACTIVE else None
+    # ── A PAUSED WALK KEEPS ITS OUTSTANDING TOPIC, 0052 ──────────────
+    #
+    # This read `remaining[0] if next_status == STATUS_ACTIVE else None`,
+    # so a pause discarded the topic and a resume picked one again. The
+    # question was unchanged throughout — the narrator was simply not
+    # being asked — but the column said otherwise, and anything deriving
+    # question identity from the column therefore saw two transitions
+    # across a pause/resume that changed nothing the narrator can see.
+    #
+    # `paused` now carries the topic. Nothing renders it: `plan_turn`
+    # returns IDLE for every status except `active`, which is the gate
+    # that decides whether Lori asks, and it is unchanged.
+    if next_status in (STATUS_ACTIVE, STATUS_PAUSED):
+        next_active = remaining[0] if remaining else None
+    else:
+        next_active = None
 
     if next_status == STATUS_COMPLETED and not completed_at:
         next_completed_at: Optional[str] = now
     else:
         next_completed_at = completed_at
 
+    # ── EPOCH: THE QUESTION CHANGED, NOT THE ROW ─────────────────────
+    #
+    # Increment only when the outstanding question becomes a NEW
+    # question. `version` below still moves for every durable change,
+    # which is the whole point of keeping them separate:
+    #
+    #   first activation          stored_active None -> a topic   BUMP
+    #   advance A -> B            topics differ                   BUMP
+    #   settled topic reopens     topics differ                   BUMP
+    #   pause / resume, same A    topics equal (see above)         no
+    #   evidence for another      active topic unchanged           no
+    #
+    # When nothing is outstanding — pending, or completed — the epoch is
+    # CARRIED rather than reset, so a later reopen cannot reuse an epoch
+    # that historical turn metadata still names.
+    if next_active is not None and next_active != stored_active:
+        presentation_epoch = stored_epoch + 1
+    else:
+        presentation_epoch = stored_epoch
+
     changed = (
         next_state != stored_state
         or next_status != stored_status
         or next_active != stored_active
         or next_completed_at != completed_at
+        or presentation_epoch != stored_epoch
     )
 
     version = stored_version + 1 if changed else stored_version
@@ -958,6 +1036,7 @@ def resolve_effective(con: sqlite3.Connection, person_id: str, *,
         created_at=row["created_at"],
         updated_at=updated_at,
         completed_at=next_completed_at,
+        presentation_epoch=presentation_epoch,
     ), changed
 
 
@@ -977,11 +1056,12 @@ def reconcile(con: sqlite3.Connection, person_id: str, *,
     if changed:
         con.execute(
             f"UPDATE {TABLE} SET status=?, topic_state_json=?, "  # noqa: S608
-            "active_topic_id=?, version=?, updated_at=?, completed_at=? "
+            "active_topic_id=?, version=?, presentation_epoch=?, "
+            "updated_at=?, completed_at=? "
             "WHERE person_id=?;",
             (state.status, json.dumps(dict(state.topic_state)),
-             state.active_topic_id, state.version, state.updated_at,
-             state.completed_at, person_id),
+             state.active_topic_id, state.version, state.presentation_epoch,
+             state.updated_at, state.completed_at, person_id),
         )
     return state
 
@@ -1030,8 +1110,22 @@ def set_paused(con: sqlite3.Connection, person_id: str, *,
     # `active` is not asserted here — reconciliation derives the real
     # status from the anchors and the remaining topics immediately after.
     target = STATUS_PAUSED if paused else STATUS_ACTIVE
+    # ── THE VERSION MOVES HERE NOW, 0052 ─────────────────────────────
+    #
+    # A status change is a durable change and must invalidate a client's
+    # in-flight write, or a PATCH authored before the pause would land
+    # after it.
+    #
+    # It used to move by ACCIDENT. This wrote only the status, and the
+    # reconcile that follows saw `next_active` go from the topic to NULL
+    # (pausing) and back (resuming) — so the version moved as a side
+    # effect of discarding the outstanding question. Now that the topic
+    # is preserved across a pause, that side effect is gone and the bump
+    # has to be stated. The EPOCH deliberately does not move: the
+    # question is unchanged, which is the whole point of 0052.
     con.execute(
-        f"UPDATE {TABLE} SET status=?, updated_at=? WHERE person_id=?;",  # noqa: S608
+        f"UPDATE {TABLE} SET status=?, version=version+1, "  # noqa: S608
+        "updated_at=? WHERE person_id=?;",
         (target, now, person_id),
     )
 

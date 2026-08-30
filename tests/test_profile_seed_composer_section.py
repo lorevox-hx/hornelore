@@ -494,64 +494,88 @@ class CompletionTransitionTests(NoStateClaimMixin, unittest.TestCase):
             self.block(onboarding("acknowledge", A, completes_walk=True)),
             "acknowledgement: ")
 
-    def test_a_STALE_VERSION_completion_still_claims_nothing(self):
+    def test_a_MOVED_VERSION_completion_still_claims_nothing(self):
         """THE CONCURRENCY CASE, end to end.
 
-        1. Lori presents A at version 7.
-        2. The narrator answers; the plan says this completes the walk.
-        3. Meanwhile evidence moves the server to version 8, A still
-           active — so applying (A, 7) will CONFLICT and write nothing.
-        4. The next turn presents A again.
+        *(Renamed and rewritten at 0052. It was
+        `test_a_STALE_VERSION_...`, and its premise was that independent
+        evidence moving the row version makes the outstanding question
+        stale — so the apply conflicts, nothing is written, and A is
+        asked again. That premise WAS the acceptance blocker. Evidence
+        for an unrelated topic must not re-interrogate the narrator, and
+        since 0052 it does not: the epoch is unchanged, the answer is
+        acknowledged, and the write uses the CURRENT version.*
 
-        If the acknowledgement had claimed completion, the narrator
-        would have been told they were finished and then asked the same
-        question again. The claim is gone, so the only cost of the
-        conflict is one repeated question, which is survivable.
+        *The property this test actually guards is untouched by that and
+        is why it is kept: an acknowledgement must never CLAIM in
+        narrator-visible text that the walk is over. The genuine-conflict
+        half moves to a genuine epoch change below.)*
 
-        *(This said the repeated question was "what the recovery stage
-        exists to avoid". That was wrong, and wrong in the direction
-        that would have licensed a bad change. Recovery re-applies an
-        unapplied response on the EXACT SAME `(topic, version)` tuple —
-        a commit whose apply never landed. What happens here is a
-        DIFFERENT thing: the tuple is same-topic but NEW-version,
-        because independent evidence legitimately moved the server on.
-        That conflict is real, and recovery must re-resolve and yield to
-        it rather than force `(A, 7)` over the top of version 8. Reading
-        the old comment as a to-do would have produced exactly the
-        override the reducer is built to refuse.)*
+        1. Lori presents A at epoch 3, version 7.
+        2. Unrelated evidence moves the row to version 8. The question
+           on screen has not changed.
+        3. The narrator answers; the plan acknowledges, says this
+           completes the walk, and writes with version 8.
+        4. Nothing in the emitted block claims a state.
         """
         state = {"person_id": "p1", "status": _seed.STATUS_ACTIVE,
-                 "active_topic_id": A, "version": 7,
+                 "active_topic_id": A, "version": 8,
+                 "presentation_epoch": 3,
                  "known_topics": [t for t in _seed.TOPIC_IDS if t != A],
                  "remaining_topics": [A]}
         history = [{"role": "assistant",
                     "meta": {_turn.PRESENTED_TOPIC: A,
-                             _turn.PRESENTED_VERSION: 7}},
+                             _turn.PRESENTED_VERSION: 7,
+                             _turn.PRESENTED_EPOCH: 3}},
                    {"role": "user", "content": "Still working.", "meta": {}}]
         plan = _turn.plan_turn(state=state, history=history,
                                narrator_text="Still working.")
+        self.assertEqual(
+            plan.action, _turn.ACKNOWLEDGE,
+            "an unrelated evidence write re-interrogated the narrator")
         self.assertTrue(plan.completes_walk)
-        self.assertEqual(plan.version, 7)
+        self.assertEqual(plan.version, 8,
+                         "the apply would use the superseded version and "
+                         "conflict for no reason")
 
         text = self.block({"action": plan.action, "topic_id": plan.topic_id,
                            "known_topics": state["known_topics"],
                            "remaining_topics": state["remaining_topics"],
                            "completes_walk": plan.completes_walk})
-        self.assertNoStateClaim(text, "stale-version acknowledgement: ")
+        self.assertNoStateClaim(text, "moved-version acknowledgement: ")
 
-        # The server moved to 8 underneath. Applying (A, 7) conflicts and
-        # writes nothing, so A is still active and gets presented again.
-        moved = dict(state, version=8)
-        nxt = _turn.plan_turn(state=moved, history=history + [
-            {"role": "assistant",
-             "meta": {_turn.RESPONSE_TOPIC: A, _turn.RESPONSE_VERSION: 7,
-                      _turn.RESPONSE_DISPOSITION: _seed.ADDRESSED}}],
-            narrator_text="Hello again")
+    def test_a_NEW_EPOCH_makes_the_question_genuinely_stale(self):
+        """The other half, on the condition that really is staleness.
+
+        A settled topic reopened, so the server minted a new epoch. The
+        answer to the old question does not close the new one, and A is
+        asked again — which is correct, and is why the acknowledgement
+        must never have claimed the walk was over.
+        """
+        state = {"person_id": "p1", "status": _seed.STATUS_ACTIVE,
+                 "active_topic_id": A, "version": 8,
+                 "presentation_epoch": 4,
+                 "known_topics": [t for t in _seed.TOPIC_IDS if t != A],
+                 "remaining_topics": [A]}
+        history = [{"role": "assistant",
+                    "meta": {_turn.PRESENTED_TOPIC: A,
+                             _turn.PRESENTED_VERSION: 7,
+                             _turn.PRESENTED_EPOCH: 3}},
+                   {"role": "user", "content": "Still working.", "meta": {}},
+                   {"role": "assistant",
+                    "meta": {_turn.RESPONSE_TOPIC: A,
+                             _turn.RESPONSE_VERSION: 7,
+                             _turn.RESPONSE_EPOCH: 3,
+                             _turn.RESPONSE_DISPOSITION: _seed.ADDRESSED}}]
+        nxt = _turn.plan_turn(state=state, history=history,
+                              narrator_text="Hello again")
         self.assertIn(nxt.action, (_turn.PRESENT, _turn.RE_PRESENT))
         self.assertEqual(nxt.topic_id, A,
-                         "the conflicted topic must still be asked — this "
+                         "the reopened topic must still be asked — this "
                          "is why the acknowledgement must not have claimed "
                          "the walk was over")
+        self.assertFalse(nxt.advances)
+
 
     def test_a_completing_acknowledgement_STILL_asks_nothing(self):
         """Closing warmly must not become an eleventh question."""
@@ -602,11 +626,13 @@ class CompletionTransitionTests(NoStateClaimMixin, unittest.TestCase):
         """The reducer's own completes_walk drives the block."""
         state = {"person_id": "p1", "status": _seed.STATUS_ACTIVE,
                  "active_topic_id": A, "version": 7,
+                 "presentation_epoch": 3,
                  "known_topics": [t for t in _seed.TOPIC_IDS if t != A],
                  "remaining_topics": [A]}
         history = [{"role": "assistant",
                     "meta": {_turn.PRESENTED_TOPIC: A,
-                             _turn.PRESENTED_VERSION: 7}},
+                             _turn.PRESENTED_VERSION: 7,
+                             _turn.PRESENTED_EPOCH: 3}},
                    {"role": "user", "content": "Still working.", "meta": {}}]
         plan = _turn.plan_turn(state=state, history=history,
                                narrator_text="Still working.")
@@ -806,6 +832,7 @@ class ByteStabilityTests(unittest.TestCase):
                        _seed.STATUS_COMPLETED):
             state = {"person_id": "p1", "status": status,
                      "active_topic_id": A, "version": 7,
+                     "presentation_epoch": 3,
                      "known_topics": [], "remaining_topics": [A]}
             plan = _turn.plan_turn(state=state, history=[],
                                    narrator_text="Hi")
@@ -1300,9 +1327,13 @@ class PlanToPromptTests(unittest.TestCase):
         runtime[ATTEST] = True
         return runtime
 
-    def _state(self, active=A, version=7):
+    def _state(self, active=A, version=7, epoch=3):
+        # `presentation_epoch` is supplied by every real transport since
+        # 0052, and `plan_turn` HOLDs without it — an active walk with no
+        # question identity must not be planned against.
         return {"person_id": "p1", "status": _seed.STATUS_ACTIVE,
                 "active_topic_id": active, "version": version,
+                "presentation_epoch": epoch,
                 "known_topics": [], "remaining_topics": list(_seed.TOPIC_IDS)}
 
     def test_a_first_turn_plan_produces_one_question(self):
@@ -1315,7 +1346,8 @@ class PlanToPromptTests(unittest.TestCase):
     def test_an_answer_turn_plan_produces_an_acknowledgement(self):
         state = self._state()
         history = [{"role": "assistant", "meta": {
-                        _turn.PRESENTED_TOPIC: A, _turn.PRESENTED_VERSION: 7}},
+                        _turn.PRESENTED_TOPIC: A, _turn.PRESENTED_VERSION: 7,
+                        _turn.PRESENTED_EPOCH: 3}},
                    {"role": "user", "content": "Devils Lake.", "meta": {}}]
         plan = _turn.plan_turn(state=state, history=history,
                                narrator_text="Devils Lake.")

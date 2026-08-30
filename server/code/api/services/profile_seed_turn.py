@@ -24,18 +24,44 @@ exact tuple.
 
 ── TWO EVENTS, AND THE TUPLE IS THE IDENTITY ─────────────────────────
 
-    presented(topic, version)                    Lori asked
-    response(topic, version, disposition)        Lori acknowledged
+    presented(topic, epoch)                      Lori asked
+    response(topic, epoch, disposition)          Lori acknowledged
 
-A response CONSUMES a presentation when the `(topic, version)` tuples
-are **equal**. Not when the topics match.
+A response CONSUMES a presentation when the `(topic, epoch)` tuples are
+**equal**. Not when the topics match.
 
-That distinction is not pedantry, and the case it covers is ordinary:
-Phase 1's `reconcile` bumps the version whenever effective stored state
-changes, so an unrelated operator entry, a superseded row, or a pause
-and resume all re-version a topic that is still active. Comparing topics
-alone would let an answer to the OLD question consume the NEW
-presentation and apply against it.
+That distinction is not pedantry, and the case it covers is ordinary: a
+topic can be asked, settled, and — if the evidence that settled it is
+later removed — asked again. Comparing topics alone would let the first
+answer consume the second presentation and apply against it.
+
+── THE EPOCH IS NOT THE VERSION, AND THAT COST A LANE, 2026-08-30 ────
+
+This module correlated on `(topic, VERSION)` until 0052, where `version`
+is the row's optimistic-concurrency counter. The reasoning written here
+was that "a pause and resume re-version a topic that is still active",
+so the version must be part of the identity. That got it exactly
+backwards. Those re-versionings are precisely the events that must NOT
+invalidate a presentation, because **the narrator is still looking at
+the same question**:
+
+  * pause and resume move `version` and change nothing visible;
+  * an operator entering an unrelated fact in Bio Builder, or an
+    extraction writing a bio fact, moves `version` for a topic that is
+    not even the active one.
+
+After either, the outstanding `(siblings, 5)` no longer equalled the
+current `(siblings, 7)`, `plan_turn` took the STALE branch, and Lori
+asked about siblings a second time while the narrator's answer was
+discarded — no response event, no disposition applied. A narrator who
+may have cognitive decline was told, in effect, that their answer did
+not count.
+
+So the two concerns are now two fields. `presentation_epoch` identifies
+THE QUESTION and moves only when the question becomes a new question.
+`version` identifies THE ROW and is still what `expected_version`
+compares on every write. Correlation uses the epoch; writes use the
+version. Migration 0052 holds the full statement.
 
 ── WHY THE DISPOSITION IS ON THE ROW ─────────────────────────────────
 
@@ -79,9 +105,15 @@ RESPONSE_TOPIC = "profile_seed_response_topic"
 RESPONSE_VERSION = "profile_seed_response_version"
 RESPONSE_DISPOSITION = "profile_seed_response_disposition"
 
+# Added by 0052. The version keys STAY: they are what a retry compares as
+# `expected_version`, and they are what pre-0052 rows carry. Correlation
+# moved to the epoch; the write guard did not move anywhere.
+PRESENTED_EPOCH = "profile_seed_presented_epoch"
+RESPONSE_EPOCH = "profile_seed_response_epoch"
+
 META_KEYS: Tuple[str, ...] = (
-    PRESENTED_TOPIC, PRESENTED_VERSION,
-    RESPONSE_TOPIC, RESPONSE_VERSION, RESPONSE_DISPOSITION,
+    PRESENTED_TOPIC, PRESENTED_VERSION, PRESENTED_EPOCH,
+    RESPONSE_TOPIC, RESPONSE_VERSION, RESPONSE_EPOCH, RESPONSE_DISPOSITION,
 )
 
 # ── Classification outcomes ─────────────────────────────────────────────
@@ -306,10 +338,34 @@ class TurnEvent:
     version: int
     disposition: Optional[str] = None
     index: int = -1                # position in history, for ordering
+    #: `None` for a PRE-0052 row, which carried no epoch. See
+    #: `is_legacy` — such an event is deliberately not correlatable.
+    epoch: Optional[int] = None
 
     @property
-    def tuple(self) -> Tuple[str, int]:
-        return (self.topic_id, self.version)
+    def tuple(self) -> Tuple[str, Optional[int]]:
+        """THE QUESTION'S IDENTITY. Topic plus epoch, never the version."""
+        return (self.topic_id, self.epoch)
+
+    @property
+    def is_legacy(self) -> bool:
+        """Written before 0052, so its question cannot be identified.
+
+        Handled EXPLICITLY rather than by letting it vanish. A legacy
+        event keeps `epoch=None`, which equals no current epoch, so:
+
+          * a legacy PRESENTATION is outstanding-but-uncorrelatable, and
+            `plan_turn` re-presents once at the current epoch. The
+            narrator is asked one question one more time at the migration
+            boundary, and their next answer correlates normally.
+          * a legacy RESPONSE cannot prove which question it answered, so
+            `recover` treats it as nothing owed rather than forcing a
+            disposition onto a question it may not belong to.
+
+        Both directions ASK rather than ASSUME, which is the standing
+        rule for ambiguous state in this module.
+        """
+        return self.epoch is None
 
 
 PRESENTED = "presented"
@@ -322,6 +378,31 @@ def _valid_version(raw: Any) -> Optional[int]:
     `isinstance(True, int)` is True in Python, and a `True` that reached
     a version field would compare equal to version 1 — silently
     consuming a real presentation.
+    """
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        return raw if raw >= 1 else None
+    if isinstance(raw, str):
+        try:
+            value = int(raw.strip())
+        except (TypeError, ValueError):
+            return None
+        return value if value >= 1 else None
+    return None
+
+
+def _valid_epoch(raw: Any) -> Optional[int]:
+    """An epoch is an integer >= 1, or `None` for a pre-0052 row.
+
+    `None` is a MEANING here, not a failure: it says "this event predates
+    presentation epochs", and `TurnEvent.is_legacy` documents what the
+    reducer does about it. Epoch 0 never appears on an event — 0 is the
+    resolver's "no question has ever been outstanding", and a row cannot
+    have been presented during it — so 0 reads as legacy too.
+
+    Booleans are rejected for the same reason as in `_valid_version`:
+    `True` is an `int` and would compare equal to epoch 1.
     """
     if isinstance(raw, bool):
         return None
@@ -358,14 +439,16 @@ def event_from_meta(meta: Any, index: int = -1) -> Optional[TurnEvent]:
         disposition = meta.get(RESPONSE_DISPOSITION)
         if (_seed.is_known_topic(r_topic) and version is not None
                 and disposition in _seed.CLIENT_DISPOSITIONS):
-            return TurnEvent(RESPONSE, r_topic, version, disposition, index)
+            return TurnEvent(RESPONSE, r_topic, version, disposition, index,
+                             _valid_epoch(meta.get(RESPONSE_EPOCH)))
         return None
 
     p_topic = meta.get(PRESENTED_TOPIC)
     if p_topic is not None:
         version = _valid_version(meta.get(PRESENTED_VERSION))
         if _seed.is_known_topic(p_topic) and version is not None:
-            return TurnEvent(PRESENTED, p_topic, version, None, index)
+            return TurnEvent(PRESENTED, p_topic, version, None, index,
+                             _valid_epoch(meta.get(PRESENTED_EPOCH)))
         return None
 
     return None
@@ -452,8 +535,13 @@ def latest_response(
 class TurnPlan:
     action: str
     topic_id: Optional[str] = None
+    #: The CAS version to write with. Callers pass it straight to
+    #: `expected_version`; see `chat_ws.py` around the post-commit apply.
     version: Optional[int] = None
     disposition: Optional[str] = None
+    #: The QUESTION's identity, stamped into the turn row so the next
+    #: turn can correlate. Never used as `expected_version`.
+    epoch: Optional[int] = None
     #: True when THIS acknowledgement closes the last remaining topic.
     #:
     #: ── WHY THIS FIELD EXISTS, 2026-08-26 ───────────────────────────
@@ -477,7 +565,8 @@ class TurnPlan:
         if self.action not in (PRESENT, RE_PRESENT):
             return {}
         return {PRESENTED_TOPIC: self.topic_id,
-                PRESENTED_VERSION: int(self.version or 0)}
+                PRESENTED_VERSION: int(self.version or 0),
+                PRESENTED_EPOCH: int(self.epoch or 0)}
 
     def response_meta(self) -> dict:
         """Metadata for an assistant row that ACKNOWLEDGES.
@@ -490,6 +579,7 @@ class TurnPlan:
             return {}
         return {RESPONSE_TOPIC: self.topic_id,
                 RESPONSE_VERSION: int(self.version or 0),
+                RESPONSE_EPOCH: int(self.epoch or 0),
                 RESPONSE_DISPOSITION: self.disposition}
 
     def turn_meta(self) -> dict:
@@ -532,15 +622,26 @@ def plan_turn(
 
     active = state.get("active_topic_id")
     version = _valid_version(state.get("version"))
+    epoch = _valid_epoch(state.get("presentation_epoch"))
     if not _seed.is_known_topic(active) or version is None:
         return TurnPlan(IDLE)
+    if epoch is None:
+        # An ACTIVE walk with no usable epoch. Pre-0052 rows are given one
+        # by the migration and by the next reconcile, so reaching this
+        # means the column is missing or corrupt. `IDLE` hands the walk
+        # back to the browser, which is the one thing that must not
+        # happen, and guessing an epoch would correlate answers against a
+        # question identity nobody minted. HOLD: stay silent on
+        # onboarding, keep the legacy block suppressed, and let the next
+        # reconcile mint a real epoch.
+        return TurnPlan(HOLD, active, version)
 
     # From here down there IS a live, well-formed walk. Everything that
     # follows either asks about it or holds it; nothing falls back to
     # `IDLE`, because from here `IDLE` would mean handing the walk back
     # to the browser.
     if not eligible:
-        return TurnPlan(HOLD, active, version)
+        return TurnPlan(HOLD, active, version, epoch=epoch)
 
     if holds_the_walk(narrator_text):
         # "pause", "stop", "help", "change narrator". Ask nothing, stamp
@@ -548,28 +649,39 @@ def plan_turn(
         # A control that asks for the question BACK ("repeat that") is
         # not here: `classify_response` returns STATIONARY for it, which
         # re-presents through the ordinary deferral path below.
-        return TurnPlan(HOLD, active, version)
+        return TurnPlan(HOLD, active, version, epoch=epoch)
 
     outstanding = outstanding_presentation(history)
 
     if outstanding is None:
         # FIRST PRESENTATION. Ask, and advance NOTHING — the narrator has
         # not had a chance to answer a question that does not yet exist.
-        return TurnPlan(PRESENT, active, version)
+        return TurnPlan(PRESENT, active, version, epoch=epoch)
 
-    if outstanding.tuple != (active, version):
-        # STALE. Either the topic moved, or the SAME topic was
-        # re-versioned underneath the question. Abandon the outstanding
-        # presentation and ask the current question fresh; never apply a
-        # disposition against a tuple that no longer exists.
-        return TurnPlan(RE_PRESENT, active, version)
+    if outstanding.tuple != (active, epoch):
+        # STALE — THE QUESTION CHANGED, and only that.
+        #
+        # ── THIS COMPARED THE VERSION UNTIL 0052 ──────────────────────
+        #
+        # `outstanding.tuple != (active, version)` was true after every
+        # pause, every resume, and every unrelated evidence write, so
+        # this branch fired while the narrator was looking at exactly the
+        # question they had just answered. Lori asked it again and the
+        # answer was thrown away. That was the acceptance blocker.
+        #
+        # The epoch moves only when the question genuinely becomes a new
+        # question — a topic advance, or a settled topic reopening — so
+        # this branch now fires only when re-presenting is the right
+        # thing to do. A legacy pre-0052 presentation has `epoch=None`,
+        # never equals a live epoch, and lands here exactly once.
+        return TurnPlan(RE_PRESENT, active, version, epoch=epoch)
 
     outcome = classify_response(narrator_text)
     if outcome == STATIONARY:
-        # A deferral is not an answer. Re-present, stamp a NEW
-        # presentation at the current version, and write no response
-        # event.
-        return TurnPlan(RE_PRESENT, active, version)
+        # A deferral is not an answer. Re-present and write no response
+        # event. The epoch does NOT move: it is the same question, asked
+        # again because they asked to hear it again.
+        return TurnPlan(RE_PRESENT, active, version, epoch=epoch)
 
     # ACKNOWLEDGE. Lori responds to what was said and stamps NO
     # PRESENTATION EVENT — not A again, and not B, because until the
@@ -593,8 +705,16 @@ def plan_turn(
     remaining = [t for t in (state.get("remaining_topics") or [])
                  if _seed.is_known_topic(t)]
     completes = remaining == [outstanding.topic_id]
-    return TurnPlan(ACKNOWLEDGE, outstanding.topic_id, outstanding.version,
-                    outcome, completes_walk=completes)
+    # The CURRENT version, not the one the presentation was stamped with.
+    # They differ exactly when something moved the row since Lori asked —
+    # a pause, a resume, an unrelated evidence write — and the epoch
+    # matching has already proved that none of those changed the
+    # question. Writing with the stale version would turn every one of
+    # those into a 409 and lose the disposition, which is the same defect
+    # one layer down.
+    return TurnPlan(ACKNOWLEDGE, outstanding.topic_id, version,
+                    outcome, epoch=outstanding.epoch,
+                    completes_walk=completes)
 
 
 # ── Recovery ────────────────────────────────────────────────────────────
@@ -660,13 +780,36 @@ def recover(
         # Historical narrator, or none. Nothing to recover onto.
         return RecoveryOutcome(NOTHING_OWED, state)
 
-    current = (state.get("active_topic_id"), _valid_version(state.get("version")))
+    if last.is_legacy:
+        # A pre-0052 response cannot prove WHICH question it answered.
+        # Forcing its disposition onto whatever is outstanding now could
+        # mark a topic answered that this narrator never answered — the
+        # one failure this module exists to prevent. Owed nothing; the
+        # question, if still open, is asked again and correlates
+        # normally from here on.
+        return RecoveryOutcome(NOTHING_OWED, state)
+
+    current = (state.get("active_topic_id"),
+               _valid_epoch(state.get("presentation_epoch")))
     if current != last.tuple:
         # Already applied on the original turn, or superseded since.
+        #
+        # CORRELATED ON THE EPOCH SINCE 0052. On the version, this said
+        # "superseded" after any pause, resume or unrelated evidence
+        # write, so a genuinely owed retry was dropped and the narrator
+        # was asked a question they had already answered — repetition
+        # wearing retry's clothes, which is exactly what this function's
+        # own docstring says it exists to stop.
         return RecoveryOutcome(NOTHING_OWED, state)
 
     try:
-        apply_fn(person_id, expected_version=last.version,
+        # The version FROM THE RESOLVE ABOVE, not the one stamped when
+        # the response was written. The epoch has proved this is the same
+        # question; the version is only the write guard, and the read it
+        # guards against is the one that just happened. A conflict here
+        # is now a genuine concurrent write.
+        apply_fn(person_id,
+                 expected_version=_valid_version(state.get("version")),
                  action=last.disposition, topic_id=last.topic_id)
     except _seed.VersionConflict:
         return RecoveryOutcome(CONFLICT_RESOLVED, resolve_fn(person_id),
@@ -676,8 +819,9 @@ def recover(
 
 
 __all__: Sequence[str] = (
-    "PRESENTED_TOPIC", "PRESENTED_VERSION", "RESPONSE_TOPIC",
-    "RESPONSE_VERSION", "RESPONSE_DISPOSITION", "META_KEYS",
+    "PRESENTED_TOPIC", "PRESENTED_VERSION", "PRESENTED_EPOCH",
+    "RESPONSE_TOPIC", "RESPONSE_VERSION", "RESPONSE_EPOCH",
+    "RESPONSE_DISPOSITION", "META_KEYS",
     "ADDRESSED", "DECLINED", "STATIONARY", "CLASSIFICATIONS",
     "PRESENT", "RE_PRESENT", "ACKNOWLEDGE", "HOLD", "IDLE", "ACTIONS",
     "PRESENTED", "RESPONSE", "TurnEvent", "TurnPlan",

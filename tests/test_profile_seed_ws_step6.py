@@ -755,8 +755,12 @@ class RealPersistenceSeamTests(_Base):
         outstanding = _turn.outstanding_presentation(self._exported())
         self.assertIsNotNone(outstanding, "nothing outstanding after a "
                                           "committed presentation")
+        # The tuple is `(topic, EPOCH)` since 0052 — the question's
+        # identity, not the row's write counter. Comparing against
+        # `plan.version` here passed only because the two happened to be
+        # equal before the epoch existed.
         self.assertEqual(outstanding.tuple,
-                         (p1.plan.topic_id, p1.plan.version))
+                         (p1.plan.topic_id, p1.plan.epoch))
 
         # A "reconnect": nothing cached, everything re-read.
         prepared = _rt.prepare_turn(

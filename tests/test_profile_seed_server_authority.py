@@ -56,7 +56,8 @@ for _p in (str(_SERVER_CODE), str(_REPO_ROOT)):
 
 from api import db as _db  # noqa: E402
 from api.services import bio_schema as _bs  # noqa: E402
-from api.services import profile_seed as _ps  # noqa: E402
+from api.services import profile_seed as _ps
+from api.services import profile_seed_turn as _turn  # noqa: E402
 
 try:  # route-level tests only
     from fastapi.testclient import TestClient  # noqa: F401
@@ -164,7 +165,8 @@ class MigrationTests(_Base):
         self.assertEqual(
             cols,
             {"person_id", "status", "topic_state_json", "active_topic_id",
-             "version", "created_at", "updated_at", "completed_at"})
+             "version", "presentation_epoch", "created_at", "updated_at",
+             "completed_at"})
 
     def test_the_foreign_key_is_a_real_cascade(self):
         con = self._con()
@@ -690,16 +692,47 @@ class ReconciliationTests(_Base):
         self.assertEqual(after["completed_at"], state["completed_at"])
 
     def test_pause_and_resume(self):
+        """A pause KEEPS the outstanding question. Migration 0052.
+
+        *(This asserted `active_topic_id is None` while paused, and that
+        assertion was the defect. Clearing the topic on pause and
+        choosing one again on resume made the SAME question look like
+        two different questions, so the narrator was asked it twice —
+        once before the pause and once after. The topic is preserved
+        now, the epoch does not move, and nothing renders it: the gate
+        that decides whether Lori asks is the STATUS, and `plan_turn`
+        returns IDLE for every status except `active`.)*
+        """
         state = _db.profile_seed_resolve(self.pid)
         paused = _db.profile_seed_apply(
             self.pid, expected_version=state["version"], action="pause")
         self.assertEqual(paused["status"], _ps.STATUS_PAUSED)
-        self.assertIsNone(paused["active_topic_id"],
-                          "a paused walk still named an active topic")
+        self.assertEqual(
+            paused["active_topic_id"], state["active_topic_id"],
+            "the pause discarded the outstanding question, which is what "
+            "made the resume look like a new one")
+        self.assertEqual(
+            paused["presentation_epoch"], state["presentation_epoch"],
+            "pausing minted a new question identity")
+        self.assertGreater(
+            paused["version"], state["version"],
+            "a status change must still invalidate an in-flight write")
+
+        # Paused renders nothing. The status is the gate, not the column.
+        self.assertEqual(
+            _turn.plan_turn(state=paused, history=[],
+                            narrator_text="Hello").action,
+            _turn.IDLE,
+            "a paused walk asked a Profile Seed question")
+
         resumed = _db.profile_seed_apply(
             self.pid, expected_version=paused["version"], action="resume")
         self.assertEqual(resumed["status"], _ps.STATUS_ACTIVE)
         self.assertEqual(resumed["active_topic_id"], "childhood_home")
+        self.assertEqual(
+            resumed["presentation_epoch"], state["presentation_epoch"],
+            "resuming minted a new question identity, so the narrator "
+            "would be asked the same thing again")
 
     def test_resolving_a_historical_narrator_never_enrolls_them(self):
         pid = self._historical_person()

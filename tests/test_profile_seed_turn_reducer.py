@@ -58,20 +58,50 @@ C = TOPICS[2]   # parents_work
 
 
 # ── fixtures ────────────────────────────────────────────────────────────
-def state(active=A, version=7, status=_seed.STATUS_ACTIVE):
+# ── EPOCH IS PART OF EVERY FIXTURE NOW, 0052 ────────────────────────────
+#
+# A real transport always supplies it: `resolve_effective` mints it and
+# `as_dict()` carries it. A fixture that omits it is describing a state no
+# narrator can be in, and `plan_turn` HOLDs on exactly that — deliberately,
+# because an active walk with no question identity must not be planned
+# against. The default differs from the default version (7) so that a test
+# which accidentally compares the two fails instead of passing by luck.
+EPOCH = 3
+
+
+def state(active=A, version=7, status=_seed.STATUS_ACTIVE, epoch=EPOCH):
     return {"person_id": "p1", "enrolled": True, "status": status,
             "active_topic_id": active, "version": version,
+            "presentation_epoch": epoch,
             "topic_state": {t: _seed.UNANSWERED for t in TOPICS},
             "known_topics": [], "remaining_topics": list(TOPICS)}
 
 
-def presented(topic, version):
+def presented(topic, version, epoch=EPOCH):
+    return {"role": "assistant", "content": "…",
+            "meta": {_turn.PRESENTED_TOPIC: topic,
+                     _turn.PRESENTED_VERSION: version,
+                     _turn.PRESENTED_EPOCH: epoch}}
+
+
+def responded(topic, version, disposition=_seed.ADDRESSED, epoch=EPOCH):
+    return {"role": "assistant", "content": "…",
+            "meta": {_turn.RESPONSE_TOPIC: topic,
+                     _turn.RESPONSE_VERSION: version,
+                     _turn.RESPONSE_EPOCH: epoch,
+                     _turn.RESPONSE_DISPOSITION: disposition}}
+
+
+def legacy_presented(topic, version):
+    """A pre-0052 assistant row: version, no epoch. Used to pin the
+    one-time re-presentation at the migration boundary."""
     return {"role": "assistant", "content": "…",
             "meta": {_turn.PRESENTED_TOPIC: topic,
                      _turn.PRESENTED_VERSION: version}}
 
 
-def responded(topic, version, disposition=_seed.ADDRESSED):
+def legacy_responded(topic, version, disposition=_seed.ADDRESSED):
+    """A pre-0052 response: uncorrelatable, so recovery owes nothing."""
     return {"role": "assistant", "content": "…",
             "meta": {_turn.RESPONSE_TOPIC: topic,
                      _turn.RESPONSE_VERSION: version,
@@ -310,29 +340,34 @@ class ReductionTests(unittest.TestCase):
 
     def test_a_presentation_is_outstanding_until_answered(self):
         h = [presented(A, 7), said()]
-        self.assertEqual(_turn.outstanding_presentation(h).tuple, (A, 7))
+        self.assertEqual(_turn.outstanding_presentation(h).tuple, (A, EPOCH))
 
     def test_an_exact_response_consumes_its_presentation(self):
         h = [presented(A, 7), said(), responded(A, 7)]
         self.assertIsNone(_turn.outstanding_presentation(h))
 
-    def test_a_response_at_a_DIFFERENT_VERSION_does_not_consume(self):
-        """THE TUPLE, not the topic.
+    def test_a_response_at_a_DIFFERENT_EPOCH_does_not_consume(self):
+        """THE TUPLE, not the topic — and the tuple carries the EPOCH.
 
-        The same topic stays active while the version moves — an
-        unrelated operator entry, a superseded row, a pause and resume.
-        An answer to the old question must not consume the new
-        presentation.
+        *(Renamed and rejustified at 0052. It was
+        `..._at_a_DIFFERENT_VERSION_...`, and its reasoning named "a
+        pause and resume" as a case where the same topic gets a new
+        identity. That was the defect: a pause and resume leave the
+        narrator looking at exactly the question they were already
+        looking at. The CASE this test covers is real — a genuinely new
+        question must not be consumed by an answer to the old one — and
+        the case that produces it is a topic that was settled and later
+        reopened, which mints a new epoch.)*
         """
-        h = [presented(A, 7), said(), responded(A, 7),
-             presented(A, 8), said()]
+        h = [presented(A, 7, epoch=3), said(), responded(A, 7, epoch=3),
+             presented(A, 9, epoch=4), said()]
         outstanding = _turn.outstanding_presentation(h)
         self.assertIsNotNone(outstanding)
-        self.assertEqual(outstanding.tuple, (A, 8))
+        self.assertEqual(outstanding.tuple, (A, 4))
 
     def test_an_old_response_cannot_consume_a_newer_presentation(self):
-        h = [responded(A, 7), presented(A, 8), said()]
-        self.assertEqual(_turn.outstanding_presentation(h).tuple, (A, 8))
+        h = [responded(A, 7, epoch=3), presented(A, 9, epoch=4), said()]
+        self.assertEqual(_turn.outstanding_presentation(h).tuple, (A, 4))
 
     def test_a_LATE_old_response_does_not_consume_a_newer_presentation(self):
         """The case that discriminates tuple-consumption from topic-consumption.
@@ -344,36 +379,53 @@ class ReductionTests(unittest.TestCase):
         the identity" was therefore unproven on the consumption side.)*
 
         Here the stale response arrives AFTER the newer presentation: a
-        duplicated or replayed acknowledgement of version 7 landing once
-        version 8 is already the open question. Consuming on topic alone
+        duplicated or replayed acknowledgement of epoch 3 landing once
+        epoch 4 is already the open question. Consuming on topic alone
         would close a question the narrator has not answered.
         """
-        h = [presented(A, 8), said(), responded(A, 7)]
+        h = [presented(A, 9, epoch=4), said(), responded(A, 7, epoch=3)]
         outstanding = _turn.outstanding_presentation(h)
         self.assertIsNotNone(
             outstanding,
-            "a stale response at version 7 consumed the open version 8 "
+            "a stale response at epoch 3 consumed the open epoch 4 "
             "question — the narrator would never be asked it")
-        self.assertEqual(outstanding.tuple, (A, 8))
+        self.assertEqual(outstanding.tuple, (A, 4))
 
-    def test_two_open_versions_resolve_to_the_newer_one(self):
+    def test_two_open_epochs_resolve_to_the_newer_one(self):
         """Same shape, without an intervening user row.
 
-        Consuming on topic would discard the version-8 presentation and
-        hand back version 7 — an outstanding question two versions
-        behind the authoritative state, which then reads as stale and
-        re-presents forever.
+        Consuming on topic would discard the epoch-4 presentation and
+        hand back epoch 3 — an outstanding question one epoch behind the
+        authoritative state, which then reads as stale and re-presents
+        forever.
         """
-        h = [presented(A, 7), presented(A, 8), responded(A, 7)]
-        self.assertEqual(_turn.outstanding_presentation(h).tuple, (A, 8))
+        h = [presented(A, 7, epoch=3), presented(A, 9, epoch=4),
+             responded(A, 7, epoch=3)]
+        self.assertEqual(_turn.outstanding_presentation(h).tuple, (A, 4))
 
     def test_a_response_to_another_topic_does_not_consume(self):
         h = [presented(A, 7), said(), responded(B, 7)]
-        self.assertEqual(_turn.outstanding_presentation(h).tuple, (A, 7))
+        self.assertEqual(_turn.outstanding_presentation(h).tuple, (A, EPOCH))
 
     def test_repeated_presentations_leave_the_latest_outstanding(self):
         h = [presented(A, 7), said("Let me think."), presented(A, 7)]
-        self.assertEqual(_turn.outstanding_presentation(h).tuple, (A, 7))
+        self.assertEqual(_turn.outstanding_presentation(h).tuple, (A, EPOCH))
+
+    def test_the_VERSION_MOVING_ALONE_does_not_create_a_new_question(self):
+        """THE ACCEPTANCE BLOCKER, at the reduction layer.
+
+        A pause and resume, or an unrelated evidence write, moves the row
+        version and leaves the question untouched. Before 0052 the second
+        presentation here carried a different tuple, the answer at
+        version 7 did not consume it, and the narrator was asked about
+        the same topic twice.
+        """
+        h = [presented(A, 7), said(), responded(A, 9)]
+        self.assertIsNone(
+            _turn.outstanding_presentation(h),
+            "the row version moved between the question and the answer, "
+            "and the answer stopped counting — this is the defect 0052 "
+            "exists to remove")
 
     def test_a_response_consumes_EVERY_earlier_identical_presentation(self):
         """The deferral-then-answer history, which is ordinary.
@@ -420,7 +472,7 @@ class ReductionTests(unittest.TestCase):
             outstanding,
             "a genuinely later re-presentation was swallowed by an older "
             "response, so the narrator's answer could never be recorded")
-        self.assertEqual(outstanding.tuple, (A, 7))
+        self.assertEqual(outstanding.tuple, (A, EPOCH))
 
     def test_two_full_rounds_on_the_same_tuple_leave_nothing_outstanding(self):
         h = [presented(A, 7), said(), responded(A, 7),
@@ -441,11 +493,13 @@ class ReductionTests(unittest.TestCase):
         self.assertEqual((plan.topic_id, plan.version), (A, 7))
 
     def test_a_full_walk_of_three_topics_reduces_correctly(self):
-        h = [presented(A, 7), said(), responded(A, 7),
-             presented(B, 8), said(), responded(B, 8),
-             presented(C, 9), said()]
-        self.assertEqual(_turn.outstanding_presentation(h).tuple, (C, 9))
-        self.assertEqual(_turn.latest_response(h).tuple, (B, 8))
+        # A -> B -> C is three genuinely different questions, so each
+        # carries its own epoch. The versions move too, and independently.
+        h = [presented(A, 7, epoch=1), said(), responded(A, 7, epoch=1),
+             presented(B, 8, epoch=2), said(), responded(B, 8, epoch=2),
+             presented(C, 9, epoch=3), said()]
+        self.assertEqual(_turn.outstanding_presentation(h).tuple, (C, 3))
+        self.assertEqual(_turn.latest_response(h).tuple, (B, 2))
 
 
 # ── 4. The turn plan ────────────────────────────────────────────────────
@@ -468,7 +522,9 @@ class TurnPlanTests(unittest.TestCase):
     def test_a_presentation_turn_stamps_only_a_presented_event(self):
         plan = _turn.plan_turn(state=state(), history=[], narrator_text="Hi")
         self.assertEqual(plan.turn_meta(),
-                         {_turn.PRESENTED_TOPIC: A, _turn.PRESENTED_VERSION: 7})
+                         {_turn.PRESENTED_TOPIC: A,
+                          _turn.PRESENTED_VERSION: 7,
+                          _turn.PRESENTED_EPOCH: EPOCH})
 
     def test_an_answer_acknowledges_and_asks_nothing(self):
         """DEFECT 2, as a named test.
@@ -484,7 +540,9 @@ class TurnPlanTests(unittest.TestCase):
         self.assertEqual(plan.presented_meta(), {},
                          "the acknowledgement turn re-asked a question")
         self.assertEqual(plan.turn_meta(),
-                         {_turn.RESPONSE_TOPIC: A, _turn.RESPONSE_VERSION: 7,
+                         {_turn.RESPONSE_TOPIC: A,
+                          _turn.RESPONSE_VERSION: 7,
+                          _turn.RESPONSE_EPOCH: EPOCH,
                           _turn.RESPONSE_DISPOSITION: _seed.ADDRESSED})
 
     def test_a_refusal_acknowledges_as_declined(self):
@@ -504,18 +562,28 @@ class TurnPlanTests(unittest.TestCase):
                          "a deferral produced a response event, which would "
                          "close a question the narrator is still working on")
         self.assertEqual(plan.presented_meta(),
-                         {_turn.PRESENTED_TOPIC: A, _turn.PRESENTED_VERSION: 7})
+                         {_turn.PRESENTED_TOPIC: A,
+                          _turn.PRESENTED_VERSION: 7,
+                          _turn.PRESENTED_EPOCH: EPOCH})
 
     def test_a_stale_tuple_re_presents_and_advances_nothing(self):
-        """DEFECT 3, as a named test: same topic, new version."""
-        h = [presented(A, 7), said()]
-        plan = _turn.plan_turn(state=state(active=A, version=8), history=h,
-                               narrator_text="Devils Lake.")
+        """DEFECT 3, as a named test: same topic, NEW EPOCH.
+
+        *(Was "same topic, new version" until 0052. Varying the version
+        no longer makes a question stale, and it must not — that was the
+        acceptance blocker. A same-topic question becomes stale when the
+        topic was settled and later reopened, which mints a new epoch,
+        and this is that case.)*
+        """
+        h = [presented(A, 7, epoch=3), said()]
+        plan = _turn.plan_turn(state=state(active=A, version=8, epoch=4),
+                               history=h, narrator_text="Devils Lake.")
         self.assertEqual(plan.action, _turn.RE_PRESENT)
         self.assertFalse(
             plan.advances,
-            "an answer to version 7 advanced a question at version 8")
+            "an answer to epoch 3 advanced a question at epoch 4")
         self.assertEqual(plan.version, 8)
+        self.assertEqual(plan.epoch, 4)
 
     def test_a_moved_topic_re_presents(self):
         h = [presented(A, 7), said()]
@@ -717,7 +785,11 @@ class ConversationControlTests(unittest.TestCase):
                 self.assertEqual(plan.action, _turn.RE_PRESENT)
                 self.assertEqual(plan.presented_meta(),
                                  {_turn.PRESENTED_TOPIC: A,
-                                  _turn.PRESENTED_VERSION: 7})
+                                  _turn.PRESENTED_VERSION: 7,
+                                  # SAME epoch. Asking again because the
+                                  # narrator asked for a moment is not a
+                                  # new question.
+                                  _turn.PRESENTED_EPOCH: EPOCH})
 
     def test_real_narration_containing_control_words_is_still_addressed(self):
         """The anchoring, from the consumer side.
@@ -755,6 +827,7 @@ class ConversationControlTests(unittest.TestCase):
         """
         last = {"person_id": "p1", "status": _seed.STATUS_ACTIVE,
                 "active_topic_id": A, "version": 7,
+                "presentation_epoch": EPOCH,
                 "known_topics": [t for t in TOPICS if t != A],
                 "remaining_topics": [A]}
         h = [presented(A, 7), said()]
@@ -881,6 +954,7 @@ class CompletionTransitionTests(unittest.TestCase):
     def _state(self, remaining):
         return {"person_id": "p1", "status": _seed.STATUS_ACTIVE,
                 "active_topic_id": remaining[0], "version": 7,
+                "presentation_epoch": EPOCH,
                 "known_topics": [t for t in TOPICS if t not in remaining],
                 "remaining_topics": list(remaining)}
 

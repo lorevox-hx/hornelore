@@ -1,0 +1,87 @@
+-- 0052 — separate PRESENTATION IDENTITY from the concurrency version.
+--
+-- ── THE DEFECT ────────────────────────────────────────────────────────
+--
+-- `profile_seed_turn` correlated a narrator's answer to Lori's question
+-- with the tuple `(topic_id, version)`, where `version` is the row's
+-- optimistic-concurrency counter from 0051. Those are two different
+-- things, and 0051's own comment says what `version` is for: "a stale
+-- write is a 409 that changes nothing". It is a write guard. It was
+-- never a question identifier.
+--
+-- `resolve_effective` moves `version` whenever the effective stored
+-- state changes, which includes two events that do not change the
+-- question the narrator is looking at:
+--
+--   * a STATUS change — every pause, and every resume;
+--   * ANY topic's disposition changing, including a topic that is not
+--     the active one, because an operator edited Bio Builder or an
+--     extraction wrote a bio fact.
+--
+-- After either, `plan_turn` compared the outstanding presentation
+-- `(siblings, 5)` against the current `(siblings, 7)`, found them
+-- unequal, and took the STALE branch: abandon the presentation and
+-- RE_PRESENT. Lori asks the same visible question a second time and the
+-- narrator's answer is discarded — no response event, no disposition.
+--
+-- The narrator experiences being asked about their siblings twice, having
+-- answered once. For a project whose north star is narrator dignity, and
+-- whose narrators may have cognitive decline, that is not a cosmetic
+-- defect: it is the system telling someone their answer did not count.
+--
+-- ── THE FIX ───────────────────────────────────────────────────────────
+--
+-- `presentation_epoch` identifies THE OUTSTANDING QUESTION. It moves
+-- when the question becomes a new question and at no other time:
+--
+--   increment   first activation of any topic
+--   increment   the active topic advances from A to B
+--   increment   a settled topic later reopens and is asked again
+--   NO CHANGE   pause, and resume, with the same topic outstanding
+--   NO CHANGE   evidence arriving for some other topic
+--
+-- `version` is untouched and keeps doing its job: it still moves on
+-- every durable change and it is still what `expected_version` compares.
+-- Correlation uses `(topic_id, presentation_epoch)`; writes use
+-- `expected_version`.
+--
+-- ── WHY THE EPOCH IS NOT DERIVED FROM active_topic_id ALONE ───────────
+--
+-- Because 0051 stores NULL in `active_topic_id` while a walk is paused,
+-- so "the active topic changed" is true on every pause and true again on
+-- every resume — which reproduces the exact defect this migration
+-- exists to remove. The service change that lands with this migration
+-- PRESERVES `active_topic_id` across a pause: the question is still
+-- outstanding, the narrator simply is not being asked right now, and
+-- `plan_turn` already refuses to render anything for a non-active status.
+-- The column comment in 0051 that says "NULL when pending, paused or
+-- completed" is superseded for the paused case by this migration.
+--
+-- ── BACKFILL, AND WHAT IT DELIBERATELY DOES NOT DO ────────────────────
+--
+-- Rows in `active` or `paused` have a live outstanding question, so they
+-- start at epoch 1. Everything else starts at 0.
+--
+-- **No narrator is enrolled by this migration.** Enrollment is the
+-- presence of a row in this table, rows are created only by
+-- `create_person()`, and an ALTER TABLE adds a column to rows that
+-- already exist. A historical narrator has no row here, gets no row here,
+-- and is unaffected. That is the standing decision in
+-- WO-LORI-PROFILE-SEED-REACHABILITY-01 §6, and this migration does not
+-- reopen it.
+--
+-- A currently-PAUSED walk gets one deliberate re-presentation on its
+-- first resolve after this migration: 0051 had already discarded its
+-- `active_topic_id`, so the service restores it and the epoch moves once.
+-- That is a chosen outcome, not a leak — the alternative is to guess
+-- which topic was outstanding from a column that was set to NULL, and a
+-- guess is how a narrator gets asked about the wrong thing. Asking one
+-- question once more is the safe direction.
+
+ALTER TABLE profile_seed_onboarding
+    ADD COLUMN presentation_epoch INTEGER NOT NULL DEFAULT 0
+        CHECK (presentation_epoch >= 0);
+
+UPDATE profile_seed_onboarding
+   SET presentation_epoch = 1
+ WHERE status IN ('active', 'paused');
