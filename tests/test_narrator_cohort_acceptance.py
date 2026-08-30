@@ -288,11 +288,46 @@ class PlanIsTheDefaultTests(unittest.TestCase):
     def test_full_without_live_REFUSES(self):
         self.assertEqual(self._run(["--full"])[0], 2)
 
-    def test_live_lanes_are_not_enabled_in_this_commit(self):
-        """The instrument lands before the run, deliberately."""
-        rc, _, err = self._run(["--quick", "--live"])
+    def test_full_with_live_is_STILL_closed(self):
+        """Quick is wired; the full cohort is not.
+
+        ── SUPERSEDES `test_live_lanes_are_not_enabled_in_this_commit` ──
+
+        *(That test asserted `--quick --live` exits 3 with "not enabled".
+        Once the quick run was wired, it did the one thing a test in this
+        suite must never do: it called `main(["--quick", "--live"])`, which
+        is no longer a refusal but a real run — and it went to the network,
+        failing with `Connection refused` only because no stack was up. On
+        a developer's machine with the stack running, that test would have
+        CREATED NARRATORS.*
+
+        *So the gate it was guarding is re-asserted here against `--full`,
+        which is still closed, and the quick path is exercised only through
+        `LiveRun` with an injected fake transport. A test must never be one
+        running stack away from writing to the product.)*
+        """
+        rc, _, err = self._run(["--full", "--live"])
         self.assertEqual(rc, 3)
-        self.assertIn("not enabled", err)
+        self.assertIn("--full is not open yet", err)
+
+    def test_no_test_in_this_suite_invokes_a_live_quick_run(self):
+        """A guard against re-introducing exactly that mistake."""
+        source = Path(__file__).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            args = [a for a in node.args
+                    if isinstance(a, (ast.List, ast.Tuple))]
+            for arg in args:
+                values = [e.value for e in arg.elts
+                          if isinstance(e, ast.Constant)
+                          and isinstance(e.value, str)]
+                if "--live" in values and "--quick" in values:
+                    self.fail(
+                        "a test passes --quick --live to main(); with a stack "
+                        "running that CREATES NARRATORS. Exercise the quick "
+                        "path through LiveRun with a fake transport instead.")
 
     def test_plan_declares_that_it_writes_nothing(self):
         plan = COHORT.build_plan()
@@ -663,6 +698,395 @@ class PortedSafeguardTests(unittest.TestCase):
         self.assertEqual(rc, 2, "--quick without --live must refuse")
         self.assertIn("REFUSED", err.getvalue())
         self.assertIn("--live is required", err.getvalue())
+
+
+# ── The wired live run, exercised offline ─────────────────────────────
+class FakeTransport:
+    """Every side effect the live run can have, recorded instead of done.
+
+    The point is not to simulate the product. It is to make the ORDER of
+    the real run observable without a stack, a model or a browser — and
+    to let an interruption be injected at an exact step, which is the
+    only way to test that a resume repeats no model turn.
+    """
+
+    def __init__(self, *, fail_on_turn=None):
+        self.calls = []
+        self.turns = []
+        self.fail_on_turn = fail_on_turn
+        self._n = 0
+
+    def list_people(self):
+        self.calls.append("list_people")
+        return ["existing-1", "existing-2"]
+
+    def post(self, path, payload):
+        self.calls.append(("POST", path))
+        assert payload.get("testing_only") is True, \
+            "intake must always be testing_only"
+        self._n += 1
+        return 200, {"person_id": f"11111111-2222-3333-4444-00000000000{self._n}"}
+
+    def get(self, path):
+        self.calls.append(("GET", path))
+        if path.startswith("/api/people/") and "delete-inventory" in path:
+            return 200, {"photos": 0, "conversations": 1}
+        if path.startswith("/api/people/"):
+            return 200, {"person": {"id": "x", "display_name": "ZZ COHORT",
+                                    "testing_only": True,
+                                    "narrator_type": "live"}}
+        if path.startswith("/api/interview/profile-seed"):
+            return 200, {"enrolled": True, "version": 3, "status": "active"}
+        return 404, {}
+
+    def patch(self, path, payload):
+        self.calls.append(("PATCH", path, payload.get("action")))
+        return 200, {"status": "paused", "version": payload["expected_version"] + 1}
+
+    def model_turn(self, *, person_id, text, era, speaker_name, conv_id):
+        self.turns.append((person_id, era))
+        if self.fail_on_turn is not None and len(self.turns) == self.fail_on_turn:
+            raise KeyboardInterrupt("simulated interruption mid-run")
+        return {"text": "reflected", "events": 3, "era": era}
+
+    def browser(self, *, person_id, expected_name, ui_url, output, screenshots):
+        self.calls.append(("browser", person_id))
+        return {"ok": True, "tabs": [{"tab": "narrator"}],
+                "nonVacuity": {"ok": True, "tabsCollected": 6}}
+
+
+def _two_personas():
+    return [
+        {"harness": "h1", "label": "Alex", "intake_payload": {"a": 1},
+         "chapters": [type("C", (), {"narrator_text": "t1",
+                                     "runtime71_era": "childhood"})(),
+                      type("C", (), {"narrator_text": "t2",
+                                     "runtime71_era": "today"})()]},
+        {"harness": "run_seven_era_walk_harness", "label": "Walt",
+         "intake_payload": {"b": 2},
+         "chapters": [type("C", (), {"narrator_text": "t3",
+                                     "runtime71_era": "building_years"})()]},
+    ]
+
+
+class LiveOrchestrationTests(unittest.TestCase):
+
+    def _run(self, tmp, transport, personas=None, run_id="ZZ-COHORT-test"):
+        return COHORT.LiveRun(
+            personas=personas or _two_personas(),
+            lanes=list(COHORT.LANES), mode="quick",
+            out_dir=Path(tmp), transport=transport,
+            ui_url="http://localhost:8082/ui/x.html",
+            db_path=Path("/nonexistent/none.db"), run_id=run_id)
+
+    def test_the_quick_run_executes_the_declared_order(self):
+        """The mocked end-to-end run, asserted step by step."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._run(tmp, FakeTransport())
+            run.execute()
+            per_persona = ["create_intake", "journal_uuid", "verify_identity",
+                           "profile_seed_resolve", "profile_seed_pause",
+                           "model_turns", "era_evidence", "browser_traversal",
+                           "delete_inventory_read"]
+            expected = (["freeze_selection", "containment_baseline"]
+                        + per_persona * 2
+                        + ["containment_after", "emit_reports"])
+            self.assertEqual(run.trace, expected)
+
+    def test_every_step_in_the_trace_is_a_declared_step(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._run(tmp, FakeTransport())
+            run.execute()
+            for step in run.trace:
+                self.assertIn(step, COHORT.ORCHESTRATION)
+
+    def test_the_uuid_is_journalled_before_any_later_request(self):
+        """A narrator that exists but is not on disk is an orphan."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._run(tmp, FakeTransport())
+            run.execute()
+            self.assertLess(run.trace.index("journal_uuid"),
+                            run.trace.index("verify_identity"))
+            artifacts = json.loads(
+                (Path(tmp) / "artifacts.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(artifacts["people"]), 2)
+
+    def test_profile_seed_is_paused_through_the_versioned_endpoint(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            t = FakeTransport()
+            self._run(tmp, t).execute()
+            patches = [c for c in t.calls if c[0] == "PATCH"]
+            self.assertEqual(len(patches), 2)
+            for call in patches:
+                self.assertEqual(call[1], "/api/interview/profile-seed")
+                self.assertEqual(call[2], "pause")
+
+    def test_the_pause_precedes_narration_and_traversal(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._run(tmp, FakeTransport())
+            run.execute()
+            first_pause = run.trace.index("profile_seed_pause")
+            self.assertLess(first_pause, run.trace.index("model_turns"))
+            self.assertLess(first_pause, run.trace.index("browser_traversal"))
+
+    def test_model_turns_run_sequentially_in_chapter_order(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            t = FakeTransport()
+            self._run(tmp, t).execute()
+            self.assertEqual([era for _pid, era in t.turns],
+                             ["childhood", "today", "building_years"])
+
+    def test_the_era_lane_reuses_conversation_evidence(self):
+        """Seven-era material is never asked twice."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            t = FakeTransport()
+            run = self._run(tmp, t)
+            report = run.execute()
+            walt = next(p for p in report["personas"] if p["persona"] == "Walt")
+            self.assertTrue(walt["era"]["reused_from_conversation_lane"])
+            # Three chapters total across both personas — no extra era turns.
+            self.assertEqual(len(t.turns), 3)
+
+    def test_the_delete_inventory_is_read_and_nothing_is_deleted(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            t = FakeTransport()
+            report = self._run(tmp, t).execute()
+            reads = [c for c in t.calls
+                     if c[0] == "GET" and "delete-inventory" in c[1]]
+            self.assertEqual(len(reads), 2)
+            self.assertFalse(report["deletion"]["performed"])
+            for row in report["personas"]:
+                self.assertFalse(row["delete_inventory"]["deleted"])
+
+    def test_the_transport_has_no_deletion_method_at_all(self):
+        """The strongest form of "it never deletes"."""
+        for name in dir(COHORT.Transport):
+            with self.subTest(name=name):
+                self.assertNotIn("delete", name.lower().replace(
+                    "delete_inventory", ""))
+
+    def test_all_six_artifacts_are_emitted(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            self._run(tmp, FakeTransport()).execute()
+            for artifact in ("report.json", "report.html", "artifacts.json",
+                             "erasure-manifest.json", "checkpoint.json",
+                             "containment-before.json"):
+                with self.subTest(artifact=artifact):
+                    self.assertTrue((Path(tmp) / artifact).is_file(), artifact)
+
+    def test_the_erasure_manifest_authorizes_nothing(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            self._run(tmp, FakeTransport()).execute()
+            manifest = json.loads(
+                (Path(tmp) / "erasure-manifest.json").read_text(encoding="utf-8"))
+            self.assertTrue(manifest["authorization_required"])
+            self.assertEqual(len(manifest["person_ids"]), 2)
+
+    def test_the_report_states_what_containment_does_not_prove(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            report = self._run(tmp, FakeTransport()).execute()
+            self.assertIn("does_not_prove", report["containment"]["before"])
+            html = (Path(tmp) / "report.html").read_text(encoding="utf-8")
+            self.assertIn("do <em>not</em> prove", html)
+
+    def test_reference_personas_are_recorded_as_not_applicable(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            report = self._run(tmp, FakeTransport()).execute()
+            self.assertEqual(report["reference_personas"]["extraction"],
+                             "not_applicable")
+
+
+class InterruptedResumeTests(unittest.TestCase):
+    """A resume must repeat no completed model turn."""
+
+    def test_a_resumed_run_does_not_repeat_completed_turns(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            # First attempt: interrupted during the THIRD turn.
+            first = FakeTransport(fail_on_turn=3)
+            run1 = COHORT.LiveRun(
+                personas=_two_personas(), lanes=list(COHORT.LANES),
+                mode="quick", out_dir=Path(tmp), transport=first,
+                ui_url="http://x", db_path=Path("/nonexistent/none.db"),
+                run_id="ZZ-COHORT-resume")
+            with self.assertRaises(KeyboardInterrupt):
+                run1.execute()
+            self.assertEqual(len(first.turns), 3)   # third raised
+
+            # Resume: a fresh transport, the same output directory.
+            second = FakeTransport()
+            run2 = COHORT.LiveRun(
+                personas=_two_personas(), lanes=list(COHORT.LANES),
+                mode="quick", out_dir=Path(tmp), transport=second,
+                ui_url="http://x", db_path=Path("/nonexistent/none.db"),
+                run_id="ZZ-COHORT-resume")
+            run2.execute()
+
+            # Alex's two turns completed and were checkpointed, so the
+            # resume must not re-ask them. Only Walt's remains.
+            self.assertEqual(
+                [era for _pid, era in second.turns], ["building_years"],
+                "a resume re-asked a completed turn")
+
+    def test_the_containment_baseline_is_never_replaced_on_resume(self):
+        """Re-taking it would hide the run's own narrators in the delta."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            first = FakeTransport(fail_on_turn=1)
+            run1 = COHORT.LiveRun(
+                personas=_two_personas(), lanes=list(COHORT.LANES),
+                mode="quick", out_dir=Path(tmp), transport=first,
+                ui_url="http://x", db_path=Path("/nonexistent/none.db"),
+                run_id="ZZ-COHORT-base")
+            with self.assertRaises(KeyboardInterrupt):
+                run1.execute()
+            original = (Path(tmp) / "containment-before.json").read_text(
+                encoding="utf-8")
+
+            run2 = COHORT.LiveRun(
+                personas=_two_personas(), lanes=list(COHORT.LANES),
+                mode="quick", out_dir=Path(tmp), transport=FakeTransport(),
+                ui_url="http://x", db_path=Path("/nonexistent/none.db"),
+                run_id="ZZ-COHORT-base")
+            run2.execute()
+            self.assertEqual(
+                original,
+                (Path(tmp) / "containment-before.json").read_text(
+                    encoding="utf-8"),
+                "the baseline was replaced during a resume")
+
+    def test_an_interruption_leaves_a_resumable_checkpoint(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            run = COHORT.LiveRun(
+                personas=_two_personas(), lanes=list(COHORT.LANES),
+                mode="quick", out_dir=Path(tmp),
+                transport=FakeTransport(fail_on_turn=2),
+                ui_url="http://x", db_path=Path("/nonexistent/none.db"),
+                run_id="ZZ-COHORT-cp")
+            with self.assertRaises(KeyboardInterrupt):
+                run.execute()
+            saved = json.loads(
+                (Path(tmp) / "checkpoint.json").read_text(encoding="utf-8"))
+            self.assertEqual(saved["selection"]["mode"], "quick")
+            self.assertIn("Alex::turn0", saved["tasks"])
+
+
+class CohortMembershipTests(unittest.TestCase):
+    """Twelve writable narrators, plus two read-only references."""
+
+    def test_the_cohort_is_twelve_writable_narrators(self):
+        self.assertEqual(len(COHORT.load_personas()), 12)
+
+    def test_mara_and_elena_are_members_not_merely_templates(self):
+        labels = {p["label"] for p in COHORT.load_personas()}
+        self.assertIn("Mara Vale", labels)
+        self.assertIn("Elena March", labels)
+        plan = COHORT.build_plan()
+        self.assertIn("Mara Vale", {p["label"] for p in plan["personas"]})
+        self.assertEqual(len(plan["personas"]), 12)
+
+    def test_the_templates_supply_intake_payloads_without_being_edited(self):
+        before = {name: path.read_bytes()
+                  for name, path in COHORT.QA_TEMPLATES.items()}
+        personas = COHORT.load_personas()
+        mara = next(p for p in personas if p["label"] == "Mara Vale")
+        self.assertTrue(mara["intake_payload"]["testing_only"])
+        self.assertEqual(mara["intake_payload"]["date_of_birth"], "1941-03-12")
+        for name, path in COHORT.QA_TEMPLATES.items():
+            with self.subTest(name=name):
+                self.assertEqual(before[name], path.read_bytes(),
+                                 "a quarantined template was modified")
+
+    def test_harness_supplied_fields_are_labelled_not_passed_off_as_fixture(self):
+        """Invented values must be distinguishable from fixture truth."""
+        mara = next(p for p in COHORT.load_personas()
+                    if p["label"] == "Mara Vale")
+        self.assertEqual(sorted(mara["harness_supplied_fields"]),
+                         ["current_residence", "pronouns"])
+
+    def test_quick_is_alex_and_walt_by_name_not_the_first_two(self):
+        quick = COHORT.load_personas(quick=True)
+        self.assertEqual(len(quick), 2)
+        self.assertEqual({p["harness"] for p in quick},
+                         set(COHORT.QUICK_HARNESSES))
+        # Specifically NOT John Baldy, which is what personas[:2] gave.
+        self.assertNotIn("run_john_baldy_seven_era_harness",
+                         {p["harness"] for p in quick})
+
+    def test_created_narrators_carry_the_cohort_marker(self):
+        """Otherwise the cohort creates a narrator called plain "Alex".
+
+        The fixtures carry ordinary human names because they are written
+        to read like people. Making them identifiable as test data in the
+        picker is the runner's job, and it was passing the fixture's
+        payload through unchanged.
+        """
+        marked = COHORT.mark_intake_payload(
+            {"preferred_name": "Alex", "full_legal_name": "Alex Eunseo Park"},
+            "r20260829-120000-abc123")
+        self.assertTrue(marked["preferred_name"].startswith("ZZ COHORT"))
+        self.assertTrue(marked["full_legal_name"].startswith("ZZ COHORT"))
+        self.assertIn("Alex", marked["preferred_name"])
+        self.assertTrue(marked["testing_only"])
+
+    def test_the_marker_is_not_applied_twice_on_resume(self):
+        once = COHORT.mark_intake_payload({"preferred_name": "Alex"}, "r1")
+        twice = COHORT.mark_intake_payload(once, "r1")
+        self.assertEqual(once["preferred_name"], twice["preferred_name"])
+
+    def test_the_live_run_marks_every_narrator_it_creates(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            t = FakeTransport()
+            COHORT.LiveRun(
+                personas=_two_personas(), lanes=list(COHORT.LANES),
+                mode="quick", out_dir=Path(tmp), transport=t,
+                ui_url="http://x", db_path=Path("/nonexistent/none.db"),
+                run_id="r-test").execute()
+            # FakeTransport.post asserts testing_only; assert the marker here.
+            self.assertEqual(len([c for c in t.calls
+                                  if c[0] == "POST"]), 2)
+
+    def test_the_run_id_is_filesystem_safe(self):
+        """`run_prefix` produced `ZZ COHORT 1d66d482 · ` as a DIRECTORY.
+
+        Spaces, a non-ASCII middot and a trailing separator, in a path
+        that has to survive a shell, a `--resume` argument and a Windows
+        checkout.
+        """
+        run_id = COHORT.new_run_id()
+        self.assertNotIn(" ", run_id)
+        self.assertNotIn("·", run_id)
+        self.assertTrue(run_id.isascii())
+        self.assertRegex(run_id, r"^r\d{8}-\d{6}-[0-9a-f]{6}$")
+
+    def test_run_prefix_is_still_a_display_name_not_a_path(self):
+        """It keeps its spaces on purpose — it is what humans read."""
+        self.assertIn(" ", COHORT.run_prefix("abc"))
+        self.assertTrue(COHORT.run_prefix("abc").startswith("ZZ COHORT"))
+
+    def test_full_is_still_closed(self):
+        import contextlib
+        import io
+        err = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(err):
+            rc = COHORT.main(["--full", "--live"])
+        self.assertEqual(rc, 3)
+        self.assertIn("--full is not open yet", err.getvalue())
 
 
 if __name__ == "__main__":  # pragma: no cover
