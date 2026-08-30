@@ -32,15 +32,35 @@ so a fixture improved in its own file improves this run too.
 
   * `--plan` is the default and performs NO network and NO database work.
   * Live creation needs `--live`, and goes through the product intake
-    endpoint with `testing_only=true`. Consent is never forged.
+    endpoint requesting `testing_only=true`. Consent is never forged.
   * Every created narrator carries the run id in its display name, and
     its UUID is recorded to `artifacts.json` BEFORE anything else runs.
   * Selection after creation is BY UUID ONLY. Display names are for
     humans; two runs can share one.
   * **Nothing is ever deleted.** `erasure-manifest.json` is written for
     later use by a human, and this program has no deletion path at all.
-  * A person that is not synthetic/test (or a declared read-only
-    reference) is refused before any turn is sent.
+
+── WHAT AUTHORIZES TOUCHING A NARRATOR (corrected 2026-08-30) ────────
+
+**The artifact journal, and nothing else.** A UUID this run wrote to
+`artifacts.json` is one this run created; every other narrator is
+refused, whatever it is called.
+
+`testing_only=true` does NOT establish synthetic status and must never
+be described as doing so. It is an intake/consent behaviour: the route
+uses it to skip consent attestations and echoes it in that one response.
+It is **not a `people` column**, `create_person` accepts no such
+argument, and the durable row intake writes is `narrator_type="live"` —
+identical to a family narrator's. Intake also writes profile and
+bio-fact data regardless. The manifest records
+`testing_only_requested` as a fact about the REQUEST, not as a
+classification the database holds.
+
+The `ZZ COHORT <run_id> ·` display-name prefix is an **operator
+affordance** — how a human recognises test data in the picker. It is
+checked for consistency and recorded; it authorizes nothing. Nothing in
+this runner ever looks a narrator up by display name, so a real narrator
+someone happened to name "ZZ COHORT ..." is still refused.
 
 ── EXCLUSIONS, WITH THEIR EVIDENCE ───────────────────────────────────
 
@@ -398,24 +418,23 @@ def intake_is_testing_only(cfg) -> bool:
 
 
 # ── Safety guards ─────────────────────────────────────────────────────
-def assert_synthetic(person: Dict[str, Any]) -> None:
-    """Refuse anything that is not clearly synthetic.
-
-    Checked against the SERVER's record, not against our own intent —
-    the question is what this narrator actually is, not what we meant to
-    create.
-    """
-    name = (person.get("display_name") or "")
-    if not name.strip():
-        raise CohortRefusal("person has no display name; refusing")
-    testing = person.get("testing_only")
-    narrator_type = (person.get("narrator_type") or "").lower()
-    if testing is True or narrator_type == "reference":
-        return
-    raise CohortRefusal(
-        f"{name!r} ({person.get('id')}) is not marked testing_only and is not "
-        "a reference narrator — refusing to send it a turn. Family and "
-        "production narrators are never part of this cohort.")
+# ── `assert_synthetic` was REMOVED, 2026-08-30 ────────────────────────
+#
+# It refused any person whose row was not `testing_only: True` or
+# `narrator_type: "reference"`, and it was called on the row read back
+# straight after creation.
+#
+# It could never have passed. `testing_only` is not a `people` column,
+# `create_person` accepts no such parameter, and intake writes
+# `narrator_type="live"` — so the guard would have refused the narrator
+# this runner had just created, on the first persona of the first run.
+# A mocked transport that returned `testing_only: True` is what hid it.
+#
+# Deleted rather than rewired, because its premise is the false one: no
+# field on the product row distinguishes a cohort narrator from a family
+# narrator. `Ledger.require_journaled` is the authority — a UUID this run
+# recorded — and `verify_identity` additionally requires the run's
+# display-name marker as an operator affordance.
 
 
 def run_prefix(run_id: str) -> str:
@@ -480,17 +499,104 @@ class Ledger:
             "run_id": run_id,
             "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "people": [], "conversations": [], "turns": [],
-            "storage_paths": [], "notes": [],
+            "storage_paths": [], "notes": [], "identity_checks": [],
         }
+        # ── AN EXISTING JOURNAL IS LOADED, NEVER OVERWRITTEN ──────────
+        #
+        # This used to write the empty structure unconditionally, so
+        # constructing a RESUMED run truncated `artifacts.json` — the
+        # record of every narrator the interrupted attempt had already
+        # created. Those narrators would then be refused by
+        # `require_journaled` (the run no longer knew it made them) AND
+        # dropped from `erasure-manifest.json`, leaving orphans with no
+        # inventory. The journal exists to prevent exactly that, so
+        # destroying it on resume defeated its whole purpose.
+        if self.path.is_file():
+            try:
+                existing = json.loads(self.path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                existing = None
+            if isinstance(existing, dict) and existing.get("people") is not None:
+                for key, value in existing.items():
+                    self.data[key] = value
+                self.data["resumed_at"] = datetime.now(
+                    timezone.utc).isoformat(timespec="seconds")
         self._flush()
 
-    def add_person(self, person_id: str, display_name: str, source: str) -> None:
-        self.data["people"].append({"person_id": person_id,
-                                    "display_name": display_name,
-                                    "source": source,
-                                    "at": datetime.now(timezone.utc).isoformat(
-                                        timespec="seconds")})
+    def add_person(self, person_id: str, display_name: str, source: str,
+                   *, testing_only_requested: bool = True) -> None:
+        self.data["people"].append({
+            "person_id": person_id,
+            "display_name": display_name,
+            "source": source,
+            # A FACT ABOUT THE INTAKE REQUEST, not a database
+            # classification. `testing_only` is not a `people` column and
+            # `create_person` takes no such argument; intake uses it only
+            # to skip consent attestations, and the durable row is
+            # `narrator_type="live"` either way. Recorded here so the
+            # manifest says what was asked for without implying the
+            # database remembers it.
+            "testing_only_requested": bool(testing_only_requested),
+            "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        })
         self._flush()
+
+    def person_for_source(self, source: str) -> Optional[Dict[str, Any]]:
+        """The narrator this run already created for a persona, if any.
+
+        ── WHY A RESUME MUST NOT CREATE AGAIN, 2026-08-30 ──────────────
+
+        *(It did. `create_narrator` ran unconditionally, so resuming an
+        interrupted run POSTed intake a second time and the journal went
+        from two narrators to four. Worse, the turn checkpoint is keyed
+        by persona rather than by UUID, so the freshly created duplicates
+        were told their turns were already done and received NONE — two
+        orphaned, empty narrators, while the report described turns
+        belonging to the first pair.*
+
+        *Matched on `source`, the harness stem, because that is stable
+        across runs. The display name is not used: it carries the run id
+        and is an operator affordance, never a lookup key.)*
+        """
+        for row in self.data.get("people", []):
+            if row.get("source") == source:
+                return row
+        return None
+
+    def is_journaled(self, person_id: str) -> bool:
+        return any(p["person_id"] == str(person_id)
+                   for p in self.data.get("people", []))
+
+    def require_journaled(self, person_id: str) -> Dict[str, Any]:
+        """THE durable authority for "this run may touch this narrator".
+
+        ── WHY NOT `testing_only`, 2026-08-30 ──────────────────────────
+
+        *(This guard used to be `assert_synthetic` on the row read back
+        after creation, and that was doubly wrong. `testing_only` is not
+        persisted — it is not a column in any migration, `create_person`
+        accepts no such parameter, and intake uses it only to bypass
+        consent attestations. The durable row is `narrator_type="live"`,
+        exactly like a family narrator's.*
+
+        *So the check could not have passed: the run would have created
+        its first narrator and then REFUSED it. A mocked transport that
+        returned `testing_only: True` from the GET is what hid this,
+        which is its own lesson about fakes that are kinder than the
+        product.*
+
+        *The journal is the authority instead. A UUID this run wrote to
+        `artifacts.json` is one this run created; anything else is
+        somebody else's narrator, whatever it is called.)*
+        """
+        for row in self.data.get("people", []):
+            if row["person_id"] == str(person_id):
+                return row
+        raise CohortRefusal(
+            f"{person_id} is not journaled by this run. Only narrators this "
+            "run created may be touched, and the artifact journal — not a "
+            "display name and not any field on the product row — is what "
+            "establishes that.")
 
     def add(self, bucket: str, value: Any) -> None:
         self.data.setdefault(bucket, []).append(value)
@@ -963,9 +1069,25 @@ class LiveRun:
     def create_narrator(self, persona: Dict[str, Any]) -> str:
         """Intake, then journal BEFORE anything else touches the network."""
         self._step("create_intake")
-        # Marked AND testing-only. The marker is what makes a cohort
-        # narrator identifiable in the picker; testing_only is what keeps
-        # it out of family truth. Neither substitutes for the other.
+        # A RESUME REUSES, IT DOES NOT RE-CREATE. If this run already
+        # journaled a narrator for this persona, that narrator IS the
+        # persona for the rest of the run; creating a second one would
+        # orphan the first and strand the completed turns against it.
+        existing = self.ledger.person_for_source(persona["harness"])
+        if existing is not None:
+            self.ledger.add("notes", {
+                "reused_existing_narrator": existing["person_id"],
+                "persona": persona["label"],
+                "why": "resumed run; intake is not repeated"})
+            self._step("journal_uuid")      # already journaled; order kept
+            self._step("verify_identity")
+            return self.verify_identity(existing["person_id"])
+
+        # `testing_only` is REQUESTED here, and that is all it is: an
+        # intake/consent behaviour, recorded in the manifest as a fact
+        # about the request. It is not persisted, so it proves nothing
+        # about this narrator after creation. The safety boundary is the
+        # journal, checked in `verify_identity`.
         payload = mark_intake_payload(persona["intake_payload"], self.run_id)
         status, body = self.transport.post("/api/people/intake", payload)
         if status != 200 or not isinstance(body, dict):
@@ -984,12 +1106,55 @@ class LiveRun:
         self.ledger.add_person(person_id, persona["label"], persona["harness"])
 
         self._step("verify_identity")
+        return self.verify_identity(person_id, payload)
+
+    def verify_identity(self, person_id: str,
+                        payload: Optional[Dict[str, Any]] = None) -> str:
+        """Journal first, then read the row back and check consistency.
+
+        The ORDER of the two checks is the point. Authorization comes
+        from `require_journaled` — a UUID this run created. The product
+        row is then read to confirm the narrator is really there and
+        really carries the marker, but nothing about that row is what
+        makes it touchable: the durable row is `narrator_type="live"`
+        and carries no `testing_only` field at all.
+
+        The marked display name is an OPERATOR AFFORDANCE — it is how a
+        human recognises test data in the picker. It is recorded and
+        checked for consistency, and it authorizes nothing. There is no
+        lookup by display name anywhere in this runner, so a real
+        narrator someone christened "ZZ COHORT ..." is still refused by
+        the journal.
+        """
+        journal_row = self.ledger.require_journaled(person_id)
         vstatus, vbody = self.transport.get(f"/api/people/{person_id}")
         person = (vbody or {}).get("person") if isinstance(vbody, dict) else None
         if vstatus != 200 or not isinstance(person, dict):
             raise CohortRefusal(
                 f"created {person_id} but could not read it back: HTTP {vstatus}")
-        assert_synthetic(person)          # refuses anything not testing-only
+
+        actual_id = str(person.get("id") or person.get("person_id") or "")
+        if actual_id and actual_id != person_id:
+            raise CohortRefusal(
+                f"identity mismatch: asked for {person_id}, row says {actual_id}")
+
+        display = str(person.get("display_name") or "")
+        expected_marker = run_prefix(self.run_id)
+        self.ledger.add("identity_checks", {
+            "person_id": person_id,
+            "display_name": display,
+            "marker_present": display.startswith(expected_marker),
+            "narrator_type": person.get("narrator_type"),
+            "row_has_testing_only_field": "testing_only" in person,
+            "testing_only_requested": journal_row.get(
+                "testing_only_requested"),
+            "authority": "artifact journal (UUID), not display name",
+        })
+        if not display.startswith(expected_marker):
+            raise CohortRefusal(
+                f"{person_id} was created without this run's marker "
+                f"({expected_marker!r}); refusing to continue with a narrator "
+                "an operator cannot recognise as test data.")
         return person_id
 
     def pause_profile_seed(self, person_id: str) -> Dict[str, Any]:

@@ -89,36 +89,47 @@ EXEC_SOURCE = _executable_source()
 
 
 class SafetyRefusalTests(unittest.TestCase):
-    """Who may receive a turn, and who may never."""
+    """Who may receive a turn, and who may never.
 
-    def test_a_family_narrator_is_REFUSED(self):
-        for person in (
-            {"id": "x", "display_name": "Kent James Horne"},
-            {"id": "y", "display_name": "Janice Josephine (Zarr) Horne",
-             "testing_only": False},
-            {"id": "z", "display_name": "Christopher Todd Horne",
-             "narrator_type": "live"},
-        ):
-            with self.subTest(name=person["display_name"]):
-                with self.assertRaises(COHORT.CohortRefusal):
-                    COHORT.assert_synthetic(person)
+    ── `assert_synthetic` WAS REMOVED, AND SO WERE ITS TESTS ──────────
 
-    def test_a_testing_only_narrator_is_accepted(self):
-        COHORT.assert_synthetic({"id": "a", "display_name": "ZZ COHORT r1 · Alex",
-                                 "testing_only": True})
+    *(Five tests here asserted that a person whose row lacks
+    `testing_only: True` is refused. They passed against hand-written
+    dicts and described a product row that does not exist: `testing_only`
+    is not a column, `create_person` takes no such argument, and intake
+    writes `narrator_type="live"`. The guard would therefore have refused
+    the cohort's own narrators the moment it met a real one.*
 
-    def test_a_reference_narrator_is_accepted(self):
-        COHORT.assert_synthetic({"id": "b", "display_name": "William Shatner",
-                                 "narrator_type": "reference"})
+    *Tests that pass only because their fixtures are more convenient than
+    the product are worse than no tests — they report a guard as working
+    when it cannot work. Replaced by `DurableAuthorityTests`, which
+    asserts the journal-based authority AND checks the product source for
+    the facts the old tests assumed.)*
+    """
 
-    def test_an_unnamed_person_is_refused(self):
-        with self.assertRaises(COHORT.CohortRefusal):
-            COHORT.assert_synthetic({"id": "c", "display_name": "  "})
+    def test_the_removed_guard_has_not_come_back(self):
+        self.assertFalse(
+            hasattr(COHORT, "assert_synthetic"),
+            "assert_synthetic is back. Its premise — that a field on the "
+            "product row proves synthetic status — is false; use "
+            "Ledger.require_journaled.")
 
-    def test_the_guard_is_not_vacuous(self):
-        """It must reject something, or it is decoration."""
-        with self.assertRaises(COHORT.CohortRefusal):
-            COHORT.assert_synthetic({"id": "d", "display_name": "Somebody Real"})
+    def test_the_journal_refuses_a_family_narrator_by_absence(self):
+        """Kent is refused because this run did not create him."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = COHORT.Ledger(Path(tmp), "r-safety")
+            with self.assertRaises(COHORT.CohortRefusal):
+                ledger.require_journaled("4aa0cc2b-1f27-433a-9152-203bb1f69a55")
+
+    def test_the_journal_guard_is_not_vacuous(self):
+        """It must accept something too, or it refuses everything."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = COHORT.Ledger(Path(tmp), "r-safety")
+            ledger.add_person("aaaa-bbbb", "ZZ COHORT r-safety · Alex", "h1")
+            self.assertTrue(ledger.is_journaled("aaaa-bbbb"))
+            self.assertFalse(ledger.is_journaled("cccc-dddd"))
 
 
 class ExclusionTests(unittest.TestCase):
@@ -710,11 +721,27 @@ class FakeTransport:
     only way to test that a resume repeats no model turn.
     """
 
-    def __init__(self, *, fail_on_turn=None):
+    #: What `GET /api/people/{id}` REALLY returns for an intake-created
+    #: narrator: `narrator_type="live"` and NO `testing_only` field.
+    #:
+    #: This fake used to return `testing_only: True`, which is not a
+    #: column in any migration and not a parameter `create_person`
+    #: accepts. The kinder fake hid a real refusal — the run would have
+    #: created its first narrator and then rejected it. A fake that is
+    #: more generous than the product tests something that does not
+    #: exist.
+    def __init__(self, *, fail_on_turn=None, display_name=None,
+                 marker="ZZ COHORT r-test · ", store=None):
         self.calls = []
         self.turns = []
         self.fail_on_turn = fail_on_turn
+        self.marker = marker
+        self.display_name = display_name
         self._n = 0
+        # `store` is the stand-in for the database: pass the SAME dict to
+        # a second transport to model a resume, where the rows created by
+        # the interrupted attempt are still there to be read back.
+        self.created = {} if store is None else store
 
     def list_people(self):
         self.calls.append("list_people")
@@ -723,18 +750,30 @@ class FakeTransport:
     def post(self, path, payload):
         self.calls.append(("POST", path))
         assert payload.get("testing_only") is True, \
-            "intake must always be testing_only"
+            "intake must always REQUEST testing_only (a consent behaviour)"
         self._n += 1
-        return 200, {"person_id": f"11111111-2222-3333-4444-00000000000{self._n}"}
+        pid = f"11111111-2222-3333-4444-00000000000{self._n}"
+        # Record what the product would actually store: the marked
+        # display name, narrator_type=live, and NO testing_only field.
+        self.created[pid] = {
+            "id": pid,
+            "display_name": self.display_name or payload.get("preferred_name"),
+            "narrator_type": "live",
+        }
+        return 200, {"person_id": pid}
 
     def get(self, path):
         self.calls.append(("GET", path))
         if path.startswith("/api/people/") and "delete-inventory" in path:
             return 200, {"photos": 0, "conversations": 1}
         if path.startswith("/api/people/"):
-            return 200, {"person": {"id": "x", "display_name": "ZZ COHORT",
-                                    "testing_only": True,
-                                    "narrator_type": "live"}}
+            pid = path.rsplit("/", 1)[-1]
+            row = self.created.get(pid) or {
+                "id": pid,
+                "display_name": self.display_name or f"{self.marker}Someone",
+                "narrator_type": "live",
+            }
+            return 200, {"person": row}
         if path.startswith("/api/interview/profile-seed"):
             return 200, {"enrolled": True, "version": 3, "status": "active"}
         return 404, {}
@@ -756,14 +795,32 @@ class FakeTransport:
 
 
 def _two_personas():
+    """Two personas whose intake payloads look like REAL ones.
+
+    They previously carried `{"a": 1}`, which has no `preferred_name` for
+    the cohort marker to stamp — so the fixtures could not exercise the
+    marker check at all. A fixture that omits the field under test is
+    another way of testing nothing.
+    """
     return [
-        {"harness": "h1", "label": "Alex", "intake_payload": {"a": 1},
+        {"harness": "h1", "label": "Alex",
+         "intake_payload": {"preferred_name": "Alex",
+                            "full_legal_name": "Alex Eunseo Park",
+                            "date_of_birth": "1962-04-02",
+                            "place_of_birth": "Seoul",
+                            "pronouns": "they_them",
+                            "current_residence": "Portland"},
          "chapters": [type("C", (), {"narrator_text": "t1",
                                      "runtime71_era": "childhood"})(),
                       type("C", (), {"narrator_text": "t2",
                                      "runtime71_era": "today"})()]},
         {"harness": "run_seven_era_walk_harness", "label": "Walt",
-         "intake_payload": {"b": 2},
+         "intake_payload": {"preferred_name": "Walter",
+                            "full_legal_name": "Walter O'Donnell",
+                            "date_of_birth": "1948-01-11",
+                            "place_of_birth": "Boston",
+                            "pronouns": "he_him",
+                            "current_residence": "Quincy"},
          "chapters": [type("C", (), {"narrator_text": "t3",
                                      "runtime71_era": "building_years"})()]},
     ]
@@ -908,6 +965,215 @@ class LiveOrchestrationTests(unittest.TestCase):
                              "not_applicable")
 
 
+class DurableAuthorityTests(unittest.TestCase):
+    """What actually authorizes touching a narrator.
+
+    ── testing_only IS NOT A CLASSIFICATION, 2026-08-30 ────────────────
+
+    *(The runner claimed `testing_only` "keeps them out of family truth".
+    It does no such thing. It is not a column in any migration,
+    `create_person` accepts no such parameter, and the intake route uses
+    it only to skip consent attestations before writing a row that is
+    `narrator_type="live"` — the same as a family narrator's — plus
+    profile and bio-fact data.*
+
+    *The claim was also load-bearing in code: `create_narrator` called
+    `assert_synthetic` on the row it read back, so the run would have
+    created its first narrator and then refused it. The mocked transport
+    returned `testing_only: True` and hid that.*
+
+    *The durable authority is the artifact journal.)*
+    """
+
+    def _run(self, tmp, transport, run_id="r-test"):
+        return COHORT.LiveRun(
+            personas=_two_personas(), lanes=list(COHORT.LANES),
+            mode="quick", out_dir=Path(tmp), transport=transport,
+            ui_url="http://x", db_path=Path("/nonexistent/none.db"),
+            run_id=run_id)
+
+    def test_the_product_row_is_live_and_carries_no_testing_only_field(self):
+        """Asserted against the product, not against the fake."""
+        people = (_REPO_ROOT / "server" / "code" / "api" / "routers"
+                  / "people.py").read_text(encoding="utf-8")
+        # Intake hard-codes the durable classification.
+        self.assertIn('narrator_type="live"', people)
+        # `testing_only` is not a column anywhere in the schema.
+        migrations = _REPO_ROOT / "server" / "code" / "db" / "migrations"
+        for sql in migrations.glob("*.sql"):
+            with self.subTest(migration=sql.name):
+                self.assertNotIn("testing_only",
+                                 sql.read_text(encoding="utf-8"))
+        # And `create_person` takes no such parameter.
+        db_src = (_REPO_ROOT / "server" / "code" / "api"
+                  / "db.py").read_text(encoding="utf-8")
+        signature = db_src.split("def create_person(", 1)[1].split(")", 1)[0]
+        self.assertNotIn("testing_only", signature)
+
+    def test_the_run_accepts_a_row_with_no_testing_only_field(self):
+        """The regression the kind fake concealed."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            t = FakeTransport()
+            report = self._run(tmp, t).execute()
+            self.assertEqual(len(report["personas"]), 2)
+            for row in t.created.values():
+                self.assertNotIn("testing_only", row)
+                self.assertEqual(row["narrator_type"], "live")
+
+    def test_a_journaled_uuid_is_accepted_on_resume(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._run(tmp, FakeTransport())
+            run.execute()
+            pid = run.results[0]["person_id"]
+            # A genuinely fresh run object over the same directory, which
+            # is what a resume actually is.
+            resumed = self._run(tmp, FakeTransport())
+            self.assertTrue(resumed.ledger.is_journaled(pid))
+            self.assertEqual(resumed.ledger.require_journaled(pid)["person_id"],
+                             pid)
+
+    def test_a_resume_does_not_truncate_the_artifact_journal(self):
+        """The journal is what makes erasure possible later.
+
+        `Ledger.__init__` wrote its empty structure unconditionally, so
+        constructing a resumed run DESTROYED the record of everything the
+        interrupted attempt had created — the narrators would then be
+        refused as unjournaled and dropped from the erasure manifest,
+        becoming orphans with no inventory.
+        """
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._run(tmp, FakeTransport())
+            run.execute()
+            before = json.loads(
+                (Path(tmp) / "artifacts.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(before["people"]), 2)
+
+            resumed = self._run(tmp, FakeTransport())
+            after = json.loads(
+                (Path(tmp) / "artifacts.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(after["people"]), 2,
+                             "constructing a resumed run truncated the journal")
+            self.assertEqual([p["person_id"] for p in before["people"]],
+                             [p["person_id"] for p in after["people"]])
+            self.assertIn("resumed_at", resumed.ledger.data)
+
+    def test_a_resume_reuses_the_narrator_instead_of_creating_a_second(self):
+        """The duplicate-narrator defect, pinned.
+
+        A resume ran `create_narrator` unconditionally, so intake was
+        POSTed again and the journal went from two narrators to four.
+        The turn checkpoint is keyed by persona, so the new duplicates
+        were told their turns were done and got NONE — two empty orphans,
+        while the report described the first pair's turns.
+        """
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            db = {}
+            first = FakeTransport(fail_on_turn=3, store=db)
+            run1 = self._run(tmp, first, run_id="r-dup")
+            with self.assertRaises(KeyboardInterrupt):
+                run1.execute()
+            journaled = [p["person_id"] for p in
+                         json.loads((Path(tmp) / "artifacts.json")
+                                    .read_text(encoding="utf-8"))["people"]]
+            self.assertEqual(len(journaled), 2)
+
+            second = FakeTransport(store=db)
+            self._run(tmp, second, run_id="r-dup").execute()
+            after = [p["person_id"] for p in
+                     json.loads((Path(tmp) / "artifacts.json")
+                                .read_text(encoding="utf-8"))["people"]]
+            self.assertEqual(after, journaled,
+                             "a resume created duplicate narrators")
+            # No second intake POST for an already-journaled persona.
+            self.assertEqual([c for c in second.calls if c[0] == "POST"], [])
+
+    def test_the_erasure_manifest_survives_a_resume(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            self._run(tmp, FakeTransport()).execute()
+            self._run(tmp, FakeTransport()).ledger.write_erasure_manifest()
+            manifest = json.loads(
+                (Path(tmp) / "erasure-manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(manifest["person_ids"]), 2,
+                             "a resume lost narrators from the erasure manifest")
+
+    def test_an_unjournaled_uuid_is_REFUSED_even_when_marked(self):
+        """A name beginning ZZ COHORT authorizes nothing."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._run(tmp, FakeTransport())
+            stranger = "99999999-8888-7777-6666-555555555555"
+            with self.assertRaises(COHORT.CohortRefusal):
+                run.ledger.require_journaled(stranger)
+            # Even with a perfectly marked display name on the product row.
+            marked = FakeTransport(
+                display_name="ZZ COHORT r-test · Somebody Real")
+            with self.assertRaises(COHORT.CohortRefusal):
+                self._run(tmp, marked).verify_identity(stranger)
+
+    def test_no_resume_path_searches_by_display_name(self):
+        """Authority is the UUID. Names are for humans and repeat."""
+        tree = ast.parse(SOURCE)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Compare):
+                continue
+            src = ast.unparse(node)
+            if "display_name" in src and "person_id" not in src:
+                self.fail(f"a display_name comparison selects a narrator: {src}")
+        # And no lookup helper keys off a name.
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                name = getattr(node.func, "attr", "") or getattr(
+                    node.func, "id", "")
+                if name in {"require_journaled", "is_journaled"}:
+                    arg = ast.unparse(node.args[0]) if node.args else ""
+                    self.assertNotIn("display_name", arg)
+
+    def test_the_marker_is_recorded_as_an_affordance_not_authorization(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._run(tmp, FakeTransport())
+            run.execute()
+            checks = run.ledger.data["identity_checks"]
+            self.assertEqual(len(checks), 2)
+            for check in checks:
+                self.assertTrue(check["marker_present"])
+                self.assertEqual(check["narrator_type"], "live")
+                self.assertFalse(check["row_has_testing_only_field"])
+                self.assertIn("journal", check["authority"])
+
+    def test_an_unmarked_narrator_is_refused(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            plain = FakeTransport(display_name="Alex")
+            with self.assertRaises(COHORT.CohortRefusal):
+                self._run(tmp, plain).execute()
+
+    def test_the_manifest_records_testing_only_as_a_REQUEST(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            self._run(tmp, FakeTransport()).execute()
+            artifacts = json.loads(
+                (Path(tmp) / "artifacts.json").read_text(encoding="utf-8"))
+            for person in artifacts["people"]:
+                self.assertTrue(person["testing_only_requested"])
+                # Never restated as a durable classification.
+                self.assertNotIn("testing_only", set(person) - {
+                    "testing_only_requested"})
+
+    def test_the_runner_no_longer_claims_testing_only_proves_anything(self):
+        lowered = SOURCE.lower()
+        for claim in ("testing_only is what keeps",
+                      "keeps it out of family truth",
+                      "refuses anything not testing-only"):
+            with self.subTest(claim=claim):
+                self.assertNotIn(claim.lower(), lowered)
+
+
 class InterruptedResumeTests(unittest.TestCase):
     """A resume must repeat no completed model turn."""
 
@@ -915,7 +1181,8 @@ class InterruptedResumeTests(unittest.TestCase):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             # First attempt: interrupted during the THIRD turn.
-            first = FakeTransport(fail_on_turn=3)
+            db = {}
+            first = FakeTransport(fail_on_turn=3, store=db)
             run1 = COHORT.LiveRun(
                 personas=_two_personas(), lanes=list(COHORT.LANES),
                 mode="quick", out_dir=Path(tmp), transport=first,
@@ -925,8 +1192,9 @@ class InterruptedResumeTests(unittest.TestCase):
                 run1.execute()
             self.assertEqual(len(first.turns), 3)   # third raised
 
-            # Resume: a fresh transport, the same output directory.
-            second = FakeTransport()
+            # Resume: a fresh transport over the SAME database and the
+            # same output directory.
+            second = FakeTransport(store=db)
             run2 = COHORT.LiveRun(
                 personas=_two_personas(), lanes=list(COHORT.LANES),
                 mode="quick", out_dir=Path(tmp), transport=second,
@@ -944,7 +1212,8 @@ class InterruptedResumeTests(unittest.TestCase):
         """Re-taking it would hide the run's own narrators in the delta."""
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
-            first = FakeTransport(fail_on_turn=1)
+            db = {}
+            first = FakeTransport(fail_on_turn=1, store=db)
             run1 = COHORT.LiveRun(
                 personas=_two_personas(), lanes=list(COHORT.LANES),
                 mode="quick", out_dir=Path(tmp), transport=first,
@@ -957,7 +1226,7 @@ class InterruptedResumeTests(unittest.TestCase):
 
             run2 = COHORT.LiveRun(
                 personas=_two_personas(), lanes=list(COHORT.LANES),
-                mode="quick", out_dir=Path(tmp), transport=FakeTransport(),
+                mode="quick", out_dir=Path(tmp), transport=FakeTransport(store=db),
                 ui_url="http://x", db_path=Path("/nonexistent/none.db"),
                 run_id="ZZ-COHORT-base")
             run2.execute()
