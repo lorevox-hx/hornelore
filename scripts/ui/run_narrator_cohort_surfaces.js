@@ -139,6 +139,41 @@ async function openExactNarrator(page, personId, expectedName) {
   }));
 }
 
+/* Console errors, failed requests and 4xx/5xx responses, summarized where a
+ * reader cannot miss them.
+ *
+ * ── EXPLICIT, AND DELIBERATELY NOT PART OF THE VERDICT, 2026-08-30 ──────
+ *
+ * The live run r20260830-011413-fa48c7 recorded three console errors, two
+ * aborted requests and three 4xx responses, and still reported `ok: true`
+ * with nothing at the top level saying so. They were in the file; they were
+ * buried under `tabs`, and the one field a reader looks at did not mention
+ * them.
+ *
+ * They are summarized here rather than folded into `ok` on purpose. Two of
+ * the observed 404s — /api/operator/past-tense-flags and the port-8082
+ * /api/memoir/canonical — look like standing product conditions rather than
+ * anything this narrator did. Failing every run on them would paint the lane
+ * permanently red, which is how a real signal gets ignored. `clean` states
+ * the fact; a human decides what it means. If these turn out to be defects
+ * they get their own bug, and this block is the evidence for it.
+ */
+function summarizeDiagnostics(evidence) {
+  const urls = new Set();
+  for (const row of evidence.failedRequests) urls.add(row.url);
+  for (const row of evidence.responses4xx5xx) urls.add(`${row.status} ${row.url}`);
+  return {
+    clean: evidence.consoleErrors.length === 0
+      && evidence.failedRequests.length === 0
+      && evidence.responses4xx5xx.length === 0,
+    consoleErrorCount: evidence.consoleErrors.length,
+    failedRequestCount: evidence.failedRequests.length,
+    http4xx5xxCount: evidence.responses4xx5xx.length,
+    distinctUrls: Array.from(urls).sort(),
+    note: "Reported, not gated. A non-clean run is not automatically a failing run.",
+  };
+}
+
 async function collectShellTabs(page) {
   return page.evaluate(() => Array.from(
     document.querySelectorAll("button[role='tab'][data-tab]"),
@@ -150,7 +185,26 @@ async function collectShellTabs(page) {
   })));
 }
 
-function classifyTravel(page) {
+/* Classify the Travel Document surface.
+ *
+ * ── THE TAB MUST BE ACTIVE WHEN THIS READS IT, 2026-08-30 ──────────────
+ *
+ * This ran after the tab loop, which ends on Media — so the Travel
+ * Document panel was HIDDEN, and `innerText` returns "" for a hidden
+ * element (it is the rendered text; `textContent` would not care). The
+ * live run therefore classified a perfectly healthy surface as "unknown"
+ * off an empty string, while the screenshot taken moments earlier showed
+ * "No trips yet for this narrator" rendered correctly.
+ *
+ * `unknown` is not a pass, so this reported failure rather than inventing
+ * a verdict — the right behaviour on bad evidence, but the evidence
+ * should not have been bad. Re-activate the tab, then read it.
+ */
+async function classifyTravel(page, tabId) {
+  if (tabId) {
+    await page.locator(`#${tabId}`).click();
+    await page.waitForTimeout(400);
+  }
   return page.evaluate(() => {
     const host = document.getElementById("lvTravelDocTab");
     const text = (host?.innerText || "").replace(/\s+/g, " ").trim();
@@ -230,6 +284,17 @@ async function main() {
           if (shell.activePersonId !== args["person-id"]) {
             throw new Error(`active narrator drifted to ${shell.activePersonId}`);
           }
+          /* ── A CLICKED TAB MUST BECOME THE SELECTED TAB, 2026-08-30 ──
+           *
+           * `selected` was read and stored and then never asserted, so a
+           * tab whose click silently did nothing — a handler that threw, a
+           * panel that never mounted — was recorded as `clicked: true,
+           * selected: false` and counted toward a passing lane. Walking a
+           * tab strip proves nothing if the strip does not move. */
+          if (!shell.selected) {
+            throw new Error(
+              `clicked ${tab.id} but aria-selected never became true`);
+          }
           await page.screenshot({
             path: path.join(args.screenshots, `${tab.tab}.png`), fullPage: true,
           });
@@ -240,11 +305,26 @@ async function main() {
       evidence.tabs.push(record);
     }
 
+    /* ── ONLY A CLASSIFIED SURFACE PASSES, 2026-08-30 ────────────────────
+     *
+     * This read `classification !== "unknown"`, which passed `unavailable`
+     * — the one classification that positively means the surface did not
+     * load. Two of the four outcomes describe a Travel Document that
+     * rendered ("populated", "empty") and two describe an absent verdict
+     * ("unknown") or a broken one ("unavailable"). The lane passes on the
+     * first two and nothing else.
+     *
+     * And the result is now part of `evidence.ok`. It was computed,
+     * written to the file and then left out of the verdict entirely, so a
+     * Travel Document that failed to load could not fail the run. */
+    const TRAVEL_PASSING = new Set(["populated", "empty"]);
     const travelTab = evidence.tabs.find((tab) => tab.tab === "traveldoc" || tab.tab === "trips");
     if (travelTab && travelTab.clicked && !travelTab.error) {
-      const travelState = await classifyTravel(page);
+      const travelState = await classifyTravel(page, travelTab.id);
       evidence.travel = {
-        ok: travelState.classification !== "unknown", tab: travelTab, ...travelState,
+        ok: TRAVEL_PASSING.has(travelState.classification),
+        tab: travelTab,
+        ...travelState,
       };
     } else {
       evidence.travel = {
@@ -276,15 +356,35 @@ async function main() {
     const reopened = await openExactNarrator(page, args["person-id"], args["expected-name"]);
     evidence.persistence = { ok: reopened.personId === args["person-id"], reopened };
 
+    /* Every enabled tab was clicked AND became selected. `record.error`
+     * already carries the selection failure thrown above; this states the
+     * property directly so the report does not require reading errors to
+     * learn it. */
+    const enabled = evidence.tabs.filter((tab) => !tab.disabled);
+    evidence.tabSelection = {
+      enabled: enabled.length,
+      clicked: enabled.filter((tab) => tab.clicked).length,
+      selected: enabled.filter((tab) => tab.selected).length,
+      ok: enabled.length > 0
+        && enabled.every((tab) => tab.clicked && tab.selected && !tab.error),
+    };
+
+    evidence.diagnostics = summarizeDiagnostics(evidence);
+
     evidence.ok = evidence.nonVacuity.ok
       && evidence.isolation.ok
       && evidence.persistence.ok
+      && evidence.tabSelection.ok
+      && evidence.travel.ok
       && evidence.tabs.every((tab) => !tab.error);
     evidence.finishedAt = new Date().toISOString();
     writeJson(args.output, evidence);
     await context.close();
   } catch (error) {
     evidence.error = String((error && error.stack) || error);
+    // Whatever the browser managed to record before the throw is still the
+    // best evidence about why it threw.
+    evidence.diagnostics = summarizeDiagnostics(evidence);
     evidence.finishedAt = new Date().toISOString();
     writeJson(args.output, evidence);
   } finally {

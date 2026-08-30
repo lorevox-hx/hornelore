@@ -171,8 +171,40 @@ EXCLUSIONS = {
     "run_trip_2019_france_italy_canary_harness": "Travel Document canary, own lane",
 }
 
-LANES = ("inventory", "conversation", "era", "behavior", "extraction",
+#: The lanes this instrument ACTUALLY EXECUTES.
+#:
+#: ── "behavior" AND "extraction" REMOVED, 2026-08-30 ────────────────────
+#:
+#: They were advertised in the plan, printed in every report and offered
+#: as `--only-lane` choices, and nothing in `LiveRun.execute` ran either
+#: one. The live run walked create → pause → turns → era-reuse → browser
+#: → inventory and stopped. A plan that lists work nobody does is worse
+#: than a short plan: it is read as coverage.
+#:
+#: They are not stubbed here. Naming what is missing belongs in the work
+#: list, not in a tuple that makes the runner look wider than it is.
+LANES = ("inventory", "conversation", "era",
          "ui", "traveldoc", "isolation", "persistence")
+
+#: Named so their absence is stated rather than inferred from a gap.
+NOT_EXECUTED_LANES = {
+    "behavior": "no behavioural scoring in this runner; the parent-session "
+                "rehearsal harness is what scores Lori's replies",
+    "extraction": "no extraction lane; /api/extract-fields is never called",
+}
+
+#: Which orchestration steps each executed lane owns. Used to make
+#: `--only-lane` actually control execution instead of being recorded and
+#: ignored.
+LANE_STEPS = {
+    "conversation": ("model_turns",),
+    "era": ("era_evidence",),
+    "ui": ("browser_traversal",),
+    "traveldoc": ("browser_traversal",),
+    "isolation": ("browser_traversal",),
+    "persistence": ("browser_traversal",),
+    "inventory": ("delete_inventory_read",),
+}
 
 #: A person must look like this to receive a single turn.
 SYNTHETIC_MARKERS = ("testing_only", "test", "reference")
@@ -835,6 +867,9 @@ def build_plan(quick: bool = False) -> Dict[str, Any]:
         "exclusions": EXCLUSIONS,
         "problems": problems,
         "lanes": list(LANES),
+        # The plan is where a reader forms an expectation of coverage, so
+        # the gaps belong here rather than only in the report afterwards.
+        "lanes_not_implemented": dict(NOT_EXECUTED_LANES),
         "fixtures_read_with_stubbed_transport": list(FIXTURES_READ_WITH_STUB),
         "stub_caveat": (
             "A stubbed transport means the fixture's CONTENT was read; it "
@@ -982,7 +1017,12 @@ class Transport:
              "--expected-name", expected_name,
              "--output", str(output), "--screenshots", str(screenshots)],
             capture_output=True, text=True, timeout=900)
-        evidence: Dict[str, Any] = {"exit_code": proc.returncode}
+        # Recorded so the report can be checked against the product row
+        # without rerunning anything: this is the string the browser
+        # waited for, and passing the wrong one is what made every UI
+        # lane time out on r20260830-011413-fa48c7.
+        evidence: Dict[str, Any] = {"exit_code": proc.returncode,
+                                    "expected_name_used": expected_name}
         if output.is_file():
             try:
                 evidence.update(json.loads(output.read_text(encoding="utf-8")))
@@ -1048,12 +1088,35 @@ class LiveRun:
         self.trace: List[str] = []
         self.results: List[Dict[str, Any]] = []
         self.era_evidence: Dict[str, Any] = {}
+        #: The MARKED display name the product row actually carries, per
+        #: person_id, as read back in `verify_identity`. The browser waits
+        #: on this string; the fixture label is not what the picker shows.
+        self.display_names: Dict[str, str] = {}
 
     # ── step helpers ─────────────────────────────────────────────────
     def _step(self, name: str) -> None:
         if name not in ORCHESTRATION:
             raise CohortRefusal(f"undeclared orchestration step: {name!r}")
         self.trace.append(name)
+
+    # ── lane selection ───────────────────────────────────────────────
+    def _lane_on(self, lane: str) -> bool:
+        return lane in self.lanes
+
+    def _browser_lanes_on(self) -> bool:
+        """One subprocess serves four lanes, so any of them opens it."""
+        return any(self._lane_on(lane)
+                   for lane in ("ui", "traveldoc", "isolation", "persistence"))
+
+    @staticmethod
+    def _lane_off(lane: str) -> Dict[str, Any]:
+        """A lane that did not run says so, in the shape of a result.
+
+        `None` would be indistinguishable from a lane that ran and found
+        nothing, which is the whole class of defect this repair is about.
+        """
+        return {"executed": False, "lane": lane,
+                "reason": "not selected by --only-lane"}
 
     def _baseline(self) -> Dict[str, Any]:
         """Captured once. A resume reads the stored one, never re-takes it."""
@@ -1155,6 +1218,17 @@ class LiveRun:
                 f"{person_id} was created without this run's marker "
                 f"({expected_marker!r}); refusing to continue with a narrator "
                 "an operator cannot recognise as test data.")
+        # ── THE NAME THE UI ACTUALLY SHOWS, 2026-08-30 ────────────────
+        #
+        # Kept because the browser lane has to wait for it. `traverse`
+        # passed `persona["label"]` — the FIXTURE name, "Alex Eunseo Park
+        # (they/them)" — while `mark_intake_payload` had stamped the row
+        # as "ZZ COHORT <run> · Alex". The helper waits up to 60s for the
+        # active-narrator label to contain the string it was given, so
+        # every browser lane was destined to time out on a narrator that
+        # had opened perfectly well. The row is the authority on its own
+        # display name, and this is where the row was read.
+        self.display_names[person_id] = display
         return person_id
 
     def pause_profile_seed(self, person_id: str) -> Dict[str, Any]:
@@ -1225,8 +1299,17 @@ class LiveRun:
 
     def traverse(self, persona: Dict[str, Any], person_id: str) -> Dict[str, Any]:
         self._step("browser_traversal")
+        expected = self.display_names.get(person_id)
+        if not expected:
+            # verify_identity always runs first and always records it, so
+            # this is unreachable in the wired order. Refuse rather than
+            # fall back to the fixture label: falling back is what the
+            # defect was, and a quiet fallback would restore it.
+            raise CohortRefusal(
+                f"no verified display name recorded for {person_id}; "
+                "refusing to guess what the picker shows")
         return self.transport.browser(
-            person_id=person_id, expected_name=persona["label"],
+            person_id=person_id, expected_name=expected,
             ui_url=self.ui_url,
             output=self.out_dir / "browser" / f"{person_id}.json",
             screenshots=self.out_dir / "screenshots" / person_id)
@@ -1250,14 +1333,39 @@ class LiveRun:
         before = self._baseline()
 
         for persona in self.personas:
+            # The spine is not lane-gated: a narrator has to exist, be
+            # verified and have its walk paused before any lane can mean
+            # anything. `--only-lane` selects work, it does not remove the
+            # ground the work stands on.
             person_id = self.create_narrator(persona)
             seed = self.pause_profile_seed(person_id)
-            conversation = self.run_turns(persona, person_id)
-            era = self.reuse_era_evidence(persona, conversation)
-            browser = self.traverse(persona, person_id)
-            inventory = self.read_delete_inventory(person_id)
+
+            # ── `--only-lane` NOW CONTROLS EXECUTION, 2026-08-30 ───────
+            #
+            # It was parsed, validated against LANES, stored in the
+            # checkpoint's frozen selection and then never consulted:
+            # `execute` called every step unconditionally. So
+            # `--only-lane inventory` ran the full model conversation and
+            # the whole browser traversal, and the checkpoint recorded a
+            # selection that did not describe the run it belonged to.
+            conversation = (self.run_turns(persona, person_id)
+                            if self._lane_on("conversation")
+                            else self._lane_off("conversation"))
+            # The era lane READS the conversation lane's turns, so it
+            # cannot run without it. Selecting era alone would otherwise
+            # report "eras_covered: []" as though the walk covered none.
+            era = (self.reuse_era_evidence(persona, conversation)
+                   if (self._lane_on("era") and self._lane_on("conversation"))
+                   else self._lane_off("era"))
+            browser = (self.traverse(persona, person_id)
+                       if self._browser_lanes_on()
+                       else self._lane_off("ui"))
+            inventory = (self.read_delete_inventory(person_id)
+                         if self._lane_on("inventory")
+                         else self._lane_off("inventory"))
             self.results.append({
                 "persona": persona["label"], "person_id": person_id,
+                "display_name": self.display_names.get(person_id),
                 "profile_seed": seed, "conversation": conversation,
                 "era": era, "browser": browser,
                 "delete_inventory": inventory,
@@ -1284,9 +1392,28 @@ class LiveRun:
                 timespec="seconds"),
             "orchestration": list(self.trace),
             "personas": self.results,
+            # ── WHAT RAN, AND WHAT DID NOT, 2026-08-30 ────────────────
+            #
+            # Stated positively so nobody has to infer coverage from the
+            # absence of a complaint.
+            "lanes": {
+                "selected": list(self.lanes),
+                "executed": sorted({
+                    lane for lane in self.lanes if lane in LANE_STEPS}),
+                "not_implemented": dict(NOT_EXECUTED_LANES),
+            },
             "reference_personas": {
                 "names": list(REFERENCE_PERSONAS),
-                "extraction": REFERENCE_EXTRACTION_DISPOSITION,
+                # NOT a result. No reference narrator was opened, read,
+                # traversed or extracted from in this run — the runner has
+                # no reference lane at all. This block previously reported
+                # `extraction: not_applicable` beside real per-persona
+                # results, which reads as a lane that ran and returned a
+                # disposition. It is a standing policy statement about
+                # what would happen IF such a lane existed.
+                "executed": False,
+                "policy_only": True,
+                "extraction_policy": REFERENCE_EXTRACTION_DISPOSITION,
                 "reason": REFERENCE_EXTRACTION_REASON,
             },
             "containment": {
@@ -1319,8 +1446,17 @@ def _render_html(report: Dict[str, Any]) -> str:
         f"<tr><td>{esc(p['persona'])}</td><td><code>{esc(p['person_id'])}</code></td>"
         f"<td>{esc(p['profile_seed'].get('paused'))}</td>"
         f"<td>{esc(len(p['conversation'].get('turns', [])))}</td>"
-        f"<td>{esc(p['browser'].get('ok'))}</td></tr>"
+        f"<td>{esc(p['browser'].get('ok'))}</td>"
+        # Travel Document and the diagnostics summary are now visible in
+        # the readable report. Both were computed and then reachable only
+        # by opening the JSON.
+        f"<td>{esc((p['browser'].get('travel') or {}).get('classification'))}</td>"
+        f"<td>{esc((p['browser'].get('diagnostics') or {}).get('clean'))}</td></tr>"
         for p in report.get("personas", []))
+    lanes = report.get("lanes", {})
+    missing = "".join(
+        f"<li><code>{esc(name)}</code> — {esc(why)}</li>"
+        for name, why in (lanes.get("not_implemented") or {}).items())
     c = report.get("containment", {})
     return f"""<!doctype html><meta charset="utf-8">
 <title>Narrator cohort — {esc(report.get('run_id'))}</title>
@@ -1334,7 +1470,15 @@ padding:.4rem .6rem;text-align:left}}code{{font-size:.85em}}
 {esc(report.get('generated_at'))}</p>
 <h2>Personas</h2>
 <table><tr><th>Persona</th><th>person_id</th><th>Seed paused</th>
-<th>Turns</th><th>Browser ok</th></tr>{rows}</table>
+<th>Turns</th><th>Browser ok</th><th>Travel Doc</th>
+<th>No console/network errors</th></tr>{rows}</table>
+<h2>Lanes</h2>
+<p>Executed: <code>{esc(", ".join(lanes.get("executed") or []))}</code></p>
+<p class="warn">Not implemented by this runner, and therefore <em>not</em>
+covered by this report:</p>
+<ul>{missing}</ul>
+<p>No reference persona was opened, read or extracted from. The reference
+block in the JSON is a policy statement, not a result.</p>
 <h2>Denominators</h2><pre>{esc(json.dumps(report.get('denominators'), indent=1))}</pre>
 <h2>Containment</h2>
 <p>Non-run membership unchanged:

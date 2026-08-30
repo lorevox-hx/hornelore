@@ -790,7 +790,11 @@ class FakeTransport:
 
     def browser(self, *, person_id, expected_name, ui_url, output, screenshots):
         self.calls.append(("browser", person_id))
+        # Mirrors the real transport, which records the string it waited
+        # on. Without it this fake could not tell the fixture label from
+        # the marked display name — the exact defect under test.
         return {"ok": True, "tabs": [{"tab": "narrator"}],
+                "expected_name_used": expected_name,
                 "nonVacuity": {"ok": True, "tabsCollected": 6}}
 
 
@@ -957,12 +961,77 @@ class LiveOrchestrationTests(unittest.TestCase):
             html = (Path(tmp) / "report.html").read_text(encoding="utf-8")
             self.assertIn("do <em>not</em> prove", html)
 
-    def test_reference_personas_are_recorded_as_not_applicable(self):
+    def test_the_reference_block_is_policy_and_says_so(self):
+        """It is not a lane result, and must not read like one.
+
+        ── RENAMED AND STRENGTHENED, 2026-08-30 ───────────────────────
+
+        *(This asserted `reference_personas["extraction"] ==
+        "not_applicable"`, sitting beside real per-persona results, which
+        reads as a reference lane that ran and returned a disposition.
+        No reference persona is opened, read, traversed or extracted from
+        anywhere in this runner — there is no reference lane at all. The
+        test now pins the honest shape: an explicit `executed: False`,
+        with the disposition kept as the standing policy it always was.)*
+        """
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             report = self._run(tmp, FakeTransport()).execute()
-            self.assertEqual(report["reference_personas"]["extraction"],
-                             "not_applicable")
+            block = report["reference_personas"]
+            self.assertIs(block["executed"], False)
+            self.assertIs(block["policy_only"], True)
+            self.assertEqual(block["extraction_policy"], "not_applicable")
+            # The old key must not come back: it is the one that made a
+            # policy look like a measurement.
+            self.assertNotIn("extraction", block)
+
+    def test_unrun_lanes_are_named_in_the_report(self):
+        """Coverage is stated, never inferred from an absent complaint."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            report = self._run(tmp, FakeTransport()).execute()
+            missing = report["lanes"]["not_implemented"]
+            self.assertIn("behavior", missing)
+            self.assertIn("extraction", missing)
+            for lane in ("behavior", "extraction"):
+                self.assertNotIn(lane, report["lanes"]["executed"])
+                self.assertNotIn(lane, COHORT.LANES)
+            html = (Path(tmp) / "report.html").read_text(encoding="utf-8")
+            self.assertIn("Not implemented by this runner", html)
+
+    def test_the_browser_waits_on_the_marked_name_not_the_fixture_label(self):
+        """The picker shows `ZZ COHORT <run> · Alex`, never the fixture name.
+
+        The live run's browser lane was handed `persona["label"]` and
+        waited 60s for an active-narrator label that could never contain
+        it. The row read back in `verify_identity` is the authority.
+        """
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            transport = FakeTransport()
+            report = self._run(tmp, transport).execute()
+            for row in report["personas"]:
+                self.assertTrue(
+                    row["display_name"].startswith("ZZ COHORT"),
+                    f"unmarked display name: {row['display_name']!r}")
+                self.assertEqual(row["browser"]["expected_name_used"],
+                                 row["display_name"])
+                self.assertNotEqual(row["browser"]["expected_name_used"],
+                                    row["persona"])
+
+    def test_only_lane_actually_removes_work(self):
+        """It was recorded in the frozen selection and then ignored."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._run(tmp, FakeTransport())
+            run.lanes = ["inventory"]
+            report = run.execute()
+            self.assertNotIn("model_turns", report["orchestration"])
+            self.assertNotIn("browser_traversal", report["orchestration"])
+            self.assertIn("delete_inventory_read", report["orchestration"])
+            for row in report["personas"]:
+                self.assertIs(row["conversation"]["executed"], False)
+                self.assertIs(row["browser"]["executed"], False)
 
 
 class DurableAuthorityTests(unittest.TestCase):
