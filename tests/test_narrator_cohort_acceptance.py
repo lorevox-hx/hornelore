@@ -19,6 +19,7 @@ from __future__ import annotations
 import ast
 import importlib.util
 import json
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -454,6 +455,214 @@ class ProfileSeedCompatibilityTests(unittest.TestCase):
 
     def test_the_pause_requirement_is_documented_in_the_runner(self):
         self.assertIn("ENROLLS", SOURCE)
+
+
+# ── The browser half ──────────────────────────────────────────────────
+#
+# Ported from the Codex cohort harness on 2026-08-29. The UI, traveldoc,
+# isolation and persistence lanes are all worthless without this file, and
+# "the 36 Python tests passed" was true while it was missing — which is
+# precisely the shape of a green suite that proves less than it appears to.
+class BrowserHelperTests(unittest.TestCase):
+    HELPER = _REPO_ROOT / "scripts" / "ui" / "run_narrator_cohort_surfaces.js"
+
+    def test_the_browser_helper_exists(self):
+        self.assertTrue(
+            self.HELPER.is_file(),
+            f"{self.HELPER} is missing. The UI lane has no browser half, so "
+            "a passing Python suite would describe an untested surface.")
+
+    def test_the_browser_helper_parses(self):
+        """Parsed by node itself, not by a regex that hopes."""
+        import shutil
+        import subprocess
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("node is not on PATH in this environment")
+        proc = subprocess.run(
+            [node, "--check", str(self.HELPER)],
+            capture_output=True, text=True, timeout=60)
+        self.assertEqual(
+            proc.returncode, 0,
+            f"node --check failed:\n{proc.stderr.strip()}")
+
+    def test_the_runner_knows_where_the_helper_is(self):
+        self.assertEqual(COHORT.BROWSER_HELPER.resolve(), self.HELPER.resolve())
+
+    def test_a_missing_helper_becomes_a_reported_problem(self):
+        """Absence must be LOUD.
+
+        The plan reports the helper's presence, so a lane that cannot run
+        is visible in the report rather than merely absent from it.
+        """
+        plan = COHORT.build_plan()
+        self.assertIn("browser_helper", plan)
+        self.assertTrue(plan["browser_helper"]["present"])
+
+    @staticmethod
+    def _executable_js() -> str:
+        """The helper's CODE, with comments removed.
+
+        ── WHY NOT A RAW TEXT SCAN, 2026-08-29 ─────────────────────────
+
+        *(It was one, and it failed the same way the Python scan did: the
+        helper's header comment says it "never clicks coordinates", and a
+        substring search cannot tell a promise from a violation. The file
+        was correct and the test was wrong.*
+
+        *This is the JavaScript half of the rule already recorded for
+        `_executable_source`: the property is "no positional selection in
+        the executable code", so the scan drops comments and looks for
+        real APIs rather than for English words.)*
+        """
+        src = BrowserHelperTests.HELPER.read_text(encoding="utf-8")
+        src = re.sub(r"/\*.*?\*/", "", src, flags=re.DOTALL)   # block comments
+        src = re.sub(r"(?m)^\s*//.*$", "", src)                # line comments
+        return src
+
+    def test_the_helper_selects_by_exact_uuid_and_never_by_position(self):
+        src = self._executable_js()
+        self.assertIn("lv80ConfirmNarratorSwitch", src)
+        # An exact 36-character UUID, not a loose prefix match.
+        self.assertIn("{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", src)
+        # Real positional/pixel APIs, not the English word for them.
+        for forbidden in ("mouse.click(", "page.mouse", "boundingBox()",
+                          ".nth(", ".first()", ".last()", "elementAt("):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(
+                    forbidden, src,
+                    f"{forbidden!r} resolves a narrator by position or pixel; "
+                    "the contract is exact-UUID semantic selection only.")
+
+    def test_the_positional_scan_can_actually_fail(self):
+        """Positive control: the scan must not be vacuous.
+
+        A guard that cannot fail proves nothing, so the same check is run
+        against source that genuinely does the forbidden thing.
+        """
+        planted = 'await page.mouse.click(10, 20);\n'
+        self.assertIn("page.mouse", planted)
+        # ...and the real file does not contain it.
+        self.assertNotIn("page.mouse", self._executable_js())
+
+    def test_the_helper_refuses_destructive_actions(self):
+        src = self.HELPER.read_text(encoding="utf-8")
+        self.assertIn("DESTRUCTIVE", src)
+        self.assertIn("REFUSED", src)
+        for verb in ("lv80DeleteNarrator", "deleteNarrator", "confirmDelete"):
+            with self.subTest(verb=verb):
+                self.assertNotIn(verb, src)
+
+    def test_the_helper_cannot_pass_having_walked_no_tab(self):
+        """every() over an empty array is true.
+
+        The staged original derived its verdict that way, so a selector
+        drift that collected zero tabs would have reported a PASSING ui
+        lane having tested nothing. The count is asserted first.
+        """
+        src = self.HELPER.read_text(encoding="utf-8")
+        self.assertIn("nonVacuity", src)
+        self.assertIn("MIN_SHELL_TABS", src)
+        self.assertIn("tabsClicked", src)
+
+    def test_the_helper_classifies_travel_document_state(self):
+        src = self.HELPER.read_text(encoding="utf-8")
+        for state in ("populated", "empty", "unavailable", "unknown"):
+            with self.subTest(state=state):
+                self.assertIn(state, src)
+        # `unknown` must not be treated as success.
+        self.assertIn('classification !== "unknown"', src)
+
+
+# ── Ported safeguards ─────────────────────────────────────────────────
+class PortedSafeguardTests(unittest.TestCase):
+
+    def test_resume_cannot_broaden_a_quick_run_into_a_full_one(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            cp = COHORT.Checkpoint(Path(tmp))
+            cp.set_selection(personas=["Alex", "Walt"], lanes=["ui"],
+                             mode="quick")
+            # The same selection is fine — that is what a resume is.
+            cp.set_selection(personas=["Walt", "Alex"], lanes=["ui"],
+                             mode="quick")
+            # Widening it is not.
+            with self.assertRaises(COHORT.CohortRefusal):
+                cp.set_selection(personas=["Alex", "Walt"], lanes=["ui"],
+                                 mode="full")
+            with self.assertRaises(COHORT.CohortRefusal):
+                cp.set_selection(
+                    personas=["Alex", "Walt", "John"], lanes=["ui"],
+                    mode="quick")
+
+    def test_the_frozen_selection_survives_a_restart(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            COHORT.Checkpoint(Path(tmp)).set_selection(
+                personas=["Alex"], lanes=["ui"], mode="quick")
+            reopened = COHORT.Checkpoint(Path(tmp))
+            self.assertEqual(reopened.selection["mode"], "quick")
+            with self.assertRaises(COHORT.CohortRefusal):
+                reopened.set_selection(personas=["Alex"], lanes=["ui"],
+                                       mode="full")
+
+    def test_containment_reads_the_database_read_only(self):
+        """Profile Seed GET is a writing read, so containment cannot use it."""
+        self.assertIn("mode=ro", SOURCE)
+        snap = COHORT.containment_snapshot(
+            [], db_path=Path("/nonexistent/does-not-exist.db"),
+            people_rows=["a", "b"])
+        self.assertTrue(snap["db_opened_read_only"])
+        self.assertEqual(snap["onboarding_probe_errors"], 1)
+        # It must state its own limits rather than implying proof it lacks.
+        self.assertIn("does_not_prove", snap)
+
+    def test_containment_hashes_only_the_non_run_narrators(self):
+        snap = COHORT.containment_snapshot(
+            ["b"], db_path=Path("/nonexistent.db"), people_rows=["a", "b", "c"])
+        self.assertEqual(snap["count"], 3)
+        self.assertEqual(snap["non_run_count"], 2)
+
+    def test_reference_extraction_is_not_applicable_not_skipped(self):
+        """The denominator keeps the case; the reason is recorded."""
+        self.assertEqual(COHORT.REFERENCE_EXTRACTION_DISPOSITION,
+                         "not_applicable")
+        self.assertIn("extract-fields", COHORT.REFERENCE_EXTRACTION_REASON)
+        self.assertIn("persist", COHORT.REFERENCE_EXTRACTION_REASON)
+
+    def test_the_deletion_inventory_is_a_read_and_nothing_deletes(self):
+        path = COHORT.delete_inventory_path("abc-123")
+        self.assertEqual(path, "/api/people/abc-123/delete-inventory")
+        plan = COHORT.build_plan()
+        self.assertEqual(plan["deletion"]["call_sites"], 0)
+
+    def test_denominators_count_every_status_including_the_awkward_ones(self):
+        counts = COHORT.summarize_tasks([
+            {"status": "pass"}, {"status": "fail"},
+            {"status": "not_applicable"}, {"status": "skipped"},
+            {"status": "unverified"},
+        ])
+        self.assertEqual(counts["passed"], 1)
+        self.assertEqual(counts["failed"], 1)
+        self.assertEqual(counts["not_applicable"], 1)
+        self.assertEqual(counts["skipped"], 1)
+        self.assertEqual(counts["unverified"], 1)
+        self.assertEqual(counts["total"], 5)
+
+    def test_an_unknown_status_is_refused_rather_than_dropped(self):
+        with self.assertRaises(COHORT.CohortRefusal):
+            COHORT.summarize_tasks([{"status": "mostly_fine"}])
+
+    def test_live_is_still_required_after_the_port(self):
+        """The staged harness had no --live gate. Ours keeps it."""
+        import contextlib
+        import io
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = COHORT.main(["--quick"])
+        self.assertEqual(rc, 2, "--quick without --live must refuse")
+        self.assertIn("REFUSED", err.getvalue())
+        self.assertIn("--live is required", err.getvalue())
 
 
 if __name__ == "__main__":  # pragma: no cover

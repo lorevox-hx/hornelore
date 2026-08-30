@@ -59,12 +59,15 @@ so a fixture improved in its own file improves this run too.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
 import re
+import sqlite3
 import sys
 import time
+import urllib.parse
 import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
@@ -134,6 +137,133 @@ LANES = ("inventory", "conversation", "era", "behavior", "extraction",
 
 #: A person must look like this to receive a single turn.
 SYNTHETIC_MARKERS = ("testing_only", "test", "reference")
+
+#: The browser half. The UI lane is INCOMPLETE without this file, so its
+#: presence is asserted rather than assumed — a missing helper must be a
+#: reported problem, not a silently skipped lane.
+BROWSER_HELPER = SCRIPTS / "ui" / "run_narrator_cohort_surfaces.js"
+
+#: The product database, read ONLY through `mode=ro`. See
+#: `containment_snapshot` for why the read-only URI is load-bearing.
+DEFAULT_DB_PATH = Path(os.environ.get(
+    "HORNELORE_DB_PATH", str(REPO_ROOT / ".runtime" / "hornelore.db")))
+
+#: Reference personas are never extracted from.
+#:
+#: `/api/extract-fields` CAN PERSIST bio facts when routing is enabled, so
+#: running it against a read-only reference narrator would write to a
+#: person this instrument promises never to modify. The disposition is
+#: `not_applicable` rather than `skipped`: the denominator keeps the case,
+#: and the report states why it was never eligible.
+REFERENCE_EXTRACTION_DISPOSITION = "not_applicable"
+REFERENCE_EXTRACTION_REASON = (
+    "reference narrators are read-only; /api/extract-fields may persist bio "
+    "facts when routing is enabled, so extraction is never run against them")
+
+#: Travel Document surface states. `unknown` is deliberately NOT a pass —
+#: a classifier that cannot tell populated from empty has not measured
+#: anything, and saying so is more useful than guessing.
+TRAVEL_CLASSIFICATIONS = ("populated", "empty", "unavailable", "unknown")
+
+#: Every terminal status a task may hold. `summarize_tasks` raises on
+#: anything outside this set, so a typo cannot invent a category that
+#: quietly vanishes from the denominator.
+TASK_STATUSES = ("passed", "failed", "not_applicable", "skipped",
+                 "unverified", "pending", "running")
+
+
+def summarize_tasks(tasks) -> Dict[str, int]:
+    """Explicit denominators, including the ones nobody wants to look at.
+
+    `not_applicable`, `skipped` and `unverified` are counted and REPORTED,
+    never dropped. A run that cannot score twelve cultural-humility cases
+    must say "12 unverified", because "0 failures" over a vanished
+    denominator is the most flattering way to describe having tested
+    nothing.
+    """
+    counts = {key: 0 for key in TASK_STATUSES}
+    alias = {"pass": "passed", "fail": "failed"}
+    for task in tasks:
+        raw = task.get("status") if isinstance(task, dict) else getattr(
+            task, "status", None)
+        status = alias.get(str(raw), str(raw))
+        if status not in counts:
+            raise CohortRefusal(f"unknown task status in denominator: {raw!r}")
+        counts[status] += 1
+    counts["total"] = sum(counts.values())
+    return counts
+
+
+def containment_snapshot(person_ids_in_run, db_path: Path = DEFAULT_DB_PATH,
+                         people_rows=None) -> Dict[str, Any]:
+    """Hash the narrators this run must NOT touch, before and after.
+
+    Opened with `file:...?mode=ro` deliberately. The obvious way to read
+    onboarding state is the Profile Seed GET endpoint, and that endpoint
+    IS A WRITING READ for an enrolled narrator — resolving a turn can
+    recompute derived topic state and bump the row's version. Using it to
+    prove "I did not touch these people" would therefore touch them. A
+    read-only SQLite handle cannot, whatever the query says.
+
+    What this proves and what it does not: the hashes establish that the
+    membership of the people table and the onboarding rows of non-run
+    narrators are unchanged. They do NOT prove no read occurred, and they
+    do not cover every column. Stated in the report rather than implied.
+    """
+    ids = sorted(str(p) for p in (people_rows or []))
+    in_run = {str(p) for p in person_ids_in_run}
+    non_run = sorted(p for p in ids if p not in in_run)
+
+    onboarding_rows: List[str] = []
+    probe_errors = 0
+    if db_path.exists():
+        try:
+            con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            try:
+                raw = con.execute(
+                    "SELECT person_id,status,active_topic_id,version "
+                    "FROM profile_seed_onboarding ORDER BY person_id;"
+                ).fetchall()
+            finally:
+                con.close()
+            non_run_set = set(non_run)
+            onboarding_rows = [
+                "\t".join("" if v is None else str(v) for v in row)
+                for row in raw if str(row[0]) in non_run_set
+            ]
+        except (OSError, sqlite3.Error):
+            probe_errors = 1
+    else:
+        probe_errors = 1
+
+    def _sha(values) -> str:
+        return hashlib.sha256("\n".join(values).encode("utf-8")).hexdigest()
+
+    return {
+        "captured_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "db_opened_read_only": True,
+        "count": len(ids),
+        "id_set_sha256": _sha(ids),
+        "non_run_count": len(non_run),
+        "non_run_id_set_sha256": _sha(non_run),
+        "non_run_onboarding_row_count": len(onboarding_rows),
+        "non_run_onboarding_state_sha256": _sha(onboarding_rows),
+        "onboarding_probe_errors": probe_errors,
+        "proves": ("stable membership and unchanged onboarding rows for "
+                   "non-run narrators"),
+        "does_not_prove": ("absence of reads, or that every column of every "
+                           "row is unchanged"),
+    }
+
+
+def delete_inventory_path(person_id: str) -> str:
+    """The product's own dependency inventory — a READ, never a delete.
+
+    This runner has no deletion call site. Knowing what WOULD be removed
+    is what lets a human erase deliberately later; performing the removal
+    is not this instrument's job and never becomes it.
+    """
+    return f"/api/people/{urllib.parse.quote(str(person_id))}/delete-inventory"
 
 
 # ── Result accounting ─────────────────────────────────────────────────
@@ -336,11 +466,19 @@ class Checkpoint:
     def __init__(self, out_dir: Path):
         self.path = out_dir / "checkpoint.json"
         self.done: Dict[str, Any] = {}
+        self.selection: Optional[Dict[str, Any]] = None
         if self.path.exists():
             try:
-                self.done = json.loads(self.path.read_text(encoding="utf-8"))
+                raw = json.loads(self.path.read_text(encoding="utf-8"))
             except Exception:
-                self.done = {}
+                raw = {}
+            # Older checkpoints are a bare {key: result} map; newer ones
+            # carry the frozen selection alongside. Read both.
+            if isinstance(raw, dict) and "tasks" in raw:
+                self.done = raw.get("tasks") or {}
+                self.selection = raw.get("selection")
+            else:
+                self.done = raw if isinstance(raw, dict) else {}
 
     @staticmethod
     def key(persona: str, lane: str) -> str:
@@ -349,9 +487,39 @@ class Checkpoint:
     def is_done(self, persona: str, lane: str) -> bool:
         return self.key(persona, lane) in self.done
 
+    def set_selection(self, *, personas, lanes, mode: str) -> None:
+        """Freeze the run boundary before the first network request.
+
+        A bare `--resume` must mean "finish the same run", never "widen a
+        two-narrator quick run into the full twelve". Without this, the
+        cheapest possible typo — resuming a quick run with the default
+        mode — silently creates ten narrators nobody asked for, and the
+        checkpoint makes it look intentional afterwards.
+
+        The stored selection is compared, not merged. Any difference is
+        refused rather than reconciled, because the safe reconciliation
+        of "quick" and "full" is not obvious and guessing it is how a
+        containment promise breaks.
+        """
+        requested = {"personas": sorted(str(p) for p in personas),
+                     "lanes": sorted(str(lane) for lane in lanes),
+                     "mode": str(mode)}
+        if self.selection is not None and self.selection != requested:
+            raise CohortRefusal(
+                "run selection is immutable — a resume cannot change or "
+                f"broaden it.\n  stored:    {self.selection!r}\n"
+                f"  requested: {requested!r}")
+        self.selection = requested
+        self._flush()
+
     def mark(self, persona: str, lane: str, result: Dict[str, Any]) -> None:
         self.done[self.key(persona, lane)] = result
-        self.path.write_text(json.dumps(self.done, indent=1), encoding="utf-8")
+        self._flush()
+
+    def _flush(self) -> None:
+        self.path.write_text(json.dumps(
+            {"selection": self.selection, "tasks": self.done}, indent=1),
+            encoding="utf-8")
 
 
 # ── Planning ──────────────────────────────────────────────────────────
@@ -387,10 +555,47 @@ def build_plan(quick: bool = False) -> Dict[str, Any]:
     if quick:
         personas = personas[:2]
 
+    # The UI lane cannot run without its browser half. A missing helper is
+    # recorded as a PROBLEM, so the lane is visibly unavailable rather than
+    # quietly absent from the report.
+    helper_present = BROWSER_HELPER.is_file()
+    if not helper_present:
+        problems.append({
+            "component": "browser helper",
+            "path": str(BROWSER_HELPER.relative_to(REPO_ROOT)),
+            "problem": "missing — the ui, traveldoc, isolation and "
+                       "persistence lanes have no browser half",
+            "disposition": "ui lanes unavailable",
+        })
+
     return {
         "api_base": API_BASE,
         "repo_root": str(REPO_ROOT),
         "personas": personas,
+        "browser_helper": {
+            "path": str(BROWSER_HELPER.relative_to(REPO_ROOT)),
+            "present": helper_present,
+            "interaction": ("exact-UUID semantic Open only; never "
+                            "coordinates, never list position, never Delete"),
+            "travel_classifications": list(TRAVEL_CLASSIFICATIONS),
+        },
+        "reference_extraction": {
+            "disposition": REFERENCE_EXTRACTION_DISPOSITION,
+            "reason": REFERENCE_EXTRACTION_REASON,
+        },
+        "containment": {
+            "db_read_mode": "sqlite mode=ro",
+            "why": ("Profile Seed GET is a writing read for an enrolled "
+                    "narrator, so containment evidence is taken from a "
+                    "read-only database handle instead"),
+        },
+        "deletion": {
+            "call_sites": 0,
+            "inventory_endpoint": delete_inventory_path("<person_id>"),
+            "note": ("the product deletion inventory is READ to record "
+                     "dependencies; this runner never deletes"),
+        },
+        "task_statuses": list(TASK_STATUSES),
         "qa_templates": {k: (v.exists()) for k, v in QA_TEMPLATES.items()},
         "reference_personas": list(REFERENCE_PERSONAS),
         "exclusions": EXCLUSIONS,

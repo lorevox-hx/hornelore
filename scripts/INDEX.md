@@ -105,6 +105,23 @@ lesson.
   writable Shatner fixture (Shatner is a read-only reference persona).
   Guards refuse any narrator that is not testing-only or a declared
   reference. Location-aware, unlike `harness_lib.REPO_ROOT`.
+  Containment evidence is taken from a **read-only SQLite handle**
+  (`mode=ro`) rather than the Profile Seed `GET`, because that GET is a
+  *writing read* for an enrolled narrator and would modify the very rows
+  it was meant to prove untouched. A resume cannot broaden its run: the
+  selection is frozen at first use, so `--resume` on a quick run can never
+  silently become the full twelve.
+* **`scripts/ui/run_narrator_cohort_surfaces.js`** — the **browser half** of
+  the cohort runner, and the file without which its `ui`, `traveldoc`,
+  `isolation` and `persistence` lanes measure nothing. Opens a narrator by
+  **exact UUID through the semantic `Open` button**, verifying the button's
+  text and its `lv80ConfirmNarratorSwitch` handler before clicking — never a
+  coordinate, never a list position, and never an element carrying a
+  destructive verb. Walks the six `lvShellTab*` tabs, asserts the active
+  narrator never drifts, classifies the Travel Document surface as
+  populated/empty/unavailable/unknown (`unknown` is **not** a pass), and
+  reloads to re-verify persistence. Reports failure rather than an empty
+  pass when it collects no tabs.
 * **`scripts/step6_ws_probe.py`** — the Profile Seed Step 6 **live acceptance instrument**,
   and the evidence for an accepted step. It creates one clearly synthetic narrator through
   the product endpoint, drives five turns over the production WebSocket, and verifies the
