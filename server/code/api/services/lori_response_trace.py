@@ -159,6 +159,7 @@ def begin(narrator_id: str = "", conversation_id: str = "",
             "conversation_id": conversation_id or "",
             "turn_key": turn_key or "",
             "started_at": time.time(),
+            "schema_version": SCHEMA_VERSION,
             "context": dict(extra) if extra else {},
             "stages": [],
             "storage": {},
@@ -187,6 +188,45 @@ def note(key: str, value: Any, trace_id: Optional[str] = None) -> None:
             rec = _traces.get(tid)
             if rec is not None:
                 rec["context"][str(key)] = value
+    except Exception:
+        return
+
+
+SCHEMA_VERSION = 2
+
+#: Context keys a usable trace MUST carry. A record missing any of these
+#: is marked instrumentation_failed so the report can refuse it rather
+#: than quietly rendering a turn with no interpretable context.
+REQUIRED_CONTEXT = ("narrator_input", "runtime71_current_era",
+                    "prompt_tokens", "prompt_budget")
+
+
+def require(keys: Optional[List[str]] = None, *, failed: Optional[str] = None,
+            trace_id: Optional[str] = None) -> None:
+    """Assert required context is present. Records a failure if not.
+
+    The previous version read required values through `locals()` inside
+    a bare `except`, so five of seven names silently did not exist and
+    the trace looked populated while carrying almost nothing. Missing
+    required evidence is now a recorded INSTRUMENTATION FAILURE.
+    """
+    try:
+        tid = trace_id or current()
+        if not tid:
+            return
+        with _lock:
+            rec = _traces.get(tid)
+            if rec is None:
+                return
+            ctx = rec.get("context") or {}
+            missing = [k for k in (keys or REQUIRED_CONTEXT)
+                       if k not in ctx or ctx[k] in (None, "")]
+            if failed or missing:
+                rec["instrumentation_failed"] = True
+                rec["instrumentation_error"] = failed
+                rec["missing_required_context"] = missing
+            else:
+                rec.setdefault("instrumentation_failed", False)
     except Exception:
         return
 
@@ -452,3 +492,23 @@ def load_day(day: Optional[str] = None) -> List[Dict[str, Any]]:
         return out
     except Exception:
         return []
+
+
+def health() -> Dict[str, Any]:
+    """Read-only status for the harness preflight.
+
+    The harness previously probed a route that did not exist and then
+    accepted the mere presence of an old trace directory, so a stale
+    directory could satisfy preflight while the API had tracing off.
+    `enabled` here is the live value from this process.
+    """
+    d = _out_dir()
+    return {
+        "enabled": enabled(),
+        "schema_version": SCHEMA_VERSION,
+        "env_flag": _ENV_FLAG,
+        "output_dir": str(d),
+        "output_dir_exists": d.is_dir(),
+        "retention_stages": list(RETENTION_STAGES),
+        "required_context": list(REQUIRED_CONTEXT),
+    }

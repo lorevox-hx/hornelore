@@ -534,6 +534,17 @@ class CommunicationControlResult:
     reflection_failures: List[str] = field(default_factory=list)
     session_style: str = "oral_history"
     safety_triggered: bool = False
+    # ── WO-LORI-LISTEN-AND-RETAIN-01 · OBSERVATION ONLY ──────────────
+    # The reflection shaper runs INSIDE this function, so from the
+    # outside its effect was indistinguishable from the rest of
+    # communication control and could not be evaluated separately.
+    # These three fields carry its own before/after span and actions.
+    # Nothing reads them to make a decision; they exist so the report
+    # can say whether reflection shaping helped or harmed Lori
+    # independently of the atomicity and length rules around it.
+    reflection_before_text: str = ""
+    reflection_after_text: str = ""
+    reflection_actions: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict:
         """Harness-friendly dict shape. Excludes original_text + final_text
@@ -729,6 +740,9 @@ def _safety_path(
             pass
 
     return CommunicationControlResult(
+        reflection_before_text=_reflect_before,
+        reflection_after_text=_reflect_after,
+        reflection_actions=list(shape_actions),
         original_text=assistant_text,
         final_text=final_text,
         changed=changed,
@@ -956,12 +970,15 @@ def enforce_lori_communication_control(
     # rules over the LLM's output — never invents a narrator fact, only
     # re-arranges or trims what Lori already produced. Idempotent.
     shape_actions: List[str] = []
+    _reflect_before = current
+    _reflect_after = current
     if _reflection_shaping_enabled():
         shaped, shape_actions = shape_reflection(
             assistant_text=current,
             narrator_text=user_text or "",
             softened_mode_active=False,  # ordinary path; safety_path handles softened
         )
+        _reflect_after = shaped
         if shape_actions and shape_actions[0] != "shaped_no_change":
             warnings.append(f"reflection_shaped:{shape_actions[0]}")
             current = shaped
@@ -1152,6 +1169,9 @@ def enforce_lori_communication_control(
             pass
 
     return CommunicationControlResult(
+        reflection_before_text=_reflect_before,
+        reflection_after_text=_reflect_after,
+        reflection_actions=list(shape_actions),
         original_text=assistant_text,
         final_text=current,
         changed=(current != assistant_text),

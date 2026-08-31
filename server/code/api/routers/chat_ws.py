@@ -182,6 +182,16 @@ except Exception:  # pragma: no cover - defensive
         @staticmethod
         def storage(*a, **k): return None
         @staticmethod
+        def seal(*a, **k): return None
+        @staticmethod
+        def park(*a, **k): return None
+        @staticmethod
+        def attach(*a, **k): return False
+        @staticmethod
+        def close(*a, **k): return None
+        @staticmethod
+        def require(*a, **k): return None
+        @staticmethod
         def finish(*a, **k): return None
 
 from ..services.lori_response_guards import (
@@ -5130,15 +5140,53 @@ async def ws_chat(ws: WebSocket):
             conversation_id=str(conv_id or ""),
         )
         _rt.raw(final_text, trace_id=_rt_id)
-        # Runtime context, recorded defensively: these names are set
-        # upstream and a rename must degrade to a missing field on the
-        # trace, never to a NameError inside a live turn.
-        for _rt_k in ("era", "_pass_label", "turn_mode", "_ps_plan",
-                      "_kept_turns", "_dropped_turns", "prompt_tokens"):
-            try:
-                _rt.note(_rt_k, repr(locals()[_rt_k])[:200], trace_id=_rt_id)
-            except Exception:
-                pass
+        # ── REQUIRED runtime context, read by its real name ──────────
+        #
+        # The previous version looped over guessed names via locals()
+        # inside a bare except. Five of the seven did not exist —
+        # `era`, `_pass_label`, `_kept_turns`, `_dropped_turns`,
+        # `prompt_tokens` — so the context silently disappeared and the
+        # trace looked populated while carrying almost nothing. Reading
+        # a required value through a swallowed exception is how an
+        # instrument reports success for work it did not do.
+        #
+        # These are read directly. If one is missing that is an
+        # INSTRUMENTATION FAILURE recorded on the trace, not a silent
+        # gap: `require()` marks the record so the report can refuse it.
+        try:
+            _rt71 = (params.get("runtime71") or {}) if isinstance(
+                params, dict) else {}
+            _rt.note("narrator_input", user_text or "", trace_id=_rt_id)
+            _rt.note("client_turn_id",
+                     (params.get("client_turn_id")
+                      or params.get("turn_id") or None)
+                     if isinstance(params, dict) else None, trace_id=_rt_id)
+            _rt.note("runtime71_current_era", _rt71.get("current_era"),
+                     trace_id=_rt_id)
+            _rt.note("runtime71_current_pass", _rt71.get("current_pass"),
+                     trace_id=_rt_id)
+            _rt.note("effective_pass", _rt71.get("effective_pass"),
+                     trace_id=_rt_id)
+            _rt.note("turn_mode", turn_mode, trace_id=_rt_id)
+            _rt.note("prompt_tokens", _prompt_tokens, trace_id=_rt_id)
+            _rt.note("prompt_budget", {
+                "tokens": _budget.tokens,
+                "limit": _budget.limit,
+                "fits": _budget.fits,
+                "kept_turns": _budget.kept_turns,
+                "dropped_turns": _budget.dropped_turns,
+                "dropped_sections": list(_budget.dropped_sections or []),
+            }, trace_id=_rt_id)
+            _rt.note("prompt_sections",
+                     [getattr(sec, "name", str(sec))
+                      for sec in (_prompt_sections or [])], trace_id=_rt_id)
+            _rt.require(["narrator_input", "runtime71_current_era",
+                         "prompt_tokens", "prompt_budget"],
+                        trace_id=_rt_id)
+        except Exception as _rt_ctx_exc:
+            _rt.note("context_capture_error", str(_rt_ctx_exc),
+                     trace_id=_rt_id)
+            _rt.require([], failed=str(_rt_ctx_exc), trace_id=_rt_id)
         _rt_prev = [final_text]
 
         def _rt_ck(_stage_name, _reason=None):
@@ -5397,17 +5445,20 @@ async def ws_chat(ws: WebSocket):
                 # entirely, which made a distinct transformation
                 # invisible.
                 try:
+                    # The shaper's OWN span, now exposed by
+                    # CommunicationControlResult as observation-only
+                    # fields. Previously this row repeated the combined
+                    # comm_control span, which meant reflection shaping
+                    # could not be evaluated separately from the
+                    # atomicity and length rules around it.
                     _rt.stage(
                         "reflection_shape",
                         fired=bool(_shape_warnings),
-                        before=(_cc_result.original_text or ""),
-                        after=final_text,
-                        reason=[w.split(":", 1)[1] for w in _shape_warnings],
+                        before=(_cc_result.reflection_before_text or ""),
+                        after=(_cc_result.reflection_after_text or ""),
+                        reason=list(_cc_result.reflection_actions or []),
                         trace_id=_rt_id,
-                        span_shared_with="comm_control",
-                        intermediate_text="not_measured — the shaper runs "
-                                          "inside compose_comm_control and "
-                                          "does not expose its own output",
+                        runs_inside="compose_comm_control",
                         softened=bool(_softened_now),
                     )
                 except Exception:

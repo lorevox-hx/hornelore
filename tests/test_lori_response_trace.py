@@ -376,11 +376,19 @@ class RetentionContinuationTests(_Base):
                                    RT.RESULT_PERSISTED))
 
     def test_reflection_shape_is_its_own_stage_in_chat_ws(self):
+        """*(This asserted `span_shared_with` / `intermediate_text` —
+        the placeholders used while the shaper's own before/after was
+        unavailable. CommunicationControlResult now exposes the real
+        span, so the workaround is gone and the stage carries the
+        shaper's actual text.)*"""
         src = (_REPO / "server" / "code" / "api" / "routers"
                / "chat_ws.py").read_text(encoding="utf-8")
         self.assertIn('"reflection_shape"', src)
-        self.assertIn("span_shared_with", src)
-        self.assertIn("intermediate_text", src)
+        self.assertIn("_cc_result.reflection_before_text", src)
+        self.assertIn("_cc_result.reflection_after_text", src)
+        self.assertNotIn("intermediate_text", src,
+                         "the not-measured placeholder should be gone now "
+                         "that the real span is exposed")
 
 
 class RetentionWiringHonestyTests(unittest.TestCase):
@@ -393,7 +401,135 @@ class RetentionWiringHonestyTests(unittest.TestCase):
         self.assertIn("NOT WIRED -> not_measured", src)
 
     def test_extraction_attaches_from_product_code(self):
+        """*(Was `_trace_extraction`, called from two sites. Renamed to
+        `_finalize_extraction_trace` and moved behind a wrapper on the
+        public entry point so failure, malformed shape, timeout and
+        cancellation also attach and close.)*"""
         src = (_REPO / "server" / "code" / "api" / "services"
                / "turn_extraction.py").read_text(encoding="utf-8")
-        self.assertIn("_trace_extraction", src)
+        self.assertIn("_finalize_extraction_trace", src)
         self.assertIn("RESULT_MEASURED_ABSENT", src)
+        self.assertIn("RESULT_MEASUREMENT_FAILED", src)
+
+
+# ── the six blockers from the e579ffc review ─────────────────────────
+class TraceHealthEndpointTests(_Base):
+    def test_health_reports_the_live_enabled_value(self):
+        os.environ["HORNELORE_RESPONSE_TRACE"] = "1"
+        self.assertTrue(RT.health()["enabled"])
+        os.environ["HORNELORE_RESPONSE_TRACE"] = "0"
+        self.assertFalse(RT.health()["enabled"])
+
+    def test_health_carries_schema_and_location(self):
+        h = RT.health()
+        for k in ("enabled", "schema_version", "env_flag", "output_dir",
+                  "output_dir_exists", "retention_stages"):
+            self.assertIn(k, h)
+        self.assertEqual(RT.SCHEMA_VERSION, h["schema_version"])
+
+    def test_the_route_exists(self):
+        src = (_REPO / "server" / "code" / "api" / "routers"
+               / "ping.py").read_text(encoding="utf-8")
+        self.assertIn('@router.get("/health/response-trace")', src)
+
+
+class RequiredContextTests(_Base):
+    def setUp(self):
+        super().setUp()
+        os.environ["HORNELORE_RESPONSE_TRACE"] = "1"
+
+    def test_missing_required_context_is_an_instrumentation_failure(self):
+        tid = RT.begin(narrator_id="n", conversation_id="c")
+        RT.note("narrator_input", "hello", trace_id=tid)
+        RT.require(trace_id=tid)
+        RT.finish(delivered="x", trace_id=tid)
+        row = self._written()[0]
+        self.assertTrue(row["instrumentation_failed"])
+        self.assertIn("prompt_tokens", row["missing_required_context"])
+        self.assertIn("runtime71_current_era", row["missing_required_context"])
+
+    def test_complete_context_is_not_a_failure(self):
+        tid = RT.begin(narrator_id="n", conversation_id="c")
+        for k, v in (("narrator_input", "hello"),
+                     ("runtime71_current_era", "today"),
+                     ("prompt_tokens", 6300),
+                     ("prompt_budget", {"kept_turns": 2})):
+            RT.note(k, v, trace_id=tid)
+        RT.require(trace_id=tid)
+        RT.finish(delivered="x", trace_id=tid)
+        self.assertFalse(self._written()[0]["instrumentation_failed"])
+
+    def test_chat_ws_reads_real_names_not_locals_guesses(self):
+        src = (_REPO / "server" / "code" / "api" / "routers"
+               / "chat_ws.py").read_text(encoding="utf-8")
+        self.assertNotIn("locals()[_rt_k]", src,
+                         "required evidence read through a swallowed "
+                         "locals() lookup")
+        for real in ("_budget.kept_turns", "_budget.dropped_turns",
+                     "_prompt_tokens", '_rt71.get("current_era")',
+                     "_rt.require("):
+            self.assertIn(real, src)
+
+
+class ExtractionFinalizerTests(_Base):
+    """Every terminal outcome must close the trace, not just two."""
+
+    def setUp(self):
+        super().setUp()
+        os.environ["HORNELORE_RESPONSE_TRACE"] = "1"
+        self.src = (_REPO / "server" / "code" / "api" / "services"
+                    / "turn_extraction.py").read_text(encoding="utf-8")
+
+    def test_there_is_one_funnel(self):
+        self.assertIn("_finalize_extraction_trace", self.src)
+        self.assertEqual(1, self.src.count("def _finalize_extraction_trace"))
+
+    def test_the_public_entry_point_is_wrapped(self):
+        self.assertIn("async def extract_completed_turn(**kwargs)", self.src)
+        self.assertIn("async def _extract_completed_turn_inner(", self.src)
+
+    def test_exceptions_and_cancellation_are_covered(self):
+        self.assertIn("except BaseException as exc:", self.src)
+        self.assertIn('"exception"', self.src)
+
+    def test_failure_is_measurement_failed_not_absent(self):
+        tid = RT.begin(narrator_id="n", conversation_id="c")
+        RT.seal(delivered="d", trace_id=tid)
+        RT.park(keys=["turnrow:5"], trace_id=tid)
+        RT.attach("turnrow:5", "extraction", RT.RESULT_MEASUREMENT_FAILED,
+                  detail={"status": "failed"})
+        RT.close("turnrow:5")
+        cell = self._written()[0]["storage"]["extraction"]
+        self.assertEqual(RT.RESULT_MEASUREMENT_FAILED, cell["result"])
+        self.assertNotEqual(RT.RESULT_MEASURED_ABSENT, cell["result"])
+
+
+class ReflectionSpanTests(unittest.TestCase):
+    def test_comm_control_exposes_the_shapers_own_span(self):
+        src = (_REPO / "server" / "code" / "api" / "services"
+               / "lori_communication_control.py").read_text(encoding="utf-8")
+        for f in ("reflection_before_text", "reflection_after_text",
+                  "reflection_actions"):
+            self.assertIn(f, src)
+        self.assertIn("_reflect_before = current", src)
+
+    def test_chat_ws_uses_that_span_not_the_combined_one(self):
+        src = (_REPO / "server" / "code" / "api" / "routers"
+               / "chat_ws.py").read_text(encoding="utf-8")
+        self.assertIn("_cc_result.reflection_before_text", src)
+        self.assertIn("_cc_result.reflection_after_text", src)
+
+
+class DefensiveStubTests(unittest.TestCase):
+    def test_the_stub_covers_every_method_the_router_calls(self):
+        src = (_REPO / "server" / "code" / "api" / "routers"
+               / "chat_ws.py").read_text(encoding="utf-8")
+        stub = src[src.index("class _rt:"):src.index("from ..services.lori_response_guards")]
+        import re
+        called = set(re.findall(r"_rt\.([a-z_]+)\(", src))
+        defined = set(re.findall(r"def ([a-z_]+)\(\*a, \*\*k\)", stub))
+        missing = called - defined - {"RESULT_PERSISTED"}
+        self.assertEqual(set(), missing,
+                         f"the no-op fallback lacks {sorted(missing)}; an "
+                         f"import failure would hit a missing method, be "
+                         f"swallowed, and silently produce no trace")

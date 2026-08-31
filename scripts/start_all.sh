@@ -12,6 +12,26 @@ source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 
 printf '\n=== Starting Hornelore stack ===\n\n'
 
+# ── WO-LORI-LISTEN-AND-RETAIN-01 — observation trace flag ────────────
+# Exported explicitly rather than relied upon. `start_named_process`
+# launches the API through `nohup bash -lc`, a LOGIN shell that re-reads
+# the profile files, and the evaluation depends entirely on this flag
+# reaching the API process. Exporting here makes the propagation a fact
+# rather than an inference, and printing it means a run can never be
+# started in the belief that tracing is on when it is off.
+#
+# Default 0: tracing is OPT-IN and must not record every ordinary
+# production turn indefinitely.
+#
+#   HORNELORE_RESPONSE_TRACE=1 ./scripts/start_all.sh
+export HORNELORE_RESPONSE_TRACE="${HORNELORE_RESPONSE_TRACE:-0}"
+if [[ "$HORNELORE_RESPONSE_TRACE" == "1" ]]; then
+  printf 'Response trace: ENABLED (observation only; artifacts under .runtime/eval/response-trace/)\n\n'
+else
+  printf 'Response trace: off. For the listening-and-retention evaluation start with:\n'
+  printf '  HORNELORE_RESPONSE_TRACE=1 ./scripts/start_all.sh\n\n'
+fi
+
 # Pre-flight: kill ALL stale services and show VRAM before fresh start
 kill_all_hornelore
 show_vram

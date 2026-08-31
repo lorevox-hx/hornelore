@@ -179,8 +179,12 @@ class TraceConsumptionTests(unittest.TestCase):
         self.src = IdentityIsVerifiedAgainstStateTests._code_only(raw)
 
     def test_the_harness_refuses_without_tracing(self):
-        self.assertIn("REFUSED: response tracing is not available", self.src)
-        self.assertIn("HORNELORE_RESPONSE_TRACE=1", self.src)
+        """*(The message changed when preflight stopped accepting a
+        stale directory: it now names what the API actually reported.)*"""
+        self.assertIn("REFUSED: the API reports response tracing is NOT "
+                      "enabled", self.src)
+        self.assertIn("HORNELORE_RESPONSE_TRACE=1 ./scripts/start_all.sh",
+                      self.src)
 
     def test_it_reads_trace_records_by_person_and_conversation(self):
         self.assertIn("tracesForRun", self.src)
@@ -205,3 +209,60 @@ class TraceConsumptionTests(unittest.TestCase):
 
     def test_a_zero_turn_trace_is_reported_as_a_problem_not_a_pass(self):
         self.assertIn("recorded ZERO turns", self.src)
+
+
+class PreflightAndCompletenessTests(unittest.TestCase):
+    def setUp(self):
+        raw = (_REPO_ROOT / "scripts" / "ui"
+               / "run_walt_seven_era_conversation.js").read_text(
+                   encoding="utf-8")
+        self.src = IdentityIsVerifiedAgainstStateTests._code_only(raw)
+
+    def test_preflight_requires_enabled_true_from_the_api(self):
+        self.assertIn("traceHealth.body?.enabled !== true", self.src)
+
+    def test_a_stale_directory_cannot_satisfy_preflight(self):
+        self.assertNotIn("const dirExists = traceProbe.available", self.src)
+        self.assertIn("An existing trace", self.src)
+
+    def test_mechanical_pass_requires_trace_completeness(self):
+        self.assertIn("report.traceCompleteness.complete", self.src)
+        self.assertIn("&& report.traceCompleteness.complete", self.src)
+
+    def test_completeness_counts_expected_traces_and_raw_text(self):
+        self.assertIn("const expectedTraces = 1 + (report.eras.length * 2)",
+                      self.src)
+        self.assertIn("withRaw", self.src)
+        self.assertIn("instrumentationFailures", self.src)
+
+    def test_memoir_is_queried_at_the_api_origin(self):
+        self.assertIn("${args.api}/api/memoir/canonical", self.src)
+        self.assertIn("measurement_failed", self.src)
+
+    def test_run_level_snapshots_are_not_called_per_turn(self):
+        self.assertIn("NOT per-turn attribution", self.src)
+        self.assertIn("perTurnAttribution", self.src)
+
+    def test_rolling_summary_and_archive_stay_not_measured(self):
+        self.assertIn('rolling_summary: { result: "not_measured"', self.src)
+        self.assertIn('archive: { result: "not_measured"', self.src)
+
+    def test_identity_waits_for_the_expected_display_name(self):
+        self.assertIn("expectedDisplayName", self.src)
+        self.assertIn("openExactNarrator(page, narrator.person_id, "
+                      "actualDisplayName)", self.src)
+
+
+class StartAllPropagatesTheFlagTests(unittest.TestCase):
+    def test_start_all_exports_and_reports_the_flag(self):
+        sh = (_REPO_ROOT / "scripts" / "start_all.sh").read_text(
+            encoding="utf-8")
+        self.assertIn('export HORNELORE_RESPONSE_TRACE="${HORNELORE_RESPONSE_TRACE:-0}"', sh)
+        self.assertIn("Response trace: ENABLED", sh)
+        self.assertIn("Response trace: off", sh)
+
+    def test_the_default_is_off(self):
+        sh = (_REPO_ROOT / "scripts" / "start_all.sh").read_text(
+            encoding="utf-8")
+        self.assertIn("RESPONSE_TRACE:-0}", sh,
+                      "tracing must remain opt-in")

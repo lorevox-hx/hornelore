@@ -46,3 +46,26 @@ def runtime_posture() -> Dict[str, Any]:
             "emergency_monitoring": False,
         },
     }
+
+
+# ── WO-LORI-LISTEN-AND-RETAIN-01 ──────────────────────────────────────
+# Read-only trace status for the evaluation harness preflight.
+#
+# The harness previously probed a route that did not exist, and on the
+# resulting failure fell back to accepting the mere presence of a trace
+# DIRECTORY. A stale directory from an earlier day therefore satisfied
+# preflight while this process had tracing switched off, and the run
+# could reach PASS with zero raw-response evidence in it.
+#
+# `enabled` here is the live value read by the API process that will
+# actually write the traces. Deliberately reports state only: it cannot
+# turn tracing on, and it exposes no narrator content.
+@router.get("/health/response-trace")
+def response_trace_health() -> Dict[str, Any]:
+    try:
+        from ..services import lori_response_trace as rt
+        payload = rt.health()
+        payload["ok"] = True
+        return payload
+    except Exception as exc:  # pragma: no cover - defensive
+        return {"ok": False, "enabled": False, "error": str(exc)}

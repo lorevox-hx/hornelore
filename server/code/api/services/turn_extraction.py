@@ -907,7 +907,6 @@ async def _complete_claim(claim: _Claim) -> ExtractionOutcome:
         _finish_ledger(ledger_id, "noop", item_count=0,
                        method=method or "no_items", duration_ms=out.duration_ms)
         logger.info("[extract-turn] extract_fields_noop %s", out.as_log_fields())
-        _trace_extraction(ident, "noop", items=[], method=method)
         return out
 
     out = _outcome_for(ident, "succeeded", started=started,
@@ -929,7 +928,6 @@ async def _complete_claim(claim: _Claim) -> ExtractionOutcome:
     _store_result(claim, items, _clar, method)
 
     logger.info("[extract-turn] extract_fields_succeeded %s", out.as_log_fields())
-    _trace_extraction(ident, "succeeded", items=items, method=method)
     await _offer_result(claim, out, _clar)
     return out
 
@@ -946,28 +944,41 @@ except Exception:  # pragma: no cover - defensive
     _rt = None  # type: ignore
 
 
-def _trace_extraction(ident, outcome, items=None, method=None):
-    """Attach the extraction result, then close the parked trace."""
+def _finalize_extraction_trace(turn_key, status, *, item_count=0,
+                               method="", error_class="", detail=None):
+    """THE single funnel. Every terminal extraction outcome ends here.
+
+    The previous version was called from two places — success and one
+    noop — so malformed results, exceptions, the cancellation path, the
+    ceiling timeout and the claim-stage failures all returned without
+    attaching anything. Those traces stayed parked, and sweeping only
+    happens on a later `park()` after 180s while the harness waits
+    four, so the last failed turn of a run could never appear at all.
+
+    Now: success with items is `persisted`; a clean run that found
+    nothing is `measured_absent` (the source WAS queried, so it is a
+    real negative); anything else — failure, malformed shape, timeout,
+    cancellation, exception — is `measurement_failed`, which is NOT
+    evidence that the narrator's information was absent.
+    """
     if _rt is None:
         return
     try:
-        key = str(getattr(ident, "turn_key", "") or "")
+        key = str(turn_key or "")
         if not key:
             return
-        n = len(items or [])
-        if outcome == "succeeded" and n:
+        n = int(item_count or 0)
+        if status == "succeeded" and n > 0:
             result = _rt.RESULT_PERSISTED
-        elif outcome in ("succeeded", "noop"):
-            # Ran cleanly and found nothing. The source WAS queried, so
-            # this is a real negative, not a broken measurement.
+        elif status in ("succeeded", "noop"):
             result = _rt.RESULT_MEASURED_ABSENT
         else:
             result = _rt.RESULT_MEASUREMENT_FAILED
-        _rt.attach(key, "extraction", result, detail={
-            "outcome": outcome, "items": n, "method": method,
-            "turn_key": key,
-            "narrator": str(getattr(ident, "narrator_id", "") or ""),
-        })
+        payload = {"status": status, "items": n, "method": method,
+                   "error_class": error_class, "turn_key": key}
+        if detail:
+            payload.update(detail)
+        _rt.attach(key, "extraction", result, detail=payload)
         _rt.close(key)
     except Exception:
         return
@@ -1164,7 +1175,7 @@ def schedule_completed_turn_extraction(
                         method="background_task", ledger_id=claim.ledger_id)
 
 
-async def extract_completed_turn(
+async def _extract_completed_turn_inner(
     *,
     narrator_id: str,
     turn_id: str,
@@ -1283,3 +1294,31 @@ async def drain_pending_extractions(
         report["finished_within_timeout"], report["cancelled"],
     )
     return report
+
+
+async def extract_completed_turn(**kwargs) -> ExtractionOutcome:
+    """Public entry point. Guarantees the trace is finalized exactly once.
+
+    Wrapping here rather than patching each `return` is deliberate: the
+    inner function has more than a dozen terminal paths, and two of them
+    (`asyncio.CancelledError` and an unexpected exception) do not return
+    at all. A wrapper is the only place that covers every one.
+    """
+    turn_key = str(kwargs.get("turn_key") or "")
+    try:
+        out = await _extract_completed_turn_inner(**kwargs)
+    except BaseException as exc:            # includes CancelledError
+        _finalize_extraction_trace(
+            turn_key, "exception", error_class=type(exc).__name__,
+            detail={"why": "extraction raised; no outcome was produced"})
+        raise
+    try:
+        _finalize_extraction_trace(
+            turn_key or getattr(out, "turn_key", ""),
+            getattr(out, "status", "unknown"),
+            item_count=getattr(out, "item_count", 0),
+            method=getattr(out, "method", "") or "",
+            error_class=getattr(out, "error_class", "") or "")
+    except Exception:
+        pass
+    return out

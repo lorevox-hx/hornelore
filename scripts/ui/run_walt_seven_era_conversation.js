@@ -146,7 +146,7 @@ function captureInitScript() {
   window.WebSocket = WrappedWebSocket;
 }
 
-async function openExactNarrator(page, personId) {
+async function openExactNarrator(page, personId, expectedDisplayName) {
   await page.waitForFunction(
     (pid) => Array.from(document.querySelectorAll("button")).some((b) =>
       b.textContent.trim() === "Open" && (b.getAttribute("onclick") || "").includes(pid)),
@@ -190,19 +190,22 @@ async function openExactNarrator(page, personId) {
       return st && st !== "loading" && st !== "idle";
     },
     null, { timeout: 60000 });
-  // The card is repainted asynchronously after openStatus settles; wait
-  // for the placeholder to be gone rather than sampling into the gap.
+  /* The card is repainted asynchronously after openStatus settles. Wait
+   * for the EXPECTED product display name, not merely for any node that
+   * is no longer the placeholder — with a duplicated id, "some node is
+   * non-placeholder" can be satisfied by a stale copy still showing a
+   * PREVIOUS narrator, which would let a wrong-narrator run proceed. */
   await page.waitForFunction(
-    () => {
+    (want) => {
       const nodes = Array.from(
         document.querySelectorAll("#lv80ActiveNarratorName"));
       if (!nodes.length) return false;
       return nodes.some((n) => {
         const t = (n.textContent || "").trim();
-        return t && t !== "Choose a narrator" && t !== "Loading…";
+        return t && (t === want || want.includes(t) || t.includes(want));
       });
     },
-    null, { timeout: 60000 });
+    expectedDisplayName, { timeout: 60000 });
   await page.waitForFunction(() => {
     const input = document.getElementById("chatInput");
     const busy = typeof window._loriIsBusy === "function" && window._loriIsBusy();
@@ -614,19 +617,25 @@ async function main() {
   try { ({ chromium } = require("playwright")); }
   catch (_) { ({ chromium } = require("@playwright/test")); }
 
-  // ── Trace preflight. Refuse rather than report without evidence. ──
-  const traceProbe = readTraces(repoRoot, 0);
+  /* ── Trace preflight ───────────────────────────────────────────────
+   * The API is asked directly whether IT has tracing on. The previous
+   * version probed a route that did not exist and then fell back to
+   * accepting the presence of a trace DIRECTORY, so a stale directory
+   * from an earlier day satisfied preflight while the API had tracing
+   * off — and the run could reach PASS with no raw-response evidence.
+   * An existing directory is not proof. `enabled === true` is. */
   const runStartedMs = Date.now();
+  const traceHealth = await safeFetchJson(
+    `${args.api}/api/health/response-trace`);
   if (!args.allowNoTrace) {
-    const health = await safeFetchJson(`${args.api}/api/health/response-trace`);
-    const dirExists = traceProbe.available;
-    if (!dirExists && !health.ok) {
+    if (!traceHealth.ok || traceHealth.body?.enabled !== true) {
       throw new Error(
-        "REFUSED: response tracing is not available. Restart the stack with "
-        + "HORNELORE_RESPONSE_TRACE=1 so raw-vs-delivered evidence is "
-        + "recorded. A report without the trace is not the report this "
-        + "work order asks for. Override only for a mechanical smoke test "
-        + "with --allow-no-trace.");
+        "REFUSED: the API reports response tracing is NOT enabled "
+        + `(${JSON.stringify(traceHealth.body || traceHealth.error || traceHealth.status)}). `
+        + "Restart the stack with HORNELORE_RESPONSE_TRACE=1 ./scripts/start_all.sh "
+        + "so raw-vs-delivered evidence is recorded. An existing trace "
+        + "directory is NOT proof: it can be stale. Override only for a "
+        + "mechanical smoke test with --allow-no-trace.");
     }
   }
 
@@ -668,7 +677,7 @@ async function main() {
 
   try {
     await page.goto(args.ui, { waitUntil: "domcontentloaded", timeout: 60000 });
-    await openExactNarrator(page, narrator.person_id);
+    await openExactNarrator(page, narrator.person_id, actualDisplayName);
     // ── Identity is verified against window.state.person_id, NOT a DOM
     // label. `id="lv80ActiveNarratorName"` is DUPLICATED in the product
     // (ui/hornelore1.0.html:3021 and again in the JS-built markup around
@@ -756,6 +765,7 @@ async function main() {
     await page.waitForTimeout(4000);
     const traced = tracesForRun(repoRoot, runStartedMs, narrator.person_id,
                                 report.conversationId);
+    report.traceHealth = traceHealth.body || null;
     report.responseTrace = {
       available: traced.available,
       dir: traced.dir,
@@ -763,11 +773,97 @@ async function main() {
       records: traced.records,
       retention: retentionSummary(traced.records),
     };
+
+    /* ── Run-level retention evidence ──────────────────────────────
+     * These are BEFORE/AFTER SNAPSHOTS of the whole run, and they are
+     * labelled as such. They are NOT per-turn attribution and the
+     * report must not present them as if they were: a fact that
+     * appeared between the first and last turn cannot be assigned to a
+     * particular turn from a snapshot pair alone. Per-turn attribution
+     * exists only where a source turn id is recorded on the fact. */
+    const beforeFacts = report.beforeServer?.facts?.body?.facts || [];
+    const afterFacts = report.afterServer?.facts?.body?.facts || [];
+    const keyOf = (f) => `${f.field_key || f.fieldPath || ""}=${f.value || ""}`;
+    const beforeKeys = new Set(beforeFacts.map(keyOf));
+    const newFacts = afterFacts.filter((f) => !beforeKeys.has(keyOf(f)));
+    const sourceTurnIds = new Set(report.responseTrace.records
+      .flatMap((r) => Object.values(r.context?.turn_row_ids || {}))
+      .map(String));
+
+    // Memoir source, queried at the API ORIGIN. The UI asks :8082 for
+    // this route, which serves files and 404s — that is a broken
+    // measurement, not evidence of absence, and it is why this is
+    // queried here rather than trusted from the browser.
+    const memoir = await safeFetchJson(
+      `${args.api}/api/memoir/canonical?person_id=`
+      + encodeURIComponent(narrator.person_id));
+
+    report.retentionEvidence = {
+      scope: "run-level before/after snapshots, NOT per-turn attribution",
+      bio_facts: {
+        result: report.afterServer?.facts?.ok
+          ? (newFacts.length ? "persisted" : "measured_absent")
+          : "measurement_failed",
+        before: beforeFacts.length,
+        after: afterFacts.length,
+        added: newFacts.length,
+        addedRows: newFacts,
+        perTurnAttribution: newFacts.filter((f) =>
+          sourceTurnIds.has(String(f.source_turn_id || f.turn_id || ""))).length,
+        attributionNote: "per-turn attribution counts only facts whose "
+          + "recorded source turn matches a durable row id from this run",
+      },
+      chronology: {
+        result: report.afterServer?.chronology?.ok
+          ? "persisted" : "measurement_failed",
+        before: report.beforeServer?.chronology?.body || null,
+        after: report.afterServer?.chronology?.body || null,
+      },
+      life_map: {
+        result: report.afterServer?.projection?.ok
+          ? "persisted" : "measurement_failed",
+        before: report.beforeServer?.projection?.body || null,
+        after: report.afterServer?.projection?.body || null,
+      },
+      memoir_source: {
+        result: memoir.ok ? (memoir.body ? "persisted" : "measured_absent")
+                          : "measurement_failed",
+        queriedAt: memoir.url,
+        status: memoir.status,
+        note: memoir.ok ? null
+          : "queried at the API origin; a failure here is measurement_failed "
+          + "and is NOT evidence that memoir data is absent",
+      },
+      rolling_summary: { result: "not_measured",
+        note: "no instrumentation exists for this stage" },
+      archive: { result: "not_measured",
+        note: "no instrumentation exists for this stage" },
+    };
     report.beforeServer = beforeServer;
+    /* Model turns that SHOULD have produced a trace: the bio probe, plus
+     * one era prompt and one narrator turn per era. A run that carried
+     * every era but recorded no raw-response evidence has not done the
+     * job this work order asks for, so trace completeness is part of
+     * PASS rather than a footnote. */
+    const expectedTraces = 1 + (report.eras.length * 2);
+    const tracedTurns = report.responseTrace.turns;
+    const withRaw = report.responseTrace.records.filter(
+      (r) => typeof r.raw_text === "string" && r.raw_text.length > 0).length;
+    const instrumentationFailures = report.responseTrace.records.filter(
+      (r) => r.instrumentation_failed === true);
+    report.traceCompleteness = {
+      expectedTraces, tracedTurns, withRaw,
+      instrumentationFailures: instrumentationFailures.length,
+      missingRequiredContext: instrumentationFailures
+        .flatMap((r) => r.missing_required_context || []),
+      complete: tracedTurns >= expectedTraces && withRaw === tracedTurns
+                && instrumentationFailures.length === 0,
+    };
     report.mechanicalPass = report.eras.length === 7
       && report.eras.every((e) => e.mechanical.eraSelectedAndSent)
       && report.eras.every((e) => Boolean(e.eraPrompt.finalText && e.narratorEvidence.finalText))
-      && Boolean(report.bio.response);
+      && Boolean(report.bio.response)
+      && report.traceCompleteness.complete;
   } catch (error) {
     report.error = String(error && error.stack || error);
     report.mechanicalPass = false;
