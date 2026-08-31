@@ -1173,13 +1173,37 @@ class LiveRun:
         return {"executed": False, "lane": lane,
                 "reason": "not selected by --only-lane"}
 
+    def run_person_ids(self) -> List[str]:
+        """The narrators THIS run touches — the containment exclusion set.
+
+        ── THE TWO HASHES MUST COVER THE SAME POPULATION, 2026-08-31 ──
+
+        The baseline passed `[]`, which is right for an ordinary run: no
+        narrator exists yet, so nothing can be excluded. On a REPLAY the
+        narrators already exist, so they sat INSIDE the baseline's
+        "non-run" population and were excluded from the after-snapshot —
+        10 rows compared against 8, guaranteeing a mismatch.
+
+        `containment_unchanged: false` on the invalid replay was that,
+        not a containment breach. A comparison between different
+        populations is not a comparison.
+
+        On a replay the ids are known up front, from the source journal.
+        On an ordinary run they are not, and `[]` remains correct.
+        """
+        if self.source_ledger is not None:
+            return [str(r.get("person_id")) for r in
+                    (self.source_ledger.data.get("people") or [])
+                    if r.get("person_id")]
+        return []
+
     def _baseline(self) -> Dict[str, Any]:
         """Captured once. A resume reads the stored one, never re-takes it."""
         path = self.out_dir / "containment-before.json"
         if path.is_file():
             return json.loads(path.read_text(encoding="utf-8"))
         snap = containment_snapshot(
-            [], db_path=self.db_path,
+            self.run_person_ids(), db_path=self.db_path,
             people_rows=self.transport.list_people())
         path.write_text(json.dumps(snap, indent=1), encoding="utf-8")
         return snap
@@ -1356,6 +1380,41 @@ class LiveRun:
                 "status_after": (pbody or {}).get("status")
                 if isinstance(pbody, dict) else None}
 
+    def assert_chapters_populated(self) -> Dict[str, int]:
+        """Every selected chapter must carry narrator words. Pre-network.
+
+        Returns the per-persona word counts, which the caller prints so a
+        human sees positive numbers before anything is sent.
+        """
+        counts: Dict[str, int] = {}
+        empty: List[str] = []
+        for persona in self.personas:
+            chapters = persona.get("chapters") or []
+            if not chapters:
+                empty.append(f"{persona['label']}: no chapters at all")
+                continue
+            words = 0
+            for index, chapter in enumerate(chapters):
+                text = getattr(chapter, "text", None)
+                if not isinstance(text, str) or not text.strip():
+                    empty.append(
+                        f"{persona['label']} chapter {index} "
+                        f"({getattr(chapter, 'runtime71_era', '?')}) has no text")
+                    continue
+                words += len(text.split())
+            counts[persona["label"]] = words
+        if empty:
+            raise CohortRefusal(
+                "REFUSING to send empty narrator turns. "
+                + "; ".join(empty)
+                + ". An empty turn measures nothing and makes Lori answer "
+                  "silence, which is what invalidated the 2026-08-30 run.")
+        for label, words in counts.items():
+            n = len(next(p["chapters"] for p in self.personas
+                         if p["label"] == label))
+            print(f"  [chapters] {label}: {n} chapters, {words} narrator words")
+        return counts
+
     def _seed_state(self, person_id: str) -> Dict[str, Any]:
         """Profile Seed state as the server reports it, for one turn."""
         status, body = self.transport.get(
@@ -1371,18 +1430,93 @@ class LiveRun:
             "remaining": body.get("remaining_topics"),
         }
 
+    #: How long to wait for background extraction to settle after a turn.
+    #: `[extract-turn] extract_fields_scheduled` runs as a background task
+    #: AFTER the WebSocket `done`, so reading facts immediately measures
+    #: the state before extraction ran and reports every turn as
+    #: extracting nothing. Observed settle time in the live log is ~2.3s.
+    EXTRACTION_POLL_SECONDS = 12.0
+    EXTRACTION_POLL_INTERVAL = 0.75
+
     def _facts(self, person_id: str) -> Dict[str, Any]:
-        """Extracted facts, for a before/after comparison per turn."""
+        """Extracted facts WITH VALUES, not just a count.
+
+        A count cannot answer "was this fact placed in the right era" or
+        "which turn produced it", which are the questions the cohort
+        exists to ask. The rows are kept whole, minus nothing, because
+        the operator reviewing them needs the value and its provenance.
+        """
         status, body = self.transport.get(
             "/api/facts/list?person_id=" + urllib.parse.quote(person_id))
         if status != 200 or not isinstance(body, dict):
-            return {"http": status, "unavailable": True}
+            return {"http": status, "unavailable": True, "rows": {}}
         facts = body.get("facts") or body.get("items") or []
-        return {"count": len(facts) if isinstance(facts, list) else None,
-                "keys": sorted({str(f.get("field_key"))
-                                for f in facts
-                                if isinstance(f, dict) and f.get("field_key")})
-                if isinstance(facts, list) else []}
+        if not isinstance(facts, list):
+            return {"http": status, "unavailable": True, "rows": {}}
+        rows: Dict[str, Any] = {}
+        for f in facts:
+            if not isinstance(f, dict):
+                continue
+            key = str(f.get("field_key") or "")
+            if not key:
+                continue
+            rows[key] = {
+                "value": f.get("value"),
+                "status": f.get("status"),
+                "era": f.get("era") or f.get("era_id"),
+                "source_turn": (f.get("source_turn_id") or f.get("turn_id")
+                                or f.get("provenance_turn_id")),
+                "source": f.get("source"),
+                "last_updated": f.get("last_updated"),
+            }
+        return {"count": len(rows), "keys": sorted(rows), "rows": rows}
+
+    def _facts_settled(self, person_id: str,
+                       before: Dict[str, Any]) -> Dict[str, Any]:
+        """Poll until extraction changes something, or time out. BOUNDED.
+
+        Returns the after-snapshot with `settled` / `timed_out` recorded.
+        A timeout is NOT a failure of the product — extraction may
+        legitimately find nothing — so it is reported as what it is: this
+        instrument stopped waiting. Reporting a timeout as "extracted
+        nothing" would be the same class of lie as counting characters.
+        """
+        deadline = time.time() + self.EXTRACTION_POLL_SECONDS
+        baseline_keys = set((before or {}).get("keys") or [])
+        last = self._facts(person_id)
+        while time.time() < deadline:
+            if set(last.get("keys") or []) != baseline_keys:
+                last["extraction"] = {
+                    "settled": True, "timed_out": False,
+                    "waited_s": round(self.EXTRACTION_POLL_SECONDS
+                                      - (deadline - time.time()), 2)}
+                return last
+            time.sleep(self.EXTRACTION_POLL_INTERVAL)
+            last = self._facts(person_id)
+        last["extraction"] = {
+            "settled": False, "timed_out": True,
+            "waited_s": self.EXTRACTION_POLL_SECONDS,
+            "note": ("no fact change within the window; extraction may have "
+                     "found nothing, or may not have finished. This "
+                     "instrument stopped waiting — it did not observe a "
+                     "negative result.")}
+        return last
+
+    def _life_map(self, person_id: str) -> Dict[str, Any]:
+        """Where the chronology/Life Map places what is known.
+
+        Captured because "are facts placed in the correct era" cannot be
+        answered from `bio_facts` alone.
+        """
+        status, body = self.transport.get(
+            "/api/chronology-accordion?person_id="
+            + urllib.parse.quote(person_id))
+        if status != 200 or not isinstance(body, dict):
+            return {"http": status, "unavailable": True}
+        decades = body.get("decades") or body.get("items") or []
+        return {"http": status,
+                "decade_count": len(decades) if isinstance(decades, list) else None,
+                "payload": body}
 
     def run_turns(self, persona: Dict[str, Any], person_id: str) -> Dict[str, Any]:
         """Sequential. One turn at a time, checkpointed as it goes.
@@ -1414,7 +1548,24 @@ class LiveRun:
                               "reused_from_checkpoint": True})
                 continue
 
-            narrator_text = getattr(chapter, "narrator_text", "") or ""
+            # ── `chapter.text`, AND NO getattr DEFAULT, 2026-08-31 ──
+            #
+            # This read `getattr(chapter, "narrator_text", "")`.
+            # `ChapterConfig` declares `text: str  # the narrator
+            # monologue` and has no `narrator_text` field, so the default
+            # fired on EVERY chapter and every narrator turn the cohort
+            # has ever sent was EMPTY — including the 2026-08-30 live run.
+            #
+            # Lori was answering silence. She filled both sides of the
+            # conversation, inventing the narrator's memories and then
+            # reflecting on her own invention, which is why Walt's
+            # transcript repeats Aunt Mabel's kitchen four turns running.
+            # Both that run and replay-r20260831-032111-cf4b5a are void
+            # as evidence about Lori.
+            #
+            # A direct attribute access raises on a renamed field. The
+            # default is what turned a rename into ten silent turns.
+            narrator_text = chapter.text
             era_requested = getattr(chapter, "runtime71_era", "unknown")
             seed_before = self._seed_state(person_id)
             facts_before = self._facts(person_id)
@@ -1424,7 +1575,11 @@ class LiveRun:
                 speaker_name=persona["label"], conv_id=conv_id)
 
             seed_after = self._seed_state(person_id)
-            facts_after = self._facts(person_id)
+            # BOUNDED WAIT. Extraction is a background task that starts
+            # after `done`; reading immediately measured the world before
+            # it ran.
+            facts_after = self._facts_settled(person_id, facts_before)
+            life_map_after = self._life_map(person_id)
 
             record = {
                 "index": index,
@@ -1443,6 +1598,11 @@ class LiveRun:
                 "profile_seed_after": seed_after,
                 "facts_before": facts_before,
                 "facts_after": facts_after,
+                "extraction": facts_after.get("extraction"),
+                "facts_added": {
+                    k: v for k, v in (facts_after.get("rows") or {}).items()
+                    if k not in set((facts_before or {}).get("keys") or [])},
+                "life_map_after": life_map_after,
             }
             turns.append(record)
             # The LEDGER stays a thin inventory — ids and shape, no prose.
@@ -1498,6 +1658,15 @@ class LiveRun:
 
     # ── the run ──────────────────────────────────────────────────────
     def execute(self) -> Dict[str, Any]:
+        # ── NOTHING IS SENT UNTIL EVERY CHAPTER HAS WORDS, 2026-08-31 ──
+        #
+        # BEFORE the baseline, before intake, before any socket opens.
+        # An empty narrator turn is never a legitimate measurement, and
+        # the failure it produces — Lori talking to herself for ten turns
+        # — looks like a working run in every summary that counts turns.
+        # Refusing costs one message; not refusing cost two whole runs.
+        self.assert_chapters_populated()
+
         self._step("freeze_selection")
         self.checkpoint.set_selection(
             personas=[p["label"] for p in self.personas],
@@ -1546,8 +1715,13 @@ class LiveRun:
             })
 
         self._step("containment_after")
+        # The SAME exclusion set the baseline used, plus anything this run
+        # created (nothing, on a replay). Union rather than the results
+        # alone, so the two hashes cannot describe different populations.
+        _excluded = sorted(set(self.run_person_ids())
+                           | {r["person_id"] for r in self.results})
         after = containment_snapshot(
-            [r["person_id"] for r in self.results], db_path=self.db_path,
+            _excluded, db_path=self.db_path,
             people_rows=self.transport.list_people())
 
         self._step("emit_reports")

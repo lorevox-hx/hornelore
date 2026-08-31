@@ -50,6 +50,16 @@ def _load():
 COHORT = _load()
 SOURCE = _RUNNER.read_text(encoding="utf-8")
 
+# ── THE EXTRACTION POLL IS A LIVE CONCERN, NOT A TEST ONE, 2026-08-31 ──
+#
+# `_facts_settled` waits up to 12s per turn for background extraction to
+# change something. Against a fake transport whose facts never move, that
+# is 12s x every turn in this file. The WINDOW is what these tests do not
+# need; the polling BEHAVIOUR is still exercised by
+# ExtractionPollTests below, which drives it directly.
+COHORT.LiveRun.EXTRACTION_POLL_SECONDS = 0.0
+COHORT.LiveRun.EXTRACTION_POLL_INTERVAL = 0.0
+
 
 def _executable_source() -> str:
     """The runner's CODE, with docstrings removed.
@@ -827,9 +837,15 @@ def _two_personas():
                             "place_of_birth": "Seoul",
                             "pronouns": "they_them",
                             "current_residence": "Portland"},
-         "chapters": [type("C", (), {"narrator_text": "t1",
+         # ── `text`, MATCHING THE REAL ChapterConfig, 2026-08-31 ────
+         # These carried `narrator_text`, which no product object has.
+         # The runner read `narrator_text` too, so fake and runner agreed
+         # and the suite stayed green while every REAL chapter resolved
+         # to "" and two live runs sent nothing but empty turns.
+         # A fake friendlier than the product tests the fake.
+         "chapters": [type("C", (), {"text": "I grew up on Pine Street.",
                                      "runtime71_era": "childhood"})(),
-                      type("C", (), {"narrator_text": "t2",
+                      type("C", (), {"text": "These days it is quieter.",
                                      "runtime71_era": "today"})()]},
         {"harness": "run_seven_era_walk_harness", "label": "Walt",
          "intake_payload": {"preferred_name": "Walter",
@@ -838,7 +854,7 @@ def _two_personas():
                             "place_of_birth": "Boston",
                             "pronouns": "he_him",
                             "current_residence": "Quincy"},
-         "chapters": [type("C", (), {"narrator_text": "t3",
+         "chapters": [type("C", (), {"text": "We moved a great deal then.",
                                      "runtime71_era": "building_years"})()]},
     ]
 
@@ -1632,3 +1648,266 @@ class ReplayModeTests(unittest.TestCase):
                 source_ledger=led)
             with self.assertRaises(COHORT.CohortRefusal):
                 run.execute()
+
+
+class RealChapterFixtureTests(unittest.TestCase):
+    """The empty-input defect, pinned against the REAL fixtures.
+
+    ── WHY SUBSTITUTE OBJECTS HID THIS, 2026-08-31 ───────────────────
+
+    `_two_personas()` builds chapters with `type("C", (), {...})` carrying
+    a `narrator_text` attribute. The runner read `narrator_text`. Both
+    agreed, every test passed, and the REAL `ChapterConfig` declares
+    `text: str  # the narrator monologue` and no `narrator_text` at all.
+
+    So `getattr(chapter, "narrator_text", "")` returned "" for every real
+    chapter, every narrator turn was sent EMPTY, and Lori answered
+    silence for two entire live runs while the suite stayed green.
+
+    A fake that is friendlier than the product tests the fake. These
+    tests load Alex's and Walt's actual harness fixtures.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.personas = COHORT.load_personas(quick=True)
+        cls.by_label = {p["label"]: p for p in cls.personas}
+
+    def test_the_quick_cohort_is_alex_and_walt(self):
+        self.assertEqual(2, len(self.personas))
+        labels = sorted(self.by_label)
+        self.assertTrue(any("Alex" in l for l in labels), labels)
+        self.assertTrue(any("Walter" in l for l in labels), labels)
+
+    def test_real_chapters_expose_text_and_NOT_narrator_text(self):
+        """The exact mismatch, asserted on the real object."""
+        for label, persona in self.by_label.items():
+            for chapter in persona["chapters"]:
+                with self.subTest(label=label,
+                                  era=getattr(chapter, "runtime71_era", "?")):
+                    self.assertTrue(hasattr(chapter, "text"))
+                    self.assertFalse(
+                        hasattr(chapter, "narrator_text"),
+                        "ChapterConfig grew a narrator_text field; the "
+                        "runner reads .text and this test is now wrong")
+
+    def test_alex_has_three_populated_chapters(self):
+        alex = next(p for l, p in self.by_label.items() if "Alex" in l)
+        self.assertEqual(3, len(alex["chapters"]))
+        for chapter in alex["chapters"]:
+            self.assertTrue(chapter.text.strip(),
+                            f"{chapter.runtime71_era} has no narrator text")
+
+    def test_walt_has_seven_populated_chapters(self):
+        walt = next(p for l, p in self.by_label.items() if "Walter" in l)
+        self.assertEqual(7, len(walt["chapters"]))
+        for chapter in walt["chapters"]:
+            self.assertTrue(chapter.text.strip(),
+                            f"{chapter.runtime71_era} has no narrator text")
+
+    def test_walt_covers_all_seven_eras(self):
+        walt = next(p for l, p in self.by_label.items() if "Walter" in l)
+        self.assertEqual(
+            ["adolescence", "building_years", "coming_of_age",
+             "earliest_years", "early_school_years", "later_years", "today"],
+            sorted(c.runtime71_era for c in walt["chapters"]))
+
+    def test_the_runner_reads_text_and_uses_no_getattr_default(self):
+        """Source-pinned, because the defect was a silent default."""
+        self.assertIn("narrator_text = chapter.text", EXEC_SOURCE)
+        self.assertNotIn('getattr(chapter, "narrator_text"', EXEC_SOURCE)
+
+
+class NonVacuityGateTests(unittest.TestCase):
+    """Nothing reaches the network until every chapter has words."""
+
+    def _persona(self, label, texts):
+        return {"harness": "h1", "label": label, "intake_payload": {},
+                "chapters": [type("C", (), {"text": t,
+                                            "runtime71_era": "earliest_years"})()
+                             for t in texts]}
+
+    def _run(self, tmp, personas, transport=None):
+        return COHORT.LiveRun(
+            personas=personas, lanes=list(COHORT.LANES), mode="quick",
+            out_dir=Path(tmp), transport=transport or FakeTransport(),
+            ui_url="http://x/y.html", run_id="r-gate")
+
+    def test_an_empty_chapter_refuses_BEFORE_any_network_call(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            transport = FakeTransport()
+            run = self._run(tmp, [self._persona("Empty", ["real words", ""])],
+                            transport)
+            with self.assertRaises(COHORT.CohortRefusal) as ctx:
+                run.execute()
+            self.assertIn("empty narrator turns", str(ctx.exception))
+            self.assertEqual([], transport.calls,
+                             "the runner touched the network before refusing")
+            self.assertEqual([], transport.turns)
+
+    def test_a_persona_with_no_chapters_refuses(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._run(tmp, [self._persona("None", [])])
+            with self.assertRaises(COHORT.CohortRefusal):
+                run.execute()
+
+    def test_whitespace_only_text_is_empty(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._run(tmp, [self._persona("Blank", ["   \n  "])])
+            with self.assertRaises(COHORT.CohortRefusal):
+                run.execute()
+
+    def test_populated_chapters_pass_the_gate_and_report_word_counts(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._run(tmp, [self._persona("Good", ["one two three",
+                                                          "four five"])])
+            counts = run.assert_chapters_populated()
+            self.assertEqual({"Good": 5}, counts)
+
+
+class ReplayContainmentTests(unittest.TestCase):
+    """Both hashes must cover the same population."""
+
+    def test_a_replay_excludes_its_narrators_from_the_BASELINE_too(self):
+        """The invalid replay compared 10 rows against 8.
+
+        `_baseline` passed `[]` — right for a fresh run, wrong for a
+        replay, where the narrators already exist and are therefore
+        inside the baseline's non-run population but outside the
+        after-snapshot's.
+        """
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "source"; src.mkdir()
+            led = COHORT.Ledger(src, "r-source")
+            led.add_person("11111111-2222-3333-4444-000000000001",
+                           "ZZ COHORT r-source · Alex", "h1")
+            run = COHORT.LiveRun(
+                personas=_two_personas(), lanes=list(COHORT.LANES),
+                mode="replay", out_dir=Path(tmp) / "replay",
+                transport=FakeTransport(marker="ZZ COHORT r-source · "),
+                ui_url="http://x/y.html", run_id="replay-r-new",
+                replay_of="r-source", source_ledger=led)
+            self.assertEqual(["11111111-2222-3333-4444-000000000001"],
+                             run.run_person_ids())
+
+    def test_an_ordinary_run_excludes_nothing_from_the_baseline(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            run = COHORT.LiveRun(
+                personas=_two_personas(), lanes=list(COHORT.LANES),
+                mode="quick", out_dir=Path(tmp), transport=FakeTransport(),
+                ui_url="http://x/y.html", run_id="r-plain")
+            self.assertEqual([], run.run_person_ids())
+
+
+class TravelTabSelectionTests(unittest.TestCase):
+    """The browser helper must classify Travel Document, not Trips."""
+
+    @staticmethod
+    def _js_code_only(src: str) -> str:
+        """JS with comments stripped.
+
+        *(The first version of this test asserted the old selector was
+        absent from the raw file and failed on the COMMENT that explains
+        why it was wrong — the third time in this repo that a guard has
+        punished a file for documenting itself. The property is about
+        CODE.)*
+        """
+        import re
+        src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
+        return re.sub(r"//[^\n]*", "", src)
+
+    def test_the_helper_prefers_traveldoc_over_trips(self):
+        raw = (_REPO_ROOT / "scripts" / "ui"
+               / "run_narrator_cohort_surfaces.js").read_text(encoding="utf-8")
+        code = self._js_code_only(raw)
+        self.assertIn('evidence.tabs.find((tab) => tab.tab === "traveldoc")',
+                      code)
+        self.assertNotIn(
+            'tab.tab === "traveldoc" || tab.tab === "trips"', code,
+            "find() returns the FIRST match and trips precedes traveldoc, "
+            "so this selected the wrong panel and classified it unknown")
+        # Non-vacuity for the stripper: the explanation must survive.
+        self.assertIn("classified it with `#lvTravelDocTab` selectors", raw)
+
+
+class ExtractionPollTests(unittest.TestCase):
+    """Bounded wait for background extraction, and honest reporting.
+
+    Extraction is scheduled AFTER the WebSocket `done` event, so reading
+    facts immediately measured the world before it ran and reported every
+    turn as extracting nothing. The live log shows it settling in ~2.3s.
+    """
+
+    class _ChangingTransport(FakeTransport):
+        """Facts appear on the third read, as extraction would."""
+
+        def __init__(self, **kw):
+            super().__init__(**kw)
+            self._fact_reads = 0
+
+        def get(self, path):
+            if path.startswith("/api/facts/list"):
+                self._fact_reads += 1
+                if self._fact_reads >= 3:
+                    return 200, {"facts": [
+                        {"field_key": "childhood_home_address",
+                         "value": "Pine Street", "status": "extracted_needs_verify",
+                         "era": "earliest_years", "source_turn_id": "t-1"}]}
+                return 200, {"facts": []}
+            return super().get(path)
+
+    def _run(self, tmp, transport, window=2.0):
+        run = COHORT.LiveRun(
+            personas=_two_personas(), lanes=list(COHORT.LANES), mode="quick",
+            out_dir=Path(tmp), transport=transport,
+            ui_url="http://x/y.html", run_id="r-extract")
+        run.EXTRACTION_POLL_SECONDS = window
+        run.EXTRACTION_POLL_INTERVAL = 0.01
+        return run
+
+    def test_a_settled_extraction_is_recorded_as_settled(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._run(tmp, self._ChangingTransport())
+            before = {"keys": []}
+            after = run._facts_settled("p1", before)
+            self.assertTrue(after["extraction"]["settled"])
+            self.assertFalse(after["extraction"]["timed_out"])
+            self.assertIn("childhood_home_address", after["keys"])
+
+    def test_a_timeout_is_recorded_as_a_timeout_not_as_nothing_found(self):
+        """The instrument stopped waiting. That is not a negative result."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._run(tmp, FakeTransport(), window=0.05)
+            after = run._facts_settled("p1", {"keys": ["childhood_home_address"]})
+            self.assertTrue(after["extraction"]["timed_out"])
+            self.assertFalse(after["extraction"]["settled"])
+            self.assertIn("did not observe a negative result",
+                          after["extraction"]["note"])
+
+    def test_fact_VALUES_and_provenance_are_captured_not_just_counts(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._run(tmp, self._ChangingTransport())
+            after = run._facts_settled("p1", {"keys": []})
+            row = after["rows"]["childhood_home_address"]
+            self.assertEqual("Pine Street", row["value"])
+            self.assertEqual("earliest_years", row["era"])
+            self.assertEqual("t-1", row["source_turn"])
+
+    def test_the_turn_record_names_which_facts_were_ADDED(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._run(tmp, self._ChangingTransport())
+            report = run.execute()
+            turns = report["personas"][0]["conversation"]["turns"]
+            added = [t for t in turns if t.get("facts_added")]
+            self.assertTrue(added, "no turn recorded an added fact")
+            self.assertIn("childhood_home_address", added[0]["facts_added"])

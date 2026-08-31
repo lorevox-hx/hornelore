@@ -318,7 +318,21 @@ async function main() {
      * written to the file and then left out of the verdict entirely, so a
      * Travel Document that failed to load could not fail the run. */
     const TRAVEL_PASSING = new Set(["populated", "empty"]);
-    const travelTab = evidence.tabs.find((tab) => tab.tab === "traveldoc" || tab.tab === "trips");
+    /* ── THE TRAVEL DOC TAB, NOT WHICHEVER COMES FIRST, 2026-08-31 ────
+     *
+     * This was `find(tab => tab.tab === "traveldoc" || tab.tab === "trips")`.
+     * `find` returns the FIRST match in DOM order and `trips` precedes
+     * `traveldoc` in the shell strip, so it activated Trips and then
+     * classified it with `#lvTravelDocTab` selectors. Nothing matched,
+     * the classification came back `unknown`, and — because I had just
+     * made `unknown` fail — BOTH personas reported the browser lane
+     * unverified on replay-r20260831-032111-cf4b5a while every tab,
+     * isolation and persistence check passed.
+     *
+     * The lane was measuring the wrong panel. Prefer `traveldoc`
+     * explicitly and fall back to `trips` only if it is absent. */
+    const travelTab = evidence.tabs.find((tab) => tab.tab === "traveldoc")
+                   || evidence.tabs.find((tab) => tab.tab === "trips");
     if (travelTab && travelTab.clicked && !travelTab.error) {
       const travelState = await classifyTravel(page, travelTab.id);
       evidence.travel = {
