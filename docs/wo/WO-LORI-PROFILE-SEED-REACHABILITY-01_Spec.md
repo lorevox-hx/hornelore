@@ -19,7 +19,8 @@ lane has now produced three times. What follows is the pushed tree, not a plan.
 | 1 — server authority | **ACCEPTED** at `1288baa` |
 | 2 — prompt and committed-turn wiring | ✅ **ACCEPTED 2026-08-29, steps 1–7 complete.** Steps 1–5 (step 5 `9127adb`); pre-Step-6 checkpoint `d0e5294`; **step 6 `12221e0`…`58dfc40`, proven live 16/16 twice through the production WebSocket and the real model**; step 7 — consolidated closure — `6885bb2`. Evidence by checkpoint: `HANDOFF.md` §1a |
 | 3 — browser promotion sites and server authority | 🔵 **IN IMPLEMENTATION, ACCEPTANCE OPEN.** Landed and pushed; live acceptance not yet passed. See the ledger below |
-| 4–5 | not begun, **not accepted** |
+| 4 — consolidated offline gate | ⚠️ **PARTIALLY RUN, NOT ACCEPTED.** Earlier offline gates ran and passed, but they are **superseded** by the epoch and delivery changes — they measured a reducer that correlated on `version` and a path with no delivery guarantee. Consolidated verification must be rerun once Phase 3 stabilizes |
+| 5 — one live acceptance and restart | ⚠️ **PARTIALLY RUN, NOT ACCEPTED.** Live testing is what **found** the defects: pause/resume re-interrogation, the phantom presentation that closed `childhood_home`, the hidden operator controls, and the composer and layout failures. The corrected path still needs a clean live rerun and a restart proof |
 
 **Phase 3 — what is landed and pushed:**
 
@@ -563,24 +564,29 @@ that one string is emitted and stored.
 
 **A Spanish-locked session currently receives an English question.**
 
-`finalize_presentation` runs at `chat_ws.py:6135`. Every language repair runs before it —
-`final_text = _repaired` (5508), `_es_repaired` (5532), `_es_repair_text` (5859). So the
-finalizer appends `narrator_question` **after** the text has been repaired into Spanish,
-and `narrator_question` exists only in English.
+`finalize_presentation` runs **after** the English and Spanish repair paths, and appends an
+**English-only** `narrator_question`. So a session the language guard has just repaired into
+Spanish ends with an English question attached to it.
 
-This is a direct consequence of making delivery deterministic: the guarantee that the
-narrator receives the server's exact sentence is also a guarantee that they receive it in
-the language that sentence was written in.
+*(Stated as a relationship on purpose. An earlier draft cited the exact source lines, which
+is the documentation defect this lane has already cleaned up once: line numbers are wrong
+the moment anything above them moves, and they read as authority while doing it.)*
 
-Two acceptable resolutions, and this work order takes **neither** without Chris:
+This follows directly from making delivery deterministic. Guaranteeing that the narrator
+receives the server's exact sentence is also a guarantee that they receive it in the
+language that sentence was written in.
 
-- **approved Spanish wording** for all ten, added beside `narrator_question`; or
-- **Profile Seed explicitly constrained to English**, with the walk refusing to present on
-  a non-English session rather than presenting in the wrong language.
+**Resolution direction, 2026-08-30: add approved Spanish canonical questions.** Lorevox is
+bilingual by design and constraining Profile Seed to English would narrow the product to
+suit the fix. The alternative — refusing to present on a non-English session — is recorded
+as considered and **not** chosen.
 
-**Do not invent translations.** Narrator-facing wording was already escalated once for this
+**Do not invent translations.** The English wording was escalated once for exactly this
 reason and approved with edits on 2026-08-30; machine-translated questions put in front of
-an older narrator are the same decision made worse.
+an older narrator are that same decision made worse. The Spanish set needs the same
+approval before Phase 3 acceptance.
+
+**This does not block §3.2.** The UI block proceeds while the wording is settled.
 
 #### 3.2 Narrator-room usability — CURRENT ACTION
 
