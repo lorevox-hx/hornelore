@@ -40,7 +40,30 @@
 
   // ── Config ──────────────────────────────────────────────────────
   var TICK_MS = 60 * 1000;          // once per minute (WO rule 5)
-  var DEFAULT_VARIANT = "B";        // 2026-05-02 lock
+  // ── DEFAULT FLIPPED TO "OFF", 2026-08-30 ──────────────────────────
+  //
+  // Was "B" (2026-05-02 lock). Observed live in the narrator room: the
+  // card renders as an OPAQUE PANEL ON TOP OF THE CONVERSATION. It
+  // covered the timeline decade labels (1950s, 1960s, …), obscured
+  // Lori's message text behind it, and sat directly over the mic
+  // affordance it was specified to sit *adjacent to*.
+  //
+  // WO rule 1 places it "lower-left of the narrator chat region
+  // adjacent to the mic affordance". It is not adjacent to anything —
+  // it is over it. A narrator-visible element that hides the narrator's
+  // own conversation fails the surface it was built for, and orientation
+  // that costs you the words on screen is not orientation.
+  //
+  // "OFF" is the WO's OWN supported variant, handled at `_refresh()`
+  // below, so this is a default change and not a removal: the script,
+  // the mount, the spec and the other three variants are untouched, and
+  // an operator can restore it with
+  // `localStorage["lvClockVariant"] = "B"`.
+  //
+  // RETIRING the clock outright, or repositioning it so it can be shown
+  // without covering anything, is a product decision against
+  // WO-INTERVIEW-CLOCK-01 and is deliberately NOT made here.
+  var DEFAULT_VARIANT = "OFF";
   var MOUNT_RETRY_MS = 250;         // wait for narrator section to exist
   var MOUNT_RETRY_LIMIT = 40;       // give up after ~10s (operator tab default)
 
