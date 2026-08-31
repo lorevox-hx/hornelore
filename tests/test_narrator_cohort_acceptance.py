@@ -19,6 +19,9 @@ from __future__ import annotations
 import ast
 import importlib.util
 import json
+import io
+import contextlib
+import tempfile
 import re
 import sys
 import unittest
@@ -309,8 +312,8 @@ class PlanIsTheDefaultTests(unittest.TestCase):
     def test_full_without_live_REFUSES(self):
         self.assertEqual(self._run(["--full"])[0], 2)
 
-    def test_full_with_live_is_STILL_closed(self):
-        """Quick is wired; the full cohort is not.
+    def test_full_with_live_is_never_invoked_by_this_suite(self):
+        """The full cohort is OPEN. That is why this no longer calls it.
 
         ── SUPERSEDES `test_live_lanes_are_not_enabled_in_this_commit` ──
 
@@ -322,14 +325,25 @@ class PlanIsTheDefaultTests(unittest.TestCase):
         a developer's machine with the stack running, that test would have
         CREATED NARRATORS.*
 
-        *So the gate it was guarding is re-asserted here against `--full`,
-        which is still closed, and the quick path is exercised only through
+        *So the gate it was guarding was re-asserted against `--full`,
+        which was closed, and the quick path is exercised only through
         `LiveRun` with an injected fake transport. A test must never be one
         running stack away from writing to the product.)*
+
+        ── UPDATED 2026-08-31, WHEN `--full` OPENED ──────────────────
+
+        The old assertion here was `rc == 3` and "--full is not open
+        yet". `--full --live` now RUNS: on a machine with the stack up
+        it would create twelve narrators and send fifteen thousand
+        words of narration. That is the precise mistake this test's own
+        docstring was written to describe, so it is not re-pointed at
+        another flag — it asserts the *approach*, offline, and the
+        `--live` half of the gate is proven by `--full` alone below.
         """
-        rc, _, err = self._run(["--full", "--live"])
-        self.assertEqual(rc, 3)
-        self.assertIn("--full is not open yet", err)
+        rc, out, err = self._run(["--full"])
+        self.assertEqual(rc, 2)
+        self.assertIn("--live is required", err)
+        self.assertIn('"personas"', out, "a plan should have been printed")
 
     def test_no_test_in_this_suite_invokes_a_live_quick_run(self):
         """A guard against re-introducing exactly that mistake."""
@@ -344,11 +358,44 @@ class PlanIsTheDefaultTests(unittest.TestCase):
                 values = [e.value for e in arg.elts
                           if isinstance(e, ast.Constant)
                           and isinstance(e.value, str)]
-                if "--live" in values and "--quick" in values:
-                    self.fail(
-                        "a test passes --quick --live to main(); with a stack "
-                        "running that CREATES NARRATORS. Exercise the quick "
-                        "path through LiveRun with a fake transport instead.")
+                if "--live" not in values:
+                    continue
+                # `--full` joined this guard on 2026-08-31. Until then
+                # `--full --live` was a refusal and safe to call from a
+                # test; it is now the LARGEST live run in the repo —
+                # twelve narrators and ~15,700 words of narration. The
+                # guard that existed to stop a test being one running
+                # stack away from writing to the product had to grow
+                # the same day the flag it did not cover went live.
+                for flag, cost in (("--quick", "CREATES NARRATORS"),
+                                   ("--full", "CREATES TWELVE NARRATORS"),
+                                   ("--replay", "SENDS REAL MODEL TURNS"),
+                                   ("--resume", "SENDS REAL MODEL TURNS")):
+                    if flag in values:
+                        self.fail(
+                            f"a test passes {flag} --live to main(); with a "
+                            f"stack running that {cost}. Exercise the path "
+                            "through LiveRun with a fake transport instead.")
+
+    def test_that_guard_actually_fires(self):
+        """Non-vacuity. A guard nobody has seen fail is a guess.
+
+        The offender is built as an AST node rather than written as
+        source, because writing it as source would trip the guard on
+        this very file.
+        """
+        offender = ast.parse('main(["--full", "--live"])')
+        found = []
+        for node in ast.walk(offender):
+            if isinstance(node, ast.Call):
+                for arg in node.args:
+                    if isinstance(arg, (ast.List, ast.Tuple)):
+                        vals = [e.value for e in arg.elts
+                                if isinstance(e, ast.Constant)]
+                        if "--live" in vals and "--full" in vals:
+                            found.append(vals)
+        self.assertEqual(1, len(found),
+                         "the shape the guard scans for was not detected")
 
     def test_plan_declares_that_it_writes_nothing(self):
         plan = COHORT.build_plan()
@@ -1445,15 +1492,14 @@ class CohortMembershipTests(unittest.TestCase):
         self.assertIn(" ", COHORT.run_prefix("abc"))
         self.assertTrue(COHORT.run_prefix("abc").startswith("ZZ COHORT"))
 
-    def test_full_is_still_closed(self):
-        import contextlib
-        import io
-        err = io.StringIO()
-        with contextlib.redirect_stdout(io.StringIO()), \
-                contextlib.redirect_stderr(err):
-            rc = COHORT.main(["--full", "--live"])
-        self.assertEqual(rc, 3)
-        self.assertIn("--full is not open yet", err.getvalue())
+    def test_full_is_open_and_selects_the_whole_membership(self):
+        """*(Was `test_full_is_still_closed`, asserting rc 3. It called
+        `main(["--full", "--live"])` — which is now a real run. Membership
+        is what this class is about, so it is asserted directly.)*"""
+        personas = COHORT.load_personas(quick=False)
+        self.assertEqual(set(COHORT.COHORT_HARNESSES) | set(COHORT.QA_TEMPLATES),
+                         {p["harness"] if p["source"] == "harness" else p["label"]
+                          for p in personas})
 
 
 if __name__ == "__main__":  # pragma: no cover
@@ -1911,3 +1957,172 @@ class ExtractionPollTests(unittest.TestCase):
             added = [t for t in turns if t.get("facts_added")]
             self.assertTrue(added, "no turn recorded an added fact")
             self.assertIn("childhood_home_address", added[0]["facts_added"])
+
+
+class _BlankChapter:
+    """A chapter whose `text` is whitespace — the empty-turn defect."""
+    text = "   "
+    runtime71_era = "earliest_years"
+
+
+def _strip_py_comments(src: str) -> str:
+    """Python source with `#` comments removed.
+
+    Same lesson as the JS stripper above: a guard that cannot tell a
+    prohibition from a violation punishes the file for explaining
+    itself, and this file now explains the removed refusal by quoting
+    it.
+    """
+    import re
+    return re.sub(r"(?m)#[^\n]*", "", src)
+
+
+
+class FullCohortGateTests(unittest.TestCase):
+    """`--full` selects all twelve, or refuses. OFFLINE ONLY.
+
+    *(No test here runs `--full --live`. A suite that creates twelve
+    narrators to prove it can create twelve narrators is the thing the
+    refusal existed to prevent; the selection is arithmetic and is
+    tested as arithmetic. The `--live` gate itself is asserted from the
+    argument parser, not by opening a socket.)*
+    """
+
+    def test_the_hardcoded_refusal_is_gone(self):
+        src = (_REPO_ROOT / "scripts"
+               / "run_narrator_cohort_acceptance.py").read_text(encoding="utf-8")
+        code = _strip_py_comments(src)
+        self.assertNotIn("--full is not open yet", code)
+        self.assertNotIn("return 3", code)
+
+    def test_full_selects_exactly_twelve(self):
+        personas = COHORT.load_personas(quick=False)
+        self.assertEqual(12, len(personas))
+        self.assertEqual(COHORT.FULL_COHORT_SIZE, len(personas))
+
+    def test_the_twelve_are_the_configured_ones(self):
+        personas = COHORT.load_personas(quick=False)
+        self.assertEqual(
+            set(COHORT.COHORT_HARNESSES),
+            {p["harness"] for p in personas if p["source"] == "harness"})
+        self.assertEqual(
+            set(COHORT.QA_TEMPLATES),
+            {p["label"] for p in personas if p["source"] == "qa_template"})
+
+    def test_the_gate_accepts_the_real_cohort(self):
+        shape = COHORT.assert_full_selection(COHORT.load_personas(quick=False))
+        self.assertEqual({"narrators": 12, "harness_personas": 10,
+                          "qa_templates": 2}, shape)
+
+    def test_a_dropped_harness_persona_is_refused(self):
+        """The silent-skip failure, which is the reason the gate exists."""
+        personas = [p for p in COHORT.load_personas(quick=False)
+                    if p["harness"] != "run_alex_they_long_narration_harness"]
+        with self.assertRaises(COHORT.CohortRefusal) as caught:
+            COHORT.assert_full_selection(personas)
+        self.assertIn("intake: testing_only", str(caught.exception))
+        self.assertIn("selected 11", str(caught.exception))
+
+    def test_a_dropped_template_is_refused(self):
+        personas = [p for p in COHORT.load_personas(quick=False)
+                    if p["source"] != "qa_template"]
+        with self.assertRaises(COHORT.CohortRefusal) as caught:
+            COHORT.assert_full_selection(personas)
+        self.assertIn("QA template fixtures missing", str(caught.exception))
+
+    def test_an_unconfigured_persona_is_refused(self):
+        personas = COHORT.load_personas(quick=False) + [
+            {"harness": "run_someone_elses_harness", "label": "Intruder",
+             "source": "harness", "chapters": [], "intake_payload": {}}]
+        with self.assertRaises(COHORT.CohortRefusal) as caught:
+            COHORT.assert_full_selection(personas)
+        self.assertIn("unconfigured harness personas", str(caught.exception))
+
+    # ── quick and replay are unchanged ───────────────────────────────
+    def test_quick_still_selects_exactly_alex_and_walt(self):
+        personas = COHORT.load_personas(quick=True)
+        self.assertEqual(2, len(personas))
+        self.assertEqual(set(COHORT.QUICK_HARNESSES),
+                         {p["harness"] for p in personas})
+
+    def test_only_full_widens_the_selection(self):
+        """Replay and resume must keep loading the quick two.
+
+        A replay reuses the journaled UUIDs of its source run; widening
+        it would ask for narrators that run never created.
+        """
+        src = (_REPO_ROOT / "scripts"
+               / "run_narrator_cohort_acceptance.py").read_text(encoding="utf-8")
+        self.assertIn("personas = load_personas(quick=not args.full)",
+                      _strip_py_comments(src))
+
+    # ── the --live gate survives ─────────────────────────────────────
+    def test_full_without_live_still_refuses_and_writes_nothing(self):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = COHORT.main(["--full"])
+        self.assertEqual(2, rc)
+        self.assertIn("--live is required", err.getvalue())
+        self.assertIn('"personas"', out.getvalue())   # a plan, not a run
+
+    def test_the_plan_default_is_untouched(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(0, COHORT.main([]))
+        self.assertIn('"personas"', out.getvalue())
+
+
+class FullCohortChapterGateTests(unittest.TestCase):
+    """Word totals print before any network work, templates exempted."""
+
+    def _run(self, personas):
+        return COHORT.LiveRun(personas=personas, lanes=list(COHORT.LANES), mode="full",
+                         out_dir=Path(tempfile.mkdtemp()), transport=None,
+                         ui_url="http://unused")
+
+    def test_the_full_cohort_has_positive_words_in_every_chapter(self):
+        counts = {}
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            counts = self._run(COHORT.load_personas(quick=False)) \
+                .assert_chapters_populated()
+        scripted = {k: v for k, v in counts.items() if v}
+        self.assertEqual(10, len(scripted))
+        for label, words in scripted.items():
+            self.assertGreater(words, 500, f"{label} looks truncated")
+        self.assertIn("12 narrators", out.getvalue())
+        self.assertIn("38 chapters", out.getvalue())
+
+    def test_the_qa_templates_are_exempt_not_refused(self):
+        """They are fixtures with no scripted conversation, by design.
+
+        Refusing them would have made `--full` refuse on its first run,
+        every run — the gate would have been unreachable rather than
+        strict.
+        """
+        templates = [p for p in COHORT.load_personas(quick=False)
+                     if p["source"] == "qa_template"]
+        self.assertEqual(2, len(templates))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            counts = self._run(templates).assert_chapters_populated()
+        self.assertEqual({"Mara Vale": 0, "Elena March": 0}, counts)
+        self.assertIn("no model turn", out.getvalue())
+
+    def test_a_harness_persona_with_no_chapters_is_still_refused(self):
+        personas = COHORT.load_personas(quick=False)
+        broken = dict(next(p for p in personas if p["source"] == "harness"))
+        broken["chapters"] = []
+        with self.assertRaises(COHORT.CohortRefusal) as caught:
+            self._run([broken]).assert_chapters_populated()
+        self.assertIn("no chapters at all", str(caught.exception))
+
+    def test_an_empty_chapter_anywhere_in_the_cohort_is_refused(self):
+        personas = [dict(p) for p in COHORT.load_personas(quick=False)]
+        victim = personas[-3]
+        victim["chapters"] = list(victim["chapters"])
+        victim["chapters"][0] = _BlankChapter()
+        with self.assertRaises(COHORT.CohortRefusal) as caught:
+            self._run(personas).assert_chapters_populated()
+        self.assertIn("has no text", str(caught.exception))
+        self.assertIn("2026-08-30", str(caught.exception))

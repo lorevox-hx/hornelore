@@ -766,6 +766,59 @@ def load_personas(quick: bool = False) -> List[Dict[str, Any]]:
     return personas
 
 
+#: The full cohort is exactly this: ten long-form harness personas plus
+#: the two QA templates. Written down as an arithmetic expectation so a
+#: silent drop is a refusal rather than a smaller run nobody noticed.
+FULL_COHORT_SIZE = len(COHORT_HARNESSES) + len(QA_TEMPLATES)
+
+
+def assert_full_selection(personas: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Refuse unless `--full` selected the whole configured cohort.
+
+    `load_personas` SKIPS SILENTLY — a harness that fails to import, or
+    that loses `intake: testing_only`, simply does not appear, and the
+    run proceeds with eleven. That is the failure this exists to catch:
+    a cohort run is a claim about coverage, and eleven-of-twelve
+    reported as a full run is a false claim.
+
+    Returns the counted shape so the caller can print it.
+    """
+    got_harness = {p["harness"] for p in personas if p["source"] == "harness"}
+    got_template = {p["label"] for p in personas
+                    if p["source"] == "qa_template"}
+    problems: List[str] = []
+
+    missing_h = set(COHORT_HARNESSES) - got_harness
+    if missing_h:
+        problems.append(
+            "harness personas missing (not importable, or no longer "
+            f"intake: testing_only): {sorted(missing_h)}")
+    extra_h = got_harness - set(COHORT_HARNESSES)
+    if extra_h:
+        problems.append(f"unconfigured harness personas: {sorted(extra_h)}")
+
+    missing_t = set(QA_TEMPLATES) - got_template
+    if missing_t:
+        problems.append(f"QA template fixtures missing: {sorted(missing_t)}")
+    extra_t = got_template - set(QA_TEMPLATES)
+    if extra_t:
+        problems.append(f"unconfigured templates: {sorted(extra_t)}")
+
+    if len(personas) != FULL_COHORT_SIZE:
+        problems.append(f"expected exactly {FULL_COHORT_SIZE} narrators, "
+                        f"selected {len(personas)}")
+
+    if problems:
+        raise CohortRefusal(
+            "--full must run the whole configured cohort or refuse. "
+            + "; ".join(problems)
+            + ". Fix the selection rather than accepting a smaller run: a "
+              "partial cohort reported as full is a false coverage claim.")
+    return {"narrators": len(personas),
+            "harness_personas": len(got_harness),
+            "qa_templates": len(got_template)}
+
+
 # ── Planning ──────────────────────────────────────────────────────────
 def build_plan(quick: bool = False) -> Dict[str, Any]:
     """What WOULD run. No network, no database, no writes."""
@@ -1388,11 +1441,22 @@ class LiveRun:
         """
         counts: Dict[str, int] = {}
         empty: List[str] = []
+        scripted = 0
         for persona in self.personas:
             chapters = persona.get("chapters") or []
             if not chapters:
+                # The two QA templates are fixtures, not scripted
+                # conversations — `load_personas` gives them `chapters:
+                # []` on purpose, and they exercise intake, Profile Seed
+                # and the UI surfaces instead. Refusing them here would
+                # have made `--full` refuse on its first run, every run.
+                # A HARNESS persona with no chapters is still a defect.
+                if persona.get("source") == "qa_template":
+                    counts[persona["label"]] = 0
+                    continue
                 empty.append(f"{persona['label']}: no chapters at all")
                 continue
+            scripted += 1
             words = 0
             for index, chapter in enumerate(chapters):
                 text = getattr(chapter, "text", None)
@@ -1402,6 +1466,8 @@ class LiveRun:
                         f"({getattr(chapter, 'runtime71_era', '?')}) has no text")
                     continue
                 words += len(text.split())
+            if not words:
+                empty.append(f"{persona['label']}: zero narrator words")
             counts[persona["label"]] = words
         if empty:
             raise CohortRefusal(
@@ -1409,10 +1475,19 @@ class LiveRun:
                 + "; ".join(empty)
                 + ". An empty turn measures nothing and makes Lori answer "
                   "silence, which is what invalidated the 2026-08-30 run.")
+
+        chapter_total = sum(len(p.get("chapters") or []) for p in self.personas)
+        word_total = sum(counts.values())
+        print(f"  [cohort] {len(self.personas)} narrators, "
+              f"{scripted} scripted, "
+              f"{len(self.personas) - scripted} fixture-only, "
+              f"{chapter_total} chapters, {word_total} narrator words")
         for label, words in counts.items():
             n = len(next(p["chapters"] for p in self.personas
                          if p["label"] == label))
-            print(f"  [chapters] {label}: {n} chapters, {words} narrator words")
+            suffix = "  (fixture: intake + surfaces, no model turn)" if not n else ""
+            print(f"  [chapters] {label}: {n} chapters, "
+                  f"{words} narrator words{suffix}")
         return counts
 
     def _seed_state(self, person_id: str) -> Dict[str, Any]:
@@ -1966,15 +2041,20 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # ── LIVE ──────────────────────────────────────────────────────────
     #
-    # `--full` stays closed. The quick run is wired and offline-tested;
-    # the full cohort opens only after a quick run has been inspected,
-    # so twelve narrators are never created on the strength of a test
-    # suite alone.
-    if args.full:
-        print("REFUSED: --full is not open yet. Run --quick --live, inspect "
-              "its report and artifact inventory, then the full cohort can "
-              "be authorized.", file=sys.stderr)
-        return 3
+    # `--full` WAS closed, and refused here unconditionally: twelve
+    # narrators were never to be created on the strength of a test suite
+    # alone. It opened on 2026-08-31, on the authority of an inspected
+    # two-narrator run — `replay-r20260831-034021-fed7f2`, the first
+    # cohort evidence ever taken against real narrator input, after the
+    # empty-turn defect was found and fixed.
+    #
+    # What replaces the refusal is NOT nothing. The gate below is
+    # arithmetic on the selection, before any socket is opened:
+    # exactly the twelve configured writable synthetic narrators, and
+    # positive narrator words in every chapter that exists. A silent
+    # drop to eleven — one harness losing `intake: testing_only`, one
+    # template file renamed — is exactly what an unchecked `--full`
+    # would have run straight past.
 
     if args.replay and args.resume:
         print("REFUSED: --replay and --resume are different operations. "
@@ -1983,8 +2063,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 5
     mode = ("replay" if args.replay
             else "quick" if args.quick else "resume")
+    # `--full` is the ONLY thing that widens the selection. Replay and
+    # resume keep loading the quick two exactly as before: a replay
+    # reuses journaled UUIDs from its source run, so widening it would
+    # ask for narrators that run never created.
     try:
-        personas = load_personas(quick=True)
+        personas = load_personas(quick=not args.full)
+        if args.full:
+            assert_full_selection(personas)
     except CohortRefusal as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 4
