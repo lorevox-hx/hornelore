@@ -1063,8 +1063,18 @@ mark.fragment-fact {
 /* The toggle is a narrow-width affordance only; the matching
    `display: inline-flex` lives in the 1100px drawer block at the end of
    this file, with the rules it belongs to. At desktop the Life Map is a
-   column and needs no button. */
-.lv-lifemap-drawer-btn { display: none; }
+   column and needs no button.
+
+   BOTH CLASSES IN THE SELECTOR, and that is load-bearing. The element
+   carries `lv-narrator-ctrl` AND `lv-lifemap-drawer-btn`, and
+   `.lv-narrator-ctrl { display: inline-flex }` is defined on the very
+   next line — equal specificity, later rule, so a bare
+   `.lv-lifemap-drawer-btn { display: none }` lost and the toggle showed
+   at every width. Measured at 1440px: visible when it should have been
+   hidden. Naming the class it actually conflicts with makes this 0,2,0
+   and says WHICH rule it beats, which an element-type qualifier would
+   not. */
+.lv-narrator-ctrl.lv-lifemap-drawer-btn { display: none; }
 .lv-narrator-ctrl {
   appearance: none;
   font-family: inherit;
@@ -2701,5 +2711,5 @@ body.lv-interview-mode-active #lvInterviewActiveFocus {
     overflow-y: auto;
   }
   .lv-narrator-main { position: relative; }
-  .lv-lifemap-drawer-btn { display: inline-flex; }
+  .lv-narrator-ctrl.lv-lifemap-drawer-btn { display: inline-flex; }
 }
