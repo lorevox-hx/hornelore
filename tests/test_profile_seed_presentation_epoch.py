@@ -386,6 +386,49 @@ class ResolverEpochTests(unittest.TestCase):
                            "the concurrency version stopped moving, which "
                            "would break the write guard")
 
+    def test_evidence_for_an_UNRELATED_topic_moves_the_version_only(self):
+        """CASE 2, at the resolver rather than in memory.
+
+        ── ADDED AFTER A MUTATION SURVIVED, 2026-08-30 ────────────────
+
+        `EvidenceDriftTests` above drives `plan_turn` with a hand-built
+        dict, so it proves the reducer's half and says nothing about the
+        arithmetic that produces the epoch. Mutation `E2` — bump the
+        epoch whenever ANY topic's state changes — was MISSED by the
+        whole module because nothing here ever changed one topic's
+        evidence while the active topic stayed put.
+
+        That is the quieter half of the shipped defect and the one no
+        operator action causes: somebody enters a fact in Bio Builder,
+        or extraction writes one, and the narrator gets re-asked the
+        question already on their screen.
+        """
+        first = self._reconcile("t1")
+        self.assertEqual(first.active_topic_id, TOPICS[0])
+
+        # Evidence arrives for `education`, which is NOT the active topic.
+        self.db.con.execute(
+            "INSERT INTO bio_facts (narrator_id, field_key, value, status, "
+            "last_updated) VALUES (?,?,?,?,?);",
+            (self.pid, "highest_education_level", "High school",
+             "operator_entered", "t2"))
+        self.db.con.commit()
+
+        after = self._reconcile("t2")
+        self.assertEqual(after.topic_state["education"], _seed.KNOWN,
+                         "the fixture did not actually change any topic, so "
+                         "this test would pass against any implementation")
+        self.assertEqual(
+            after.active_topic_id, first.active_topic_id,
+            "an unrelated fact moved the active topic")
+        self.assertEqual(
+            after.presentation_epoch, first.presentation_epoch,
+            "an unrelated fact minted a new question identity — the "
+            "narrator would be asked the question on their screen again")
+        self.assertGreater(
+            after.version, first.version,
+            "the durable state changed and the version did not move")
+
     def test_advancing_a_topic_mints_a_new_epoch(self):
         first = self._reconcile("t1")
         _seed.apply_disposition(self.db.con, self.pid,

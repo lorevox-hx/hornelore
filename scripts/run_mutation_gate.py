@@ -138,6 +138,18 @@ REST_TESTS = "tests.test_profile_seed_rest_read_authority"
 
 CLASSIFIER_TESTS = "tests.test_mutation_gate_classifier"
 
+# ── Migration 0052, presentation epoch ────────────────────────────────
+#
+# THREE modules, not one. The epoch is computed in `profile_seed.py`,
+# correlated in `profile_seed_turn.py`, and its pause/resume behaviour is
+# only observable end to end through the server-authority suite. A gate
+# scoped to the suite written alongside the change asks nothing more than
+# "did I break my own new tests" — the lesson already recorded above for
+# the Step 4 baseline, applied here rather than relearned.
+EPOCH_TESTS = ("tests.test_profile_seed_presentation_epoch "
+               "tests.test_profile_seed_turn_reducer "
+               "tests.test_profile_seed_server_authority")
+
 # ── Pre-Step-6 correction checkpoint, 2026-08-27 ──────────────────────
 STRICT_VERSION_TESTS = "tests.test_profile_seed_expected_version_strict"
 DETERMINISTIC_TESTS = "tests.test_profile_seed_deterministic_paths"
@@ -308,9 +320,10 @@ MUTATIONS: Tuple[Mutation, ...] = (
               "topic the narrator has not been asked about yet",
         TURN,
         "        # not had a chance to answer a question that does not yet exist.\n"
-        "        return TurnPlan(PRESENT, active, version)",
+        "        return TurnPlan(PRESENT, active, version, epoch=epoch)",
         "        # not had a chance to answer a question that does not yet exist.\n"
-        "        return TurnPlan(ACKNOWLEDGE, active, version, ADDRESSED)",
+        "        return TurnPlan(ACKNOWLEDGE, active, version, ADDRESSED,\n"
+        "                        epoch=epoch)",
         REDUCER_TESTS, was_real=True),
     Mutation(
         "M2", "an acknowledgement re-stamps `presented`, so Lori re-asks "
@@ -320,11 +333,101 @@ MUTATIONS: Tuple[Mutation, ...] = (
         "        if self.action not in (PRESENT, RE_PRESENT, ACKNOWLEDGE):\n            return {}",
         REDUCER_TESTS, was_real=True),
     Mutation(
-        "M3", "staleness compares topic instead of the (topic, version) tuple",
+        "M3", "staleness compares topic instead of the "
+              "(topic, presentation_epoch) tuple",
         TURN,
-        "    if outstanding.tuple != (active, version):",
+        "    if outstanding.tuple != (active, epoch):",
         "    if outstanding.topic_id != active:",
         REDUCER_TESTS, was_real=True),
+    # ── E1–E6: PRESENTATION EPOCH vs CONCURRENCY VERSION, 0052 ────────
+    #
+    # The defect these exist for shipped, and shipped twice over: pausing
+    # and resuming a walk, or writing evidence for an UNRELATED topic,
+    # moved the row version, `plan_turn` compared `(topic, version)`,
+    # found the tuple unequal, and re-asked a question the narrator had
+    # already answered — discarding their answer with it.
+    #
+    # Every one of these mutations reintroduces a specific half of that,
+    # and each must fail BEHAVIOURALLY. E4 is the one to keep if any are
+    # ever pruned: it is the whole conflation in a single line, and it is
+    # the change a future reader is most likely to make by accident while
+    # "simplifying" the tuple.
+    # ── E1 REWRITTEN BEFORE IT EVER RAN, 2026-08-30 ───────────────────
+    #
+    # It was "the epoch advances on a STATUS change", mutating the
+    # condition to `or next_status != stored_status`. It reported MISSED,
+    # and the suite was right: `set_paused` writes the new status BEFORE
+    # `reconcile` reads it, so by the time the epoch is computed
+    # `next_status == stored_status` on both the pause and the resume.
+    # The mutation could not fire through any path a narrator reaches.
+    #
+    # A mutation that cannot reproduce a defect proves nothing about the
+    # tests that fail to catch it. The pause/resume half of the real
+    # defect is E6 — clearing `active_topic_id` — which is how it
+    # actually shipped. E1 now names the plainest conflation instead:
+    # move the epoch whenever the row moves, which is exactly what
+    # treating the version AS the epoch amounts to.
+    Mutation(
+        "E1", "the epoch advances on EVERY resolve, so any durable change "
+              "mints a new question identity and the narrator is re-asked "
+              "the question already on their screen",
+        SEED,
+        "    if next_active is not None and next_active != stored_active:",
+        "    if next_active is not None:",
+        EPOCH_TESTS, was_real=True),
+    Mutation(
+        "E2", "the epoch advances on ANY topic-state change, so evidence "
+              "for an unrelated topic re-interrogates the narrator",
+        SEED,
+        "    if next_active is not None and next_active != stored_active:",
+        "    if next_active is not None and (next_active != stored_active\n"
+        "                                    or next_state != stored_state):",
+        EPOCH_TESTS, was_real=True),
+    Mutation(
+        "E3", "the epoch NEVER advances, so a genuine topic change reuses "
+              "the previous question's identity and a stale answer closes "
+              "a question nobody asked",
+        SEED,
+        "        presentation_epoch = stored_epoch + 1",
+        "        presentation_epoch = stored_epoch",
+        EPOCH_TESTS),
+    Mutation(
+        "E4", "correlation silently reverts to (topic, version) — the "
+              "original defect, in one line",
+        TURN,
+        "        return (self.topic_id, self.epoch)",
+        "        return (self.topic_id, self.version)",
+        EPOCH_TESTS, was_real=True),
+    Mutation(
+        "E5", "an active walk with no usable epoch goes IDLE, handing the "
+              "walk back to the browser's legacy ten-question block "
+              "instead of holding it",
+        TURN,
+        # Anchored on the line ABOVE the return, because
+        # `return TurnPlan(HOLD, active, version)` is not unique in this
+        # function — H1 mutates the eligibility guard, which returns the
+        # same shape. The comment line is what distinguishes them.
+        "        # reconcile mint a real epoch.\n"
+        "        return TurnPlan(HOLD, active, version)",
+        "        # reconcile mint a real epoch.\n"
+        "        return TurnPlan(IDLE)",
+        EPOCH_TESTS),
+    Mutation(
+        "E6", "a pause clears the outstanding topic again, which is what "
+              "made resume look like a new question in the first place",
+        SEED,
+        "    if next_status in (STATUS_ACTIVE, STATUS_PAUSED):\n"
+        "        next_active = remaining[0] if remaining else None",
+        "    if next_status == STATUS_ACTIVE:\n"
+        "        next_active = remaining[0] if remaining else None",
+        EPOCH_TESTS, was_real=True),
+    Mutation(
+        "E7", "`set_paused` stops moving the concurrency version, so a "
+              "PATCH authored before the pause still lands after it",
+        SEED,
+        '        f"UPDATE {TABLE} SET status=?, version=version+1, "  # noqa: S608',
+        '        f"UPDATE {TABLE} SET status=?, "  # noqa: S608',
+        EPOCH_TESTS),
     Mutation(
         "M3b", "consumption compares topic instead of the tuple",
         TURN,
@@ -354,8 +457,15 @@ MUTATIONS: Tuple[Mutation, ...] = (
     Mutation(
         "M7", "a malformed version is accepted",
         TURN,
-        "        return raw if raw >= 1 else None",
-        "        return raw",
+        # ── ANCHORED ON THE FUNCTION, NOT THE LINE, 0052 ───────────────
+        #
+        # `        return raw if raw >= 1 else None` matched TWICE after
+        # `_valid_epoch` landed with the same shape, and the gate scored
+        # M7 ambiguous. An anchor that matches two functions cannot say
+        # which one the mutation tested. The signature makes it exact.
+        "def _valid_version(raw: Any) -> Optional[int]:",
+        "def _valid_version(raw: Any) -> Optional[int]:\n"
+        "    return raw if isinstance(raw, int) else None  # MUTANT",
         REDUCER_TESTS),
     # ── M8's REPAIR IS IN THE FIXTURE, NOT IN THIS ANCHOR, 2026-08-27 ──
     #
@@ -663,14 +773,19 @@ MUTATIONS: Tuple[Mutation, ...] = (
         SEED,
         '    return con.execute(\n'
         '        f"SELECT person_id, status, topic_state_json, active_topic_id, "  # noqa: S608\n'
-        '        f"version, created_at, updated_at, completed_at "\n'
+        '        f"version, presentation_epoch, created_at, updated_at, completed_at "\n'
         '        f"FROM {TABLE} WHERE person_id=?;",\n'
         '        (person_id,),\n'
         '    ).fetchone()',
+        # The mutant's column list must MATCH the anchor's. It did not
+        # after 0052 added `presentation_epoch`, so this mutation would
+        # have silently dropped a column as well as swallowing the error
+        # — demonstrating a different fault from the one it names, and
+        # scoring CAUGHT for the wrong reason.
         '    try:\n'
         '        return con.execute(\n'
         '            f"SELECT person_id, status, topic_state_json, active_topic_id, "  # noqa: S608\n'
-        '            f"version, created_at, updated_at, completed_at "\n'
+        '            f"version, presentation_epoch, created_at, updated_at, completed_at "\n'
         '            f"FROM {TABLE} WHERE person_id=?;",\n'
         '            (person_id,),\n'
         '        ).fetchone()\n'
@@ -710,7 +825,8 @@ MUTATIONS: Tuple[Mutation, ...] = (
               "system directive revives the browser's legacy ten-question "
               "block mid-walk",
         TURN,
-        "    if not eligible:\n        return TurnPlan(HOLD, active, version)",
+        "    if not eligible:\n"
+        "        return TurnPlan(HOLD, active, version, epoch=epoch)",
         "    if not eligible:\n        return TurnPlan(IDLE)",
         REDUCER_TESTS, was_real=True),
     Mutation(

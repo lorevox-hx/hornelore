@@ -1479,6 +1479,50 @@ def _run_narrator_session1(
         pass
 
 
+#: The ONE consent seed. Three contexts used to carry three copies, and
+#: all three were wrong in the same two ways — see the KEY AND VALUE note
+#: in `_restart_browser_and_resume`. One definition cannot drift from
+#: itself.
+CONSENT_SEED_KEY = "lorevox_facial_consent_granted"
+CONSENT_SEED_VALUE = "true"
+CONSENT_PER_NARRATOR_PREFIX = "lorevox_facial_consent:"
+CONSENT_SEED_SCRIPT = (
+    "try {"
+    f"  localStorage.setItem('{CONSENT_SEED_KEY}', '{CONSENT_SEED_VALUE}');"
+    "} catch (_) {}"
+)
+
+
+def _assert_consent_migrated(page, person_id: str, nr, label: str) -> bool:
+    """After narrator selection, the grant must be on the NARRATOR's key.
+
+    Seeding the legacy global key is only step one. `setNarrator()` runs
+    the one-time migration at `facial-consent.js` 149-155, and if that
+    did not happen the overlay is still armed — which is exactly the
+    state the old seed left every run in, silently.
+
+    Reported as a note rather than raised: this is a harness precondition,
+    not the behaviour under test, and a run that loses camera suppression
+    should say so loudly and keep going rather than abort a long walk.
+    """
+    key = f"{CONSENT_PER_NARRATOR_PREFIX}{person_id}"
+    try:
+        value = page.evaluate("(k) => localStorage.getItem(k)", key)
+    except Exception as exc:                     # pragma: no cover - live only
+        nr.notes.append(f"[{label}] could not read {key}: {exc}")
+        return False
+    if value == CONSENT_SEED_VALUE:
+        print(f"  [{label}] facial consent migrated to per-narrator key")
+        return True
+    nr.notes.append(
+        f"[{label}] facial consent did NOT migrate: {key}={value!r} "
+        f"(expected {CONSENT_SEED_VALUE!r}). The consent overlay may block "
+        "this run on a human click.")
+    print(f"  [{label}] WARN — consent not migrated: {key}={value!r}",
+          file=sys.stderr)
+    return False
+
+
 def _restart_browser_and_resume(
     pw_browser: Browser,
     plan: NarratorPlan,
@@ -1503,12 +1547,31 @@ def _restart_browser_and_resume(
     # consent overlay and block on a human click, which is the exact failure
     # that repair was written to stop. Seeded on every fresh context now,
     # which is what its own comment already claimed.
-    new_ctx.add_init_script(
-        "try {"
-        "  localStorage.setItem('lorevox_facial_consent_granted', '1');"
-        "  localStorage.setItem('lorevox_facial_consent_declined', '0');"
-        "} catch (_) {}"
-    )
+    #
+    # ── KEY AND VALUE, corrected 2026-08-30 ───────────────────────────
+    #
+    # The seed was `('lorevox_facial_consent_granted', '1')` plus a second
+    # key `lorevox_facial_consent_declined`. Both were wrong, and together
+    # they meant this seed suppressed NOTHING — the overlay bug was never
+    # actually fixed, in any of the three contexts.
+    #
+    #   * The VALUE must be the string 'true'. `facial-consent.js` stores a
+    #     tri-state ('true' granted / 'false' declined / absent never asked)
+    #     and its legacy-migration test is `getItem(LS_KEY_LEGACY) ===
+    #     'true'` at line 151. `'1' !== 'true'`, so the migration never ran.
+    #
+    #   * `lorevox_facial_consent_declined` IS NOT A KEY. A decline is the
+    #     VALUE 'false' on the same key — see `_decline()` at line 171.
+    #     Writing '0' to an invented key did nothing at all.
+    #
+    # The legacy GLOBAL key is still the right seed target even though it is
+    # marked retired: an init script runs before `setNarrator()`, so the
+    # per-narrator key `lorevox_facial_consent:<pid>` cannot be written yet.
+    # Seeding legacy as 'true' lets the documented one-time migration
+    # (facial-consent.js 149-155) carry the grant onto the per-narrator key
+    # once the narrator resolves — which is the path the product already
+    # supports rather than a bypass invented for the harness.
+    new_ctx.add_init_script(CONSENT_SEED_SCRIPT)
     new_page = new_ctx.new_page()
     new_console = ConsoleCollector(new_page)
     new_dblock = DbLockCounter(_REPO_ROOT)
@@ -1523,6 +1586,10 @@ def _restart_browser_and_resume(
     if not ok:
         nr.notes.append(f"could not re-select narrator pid={nr.person_id} after restart")
     new_page.wait_for_timeout(2500)
+    # The seed is only useful if it MIGRATED. Assert it rather than
+    # assume it — the previous seed wrote a value the product does not
+    # recognise and nothing noticed for three months.
+    _assert_consent_migrated(new_page, nr.person_id, nr, f"{plan.key}/restart")
     _close_popovers(new_page)
     # Capture state to confirm narrator loaded
     after_state = _capture_bb_state(new_page)
@@ -1996,7 +2063,8 @@ def main() -> int:
         # Playwright's permissions=["camera","microphone"] grants OS-
         # level permissions but doesn't dismiss the application's
         # FacialConsent overlay (ui/js/facial-consent.js LS_KEY =
-        # "lorevox_facial_consent_granted"). When narrator-room init
+        # "lorevox_facial_consent_granted"). See the KEY AND VALUE note
+        # below. When narrator-room init
         # fires the consent prompt, the harness blocks waiting for a
         # human click — observed live during v10/v11 with Marvin's
         # session leaving Chris stuck at the camera prompt for minutes
@@ -2006,12 +2074,7 @@ def main() -> int:
         # Real parent sessions (Janice/Kent) are unaffected because
         # the operator handles consent in the UI per the WO-02 family-
         # friendly policy.
-        ctx.add_init_script(
-            "try {"
-            "  localStorage.setItem('lorevox_facial_consent_granted', '1');"
-            "  localStorage.setItem('lorevox_facial_consent_declined', '0');"
-            "} catch (_) {}"
-        )
+        ctx.add_init_script(CONSENT_SEED_SCRIPT)
         page = ctx.new_page()
         console = ConsoleCollector(page)
         dblock = DbLockCounter(_REPO_ROOT)
@@ -2078,7 +2141,8 @@ def main() -> int:
                 # Playwright's permissions=["camera","microphone"] grants OS-
                 # level permissions but doesn't dismiss the application's
                 # FacialConsent overlay (ui/js/facial-consent.js LS_KEY =
-                # "lorevox_facial_consent_granted"). When narrator-room init
+                # "lorevox_facial_consent_granted"). See the KEY AND VALUE note
+        # below. When narrator-room init
                 # fires the consent prompt, the harness blocks waiting for a
                 # human click — observed live during v10/v11 with Marvin's
                 # session leaving Chris stuck at the camera prompt for minutes
@@ -2088,12 +2152,7 @@ def main() -> int:
                 # Real parent sessions (Janice/Kent) are unaffected because
                 # the operator handles consent in the UI per the WO-02 family-
                 # friendly policy.
-                ctx.add_init_script(
-                    "try {"
-                    "  localStorage.setItem('lorevox_facial_consent_granted', '1');"
-                    "  localStorage.setItem('lorevox_facial_consent_declined', '0');"
-                    "} catch (_) {}"
-                )
+                ctx.add_init_script(CONSENT_SEED_SCRIPT)
                 page = ctx.new_page()
                 console = ConsoleCollector(page)
                 dblock = DbLockCounter(_REPO_ROOT)
