@@ -165,6 +165,25 @@ from ..prompt_composer import (
 # guards cannot load, the server does not start. A stack that refuses to boot is
 # strictly better than a stack that quietly talks to an 86-year-old with every
 # protection disabled.
+# WO-LORI-LISTEN-AND-RETAIN-01 — observation-only turn trace.
+# Import must never fail the router: a stub keeps every call a no-op.
+try:
+    from ..services import lori_response_trace as _rt
+except Exception:  # pragma: no cover - defensive
+    class _rt:  # type: ignore
+        @staticmethod
+        def begin(*a, **k): return None
+        @staticmethod
+        def raw(*a, **k): return None
+        @staticmethod
+        def stage(*a, **k): return None
+        @staticmethod
+        def note(*a, **k): return None
+        @staticmethod
+        def storage(*a, **k): return None
+        @staticmethod
+        def finish(*a, **k): return None
+
 from ..services.lori_response_guards import (
     apply_response_guards as _APPLY_RESPONSE_GUARDS,
     # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §3.1 — the guard-
@@ -5093,6 +5112,45 @@ async def ws_chat(ws: WebSocket):
                 await _ws_send(ws, {"type": "token", "delta": chunk})
 
         final_text = "".join(reply_parts).strip()
+        # ── WO-LORI-LISTEN-AND-RETAIN-01 · OBSERVATION ONLY ──────────
+        #
+        # The raw model output, before ANY transformation. The pipeline
+        # has never captured this: every layer below logs that it fired,
+        # none logs what it was given, and no two share an identifier.
+        # That is why the 58/77 cascade figure is PROVISIONAL — it was
+        # correlated by conv= and a conversation has many turns.
+        #
+        # `_rt_ck` records one stage: exact before/after, whether it
+        # changed anything, word and question deltas. It reads
+        # `final_text` through the enclosing scope and mutates nothing.
+        # Every call is exception-swallowed; a trace failure must never
+        # become a turn failure.
+        _rt_id = _rt.begin(
+            narrator_id=str(person_id or ""),
+            conversation_id=str(conv_id or ""),
+        )
+        _rt.raw(final_text, trace_id=_rt_id)
+        # Runtime context, recorded defensively: these names are set
+        # upstream and a rename must degrade to a missing field on the
+        # trace, never to a NameError inside a live turn.
+        for _rt_k in ("era", "_pass_label", "turn_mode", "_ps_plan",
+                      "_kept_turns", "_dropped_turns", "prompt_tokens"):
+            try:
+                _rt.note(_rt_k, repr(locals()[_rt_k])[:200], trace_id=_rt_id)
+            except Exception:
+                pass
+        _rt_prev = [final_text]
+
+        def _rt_ck(_stage_name, _reason=None):
+            try:
+                _b = _rt_prev[0]
+                _a = final_text
+                _rt.stage(_stage_name, fired=(_b != _a), before=_b,
+                          after=_a, reason=_reason, trace_id=_rt_id)
+                _rt_prev[0] = _a
+            except Exception:
+                pass
+
 
         # ── WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 follow-up
         # (fix(chat-ws): never persist cancelled turns) — a cancelled
@@ -5314,6 +5372,7 @@ async def ws_chat(ws: WebSocket):
                         _cc_result.word_count,
                     )
                     final_text = _cc_result.final_text
+                    _rt_ck("comm_control")
                 # WO-LORI-REFLECTION-02 — emit a dedicated reflection-
                 # shape log line whenever the shaper rewrote the turn.
                 # Easier to grep than parsing the comm_control failures
@@ -5397,6 +5456,7 @@ async def ws_chat(ws: WebSocket):
                         conv_id, _reason, len(final_text), len(_trimmed),
                     )
                     final_text = _trimmed
+                    _rt_ck("trim_to_one_q")
                 # Buffer mode: emit the cleaned text as a single delta so
                 # the client UI gets the same shape it expects (token + done).
                 #
@@ -5506,6 +5566,7 @@ async def ws_chat(ws: WebSocket):
                     conv_id, _ft_stripped[:80], _repaired[:100],
                 )
                 final_text = _repaired
+                _rt_ck("era_fragment_repair")
         except Exception as _frag_err:
             logger.debug("[lori][era-fragment-repair] check failed (non-fatal): %s", _frag_err)
 
@@ -5530,6 +5591,7 @@ async def ws_chat(ws: WebSocket):
                     conv_id, _es_changes, final_text[:120], _es_repaired[:120],
                 )
                 final_text = _es_repaired
+                _rt_ck("language_repair_es")
             # BUG-ML-LORI-SPANISH-ACTIVE-LISTENING-QUESTION-01
             # (2026-05-07): detector-only — log yes/no closers and
             # missing Q-words but DO NOT rewrite the response. Locked
@@ -5611,6 +5673,7 @@ async def ws_chat(ws: WebSocket):
                         _idx, conv_id, _final_hash,
                     )
                     final_text = _bridge
+                    _rt_ck("bridge")
                 elif _jaccard >= 0.85:
                     # High-similarity but not bit-identical — log only.
                     # Real fix would be LLM reroll; without that access
@@ -5731,6 +5794,7 @@ async def ws_chat(ws: WebSocket):
                             _wr_fallback[:160],
                         )
                         final_text = _wr_fallback
+                        _rt_ck("witness_receipt_fallback")
                     else:
                         logger.warning(
                             "[chat_ws][witness][llm-receipt] validator "
@@ -5783,6 +5847,7 @@ async def ws_chat(ws: WebSocket):
                         _wr_fallback[:160],
                     )
                     final_text = _wr_fallback
+                    _rt_ck("witness_receipt_fallback_on_exception")
                 else:
                     logger.warning(
                         "[chat_ws][witness][llm-receipt] validator raised "
@@ -5857,6 +5922,7 @@ async def ws_chat(ws: WebSocket):
                         _es_repair_text[:160],
                     )
                     final_text = _es_repair_text
+                    _rt_ck("language_drift_repair")
                 else:
                     logger.error(
                         "[chat_ws][lang-contract][es-repair] CRITICAL: "
@@ -6053,6 +6119,7 @@ async def ws_chat(ws: WebSocket):
                     _guarded_text[:120],
                 )
                 final_text = _guarded_text
+                _rt_ck("response_guards")
         except Exception as _guard_exc:
             # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §3.1 —
             # FAIL CLOSED. The old handler logged a WARNING and "passed
@@ -6088,6 +6155,7 @@ async def ws_chat(ws: WebSocket):
                 safety_triggered=_is_safety_turn,
                 resources=_guard_fail_resources,
             )
+            _rt_ck("compose_guard_failure_fallback")
             # Ensure the deterministic fallback actually reaches the
             # client bubble via the deferred single-delta emit.
             _deferred_emit_pending = True
@@ -6133,6 +6201,7 @@ async def ws_chat(ws: WebSocket):
                         conv_id, person_id,
                     )
                 final_text = _ps_delivered
+                _rt_ck("profile_seed_delivery")
                 _deferred_emit_pending = True
             else:
                 # No canonical question could be built, so nothing was
@@ -6223,6 +6292,24 @@ async def ws_chat(ws: WebSocket):
             # provenance and progress, and none of it may re-report a
             # persistence failure that did not happen.
             _persist_ok = True
+            # ── WO-LORI-LISTEN-AND-RETAIN-01 · close the turn trace ────
+            # The rows are durable here, so this is the first point at
+            # which "delivered" and "persisted" can be compared. Both
+            # are recorded; the report asserts they match rather than
+            # assuming it.
+            try:
+                _rt.storage(
+                    "durable_turns", _rt.RESULT_PERSISTED,
+                    detail={"assistant_row_id": _persisted_turn_row_id,
+                            "row_ids": _persisted_row_ids,
+                            "conv_id": conv_id,
+                            "person_id": person_id},
+                    trace_id=_rt_id)
+                _rt.note("turn_row_ids", _persisted_row_ids, trace_id=_rt_id)
+                _rt.finish(delivered=final_text, persisted=final_text,
+                           trace_id=_rt_id)
+            except Exception:
+                pass
             # WO-TRUTH-PIPELINE-01 Phase 2 (Gate 7, 2026-07-30) — hand the
             # committed assistant rowid to the post-response extraction
             # hook in generate_and_stream(). `params` is the only object
