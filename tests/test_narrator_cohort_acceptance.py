@@ -22,6 +22,7 @@ import json
 import io
 import contextlib
 import tempfile
+import time
 import re
 import sys
 import unittest
@@ -1556,13 +1557,20 @@ class TurnEvidenceTests(unittest.TestCase):
                 self.assertEqual("childhood_home", seed["active_topic_id"])
                 self.assertEqual(2, seed["presentation_epoch"])
 
-    def test_extracted_facts_are_captured_before_and_after(self):
-        import tempfile
+    def test_extraction_is_recorded_as_not_measured_with_its_reason(self):
+        """*(Was `test_extracted_facts_are_captured_before_and_after`,
+        asserting `count == 1` either side. The legacy poll is off for
+        this evaluation, so the turn records WHY there is no number
+        rather than a zero that would read as a finding.)*"""
         with tempfile.TemporaryDirectory() as tmp:
             report = self._run(tmp, FakeTransport()).execute()
             t = report["personas"][0]["conversation"]["turns"][0]
-            self.assertEqual(1, t["facts_before"]["count"])
-            self.assertEqual(1, t["facts_after"]["count"])
+            self.assertEqual("not_measured", t["extraction"]["status"])
+            self.assertFalse(t["extraction"]["measured"])
+            self.assertIn("extraction-result protocol",
+                          t["extraction"]["reason"])
+            self.assertIsNone(t["facts_added"],
+                              "an empty dict would read as 'found nothing'")
 
     def test_the_hardcoded_pass_is_labelled_as_the_instrument_s_own(self):
         """Not dressed up as a browser reading.
@@ -1913,9 +1921,24 @@ class ExtractionPollTests(unittest.TestCase):
             personas=_two_personas(), lanes=list(COHORT.LANES), mode="quick",
             out_dir=Path(tmp), transport=transport,
             ui_url="http://x/y.html", run_id="r-extract")
+        # ── EXPLICITLY RE-ENABLED, PER INSTANCE, 2026-08-31 ──────────
+        #
+        # `MEASURE_EXTRACTION` is False on the class: this harness does
+        # not negotiate the production extraction-result protocol, so
+        # the Lori-era cohort run does not spend 38 x 12s polling a
+        # legacy endpoint it never populates. The polling CODE is not
+        # deleted, and neither is its coverage — these tests turn it on
+        # for one instance so it still works the day the lane is wired.
+        run.MEASURE_EXTRACTION = True
         run.EXTRACTION_POLL_SECONDS = window
         run.EXTRACTION_POLL_INTERVAL = 0.01
         return run
+
+    def test_the_class_default_is_off_even_though_these_tests_enable_it(self):
+        """Non-vacuity for the paragraph above."""
+        self.assertFalse(COHORT.LiveRun.MEASURE_EXTRACTION)
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertTrue(self._run(tmp, FakeTransport()).MEASURE_EXTRACTION)
 
     def test_a_settled_extraction_is_recorded_as_settled(self):
         import tempfile
@@ -2053,8 +2076,13 @@ class FullCohortGateTests(unittest.TestCase):
         """
         src = (_REPO_ROOT / "scripts"
                / "run_narrator_cohort_acceptance.py").read_text(encoding="utf-8")
-        self.assertIn("personas = load_personas(quick=not args.full)",
-                      _strip_py_comments(src))
+        code = _strip_py_comments(src)
+        self.assertIn("personas = load_personas(quick=not want_full)", code)
+        # `want_full` is set by the --full FLAG or by a frozen full
+        # selection being resumed. Nothing else widens it.
+        self.assertIn(
+            'want_full = bool(args.full) or (resume_selection or {})'
+            '.get("mode") == "full"', code)
 
     # ── the --live gate survives ─────────────────────────────────────
     def test_full_without_live_still_refuses_and_writes_nothing(self):
@@ -2126,3 +2154,222 @@ class FullCohortChapterGateTests(unittest.TestCase):
             self._run(personas).assert_chapters_populated()
         self.assertIn("has no text", str(caught.exception))
         self.assertIn("2026-08-30", str(caught.exception))
+
+
+class EraCoverageDerivationTests(unittest.TestCase):
+    """Coverage comes from `era_sent`, cross-checked against requested.
+
+    *(The lane read `t.get("era")`. No turn record has ever carried
+    that key, so `eras_covered` was `[]` on every run while the lane
+    reported PASSED — including the corrected Alex/Walt run, which
+    produced seven correct `era_sent` values and reported none of
+    them.)*
+    """
+
+    def _lane(self, turns, harness="run_seven_era_walk_harness"):
+        run = COHORT.LiveRun(personas=[], lanes=list(COHORT.LANES),
+                             mode="full", out_dir=Path(tempfile.mkdtemp()),
+                             transport=None, ui_url="http://unused")
+        return run.reuse_era_evidence({"harness": harness},
+                                      {"turns": turns})
+
+    @staticmethod
+    def _turns(eras):
+        return [{"index": i, "era_requested": e, "era_sent": e}
+                for i, e in enumerate(eras)]
+
+    def test_the_old_key_is_gone(self):
+        """Parsed, not grepped.
+
+        *(A text assertion here failed on the DOCSTRING that explains
+        the defect — the third time in this file a guard has punished
+        the source for documenting itself. `_strip_py_comments` removes
+        `#` comments and not docstrings, and no amount of stripping
+        makes prose reliably distinguishable from code. The AST knows
+        the difference for free.)*
+        """
+        tree = ast.parse((_REPO_ROOT / "scripts"
+                          / "run_narrator_cohort_acceptance.py")
+                         .read_text(encoding="utf-8"))
+        lane = next(
+            (n for n in ast.walk(tree)
+             if isinstance(n, ast.FunctionDef)
+             and n.name == "reuse_era_evidence"), None)
+        self.assertIsNotNone(lane, "the era lane function is gone")
+        # Scoped to the era lane ON PURPOSE. `_facts` legitimately does
+        # `f.get("era")` — that is a FACT ROW's era from the facts
+        # endpoint, which really does carry the key. The defect was
+        # reading `era` off a TURN record, which never has.
+        offenders = [
+            node.lineno for node in ast.walk(lane)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and len(node.args) == 1
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value == "era"]
+        self.assertEqual([], offenders,
+                         'the era lane still reads .get("era") off a turn '
+                         "record; no turn has ever carried that key")
+        # And it must read the keys that exist.
+        source = ast.get_source_segment(
+            (_REPO_ROOT / "scripts"
+             / "run_narrator_cohort_acceptance.py").read_text(encoding="utf-8"),
+            lane) or ""
+        self.assertIn('"era_sent"', source)
+        self.assertIn('"era_requested"', source)
+
+    def test_that_ast_check_is_not_vacuous(self):
+        tree = ast.parse('lane = {}\nx = t.get("era")\n')
+        found = [n for n in ast.walk(tree)
+                 if isinstance(n, ast.Call)
+                 and isinstance(n.func, ast.Attribute)
+                 and n.func.attr == "get"
+                 and n.args and isinstance(n.args[0], ast.Constant)
+                 and n.args[0].value == "era"]
+        self.assertEqual(1, len(found))
+
+    def test_walt_covers_seven_eras(self):
+        walt = ["earliest_years", "early_school_years", "adolescence",
+                "coming_of_age", "building_years", "later_years", "today"]
+        lane = self._lane(self._turns(walt))
+        self.assertEqual(7, lane["era_count"])
+        self.assertEqual(sorted(walt), lane["eras_covered"])
+        self.assertEqual("ok", lane["verdict"])
+
+    def test_the_full_cohort_records_all_38_scripted_chapters(self):
+        """Every chapter of all ten scripted personas, end to end."""
+        total = 0
+        for persona in COHORT.load_personas(quick=False):
+            chapters = persona.get("chapters") or []
+            if not chapters:
+                continue          # the two QA fixtures send no model turn
+            eras = [getattr(c, "runtime71_era", "unknown") for c in chapters]
+            lane = self._lane(self._turns(eras), persona["harness"])
+            self.assertEqual("ok", lane["verdict"], persona["label"])
+            self.assertEqual(len(chapters), lane["turns_seen"])
+            self.assertGreater(lane["era_count"], 0, persona["label"])
+            total += lane["turns_seen"]
+        self.assertEqual(38, total)
+
+    def test_the_old_defect_would_now_be_caught(self):
+        """Turns that complete but record no era are a stated failure."""
+        lane = self._lane([{"index": 0, "era_requested": "today",
+                            "era_sent": None}])
+        self.assertEqual("mismatch", lane["verdict"])
+        self.assertEqual([0], lane["turns_missing_era_sent"])
+
+    def test_a_substituted_era_is_reported_not_averaged_away(self):
+        lane = self._lane([{"index": 0, "era_requested": "adolescence",
+                            "era_sent": "today"}])
+        self.assertEqual("mismatch", lane["verdict"])
+        self.assertEqual([{"index": 0, "requested": "adolescence",
+                           "sent": "today"}],
+                         lane["requested_vs_sent_mismatches"])
+        self.assertEqual(["today"], lane["eras_covered"])
+
+    def test_no_turns_at_all_is_not_reported_as_a_mismatch(self):
+        self.assertEqual("ok", self._lane([])["verdict"])
+
+
+class FullRunModeAndResumeTests(unittest.TestCase):
+    """`--full` is labelled full, and a resume resumes what was frozen."""
+
+    def test_full_is_labelled_full_not_resume(self):
+        src = _strip_py_comments(
+            (_REPO_ROOT / "scripts"
+             / "run_narrator_cohort_acceptance.py").read_text(encoding="utf-8"))
+        self.assertIn('mode = ("replay" if args.replay else "full" '
+                      'if args.full', src)
+
+    def _frozen(self, tmp, personas, mode):
+        run = Path(tmp) / "r-frozen"
+        run.mkdir(parents=True)
+        (run / "checkpoint.json").write_text(json.dumps(
+            {"selection": {"personas": sorted(personas),
+                           "lanes": sorted(COHORT.LANES), "mode": mode},
+             "tasks": {}}), encoding="utf-8")
+        return run
+
+    def test_a_frozen_full_selection_is_read_back(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            labels = [p["label"] for p in COHORT.load_personas(quick=False)]
+            run = self._frozen(tmp, labels, "full")
+            frozen = COHORT.read_frozen_selection(run)
+            self.assertEqual("full", frozen["mode"])
+            self.assertEqual(12, len(frozen["personas"]))
+
+    def test_resuming_a_full_run_reconstitutes_twelve(self):
+        """The defect: a resume reloaded Alex and Walt."""
+        labels = [p["label"] for p in COHORT.load_personas(quick=False)]
+        frozen = {"personas": sorted(labels), "mode": "full",
+                  "lanes": sorted(COHORT.LANES)}
+        personas = COHORT.load_personas(
+            quick=not (frozen.get("mode") == "full"))
+        self.assertEqual(12, len(personas))
+        COHORT.assert_resume_matches(personas, frozen)      # must not raise
+
+    def test_resuming_a_full_run_with_the_quick_two_is_refused(self):
+        labels = [p["label"] for p in COHORT.load_personas(quick=False)]
+        frozen = {"personas": sorted(labels), "mode": "full"}
+        with self.assertRaises(COHORT.CohortRefusal) as caught:
+            COHORT.assert_resume_matches(
+                COHORT.load_personas(quick=True), frozen)
+        message = str(caught.exception)
+        self.assertIn("missing:", message)
+        self.assertIn("Mable Hudson (African American Georgia)", message)
+
+    def test_a_quick_resume_is_unchanged(self):
+        labels = [p["label"] for p in COHORT.load_personas(quick=True)]
+        COHORT.assert_resume_matches(
+            COHORT.load_personas(quick=True),
+            {"personas": sorted(labels), "mode": "quick"})
+
+    def test_a_missing_checkpoint_reads_as_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(
+                COHORT.read_frozen_selection(Path(tmp) / "nope"))
+
+    def test_reading_a_checkpoint_does_not_write_to_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._frozen(tmp, ["Alex", "Walt"], "quick")
+            path = run / "checkpoint.json"
+            before = path.read_bytes()
+            COHORT.read_frozen_selection(run)
+            self.assertEqual(before, path.read_bytes())
+
+
+class ExtractionNotMeasuredTests(unittest.TestCase):
+    """The legacy poll is off, and its absence is stated, not implied."""
+
+    def test_the_poll_is_disabled(self):
+        self.assertFalse(COHORT.LiveRun.MEASURE_EXTRACTION)
+
+    def test_it_is_recorded_as_not_measured_with_a_reason(self):
+        record = COHORT.LiveRun.EXTRACTION_NOT_MEASURED
+        self.assertFalse(record["measured"])
+        self.assertEqual("not_measured", record["status"])
+        self.assertIn("extraction-result protocol", record["reason"])
+        self.assertIn("NOT evidence", record["not_a_claim"])
+
+    def test_the_settle_helper_returns_immediately_without_a_transport(self):
+        """No network, no sleep. A transport of None would raise if used."""
+        run = COHORT.LiveRun(personas=[], lanes=list(COHORT.LANES),
+                             mode="full", out_dir=Path(tempfile.mkdtemp()),
+                             transport=None, ui_url="http://unused")
+        started = time.time()
+        out = run._facts_settled("some-person-id", {})
+        self.assertLess(time.time() - started, 0.5)
+        self.assertEqual("not_measured", out["extraction"]["status"])
+
+    def test_facts_added_is_none_not_an_empty_dict(self):
+        """`{}` reads as 'ran and found nothing'. Nothing was asked."""
+        src = _strip_py_comments(
+            (_REPO_ROOT / "scripts"
+             / "run_narrator_cohort_acceptance.py").read_text(encoding="utf-8"))
+        self.assertIn("if self.MEASURE_EXTRACTION else None)", src)
+
+    def test_the_saved_38_turn_wait_is_not_spent(self):
+        seconds = (COHORT.LiveRun.EXTRACTION_POLL_SECONDS * 38
+                   if COHORT.LiveRun.MEASURE_EXTRACTION else 0)
+        self.assertEqual(0, seconds)

@@ -82,6 +82,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import pathlib
 import os
 import re
 import sqlite3
@@ -819,6 +820,49 @@ def assert_full_selection(personas: List[Dict[str, Any]]) -> Dict[str, Any]:
             "qa_templates": len(got_template)}
 
 
+def read_frozen_selection(run_dir: pathlib.Path) -> Optional[Dict[str, Any]]:
+    """The selection and mode a run froze, or None. READ-ONLY.
+
+    `Ledger`/checkpoint writes `{"selection": {...}, "tasks": {...}}` at
+    `freeze_selection`, before any narrator work. This reads that record
+    without constructing a Ledger, so a resume cannot mutate the run it
+    is inspecting merely by asking what it was.
+    """
+    path = run_dir / "checkpoint.json"
+    if not path.is_file():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    selection = raw.get("selection")
+    return selection if isinstance(selection, dict) else None
+
+
+def assert_resume_matches(personas: List[Dict[str, Any]],
+                          frozen: Dict[str, Any]) -> None:
+    """A resume must reconstitute the frozen cohort exactly.
+
+    The checkpoint's own guard compares the selection and refuses a
+    changed one. That guard is a backstop, not a plan: it fires AFTER
+    the run has been assembled, and it can only say the two disagree.
+    This says WHICH narrators are missing, before anything is sent.
+    """
+    stored = frozen.get("personas")
+    if not isinstance(stored, list) or not stored:
+        raise CohortRefusal(
+            "the frozen selection records no personas; refusing to guess "
+            "what this run was")
+    stored_set, got = set(stored), {p["label"] for p in personas}
+    if stored_set == got:
+        return
+    raise CohortRefusal(
+        "resume reconstituted a different cohort than the run froze.\n"
+        f"  missing: {sorted(stored_set - got)}\n"
+        f"  extra:   {sorted(got - stored_set)}\n"
+        "A resume continues a run; it does not redefine one.")
+
+
 # ── Planning ──────────────────────────────────────────────────────────
 def build_plan(quick: bool = False) -> Dict[str, Any]:
     """What WOULD run. No network, no database, no writes."""
@@ -1546,6 +1590,30 @@ class LiveRun:
             }
         return {"count": len(rows), "keys": sorted(rows), "rows": rows}
 
+    #: This harness does not negotiate the production extraction-result
+    #: protocol, and `lanes.not_implemented` says so plainly: there is no
+    #: extraction lane and `/api/extract-fields` is never called. The
+    #: poll below therefore waited 12s per turn on `/api/facts/list` —
+    #: a legacy endpoint nothing in this run populates — and timed out
+    #: every time. Across the full cohort that is 38 turns x 12s = 7.6
+    #: minutes of waiting to re-learn something the report already
+    #: states. Extraction is recorded as NOT MEASURED, which is what it
+    #: is; a timeout dressed up as a measurement is the same class of
+    #: lie as counting characters.
+    MEASURE_EXTRACTION = False
+    EXTRACTION_NOT_MEASURED = {
+        "measured": False,
+        "status": "not_measured",
+        "reason": ("this harness does not negotiate the production "
+                   "extraction-result protocol; no extraction lane runs "
+                   "and /api/extract-fields is never called, so polling "
+                   "/api/facts/list measures a legacy endpoint this run "
+                   "does not populate"),
+        "not_a_claim": ("this is NOT evidence that extraction found "
+                        "nothing. Nothing was asked, so nothing was "
+                        "observed."),
+    }
+
     def _facts_settled(self, person_id: str,
                        before: Dict[str, Any]) -> Dict[str, Any]:
         """Poll until extraction changes something, or time out. BOUNDED.
@@ -1556,6 +1624,9 @@ class LiveRun:
         instrument stopped waiting. Reporting a timeout as "extracted
         nothing" would be the same class of lie as counting characters.
         """
+        if not self.MEASURE_EXTRACTION:
+            return {"count": None, "keys": [], "rows": {},
+                    "extraction": dict(self.EXTRACTION_NOT_MEASURED)}
         deadline = time.time() + self.EXTRACTION_POLL_SECONDS
         baseline_keys = set((before or {}).get("keys") or [])
         last = self._facts(person_id)
@@ -1643,7 +1714,9 @@ class LiveRun:
             narrator_text = chapter.text
             era_requested = getattr(chapter, "runtime71_era", "unknown")
             seed_before = self._seed_state(person_id)
-            facts_before = self._facts(person_id)
+            facts_before = (self._facts(person_id)
+                            if self.MEASURE_EXTRACTION
+                            else dict(self.EXTRACTION_NOT_MEASURED))
 
             result = self.transport.model_turn(
                 person_id=person_id, text=narrator_text, era=era_requested,
@@ -1674,9 +1747,14 @@ class LiveRun:
                 "facts_before": facts_before,
                 "facts_after": facts_after,
                 "extraction": facts_after.get("extraction"),
-                "facts_added": {
-                    k: v for k, v in (facts_after.get("rows") or {}).items()
-                    if k not in set((facts_before or {}).get("keys") or [])},
+                # `None`, not `{}`. An empty dict reads as "extraction
+                # ran and added nothing"; the truth is that nothing was
+                # asked. The distinction is the whole point of the
+                # not_measured record.
+                "facts_added": (
+                    {k: v for k, v in (facts_after.get("rows") or {}).items()
+                     if k not in set((facts_before or {}).get("keys") or [])}
+                    if self.MEASURE_EXTRACTION else None),
                 "life_map_after": life_map_after,
             }
             turns.append(record)
@@ -1693,18 +1771,65 @@ class LiveRun:
 
     def reuse_era_evidence(self, persona: Dict[str, Any],
                            conversation: Dict[str, Any]) -> Dict[str, Any]:
-        """The era lane reads the conversation that already happened."""
+        """The era lane reads the conversation that already happened.
+
+        *(This read `t.get("era")`. No turn has ever carried that key —
+        the record writes `era_requested` and `era_sent` — so `eras`
+        was `[]` on every run while the lane reported PASSED. The
+        corrected Alex/Walt run is what exposed it: seven correct
+        `era_sent` values, `eras_covered: []`, lane green. A lane that
+        passes on empty evidence is worth less than one that fails,
+        and across the full cohort it would have reported zero eras
+        after all 38 real turns.)*
+
+        `era_sent` is what the server was actually told, so it is the
+        coverage. `era_requested` is what the chapter asked for. They
+        should be identical; where they are not, the transport altered
+        the era and the difference is REPORTED rather than averaged
+        away — a silent substitution would put a chapter's narration
+        under the wrong era in the memoir.
+        """
         self._step("era_evidence")
-        eras = sorted({t.get("era") for t in conversation.get("turns", [])
-                       if t.get("era")})
-        return {
+        turns = conversation.get("turns", []) or []
+        sent = [t.get("era_sent") for t in turns]
+        requested = [t.get("era_requested") for t in turns]
+
+        mismatches = [
+            {"index": t.get("index"), "requested": req, "sent": snt}
+            for t, req, snt in zip(turns, requested, sent) if req != snt]
+        missing = [t.get("index") for t, snt in zip(turns, sent) if not snt]
+
+        covered = sorted({e for e in sent if e})
+        evidence = {
             "source": ERA_EVIDENCE_SOURCE
             if persona["harness"] == ERA_EVIDENCE_SOURCE else persona["harness"],
             "reused_from_conversation_lane": True,
-            "eras_covered": eras,
-            "note": ("derived from the conversation lane's completed turns; "
+            "eras_covered": covered,
+            "era_count": len(covered),
+            "turns_seen": len(turns),
+            "eras_requested": sorted({e for e in requested if e}),
+            "requested_vs_sent_mismatches": mismatches,
+            "turns_missing_era_sent": missing,
+            "note": ("derived from the conversation lane's completed turns "
+                     "via era_sent, cross-checked against era_requested; "
                      "the same seven-era material is never asked twice"),
         }
+        if mismatches or missing:
+            evidence["verdict"] = "mismatch"
+            evidence["problem"] = (
+                f"{len(mismatches)} turn(s) sent an era other than the one "
+                f"requested, {len(missing)} turn(s) recorded no era_sent. "
+                "Coverage is reported from era_sent; a substitution files "
+                "narration under an era the narrator was not asked about.")
+        elif turns and not covered:
+            evidence["verdict"] = "no_coverage"
+            evidence["problem"] = (
+                f"{len(turns)} turn(s) completed and produced no era "
+                "coverage at all. This is the defect that reported "
+                "eras_covered: [] while the lane passed.")
+        else:
+            evidence["verdict"] = "ok"
+        return evidence
 
     def traverse(self, persona: Dict[str, Any], person_id: str) -> Dict[str, Any]:
         self._step("browser_traversal")
@@ -2061,16 +2186,41 @@ def main(argv: Optional[List[str]] = None) -> int:
               "Resume continues a run; replay re-measures its narrators "
               "in a new run.", file=sys.stderr)
         return 5
-    mode = ("replay" if args.replay
+    mode = ("replay" if args.replay else "full" if args.full
             else "quick" if args.quick else "resume")
-    # `--full` is the ONLY thing that widens the selection. Replay and
-    # resume keep loading the quick two exactly as before: a replay
-    # reuses journaled UUIDs from its source run, so widening it would
-    # ask for narrators that run never created.
+
+    # ── WHAT A RESUME RESUMES IS NOT A GUESS ──────────────────────────
+    #
+    # `--resume` took the same `quick` default as everything that was
+    # not `--full`, so an interrupted TWELVE-narrator run resumed as
+    # Alex and Walt — and the checkpoint's immutable-selection guard
+    # would then have refused it as a changed selection, which is the
+    # good outcome; the bad one is that the guard is the only thing
+    # that would have caught it. The run already freezes its selection
+    # and mode into the checkpoint at `freeze_selection`. A resume
+    # reads that record instead of re-deriving it from flags the
+    # operator did not repeat.
+    resume_selection = None
+    if args.resume:
+        resume_selection = read_frozen_selection(EVAL_ROOT / args.resume)
+        if resume_selection is None:
+            print(f"REFUSED: {args.resume} has no frozen selection to "
+                  "resume. A run that never reached freeze_selection "
+                  "cannot be resumed; start it again.", file=sys.stderr)
+            return 4
+        mode = resume_selection.get("mode") or mode
+
+    # `--full` is the ONLY FLAG that widens the selection; a resume
+    # widens it from the frozen record. A replay keeps the quick two:
+    # it reuses journaled UUIDs from its source run, so widening it
+    # would ask for narrators that run never created.
+    want_full = bool(args.full) or (resume_selection or {}).get("mode") == "full"
     try:
-        personas = load_personas(quick=not args.full)
-        if args.full:
+        personas = load_personas(quick=not want_full)
+        if want_full:
             assert_full_selection(personas)
+        if resume_selection is not None:
+            assert_resume_matches(personas, resume_selection)
     except CohortRefusal as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 4
