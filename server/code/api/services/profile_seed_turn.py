@@ -717,6 +717,127 @@ def plan_turn(
                     completes_walk=completes)
 
 
+# ── Delivery: the question the narrator actually receives ───────────────
+#
+# ── WHY THIS EXISTS, 2026-08-30 ────────────────────────────────────────
+#
+# Phase 3 live evidence, narrator c6f78b9b, conversation
+# switch_mtgkaq7n_ilpl. The server planned and committed
+# `presented(childhood_home, epoch 2)` while Lori visibly said:
+#
+#     "We've touched on several parts of your story. Where would you
+#      like to continue today?"
+#
+# She never asked about a childhood home. The narrator's next, unrelated
+# message was then correlated against that phantom presentation, marked
+# `childhood_home` ADDRESSED — a DURABLE disposition — and advanced the
+# walk. The topic is closed permanently and the narrator was never asked.
+#
+# The plan is not proof of delivery. The prompt already told the model to
+# ask only this question and the model ignored it, so ANOTHER instruction
+# is not a fix. The question sentence is therefore the server's, and the
+# narrator receives it by construction rather than by hope.
+#
+# WHAT THIS IS NOT. It does not judge whether model prose is "close
+# enough" to the canonical question — there is no semantic comparison
+# anywhere in this file. Interrogatives are removed and the canonical
+# sentence is appended; that is the whole contract, and it is decidable
+# by reading the output.
+
+#: RE_PRESENT says "we are asking this again". A fixed lead-in keeps that
+#: gentle without making delivery depend on model prose, and re-asking is
+#: usually a deferral being honoured ("let me think") — which deserves
+#: exactly this and nothing cleverer.
+RE_PRESENT_LEAD_IN = "We can come back to this whenever you're ready."
+
+#: A lead-in is a REFLECTION, not an essay. The interview-discipline cap
+#: is 55 words for the whole turn; the canonical questions run to 13, so
+#: this leaves the turn inside the cap without arithmetic at call time.
+_LEAD_IN_MAX_SENTENCES = 2
+_LEAD_IN_MAX_WORDS = 38
+
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+
+
+def _declarative_lead_in(text: Optional[str]) -> str:
+    """Model prose with every QUESTION removed.
+
+    Interrogatives are dropped rather than rewritten. That is what stops
+    two questions reaching the narrator in one turn — the model's and the
+    server's — which the ONE THOUGHT, ONE QUESTION rule forbids and which
+    an older narrator experiences as being asked two things at once.
+
+    Detection is a literal "?" and nothing more. A declarative sentence
+    the model phrased as a question is still a question to the person
+    reading it, and a question mark is the one signal that cannot be
+    argued with.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return ""
+    kept: List[str] = []
+    for sentence in _SENTENCE_SPLIT.split(text.strip()):
+        s = sentence.strip()
+        if not s or "?" in s:
+            continue
+        kept.append(s)
+        if len(kept) >= _LEAD_IN_MAX_SENTENCES:
+            break
+    lead = " ".join(kept).strip()
+    if not lead:
+        return ""
+    words = lead.split()
+    if len(words) > _LEAD_IN_MAX_WORDS:
+        return ""
+    return lead
+
+
+def finalize_presentation(model_text: Optional[str], plan: "TurnPlan") -> str:
+    """The exact narrator-visible text for a PRESENT / RE_PRESENT turn.
+
+    Returns the bytes that must BOTH be emitted to the client and
+    persisted — the caller sends this one string and stores the same one,
+    so client-visible and durable text cannot disagree.
+
+    Contract:
+      * the canonical `narrator_question` is always present, verbatim;
+      * it is the ONLY question — model interrogatives are removed;
+      * a declarative model sentence may lead, as a reflection;
+      * RE_PRESENT uses a fixed gentle lead-in instead of model prose;
+      * an unusable topic returns "" and the caller must stamp NOTHING.
+    """
+    if plan is None or plan.action not in (PRESENT, RE_PRESENT):
+        return ""
+    if not _seed.is_known_topic(plan.topic_id):
+        # No canonical question exists, so nothing can be delivered and
+        # nothing may be claimed. The caller drops the metadata.
+        return ""
+    question = _seed.topic(plan.topic_id).narrator_question
+    if not isinstance(question, str) or not question.strip():
+        return ""
+    question = question.strip()
+
+    if plan.action == RE_PRESENT:
+        return f"{RE_PRESENT_LEAD_IN} {question}"
+
+    lead = _declarative_lead_in(model_text)
+    return f"{lead} {question}" if lead else question
+
+
+def delivers_question(final_text: Optional[str], plan: "TurnPlan") -> bool:
+    """Did the text the narrator received carry the canonical question?
+
+    The caller stamps `presented` metadata ONLY when this is True. It is
+    a containment check against the server's own string, not a judgement
+    about the model's wording.
+    """
+    if plan is None or plan.action not in (PRESENT, RE_PRESENT):
+        return False
+    if not isinstance(final_text, str) or not _seed.is_known_topic(plan.topic_id):
+        return False
+    question = (_seed.topic(plan.topic_id).narrator_question or "").strip()
+    return bool(question) and question in final_text
+
+
 # ── Recovery ────────────────────────────────────────────────────────────
 NOTHING_OWED = "nothing_owed"
 RETRIED = "retried"
@@ -824,6 +945,7 @@ __all__: Sequence[str] = (
     "RESPONSE_DISPOSITION", "META_KEYS",
     "ADDRESSED", "DECLINED", "STATIONARY", "CLASSIFICATIONS",
     "PRESENT", "RE_PRESENT", "ACKNOWLEDGE", "HOLD", "IDLE", "ACTIONS",
+    "RE_PRESENT_LEAD_IN", "finalize_presentation", "delivers_question",
     "PRESENTED", "RESPONSE", "TurnEvent", "TurnPlan",
     "is_temporary_deferral", "holds_the_walk", "classify_response",
     "event_from_meta",

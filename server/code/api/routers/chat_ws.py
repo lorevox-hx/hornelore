@@ -6092,6 +6092,74 @@ async def ws_chat(ws: WebSocket):
             # client bubble via the deferred single-delta emit.
             _deferred_emit_pending = True
 
+        # ── PROFILE SEED — DELIVERY, NOT INTENTION, 2026-08-30 ─────────────
+        #
+        # The plan is not proof that the narrator was asked. Live evidence,
+        # narrator c6f78b9b / conv switch_mtgkaq7n_ilpl: this path planned
+        # `present childhood_home` and committed
+        # `presented(childhood_home, epoch 2)` while the model's visible
+        # words were "Where would you like to continue today?". The next,
+        # unrelated narrator message was correlated against that phantom
+        # presentation, marked the topic ADDRESSED — a DURABLE disposition
+        # — and advanced the walk. `childhood_home` is closed forever and
+        # was never asked.
+        #
+        # The prompt already instructed the model to ask only the canonical
+        # question. It ignored it. A further instruction is not a fix, so
+        # the question sentence is now the SERVER'S and is delivered by
+        # construction.
+        #
+        # WHY THIS IS SAFE HERE AND NOT A SECOND WRITER. `_buffer_mode` is
+        # unconditionally True above, so nothing has reached the narrator
+        # yet; the single deferred delta below emits `final_text`, and the
+        # persistence call further down stores the same `final_text`. One
+        # string, one emit, one row. Rewriting it at this point is the only
+        # place where those two are still guaranteed to be the same bytes.
+        # Imported HERE, not inherited. The module-level binding is made
+        # inside a nested branch ~1700 lines up; if that branch did not
+        # run, `_ps_turn` is unbound and a NameError on this line would
+        # kill the narrator's turn outright. A local import is free and
+        # cannot be reached around.
+        from ..services import profile_seed_turn as _ps_turn
+        if _ps_plan is not None and _ps_plan.action in (
+                _ps_turn.PRESENT, _ps_turn.RE_PRESENT):
+            _ps_delivered = _ps_turn.finalize_presentation(final_text, _ps_plan)
+            if _ps_delivered:
+                if _ps_delivered != final_text:
+                    logger.info(
+                        "[chat_ws][profile-seed][deliver] finalized "
+                        "action=%s topic=%s epoch=%s conv=%s person=%s",
+                        _ps_plan.action, _ps_plan.topic_id, _ps_plan.epoch,
+                        conv_id, person_id,
+                    )
+                final_text = _ps_delivered
+                _deferred_emit_pending = True
+            else:
+                # No canonical question could be built, so nothing was
+                # asked and nothing may be claimed. Dropping the planned
+                # metadata is the whole point: an unstamped turn costs one
+                # repeated question, a phantom stamp costs the topic.
+                logger.error(
+                    "[chat_ws][profile-seed][deliver] NO canonical question "
+                    "for action=%s topic=%r — dropping presentation metadata "
+                    "conv=%s person=%s",
+                    _ps_plan.action, _ps_plan.topic_id, conv_id, person_id,
+                )
+                _ps_planned_meta = {}
+
+            # The stamp follows the DELIVERED text, never the plan. If the
+            # question is not in what the narrator received, no presentation
+            # happened, whatever this turn intended.
+            if _ps_planned_meta and not _ps_turn.delivers_question(
+                    final_text, _ps_plan):
+                logger.error(
+                    "[chat_ws][profile-seed][deliver] finalized text does NOT "
+                    "carry the canonical question topic=%s — dropping "
+                    "presentation metadata conv=%s person=%s",
+                    _ps_plan.topic_id, conv_id, person_id,
+                )
+                _ps_planned_meta = {}
+
         # ── PROFILE SEED, STEP 6 — the ONE sanctioned metadata merge ───────
         #
         # Built as a NAMED DICT rather than inline in the call, so the
