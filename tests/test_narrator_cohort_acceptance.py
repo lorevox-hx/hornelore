@@ -734,6 +734,7 @@ class FakeTransport:
                  marker="ZZ COHORT r-test · ", store=None):
         self.calls = []
         self.turns = []
+        self.conv_ids = set()
         self.fail_on_turn = fail_on_turn
         self.marker = marker
         self.display_name = display_name
@@ -775,7 +776,12 @@ class FakeTransport:
             }
             return 200, {"person": row}
         if path.startswith("/api/interview/profile-seed"):
-            return 200, {"enrolled": True, "version": 3, "status": "active"}
+            return 200, {"enrolled": True, "version": 3, "status": "active",
+                         "active_topic_id": "childhood_home",
+                         "presentation_epoch": 2,
+                         "remaining_topics": ["childhood_home"]}
+        if path.startswith("/api/facts/list"):
+            return 200, {"facts": [{"field_key": "childhood_home_address"}]}
         return 404, {}
 
     def patch(self, path, payload):
@@ -784,9 +790,16 @@ class FakeTransport:
 
     def model_turn(self, *, person_id, text, era, speaker_name, conv_id):
         self.turns.append((person_id, era))
+        self.conv_ids.add(conv_id)
         if self.fail_on_turn is not None and len(self.turns) == self.fail_on_turn:
             raise KeyboardInterrupt("simulated interruption mid-run")
-        return {"text": "reflected", "events": 3, "era": era}
+        # Mirrors the real transport's envelope. A fake that returned
+        # only `text` could not exercise the capture under test.
+        reply = f"Lori reflects on {era}."
+        return {"text": reply, "chars": len(reply), "event_count": 3,
+                "era": era, "era_sent": era,
+                "done_event": {"type": "done", "turn_id": f"t-{len(self.turns)}"},
+                "ws_errors": []}
 
     def browser(self, *, person_id, expected_name, ui_url, output, screenshots):
         self.calls.append(("browser", person_id))
@@ -1429,3 +1442,193 @@ class CohortMembershipTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class TurnEvidenceTests(unittest.TestCase):
+    """The record must be reviewable by a human, not a character count.
+
+    ── WHY THIS SUITE EXISTS, 2026-08-30 ─────────────────────────────
+
+    `run_turns` stored `{"index", "era", "chars"}`. Lori's response was
+    fetched over the WebSocket and discarded, so the report could not
+    answer whether she recognised the era, repeated herself, or answered
+    at all. Running the cohort on that record would have produced the
+    vacuous pass this instrument is supposed to prevent.
+    """
+
+    def _run(self, tmp, transport, **kw):
+        return COHORT.LiveRun(
+            personas=_two_personas(), lanes=list(COHORT.LANES), mode="quick",
+            out_dir=Path(tmp), transport=transport,
+            ui_url="http://localhost:8082/ui/x.html", run_id="r-evidence", **kw)
+
+    def test_the_full_narrator_and_lori_text_are_kept(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            report = self._run(tmp, FakeTransport()).execute()
+            turns = report["personas"][0]["conversation"]["turns"]
+            self.assertTrue(turns)
+            for t in turns:
+                with self.subTest(index=t.get("index")):
+                    self.assertTrue(t.get("narrator_text"),
+                                    "the narrator's words were not kept")
+                    self.assertTrue(t.get("lori_text"),
+                                    "Lori's response was not kept")
+
+    def test_ids_and_eras_are_recorded_per_turn(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            report = self._run(tmp, FakeTransport()).execute()
+            t = report["personas"][0]["conversation"]["turns"][0]
+            for key in ("person_id", "conversation_id", "era_requested",
+                        "era_sent", "done_event"):
+                self.assertIn(key, t)
+
+    def test_profile_seed_state_is_captured_either_side_of_the_turn(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            report = self._run(tmp, FakeTransport()).execute()
+            t = report["personas"][0]["conversation"]["turns"][0]
+            for side in ("profile_seed_before", "profile_seed_after"):
+                seed = t[side]
+                self.assertEqual("childhood_home", seed["active_topic_id"])
+                self.assertEqual(2, seed["presentation_epoch"])
+
+    def test_extracted_facts_are_captured_before_and_after(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            report = self._run(tmp, FakeTransport()).execute()
+            t = report["personas"][0]["conversation"]["turns"][0]
+            self.assertEqual(1, t["facts_before"]["count"])
+            self.assertEqual(1, t["facts_after"]["count"])
+
+    def test_the_hardcoded_pass_is_labelled_as_the_instrument_s_own(self):
+        """Not dressed up as a browser reading.
+
+        `harness_lib._send_turn_and_capture` hardcodes pass2a, so this
+        path cannot observe pass reconciliation. Saying so is the honest
+        record; reporting it as `currentPass` would be a fiction.
+        """
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            report = self._run(tmp, FakeTransport()).execute()
+            t = report["personas"][0]["conversation"]["turns"][0]
+            self.assertIn("hardcoded", t["runtime_pass_sent"])
+
+    def test_the_ledger_keeps_ids_and_NOT_narrator_prose(self):
+        """The journal is accounting. Speech belongs in the report."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            self._run(tmp, FakeTransport()).execute()
+            journal = json.loads(
+                (Path(tmp) / "artifacts.json").read_text(encoding="utf-8"))
+            for row in journal["turns"]:
+                self.assertNotIn("narrator_text", row)
+                self.assertNotIn("lori_text", row)
+                self.assertIn("conversation_id", row)
+
+    def test_the_html_report_shows_the_exchanges_grouped_by_era(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            self._run(tmp, FakeTransport()).execute()
+            html = (Path(tmp) / "report.html").read_text(encoding="utf-8")
+            self.assertIn("Narrator", html)
+            self.assertIn("Lori", html)
+            self.assertIn("Lori reflects on", html)   # the actual response
+            self.assertIn("not scored", html)         # no invented judgement
+
+
+class ReplayModeTests(unittest.TestCase):
+    """Re-measure existing narrators. Create nobody, rewrite nothing."""
+
+    def _source_ledger(self, tmp):
+        src = Path(tmp) / "source"
+        src.mkdir()
+        led = COHORT.Ledger(src, "r-source")
+        led.add_person("11111111-2222-3333-4444-000000000001",
+                       "ZZ COHORT r-source · Alex", "h1")
+        led.add_person("11111111-2222-3333-4444-000000000002",
+                       "ZZ COHORT r-source · Walt",
+                       "run_seven_era_walk_harness")
+        return src, led
+
+    def test_a_replay_creates_no_person(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            src, led = self._source_ledger(tmp)
+            transport = FakeTransport(marker="ZZ COHORT r-source · ")
+            run = COHORT.LiveRun(
+                personas=_two_personas(), lanes=list(COHORT.LANES),
+                mode="replay", out_dir=Path(tmp) / "replay",
+                transport=transport, ui_url="http://x/y.html",
+                run_id="replay-r-new", replay_of="r-source",
+                source_ledger=led)
+            run.execute()
+            posts = [c for c in transport.calls
+                     if isinstance(c, tuple) and c[0] == "POST"
+                     and "intake" in str(c[1])]
+            self.assertEqual([], posts, "a replay performed intake")
+
+    def test_a_replay_reuses_the_journaled_uuids(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            src, led = self._source_ledger(tmp)
+            run = COHORT.LiveRun(
+                personas=_two_personas(), lanes=list(COHORT.LANES),
+                mode="replay", out_dir=Path(tmp) / "replay",
+                transport=FakeTransport(marker="ZZ COHORT r-source · "), ui_url="http://x/y.html",
+                run_id="replay-r-new", replay_of="r-source",
+                source_ledger=led)
+            report = run.execute()
+            ids = {p["person_id"] for p in report["personas"]}
+            self.assertEqual(
+                {"11111111-2222-3333-4444-000000000001",
+                 "11111111-2222-3333-4444-000000000002"}, ids)
+
+    def test_a_replay_takes_a_NEW_conversation(self):
+        """The journaled thread holds defect evidence and must not grow."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            src, led = self._source_ledger(tmp)
+            transport = FakeTransport(marker="ZZ COHORT r-source · ")
+            run = COHORT.LiveRun(
+                personas=_two_personas(), lanes=list(COHORT.LANES),
+                mode="replay", out_dir=Path(tmp) / "replay",
+                transport=transport, ui_url="http://x/y.html",
+                run_id="replay-r-new", replay_of="r-source",
+                source_ledger=led)
+            run.execute()
+            for conv in transport.conv_ids:
+                with self.subTest(conv=conv):
+                    self.assertTrue(conv.startswith("replay-"), conv)
+                    self.assertNotIn("r-source", conv)
+
+    def test_a_replay_does_not_write_to_the_source_journal(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            src, led = self._source_ledger(tmp)
+            before = (src / "artifacts.json").read_text(encoding="utf-8")
+            run = COHORT.LiveRun(
+                personas=_two_personas(), lanes=list(COHORT.LANES),
+                mode="replay", out_dir=Path(tmp) / "replay",
+                transport=FakeTransport(marker="ZZ COHORT r-source · "), ui_url="http://x/y.html",
+                run_id="replay-r-new", replay_of="r-source",
+                source_ledger=led)
+            run.execute()
+            self.assertEqual(
+                before, (src / "artifacts.json").read_text(encoding="utf-8"),
+                "the source journal was modified by a replay")
+
+    def test_a_replay_refuses_rather_than_creating_an_unjournaled_persona(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "empty"; src.mkdir()
+            led = COHORT.Ledger(src, "r-empty")     # journals nobody
+            run = COHORT.LiveRun(
+                personas=_two_personas(), lanes=list(COHORT.LANES),
+                mode="replay", out_dir=Path(tmp) / "replay",
+                transport=FakeTransport(marker="ZZ COHORT r-source · "), ui_url="http://x/y.html",
+                run_id="replay-r-new", replay_of="r-empty",
+                source_ledger=led)
+            with self.assertRaises(COHORT.CohortRefusal):
+                run.execute()

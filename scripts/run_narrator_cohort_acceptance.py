@@ -1001,7 +1001,32 @@ class Transport:
                     chapter_label=era, timeout_s=self.timeout)
 
         final_text, events = asyncio.run(_run())
-        return {"text": final_text, "events": len(events), "era": era}
+        # ── EVERYTHING THE TRANSPORT SAW, 2026-08-30 ──────────────────
+        #
+        # This returned `{"text":…, "events": len(events), "era":…}` and
+        # `run_turns` then kept only `len(text)`. Lori's words were
+        # fetched and thrown away, so the report could not answer the one
+        # question the cohort exists to ask — did she say something
+        # appropriate to this era? A character count is not evidence.
+        #
+        # The `done` event is kept whole (minus token deltas, which are
+        # just `final_text` again in pieces) because it is where the
+        # server puts turn ids and any per-turn metadata it chooses to
+        # surface. Capturing the envelope rather than named fields means
+        # a future server addition arrives in the report for free.
+        done = next((e for e in reversed(events)
+                     if isinstance(e, dict) and e.get("type") == "done"), {})
+        errors = [e for e in events
+                  if isinstance(e, dict) and e.get("type") == "error"]
+        return {
+            "text": final_text,
+            "chars": len(final_text or ""),
+            "event_count": len(events),
+            "era_sent": era,          # what crossed the WS boundary
+            "era": era,               # kept: existing readers use this key
+            "done_event": {k: v for k, v in done.items() if k != "delta"},
+            "ws_errors": errors,
+        }
 
     def browser(self, *, person_id: str, expected_name: str,
                 ui_url: str, output: Path, screenshots: Path) -> Dict[str, Any]:
@@ -1072,7 +1097,9 @@ class LiveRun:
     def __init__(self, *, personas: List[Dict[str, Any]], lanes: List[str],
                  mode: str, out_dir: Path, transport: Transport,
                  ui_url: str, db_path: Path = DEFAULT_DB_PATH,
-                 run_id: Optional[str] = None):
+                 run_id: Optional[str] = None,
+                 replay_of: Optional[str] = None,
+                 source_ledger: Optional["Ledger"] = None):
         self.personas = personas
         self.lanes = lanes
         self.mode = mode
@@ -1081,6 +1108,12 @@ class LiveRun:
         self.ui_url = ui_url
         self.db_path = db_path
         self.run_id = run_id or new_run_id()
+        #: The run whose narrators this one re-measures, if any.
+        self.replay_of = replay_of
+        #: The ORIGINAL run's journal, opened READ-ONLY for its UUIDs.
+        #: A replay writes its own journal in its own directory; the
+        #: source is never reopened for writing and never truncated.
+        self.source_ledger = source_ledger
         self.out_dir.mkdir(parents=True, exist_ok=True)
         self.ledger = Ledger(self.out_dir, self.run_id)
         self.checkpoint = Checkpoint(self.out_dir)
@@ -1098,6 +1131,28 @@ class LiveRun:
         if name not in ORCHESTRATION:
             raise CohortRefusal(f"undeclared orchestration step: {name!r}")
         self.trace.append(name)
+
+    def conversation_id_for(self, person_id: str) -> str:
+        """The conversation this run speaks into.
+
+        ── A REPLAY GETS ITS OWN CONVERSATION, 2026-08-30 ─────────────
+
+        An ordinary run keys the conversation on the RUN id, so resuming
+        continues the same thread. A REPLAY must not: the journaled
+        Alex thread `cohort-r20260830-011413-fa48c7-c6f78b9b` carries the
+        phantom-presentation defect evidence — the turn where
+        `presented(childhood_home, epoch 2)` was committed against prose
+        that asked nothing — and that thread is preserved deliberately.
+        Appending new turns to it would bury the evidence inside a later,
+        healthy conversation.
+
+        So a replay reuses the PERSON and takes a new CONVERSATION. No
+        narrator is created, no journal is rewritten, and the original
+        thread is left exactly as it was.
+        """
+        if self.replay_of:
+            return f"replay-{self.run_id}-{person_id[:8]}"
+        return f"cohort-{self.run_id}-{person_id[:8]}"
 
     # ── lane selection ───────────────────────────────────────────────
     def _lane_on(self, lane: str) -> bool:
@@ -1136,7 +1191,30 @@ class LiveRun:
         # journaled a narrator for this persona, that narrator IS the
         # persona for the rest of the run; creating a second one would
         # orphan the first and strand the completed turns against it.
-        existing = self.ledger.person_for_source(persona["harness"])
+        # A REPLAY LOOKS IN THE SOURCE RUN'S JOURNAL FIRST. Its own
+        # journal starts empty, so without this it would fall through to
+        # intake and create a duplicate Alex — the exact thing a replay
+        # exists to avoid.
+        existing = None
+        if self.source_ledger is not None:
+            existing = self.source_ledger.person_for_source(persona["harness"])
+            if existing is not None:
+                # Recorded in THIS run's journal too, as a reuse, so the
+                # replay's own inventory is complete without the source
+                # being written to.
+                if self.ledger.person_for_source(persona["harness"]) is None:
+                    self.ledger.add_person(
+                        existing["person_id"], existing.get("display_name", ""),
+                        persona["harness"],
+                        testing_only_requested=bool(
+                            existing.get("testing_only_requested", True)))
+                    self.ledger.add("notes", {
+                        "replay_of": self.replay_of,
+                        "reused_person_id": existing["person_id"],
+                        "why": "replay re-measures an existing narrator; "
+                               "no intake, no new person"})
+        if existing is None:
+            existing = self.ledger.person_for_source(persona["harness"])
         if existing is not None:
             self.ledger.add("notes", {
                 "reused_existing_narrator": existing["person_id"],
@@ -1151,6 +1229,13 @@ class LiveRun:
         # about the request. It is not persisted, so it proves nothing
         # about this narrator after creation. The safety boundary is the
         # journal, checked in `verify_identity`.
+        if self.replay_of:
+            # Unreachable when the source journal owns this persona, which
+            # is the only supported replay. Refusing rather than creating
+            # is the difference between a re-measurement and a duplicate.
+            raise CohortRefusal(
+                f"replay of {self.replay_of} has no journaled narrator for "
+                f"{persona['label']!r}; refusing to create one")
         payload = mark_intake_payload(persona["intake_payload"], self.run_id)
         status, body = self.transport.post("/api/people/intake", payload)
         if status != 200 or not isinstance(body, dict):
@@ -1202,7 +1287,18 @@ class LiveRun:
                 f"identity mismatch: asked for {person_id}, row says {actual_id}")
 
         display = str(person.get("display_name") or "")
-        expected_marker = run_prefix(self.run_id)
+        # ── A REPLAY CHECKS THE SOURCE RUN'S MARKER, 2026-08-30 ───────
+        #
+        # The narrator was stamped by the run that CREATED it. Comparing
+        # against this run's prefix would refuse every replayed narrator
+        # — correctly by its own logic, and uselessly, since a
+        # re-measurement must by definition meet somebody else's
+        # narrator.
+        #
+        # The guard does not weaken: the marker must still be present,
+        # so a real narrator is still refused, and authority still comes
+        # from `require_journaled` above rather than from any name.
+        expected_marker = run_prefix(self.replay_of or self.run_id)
         self.ledger.add("identity_checks", {
             "person_id": person_id,
             "display_name": display,
@@ -1260,25 +1356,103 @@ class LiveRun:
                 "status_after": (pbody or {}).get("status")
                 if isinstance(pbody, dict) else None}
 
+    def _seed_state(self, person_id: str) -> Dict[str, Any]:
+        """Profile Seed state as the server reports it, for one turn."""
+        status, body = self.transport.get(
+            "/api/interview/profile-seed?person_id="
+            + urllib.parse.quote(person_id))
+        if status != 200 or not isinstance(body, dict):
+            return {"http": status, "unavailable": True}
+        return {
+            "status": body.get("status"),
+            "active_topic_id": body.get("active_topic_id"),
+            "version": body.get("version"),
+            "presentation_epoch": body.get("presentation_epoch"),
+            "remaining": body.get("remaining_topics"),
+        }
+
+    def _facts(self, person_id: str) -> Dict[str, Any]:
+        """Extracted facts, for a before/after comparison per turn."""
+        status, body = self.transport.get(
+            "/api/facts/list?person_id=" + urllib.parse.quote(person_id))
+        if status != 200 or not isinstance(body, dict):
+            return {"http": status, "unavailable": True}
+        facts = body.get("facts") or body.get("items") or []
+        return {"count": len(facts) if isinstance(facts, list) else None,
+                "keys": sorted({str(f.get("field_key"))
+                                for f in facts
+                                if isinstance(f, dict) and f.get("field_key")})
+                if isinstance(facts, list) else []}
+
     def run_turns(self, persona: Dict[str, Any], person_id: str) -> Dict[str, Any]:
-        """Sequential. One turn at a time, checkpointed as it goes."""
+        """Sequential. One turn at a time, checkpointed as it goes.
+
+        ── THE RECORD IS THE EVIDENCE, 2026-08-30 ────────────────────
+        Each turn used to store `{"index", "era", "chars"}`. Reviewing
+        Lori from that is impossible: a length cannot show whether she
+        recognised the era, repeated herself, or answered at all. Every
+        field below exists so a human can read the exchange and judge it.
+
+        WHAT IS NOT CAPTURED, and is marked so rather than faked:
+        `current_pass` and `effective_pass` are HARDCODED to "pass2a" in
+        `harness_lib._send_turn_and_capture`, so they are constants of
+        this instrument and not readings of a browser. This path can
+        therefore never observe pass reconciliation. The browser half
+        does that; this half must not pretend to.
+        """
         self._step("model_turns")
-        conv_id = f"cohort-{self.run_id}-{person_id[:8]}"
+        conv_id = self.conversation_id_for(person_id)
         turns: List[Dict[str, Any]] = []
         for index, chapter in enumerate(persona.get("chapters", [])):
             lane_key = f"turn{index}"
             if self.checkpoint.is_done(persona["label"], lane_key):
-                turns.append({"index": index, "reused_from_checkpoint": True})
+                prior = self.checkpoint.done.get(
+                    self.checkpoint.key(persona["label"], lane_key), {})
+                # Carry the PRIOR record forward rather than a stub, or a
+                # resumed run reports a turn it cannot show anybody.
+                turns.append({**prior, "index": index,
+                              "reused_from_checkpoint": True})
                 continue
+
+            narrator_text = getattr(chapter, "narrator_text", "") or ""
+            era_requested = getattr(chapter, "runtime71_era", "unknown")
+            seed_before = self._seed_state(person_id)
+            facts_before = self._facts(person_id)
+
             result = self.transport.model_turn(
-                person_id=person_id,
-                text=getattr(chapter, "narrator_text", "") or "",
-                era=getattr(chapter, "runtime71_era", "unknown"),
+                person_id=person_id, text=narrator_text, era=era_requested,
                 speaker_name=persona["label"], conv_id=conv_id)
-            record = {"index": index, "era": result.get("era"),
-                      "chars": len(result.get("text") or "")}
+
+            seed_after = self._seed_state(person_id)
+            facts_after = self._facts(person_id)
+
+            record = {
+                "index": index,
+                "person_id": person_id,
+                "conversation_id": conv_id,
+                "era_requested": era_requested,
+                "era_sent": result.get("era_sent"),
+                # Constants of the transport, named as such.
+                "runtime_pass_sent": "pass2a (hardcoded by harness_lib)",
+                "narrator_text": narrator_text,
+                "lori_text": result.get("text") or "",
+                "chars": result.get("chars"),
+                "done_event": result.get("done_event"),
+                "ws_errors": result.get("ws_errors") or [],
+                "profile_seed_before": seed_before,
+                "profile_seed_after": seed_after,
+                "facts_before": facts_before,
+                "facts_after": facts_after,
+            }
             turns.append(record)
-            self.ledger.add("turns", {"person_id": person_id, **record})
+            # The LEDGER stays a thin inventory — ids and shape, no prose.
+            # Narrator and Lori text belong in the report, which is the
+            # thing a human reads; duplicating it into the journal would
+            # put narrator speech in an artifact whose job is accounting.
+            self.ledger.add("turns", {
+                "person_id": person_id, "index": index,
+                "conversation_id": conv_id,
+                "era_sent": record["era_sent"], "chars": record["chars"]})
             self.checkpoint.mark(persona["label"], lane_key, record)
         return {"conversation_id": conv_id, "turns": turns}
 
@@ -1391,6 +1565,7 @@ class LiveRun:
             "generated_at": datetime.now(timezone.utc).isoformat(
                 timespec="seconds"),
             "orchestration": list(self.trace),
+            "replay_of": self.replay_of,
             "personas": self.results,
             # ── WHAT RAN, AND WHAT DID NOT, 2026-08-30 ────────────────
             #
@@ -1438,56 +1613,133 @@ class LiveRun:
 
 
 def _render_html(report: Dict[str, Any]) -> str:
-    """A readable report. Deliberately plain and self-contained."""
+    """A readable report. THE EXCHANGES ARE THE REPORT.
+
+    ── WHY THIS IS NOT A TABLE OF COUNTS, 2026-08-30 ─────────────────
+
+    The previous version showed persona, id, paused, turn COUNT and a
+    browser boolean. Everything a reviewer actually needs — what the
+    narrator said, what Lori said back, and whether her answer belonged
+    to the era on screen — was absent, and the underlying record only
+    held a character count anyway.
+
+    Era appropriateness is deliberately NOT scored here. No keyword
+    matching, no length heuristic. The exchange is printed with the era
+    it was sent under and the Profile Seed state either side of it, and
+    a human decides. A number that looked like a judgement would be
+    worse than no number at all.
+    """
     def esc(value: Any) -> str:
-        return (str(value).replace("&", "&amp;").replace("<", "&lt;")
-                .replace(">", "&gt;"))
-    rows = "".join(
-        f"<tr><td>{esc(p['persona'])}</td><td><code>{esc(p['person_id'])}</code></td>"
-        f"<td>{esc(p['profile_seed'].get('paused'))}</td>"
-        f"<td>{esc(len(p['conversation'].get('turns', [])))}</td>"
-        f"<td>{esc(p['browser'].get('ok'))}</td>"
-        # Travel Document and the diagnostics summary are now visible in
-        # the readable report. Both were computed and then reachable only
-        # by opening the JSON.
-        f"<td>{esc((p['browser'].get('travel') or {}).get('classification'))}</td>"
-        f"<td>{esc((p['browser'].get('diagnostics') or {}).get('clean'))}</td></tr>"
-        for p in report.get("personas", []))
-    lanes = report.get("lanes", {})
-    missing = "".join(
-        f"<li><code>{esc(name)}</code> — {esc(why)}</li>"
-        for name, why in (lanes.get("not_implemented") or {}).items())
+        return (str(value if value is not None else "")
+                .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+    def seed_line(seed: Any) -> str:
+        if not isinstance(seed, dict) or seed.get("unavailable"):
+            return "<span class='muted'>profile seed unavailable</span>"
+        return (f"{esc(seed.get('status'))} · "
+                f"topic {esc(seed.get('active_topic_id'))} · "
+                f"v{esc(seed.get('version'))} · "
+                f"epoch {esc(seed.get('presentation_epoch'))}")
+
+    blocks = []
+    for p in report.get("personas", []):
+        turns = (p.get("conversation") or {}).get("turns") or []
+        by_era: Dict[str, List[Dict[str, Any]]] = {}
+        for t in turns:
+            by_era.setdefault(str(t.get("era_sent") or t.get("era_requested")
+                                  or "unknown"), []).append(t)
+        era_html = []
+        for era, rows in by_era.items():
+            exchanges = []
+            for t in rows:
+                if t.get("reused_from_checkpoint") and not t.get("lori_text"):
+                    exchanges.append(
+                        "<p class='muted'>turn %s reused from a checkpoint; "
+                        "no text was captured by the run that made it</p>"
+                        % esc(t.get("index")))
+                    continue
+                facts_b = (t.get("facts_before") or {}).get("count")
+                facts_a = (t.get("facts_after") or {}).get("count")
+                exchanges.append(
+                    "<div class='turn'>"
+                    f"<div class='meta'>turn {esc(t.get('index'))} · "
+                    f"era sent <code>{esc(t.get('era_sent'))}</code> · "
+                    f"pass {esc(t.get('runtime_pass_sent'))}</div>"
+                    f"<div class='who'>Narrator</div>"
+                    f"<blockquote class='narrator'>{esc(t.get('narrator_text'))}</blockquote>"
+                    f"<div class='who'>Lori</div>"
+                    f"<blockquote class='lori'>{esc(t.get('lori_text'))}</blockquote>"
+                    f"<div class='meta'>before: {seed_line(t.get('profile_seed_before'))}"
+                    f"<br>after:&nbsp; {seed_line(t.get('profile_seed_after'))}"
+                    f"<br>facts {esc(facts_b)} &rarr; {esc(facts_a)}"
+                    + ("<br><span class='bad'>ws errors: %s</span>"
+                       % esc(len(t.get("ws_errors") or []))
+                       if t.get("ws_errors") else "")
+                    + "</div></div>")
+            era_html.append(
+                f"<h4>{esc(era)} <span class='muted'>· {len(rows)} turn(s)</span></h4>"
+                + "".join(exchanges))
+        blocks.append(
+            f"<section class='persona'><h3>{esc(p.get('persona'))}</h3>"
+            f"<p class='meta'><code>{esc(p.get('person_id'))}</code><br>"
+            f"conversation <code>{esc((p.get('conversation') or {}).get('conversation_id'))}</code></p>"
+            + ("".join(era_html) or "<p class='muted'>no turns recorded</p>")
+            + "</section>")
+
     c = report.get("containment", {})
+    lanes = report.get("lanes", {})
+    missing = "".join(f"<li><code>{esc(k)}</code> — {esc(v)}</li>"
+                      for k, v in (lanes.get("not_implemented") or {}).items())
+    d = report.get("denominators") or {}
+    replay = report.get("replay_of")
     return f"""<!doctype html><meta charset="utf-8">
 <title>Narrator cohort — {esc(report.get('run_id'))}</title>
-<style>body{{font:15px/1.5 system-ui,sans-serif;margin:2rem;max-width:60rem}}
-table{{border-collapse:collapse;width:100%}}td,th{{border:1px solid #ccc;
-padding:.4rem .6rem;text-align:left}}code{{font-size:.85em}}
-.warn{{background:#fff4e5;padding:.6rem;border-left:3px solid #e59700}}</style>
-<h1>Narrator cohort acceptance</h1>
+<style>
+body{{font:16px/1.6 system-ui,sans-serif;margin:2rem auto;max-width:52rem;color:#1e293b}}
+code{{font-size:.85em;background:#f1f5f9;padding:1px 4px;border-radius:3px}}
+.persona{{border-top:2px solid #cbd5e1;margin-top:2rem;padding-top:.5rem}}
+.turn{{border-left:3px solid #e2e8f0;padding:.4rem 0 .4rem .9rem;margin:1rem 0}}
+blockquote{{margin:.25rem 0 .6rem;padding:.5rem .8rem;border-radius:6px}}
+.narrator{{background:#f8fafc;border-left:3px solid #94a3b8}}
+.lori{{background:#eef2ff;border-left:3px solid #6366f1}}
+.who{{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#64748b}}
+.meta{{font-size:13px;color:#64748b}}
+.muted{{color:#94a3b8}} .bad{{color:#b91c1c}}
+.warn{{background:#fff4e5;padding:.6rem;border-left:3px solid #e59700}}
+</style>
+<h1>Narrator cohort</h1>
 <p>Run <code>{esc(report.get('run_id'))}</code> · mode
-<strong>{esc(report.get('mode'))}</strong> ·
-{esc(report.get('generated_at'))}</p>
-<h2>Personas</h2>
-<table><tr><th>Persona</th><th>person_id</th><th>Seed paused</th>
-<th>Turns</th><th>Browser ok</th><th>Travel Doc</th>
-<th>No console/network errors</th></tr>{rows}</table>
+<strong>{esc(report.get('mode'))}</strong> · {esc(report.get('generated_at'))}
+{"<br>Re-measurement of <code>" + esc(replay) + "</code> — existing narrators, new conversations, nothing created." if replay else ""}</p>
+
+<p class="warn">Era appropriateness is <strong>not scored</strong>. The
+exchanges below are printed for a human to judge. Response length is not
+evidence of response quality.</p>
+
+<h2>Exchanges</h2>
+{''.join(blocks) or "<p class='muted'>no personas recorded</p>"}
+
+<h2>Denominators</h2>
+<pre>{esc(json.dumps(d, indent=1))}</pre>
+
 <h2>Lanes</h2>
 <p>Executed: <code>{esc(", ".join(lanes.get("executed") or []))}</code></p>
-<p class="warn">Not implemented by this runner, and therefore <em>not</em>
-covered by this report:</p>
+<p class="warn">Not implemented by this runner, and therefore not covered:</p>
 <ul>{missing}</ul>
 <p>No reference persona was opened, read or extracted from. The reference
 block in the JSON is a policy statement, not a result.</p>
-<h2>Denominators</h2><pre>{esc(json.dumps(report.get('denominators'), indent=1))}</pre>
+<p class="muted">Browser <code>currentPass</code> is not observable on this
+path: <code>harness_lib._send_turn_and_capture</code> hardcodes
+<code>pass2a</code>, so it is a constant of the instrument rather than a
+reading. Pass reconciliation is the browser half's to prove.</p>
+
 <h2>Containment</h2>
-<p>Non-run membership unchanged:
-<strong>{esc(c.get('non_run_membership_unchanged'))}</strong><br>
-Non-run onboarding rows unchanged:
-<strong>{esc(c.get('non_run_onboarding_unchanged'))}</strong></p>
+<p>Non-run membership unchanged: <strong>{esc(c.get('non_run_membership_unchanged'))}</strong><br>
+Non-run onboarding rows unchanged: <strong>{esc(c.get('non_run_onboarding_unchanged'))}</strong></p>
 <p class="warn">These hashes prove stable membership and unchanged onboarding
 rows for narrators outside this run. They do <em>not</em> prove that no read
 occurred, nor that every column of every row is unchanged.</p>
+
 <h2>Deletion</h2>
 <p>Nothing was deleted. <code>erasure-manifest.json</code> is an inventory for
 a human to act on later, with explicit authorization, through the product
@@ -1507,6 +1759,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     mode.add_argument("--full", action="store_true", help="the whole cohort")
     ap.add_argument("--resume", metavar="RUN_ID",
                     help="continue a run, repeating no completed model turn")
+    ap.add_argument("--replay", metavar="RUN_ID",
+                    help="RE-MEASURE an earlier run's narrators. Reuses its "
+                         "journaled UUIDs, performs no intake, creates no "
+                         "people, writes a NEW run directory and journal, "
+                         "and leaves the original untouched. Use this when "
+                         "--resume would return reused_from_checkpoint and "
+                         "hand back the same evidence-free rows.")
     ap.add_argument("--live", action="store_true",
                     help="REQUIRED for any network or database work")
     ap.add_argument("--only-persona", action="append", default=[])
@@ -1519,7 +1778,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Both halves matter. Defaulting to plan means a mistyped command
     # inspects rather than creates; requiring --live means creating
     # narrators is always a decision somebody made on purpose.
-    if not (args.quick or args.full or args.resume):
+    if not (args.quick or args.full or args.resume or args.replay):
         args.plan = True
     if args.plan or not args.live:
         plan = build_plan(quick=args.quick)
@@ -1543,7 +1802,13 @@ def main(argv: Optional[List[str]] = None) -> int:
               "be authorized.", file=sys.stderr)
         return 3
 
-    mode = "quick" if args.quick else "resume"
+    if args.replay and args.resume:
+        print("REFUSED: --replay and --resume are different operations. "
+              "Resume continues a run; replay re-measures its narrators "
+              "in a new run.", file=sys.stderr)
+        return 5
+    mode = ("replay" if args.replay
+            else "quick" if args.quick else "resume")
     try:
         personas = load_personas(quick=True)
     except CohortRefusal as exc:
@@ -1555,18 +1820,35 @@ def main(argv: Optional[List[str]] = None) -> int:
         personas = [p for p in personas if _norm(p["label"]) in wanted]
     lanes = list(args.only_lane or LANES)
 
-    run_id = args.resume or new_run_id()
+    source_ledger = None
+    if args.replay:
+        source_dir = EVAL_ROOT / args.replay
+        if not source_dir.is_dir():
+            print(f"REFUSED: no run to replay at {source_dir}", file=sys.stderr)
+            return 4
+        # READ-ONLY. `Ledger.__init__` loads an existing journal rather
+        # than truncating it (see its own note), and this replay never
+        # calls a mutator on it.
+        source_ledger = Ledger(source_dir, args.replay)
+        if not source_ledger.data.get("people"):
+            print(f"REFUSED: {args.replay} journals no narrators to replay",
+                  file=sys.stderr)
+            return 4
+        run_id = f"replay-{new_run_id()}"
+    else:
+        run_id = args.resume or new_run_id()
     out_dir = EVAL_ROOT / run_id
     if args.resume and not out_dir.is_dir():
         print(f"REFUSED: no run to resume at {out_dir}", file=sys.stderr)
         return 4
 
-    run = LiveRun(personas=personas, lanes=lanes, mode="quick",
+    run = LiveRun(personas=personas, lanes=lanes, mode=mode,
                   out_dir=out_dir, transport=Transport(),
                   ui_url=os.environ.get(
                       "HORNELORE_UI_URL",
                       "http://localhost:8082/ui/hornelore1.0.html"),
-                  run_id=run_id)
+                  run_id=run_id, replay_of=args.replay,
+                  source_ledger=source_ledger)
     try:
         report = run.execute()
     except CohortRefusal as exc:
