@@ -5,20 +5,49 @@
 **Authored:** 2026-08-26 against `main` at `6952ad0`  
 **Predecessor:** `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01`, accepted and complete.
 
-**Status:** IN IMPLEMENTATION — **Phases 0, 1 and 2 are ACCEPTED; Phase 3 is current and
-not started.**
+**Status:** IN IMPLEMENTATION — **Phases 0, 1 and 2 are ACCEPTED. Phase 3 is IN
+IMPLEMENTATION with ACCEPTANCE OPEN.** Reconciled against pushed `origin/main` at
+`2b7e634`, 2026-08-30.
+
+**Phase 3 is neither "not started" nor complete, and it is NOT accepted.** It said "CURRENT,
+NOT STARTED" while eleven commits of it were already pushed — the stale-status defect this
+lane has now produced three times. What follows is the pushed tree, not a plan.
 
 | Phase | State |
 |---|---|
 | 0 — executable map | **ACCEPTED** at `661aa95` |
 | 1 — server authority | **ACCEPTED** at `1288baa` |
 | 2 — prompt and committed-turn wiring | ✅ **ACCEPTED 2026-08-29, steps 1–7 complete.** Steps 1–5 (step 5 `9127adb`); pre-Step-6 checkpoint `d0e5294`; **step 6 `12221e0`…`58dfc40`, proven live 16/16 twice through the production WebSocket and the real model**; step 7 — consolidated closure — `6885bb2`. Evidence by checkpoint: `HANDOFF.md` §1a |
-| 3 — browser promotion sites and server authority | 🔵 **CURRENT, NOT STARTED.** Eight sites; remove the remaining browser-controlled race. **Begins with a bounded read-only review, before any UI edit** |
-| 4–5 | not begun |
+| 3 — browser promotion sites and server authority | 🔵 **IN IMPLEMENTATION, ACCEPTANCE OPEN.** Landed and pushed; live acceptance not yet passed. See the ledger below |
+| 4–5 | not begun, **not accepted** |
+
+**Phase 3 — what is landed and pushed:**
+
+| Range | What |
+|---|---|
+| `ff8efe3`…`5cd24e3` | Browser/server authority and attestation; server-derived effective phase; centralized promotion policy; narrator-scoped hydration |
+| `579a281` | **Presentation identity separated from the concurrency version** — migration 0052 adds `presentation_epoch` |
+| `f894a04` | Mutation coverage for the epoch, plus the consent-seed correction. Gate: **14/14 CAUGHT** |
+| `6d908bc`…`f7c167c` | Cohort instrument foundation |
+| `9cc4a42` | Orientation clock defaults **OFF** — it rendered opaque over the conversation |
+| `490eaee` | Narrow-width composer restored — `#chatInput` was 33px and untypeable |
+| `2b7e634` | **Deterministic canonical question delivery** — no presentation event without a delivered question |
+
+**Phase 3 acceptance is OPEN on six conditions**, none of which is a documentation task:
+
+1. deterministic delivery proven through the real UI **and** the persistence seam;
+2. the narrator room usable at ~690px, ~900px and desktop width;
+3. Profile Seed Pause/Resume visible and working;
+4. the quick multi-era cohort reviewed **from actual Lori text**, not pass counts;
+5. restart and narrator-switch isolation passing;
+6. **the language boundary resolved explicitly** — see §3.1a.
 
 Phase 2 steps 1–3 have landed: `f23040b` characterizes all eight refusal patterns;
 `5a1eb56` moves them to one shared helper called by extraction and Profile Seed; `1875821`
-adds the turn state-machine service — two durable events, exact `(topic, version)` tuples,
+adds the turn state-machine service — two durable events, exact
+`(topic, presentation_epoch)` tuples *(they were `(topic, version)` until migration 0052;
+`version` remains the optimistic-concurrency token and is still what `expected_version`
+compares — it is no longer part of the question's identity)*,
 classification and recovery; `b069680` corrects consumption so a response answers every
 earlier presentation of its tuple; `c6c9ae4` adds a reproducible checked-in mutation
 gate; and `0335cd3` makes that gate refuse an unclean tree or a red baseline, without
@@ -509,6 +538,99 @@ reachability defect remains an `expectedFailure` and a Phase 1 test asserts it s
 - Separate chronology readiness from onboarding completion at every promotion site.
 - Add operator progress plus pause/resume.
 - Remove the dead UI tracker after repointing.
+
+#### 3.1 Close the delivery proof — OWED
+
+`2b7e634` is implemented and pushed. It is **not** live-accepted.
+
+**The promised real-persistence proof is missing.** `test_profile_seed_presentation_delivery`
+pins the router seam by reading source, and the existing persistence tests write
+`"Lori says…"` — neither exercises `finalize_presentation` through storage. A source
+assertion proves the call is wired, not that the bytes survive. Owed:
+
+- build the finalized canonical presentation;
+- persist it through `persist_turn_transaction`;
+- read it back through `export_turns`;
+- prove the assistant row carries **both** the exact finalized question text **and**
+  matching `presented(topic, presentation_epoch)` metadata;
+- prove the narrator row carries **neither** presentation metadata nor the canonical
+  assistant question.
+
+**No second persistence path.** The whole point of placing the finalizer where it sits is
+that one string is emitted and stored.
+
+#### 3.1a The language boundary — UNRESOLVED, and it blocks acceptance
+
+**A Spanish-locked session currently receives an English question.**
+
+`finalize_presentation` runs at `chat_ws.py:6135`. Every language repair runs before it —
+`final_text = _repaired` (5508), `_es_repaired` (5532), `_es_repair_text` (5859). So the
+finalizer appends `narrator_question` **after** the text has been repaired into Spanish,
+and `narrator_question` exists only in English.
+
+This is a direct consequence of making delivery deterministic: the guarantee that the
+narrator receives the server's exact sentence is also a guarantee that they receive it in
+the language that sentence was written in.
+
+Two acceptable resolutions, and this work order takes **neither** without Chris:
+
+- **approved Spanish wording** for all ten, added beside `narrator_question`; or
+- **Profile Seed explicitly constrained to English**, with the walk refusing to present on
+  a non-English session rather than presenting in the wrong language.
+
+**Do not invent translations.** Narrator-facing wording was already escalated once for this
+reason and approved with edits on 2026-08-30; machine-translated questions put in front of
+an older narrator are the same decision made worse.
+
+#### 3.2 Narrator-room usability — CURRENT ACTION
+
+- Move `#psOnboarding` out of hidden `#lv80AppShims` into visible operator controls, labelled
+  **Pause Profile Seed** / **Resume Profile Seed**.
+- Compact the 219px topbar while preserving narrator identity and genuine controls.
+- **Consolidate only proven duplicates.** Microphone pause, conversational break and Profile
+  Seed pause are three different things and must not be merged because they share a word.
+- Below the narrow breakpoint expose the Life Map through a visible button or drawer —
+  **not `display:none`** — and preserve the selected era across open and close.
+- **Leave the clock alone.** Its pushed default is already OFF (`9cc4a42`).
+- **Preserve the composer correction** from `490eaee`.
+
+Verify live at ~690px, ~900px and desktop: real keyboard typing; Send and microphone
+reachable; no overlays; compact topbar; visible progress and a working Pause/Resume; all
+seven Life Map eras reachable; narrator switching clears old progress immediately.
+
+#### 3.3 Live Profile Seed recheck
+
+Use a synthetic narrator with an **unconsumed** topic. Confirm the canonical question is
+visibly delivered; persisted text and metadata match; the visible Pause/Resume moves
+`version` while `topic` and `presentation_epoch` hold; one answer is accepted without
+re-asking; advancement follows the assistant row's commit; and the outstanding state
+survives a restart.
+
+**Alex's consumed `childhood_home` is defect evidence and must never be presented as a
+successful acceptance run.** It was closed by the phantom presentation `2b7e634` fixes.
+
+#### 3.4 Cohort evidence repair — before any cohort run
+
+The current report records `chars`, not text, and cannot answer whether Lori asked an
+era-appropriate question. Running it first would produce exactly the vacuous pass this work
+order exists to avoid. It must preserve full narrator input and full Lori response; person,
+conversation and turn ids; requested and effective era; browser `currentEra` and
+`currentPass`; Profile Seed status, topic, version and `presentation_epoch`; assistant
+metadata; extracted facts and Life Map placement before and after; reload and
+narrator-switch results; console errors and failed network requests.
+
+**Response length is not evidence of response quality.** Reuse the journaled Alex/Walt run
+where possible; create no duplicate narrators because the instrument changed; delete
+nothing.
+
+#### 3.5 Multi-era live evaluation
+
+Alex as the shorter control, Walt across all seven eras, reviewed from actual responses.
+
+#### 3.6 Acceptance
+
+Phase 3 may be accepted only when all six conditions in the status block above are met.
+Travel Document work begins only after that decision. Repository hygiene remains deferred.
 
 ### Phase 4 — consolidated offline gate
 
