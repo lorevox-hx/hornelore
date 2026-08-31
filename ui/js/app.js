@@ -3677,9 +3677,20 @@ function renderProfileSeedProgress(){
   }
 
   const prog = auth && typeof auth.progress === "function" ? auth.progress() : null;
-  if (!prog) { box.style.display = "none"; return; }   // not enrolled, or unresolved
+  // ── THE SECTION, NOT JUST THE CARD, 2026-08-30 ────────────────
+  //
+  // The card moved into a titled Operator-tab section. Toggling only
+  // the card would leave a "Profile Seed" heading standing over
+  // nothing for every unenrolled narrator, which is most of them.
+  const sect = document.getElementById("psOnboardingSection");
+  if (!prog) {
+    box.style.display = "none";
+    if (sect) sect.style.display = "none";
+    return;                                  // not enrolled, or unresolved
+  }
 
   box.style.display = "";
+  if (sect) sect.style.display = "";
   const label = document.getElementById("psProgress");
   if (label) {
     label.textContent = "Profile Seed: " + prog.answered + "/" + prog.total +
@@ -3689,7 +3700,12 @@ function renderProfileSeedProgress(){
   const btn = document.getElementById("psPauseBtn");
   if (btn) {
     const paused = prog.status === "paused";
-    btn.textContent = paused ? "Resume" : "Pause";
+    // NAMED IN FULL. There are three unrelated pauses in this product
+    // - the microphone, the conversational break, and this walk - and
+    // a bare "Pause" beside the other two is an invitation to stop the
+    // wrong thing. The label says which.
+    btn.textContent = paused ? "Resume Profile Seed" : "Pause Profile Seed";
+    btn.setAttribute("aria-label", btn.textContent);
     btn.onclick = function(){
       btn.disabled = true;
       const finish = function(res){
@@ -3725,6 +3741,28 @@ function renderProfileSeedProgress(){
     note.textContent = "pass held: " + state.session.passBlockedReason;
   }
 }
+
+/* ── LIFE MAP DRAWER TOGGLE, 2026-08-30 ──────────────────────────────
+   The ENTIRE behaviour. It flips one class and one aria attribute.
+
+   That is deliberate and is the requirement: below 900px the Life Map
+   is off-canvas, and opening or closing it must not change the selected
+   era or any conversation state. The only way to guarantee that is for
+   the toggle to know nothing about eras — so it does not call
+   setEra(), does not read currentEra, and does not re-render the map.
+   The era buttons inside are untouched and keep working exactly as they
+   do at desktop width.
+
+   Degrades to nothing if the aside is absent: at desktop the drawer
+   button is `display:none` and this is unreachable anyway. */
+function lvToggleLifeMapDrawer(){
+  const panel = document.getElementById("lvInterviewLifeMap");
+  if (!panel) return;
+  const open = panel.classList.toggle("lv-lifemap-open");
+  const btn = document.getElementById("lvLifeMapDrawerBtn");
+  if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+}
+window.lvToggleLifeMapDrawer = lvToggleLifeMapDrawer;
 
 let _loadGeneration=0;
 async function loadPerson(pid){

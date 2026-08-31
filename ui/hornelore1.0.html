@@ -567,6 +567,44 @@
        Below 820px the textarea takes a full line of its own, ABOVE
        the controls (`order: -1`), which is where a narrator looks for
        it. 44px is the minimum comfortable touch/typing height. */
+    /* ── PROFILE SEED OPERATOR CARD, 2026-08-30 ─────────────────────
+       Readable at operator distance, which the 11px/10px inline styles
+       it carried inside the shim were not. Nothing here is narrator-
+       facing: this lives on the Operator tab only. */
+    .lv-ps-card {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid rgba(148,163,184,0.25);
+      border-radius: 8px;
+      background: rgba(30,41,59,0.35);
+    }
+    .lv-ps-progress { font-size: 14px; color: #cbd5e1; }
+    .lv-ps-note { font-size: 12px; color: #94a3b8; }
+    .lv-ps-btn {
+      font-size: 14px;
+      padding: 8px 14px;
+      border-radius: 6px;
+      border: 1px solid rgba(148,163,184,0.35);
+      background: #1e293b;
+      color: #e2e8f0;
+      cursor: pointer;
+      /* 44px is the comfortable target size; the old button was 1px of
+         vertical padding at 10px type. */
+      min-height: 44px;
+      flex-shrink: 0;
+    }
+    .lv-ps-btn:hover:not(:disabled) { border-color: rgba(99,102,241,0.6); }
+    .lv-ps-btn:disabled { opacity: .55; cursor: default; }
+    /* Keyboard reachability is a REQUIREMENT here, not a nicety — this
+       control pauses a narrator's onboarding walk. */
+    .lv-ps-btn:focus-visible {
+      outline: 2px solid #6366f1;
+      outline-offset: 2px;
+    }
+
     .lv-composer-row { flex-wrap: wrap; }
     .lv-composer-row > * { flex-shrink: 0; }
     @media (max-width: 820px) {
@@ -3115,6 +3153,36 @@
         </div>
       </section>
 
+      <!-- ── PROFILE SEED — OPERATOR CHROME, VISIBLE AT LAST ───────────
+           WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 3, §3.2.
+
+           This block was mounted inside #lv80AppShims (display:none,
+           aria-hidden) and was therefore unreachable by any operator.
+           It belongs HERE: the Operator tab is where session control
+           already lives, and progress like "6 of 10" is operator
+           information that must never appear in narrator chat —
+           design principle 2.
+
+           The whole section hides itself when the narrator is not
+           enrolled, so an ordinary session is visually unchanged.
+           IDs are the ones renderProfileSeedProgress() already writes:
+           no second renderer, no second pause algorithm. -->
+      <section class="lv-operator-section" id="psOnboardingSection"
+               style="display:none">
+        <h3 class="lv-operator-section-title">Profile Seed</h3>
+        <div id="psOnboarding" class="lv-ps-card">
+          <!-- A live region: the operator is told progress changed
+               without having to watch for it. `polite` so it never
+               interrupts, and it is on the PROGRESS text rather than
+               the whole card so the button label is not announced on
+               every re-render. -->
+          <span id="psProgress" class="lv-ps-progress"
+                role="status" aria-live="polite"></span>
+          <button id="psPauseBtn" type="button" class="lv-ps-btn"></button>
+          <span id="psNote" class="lv-ps-note"></span>
+        </div>
+      </section>
+
       <!-- WO-SESSION-HEALTH-MONITOR-01: calm operator-facing health view sitting
            on top of the existing UI Health Check.  Bug Panel stays as the deep
            diagnostic tool; this surface answers ONE question for the operator:
@@ -3413,6 +3481,18 @@
                  style="cursor:pointer;">
           <span id="lvNarratorRecordVoiceLabel">Save my voice</span>
         </label>
+        <!-- Life Map drawer toggle — VISIBLE ONLY AT NARROW WIDTHS.
+             Below 900px the Life Map aside becomes an off-canvas drawer
+             (it was holding 280px of a 690px room while the transcript
+             had 325). It is NOT hidden: this button opens it, all seven
+             eras stay reachable, and the toggle changes one class and
+             nothing else — no era is selected or cleared by opening or
+             closing it. -->
+        <button id="lvLifeMapDrawerBtn" class="lv-narrator-ctrl lv-lifemap-drawer-btn"
+                type="button" aria-expanded="false" aria-controls="lvInterviewLifeMap"
+                onclick="lvToggleLifeMapDrawer()" title="Show or hide the Life Map">
+          Life Map
+        </button>
       </div>
     </header>
 
@@ -3747,18 +3827,21 @@
       <span id="summaryGen"></span>
       <span id="summaryProg"></span>
     </div>
-    <!-- Profile Seed onboarding — OPERATOR chrome, server-derived.
-         Hidden unless the server says this narrator is enrolled, so an
-         ordinary narrator session is visually unchanged. Never rendered
-         into #chatMessages: design principle 2, no operator leakage.
-         WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 3, Commit B. -->
-    <div id="psOnboarding" style="display:none;margin-top:6px;font-size:11px;
-         color:#475569;border-top:1px solid #e2e8f0;padding-top:5px">
-      <span id="psProgress"></span>
-      <button id="psPauseBtn" type="button"
-              style="margin-left:6px;font-size:10px;padding:1px 6px"></button>
-      <span id="psNote" style="margin-left:6px;color:#94a3b8"></span>
-    </div>
+    <!-- Profile Seed onboarding MOVED OUT OF THIS SHIM, 2026-08-30.
+         It lived here, inside #lv80AppShims — a container that is
+         `display:none; aria-hidden="true"` by design, holding legacy
+         elements "so app.js never crashes". renderProfileSeedProgress()
+         populated it correctly and NOBODY COULD SEE IT: measured live,
+         the Pause button reported disabled:false, hasOnclick:true and a
+         bounding rect of 0x0, hidden from sighted operators and from
+         screen readers alike.
+
+         That was not cosmetic. The button's completion handler is the
+         only caller of auth.reconcile() after a resume, so an
+         unreachable button meant the browser pass was never reconciled
+         in a real session. The markup now lives in the Operator tab;
+         the IDs are unchanged, so there is still exactly one renderer
+         and one pause algorithm. -->
     <table id="tblKinship"></table>
     <table id="tblPets"></table>
     <!-- Chat/reply elements referenced without null guards -->

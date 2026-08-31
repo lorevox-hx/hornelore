@@ -999,6 +999,72 @@ mark.fragment-fact {
   align-items: center;
   flex-shrink: 0;
 }
+
+/* ── TOPBAR COMPACTION AT NARROW WIDTHS, 2026-08-30 ─────────────────
+   Measured live at a 690px viewport: this header was 219px of the
+   narrator room's 488px — 45% of the space, before the remaining 269px
+   was split three ways between the timeline rail, the transcript and
+   the Life Map. The transcript was not visible on screen at all.
+
+   Most of it was the name. `.lv-narrator-identity` wraps, and
+   "ZZ COHORT r20260830-011413-fa48c7 · Alex" at 22px Cormorant took
+   FOUR LINES on its own.
+
+   NO CONTROL IS REMOVED. Mic, Camera, Pause, Take a break and Save my
+   voice all survive; they move to their own row and get smaller. The
+   only thing dropped is the "Talking with Lori" eyebrow, which is
+   decoration duplicating the tab the operator just clicked. */
+@media (max-width: 900px) {
+  .lv-narrator-topbar {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+  .lv-narrator-identity {
+    flex: 1 1 100%;
+    flex-wrap: nowrap;
+    gap: 8px;
+    min-width: 0;
+  }
+  .lv-narrator-eyebrow { display: none; }
+  #lvNarratorRoomName {
+    font-size: 16px;
+    /* One line, ellipsis. `min-width: 0` is required on BOTH this and
+       the flex parent above, or the text refuses to shrink and the
+       ellipsis never appears. */
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .lv-narrator-style-pill { font-size: 11px; padding: 1px 8px; flex-shrink: 0; }
+  .lv-narrator-controls {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .lv-narrator-ctrl { font-size: 13px; padding: 6px 10px; }
+
+  /* ── LIFE MAP AS A DRAWER, NOT AS NOTHING ────────────────────────
+     The aside held 280px of a 690px room while the transcript had 325.
+     It is taken out of flow and slid off-canvas, NOT hidden: the
+     toggle above opens it, every era button inside is the same button
+     it always was, and opening or closing changes one class — no era
+     state and no conversation state is touched.
+
+     `visibility` rather than `display` so the panel keeps its layout
+     and the era buttons stay focusable in document order once open;
+     `display:none` would have been the shortcut that made the eras
+     unreachable, which is the thing this must not do. */
+  /* The room becomes the positioning context for the drawer. */
+  .lv-narrator-main { position: relative; }
+}
+
+/* The toggle is a narrow-width affordance only; the matching
+   `display: inline-flex` lives in the 1100px drawer block at the end of
+   this file, with the rules it belongs to. At desktop the Life Map is a
+   column and needs no button. */
+.lv-lifemap-drawer-btn { display: none; }
 .lv-narrator-ctrl {
   appearance: none;
   font-family: inherit;
@@ -2596,3 +2662,44 @@ body.lv-interview-mode-active #lvInterviewActiveFocus {
 .cr-story-banner { padding: 6px 10px; font-size: 11px; color: #475569; border-bottom: 1px solid rgba(0,0,0,.06); }
 .cr-story-unplaced { color: #b7791f; }
 .cr-story-unavailable { color: #be3830; }
+
+/* ── LIFE MAP DRAWER AT NARROW WIDTHS, 2026-08-30 ─────────────────────
+   ID SELECTORS AND `!important`, DELIBERATELY, because that is what this
+   file already uses for this element and specificity games lose to it.
+
+   Two existing rules govern the panel and both are `!important`:
+   `#lvInterviewLifeMap { display: flex !important }` ("visible ALWAYS in
+   the narrator room"), and, below 1100px,
+   `body.lv-interview-mode-active #lvInterviewLifeMap { display: none
+   !important }` ("hide Life Map column on narrow viewports"). Three
+   attempts at a class-based drawer — including moving the block to the
+   end of the file and raising specificity to 0,2,1 — all lost to the
+   first of those, silently, because an ID plus `!important` cannot be
+   beaten by any class selector.
+
+   THE SECOND RULE IS THE THING THIS REPLACES. Hiding the Life Map with
+   no way to open it is exactly what a drawer is for: below the
+   breakpoint the panel is out of flow, the toggle in the topbar is
+   visible, and every era button inside is the same button it is at
+   desktop. Opening or closing changes one class and touches no era or
+   conversation state.
+
+   The breakpoint is 1100px to match the rule it supersedes. At 900px it
+   would leave a dead band from 900-1100 where the old rule hid the map
+   and no toggle existed to bring it back. */
+@media (max-width: 1100px) {
+  #lvInterviewLifeMap { display: none !important; }
+  #lvInterviewLifeMap.lv-lifemap-open {
+    display: flex !important;
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(280px, 85vw);
+    z-index: 40;
+    box-shadow: -8px 0 24px rgba(0,0,0,0.45);
+    overflow-y: auto;
+  }
+  .lv-narrator-main { position: relative; }
+  .lv-lifemap-drawer-btn { display: inline-flex; }
+}
