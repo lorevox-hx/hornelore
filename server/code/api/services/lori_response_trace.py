@@ -13,9 +13,40 @@ conversation has many turns, so that correlation cannot prove a
 turn-level claim. The 58/77 cascade figure in the WO is explicitly
 PROVISIONAL for exactly this reason.
 
-This module closes that gap: one `trace_id` per turn, carried from the
-raw model output through every transformation, the delivered text, the
-persisted row, extraction, placement, and memoir-source retrieval.
+This module closes that gap for the RESPONSE half: one `trace_id` per
+turn, from the raw model output through every transformation, the
+delivered text and the persisted rows.
+
+── WHAT IS AND IS NOT WIRED (2026-08-31) ─────────────────────────────
+
+An earlier version of this docstring claimed the module traced
+"extraction, placement, and memoir-source retrieval". It did not — there
+was exactly ONE `storage()` call in product code (`durable_turns`), and
+the claim was ahead of the implementation. Corrected here, and the
+inventory is kept in `RETENTION_STAGES` so the report renders the truth
+rather than a promise:
+
+    durable_turns      wired in chat_ws after persist_turn_transaction
+    extraction         wired via park/attach from the extraction hook
+    bio_facts          attached by the harness from /api/facts/list
+    chronology         attached by the harness
+    life_map           attached by the harness
+    rolling_summary    NOT WIRED -> not_measured
+    archive            NOT WIRED -> not_measured
+    memoir_source      attached by the harness; expect measurement_failed
+
+Any stage not attached by the time the record is written is emitted as
+`not_measured`. Missing instrumentation must never render as a pass.
+
+── CONTINUATION ──────────────────────────────────────────────────────
+
+Extraction runs as a background task AFTER the response is persisted, so
+the trace cannot close at persistence or the retention half is lost.
+`park()` moves a finished response-trace into a holding area keyed by
+trace id AND by durable row id; `attach()` adds retention results as they
+arrive; `close()` writes it. A parked record that is never closed is
+swept out on a later turn with its unattached stages marked
+`not_measured`, so a crash loses the attachment, never the evidence.
 
 ── THE TWO RULES ─────────────────────────────────────────────────────
 
@@ -64,13 +95,29 @@ _ENV_FLAG = "HORNELORE_RESPONSE_TRACE"
 _current: ContextVar[Optional[str]] = ContextVar("lori_trace_id", default=None)
 _lock = threading.Lock()
 _traces: Dict[str, Dict[str, Any]] = {}
+_parked: Dict[str, Dict[str, Any]] = {}
+_parked_keys: Dict[str, str] = {}
 _MAX_LIVE = 64
 
 
+#: Retention stages the report must account for, wired or not.
+RETENTION_STAGES = (
+    "durable_turns", "extraction", "bio_facts", "chronology",
+    "life_map", "rolling_summary", "archive", "memoir_source",
+)
+
+
 def enabled() -> bool:
-    """Default ON. Set HORNELORE_RESPONSE_TRACE=0 to disable entirely."""
-    return os.environ.get(_ENV_FLAG, "1").strip().lower() not in (
-        "0", "false", "no", "off")
+    """OPT-IN. Off unless HORNELORE_RESPONSE_TRACE is explicitly truthy.
+
+    Default-on would have every ordinary production turn writing an
+    evidence record indefinitely, which is neither wanted nor consented
+    to. The evaluation stack is launched with the flag set; the harness
+    refuses to run if tracing is unavailable rather than producing a
+    report with no trace in it.
+    """
+    return os.environ.get(_ENV_FLAG, "0").strip().lower() in (
+        "1", "true", "yes", "on")
 
 
 def _out_dir() -> Path:
@@ -233,10 +280,43 @@ def storage(stage_name: str, result: str, *, detail: Any = None,
         return
 
 
-def finish(delivered: Optional[str] = None,
-           persisted: Optional[str] = None,
+def _seal_rec(rec: Dict[str, Any], delivered: Optional[str],
+              persisted: Optional[str]) -> None:
+    """Fill the delivered/persisted comparison. Does NOT write."""
+    if delivered is not None:
+        rec["delivered_text"] = delivered
+        rec["delivered_words"] = _words(delivered)
+        rec["delivered_questions"] = _questions(delivered)
+    if persisted is not None:
+        rec["persisted_text"] = persisted
+        rec["delivered_equals_persisted"] = (
+            (delivered or "") == (persisted or ""))
+    rec["ended_at"] = time.time()
+    raw_t = rec.get("raw_text")
+    if raw_t is not None and delivered is not None:
+        rec["raw_equals_delivered"] = (raw_t == delivered)
+        rec["net_words_removed"] = _words(raw_t) - _words(delivered)
+
+
+def seal(delivered: Optional[str] = None, persisted: Optional[str] = None,
+         trace_id: Optional[str] = None) -> None:
+    """Close the RESPONSE half without writing, so `park` can continue it."""
+    try:
+        tid = trace_id or current()
+        if not tid:
+            return
+        with _lock:
+            rec = _traces.get(tid)
+            if rec is not None:
+                _seal_rec(rec, delivered, persisted)
+    except Exception:
+        return
+
+
+def finish(delivered: Optional[str] = None, persisted: Optional[str] = None,
            trace_id: Optional[str] = None) -> None:
-    """Close the trace and append it to today's JSONL artifact."""
+    """Seal AND write immediately. Use `seal` + `park` when retention
+    results still need to attach."""
     try:
         tid = trace_id or current()
         if not tid:
@@ -245,28 +325,111 @@ def finish(delivered: Optional[str] = None,
             rec = _traces.pop(tid, None)
         if rec is None:
             return
-        if delivered is not None:
-            rec["delivered_text"] = delivered
-            rec["delivered_words"] = _words(delivered)
-            rec["delivered_questions"] = _questions(delivered)
-        if persisted is not None:
-            rec["persisted_text"] = persisted
-            rec["delivered_equals_persisted"] = (
-                (delivered or "") == (persisted or ""))
-        rec["ended_at"] = time.time()
-        raw_t = rec.get("raw_text")
-        if raw_t is not None and delivered is not None:
-            rec["raw_equals_delivered"] = (raw_t == delivered)
-            rec["net_words_removed"] = _words(raw_t) - _words(delivered)
-        d = _out_dir()
-        d.mkdir(parents=True, exist_ok=True)
-        day = time.strftime("%Y-%m-%d", time.gmtime(rec["started_at"]))
-        with (d / f"{day}.jsonl").open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
+        _seal_rec(rec, delivered, persisted)
+        _write(rec)
         try:
             _current.set(None)
         except Exception:
             pass
+    except Exception:
+        return
+
+
+def park(keys: Optional[List[str]] = None,
+         trace_id: Optional[str] = None) -> None:
+    """Hold a finished response-trace open for retention attachment.
+
+    Indexed by trace id and by every durable row id supplied, because
+    the extraction hook knows the row, not the trace.
+    """
+    try:
+        tid = trace_id or current()
+        if not tid:
+            return
+        with _lock:
+            rec = _traces.pop(tid, None)
+            if rec is None:
+                return
+            rec["parked_at"] = time.time()
+            _parked[tid] = rec
+            for k in (keys or []):
+                if k:
+                    _parked_keys[str(k)] = tid
+        _sweep()
+    except Exception:
+        return
+
+
+def attach(key: str, stage_name: str, result: str, *,
+           detail: Any = None) -> bool:
+    """Add a retention result to a parked trace. True if it landed."""
+    try:
+        with _lock:
+            tid = _parked_keys.get(str(key)) or (
+                str(key) if str(key) in _parked else None)
+            rec = _parked.get(tid) if tid else None
+            if rec is None:
+                return False
+            r = result if result in RESULTS else RESULT_NOT_MEASURED
+            rec["storage"][str(stage_name)] = {
+                "result": r,
+                "coerced_from": None if r == result else result,
+                "detail": detail,
+            }
+            return True
+    except Exception:
+        return False
+
+
+def close(key: str) -> None:
+    """Write a parked trace out, by trace id or durable row id."""
+    try:
+        with _lock:
+            tid = _parked_keys.get(str(key)) or (
+                str(key) if str(key) in _parked else None)
+            rec = _parked.pop(tid, None) if tid else None
+            if rec is not None:
+                for k in [k for k, v in _parked_keys.items() if v == tid]:
+                    _parked_keys.pop(k, None)
+        if rec is not None:
+            _write(rec)
+    except Exception:
+        return
+
+
+def _sweep(max_age_s: float = 180.0) -> None:
+    """Write out parked traces nobody closed. Evidence is never dropped."""
+    try:
+        now = time.time()
+        stale = []
+        with _lock:
+            for tid, rec in list(_parked.items()):
+                if now - rec.get("parked_at", now) > max_age_s:
+                    stale.append(_parked.pop(tid))
+                    for k in [k for k, v in _parked_keys.items() if v == tid]:
+                        _parked_keys.pop(k, None)
+        for rec in stale:
+            rec["swept"] = True
+            _write(rec)
+    except Exception:
+        return
+
+
+def _write(rec: Dict[str, Any]) -> None:
+    """Emit one record. Unattached retention stages are not_measured."""
+    try:
+        for name in RETENTION_STAGES:
+            rec["storage"].setdefault(name, {
+                "result": RESULT_NOT_MEASURED,
+                "coerced_from": None,
+                "detail": {"why": "no instrumentation attached this stage"},
+            })
+        rec["ended_at"] = rec.get("ended_at") or time.time()
+        d = _out_dir()
+        d.mkdir(parents=True, exist_ok=True)
+        day = time.strftime("%Y-%m-%d", time.gmtime(rec.get("started_at", 0)))
+        with (d / f"{day}.jsonl").open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
     except Exception:
         return
 

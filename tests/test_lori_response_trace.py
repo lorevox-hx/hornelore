@@ -290,3 +290,110 @@ class ChatWsWiringTests(unittest.TestCase):
 
 if __name__ == "__main__":       # pragma: no cover
     unittest.main()
+
+
+# ── opt-in, and the retention continuation ───────────────────────────
+class OptInTests(_Base):
+    def test_tracing_is_off_unless_explicitly_enabled(self):
+        os.environ.pop("HORNELORE_RESPONSE_TRACE", None)
+        self.assertFalse(RT.enabled())
+        self.assertIsNone(RT.begin(narrator_id="n", conversation_id="c"))
+
+    def test_only_explicit_truthy_values_enable_it(self):
+        for v, want in (("1", True), ("true", True), ("on", True),
+                        ("yes", True), ("0", False), ("", False),
+                        ("off", False), ("maybe", False)):
+            os.environ["HORNELORE_RESPONSE_TRACE"] = v
+            self.assertEqual(want, RT.enabled(), f"for {v!r}")
+
+
+class RetentionContinuationTests(_Base):
+    def setUp(self):
+        super().setUp()
+        os.environ["HORNELORE_RESPONSE_TRACE"] = "1"
+
+    def _parked_turn(self, row="1909"):
+        tid = RT.begin(narrator_id="n", conversation_id="c")
+        RT.raw("model text", trace_id=tid)
+        RT.seal(delivered="delivered text", persisted="delivered text",
+                trace_id=tid)
+        RT.storage("durable_turns", RT.RESULT_PERSISTED, trace_id=tid)
+        RT.park(keys=[row, f"turnrow:{row}"], trace_id=tid)
+        return tid
+
+    def test_park_does_not_write_yet(self):
+        self._parked_turn()
+        self.assertEqual([], self._written(),
+                         "parking wrote the record before retention "
+                         "results could attach")
+
+    def test_extraction_attaches_by_durable_row_id(self):
+        """The extraction hook knows the row, not the trace."""
+        tid = self._parked_turn(row="1909")
+        self.assertTrue(RT.attach("turnrow:1909", "extraction",
+                                  RT.RESULT_PERSISTED, detail={"items": 8}))
+        RT.close("turnrow:1909")
+        rows = self._written()
+        self.assertEqual(1, len(rows))
+        self.assertEqual(tid, rows[0]["trace_id"])
+        self.assertEqual(RT.RESULT_PERSISTED,
+                         rows[0]["storage"]["extraction"]["result"])
+        self.assertEqual(8, rows[0]["storage"]["extraction"]["detail"]["items"])
+
+    def test_the_response_half_survives_into_the_written_record(self):
+        self._parked_turn()
+        RT.close("1909")
+        row = self._written()[0]
+        self.assertEqual("model text", row["raw_text"])
+        self.assertEqual("delivered text", row["delivered_text"])
+        self.assertTrue(row["delivered_equals_persisted"])
+
+    def test_unattached_stages_are_not_measured_never_absent(self):
+        """The rule the whole report depends on."""
+        self._parked_turn()
+        RT.close("1909")
+        store = self._written()[0]["storage"]
+        for stage in RT.RETENTION_STAGES:
+            self.assertIn(stage, store)
+        for stage in ("rolling_summary", "archive", "memoir_source",
+                      "life_map", "bio_facts", "chronology", "extraction"):
+            self.assertEqual(RT.RESULT_NOT_MEASURED, store[stage]["result"],
+                             f"{stage} was never attached and must not "
+                             f"render as absent or passing")
+        self.assertEqual(RT.RESULT_PERSISTED, store["durable_turns"]["result"])
+
+    def test_a_never_closed_trace_is_swept_out_not_lost(self):
+        import time as _t
+        self._parked_turn(row="7001")
+        RT._sweep(max_age_s=-1)
+        rows = self._written()
+        self.assertEqual(1, len(rows))
+        self.assertTrue(rows[0].get("swept"))
+        self.assertEqual("model text", rows[0]["raw_text"])
+
+    def test_attach_to_an_unknown_key_reports_failure(self):
+        self.assertFalse(RT.attach("no-such-row", "extraction",
+                                   RT.RESULT_PERSISTED))
+
+    def test_reflection_shape_is_its_own_stage_in_chat_ws(self):
+        src = (_REPO / "server" / "code" / "api" / "routers"
+               / "chat_ws.py").read_text(encoding="utf-8")
+        self.assertIn('"reflection_shape"', src)
+        self.assertIn("span_shared_with", src)
+        self.assertIn("intermediate_text", src)
+
+
+class RetentionWiringHonestyTests(unittest.TestCase):
+    """The docstring must not claim more than the code does."""
+
+    def test_the_module_lists_what_is_actually_wired(self):
+        src = (_REPO / "server" / "code" / "api" / "services"
+               / "lori_response_trace.py").read_text(encoding="utf-8")
+        self.assertIn("WHAT IS AND IS NOT WIRED", src)
+        self.assertIn("NOT WIRED -> not_measured", src)
+
+    def test_extraction_attaches_from_product_code(self):
+        src = (_REPO / "server" / "code" / "api" / "services"
+               / "turn_extraction.py").read_text(encoding="utf-8")
+        self.assertIn("_trace_extraction", src)
+        self.assertIn("RESULT_MEASURED_ABSENT", src)

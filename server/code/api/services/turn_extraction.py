@@ -907,6 +907,7 @@ async def _complete_claim(claim: _Claim) -> ExtractionOutcome:
         _finish_ledger(ledger_id, "noop", item_count=0,
                        method=method or "no_items", duration_ms=out.duration_ms)
         logger.info("[extract-turn] extract_fields_noop %s", out.as_log_fields())
+        _trace_extraction(ident, "noop", items=[], method=method)
         return out
 
     out = _outcome_for(ident, "succeeded", started=started,
@@ -928,8 +929,48 @@ async def _complete_claim(claim: _Claim) -> ExtractionOutcome:
     _store_result(claim, items, _clar, method)
 
     logger.info("[extract-turn] extract_fields_succeeded %s", out.as_log_fields())
+    _trace_extraction(ident, "succeeded", items=items, method=method)
     await _offer_result(claim, out, _clar)
     return out
+
+
+# ── WO-LORI-LISTEN-AND-RETAIN-01 · retention attachment ──────────────
+# Extraction runs as a background task after the response is persisted,
+# so this is where the retention half of the trace is written. The hook
+# knows the turn ROW, not the trace id, which is why the trace is parked
+# under both. Observation only: it reads the outcome that already
+# exists and never alters extraction.
+try:
+    from . import lori_response_trace as _rt
+except Exception:  # pragma: no cover - defensive
+    _rt = None  # type: ignore
+
+
+def _trace_extraction(ident, outcome, items=None, method=None):
+    """Attach the extraction result, then close the parked trace."""
+    if _rt is None:
+        return
+    try:
+        key = str(getattr(ident, "turn_key", "") or "")
+        if not key:
+            return
+        n = len(items or [])
+        if outcome == "succeeded" and n:
+            result = _rt.RESULT_PERSISTED
+        elif outcome in ("succeeded", "noop"):
+            # Ran cleanly and found nothing. The source WAS queried, so
+            # this is a real negative, not a broken measurement.
+            result = _rt.RESULT_MEASURED_ABSENT
+        else:
+            result = _rt.RESULT_MEASUREMENT_FAILED
+        _rt.attach(key, "extraction", result, detail={
+            "outcome": outcome, "items": n, "method": method,
+            "turn_key": key,
+            "narrator": str(getattr(ident, "narrator_id", "") or ""),
+        })
+        _rt.close(key)
+    except Exception:
+        return
 
 
 async def _offer_result(

@@ -164,7 +164,45 @@ async function openExactNarrator(page, personId) {
     throw new Error("REFUSED: resolved narrator action is not a safe Open button");
   }
   await locator.click({ timeout: 30000 });
-  await page.waitForFunction((pid) => window.state && window.state.person_id === pid, personId, { timeout: 60000 });
+
+  /* ── The narrator-open race, 2026-08-31 ────────────────────────────
+   * `state.person_id` is set EARLY in the open flow. The trainer-restore
+   * path in ui/hornelore1.0.html then rewrites #lv80ActiveNarratorCard's
+   * innerHTML back to a fresh card whose name reads "Choose a narrator",
+   * and lv80UpdateActiveNarratorCard() repaints it afterwards. Waiting
+   * only on person_id lands the read INSIDE that gap, which is how the
+   * 20260831T142834Z run aborted 0/7 with
+   *     opened narrator label does not identify Walt: Choose a narrator
+   * while Walt was in fact open.
+   *
+   * So wait for the whole lifecycle to settle: the exact person, a
+   * TERMINAL openStatus, the composer usable, and the card repainted.
+   * The visible-name assertion is PRESERVED, not removed — if the flow
+   * completes and the card still says "Choose a narrator", that is a
+   * product identity defect and must be reported as one. */
+  await page.waitForFunction(
+    (pid) => window.state && window.state.person_id === pid,
+    personId, { timeout: 60000 });
+  await page.waitForFunction(
+    () => {
+      const st = (window.state && window.state.narratorOpen
+                  && window.state.narratorOpen.openStatus) || null;
+      return st && st !== "loading" && st !== "idle";
+    },
+    null, { timeout: 60000 });
+  // The card is repainted asynchronously after openStatus settles; wait
+  // for the placeholder to be gone rather than sampling into the gap.
+  await page.waitForFunction(
+    () => {
+      const nodes = Array.from(
+        document.querySelectorAll("#lv80ActiveNarratorName"));
+      if (!nodes.length) return false;
+      return nodes.some((n) => {
+        const t = (n.textContent || "").trim();
+        return t && t !== "Choose a narrator" && t !== "Loading…";
+      });
+    },
+    null, { timeout: 60000 });
   await page.waitForFunction(() => {
     const input = document.getElementById("chatInput");
     const busy = typeof window._loriIsBusy === "function" && window._loriIsBusy();
@@ -357,10 +395,144 @@ function readRelevantLogDelta(filename, offset, conversationId, personId) {
   };
 }
 
+/* ── Response-trace consumption (WO-LORI-LISTEN-AND-RETAIN-01) ───────
+ * The trace is OPT-IN. The stack must be launched with
+ * HORNELORE_RESPONSE_TRACE=1 or this harness refuses to run: a report
+ * that silently lacks raw-vs-delivered evidence looks like a result and
+ * is not one. */
+const RETENTION_STAGES = ["durable_turns", "extraction", "bio_facts",
+  "chronology", "life_map", "rolling_summary", "archive", "memoir_source"];
+
+function traceDir(repoRoot) {
+  return process.env.HORNELORE_TRACE_DIR
+    || path.join(repoRoot, ".runtime", "eval", "response-trace");
+}
+
+function readTraces(repoRoot, sinceMs) {
+  const dir = traceDir(repoRoot);
+  if (!fs.existsSync(dir)) return { available: false, dir, records: [] };
+  const out = [];
+  for (const file of fs.readdirSync(dir).filter((f) => f.endsWith(".jsonl"))) {
+    for (const line of fs.readFileSync(path.join(dir, file), "utf8").split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      try {
+        const rec = JSON.parse(line);
+        if (!sinceMs || (rec.started_at || 0) * 1000 >= sinceMs) out.push(rec);
+      } catch (_) { /* a torn final line is not a finding */ }
+    }
+  }
+  return { available: true, dir, records: out };
+}
+
+function tracesForRun(repoRoot, sinceMs, personId, conversationId) {
+  const all = readTraces(repoRoot, sinceMs);
+  const mine = all.records.filter((r) =>
+    (!personId || r.narrator_id === personId)
+    && (!conversationId || r.conversation_id === conversationId));
+  mine.sort((a, b) => (a.started_at || 0) - (b.started_at || 0));
+  return { ...all, records: mine };
+}
+
+/* Retention truth for the whole run, per stage, without inventing a
+ * pass. `measurement_failed` is counted apart from `measured_absent`
+ * on purpose: a wrong-origin 404 is a broken measurement, not evidence
+ * that the data is missing. */
+function retentionSummary(records) {
+  const summary = {};
+  for (const stage of RETENTION_STAGES) {
+    const counts = { persisted: 0, rejected: 0, measured_absent: 0,
+                     measurement_failed: 0, not_measured: 0 };
+    for (const rec of records) {
+      const cell = (rec.storage || {})[stage];
+      const r = cell && cell.result ? cell.result : "not_measured";
+      if (counts[r] === undefined) counts.not_measured += 1;
+      else counts[r] += 1;
+    }
+    counts.genuinelyMeasured = counts.persisted + counts.rejected
+                             + counts.measured_absent;
+    summary[stage] = counts;
+  }
+  return summary;
+}
+
 function esc(value) {
   return String(value == null ? "" : value)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+/* Raw model output -> each layer in execution order -> delivered.
+ * This is the whole point of the work order: the pipeline has never
+ * shown what the model wrote next to what the narrator received. */
+function renderTraceSection(report) {
+  const rt = report.responseTrace;
+  if (!rt || !rt.available) {
+    return `<h2>Response trace</h2><div class="card bad">NOT AVAILABLE — `
+         + `no trace records were found. Nothing below can be attributed `
+         + `to the model rather than to the control stack.</div>`;
+  }
+  if (!rt.turns) {
+    return `<h2>Response trace</h2><div class="card bad">Trace directory `
+         + `exists at <code>${esc(rt.dir)}</code> but recorded ZERO turns `
+         + `for this narrator and conversation. Was the stack started with `
+         + `HORNELORE_RESPONSE_TRACE=1?</div>`;
+  }
+  const turns = rt.records.map((rec, i) => {
+    const stages = (rec.stages || []).map((st) => `
+      <tr class="${st.changed ? "changed" : ""}">
+        <td>${st.index}</td><td>${esc(st.stage)}</td>
+        <td>${st.fired ? "fired" : "ran, no change"}</td>
+        <td>${esc(JSON.stringify(st.reason))}</td>
+        <td>${st.words_before} → ${st.words_after}
+            (${st.words_delta > 0 ? "+" : ""}${st.words_delta})</td>
+        <td>${st.questions_before} → ${st.questions_after}</td>
+      </tr>
+      ${st.changed ? `<tr class="diff"><td></td><td colspan="5">
+        <div class="before"><b>before</b><br>${esc(st.before)}</div>
+        <div class="after"><b>after</b><br>${esc(st.after)}</div></td></tr>` : ""}`).join("");
+    const store = RETENTION_STAGES.map((name) => {
+      const cell = (rec.storage || {})[name] || { result: "not_measured" };
+      return `<tr><td>${esc(name)}</td><td class="r-${esc(cell.result)}">`
+           + `${esc(cell.result)}</td><td>${esc(JSON.stringify(cell.detail || ""))}</td></tr>`;
+    }).join("");
+    return `
+    <details ${i === 0 ? "open" : ""}>
+      <summary>Turn ${i + 1} — ${esc(rec.trace_id.slice(0, 8))} ·
+        raw ${rec.raw_words != null ? rec.raw_words : "?"} words →
+        delivered ${rec.delivered_words != null ? rec.delivered_words : "?"} words
+        ${rec.raw_equals_delivered === false ? " · REWRITTEN" : " · untouched"}</summary>
+      <h4>Raw model output</h4><blockquote>${esc(rec.raw_text)}</blockquote>
+      <h4>Control layers, in execution order</h4>
+      <table><thead><tr><th>#</th><th>Layer</th><th>Fired</th><th>Reason</th>
+        <th>Words</th><th>Questions</th></tr></thead><tbody>${stages}</tbody></table>
+      <h4>Delivered to the narrator</h4><blockquote>${esc(rec.delivered_text)}</blockquote>
+      <p><b>Delivered equals persisted:</b>
+        ${rec.delivered_equals_persisted === true ? "yes"
+          : rec.delivered_equals_persisted === false ? "<span class=\"bad\">NO</span>"
+          : "not measured"}</p>
+      <h4>Retention</h4>
+      <table><thead><tr><th>Stage</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>${store}</tbody></table>
+    </details>`;
+  }).join("");
+
+  const ret = Object.entries(rt.retention).map(([stage, c]) => `
+    <tr><td>${esc(stage)}</td>
+      <td>${c.persisted}</td><td>${c.rejected}</td><td>${c.measured_absent}</td>
+      <td class="${c.measurement_failed ? "bad" : ""}">${c.measurement_failed}</td>
+      <td class="${c.not_measured ? "warn" : ""}">${c.not_measured}</td>
+      <td><b>${c.genuinelyMeasured}/${rt.turns}</b></td></tr>`).join("");
+
+  return `
+  <h2>Retention — what is genuinely measured</h2>
+  <div class="card"><p><b>measurement_failed</b> and <b>not_measured</b> are
+  counted apart from <b>measured_absent</b> deliberately. A failed or absent
+  measurement is not evidence that the narrator's information is missing.</p></div>
+  <table><thead><tr><th>Stage</th><th>persisted</th><th>rejected</th>
+    <th>measured absent</th><th>measurement FAILED</th><th>not measured</th>
+    <th>genuinely measured</th></tr></thead><tbody>${ret}</tbody></table>
+  <h2>Response trace — raw vs every layer vs delivered</h2>
+  ${turns}`;
 }
 
 function renderHtml(report) {
@@ -392,13 +564,21 @@ function renderHtml(report) {
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Walt seven-era Lori report</title>
 <style>
-body{font:17px/1.55 system-ui,sans-serif;max-width:1050px;margin:36px auto;padding:0 22px;color:#182033;background:#f7f8fb}h1,h2{line-height:1.2}.card,details,.turn{background:white;border:1px solid #d8ddea;border-radius:10px;padding:16px;margin:14px 0}table{width:100%;border-collapse:collapse;background:white}th,td{padding:10px;border:1px solid #d8ddea;text-align:left;vertical-align:top}.meta{font-weight:700;color:#4b5680}.lori{border-left:5px solid #6266d8}.narrator{border-left:5px solid #4c8d75}blockquote{margin:8px 0;padding:10px 14px;background:#f1f3f8;border-left:4px solid #aab2c8;white-space:pre-wrap}.bad{color:#a21d2d}.good{color:#146b3a}code{background:#edf0f7;padding:2px 5px;border-radius:4px}</style></head><body>
+body{font:17px/1.55 system-ui,sans-serif;max-width:1050px;margin:36px auto;padding:0 22px;color:#182033;background:#f7f8fb}h1,h2{line-height:1.2}.card,details,.turn{background:white;border:1px solid #d8ddea;border-radius:10px;padding:16px;margin:14px 0}table{width:100%;border-collapse:collapse;background:white}th,td{padding:10px;border:1px solid #d8ddea;text-align:left;vertical-align:top}.meta{font-weight:700;color:#4b5680}.lori{border-left:5px solid #6266d8}.narrator{border-left:5px solid #4c8d75}blockquote{margin:8px 0;padding:10px 14px;background:#f1f3f8;border-left:4px solid #aab2c8;white-space:pre-wrap}.bad{color:#a21d2d}.good{color:#146b3a}.warn{color:#8a6100}
+.changed td{background:#fff6f6}.diff td{background:#fbfbfd}
+.before,.after{padding:8px;margin:4px 0;white-space:pre-wrap;border-radius:6px}
+.before{background:#f2f6ff;border-left:4px solid #6266d8}
+.after{background:#fff4f4;border-left:4px solid #c2536a}
+.r-persisted{color:#146b3a;font-weight:700}
+.r-measurement_failed{color:#a21d2d;font-weight:700}
+.r-not_measured{color:#8a6100;font-weight:700}code{background:#edf0f7;padding:2px 5px;border-radius:4px}</style></head><body>
 <h1>Walt seven-era Lori report</h1>
 <div class="card"><b>Run:</b> ${esc(report.runId)}<br><b>Narrator:</b> ${esc(report.narrator.displayName)} (<code>${esc(report.narrator.personId)}</code>)<br><b>Conversation:</b> <code>${esc(report.conversationId)}</code><br><b>Result:</b> <span class="${report.mechanicalPass ? "good" : "bad"}">${report.mechanicalPass ? "mechanical routing complete" : "mechanical failure"}</span><br><b>Important:</b> response quality requires human review; this report does not turn word matches into a quality score.</div>
 <h2>Stored-bio check</h2>
 <div class="card"><p><b>Narrator prompt:</b> ${esc(bio.prompt)}</p><p><b>Lori:</b> ${esc(bio.response)}</p><p><b>Stored-profile anchors Lori used:</b> ${esc((bio.hits || []).map((x) => x.key).join(", ") || "none detected")}</p></div>
 <h2>Era routing summary</h2><table><thead><tr><th>Era</th><th>Selected + sent</th><th>Runtime era</th><th>Grounding detected</th></tr></thead><tbody>${eraRows}</tbody></table>
 <h2>Era-by-era evidence</h2>${eraDetails}
+${renderTraceSection(report)}
 <h2>Complete test transcript</h2>${transcript}
 <h2>Diagnostics</h2><div class="card"><p>Console errors: ${diagnostics.consoleErrors.length} · failed requests: ${diagnostics.failedRequests.length} · HTTP 4xx/5xx: ${diagnostics.httpErrors.length}</p><p>Response shaping: ${logEvidence.signals?.commControl || 0} comm-control · ${logEvidence.signals?.responseGuards || 0} response-guard · ${logEvidence.signals?.validatorFailures || 0} validator-failure lines.</p><p>Server snapshots and complete WebSocket evidence are in <code>report.json</code>.</p></div>
 <details><summary>Relevant API log lines (${logEvidence.lines.length || 0})</summary><pre>${esc((logEvidence.lines || []).join("\n") || "api.log unavailable or no matching lines")}</pre></details>
@@ -433,6 +613,22 @@ async function main() {
   let chromium;
   try { ({ chromium } = require("playwright")); }
   catch (_) { ({ chromium } = require("@playwright/test")); }
+
+  // ── Trace preflight. Refuse rather than report without evidence. ──
+  const traceProbe = readTraces(repoRoot, 0);
+  const runStartedMs = Date.now();
+  if (!args.allowNoTrace) {
+    const health = await safeFetchJson(`${args.api}/api/health/response-trace`);
+    const dirExists = traceProbe.available;
+    if (!dirExists && !health.ok) {
+      throw new Error(
+        "REFUSED: response tracing is not available. Restart the stack with "
+        + "HORNELORE_RESPONSE_TRACE=1 so raw-vs-delivered evidence is "
+        + "recorded. A report without the trace is not the report this "
+        + "work order asks for. Override only for a mechanical smoke test "
+        + "with --allow-no-trace.");
+    }
+  }
 
   const beforeServer = await serverSnapshot(args.api, narrator.person_id);
   const productPerson = beforeServer.person?.body?.person || null;
@@ -473,8 +669,55 @@ async function main() {
   try {
     await page.goto(args.ui, { waitUntil: "domcontentloaded", timeout: 60000 });
     await openExactNarrator(page, narrator.person_id);
-    report.openedName = await page.locator("#lv80ActiveNarratorName").textContent();
-    if (!String(report.openedName || "").includes("Walt")) throw new Error(`opened narrator label does not identify Walt: ${report.openedName}`);
+    // ── Identity is verified against window.state.person_id, NOT a DOM
+    // label. `id="lv80ActiveNarratorName"` is DUPLICATED in the product
+    // (ui/hornelore1.0.html:3021 and again in the JS-built markup around
+    // :6956, whose copy reads "Choose a narrator"), so a label read can
+    // resolve to the copy that never updates. The 2026-08-31 run failed
+    // here with `opened narrator label does not identify Walt: Choose a
+    // narrator` while Walt was in fact open — openExactNarrator waits on
+    // window.state.person_id and would have thrown first otherwise.
+    //
+    // This is a STRONGER check than the substring it replaces: an exact
+    // UUID match against the journal, not the word "Walt". Both label
+    // copies are captured as evidence of the product defect, which is
+    // recorded and NOT repaired here.
+    const identity = await page.evaluate(() => ({
+      statePersonId: (window.state && window.state.person_id) || null,
+      labelNodes: Array.from(
+        document.querySelectorAll("#lv80ActiveNarratorName"))
+        .map((n) => (n.textContent || "").trim()),
+    }));
+    report.identity = identity;
+    report.openedName = identity.labelNodes[0] || null;
+    report.duplicateIdDefect = identity.labelNodes.length > 1
+      ? { id: "lv80ActiveNarratorName", copies: identity.labelNodes.length,
+          texts: identity.labelNodes,
+          note: "duplicate DOM id in the product; getElementById and a "
+              + "plain locator return the first, which may be the copy "
+              + "that never updates. Recorded, not repaired." }
+      : null;
+    if (identity.statePersonId !== narrator.person_id) {
+      throw new Error(
+        `opened narrator is not the journaled Walt: state.person_id=`
+        + `${identity.statePersonId} expected=${narrator.person_id}`);
+    }
+    identity.openStatus = await page.evaluate(
+      () => (window.state?.narratorOpen?.openStatus) || null);
+    // VISIBLE IDENTITY IS STILL ASSERTED. The lifecycle wait removes the
+    // race; it does not excuse the product from painting the right name.
+    // Compared against the product's own display_name, not the word
+    // "Walt", so a wrong narrator cannot pass on a substring.
+    const visible = identity.labelNodes.find(
+      (t) => t && t !== "Choose a narrator" && t !== "Loading…") || "";
+    identity.visibleName = visible;
+    if (!visible || !actualDisplayName.includes(visible.split(" · ").pop())) {
+      throw new Error(
+        `PRODUCT IDENTITY DEFECT: the open flow completed (openStatus=`
+        + `${identity.openStatus}, state.person_id correct) but the visible `
+        + `narrator card reads ${JSON.stringify(identity.labelNodes)} which `
+        + `does not identify ${JSON.stringify(actualDisplayName)}`);
+    }
     report.profileSeed = await pauseProfileSeedIfNeeded(page);
     report.conversationId = await page.evaluate(() => window.state?.chat?.conv_id || null);
 
@@ -509,6 +752,17 @@ async function main() {
 
     report.websocket = await page.evaluate(() => window.__waltEraCapture);
     report.afterServer = await serverSnapshot(args.api, narrator.person_id);
+    // Give parked traces a moment to be closed by background extraction.
+    await page.waitForTimeout(4000);
+    const traced = tracesForRun(repoRoot, runStartedMs, narrator.person_id,
+                                report.conversationId);
+    report.responseTrace = {
+      available: traced.available,
+      dir: traced.dir,
+      turns: traced.records.length,
+      records: traced.records,
+      retention: retentionSummary(traced.records),
+    };
     report.beforeServer = beforeServer;
     report.mechanicalPass = report.eras.length === 7
       && report.eras.every((e) => e.mechanical.eraSelectedAndSent)

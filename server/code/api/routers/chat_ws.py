@@ -5372,7 +5372,11 @@ async def ws_chat(ws: WebSocket):
                         _cc_result.word_count,
                     )
                     final_text = _cc_result.final_text
-                    _rt_ck("comm_control")
+                    _rt_ck("comm_control", {
+                        "failures": list(_cc_result.failures or []),
+                        "atomicity": list(_cc_result.atomicity_failures or []),
+                        "reflection": list(_cc_result.reflection_failures or []),
+                    })
                 # WO-LORI-REFLECTION-02 — emit a dedicated reflection-
                 # shape log line whenever the shaper rewrote the turn.
                 # Easier to grep than parsing the comm_control failures
@@ -5383,6 +5387,31 @@ async def ws_chat(ws: WebSocket):
                     w for w in (_cc_result.warnings or [])
                     if isinstance(w, str) and w.startswith("reflection_shaped:")
                 ]
+                # ── WO-LORI-LISTEN-AND-RETAIN-01 ──────────────────
+                # Reflection shaping runs INSIDE the comm_control call,
+                # so the intermediate text between the two is not
+                # separable at this layer. Recorded as its own stage
+                # with the span it shares, and the non-separability
+                # stated rather than papered over: the previous version
+                # collapsed reflection into the comm_control checkpoint
+                # entirely, which made a distinct transformation
+                # invisible.
+                try:
+                    _rt.stage(
+                        "reflection_shape",
+                        fired=bool(_shape_warnings),
+                        before=(_cc_result.original_text or ""),
+                        after=final_text,
+                        reason=[w.split(":", 1)[1] for w in _shape_warnings],
+                        trace_id=_rt_id,
+                        span_shared_with="comm_control",
+                        intermediate_text="not_measured — the shaper runs "
+                                          "inside compose_comm_control and "
+                                          "does not expose its own output",
+                        softened=bool(_softened_now),
+                    )
+                except Exception:
+                    pass
                 if _shape_warnings:
                     logger.info(
                         "[lori][reflection-shape] conv=%s actions=%s "
@@ -6306,8 +6335,21 @@ async def ws_chat(ws: WebSocket):
                             "person_id": person_id},
                     trace_id=_rt_id)
                 _rt.note("turn_row_ids", _persisted_row_ids, trace_id=_rt_id)
-                _rt.finish(delivered=final_text, persisted=final_text,
-                           trace_id=_rt_id)
+                # PARK, do not close. Extraction runs as a background
+                # task AFTER this point; closing here would write the
+                # response half and discard the retention half, which
+                # is the half the work order exists to measure. Keyed by
+                # trace id AND by durable row id, because the extraction
+                # hook knows the row, not the trace. A parked record
+                # nobody closes is swept out later with its unattached
+                # stages marked not_measured.
+                _rt.seal(delivered=final_text, persisted=final_text,
+                         trace_id=_rt_id)
+                _rt.park(keys=[str(_persisted_turn_row_id or ""),
+                               f"turnrow:{_persisted_turn_row_id}",
+                               *[str(v) for v in
+                                 (_persisted_row_ids or {}).values() if v]],
+                         trace_id=_rt_id)
             except Exception:
                 pass
             # WO-TRUTH-PIPELINE-01 Phase 2 (Gate 7, 2026-07-30) — hand the
