@@ -477,14 +477,22 @@ function compareSnapshot(before, after) {
 function retentionSummary(records) {
   const summary = {};
   for (const stage of RETENTION_STAGES) {
+    // `not_applicable` MUST be a key here. Without it the fallback
+    // branch below counted every deliberately-excluded era prompt as
+    // `not_measured`, which made run 20260901T003329Z's summary read
+    // "8 not_measured" when the per-record truth was "8 not_applicable"
+    // — a reporting error of exactly the kind this vocabulary exists
+    // to prevent.
     const counts = { persisted: 0, rejected: 0, measured_absent: 0,
-                     measurement_failed: 0, not_measured: 0 };
+                     measurement_failed: 0, not_applicable: 0,
+                     not_measured: 0 };
     for (const rec of records) {
       const cell = (rec.storage || {})[stage];
       const r = cell && cell.result ? cell.result : "not_measured";
       if (counts[r] === undefined) counts.not_measured += 1;
       else counts[r] += 1;
     }
+    // not_applicable is NOT a measurement: nothing was attempted.
     counts.genuinelyMeasured = counts.persisted + counts.rejected
                              + counts.measured_absent;
     summary[stage] = counts;

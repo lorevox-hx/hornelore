@@ -489,3 +489,25 @@ class TraceInventoryIsCurrentTests(unittest.TestCase):
         self.assertNotIn("rolling_summary    NOT WIRED", src)
         self.assertIn("MEASURED BY THE HARNESS", src)
         self.assertIn("archive            genuinely uninstrumented", src)
+
+
+class RetentionSummaryCountsNotApplicableTests(unittest.TestCase):
+    """Run 20260901T003329Z's summary said 8 not_measured; the records
+    said 8 not_applicable. The counts object lacked the key, so the
+    fallback branch swallowed them."""
+
+    def test_not_applicable_is_a_counted_key(self):
+        raw = (_REPO_ROOT / "scripts" / "ui"
+               / "run_walt_seven_era_conversation.js").read_text(
+                   encoding="utf-8")
+        src = IdentityIsVerifiedAgainstStateTests._code_only(raw)
+        self.assertIn("not_applicable: 0", src)
+
+    def test_not_applicable_is_not_counted_as_measured(self):
+        raw = (_REPO_ROOT / "scripts" / "ui"
+               / "run_walt_seven_era_conversation.js").read_text(
+                   encoding="utf-8")
+        src = IdentityIsVerifiedAgainstStateTests._code_only(raw)
+        i = src.index("counts.genuinelyMeasured")
+        expr = src[i:i + 160]
+        self.assertNotIn("not_applicable", expr)
