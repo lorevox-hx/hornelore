@@ -258,8 +258,12 @@ class StorageVocabularyTests(_Base):
             self.assertEqual(RT.RESULT_NOT_MEASURED, store[k]["result"])
             self.assertIsNotNone(store[k]["coerced_from"])
 
-    def test_the_five_results_are_all_distinct(self):
-        self.assertEqual(5, len(set(RT.RESULTS)))
+    def test_the_six_results_are_all_distinct(self):
+        """*(Was five. `not_applicable` was added when the era prompts
+        showed that "deliberately excluded" and "measured and found
+        nothing" are different claims about a narrator's words.)*"""
+        self.assertEqual(6, len(set(RT.RESULTS)))
+        self.assertIn(RT.RESULT_NOT_APPLICABLE, RT.RESULTS)
 
 
 # ── the wiring in chat_ws is present and observation-only ────────────
@@ -398,7 +402,12 @@ class RetentionWiringHonestyTests(unittest.TestCase):
         src = (_REPO / "server" / "code" / "api" / "services"
                / "lori_response_trace.py").read_text(encoding="utf-8")
         self.assertIn("WHAT IS AND IS NOT WIRED", src)
-        self.assertIn("NOT WIRED -> not_measured", src)
+        # *(Was `NOT WIRED -> not_measured`, which listed rolling
+        # summary among the uninstrumented. The log proved it live, so
+        # the inventory now distinguishes measured-by-harness from
+        # genuinely uninstrumented.)*
+        self.assertIn("genuinely uninstrumented -> not_measured", src)
+        self.assertIn("MEASURED BY THE HARNESS", src)
 
     def test_extraction_attaches_from_product_code(self):
         """*(Was `_trace_extraction`, called from two sites. Renamed to
@@ -533,3 +542,87 @@ class DefensiveStubTests(unittest.TestCase):
                          f"the no-op fallback lacks {sorted(missing)}; an "
                          f"import failure would hit a missing method, be "
                          f"swallowed, and silently produce no trace")
+
+
+# ── the era-prompt gap, tested against the REAL scheduler ────────────
+class ScheduledNoClaimPathTests(_Base):
+    """A Life Map era prompt must close its trace immediately.
+
+    Run 20260901T001631Z wrote 8 traces of 15 expected; the 7 missing
+    were EXACTLY the seven era prompts. They send
+    `message_kind="internal_directive"`, `_begin` returns a terminal
+    outcome with `claim is None`, and the scheduler returned without
+    finalizing — so `_complete_claim`'s wrapper never helped them and
+    the trace stayed parked until a 180s sweep that never came.
+
+    This drives the real `schedule_completed_turn_extraction`, not a
+    stub, and asserts the record is on disk with NO sweep.
+    """
+
+    def setUp(self):
+        super().setUp()
+        os.environ["HORNELORE_RESPONSE_TRACE"] = "1"
+        import asyncio
+        from api.services import turn_extraction as TE
+        self.TE = TE
+        self.loop = asyncio.new_event_loop()
+        self.addCleanup(self.loop.close)
+
+    def _park_a_turn(self, row):
+        tid = RT.begin(narrator_id="n-era", conversation_id="c-era")
+        RT.raw("era prompt raw text", trace_id=tid)
+        RT.seal(delivered="era prompt delivered", persisted="era prompt delivered",
+                trace_id=tid)
+        RT.storage("durable_turns", RT.RESULT_PERSISTED, trace_id=tid)
+        RT.park(keys=[str(row), f"turnrow:{row}"], trace_id=tid)
+        return tid
+
+    def test_an_internal_directive_closes_its_trace_without_a_sweep(self):
+        tid = self._park_a_turn(4242)
+        self.assertEqual([], self._written(), "parked, not yet written")
+
+        async def go():
+            return self.TE.schedule_completed_turn_extraction(
+                narrator_id="n-era", turn_id="-", user_text="[SYSTEM: era]",
+                session_id="c-era", turn_key="turnrow:4242",
+                turn_mode="interview", is_system_directive=True)
+        outcome = self.loop.run_until_complete(go())
+
+        rows = self._written()
+        self.assertEqual(1, len(rows),
+                         "the era-prompt trace was not written; it is still "
+                         "parked waiting for a sweep that will not come")
+        row = rows[0]
+        self.assertEqual(tid, row["trace_id"])
+        self.assertFalse(row.get("swept"),
+                         "written by the sweep, not by the scheduler")
+        self.assertEqual("era prompt raw text", row["raw_text"])
+
+    def test_deliberate_exclusion_is_not_applicable_not_absent(self):
+        """`measured_absent` would claim extraction ran and found
+        nothing. Nothing was attempted."""
+        self._park_a_turn(4243)
+
+        async def go():
+            return self.TE.schedule_completed_turn_extraction(
+                narrator_id="n-era", turn_id="-", user_text="[SYSTEM: era]",
+                session_id="c-era", turn_key="turnrow:4243",
+                turn_mode="interview", is_system_directive=True)
+        self.loop.run_until_complete(go())
+
+        cell = self._written()[0]["storage"]["extraction"]
+        self.assertEqual(RT.RESULT_NOT_APPLICABLE, cell["result"])
+        self.assertNotEqual(RT.RESULT_MEASURED_ABSENT, cell["result"])
+        self.assertNotEqual(RT.RESULT_PERSISTED, cell["result"])
+        self.assertTrue(cell["detail"]["is_system_directive"])
+
+    def test_not_applicable_is_a_distinct_result(self):
+        self.assertIn(RT.RESULT_NOT_APPLICABLE, RT.RESULTS)
+        self.assertEqual(6, len(set(RT.RESULTS)))
+
+    def test_task_creation_failure_is_measurement_failed(self):
+        src = (_REPO / "server" / "code" / "api" / "services"
+               / "turn_extraction.py").read_text(encoding="utf-8")
+        loop_fail = src[src.index("except RuntimeError as loop_exc"):]
+        self.assertIn("_finalize_extraction_trace", loop_fail)
+        self.assertIn("RESULT_MEASUREMENT_FAILED", loop_fail)

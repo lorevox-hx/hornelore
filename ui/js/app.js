@@ -1,3 +1,20 @@
+/* ── WO-LORI-LISTEN-AND-RETAIN-01 · client turn id ──────────────────
+ * Every WebSocket turn carries one, INCLUDING the internal-directive
+ * path (sendSystemPrompt). Without it a trace record can only be
+ * matched to a turn by ordering, and run 20260901T001631Z showed why
+ * that is not good enough: 8 traces arrived for 15 turns and nothing
+ * in the record said WHICH seven were missing. With an id, "exactly
+ * one trace per manifest turn" becomes checkable instead of counted.
+ * Observation only: the server records it and nothing branches on it. */
+function _lvNextClientTurnId() {
+  try {
+    return "ct_" + Date.now().toString(36) + "_"
+         + Math.random().toString(36).slice(2, 8);
+  } catch (_) { return "ct_unknown"; }
+}
+window._lvNextClientTurnId = _lvNextClientTurnId;
+window.__lvLastClientTurnId = null;
+
 /* ═══════════════════════════════════════════════════════════════
    app.js — init, people/profile, events, memoir, obituary,
             chat (WS/SSE), TTS, voice, layout toggles, utilities
@@ -6668,8 +6685,11 @@ async function sendUserMessage(){
       console.warn("[whisper-stt] transcript-guard read failed for chat WS:", _tgErr && _tgErr.message);
     }
 
-    ws.send(JSON.stringify({type:"start_turn",session_id:state.chat.conv_id||"default",
+    const _lvCtid = _lvNextClientTurnId();
+  window.__lvLastClientTurnId = _lvCtid;
+  ws.send(JSON.stringify({type:"start_turn",session_id:state.chat.conv_id||"default",
       message:payload,turn_mode:routedMode,params:{
+        client_turn_id:_lvCtid,
         // WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 Phase 1b (2026-08-09).
         // This is the NARRATOR path. Declaring it is what lets a
         // narrator type "[SYSTEM: that's how the computer showed it
@@ -6760,8 +6780,11 @@ async function sendSystemPrompt(instruction){
     console.log("[Lori 7.1] runtime71 (sys) → model:", JSON.stringify(_rt71sys, null, 2));
     const _llmTs = (window._lv10dLlmParams && window._lv10dLlmParams.temperature) || 0.7;
     const _llmMs = (window._lv10dLlmParams && window._lv10dLlmParams.max_new_tokens) || 512;
+    const _lvCtid = _lvNextClientTurnId();
+    window.__lvLastClientTurnId = _lvCtid;
     ws.send(JSON.stringify({type:"start_turn",session_id:state.chat.conv_id||"default",
       message:instruction,params:{
+        client_turn_id:_lvCtid,
         // WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 Phase 1b (2026-08-09).
         // This path builds internal guidance, not narrator speech --
         // the comment below has said so since it was written. It now

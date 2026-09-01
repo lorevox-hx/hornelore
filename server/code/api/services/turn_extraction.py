@@ -979,7 +979,8 @@ except Exception:  # pragma: no cover - defensive
 
 
 def _finalize_extraction_trace(turn_key, status, *, item_count=0,
-                               method="", error_class="", detail=None):
+                               method="", error_class="", detail=None,
+                               forced_result=None):
     """THE single funnel. Every terminal extraction outcome ends here.
 
     The previous version was called from two places — success and one
@@ -1002,7 +1003,9 @@ def _finalize_extraction_trace(turn_key, status, *, item_count=0,
         if not key:
             return
         n = int(item_count or 0)
-        if status == "succeeded" and n > 0:
+        if forced_result is not None:
+            result = forced_result
+        elif status == "succeeded" and n > 0:
             result = _rt.RESULT_PERSISTED
         elif status in ("succeeded", "noop"):
             result = _rt.RESULT_MEASURED_ABSENT
@@ -1168,6 +1171,35 @@ def schedule_completed_turn_extraction(
         is_system_directive=is_system_directive,
     )
     if claim is None:
+        # ── THE ERA-PROMPT GAP, fixed 2026-08-31 ──────────────────────
+        #
+        # A Life Map era switch sends message_kind="internal_directive".
+        # `_begin` returns a terminal outcome with claim=None, and this
+        # returned immediately — leaving the trace chat_ws had parked
+        # open forever. `_complete_claim` never runs for these turns, so
+        # the wrapper added there does not help them.
+        #
+        # Measured in run 20260901T001631Z: 8 traces written of 15
+        # expected. The 7 missing were EXACTLY the seven era prompts.
+        #
+        # Classified `not_applicable`, NOT `measured_absent`: extraction
+        # was deliberately not attempted, so "measured and found
+        # nothing" would be a false claim about the narrator's words.
+        _status = getattr(outcome, "status", "") or "unknown"
+        _excluded = bool(is_system_directive) or _status == "noop"
+        _finalize_extraction_trace(
+            str(turn_key or ""), _status,
+            item_count=getattr(outcome, "item_count", 0),
+            method=getattr(outcome, "method", "") or "",
+            error_class=getattr(outcome, "error_class", "") or "",
+            forced_result=(_rt.RESULT_NOT_APPLICABLE
+                           if (_rt is not None and _excluded) else None),
+            detail={"claim": None,
+                    "is_system_directive": bool(is_system_directive),
+                    "why": ("deliberately excluded from extraction; no "
+                            "attempt was made"
+                            if _excluded else
+                            "terminal before a claim was won")})
         return outcome  # type: ignore[return-value]
 
     # Attached after the claim is won rather than threaded through
@@ -1201,6 +1233,18 @@ def schedule_completed_turn_extraction(
             "-- use extract_completed_turn() from synchronous callers)",
             out.as_log_fields(),
         )
+        # The claim was WON and then the task could not be created, so
+        # `_complete_claim` will never run and never finalize. Without
+        # this the trace would stay parked until the 180s sweep — the
+        # same stranding the era prompts suffered. measurement_failed,
+        # not absent: extraction was intended and the machinery broke.
+        _finalize_extraction_trace(
+            str(claim.turn_key or ""), "failed",
+            error_class=loop_exc.__class__.__name__,
+            forced_result=(_rt.RESULT_MEASUREMENT_FAILED
+                           if _rt is not None else None),
+            detail={"why": "claim won but the extraction task could not "
+                           "be created; the extractor never ran"})
         return out
 
     _PENDING_EXTRACTIONS.add(task)

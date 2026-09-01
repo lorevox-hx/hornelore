@@ -310,6 +310,8 @@ async function sendTypedTurn(page, text, expectedEra) {
   const evidence = await actionEvidence(page, before, expectedEra);
   evidence.extractionReceived = extractionReceived;
   evidence.doneEventsObserved = (await captureCounts(page)).done - before.done;
+  evidence.clientTurnId = await page.evaluate(
+    () => window.__lvLastClientTurnId || null);
   return evidence;
 }
 
@@ -325,7 +327,11 @@ async function selectEraAndWait(page, era) {
   await modal.locator(".lv-interview-confirm-continue").click();
   await page.waitForFunction((id) => window.state?.session?.currentEra === id, era.id, { timeout: 10000 });
   await waitForDone(page, before.done);
-  return actionEvidence(page, before, era.id);
+  const ev = await actionEvidence(page, before, era.id);
+  ev.doneEventsObserved = (await captureCounts(page)).done - before.done;
+  ev.clientTurnId = await page.evaluate(
+    () => window.__lvLastClientTurnId || null);
+  return ev;
 }
 
 function normalized(text) {
@@ -448,6 +454,26 @@ function tracesForRun(repoRoot, sinceMs, personId, conversationId) {
  * pass. `measurement_failed` is counted apart from `measured_absent`
  * on purpose: a wrong-origin 404 is a broken measurement, not evidence
  * that the data is missing. */
+/* changed -> persisted · unchanged -> measured_absent · dead -> failed */
+function compareSnapshot(before, after) {
+  if (!after?.ok) {
+    return { result: "measurement_failed", status: after?.status ?? null,
+             note: "the endpoint did not answer; absence is not implied" };
+  }
+  const txt = (x) => JSON.stringify(x?.body ?? null);
+  const changed = txt(before) !== txt(after);
+  return {
+    result: changed ? "persisted" : "measured_absent",
+    changed,
+    beforeChars: txt(before).length,
+    afterChars: txt(after).length,
+    before: before?.body ?? null,
+    after: after?.body ?? null,
+    note: changed ? "content changed across the run"
+                  : "the endpoint answered and nothing changed",
+  };
+}
+
 function retentionSummary(records) {
   const summary = {};
   for (const stage of RETENTION_STAGES) {
@@ -534,7 +560,38 @@ function renderTraceSection(report) {
       <td class="${c.not_measured ? "warn" : ""}">${c.not_measured}</td>
       <td><b>${c.genuinelyMeasured}/${rt.turns}</b></td></tr>`).join("");
 
+  const ev = report.retentionEvidence;
+  const evRows = ev ? Object.entries(ev)
+    .filter(([k]) => k !== "scope")
+    .map(([stage, cell]) => `
+      <tr><td>${esc(stage)}</td>
+        <td class="r-${esc(cell.result)}">${esc(cell.result)}</td>
+        <td>${cell.changed === undefined ? "—" : (cell.changed ? "changed" : "unchanged")}</td>
+        <td>${esc(cell.note || "")}</td></tr>`).join("") : "";
+  const tc = report.traceCompleteness || {};
+  const missingRows = (tc.missingTurns || []).map((t) => `
+      <tr><td>${esc(t.kind)}</td><td>${esc(t.era || "—")}</td>
+        <td><code>${esc(t.clientTurnId || "no client turn id")}</code></td></tr>`).join("");
+
   return `
+  <h2>Trace completeness — per turn, not counted</h2>
+  <div class="card">
+    <p><b>Manifest turns:</b> ${tc.manifestEntries ?? "?"} ·
+       <b>traces written:</b> ${tc.tracedTurns ?? "?"} ·
+       <b>with raw text:</b> ${tc.withRaw ?? "?"} ·
+       <b>complete:</b> <span class="${tc.complete ? "good" : "bad"}">${tc.complete ? "yes" : "NO"}</span></p>
+    ${missingRows ? `<p class="bad">Turns with no trace:</p>
+      <table><thead><tr><th>Kind</th><th>Era</th><th>Client turn id</th></tr></thead>
+      <tbody>${missingRows}</tbody></table>` : ""}
+    ${(tc.duplicatedTurns || []).length ? `<p class="bad">Duplicated: ${esc((tc.duplicatedTurns || []).join(", "))}</p>` : ""}
+    ${(tc.unattributedTraces || []).length ? `<p class="bad">Traces not matching any manifest turn: ${esc((tc.unattributedTraces || []).join(", "))}</p>` : ""}
+  </div>
+  <h2>Retention evidence</h2>
+  <div class="card"><p>${esc(ev?.scope || "")}</p>
+  <p><b>HTTP 200 is not retention.</b> Chronology and Life Map are judged by
+  comparing before and after, not by whether the endpoint answered.</p></div>
+  <table><thead><tr><th>Stage</th><th>Result</th><th>Change</th><th>Note</th></tr></thead>
+    <tbody>${evRows}</tbody></table>
   <h2>Retention — what is genuinely measured</h2>
   <div class="card"><p><b>measurement_failed</b> and <b>not_measured</b> are
   counted apart from <b>measured_absent</b> deliberately. A failed or absent
@@ -582,7 +639,9 @@ body{font:17px/1.55 system-ui,sans-serif;max-width:1050px;margin:36px auto;paddi
 .after{background:#fff4f4;border-left:4px solid #c2536a}
 .r-persisted{color:#146b3a;font-weight:700}
 .r-measurement_failed{color:#a21d2d;font-weight:700}
-.r-not_measured{color:#8a6100;font-weight:700}code{background:#edf0f7;padding:2px 5px;border-radius:4px}</style></head><body>
+.r-not_measured{color:#8a6100;font-weight:700}
+.r-not_applicable{color:#4b5680;font-weight:700}
+.r-measured_absent{color:#6266d8;font-weight:700}code{background:#edf0f7;padding:2px 5px;border-radius:4px}</style></head><body>
 <h1>Walt seven-era Lori report</h1>
 <div class="card"><b>Run:</b> ${esc(report.runId)}<br><b>Narrator:</b> ${esc(report.narrator.displayName)} (<code>${esc(report.narrator.personId)}</code>)<br><b>Conversation:</b> <code>${esc(report.conversationId)}</code><br><b>Result:</b> <span class="${report.mechanicalPass ? "good" : "bad"}">${report.mechanicalPass ? "mechanical routing complete" : "mechanical failure"}</span><br><b>Important:</b> response quality requires human review; this report does not turn word matches into a quality score.</div>
 <h2>Stored-bio check</h2>
@@ -752,6 +811,7 @@ async function main() {
 
     const bioEvidence = await sendTypedTurn(page, BIO_PROBE, null);
     report.turnManifest.push({ kind: "bio_probe", era: null,
+      clientTurnId: bioEvidence.clientTurnId,
       doneEvents: bioEvidence.doneEventsObserved,
       conversationId: report.conversationId });
     const bioHits = BIO_ANCHORS.filter((group) => group.terms.some((term) => normalized(bioEvidence.finalText).includes(term)));
@@ -761,11 +821,13 @@ async function main() {
     for (const era of ERAS) {
       const eraPrompt = await selectEraAndWait(page, era);
       report.turnManifest.push({ kind: "era_prompt", era: era.id,
+        clientTurnId: eraPrompt.clientTurnId,
         doneEvents: eraPrompt.doneEventsObserved,
         conversationId: report.conversationId });
       report.transcript.push({ era: era.id, role: "lori", kind: "era_prompt", text: eraPrompt.finalText || "" });
       const narratorEvidence = await sendTypedTurn(page, era.narrator, era.id);
       report.turnManifest.push({ kind: "narrator_turn", era: era.id,
+        clientTurnId: narratorEvidence.clientTurnId,
         doneEvents: narratorEvidence.doneEventsObserved,
         conversationId: report.conversationId });
       const hits = anchorHits(narratorEvidence.finalText, era.anchors);
@@ -842,27 +904,43 @@ async function main() {
         attributionNote: "per-turn attribution counts only facts whose "
           + "recorded source turn matches a durable row id from this run",
       },
-      chronology: {
-        result: report.afterServer?.chronology?.ok
-          ? "persisted" : "measurement_failed",
-        before: report.beforeServer?.chronology?.body || null,
-        after: report.afterServer?.chronology?.body || null,
-      },
-      life_map: {
-        result: report.afterServer?.projection?.ok
-          ? "persisted" : "measurement_failed",
-        before: report.beforeServer?.projection?.body || null,
-        after: report.afterServer?.projection?.body || null,
-      },
-      memoir_source: {
-        result: memoir.ok ? (memoir.body ? "persisted" : "measured_absent")
-                          : "measurement_failed",
-        queriedAt: memoir.url,
-        status: memoir.status,
-        note: memoir.ok ? null
-          : "queried at the API origin; a failure here is measurement_failed "
-          + "and is NOT evidence that memoir data is absent",
-      },
+      /* HTTP 200 is not retention. An endpoint answering proves the
+       * measurement worked, not that the narrator's words landed. So
+       * before and after are COMPARED: changed is `persisted`,
+       * unchanged is `measured_absent`, and a dead endpoint is
+       * `measurement_failed`. */
+      chronology: compareSnapshot(report.beforeServer?.chronology,
+                                  report.afterServer?.chronology),
+      life_map: compareSnapshot(report.beforeServer?.projection,
+                                report.afterServer?.projection),
+      /* Classified on the endpoint's RESPONSE CONTRACT, not on
+       * JavaScript truthiness: `{}`, `[]` and `""` are all falsy-ish in
+       * careless code yet mean different things, and `memoir.body`
+       * being an empty object would previously have read as
+       * `measured_absent` when it may be a perfectly good empty
+       * memoir. The body is included so a human can judge. */
+      memoir_source: (() => {
+        if (!memoir.ok) {
+          return { result: "measurement_failed", status: memoir.status,
+                   queriedAt: memoir.url, body: memoir.body ?? null,
+                   note: "queried at the API origin; a failure here is "
+                     + "measurement_failed and is NOT evidence that "
+                     + "memoir data is absent" };
+        }
+        const b = memoir.body;
+        const empty = b == null
+          || (Array.isArray(b) && b.length === 0)
+          || (typeof b === "object" && !Array.isArray(b)
+              && Object.keys(b).length === 0)
+          || (typeof b === "string" && b.trim() === "");
+        return {
+          result: empty ? "measured_absent" : "persisted",
+          status: memoir.status, queriedAt: memoir.url, body: b,
+          note: empty
+            ? "the endpoint answered and returned an empty memoir source"
+            : "the endpoint answered with memoir content",
+        };
+      })(),
       rolling_summary: (() => {
         const before = report.beforeServer?.summary;
         const after = report.afterServer?.summary;
@@ -896,21 +974,47 @@ async function main() {
     /* Expected traces come from the MANIFEST — the model turns this run
      * actually caused, counted by observed `done` events — not from
      * arithmetic over the era list. */
-    const expectedTraces = report.turnManifest.reduce(
-      (n, t) => n + Math.max(1, t.doneEvents || 1), 0);
+    /* EXACT AND ATTRIBUTABLE. `tracedTurns >= expectedTraces` could pass
+     * on an unrelated extra record while a real turn was missing. Run
+     * 20260901T001631Z produced 8 traces for 15 turns and nothing in
+     * the report said WHICH seven were absent. Every turn now carries a
+     * client turn id and every trace records it, so this demands
+     * exactly one trace per manifest turn — no missing, no duplicates,
+     * no strangers — and NAMES the failures. */
+    const byClientId = new Map();
+    for (const r of report.responseTrace.records) {
+      const cid = r.context?.client_turn_id || null;
+      if (!cid) continue;
+      byClientId.set(cid, (byClientId.get(cid) || 0) + 1);
+    }
+    const manifestIds = report.turnManifest
+      .map((t) => t.clientTurnId).filter(Boolean);
+    const missing = report.turnManifest
+      .filter((t) => !t.clientTurnId || !byClientId.has(t.clientTurnId));
+    const duplicated = manifestIds.filter((id) => byClientId.get(id) > 1);
+    const unattributed = report.responseTrace.records.filter((r) => {
+      const cid = r.context?.client_turn_id || null;
+      return !cid || !manifestIds.includes(cid);
+    });
     const tracedTurns = report.responseTrace.turns;
     const withRaw = report.responseTrace.records.filter(
       (r) => typeof r.raw_text === "string" && r.raw_text.length > 0).length;
     const instrumentationFailures = report.responseTrace.records.filter(
       (r) => r.instrumentation_failed === true);
     report.traceCompleteness = {
-      expectedTraces, tracedTurns, withRaw,
-      manifest: report.turnManifest,
       manifestEntries: report.turnManifest.length,
+      manifest: report.turnManifest,
+      tracedTurns, withRaw,
+      missingTurns: missing.map(
+        (t) => ({ kind: t.kind, era: t.era, clientTurnId: t.clientTurnId })),
+      duplicatedTurns: duplicated,
+      unattributedTraces: unattributed.map((r) => r.trace_id),
       instrumentationFailures: instrumentationFailures.length,
       missingRequiredContext: instrumentationFailures
         .flatMap((r) => r.missing_required_context || []),
-      complete: tracedTurns >= expectedTraces && withRaw === tracedTurns
+      complete: missing.length === 0 && duplicated.length === 0
+                && unattributed.length === 0
+                && withRaw === tracedTurns
                 && instrumentationFailures.length === 0,
     };
     report.mechanicalPass = report.eras.length === 7

@@ -374,3 +374,118 @@ class PostBudgetContextTests(unittest.TestCase):
         self.assertIn('"post_budget_messages"', ws)
         self.assertIn("_budget.messages", ws)
         self.assertIn("_budget.sections", ws)
+
+
+class ExactAttributableCompletenessTests(unittest.TestCase):
+    """Run 20260901T001631Z: 8 traces for 15 turns, and the report could
+    not say WHICH seven were missing."""
+
+    def setUp(self):
+        raw = (_REPO_ROOT / "scripts" / "ui"
+               / "run_walt_seven_era_conversation.js").read_text(
+                   encoding="utf-8")
+        self.src = IdentityIsVerifiedAgainstStateTests._code_only(raw)
+
+    def test_the_greater_than_or_equal_check_is_gone(self):
+        self.assertNotIn("tracedTurns >= expectedTraces", self.src)
+
+    def test_matching_is_by_client_turn_id(self):
+        self.assertIn("client_turn_id", self.src)
+        self.assertIn("byClientId", self.src)
+
+    def test_missing_turns_are_named_not_counted(self):
+        self.assertIn("missingTurns", self.src)
+        self.assertIn("clientTurnId: t.clientTurnId", self.src)
+
+    def test_duplicates_and_strangers_fail_too(self):
+        self.assertIn("duplicatedTurns", self.src)
+        self.assertIn("unattributedTraces", self.src)
+        self.assertIn("duplicated.length === 0", self.src)
+        self.assertIn("unattributed.length === 0", self.src)
+
+    def test_every_manifest_entry_records_a_client_turn_id(self):
+        """Three push sites: bio probe, era prompt, narrator turn.
+        (Counted on the pushes specifically — `clientTurnId:` also
+        appears in the missingTurns projection.)"""
+        pushes = self.src.count("clientTurnId: bioEvidence.clientTurnId") \
+            + self.src.count("clientTurnId: eraPrompt.clientTurnId") \
+            + self.src.count("clientTurnId: narratorEvidence.clientTurnId")
+        self.assertEqual(3, pushes)
+
+    def test_era_prompts_also_record_done_events(self):
+        """They were `doneEvents: None` because only sendTypedTurn
+        counted them."""
+        prompt_fn = self.src[self.src.index("async function selectEraAndWait"):]
+        self.assertIn("doneEventsObserved", prompt_fn[:1200])
+
+
+class ClientTurnIdOnEveryPathTests(unittest.TestCase):
+    def setUp(self):
+        self.src = (_REPO_ROOT / "ui" / "js" / "app.js").read_text(
+            encoding="utf-8", errors="replace")
+
+    def test_both_start_turn_frames_carry_it(self):
+        self.assertEqual(2, self.src.count("client_turn_id:_lvCtid"))
+
+    def test_the_internal_directive_path_carries_it_too(self):
+        """sendSystemPrompt is how Life Map era prompts are sent."""
+        idx = self.src.index("message:instruction,params:{")
+        self.assertIn("client_turn_id:_lvCtid",
+                      self.src[idx - 300:idx + 300])
+
+    def test_the_generator_is_top_level(self):
+        self.assertIn("window._lvNextClientTurnId = _lvNextClientTurnId;",
+                      self.src)
+
+
+class RetentionIsComparedNotAssumedTests(unittest.TestCase):
+    def setUp(self):
+        raw = (_REPO_ROOT / "scripts" / "ui"
+               / "run_walt_seven_era_conversation.js").read_text(
+                   encoding="utf-8")
+        self.src = IdentityIsVerifiedAgainstStateTests._code_only(raw)
+
+    def test_http_200_alone_no_longer_means_persisted(self):
+        self.assertNotIn('chronology?.ok\n          ? "persisted"', self.src)
+        self.assertIn("compareSnapshot(report.beforeServer?.chronology",
+                      self.src)
+        self.assertIn("compareSnapshot(report.beforeServer?.projection",
+                      self.src)
+
+    def test_unchanged_is_measured_absent(self):
+        self.assertIn('result: changed ? "persisted" : "measured_absent"',
+                      self.src)
+
+    def test_memoir_uses_the_response_contract_not_truthiness(self):
+        self.assertIn("Array.isArray(b) && b.length === 0", self.src)
+        self.assertIn("Object.keys(b).length === 0", self.src)
+        self.assertIn("body: b", self.src)
+
+    def test_archive_alone_stays_not_measured(self):
+        self.assertIn('archive: { result: "not_measured"', self.src)
+
+    def test_retention_evidence_is_rendered_in_html(self):
+        self.assertIn("<h2>Retention evidence</h2>", self.src)
+        self.assertIn("HTTP 200 is not retention", self.src)
+
+    def test_completeness_is_rendered_in_html(self):
+        self.assertIn("<h2>Trace completeness — per turn, not counted</h2>",
+                      self.src)
+        self.assertIn("Turns with no trace", self.src)
+
+
+class FullPostBudgetContentTests(unittest.TestCase):
+    def test_the_json_carries_full_message_content(self):
+        ws = (_REPO_ROOT / "server" / "code" / "api" / "routers"
+              / "chat_ws.py").read_text(encoding="utf-8")
+        self.assertIn('"content": str((m.get("content")', ws)
+        self.assertNotIn('"head": str((m.get("content")', ws)
+
+
+class TraceInventoryIsCurrentTests(unittest.TestCase):
+    def test_rolling_summary_is_no_longer_listed_as_not_wired(self):
+        src = (_REPO_ROOT / "server" / "code" / "api" / "services"
+               / "lori_response_trace.py").read_text(encoding="utf-8")
+        self.assertNotIn("rolling_summary    NOT WIRED", src)
+        self.assertIn("MEASURED BY THE HARNESS", src)
+        self.assertIn("archive            genuinely uninstrumented", src)

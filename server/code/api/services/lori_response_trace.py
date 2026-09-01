@@ -27,13 +27,20 @@ inventory is kept in `RETENTION_STAGES` so the report renders the truth
 rather than a promise:
 
     durable_turns      wired in chat_ws after persist_turn_transaction
-    extraction         wired via park/attach from the extraction hook
+    extraction         wired for BOTH scheduler paths — the claim path
+                       via _complete_claim, and the no-claim path
+                       (Life Map era prompts are internal directives)
+                       which returns not_applicable, since extraction
+                       was deliberately not attempted
     bio_facts          attached by the harness from /api/facts/list
-    chronology         attached by the harness
-    life_map           attached by the harness
-    rolling_summary    NOT WIRED -> not_measured
-    archive            NOT WIRED -> not_measured
-    memoir_source      attached by the harness; expect measurement_failed
+    chronology         attached by the harness, before/after compared
+    life_map           attached by the harness, before/after compared
+    rolling_summary    MEASURED BY THE HARNESS. Previously listed here
+                       as "NOT WIRED", which was wrong: the endpoint is
+                       live and takes GET and POST after every turn. It
+                       was never READ, which is a different thing.
+    archive            genuinely uninstrumented -> not_measured
+    memoir_source      attached by the harness at the API origin
 
 Any stage not attached by the time the record is written is emitted as
 `not_measured`. Missing instrumentation must never render as a pass.
@@ -85,11 +92,17 @@ RESULT_MEASURED_ABSENT = "measured_absent"
 #: The query itself failed — wrong origin, error, timeout, gated route.
 #: NOT evidence of absence.
 RESULT_MEASUREMENT_FAILED = "measurement_failed"
+#: The system deliberately excluded this turn from the stage. Nothing
+#: was attempted, so "measured and found nothing" would be a false
+#: claim — a Life Map era prompt is an internal directive and is not
+#: eligible for extraction by design.
+RESULT_NOT_APPLICABLE = "not_applicable"
 #: No instrumentation exists for this stage yet.
 RESULT_NOT_MEASURED = "not_measured"
 
 RESULTS = (RESULT_PERSISTED, RESULT_REJECTED, RESULT_MEASURED_ABSENT,
-           RESULT_MEASUREMENT_FAILED, RESULT_NOT_MEASURED)
+           RESULT_MEASUREMENT_FAILED, RESULT_NOT_APPLICABLE,
+           RESULT_NOT_MEASURED)
 
 _ENV_FLAG = "HORNELORE_RESPONSE_TRACE"
 _current: ContextVar[Optional[str]] = ContextVar("lori_trace_id", default=None)

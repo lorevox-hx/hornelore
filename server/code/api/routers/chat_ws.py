@@ -5194,8 +5194,12 @@ async def ws_chat(ws: WebSocket):
                           else getattr(m, "role", "?")),
                  "chars": len(str((m.get("content") if isinstance(m, dict)
                                    else getattr(m, "content", "")) or "")),
-                 "head": str((m.get("content") if isinstance(m, dict)
-                              else getattr(m, "content", "")) or "")[:180]}
+                 # FULL content. A 180-char head cannot answer "did
+                 # Lori actually receive the relevant biography or the
+                 # earlier turns" — which is cause 2 of the four. The
+                 # trace is opt-in and local; the HTML summarises.
+                 "content": str((m.get("content") if isinstance(m, dict)
+                                 else getattr(m, "content", "")) or "")}
                 for m in (_budget.messages or [])], trace_id=_rt_id)
             _rt.require(["narrator_input", "runtime71_current_era",
                          "prompt_tokens", "prompt_budget"],
