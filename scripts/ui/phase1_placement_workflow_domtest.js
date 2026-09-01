@@ -381,25 +381,35 @@ const LIST_KEYS = [
   });
 
   // ── contract 3: the version chain ────────────────────────────────────
-  await check("promoting on stale panel state 409s — proven HERE, never live",
-    async () => {
-      /* The panel still holds the version it rendered before the save.
-       * The LIVE probe must never do this: it refetches first. Proving it
-       * against a mock is how we know the refetch is load-bearing rather
-       * than ceremonial. */
-      await row().locator(".story-act-promote").click();
-      await page.waitForTimeout(400);
-      const patches = await page.evaluate(() => window.__patches);
-      const last = patches[patches.length - 1];
-      assert.strictEqual(last.sent.review_version, 1,
-        "the panel sends the version it OBSERVED");
-      const r = await page.evaluate((id) => window.__rows[id], TARGET);
-      assert.strictEqual(r.review_status, "unreviewed",
-        "a stale-version promote must NOT take effect");
-      assert.strictEqual(r.review_version, 2, "a rejected PATCH must not bump the version");
-      assert.ok(!PROMOTION_PATCH_OK({ sent: last.sent, person: PERSON, version: 2 }),
-        "the predicate must reject a promotion at the pre-placement version");
-    });
+  /* CORRECTED after the first green run. This step used to click Promote
+   * straight after saving, expecting the panel to send its stale version
+   * and take a 409. The control was not there, and the panel is right:
+   * applyReview's success path (bug-panel-story-review.js:429-432) does
+   *
+   *     delete _state.edits[item.id];
+   *     _state.conflict = null;
+   *     _state.detail   = null;
+   *     _state.openId   = null;
+   *     return afterReviewApplied(pid);   // fetchReview()
+   *
+   * -- it CLOSES the detail and refetches the list. So the row's actions
+   * vanish until it is reopened, and reopening necessarily yields the new
+   * version. The stale-version promote is UNREACHABLE through this UI;
+   * the panel forecloses it rather than merely discouraging it.
+   *
+   * The live probe's refetch-and-reopen is therefore not a workaround, it
+   * is the panel's own flow followed honestly. */
+  await check("a successful save closes the detail — no action survives it", async () => {
+    assert.strictEqual(await row().locator(".story-act-promote").count(), 0,
+      "the promote control must be gone until the row is reopened");
+    assert.strictEqual(await eraSelect().count(), 0,
+      "the editor must be gone with it");
+    // The contract itself still rejects a stale body, proven purely.
+    assert.ok(!PROMOTION_PATCH_OK({
+      sent: { narrator_id: PERSON, review_version: 1, review_status: "promoted" },
+      person: PERSON, version: 2 }),
+      "a promotion at the pre-placement version must be rejected by contract");
+  });
 
   await check("after the panel refetches, Promote carries the new version", async () => {
     await page.evaluate(() => { window.__patches = []; });
@@ -419,6 +429,37 @@ const LIST_KEYS = [
     assert.strictEqual(r.review_status, "promoted");
     assert.ok(PLACEMENT_STATE_OK(r, ERA), "promotion disturbed the placement");
   });
+
+  /* THE 409 THAT IS ACTUALLY REACHABLE. Not "the operator forgot to
+   * refresh" -- the panel prevents that -- but "someone else reviewed
+   * this story while the row was open", which is the case optimistic
+   * concurrency exists for and the case the probe's `.story-conflict`
+   * check watches for. The version is moved in the MOCK SERVER's store,
+   * never in the panel's state. */
+  await check("a version moved underneath produces a 409 and the conflict banner",
+    async () => {
+      await page.evaluate(() => { window.__patches = []; });
+      await row().locator(".story-preview-btn").click();     // reopen
+      await page.waitForTimeout(400);
+      const opened = await page.evaluate((id) => window.__rows[id].review_version, TARGET);
+      // Another operator gets there first.
+      await page.evaluate((id) => { window.__rows[id].review_version = 9; }, TARGET);
+      await row().locator(".story-act-promote").click();
+      await page.waitForTimeout(400);
+
+      const patches = await page.evaluate(() => window.__patches);
+      assert.strictEqual(patches.length, 1, "exactly one PATCH attempted");
+      assert.strictEqual(patches[0].sent.review_version, opened,
+        "the panel sends the version it rendered, which is now stale");
+      assert.strictEqual(await page.locator(".story-conflict").count(), 1,
+        "the operator must be told, not silently ignored");
+      const r = await page.evaluate((id) => window.__rows[id], TARGET);
+      assert.strictEqual(r.review_version, 9, "a refused PATCH must not bump the version");
+      assert.ok(PLACEMENT_STATE_OK(r, ERA), "a refused PATCH must not touch the placement");
+      // The staged edit is kept on purpose so the operator can re-apply.
+      const stillOpen = await page.locator(".story-conflict").textContent();
+      assert.ok(stillOpen && stillOpen.length > 0);
+    });
 
   await check("the control candidate was never addressed", async () => {
     const all = await page.evaluate(() => window.__requests);

@@ -740,10 +740,21 @@ function docxText(file) {
 
     // ── 3b: promote, on the REFETCHED row, at the NEW version ────────
     /* applyReview sends `review_version: item.review_version` -- the
-     * version the operator OBSERVED, deliberately not re-read. So the
-     * panel must be refetched after placement or Promote would send the
-     * stale version and the server would answer 409. The refetch is the
-     * operator's own gesture, not a shortcut around it. */
+     * version the operator OBSERVED, deliberately not re-read.
+     *
+     * CORRECTED 2026-09-01 by the placement DOM test. The earlier note
+     * here said the panel "must be refetched or Promote would send the
+     * stale version and take a 409". The panel does not permit that at
+     * all: applyReview's success path (bug-panel-story-review.js:429-432)
+     * sets `_state.detail = null; _state.openId = null` and calls
+     * fetchReview(), so a successful save CLOSES the row and reloads the
+     * list. Every action disappears until the row is reopened, and
+     * reopening necessarily yields the new version.
+     *
+     * So this step is not a workaround for a hazard -- it is the panel's
+     * own flow, followed rather than short-circuited. The 409 that IS
+     * reachable is a second operator moving the version while the row is
+     * open, which the `.story-conflict` check below watches for. */
     const already = MODE === "promoted";
     if (already) {
       console.log(`  [3b] resume — promoted by ${prior.runId}; NOT re-promoting`);

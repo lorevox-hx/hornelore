@@ -608,9 +608,27 @@ class PlacementWorkflowDomTestTests(unittest.TestCase):
         self.assertIn("selectOption", self.src)
         self.assertNotIn('dispatchEvent(new Event("change"))', self.src)
 
-    def test_it_proves_the_stale_version_case(self):
-        self.assertIn("stale version", self.src.lower())
-        self.assertIn("409", self.src)
+    def test_it_proves_the_409_case_that_is_actually_reachable(self):
+        """The panel FORECLOSES the "forgot to refresh" stale promote:
+        applyReview's success path nulls `_state.detail` and `_state.openId`
+        and refetches, so no action survives a save. The reachable 409 is a
+        second operator moving the version while the row is open, and that
+        is what must be proven — along with the conflict banner the live
+        probe checks for."""
+        code = _code_only(self.src)
+        self.assertIn("a version moved underneath", code)
+        self.assertIn(".story-conflict", code)
+        self.assertIn("review_version = 9", code,
+                      "the version must move in the MOCK SERVER's store")
+        self.assertIn("a successful save closes the detail", code)
+
+    def test_the_panel_really_closes_the_detail_on_success(self):
+        """The claim above is load-bearing, so it is pinned to the panel."""
+        panel = (ROOT / "ui" / "js" / "bug-panel-story-review.js").read_text(
+            encoding="utf-8")
+        self.assertIn("_state.detail = null;", panel)
+        self.assertIn("_state.openId = null;", panel)
+        self.assertIn("return afterReviewApplied(pid);", panel)
 
     def test_confidence_is_a_string_bucket_not_a_float(self):
         """The fixture guessed a float because "confidence" sounds like
