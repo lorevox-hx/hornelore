@@ -732,6 +732,20 @@ async function main() {
          * the per-narrator console line was right, the summary silently
          * was not. Latent in run 20260901T015343Z, which had none. */
         uiFindings: report.uiFindings || [], switcher: report.switcher || null,
+        /* WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 0. The checkpoint must stand
+         * alone as evidence: a reader should not have to open ten
+         * per-narrator files to learn whether the transcript was complete
+         * or which artifacts were actually saved. These four fields were
+         * previously reconstructed by hand into the historical checkpoint
+         * and described in a commit message as though the runner wrote
+         * them -- it did not. It does now. */
+        durableComplete: report.durableValidation?.complete ?? null,
+        archiveZipName: ((report.wrapUp?.downloads || [])
+          .map((d) => String(d.saved || "").split(/[\\/]/).pop())
+          .find((n) => n.toLowerCase().endsWith(".zip"))) || null,
+        operatorReportName: ((report.wrapUp?.downloads || [])
+          .map((d) => String(d.saved || "").split(/[\\/]/).pop())
+          .find((n) => n.toLowerCase().endsWith(".md"))) || null,
         relativeReport: path.relative(outDir, path.join(narratorDir, "report.html")) });
       writeJson(path.join(outDir, "checkpoint.json"), checkpoint);
       console.log(`  ${(report.uiFindings || []).length ? "COMPLETE WITH UI FINDINGS" : "COMPLETE"}`
@@ -748,6 +762,12 @@ async function main() {
         complete: false, eras: report.eras.length, responseCount: 0,
         operatorStatus: null, error: report.error,
         uiFindings: report.uiFindings || [], switcher: report.switcher || null,
+        // Present on the failure path too, so every checkpoint row has the
+        // same shape. A failed narrator legitimately has no artifacts; the
+        // fields say null rather than being absent, because absent reads as
+        // "not recorded" and null reads as "recorded, and there were none".
+        durableComplete: report.durableValidation?.complete ?? null,
+        archiveZipName: null, operatorReportName: null,
         relativeReport: path.relative(outDir, path.join(narratorDir, "report.html")) });
       writeJson(path.join(outDir, "checkpoint.json"), checkpoint);
       fatal = error;

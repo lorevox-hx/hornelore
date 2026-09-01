@@ -305,14 +305,35 @@ Only after all five focused narrators pass:
 
 # 6. Shared working protocol
 
+## Git responsibilities
+
+**Claude performs NO network Git operations.** No `fetch`, `pull`, `push`,
+`rebase`, branch switch, `add`, `commit` or `clean`. Claude may run read-only
+local inspection (`rev-parse`, `status`, `log`, `diff`) and must record the
+local HEAD it worked from.
+
+*Why this is a rule and not a preference:* the sandbox takes `.git/index.lock`
+for the duration of every git command, and a command that hits the agent's
+timeout on the `/mnt/c` 9p mount leaves that lock behind — silently blocking
+GitHub Desktop and Chris's own WSL git. The symptom is deliberately confusing:
+`git add` appears to succeed, `git commit` then reports nothing to commit, and
+Desktop keeps showing changed files after a "successful" push. Claude confirms
+no `.git/*.lock` survives any read-only inspection.
+
+| actor | does |
+|---|---|
+| **Claude** | records local HEAD and `git status`; edits files; runs offline tests; hands Chris a copy-paste commit block |
+| **Chris** | commits from WSL, pushes from GitHub Desktop |
+| **ChatGPT** | read-only review of pushed `origin/main` and the evidence |
+
 ## Start of phase
 
 Claude must report:
 
 ```text
 START PHASE:
-Fetched origin/main:
-Starting SHA:
+Local HEAD (read-only, no fetch):
+Working tree status:
 Active phase:
 Scope:
 Expected files:
@@ -338,7 +359,7 @@ Claude must report:
 
 ```text
 END PHASE:
-Commit SHA or read-only report:
+Local HEAD worked from (Claude does not commit):
 Files changed:
 Product behavior changed:
 Tests run:
@@ -352,8 +373,9 @@ Next phase — NOT STARTED:
 
 ## Push and supervisory review
 
-1. Claude completes one phase.
-2. Chris commits and pushes the completed work.
+1. Claude completes one phase and hands Chris a copy-paste commit block.
+   Claude does not commit, push or fetch.
+2. Chris commits from WSL and pushes from GitHub Desktop.
 3. Chris tells ChatGPT it is pushed.
 4. ChatGPT fetches `origin/main` before reviewing.
 5. ChatGPT reviews pushed code and evidence, not only Claude’s summary.

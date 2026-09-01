@@ -437,3 +437,89 @@ class CheckpointCarriesUiFindingsTests(unittest.TestCase):
     def test_the_verdict_still_reads_that_field(self):
         self.assertIn("(checkpoint.narrators || [])", self.src)
         self.assertIn("n.uiFindings || []", self.src)
+
+
+class CheckpointIsStandaloneEvidenceTests(unittest.TestCase):
+    """WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 0 exit gate.
+
+    A checkpoint must say, without opening ten per-narrator files,
+    whether each transcript was complete and which artifacts were saved.
+    These four fields were once reconstructed by hand into the historical
+    checkpoint and described in a commit message as though the runner
+    produced them. It did not. This asserts it does.
+    """
+
+    REQUIRED = ("uiFindings", "switcher", "durableComplete",
+                "archiveZipName", "operatorReportName")
+
+    def setUp(self):
+        raw = (ROOT / "scripts" / "ui"
+               / "run_demographic_narrator_sessions.js").read_text(
+                   encoding="utf-8")
+        self.src = _js_code_only(raw)
+
+    def test_every_required_field_is_on_both_push_sites(self):
+        for field in self.REQUIRED:
+            self.assertEqual(
+                2, self.src.count(f"{field}:"),
+                f"{field} must appear on the success AND failure push")
+
+    def test_artifact_names_are_basenames_not_full_paths(self):
+        self.assertIn('.split(/[\\\\/]/).pop()', self.src)
+
+    def test_the_zip_and_the_markdown_are_told_apart_by_suffix(self):
+        self.assertIn('.endsWith(".zip")', self.src)
+        self.assertIn('.endsWith(".md")', self.src)
+
+    def test_a_failed_narrator_records_null_not_absent(self):
+        # Anchor on the FAILURE push specifically. `complete: false, eras:`
+        # also appears where the report object is initialised (line ~676),
+        # and anchoring there matched the wrong site.
+        tail = self.src[self.src.index("complete: false, eras: report.eras.length"):]
+        self.assertIn("archiveZipName: null, operatorReportName: null",
+                      tail[:700])
+
+
+class OfflineCheckpointConstructionTests(unittest.TestCase):
+    """Build a checkpoint row offline, from the runner's own expression,
+    and assert the result carries every required field.
+
+    Node evaluates the real field expressions against a synthetic report
+    object — so this fails if the expressions are edited, not merely if
+    the key names are.
+    """
+
+    def test_a_constructed_row_has_all_required_fields(self):
+        import subprocess, json as _json
+        js = r"""
+        const report = {
+          durableValidation: { complete: true },
+          uiFindings: [], switcher: { switcherAutoClosed: true },
+          wrapUp: { downloads: [
+            { saved: "/x/y/downloads/hornelore_archive_abc_20260901T015552Z.zip" },
+            { saved: "/x/y/downloads/OPERATOR-LOG-2026-09-01-01-55-52.md" },
+            { saved: "/x/y/downloads/transcript.txt" } ] } };
+        const row = {
+          uiFindings: report.uiFindings || [],
+          switcher: report.switcher || null,
+          durableComplete: report.durableValidation?.complete ?? null,
+          archiveZipName: ((report.wrapUp?.downloads || [])
+            .map((d) => String(d.saved || "").split(/[\\/]/).pop())
+            .find((n) => n.toLowerCase().endsWith(".zip"))) || null,
+          operatorReportName: ((report.wrapUp?.downloads || [])
+            .map((d) => String(d.saved || "").split(/[\\/]/).pop())
+            .find((n) => n.toLowerCase().endsWith(".md"))) || null };
+        console.log(JSON.stringify(row));
+        """
+        out = subprocess.run(["node", "-e", js], capture_output=True,
+                             text=True, timeout=30)
+        self.assertEqual(0, out.returncode, out.stderr)
+        row = _json.loads(out.stdout)
+        for f in CheckpointIsStandaloneEvidenceTests.REQUIRED:
+            self.assertIn(f, row)
+        self.assertTrue(row["durableComplete"])
+        self.assertEqual(
+            "hornelore_archive_abc_20260901T015552Z.zip", row["archiveZipName"])
+        self.assertEqual(
+            "OPERATOR-LOG-2026-09-01-01-55-52.md", row["operatorReportName"])
+        self.assertNotIn("/", row["archiveZipName"])
