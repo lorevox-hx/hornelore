@@ -125,12 +125,25 @@ class ProvenanceTests(_Base):
         self.assertIn("source user turn row recorded", self.src)
         self.assertIn("completed assistant turn row recorded", self.src)
 
-    def test_placement_must_be_building_years(self):
-        self.assertIn("placement is building_years", self.src)
-        self.assertIn("eraOK", self.src)
+    def test_the_target_must_arrive_unplaced(self):
+        """REVERSED 2026-09-01, and the reversal is the finding.
+
+        This test used to require ``placement is building_years`` as a
+        PRECONDITION. Run 20260901T212134Z refused on exactly that check
+        and was right to: the candidate's ``era_candidates`` was ``[]``
+        and its ``placement_source`` ``unknown``. The conversation's
+        runtime era was ``building_years``; the STORY's placement was
+        nothing. Capture declines to turn the first into the second, and
+        the probe now tests the operator workflow that does.
+        """
+        self.assertNotIn("placement is building_years", self.src,
+                         "the old precondition asserted a placement capture never makes")
+        self.assertIn("target is unplaced", self.src)
+        self.assertIn("UNPLACED_OK(it)", self.src)
 
     def test_immutable_fields_are_compared_before_and_after(self):
         self.assertIn("immutableSame", self.src)
+        self.assertIn("immutable provenance changed during placement", self.raw)
         self.assertIn("immutable provenance changed during promotion", self.raw)
 
 
@@ -139,15 +152,22 @@ class PatchExactnessTests(_Base):
         self.assertIn("new URL(req.url()).pathname.split", self.src)
         self.assertIn("seg !== TARGET", self.src)
 
-    def test_the_patch_body_is_verified(self):
-        for f in ("bodyNarratorIsPat", "bodyStatusPromoted",
-                  "bodyVersionMatches", "unrelatedEdits"):
-            self.assertIn(f, self.src)
+    def test_both_patch_bodies_are_verified_by_predicate(self):
+        """The hand-rolled per-field flags became two predicates, so the
+        SAME rule the offline tests exercise is the one the run applies."""
+        self.assertIn("PLACEMENT_PATCH_OK({ sent", self.src)
+        self.assertIn("PROMOTION_PATCH_OK({ sent", self.src)
+        self.assertIn("UNRELATED_KEYS(sent, PLACEMENT_ALLOWED)", self.src)
+        self.assertIn("UNRELATED_KEYS(sent, PROMOTION_ALLOWED)", self.src)
 
     def test_the_response_item_must_identify_target_pat_and_promoted(self):
-        self.assertIn("p.responseItem.id === TARGET", self.src)
-        self.assertIn("p.responseItem.narrator_id === PERSON", self.src)
-        self.assertIn('p.responseItem.review_status === "promoted"', self.src)
+        self.assertIn("resItem.id === TARGET", self.src)
+        self.assertIn("resItem.narrator_id === PERSON", self.src)
+        self.assertIn('resItem.review_status === "promoted"', self.src)
+
+    def test_a_version_conflict_banner_refuses_the_link(self):
+        self.assertIn(".story-conflict", self.src)
+        self.assertIn("version-conflicted", self.raw)
 
 
 class CanonicalContractTests(_Base):
@@ -220,16 +240,22 @@ class ExitCodeTests(_Base):
 
 
 class ResumeTests(_Base):
-    def test_resume_requires_both_prior_passes(self):
-        self.assertIn('l3.result === "PASS"', self.src)
-        self.assertIn('l7 && l7.result === "PASS"', self.src)
+    def test_resume_requires_the_named_links_and_the_control_pass(self):
+        """UPDATED for the two-mutation workflow. There is no longer one
+        prior link to trust but two, and they are checked separately so a
+        run that placed and stopped can resume at promotion."""
+        self.assertIn('pass("3a_placed")', self.src)
+        self.assertIn('pass("3b_promoted")', self.src)
+        self.assertIn('pass("7_control_unchanged")', self.src)
 
-    def test_resume_requires_currently_promoted(self):
-        self.assertIn('prior ? status === "promoted"', self.src)
+    def test_resume_requires_the_state_its_mode_claims(self):
+        self.assertIn('status is promoted, as the prior report recorded', self.src)
+        self.assertIn('still holds', self.src)
 
     def test_resume_carries_provenance_and_never_patches(self):
         self.assertIn("immutable: p.immutableBefore", self.src)
         self.assertIn("NOT re-promoting", self.raw)
+        self.assertIn("NOT re-placing", self.raw)
 
 
 class PreservedBehaviourTests(_Base):
@@ -271,6 +297,19 @@ class BehaviouralDomTests(unittest.TestCase):
             self.skipTest("no Playwright browser binary here — run this in WSL")
         self.assertEqual(0, r.returncode, combined[-1500:])
         self.assertIn("DOM TEST PASS", r.stdout)
+
+    def test_the_placement_workflow_runs_green_where_a_browser_exists(self):
+        """The placement test drives the SHIPPED panel module, so it needs
+        a real browser. It skips here for the same reason the row test
+        does — and a skip is reported as a skip, never as a pass."""
+        placement = ROOT / "scripts" / "ui" / "phase1_placement_workflow_domtest.js"
+        r = subprocess.run(["node", str(placement)], capture_output=True,
+                           text=True, timeout=240, cwd=str(ROOT))
+        combined = r.stdout + r.stderr
+        if "Executable doesn't exist" in combined or "playwright install" in combined:
+            self.skipTest("no Playwright browser binary here — run this in WSL")
+        self.assertEqual(0, r.returncode, combined[-2000:])
+        self.assertIn("ALL PASS", r.stdout)
 
 
 if __name__ == "__main__":      # pragma: no cover
@@ -364,7 +403,11 @@ class ResumeAndVerdictPredicateTests(unittest.TestCase):
         self.assertEqual("failed", self.res["vUndef"])
 
     def test_a_preview_never_reached_is_not_wrong_origin(self):
-        self.assertEqual("failed", self.res["vNotReached"])
+        """CHANGED 2026-09-01. This used to assert "failed", which is how
+        run 20260901T212134Z came to print `preview: failed` for a preview
+        it had refused to attempt. A step that never ran is not a failed
+        step, and reporting it as one overstates the damage."""
+        self.assertEqual("not reached", self.res["vNotReached"])
 
 
 class ResumeWiringTests(_Base):
@@ -390,3 +433,181 @@ class ResumeWiringTests(_Base):
 
     def test_the_verdict_uses_the_recorded_strict_result(self):
         self.assertIn("R.observed.previewWrongOrigin", self.src)
+
+
+def _node(expr: str) -> str:
+    """Evaluate an expression against the probe's real exports.
+
+    EXERCISED, NOT GREPPED. A predicate can be present, exported and
+    wrong; the only test that catches that is one that runs it.
+    """
+    r = subprocess.run(
+        ["node", "-e",
+         "const P=require('./scripts/ui/phase1_memoir_chain_probe.js');"
+         f"console.log(JSON.stringify({expr}));"],
+        capture_output=True, text=True, timeout=60, cwd=str(ROOT))
+    if r.returncode != 0:
+        raise AssertionError(r.stderr.strip())
+    return r.stdout.strip()
+
+
+class PlacementIsNotRuntimeEraTests(_Base):
+    """The distinction the whole phase turns on.
+
+    The conversation Pat spoke in carried era `building_years`. Her story
+    candidate carried no era at all. Treating the first as the second is
+    how a story gets filed into a memoir chapter on the strength of which
+    screen the narrator happened to be looking at.
+    """
+
+    def test_capture_writes_no_placement(self):
+        cap = (ROOT / "server" / "code" / "api" / "services"
+               / "story_preservation.py").read_text(encoding="utf-8")
+        self.assertIn("era_candidates=[]", cap,
+                      "capture is expected to record NO placement")
+
+    def test_only_an_operator_set_placement_counts(self):
+        self.assertEqual("true", _node(
+            'P.PLACEMENT_STATE_OK({era_candidates:["building_years"],'
+            'placement_source:"operator_set"},"building_years")'))
+        self.assertEqual("false", _node(
+            'P.PLACEMENT_STATE_OK({era_candidates:["building_years"],'
+            'placement_source:"unknown"},"building_years")'),
+            "an era nobody confirmed is not a placement")
+
+    def test_two_eras_is_not_a_placement(self):
+        self.assertEqual("false", _node(
+            'P.PLACEMENT_STATE_OK({era_candidates:["building_years","today"],'
+            'placement_source:"operator_set"},"building_years")'))
+
+    def test_the_unplaced_shape_is_the_one_the_live_read_returned(self):
+        self.assertEqual("true", _node(
+            'P.UNPLACED_OK({era_candidates:[],placement_source:"unknown",'
+            'estimated_year_low:null,estimated_year_high:null})'))
+        self.assertEqual("false", _node(
+            'P.UNPLACED_OK({era_candidates:["building_years"],'
+            'placement_source:"operator_set"})'))
+
+
+class MutationBodyContractTests(_Base):
+    """Neither PATCH may carry the other's field, or an unasked edit."""
+
+    def test_placement_body_accepted(self):
+        self.assertEqual("true", _node(
+            'P.PLACEMENT_PATCH_OK({sent:{narrator_id:P.PERSON,review_version:1,'
+            'era_candidates:["building_years"],placement_source:"operator_set"},'
+            'era:P.ERA,person:P.PERSON,version:1})'))
+
+    def test_placement_body_must_not_restatus(self):
+        self.assertEqual("false", _node(
+            'P.PLACEMENT_PATCH_OK({sent:{narrator_id:P.PERSON,review_version:1,'
+            'era_candidates:["building_years"],placement_source:"operator_set",'
+            'review_status:"promoted"},era:P.ERA,person:P.PERSON,version:1})'))
+
+    def test_promotion_body_must_not_carry_placement(self):
+        self.assertEqual("false", _node(
+            'P.PROMOTION_PATCH_OK({sent:{narrator_id:P.PERSON,review_version:2,'
+            'review_status:"promoted",era_candidates:["today"]},'
+            'person:P.PERSON,version:2})'))
+
+    def test_promotion_at_the_stale_version_is_rejected(self):
+        """The defect this phase would otherwise have shipped: the panel
+        sends the version it OBSERVED, so promoting without refetching
+        after placement sends 1 when the server holds 2."""
+        self.assertEqual("false", _node(
+            'P.PROMOTION_PATCH_OK({sent:{narrator_id:P.PERSON,review_version:1,'
+            'review_status:"promoted"},person:P.PERSON,version:2})'))
+        self.assertEqual("true", _node(
+            'P.PROMOTION_PATCH_OK({sent:{narrator_id:P.PERSON,review_version:2,'
+            'review_status:"promoted"},person:P.PERSON,version:2})'))
+
+    def test_unrelated_keys_are_named(self):
+        self.assertEqual('["review_notes"]', _node(
+            'P.UNRELATED_KEYS({narrator_id:"x",review_version:1,'
+            'era_candidates:[],placement_source:"unknown",review_notes:"hi"},'
+            'P.PLACEMENT_ALLOWED)'))
+
+    def test_version_must_advance(self):
+        self.assertEqual("true", _node("P.VERSION_ADVANCED(1,2)"))
+        self.assertEqual("false", _node("P.VERSION_ADVANCED(2,2)"))
+        self.assertEqual("false", _node("P.VERSION_ADVANCED(2,1)"))
+
+
+class ResumeStateMachineTests(_Base):
+    """Three states, three budgets, and no inference from the database."""
+
+    def test_the_three_modes(self):
+        self.assertEqual('"full"', _node("P.RESUME_MODE(null)"))
+        self.assertEqual('"placed"', _node(
+            "P.RESUME_MODE({placementProven:true,promotionProven:false})"))
+        self.assertEqual('"promoted"', _node(
+            "P.RESUME_MODE({placementProven:true,promotionProven:true})"))
+
+    def test_an_unusable_prior_is_refused_not_guessed(self):
+        self.assertEqual("null", _node(
+            "P.RESUME_MODE({placementProven:false,promotionProven:false})"))
+        self.assertEqual("-1", _node("P.PATCH_BUDGET(null)"))
+
+    def test_the_budgets(self):
+        self.assertEqual("2", _node('P.PATCH_BUDGET("full")'))
+        self.assertEqual("1", _node('P.PATCH_BUDGET("placed")'))
+        self.assertEqual("0", _node('P.PATCH_BUDGET("promoted")'),
+                         "a fully resumed run must be allowed to mutate nothing")
+
+    def test_a_mutation_is_proven_by_the_named_report_never_by_the_row(self):
+        self.assertIn("NEVER BY", self.raw)
+        self.assertIn('pass("3a_placed") && p.placedCandidateId === TARGET', self.src)
+        self.assertIn('pass("3b_promoted") && p.promotedCandidateId === TARGET', self.src)
+
+    def test_promotion_without_placement_is_an_unusable_prior(self):
+        self.assertIn("claims promotion without placement", self.raw)
+
+    def test_the_budget_is_enforced_before_the_request_leaves(self):
+        self.assertIn("patchesAllowed", self.src)
+        self.assertIn("over budget", self.src)
+        self.assertIn('route.abort("blockedbyclient")', self.src)
+
+    def test_the_ledger_checks_count_and_order(self):
+        self.assertIn("expectedKinds", self.src)
+        self.assertIn("placement>promotion", self.src)
+        self.assertIn("budgetHeld", self.src)
+
+
+class PreviewVerdictTests(_Base):
+    """A step that never ran is not a failed step."""
+
+    def test_not_reached_is_not_failed(self):
+        self.assertEqual('"not reached"', _node('P.PREVIEW_VERDICT("not_reached")'))
+        self.assertEqual('"not reached"', _node("P.PREVIEW_VERDICT(undefined)"))
+
+    def test_a_real_failure_still_reads_as_failed(self):
+        self.assertEqual('"failed"', _node('P.PREVIEW_VERDICT("FAIL",false)'))
+        self.assertEqual('"failed — wrong API origin"',
+                         _node('P.PREVIEW_VERDICT("FAIL",true)'))
+        self.assertEqual('"passed"', _node('P.PREVIEW_VERDICT("PASS")'))
+
+
+class PlacementWorkflowDomTestTests(unittest.TestCase):
+    """The DOM test must drive the REAL panel, not an imitation of it."""
+
+    def setUp(self):
+        self.path = ROOT / "scripts" / "ui" / "phase1_placement_workflow_domtest.js"
+        self.src = self.path.read_text(encoding="utf-8")
+
+    def test_it_exists_and_parses(self):
+        r = subprocess.run(["node", "--check", str(self.path)],
+                           capture_output=True, text=True, timeout=60)
+        self.assertEqual(0, r.returncode, r.stderr)
+
+    def test_it_injects_the_shipped_panel_module(self):
+        self.assertIn("bug-panel-story-review.js", self.src)
+        self.assertIn("addScriptTag", self.src)
+        self.assertIn("PANEL_SRC", self.src)
+
+    def test_it_uses_selectOption_not_a_hand_dispatched_event(self):
+        self.assertIn("selectOption", self.src)
+        self.assertNotIn('dispatchEvent(new Event("change"))', self.src)
+
+    def test_it_proves_the_stale_version_case(self):
+        self.assertIn("stale version", self.src.lower())
+        self.assertIn("409", self.src)

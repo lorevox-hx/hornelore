@@ -134,15 +134,95 @@ const RESUMED_WITHOUT_MUTATION = function (patchCount, promotionAttempted) {
 };
 const PREVIEW_VERDICT = function (previewResult, wrongOrigin) {
   if (previewResult === "PASS") return "passed";
+  // A step that never ran is NOT a failure. Reporting `not_reached` as
+  // "failed" is how run 20260901T212134Z described a preview it had never
+  // attempted -- the refusal was correct and the summary line was not.
+  if (previewResult === "not_reached" || previewResult === undefined
+      || previewResult === null) return "not reached";
+  if (previewResult === "REFUSED") return "refused";
   // Only a 404 from OUTSIDE the API origin is a wrong-origin bug. A 404
   // from :8000 is a real canonical failure and must not be mislabelled.
   return wrongOrigin === true ? "failed — wrong API origin" : "failed";
 };
 
+/* ── The two-mutation workflow ───────────────────────────────────────
+ *
+ * RUNTIME ERA IS NOT A PLACEMENT. The conversation Pat was in when she
+ * spoke carried era `building_years`; her story candidate carried none.
+ * Capture deliberately refuses to promote the one into the other -- an
+ * era candidate nobody confirmed is not a placement, and filing a story
+ * into a memoir chapter on the strength of which screen the narrator
+ * happened to be on is exactly the wrong-chapter bug that refusal
+ * prevents. Run 20260901T212134Z is preserved as the proof of that.
+ *
+ * So Phase 1 exercises the OPERATOR workflow: place, then promote. Two
+ * PATCHes to the same endpoint, and the second must carry the version the
+ * first returned. */
+const RESUME_MODE = function (prior) {
+  if (!prior) return "full";                 // fresh: place, then promote
+  if (prior.promotionProven) return "promoted";   // both done: zero PATCHes
+  if (prior.placementProven) return "placed";     // place done: promote only
+  return null;                                    // unusable prior -> refuse
+};
+const PATCH_BUDGET = function (mode) {
+  return mode === "full" ? 2 : mode === "placed" ? 1 : mode === "promoted" ? 0 : -1;
+};
+/* The target must arrive UNPLACED in a fresh run. A candidate that is
+ * already placed when no prior report accounts for it is not a shortcut
+ * past step one -- it is an unexplained mutation, and the probe refuses
+ * rather than adopting a placement whose author it cannot name. */
+const UNPLACED_OK = function (item) {
+  const e = (item && item.era_candidates) || [];
+  return Array.isArray(e) && e.length === 0
+      && (item.placement_source === "unknown" || item.placement_source == null)
+      && item.estimated_year_low == null && item.estimated_year_high == null;
+};
+const PLACEMENT_STATE_OK = function (item, era) {
+  const e = (item && item.era_candidates) || [];
+  return Array.isArray(e) && e.length === 1 && e[0] === era
+      && item.placement_source === "operator_set";
+};
+const VERSION_ADVANCED = function (before, after) {
+  return typeof before === "number" && typeof after === "number" && after > before;
+};
+/* Body contracts. The panel builds the placement body from the era
+ * control alone (era_candidates + placement_source, set in one gesture)
+ * and the promotion body from the action button alone (review_status).
+ * Neither may carry the other's field, and neither may carry an edit
+ * nobody asked for. */
+const PLACEMENT_PATCH_OK = function (args) {
+  const sent = args && args.sent;
+  if (!sent || typeof sent !== "object") return false;
+  if ("review_status" in sent) return false;   // placement must not restatus
+  return sent.narrator_id === args.person
+      && sent.review_version === args.version
+      && sent.placement_source === "operator_set"
+      && Array.isArray(sent.era_candidates)
+      && sent.era_candidates.length === 1
+      && sent.era_candidates[0] === args.era;
+};
+const PROMOTION_PATCH_OK = function (args) {
+  const sent = args && args.sent;
+  if (!sent || typeof sent !== "object") return false;
+  if ("era_candidates" in sent || "placement_source" in sent) return false;
+  return sent.narrator_id === args.person
+      && sent.review_status === "promoted"
+      && sent.review_version === args.version;
+};
+const UNRELATED_KEYS = function (sent, allowed) {
+  return Object.keys(sent || {}).filter((k) => allowed.indexOf(k) < 0);
+};
+const PLACEMENT_ALLOWED = ["narrator_id", "review_version",
+                           "era_candidates", "placement_source"];
+const PROMOTION_ALLOWED = ["narrator_id", "review_version", "review_status"];
+
 if (typeof module !== "undefined") {
   module.exports = { SELECT_ROW, OPEN_DETAIL, VERIFY_ROW, ACTIVE_OK,
                      RESUME_PROVENANCE_OK, RESUMED_WITHOUT_MUTATION, PREVIEW_VERDICT,
                      OPEN_MEMOIR_STAGE1, OPEN_MEMOIR_STAGE2, PANEL_STATE,
+                     RESUME_MODE, PATCH_BUDGET, UNPLACED_OK, PLACEMENT_STATE_OK,
+                     VERSION_ADVANCED, PLACEMENT_PATCH_OK, PROMOTION_PATCH_OK,
+                     UNRELATED_KEYS, PLACEMENT_ALLOWED, PROMOTION_ALLOWED,
                      SOURCE_ID, IMMUTABLE, TARGET, CONTROL, PERSON, ERA,
                      PASSAGE, DISPLAY_NAME };
 }
@@ -160,7 +240,37 @@ if (require.main === module && process.argv.includes("--self-test")) {
   a.ok(src.includes("pathname"), "PATCH guard must match the pathname, not substring");
   a.ok(src.includes("process.exitCode"), "a failed chain must exit non-zero");
   a.ok(src.includes("WITHDRAWN"), "withdrawn networking claim corrected");
-  console.log("SELF-TEST PASS — envelope, digest, two-stage memoir, pathname guard, exit code");
+  // The two-mutation workflow, exercised rather than grepped.
+  a.strictEqual(RESUME_MODE(null), "full");
+  a.strictEqual(RESUME_MODE({ placementProven: true, promotionProven: false }), "placed");
+  a.strictEqual(RESUME_MODE({ placementProven: true, promotionProven: true }), "promoted");
+  a.strictEqual(PATCH_BUDGET("full"), 2);
+  a.strictEqual(PATCH_BUDGET("placed"), 1);
+  a.strictEqual(PATCH_BUDGET("promoted"), 0);
+  a.ok(UNPLACED_OK({ era_candidates: [], placement_source: "unknown",
+                     estimated_year_low: null, estimated_year_high: null }));
+  a.ok(!UNPLACED_OK({ era_candidates: [ERA], placement_source: "operator_set" }));
+  a.ok(PLACEMENT_STATE_OK({ era_candidates: [ERA], placement_source: "operator_set" }, ERA));
+  a.ok(!PLACEMENT_STATE_OK({ era_candidates: [ERA, "today"],
+                             placement_source: "operator_set" }, ERA), "two eras is not a placement");
+  a.ok(!PLACEMENT_STATE_OK({ era_candidates: [ERA], placement_source: "unknown" }, ERA));
+  a.ok(PLACEMENT_PATCH_OK({ sent: { narrator_id: PERSON, review_version: 1,
+        era_candidates: [ERA], placement_source: "operator_set" },
+        era: ERA, person: PERSON, version: 1 }));
+  a.ok(!PLACEMENT_PATCH_OK({ sent: { narrator_id: PERSON, review_version: 1,
+        era_candidates: [ERA], placement_source: "operator_set", review_status: "promoted" },
+        era: ERA, person: PERSON, version: 1 }), "placement must not carry review_status");
+  a.ok(PROMOTION_PATCH_OK({ sent: { narrator_id: PERSON, review_version: 2,
+        review_status: "promoted" }, person: PERSON, version: 2 }));
+  a.ok(!PROMOTION_PATCH_OK({ sent: { narrator_id: PERSON, review_version: 1,
+        review_status: "promoted" }, person: PERSON, version: 2 }), "stale version rejected");
+  a.ok(VERSION_ADVANCED(1, 2) && !VERSION_ADVANCED(2, 2) && !VERSION_ADVANCED(2, 1));
+  a.strictEqual(PREVIEW_VERDICT("not_reached"), "not reached",
+                "a step that never ran is not a failure");
+  a.strictEqual(PREVIEW_VERDICT("PASS"), "passed");
+  a.strictEqual(PREVIEW_VERDICT("FAIL", true), "failed — wrong API origin");
+  console.log("SELF-TEST PASS — envelope, digest, two-stage memoir, pathname guard,"
+    + " exit code, resume modes, PATCH budgets, body contracts, preview verdict");
   process.exit(0);
 }
 if (require.main !== module) { return; }
@@ -181,22 +291,54 @@ if (resumeId) {
   const f = path.join(ROOT, resumeId, "report.json");
   if (!fs.existsSync(f)) { console.error(`--resume ${resumeId}: no report.json`); process.exit(2); }
   const p = JSON.parse(fs.readFileSync(f, "utf8"));
-  const l3 = (p.links || {})["3_promoted"], l7 = (p.links || {})["7_control_unchanged"];
-  if (!(p.promotedCandidateId === TARGET && l3 && l3.result === "PASS"
-        && l7 && l7.result === "PASS")) {
-    console.error(`--resume ${resumeId}: needs a prior run with target promotion PASS`
-      + " AND control-unchanged PASS"); process.exit(2);
+  const L = p.links || {};
+  const pass = (k) => Boolean(L[k] && L[k].result === "PASS");
+  /* A MUTATION IS PROVEN BY THE NAMED REPORT THAT PERFORMED IT, NEVER BY
+   * THE DATABASE. "The row is already promoted" says nothing about who
+   * promoted it, when, or against which provenance -- and a probe that
+   * accepts the row's own state as evidence of its own prior work can be
+   * satisfied by any mutation from any source. Each claim below is
+   * carried by a link that recorded a request and a response. */
+  const placementProven = pass("3a_placed") && p.placedCandidateId === TARGET;
+  const promotionProven = pass("3b_promoted") && p.promotedCandidateId === TARGET;
+  if (!pass("7_control_unchanged")) {
+    console.error(`--resume ${resumeId}: prior run did not prove the control unchanged`);
+    process.exit(2);
   }
-  prior = { runId: resumeId, promotedCandidateId: p.promotedCandidateId,
-            promotedAt: p.promotedAt, immutable: p.immutableBefore || null,
+  if (!placementProven && !promotionProven) {
+    console.error(`--resume ${resumeId}: proves neither placement (3a_placed) nor`
+      + " promotion (3b_promoted) of the target; nothing to resume from");
+    process.exit(2);
+  }
+  if (promotionProven && !placementProven) {
+    console.error(`--resume ${resumeId}: claims promotion without placement — a promoted`
+      + " story with no proven placement is the state this phase exists to prevent");
+    process.exit(2);
+  }
+  prior = { runId: resumeId,
+            placementProven, promotionProven,
+            placedCandidateId: p.placedCandidateId || null, placedAt: p.placedAt || null,
+            promotedCandidateId: p.promotedCandidateId || null, promotedAt: p.promotedAt || null,
+            placement: p.placementAfter || null,
+            immutable: p.immutableBefore || null,
             chain: ((p.resumedFrom && p.resumedFrom.chain) || []).concat(resumeId) };
+}
+const MODE = RESUME_MODE(prior);
+const BUDGET = PATCH_BUDGET(MODE);
+if (MODE === null || BUDGET < 0) {
+  console.error("unusable resume state — refusing"); process.exit(2);
 }
 
 const out = path.join(ROOT, new Date().toISOString().replace(/[-:.]/g, "").slice(0, 15) + "Z");
 fs.mkdirSync(path.join(out, "downloads"), { recursive: true });
 const R = { startedAt: new Date().toISOString(), outDir: out, links: {}, refusals: [],
-            resumedFrom: prior, promotedCandidateId: prior ? prior.promotedCandidateId : null,
+            resumedFrom: prior, mode: MODE, patchBudget: BUDGET,
+            placedCandidateId: prior ? prior.placedCandidateId : null,
+            placedAt: prior ? prior.placedAt : null,
+            placementAfter: prior ? prior.placement : null,
+            promotedCandidateId: prior ? prior.promotedCandidateId : null,
             promotedAt: prior ? prior.promotedAt : null,
+            mutations: [],
             expectedSourceId: SOURCE_ID, blockedPatches: [], observed: {} };
 const save = () => fs.writeFileSync(path.join(out, "report.json"), JSON.stringify(R, null, 1) + "\n", "utf8");
 const step = (k, v) => { R.links[k] = v; save();
@@ -251,16 +393,34 @@ function docxText(file) {
   };
 
   try {
-    // PATCH guard: exact pathname match, not a substring anywhere in the URL.
+    /* PATCH guard. Two independent refusals, both enforced BEFORE the
+     * request leaves the browser, because a PATCH observed after the fact
+     * is a finding and a PATCH stopped in flight is a protection:
+     *   1. foreign candidate  — exact pathname match, never a substring
+     *   2. over budget        — full=2, placed=1, promoted=0
+     * The budget is what makes "a resumed run mutates nothing" a
+     * guarantee rather than a hope: in `promoted` mode the allowance is
+     * zero, so any PATCH at all is aborted and recorded. */
+    let patchesAllowed = BUDGET;
     const refuseForeignPatch = async (route) => {
       const req = route.request();
       if (req.method() === "PATCH") {
         const seg = new URL(req.url()).pathname.split("/").filter(Boolean).pop();
         if (seg !== TARGET) {
-          R.blockedPatches.push({ url: req.url(), pathnameCandidate: seg, at: new Date().toISOString() });
+          R.blockedPatches.push({ url: req.url(), pathnameCandidate: seg,
+                                  reason: "foreign candidate", at: new Date().toISOString() });
           R.refusals.push("BLOCKED a PATCH to candidate " + seg);
           save(); return route.abort("blockedbyclient");
         }
+        if (patchesAllowed <= 0) {
+          R.blockedPatches.push({ url: req.url(), pathnameCandidate: seg,
+                                  reason: `over budget (mode=${MODE}, budget=${BUDGET})`,
+                                  at: new Date().toISOString() });
+          R.refusals.push(`BLOCKED PATCH #${BUDGET + 1} to the target — budget for`
+            + ` mode ${MODE} is ${BUDGET}`);
+          save(); return route.abort("blockedbyclient");
+        }
+        patchesAllowed -= 1;
       }
       return route.continue();
     };
@@ -295,10 +455,9 @@ function docxText(file) {
     const it = before.item || {};
     R.immutableBefore = pick(it, IMMUTABLE);
     const status = it.review_status;
-    const eraList = it.era_candidates || [];
-    const eraOK = Array.isArray(eraList)
-      ? eraList.some((e) => (e && (e.era_id || e.era || e)) === ERA)
-      : eraList === ERA;
+    const versionBefore = it.review_version;
+    R.observed.placementBefore = pick(it, ["era_candidates", "placement_source",
+      "estimated_year_low", "estimated_year_high", "review_status", "review_version"]);
 
     const checks = [
       ["detail readable (narrator_id supplied)", before.ok && Boolean(before.item)],
@@ -308,22 +467,41 @@ function docxText(file) {
       ["session_id recorded", Boolean(it.session_id)],
       ["source user turn row recorded", it.source_user_turn_row_id != null],
       ["completed assistant turn row recorded", it.completed_assistant_turn_row_id != null],
-      ["placement is building_years", eraOK],
-      ["review_version present", it.review_version != null],
-      ["status correct for mode", prior ? status === "promoted"
-        : ["unreviewed", "in_review"].includes(String(status))],
+      ["review_version present", versionBefore != null],
       ["control readable", ctlPre.ok && Boolean(ctlPre.item)],
     ];
-    /* A resumed run inherits a promotion it did not perform, so the
-     * candidate it finds must be provably the same one: the prior report
-     * loaded `immutableBefore` but nothing ever compared it, and a
-     * resumed probe would have accepted changed provenance. */
-    if (prior) {
+
+    /* MODE-SPECIFIC ENTRY STATE.
+     *
+     * `full` demands an UNPLACED, unpromoted candidate. That is the state
+     * capture leaves behind, and it is the state run 20260901T212134Z
+     * proved this candidate was in. A row found already placed with no
+     * prior report to account for it is refused rather than adopted --
+     * the probe will not inherit a placement whose author it cannot name.
+     *
+     * The resume modes demand the prior report's exact placement AND its
+     * exact provenance, so a resumed run cannot silently continue against
+     * a different row, a re-placed row, or a re-captured story. */
+    if (MODE === "full") {
+      checks.push(["target is unplaced (era_candidates=[], source=unknown, no years)",
+                   UNPLACED_OK(it)]);
+      checks.push(["target is not yet promoted",
+                   ["unreviewed", "in_review"].includes(String(status))]);
+    } else {
       const priorImm = prior.immutable || null;
-      const nowImm = R.immutableBefore;
-      const provenanceSame = RESUME_PROVENANCE_OK(priorImm, nowImm);
-      R.observed.resumeProvenance = { prior: priorImm, now: nowImm, same: provenanceSame };
+      const provenanceSame = RESUME_PROVENANCE_OK(priorImm, R.immutableBefore);
+      R.observed.resumeProvenance = { prior: priorImm, now: R.immutableBefore, same: provenanceSame };
       checks.push(["resumed provenance identical to the prior report", provenanceSame]);
+      checks.push([`placement from ${prior.runId} still holds (${ERA}, operator_set)`,
+                   PLACEMENT_STATE_OK(it, ERA)]);
+      if (prior.placement && prior.placement.review_version != null) {
+        checks.push(["review version matches the prior report's post-placement version",
+                     versionBefore === prior.placement.review_version]);
+      }
+      checks.push([MODE === "promoted" ? "status is promoted, as the prior report recorded"
+                                       : "status is still unpromoted, awaiting this run",
+                   MODE === "promoted" ? status === "promoted"
+                                       : ["unreviewed", "in_review"].includes(String(status))]);
     }
     R.preconditions = checks.map(([n, ok]) => ({ check: n, pass: Boolean(ok) }));
     const failed = checks.filter(([, ok]) => !ok).map(([n]) => n);
@@ -334,7 +512,10 @@ function docxText(file) {
       throw new Error("preconditions not met — nothing was changed");
     }
     step("1_preconditions", { result: "PASS",
-      detail: `status=${status} version=${it.review_version} era=${ERA}`,
+      detail: `mode=${MODE} budget=${BUDGET} status=${status} version=${versionBefore}`
+            + ` placement=${(it.era_candidates || []).join(",") || "none"}/${it.placement_source}`,
+      mode: MODE, patchBudget: BUDGET,
+      placementBefore: R.observed.placementBefore,
       provenance: pick(it, ["conversation_id", "session_id",
         "source_user_turn_row_id", "completed_assistant_turn_row_id"]) });
 
@@ -393,7 +574,8 @@ function docxText(file) {
     step("2_row_located", { result: sel.ok ? "PASS" : "FAIL",
       detail: `.story-row=${sel.rows} matching=${sel.matching} (need exactly 1)`,
       preview: sel.preview,
-      note: "the only promote control lives in the Bug Panel — Phase 7 gap, not fixed here" });
+      note: "review controls live in the Bug Panel: era selector, Save placement / notes,"
+          + " Promote and Clear placement are all row-scoped there" });
     if (!sel.ok) throw new Error(`row selection ambiguous: ${sel.matching}`);
     const opened = await page.evaluate(OPEN_DETAIL, PASSAGE_HEAD);
     await page.waitForTimeout(2000);
@@ -407,17 +589,156 @@ function docxText(file) {
       throw new Error("row detail or promote control did not satisfy the contract");
     }
 
-    // ── 3: promote, verify body and immutability ─────────────────────
-    const already = status === "promoted";
-    if (already && prior) {
-      console.log(`  [3] resume — promoted by ${prior.runId}; NOT re-promoting`);
+    // ── 3a: PLACE, through the real era control ──────────────────────
+    /* The era <select> writes BOTH era_candidates and placement_source in
+     * one gesture (`choosing an era IS an operator placement`), so the
+     * probe selects an era and saves -- it never composes the body. Any
+     * field the panel does not put there is a field this workflow does
+     * not set. */
+    const row = () => page.locator(".story-row", { hasText: PASSAGE_HEAD });
+    let versionAfterPlacement = versionBefore;
+
+    if (MODE !== "full") {
+      console.log(`  [3a] resume — placed by ${prior.runId}; NOT re-placing`);
+      step("3a_placed", { result: "carried_forward",
+        detail: `placement proven by ${prior.runId}; verified above as ${ERA}/operator_set`,
+        provenBy: prior.runId, placementNow: R.observed.placementBefore });
+      R.placedCandidateId = prior.placedCandidateId;
+      R.placedAt = prior.placedAt;
     } else {
+      const eraSel = row().locator("label.story-field", { hasText: "Life era" }).locator("select");
+      const saveBtn = row().locator("button.story-act")
+                           .filter({ hasText: /^Save placement \/ notes$/ });
+      const nEra = await eraSel.count(), nSave = await saveBtn.count();
+      if (nEra !== 1 || nSave !== 1) {
+        R.refusals.push(`REFUSED placement: era selects=${nEra} save buttons=${nSave}; need exactly 1 each`);
+        step("3a_placed", { result: "REFUSED",
+          detail: `eraSelects=${nEra} saveButtons=${nSave} in the target row` });
+        throw new Error("placement controls in the target row are not unique");
+      }
+      const options = await eraSel.locator("option").evaluateAll(
+        (els) => els.map((e) => e.value));
+      if (options.indexOf(ERA) < 0) {
+        R.refusals.push(`REFUSED placement: '${ERA}' is not offered by the era control`);
+        step("3a_placed", { result: "REFUSED", detail: `options=${options.join(",")}` });
+        throw new Error("target era is not selectable");
+      }
+      // selectOption fires the real `input` event the handler listens for.
+      await eraSel.selectOption(ERA);
+      await page.waitForTimeout(600);          // the handler calls render()
+
+      const [plr] = await Promise.all([
+        page.waitForResponse((r) => r.request().method() === "PATCH"
+          && r.url().includes("story-candidates"), { timeout: 30000 }).catch(() => null),
+        row().locator("button.story-act").filter({ hasText: /^Save placement \/ notes$/ }).click(),
+      ]);
+      let sent = null, resItem = null;
+      if (plr) {
+        try { sent = JSON.parse(plr.request().postData() || "null"); } catch (_) {}
+        try { const jb = await plr.json(); resItem = jb && jb.item; } catch (_) {}
+      }
+      const seg = plr ? new URL(plr.url()).pathname.split("/").filter(Boolean).pop() : null;
+      const unrelated = UNRELATED_KEYS(sent, PLACEMENT_ALLOWED);
+      const bodyOK = PLACEMENT_PATCH_OK({ sent, era: ERA, person: PERSON, version: versionBefore });
+      const mutation = {
+        n: 1, kind: "placement", at: new Date().toISOString(),
+        url: plr ? plr.url() : null, pathnameCandidate: seg,
+        status: plr ? plr.status() : null,
+        request: sent,
+        response: resItem ? pick(resItem, ["id", "narrator_id", "review_status",
+          "review_version", "era_candidates", "placement_source"]) : null,
+        versionTransition: { from: versionBefore,
+                             to: resItem ? resItem.review_version : null },
+        bodyConforms: bodyOK, unrelatedEdits: unrelated,
+      };
+      R.mutations.push(mutation); R.observed.placementPatch = mutation; save();
+
+      const conflict = await page.locator(".story-conflict").count();
+      const placedOK = Boolean(plr) && seg === TARGET && plr.status() < 400 && bodyOK
+        && !unrelated.length && !conflict
+        && resItem && resItem.id === TARGET && resItem.narrator_id === PERSON;
+      if (placedOK) {
+        R.placedCandidateId = TARGET; R.placedAt = mutation.at;
+        versionAfterPlacement = resItem.review_version;
+        save();
+      } else {
+        R.refusals.push("no placement proof recorded: PATCH missing, foreign,"
+          + (conflict ? " version-conflicted," : "") + " or non-conforming");
+      }
+      step("3a_placed", {
+        result: placedOK ? "PASS" : "FAIL",
+        acceptancePath: "row era <select> ('Life era') -> row 'Save placement / notes'",
+        detail: `status=${mutation.status} body=${bodyOK} unrelated=${unrelated.join(",") || "none"}`
+              + ` conflictBanner=${conflict} version ${versionBefore}->`
+              + `${mutation.versionTransition.to}`,
+        mutation });
+      if (!placedOK) throw new Error("placement did not satisfy the contract");
+      await page.waitForTimeout(1500);
+    }
+
+    // ── 3a-verify: re-read and prove the placement landed cleanly ────
+    const placedRead = await candidate(TARGET);
+    const pi = placedRead.item || {};
+    const placementImmutable = pick(pi, IMMUTABLE);
+    const provenanceHeld = JSON.stringify(R.immutableBefore) === JSON.stringify(placementImmutable);
+    const soleEra = PLACEMENT_STATE_OK(pi, ERA);
+    const versionMoved = MODE === "full"
+      ? VERSION_ADVANCED(versionBefore, pi.review_version) : true;
+    const statusUntouched = MODE === "full"
+      ? String(pi.review_status) === String(status) : true;
+    if (MODE === "full") versionAfterPlacement = pi.review_version;
+    R.placementAfter = pick(pi, ["era_candidates", "placement_source",
+      "estimated_year_low", "estimated_year_high", "review_status", "review_version"]);
+    step("3a_verify_placement", {
+      result: (soleEra && provenanceHeld && versionMoved && statusUntouched) ? "PASS" : "FAIL",
+      detail: `era=[${(pi.era_candidates || []).join(",")}] source=${pi.placement_source}`
+            + ` version=${versionBefore}->${pi.review_version} status=${pi.review_status}`
+            + ` provenanceUnchanged=${provenanceHeld}`,
+      soleEraIsTarget: soleEra, placementSourceOperatorSet: pi.placement_source === "operator_set",
+      versionAdvanced: versionMoved, reviewStatusUnchangedByPlacement: statusUntouched,
+      provenanceUnchanged: provenanceHeld,
+      immutableBefore: R.immutableBefore, immutableAfterPlacement: placementImmutable,
+      placementAfter: R.placementAfter });
+    if (!soleEra) throw new Error(`placement is not the sole era ${ERA}/operator_set`);
+    if (!provenanceHeld) throw new Error("immutable provenance changed during placement");
+    if (!versionMoved) throw new Error("review version did not advance after placement");
+    if (!statusUntouched) throw new Error("placement changed review_status");
+
+    // ── 3b: promote, on the REFETCHED row, at the NEW version ────────
+    /* applyReview sends `review_version: item.review_version` -- the
+     * version the operator OBSERVED, deliberately not re-read. So the
+     * panel must be refetched after placement or Promote would send the
+     * stale version and the server would answer 409. The refetch is the
+     * operator's own gesture, not a shortcut around it. */
+    const already = MODE === "promoted";
+    if (already) {
+      console.log(`  [3b] resume — promoted by ${prior.runId}; NOT re-promoting`);
+    } else {
+      if (MODE === "full") {
+        await filters.first().press("Enter");
+        await page.waitForResponse((r) => r.url().includes("/story-candidates/review"),
+                                   { timeout: 20000 }).catch(() => null);
+        await page.waitForTimeout(1200);
+        const reopened = await page.evaluate(OPEN_DETAIL, PASSAGE_HEAD);
+        await page.waitForTimeout(1500);
+        const reState = await page.evaluate(VERIFY_ROW, { head: PASSAGE_HEAD, full: PASSAGE });
+        step("3b_row_refetched", {
+          result: (reopened.clicked && reState.detailOpen && reState.transcriptEqualsTarget
+                   && reState.promoteControlsInRow === 1) ? "PASS" : "FAIL",
+          detail: `detailOpen=${reState.detailOpen} transcriptEqual=${reState.transcriptEqualsTarget}`
+                + ` promoteInRow=${reState.promoteControlsInRow}`,
+          why: "the panel must carry the post-placement version before Promote is clicked",
+          rowState: reState });
+        if (!reState.transcriptEqualsTarget || reState.promoteControlsInRow !== 1) {
+          throw new Error("refetched row did not satisfy the contract");
+        }
+      }
       const reassert = await page.evaluate(ACTIVE_OK, { personId: PERSON, displayName: DISPLAY_NAME });
       if (!reassert.ok) throw new Error("active narrator changed before promotion");
-      const btn = page.locator(".story-row", { hasText: PASSAGE_HEAD }).locator(".story-act-promote");
+      const btn = row().locator(".story-act-promote");
       if (await btn.count() !== 1) {
         R.refusals.push("REFUSED: promote control in the target row is not unique");
-        step("3_promoted", { result: "REFUSED", detail: "promote control not unique" });
+        step("3b_promoted", { result: "REFUSED", detail: "promote control not unique" });
         throw new Error("promote control not unique");
       }
       promotionAttempted = true;
@@ -432,24 +753,33 @@ function docxText(file) {
         try { const jb = await pr.json(); resItem = jb && jb.item; } catch (_) {}
       }
       const seg = pr ? new URL(pr.url()).pathname.split("/").filter(Boolean).pop() : null;
-      const unrelated = sent ? Object.keys(sent).filter((k) =>
-        !["review_status", "review_version", "narrator_id"].includes(k)) : [];
-      R.observed.patch = pr ? { url: pr.url(), pathnameCandidate: seg, status: pr.status(),
-        sentBody: sent, responseItem: resItem ? pick(resItem,
-          ["id", "narrator_id", "review_status", "review_version"]) : null,
-        bodyNarratorIsPat: Boolean(sent && sent.narrator_id === PERSON),
-        bodyStatusPromoted: Boolean(sent && sent.review_status === "promoted"),
-        bodyVersionMatches: Boolean(sent && sent.review_version === it.review_version),
-        unrelatedEdits: unrelated } : null;
-      const p = R.observed.patch;
-      if (p && seg === TARGET && p.status < 400 && p.bodyNarratorIsPat
-          && p.bodyStatusPromoted && p.bodyVersionMatches && !unrelated.length
-          && p.responseItem && p.responseItem.id === TARGET
-          && p.responseItem.narrator_id === PERSON
-          && p.responseItem.review_status === "promoted") {
-        R.promotedCandidateId = TARGET; R.promotedAt = new Date().toISOString(); save();
+      const unrelated = UNRELATED_KEYS(sent, PROMOTION_ALLOWED);
+      /* The version is the one the PLACEMENT returned, never the one this
+       * run started with. A probe that reasserts the opening version here
+       * would send a stale number, take a 409, and report a broken chain
+       * that is really its own bookkeeping. */
+      const bodyOK = PROMOTION_PATCH_OK({ sent, person: PERSON, version: versionAfterPlacement });
+      const conflict = await page.locator(".story-conflict").count();
+      const mutation = {
+        n: R.mutations.length + 1, kind: "promotion", at: new Date().toISOString(),
+        url: pr ? pr.url() : null, pathnameCandidate: seg,
+        status: pr ? pr.status() : null,
+        request: sent,
+        response: resItem ? pick(resItem, ["id", "narrator_id", "review_status",
+          "review_version", "era_candidates", "placement_source"]) : null,
+        versionTransition: { from: versionAfterPlacement,
+                             to: resItem ? resItem.review_version : null },
+        bodyConforms: bodyOK, unrelatedEdits: unrelated,
+      };
+      R.mutations.push(mutation); R.observed.patch = mutation; save();
+      if (pr && seg === TARGET && pr.status() < 400 && bodyOK && !unrelated.length
+          && !conflict && resItem && resItem.id === TARGET
+          && resItem.narrator_id === PERSON
+          && resItem.review_status === "promoted") {
+        R.promotedCandidateId = TARGET; R.promotedAt = mutation.at; save();
       } else {
-        R.refusals.push("no promotion proof recorded: PATCH missing, foreign or non-conforming");
+        R.refusals.push("no promotion proof recorded: PATCH missing, foreign,"
+          + (conflict ? " version-conflicted," : "") + " or non-conforming");
       }
       await page.waitForTimeout(2000);
     }
@@ -459,22 +789,44 @@ function docxText(file) {
     const immutableSame = JSON.stringify(R.immutableBefore) === JSON.stringify(immutableAfter);
     /* A resumed run must prove it mutated NOTHING. Skipping the Promote
      * click is not the same as demonstrating no PATCH left the browser. */
-    const resumedCleanly = prior
+    const resumedCleanly = MODE === "promoted"
       ? RESUMED_WITHOUT_MUTATION(patchSeen.length, promotionAttempted) : null;
-    step("3_promoted", {
-      result: (ai.review_status === "promoted" && immutableSame
-               && !R.blockedPatches.length
-               && (prior ? resumedCleanly === true : Boolean(R.promotedCandidateId)))
+    /* THE PATCH LEDGER IS THE PROOF. Each mode has an exact expected
+     * count and an exact expected order; anything else -- an extra PATCH,
+     * a missing one, placement after promotion -- is a refusal, because
+     * the whole claim of this phase is that exactly the authorised
+     * mutations happened and nothing else did. */
+    const kinds = R.mutations.map((m) => m.kind).join(">");
+    const expectedKinds = MODE === "full" ? "placement>promotion"
+                        : MODE === "placed" ? "promotion" : "";
+    const budgetHeld = patchSeen.length === BUDGET && kinds === expectedKinds;
+    // Also verify the placement survived the promotion untouched.
+    const placementHeld = PLACEMENT_STATE_OK(ai, ERA);
+    step("3b_promoted", {
+      result: (ai.review_status === "promoted" && immutableSame && placementHeld
+               && budgetHeld && !R.blockedPatches.length
+               && (MODE === "promoted" ? resumedCleanly === true
+                                       : Boolean(R.promotedCandidateId)))
         ? "PASS" : "FAIL",
-      detail: `status=${ai.review_status} immutableProvenanceUnchanged=${immutableSame}`
-            + (prior ? ` (resume: patches=${patchSeen.length}`
-                     + ` promotionAttempted=${promotionAttempted})` : ""),
-      resumedWithoutMutation: resumedCleanly,
+      detail: `status=${ai.review_status} placement=[${(ai.era_candidates || []).join(",")}]`
+            + `/${ai.placement_source} immutableProvenanceUnchanged=${immutableSame}`
+            + ` patches=${patchSeen.length}/${BUDGET} order=${kinds || "none"}`
+            + (MODE !== "full" ? ` (resume mode=${MODE})` : ""),
+      mode: MODE, patchBudget: BUDGET,
       patchesObservedThisRun: patchSeen.length,
+      mutationOrder: kinds, expectedMutationOrder: expectedKinds, budgetHeld,
+      placementSurvivedPromotion: placementHeld,
+      resumedWithoutMutation: resumedCleanly,
       promotionAttemptedThisRun: promotionAttempted,
-      observedPatch: R.observed.patch, blockedForeignPatches: R.blockedPatches.length,
+      mutations: R.mutations, blockedForeignPatches: R.blockedPatches.length,
       immutableBefore: R.immutableBefore, immutableAfter: immutableAfter, allPatches: patchSeen });
     R.immutableAfter = immutableAfter;
+    if (!budgetHeld) {
+      R.refusals.push(`PATCH ledger violated: observed ${patchSeen.length} (budget ${BUDGET}),`
+        + ` order '${kinds || "none"}' (expected '${expectedKinds || "none"}')`);
+      throw new Error("PATCH ledger did not match the authorised mutations");
+    }
+    if (!placementHeld) throw new Error("promotion disturbed the placement");
     if (ai.review_status !== "promoted") throw new Error("candidate did not reach promoted");
     if (!immutableSame) throw new Error("immutable provenance changed during promotion");
 
@@ -608,21 +960,36 @@ function docxText(file) {
     R.finishedAt = new Date().toISOString();
     const g = (k) => (R.links[k] || {}).result || "not_reached";
     R.verdict = {
-      promotion: g("3_promoted"), canonical_api: g("4_canonical"),
+      placement: g("3a_placed"), placement_verified: g("3a_verify_placement"),
+      promotion: g("3b_promoted"), canonical_api: g("4_canonical"),
       preview: PREVIEW_VERDICT(g("5_preview"), R.observed.previewWrongOrigin),
       export: g("6_export") === "PASS" ? "passed"
+        : g("6_export") === "not_reached" ? "not reached through accepted UI path"
         : (g("5_preview") === "PASS" ? "failed" : "not reached through accepted UI path"),
       control_unchanged: g("7_control_unchanged"),
     };
+    /* `3a_placed` is `carried_forward` in a resumed run and PASS in a
+     * fresh one; both are acceptable, and only those two. */
+    const OK = (k) => (k === "3a_placed"
+      ? ["PASS", "carried_forward"].indexOf(g(k)) >= 0 : g(k) === "PASS");
     const order = ["1_preconditions", "1b_narrator_active", "2a_filter", "2_row_located",
-                   "2b_detail_verified", "3_promoted", "4_canonical", "5_preview",
+                   "2b_detail_verified", "3a_placed", "3a_verify_placement",
+                   "3b_promoted", "4_canonical", "5_preview",
                    "6_export", "8_agreement", "7_control_unchanged"];
-    const bad = order.find((k) => R.links[k] && R.links[k].result !== "PASS");
+    // 3b_row_refetched only exists in a fresh run; required exactly there.
+    if (MODE === "full") order.splice(order.indexOf("3b_promoted"), 0, "3b_row_refetched");
+    const bad = order.find((k) => R.links[k] && !OK(k));
     const complete = order.every((k) => R.links[k]);
     R.exitGate = bad ? `Phase 1: failed at ${bad.replace(/^\d+[ab]?_/, "")}`
       : (complete ? "Phase 1: PASS — full chain proven" : "Phase 1: incomplete — not every link ran");
     save();
-    console.log("\n  promotion:        " + R.verdict.promotion);
+    console.log("\n  mode:             " + MODE + `  (PATCH budget ${BUDGET}, observed `
+      + `${R.mutations.length})`);
+    R.mutations.forEach((m) => console.log(`    #${m.n} ${m.kind}: HTTP ${m.status} `
+      + `v${m.versionTransition.from}->v${m.versionTransition.to} conforms=${m.bodyConforms}`));
+    console.log("  placement:        " + R.verdict.placement
+      + " / verified " + R.verdict.placement_verified);
+    console.log("  promotion:        " + R.verdict.promotion);
     console.log("  canonical API:    " + R.verdict.canonical_api);
     console.log("  preview:          " + R.verdict.preview);
     console.log("  export:           " + R.verdict.export);

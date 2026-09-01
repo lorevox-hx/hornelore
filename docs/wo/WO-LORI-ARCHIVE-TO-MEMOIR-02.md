@@ -125,10 +125,50 @@ preserved rather than cleaned up.
 
 Use one coherent existing provisional candidate. Do not create another narrator and do not change story-capture rules in this phase.
 
-- [ ] Record candidate ID, narrator ID, conversation ID, source-turn IDs, exact passage and era.
+### Runtime era is not a story placement (established 2026-09-01)
+
+The first live run, `20260901T212134Z`, **refused before promoting** and was
+right to. Its precondition demanded that target `447eee18` already sit in
+`building_years`; the candidate's own record read `era_candidates: []`,
+`placement_source: "unknown"`, no year range. Nothing was mutated, the control
+was verified identical, and the run exited non-zero. **That run is preserved
+unchanged as the evidence for this section.**
+
+The refusal exposed a distinction this work order had blurred, and every later
+phase depends on keeping it:
+
+| | What it is | Where it lives |
+|---|---|---|
+| **Runtime era** | the era the conversation was in when the narrator spoke | the turn / Life Map selection |
+| **Story placement** | the era an operator has *confirmed* the story belongs to | `era_candidates` + `placement_source` on the candidate |
+
+`story_preservation.preserve` writes every candidate with `era_candidates=[]`
+and `placement_source=None` (`story_preservation.py:225`). That is **deliberate,
+not a gap.** Deriving a placement from whichever screen the narrator happened to
+be on is exactly how a story gets filed into the wrong memoir chapter, and
+`story_projection` already refuses it: an era candidate nobody confirmed is not
+a placement. The route enforces the same rule from the other side — *"an
+operator-set placement needs exactly one era; two eras is not a placement, it is
+a pair of guesses"* (`operator_story_review.py:366`).
+
+**Consequence for the memoir, and for Phase 2:** a candidate can be promoted and
+still reach canonical memoir **unplaced**. Promotion decides whether a story is
+*eligible*; placement decides where it *goes*. Phase 2's ledger must record them
+as two separate destinations, never one.
+
+### The operator workflow under test
+
+Phase 1 therefore exercises **two authorised mutations**, in order, both through
+the real Bug Panel controls and both against the same `PATCH
+/api/operator/story-candidates/{id}` endpoint:
+
+- [ ] Record candidate ID, narrator ID, conversation ID, source-turn IDs, exact passage — and the **absence** of a placement.
 - [ ] Open the real Operator review surface.
-- [ ] Promote through the real operator control.
-- [ ] Confirm status becomes `promoted` without losing provenance.
+- [ ] **Place** through the real era control, then `Save placement / notes`. Selecting an era *is* the operator placement: the control writes `placement_source=operator_set` in the same gesture, and `operator_set` is deliberately not hand-selectable from the source dropdown.
+- [ ] Confirm the candidate now carries `building_years` as its **sole** era with `placement_source=operator_set`, that the review version advanced, and that `review_status`, transcript and provenance are untouched.
+- [ ] **Refetch the row** so the panel carries the new version. `applyReview` sends the version it last rendered; promoting without refetching sends a stale version and takes a 409.
+- [ ] Promote through that row's real Promote control, at the version the placement returned.
+- [ ] Confirm status becomes `promoted` without losing provenance **or the placement**.
 - [ ] Query canonical memoir from the correct API origin.
 - [ ] Confirm the exact passage appears once with correct narrator and era.
 - [ ] Open normal memoir preview.
@@ -137,7 +177,36 @@ Use one coherent existing provisional candidate. Do not create another narrator 
 - [ ] Confirm all three contain the passage exactly once.
 - [ ] Confirm no incorrect structured family fact is substituted into the passage.
 
-**Exit gate:** One passage completes `archive → provisional story → operator promotion → canonical memoir → preview → export`, or the precise broken link is identified and corrected before proceeding.
+**Mutation budget.** Exactly two PATCHes to the target in a fresh run —
+placement then promotion, in that order — and none to any other candidate.
+The budget is enforced in-flight: a third PATCH, a wrong order, or a foreign
+candidate is aborted before the request leaves the browser and the run exits
+non-zero. Control candidate `5a56f942` must be byte-identical afterwards,
+checked in `finally` so a crash cannot skip it.
+
+**Resumability.** A resumed run's mode is read from the **named prior report**,
+never from the database: a row that is already placed or promoted says nothing
+about who did it or against which provenance, and a probe that accepts the row's
+own state as proof of its own prior work can be satisfied by any mutation from
+any source. Three states, with the PATCH allowance that makes each one a
+guarantee rather than an intention:
+
+| Prior report proves | Mode | PATCH budget |
+|---|---|---|
+| nothing (fresh run) | `full` | 2 — place, then promote |
+| placement only | `placed` | 1 — promote only |
+| placement and promotion | `promoted` | **0** — verify and continue downstream |
+
+Every resumed run re-verifies the prior report's exact provenance *and* its exact
+placement before skipping any step.
+
+**Exit gate:** One passage completes `archive → provisional story → operator
+placement → operator promotion → canonical memoir → preview → export`, or the
+precise broken link is identified and corrected before proceeding.
+
+**A refusal is a result.** A run that stops before mutating, names the failing
+link and exits non-zero has done its job; it is not a failed attempt to be
+retried until it passes. Run `20260901T212134Z` is the reference example.
 
 ## Phase 2 — Build the 38-turn destination ledger
 
@@ -148,7 +217,7 @@ This is a read-only rebuild from existing evidence. Do not rerun the cohort.
 For each of 38 narrator statements record:
 
 - [ ] Exact narrator text, narrator, conversation, client turn and durable row IDs.
-- [ ] Selected era and era actually sent.
+- [ ] Selected era and era actually sent. **Record the runtime era and the story placement separately** — see Phase 1. A candidate with no `placement_source=operator_set` is UNPLACED regardless of which era the conversation was in, and the ledger must not collapse the two.
 - [ ] Raw Lori response, each transformation and delivered response.
 - [ ] Every extracted entity, relationship, path, value and source wording.
 - [ ] Every normalization, reroute, acceptance and rejection reason.
