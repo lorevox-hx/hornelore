@@ -165,7 +165,26 @@ def build_plan(run_id: str, *, turns_per_era: int = 1) -> Dict[str, Any]:
             raise PlanRefusal(
                 f"{source} journaled label {display_name!r} matches neither "
                 f"the fixture label nor the configured one {sorted(accepted)!r}")
+        # ── The EXACT product display name, not the shared prefix ────
+        #
+        # All ten narrators share "ZZ COHORT <run_id> · ", so a check
+        # that only tests the prefix passes on a stale card still
+        # showing a DIFFERENT cohort narrator — precisely the failure
+        # the person-id check exists to prevent, reintroduced through
+        # the visible name.
+        #
+        # The product name is derivable without the network: the cohort
+        # runner stamps `preferred_name` through `mark_intake_payload`
+        # and that becomes the people row's display_name. Same function,
+        # same run id, same fixture payload — so the same string.
         product_marker = f"ZZ COHORT {run_id} · "
+        marked = cohort.mark_intake_payload(
+            dict(persona.get("intake_payload") or {}), run_id)
+        product_display_name = str(marked.get("preferred_name") or "").strip()
+        if not product_display_name.startswith(product_marker):
+            raise PlanRefusal(
+                f"{source} could not derive a marked product display name "
+                f"(got {product_display_name!r})")
 
         eras: List[Dict[str, Any]] = []
         for chapter in persona.get("chapters") or []:
@@ -182,6 +201,7 @@ def build_plan(run_id: str, *, turns_per_era: int = 1) -> Dict[str, Any]:
             raise PlanRefusal(f"scripted persona {source} has no chapters")
         planned.append({
             "product_marker": product_marker,
+            "product_display_name": product_display_name,
             "source": source,
             "fixture_label": persona["label"],
             "expected_label": persona["expected_label"],

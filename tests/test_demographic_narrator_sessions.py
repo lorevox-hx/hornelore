@@ -184,10 +184,119 @@ class RealJournalBuildsAPlanTests(unittest.TestCase):
         for n in plan.build_plan(self.RUN)["narrators"]:
             self.assertEqual(f"ZZ COHORT {self.RUN} · ", n["product_marker"])
 
-    def test_the_runner_verifies_identity_by_that_marker(self):
+    def test_the_runner_verifies_identity_by_the_exact_name(self):
+        """*(Asserted `startsWith(product_marker)`. That was my own
+        regression: all ten narrators share that prefix, so a stale card
+        painted with a different cohort narrator satisfied it. The plan
+        now carries the exact product name and equality is required.)*"""
         js = (ROOT / "scripts" / "ui"
               / "run_demographic_narrator_sessions.js").read_text(
                   encoding="utf-8")
-        self.assertIn("narrator.product_marker", js)
-        self.assertIn("text.startsWith(expected.marker)", js)
-        self.assertIn('text === "Choose a narrator"', js)
+        self.assertIn("narrator.product_display_name", js)
+        self.assertNotIn("text.startsWith(expected.marker)", js)
+
+
+def _js_code_only(src):
+    """JS with comments stripped — a guard must not match its own note."""
+    import re
+    src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
+    return re.sub(r"(?m)^\s*//[^\n]*", "", src)
+
+
+class RunnerReadinessTests(unittest.TestCase):
+    """Four defects that would have let a run report COMPLETE wrongly."""
+
+    def setUp(self):
+        raw = (ROOT / "scripts" / "ui"
+               / "run_demographic_narrator_sessions.js").read_text(
+                   encoding="utf-8")
+        self.raw = raw
+        self.src = _js_code_only(raw)
+
+    # 1 — the correlation id
+    def test_it_reads_client_turn_id_not_turn_id(self):
+        self.assertIn("lastSent?.params?.client_turn_id", self.src)
+        self.assertNotIn("lastSent?.params?.turn_id", self.src)
+
+    def test_the_ui_actually_sends_that_field(self):
+        """Non-vacuity: the name must match what app.js puts on the wire."""
+        app = (ROOT / "ui" / "js" / "app.js").read_text(
+            encoding="utf-8", errors="replace")
+        self.assertIn("client_turn_id:_lvCtid", app)
+
+    def test_a_turn_without_a_client_turn_id_is_refused(self):
+        self.assertIn("no client turn id on the sent frame", self.src)
+
+    # 2 — exactly one start_turn and one done
+    def test_multiple_model_turns_are_refused(self):
+        self.assertIn("evidence.sentCount !== 1", self.src)
+        self.assertIn("evidence.doneCount !== 1", self.src)
+
+    # 3 — the era actually used
+    def test_both_selected_and_sent_era_must_equal_the_intent(self):
+        self.assertIn("evidence.selectedEra !== expectedEra", self.src)
+        self.assertIn("evidence.sentEra !== expectedEra", self.src)
+
+    def test_the_gate_runs_on_every_action(self):
+        """runAction is the single funnel for era prompts and turns."""
+        fn = self.src[self.src.index("async function runAction("):]
+        self.assertIn("assertActionIntegrity(evidence, expectedEra, what)",
+                      fn[:900])
+
+    # 4 — the narrator identity
+    def test_identity_requires_the_exact_product_name(self):
+        self.assertIn("narrator.product_display_name", self.src)
+        self.assertIn('=== expected', self.src)
+
+    def test_the_shared_prefix_check_is_gone(self):
+        self.assertNotIn("text.startsWith(expected.marker)", self.src)
+        self.assertNotIn("startsWith(narrator.product_marker)", self.src)
+
+    # 5 — the downloads
+    def test_downloads_are_waited_for_not_assumed(self):
+        self.assertNotIn("waitForTimeout(500)", self.src)
+        self.assertIn("requireSuffixes", self.src)
+        self.assertIn("wrap-up downloads never arrived", self.src)
+
+    def test_both_artifacts_are_required(self):
+        self.assertIn('requireSuffixes = [".zip", ".md"]', self.src)
+
+
+class PlanCarriesTheExactNameTests(unittest.TestCase):
+    RUN = "r20260831-040506-010cd6"
+
+    def setUp(self):
+        j = (ROOT / ".runtime" / "eval" / "narrator-cohort" / self.RUN
+             / "artifacts.json")
+        if not j.is_file():
+            self.skipTest(f"source journal {self.RUN} not present locally")
+        self.plan = plan.build_plan(self.RUN)
+
+    def test_the_shape_is_unchanged(self):
+        self.assertEqual(10, self.plan["narrator_count"])
+        self.assertEqual(38, self.plan["era_count"])
+        self.assertEqual(38, self.plan["narrator_turn_count"])
+
+    def test_every_narrator_has_a_distinct_product_display_name(self):
+        names = [n["product_display_name"] for n in self.plan["narrators"]]
+        self.assertEqual(10, len(set(names)),
+                         "a shared name would let a stale card pass")
+
+    def test_each_name_is_more_than_the_shared_prefix(self):
+        marker = f"ZZ COHORT {self.RUN} · "
+        for n in self.plan["narrators"]:
+            self.assertTrue(n["product_display_name"].startswith(marker))
+            self.assertGreater(len(n["product_display_name"]), len(marker),
+                               "the name is only the shared cohort prefix")
+
+    def test_it_matches_what_the_cohort_runner_stamps(self):
+        """Derived through the same mark_intake_payload, not guessed."""
+        for persona in cohort.load_personas(quick=False):
+            if persona["source"] != "harness":
+                continue
+            marked = cohort.mark_intake_payload(
+                dict(persona.get("intake_payload") or {}), self.RUN)
+            expected = str(marked.get("preferred_name") or "").strip()
+            row = next(n for n in self.plan["narrators"]
+                       if n["source"] == persona["harness"])
+            self.assertEqual(expected, row["product_display_name"])

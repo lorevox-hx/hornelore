@@ -194,6 +194,34 @@ async function waitForResponseAndTts(page, before) {
   return { after, ttsRows };
 }
 
+/* Every completed action must be provably THE action we asked for.
+ * Without this a run could report COMPLETE having sent the wrong era,
+ * generated twice, or carried no correlation id at all. */
+function assertActionIntegrity(evidence, expectedEra, what) {
+  const fail = (why) => { throw new Error(`${what}: ${why}`); };
+  if (!evidence.clientTurnId) {
+    fail("no client turn id on the sent frame — the turn cannot be "
+       + "correlated to a trace record");
+  }
+  if (evidence.sentCount !== 1) {
+    fail(`expected exactly one start_turn, saw ${evidence.sentCount}`);
+  }
+  if (evidence.doneCount !== 1) {
+    fail(`expected exactly one done, saw ${evidence.doneCount}`);
+  }
+  if (expectedEra !== null && expectedEra !== undefined) {
+    if (evidence.selectedEra !== expectedEra) {
+      fail(`UI era is ${JSON.stringify(evidence.selectedEra)}, expected `
+         + `${JSON.stringify(expectedEra)}`);
+    }
+    if (evidence.sentEra !== expectedEra) {
+      fail(`era sent on the wire is ${JSON.stringify(evidence.sentEra)}, `
+         + `expected ${JSON.stringify(expectedEra)}`);
+    }
+  }
+  return evidence;
+}
+
 async function actionEvidence(page, before, expectedEra) {
   const evidence = await page.evaluate(({ startSent, startReceived, expectedEra }) => {
     const cap = window.__demographicCapture;
@@ -206,9 +234,14 @@ async function actionEvidence(page, before, expectedEra) {
       selectedEra: window.state?.session?.currentEra || null,
       sentEra: lastSent?.params?.runtime71?.current_era || null,
       messageKind: lastSent?.params?.message_kind || null,
-      clientTurnId: lastSent?.params?.turn_id || null,
+      // The UI sends params.client_turn_id (ui/js/app.js). Reading
+      // params.turn_id recorded null for EVERY turn, which made the
+      // correlation id look present in the schema and absent in fact.
+      clientTurnId: lastSent?.params?.client_turn_id || null,
       narratorText: lastSent?.message || null,
       finalText: lastDone?.final_text || null,
+      sentCount: sent.length,
+      doneCount: done.length,
       sentFrames: sent,
       doneFrames: done,
     };
@@ -217,7 +250,7 @@ async function actionEvidence(page, before, expectedEra) {
   return evidence;
 }
 
-async function runAction(page, action, expectedEra) {
+async function runAction(page, action, expectedEra, what = "action") {
   await waitForAudioIdle(page);
   const before = await counts(page);
   await action();
@@ -225,7 +258,10 @@ async function runAction(page, action, expectedEra) {
   const evidence = await actionEvidence(page, before, expectedEra);
   evidence.tts = timing.ttsRows;
   evidence.ttsFinishedAt = timing.after.audio.finishedAt;
-  if (!evidence.finalText) throw new Error("Lori completed without final_text");
+  if (!evidence.finalText) throw new Error(`${what}: Lori completed without final_text`);
+  // The single funnel both era prompts and narrator turns pass through,
+  // so one gate covers every model turn this runner causes.
+  assertActionIntegrity(evidence, expectedEra, what);
   return evidence;
 }
 
@@ -274,18 +310,26 @@ async function openExactNarrator(page, narrator) {
    * cannot be satisfied by a stale copy showing a PREVIOUS narrator.
    * `state.person_id` is already asserted above, so the two together
    * pin both the identity and the paint. */
+  /* ── EXACT product display name ────────────────────────────────
+   * `startsWith(product_marker)` was my own regression: all ten
+   * narrators share "ZZ COHORT <run> · ", so a stale card still
+   * painted with a DIFFERENT cohort narrator satisfied it — exactly
+   * the confusion the person-id check exists to prevent, let back in
+   * through the visible name. The plan now derives the exact name via
+   * the same mark_intake_payload the cohort runner used, so equality
+   * is available and is what is required. */
   await page.waitForFunction((expected) => Array.from(
       document.querySelectorAll("#lv80ActiveNarratorName"))
-    .some((n) => {
-      const text = (n.textContent || "").trim();
-      if (!text || text === "Choose a narrator" || text === "Loading…") return false;
-      if (expected.marker) return text.startsWith(expected.marker);
-      const name = expected.name || "";
-      return text === name || name.includes(text) || text.includes(name);
-    }),
-    { marker: narrator.product_marker || null,
-      name: narrator.display_name || null },
-    { timeout: 60000 });
+    .some((n) => (n.textContent || "").trim() === expected),
+    narrator.product_display_name, { timeout: 60000 });
+  const paintedName = await page.evaluate(() => Array.from(
+      document.querySelectorAll("#lv80ActiveNarratorName"))
+    .map((n) => (n.textContent || "").trim()));
+  if (!paintedName.includes(narrator.product_display_name)) {
+    throw new Error(
+      `narrator card shows ${JSON.stringify(paintedName)}, expected exactly `
+      + `${JSON.stringify(narrator.product_display_name)}`);
+  }
   await page.waitForFunction(() => {
     const input = document.getElementById("chatInput");
     return input && !input.disabled && (!window._loriIsBusy || !window._loriIsBusy());
@@ -334,7 +378,7 @@ async function selectEra(page, era) {
     await modal.locator(".lv-interview-confirm-continue").click();
     await page.waitForFunction((id) => window.state?.session?.currentEra === id,
       era.era_id, { timeout: 10000 });
-  }, era.era_id);
+  }, era.era_id, `era prompt ${era.era_id}`);
 }
 
 async function sendNarratorTurn(page, text, eraId) {
@@ -374,13 +418,30 @@ class DownloadCollector {
     });
   }
   start(dir) { this.dir = dir; this.records = []; this.pending = []; }
-  async finish() {
-    await Promise.all(this.pending);
-    await this.page.waitForTimeout(500);
+  /* Wait for what must arrive, not for a guess at how long it takes.
+   * A fixed 500ms passed on a fast machine and would fail on a slow
+   * one, and a missing download would surface as a confusing absence
+   * later rather than as the timeout it actually is. */
+  async finish({ requireSuffixes = [".zip", ".md"], timeoutMs = 120000 } = {}) {
+    const deadline = Date.now() + timeoutMs;
+    const have = (suffix) => this.records.some(
+      (r) => !r.error && String(r.saved || "").toLowerCase().endsWith(suffix));
+    while (Date.now() < deadline) {
+      await Promise.all(this.pending);
+      if (requireSuffixes.every(have)) break;
+      await this.page.waitForTimeout(250);
+    }
     await Promise.all(this.pending);
     const records = this.records.slice();
     this.dir = null;
     if (records.some((r) => r.error)) throw new Error(`download failed: ${JSON.stringify(records)}`);
+    const missing = requireSuffixes.filter((sfx) => !records.some(
+      (r) => String(r.saved || "").toLowerCase().endsWith(sfx)));
+    if (missing.length) {
+      throw new Error(
+        `wrap-up downloads never arrived: missing ${missing.join(", ")} after `
+        + `${timeoutMs}ms; saved ${JSON.stringify(records.map((r) => r.saved))}`);
+    }
     return records;
   }
 }
