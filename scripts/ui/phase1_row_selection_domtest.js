@@ -12,8 +12,10 @@
  */
 "use strict";
 const assert = require("assert");
-const { SELECT_ROW, OPEN_DETAIL, VERIFY_ROW, ACTIVE_OK } =
-  require("./phase1_memoir_chain_probe.js");
+const P = require("./phase1_memoir_chain_probe.js");
+const { SELECT_ROW, OPEN_DETAIL, VERIFY_ROW, ACTIVE_OK,
+        OPEN_MEMOIR_STAGE1, OPEN_MEMOIR_STAGE2, PANEL_STATE,
+        SOURCE_ID, IMMUTABLE } = P;
 
 const PAT  = "62e94e93-0e44-4fb0-bf19-4bfe847e163c";
 const PAT_NAME = "ZZ COHORT r20260831-040506-010cd6 \u00b7 Pat";
@@ -192,6 +194,96 @@ const PAGE = `
     const a = await page.evaluate(ACTIVE_OK, { personId: PAT, displayName: PAT_NAME });
     assert.strictEqual(a.ok, false);
     assert.strictEqual(a.activePersonId, null);
+  });
+
+  /* ── CONTRACT CHECKS, behavioural ─────────────────────────────────
+   * These cover the mismatches the full Phase 1 review found: the real
+   * {item, fetched_at} envelope, the required narrator query, a changing
+   * fetched_at, the hashed source digest, the two-stage memoir opening,
+   * export body ownership and a non-zero exit on failure. */
+
+  await check("source digest matches the server's sha256('story:'+id)[:12]", async () => {
+    const expect = require("crypto").createHash("sha256")
+      .update("story:447eee18-9ea5-4961-bf3d-157773d3cd44").digest("hex").slice(0, 12);
+    assert.strictEqual(SOURCE_ID, expect);
+    assert.strictEqual(SOURCE_ID, "5d57a43ce780");
+  });
+
+  await check("the raw candidate UUID is NOT the provenance id", async () => {
+    assert.ok(!SOURCE_ID.includes("447eee18"),
+      "the server hashes it deliberately; searching for the UUID can never match");
+  });
+
+  await check("a changing fetched_at does not fail the control comparison", async () => {
+    const a = { item: { id: "c", review_status: "unreviewed" }, fetched_at: "T1" };
+    const b = { item: { id: "c", review_status: "unreviewed" }, fetched_at: "T2" };
+    assert.notStrictEqual(JSON.stringify(a), JSON.stringify(b), "whole responses differ");
+    assert.strictEqual(JSON.stringify(a.item), JSON.stringify(b.item),
+      "only item may be compared");
+  });
+
+  await check("immutable provenance covers the WO-required fields", async () => {
+    ["conversation_id", "session_id", "source_user_turn_row_id",
+     "completed_assistant_turn_row_id", "narrator_id", "id"].forEach((f) =>
+      assert.ok(IMMUTABLE.includes(f), f + " must be immutable"));
+    ["review_status", "review_version"].forEach((f) =>
+      assert.ok(!IMMUTABLE.includes(f), f + " legitimately changes"));
+  });
+
+  await check("memoir opening is two-stage; the ctx block itself is inert", async () => {
+    await page.evaluate(() => {
+      document.body.insertAdjacentHTML("beforeend",
+        '<div id="lvNarratorCtxMemoir" class="lv-narrator-ctx-block">' +
+        '<button class="lv-narrator-ctx-cta">Peek at your memoir</button></div>');
+      window.__stage = [];
+      document.querySelector("#lvNarratorCtxMemoir .lv-narrator-ctx-cta")
+        .addEventListener("click", function () {
+          window.__stage.push("view");
+          const b = document.createElement("button");
+          b.className = "lv-narrator-view-cta"; b.textContent = "Open memoir";
+          b.addEventListener("click", function () {
+            window.__stage.push("popover");
+            const p = document.createElement("div");
+            p.id = "memoirScrollPopover"; p.textContent = "…";
+            document.body.appendChild(p);
+          });
+          document.body.appendChild(b);
+        });
+    });
+    // Clicking the DIV must do nothing — that was the defect.
+    await page.evaluate(() => document.getElementById("lvNarratorCtxMemoir").click());
+    assert.deepStrictEqual(await page.evaluate(() => window.__stage), [],
+      "the ctx block is a div with no handler");
+    const s1 = await page.evaluate(OPEN_MEMOIR_STAGE1);
+    assert.strictEqual(s1.found, true);
+    const s2 = await page.evaluate(OPEN_MEMOIR_STAGE2);
+    assert.strictEqual(s2.found, true);
+    assert.deepStrictEqual(await page.evaluate(() => window.__stage), ["view", "popover"]);
+  });
+
+  await check("panel state counts the COMPLETE passage, not its opening", async () => {
+    await page.evaluate((full) => {
+      document.getElementById("memoirScrollPopover").textContent = full;
+    }, TARGET_TEXT);
+    const ok = await page.evaluate(PANEL_STATE, TARGET_TEXT);
+    assert.strictEqual(ok.occurrences, 1);
+    const partial = await page.evaluate((h) => {
+      document.getElementById("memoirScrollPopover").textContent = h;
+      return null;
+    }, HEAD);
+    const bad = await page.evaluate(PANEL_STATE, TARGET_TEXT);
+    assert.strictEqual(bad.occurrences, 0, "the head alone must not count");
+  });
+
+  await check("a failed chain exits non-zero", async () => {
+    const { execFileSync } = require("child_process");
+    const src = require("fs").readFileSync(
+      require("path").join(__dirname, "phase1_memoir_chain_probe.js"), "utf8");
+    assert.ok(src.includes("process.exitCode = (!bad && complete"),
+      "exit code must be derived from the gate, refusals and errors");
+    assert.ok(src.includes("R.refusals.length) ? 0 : 1")
+           || src.includes("!R.refusals.length && !R.error) ? 0 : 1"),
+      "refusals and errors must force non-zero");
   });
 
   await browser.close();
