@@ -5177,9 +5177,26 @@ async def ws_chat(ws: WebSocket):
                 "dropped_turns": _budget.dropped_turns,
                 "dropped_sections": list(_budget.dropped_sections or []),
             }, trace_id=_rt_id)
-            _rt.note("prompt_sections",
-                     [getattr(sec, "name", str(sec))
-                      for sec in (_prompt_sections or [])], trace_id=_rt_id)
+            # The ACTUAL post-budget model context. Section names alone
+            # cannot answer "did Lori have the material to say this" —
+            # which is question 2 of the four causes. Sections carry
+            # kept/dropped; the surviving turns carry role, length and
+            # a head of their text so a reader can see what she was
+            # working from without the report becoming a transcript.
+            _rt.note("prompt_sections", [
+                {"name": getattr(sec, "name", str(sec)),
+                 "kept": getattr(sec, "kept", None),
+                 "required": getattr(sec, "required", None),
+                 "tokens": getattr(sec, "tokens", None)}
+                for sec in (_budget.sections or [])], trace_id=_rt_id)
+            _rt.note("post_budget_messages", [
+                {"role": (m.get("role") if isinstance(m, dict)
+                          else getattr(m, "role", "?")),
+                 "chars": len(str((m.get("content") if isinstance(m, dict)
+                                   else getattr(m, "content", "")) or "")),
+                 "head": str((m.get("content") if isinstance(m, dict)
+                              else getattr(m, "content", "")) or "")[:180]}
+                for m in (_budget.messages or [])], trace_id=_rt_id)
             _rt.require(["narrator_input", "runtime71_current_era",
                          "prompt_tokens", "prompt_budget"],
                         trace_id=_rt_id)

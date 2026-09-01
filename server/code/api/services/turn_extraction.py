@@ -746,6 +746,40 @@ def _store_result(
 
 
 async def _complete_claim(claim: _Claim) -> ExtractionOutcome:
+    """Trace-finalized wrapper around the extractor.
+
+    ── WHY THIS WRAPPER AND NOT extract_completed_turn ──────────────
+    The previous correction wrapped `extract_completed_turn`. The
+    WebSocket path does not call it: chat_ws calls
+    `schedule_completed_turn_extraction`, which runs `_complete_claim`
+    on a task. So the finalizer never fired, every trace stayed parked,
+    and the sweep only runs inside a later `park()` after 180s — the
+    20260831T152542Z run lasted 182s with its last park at 119s of age,
+    so the sweep never fired either and all fifteen traces died in
+    memory. Wrapping HERE covers both entry points, because both end up
+    in this function.
+    """
+    _tk = str(getattr(claim, "turn_key", "") or "")
+    try:
+        out = await _complete_claim_inner(claim)
+    except BaseException as exc:            # includes CancelledError
+        _finalize_extraction_trace(
+            _tk, "exception", error_class=type(exc).__name__,
+            detail={"why": "extractor raised; no outcome produced"})
+        raise
+    try:
+        _finalize_extraction_trace(
+            _tk or getattr(out, "turn_key", ""),
+            getattr(out, "status", "unknown"),
+            item_count=getattr(out, "item_count", 0),
+            method=getattr(out, "method", "") or "",
+            error_class=getattr(out, "error_class", "") or "")
+    except Exception:
+        pass
+    return out
+
+
+async def _complete_claim_inner(claim: _Claim) -> ExtractionOutcome:
     """The working half: run the extractor, close the ledger row.
 
     NEVER RAISES except asyncio.CancelledError, which is recorded as
@@ -1305,20 +1339,21 @@ async def extract_completed_turn(**kwargs) -> ExtractionOutcome:
     at all. A wrapper is the only place that covers every one.
     """
     turn_key = str(kwargs.get("turn_key") or "")
+    # Finalization lives in `_complete_claim`, which BOTH entry points
+    # reach. Only the paths that return before ever claiming need
+    # covering here — those never run the extractor at all.
     try:
         out = await _extract_completed_turn_inner(**kwargs)
     except BaseException as exc:            # includes CancelledError
         _finalize_extraction_trace(
             turn_key, "exception", error_class=type(exc).__name__,
-            detail={"why": "extraction raised; no outcome was produced"})
+            detail={"why": "extraction raised before or outside a claim"})
         raise
-    try:
+    if getattr(out, "status", "") in ("noop", "failed") and turn_key:
         _finalize_extraction_trace(
-            turn_key or getattr(out, "turn_key", ""),
-            getattr(out, "status", "unknown"),
+            turn_key, getattr(out, "status", "unknown"),
             item_count=getattr(out, "item_count", 0),
             method=getattr(out, "method", "") or "",
-            error_class=getattr(out, "error_class", "") or "")
-    except Exception:
-        pass
+            error_class=getattr(out, "error_class", "") or "",
+            detail={"why": "terminal before the claim stage"})
     return out

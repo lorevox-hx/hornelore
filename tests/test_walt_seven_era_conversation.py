@@ -230,8 +230,11 @@ class PreflightAndCompletenessTests(unittest.TestCase):
         self.assertIn("&& report.traceCompleteness.complete", self.src)
 
     def test_completeness_counts_expected_traces_and_raw_text(self):
-        self.assertIn("const expectedTraces = 1 + (report.eras.length * 2)",
-                      self.src)
+        """*(Asserted the hardcoded `1 + eras*2`. That was an ASSUMPTION
+        about the product — if an era click produced two model turns the
+        arithmetic would silently disagree with reality. Replaced by the
+        turn manifest, which counts observed `done` events.)*"""
+        self.assertIn("report.turnManifest.reduce(", self.src)
         self.assertIn("withRaw", self.src)
         self.assertIn("instrumentationFailures", self.src)
 
@@ -243,9 +246,15 @@ class PreflightAndCompletenessTests(unittest.TestCase):
         self.assertIn("NOT per-turn attribution", self.src)
         self.assertIn("perTurnAttribution", self.src)
 
-    def test_rolling_summary_and_archive_stay_not_measured(self):
-        self.assertIn('rolling_summary: { result: "not_measured"', self.src)
+    def test_archive_stays_not_measured_but_rolling_summary_does_not(self):
+        """*(Asserted BOTH stay not_measured. Wrong for rolling summary:
+        the 20260831T152542Z API log shows GET and POST on it after every
+        turn, so it is live and was simply never read. Archive really is
+        uninstrumented and stays.)*"""
         self.assertIn('archive: { result: "not_measured"', self.src)
+        self.assertNotIn('rolling_summary: { result: "not_measured"',
+                         self.src)
+        self.assertIn("/api/transcript/rolling-summary?person_id=", self.src)
 
     def test_identity_waits_for_the_expected_display_name(self):
         self.assertIn("expectedDisplayName", self.src)
@@ -266,3 +275,102 @@ class StartAllPropagatesTheFlagTests(unittest.TestCase):
             encoding="utf-8")
         self.assertIn("RESPONSE_TRACE:-0}", sh,
                       "tracing must remain opt-in")
+
+
+class TraceFinalizationOnTheLivePathTests(unittest.TestCase):
+    """The 20260831T152542Z run lost all fifteen traces this way."""
+
+    def setUp(self):
+        self.src = (_REPO_ROOT / "server" / "code" / "api" / "services"
+                    / "turn_extraction.py").read_text(encoding="utf-8")
+
+    def test_the_finalizer_wraps_the_scheduled_path(self):
+        """chat_ws calls schedule_completed_turn_extraction, which runs
+        _complete_claim — NOT extract_completed_turn."""
+        self.assertIn("async def _complete_claim(claim: _Claim)", self.src)
+        self.assertIn("async def _complete_claim_inner(claim: _Claim)",
+                      self.src)
+        head = self.src[self.src.index("async def _complete_claim(claim"):
+                        self.src.index("async def _complete_claim_inner")]
+        self.assertIn("_finalize_extraction_trace", head)
+        self.assertIn("except BaseException", head)
+
+    def test_chat_ws_uses_the_scheduler_the_wrapper_now_covers(self):
+        ws = (_REPO_ROOT / "server" / "code" / "api" / "routers"
+              / "chat_ws.py").read_text(encoding="utf-8")
+        self.assertIn("schedule_completed_turn_extraction", ws)
+
+
+class TurnManifestTests(unittest.TestCase):
+    def setUp(self):
+        raw = (_REPO_ROOT / "scripts" / "ui"
+               / "run_walt_seven_era_conversation.js").read_text(
+                   encoding="utf-8")
+        self.src = IdentityIsVerifiedAgainstStateTests._code_only(raw)
+
+    def test_the_hardcoded_count_is_gone(self):
+        self.assertNotIn("1 + (report.eras.length * 2)", self.src)
+
+    def test_expected_traces_come_from_the_manifest(self):
+        self.assertIn("report.turnManifest.reduce(", self.src)
+        self.assertIn("doneEvents", self.src)
+
+    def test_every_send_site_records_a_manifest_entry(self):
+        for kind in ('"bio_probe"', '"era_prompt"', '"narrator_turn"'):
+            self.assertIn(kind, self.src)
+
+    def test_manifest_counts_observed_done_events(self):
+        self.assertIn("doneEventsObserved", self.src)
+
+
+class PartialRunEvidenceTests(unittest.TestCase):
+    def setUp(self):
+        raw = (_REPO_ROOT / "scripts" / "ui"
+               / "run_walt_seven_era_conversation.js").read_text(
+                   encoding="utf-8")
+        self.src = IdentityIsVerifiedAgainstStateTests._code_only(raw)
+
+    def test_the_trace_is_collected_on_the_failure_path(self):
+        catch = self.src[self.src.index("} catch (error) {"):]
+        self.assertIn("tracesForRun", catch)
+        self.assertIn("report.responseTrace", catch)
+
+    def test_a_partial_run_never_claims_completeness(self):
+        catch = self.src[self.src.index("} catch (error) {"):]
+        self.assertIn("complete: false", catch)
+        self.assertIn("report.partial = true", catch)
+
+    def test_the_output_dir_is_created_after_preflight(self):
+        mk = self.src.index("fs.mkdirSync(shotDir")
+        refuse = self.src.index("REFUSED: the API reports")
+        self.assertGreater(mk, refuse,
+                           "a refused run must not leave an empty "
+                           "timestamped directory")
+
+
+class RollingSummaryIsMeasuredTests(unittest.TestCase):
+    def setUp(self):
+        raw = (_REPO_ROOT / "scripts" / "ui"
+               / "run_walt_seven_era_conversation.js").read_text(
+                   encoding="utf-8")
+        self.src = IdentityIsVerifiedAgainstStateTests._code_only(raw)
+
+    def test_the_snapshot_reads_rolling_summary(self):
+        self.assertIn("/api/transcript/rolling-summary?person_id=", self.src)
+
+    def test_it_is_no_longer_hardcoded_not_measured(self):
+        self.assertNotIn('rolling_summary: { result: "not_measured"', self.src)
+        self.assertIn("beforeChars", self.src)
+        self.assertIn("afterChars", self.src)
+
+    def test_a_dead_endpoint_is_measurement_failed_not_absent(self):
+        self.assertIn('result: "measurement_failed"', self.src)
+
+
+class PostBudgetContextTests(unittest.TestCase):
+    def test_the_trace_captures_the_real_model_context(self):
+        ws = (_REPO_ROOT / "server" / "code" / "api" / "routers"
+              / "chat_ws.py").read_text(encoding="utf-8")
+        self.assertIn('"post_budget_messages"', ws)
+        self.assertIn("_budget.messages", ws)
+        self.assertIn("_budget.sections", ws)

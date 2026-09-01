@@ -309,6 +309,7 @@ async function sendTypedTurn(page, text, expectedEra) {
   }
   const evidence = await actionEvidence(page, before, expectedEra);
   evidence.extractionReceived = extractionReceived;
+  evidence.doneEventsObserved = (await captureCounts(page)).done - before.done;
   return evidence;
 }
 
@@ -350,13 +351,20 @@ async function safeFetchJson(url) {
 
 async function serverSnapshot(api, personId) {
   const q = encodeURIComponent(personId);
-  const [person, facts, projection, chronology] = await Promise.all([
+  /* Rolling summary is INCLUDED because the 20260831T152542Z API log
+   * proves it is live — GET and POST after every turn. Calling it
+   * "not instrumented" was wrong; it was simply never read. It is
+   * `not_measured` only for as long as nothing inspects its contents,
+   * and this reads them. */
+  const [person, facts, projection, chronology, summary] = await Promise.all([
     safeFetchJson(`${api}/api/people/${q}`),
     safeFetchJson(`${api}/api/facts/list?person_id=${q}`),
     safeFetchJson(`${api}/api/interview/projection?person_id=${q}`),
     safeFetchJson(`${api}/api/chronology-accordion?person_id=${q}`),
+    safeFetchJson(`${api}/api/transcript/rolling-summary?person_id=${q}`),
   ]);
-  return { at: new Date().toISOString(), person, facts, projection, chronology };
+  return { at: new Date().toISOString(), person, facts, projection,
+           chronology, summary };
 }
 
 function logOffset(filename) {
@@ -611,7 +619,10 @@ async function main() {
   const apiLogPath = path.resolve(args.apiLog || path.join(repoRoot, ".runtime", "logs", "api.log"));
   const apiLogStart = logOffset(apiLogPath);
   const shotDir = path.join(outDir, "screenshots");
-  fs.mkdirSync(shotDir, { recursive: true });
+  // NOTE: the directory is created AFTER preflight. A refused run used
+  // to leave an empty timestamped folder that reads like a failed
+  // evaluation — the same class of error as reporting a broken
+  // measurement as absence.
 
   let chromium;
   try { ({ chromium } = require("playwright")); }
@@ -639,6 +650,8 @@ async function main() {
     }
   }
 
+  fs.mkdirSync(shotDir, { recursive: true });
+
   const beforeServer = await serverSnapshot(args.api, narrator.person_id);
   const productPerson = beforeServer.person?.body?.person || null;
   const actualDisplayName = String(productPerson?.display_name || "");
@@ -665,6 +678,13 @@ async function main() {
     eras: [],
     transcript: [],
     diagnostics: { consoleErrors: [], failedRequests: [], httpErrors: [] },
+    /* THE TURN MANIFEST. Every model turn this harness caused, recorded
+     * as it happens. Replaces a hardcoded `1 + eras*2`, which was an
+     * ASSUMPTION about the product — if an era click ever produced two
+     * model turns, or a turn was dropped, the arithmetic would have
+     * silently disagreed with reality and completeness would have been
+     * measured against a guess. */
+    turnManifest: [],
   };
 
   const browser = await chromium.launch({ headless: !args.headed });
@@ -731,14 +751,23 @@ async function main() {
     report.conversationId = await page.evaluate(() => window.state?.chat?.conv_id || null);
 
     const bioEvidence = await sendTypedTurn(page, BIO_PROBE, null);
+    report.turnManifest.push({ kind: "bio_probe", era: null,
+      doneEvents: bioEvidence.doneEventsObserved,
+      conversationId: report.conversationId });
     const bioHits = BIO_ANCHORS.filter((group) => group.terms.some((term) => normalized(bioEvidence.finalText).includes(term)));
     report.bio = { prompt: BIO_PROBE, response: bioEvidence.finalText, hits: bioHits, evidence: bioEvidence };
     report.transcript.push({ era: null, role: "narrator", text: BIO_PROBE }, { era: null, role: "lori", text: bioEvidence.finalText || "" });
 
     for (const era of ERAS) {
       const eraPrompt = await selectEraAndWait(page, era);
+      report.turnManifest.push({ kind: "era_prompt", era: era.id,
+        doneEvents: eraPrompt.doneEventsObserved,
+        conversationId: report.conversationId });
       report.transcript.push({ era: era.id, role: "lori", kind: "era_prompt", text: eraPrompt.finalText || "" });
       const narratorEvidence = await sendTypedTurn(page, era.narrator, era.id);
+      report.turnManifest.push({ kind: "narrator_turn", era: era.id,
+        doneEvents: narratorEvidence.doneEventsObserved,
+        conversationId: report.conversationId });
       const hits = anchorHits(narratorEvidence.finalText, era.anchors);
       const rowEvidence = {
         id: era.id,
@@ -834,8 +863,27 @@ async function main() {
           : "queried at the API origin; a failure here is measurement_failed "
           + "and is NOT evidence that memoir data is absent",
       },
-      rolling_summary: { result: "not_measured",
-        note: "no instrumentation exists for this stage" },
+      rolling_summary: (() => {
+        const before = report.beforeServer?.summary;
+        const after = report.afterServer?.summary;
+        if (!after?.ok) {
+          return { result: "measurement_failed", status: after?.status ?? null,
+                   note: "the rolling-summary endpoint did not answer" };
+        }
+        const txt = (x) => JSON.stringify(x?.body ?? "");
+        const changed = txt(before) !== txt(after);
+        return {
+          result: changed ? "persisted" : "measured_absent",
+          changed,
+          beforeChars: txt(before).length,
+          afterChars: txt(after).length,
+          before: before?.body ?? null,
+          after: after?.body ?? null,
+          note: changed
+            ? "the summary changed across the run; contents captured"
+            : "the endpoint answered and the summary did not change",
+        };
+      })(),
       archive: { result: "not_measured",
         note: "no instrumentation exists for this stage" },
     };
@@ -845,7 +893,11 @@ async function main() {
      * every era but recorded no raw-response evidence has not done the
      * job this work order asks for, so trace completeness is part of
      * PASS rather than a footnote. */
-    const expectedTraces = 1 + (report.eras.length * 2);
+    /* Expected traces come from the MANIFEST — the model turns this run
+     * actually caused, counted by observed `done` events — not from
+     * arithmetic over the era list. */
+    const expectedTraces = report.turnManifest.reduce(
+      (n, t) => n + Math.max(1, t.doneEvents || 1), 0);
     const tracedTurns = report.responseTrace.turns;
     const withRaw = report.responseTrace.records.filter(
       (r) => typeof r.raw_text === "string" && r.raw_text.length > 0).length;
@@ -853,6 +905,8 @@ async function main() {
       (r) => r.instrumentation_failed === true);
     report.traceCompleteness = {
       expectedTraces, tracedTurns, withRaw,
+      manifest: report.turnManifest,
+      manifestEntries: report.turnManifest.length,
       instrumentationFailures: instrumentationFailures.length,
       missingRequiredContext: instrumentationFailures
         .flatMap((r) => r.missing_required_context || []),
@@ -865,11 +919,36 @@ async function main() {
       && Boolean(report.bio.response)
       && report.traceCompleteness.complete;
   } catch (error) {
+    /* A throw at era 7 must not discard six eras of evidence. The
+     * 20260831T152542Z run lost its entire response trace this way:
+     * the attachment lived only on the success path, so the duplicate
+     * Today button cost the trace as well as the era. */
     report.error = String(error && error.stack || error);
     report.mechanicalPass = false;
+    report.partial = true;
     try { report.websocket = await page.evaluate(() => window.__waltEraCapture); } catch (_) {}
     report.beforeServer = beforeServer;
     report.afterServer = await serverSnapshot(args.api, narrator.person_id);
+    try {
+      report.traceHealth = traceHealth.body || null;
+      await new Promise((r) => setTimeout(r, 4000));
+      const partialTraced = tracesForRun(repoRoot, runStartedMs,
+        narrator.person_id, report.conversationId);
+      report.responseTrace = {
+        available: partialTraced.available, dir: partialTraced.dir,
+        turns: partialTraced.records.length, records: partialTraced.records,
+        retention: retentionSummary(partialTraced.records),
+        note: "collected after a failure; covers the turns that completed",
+      };
+      report.traceCompleteness = {
+        expectedTraces: report.turnManifest.reduce(
+          (n, t) => n + Math.max(1, t.doneEvents || 1), 0),
+        tracedTurns: partialTraced.records.length,
+        manifest: report.turnManifest,
+        complete: false,
+        note: "run did not finish; completeness is not claimed",
+      };
+    } catch (_) { /* evidence collection must not mask the real error */ }
   } finally {
     report.finishedAt = new Date().toISOString();
     report.apiLogEvidence = readRelevantLogDelta(

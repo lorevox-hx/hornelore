@@ -1085,9 +1085,31 @@ function _lvInterviewRenderLifeMap() {
   // Period.label/era_id is canonical after Step 3d's initTimelineSpine
   // migration; canonicalize defensively for any stale cached spine.
   const _toEraId = (v) => (typeof _canonicalEra === "function") ? _canonicalEra(v) : v;
-  const eraIds = periods.length
+  // ── DUPLICATE TODAY, fixed 2026-08-31 ─────────────────────────────
+  //
+  // `defaultEraIds` above filters `today` out, because Today is
+  // rendered separately as its own anchor further down. The hydrated
+  // `periods` branch did NOT, so any narrator whose timeline spine
+  // contained a `today` period got TWO buttons carrying
+  // data-era-id="today" — the ordinary loop's, and the anchor's.
+  //
+  // This is not a fragile-selector problem. Two controls for one era
+  // is a product defect: `document.querySelector` and a plain
+  // Playwright locator both take the first, an operator clicking the
+  // second gets a different element than the one the code addresses,
+  // and the seven-era walk cannot say which one a narrator used. It
+  // blocked era 7 of the 20260831T152542Z run after six eras had
+  // already completed.
+  //
+  // Both branches are now filtered identically, and the list is
+  // de-duplicated: a spine that repeats an era must not repeat its
+  // button either.
+  const _seenEra = new Set();
+  const eraIds = (periods.length
     ? periods.map(p => _toEraId(p.era_id || p.label)).filter(Boolean)
-    : defaultEraIds;
+    : defaultEraIds)
+    .filter(eid => eid !== "today")
+    .filter(eid => { if (_seenEra.has(eid)) return false; _seenEra.add(eid); return true; });
 
   const _warm = (eid) => (window.LorevoxEras && typeof window.LorevoxEras.eraIdToWarmLabel === "function")
     ? window.LorevoxEras.eraIdToWarmLabel(eid)
