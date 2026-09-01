@@ -23,8 +23,20 @@ CONTROL = "5a56f942-001b-453b-8e4d-01fb82062013"
 
 
 def _code_only(src: str) -> str:
-    src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
-    return re.sub(r"(?m)^\s*//[^\n]*", "", src)
+    """Strip comments WITHOUT eating code.
+
+    A naive ``/\*.*?\*/`` sub is wrong here: the glob
+    ``"**/api/operator/story-candidates/**"`` contains ``/*``, so the
+    regex matched from inside that string literal to the next ``*/`` and
+    swallowed the middle of the file. Eleven assertions then failed
+    against source that had been corrupted by the test helper — and in a
+    different arrangement they would have passed falsely instead.
+
+    Block comments in this file always begin a line, so only those are
+    removed.
+    """
+    src = re.sub(r"(?ms)^[ \t]*/\*.*?\*/[ \t]*\n?", "", src)
+    return re.sub(r"(?m)^\s*//[^\n]*$", "", src)
 
 
 class _Base(unittest.TestCase):
@@ -61,8 +73,12 @@ class ExactRowSelectionTests(_Base):
         self.assertIn("2_row_located", self.src)
 
     def test_detail_is_opened_and_full_transcript_verified(self):
+        """*(Was `showsFullPassage`, which searched the whole document
+        body. The check is now row-scoped and compares the selected row's
+        .story-transcript for equality with the complete passage.)*"""
         self.assertIn("2b_detail_verified", self.src)
-        self.assertIn("showsFullPassage", self.src)
+        self.assertIn("transcriptEqualsTarget", self.src)
+        self.assertNotIn("showsFullPassage", self.src)
 
     def test_it_refuses_unless_exactly_one_promote_control(self):
         self.assertIn("n !== 1", self.src)
@@ -206,3 +222,135 @@ class WithdrawnClaimTests(_Base):
 
 if __name__ == "__main__":      # pragma: no cover
     unittest.main()
+
+
+class RequireIsInertTests(_Base):
+    """A bare require() must not start a live probe run.
+
+    The behavioural DOM test imports the selection functions from the
+    probe. On the first attempt that import executed the probe's main
+    body: it resolved Playwright, created an output directory and
+    launched a browser against the live stack.
+    """
+
+    def test_side_effects_are_behind_a_direct_execution_guard(self):
+        self.assertIn("if (require.main !== module) { return; }", self.src)
+
+    def test_the_guard_precedes_every_side_effect(self):
+        i_guard = self.src.index("require.main !== module")
+        for effect in ("chromium.launch", "fs.mkdirSync", 'require("playwright")'):
+            self.assertLess(i_guard, self.src.index(effect),
+                            f"{effect} must sit behind the guard")
+
+    def test_requiring_it_exports_the_contract_and_does_nothing_else(self):
+        out = subprocess.run(
+            ["node", "-e",
+             "const m=require('./scripts/ui/phase1_memoir_chain_probe.js');"
+             "console.log(Object.keys(m).sort().join(','))"],
+            capture_output=True, text=True, timeout=60, cwd=str(ROOT))
+        self.assertEqual(0, out.returncode, out.stderr)
+        self.assertEqual("OPEN_DETAIL,SELECT_ROW,VERIFY_ROW", out.stdout.strip())
+
+
+class BehaviouralDomTests(unittest.TestCase):
+    """The real DOM contract, exercised in a browser.
+
+    Source-string assertions passed against code that could never work:
+    the probe looked for getAttribute("onclick") while the shipped panel
+    attaches handlers with addEventListener. Only a behavioural test sees
+    that, so this runs the probe's own exported functions against a
+    synthetic panel built the way the real one is built.
+    """
+
+    DOMTEST = ROOT / "scripts" / "ui" / "phase1_row_selection_domtest.js"
+
+    def test_the_dom_test_exists_and_parses(self):
+        self.assertTrue(self.DOMTEST.is_file())
+        r = subprocess.run(["node", "--check", str(self.DOMTEST)],
+                           capture_output=True, text=True, timeout=60)
+        self.assertEqual(0, r.returncode, r.stderr)
+
+    def test_it_covers_the_handler_mismatch_that_greps_missed(self):
+        src = self.DOMTEST.read_text(encoding="utf-8")
+        self.assertIn("addEventListener", src)
+        self.assertIn("an onclick-attribute search would have found nothing", src)
+        self.assertIn("a global first() would have promoted row-other", src)
+
+    def test_it_runs_green_where_a_browser_is_available(self):
+        r = subprocess.run(["node", str(self.DOMTEST)],
+                           capture_output=True, text=True, timeout=180, cwd=str(ROOT))
+        combined = r.stdout + r.stderr
+        if "Executable doesn't exist" in combined or "playwright install" in combined:
+            self.skipTest("no Playwright browser binary here — run this in WSL")
+        self.assertEqual(0, r.returncode, combined[-1500:])
+        self.assertIn("DOM TEST PASS", r.stdout)
+
+
+class CanonicalStrictnessTests(_Base):
+    def test_canonical_requires_the_complete_passage(self):
+        self.assertIn('String(s.text || "").includes(PASSAGE)', self.src)
+        self.assertNotIn('String(s.text || "").includes(PASSAGE_HEAD)', self.src)
+
+    def test_era_and_source_id_gate_the_result(self):
+        self.assertIn("canonHits.length === 1 && eraOK && srcOK", self.src)
+        self.assertIn('hit.era === ERA', self.src)
+        self.assertIn("String(hit.source_id || \"\").includes(TARGET)", self.src)
+
+
+class SubstitutionScanTests(_Base):
+    def test_the_full_panel_text_is_preserved(self):
+        self.assertIn("fullText: t", self.src)
+
+    def test_the_scan_is_case_insensitive_over_all_three_surfaces(self):
+        self.assertIn("haystack.includes(lc(f))", self.src)
+        self.assertIn("lc(panel.fullText)", self.src)
+        self.assertIn("lc(R.docxFullText)", self.src)
+
+    def test_it_no_longer_inspects_only_the_head(self):
+        self.assertNotIn("(panel.head || \"\").includes(f)", self.src)
+
+
+class PromotionProofTests(_Base):
+    def test_proof_is_recorded_only_after_a_successful_target_patch(self):
+        self.assertIn("R.observed.patch && R.observed.patch.targetedTarget"
+                      " && R.observed.patch.status < 400", self.src)
+
+    def test_it_is_saved_immediately(self):
+        i = self.src.index("R.promotedAt = new Date().toISOString();")
+        self.assertIn("save();", self.src[i:i + 120])
+
+    def test_a_failed_patch_records_no_proof(self):
+        self.assertIn("no promotion proof recorded", self.raw)
+
+
+class FilterSubmissionTests(_Base):
+    def test_the_filter_is_submitted_not_merely_filled(self):
+        self.assertIn('filter.press("Enter")', self.src)
+
+    def test_it_waits_for_the_refreshed_list(self):
+        i = self.src.index('filter.press("Enter")')
+        window = self.src[max(0, i - 400):i]
+        self.assertIn("waitForResponse", window)
+
+    def test_it_uses_the_real_filter_class(self):
+        self.assertIn(".story-filter-input", self.src)
+
+
+class RowScopedSelectionTests(_Base):
+    def test_it_uses_the_real_dom_classes(self):
+        for cls in (".story-row", ".story-preview-btn", ".story-detail",
+                    ".story-transcript"):
+            self.assertIn(cls, self.src)
+
+    def test_no_onclick_attribute_search_remains(self):
+        self.assertNotIn('getAttribute("onclick")', self.src)
+
+    def test_row_selection_requires_exactly_one_match(self):
+        self.assertIn("matching.length === 1", self.src)
+
+    def test_the_promote_click_is_scoped_to_the_row(self):
+        self.assertIn('page.locator(".story-row", { hasText: PASSAGE_HEAD })', self.src)
+
+    def test_the_transcript_must_equal_the_target(self):
+        self.assertIn("transcriptEqualsTarget", self.src)
+        self.assertIn("text === full.trim()", self.src)

@@ -44,6 +44,58 @@ const PASSAGE_HEAD = "I went to Kent State for my education degree.";
 const FORBIDDEN_SUBSTITUTIONS = ["father died", "my father, Jim", "father Jim",
                                  "parents.deathDate", "Harold died"];
 
+/* ── ROW SELECTION CONTRACT ─────────────────────────────────────────
+ * Exported so a behavioural DOM test can run this exact code against a
+ * synthetic Bug Panel. String assertions cannot catch a handler
+ * mismatch: the prior revision looked for getAttribute("onclick"), but
+ * bug-panel-story-review.js:168 attaches handlers with addEventListener,
+ * so the detail could never have opened and every grep-test still passed.
+ *
+ * Real contract, from that file:
+ *   .story-row              a candidate row            (:798)
+ *   .story-preview-btn      opens the detail on click  (:792)
+ *   .story-detail           the opened detail          (:746)
+ *   .story-transcript       the full transcript in it  (:731)
+ *   .story-filter-input     narrator filter; Enter -> fetchReview()  (:811)
+ */
+const SELECT_ROW = function (head) {
+  const rows = Array.from(document.querySelectorAll(".story-row"));
+  const matching = rows.filter((r) => {
+    const b = r.querySelector(".story-preview-btn");
+    return b && (b.textContent || "").includes(head);
+  });
+  return { rows: rows.length, matching: matching.length,
+           ok: matching.length === 1,
+           preview: matching[0]
+             ? (matching[0].querySelector(".story-preview-btn").textContent || "").slice(0, 160)
+             : null };
+};
+const OPEN_DETAIL = function (head) {
+  const rows = Array.from(document.querySelectorAll(".story-row"));
+  const matching = rows.filter((r) => {
+    const b = r.querySelector(".story-preview-btn");
+    return b && (b.textContent || "").includes(head);
+  });
+  if (matching.length !== 1) return { clicked: false, matching: matching.length };
+  matching[0].querySelector(".story-preview-btn").click();   // real handler
+  return { clicked: true, matching: 1 };
+};
+const VERIFY_ROW = function (head, full) {
+  const row = Array.from(document.querySelectorAll(".story-row")).find((r) => {
+    const b = r.querySelector(".story-preview-btn");
+    return b && (b.textContent || "").includes(head);
+  });
+  if (!row) return { found: false };
+  const detail = row.querySelector(".story-detail");
+  const tr = detail && detail.querySelector(".story-transcript");
+  const text = tr ? (tr.textContent || "").trim() : null;
+  return { found: true, detailOpen: Boolean(detail), hasTranscript: Boolean(tr),
+           transcriptEqualsTarget: text === full.trim(),
+           transcriptLen: text ? text.length : 0,
+           promoteControlsInRow: row.querySelectorAll(".story-act-promote").length };
+};
+if (typeof module !== "undefined") module.exports = { SELECT_ROW, OPEN_DETAIL, VERIFY_ROW };
+
 const ROOT = path.join(REPO, ".runtime", "eval", "phase1-memoir-chain");
 const arg = (f) => { const i = process.argv.indexOf(f); return i > -1 ? process.argv[i + 1] : null; };
 
@@ -67,6 +119,14 @@ if (process.argv.includes("--self-test")) {
   console.log("SELF-TEST PASS — row scoping, PATCH guard, real observation, docx proof, finally control");
   process.exit(0);
 }
+
+/* ── DIRECT EXECUTION ONLY ──────────────────────────────────────────
+ * Everything below has side effects: it resolves Playwright, creates an
+ * output directory and launches a browser against the live stack. A bare
+ * `require()` of this file MUST NOT do any of that — the behavioural DOM
+ * test imports SELECT_ROW/OPEN_DETAIL/VERIFY_ROW from here, and on the
+ * first attempt that import started a live probe run. */
+if (require.main !== module) { return; }
 
 const { chromium } = (() => {
   try { return require("playwright"); } catch (_) {}
@@ -203,61 +263,69 @@ function docxText(file) {
     }
     step("1_preconditions", { result: "PASS", detail: `status=${status} mode=${prior ? "resume" : "fresh"}` });
 
-    // ── LINK 2: find PAT'S EXACT ROW, not the first row ──────────────
+    // ── LINK 2: Pat's EXACT row, via the real DOM contract ───────────
     await page.evaluate(() => {
       const el = document.getElementById("lv10dBugPanelBtn") ||
                  document.querySelector('[onclick*="BugPanel"],[id*="ugPanel"]');
       if (el) el.click();
     });
     await page.waitForTimeout(1200);
-    // Narrow by narrator first so the list is Pat's, then disambiguate her
-    // two candidates by the target passage. `.first()` on a global list
-    // could promote the control — that was the defect in the prior revision.
-    const filter = page.locator('input[placeholder*="arrator" i], #storyNarratorFilter').first();
-    if (await filter.count()) { await filter.fill(PERSON); await page.waitForTimeout(1500); }
-    const matching = await page.locator("*", { hasText: PASSAGE_HEAD }).count();
-    const rowInfo = await page.evaluate((head) => {
-      const nodes = Array.from(document.querySelectorAll("*")).filter(
-        (n) => n.children.length === 0 && (n.textContent || "").includes(head));
-      return { textNodes: nodes.length, sample: nodes[0] ? nodes[0].textContent.slice(0, 120) : null };
-    }, PASSAGE_HEAD);
-    step("2_row_located", {
-      result: rowInfo.textNodes >= 1 ? "PASS" : "FAIL",
-      detail: `rows showing the target passage: ${rowInfo.textNodes}`,
-      sample: rowInfo.sample, matchingElements: matching,
-      note: "the only promote control lives in the Bug Panel — Phase 7 gap, not fixed here" });
-    if (!rowInfo.textNodes) throw new Error("target row not visible in the review surface");
 
-    // Open that row's detail and verify the FULL transcript before promoting.
-    await page.evaluate((head) => {
-      const n = Array.from(document.querySelectorAll("*")).find(
-        (x) => x.children.length === 0 && (x.textContent || "").includes(head));
-      let el = n; while (el && el !== document.body) {
-        if (el.getAttribute && el.getAttribute("onclick")) { el.click(); return; }
-        el = el.parentElement;
-      }
-      if (n && n.parentElement) n.parentElement.click();
-    }, PASSAGE_HEAD);
-    await page.waitForTimeout(1500);
-    const detail = await page.evaluate((p) => {
-      const t = document.body.innerText || "";
-      return { showsFullPassage: t.includes(p), chars: t.length };
-    }, PASSAGE);
+    // Fill the filter AND submit it the way the panel does — Enter calls
+    // fetchReview(). Filling alone left the list unrefreshed.
+    const filter = page.locator(".story-filter-input").first();
+    if (await filter.count()) {
+      await filter.fill(PERSON);
+      const [listRes] = await Promise.all([
+        page.waitForResponse((r) => r.url().includes("/api/operator/story-candidates"),
+                             { timeout: 20000 }).catch(() => null),
+        filter.press("Enter"),
+      ]);
+      R.observed.reviewList = listRes ? { url: listRes.url(), status: listRes.status() } : null;
+      await page.waitForTimeout(1200);
+    }
+
+    const sel = await page.evaluate(SELECT_ROW, PASSAGE_HEAD);
+    step("2_row_located", {
+      result: sel.ok ? "PASS" : "FAIL",
+      detail: `.story-row total=${sel.rows} matching the target passage=${sel.matching} (need exactly 1)`,
+      preview: sel.preview, reviewListRequest: R.observed.reviewList,
+      note: "the only promote control lives in the Bug Panel — Phase 7 gap, not fixed here" });
+    if (!sel.ok) throw new Error(`row selection is not unambiguous: ${sel.matching} matches`);
+
+    // Click the real .story-preview-btn — handlers are addEventListener,
+    // so an onclick-attribute search finds nothing.
+    const opened = await page.evaluate(OPEN_DETAIL, PASSAGE_HEAD);
+    await page.waitForTimeout(2000);
+    const rowState = await page.evaluate(
+      ([h, f]) => VERIFY_ROW(h, f), [PASSAGE_HEAD, PASSAGE]);
     step("2b_detail_verified", {
-      result: detail.showsFullPassage ? "PASS" : "FAIL",
-      detail: `detail shows the complete target transcript: ${detail.showsFullPassage}` });
-    if (!detail.showsFullPassage) throw new Error("open detail does not show the target transcript");
+      result: (opened.clicked && rowState.detailOpen && rowState.transcriptEqualsTarget
+               && rowState.promoteControlsInRow === 1) ? "PASS" : "FAIL",
+      detail: `detailOpen=${rowState.detailOpen} transcriptEqualsTarget=`
+            + `${rowState.transcriptEqualsTarget} promoteControlsInRow=`
+            + `${rowState.promoteControlsInRow}`,
+      rowState });
+    if (!rowState.transcriptEqualsTarget) {
+      throw new Error("the opened row's .story-transcript does not equal the target passage");
+    }
+    if (rowState.promoteControlsInRow !== 1) {
+      R.refusals.push(`REFUSED: ${rowState.promoteControlsInRow} promote controls inside the target row`);
+      throw new Error("promote control inside the target row is not unique");
+    }
 
     // ── LINK 3: promote, never twice ─────────────────────────────────
     const already = String(status) === "promoted";
     if (already && prior) {
       console.log(`  [3] resume — promoted by ${prior.runId}; NOT re-promoting`);
     } else {
-      const btn = page.locator(".story-act-promote");
+      // Scoped to the row whose transcript was just verified.
+      const btn = page.locator(".story-row", { hasText: PASSAGE_HEAD })
+                      .locator(".story-act-promote");
       const n = await btn.count();
       if (n !== 1) {
-        R.refusals.push(`REFUSED: ${n} promote controls visible after scoping; need exactly 1`);
-        step("3_promoted", { result: "REFUSED", detail: `${n} promote controls visible — refusing to guess` });
+        R.refusals.push(`REFUSED: ${n} promote controls in the target row; need exactly 1`);
+        step("3_promoted", { result: "REFUSED", detail: `${n} promote controls — refusing to guess` });
         throw new Error("promote control is not unambiguous");
       }
       promotionAttempted = true;
@@ -269,7 +337,16 @@ function docxText(file) {
       R.observed.patch = patchRes
         ? { url: patchRes.url(), status: patchRes.status(), targetedTarget: patchRes.url().includes(TARGET) }
         : null;
-      R.promotedCandidateId = TARGET; R.promotedAt = new Date().toISOString();
+      /* Promotion proof is recorded ONLY after an observed PATCH to the
+       * target returned success, and saved immediately — a missing or
+       * failed PATCH must leave no proof a later --resume could trust. */
+      if (R.observed.patch && R.observed.patch.targetedTarget && R.observed.patch.status < 400) {
+        R.promotedCandidateId = TARGET;
+        R.promotedAt = new Date().toISOString();
+        save();
+      } else {
+        R.refusals.push("no promotion proof recorded: PATCH missing or failed");
+      }
       await page.waitForTimeout(2000);
     }
     const after = await api(`/api/operator/story-candidates/${TARGET}`);
@@ -287,13 +364,20 @@ function docxText(file) {
     // ── LINK 4: canonical (diagnosis + occurrence count) ─────────────
     const canon = await api(`/api/memoir/canonical?person_id=${PERSON}`);
     const stories = (canon.body && canon.body.stories) || [];
-    const canonHits = stories.filter((s) => String(s.text || "").includes(PASSAGE_HEAD));
+    // The COMPLETE passage, not just its opening sentence.
+    const canonHits = stories.filter((s) => String(s.text || "").includes(PASSAGE));
     const canonText = stories.map((s) => s.text || "").join("\n");
+    const hit = canonHits[0] || null;
+    const eraOK = Boolean(hit && hit.era === ERA);
+    // source_id is a rendered form of the candidate id; require the id inside it.
+    const srcOK = Boolean(hit && String(hit.source_id || "").includes(TARGET));
     step("4_canonical", {
-      result: canon.ok && canonHits.length === 1 ? "PASS" : "FAIL",
-      detail: `status=${canon.status} stories=${stories.length} occurrences=${canonHits.length}`,
-      era: canonHits[0] && canonHits[0].era, source_id: canonHits[0] && canonHits[0].source_id,
-      eraCorrect: Boolean(canonHits[0] && canonHits[0].era === ERA),
+      result: (canon.ok && canonHits.length === 1 && eraOK && srcOK) ? "PASS" : "FAIL",
+      detail: `status=${canon.status} stories=${stories.length} fullPassageOccurrences=`
+            + `${canonHits.length} eraCorrect=${eraOK} sourceIdMatches=${srcOK}`,
+      era: hit && hit.era, expectedEra: ERA,
+      source_id: hit && hit.source_id, expectedCandidate: TARGET,
+      eraCorrect: eraOK, sourceIdCorrect: srcOK,
       lanes: canon.body && canon.body.lanes });
     R.canonical = canon.body; save();
 
@@ -310,8 +394,11 @@ function docxText(file) {
     const panel = await page.evaluate((p) => {
       const el = document.getElementById("memoirScrollPopover");
       const t = el ? (el.innerText || "") : "";
+      // The COMPLETE panel text is preserved — a 200-char head cannot show
+      // whether a false family fact was substituted further down.
       return { present: Boolean(el), visible: Boolean(el && el.offsetParent !== null),
-               occurrences: t.split(p).length - 1, chars: t.length, head: t.slice(0, 200) };
+               occurrences: t.split(p).length - 1, chars: t.length,
+               head: t.slice(0, 200), fullText: t };
     }, PASSAGE);
     const wrongOrigin = Boolean(R.observed.memoirRequest
       && R.observed.memoirRequest.status === 404
@@ -348,10 +435,13 @@ function docxText(file) {
       if (saved && fs.existsSync(saved)) {
         try {
           const t = docxText(saved);
+          R.docxFullText = t;
+          const tl = t.toLowerCase();
           docx = { file: path.basename(saved), bytes: fs.statSync(saved).size,
                    occurrences: count(t, PASSAGE),
                    headOccurrences: count(t, PASSAGE_HEAD),
-                   forbidden: FORBIDDEN_SUBSTITUTIONS.filter((f) => t.includes(f)) };
+                   forbidden: FORBIDDEN_SUBSTITUTIONS.filter(
+                     (f) => tl.includes(f.toLowerCase())) };
         } catch (e) { docx = { readError: e.message }; }
       }
       step("6_export", {
@@ -366,9 +456,11 @@ function docxText(file) {
     // ── LINK 8: agreement across the three surfaces ──────────────────
     const cOcc = canonHits.length, pOcc = panel.occurrences,
           dOcc = R.docx ? R.docx.occurrences : null;
+    // Case-insensitive, across the FULL text of all three surfaces.
+    const lc = (x) => String(x || "").toLowerCase();
+    const haystack = [lc(canonText), lc(panel.fullText), lc(R.docxFullText)].join("\n");
     const forbiddenAnywhere = FORBIDDEN_SUBSTITUTIONS.filter(
-      (f) => canonText.includes(f) || (panel.head || "").includes(f)
-             || (R.docx && (R.docx.forbidden || []).includes(f)));
+      (f) => haystack.includes(lc(f)));
     step("8_agreement", {
       result: (cOcc === 1 && pOcc === 1 && dOcc === 1 && !forbiddenAnywhere.length) ? "PASS" : "FAIL",
       detail: `canonical=${cOcc} preview=${pOcc} docx=${dOcc} (each must be exactly 1)`,
