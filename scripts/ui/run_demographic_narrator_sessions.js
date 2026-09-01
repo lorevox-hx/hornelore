@@ -196,7 +196,15 @@ async function waitForResponseAndTts(page, before) {
 
 /* Every completed action must be provably THE action we asked for.
  * Without this a run could report COMPLETE having sent the wrong era,
- * generated twice, or carried no correlation id at all. */
+ * generated twice, or carried no correlation id at all.
+ *
+ * PRECISELY WHAT THE `done` CHECK PROVES: the server's done frame does
+ * NOT carry client_turn_id, so this is "exactly one done inside this
+ * isolated action window" — not an id match on the done frame. That is
+ * adequate here only because actions are strictly sequential and TTS
+ * must drain before the next one begins. If either of those ever stops
+ * being true, this check weakens and the window stops isolating. The
+ * client turn id below IS matched, on the sent frame, where it exists. */
 function assertActionIntegrity(evidence, expectedEra, what) {
   const fail = (why) => { throw new Error(`${what}: ${why}`); };
   if (!evidence.clientTurnId) {
@@ -265,6 +273,56 @@ async function runAction(page, action, expectedEra, what = "action") {
   return evidence;
 }
 
+/* ── Narrator-switcher lifecycle: OBSERVE, then recover semantically ─
+ * `#lv80NarratorSwitcher` is popover="auto" and the product INTENDS to
+ * close it on switch — ui/hornelore1.0.html:5989 inside lv80SwitchPerson
+ * carries a "belt-and-suspenders close here covers every path". In run
+ * 20260901T012105Z it stayed open for over 30 seconds and overlaid the
+ * shell tabs, so Playwright refused to click #lvShellTabOperator
+ * ("subtree intercepts pointer events") and never got to act as the
+ * outside-click that would light-dismiss it. 0/10 narrators.
+ *
+ * This does NOT call hidePopover(), use force:true, or click
+ * coordinates. Those would make the run pass while hiding the defect —
+ * the harness would be repairing the product instead of measuring it.
+ * Instead: wait for the product to close it on its own; if it does not,
+ * record that as a finding and recover with Escape, which is the normal
+ * semantic light-dismiss a person would perform. The run then reports
+ * COMPLETE WITH UI FINDINGS rather than a clean COMPLETE. */
+async function resolveSwitcherLifecycle(page, graceMs = 3000) {
+  const isOpen = () => page.evaluate(() => {
+    const pop = document.getElementById("lv80NarratorSwitcher");
+    return Boolean(pop && pop.matches(":popover-open"));
+  });
+  if (!(await isOpen())) {
+    return { switcherAutoClosed: true, switcherDismissedByHarness: false };
+  }
+  try {
+    await page.waitForFunction(() => {
+      const pop = document.getElementById("lv80NarratorSwitcher");
+      return !pop || !pop.matches(":popover-open");
+    }, null, { timeout: graceMs });
+    return { switcherAutoClosed: true, switcherDismissedByHarness: false };
+  } catch (_) { /* still open: a finding, not a retry */ }
+
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => {
+    const pop = document.getElementById("lv80NarratorSwitcher");
+    return !pop || !pop.matches(":popover-open");
+  }, null, { timeout: 10000 });
+
+  return {
+    switcherAutoClosed: false,
+    switcherDismissedByHarness: true,
+    finding: "UI LIFECYCLE: #lv80NarratorSwitcher (popover=auto) remained "
+           + ":popover-open after the narrator switch completed, despite the "
+           + "belt-and-suspenders close in lv80SwitchPerson "
+           + "(ui/hornelore1.0.html:5989). It overlays the shell tabs and "
+           + "blocks the Operator tab. Recovered with Escape; NOT repaired.",
+    graceMs,
+  };
+}
+
 async function openSwitcher(page) {
   const alreadyOpen = await page.evaluate(() => {
     const pop = document.getElementById("lv80NarratorSwitcher");
@@ -330,6 +388,12 @@ async function openExactNarrator(page, narrator) {
       `narrator card shows ${JSON.stringify(paintedName)}, expected exactly `
       + `${JSON.stringify(narrator.product_display_name)}`);
   }
+  /* Only NOW, with identity established beyond doubt — exact
+   * person_id, terminal open status, exact product display name — is
+   * the switcher lifecycle resolved. Recovering earlier could dismiss
+   * a popover belonging to a switch that had not actually landed. */
+  const switcher = await resolveSwitcherLifecycle(page);
+
   await page.waitForFunction(() => {
     const input = document.getElementById("chatInput");
     return input && !input.disabled && (!window._loriIsBusy || !window._loriIsBusy());
@@ -340,7 +404,7 @@ async function openExactNarrator(page, narrator) {
   await waitForAudioIdle(page);
   const convId = await page.evaluate(() => window.state?.chat?.conv_id || null);
   if (!convId || convId === "default") throw new Error("narrator did not receive a fresh conversation id");
-  return convId;
+  return { convId, switcher, paintedName };
 }
 
 async function pauseProfileSeed(page) {
@@ -613,7 +677,15 @@ async function main() {
     };
     console.log(`\n[${index + 1}/10] ${narrator.fixture_label}`);
     try {
-      report.conversationId = await openExactNarrator(page, narrator);
+      const opened = await openExactNarrator(page, narrator);
+      report.conversationId = opened.convId;
+      report.switcher = opened.switcher;
+      report.paintedNarratorName = opened.paintedName;
+      if (opened.switcher.switcherDismissedByHarness) {
+        report.uiFindings = (report.uiFindings || []).concat(
+          opened.switcher.finding);
+        console.log(`  [ui finding] ${opened.switcher.finding}`);
+      }
       report.profileSeed = await pauseProfileSeed(page);
       for (const era of narrator.eras) {
         console.log(`  [era] ${era.label}`);
@@ -654,7 +726,8 @@ async function main() {
         operatorStatus: report.wrapUp.wrap?.result?.result?.status || null,
         relativeReport: path.relative(outDir, path.join(narratorDir, "report.html")) });
       writeJson(path.join(outDir, "checkpoint.json"), checkpoint);
-      console.log(`  COMPLETE — ${report.eras.length} eras, ${report.responseCount} Lori responses`);
+      console.log(`  ${(report.uiFindings || []).length ? "COMPLETE WITH UI FINDINGS" : "COMPLETE"}`
+        + ` — ${report.eras.length} eras, ${report.responseCount} Lori responses`);
     } catch (error) {
       report.error = String(error && error.stack || error);
       report.finishedAt = new Date().toISOString();
@@ -682,7 +755,19 @@ async function main() {
   fs.writeFileSync(path.join(outDir, "report.html"), combinedHtml(checkpoint), "utf8");
   await context.close();
   await browser.close();
-  console.log(`\n${checkpoint.completedCount === plan.narrator_count ? "PASS" : "INCOMPLETE"} — ${checkpoint.completedCount}/${plan.narrator_count} narrators complete`);
+  /* Conversations completing while a UI recovery was required is NOT a
+   * clean PASS. Saying so plainly is the difference between measuring
+   * the product and quietly working around it. */
+  const uiFindings = (checkpoint.narrators || [])
+    .flatMap((n) => n.uiFindings || []);
+  const allDone = checkpoint.completedCount === plan.narrator_count;
+  const verdict = !allDone ? "INCOMPLETE"
+    : (uiFindings.length ? "COMPLETE WITH UI FINDINGS" : "PASS");
+  console.log(`\n${verdict} — ${checkpoint.completedCount}/${plan.narrator_count} narrators complete`);
+  if (uiFindings.length) {
+    console.log(`  ${uiFindings.length} UI finding(s):`);
+    for (const f of [...new Set(uiFindings)]) console.log(`    - ${f}`);
+  }
   console.log(`Combined report: ${path.join(outDir, "report.html")}`);
   console.log(`Checkpoint: ${path.join(outDir, "checkpoint.json")}`);
   if (fatal && !args.continueOnFailure) throw fatal;

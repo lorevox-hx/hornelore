@@ -300,3 +300,113 @@ class PlanCarriesTheExactNameTests(unittest.TestCase):
             row = next(n for n in self.plan["narrators"]
                        if n["source"] == persona["harness"])
             self.assertEqual(expected, row["product_display_name"])
+
+
+class DoneCheckIsHonestlyDescribedTests(unittest.TestCase):
+    """The done frame has no client_turn_id; the comment must say so."""
+
+    def test_the_comment_does_not_claim_an_id_matched_done(self):
+        raw = (ROOT / "scripts" / "ui"
+               / "run_demographic_narrator_sessions.js").read_text(
+                   encoding="utf-8")
+        self.assertIn("does\n * NOT carry client_turn_id", raw)
+        self.assertIn("not an id match on the done frame", raw)
+
+    def test_the_id_is_matched_where_it_exists(self):
+        raw = (ROOT / "scripts" / "ui"
+               / "run_demographic_narrator_sessions.js").read_text(
+                   encoding="utf-8")
+        src = _js_code_only(raw)
+        self.assertIn("lastSent?.params?.client_turn_id", src)
+
+
+class SwitcherLifecycleIsObservedNotMaskedTests(unittest.TestCase):
+    """Run 20260901T012105Z died at narrator 1 of 10.
+
+    `#lv80NarratorSwitcher` is popover="auto" and the PRODUCT intends to
+    close it — ui/hornelore1.0.html:5989, "belt-and-suspenders close here
+    covers every path" inside lv80SwitchPerson. It stayed open past 30s
+    and overlaid the shell tabs, so Playwright refused to click
+    #lvShellTabOperator and never got to act as the outside-click that
+    would light-dismiss it.
+
+    My first fix called hidePopover(). That made the run pass while
+    HIDING the defect — the harness repairing the product instead of
+    measuring it. These tests exist to keep that from coming back.
+    """
+
+    def setUp(self):
+        raw = (ROOT / "scripts" / "ui"
+               / "run_demographic_narrator_sessions.js").read_text(
+                   encoding="utf-8")
+        self.raw = raw
+        self.src = _js_code_only(raw)
+
+    # ── no workarounds ───────────────────────────────────────────────
+    def test_it_does_not_call_hide_popover(self):
+        self.assertNotIn("hidePopover()", self.src,
+                         "calling hidePopover would mask the defect")
+
+    def test_it_does_not_force_or_use_coordinates(self):
+        self.assertNotIn("force: true", self.src)
+        self.assertNotIn("mouse.click(", self.src)
+
+    # ── recovery only after identity is established ──────────────────
+    def test_recovery_runs_after_the_exact_identity_checks(self):
+        fn = self.src[self.src.index("async function openExactNarrator"):]
+        fn = fn[:fn.index("\nasync function")] if "\nasync function" in fn else fn
+        pid = fn.index("window.state?.person_id === pid")
+        status = fn.index("narratorOpen?.openStatus")
+        name = fn.index("narrator.product_display_name")
+        recover = fn.index("resolveSwitcherLifecycle(page)")
+        self.assertLess(pid, recover)
+        self.assertLess(status, recover)
+        self.assertLess(name, recover,
+                        "recovering before the name is verified could "
+                        "dismiss a popover for a switch that never landed")
+
+    # ── Escape only when it is still open ────────────────────────────
+    def test_escape_is_the_dismissal(self):
+        fn = self.src[self.src.index("async function resolveSwitcherLifecycle"):]
+        self.assertIn('keyboard.press("Escape")', fn[:2500])
+
+    def test_escape_only_after_the_grace_wait_fails(self):
+        fn = self.src[self.src.index("async function resolveSwitcherLifecycle"):]
+        block = fn[:2500]
+        grace = block.index("graceMs })")
+        esc = block.index('keyboard.press("Escape")')
+        self.assertLess(grace, esc,
+                        "Escape must be a recovery, not the first move")
+
+    def test_an_already_closed_switcher_needs_no_recovery(self):
+        fn = self.src[self.src.index("async function resolveSwitcherLifecycle"):]
+        self.assertIn("switcherAutoClosed: true", fn[:2500])
+
+    # ── it must actually close ───────────────────────────────────────
+    def test_it_waits_for_the_popover_to_actually_close(self):
+        fn = self.src[self.src.index("async function resolveSwitcherLifecycle"):]
+        after_esc = fn[fn.index('keyboard.press("Escape")'):]
+        self.assertIn(":popover-open", after_esc[:600])
+        self.assertIn("waitForFunction", after_esc[:600])
+
+    # ── the finding is kept ──────────────────────────────────────────
+    def test_the_finding_is_recorded_not_discarded(self):
+        self.assertIn("switcherAutoClosed: false", self.src)
+        self.assertIn("switcherDismissedByHarness: true", self.src)
+        self.assertIn("UI LIFECYCLE:", self.raw)
+        self.assertIn("NOT repaired", self.raw)
+
+    def test_the_finding_names_the_product_close_that_did_not_fire(self):
+        self.assertIn("ui/hornelore1.0.html:5989", self.raw)
+
+    def test_the_verdict_is_downgraded_when_recovery_was_needed(self):
+        self.assertIn('"COMPLETE WITH UI FINDINGS"', self.src)
+        self.assertIn("uiFindings.length ?", self.src)
+
+    def test_the_product_still_has_the_close_that_did_not_fire(self):
+        """Non-vacuity: if this fails the product changed and the
+        finding should be re-derived rather than assumed."""
+        ui = (ROOT / "ui" / "hornelore1.0.html").read_text(
+            encoding="utf-8", errors="replace")
+        self.assertIn('if (_sw && _sw.matches && _sw.matches(":popover-open")) '
+                      '_sw.hidePopover();', ui)
