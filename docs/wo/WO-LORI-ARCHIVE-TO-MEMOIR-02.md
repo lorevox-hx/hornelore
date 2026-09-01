@@ -3,7 +3,8 @@
 **Status:** CURRENT — central Lori/Lorevox work order  
 **Supersedes:** `WO-LORI-END-TO-END-LISTEN-RETAIN-MEMOIR-01`  
 **Starting evidence:** demographic cohort `20260901T015343Z` and Walt seven-era run `20260901T003329Z`  
-**Current position:** evidence baseline complete; product correction phases not started
+**Current position:** **Phase 1 — in implementation**  
+**Phase 0:** accepted by ChatGPT against pushed commit `fdaa255`
 
 ## 1. Goal
 
@@ -103,14 +104,20 @@ Only one phase may be active at a time. Each phase ends with a pushed commit or 
 
 **Outcome:** Temporary instrumentation is off, baseline evidence is preserved, and future reports are self-contained.
 
-- [ ] Set `HORNELORE_RESPONSE_TRACE=0` for ordinary stack startup.
-- [ ] Restart and verify `/api/health/response-trace` reports `enabled:false`.
+- [x] Set `HORNELORE_RESPONSE_TRACE=0` for ordinary stack startup.
+- [x] Restart and verify `/api/health/response-trace` reports `enabled:false`.
 - [x] Record current trace exposure numerically: 10 cohort IDs; 0 non-cohort IDs; 0 non-cohort records.
-- [ ] Preserve existing synthetic trace and cohort artifacts without deletion.
-- [ ] Verify future checkpoints record `durableComplete`, downloaded ZIP name, downloaded operator report name and `uiFindings` from the runner itself.
-- [ ] Preserve the original and rebuilt historical checkpoints distinctly.
+- [x] Preserve existing synthetic trace and cohort artifacts without deletion.
+- [x] Verify future checkpoints record `durableComplete`, downloaded ZIP name, downloaded operator report name and `uiFindings` from the runner itself.
+- [x] Preserve the original and rebuilt historical checkpoints distinctly.
 
 **Exit gate:** Trace is off; evidence is preserved; a newly constructed offline checkpoint contains all required fields.
+
+**CLOSED.** Accepted by ChatGPT against pushed commit `fdaa255`, reviewed from
+`origin/main` rather than from the completion report. Live startup printed
+`Response trace: off` and `/api/health/response-trace` returned
+`enabled:false` with `output_dir_exists:true` — instrumentation off, evidence
+preserved rather than cleaned up.
 
 ## Phase 1 — Prove the existing memoir chain
 
@@ -307,23 +314,27 @@ Only after all five focused narrators pass:
 
 ## Git responsibilities
 
-**Claude performs NO network Git operations.** No `fetch`, `pull`, `push`,
-`rebase`, branch switch, `add`, `commit` or `clean`. Claude may run read-only
-local inspection (`rev-parse`, `status`, `log`, `diff`) and must record the
-local HEAD it worked from.
+**Claude runs NO Git command of any kind from the sandbox — including
+read-only ones.** Not `fetch`, `pull`, `push`, `rebase`, branch switch, `add`,
+`commit`, `clean`, and **not `status`, `rev-parse`, `log`, `diff` or
+`check-ignore` either.
 
-*Why this is a rule and not a preference:* the sandbox takes `.git/index.lock`
-for the duration of every git command, and a command that hits the agent's
-timeout on the `/mnt/c` 9p mount leaves that lock behind — silently blocking
-GitHub Desktop and Chris's own WSL git. The symptom is deliberately confusing:
-`git add` appears to succeed, `git commit` then reports nothing to commit, and
-Desktop keeps showing changed files after a "successful" push. Claude confirms
-no `.git/*.lock` survives any read-only inspection.
+*Why read-only is not the safe category.* The rule first said Claude could run
+read-only inspection. During Phase 0 a plain `git status` from the sandbox
+stranded a zero-byte `.git/index.lock` that the sandbox could not then remove
+(`Operation not permitted`), and Chris had to clear it by hand. A stranded lock
+blocks GitHub Desktop and WSL git, and its symptom is deliberately confusing:
+`git add` appears to succeed, `git commit` reports nothing to commit, and
+Desktop keeps showing changed files after a "successful" push. **The hazard is
+sandbox git, not write-mode git.**
+
+**Chris supplies the starting HEAD and working-tree status at the start of each
+phase.** Claude records what it is given and does not verify it with git.
 
 | actor | does |
 |---|---|
-| **Claude** | records local HEAD and `git status`; edits files; runs offline tests; hands Chris a copy-paste commit block |
-| **Chris** | commits from WSL, pushes from GitHub Desktop |
+| **Claude** | edits files; runs offline tests; hands Chris a copy-paste commit block. Runs no git. |
+| **Chris** | supplies HEAD and status; commits and pushes **using WSL or GitHub Desktop, whichever he prefers** |
 | **ChatGPT** | read-only review of pushed `origin/main` and the evidence |
 
 ## Start of phase
@@ -332,8 +343,8 @@ Claude must report:
 
 ```text
 START PHASE:
-Local HEAD (read-only, no fetch):
-Working tree status:
+Starting HEAD (supplied by Chris; Claude runs no git):
+Working tree status (supplied by Chris):
 Active phase:
 Scope:
 Expected files:
@@ -374,8 +385,8 @@ Next phase — NOT STARTED:
 ## Push and supervisory review
 
 1. Claude completes one phase and hands Chris a copy-paste commit block.
-   Claude does not commit, push or fetch.
-2. Chris commits from WSL and pushes from GitHub Desktop.
+   Claude runs no git at all.
+2. Chris commits and pushes, using WSL or GitHub Desktop as he prefers.
 3. Chris tells ChatGPT it is pushed.
 4. ChatGPT fetches `origin/main` before reviewing.
 5. ChatGPT reviews pushed code and evidence, not only Claude’s summary.
