@@ -80,7 +80,13 @@ const OPEN_DETAIL = function (head) {
   matching[0].querySelector(".story-preview-btn").click();   // real handler
   return { clicked: true, matching: 1 };
 };
-const VERIFY_ROW = function (head, full) {
+/* One argument: page.evaluate serialises the function it is GIVEN, so it
+ * must be passed directly. Wrapping it in an arrow — evaluate(([h,f]) =>
+ * VERIFY_ROW(h,f), …) — sends the arrow instead, and VERIFY_ROW does not
+ * exist in the page. That threw "VERIFY_ROW is not defined" in the DOM
+ * test and would have thrown live, immediately after promoting. */
+const VERIFY_ROW = function (args) {
+  const head = args.head, full = args.full;
   const row = Array.from(document.querySelectorAll(".story-row")).find((r) => {
     const b = r.querySelector(".story-preview-btn");
     return b && (b.textContent || "").includes(head);
@@ -297,8 +303,8 @@ function docxText(file) {
     // so an onclick-attribute search finds nothing.
     const opened = await page.evaluate(OPEN_DETAIL, PASSAGE_HEAD);
     await page.waitForTimeout(2000);
-    const rowState = await page.evaluate(
-      ([h, f]) => VERIFY_ROW(h, f), [PASSAGE_HEAD, PASSAGE]);
+    const rowState = await page.evaluate(VERIFY_ROW,
+      { head: PASSAGE_HEAD, full: PASSAGE });
     step("2b_detail_verified", {
       result: (opened.clicked && rowState.detailOpen && rowState.transcriptEqualsTarget
                && rowState.promoteControlsInRow === 1) ? "PASS" : "FAIL",

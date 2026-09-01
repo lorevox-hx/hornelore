@@ -354,3 +354,35 @@ class RowScopedSelectionTests(_Base):
     def test_the_transcript_must_equal_the_target(self):
         self.assertIn("transcriptEqualsTarget", self.src)
         self.assertIn("text === full.trim()", self.src)
+
+
+class EvaluateSerialisationTests(_Base):
+    """page.evaluate serialises the function it is GIVEN.
+
+    Wrapping a shared helper in an arrow — evaluate(([h,f]) =>
+    VERIFY_ROW(h,f), …) — sends the ARROW into the page, where
+    VERIFY_ROW does not exist. The DOM test caught this as
+    "VERIFY_ROW is not defined"; the probe carried the identical line
+    and would have thrown live, immediately after promoting. Only a
+    behavioural test could see it: node --check, the self-test and every
+    source assertion passed.
+    """
+
+    def test_no_shared_helper_is_wrapped_in_an_arrow(self):
+        for name in ("SELECT_ROW", "OPEN_DETAIL", "VERIFY_ROW"):
+            self.assertNotIn(f"=> {name}(", self.src,
+                             f"{name} must be passed to evaluate directly")
+
+    def test_verify_row_takes_one_serialisable_argument(self):
+        self.assertIn("const VERIFY_ROW = function (args)", self.src)
+        self.assertIn("page.evaluate(VERIFY_ROW,", self.src)
+
+    def test_all_three_helpers_are_passed_directly(self):
+        for name in ("SELECT_ROW", "OPEN_DETAIL", "VERIFY_ROW"):
+            self.assertIn(f"page.evaluate({name}", self.src)
+
+    def test_the_dom_test_passes_them_directly_too(self):
+        dom = (ROOT / "scripts" / "ui"
+               / "phase1_row_selection_domtest.js").read_text(encoding="utf-8")
+        for name in ("SELECT_ROW", "OPEN_DETAIL", "VERIFY_ROW"):
+            self.assertNotIn(f"=> {name}(", dom)

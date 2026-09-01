@@ -98,19 +98,19 @@ const PAGE = `
   });
 
   await check("the opened row's transcript equals the complete target passage", async () => {
-    const v = await page.evaluate(([h, f]) => VERIFY_ROW(h, f), [HEAD, TARGET_TEXT]);
+    const v = await page.evaluate(VERIFY_ROW, { head: HEAD, full: TARGET_TEXT });
     assert.strictEqual(v.detailOpen, true);
     assert.strictEqual(v.transcriptEqualsTarget, true);
   });
 
   await check("a partial passage does NOT satisfy the equality check", async () => {
-    const v = await page.evaluate(([h, f]) => VERIFY_ROW(h, f), [HEAD, HEAD]);
+    const v = await page.evaluate(VERIFY_ROW, { head: HEAD, full: HEAD });
     assert.strictEqual(v.transcriptEqualsTarget, false,
       "the head alone must not pass as the full transcript");
   });
 
   await check("exactly one promote control exists inside the target row", async () => {
-    const v = await page.evaluate(([h, f]) => VERIFY_ROW(h, f), [HEAD, TARGET_TEXT]);
+    const v = await page.evaluate(VERIFY_ROW, { head: HEAD, full: TARGET_TEXT });
     assert.strictEqual(v.promoteControlsInRow, 1);
   });
 
