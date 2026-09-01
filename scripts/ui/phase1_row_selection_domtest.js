@@ -12,7 +12,13 @@
  */
 "use strict";
 const assert = require("assert");
-const { SELECT_ROW, OPEN_DETAIL, VERIFY_ROW } = require("./phase1_memoir_chain_probe.js");
+const { SELECT_ROW, OPEN_DETAIL, VERIFY_ROW, ACTIVE_OK } =
+  require("./phase1_memoir_chain_probe.js");
+
+const PAT  = "62e94e93-0e44-4fb0-bf19-4bfe847e163c";
+const PAT_NAME = "ZZ COHORT r20260831-040506-010cd6 \u00b7 Pat";
+const WALT = "ac97f667-0a49-4677-81ac-9de80affed43";
+const WALT_NAME = "ZZ COHORT r20260831-040506-010cd6 \u00b7 Walt";
 
 const TARGET_TEXT = "I went to Kent State for my education degree. That was 1966. "
   + "Kent State was about an hour from home and it was the first time I had "
@@ -129,6 +135,63 @@ const PAGE = `
     const promoted = await page.evaluate(() => window.__promotedRow);
     assert.strictEqual(promoted, "row-target",
       "a global first() would have promoted row-other — the control candidate");
+  });
+
+  /* ── ACTIVE NARRATOR ───────────────────────────────────────────────
+   * The Bug Panel filter is independent of state.person_id. Filtering to
+   * Pat while Walt is active would promote Pat's candidate correctly and
+   * then preview WALT'S memoir, reporting it as Pat's preview failure.
+   * These prove the assertion refuses that, with the panel still showing
+   * Pat's row. */
+  const setActive = (pid, name) => page.evaluate(([p, n]) => {
+    window.state = { person_id: p, narratorOpen: { openStatus: "ready" } };
+    let el = document.getElementById("lv80ActiveNarratorName");
+    if (!el) { el = document.createElement("div"); el.id = "lv80ActiveNarratorName";
+               document.body.appendChild(el); }
+    el.textContent = n;
+  }, [pid, name]);
+
+  await check("accepts when Pat is active, named and ready", async () => {
+    await setActive(PAT, PAT_NAME);
+    const a = await page.evaluate(ACTIVE_OK, { personId: PAT, displayName: PAT_NAME });
+    assert.strictEqual(a.ok, true, JSON.stringify(a));
+  });
+
+  await check("REFUSES when another narrator is active, though the panel shows Pat", async () => {
+    await setActive(WALT, WALT_NAME);
+    const sel = await page.evaluate(SELECT_ROW, HEAD);
+    assert.strictEqual(sel.ok, true, "the Bug Panel still shows Pat's row");
+    const a = await page.evaluate(ACTIVE_OK, { personId: PAT, displayName: PAT_NAME });
+    assert.strictEqual(a.ok, false, "must refuse: preview/export would be Walt's");
+    assert.strictEqual(a.idOK, false);
+    assert.strictEqual(a.activePersonId, WALT);
+  });
+
+  await check("REFUSES when the card shows a different name", async () => {
+    await setActive(PAT, WALT_NAME);
+    const a = await page.evaluate(ACTIVE_OK, { personId: PAT, displayName: PAT_NAME });
+    assert.strictEqual(a.ok, false);
+    assert.strictEqual(a.idOK, true, "id alone must not be enough");
+    assert.strictEqual(a.nameOK, false);
+  });
+
+  await check("REFUSES when the open lifecycle has not reached ready", async () => {
+    await page.evaluate(([p, n]) => {
+      window.state = { person_id: p, narratorOpen: { openStatus: "loading" } };
+      document.getElementById("lv80ActiveNarratorName").textContent = n;
+    }, [PAT, PAT_NAME]);
+    const a = await page.evaluate(ACTIVE_OK, { personId: PAT, displayName: PAT_NAME });
+    assert.strictEqual(a.ok, false);
+    assert.strictEqual(a.lifecycleOK, false);
+    assert.strictEqual(a.openStatus, "loading");
+  });
+
+  await check("REFUSES when no narrator is active at all", async () => {
+    await page.evaluate(() => { window.state = {};
+      document.getElementById("lv80ActiveNarratorName").textContent = "Choose a narrator"; });
+    const a = await page.evaluate(ACTIVE_OK, { personId: PAT, displayName: PAT_NAME });
+    assert.strictEqual(a.ok, false);
+    assert.strictEqual(a.activePersonId, null);
   });
 
   await browser.close();

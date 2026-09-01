@@ -37,6 +37,7 @@ const PASSAGE = "I went to Kent State for my education degree. That was 1966. "
   + "Kent State was about an hour from home and it was the first time I had "
   + "ever been away from Akron for more than a weekend.";
 const PASSAGE_HEAD = "I went to Kent State for my education degree.";
+const DISPLAY_NAME = "ZZ COHORT r20260831-040506-010cd6 \u00b7 Pat";
 /* Pat's husband Jim is filed under parents.* by the extractor (a known,
  * unfixed binding defect). If a memoir surface substitutes that structured
  * family fact into her passage, the memoir would assert something false
@@ -85,6 +86,26 @@ const OPEN_DETAIL = function (head) {
  * VERIFY_ROW(h,f), …) — sends the arrow instead, and VERIFY_ROW does not
  * exist in the page. That threw "VERIFY_ROW is not defined" in the DOM
  * test and would have thrown live, immediately after promoting. */
+/* ── ACTIVE NARRATOR ────────────────────────────────────────────────
+ * The Bug Panel's narrator FILTER is independent of the application's
+ * active narrator. The memoir panel and export both read
+ * state.person_id. Filtering the panel to Pat while some other narrator
+ * is active would promote Pat's candidate correctly and then preview
+ * SOMEONE ELSE'S memoir — reporting that as Pat's preview failure.
+ * Exported so a behavioural test can prove a foreign narrator refuses. */
+const ACTIVE_OK = function (args) {
+  const st = (typeof window !== "undefined" && window.state) || {};
+  const names = Array.from(document.querySelectorAll("#lv80ActiveNarratorName"))
+    .map(function (n) { return (n.textContent || "").trim(); });
+  const status = (st.narratorOpen && st.narratorOpen.openStatus) || null;
+  const idOK = st.person_id === args.personId;
+  const nameOK = names.indexOf(args.displayName) > -1;
+  const lifecycleOK = status === "ready";
+  return { ok: idOK && nameOK && lifecycleOK,
+           idOK: idOK, nameOK: nameOK, lifecycleOK: lifecycleOK,
+           activePersonId: st.person_id || null, openStatus: status, names: names };
+};
+
 const VERIFY_ROW = function (args) {
   const head = args.head, full = args.full;
   const row = Array.from(document.querySelectorAll(".story-row")).find((r) => {
@@ -100,7 +121,9 @@ const VERIFY_ROW = function (args) {
            transcriptLen: text ? text.length : 0,
            promoteControlsInRow: row.querySelectorAll(".story-act-promote").length };
 };
-if (typeof module !== "undefined") module.exports = { SELECT_ROW, OPEN_DETAIL, VERIFY_ROW };
+if (typeof module !== "undefined") {
+  module.exports = { SELECT_ROW, OPEN_DETAIL, VERIFY_ROW, ACTIVE_OK };
+}
 
 const ROOT = path.join(REPO, ".runtime", "eval", "phase1-memoir-chain");
 const arg = (f) => { const i = process.argv.indexOf(f); return i > -1 ? process.argv[i + 1] : null; };
@@ -122,6 +145,9 @@ if (process.argv.includes("--self-test")) {
   a.ok(src.includes("verifyControl"), "control check must be a callable used in finally");
   a.ok(src.includes("WITHDRAWN"), "the withdrawn networking claim must be corrected");
   a.ok(src.includes('status) !== "promoted"'), "resume must require exactly promoted");
+  a.ok(src.includes(N(["const ACTIVE", "_OK = function"])), "must assert the active narrator");
+  a.ok(src.includes("activeBeforePreview"), "must reassert identity before preview");
+  a.ok(src.includes("activeBeforeExport"), "must reassert identity before export");
   console.log("SELF-TEST PASS — row scoping, PATCH guard, real observation, docx proof, finally control");
   process.exit(0);
 }
@@ -269,6 +295,34 @@ function docxText(file) {
     }
     step("1_preconditions", { result: "PASS", detail: `status=${status} mode=${prior ? "resume" : "fresh"}` });
 
+    // ── LINK 1b: open Pat as the ACTIVE narrator, real switcher path ──
+    await page.waitForFunction(
+      (pid) => Array.from(document.querySelectorAll("button")).some((b) =>
+        b.textContent.trim() === "Open" && (b.getAttribute("onclick") || "").includes(pid)),
+      PERSON, { timeout: 45000 });
+    const openBtn = page.locator(`button[onclick*="${PERSON}"]`).filter({ hasText: /^Open$/ });
+    if (await openBtn.count() !== 1) {
+      throw new Error("exact Open button for Pat is not unique");
+    }
+    await openBtn.click();
+    await page.waitForFunction((pid) => window.state?.person_id === pid, PERSON, { timeout: 60000 });
+    await page.waitForFunction(() => {
+      const s = window.state?.narratorOpen?.openStatus;
+      return s && s !== "loading" && s !== "idle";
+    }, null, { timeout: 60000 });
+    await page.waitForFunction((n) => Array.from(
+        document.querySelectorAll("#lv80ActiveNarratorName"))
+      .some((x) => (x.textContent || "").trim() === n),
+      DISPLAY_NAME, { timeout: 60000 }).catch(() => {});
+    const active = await page.evaluate(ACTIVE_OK,
+      { personId: PERSON, displayName: DISPLAY_NAME });
+    step("1b_narrator_active", {
+      result: active.ok ? "PASS" : "FAIL",
+      detail: `person_id=${active.idOK} card=${active.nameOK} lifecycle=${active.lifecycleOK}`,
+      expected: { personId: PERSON, displayName: DISPLAY_NAME }, observed: active,
+      why: "the memoir panel and export read state.person_id, NOT the Bug Panel filter" });
+    if (!active.ok) throw new Error("Pat is not the active narrator — refusing to continue");
+
     // ── LINK 2: Pat's EXACT row, via the real DOM contract ───────────
     await page.evaluate(() => {
       const el = document.getElementById("lv10dBugPanelBtn") ||
@@ -279,17 +333,33 @@ function docxText(file) {
 
     // Fill the filter AND submit it the way the panel does — Enter calls
     // fetchReview(). Filling alone left the list unrefreshed.
-    const filter = page.locator(".story-filter-input").first();
-    if (await filter.count()) {
-      await filter.fill(PERSON);
-      const [listRes] = await Promise.all([
-        page.waitForResponse((r) => r.url().includes("/api/operator/story-candidates"),
-                             { timeout: 20000 }).catch(() => null),
-        filter.press("Enter"),
-      ]);
-      R.observed.reviewList = listRes ? { url: listRes.url(), status: listRes.status() } : null;
-      await page.waitForTimeout(1200);
+    const filters = page.locator(".story-filter-input");
+    const nFilters = await filters.count();
+    if (nFilters !== 1) {
+      R.refusals.push(`REFUSED: ${nFilters} .story-filter-input elements; need exactly 1`);
+      step("2a_filter", { result: "REFUSED", detail: `${nFilters} filter inputs` });
+      throw new Error("narrator filter is not unique");
     }
+    const filter = filters.first();
+    await filter.fill(PERSON);
+    const [listRes] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/api/operator/story-candidates"),
+                           { timeout: 20000 }).catch(() => null),
+      filter.press("Enter"),
+    ]);
+    R.observed.reviewList = listRes
+      ? { url: listRes.url(), status: listRes.status(), forPat: listRes.url().includes(PERSON) }
+      : null;
+    const listOK = Boolean(listRes && listRes.status() < 400 && listRes.url().includes(PERSON));
+    step("2a_filter", {
+      result: listOK ? "PASS" : "FAIL",
+      detail: listRes
+        ? `status=${listRes.status()} scopedToPat=${listRes.url().includes(PERSON)}`
+        : "no review-list response observed",
+      observed: R.observed.reviewList });
+    // Never continue silently on a missing or failed list.
+    if (!listOK) throw new Error("review list for Pat was not observed to succeed");
+    await page.waitForTimeout(1200);
 
     const sel = await page.evaluate(SELECT_ROW, PASSAGE_HEAD);
     step("2_row_located", {
@@ -388,6 +458,21 @@ function docxText(file) {
     R.canonical = canon.body; save();
 
     // ── LINK 5: preview, observed on the REAL UI request ─────────────
+    /* Re-assert immediately before the click. Promotion, canonical and a
+     * Bug Panel refresh all happen in between, and any of them could have
+     * switched the active narrator. Evidence gathered for the wrong
+     * person is worse than no evidence: it would be reported as Pat's. */
+    const activeBeforePreview = await page.evaluate(ACTIVE_OK,
+      { personId: PERSON, displayName: DISPLAY_NAME });
+    if (!activeBeforePreview.ok) {
+      R.refusals.push("REFUSED preview: active narrator is no longer Pat — "
+        + `person_id=${activeBeforePreview.activePersonId}`);
+      step("5_preview", { result: "REFUSED",
+        detail: `active narrator changed to ${activeBeforePreview.activePersonId}`,
+        observed: activeBeforePreview });
+      throw new Error("active narrator changed before preview");
+    }
+    R.observed.activeBeforePreview = activeBeforePreview;
     const [memoirRes] = await Promise.all([
       page.waitForResponse((r) => r.url().includes("/api/memoir/canonical"),
                            { timeout: 20000 }).catch(() => null),
@@ -424,6 +509,17 @@ function docxText(file) {
       step("6_export", { result: "not_reached",
         detail: "preview did not pass; the accepted chain stops here and export is NOT attempted" });
     } else {
+      const activeBeforeExport = await page.evaluate(ACTIVE_OK,
+        { personId: PERSON, displayName: DISPLAY_NAME });
+      if (!activeBeforeExport.ok) {
+        R.refusals.push("REFUSED export: active narrator is no longer Pat — "
+          + `person_id=${activeBeforeExport.activePersonId}`);
+        step("6_export", { result: "REFUSED",
+          detail: `active narrator changed to ${activeBeforeExport.activePersonId}`,
+          observed: activeBeforeExport });
+        throw new Error("active narrator changed before export");
+      }
+      R.observed.activeBeforeExport = activeBeforeExport;
       const exportBtn = page.locator("#memoirExportDocxBtn");
       const usable = await exportBtn.count() && await exportBtn.isEnabled();
       let saved = null, dlErr = null;
@@ -492,7 +588,8 @@ function docxText(file) {
         : (g("5_preview") === "PASS" ? "failed" : "not reached through accepted UI path"),
       control_unchanged: g("7_control_unchanged"),
     };
-    const order = ["1_preconditions", "2_row_located", "2b_detail_verified", "3_promoted",
+    const order = ["1_preconditions", "1b_narrator_active", "2a_filter",
+                   "2_row_located", "2b_detail_verified", "3_promoted",
                    "4_canonical", "5_preview", "6_export", "8_agreement", "7_control_unchanged"];
     const bad = order.find((k) => R.links[k] && R.links[k].result !== "PASS");
     R.exitGate = bad ? `Phase 1: failed at ${bad.replace(/^\d+b?_/, "")}`

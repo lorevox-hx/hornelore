@@ -249,7 +249,8 @@ class RequireIsInertTests(_Base):
              "console.log(Object.keys(m).sort().join(','))"],
             capture_output=True, text=True, timeout=60, cwd=str(ROOT))
         self.assertEqual(0, out.returncode, out.stderr)
-        self.assertEqual("OPEN_DETAIL,SELECT_ROW,VERIFY_ROW", out.stdout.strip())
+        self.assertEqual("ACTIVE_OK,OPEN_DETAIL,SELECT_ROW,VERIFY_ROW",
+                         out.stdout.strip())
 
 
 class BehaviouralDomTests(unittest.TestCase):
@@ -342,8 +343,21 @@ class RowScopedSelectionTests(_Base):
                     ".story-transcript"):
             self.assertIn(cls, self.src)
 
-    def test_no_onclick_attribute_search_remains(self):
-        self.assertNotIn('getAttribute("onclick")', self.src)
+    def test_no_onclick_search_is_used_to_open_a_story_row(self):
+        """*(Was a blanket ban on getAttribute("onclick"). Too broad: the
+        narrator Open button legitimately carries one —
+        hornelore1.0.html:6435 renders onclick="lv80SwitchPerson('…')" —
+        and that is the established switcher path the cohort proved across
+        ten narrators. The ban belongs only to story-row opening, where
+        handlers are addEventListener.)*"""
+        opener = self.src[self.src.index("const OPEN_DETAIL"):
+                          self.src.index("const VERIFY_ROW")]
+        self.assertNotIn("onclick", opener)
+        self.assertIn(".story-preview-btn", opener)
+        # The one permitted use is the narrator Open button.
+        self.assertEqual(1, self.src.count('getAttribute("onclick")'))
+        i = self.src.index('getAttribute("onclick")')
+        self.assertIn("Open", self.src[max(0, i - 220):i])
 
     def test_row_selection_requires_exactly_one_match(self):
         self.assertIn("matching.length === 1", self.src)
@@ -386,3 +400,78 @@ class EvaluateSerialisationTests(_Base):
                / "phase1_row_selection_domtest.js").read_text(encoding="utf-8")
         for name in ("SELECT_ROW", "OPEN_DETAIL", "VERIFY_ROW"):
             self.assertNotIn(f"=> {name}(", dom)
+
+
+class ActiveNarratorTests(_Base):
+    """The Bug Panel filter is NOT the active narrator.
+
+    The memoir panel and export read state.person_id. Filtering the panel
+    to Pat while another narrator is active would promote Pat's candidate
+    correctly and then preview someone else's memoir — and report that as
+    Pat's preview failure. The state mutation was already protected; the
+    evidence was not.
+    """
+
+    def test_pat_is_opened_through_the_real_switcher_first(self):
+        self.assertIn("1b_narrator_active", self.src)
+        i_open = self.src.index("openBtn.click()")
+        i_panel = self.src.index("lv10dBugPanelBtn")
+        self.assertLess(i_open, i_panel,
+                        "Pat must be opened before the Bug Panel is used")
+
+    def test_all_three_identity_conditions_are_required(self):
+        self.assertIn("idOK && nameOK && lifecycleOK", self.src)
+        self.assertIn("st.person_id === args.personId", self.src)
+        self.assertIn("names.indexOf(args.displayName) > -1", self.src)
+        self.assertIn('status === "ready"', self.src)
+
+    def test_the_exact_display_name_is_pinned(self):
+        self.assertIn("const DISPLAY_NAME", self.src)
+        self.assertIn("\\u00b7 Pat", self.raw)
+
+    def test_identity_is_reasserted_before_preview_and_export(self):
+        self.assertIn("activeBeforePreview", self.src)
+        self.assertIn("activeBeforeExport", self.src)
+
+    def test_a_narrator_change_refuses_rather_than_reports(self):
+        self.assertIn("REFUSED preview: active narrator is no longer Pat", self.raw)
+        self.assertIn("REFUSED export: active narrator is no longer Pat", self.raw)
+
+    def test_the_reassertion_precedes_each_action(self):
+        self.assertLess(self.src.index("activeBeforePreview"),
+                        self.src.index("lvNarratorCtxMemoir"))
+        self.assertLess(self.src.index("activeBeforeExport"),
+                        self.src.index("exportBtn.click()"))
+
+
+class FilterStrictnessTests(_Base):
+    def test_exactly_one_filter_input_is_required(self):
+        self.assertIn("nFilters !== 1", self.src)
+
+    def test_the_list_response_must_be_pats_and_successful(self):
+        self.assertIn("listRes.status() < 400 && listRes.url().includes(PERSON)", self.src)
+
+    def test_it_never_continues_silently(self):
+        self.assertIn("review list for Pat was not observed to succeed", self.raw)
+        self.assertNotIn("if (await filter.count()) {", self.src)
+
+
+class ActiveNarratorBehaviouralTests(unittest.TestCase):
+    DOMTEST = ROOT / "scripts" / "ui" / "phase1_row_selection_domtest.js"
+
+    def test_the_dom_test_covers_a_foreign_active_narrator(self):
+        src = self.DOMTEST.read_text(encoding="utf-8")
+        self.assertIn("REFUSES when another narrator is active", src)
+        self.assertIn("the Bug Panel still shows Pat's row", src)
+        self.assertIn("REFUSES when the card shows a different name", src)
+        self.assertIn("REFUSES when the open lifecycle has not reached ready", src)
+        self.assertIn("REFUSES when no narrator is active at all", src)
+
+    def test_it_runs_green_where_a_browser_is_available(self):
+        r = subprocess.run(["node", str(self.DOMTEST)], capture_output=True,
+                           text=True, timeout=180, cwd=str(ROOT))
+        combined = r.stdout + r.stderr
+        if "Executable doesn't exist" in combined or "playwright install" in combined:
+            self.skipTest("no Playwright browser binary here — run this in WSL")
+        self.assertEqual(0, r.returncode, combined[-1500:])
+        self.assertIn("DOM TEST PASS", r.stdout)
