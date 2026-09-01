@@ -122,8 +122,26 @@ const PANEL_STATE = function (full) {
   return { present: Boolean(el), visible: Boolean(el && el.offsetParent !== null),
            occurrences: t.split(full).length - 1, chars: t.length, fullText: t };
 };
+/* ── Pure decision predicates ───────────────────────────────────────
+ * Exported so the three resume/verdict rules can be tested by EXERCISING
+ * them, not by grepping the source for their own assertion text. */
+const RESUME_PROVENANCE_OK = function (priorImmutable, nowImmutable) {
+  if (!priorImmutable) return false;          // nothing to compare against
+  return JSON.stringify(priorImmutable) === JSON.stringify(nowImmutable);
+};
+const RESUMED_WITHOUT_MUTATION = function (patchCount, promotionAttempted) {
+  return patchCount === 0 && promotionAttempted === false;
+};
+const PREVIEW_VERDICT = function (previewResult, wrongOrigin) {
+  if (previewResult === "PASS") return "passed";
+  // Only a 404 from OUTSIDE the API origin is a wrong-origin bug. A 404
+  // from :8000 is a real canonical failure and must not be mislabelled.
+  return wrongOrigin === true ? "failed — wrong API origin" : "failed";
+};
+
 if (typeof module !== "undefined") {
   module.exports = { SELECT_ROW, OPEN_DETAIL, VERIFY_ROW, ACTIVE_OK,
+                     RESUME_PROVENANCE_OK, RESUMED_WITHOUT_MUTATION, PREVIEW_VERDICT,
                      OPEN_MEMOIR_STAGE1, OPEN_MEMOIR_STAGE2, PANEL_STATE,
                      SOURCE_ID, IMMUTABLE, TARGET, CONTROL, PERSON, ERA,
                      PASSAGE, DISPLAY_NAME };
@@ -296,6 +314,17 @@ function docxText(file) {
         : ["unreviewed", "in_review"].includes(String(status))],
       ["control readable", ctlPre.ok && Boolean(ctlPre.item)],
     ];
+    /* A resumed run inherits a promotion it did not perform, so the
+     * candidate it finds must be provably the same one: the prior report
+     * loaded `immutableBefore` but nothing ever compared it, and a
+     * resumed probe would have accepted changed provenance. */
+    if (prior) {
+      const priorImm = prior.immutable || null;
+      const nowImm = R.immutableBefore;
+      const provenanceSame = RESUME_PROVENANCE_OK(priorImm, nowImm);
+      R.observed.resumeProvenance = { prior: priorImm, now: nowImm, same: provenanceSame };
+      checks.push(["resumed provenance identical to the prior report", provenanceSame]);
+    }
     R.preconditions = checks.map(([n, ok]) => ({ check: n, pass: Boolean(ok) }));
     const failed = checks.filter(([, ok]) => !ok).map(([n]) => n);
     if (failed.length) {
@@ -428,12 +457,21 @@ function docxText(file) {
     const ai = after.item || {};
     const immutableAfter = pick(ai, IMMUTABLE);
     const immutableSame = JSON.stringify(R.immutableBefore) === JSON.stringify(immutableAfter);
+    /* A resumed run must prove it mutated NOTHING. Skipping the Promote
+     * click is not the same as demonstrating no PATCH left the browser. */
+    const resumedCleanly = prior
+      ? RESUMED_WITHOUT_MUTATION(patchSeen.length, promotionAttempted) : null;
     step("3_promoted", {
       result: (ai.review_status === "promoted" && immutableSame
                && !R.blockedPatches.length
-               && (already && prior ? true : Boolean(R.promotedCandidateId))) ? "PASS" : "FAIL",
+               && (prior ? resumedCleanly === true : Boolean(R.promotedCandidateId)))
+        ? "PASS" : "FAIL",
       detail: `status=${ai.review_status} immutableProvenanceUnchanged=${immutableSame}`
-            + (already && prior ? " (carried from resume)" : ""),
+            + (prior ? ` (resume: patches=${patchSeen.length}`
+                     + ` promotionAttempted=${promotionAttempted})` : ""),
+      resumedWithoutMutation: resumedCleanly,
+      patchesObservedThisRun: patchSeen.length,
+      promotionAttemptedThisRun: promotionAttempted,
       observedPatch: R.observed.patch, blockedForeignPatches: R.blockedPatches.length,
       immutableBefore: R.immutableBefore, immutableAfter: immutableAfter, allPatches: patchSeen });
     R.immutableAfter = immutableAfter;
@@ -482,6 +520,11 @@ function docxText(file) {
     const previewOK = s1.found && s2.found && panel.visible && panel.occurrences === 1;
     const wrongOrigin = patCanonical.length > 0
       && patCanonical.every((c) => c.status === 404 && !c.origin.includes("8000"));
+    // Recorded so the verdict in `finally` reuses THIS test rather than
+    // re-deriving a looser one. A 404 from the API origin is a genuine
+    // canonical failure, not a wrong-origin bug, and must not be
+    // mislabelled as one.
+    R.observed.previewWrongOrigin = wrongOrigin;
     step("5_preview", {
       result: previewOK ? "PASS" : "FAIL",
       acceptancePath: "#lvNarratorCtxMemoir .lv-narrator-ctx-cta -> .lv-narrator-view-cta",
@@ -566,9 +609,7 @@ function docxText(file) {
     const g = (k) => (R.links[k] || {}).result || "not_reached";
     R.verdict = {
       promotion: g("3_promoted"), canonical_api: g("4_canonical"),
-      preview: g("5_preview") === "PASS" ? "passed"
-        : ((R.observed.canonicalRequests || []).some((c) => c.forPat && c.status === 404)
-            ? "failed — wrong API origin" : "failed"),
+      preview: PREVIEW_VERDICT(g("5_preview"), R.observed.previewWrongOrigin),
       export: g("6_export") === "PASS" ? "passed"
         : (g("5_preview") === "PASS" ? "failed" : "not reached through accepted UI path"),
       control_unchanged: g("7_control_unchanged"),

@@ -275,3 +275,118 @@ class BehaviouralDomTests(unittest.TestCase):
 
 if __name__ == "__main__":      # pragma: no cover
     unittest.main()
+
+
+class ResumeAndVerdictPredicateTests(unittest.TestCase):
+    """The three resume/verdict rules, EXERCISED rather than grepped.
+
+    A source assertion for these would match its own text, which has
+    produced three vacuous guards in this file's history. Each rule is a
+    pure exported function here, so the test runs it and checks answers.
+
+    What they prevent:
+      * a resumed run accepting a candidate whose provenance changed —
+        `prior.immutable` was loaded and never compared;
+      * a resumed run passing without proving it mutated nothing —
+        skipping the Promote click is not the same as zero PATCHes;
+      * a canonical 404 from :8000 being mislabelled "wrong API origin",
+        which would hide a real canonical failure behind a known UI bug.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        js = (
+            'const P = require("./scripts/ui/phase1_memoir_chain_probe.js");'
+            'const IMM = { id: "c", narrator_id: "pat", conversation_id: "conv1",'
+            '  session_id: "s1", source_user_turn_row_id: 2094,'
+            '  completed_assistant_turn_row_id: 2095 };'
+            'console.log(JSON.stringify({'
+            '  same: P.RESUME_PROVENANCE_OK(IMM, JSON.parse(JSON.stringify(IMM))),'
+            '  changedRow: P.RESUME_PROVENANCE_OK(IMM,'
+            '    Object.assign({}, IMM, { source_user_turn_row_id: 9999 })),'
+            '  changedConv: P.RESUME_PROVENANCE_OK(IMM,'
+            '    Object.assign({}, IMM, { conversation_id: "other" })),'
+            '  noPrior: P.RESUME_PROVENANCE_OK(null, IMM),'
+            '  undefPrior: P.RESUME_PROVENANCE_OK(undefined, IMM),'
+            '  clean: P.RESUMED_WITHOUT_MUTATION(0, false),'
+            '  onePatch: P.RESUMED_WITHOUT_MUTATION(1, false),'
+            '  attempted: P.RESUMED_WITHOUT_MUTATION(0, true),'
+            '  both: P.RESUMED_WITHOUT_MUTATION(2, true),'
+            '  vPass: P.PREVIEW_VERDICT("PASS", false),'
+            '  vWrongOrigin: P.PREVIEW_VERDICT("FAIL", true),'
+            '  vApi404: P.PREVIEW_VERDICT("FAIL", false),'
+            '  vUndef: P.PREVIEW_VERDICT("FAIL", undefined),'
+            '  vNotReached: P.PREVIEW_VERDICT("not_reached", false)}));'
+        )
+        r = subprocess.run(["node", "-e", js], capture_output=True, text=True,
+                           timeout=60, cwd=str(ROOT))
+        assert r.returncode == 0, r.stderr
+        import json as _json
+        cls.res = _json.loads(r.stdout)
+
+    # ── 1. resumed provenance must match ─────────────────────────────
+    def test_identical_provenance_is_accepted(self):
+        self.assertTrue(self.res["same"])
+
+    def test_a_changed_source_turn_row_is_refused(self):
+        self.assertFalse(self.res["changedRow"])
+
+    def test_a_changed_conversation_is_refused(self):
+        self.assertFalse(self.res["changedConv"])
+
+    def test_a_prior_report_without_provenance_is_refused(self):
+        self.assertFalse(self.res["noPrior"])
+        self.assertFalse(self.res["undefPrior"])
+
+    # ── 2. a resumed run must prove zero mutation ────────────────────
+    def test_zero_patches_and_no_attempt_is_clean(self):
+        self.assertTrue(self.res["clean"])
+
+    def test_a_single_patch_fails_the_resume(self):
+        self.assertFalse(self.res["onePatch"])
+
+    def test_an_attempted_promotion_fails_the_resume(self):
+        self.assertFalse(self.res["attempted"])
+        self.assertFalse(self.res["both"])
+
+    # ── 3. wrong-origin classification is strict ────────────────────
+    def test_a_passing_preview_reports_passed(self):
+        self.assertEqual("passed", self.res["vPass"])
+
+    def test_only_a_non_api_origin_404_is_called_wrong_origin(self):
+        self.assertEqual("failed — wrong API origin", self.res["vWrongOrigin"])
+
+    def test_an_api_origin_404_is_a_plain_failure(self):
+        self.assertEqual("failed", self.res["vApi404"],
+                         "a 404 from :8000 is a real canonical failure")
+
+    def test_an_unmeasured_origin_is_not_assumed_wrong(self):
+        self.assertEqual("failed", self.res["vUndef"])
+
+    def test_a_preview_never_reached_is_not_wrong_origin(self):
+        self.assertEqual("failed", self.res["vNotReached"])
+
+
+class ResumeWiringTests(_Base):
+    """The predicates must be wired into the flow, not merely exported."""
+
+    def test_the_probe_calls_each_predicate(self):
+        """Definition uses `const NAME = function (…)`, so `NAME(` marks a
+        CALL. Both forms are required: exported-but-unused would leave the
+        rule provable in isolation and absent from the run."""
+        for fn in ("RESUME_PROVENANCE_OK", "RESUMED_WITHOUT_MUTATION",
+                   "PREVIEW_VERDICT"):
+            self.assertIn(f"const {fn} = function", self.src,
+                          f"{fn} must be defined")
+            self.assertIn(f"{fn}(", self.src, f"{fn} must be called")
+
+    def test_resume_provenance_is_a_precondition(self):
+        self.assertIn("resumed provenance identical to the prior report", self.src)
+
+    def test_link_three_records_the_resume_mutation_evidence(self):
+        for f in ("resumedWithoutMutation", "patchesObservedThisRun",
+                  "promotionAttemptedThisRun"):
+            self.assertIn(f, self.src)
+
+    def test_the_verdict_uses_the_recorded_strict_result(self):
+        self.assertIn("R.observed.previewWrongOrigin", self.src)
