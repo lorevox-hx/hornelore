@@ -244,7 +244,8 @@ class ResumeTests(_Base):
         """UPDATED for the two-mutation workflow. There is no longer one
         prior link to trust but two, and they are checked separately so a
         run that placed and stopped can resume at promotion."""
-        self.assertIn('pass("3a_placed")', self.src)
+        self.assertIn('L["3a_placed"]', self.src)
+        self.assertIn('pass("3a_verify_placement")', self.src)
         self.assertIn('pass("3b_promoted")', self.src)
         self.assertIn('pass("7_control_unchanged")', self.src)
 
@@ -556,8 +557,27 @@ class ResumeStateMachineTests(_Base):
 
     def test_a_mutation_is_proven_by_the_named_report_never_by_the_row(self):
         self.assertIn("NEVER BY", self.raw)
-        self.assertIn('pass("3a_placed") && p.placedCandidateId === TARGET', self.src)
         self.assertIn('pass("3b_promoted") && p.promotedCandidateId === TARGET', self.src)
+
+    def test_placement_resume_requires_the_verification_not_just_the_patch(self):
+        """`3a_placed` records that a conforming PATCH returned 200.
+        `3a_verify_placement` is the step that re-reads the row and proves
+        the placement landed. Trusting the first alone would let a run
+        whose verification FAILED authorise a resume that then skips
+        placement entirely — the same mistake one level up."""
+        self.assertIn('pass("3a_verify_placement")', self.src)
+        self.assertIn("placementLinkOK && pass(\"3a_verify_placement\")", self.src)
+        self.assertIn("placementShapeOK", self.src)
+        self.assertIn("provenanceRecorded", self.src)
+
+    def test_a_carried_forward_placement_still_counts(self):
+        """A resumed run records `carried_forward`, not PASS, and re-proves
+        the placement from the live row every time — so a chain of resumes
+        must not demand a mutation nobody was allowed to repeat."""
+        self.assertIn('placedLink === "carried_forward"', self.src)
+
+    def test_an_attempted_but_unproven_placement_refuses_the_resume(self):
+        self.assertIn("a placement was attempted but is not PROVEN", self.raw)
 
     def test_promotion_without_placement_is_an_unusable_prior(self):
         self.assertIn("claims promotion without placement", self.raw)
@@ -700,3 +720,93 @@ class PlacementWorkflowDomTestTests(unittest.TestCase):
         self.assertIn("#lv10dBpStoryReview .story-section-header", probe)
         self.assertNotIn("_state.collapsed = false", probe,
                          "expansion must go through the operator's own gesture")
+
+
+class RefetchRaceTests(_Base):
+    """Defect found in review of pushed 619636f.
+
+    The fresh-run refetch pressed Enter and only THEN started waiting,
+    swallowed the timeout into ``None``, and never read the body. Three
+    faults in three lines: the response could complete before the listener
+    existed; a failure became a silent ``null``; and nothing checked what
+    came back. The probe could promote from a panel still holding the
+    pre-placement version and call the chain proven.
+    """
+
+    @property
+    def _refetch_block(self) -> str:
+        """The refetch step ONLY.
+
+        An earlier version of these tests anchored on ``if (MODE ===
+        "full") {``, whose FIRST occurrence is the preconditions block ~250
+        lines earlier. The slice therefore swallowed the placement step and
+        flagged its ``catch(() => null)`` and sleeps — both of which are
+        legitimate there, being armed inside a Promise.all and explicitly
+        checked. A test that reads the wrong region reports the wrong file.
+        """
+        blk = self.src[self.src.index("const refetchFail"):]
+        # rindex, not index: the refetchFail helper ITSELF emits a
+        # step("3b_row_refetched", …) refusal, so slicing at the first
+        # occurrence cut the block down to the helper and left the tests
+        # inspecting four lines of error handling. The step that closes
+        # the block is the LAST one.
+        return blk[:blk.rindex('step("3b_row_refetched"')]
+
+    def test_the_wait_is_armed_inside_the_same_promise_all_as_the_trigger(self):
+        blk = self._refetch_block
+        self.assertIn("await Promise.all([", blk)
+        armed = blk.index("await Promise.all([")
+        pressed = blk.index('filters.first().press("Enter")')
+        self.assertLess(armed, pressed,
+                        "the listener must exist before the gesture that fires it")
+
+    def test_no_refetch_failure_is_swallowed(self):
+        blk = self._refetch_block
+        self.assertNotIn("catch(() => null)", blk,
+                         "a swallowed timeout let the run continue unproven")
+        self.assertIn("refetchFail", blk)
+
+    def test_both_reads_must_carry_the_verified_version(self):
+        self.assertIn("the refreshed list carries the wrong review version", self.raw)
+        self.assertIn("the reopened detail carries the wrong review version", self.raw)
+        self.assertIn("listRow.review_version !== versionAfterPlacement", self.src)
+        self.assertIn("detItem.review_version !== versionAfterPlacement", self.src)
+
+    def test_the_detail_must_be_the_target_and_show_the_placement(self):
+        self.assertIn("the reopened detail is a different candidate", self.raw)
+        self.assertIn("PLACEMENT_STATE_OK(detItem, ERA)", self.src)
+
+    def test_the_promotion_carries_that_verified_version(self):
+        self.assertIn("PROMOTION_PATCH_OK({ sent, person: PERSON,"
+                      " version: versionAfterPlacement })", self.src)
+
+    def test_the_promote_control_is_awaited_not_slept_for(self):
+        blk = self._refetch_block
+        self.assertIn('waitFor({ state: "visible"', blk)
+        self.assertNotIn("waitForTimeout(", blk,
+                         "the refetch step must be event-driven end to end")
+
+    def test_the_era_selection_is_polled_not_slept_for(self):
+        self.assertIn("the era control did not retain the choice", self.raw)
+        self.assertIn("seen !== ERA", self.src)
+
+
+class HeaderAccuracyTests(_Base):
+    """A file header that understates what a script may change is the last
+    place a stale sentence should live."""
+
+    def test_it_states_exactly_two_authorized_mutations(self):
+        head = self.raw[:self.raw.index('"use strict"')]
+        self.assertIn("EXACTLY TWO AUTHORIZED MUTATIONS", head)
+        self.assertIn("PLACEMENT", head)
+        self.assertIn("PROMOTION", head)
+        # NOT a NotIn on "ONE authorized mutation": the header quotes that
+        # phrase in the note recording its own correction, so a naive
+        # negative matches the documentation of the fix. Self-matching
+        # assertion, fifth time. Assert the claim is made ONCE, as history.
+        self.assertEqual(1, head.count("ONE authorized mutation"))
+        self.assertIn('said "ONE authorized mutation', head)
+
+    def test_the_chain_in_the_header_includes_placement(self):
+        head = self.raw[:self.raw.index('"use strict"')]
+        self.assertIn("operator PLACEMENT -> operator promotion", head)

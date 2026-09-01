@@ -187,6 +187,7 @@ const LIST_KEYS = [
     window.state = { person_id: args.person }; // the narrator the panel scopes to
     window.__patches = [];
     window.__requests = [];
+    window.__responses = [];
     window.__rows = {};
     args.rows.forEach((r) => { window.__rows[r.id] = JSON.parse(JSON.stringify(r)); });
 
@@ -209,6 +210,11 @@ const LIST_KEYS = [
                                body: opts.body || null });
       const json = (body, status) => {
         if (u.indexOf("/story-candidates/review") >= 0) window.__lastListResponse = body;
+        else if (u.indexOf("/story-candidates/") >= 0 && (opts.method || "GET") === "GET") {
+          window.__lastDetailResponse = body;
+        }
+        window.__responses.push({ method: opts.method || "GET", url: u,
+                                  status: status || 200, body });
         return Promise.resolve({
           ok: (status || 200) < 400, status: status || 200,
           json: () => Promise.resolve(body),
@@ -411,12 +417,38 @@ const LIST_KEYS = [
       "a promotion at the pre-placement version must be rejected by contract");
   });
 
-  await check("after the panel refetches, Promote carries the new version", async () => {
+  /* THE VERSION CHAIN, END TO END. The live probe refuses unless the
+   * refreshed LIST row and the reopened DETAIL body both carry the
+   * verified post-placement version before Promote is clicked. Those are
+   * the two reads that feed `item.review_version` into the promotion
+   * body, so they are asserted here against the real panel rather than
+   * assumed. */
+  await check("the refreshed list carries the post-placement version", async () => {
     await page.evaluate(() => { window.__patches = []; });
     await page.evaluate(() => window.lvStoryReviewRefresh());
     await page.waitForTimeout(400);
+    const body = await page.evaluate(() => window.__lastListResponse);
+    const listRow = (body.items || []).find((i) => i.id === TARGET);
+    assert.ok(listRow, "the target must be present in the refreshed list");
+    assert.strictEqual(listRow.review_version, 2,
+      "the list must show the version the placement produced");
+    assert.deepStrictEqual(listRow.era_candidates, [ERA]);
+    assert.strictEqual(listRow.placement_source, "operator_set");
+  });
+
+  await check("the reopened detail carries the post-placement version", async () => {
     await row().locator(".story-preview-btn").click();   // reopen the detail
     await page.waitForTimeout(400);
+    const det = await page.evaluate(() => window.__lastDetailResponse);
+    assert.ok(det && det.item, "reopening must issue a detail read");
+    assert.strictEqual(det.item.id, TARGET);
+    assert.strictEqual(det.item.review_version, 2,
+      "the detail the panel renders its actions from must be current");
+    assert.ok(PLACEMENT_STATE_OK(det.item, ERA),
+      "the reopened detail must show the placement");
+  });
+
+  await check("after the panel refetches, Promote carries the new version", async () => {
     await row().locator(".story-act-promote").click();
     await page.waitForTimeout(400);
     const patches = await page.evaluate(() => window.__patches);

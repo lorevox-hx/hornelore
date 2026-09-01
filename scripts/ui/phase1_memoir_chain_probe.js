@@ -2,8 +2,9 @@
 /*
  * WO-LORI-ARCHIVE-TO-MEMOIR-02 — Phase 1 probe.
  *
- * archive -> provisional story -> operator promotion -> canonical memoir
- * -> preview -> export, for ONE existing synthetic candidate.
+ * archive -> provisional story -> operator PLACEMENT -> operator promotion
+ * -> canonical memoir -> preview -> export, for ONE existing synthetic
+ * candidate.
  *
  * Written against the PUSHED contracts, verified in source:
  *   GET /api/operator/story-candidates/{id}?narrator_id=...  (narrator_id is
@@ -26,7 +27,23 @@
  * services through localhost forwarding. Only the isolated Claude browser
  * session was observed unable to.
  *
- * ONE authorized mutation: promote 447eee18 through the real UI control.
+ * EXACTLY TWO AUTHORIZED MUTATIONS to 447eee18, in this order, each
+ * through the real Bug Panel control and each a PATCH to the same route:
+ *
+ *   1. PLACEMENT  — choose `building_years` in the row's era selector,
+ *                   then press "Save placement / notes". Selecting an era
+ *                   IS the operator placement: the control writes
+ *                   placement_source=operator_set in the same gesture.
+ *   2. PROMOTION  — press that row's "Promote", carrying the review
+ *                   version the placement returned.
+ *
+ * (This header said "ONE authorized mutation: promote" until 2026-09-01.
+ * It was written before run 20260901T212134Z proved the candidate was
+ * unplaced, and a file header that understates what a script is allowed
+ * to change is the last place a stale sentence should live.)
+ *
+ * The budget is enforced in flight — full=2, resumed-at-placement=1,
+ * fully-resumed=0 — so a PATCH beyond it never leaves the browser.
  * Control 5a56f942 must be unchanged, verified in `finally`.
  * A refusal is a result. Any refusal or failed link exits non-zero.
  */
@@ -299,8 +316,44 @@ if (resumeId) {
    * accepts the row's own state as evidence of its own prior work can be
    * satisfied by any mutation from any source. Each claim below is
    * carried by a link that recorded a request and a response. */
-  const placementProven = pass("3a_placed") && p.placedCandidateId === TARGET;
+  /* PLACEMENT IS PROVEN BY ITS VERIFICATION, NOT BY ITS PATCH.
+   *
+   * This required `3a_placed` alone until 2026-09-01. `3a_placed` records
+   * that a conforming PATCH went out and came back 200; `3a_verify_placement`
+   * is the step that RE-READS the candidate and proves the placement
+   * actually landed as the sole era, with operator_set, at an advanced
+   * version, with the review status and provenance untouched. A run whose
+   * PATCH returned but whose verification FAILED would have authorised a
+   * resume -- and the resumed run would then skip placement entirely on
+   * the strength of a placement nobody confirmed. That is the same
+   * mistake, one level up, that this whole phase exists to correct.
+   *
+   * `3a_placed` may be "carried_forward" rather than PASS: that is what a
+   * resumed run records, and its `3a_verify_placement` still re-proves the
+   * placement from the live row. So the chain stays honest across repeated
+   * resumes without demanding a mutation nobody was allowed to repeat. */
+  const placedLink = (L["3a_placed"] || {}).result;
+  const placementLinkOK = placedLink === "PASS" || placedLink === "carried_forward";
+  const priorPlacement = p.placementAfter || null;
+  const placementShapeOK = Boolean(priorPlacement)
+    && Array.isArray(priorPlacement.era_candidates)
+    && priorPlacement.era_candidates.length === 1
+    && priorPlacement.era_candidates[0] === ERA
+    && priorPlacement.placement_source === "operator_set";
+  const provenanceRecorded = Boolean(p.immutableBefore)
+    && p.immutableBefore.id === TARGET
+    && p.immutableBefore.narrator_id === PERSON;
+  const placementProven = placementLinkOK && pass("3a_verify_placement")
+    && p.placedCandidateId === TARGET && placementShapeOK && provenanceRecorded;
   const promotionProven = pass("3b_promoted") && p.promotedCandidateId === TARGET;
+  if (!placementProven && (placementLinkOK || p.placedCandidateId)) {
+    console.error(`--resume ${resumeId}: a placement was attempted but is not PROVEN`
+      + ` — 3a_placed=${placedLink || "absent"}`
+      + ` 3a_verify_placement=${(L["3a_verify_placement"] || {}).result || "absent"}`
+      + ` id=${p.placedCandidateId === TARGET}`
+      + ` shape=${placementShapeOK} provenance=${provenanceRecorded}`);
+    process.exit(2);
+  }
   if (!pass("7_control_unchanged")) {
     console.error(`--resume ${resumeId}: prior run did not prove the control unchanged`);
     process.exit(2);
@@ -659,7 +712,27 @@ function docxText(file) {
       }
       // selectOption fires the real `input` event the handler listens for.
       await eraSel.selectOption(ERA);
-      await page.waitForTimeout(600);          // the handler calls render()
+      /* Wait for the CHOICE to survive the handler's render(), not for a
+       * fixed interval. The handler sets era_candidates and
+       * placement_source together and re-renders; if `input` had not
+       * fired, the rebuilt control would read '— not placed —' again.
+       * Polling the control's own value proves the handler ran. */
+      {
+        const deadline = Date.now() + 15000;
+        let seen = null;
+        while (Date.now() < deadline) {
+          try { seen = await eraSel.inputValue(); } catch (_) { seen = null; }
+          if (seen === ERA) break;
+          await page.waitForTimeout(100);
+        }
+        if (seen !== ERA) {
+          R.refusals.push("REFUSED placement: the era control did not retain the choice");
+          step("3a_placed", { result: "REFUSED",
+            detail: `era control reads '${seen}' after selecting '${ERA}'`,
+            why: "the oninput handler sets era + placement_source and re-renders" });
+          throw new Error("era selection did not take effect");
+        }
+      }
 
       const [plr] = await Promise.all([
         page.waitForResponse((r) => r.request().method() === "PATCH"
@@ -760,19 +833,114 @@ function docxText(file) {
       console.log(`  [3b] resume — promoted by ${prior.runId}; NOT re-promoting`);
     } else {
       if (MODE === "full") {
-        await filters.first().press("Enter");
-        await page.waitForResponse((r) => r.url().includes("/story-candidates/review"),
-                                   { timeout: 20000 }).catch(() => null);
-        await page.waitForTimeout(1200);
-        const reopened = await page.evaluate(OPEN_DETAIL, PASSAGE_HEAD);
-        await page.waitForTimeout(1500);
+        /* THE WAIT IS ARMED BEFORE THE TRIGGER, AND ITS BODY IS READ.
+         *
+         * This step used to press Enter and only then start waiting, with
+         * a `.catch(() => null)` and a fixed sleep behind it. Three faults
+         * in three lines: the response could complete before the listener
+         * existed; a timeout was swallowed into `null` and the run carried
+         * on; and nothing ever checked WHAT came back. The probe could
+         * therefore promote from a panel still holding the pre-placement
+         * version and report a proven chain.
+         *
+         * Now: every wait is armed inside the same Promise.all as the
+         * gesture that causes it, no rejection is caught, and both the
+         * list row and the detail body must carry the verified
+         * post-placement version before Promote is clicked. No sleeps. */
+        const refetchFail = (what, detail) => {
+          R.refusals.push(`REFUSED before promotion: ${what}`);
+          step("3b_row_refetched", { result: "REFUSED", detail });
+          throw new Error(what);
+        };
+
+        let listRes;
+        try {
+          [listRes] = await Promise.all([
+            page.waitForResponse((r) => r.request().method() === "GET"
+              && r.url().includes("/story-candidates/review")
+              && r.url().includes(PERSON), { timeout: 20000 }),
+            filters.first().press("Enter"),
+          ]);
+        } catch (e) {
+          refetchFail("no Pat-scoped review-list response after the refresh",
+                      e.message);
+        }
+        let listBody = null;
+        try { listBody = await listRes.json(); }
+        catch (e) { refetchFail("review-list response was not readable JSON", e.message); }
+        const listRow = ((listBody && listBody.items) || [])
+          .find((i) => i && i.id === TARGET) || null;
+        if (listRes.status() >= 400) {
+          refetchFail("review-list refresh failed", `HTTP ${listRes.status()}`);
+        }
+        if (!listRow) {
+          refetchFail("the target row was absent from the refreshed list",
+                      `${((listBody && listBody.items) || []).length} items returned`);
+        }
+        if (listRow.review_version !== versionAfterPlacement) {
+          refetchFail("the refreshed list carries the wrong review version",
+            `list=${listRow.review_version} verified=${versionAfterPlacement}`);
+        }
+
+        /* Reopening issues the DETAIL read, and it is the detail body the
+         * panel renders the actions from -- so that is the body whose
+         * version must match. */
+        let detRes;
+        try {
+          [detRes] = await Promise.all([
+            page.waitForResponse((r) => r.request().method() === "GET"
+              && r.url().includes("/story-candidates/")
+              && r.url().includes(TARGET), { timeout: 20000 }),
+            page.evaluate(OPEN_DETAIL, PASSAGE_HEAD),
+          ]);
+        } catch (e) {
+          refetchFail("no detail response for the target after reopening", e.message);
+        }
+        let detBody = null;
+        try { detBody = await detRes.json(); }
+        catch (e) { refetchFail("detail response was not readable JSON", e.message); }
+        const detItem = (detBody && detBody.item) || null;
+        if (detRes.status() >= 400 || !detItem) {
+          refetchFail("detail read failed after reopening", `HTTP ${detRes.status()}`);
+        }
+        if (detItem.id !== TARGET || detItem.narrator_id !== PERSON) {
+          refetchFail("the reopened detail is a different candidate",
+            `id=${detItem.id} narrator=${detItem.narrator_id}`);
+        }
+        if (detItem.review_version !== versionAfterPlacement) {
+          refetchFail("the reopened detail carries the wrong review version",
+            `detail=${detItem.review_version} verified=${versionAfterPlacement}`);
+        }
+        if (!PLACEMENT_STATE_OK(detItem, ERA)) {
+          refetchFail("the reopened detail does not show the placement",
+            `era=[${(detItem.era_candidates || []).join(",")}] src=${detItem.placement_source}`);
+        }
+
+        // Event-driven, not a sleep: the actions appear when the panel
+        // has rendered the detail it just read.
+        try {
+          await row().locator(".story-act-promote")
+                     .waitFor({ state: "visible", timeout: 20000 });
+        } catch (e) {
+          refetchFail("the promote control never appeared in the reopened row", e.message);
+        }
         const reState = await page.evaluate(VERIFY_ROW, { head: PASSAGE_HEAD, full: PASSAGE });
         step("3b_row_refetched", {
-          result: (reopened.clicked && reState.detailOpen && reState.transcriptEqualsTarget
+          result: (reState.detailOpen && reState.transcriptEqualsTarget
                    && reState.promoteControlsInRow === 1) ? "PASS" : "FAIL",
           detail: `detailOpen=${reState.detailOpen} transcriptEqual=${reState.transcriptEqualsTarget}`
-                + ` promoteInRow=${reState.promoteControlsInRow}`,
-          why: "the panel must carry the post-placement version before Promote is clicked",
+                + ` promoteInRow=${reState.promoteControlsInRow}`
+                + ` listVersion=${listRow.review_version} detailVersion=${detItem.review_version}`
+                + ` verified=${versionAfterPlacement}`,
+          why: "the panel must carry the VERIFIED post-placement version before Promote",
+          observedListVersion: listRow.review_version,
+          observedDetailVersion: detItem.review_version,
+          verifiedVersion: versionAfterPlacement,
+          listResponse: { url: listRes.url(), status: listRes.status(),
+                          items: ((listBody && listBody.items) || []).length },
+          detailResponse: { url: detRes.url(), status: detRes.status(),
+                            placement: pick(detItem, ["era_candidates", "placement_source",
+                                                      "review_status", "review_version"]) },
           rowState: reState });
         if (!reState.transcriptEqualsTarget || reState.promoteControlsInRow !== 1) {
           throw new Error("refetched row did not satisfy the contract");
