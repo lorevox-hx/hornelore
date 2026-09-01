@@ -611,3 +611,74 @@ class PlacementWorkflowDomTestTests(unittest.TestCase):
     def test_it_proves_the_stale_version_case(self):
         self.assertIn("stale version", self.src.lower())
         self.assertIn("409", self.src)
+
+    def test_confidence_is_a_string_bucket_not_a_float(self):
+        """The fixture guessed a float because "confidence" sounds like
+        one. The server types it ``Optional[str]`` and the live read
+        returned ``"low"``; the panel renders it as a text child, so a
+        number makes renderRow throw for every row and the panel presents
+        as empty. A fixture whose types drift from the server tests
+        nothing but itself."""
+        # Checked against CODE ONLY. The comment above the fixture quotes
+        # the wrong value in order to explain it, so a raw-source
+        # assertion matches its own documentation and fails — the
+        # self-matching-assertion trap, hit here for the fourth time.
+        code = _code_only(self.src)
+        self.assertIn('confidence: "low"', code)
+        self.assertNotIn("confidence: 0.", code)
+        route = (ROOT / "server" / "code" / "api" / "routers"
+                 / "operator_story_review.py").read_text(encoding="utf-8")
+        self.assertIn("confidence: Optional[str] = None", route)
+
+    def test_the_mocked_list_shape_matches_the_server_exactly(self):
+        """The list route returns ``_shape_for_operator``'s keys; the
+        detail route returns a richer body. Serving one fat shape to both
+        hides a panel that depends on a field the list never sends, so the
+        mock's key set is pinned to the server's and drift fails here."""
+        src = (ROOT / "server" / "code" / "api" / "routers"
+               / "operator_story_review.py").read_text(encoding="utf-8")
+        blk = src[src.index("def _shape_for_operator"):]
+        blk = blk[blk.index("return {"):blk.index("\n    }")]
+        server_keys = sorted(re.findall(r'"([a-z_]+)":', blk))
+        lk = self.src[self.src.index("const LIST_KEYS = ["):]
+        lk = lk[:lk.index("];")]
+        test_keys = sorted(re.findall(r'"([a-z_]+)"', lk))
+        self.assertEqual(server_keys, test_keys)
+
+    def test_it_fails_fast_instead_of_cascading_timeouts(self):
+        """One root cause presented as nine failures because each missing
+        control waited out a 30s default. A zero-row render now aborts
+        with diagnostics."""
+        code = _code_only(self.src)
+        self.assertIn("page.setDefaultTimeout(", code)
+        self.assertIn("hardFail", code)
+        self.assertIn("diagnose", code)
+
+    def test_it_never_manufactures_a_pass(self):
+        code = _code_only(self.src)
+        for forbidden in ("createElement('div'", 'createElement("div"',
+                          "_state.collapsed =", "_state.items ="):
+            self.assertNotIn(forbidden, code,
+                             "the test must not build the DOM it wants to see")
+
+    def test_render_exceptions_are_surfaced_not_swallowed(self):
+        """render() is called from a .then(), so a throw inside renderRow
+        rejects a promise nobody awaits and the only visible symptom is an
+        empty panel."""
+        self.assertIn('page.on("pageerror"', self.src)
+        self.assertIn("the panel rendered without throwing", self.src)
+
+    def test_it_expands_the_collapsed_section(self):
+        """Asserted against CODE, not prose: a comment's wording is not a
+        contract, and matching one is how this guard broke when the file
+        was rewritten and the sentence changed case."""
+        code = _code_only(self.src)
+        self.assertIn("#lv10dBpStoryReview .story-section-header", code)
+        self.assertIn("header.click()", code)
+
+    def test_the_probe_expands_the_section_before_reading_controls(self):
+        probe = PROBE.read_text(encoding="utf-8")
+        self.assertIn("2a0_section_expanded", probe)
+        self.assertIn("#lv10dBpStoryReview .story-section-header", probe)
+        self.assertNotIn("_state.collapsed = false", probe,
+                         "expansion must go through the operator's own gesture")

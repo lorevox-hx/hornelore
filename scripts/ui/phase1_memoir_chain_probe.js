@@ -546,6 +546,40 @@ function docxText(file) {
       if (el) el.click();
     });
     await page.waitForTimeout(1200);
+
+    /* EXPAND THE SECTION FIRST. bug-panel-story-review.js:116 sets
+     * `collapsed: true` -- "historical backlog, collapsed by default" --
+     * and render() returns at :864 BEFORE renderControls(), so while the
+     * section is collapsed there is no filter input, no row and no
+     * promote control anywhere in the DOM. This probe would have refused
+     * at 2a with "0 .story-filter-input" and reported a missing product
+     * control that is merely folded shut. Caught by the placement DOM
+     * test against the real module, 2026-09-01, before it ever ran live.
+     *
+     * Expanded through the operator's own gesture -- clicking the section
+     * header -- never by reaching into _state. */
+    const secHeader = page.locator("#lv10dBpStoryReview .story-section-header");
+    let expandedByUs = false;
+    if (await page.locator(".story-filter-input").count() === 0) {
+      if (await secHeader.count() !== 1) {
+        R.refusals.push("REFUSED: story-review section header is not uniquely addressable");
+        step("2a0_section_expanded", { result: "REFUSED",
+          detail: `${await secHeader.count()} .story-section-header in the mount` });
+        throw new Error("cannot expand the story-review section");
+      }
+      await secHeader.click();
+      await page.waitForTimeout(900);
+      expandedByUs = true;
+    }
+    const controlsPresent = await page.locator(".story-filter-input").count() > 0;
+    step("2a0_section_expanded", {
+      result: controlsPresent ? "PASS" : "FAIL",
+      detail: expandedByUs ? "expanded via the section header (collapsed by default)"
+                           : "section was already expanded",
+      expandedByThisRun: expandedByUs,
+      why: "renderControls() is unreachable while _state.collapsed is true" });
+    if (!controlsPresent) throw new Error("review controls did not appear after expanding");
+
     const filters = page.locator(".story-filter-input");
     const nF = await filters.count();
     if (nF !== 1) {
@@ -972,7 +1006,8 @@ function docxText(file) {
      * fresh one; both are acceptable, and only those two. */
     const OK = (k) => (k === "3a_placed"
       ? ["PASS", "carried_forward"].indexOf(g(k)) >= 0 : g(k) === "PASS");
-    const order = ["1_preconditions", "1b_narrator_active", "2a_filter", "2_row_located",
+    const order = ["1_preconditions", "1b_narrator_active", "2a0_section_expanded",
+                   "2a_filter", "2_row_located",
                    "2b_detail_verified", "3a_placed", "3a_verify_placement",
                    "3b_promoted", "4_canonical", "5_preview",
                    "6_export", "8_agreement", "7_control_unchanged"];
