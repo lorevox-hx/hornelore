@@ -724,6 +724,14 @@ async function main() {
         personId: narrator.person_id, conversationId: report.conversationId,
         complete: true, eras: report.eras.length, responseCount: report.responseCount,
         operatorStatus: report.wrapUp.wrap?.result?.result?.status || null,
+        /* uiFindings and switcher MUST be carried into the checkpoint. The
+         * combined verdict reads checkpoint.narrators.flatMap(n =>
+         * n.uiFindings || []), so omitting them here made
+         * "COMPLETE WITH UI FINDINGS" structurally unable to fire at the
+         * combined level no matter how many findings the narrators had —
+         * the per-narrator console line was right, the summary silently
+         * was not. Latent in run 20260901T015343Z, which had none. */
+        uiFindings: report.uiFindings || [], switcher: report.switcher || null,
         relativeReport: path.relative(outDir, path.join(narratorDir, "report.html")) });
       writeJson(path.join(outDir, "checkpoint.json"), checkpoint);
       console.log(`  ${(report.uiFindings || []).length ? "COMPLETE WITH UI FINDINGS" : "COMPLETE"}`
@@ -739,6 +747,7 @@ async function main() {
         personId: narrator.person_id, conversationId: report.conversationId || null,
         complete: false, eras: report.eras.length, responseCount: 0,
         operatorStatus: null, error: report.error,
+        uiFindings: report.uiFindings || [], switcher: report.switcher || null,
         relativeReport: path.relative(outDir, path.join(narratorDir, "report.html")) });
       writeJson(path.join(outDir, "checkpoint.json"), checkpoint);
       fatal = error;

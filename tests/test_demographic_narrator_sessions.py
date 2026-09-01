@@ -410,3 +410,30 @@ class SwitcherLifecycleIsObservedNotMaskedTests(unittest.TestCase):
             encoding="utf-8", errors="replace")
         self.assertIn('if (_sw && _sw.matches && _sw.matches(":popover-open")) '
                       '_sw.hidePopover();', ui)
+
+
+class CheckpointCarriesUiFindingsTests(unittest.TestCase):
+    """The combined verdict read a field the checkpoint never stored.
+
+    `COMPLETE WITH UI FINDINGS` is computed from
+    checkpoint.narrators.flatMap(n => n.uiFindings || []), but the
+    checkpoint push omitted uiFindings entirely — so the combined
+    summary could never report a finding, however many the narrators
+    had. Latent in 20260901T015343Z, which happened to have none.
+    """
+
+    def setUp(self):
+        raw = (ROOT / "scripts" / "ui"
+               / "run_demographic_narrator_sessions.js").read_text(
+                   encoding="utf-8")
+        self.src = _js_code_only(raw)
+
+    def test_both_checkpoint_pushes_carry_ui_findings(self):
+        self.assertEqual(2, self.src.count("uiFindings: report.uiFindings || []"))
+
+    def test_the_switcher_record_is_carried_too(self):
+        self.assertEqual(2, self.src.count("switcher: report.switcher || null"))
+
+    def test_the_verdict_still_reads_that_field(self):
+        self.assertIn("(checkpoint.narrators || [])", self.src)
+        self.assertIn("n.uiFindings || []", self.src)
