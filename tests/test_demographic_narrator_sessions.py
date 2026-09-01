@@ -54,13 +54,25 @@ class RealFixturePlanTests(unittest.TestCase):
         self.assertNotIn('getattr(chapter, "narrator_text"', source)
 
     def test_build_plan_requires_one_journaled_uuid_per_source(self):
+        """The journal carries the FIXTURE LABEL, not the product name.
+
+        *(This fixture used "ZZ COHORT <run> · Person N", which is the
+        PRODUCT display name. `run_narrator_cohort_acceptance.py:1375`
+        journals `persona["label"]` — 'Alex Eunseo Park (they/them)' —
+        and the ZZ COHORT name is stamped separately at intake via
+        preferred_name. Against the real journal the old expectation
+        refused all ten narrators and no plan could ever be built. The
+        rows here now match what the cohort runner actually writes.)*
+        """
         run_id = "r-test"
         rows = []
+        personas = {p["harness"]: p for p in cohort.load_personas(quick=False)
+                    if p["source"] == "harness"}
         for i, source in enumerate(cohort.COHORT_HARNESSES, start=1):
             rows.append({
                 "source": source,
                 "person_id": f"00000000-0000-4000-8000-{i:012d}",
-                "display_name": f"ZZ COHORT {run_id} · Person {i}",
+                "display_name": personas[source]["label"],
             })
         with tempfile.TemporaryDirectory() as td:
             journal = pathlib.Path(td) / "artifacts.json"
@@ -70,11 +82,16 @@ class RealFixturePlanTests(unittest.TestCase):
         self.assertEqual(10, result["narrator_count"])
         self.assertEqual(38, result["era_count"])
         self.assertEqual(38, result["narrator_turn_count"])
+        # The product-marker check cannot live here — this module takes
+        # no --api and does no network. It emits the prefix so the
+        # runner, which has the API, can verify the painted card.
+        for n in result["narrators"]:
+            self.assertEqual(f"ZZ COHORT {run_id} · ", n["product_marker"])
 
     def test_duplicate_journal_source_is_refused(self):
         source = next(iter(cohort.COHORT_HARNESSES))
         rows = [{"source": source, "person_id": "00000000-0000-4000-8000-000000000001",
-                 "display_name": "ZZ COHORT r-test · A"}] * 2
+                 "display_name": "A"}] * 2
         with tempfile.TemporaryDirectory() as td:
             journal = pathlib.Path(td) / "artifacts.json"
             journal.write_text(json.dumps({"people": rows}), encoding="utf-8")
@@ -140,3 +157,37 @@ class BrowserRunnerSourceContracts(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RealJournalBuildsAPlanTests(unittest.TestCase):
+    """The check that would have caught this before a live run.
+
+    Every earlier test used a synthetic journal, so none of them
+    exercised the shape the cohort runner actually writes.
+    """
+
+    RUN = "r20260831-040506-010cd6"
+
+    def setUp(self):
+        j = (ROOT / ".runtime" / "eval" / "narrator-cohort"
+             / self.RUN / "artifacts.json")
+        if not j.is_file():
+            self.skipTest(f"source journal {self.RUN} not present locally")
+
+    def test_the_real_journal_produces_the_full_plan(self):
+        result = plan.build_plan(self.RUN)
+        self.assertEqual(10, result["narrator_count"])
+        self.assertEqual(38, result["era_count"])
+        self.assertEqual(38, result["narrator_turn_count"])
+
+    def test_every_narrator_carries_the_product_marker(self):
+        for n in plan.build_plan(self.RUN)["narrators"]:
+            self.assertEqual(f"ZZ COHORT {self.RUN} · ", n["product_marker"])
+
+    def test_the_runner_verifies_identity_by_that_marker(self):
+        js = (ROOT / "scripts" / "ui"
+              / "run_demographic_narrator_sessions.js").read_text(
+                  encoding="utf-8")
+        self.assertIn("narrator.product_marker", js)
+        self.assertIn("text.startsWith(expected.marker)", js)
+        self.assertIn('text === "Choose a narrator"', js)

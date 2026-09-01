@@ -264,11 +264,28 @@ async function openExactNarrator(page, narrator) {
     const status = window.state?.narratorOpen?.openStatus;
     return status && status !== "loading" && status !== "idle";
   }, null, { timeout: 60000 });
-  await page.waitForFunction((name) => Array.from(document.querySelectorAll("#lv80ActiveNarratorName"))
+  /* ── Identity: the PRODUCT name, not the journal label ────────────
+   * The plan carries the fixture label ('Alex Eunseo Park (they/them)')
+   * while the narrator card shows the product name
+   * ('ZZ COHORT <run-id> · Alex'). Neither direction of the old
+   * substring match can succeed between those two, so this wait could
+   * never pass. The plan now emits `product_marker`; the card must
+   * START with it, which is exact rather than a substring guess and
+   * cannot be satisfied by a stale copy showing a PREVIOUS narrator.
+   * `state.person_id` is already asserted above, so the two together
+   * pin both the identity and the paint. */
+  await page.waitForFunction((expected) => Array.from(
+      document.querySelectorAll("#lv80ActiveNarratorName"))
     .some((n) => {
       const text = (n.textContent || "").trim();
-      return text && (text === name || name.includes(text) || text.includes(name));
-    }), narrator.display_name, { timeout: 60000 });
+      if (!text || text === "Choose a narrator" || text === "Loading…") return false;
+      if (expected.marker) return text.startsWith(expected.marker);
+      const name = expected.name || "";
+      return text === name || name.includes(text) || text.includes(name);
+    }),
+    { marker: narrator.product_marker || null,
+      name: narrator.display_name || null },
+    { timeout: 60000 });
   await page.waitForFunction(() => {
     const input = document.getElementById("chatInput");
     return input && !input.disabled && (!window._loriIsBusy || !window._loriIsBusy());
