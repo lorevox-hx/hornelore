@@ -226,8 +226,17 @@ class ActiveNarratorTests(_Base):
             self.assertIn(name, self.src)
 
     def test_pat_is_opened_before_the_bug_panel(self):
+        """Re-anchored on the REAL opener.
+
+        This asserted ordering against ``lv10dBugPanelBtn`` — an id that
+        exists nowhere in the product. The test passed because the string
+        was present in the PROBE, and the probe's own selector was the
+        thing that was wrong: it matched nothing live, so the Bug Panel
+        never opened. A guard pinned to a phantom selector confirms the
+        typo instead of catching it.
+        """
         self.assertLess(self.src.index("openBtn.click()"),
-                        self.src.index("lv10dBugPanelBtn"))
+                        self.src.index('page.locator("#lv10dBugBtn")'))
 
 
 class ExitCodeTests(_Base):
@@ -810,3 +819,103 @@ class HeaderAccuracyTests(_Base):
     def test_the_chain_in_the_header_includes_placement(self):
         head = self.raw[:self.raw.index('"use strict"')]
         self.assertIn("operator PLACEMENT -> operator promotion", head)
+
+
+class BugPanelOpenerTests(_Base):
+    """Defect found by the first authorized live run, 20260901T232656Z.
+
+    The probe never opened the Bug Panel. It looked for
+    ``#lv10dBugPanelBtn`` — one word off from the real ``#lv10dBugBtn`` —
+    then fell back to ``[onclick*="BugPanel"],[id*="ugPanel"]``. The panel
+    is a NATIVE POPOVER opened by ``popovertarget``, so there is no onclick
+    to match, and the id fallback matched ``lv10dBugPanel``: the popover
+    DIV itself, whose click does nothing. ``if (el) el.click()`` then
+    swallowed the miss, and the run died 30s later inside a section header
+    that was present and invisible.
+
+    Same family as ``#lvNarratorCtxMemoir``: an element that RESOLVES is
+    not a control that WORKS. Nothing was mutated — 0 PATCHes, control
+    PASS, exit 1.
+    """
+
+    def test_the_opener_is_the_header_button_not_a_guessed_id(self):
+        self.assertIn('page.locator("#lv10dBugBtn")', self.src)
+        # the attribute selector is used to RECORD what exists, not to choose
+        self.assertIn('[popovertarget="lv10dBugPanel"]\').count()', self.src)
+
+    def test_the_guessed_id_and_the_div_fallback_are_gone(self):
+        code = _code_only(self.src)
+        self.assertNotIn("lv10dBugPanelBtn", code)
+        self.assertNotIn('[id*="ugPanel"]', code)
+        self.assertNotIn("if (el) el.click()", code,
+                         "a missed control must refuse, not silently do nothing")
+
+    def test_the_opener_must_be_unique_and_opening_must_be_proven(self):
+        self.assertIn("2a0_bug_panel_open", self.src)
+        self.assertIn("the header Bug Panel opener is not usable", self.raw)
+        self.assertIn("Bug Panel did not open", self.raw)
+        self.assertIn('waitFor({ state: "visible"', self.src)
+
+    def test_the_panel_really_is_a_native_popover(self):
+        html = (ROOT / "ui" / "hornelore1.0.html").read_text(encoding="utf-8")
+        self.assertIn('<div id="lv10dBugPanel" popover>', html)
+        self.assertIn('popovertarget="lv10dBugPanel"', html)
+        self.assertIn('id="lv10dBugBtn"', html)
+
+    def test_the_open_step_is_in_the_required_order(self):
+        self.assertIn('"2a0_bug_panel_open",', self.src)
+        order_blk = self.src[self.src.index("const order = ["):]
+        order_blk = order_blk[:order_blk.index("]")]
+        self.assertLess(order_blk.index("2a0_bug_panel_open"),
+                        order_blk.index("2a0_section_expanded"),
+                        "the panel must open before its section can expand")
+
+
+class SelectorsExistInTheProductTests(_Base):
+    """Every id the probe addresses must exist in the shipped UI.
+
+    THE GUARD THAT WOULD HAVE CAUGHT ``#lv10dBugPanelBtn``. That id exists
+    nowhere in the product; the probe waited 30s on an invisible header
+    because the panel it addressed had never opened. A selector typo is
+    invisible to every other offline test — the string is syntactically
+    fine, the file parses, the self-test passes — and only a live run or
+    this check can see it.
+
+    ids created at runtime by JS are searched for in ui/js/ too, so this
+    stays honest about elements the HTML never contains.
+    """
+
+    def _haystack(self) -> str:
+        parts = [(ROOT / "ui" / "hornelore1.0.html").read_text(encoding="utf-8")]
+        for f in sorted((ROOT / "ui" / "js").glob("*.js")):
+            parts.append(f.read_text(encoding="utf-8"))
+        return "\n".join(parts)
+
+    def test_every_hash_id_the_probe_uses_exists(self):
+        hay = self._haystack()
+        ids = sorted(set(re.findall(r'["\'`]#([A-Za-z][\w-]+)', self.src)))
+        self.assertTrue(ids, "the probe should address some ids")
+        missing = [i for i in ids if i not in hay]
+        self.assertEqual([], missing,
+                         f"probe addresses ids absent from the shipped UI: {missing}")
+
+    def test_the_probe_targets_the_session_time_opener(self):
+        """TWO openers exist: the always-visible header button #205, and
+        "Open Full Bug Panel" in the operator launcher — a surface that is
+        not on screen during a Narrator Session. A bare
+        [popovertarget="lv10dBugPanel"] matches both, so requiring
+        uniqueness on it would refuse against a correct product."""
+        html = (ROOT / "ui" / "hornelore1.0.html").read_text(encoding="utf-8")
+        self.assertEqual(2, html.count('popovertarget="lv10dBugPanel"'),
+                         "both openers are expected to exist")
+        self.assertEqual(1, html.count('id="lv10dBugBtn"'),
+                         "the header opener must be unique")
+        self.assertIn('page.locator("#lv10dBugBtn")', self.src)
+        self.assertIn("await bugBtn.isVisible()", self.src)
+
+    def test_the_phantom_id_is_gone_from_code(self):
+        code = _code_only(self.src)
+        hay = self._haystack()
+        self.assertNotIn("lv10dBugPanelBtn", code)
+        self.assertNotIn("lv10dBugPanelBtn", hay,
+                         "if the product ever gains this id, revisit the opener")

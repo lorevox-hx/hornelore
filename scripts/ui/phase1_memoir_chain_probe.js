@@ -593,12 +593,73 @@ function docxText(file) {
     if (!active.ok) throw new Error("Pat is not the active narrator");
 
     // ── 2a: Bug Panel, unique filter, Pat-scoped successful list ─────
-    await page.evaluate(() => {
-      const el = document.getElementById("lv10dBugPanelBtn") ||
-                 document.querySelector('[onclick*="BugPanel"],[id*="ugPanel"]');
-      if (el) el.click();
+    /* OPEN THE BUG PANEL THROUGH ITS REAL CONTROL, AND PROVE IT OPENED.
+     *
+     * This step used to be:
+     *
+     *   const el = document.getElementById("lv10dBugPanelBtn") ||
+     *              document.querySelector('[onclick*="BugPanel"],[id*="ugPanel"]');
+     *   if (el) el.click();
+     *
+     * Every part of which was wrong, and none of which said so. The button
+     * is `#lv10dBugBtn` -- the guessed id was one word off. The panel is a
+     * NATIVE POPOVER (`<div id="lv10dBugPanel" popover>` opened by
+     * `popovertarget`), so there is no onclick to match. And the fallback
+     * `[id*="ugPanel"]` matched `lv10dBugPanel` -- the popover DIV itself,
+     * whose click does nothing at all. Then `if (el)` swallowed the miss.
+     *
+     * The panel therefore never opened, and the run died 30 seconds later
+     * inside the section header, which was present in the DOM and not
+     * visible. Same family as #lvNarratorCtxMemoir: an element that
+     * resolves is not a control that works. */
+    /* THERE ARE TWO OPENERS, AND ONLY ONE IS RIGHT HERE. `#lv10dBugBtn`
+     * is the header button, which the product comment marks "Always-
+     * visible across tabs" and which exists specifically because "operator
+     * needs it during Narrator Session" (#205). The other,
+     * "Open Full Bug Panel", lives in the operator launcher section, a
+     * surface that is not on screen during a session. A bare
+     * `[popovertarget="lv10dBugPanel"]` matches both, so it is used only
+     * to RECORD what exists, never to choose. */
+    const allOpeners = await page.locator('[popovertarget="lv10dBugPanel"]').count();
+    const bugBtn = page.locator("#lv10dBugBtn");
+    const nBug = await bugBtn.count();
+    const bugVisible = nBug === 1 ? await bugBtn.isVisible() : false;
+    if (nBug !== 1 || !bugVisible) {
+      R.refusals.push(`REFUSED: header Bug Panel opener count=${nBug} visible=${bugVisible}`);
+      step("2a0_bug_panel_open", { result: "REFUSED",
+        detail: `#lv10dBugBtn matched ${nBug}, visible=${bugVisible}`,
+        openersInDocument: allOpeners });
+      throw new Error("the header Bug Panel opener is not usable");
+    }
+    await bugBtn.click();
+    try {
+      await page.locator("#lv10dBpStoryReview").waitFor({ state: "visible", timeout: 20000 });
+    } catch (e) {
+      const st = await page.evaluate(() => {
+        const p = document.getElementById("lv10dBugPanel");
+        let open = null;
+        try { open = p ? p.matches(":popover-open") : null; } catch (_) {}
+        return { popoverPresent: Boolean(p), popoverOpen: open,
+                 mountPresent: Boolean(document.getElementById("lv10dBpStoryReview")) };
+      });
+      R.refusals.push("REFUSED: the Bug Panel did not open");
+      step("2a0_bug_panel_open", { result: "REFUSED",
+        detail: `story-review mount never became visible: ${e.message}`, observed: st });
+      throw new Error("Bug Panel did not open");
+    }
+    const bpState = await page.evaluate(() => {
+      const p = document.getElementById("lv10dBugPanel");
+      let open = null;
+      try { open = p ? p.matches(":popover-open") : null; } catch (_) {}
+      return { popoverOpen: open };
     });
-    await page.waitForTimeout(1200);
+    step("2a0_bug_panel_open", { result: "PASS",
+      detail: `opened via #lv10dBugBtn (native popover); popoverOpen=${bpState.popoverOpen}`
+            + `; openers in document=${allOpeners}`,
+      acceptancePath: "#lv10dBugBtn -> #lv10dBpStoryReview visible",
+      openersInDocument: allOpeners,
+      why: "two openers exist; the header one is the session-time control",
+      observed: bpState });
 
     /* EXPAND THE SECTION FIRST. bug-panel-story-review.js:116 sets
      * `collapsed: true` -- "historical backlog, collapsed by default" --
@@ -1185,8 +1246,8 @@ function docxText(file) {
      * fresh one; both are acceptable, and only those two. */
     const OK = (k) => (k === "3a_placed"
       ? ["PASS", "carried_forward"].indexOf(g(k)) >= 0 : g(k) === "PASS");
-    const order = ["1_preconditions", "1b_narrator_active", "2a0_section_expanded",
-                   "2a_filter", "2_row_located",
+    const order = ["1_preconditions", "1b_narrator_active", "2a0_bug_panel_open",
+                   "2a0_section_expanded", "2a_filter", "2_row_located",
                    "2b_detail_verified", "3a_placed", "3a_verify_placement",
                    "3b_promoted", "4_canonical", "5_preview",
                    "6_export", "8_agreement", "7_control_unchanged"];
