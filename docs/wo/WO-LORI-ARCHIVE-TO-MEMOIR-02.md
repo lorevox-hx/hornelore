@@ -3,7 +3,7 @@
 **Status:** CURRENT — central Lori/Lorevox work order  
 **Supersedes:** `WO-LORI-END-TO-END-LISTEN-RETAIN-MEMOIR-01`  
 **Starting evidence:** demographic cohort `20260901T015343Z` and Walt seven-era run `20260901T003329Z`  
-**Current position:** **Phase 1 CLOSED 2026-09-04** (`20260904T130158Z`, exit 0) — **Phase 2 is next**  
+**Current position:** **Phase 1 ACCEPTED 2026-09-04** — mutations `20260904T123556Z`, proof `20260904T130525Z`, exit 0 — **Phase 2 is next**  
 **Phase 0:** accepted by ChatGPT against pushed commit `fdaa255`
 
 ## 1. Goal
@@ -76,7 +76,9 @@ Lorevox is not accepted merely because a transcript exists, an endpoint returns 
 - [ ] Accepted extraction items have not been joined to their final durable destinations.
 - [ ] Rolling-summary retention is demonstrated but accuracy, duplication and topic placement are not accepted.
 - [ ] Life Map fact placement is not measured.
-- [x] **Promotion → canonical → preview → export PROVEN end to end 2026-09-04** (`20260904T130158Z`, exit 0, agreement 1/1/1, control unchanged). *One passage — this is not a coverage claim.*
+- [x] **Promotion → canonical → preview → export PROVEN end to end 2026-09-04.** Mutations in
+      `20260904T123556Z`; proof carried forward at **zero mutations** in `20260904T130525Z`,
+      exit 0, agreement 1/1/1, control unchanged. *One passage — this is NOT a coverage claim.*
 - [ ] Future demographic checkpoints still need their own durability and artifact fields verified from code.
 
 ## 4. Status vocabulary
@@ -181,10 +183,25 @@ the real Bug Panel controls and both against the same `PATCH
 - [ ] Confirm all three contain the passage exactly once.
 - [ ] Confirm no incorrect structured family fact is substituted into the passage.
 
-## ✅ PHASE 1 CLOSED — the full chain is proven (2026-09-04)
+## ✅ PHASE 1 ACCEPTED — the full chain is proven (2026-09-04)
 
-**Exit gate met.** Run `20260904T130158Z`, exit code **0**,
-`Phase 1: PASS — full chain proven`.
+**The proof is TWO runs, and the division between them is the point.**
+
+| Run | What it did | Mutations |
+|---|---|---|
+| `20260904T123556Z` | **Performed the only two authorized mutations** — placement `v1→v2`, then promotion `v2→v3`, in that order, through the real operator controls | **2** (`placement>promotion`, both conforming) |
+| `20260904T130525Z` | **Carried that proof forward and completed preview and export.** Re-read the candidate, re-verified the placement and provenance against the prior report, and traversed canonical → preview → export | **0** |
+
+> **The resume did NOT place and did NOT promote.** It entered mode `promoted` with a PATCH
+> budget of **0**, observed **0**, recorded no blocked PATCHes and no refusals. `3a_placed`
+> reads `carried_forward`, not `PASS`, precisely so this can never be misread. Any statement
+> that the successful run performed the mutations is wrong.
+
+`20260904T130158Z` produced the same passing result an hour earlier on a marginally
+different instrument; `130525Z` reproduced it on the fallback-free `PANEL_STATE` that
+ships. Both are preserved.
+
+**Exit gate met.** Exit code **0**, `Phase 1: PASS — full chain proven`.
 
 | Link | Result |
 |---|---|
@@ -197,9 +214,8 @@ the real Bug Panel controls and both against the same `PATCH
 | agreement | **PASS** — canonical **1** / preview **1** / DOCX **1** |
 | control `5a56f942` | **PASS** — byte-identical |
 
-**Mutations in the proving run: ZERO.** It resumed at mode `promoted`, budget `0`,
-observed `0`, no blocked PATCHes, no refusals. The two authorized mutations were performed
-earlier, in `20260904T123556Z`, and nothing has touched the candidate since.
+**Supporting gates:** 141 Python tests (zero skips on `.venv`) and all four DOM suites —
+launcher, memoir popover, placement workflow, row selection.
 
 **Two contract guarantees held, and both are worth recording:**
 
@@ -210,6 +226,23 @@ earlier, in `20260904T123556Z`, and nothing has touched the candidate since.
   relationship-misbinding defect (`Jim` bound under `parents.*`) did not leak into this
   passage's export.
 
+### Two defects were corrected to reach this, one product and one harness
+
+**PRODUCT — relative canonical origin.** `ui/hornelore1.0.html` fetched
+`/api/memoir/canonical` with a bare relative URL, resolving against the UI static server on
+`:8082`, which does not proxy `/api/*`. Three UI-issued 404s were observed live while the
+identical query against the API origin returned 200. Same class as **BUG-224**, fixed
+2026-05-01 in the Bug Panel modules and missed in the page's own inline script. Corrected
+to the documented `ORIGIN` pattern from `api.js`; a regression guard now refuses any bare
+relative `/api` fetch anywhere in the page.
+
+**HARNESS — `offsetParent` used to test popover visibility.** `PANEL_STATE` treated
+`offsetParent !== null` as visible. `#memoirScrollPopover` is `<div popover="auto">`; native
+popovers render in the top layer at `position: fixed`, where `offsetParent` is always
+`null` — a guaranteed false negative on an **open** panel. It reported the memoir shut while
+reading 1,408 characters of the passage out of it. Now gated on `:popover-open` alone, with
+no fallback basis.
+
 ### What Phase 1 does NOT claim
 
 It proves **one** passage completes the chain. It says nothing about the other 27
@@ -218,7 +251,7 @@ whether the memoir would be *right* at scale. Those are Phase 2's subject. The v
 this result is that the chain exists and is traversable — every later finding is now a
 question of coverage and correctness rather than of whether the road is there at all.
 
-### Defects found and fixed while proving it
+### Every defect found while proving it
 
 | Defect | Where | Fixed by |
 |---|---|---|
