@@ -25,6 +25,10 @@ import sqlite3
 import unittest
 from pathlib import Path
 
+from .measured_fixture import (
+    FixtureMeasurementError, measured, story_trigger_measure,
+)
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "phase2_verify_ledger.py"
 
@@ -46,16 +50,86 @@ def cand(cid, turn, transcript, status="unreviewed", trigger="chain_detection"):
             "[]", "unknown", trigger, "cohort-x")
 
 
-# Three anchor dimensions fire -> the deterministic borderline path.
-# VERIFIED against the shipped trigger, not assumed: an earlier version of this
-# fixture named a place, a person AND a year and still scored only 2 -- a bare
-# year is not a TIME anchor, relative time ("when I was little") is. A fixture
-# whose properties are asserted rather than measured tests nothing.
-ANCHOR_RICH = ("I was born in Akron, Ohio. My father Harold worked at "
-               "Firestone when I was little.")
-# Place + person only, no third dimension -> deterministic path cannot fire.
-CHAIN_ONLY = ("I went to Kent State for my education degree. Kent State was "
-              "about an hour from home and my father drove me there.")
+# FIXTURES DECLARE; THE SHIPPED TRIGGER DECIDES.
+#
+# An earlier version of ANCHOR_RICH named a place, a person AND a year, and a
+# comment above it asserted "three anchors". It scored two: a bare year is not
+# a TIME anchor -- story_trigger.py:706 measures RELATIVE time phrasing
+# (_matches_relative_time), not absolute dates. Every test that depended on the
+# deterministic path was therefore exercising the chain-dependent path, and
+# passing. A comment cannot fail; a measurement can. So these declarations are
+# re-derived from the shipped code at import, and a mismatch raises here rather
+# than surfacing as a confusing failure somewhere downstream.
+#
+# See tests/measured_fixture.py for the full statement of the failure class.
+ANCHOR_RICH = measured(
+    "I was born in Akron, Ohio. My father Harold worked at "
+    "Firestone when I was little.",
+    name="ANCHOR_RICH", measure=story_trigger_measure,
+    anchors=3, trigger="borderline_scene_anchor",
+    place_anchor=True, time_anchor=True, person_anchor=True,
+)
+# Place + person only, no third dimension -> the deterministic path cannot
+# fire, so a candidate bound to this text can only have come from the chain.
+CHAIN_ONLY = measured(
+    "I went to Kent State for my education degree. Kent State was "
+    "about an hour from home and my father drove me there.",
+    name="CHAIN_ONLY", measure=story_trigger_measure,
+    anchors=2, trigger=None,
+    place_anchor=True, time_anchor=False, person_anchor=True,
+)
+
+
+class MeasuredFixtureTests(unittest.TestCase):
+    """The guard that would have caught the 2026-09-04 fixture error.
+
+    These test the GUARD, not the fixtures -- the fixtures already prove
+    themselves at import. If `measured()` ever stopped raising, every
+    fixture in this file would silently go back to asserting.
+    """
+
+    def test_a_wrong_declaration_raises_and_names_both_values(self):
+        """Note the shape of this test: it MEASURES first, then asserts the
+        error reports that measurement. The first draft hardcoded 'measured
+        2' and failed -- the text scores 1, because it names no person. The
+        guard caught its own author writing down an anchor count instead of
+        taking one, which is the entire failure class in miniature."""
+        text = "I was born in Akron, Ohio in 1946."
+        actual = story_trigger_measure(text)["anchors"]
+        wrong = actual + 1
+        with self.assertRaises(FixtureMeasurementError) as ctx:
+            measured(text, name="BARE_YEAR", measure=story_trigger_measure,
+                     anchors=wrong)
+        msg = str(ctx.exception)
+        self.assertIn(f"declared {wrong}", msg)
+        self.assertIn(f"measured {actual}", msg)
+        self.assertIn("BARE_YEAR", msg)
+
+    def test_the_exact_original_mistake_is_caught(self):
+        """Place + person + a BARE YEAR is two anchors, not three. This is
+        verbatim the assumption that produced the defect."""
+        m = story_trigger_measure(
+            "I was born in Akron, Ohio in 1946. My father Harold worked "
+            "at Firestone.")
+        self.assertEqual(2, m["anchors"])
+        self.assertFalse(m["time_anchor"], "a bare year is not a time anchor")
+        self.assertIsNone(m["trigger"])
+
+    def test_a_correct_declaration_returns_the_text_unchanged(self):
+        t = "I was born in Akron, Ohio. My father Harold worked at Firestone."
+        self.assertEqual(t, measured(t, name="OK",
+                                     measure=story_trigger_measure,
+                                     time_anchor=False))
+
+    def test_declaring_nothing_is_refused(self):
+        with self.assertRaises(FixtureMeasurementError):
+            measured("text", name="EMPTY", measure=story_trigger_measure)
+
+    def test_declaring_a_property_the_measure_does_not_compute_is_refused(self):
+        with self.assertRaises(FixtureMeasurementError) as ctx:
+            measured("text", name="TYPO", measure=story_trigger_measure,
+                     anchor_count=3)
+        self.assertIn("anchor_count", str(ctx.exception))
 
 
 class TerminalStatusTests(unittest.TestCase):
@@ -136,6 +210,65 @@ class ExtractionLedgerTests(unittest.TestCase):
         self.assertEqual(0, V.extraction_ledger_rows(self._con([]), [1846]))
 
 
+class LogCorroborationTests(unittest.TestCase):
+    """The log is a SECOND source. Agreement with the DB-derived split is
+    the only evidence that re-running today's classifier reproduces the
+    live run; disagreement would mean the classifier has drifted."""
+
+    COHORT = "cohort-r20260831-040506-010cd6"
+    LINE = ("2026-08-30 22:06:54,757 [code.api.routers.chat_ws] INFO: "
+            "[story-trigger] conv={c}-20342881 narrator=2034 "
+            "trigger={t} words={w} anchors={a} place={p} time={ti} person={pe}")
+
+    def _log(self, lines):
+        import tempfile
+        fh = tempfile.NamedTemporaryFile("w", suffix=".log", delete=False,
+                                         encoding="utf-8")
+        fh.write("\n".join(lines) + "\n")
+        fh.close()
+        self.addCleanup(lambda: Path(fh.name).unlink(missing_ok=True))
+        return fh.name
+
+    def test_it_counts_triggers_and_isolates_the_misses(self):
+        p = self._log([
+            self.LINE.format(c=self.COHORT, t="borderline_scene_anchor",
+                             w=238, a=3, p=True, ti=True, pe=True),
+            self.LINE.format(c=self.COHORT, t="chain_detection",
+                             w=230, a=2, p=True, ti=True, pe=False),
+            self.LINE.format(c=self.COHORT, t="None",
+                             w=236, a=2, p=True, ti=False, pe=True),
+        ])
+        got = V.log_capture_decisions(p, self.COHORT)
+        self.assertEqual({"borderline_scene_anchor": 1, "chain_detection": 1,
+                          "None": 1}, got["triggers"])
+        self.assertEqual(1, len(got["misses"]))
+        self.assertFalse(got["misses"][0]["time"])
+        self.assertEqual(2, got["misses"][0]["anchors"])
+
+    def test_another_cohorts_lines_are_not_counted(self):
+        p = self._log([self.LINE.format(c="cohort-SOMETHING-ELSE", t="None",
+                                        w=1, a=0, p=False, ti=False, pe=False)])
+        self.assertEqual({}, V.log_capture_decisions(p, self.COHORT))
+
+    def test_a_missing_log_is_empty_not_an_error(self):
+        """The log rotates and is gitignored. A reviewer without it must
+        still get every DB-derived number rather than a crash."""
+        self.assertEqual({}, V.log_capture_decisions("/nonexistent/api.log",
+                                                     self.COHORT))
+        self.assertEqual({}, V.log_extraction_skips("/nonexistent/api.log",
+                                                    self.COHORT))
+
+    def test_extraction_skip_reasons_are_tallied(self):
+        line = ("2026-08-30 22:05:22,503 INFO: [extract-turn] skipped "
+                "conv={c}-2b2b5220 — client did not declare "
+                "field_extraction_result=v1; it owns extraction on this turn")
+        p = self._log([line.format(c=self.COHORT)] * 3)
+        got = V.log_extraction_skips(p, self.COHORT)
+        self.assertEqual(1, len(got))
+        self.assertEqual(3, next(iter(got.values())))
+        self.assertIn("field_extraction_result=v1", next(iter(got)))
+
+
 class VerdictContentTests(unittest.TestCase):
     """The script must report today's findings, not yesterday's."""
 
@@ -151,16 +284,41 @@ class VerdictContentTests(unittest.TestCase):
     def test_it_reports_the_classifier_split(self):
         for needle in ("CAPTURE DECISION SPLIT", "deterministic (anchors>=3",
                        "chain-dependent (NOT reproducible)",
-                       "chain fired, candidate created", "chain silent, NO candidate"):
+                       "chain fired, candidate created",
+                       "trigger declined, NO candidate"):
             self.assertIn(needle, self.src)
 
     def test_it_reports_the_extraction_ledger_count(self):
         self.assertIn("EXTRACTION LEDGER rows for cohort turns", self.src)
         self.assertIn("Phase 2 measured ZERO", self.src)
 
-    def test_it_reports_measurement_failed_rather_than_not_story(self):
-        self.assertIn("measurement_failed, NOT not_story", self.src)
-        self.assertIn("no evidence-backed reason exists, so none is invented", self.src)
+    def test_it_no_longer_claims_the_decision_is_persisted_nowhere(self):
+        """CORRECTED 2026-09-04. chat_ws.py:1848 logs every capture decision
+        with its full anchor breakdown, so 'nobody can say why it decided as
+        it did' was false.
+
+        Scoped to the PRINTED lines, not the whole source. The claim being
+        retired is a claim the script MAKES; the docstring that explains the
+        retirement has to be free to quote it. A first draft stripped only
+        `#` comments and failed on the docstring -- an assertion that
+        matched the correction rather than the defect, which is the same
+        self-matching mistake this file has now made five times."""
+        printed = "\n".join(line for line in self.src.split("\n")
+                            if line.lstrip().startswith("print("))
+        self.assertNotIn("persisted NOWHERE", printed)
+        self.assertNotIn("nobody can say why", printed)
+        self.assertIn("THE DEFECT IS DURABILITY OF THE DECISION", printed)
+
+    def test_it_separates_the_harness_gap_from_a_product_defect(self):
+        """Zero ledger rows had one cause: the cohort runner never declared
+        the capability, so the server declined by protocol. Reporting that
+        as an extraction defect would send Phase 3 after a working path."""
+        self.assertIn("HARNESS gap, not a product defect", self.src)
+        self.assertIn("field_extraction_result=v1", self.src)
+
+    def test_it_names_the_shared_signature_of_the_misses(self):
+        self.assertIn("no RELATIVE time phrasing", self.src)
+        self.assertIn("story_trigger.py:706", self.src)
 
     def test_it_still_corrects_the_eleven(self):
         self.assertIn("NOT 11/38", self.src)

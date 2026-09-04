@@ -44,6 +44,10 @@ from pathlib import Path
 COHORT = "cohort-r20260831-040506-010cd6"
 # server/code/api/db.py — the only statuses canonical memoir will read.
 STORY_MEMOIR_ELIGIBLE = ("promoted", "memoir_only")
+# Gitignored and rotating, which is exactly the point: everything read
+# from here is evidence that will not survive, and saying so is half the
+# Phase 2 finding.
+LOG_PATH = ".runtime/logs/api.log"
 
 
 def db_path() -> Path:
@@ -140,13 +144,100 @@ def classifier_split(turns, cands):
 
 
 def extraction_ledger_rows(con, turn_ids):
-    """Cohort rows in turn_extraction_ledger. Phase 2 measured ZERO."""
+    """Cohort rows in turn_extraction_ledger. Phase 2 measured ZERO.
+
+    Counts BOTH the user rows and, when the caller passes them, the
+    assistant rows: turn_key is derived from the committed ASSISTANT row
+    (``turnrow:<turns.id>``) as an idempotency key
+    (``turn_extraction.py:44-47``), never from the narrator's text. A
+    count that only looked at user-row ids would report zero on a cohort
+    that had been extracted perfectly.
+    """
     keys = {f"turnrow:{t}" for t in turn_ids}
     n = 0
     for (tk,) in con.execute("SELECT turn_key FROM turn_extraction_ledger"):
         if tk in keys:
             n += 1
     return n
+
+
+def log_capture_decisions(log_path, cohort):
+    """Read the live capture decisions out of the API log.
+
+    THE DECISION IS RECORDED. An earlier version of this script closed
+    with "the factual-chain decision is persisted NOWHERE ... nobody can
+    say why it decided as it did". That overstated the defect and was
+    corrected 2026-09-04: ``chat_ws.py:1848`` logs one
+    ``[story-trigger]`` line per turn carrying trigger, word count and
+    all three anchor dimensions. The real, narrower defect is that the
+    log is the ONLY copy -- ``.runtime/`` is gitignored and rotates, so
+    the decision behind a candidate is not durably attached to it.
+
+    Returns {} when the log is absent or holds no cohort lines, so a
+    reviewer without the log still gets the DB-derived numbers.
+    """
+    import re
+    from collections import Counter
+
+    path = Path(log_path)
+    if not path.exists():
+        return {}
+    rx = re.compile(
+        r"\[story-trigger\] conv=" + re.escape(cohort)
+        + r"\S* .*?trigger=(?P<trigger>\S+) words=(?P<words>\d+) "
+          r"anchors=(?P<anchors>\d+) place=(?P<place>\w+) "
+          r"time=(?P<time>\w+) person=(?P<person>\w+)")
+    triggers, misses = Counter(), []
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                m = rx.search(line)
+                if not m:
+                    continue
+                triggers[m.group("trigger")] += 1
+                if m.group("trigger") == "None":
+                    misses.append({
+                        "words": int(m.group("words")),
+                        "anchors": int(m.group("anchors")),
+                        "place": m.group("place") == "True",
+                        "time": m.group("time") == "True",
+                        "person": m.group("person") == "True",
+                    })
+    except OSError:
+        return {}
+    if not triggers:
+        return {}
+    return {"triggers": dict(triggers), "misses": misses, "path": str(path)}
+
+
+def log_extraction_skips(log_path, cohort):
+    """Why extraction did or did not run, per the API log.
+
+    Distinguishes a PRODUCT gap from a HARNESS gap. Zero ledger rows can
+    mean the extractor was broken, or it can mean the server correctly
+    declined because the client never declared it could receive a result
+    (``chat_ws.py:924``) -- which is the ownership protocol working, not
+    failing. Only the log tells them apart.
+    """
+    import re
+    from collections import Counter
+
+    path = Path(log_path)
+    if not path.exists():
+        return {}
+    rx = re.compile(
+        r"\[extract-turn\] skipped conv=" + re.escape(cohort)
+        + r"\S* — (?P<reason>[^;(]{4,70})")
+    reasons = Counter()
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                m = rx.search(line)
+                if m:
+                    reasons[m.group("reason").strip()] += 1
+    except OSError:
+        return {}
+    return dict(reasons)
 
 
 def main() -> int:
@@ -231,16 +322,45 @@ def main() -> int:
     split = classifier_split(turns, cands)
     d, hit, silent = split["deterministic"], split["chain_captured"], split["chain_silent"]
     print("  CAPTURE DECISION SPLIT — shipped story_trigger, no chain context")
+    print("    [story_trigger.classify_story_candidate + story_candidates.source_user_turn_row_id]")
     print(f"    deterministic (anchors>=3, reproducible)   : {len(d)}/{n}")
     print(f"    chain-dependent (NOT reproducible)         : {len(hit) + len(silent)}/{n}")
     print(f"      chain fired, candidate created           : {len(hit)}")
-    print(f"      chain silent, NO candidate               : {len(silent)}  {sorted(silent)}")
+    print(f"      trigger declined, NO candidate           : {len(silent)}  {sorted(silent)}")
     print()
+
+    # ── CORROBORATION from the live log ───────────────────────────────
+    # Derived from a DIFFERENT source than everything above: the split
+    # above is recomputed today from stored text, this is what the server
+    # actually decided at run time. Agreement between them is the only
+    # evidence that re-running the classifier reproduces the live run.
+    decisions = log_capture_decisions(LOG_PATH, COHORT)
+    if decisions:
+        print("  LIVE CAPTURE DECISIONS — recorded at run time "
+              "[chat_ws.py:1848 -> .runtime/logs/api.log]")
+        for k, v in sorted(decisions["triggers"].items()):
+            print(f"    trigger={k:<26} {v}")
+        if decisions["misses"]:
+            sigs = {(m["anchors"], m["place"], m["time"], m["person"])
+                    for m in decisions["misses"]}
+            print(f"    the {len(decisions['misses'])} misses, by anchor signature:")
+            for a, pl, ti, pe in sorted(sigs):
+                print(f"      anchors={a} place={pl} time={ti} person={pe}")
+    else:
+        print("  LIVE CAPTURE DECISIONS: api.log absent or rotated — the DB")
+        print("  cannot supply them, which is itself the auditability finding.")
+    print()
+
+    skips = log_extraction_skips(LOG_PATH, COHORT)
     print(f"  EXTRACTION LEDGER rows for cohort turns      : {ledger_rows}"
-          "   <- Phase 2 measured ZERO")
+          "   [turn_extraction_ledger.turn_key]")
+    if skips:
+        print("  WHY, per the log [chat_ws.py:924 / :946 / :953]:")
+        for reason, count in sorted(skips.items(), key=lambda kv: -kv[1]):
+            print(f"    {count:>3}x {reason}")
     print()
     print(f"  terminal_status = measurement_failed         : {n - len(bound)}"
-          f"   {sorted(set(turns) - bound)}")
+          f"   {sorted(set(turns) - bound)}   [structural_rows]")
     print()
     print("VERDICT")
     print(f"  candidate presence is {len(bound)}/{n}, NOT 11/38. '11' was eleven operator")
@@ -248,13 +368,28 @@ def main() -> int:
     print(f"  Capture is byte-exact ({len(atomic)}/{len(cands)}), {len(superset)} over-capture, "
           f"{len(nested)} containment groups.")
     print()
-    print("  THE DEFECTS ARE AUDITABILITY, NOT COVERAGE:")
-    print(f"    - {len(hit) + len(silent)}/{n} capture decisions come from the factual-chain")
-    print("      classifier, whose result is persisted NOWHERE. For any turn --")
-    print("      captured or missed -- nobody can say why it decided as it did.")
-    print(f"    - turn_extraction_ledger holds {ledger_rows} rows for these turns.")
-    print(f"    - turns {sorted(silent)} are measurement_failed, NOT not_story:")
-    print("      no evidence-backed reason exists, so none is invented.")
+    # CORRECTED 2026-09-04. This block previously read "the factual-chain
+    # classifier, whose result is persisted NOWHERE ... nobody can say why
+    # it decided as it did", and called the zero ledger a defect. Both
+    # overstated. The log carries every decision with its full anchor
+    # breakdown, and the zero ledger is the ownership protocol declining
+    # 38 times for a harness that never claimed the capability.
+    print("  THE DEFECT IS DURABILITY OF THE DECISION, NOT ABSENCE OF ONE:")
+    print("    - every capture decision WAS recorded, with trigger, word count and")
+    print("      all three anchor dimensions. It was recorded to .runtime/logs/,")
+    print("      which is gitignored and rotates. The decision is therefore not")
+    print("      durably attached to the candidate it produced, or to the turn it")
+    print("      declined. Reconstructing it needs a log that may have rotated.")
+    print(f"    - the {len(silent)} misses are not mysterious: each is a present-day status")
+    print("      summary with place and person but no RELATIVE time phrasing, and")
+    print("      story_trigger.py:706 measures relative time, not absolute dates.")
+    print("      Whether a life inventory should be a story is a PRODUCT question.")
+    if skips:
+        print("    - the zero ledger rows are a HARNESS gap, not a product defect:")
+        print("      the cohort runner never declared client_capabilities")
+        print("      .field_extraction_result=v1, so the server correctly declined")
+        print("      and no browser was there to own extraction instead. Extraction")
+        print("      binding CANNOT be studied from this cohort.")
     print()
     print("  Review is unexercised (0/%d reviewed) -- that is NOT a mandate to work the"
           % len(cands))
