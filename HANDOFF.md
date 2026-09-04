@@ -25,7 +25,8 @@ rule back. The claim that matters is the one about obligations.)*
 > exits non-zero has done its job. It is not a failed attempt to be retried until it passes.
 >
 > **Profile Seed Phase 3 is OWED, not current.** It was the previous current action and is
-> **NOT STARTED**; it is not cancelled and not superseded — see §2. Hygiene Phase A remains
+> **IN IMPLEMENTATION with ACCEPTANCE OPEN**; it is not cancelled and not superseded — see
+> §2. Hygiene Phase A remains
 > ACCEPTED with its remainder PAUSED and `WO-REPOSITORY-HYGIENE-01` INCOMPLETE. **No priority
 > change ever converts owed work into finished work**, and no document may say otherwise.
 >
@@ -106,10 +107,10 @@ the count it produces is not evidence about this change.
 
 | Lane | State |
 |---|---|
-| **`WO-LORI-ARCHIVE-TO-MEMOIR-02`** | 🔵 **ACTIVE — Phase 1 in implementation. §9.** Phase 0 accepted `fdaa255`. Phase 1 harness green offline; live run pending, two valid zero-mutation refusals so far. Phase 2 (38-turn ledger) NOT STARTED. **Exactly two mutations authorized, on `447eee18` only** |
+| **`WO-LORI-ARCHIVE-TO-MEMOIR-02`** | 🔵 **ACTIVE — Phase 1 in implementation. §9.** Phase 0 accepted `fdaa255`. Phase 1 harness green offline; live run pending. One designed refusal and one unhandled error both mutated nothing. Phase 2 (38-turn ledger) NOT STARTED. **Exactly two mutations authorized, on `447eee18` only** |
 | **Memory Integrity Layer / guardrail audit** | 🟡 **DESIGN THREAD — no work order yet.** Response-guard audit done; `BUG-LORI-FEWSHOT-EXEMPLAR-LEAK-01_Spec.md` (repo root) is **ACTIVE / NEXT**. Nothing here is scheduled. §10 |
 | **Repository hygiene** | ⏸️ **PHASE A ACCEPTED, REMAINDER PAUSED — the work order is INCOMPLETE.** Steps 0, 1 `5f6b01b`, 2 `db0c5e7`, 2b `ff1ff4f` and the first Step 3 cohort `5086490` are accepted. **Deferred by product-priority decision:** the remaining Step 3 cohorts, Steps 4–5, and the final verification checkpoint. Still indexed, still owed, not scheduled |
-| **Profile Seed reachability** | ⏸️ **OWED — Phase 3 NOT STARTED, and no longer the current action.** *(It was, until `WO-LORI-ARCHIVE-TO-MEMOIR-02` took priority. Owed work does not become finished work when the lane changes.)* Phase 0 `661aa95` · Phase 1 `1288baa` · **Phase 2 ACCEPTED 2026-08-29, steps 1–7 complete** (step 4 `b269184`, step 5 `9127adb`, pre-Step-6 corrections `d0e5294`, step 6 `12221e0`…`58dfc40` live, step 7 `6885bb2`) · Phases 4–5 not started. **Phase 3:** reconcile the eight browser promotion sites with server authority and remove the remaining browser-controlled race. It begins with a bounded read-only review, before any UI edit |
+| **Profile Seed reachability** | ⏸️ **OWED — Phase 3 IN IMPLEMENTATION with ACCEPTANCE OPEN, and no longer the current action.** *(It was, until `WO-LORI-ARCHIVE-TO-MEMOIR-02` took priority. Owed work does not become finished work when the lane changes.)* Phase 0 `661aa95` · Phase 1 `1288baa` · **Phase 2 ACCEPTED 2026-08-29, steps 1–7 complete** (step 4 `b269184`, step 5 `9127adb`, pre-Step-6 corrections `d0e5294`, step 6 `12221e0`…`58dfc40` live, step 7 `6885bb2`) · Phase 3 implementation landed through `2b7e634`; its six acceptance conditions remain open. Phases 4–5 are partially run and not accepted. See the Profile Seed spec's reconciled status block |
 | `WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` | **COMPLETE** — Phases 1–4 accepted. Closes the three L2 integration defects |
 | `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` | **ACCEPTED AND COMPLETE 2026-08-20** — story-to-memoir 11/11, deletion integrity 10/10, verified against filesystem and SQL |
 | Deletion / erasure integrity | **CLOSED 2026-08-20.** Erasure planned before the DB authority is destroyed, persisted (0049), bound to the canonical absolute root (0050); refuses every symlink below the root; eleven stores; deletes media; purges the translation cache; reports backups rather than rewriting them; fails closed; retryable with a truthful audit trail |
@@ -300,7 +301,7 @@ Full register with evidence: [`docs/BACKLOG.md`](docs/BACKLOG.md).
 | `docs/INDEX.md` | Where documentation authority lives |
 | `docs/BACKLOG.md` | Unresolved obligations, with evidence |
 | `docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md` | The **paused** repository lane — Phase A accepted, remainder deferred and incomplete. **Not the current action;** `WO-LORI-ARCHIVE-TO-MEMOIR-02` Phase 1 is |
-| `docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md` + `..._PHASE2_TRANSPORT_MAP.md` | The current product lane |
+| `docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md` + `..._PHASE2_TRANSPORT_MAP.md` | The owed Profile Seed lane — Phase 3 implementation landed, acceptance open |
 | `docs/architecture/TRAVEL_DOCUMENT_DOCTRINE.md` | Binding Travel Document rulings |
 
 Historical handoffs and long status narratives live in Git history and `docs/archive/`.
@@ -392,8 +393,8 @@ confuse it with a real canonical failure. Canonical itself is queried against `:
 
 ### Owed before the next live attempt
 
-- **Confirm the tree is clean.** A commit block for the launcher fix was handed to Chris; it
-  may or may not have been run. `git status --porcelain` decides — not this document.
+- **Confirm the tree is clean.** The launcher fix is pushed at `369e9aa`; no launcher work
+  remains before the run. `git status --porcelain` still decides local cleanliness.
 - Nothing else. The next attempt is a **fresh run, no `--resume`**.
 
 ## 10. Memory Integrity Layer — design thread, nothing scheduled
@@ -408,9 +409,12 @@ runtime safety, which is PARKED behind a decision.
 
 **Known gaps, both with specs or diagnoses, neither scheduled:**
 
-- **Stub collapse** — detection lives in `lori_communication_control.py`, *outside* the
-  detect/repair family, which is why no repair exists. Porting it into the pair pattern lets
-  it inherit `compose_guard_failure_fallback`.
+- **Stub collapse** — detection and `compose_stub_collapse_repair()` both exist in
+  `lori_communication_control.py`, outside the unconditional detect/repair family. The
+  repair runs only with the enclosing communication-control layer. The open work is to
+  evaluate its benefit and false-positive rate, reconcile the stale root spec, and decide
+  whether it belongs in the common response-guard architecture — not to build a missing
+  repair.
 - **Few-shot exemplar leakage** — `BUG-LORI-FEWSHOT-EXEMPLAR-LEAK-01_Spec.md` **at the repo
   root**. Its own status line reads **`ACTIVE / NEXT (deferred until after stub-collapse +
   harness G4 ports land)`** — so the repo already sequences stub-collapse first, and that
@@ -432,8 +436,8 @@ smaller city then"* must PASS, *"You stopped in Flagstaff"* must FAIL. **A guard
 separate those two is not ready** — and over-applying this rule produces the intake-clerk
 failure `CLAUDE.md` principle 8 exists to prevent.
 
-**Unmeasured, and the one thing worth doing first:** the nine post-generation layers each
-have evidence that they caught a bad case; **none has a false-positive rate.** The
-raw-vs-delivered response trace built during this lane can supply it — per-guard fire rate
-across cohort turns, plus a judged sample. Note the guards were tuned against **synthetic**
-narrators, so any cohort number is a floor, not an estimate.
+**Still unmeasured, and the next evidence task:** the first complete raw-vs-delivered Walt
+trace has already shown post-generation damage, but the nine layers still lack per-guard
+false-positive rates across a broader cohort. Use the trace for per-guard fire rates plus a
+judged sample. The guards were tuned against **synthetic** narrators, so any synthetic
+cohort number is a floor, not an estimate.

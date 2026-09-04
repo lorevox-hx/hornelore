@@ -550,9 +550,10 @@ The extraction pipeline is one output surface; **Lori is the companion** — des
 parked safety feature.** `server/code/api/services/lori_response_guards.py` contains **no
 environment gate at all**: it exposes 7 `detect_` / 7 `repair_` pairs, and every detector
 has a repair partner. Its own design rule is *"LAW 3: pure deterministic. No LLM. No DB.
-No IO."* New guards belong in that pair pattern — a detector filed elsewhere (stub collapse
-lives in `lori_communication_control.py`) cannot inherit `compose_guard_failure_fallback`,
-which is why detection there never produced a repair.
+No IO."* New guards belong in that pair pattern. Stub collapse is the existing exception:
+both its detection and `compose_stub_collapse_repair()` live in
+`lori_communication_control.py`, under the enclosing communication-control gate, rather
+than in the unconditional response-guard family.
 
 **A detector that only detects is not a guardrail.** For this project reserve *guardrail*
 for something that prevents or repairs narrator-facing behaviour before the person sees it;
