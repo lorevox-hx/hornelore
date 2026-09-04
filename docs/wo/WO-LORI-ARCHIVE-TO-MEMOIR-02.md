@@ -711,6 +711,19 @@ body can tighten authority but never widen it, and `needs_confirmation` is a
 defensive floor to `suggest_only`. Mutation-checked: three separate mutations of
 the product each turn the guard red.
 
+**TESTING DOCTRINE ADOPTED 2026-09-04 — [`docs/TESTING-DOCTRINE.md`](../TESTING-DOCTRINE.md).**
+Eight instances in this lane of one failure: *a test constructs the property it
+intends to prove, exercises a helper against that constructed shape, and passes
+without crossing the production boundary.* Fabricated anchor counts, supplied
+`repeatableGroup`, guessed questionnaire nesting, helper-only decision tests,
+vacuous mutations, and a question-bank shape no real case uses — the last of
+which returned empty preservation fates for all 114 live cases while seven
+synthetic tests stayed green. **A fixture may supply values, but not the
+property being proven.** Every helper assertion needs a production-boundary
+companion, and every mutation must make that companion fail. The audit table
+and the one gap it closed are in that document. **To be folded into `CLAUDE.md`
+at the Phase 3 reconciliation.**
+
 **Rebuild requirements — every one of these is a defect `add4753` shipped:**
 
 - [ ] Runs AFTER relationship grouping, or against the final extraction representation.

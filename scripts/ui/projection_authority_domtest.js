@@ -236,21 +236,83 @@ function landedInQuestionnaire(sandbox, value) {
      "Bug Panel renders ALL reasons, not reasons[0]");
 }
 
-/* ── 8. the operator sees the WHOLE quarantined group ─────────────────── */
+/* ── 8. the operator sees the WHOLE quarantined group — BY RENDERING IT ─
+   Source-string checks used to stand here. They cannot tell whether the
+   operator actually sees the values, only that some code mentions them, so
+   this now runs the SHIPPED renderer against a minimal DOM and reads the
+   resulting text. */
 {
-  const src = fs.readFileSync(
-    path.join(ROOT, "ui", "js", "bug-panel-story-review.js"), "utf8");
-  const block = src.slice(src.indexOf("clarification_required"),
-                          src.indexOf("Nothing here has been applied"));
-  ok(/Array\.isArray\(c\.proposed_items\)/.test(block),
-     "Bug Panel reads proposed_items");
-  ok(/proposedItems\.map\(/.test(block),
-     "and renders EVERY proposed field, not just proposed_fieldPath",
-     "the operator was shown Otis but not the proposed 1922 / 2005 / event");
-  ok(/'proposed ' \+/.test(block),
-     "each is labelled 'proposed', never as a destination");
-  ok(/not applied/.test(block),
-     "and marked not applied");
+  function textOf(node) {
+    if (node == null) return "";
+    if (typeof node === "string") return node;
+    return (node.children || []).map(textOf).join(" ");
+  }
+  const doc = {
+    createElement(tag) {
+      return { tag, attrs: {}, children: [],
+               setAttribute(k, v) { this.attrs[k] = v; },
+               appendChild(c) { this.children.push(c); return c; },
+               set textContent(v) { this.children = [String(v)]; },
+               get textContent() { return textOf(this); } };
+    },
+    createTextNode: (t) => String(t),
+    getElementById: () => null,
+    addEventListener() {},
+    readyState: "complete",
+  };
+  const S = { console: { log() {}, warn() {}, error() {} }, document: doc,
+              JSON, Array, Object, String, Date, Math, Set,
+              setTimeout, clearTimeout, fetch: () => Promise.resolve({ json: () => ({}) }),
+              addEventListener() {}, removeEventListener() {},
+              localStorage: { getItem: () => null, setItem() {}, removeItem() {} } };
+  S.window = S; S.globalThis = S;
+  vm.createContext(S);
+  try {
+    vm.runInContext(fs.readFileSync(
+      path.join(ROOT, "ui", "js", "bug-panel-story-review.js"), "utf8"),
+      S, { filename: "bug-panel-story-review.js" });
+  } catch (e) {
+    failures.push("bug-panel-story-review.js failed to evaluate: " + e.message);
+  }
+
+  const render = S.lvStoryReviewRenderExtraction;
+  ok(typeof render === "function", "the panel exports its extraction renderer");
+  if (typeof render === "function") {
+    // SHAPE READ FROM THE RENDERER, NOT GUESSED. renderExtraction(d) takes
+    // d.extraction and short-circuits on status none/not_linked/unavailable.
+    // The first draft of this fixture passed a bare result object and every
+    // assertion failed — the same "supply the property" mistake the audit
+    // that prompted this test exists to catch.
+    const rendered = textOf(render({ extraction: {
+      status: "succeeded",
+      items: [],
+      clarification_required: [{
+        kind: "unbound_relationship", value: "Otis",
+        label: "Otis's relationship to you",
+        proposed_fieldPath: "parents.firstName",
+        proposed_items: [
+          { fieldPath: "parents.firstName", value: "Otis", confidence: 0.9 },
+          { fieldPath: "parents.birthDate", value: "1922", confidence: 0.7 },
+          { fieldPath: "parents.deathDate", value: "2005", confidence: 0.9 },
+        ],
+        reasons: ["identity_conflict", "relationship_unstated"],
+        reason: "identity_conflict", not_applied: true,
+      }],
+    }}));
+    ok(/Otis's relationship to you/.test(rendered),
+       "the operator sees the neutral label", rendered);
+    ok(/1922/.test(rendered) && /2005/.test(rendered),
+       "the operator sees EVERY proposed value, not just the subject",
+       rendered);
+    ok(/parents\.birthDate/.test(rendered),
+       "each proposed field path is shown", rendered);
+    ok(/identity_conflict/.test(rendered) && /relationship_unstated/.test(rendered),
+       "every reason is shown", rendered);
+    ok((rendered.match(/not applied/g) || []).length >= 2,
+       "the entry AND each proposed value are marked not applied", rendered);
+    ok(!/^\s*parents\.firstName\s*=/.test(rendered),
+       "no proposed path is presented as an executable destination");
+  }
 }
 
 /* ── report ──────────────────────────────────────────────────────────── */

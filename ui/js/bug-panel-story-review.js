@@ -951,6 +951,13 @@
   }
 
   // Public manual-refresh hook so operators can trigger from console.
+  // WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04) — exported so the
+  // clarification/quarantine rendering can be asserted by RENDERING it,
+  // not by grepping this file. A source-string check cannot tell whether
+  // the operator actually sees the proposed values; the same class of
+  // false confidence that the `disabled: undefined` note above describes.
+  window.lvStoryReviewRenderExtraction = renderExtraction;
+
   window.lvStoryReviewRefresh = fetchReview;
   window.lvStoryReviewOnNarratorSwitch = onNarratorSwitch;
 
