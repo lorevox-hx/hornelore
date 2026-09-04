@@ -3,7 +3,10 @@
 **Status:** CURRENT — central Lori/Lorevox work order  
 **Supersedes:** `WO-LORI-END-TO-END-LISTEN-RETAIN-MEMOIR-01`  
 **Starting evidence:** demographic cohort `20260901T015343Z` and Walt seven-era run `20260901T003329Z`  
-**Current position:** **Phase 0, 1 and 2 CLOSED. Phase 3 is the CURRENT ACTION** — fix the correction-route bypass and the spouse-under-`parents.*` binding. *(Phase 1 proof: mutations `20260904T123556Z`, carried forward at zero mutations in `20260904T130525Z`, exit 0. Phase 2 audit: `python3 scripts/phase2_verify_ledger.py`.)*  
+**Current position:** **Phase 0, 1 and 2 CLOSED. Phase 3 is the CURRENT ACTION** — fix the
+correction-route bypass and the spouse-under-`parents.*` binding. *(Phase 1 proof: mutations
+`20260904T123556Z`, carried forward at zero mutations in `20260904T130525Z`, exit 0.
+Phase 2 audit: `python3 scripts/phase2_verify_ledger.py`.)*
 **Phase 0:** accepted by ChatGPT against pushed commit `fdaa255`
 
 ## 1. Goal
@@ -397,24 +400,30 @@ figure. Keep every metric below; they simply report better news than expected.
 have a stale destination state on the day it was written.
 
 - [ ] Selected era and era actually sent. **Record the runtime era and the story placement separately** — see Phase 1. A candidate with no `placement_source=operator_set` is UNPLACED regardless of which era the conversation was in, and the ledger must not collapse the two.
-- [ ] Raw Lori response, each transformation and delivered response.
-- [ ] Every extracted entity, relationship, path, value and source wording.
-- [ ] Every normalization, reroute, acceptance and rejection reason.
-- [ ] Final structured destination, if any.
-- [ ] Fact-candidate destination, if any.
+- [→] Raw Lori response, each transformation and delivered response. **→ TRANSFERRED to Phase 6** — not done in Phase 2.
+- [→] Every extracted entity, relationship, path, value and source wording. **→ TRANSFERRED to Phase 3 + Phase 5** — not done in Phase 2.
+- [→] Every normalization, reroute, acceptance and rejection reason. **→ TRANSFERRED to Phase 5** — not done in Phase 2.
+- [→] Final structured destination, if any. **→ TRANSFERRED to Phase 5** — not done in Phase 2.
+- [→] Fact-candidate destination, if any. **→ TRANSFERRED to Phase 5** — not done in Phase 2.
 - [ ] Story-candidate ID/status, or the exact reason no candidate was created.
-- [ ] Rolling-summary representation.
-- [ ] Chronology and Life Map destinations.
+- [→] Rolling-summary representation. **→ TRANSFERRED to Phase 8** — not done in Phase 2.
+- [→] Chronology and Life Map destinations. **→ TRANSFERRED to Phase 8** — not done in Phase 2.
 - [ ] Memoir eligibility and provenance.
-- [ ] One terminal status from Section 4 for each meaningful item.
+- [→] One terminal status from Section 4 for each meaningful item. **→ TRANSFERRED to Phase 5 (turn-level done; item-level owed)** — not done in Phase 2.
 
 Required aggregate totals:
 
 - [ ] 38 statements accounted for.
 - [x] **35** current story candidates independently reproduced *(was written as 11 — that was eleven operator PATCH actions in the API log, never a candidate count)*.
-- [ ] **3** no-candidate turns — `1846`, `1864`, `1870` — reproduced; **classification still owed**: each needs a defensible, inspectable `not_story` reason *(was written as 27)*.
-- [ ] Pat, Stefi, Mable, Tomasita, Richard, Joe and Frank explicitly reviewed.
-- [ ] The final destinations of the previously reported accepted extraction items identified.
+- [x] **3** no-candidate turns — `1846`, `1864`, `1870` — reproduced **and classified:
+      `measurement_failed`.** *(This said "classification still owed: each needs a
+      defensible, inspectable `not_story` reason." That is unsatisfiable and was removed:
+      the deciding signal — the factual-chain result — is persisted nowhere, so no
+      evidence-backed `not_story` reason can exist. `measurement_failed` IS the defensible
+      classification. A `not_story` reason becomes possible only after Phase 4 persists the
+      capture decision.)*
+- [→] Pat, Stefi, Mable, Tomasita, Richard, Joe and Frank explicitly reviewed. **→ TRANSFERRED to DECLINED — synthetic; real-narrator validation in Phase 8** — not done in Phase 2.
+- [→] The final destinations of the previously reported accepted extraction items identified. **→ TRANSFERRED to Phase 5** — not done in Phase 2.
 
 **Exit gate:** No statement or interpretation is represented merely as `persisted`; the ledger names its real destination, lack of destination or measurement failure.
 
@@ -485,8 +494,36 @@ preserves its words exactly. It says nothing about whether a 450-word turn holds
 episode or four. Semantic granularity is **unmeasured**, and deliberately so: the cohort is
 synthetic test material, and curating it would prove nothing about Kent or Janice.
 
-**Exit gate: MET.** All 38 turns carry a terminal status; the three misses have an
-evidence-backed classification (`measurement_failed`); the mechanism verdicts are recorded.
+### THE SCOPE WAS NARROWED. Here is exactly what that means.
+
+**Phase 2 as originally written required a full destination ledger** — raw and delivered Lori
+response, every transformation, every extracted entity and relationship, normalizations and
+rejection reasons, structured destination, fact-candidate destination, rolling summary,
+chronology and Life Map placement, and a terminal status for every meaningful item.
+
+**That is NOT what was delivered, and this closeout does not claim it was.** What was
+delivered is a **mechanism audit** of the archive → capture → review path, run read-only over
+synthetic test material. The narrowing was deliberate — the cohort is test data whose story
+quality is worth nothing to curate — but it must be recorded as a **TRANSFER, not a
+completion**:
+
+| Original Phase 2 obligation | Status | Now owed by |
+|---|---|---|
+| Raw vs delivered Lori response, each transformation | **NOT DONE — transferred** | **Phase 6** (30/76 altered responses) |
+| Every extracted entity, relationship, path, value, source wording | **NOT DONE — transferred** | **Phase 3** (binding) + **Phase 5** (meaning) |
+| Normalizations, reroutes, acceptance and rejection reasons | **NOT DONE — transferred** | **Phase 5** |
+| Final structured destination · fact-candidate destination | **NOT DONE — transferred** | **Phase 5** |
+| Rolling-summary representation | **NOT DONE — transferred** | **Phase 8** |
+| Chronology and Life Map destinations | **NOT DONE — transferred** | **Phase 8** |
+| Terminal status for every *meaningful item* | **PARTIAL — transferred** | **Phase 5**. Every *turn* has one; every extracted item does not |
+| Narrator-by-narrator review (Pat, Stefi, Mable, Tomasita, Richard, Joe, Frank) | **NOT DONE — declined** | Synthetic material; superseded by real-narrator validation in **Phase 8** |
+| Destinations of previously reported accepted extraction items | **NOT DONE — transferred** | **Phase 5** |
+
+**Exit gate — MET FOR THE NARROWED SCOPE ONLY.** All 38 turns carry a terminal status at the
+*turn* level; the three misses have an evidence-backed classification (`measurement_failed`);
+the mechanism verdicts are recorded. **The correctness obligations in the table above remain
+OPEN.** Anyone reading this closeout as "Phase 2 is finished" is reading it wrong: the
+question it answered was *does the machinery work*, not *is the interpretation right*.
 
 ## Phase 3 — Fix processing bypass and relationship binding  ⬅ **CURRENT ACTION**
 

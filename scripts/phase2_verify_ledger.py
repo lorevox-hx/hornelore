@@ -100,11 +100,53 @@ def structural_rows(turns, cands):
             "placement_source": (c[6] if c else None),
             "review_status": (c[4] if c else None),
             "memoir_reachable": bool(c and c[4] in STORY_MEMOIR_ELIGIBLE),
-            "terminal_status": ("archived_only" if not c
+            # A turn with no candidate is NOT archived_only. archived_only
+            # asserts that no memoir-reachable representation exists AND we
+            # know why. We do not: the factual-chain decision is persisted
+            # nowhere, so the correct status is measurement_failed.
+            "terminal_status": ("measurement_failed" if not c
                                 else "memoir_eligible" if c[4] in STORY_MEMOIR_ELIGIBLE
                                 else "story_candidate_provisional"),
         })
     return out
+
+
+def classifier_split(turns, cands):
+    """Reproduce the Phase 2 classifier split using the SHIPPED trigger.
+
+    Deterministic paths (full_threshold / borderline_scene_anchor /
+    rich_short_narrative) are reproducible from stored text alone. The
+    chain-detection path is NOT: it depends on chain_ctx supplied at
+    runtime and persisted nowhere. So a turn the shipped classifier cannot
+    reproduce without chain context was decided by the chain classifier —
+    whether it produced a candidate or not.
+    """
+    sys.path.insert(0, str(Path("server") / "code"))
+    from api.services import story_trigger as st
+
+    bound = {c[1] for c in cands}
+    det, chain_hit, chain_silent = [], [], []
+    for tid, text in sorted(turns.items()):
+        cls = st.classify_story_candidate(
+            audio_duration_sec=None, transcript=text, chain_ctx=None)
+        if cls is not None:
+            det.append(tid)
+        elif tid in bound:
+            chain_hit.append(tid)
+        else:
+            chain_silent.append(tid)
+    return {"deterministic": det, "chain_captured": chain_hit,
+            "chain_silent": chain_silent}
+
+
+def extraction_ledger_rows(con, turn_ids):
+    """Cohort rows in turn_extraction_ledger. Phase 2 measured ZERO."""
+    keys = {f"turnrow:{t}" for t in turn_ids}
+    n = 0
+    for (tk,) in con.execute("SELECT turn_key FROM turn_extraction_ledger"):
+        if tk in keys:
+            n += 1
+    return n
 
 
 def main() -> int:
@@ -121,6 +163,7 @@ def main() -> int:
         "SELECT id, source_user_turn_row_id, transcript, word_count, review_status, "
         "       era_candidates, placement_source, trigger_reason, conversation_id "
         "FROM story_candidates WHERE conversation_id LIKE ?", (COHORT + "%",)))
+    ledger_rows = extraction_ledger_rows(con, turns.keys())
     con.close()
 
     if "--json" in sys.argv:
@@ -179,18 +222,44 @@ def main() -> int:
     for k, v in sorted(dist.items()):
         print(f"    {k:<14} {v}")
     print()
-    print("  statements with NO candidate (turn ids):",
-          sorted(set(turns) - bound))
+
+    # ── the findings that MATTER, added 2026-09-04 ────────────────────────
+    # The first version of this script reproduced only candidate counts and
+    # closed with "the bottleneck is REVIEW". That was yesterday's
+    # conclusion. The command advertised as reproducing the Phase 2 audit
+    # must reproduce the audit's OWN findings.
+    split = classifier_split(turns, cands)
+    d, hit, silent = split["deterministic"], split["chain_captured"], split["chain_silent"]
+    print("  CAPTURE DECISION SPLIT — shipped story_trigger, no chain context")
+    print(f"    deterministic (anchors>=3, reproducible)   : {len(d)}/{n}")
+    print(f"    chain-dependent (NOT reproducible)         : {len(hit) + len(silent)}/{n}")
+    print(f"      chain fired, candidate created           : {len(hit)}")
+    print(f"      chain silent, NO candidate               : {len(silent)}  {sorted(silent)}")
+    print()
+    print(f"  EXTRACTION LEDGER rows for cohort turns      : {ledger_rows}"
+          "   <- Phase 2 measured ZERO")
+    print()
+    print(f"  terminal_status = measurement_failed         : {n - len(bound)}"
+          f"   {sorted(set(turns) - bound)}")
     print()
     print("VERDICT")
-    print(f"  candidate presence is {len(bound)}/{n}, NOT 11/38.")
-    print("  '11' was eleven operator PATCH actions in the API log "
-          "(2026-08-18/19/20), never a coverage figure.")
-    print(f"  Capture is byte-exact ({len(atomic)}/{len(cands)}) with "
-          f"{len(superset)} over-capture and {len(nested)} containment groups.")
-    print(f"  The bottleneck is REVIEW: {100 * len(bound) / n:.0f}% captured, "
-          f"{100 * len(reachable) / max(len(cands), 1):.0f}% reviewed, "
-          f"{n - len(reachable)}/{n} statements unreachable.")
+    print(f"  candidate presence is {len(bound)}/{n}, NOT 11/38. '11' was eleven operator")
+    print("  PATCH actions in the API log (2026-08-18/19/20), never a coverage figure.")
+    print(f"  Capture is byte-exact ({len(atomic)}/{len(cands)}), {len(superset)} over-capture, "
+          f"{len(nested)} containment groups.")
+    print()
+    print("  THE DEFECTS ARE AUDITABILITY, NOT COVERAGE:")
+    print(f"    - {len(hit) + len(silent)}/{n} capture decisions come from the factual-chain")
+    print("      classifier, whose result is persisted NOWHERE. For any turn --")
+    print("      captured or missed -- nobody can say why it decided as it did.")
+    print(f"    - turn_extraction_ledger holds {ledger_rows} rows for these turns.")
+    print(f"    - turns {sorted(silent)} are measurement_failed, NOT not_story:")
+    print("      no evidence-backed reason exists, so none is invented.")
+    print()
+    print("  Review is unexercised (0/%d reviewed) -- that is NOT a mandate to work the"
+          % len(cands))
+    print("  queue: these candidates may preserve words exactly while carrying invented")
+    print("  relationships. Meaning integrity (Phase 3) comes first.")
     return 0
 
 
