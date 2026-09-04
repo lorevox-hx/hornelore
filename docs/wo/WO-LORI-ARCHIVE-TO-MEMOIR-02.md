@@ -621,6 +621,54 @@ correction-routed turn is still considered for a story candidate.
 - [ ] Normal Lori response, durable persistence, extraction, trace and story consideration occur.
 - [ ] No correction mutation is applied without a parsed target and value.
 
+### Kinship binding guard — BUILT, MEASURED, REVERTED (2026-09-04)
+
+`add4753` added `_apply_kinship_binding_guard`. It was **reverted in full at
+`1c70567`** on two independent grounds: a reproduced eval regression, and deterministic
+production-path defects found by external code review that hold regardless of the eval.
+
+| Run | Code | Total | v3 | v2 | must_not_write |
+|---|---|---|---|---|---|
+| `r5h-followup-guard-v1` | baseline | **78**/114 | 49/72 | 43/72 | present |
+| `r5i-kinship-guard-v1` | `add4753` | **74**/114 | 45/72 | 40/72 | present (`case_066`) |
+| `r5i-kinship-guard-rerun` | `add4753`, byte-identical | **73**/114 | 44/72 | 39/72 | present (`case_066`) |
+
+**The loss repeated at every principal score, and the guard did not close the dangerous
+write it existed to stop** — `parents.notableLifeEvents` still violated must-not-write on
+`case_066` in both guarded runs.
+
+**A variance claim of mine is refuted by this data.** After one paired diff I asserted a
+"±4–5 case variance floor". The two identical-code runs differ by **exactly one case**
+(`case_031`); observed guarded-run variation is 1, not 4–5. And all eight kinship-scored
+losses (`032 053 060 073 075 077 107 108`) failed in **both** guarded runs with identical
+scores — consistent, not noise. The inference was wrong in both directions: it overstated
+the noise and would have excused a real regression.
+
+**Why it was unsafe independent of the numbers** — five deterministic defects, each
+verified against the shipped file:
+
+1. **The downgrade never reached output.** `extract.py:8677` sets
+   `write_mode = meta.get("writeMode", ...)` from the SCHEMA and `:8757` passes that to
+   `ExtractedItem`, which accepts no `needs_confirmation`. Only the confidence cap
+   survived, so a "downgraded" `family.spouse.*` item stayed `prefill_if_blank`.
+2. **Grouping had not happened.** The field is `_repeatableGroup` until `:8783`, after
+   `run_field_extraction` returns; the guard read `repeatableGroup`, always got `None`,
+   and its `f"@{role}"` fallback then collapsed every item of a role into one bucket — so
+   one collision could remove unrelated parent facts.
+3. **First-name equality is not identity.** Father John and spouse John collide.
+4. **Rule 1 was answer-wide.** One "my father" authorised every `parents.*` proposal in a
+   long turn. Widening the anchor vocabulary cannot fix that; evidence must bind locally.
+5. **Rule 2b only guarded `firstName`.** Dates, events and notes kept full authority under
+   the same identity doubt.
+
+**The tests passed anyway** because they exercised the helper directly and supplied
+`repeatableGroup` by hand — a shape production never has at that point. Same failure as
+the anchor fixtures: a property supplied instead of measured. **Any rebuild is tested
+through `run_field_extraction`, both the LLM and rules-fallback paths, asserting the FINAL
+emitted `writeMode` and confirmation metadata.**
+
+Requirements carried forward to the rebuild are in the checklist below.
+
 ### Relationship binding
 
 **The extractor reads the NARRATOR's words — `verified_by_read`, three independent lines.**
@@ -650,6 +698,21 @@ Both are `writeMode: candidate_only` with `applied_at = NULL`, so **neither reac
       not derivable from them**. A mis-bound true value and an invented one are different
       defects with different fixes, and a memoir system inventing a birth year is the more
       serious of the two.
+**Rebuild requirements — every one of these is a defect `add4753` shipped:**
+
+- [ ] Runs AFTER relationship grouping, or against the final extraction representation.
+- [ ] Evidence is inspected LOCALLY per proposed person/group, never answer-wide.
+- [ ] `suggest_only`, `needs_confirmation` and the REASON survive serialization into the
+      emitted item. A downgrade that a downstream constructor discards is not a downgrade.
+- [ ] Never hard-refuses on first-name equality alone; same-name ambiguity DOWNGRADES.
+- [ ] Refuses on a known other-role identity only when identity evidence is strong.
+- [ ] Downgrades or quarantines the WHOLE uncertain group, not just `firstName`.
+- [ ] Mixed spouse-and-parent narration produces no collateral removal.
+- [ ] Quarantines an uncertain relationship as an attributed fact rather than presenting
+      `parents.firstName=Otis` as a merely lower-confidence parent.
+- [ ] Tested through `run_field_extraction` on BOTH paths with real ungrouped input,
+      including father-John/spouse-John, asserting final emitted writeMode + metadata.
+- [ ] One new live eval against the CORRECTED implementation — not another run of `add4753`.
 - [ ] Jim binds as Pat’s husband.
 - [ ] Otis binds as Mable’s husband.
 - [ ] Domingo binds as Tomasita’s husband.
