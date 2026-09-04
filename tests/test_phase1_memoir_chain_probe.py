@@ -1144,3 +1144,40 @@ class ResumeVersionExpectationTests(_Base):
         self.assertEqual(2, r["placementAfter"]["review_version"],
                          "placement left v2; promotion left v3 — the distinction "
                          "this class exists to preserve")
+
+
+class PopoverVisibilityTests(_Base):
+    """`offsetParent` cannot decide whether a native popover is open.
+
+    Resume ``20260904T125523Z`` reported ``popoverVisible=false`` while the
+    same call read ``occurrences=1`` and 1408 characters out of the panel:
+    the passage was on screen and the test said the panel was shut.
+    ``#memoirScrollPopover`` is ``<div popover="auto">``; native popovers
+    render in the top layer, which the UA stylesheet positions ``fixed``,
+    and ``offsetParent`` is ``null`` for every fixed element.
+
+    CLAUDE.md already carried this rule from the Bug Panel — *gate on
+    ``:popover-open``, not on a side effect*. It was applied there and not
+    here, which is why the same class of defect surfaced twice.
+    """
+
+    def test_offsetparent_decides_nothing_in_the_probe(self):
+        self.assertNotIn("offsetParent", self.src,
+                         "a fixed-position element always reports null")
+
+    def test_the_platform_open_state_is_the_basis(self):
+        self.assertIn('el.matches(":popover-open")', self.src)
+        self.assertIn("visibilityBasis", self.src)
+
+    def test_a_bounding_box_fallback_exists_but_is_not_preferred(self):
+        self.assertIn("renderedBox", self.src)
+        self.assertIn("open === null ? boxed : open", self.src)
+
+    def test_the_memoir_panel_really_is_a_native_popover(self):
+        html = (ROOT / "ui" / "hornelore1.0.html").read_text(encoding="utf-8")
+        self.assertIn('<div id="memoirScrollPopover" popover="auto"', html,
+                      "if this stops being a popover, the visibility basis "
+                      "must be revisited")
+
+    def test_the_run_that_exposed_it_is_recorded(self):
+        self.assertIn("20260904T125523Z", self.raw)

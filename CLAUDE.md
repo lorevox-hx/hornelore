@@ -256,6 +256,14 @@ durable facts about the shipped UI, not lane state.
 - **Gate on `:popover-open`,** not on some descendant becoming visible. The popover's open
   state is a fact the platform exposes; inferring it from a side effect can pass on an
   already-open panel.
+- **`offsetParent` NEVER decides whether a popover is open.** Native popovers render in the
+  **top layer**, which the UA stylesheet positions `fixed`, and `offsetParent` is `null`
+  for every fixed element — so `offsetParent !== null` is a guaranteed FALSE NEGATIVE on an
+  *open* popover. Phase 1 resume `20260904T125523Z` reported the memoir panel shut while
+  reading 1,408 characters of the passage out of it. **This rule applies to every popover
+  in the tree, not just the Bug Panel:** `#lv10dBugPanel` and `#memoirScrollPopover`
+  (`popover="auto"`) are both native, and fixing one and not the other is how the same
+  defect surfaced twice a fortnight apart.
 - **The story-review section is COLLAPSED by default** (`bug-panel-story-review.js:116`),
   and `render()` returns before `renderControls()`. While collapsed the panel exposes **no
   filter input, no row and no promote control.** Expand through the section header —

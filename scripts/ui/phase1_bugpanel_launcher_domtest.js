@@ -198,6 +198,43 @@ function extractPopoverOpenTag() {
       "only now is it a control the probe may click");
   });
 
+  await check("offsetParent is NULL on an OPEN native popover — :popover-open is not",
+    async () => {
+      /* The false negative that cost Phase 1 a run. `#memoirScrollPopover`
+       * is `<div popover="auto">`; native popovers render in the TOP LAYER,
+       * which the UA stylesheet positions `fixed`, and `offsetParent` is
+       * null for every fixed element. PANEL_STATE tested
+       * `offsetParent !== null` and reported a visible panel as shut while
+       * reading 1408 characters out of it. */
+      const st = await page.evaluate((id) => {
+        const p = document.getElementById(id);
+        const r = p.getBoundingClientRect();
+        return {
+          open: p.matches(":popover-open"),
+          offsetParentIsNull: p.offsetParent === null,
+          hasBox: r.width > 0 || r.height > 0,
+          position: getComputedStyle(p).position,
+        };
+      }, POPOVER_ID);
+      assert.strictEqual(st.open, true, "the popover is open at this point");
+      assert.strictEqual(st.position, "fixed",
+        "native popovers are fixed-position in the top layer");
+      assert.strictEqual(st.offsetParentIsNull, true,
+        "THE TRAP: offsetParent is null even though the popover is open");
+      assert.strictEqual(st.hasBox, true, "and it genuinely occupies a box");
+    });
+
+  await check("the probe no longer infers popover visibility from offsetParent",
+    async () => {
+      const src = fs.readFileSync(
+        path.join(__dirname, "phase1_memoir_chain_probe.js"), "utf8");
+      const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+      assert.ok(!code.includes("offsetParent"),
+        "offsetParent must not decide visibility anywhere in the probe");
+      assert.ok(code.includes('matches(":popover-open")'),
+        "the platform's own open-state must be the basis");
+    });
+
   await check("no page exception was raised", async () => {
     assert.deepStrictEqual(pageErrors, []);
   });

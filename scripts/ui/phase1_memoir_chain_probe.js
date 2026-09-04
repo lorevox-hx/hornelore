@@ -174,10 +174,35 @@ const OPEN_MEMOIR_STAGE2 = function () {
   if (!b) return { found: false };
   b.click(); return { found: true, label: (b.textContent || "").trim() };
 };
+/* GATE ON `:popover-open`, NOT ON `offsetParent`.
+ *
+ * `#memoirScrollPopover` is `<div popover="auto">` — a NATIVE popover, like
+ * the Bug Panel. Native popovers render in the TOP LAYER, which the UA
+ * stylesheet positions `fixed`, and `offsetParent` is `null` for every
+ * fixed-position element. So `offsetParent !== null` was a guaranteed FALSE
+ * NEGATIVE: run 20260904T125523Z reported `popoverVisible=false` while the
+ * same call reported `occurrences=1` and 1408 characters of rendered text —
+ * the passage was on screen and the test said the panel was shut.
+ *
+ * CLAUDE.md already carries this rule from the Bug Panel: the popover's open
+ * state is a fact the platform exposes; inferring it from a side effect is
+ * what breaks. That fix was applied there and not here.
+ *
+ * The box fallback covers an engine without `:popover-open` and any future
+ * non-popover panel; it is never preferred over the platform's own answer. */
 const PANEL_STATE = function (full) {
   const el = document.getElementById("memoirScrollPopover");
   const t = el ? (el.innerText || "") : "";
-  return { present: Boolean(el), visible: Boolean(el && el.offsetParent !== null),
+  let open = null;
+  try { open = el ? el.matches(":popover-open") : false; }
+  catch (_) { open = null; }                 // selector unsupported
+  const rect = el ? el.getBoundingClientRect() : null;
+  const boxed = Boolean(rect && (rect.width > 0 || rect.height > 0));
+  return { present: Boolean(el),
+           visible: open === null ? boxed : open,
+           popoverOpen: open, renderedBox: boxed,
+           visibilityBasis: open === null ? "bounding-box (no :popover-open)"
+                                          : ":popover-open",
            occurrences: t.split(full).length - 1, chars: t.length, fullText: t };
 };
 /* ── Pure decision predicates ───────────────────────────────────────
