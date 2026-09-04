@@ -196,7 +196,122 @@ class NameEqualityAloneNeverRefuses(unittest.TestCase):
         self.assertEqual(["relationship_unstated"], entries(r)[0]["reasons"])
 
 
+class EvidenceIsBoundToTheEntity(unittest.TestCase):
+    """Gaps found in review of d58c42d. A sentence-wide test still leaked, and
+    an unlocatable subject fell back to the WHOLE ANSWER."""
+
+    def test_a_cue_about_harold_does_not_authorise_otis(self):
+        """"My father Harold worked at Firestone and Otis died in 2005."
+        Parent language sits in Otis's sentence. Sentence-wide passed both."""
+        r = run("My father Harold worked at Firestone and Otis died in 2005.",
+                [item("parents.firstName", "Harold"),
+                 item("parents.firstName", "Otis")], None)
+        vals = [i.value for i in r.items if i.fieldPath == "parents.firstName"]
+        self.assertEqual(["Harold"], vals)
+        self.assertEqual(["Otis's relationship to you"],
+                         [e["label"] for e in entries(r)])
+
+    def test_a_group_with_no_firstName_cannot_borrow_distant_evidence(self):
+        r = run("My father Harold worked at Firestone. He died in 2005.",
+                [item("parents.deathDate", "2005")], None)
+        self.assertEqual([], paths(r))
+        self.assertEqual(1, len(entries(r)),
+                         "a dateless-subject group used the whole answer")
+
+    def test_a_name_the_narrator_never_said_is_quarantined(self):
+        """A hallucinated firstName previously borrowed any parent wording
+        elsewhere in the answer."""
+        r = run("Otis died in 2005. My father Harold worked at Firestone.",
+                [item("parents.firstName", "Ida")], None)
+        self.assertEqual([], paths(r))
+        self.assertEqual(["Ida's relationship to you"],
+                         [e["label"] for e in entries(r)])
+
+    def test_matching_is_token_bounded_not_substring(self):
+        """'Ida' must not find itself inside 'Idaho'.
+
+        The fixture is chosen so the two behaviours DIFFER. An earlier version
+        used "We moved to Idaho in 1961." with no cue present — substring and
+        token matching both quarantined it, so the test could not tell them
+        apart and a substring mutation passed. Here the spurious 'Idaho' match
+        sits four tokens from 'father', so substring matching would EXECUTE
+        parents.firstName=Ida — a name the narrator never said."""
+        r = run("My father was born in Idaho.",
+                [item("parents.firstName", "Ida")], None)
+        self.assertEqual([], paths(r),
+                         "'Ida' was located inside 'Idaho' and borrowed the "
+                         "parent cue beside it")
+        self.assertEqual(1, len(entries(r)))
+
+    def test_a_repeated_name_is_supported_by_ANY_occurrence(self):
+        """Using only the first occurrence would quarantine a relationship the
+        narrator stated later in the same turn."""
+        r = run("Otis was at the plant. My husband Otis died in 2005.",
+                [item("family.spouse.firstName", "Otis")], None)
+        self.assertEqual(["family.spouse.firstName"], paths(r))
+        self.assertEqual([], entries(r))
+
+
+class OrdinaryFormsAreNotQuarantined(unittest.TestCase):
+    """False quarantine costs a narrator a fact. These are the shapes people
+    actually use, and all of them must execute."""
+
+    CASES = [
+        ("We had two children, Charlene and Bernard.",
+         [("family.children.firstName", "Charlene"),
+          ("family.children.firstName", "Bernard")]),
+        ("Charlene is my daughter.", [("family.children.firstName", "Charlene")]),
+        ("Otis died. The kids were grown — Charlene was in Atlanta.",
+         [("family.children.firstName", "Charlene")]),
+        ("Dad was Kent Horne, born in Stanley.",
+         [("parents.firstName", "Kent")]),
+        ("I married Otis in 1965.", [("family.spouse.firstName", "Otis")]),
+        ("My brother Vince was born in Germany.",
+         [("siblings.firstName", "Vince")]),
+    ]
+
+    def test_no_false_quarantine(self):
+        for answer, fields in self.CASES:
+            with self.subTest(answer=answer):
+                r = run(answer, [item(fp, v) for fp, v in fields], None)
+                self.assertEqual([fp for fp, _ in fields], paths(r))
+                self.assertEqual([], entries(r))
+
+
 class ReasonsCompose(unittest.TestCase):
+
+    def test_a_low_confidence_otis_carries_all_three_reasons(self):
+        """Gap found in review: kinship ran BEFORE transcript safety and
+        removed the group, so low_confidence vanished with it. The operator
+        was told the relationship was unknown but not that the audio was
+        unclear — a separate reason to distrust the value itself."""
+        req = EX.ExtractFieldsRequest(
+            person_id="n", answer="Otis died in 2005.",
+            transcript_source="whisper", transcript_confidence=0.42,
+            confirmation_required=True)
+        with mock.patch("api.db.get_profile", return_value=MABLE_PROFILE), \
+             mock.patch.object(EX, "_extract_via_llm",
+                               return_value=([item("parents.firstName", "Otis")],
+                                             "[s]")):
+            r = EX.run_field_extraction(req)
+        e = entries(r)
+        self.assertEqual(1, len(e))
+        self.assertEqual(["identity_conflict", "relationship_unstated",
+                          "low_confidence"], e[0]["reasons"])
+
+    def test_the_superseded_transcript_entry_is_not_shown_twice(self):
+        req = EX.ExtractFieldsRequest(
+            person_id="n", answer="Otis died in 2005.",
+            transcript_source="whisper", transcript_confidence=0.42,
+            confirmation_required=True)
+        with mock.patch("api.db.get_profile", return_value=MABLE_PROFILE), \
+             mock.patch.object(EX, "_extract_via_llm",
+                               return_value=([item("parents.firstName", "Otis")],
+                                             "[s]")):
+            r = EX.run_field_extraction(req)
+        self.assertEqual(1, len(r.clarification_required),
+                         "one value must not raise two prompts, one of them "
+                         "naming a field that is no longer executable")
     """A kinship quarantine and a transcript-safety downgrade can both apply
     to one turn; neither may erase the other's explanation."""
 

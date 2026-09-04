@@ -8202,9 +8202,17 @@ _ROLE_LOCAL_LANGUAGE = {
     "family.spouse": re.compile(
         r"\b(?:my\s+)?(?:husband|wife|spouse)\b|\b(?:we|i)\s+(?:got\s+|were\s+)?"
         r"(?:married|wed)\b|\bmarried\s+(?:him|her)\b", re.IGNORECASE),
+    # Children get a third alternative — a COUNT or determiner before the
+    # relation noun. "We had two children, Charlene and Bernard" states the
+    # relationship plainly, and requiring a possessive falsely quarantined
+    # both names: Bernard's ±4-token window reaches "two children" but not the
+    # "We had" two tokens further back.
     "family.children": re.compile(
         r"\b(?:my|our|the)\s+(?:son|daughter|child|children|kids?|boys?|girls?|"
-        r"twins?)\b|\b(?:my|our)\s+(?:eldest|oldest|youngest|firstborn)\b",
+        r"twins?)\b"
+        r"|\b(?:my|our)\s+(?:eldest|oldest|youngest|firstborn)\b"
+        r"|\b(?:a|an|one|two|three|four|five|six|both|several|the|our)\s+"
+        r"(?:sons?|daughters?|child|children|kids?|boys?|girls?|twins?)\b",
         re.IGNORECASE),
     "siblings": re.compile(
         r"\b(?:my\s+)?(?:brother|sister|siblings?|twin|half[- ]?brother|"
@@ -8240,23 +8248,84 @@ def _kinship_role_of(field_path: str):
 
 
 def _clauses(answer: str):
-    """Split into clause-sized spans. Evidence must be LOCAL to the person
-    being described: one 'my father' in a long turn cannot license a claim
-    made three sentences later about somebody else."""
+    """Split into sentence-sized spans."""
     return [c.strip() for c in _CLAUSE_SPLIT_RX.split(answer or "") if c.strip()]
 
 
-def _clause_for_value(answer: str, value: str):
-    """The clause containing `value`, or None. Case-insensitive, first hit."""
-    if not answer or not value:
-        return None
-    v = str(value).strip().lower()
-    if not v:
-        return None
-    for c in _clauses(answer):
-        if v in c.lower():
-            return c
-    return None
+# How far from the NAME a relationship cue may sit and still describe that
+# person. Measured in word tokens, either side.
+#
+# CORRECTED 2026-09-04 after review: a sentence-wide test still leaked.
+# "My father Harold worked at Firestone and Otis died in 2005." puts parent
+# language in Otis's sentence, and the sentence-wide check authorised BOTH
+# names. Evidence has to bind to the ENTITY, not merely co-occur with it.
+#
+# Four tokens is the widest span that still refuses that sentence (Otis's
+# window reaches back only to "worked") while accepting the ordinary forms
+# narrators use:
+#     "my father Harold"                       cue immediately before
+#     "Charlene is my daughter"                cue immediately after
+#     "We had two children, Charlene and Bernard"   cue before a list
+_KINSHIP_CUE_WINDOW_TOKENS = 4
+
+_TOKEN_RX = re.compile(r"[A-Za-z0-9'’\-]+")
+
+
+def _name_windows(answer: str, name: str):
+    """Every ±window token span around each occurrence of `name`.
+
+    Whole-token matching, not substring: 'Ida' must not match inside
+    'Idaho', and a repeated name yields a window per occurrence rather than
+    only the first. A cue anywhere near ANY occurrence supports the group --
+    a narrator who says the relationship once has said it.
+    """
+    if not answer or not name:
+        return []
+    toks = list(_TOKEN_RX.finditer(answer))
+    if not toks:
+        return []
+    target = [t.lower() for t in _TOKEN_RX.findall(str(name))]
+    if not target:
+        return []
+    words = [t.group(0).lower() for t in toks]
+
+    # Sentence boundaries as character ranges. The token window is CLAMPED to
+    # the sentence the name sits in, because the two limits catch different
+    # leaks and neither is sufficient alone:
+    #
+    #   sentence only -> "My father Harold ... and Otis died" authorises Otis
+    #   window only   -> "My father Clarence worked there. Otis died in 2005."
+    #                    puts 'father' four tokens from Otis, across the stop
+    #
+    # The second was found by an existing test when the first was fixed.
+    bounds, pos = [], 0
+    for s in _CLAUSE_SPLIT_RX.split(answer):
+        start = answer.find(s, pos)
+        if start < 0:
+            start = pos
+        bounds.append((start, start + len(s)))
+        pos = start + len(s)
+
+    def _sentence_of(char_pos):
+        for lo_c, hi_c in bounds:
+            if lo_c <= char_pos < hi_c:
+                return lo_c, hi_c
+        return 0, len(answer)
+
+    w = _KINSHIP_CUE_WINDOW_TOKENS
+    spans = []
+    for i in range(len(words) - len(target) + 1):
+        if words[i:i + len(target)] != target:
+            continue
+        s_lo, s_hi = _sentence_of(toks[i].start())
+        lo, hi = max(0, i - w), min(len(toks) - 1, i + len(target) - 1 + w)
+        # Walk the window back inside the sentence.
+        while lo < i and toks[lo].start() < s_lo:
+            lo += 1
+        while hi > i and toks[hi].end() > s_hi:
+            hi -= 1
+        spans.append(answer[toks[lo].start():toks[hi].end()])
+    return spans
 
 
 def _known_kinship_names(person_id):
@@ -8298,7 +8367,7 @@ def _known_kinship_names(person_id):
         return {}
 
 
-def _apply_kinship_binding_guard(items, req, *, answer: str):
+def _apply_kinship_binding_guard(items, req, *, answer: str, clarifications=None):
     """Quarantine kinship groups whose relationship the narrator did not state.
 
     Runs at the seam, on GROUPED ExtractedItem objects. Returns
@@ -8344,14 +8413,18 @@ def _apply_kinship_binding_guard(items, req, *, answer: str):
              if str(getattr(m, "fieldPath", "")).endswith(".firstName")
              and str(m.value or "").strip()), "")
 
-        clause = _clause_for_value(answer, subject) if subject else None
-        # With no locatable subject the whole answer is the only span there is;
-        # using it is the permissive choice, and permissive is right here
-        # because a false quarantine costs a narrator a fact.
-        span = clause if clause else (answer or "")
-
+        # WINDOWS AROUND THE NAME, not the sentence. See _name_windows.
+        #
+        # CORRECTED 2026-09-04: with no locatable subject this used the WHOLE
+        # ANSWER, which restored answer-wide authorisation for exactly the
+        # groups least able to defend themselves -- a date/event group with no
+        # firstName, and a hallucinated name the narrator never said. The
+        # permissive choice was defensible when a miss meant losing the fact;
+        # it is not defensible now that quarantine PRESERVES the evidence.
+        # Unlocatable identity quarantines.
+        windows = _name_windows(answer, subject) if subject else []
         pattern = _ROLE_LOCAL_LANGUAGE.get(role)
-        stated = bool(pattern and pattern.search(span))
+        stated = bool(pattern) and any(pattern.search(w) for w in windows)
         if stated:
             continue                      # local wording settles it.
 
@@ -8361,6 +8434,17 @@ def _apply_kinship_binding_guard(items, req, *, answer: str):
                      if r != role and subject.strip().lower() in names]
             if other:
                 reasons.insert(0, "identity_conflict")
+
+        # TRANSCRIPT DOUBT TRAVELS WITH THE GROUP.
+        # The guard runs after transcript safety and REMOVES these items, so
+        # any low_confidence / fragile_field reason they carry would vanish
+        # with them. An operator deciding a quarantine needs to know the audio
+        # was also unclear -- that is a reason to distrust the VALUE, on top of
+        # not knowing the relationship.
+        for m in members:
+            for r_ in (getattr(m, "confirmation_reasons", None) or []):
+                if r_ not in reasons:
+                    reasons.append(r_)
 
         for m in members:
             quarantined.add(id(m))
@@ -8387,8 +8471,18 @@ def _apply_kinship_binding_guard(items, req, *, answer: str):
             role, group, subject, len(members), ",".join(entry["reasons"]))
 
     if not quarantined:
-        return items, []
-    return [i for i in items if id(i) not in quarantined], entries
+        return items, [], list(clarifications or [])
+
+    # Drop the transcript-safety envelope entries for items that no longer
+    # exist. Their reasons were merged into the quarantine above, so keeping
+    # them would show the operator two prompts for one value -- one of which
+    # names a field that is no longer executable.
+    gone = {(getattr(i, "fieldPath", ""), str(getattr(i, "value", "")))
+            for i in items if id(i) in quarantined}
+    kept = [c for c in (clarifications or [])
+            if (c.get("fieldPath", ""), str(c.get("value", ""))) not in gone]
+
+    return ([i for i in items if id(i) not in quarantined], entries, kept)
 
 
 def _sync_confirmation_reasons(target, reasons):
@@ -8527,13 +8621,19 @@ def _finalize_extracted_items(items, req, *, answer: str, path: str):
     # 3. AUTHORITY-REDUCING GUARDS — the seam. Everything below this line sees
     #    grouped, materialized items, and its writeMode / needs_confirmation /
     #    confirmation_reason survive into the response unaltered.
-    #    Kinship first: a group it quarantines leaves `items` entirely, so
-    #    transcript safety never needs an opinion about it. Its review entries
-    #    join the same clarification envelope.
-    final_items, _kin_entries = _apply_kinship_binding_guard(
-        final_items, req, answer=answer)
-
+    #    TRANSCRIPT SAFETY FIRST, then kinship.
+    #
+    #    Corrected 2026-09-04: kinship ran first and removed the group, so a
+    #    low-confidence spoken "Otis" recorded identity_conflict and
+    #    relationship_unstated but LOST low_confidence -- the operator was told
+    #    the relationship was unknown but not that the audio was unclear, which
+    #    is a separate reason to distrust the value itself. Running transcript
+    #    safety first lets the kinship guard absorb whatever it recorded, and
+    #    prune the envelope entries for items it then removes.
     final_items, clarifications = _apply_transcript_safety_layer(final_items, req)
+
+    final_items, _kin_entries, clarifications = _apply_kinship_binding_guard(
+        final_items, req, answer=answer, clarifications=clarifications)
 
     return final_items, list(_kin_entries) + list(clarifications)
 

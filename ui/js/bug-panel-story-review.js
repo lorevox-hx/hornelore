@@ -733,8 +733,25 @@
             : [(c && (c.reason || c.confirmation_reason)) || ''].filter(Boolean);
           const why = reasons.join(', ');
           const notApplied = (c && c.not_applied) ? ' [not applied]' : '';
-          return el('li', {}, [label + path + val
-            + (why ? ' — ' + why : '') + notApplied]);
+          const head = label + path + val + (why ? ' — ' + why : '') + notApplied;
+
+          // EVERY proposed field, not just the subject. The server preserves
+          // the whole quarantined group in `proposed_items`; rendering only
+          // `proposed_fieldPath` showed the operator "Otis" and hid the
+          // proposed 1922, 2005 and event text — the values they most need to
+          // see, because those are what a rebinding would carry with it.
+          const proposedItems = (c && Array.isArray(c.proposed_items))
+            ? c.proposed_items : [];
+          if (!proposedItems.length) return el('li', {}, [head]);
+          return el('li', {}, [head, el('ul', { class: 'story-extraction-items' },
+            proposedItems.map(function (p) {
+              const pv = (p && p.value !== undefined && p.value !== null)
+                ? String(p.value) : '';
+              const pc = (p && typeof p.confidence === 'number')
+                ? ' (' + p.confidence + ')' : '';
+              return el('li', {}, ['proposed ' + ((p && p.fieldPath) || '?')
+                + ' = ' + pv + pc + ' — not applied']);
+            }))]);
         })));
     }
 

@@ -236,6 +236,23 @@ function landedInQuestionnaire(sandbox, value) {
      "Bug Panel renders ALL reasons, not reasons[0]");
 }
 
+/* ── 8. the operator sees the WHOLE quarantined group ─────────────────── */
+{
+  const src = fs.readFileSync(
+    path.join(ROOT, "ui", "js", "bug-panel-story-review.js"), "utf8");
+  const block = src.slice(src.indexOf("clarification_required"),
+                          src.indexOf("Nothing here has been applied"));
+  ok(/Array\.isArray\(c\.proposed_items\)/.test(block),
+     "Bug Panel reads proposed_items");
+  ok(/proposedItems\.map\(/.test(block),
+     "and renders EVERY proposed field, not just proposed_fieldPath",
+     "the operator was shown Otis but not the proposed 1922 / 2005 / event");
+  ok(/'proposed ' \+/.test(block),
+     "each is labelled 'proposed', never as a destination");
+  ok(/not applied/.test(block),
+     "and marked not applied");
+}
+
 /* ── report ──────────────────────────────────────────────────────────── */
 if (failures.length) {
   console.error("FAIL  " + failures.length + " of " + checks + " checks");
