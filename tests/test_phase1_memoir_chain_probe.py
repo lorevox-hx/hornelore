@@ -852,7 +852,7 @@ class BugPanelOpenerTests(_Base):
 
     def test_the_opener_must_be_unique_and_opening_must_be_proven(self):
         self.assertIn("2a0_bug_panel_open", self.src)
-        self.assertIn("the header Bug Panel opener is not usable", self.raw)
+        self.assertIn("the header Bug Panel launcher is not usable", self.raw)
         self.assertIn("Bug Panel did not open", self.raw)
         self.assertIn('waitFor({ state: "visible"', self.src)
 
@@ -919,3 +919,78 @@ class SelectorsExistInTheProductTests(_Base):
         self.assertNotIn("lv10dBugPanelBtn", code)
         self.assertNotIn("lv10dBugPanelBtn", hay,
                          "if the product ever gains this id, revisit the opener")
+
+
+class BugPanelLauncherContractTests(_Base):
+    """The launcher path, pinned against the shipped page.
+
+    Run 20260901T232656Z refused with zero mutations because the probe's
+    launcher selector matched nothing. No offline test could see it: the
+    file parsed, the self-test was green, the string was syntactically
+    perfect. These guards close that gap.
+    """
+
+    LAUNCHER = ROOT / "scripts" / "ui" / "phase1_bugpanel_launcher_domtest.js"
+
+    def setUp(self):
+        super().setUp()
+        self.html = (ROOT / "ui" / "hornelore1.0.html").read_text(encoding="utf-8")
+        self.dom = self.LAUNCHER.read_text(encoding="utf-8")
+
+    def test_the_launcher_test_exists_and_parses(self):
+        r = subprocess.run(["node", "--check", str(self.LAUNCHER)],
+                           capture_output=True, text=True, timeout=60)
+        self.assertEqual(0, r.returncode, r.stderr)
+
+    def test_it_extracts_the_markup_rather_than_inventing_it(self):
+        """Writing a plausible button would test the author's idea of the
+        launcher — precisely the thing that was wrong."""
+        self.assertIn("hornelore1.0.html", self.dom)
+        self.assertIn("extractLauncher", self.dom)
+        self.assertIn("extractPopoverOpenTag", self.dom)
+        # Assert what is MOUNTED, not whether the string "<button" occurs
+        # anywhere: the extractor legitimately searches for "<button" and
+        # the assertion messages name it. A crude negative flagged both.
+        mounted = self.dom[self.dom.index("await page.setContent("):]
+        mounted = mounted[:mounted.index("`);")]
+        self.assertIn("${launcherHTML}", mounted)
+        self.assertIn("${popoverTag}", mounted)
+        self.assertNotIn("<button", mounted,
+                         "the mounted page must carry the SHIPPED launcher, not a copy")
+
+    def test_the_probe_requires_visible_and_enabled(self):
+        self.assertIn("await bugBtn.isVisible()", self.src)
+        self.assertIn("await bugBtn.isEnabled()", self.src)
+        self.assertIn("the header Bug Panel launcher is not usable", self.raw)
+
+    def test_the_probe_gates_on_popover_open_not_a_side_effect(self):
+        self.assertIn('matches(":popover-open")', self.src)
+        self.assertIn("never matched :popover-open", self.raw)
+
+    def test_the_probe_refuses_a_hidden_section_header(self):
+        self.assertIn("the story-review section header is hidden", self.raw)
+        self.assertIn("story-review section header is not visible", self.raw)
+        self.assertIn("the story-review controls never appeared", self.raw)
+
+    def test_two_separate_evidence_links_are_recorded(self):
+        self.assertIn('step("2a0_bug_panel_open"', self.src)
+        self.assertIn('step("2a0_section_expanded"', self.src)
+        order_blk = self.src[self.src.index("const order = ["):]
+        order_blk = order_blk[:order_blk.index("]")]
+        self.assertIn("2a0_bug_panel_open", order_blk)
+        self.assertIn("2a0_section_expanded", order_blk)
+
+    def test_the_shipped_launcher_contract_holds(self):
+        self.assertEqual(1, self.html.count('id="lv10dBugBtn"'))
+        self.assertEqual(2, self.html.count('popovertarget="lv10dBugPanel"'))
+        self.assertIn('<div id="lv10dBugPanel" popover>', self.html)
+        self.assertNotIn("lv10dBugPanelBtn", self.html)
+
+    def test_it_runs_green_where_a_browser_is_available(self):
+        r = subprocess.run(["node", str(self.LAUNCHER)], capture_output=True,
+                           text=True, timeout=180, cwd=str(ROOT))
+        combined = r.stdout + r.stderr
+        if "Executable doesn't exist" in combined or "playwright install" in combined:
+            self.skipTest("no Playwright browser binary here — run this in WSL")
+        self.assertEqual(0, r.returncode, combined[-2000:])
+        self.assertIn("ALL PASS", r.stdout)

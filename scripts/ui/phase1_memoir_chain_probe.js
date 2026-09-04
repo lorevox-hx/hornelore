@@ -624,41 +624,49 @@ function docxText(file) {
     const bugBtn = page.locator("#lv10dBugBtn");
     const nBug = await bugBtn.count();
     const bugVisible = nBug === 1 ? await bugBtn.isVisible() : false;
-    if (nBug !== 1 || !bugVisible) {
-      R.refusals.push(`REFUSED: header Bug Panel opener count=${nBug} visible=${bugVisible}`);
+    const bugEnabled = nBug === 1 ? await bugBtn.isEnabled() : false;
+    if (nBug !== 1 || !bugVisible || !bugEnabled) {
+      R.refusals.push(`REFUSED: header Bug Panel launcher count=${nBug}`
+        + ` visible=${bugVisible} enabled=${bugEnabled}`);
       step("2a0_bug_panel_open", { result: "REFUSED",
-        detail: `#lv10dBugBtn matched ${nBug}, visible=${bugVisible}`,
+        detail: `#lv10dBugBtn matched ${nBug}, visible=${bugVisible}, enabled=${bugEnabled}`,
         openersInDocument: allOpeners });
-      throw new Error("the header Bug Panel opener is not usable");
+      throw new Error("the header Bug Panel launcher is not usable");
     }
     await bugBtn.click();
+
+    /* THE GATE IS `:popover-open`, NOT "something became visible".
+     * The panel is a native popover; its open state is a fact the platform
+     * exposes directly. Gating on a descendant's visibility would infer
+     * the state from a side effect and could pass on a panel that was
+     * already open, or fail on one that is open but scrolled. */
+    const popoverOpen = () => page.evaluate(() => {
+      const p = document.getElementById("lv10dBugPanel");
+      if (!p) return { present: false, open: false, why: "popover absent" };
+      try { return { present: true, open: p.matches(":popover-open"), why: null }; }
+      catch (e) { return { present: true, open: null, why: String(e.message || e) }; }
+    });
     try {
-      await page.locator("#lv10dBpStoryReview").waitFor({ state: "visible", timeout: 20000 });
-    } catch (e) {
-      const st = await page.evaluate(() => {
+      await page.waitForFunction(() => {
         const p = document.getElementById("lv10dBugPanel");
-        let open = null;
-        try { open = p ? p.matches(":popover-open") : null; } catch (_) {}
-        return { popoverPresent: Boolean(p), popoverOpen: open,
-                 mountPresent: Boolean(document.getElementById("lv10dBpStoryReview")) };
-      });
-      R.refusals.push("REFUSED: the Bug Panel did not open");
+        try { return Boolean(p && p.matches(":popover-open")); } catch (_) { return false; }
+      }, null, { timeout: 20000 });
+    } catch (e) {
+      const st = await popoverOpen();
+      R.refusals.push("REFUSED: the Bug Panel popover did not open");
       step("2a0_bug_panel_open", { result: "REFUSED",
-        detail: `story-review mount never became visible: ${e.message}`, observed: st });
+        detail: `#lv10dBugPanel never matched :popover-open — ${e.message}`,
+        observed: st, openersInDocument: allOpeners });
       throw new Error("Bug Panel did not open");
     }
-    const bpState = await page.evaluate(() => {
-      const p = document.getElementById("lv10dBugPanel");
-      let open = null;
-      try { open = p ? p.matches(":popover-open") : null; } catch (_) {}
-      return { popoverOpen: open };
-    });
+    const bpState = await popoverOpen();
     step("2a0_bug_panel_open", { result: "PASS",
-      detail: `opened via #lv10dBugBtn (native popover); popoverOpen=${bpState.popoverOpen}`
-            + `; openers in document=${allOpeners}`,
-      acceptancePath: "#lv10dBugBtn -> #lv10dBpStoryReview visible",
+      detail: `#lv10dBugBtn clicked; #lv10dBugPanel matches :popover-open`
+            + ` (launchers in document=${allOpeners})`,
+      acceptancePath: "#lv10dBugBtn (popovertarget) -> #lv10dBugPanel :popover-open",
       openersInDocument: allOpeners,
-      why: "two openers exist; the header one is the session-time control",
+      launcher: { id: "lv10dBugBtn", visible: bugVisible, enabled: bugEnabled },
+      why: "two launchers exist; the header one is the session-time control",
       observed: bpState });
 
     /* EXPAND THE SECTION FIRST. bug-panel-story-review.js:116 sets
@@ -675,14 +683,40 @@ function docxText(file) {
     const secHeader = page.locator("#lv10dBpStoryReview .story-section-header");
     let expandedByUs = false;
     if (await page.locator(".story-filter-input").count() === 0) {
-      if (await secHeader.count() !== 1) {
+      const nHdr = await secHeader.count();
+      if (nHdr !== 1) {
         R.refusals.push("REFUSED: story-review section header is not uniquely addressable");
         step("2a0_section_expanded", { result: "REFUSED",
-          detail: `${await secHeader.count()} .story-section-header in the mount` });
+          detail: `${nHdr} .story-section-header in the mount` });
         throw new Error("cannot expand the story-review section");
       }
+      /* THE HEADER MUST BE VISIBLE BEFORE IT IS CLICKED. Run
+       * 20260901T232656Z spent 30 seconds retrying a click on this exact
+       * element while it was present and invisible, because the panel
+       * behind it had never opened. Requiring visibility turns that into
+       * an immediate, named refusal instead of a timeout. */
+      try {
+        await secHeader.waitFor({ state: "visible", timeout: 10000 });
+      } catch (e) {
+        const st = await popoverOpen();
+        R.refusals.push("REFUSED: the story-review section header is hidden");
+        step("2a0_section_expanded", { result: "REFUSED",
+          detail: `header present but never visible — ${e.message}`,
+          bugPanel: st,
+          why: "an element that resolves is not a control that works" });
+        throw new Error("story-review section header is not visible");
+      }
       await secHeader.click();
-      await page.waitForTimeout(900);
+      // Event-driven: the controls appear when the section expands.
+      try {
+        await page.locator(".story-filter-input").first()
+                  .waitFor({ state: "visible", timeout: 15000 });
+      } catch (e) {
+        R.refusals.push("REFUSED: the story-review controls never appeared");
+        step("2a0_section_expanded", { result: "REFUSED",
+          detail: `clicked the header; no visible .story-filter-input — ${e.message}` });
+        throw new Error("story-review controls did not appear");
+      }
       expandedByUs = true;
     }
     const controlsPresent = await page.locator(".story-filter-input").count() > 0;
