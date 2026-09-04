@@ -58,14 +58,13 @@ Lorevox is not accepted merely because a transcript exists, an endpoint returns 
 
 ### Defective or incomplete
 
-- [ ] **CANDIDATE-PRESENCE COUNT: 11 of 38 narrator turns produced a candidate (29%).**
-      *(Relabelled 2026-09-04 — it was written as "story capture covered 11 of 38". It is
-      not coverage: it counts candidates without measuring span, and one 452-word aggregate
-      covers many statements while one 38-word atom covers exactly one. See the granularity
-      finding under Phase 2.)*
-- [ ] Twenty-seven turns were archived but produced no reviewable story candidate.
-- [ ] Pat’s account of Jim’s death is `archived_only`; its turn recorded `story-trigger=None`.
-- [ ] Reviewing every existing candidate would therefore still omit most cohort narration from memoir eligibility.
+- [x] **CORRECTED 2026-09-04: candidate presence is 35 of 38 (92.1%), not 11 of 38.** The
+      `11` was **eleven operator PATCH actions in the API log**, dated 08-18/19/20 on other
+      narrators, welded to the cohort's 38 statements. Never a coverage measurement. See the
+      Phase 2 ledger.
+- [x] **CORRECTED 2026-09-04: THREE turns produced no candidate, not twenty-seven** — `1846` (John), `1864` (Frank), `1870` (Stefi).
+- [x] **CORRECTED 2026-09-04: Pat's account of Jim's death is NOT `archived_only`.** Turn `1852` produced candidate `f130549c` (472 words, `borderline_scene_anchor`), transcript byte-identical to the statement. It is `story_candidate_provisional` — captured and awaiting review, not lost.
+- [x] **CORRECTED 2026-09-04: reviewing every existing candidate would make 35 of 38 statements memoir-eligible.** All 35 are `unreviewed`; the bottleneck is REVIEW, not capture.
 - [ ] Stefi’s clarification was misrouted as a correction and received form instructions.
 - [ ] Stefi’s route bypassed normal response tracing, extraction and story capture.
 - [ ] Pat’s husband Jim, Mable’s husband Otis and Tomasita’s husband Domingo were bound or proposed under `parents.*`.
@@ -303,45 +302,68 @@ This is a read-only rebuild from existing evidence. Do not rerun the cohort.
 For each of 38 narrator statements record:
 
 - [ ] Exact narrator text, narrator, conversation, client turn and durable row IDs.
-### Capture granularity is not stable, and the ledger must measure it (2026-09-04)
+### PHASE 2 LEDGER BUILT — and it overturns this work order's headline defect (2026-09-04)
 
-**Discovered while selecting Pat's row for the Phase 1 live run, from a read-only DB read.**
-Pat has **five** candidates, and the same narration produced two completely different
-answers to *"what is a story?"*:
+**Ledger:** `docs/reports/PHASE2_38_TURN_SPAN_LEDGER_20260904.json` — read-only, built from
+the live DB. **The cohort was NOT rerun.**
 
-| Candidate | Run | Words | Chars | Source turns | Span |
-|---|---|---|---|---|---|
-| `24ceb055` | 2026-08-31 cohort | 461 | 2429 | 1848–1849 | aggregate |
-| `6f2df375` | 2026-08-31 cohort | 452 | 2332 | 1850–1851 | aggregate |
-| `f130549c` | 2026-08-31 cohort | 472 | 2474 | 1852–1853 | aggregate |
-| `5a56f942` | 2026-09-01 switch | 42 | 233 | 2090–2091 | atomic |
-| `447eee18` | 2026-09-01 switch | 38 | 182 | 2094–2095 | atomic |
+#### `11 of 38` was never a coverage measurement
 
-The three cohort candidates are **not nested in one another** — they are three sequential
-~450-word spans opening at birth, at Kent State, and at Jim's death. The two switch-session
-candidates are single turns, and each sits **verbatim inside** a cohort candidate:
-`5a56f942` ⊂ `24ceb055`, `447eee18` ⊂ `6f2df375`.
+The figure came from `MEMOIR-PATH-FINDING.md`, which says: *"**11** review actions ever
+applied (`PATCH /api/operator/story-candidates/{id}`) … those 11 actions fall on 2026-08-18,
+08-19 and 08-20"* — **eleven operator PATCHes in the API log, on other narrators, eleven
+days before the cohort existed.** It was welded to the cohort's 38 statements to make a
+ratio. The two numbers were never about the same thing.
 
-**This is not duplicate capture.** It is the same content chunked at roughly 12× different
-scale depending on the run, with nothing recording which scale is correct. Promote
-`447eee18` and a family reads one paragraph about Kent State; promote `6f2df375` and they
-read 450 words spanning Kent State through forty-six years of hair appointments — from the
-same narration.
+Every downstream claim inherited the error: *"twenty-seven turns were archived but produced
+no reviewable story candidate"* is wrong by an order of magnitude, and *"story capture is
+the central bottleneck"* was never demonstrated.
 
-`24ceb055` and `5a56f942` additionally render **byte-identical previews** (both truncate at
-200 characters through the same opening), which is what forced row identity into the
-operator UI: no text rule can separate an aggregate from an atom nested inside it.
+#### What the data actually shows
 
-**Pre-promotion evidence:** `docs/reports/PHASE1_PRE_PROMOTION_CANDIDATE_SNAPSHOT_20260904.json`
-— full transcripts, containment and preview-clash analysis, taken read-only before Phase 1
-mutates anything. `docs/reports/` is gitignored, so it is local-only by design.
+| Metric | Result |
+|---|---|
+| Narrator statements | **38** |
+| **Candidate presence** | **35 / 38 — 92.1%** |
+| **Independently addressable statement coverage** | **35 / 38 — 92.1%** |
+| **Over-capture / aggregation** | **0** |
+| **Duplicate or containment groups** | **0** |
+| **Unreachable archived statements** | **38 / 38** |
 
-### `11/38` is a CANDIDATE-PRESENCE COUNT, not statement coverage
+**Capture is exactly faithful.** All **35/35** candidate transcripts are byte-identical to
+their source user turn — zero strict subsets, zero strict supersets, one candidate per
+statement. Presence and independently-addressable coverage are therefore the *same number*,
+which is what a clean 1:1 capture looks like.
 
-**Do not quote it as coverage anywhere.** It counts candidates without measuring span. One
-452-word aggregate covers many of the 38 statements; one 38-word atom covers exactly one.
-The same conversation therefore scores wildly differently depending on which run captured
-it, and a rising count can mean better capture *or* coarser chunking.
+Only **three** statements produced no candidate: turns `1846` (John), `1864` (Frank),
+`1870` (Stefi). Those three, not twenty-seven, are the capture gap.
+
+#### The bottleneck is REVIEW, not CAPTURE
+
+**92% captured. 0% reviewed. 0% memoir-reachable.** All 35 candidates are `unreviewed`, so
+none satisfies `STORY_MEMOIR_ELIGIBLE = ("promoted", "memoir_only")` and all 38 statements
+are currently unreachable by the memoir. The material is there, bound to its source turn,
+byte-exact, waiting for an operator.
+
+That is a **completely different problem** from the one this work order was written around,
+and a far better one to have: the queue is full and nobody has worked it, rather than the
+capture stage silently dropping three quarters of what was said.
+
+#### A correction to this document's own 2026-09-04 entry
+
+An earlier version of this section claimed *"capture granularity is not stable — the same
+content chunked at roughly 12× different scale"*, comparing Pat's ~450-word cohort
+candidates to her 38-word switch-session ones. **That was wrong, and the ledger disproves
+it.** Capture was 1:1 and exact in BOTH runs. The size difference is a property of the
+SCRIPT: cohort statements are 230–551 words (median **441**) because the synthetic narrator
+speaks in long monologues, while the switch-session statements were single sentences.
+Capture faithfully mirrored each. The containment observed between Pat's runs
+(`447eee18` ⊂ `6f2df375`) is the same content said twice at different lengths in two
+different conversations — not two chunkings of one narration.
+
+**The span-aware ledger is still the right instrument.** It is what proved granularity
+stable rather than unstable, and what separated an eleven-PATCH log line from a coverage
+figure. Keep every metric below; they simply report better news than expected.
 
 ### The ledger is SPAN-AWARE — required per row
 
