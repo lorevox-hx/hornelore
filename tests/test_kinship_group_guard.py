@@ -260,12 +260,75 @@ class EvidenceIsBoundToTheEntity(unittest.TestCase):
         self.assertEqual(["parents.firstName"], paths(r))
         self.assertEqual([], entries(r))
 
-    def test_a_group_with_no_firstName_cannot_borrow_distant_evidence(self):
+    # ── NAMELESS GROUPS ────────────────────────────────────────────────
+    # CHANGED 2026-09-04, deliberately. This block used to hold a single test
+    # asserting that a group with no firstName ALWAYS quarantines, on the
+    # fixture "My father Harold worked at Firestone. He died in 2005."
+    #
+    # That rule was too strong and it cost six live cases -- 015, 105, 106,
+    # 109, 113 and 214 -- whose narrators stated the relationship as plainly
+    # as it can be stated: "My dad was born in Stanley." There is no name in
+    # that sentence to build a window around, so `stated` could never become
+    # true and the plainest form in the corpus was quarantined.
+    #
+    # The property the old test defended is REAL and is still defended: a
+    # nameless group must not borrow evidence from across the answer. What
+    # replaced the blanket refusal is locality -- the value's own sentence
+    # must carry the cue, or inherit it from the sentence immediately before
+    # via an unambiguous pronoun. The five refusals below are the teeth.
+    #
+    # The old fixture now executes, and that is CORRECT: "My father Harold
+    # worked at Firestone. He died in 2005." does state the father's death
+    # year. Keeping it as a refusal was asserting that a true, plainly-stated
+    # fact should be withheld.
+
+    def test_a_pronoun_inherits_the_previous_sentences_relationship(self):
+        """The case_113 shape: 'Dad's last name was Horne. He was born in
+        Stanley.'"""
         r = run("My father Harold worked at Firestone. He died in 2005.",
                 [item("parents.deathDate", "2005")], None)
+        # The R4-I rerouter mirrors a parent death date into the narrative
+        # field, so production emits BOTH. Asserting only the date would be
+        # asserting a shape this test invented rather than the one shipped.
+        self.assertEqual(["parents.deathDate", "parents.notableLifeEvents"],
+                         sorted(paths(r)))
+        self.assertEqual([], entries(r))
+
+    def test_a_nameless_group_refuses_when_another_person_is_named(self):
+        """No pronoun, and somebody else is the subject of that sentence."""
+        r = run("My father Harold worked at Firestone. Otis died in 2005.",
+                [item("parents.deathDate", "2005")], None)
         self.assertEqual([], paths(r))
-        self.assertEqual(1, len(entries(r)),
-                         "a dateless-subject group used the whole answer")
+        self.assertEqual(1, len(entries(r)))
+
+    def test_a_nameless_group_refuses_with_no_cue_anywhere(self):
+        r = run("We moved to Akron. The year was 2005.",
+                [item("parents.deathDate", "2005")], None)
+        self.assertEqual([], paths(r))
+        self.assertEqual(1, len(entries(r)))
+
+    def test_a_pronoun_is_refused_when_it_is_ambiguous(self):
+        """Another PROPOSED person across the pair makes 'he' unsafe."""
+        r = run("My father Harold worked at Firestone. "
+                "He and Otis died in 2005.",
+                [item("parents.deathDate", "2005"),
+                 item("parents.firstName", "Otis")], None)
+        self.assertEqual([], paths(r))
+
+    def test_a_value_that_cannot_be_located_is_refused(self):
+        """1931 appears nowhere in the answer, so nothing grounds it."""
+        r = run("My father was a hard man.",
+                [item("parents.deathDate", "1931")], None)
+        self.assertEqual([], paths(r))
+        self.assertEqual(1, len(entries(r)))
+
+    def test_the_pronoun_reaches_exactly_one_sentence_back(self):
+        """Two sentences is borrowing, not continuation."""
+        r = run("My father Harold worked at Firestone. It was a long job. "
+                "He died in 2005.",
+                [item("parents.deathDate", "2005")], None)
+        self.assertEqual([], paths(r))
+        self.assertEqual(1, len(entries(r)))
 
     def test_a_name_the_narrator_never_said_is_quarantined(self):
         """A hallucinated firstName previously borrowed any parent wording

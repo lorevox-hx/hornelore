@@ -8328,9 +8328,18 @@ _ROLE_LOCAL_LANGUAGE = {
     # both names: Bernard's ±4-token window reaches "two children" but not the
     # "We had" two tokens further back.
     "family.children": re.compile(
-        r"\b(?:my|our|the)\s+(?:son|daughter|child|children|kids?|boys?|girls?|"
-        r"twins?)\b"
+        # ONE optional modifier between the determiner and the relation noun:
+        # "Our FIRST boy Vincent", "the other girl". Without it case_072 lost
+        # Vincent, whose relationship the narrator states plainly.
+        r"\b(?:my|our|the)\s+(?:[A-Za-z]+\s+)?(?:son|daughter|child|children|"
+        r"kids?|boys?|girls?|twins?)\b"
         r"|\b(?:my|our)\s+(?:eldest|oldest|youngest|firstborn)\b"
+        # "And the baby was Christopher Todd." Narrators name the youngest
+        # this way. Kept SEPARATE from the ordinals: adding `the` to those
+        # made "Sharon was the oldest" match the CHILDREN role inside an
+        # answer about sisters, which ended the sibling list at case_077.
+        # An ordinal is role-neutral; only a possessive makes it a child.
+        r"|\b(?:the|my|our)\s+baby\b"
         r"|\b(?:a|an|one|two|three|four|five|six|both|several|the|our)\s+"
         r"(?:sons?|daughters?|child|children|kids?|boys?|girls?|twins?)\b",
         re.IGNORECASE),
@@ -8390,6 +8399,13 @@ _KINSHIP_CUE_WINDOW_TOKENS = 4
 
 _TOKEN_RX = re.compile(r"[A-Za-z0-9'’\-]+")
 
+# "on my mother's side", "on the paternal side". A qualifier that says WHICH
+# grandparent, not a second person standing between the cue and the name.
+_SIDE_QUALIFIER_RX = re.compile(
+    r"\bon\s+(?:my|the|his|her)\s+[A-Za-z]+(?:'s|’s)?\s+side\b"
+    r"|\bon\s+(?:the\s+)?(?:maternal|paternal|mother'?s|father'?s)\s+side\b",
+    re.IGNORECASE)
+
 
 # PLURAL / LIST cues. A singular cue describes one person, so an intervening
 # name blocks it (see the barrier in _name_windows). A PLURAL cue introduces a
@@ -8410,25 +8426,112 @@ _ROLE_PLURAL_LANGUAGE = {
 }
 
 
-def _plural_cue_supports(answer: str, role: str, name: str) -> bool:
-    """True when a plural cue for `role` precedes `name` in the SAME sentence.
+_COUNT_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+                "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+                "both": 2}
+_COUNT_RX = re.compile(
+    r"\b(one|two|three|four|five|six|seven|eight|nine|ten|both|\d{1,2})\s+"
+    r"(?:children|kids?|sons?|daughters?|boys?|girls?|twins?|siblings?|"
+    r"brothers?|sisters?)\b", re.IGNORECASE)
 
-    The list path. Deliberately requires the cue to come BEFORE the name:
-    "two children, Charlene and Bernard" introduces the set and then names it.
-    A name before the cue is not part of a list the cue opened.
+_PARAGRAPH_RX = re.compile(r"\n\s*\n")
+
+
+def _names_in_answer_order(answer: str, names):
+    """De-duplicated roster ordered by first appearance in the answer."""
+    seen, out = set(), []
+    for nm in sorted({str(n).strip() for n in names if str(n or "").strip()},
+                     key=lambda n: _first_index(answer, n)):
+        k = nm.lower()
+        if k not in seen:
+            seen.add(k)
+            out.append(nm)
+    return out
+
+
+def _first_index(answer: str, name: str) -> int:
+    m = re.search(r"(?<![A-Za-z])" + re.escape(str(name).strip())
+                  + r"(?![A-Za-z])", answer or "", re.IGNORECASE)
+    return m.start() if m else 10 ** 6
+
+
+def _plural_cue_scope(answer: str, role: str, roster):
+    """The names a plural cue for `role` actually takes into its list.
+
+    WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04).
+
+    REPLACES a same-sentence test that quarantined every ordinary enumeration.
+    "I had two sisters. Sharon was the oldest... And then Linda was the
+    youngest." put the cue in sentence one and both names in later sentences,
+    so neither was supported. That cost cases 005, 030, 062, 070, 072, 077.
+
+    IT IS NOT ANSWER-WIDE, and must never become so -- that is the permission
+    the guard exists to withdraw. The list is BOUNDED:
+
+      * an explicit COUNT closes the list after that many people. "two
+        sisters" takes Sharon and Linda and stops, and an intervening sentence
+        about somebody else ("She married Ed Woodmansee") does not end it,
+        because the narrator told us how many to expect.
+      * with NO count, only CONTIGUOUS following sentences that actually name
+        people for this role stay in scope. The first sentence that names none
+        of them ends the list.
+      * either way the list stops at a paragraph break, or at a cue for a
+        DIFFERENT role -- "and my mother" ends a list of children.
+
+    Names BEFORE the cue are never in it: a list is opened, then filled.
     """
     pattern = _ROLE_PLURAL_LANGUAGE.get(role)
-    if not (pattern and answer and name):
-        return False
-    target = re.compile(r"\b" + re.escape(str(name).strip()) + r"\b",
-                        re.IGNORECASE)
-    for sentence in _clauses(answer):
-        cue = pattern.search(sentence)
-        if not cue:
+    roster = [str(n).strip() for n in (roster or []) if str(n or "").strip()]
+    if not (pattern and answer and roster):
+        return set()
+
+    # A paragraph break is a hard stop, so only the cue's paragraph is read.
+    for para in _PARAGRAPH_RX.split(answer):
+        sents = _clauses(para)
+        cue_i = cue_end = None
+        for i, s in enumerate(sents):
+            m = pattern.search(s)
+            if m:
+                cue_i, cue_end = i, m.end()
+                break
+        if cue_i is None:
             continue
-        if any(m.start() >= cue.end() for m in target.finditer(sentence)):
-            return True
-    return False
+
+        cm = _COUNT_RX.search(sents[cue_i])
+        limit = None
+        if cm:
+            tok = cm.group(1).lower()
+            limit = _COUNT_WORDS.get(tok) or (int(tok) if tok.isdigit() else None)
+
+        def _named(sentence, after=None):
+            found = []
+            for nm in roster:
+                for mm in re.finditer(r"(?<![A-Za-z])" + re.escape(nm)
+                                      + r"(?![A-Za-z])", sentence,
+                                      re.IGNORECASE):
+                    if after is None or mm.start() >= after:
+                        found.append((mm.start(), nm))
+                        break
+            return [n for _p, n in sorted(found)]
+
+        accepted = []
+        for j in range(cue_i, len(sents)):
+            s = sents[j]
+            # A cue for another role ends this list.
+            if j > cue_i and any(
+                    p.search(s) for r, p in _ROLE_LOCAL_LANGUAGE.items()
+                    if r != role):
+                break
+            here = _named(s, cue_end if j == cue_i else None)
+            if not here and j > cue_i and limit is None:
+                break            # no count: the list is contiguous only.
+            for nm in here:
+                if nm not in accepted:
+                    accepted.append(nm)
+                if limit is not None and len(accepted) >= limit:
+                    return set(accepted)
+        return set(accepted)
+    return set()
 
 
 def _name_windows(answer: str, name: str, barriers=None):
@@ -8472,18 +8575,46 @@ def _name_windows(answer: str, name: str, barriers=None):
                 return lo_c, hi_c
         return 0, len(answer)
 
+    # Token indices inside a possessive-side qualifier -- see the rule-3 note
+    # in the window walk below.
+    transparent = [False] * len(toks)
+    for qm in _SIDE_QUALIFIER_RX.finditer(answer):
+        for ti, t in enumerate(toks):
+            if t.start() >= qm.start() and t.end() <= qm.end():
+                transparent[ti] = True
+
     w = _KINSHIP_CUE_WINDOW_TOKENS
     spans = []
     for i in range(len(words) - len(target) + 1):
         if words[i:i + len(target)] != target:
             continue
         s_lo, s_hi = _sentence_of(toks[i].start())
-        lo, hi = max(0, i - w), min(len(toks) - 1, i + len(target) - 1 + w)
-        # Walk the window back inside the sentence.
-        while lo < i and toks[lo].start() < s_lo:
-            lo += 1
-        while hi > i and toks[hi].end() > s_hi:
-            hi -= 1
+        end_i = i + len(target) - 1
+
+        # SIDE-QUALIFIER TRANSPARENCY (rule 3).
+        # "My grandmother on my mother's side was Josie" puts 'grandmother'
+        # seven tokens from 'Josie' AND interposes 'mother', so a ±4 window
+        # missed the cue and the barrier rule then blamed the wrong person.
+        # The qualifier identifies WHICH grandmother; it is not a second
+        # person standing between them. Its tokens therefore cost no window
+        # budget and cannot act as barriers. Widening the window globally
+        # would have re-authorised "My father Harold knew Otis."
+        lo = i
+        budget = w
+        while lo > 0 and toks[lo - 1].start() >= s_lo:
+            if not transparent[lo - 1]:
+                if budget == 0:
+                    break
+                budget -= 1
+            lo -= 1
+        hi = end_i
+        budget = w
+        while hi < len(toks) - 1 and toks[hi + 1].end() <= s_hi:
+            if not transparent[hi + 1]:
+                if budget == 0:
+                    break
+                budget -= 1
+            hi += 1
 
         # INTERVENING-PERSON BARRIER.
         # "My father Harold knew Otis." is five tokens long, so a fixed window
@@ -8496,14 +8627,14 @@ def _name_windows(answer: str, name: str, barriers=None):
         if bar:
             j = i - 1
             while j >= lo:
-                if words[j] in bar:
+                if words[j] in bar and not transparent[j]:
                     lo = j + 1
                     break
                 j -= 1
-            end = i + len(target) - 1
+            end = end_i
             j = end + 1
             while j <= hi:
-                if words[j] in bar:
+                if words[j] in bar and not transparent[j]:
                     hi = j - 1
                     break
                 j += 1
@@ -8511,6 +8642,110 @@ def _name_windows(answer: str, name: str, barriers=None):
             continue
         spans.append(answer[toks[lo].start():toks[hi].end()])
     return spans
+
+
+# A year the narrator elided: "he died in '67". This is a LOCATOR only -- it
+# decides which sentence a proposed value sits in, never what the value is --
+# so matching 1967 against '67 without resolving the century is safe here and
+# would not be safe in _value_grounding.
+_ELIDED_YEAR_RX = re.compile(r"[’']([0-9]{2})\b")
+
+# Third-person continuation: "Dad's last name was Horne. He was born in
+# Stanley." The second sentence names nobody and states no relationship; it
+# inherits both from the sentence before it.
+_PRONOUN_SUBJECT_RX = re.compile(r"\b(?:he|she|his|her|him)\b", re.IGNORECASE)
+
+
+def _value_sentences(answer: str, field_path: str, value):
+    """The sentences of `answer` that carry this proposed VALUE.
+
+    WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04).
+
+    A group with no firstName has no name to build a window around, so its
+    evidence has to be located by the VALUE instead. Literal matching alone is
+    not enough: by the time the guard runs, R4-H has already rewritten
+    "December 23rd, 1967" as "1967-12-23", and that string appears nowhere in
+    what the narrator said. A date therefore falls back to its YEAR, in either
+    the four-digit or the elided form.
+
+    Returns [] when the value cannot be placed. THAT IS A QUARANTINE -- a value
+    the guard cannot locate in the answer is exactly the kind it must not
+    execute on local evidence.
+    """
+    sents = _clauses(answer)
+    val = str(value or "").strip()
+    if not (sents and val):
+        return []
+    hits = []
+    literal = re.compile(r"(?<![A-Za-z0-9])" + re.escape(val)
+                         + r"(?![A-Za-z0-9])", re.IGNORECASE)
+    for s in sents:
+        if literal.search(s):
+            hits.append(s)
+    if hits:
+        return hits
+
+    # Year fallback. Applied whenever the value CONTAINS a year rather than
+    # only for _DATE_FIELD_SUFFIXES, because the reroutered narrative twin
+    # ("died 1967" on parents.notableLifeEvents) carries the same date under a
+    # non-date suffix and must locate to the same sentence.
+    ym = _YEAR_RX.search(val)
+    if ym:
+        year, yy = ym.group(1), ym.group(1)[-2:]
+        for s in sents:
+            if re.search(r"\b" + year + r"\b", s) or any(
+                    m.group(1) == yy for m in _ELIDED_YEAR_RX.finditer(s)):
+                hits.append(s)
+    return hits
+
+
+def _nameless_group_stated(answer: str, role: str, members, other_names) -> bool:
+    """Is the relationship stated for a group that carries NO name?
+
+    WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04).
+
+    THE DEFECT THIS REPAIRS. The guard bound evidence to a subject name, and a
+    group with no `.firstName` produced no windows at all, so `stated` could
+    never become true. "My dad was born in Stanley." -- the plainest statement
+    of a relationship in the corpus, with no name in it anywhere -- was
+    quarantined as relationship_unstated. Measured on r5j-phase3-v1 and
+    r5j-phase3-generational, this cost six cases: 015, 105, 106, 109, 113, 214.
+
+    THE RULE. Locate the proposed VALUE's sentence and require the role cue in
+    that same sentence. Locality is what replaces the missing name: "dad" and
+    "Stanley" standing together is evidence about one person, where a cue
+    anywhere in a long answer is not. A value that cannot be located at all
+    stays quarantined.
+
+    ONE grounded sentence settles the group, matching _name_windows: a narrator
+    who states the relationship once has stated it.
+    """
+    pattern = _ROLE_LOCAL_LANGUAGE.get(role)
+    if not pattern:
+        return False
+    sents = _clauses(answer)
+    where = {s: i for i, s in enumerate(sents)}
+    for m in members:
+        for s in _value_sentences(answer, str(getattr(m, "fieldPath", "")),
+                                  getattr(m, "value", "")):
+            if pattern.search(s):
+                return True
+            # PRONOUN CONTINUATION, one sentence back and no further.
+            # "Dad's last name was Horne. He was born in Stanley." Refused if
+            # any OTHER proposed person is named across the pair, because then
+            # "he" is ambiguous and the cue may not be about this subject.
+            i = where.get(s, -1)
+            if i > 0 and _PRONOUN_SUBJECT_RX.search(s):
+                prev = sents[i - 1]
+                if not pattern.search(prev):
+                    continue
+                span = prev + " " + s
+                if any(re.search(r"(?<![A-Za-z])" + re.escape(n)
+                                 + r"(?![A-Za-z])", span, re.IGNORECASE)
+                       for n in (other_names or []) if n):
+                    continue
+                return True
+    return False
 
 
 def _known_kinship_names(person_id):
@@ -8600,6 +8835,20 @@ def _apply_kinship_binding_guard(items, req, *, answer: str, clarifications=None
         and str(m.value or "").strip()
     }
 
+    # PER-ROLE ROSTER, in the order the narrator said the names. A plural cue
+    # opens a LIST, and deciding who is in that list needs the whole cast for
+    # the role, not one name at a time.
+    _role_roster = {}
+    for (role_, _g), members_ in buckets.items():
+        for m in members_:
+            if not str(getattr(m, "fieldPath", "")).endswith(".firstName"):
+                continue
+            nm = str(m.value or "").strip()
+            if nm:
+                _role_roster.setdefault(role_, []).append(nm)
+    for role_, names in _role_roster.items():
+        _role_roster[role_] = _names_in_answer_order(answer, names)
+
     quarantined, entries = set(), []
     for (role, group), members in buckets.items():
         subject = next(
@@ -8626,7 +8875,14 @@ def _apply_kinship_binding_guard(items, req, *, answer: str, clarifications=None
         # A plural cue opens a LIST, and an intervening name is part of it
         # rather than a barrier to it.
         if not stated and subject:
-            stated = _plural_cue_supports(answer, role, subject)
+            stated = subject.strip().lower() in {
+                n.lower() for n in
+                _plural_cue_scope(answer, role, _role_roster.get(role, []))}
+        # NO NAME TO BUILD A WINDOW AROUND. Locate the value instead and
+        # require the cue in its sentence -- see _nameless_group_stated.
+        if not stated and not subject:
+            stated = _nameless_group_stated(answer, role, members,
+                                            _subject_names)
         if stated:
             continue                      # local wording settles it.
 
