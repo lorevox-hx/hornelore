@@ -1165,13 +1165,21 @@ class PopoverVisibilityTests(_Base):
         self.assertNotIn("offsetParent", self.src,
                          "a fixed-position element always reports null")
 
-    def test_the_platform_open_state_is_the_basis(self):
+    def test_the_platform_open_state_is_the_ONLY_basis(self):
         self.assertIn('el.matches(":popover-open")', self.src)
-        self.assertIn("visibilityBasis", self.src)
+        self.assertIn("visible: open", self.src)
 
-    def test_a_bounding_box_fallback_exists_but_is_not_preferred(self):
-        self.assertIn("renderedBox", self.src)
-        self.assertIn("open === null ? boxed : open", self.src)
+    def test_there_is_NO_fallback_basis(self):
+        """A first fix here kept a bounding-box backstop for engines without
+        ``:popover-open``. That is itself inference from a side effect — the
+        exact mistake the rule forbids — and a closed element can occupy a
+        box, so the fallback could only ever mask a real failure. The
+        launcher test asserts the selector is supported before anything
+        depends on it. One instrument, and it is the platform's own answer."""
+        for gone in ("renderedBox", "visibilityBasis", "boxed",
+                     "getBoundingClientRect"):
+            self.assertNotIn(gone, self.src,
+                             f"{gone} reintroduces a second visibility basis")
 
     def test_the_memoir_panel_really_is_a_native_popover(self):
         html = (ROOT / "ui" / "hornelore1.0.html").read_text(encoding="utf-8")
@@ -1181,3 +1189,52 @@ class PopoverVisibilityTests(_Base):
 
     def test_the_run_that_exposed_it_is_recorded(self):
         self.assertIn("20260904T125523Z", self.raw)
+
+
+class MemoirPopoverDomTestTests(unittest.TestCase):
+    """The memoir popover gets its OWN proof, not an inherited assumption."""
+
+    PATH = ROOT / "scripts" / "ui" / "phase1_memoir_popover_domtest.js"
+
+    def setUp(self):
+        self.src = self.PATH.read_text(encoding="utf-8")
+
+    def test_it_exists_and_parses(self):
+        r = subprocess.run(["node", "--check", str(self.PATH)],
+                           capture_output=True, text=True, timeout=60)
+        self.assertEqual(0, r.returncode, r.stderr)
+
+    def test_it_extracts_shipped_markup_rather_than_inventing_it(self):
+        self.assertIn("extractPopoverOpenTag", self.src)
+        self.assertIn("extractPeekButton", self.src)
+        mounted = self.src[self.src.index("await page.setContent("):]
+        mounted = mounted[:mounted.index("`);")]
+        self.assertIn("${popoverTag}", mounted)
+        self.assertIn("${peekButton}", mounted)
+        self.assertNotIn("popover=", mounted,
+                         "the mounted page must carry the SHIPPED tag, not a copy")
+
+    def test_it_exercises_the_probe_s_own_PANEL_STATE(self):
+        self.assertIn("const { PANEL_STATE } = P;", self.src)
+        self.assertIn("page.evaluate(PANEL_STATE, PASSAGE)", self.src)
+
+    def test_it_proves_all_five_required_facts(self):
+        for fact in ("the shipped control OPENS it and it matches :popover-open",
+                     "THE TRAP: offsetParent is null on the OPEN popover",
+                     "offsetParent is not the verdict anywhere in the probe",
+                     "closing it makes :popover-open false",
+                     "the passage must appear exactly once"):
+            self.assertIn(fact, self.src)
+
+    def test_it_records_that_text_presence_is_not_openness(self):
+        self.assertIn("occurrences cannot be used as an openness signal either",
+                      self.src)
+
+    def test_it_runs_green_where_a_browser_is_available(self):
+        r = subprocess.run(["node", str(self.PATH)], capture_output=True,
+                           text=True, timeout=180, cwd=str(ROOT))
+        combined = r.stdout + r.stderr
+        if "Executable doesn't exist" in combined or "playwright install" in combined:
+            self.skipTest("no Playwright browser binary here — run this in WSL")
+        self.assertEqual(0, r.returncode, combined[-2000:])
+        self.assertIn("ALL PASS", r.stdout)

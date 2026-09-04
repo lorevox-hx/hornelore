@@ -188,22 +188,25 @@ const OPEN_MEMOIR_STAGE2 = function () {
  * state is a fact the platform exposes; inferring it from a side effect is
  * what breaks. That fix was applied there and not here.
  *
- * The box fallback covers an engine without `:popover-open` and any future
- * non-popover panel; it is never preferred over the platform's own answer. */
+ * NO FALLBACK. An earlier fix here kept a bounding-box backstop for engines
+ * without `:popover-open` -- but a box is a side effect, and inferring open
+ * state from one is the very mistake this rule forbids. A closed element
+ * can occupy a box. The launcher DOM test asserts `:popover-open` is
+ * supported before anything depends on it, so a silent second basis would
+ * only ever mask a real failure. One instrument, and it is the platform's
+ * own answer. */
 const PANEL_STATE = function (full) {
   const el = document.getElementById("memoirScrollPopover");
   const t = el ? (el.innerText || "") : "";
-  let open = null;
-  try { open = el ? el.matches(":popover-open") : false; }
-  catch (_) { open = null; }                 // selector unsupported
-  const rect = el ? el.getBoundingClientRect() : null;
-  const boxed = Boolean(rect && (rect.width > 0 || rect.height > 0));
-  return { present: Boolean(el),
-           visible: open === null ? boxed : open,
-           popoverOpen: open, renderedBox: boxed,
-           visibilityBasis: open === null ? "bounding-box (no :popover-open)"
-                                          : ":popover-open",
-           occurrences: t.split(full).length - 1, chars: t.length, fullText: t };
+  const open = Boolean(el && el.matches(":popover-open"));
+  return {
+    present: Boolean(el),
+    visible: open,
+    popoverOpen: open,
+    occurrences: t.split(full).length - 1,
+    chars: t.length,
+    fullText: t,
+  };
 };
 /* ── Pure decision predicates ───────────────────────────────────────
  * Exported so the three resume/verdict rules can be tested by EXERCISING
