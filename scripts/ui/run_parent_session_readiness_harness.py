@@ -632,13 +632,34 @@ class UI:
                 }
 
                 // 2. Create narrator via the same endpoint lv80NewPerson uses.
+                //
+                // ── testing_only IS REQUIRED HERE, 2026-09-04 ────────────
+                //
+                // POST /api/people gained a consent gate after this call was
+                // written ("live-verified 2026-05-01" above): it returns 422
+                // "consent_recording_agreement must be true unless
+                // testing_only=true" (people.py:131-149). Without the flag
+                // every narrator creation failed, so BOTH harnesses that use
+                // this method — the readiness pack and TEST-23 — created no
+                // narrator at all and then reported RED on the empty state
+                // that followed. TEST-23 v12 read firstName=None, DOB=None,
+                // 0/7 era stories and a blank person_id, none of which was a
+                // product fault.
+                //
+                // The flag is set rather than the two consent booleans
+                // BECAUSE IT IS TRUE: these are disposable Test_<ms>
+                // narrators, and the testing-only path is exactly what the
+                // gate provides for. Ticking consent boxes on a fixture's
+                // behalf would forge an attestation no human gave, which is
+                // the one thing this gate exists to prevent.
                 const r = await fetch(API.PEOPLE, {
                   method: 'POST',
                   headers: {'Content-Type': 'application/json'},
                   body: JSON.stringify({
                     display_name: name,
                     role: '',
-                    narrator_type: 'live'
+                    narrator_type: 'live',
+                    testing_only: true
                   }),
                 });
                 if (!r.ok) {
