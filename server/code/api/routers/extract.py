@@ -8414,11 +8414,16 @@ _SIDE_QUALIFIER_RX = re.compile(
 # Charlene stands between the cue and his name.
 _ROLE_PLURAL_LANGUAGE = {
     "parents": re.compile(r"\b(?:my|our|the)\s+parents\b", re.IGNORECASE),
+    # ONE optional modifier, as in the local pattern: "my two OLDER brothers
+    # Vincent and Jason" is an ordinary way to open a list and was quarantining
+    # both names (case_002, case_047, case_079).
     "family.children": re.compile(
         r"\b(?:my|our|the|a|an|one|two|three|four|five|six|both|several)\s+"
+        r"(?:[A-Za-z]+\s+)?"
         r"(?:children|kids|sons|daughters|boys|girls|twins)\b", re.IGNORECASE),
     "siblings": re.compile(
         r"\b(?:my|our|the|two|three|four|both|several)\s+"
+        r"(?:[A-Za-z]+\s+)?"
         r"(?:siblings|brothers|sisters)\b", re.IGNORECASE),
     "grandparents": re.compile(r"\b(?:my|our|the)\s+grandparents\b", re.IGNORECASE),
     "greatGrandparents": re.compile(
@@ -8431,6 +8436,7 @@ _COUNT_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
                 "both": 2}
 _COUNT_RX = re.compile(
     r"\b(one|two|three|four|five|six|seven|eight|nine|ten|both|\d{1,2})\s+"
+    r"(?:[A-Za-z]+\s+)?"
     r"(?:children|kids?|sons?|daughters?|boys?|girls?|twins?|siblings?|"
     r"brothers?|sisters?)\b", re.IGNORECASE)
 
@@ -8514,7 +8520,7 @@ def _plural_cue_scope(answer: str, role: str, roster):
                         break
             return [n for _p, n in sorted(found)]
 
-        accepted = []
+        counted, in_scope = [], set()
         for j in range(cue_i, len(sents)):
             s = sents[j]
             # A cue for another role ends this list.
@@ -8526,11 +8532,26 @@ def _plural_cue_scope(answer: str, role: str, roster):
             if not here and j > cue_i and limit is None:
                 break            # no count: the list is contiguous only.
             for nm in here:
-                if nm not in accepted:
-                    accepted.append(nm)
-                if limit is not None and len(accepted) >= limit:
-                    return set(accepted)
-        return set(accepted)
+                # ONE PERSON, TWO NAMES. "Vince — Vincent Edward — he's the
+                # oldest" proposes both forms, and counting them separately
+                # exhausted a count of two before the second brother was
+                # reached (case_079). A name that is a prefix of one already
+                # accepted is the same person.
+                low = nm.lower()
+                dup = any(low == a.lower()
+                          or (len(low) >= 3 and len(a) >= 3
+                              and (low.startswith(a.lower())
+                                   or a.lower().startswith(low)))
+                          for a in counted)
+                # An alias is IN SCOPE either way -- it names a person the
+                # cue introduced. It just must not consume a place in the
+                # count, or "two brothers" closes on one brother's two names.
+                in_scope.add(nm)
+                if not dup:
+                    counted.append(nm)
+                if limit is not None and len(counted) >= limit:
+                    return set(in_scope)
+        return set(in_scope)
     return set()
 
 
@@ -8725,27 +8746,44 @@ def _nameless_group_stated(answer: str, role: str, members, other_names) -> bool
         return False
     sents = _clauses(answer)
     where = {s: i for i, s in enumerate(sents)}
+
+    def _supports(s: str) -> bool:
+        if pattern.search(s):
+            return True
+        # PRONOUN CONTINUATION, one sentence back and no further.
+        # "Dad's last name was Horne. He was born in Stanley." Refused if any
+        # OTHER proposed person is named across the pair, because then "he"
+        # is ambiguous and the cue may not be about this subject.
+        i = where.get(s, -1)
+        if i > 0 and _PRONOUN_SUBJECT_RX.search(s):
+            prev = sents[i - 1]
+            if not pattern.search(prev):
+                return False
+            span = prev + " " + s
+            if any(re.search(r"(?<![A-Za-z])" + re.escape(n)
+                             + r"(?![A-Za-z])", span, re.IGNORECASE)
+                   for n in (other_names or []) if n):
+                return False
+            return True
+        return False
+
+    stated = False
     for m in members:
-        for s in _value_sentences(answer, str(getattr(m, "fieldPath", "")),
-                                  getattr(m, "value", "")):
-            if pattern.search(s):
-                return True
-            # PRONOUN CONTINUATION, one sentence back and no further.
-            # "Dad's last name was Horne. He was born in Stanley." Refused if
-            # any OTHER proposed person is named across the pair, because then
-            # "he" is ambiguous and the cue may not be about this subject.
-            i = where.get(s, -1)
-            if i > 0 and _PRONOUN_SUBJECT_RX.search(s):
-                prev = sents[i - 1]
-                if not pattern.search(prev):
-                    continue
-                span = prev + " " + s
-                if any(re.search(r"(?<![A-Za-z])" + re.escape(n)
-                                 + r"(?![A-Za-z])", span, re.IGNORECASE)
-                       for n in (other_names or []) if n):
-                    continue
-                return True
-    return False
+        located = _value_sentences(answer, str(getattr(m, "fieldPath", "")),
+                                   getattr(m, "value", ""))
+        if not located:
+            continue                       # unlocatable proves nothing
+        # AMBIGUOUS LOCATION QUARANTINES.
+        # A year is the weakest locator in the corpus: "Harold died in 1967.
+        # My mother remarried in 1967." puts the same value in two sentences
+        # that say different things, and taking the first supporting one is
+        # choosing an answer at random. Every sentence the value lands in must
+        # agree, or the guard does not know which is the source.
+        if len(located) > 1 and not all(_supports(s) for s in located):
+            return False
+        if any(_supports(s) for s in located):
+            stated = True
+    return stated
 
 
 def _known_kinship_names(person_id):
@@ -8843,9 +8881,14 @@ def _apply_kinship_binding_guard(items, req, *, answer: str, clarifications=None
         for m in members_:
             if not str(getattr(m, "fieldPath", "")).endswith(".firstName"):
                 continue
-            nm = str(m.value or "").strip()
-            if nm:
-                _role_roster.setdefault(role_, []).append(nm)
+            raw = str(m.value or "").strip()
+            # The model sometimes emits one firstName holding the whole list
+            # ("Vincent, Jason, Christopher"). Split it, or the roster holds a
+            # string that matches nobody and the list scope names no one.
+            for nm in ([x.strip() for x in raw.split(",")]
+                       if "," in raw else [raw]):
+                if nm:
+                    _role_roster.setdefault(role_, []).append(nm)
     for role_, names in _role_roster.items():
         _role_roster[role_] = _names_in_answer_order(answer, names)
 
@@ -8875,9 +8918,14 @@ def _apply_kinship_binding_guard(items, req, *, answer: str, clarifications=None
         # A plural cue opens a LIST, and an intervening name is part of it
         # rather than a barrier to it.
         if not stated and subject:
-            stated = subject.strip().lower() in {
-                n.lower() for n in
-                _plural_cue_scope(answer, role, _role_roster.get(role, []))}
+            _scope = {n.lower() for n in
+                      _plural_cue_scope(answer, role,
+                                        _role_roster.get(role, []))}
+            # A firstName may hold the whole list ("Vincent, Jason,
+            # Christopher"); every person in it must be in scope.
+            _parts = [x.strip().lower() for x in subject.split(",")
+                      if x.strip()] or [subject.strip().lower()]
+            stated = bool(_scope) and all(p in _scope for p in _parts)
         # NO NAME TO BUILD A WINDOW AROUND. Locate the value instead and
         # require the cue in its sentence -- see _nameless_group_stated.
         if not stated and not subject:

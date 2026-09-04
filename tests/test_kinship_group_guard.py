@@ -322,6 +322,65 @@ class EvidenceIsBoundToTheEntity(unittest.TestCase):
         self.assertEqual([], paths(r))
         self.assertEqual(1, len(entries(r)))
 
+    def test_a_modifier_between_the_count_and_the_noun_still_opens_a_list(self):
+        """"my two OLDER brothers Vincent and Jason" — case_002, 047, 079."""
+        r = run("It was my mom Janice and my dad Kent, and my two older "
+                "brothers Vincent and Jason.",
+                [item("siblings.firstName", "Vincent"),
+                 item("siblings.firstName", "Jason")], None)
+        self.assertEqual([], entries(r))
+        self.assertEqual(2, len([p for p in paths(r)
+                                 if p == "siblings.firstName"]))
+
+    def test_a_firstName_holding_the_whole_list_is_split(self):
+        """The model sometimes emits one field carrying every name."""
+        r = run("We had three boys — Vincent, Jason, and Christopher.",
+                [item("family.children.firstName",
+                      "Vincent, Jason, Christopher")], None)
+        self.assertEqual([], entries(r),
+                         "a joined firstName matched nobody in the roster")
+
+    def test_an_alias_does_not_consume_a_place_in_the_count(self):
+        """"Vince — Vincent Edward —" is ONE brother, not two.
+
+        Counting both closed a list of two before the second brother.
+        """
+        a = ("I've got two brothers. Vince — Vincent Edward — is the oldest, "
+             "then Jason.")
+        scope = {n.lower() for n in EX._plural_cue_scope(
+            a, "siblings", ["Vince", "Vincent", "Jason"])}
+        self.assertIn("jason", scope, scope)
+        self.assertIn("vincent", scope, "the alias must still be IN scope")
+
+    def test_a_competing_role_cue_still_closes_the_list(self):
+        """The bound that keeps this from becoming answer-wide."""
+        a = ("I've got two older brothers. Vince was the oldest. "
+             "Mom and Dad were living in Germany then. Then Jason.")
+        scope = {n.lower() for n in EX._plural_cue_scope(
+            a, "siblings", ["Vince", "Jason"])}
+        self.assertNotIn("jason", scope,
+                         "a parents cue must end a list of siblings")
+
+    def test_an_ambiguous_year_quarantines_rather_than_guessing(self):
+        """A year is the weakest locator in the corpus.
+
+        "My father died in 1967. We sold the farm in 1967." puts the value in
+        two sentences saying different things, and accepting the first
+        supporting one is choosing an answer at random.
+        """
+        r = run("My father died in 1967. We sold the farm in 1967.",
+                [item("parents.deathDate", "1967")], None)
+        self.assertEqual([], paths(r))
+        self.assertEqual(1, len(entries(r)))
+
+    def test_an_unambiguous_repeat_still_executes(self):
+        """Ambiguity is DISAGREEMENT, not repetition. Both sentences are
+        about a parent, so there is nothing to choose between."""
+        r = run("My father died in 1967. My mother was widowed in 1967.",
+                [item("parents.deathDate", "1967")], None)
+        self.assertIn("parents.deathDate", paths(r))
+        self.assertEqual([], entries(r))
+
     def test_the_pronoun_reaches_exactly_one_sentence_back(self):
         """Two sentences is borrowing, not continuation."""
         r = run("My father Harold worked at Firestone. It was a long job. "
