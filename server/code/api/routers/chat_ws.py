@@ -4344,6 +4344,40 @@ async def ws_chat(ws: WebSocket):
             parsed = parse_correction_rule_based(user_text)
             logger.info("[chat_ws][WO-ARCH-07A] correction turn for conv=%s parsed=%s", conv_id, parsed)
 
+            # ── EMPTY PARSE FALLS THROUGH TO THE ORDINARY INTERVIEW ───────
+            # WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04).
+            #
+            # Stefi: "I was born in Las Vegas, New Mexico — not the Nevada one,
+            # the New Mexico one — on the twenty-third of May, 1944. My father
+            # Eliseo was a sheep rancher..."
+            #
+            # The BROWSER routes that as a correction: app.js:2599's
+            # contradiction regex fires on the words "not the". The server's
+            # parser then finds no actionable target or value and returns {},
+            # and this branch used to finalise anyway (:4413 return) — a
+            # deterministic turn, which is extraction- and
+            # placement-INELIGIBLE by construction. So a narrator clarifying
+            # which Las Vegas she was born in got a correction acknowledgement
+            # instead of an interview turn, and her father, her birth date and
+            # her birthplace reached nothing.
+            #
+            # With nothing parsed there IS no correction to apply, so there is
+            # nothing this branch can legitimately do. Reset BOTH copies of the
+            # mode -- the local variable AND params, because the completed-turn
+            # hooks read the mode from params (`:896`, `:1089`) and would
+            # otherwise still see "correction" -- and continue into the normal
+            # pipeline.
+            if not parsed:
+                turn_mode = "interview"
+                params["turn_mode"] = "interview"
+                logger.info(
+                    "[chat_ws][correction-fallthrough] conv=%s — parser found "
+                    "no actionable target/value; both turn_mode copies reset "
+                    "to interview and the turn continues on the ordinary "
+                    "pipeline (extraction and placement eligible)",
+                    conv_id,
+                )
+
             # BUG-LORI-CORRECTION-ABSORBED-NOT-APPLIED-01 Phase 3 (2026-05-07):
             # Apply parsed corrections to projection_json BEFORE sending
             # the ack response. Without this, corrections were detected
@@ -4355,65 +4389,68 @@ async def ws_chat(ws: WebSocket):
             # apply_correction logs warnings but never raises into the
             # chat path. Summary goes into the persisted turn meta for
             # operator-side observability.
-            apply_summary: Optional[Dict[str, Any]] = None
-            if parsed and person_id:
-                try:
-                    from ..services import projection_writer as _projection_writer
-                    apply_summary = _projection_writer.apply_correction(
-                        person_id=person_id,
-                        parsed=parsed,
-                        source_turn_id=(params.get("turn_id") or None),
-                    )
-                    logger.info(
-                        "[chat_ws][correction-apply] applied=%d retracted=%d skipped=%d errors=%d",
-                        len(apply_summary.get("applied") or []),
-                        len(apply_summary.get("retracted") or []),
-                        len(apply_summary.get("skipped") or []),
-                        len(apply_summary.get("errors") or []),
-                    )
-                except Exception as _apply_exc:
-                    logger.warning(
-                        "[chat_ws][correction-apply] apply_correction threw "
-                        "(chat continues): %s", _apply_exc,
-                    )
-                    apply_summary = {"errors": [str(_apply_exc)]}
+            else:
+                # A CONCRETE correction. Everything below is the original
+                # branch, unchanged except for its new indentation.
+                apply_summary: Optional[Dict[str, Any]] = None
+                if parsed and person_id:
+                    try:
+                        from ..services import projection_writer as _projection_writer
+                        apply_summary = _projection_writer.apply_correction(
+                            person_id=person_id,
+                            parsed=parsed,
+                            source_turn_id=(params.get("turn_id") or None),
+                        )
+                        logger.info(
+                            "[chat_ws][correction-apply] applied=%d retracted=%d skipped=%d errors=%d",
+                            len(apply_summary.get("applied") or []),
+                            len(apply_summary.get("retracted") or []),
+                            len(apply_summary.get("skipped") or []),
+                            len(apply_summary.get("errors") or []),
+                        )
+                    except Exception as _apply_exc:
+                        logger.warning(
+                            "[chat_ws][correction-apply] apply_correction threw "
+                            "(chat continues): %s", _apply_exc,
+                        )
+                        apply_summary = {"errors": [str(_apply_exc)]}
 
-            # WO-ARCH-07A PS2 — emit structured correction payload for client write-back
-            await _ws_send(ws, {
-                "type": "correction_payload",
-                "parsed": parsed,
-                "source_text": user_text,
-                "turn_mode": "correction",
-                "apply_summary": apply_summary,
-            })
-
-            assistant_text = compose_correction_ack(
-                text=user_text,
-                runtime=runtime71,
-            )
-            # The `correction_payload` frame above is sent BEFORE this on
-            # purpose and stays where it is: it carries the structured
-            # parse for client write-back, and the browser applies it
-            # while the ack is still being delivered. The finaliser owns
-            # only the turn, the archive event and the two closing frames.
-            # The projection write already happened above via
-            # `apply_correction`; nothing here repeats it.
-            await _finalize_deterministic_turn(
-                ws,
-                params=params,
-                conv_id=conv_id,
-                person_id=person_id,
-                user_text=user_text,
-                assistant_text=assistant_text,
-                turn_mode="correction",
-                model_name="correction-ack",
-                meta={
-                    "parsed_corrections": parsed,
+                # WO-ARCH-07A PS2 — emit structured correction payload for client write-back
+                await _ws_send(ws, {
+                    "type": "correction_payload",
+                    "parsed": parsed,
+                    "source_text": user_text,
+                    "turn_mode": "correction",
                     "apply_summary": apply_summary,
-                },
-                current_era=_current_era_for_archive,
-            )
-            return
+                })
+
+                assistant_text = compose_correction_ack(
+                    text=user_text,
+                    runtime=runtime71,
+                )
+                # The `correction_payload` frame above is sent BEFORE this on
+                # purpose and stays where it is: it carries the structured
+                # parse for client write-back, and the browser applies it
+                # while the ack is still being delivered. The finaliser owns
+                # only the turn, the archive event and the two closing frames.
+                # The projection write already happened above via
+                # `apply_correction`; nothing here repeats it.
+                await _finalize_deterministic_turn(
+                    ws,
+                    params=params,
+                    conv_id=conv_id,
+                    person_id=person_id,
+                    user_text=user_text,
+                    assistant_text=assistant_text,
+                    turn_mode="correction",
+                    model_name="correction-ack",
+                    meta={
+                        "parsed_corrections": parsed,
+                        "apply_summary": apply_summary,
+                    },
+                    current_era=_current_era_for_archive,
+                )
+                return
 
         # ── LLM-path setup — only reached for turn_mode='interview' ─────────
         # Deterministic turn modes (memory_echo, correction) returned above
