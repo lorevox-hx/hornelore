@@ -181,6 +181,39 @@ const REVIEW_ONLY_FRAME = {
   eq(H.acks.length, 1, "and acknowledged once");
 }
 
+/* ── 7. THE MIXED SHAPE — items AND a quarantined relationship ────────
+   What the kinship guard actually produces. Found in review of 3026388:
+   handledReview was computed and then ignored on the item path, so a result
+   whose quarantine the browser could NOT handle was projected, acknowledged
+   and retired anyway. */
+const MIXED_FRAME = {
+  status: "succeeded", turn_key: "turnrow:5", person_id: "p1",
+  items: [{ fieldPath: "residence.place", value: "Plymouth Road", confidence: 0.9 }],
+  clarification_required: [QUARANTINE], method: "llm"
+};
+{
+  // 7a. review handling FAILS alongside a perfectly good item.
+  const H = load({ handler: false });
+  delete H.S.TranscriptGuard;
+  const r = H.S.applyExtractionResultFrame(MIXED_FRAME, {});
+  ok(r === false, "mixed result with failed review handling reports failure");
+  ok(!H.writes.some(w => w.kind === "project"),
+     "NOTHING is projected — no partial write while the quarantine is unhandled",
+     JSON.stringify(H.writes));
+  eq(H.acks.length, 0, "mixed result remains UNACKNOWLEDGED");
+  eq(H.marked.length, 0, "mixed result remains unmarked");
+}
+{
+  // 7b. review handling succeeds: both halves proceed, exactly once.
+  const H = load({ handler: true });
+  const r = H.S.applyExtractionResultFrame(MIXED_FRAME, {});
+  ok(r === true, "mixed result with successful review handling succeeds");
+  ok(H.writes.some(w => w.kind === "review_handler"), "the review was handled");
+  ok(H.writes.some(w => w.kind === "project"), "and the safe item WAS projected");
+  eq(H.acks.length, 1, "acknowledged exactly once");
+  eq(H.marked.length, 1, "marked applied exactly once");
+}
+
 /* ── report ─────────────────────────────────────────────────────────── */
 if (failures.length) {
   console.error("FAIL  " + failures.length + " of " + checks + " checks");

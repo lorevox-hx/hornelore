@@ -1470,6 +1470,26 @@ function applyCompletedTurnExtractionResult(result, context) {
   var handledReview = false;
   if (allClarifications && allClarifications.length > 0) {
     handledReview = _handleReviewEntries(allClarifications, answerText, res);
+
+    // THE MIXED SHAPE — items AND a quarantined relationship in one result.
+    // Found in review of 3026388, and it is exactly what the kinship guard
+    // produces: safe facts alongside one group whose relationship could not
+    // be established.
+    //
+    // `handledReview` was computed and then ignored on the item path, so the
+    // function projected the items and returned true. applyExtractionResultFrame
+    // then acknowledged and RETIRED the row — permanently discarding the
+    // quarantined relationship the browser had failed to handle, while a
+    // partial write had already landed.
+    //
+    // Failing here, before any projection, keeps the whole frame pending. The
+    // items are not lost: catch-up re-offers the same row and it applies then.
+    // A repeated offer is cheap; a retired quarantine is unrecoverable.
+    if (!handledReview) {
+      console.log("[extract][review] handling FAILED for " + allClarifications.length
+        + " entry(s) — projecting nothing and leaving the whole result pending");
+      return false;
+    }
   }
 
   // Projection is required to APPLY items, and only to apply items. A
