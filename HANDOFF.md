@@ -10,18 +10,19 @@ rule back. The claim that matters is the one about obligations.)*
 
 ---
 
-> # ▶ CURRENT ACTION — `WO-LORI-ARCHIVE-TO-MEMOIR-02` PHASE 2. PHASE 1 IS ACCEPTED.
+> # ▶ CURRENT ACTION — `WO-LORI-ARCHIVE-TO-MEMOIR-02` PHASE 3. PHASES 0–2 ARE CLOSED.
 >
 > | | |
 > |---|---|
-> | **Current action** | **Phase 2 — the read-only 38-turn span/granularity ledger. FIRST PASS BUILT** at `docs/reports/PHASE2_38_TURN_SPAN_LEDGER_20260904.json`. It overturned this lane's headline defect: candidate presence is **35/38 (92.1%)**, not 11/38; the `11` was eleven operator PATCHes in the API log. **The bottleneck is REVIEW, not capture** — 92% captured, 0% reviewed, 0% memoir-reachable. **Do NOT rerun the cohort** |
-> | **Phase 1** | ✅ **ACCEPTED 2026-09-04.** Two runs, and the split matters: **`20260904T123556Z` performed the only two authorized mutations** (placement `v1→v2`, promotion `v2→v3`); **`20260904T130525Z` carried that proof forward at ZERO mutations** and completed preview and export. Exit **0**, agreement canonical **1** / preview **1** / DOCX **1**, control **item identical** (changing `fetched_at` envelope excluded) |
-> | **The resume did NOT mutate** | mode `promoted`, budget `0`, observed `0`, no blocked PATCHes, no refusals. `3a_placed` reads `carried_forward`, not `PASS`, so this cannot be misread. **Any claim that the passing run placed or promoted is wrong** |
-> | **Defects corrected to get there** | **PRODUCT:** `hornelore1.0.html` fetched canonical from a relative URL (BUG-224 class) — now uses `ORIGIN` from `api.js`. **HARNESS:** `PANEL_STATE` used `offsetParent` on a native popover, a guaranteed false negative — now `:popover-open` alone |
-> | **Phase 0** | ✅ **ACCEPTED at `fdaa255`.** The evaluation is frozen |
-> | **Mutations — ALL SPENT** | `447eee18` is now `promoted`, `building_years`/`operator_set`, `review_version: 3`. **NO further mutation is authorized by this record** |
-> | **Contract guarantees held** | `containsSourceId: false` — no raw UUID in the document · `forbidden: []` — no known bad substitution reached the export |
-> | **What Phase 1 does NOT claim** | **ONE** passage completes the chain. It says nothing about correctness at scale. *(This row cited "27 archived-but-uncaptured statements" until the Phase 2 ledger measured it: the real figure is **three**, and capture presence is **35/38**.)* That is Phase 2 |
+> | **Current action** | **Phase 3 — fix the two defects that corrupt MEANING.** (1) A clarification can be swallowed by the correction route and bypass normal processing. (2) Spouses can be bound under `parents.*`. **A preserved story with an invented family relationship is not a faithful memoir** — this outranks any capture percentage |
+> | **Phase 2** | ✅ **CLOSED 2026-09-04** — read-only mechanism audit, cohort not rerun, nothing curated. Archival 38/38 · candidates 35/38 · transcripts 35/35 byte-exact · zero over-capture · zero containment |
+> | **Phase 2's real findings** | **Capture decisions are unauditable.** 18/38 turns decided deterministically (reproducible from stored text); **20/38 decided by the factual-chain classifier, whose result is persisted NOWHERE** — 17 captured, 3 not. And `turn_extraction_ledger` holds **zero rows for any cohort turn** |
+> | **Turns `1846`, `1864`, `1870`** | **`measurement_failed`, NOT `not_story`.** Indistinguishable from captured turns on every stored signal (anchors=2, place+person, 236–536 words). No evidence-backed reason exists, so none was invented |
+> | **Phase 1** | ✅ **ACCEPTED 2026-09-04.** `20260904T123556Z` performed the only two authorized mutations; `20260904T130525Z` carried that proof forward at **zero mutations** and completed preview and export. Exit 0, agreement 1/1/1, control item identical |
+> | **Phase 0** | ✅ **ACCEPTED at `fdaa255`** |
+> | **Mutations — ALL SPENT** | `447eee18` is `promoted`, `building_years`/`operator_set`, `review_version: 3`. **No further mutation is authorized** |
+> | **Capture diagnostic belongs to PHASE 4** | Persist one decision record per turn — *including turns that create no candidate*, so it cannot live on `story_candidates`. **Change no capture threshold until decisions are inspectable.** Not part of Phase 3 |
+> | **Do NOT** | curate the synthetic queue, promote the 35, adjust the classifier, or rerun the cohort. The cohort is test material — its value was proving the machinery, not its memoir quality |
 >
 > **A refusal is a result.** A run that stops before mutating, names the failing link and
 > exits non-zero has done its job. It is not a failed attempt to be retried until it passes.
@@ -109,7 +110,7 @@ the count it produces is not evidence about this change.
 
 | Lane | State |
 |---|---|
-| **`WO-LORI-ARCHIVE-TO-MEMOIR-02`** | 🔵 **ACTIVE — Phase 1 ACCEPTED; Phase 2 IN PROGRESS. §9.** Phase 0 `fdaa255`. **Phase 1 ACCEPTED** — mutations in `20260904T123556Z`, proof carried forward at **zero mutations** in `20260904T130525Z`, exit 0. Full chain archive → placement → promotion → canonical → preview → export, agreement 1/1/1, control **item identical** (changing `fetched_at` envelope excluded). Both authorized mutations SPENT; **no further mutation is authorized.** **Phase 2 FIRST PASS BUILT** — candidate presence **35/38 (92.1%)**, not 11/38; capture byte-exact 35/35; zero over-capture; **the bottleneck is REVIEW, not capture** (92% captured, 0% reviewed). Reproduce with `python3 scripts/phase2_verify_ledger.py` |
+| **`WO-LORI-ARCHIVE-TO-MEMOIR-02`** | 🔵 **ACTIVE — Phases 0–2 CLOSED; PHASE 3 is the current action. §9.** **Phase 1** proved the memoir chain (`20260904T123556Z` mutations, `20260904T130525Z` proof at zero mutations, exit 0, agreement 1/1/1). **Phase 2** closed the mechanism audit read-only: archival 38/38, candidates 35/38, transcripts 35/35 byte-exact, zero over-capture. Its real findings are **auditability defects** — the factual-chain decision behind 20/38 turns is persisted nowhere, and `turn_extraction_ledger` has zero rows for any cohort turn; turns `1846`/`1864`/`1870` are `measurement_failed`, not `not_story`. **Phase 3:** correction-route bypass + spouse-under-`parents.*`. Capture-decision persistence is **Phase 4**, not Phase 3. Reproduce the audit: `python3 scripts/phase2_verify_ledger.py` |
 | **Memory Integrity Layer / guardrail audit** | 🟡 **DESIGN THREAD — no work order yet.** Response-guard audit done; `BUG-LORI-FEWSHOT-EXEMPLAR-LEAK-01_Spec.md` (repo root) is **ACTIVE / NEXT**. Nothing here is scheduled. §10 |
 | **Repository hygiene** | ⏸️ **PHASE A ACCEPTED, REMAINDER PAUSED — the work order is INCOMPLETE.** Steps 0, 1 `5f6b01b`, 2 `db0c5e7`, 2b `ff1ff4f` and the first Step 3 cohort `5086490` are accepted. **Deferred by product-priority decision:** the remaining Step 3 cohorts, Steps 4–5, and the final verification checkpoint. Still indexed, still owed, not scheduled |
 | **Profile Seed reachability** | ⏸️ **OWED — Phase 3 IN IMPLEMENTATION with ACCEPTANCE OPEN, and no longer the current action.** *(It was, until `WO-LORI-ARCHIVE-TO-MEMOIR-02` took priority. Owed work does not become finished work when the lane changes.)* Phase 0 `661aa95` · Phase 1 `1288baa` · **Phase 2 ACCEPTED 2026-08-29, steps 1–7 complete** (step 4 `b269184`, step 5 `9127adb`, pre-Step-6 corrections `d0e5294`, step 6 `12221e0`…`58dfc40` live, step 7 `6885bb2`) · Phase 3 implementation landed through `2b7e634`; its six acceptance conditions remain open. Phases 4–5 are partially run and not accepted. See the Profile Seed spec's reconciled status block |
@@ -309,7 +310,7 @@ Full register with evidence: [`docs/BACKLOG.md`](docs/BACKLOG.md).
 Historical handoffs and long status narratives live in Git history and `docs/archive/`.
 **They must not be appended back into this operational brief.**
 
-## 9. `WO-LORI-ARCHIVE-TO-MEMOIR-02` Phase 1 — ACCEPTED (2026-09-04)
+## 9. `WO-LORI-ARCHIVE-TO-MEMOIR-02` — Phase 1 ACCEPTED, Phase 2 CLOSED (2026-09-04)
 
 > **The working detail that used to live here has been REMOVED, not lost.** It described a
 > target that was unplaced at `review_version: 1`, preview and export unproven, and a "fresh

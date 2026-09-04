@@ -3,7 +3,7 @@
 **Status:** CURRENT — central Lori/Lorevox work order  
 **Supersedes:** `WO-LORI-END-TO-END-LISTEN-RETAIN-MEMOIR-01`  
 **Starting evidence:** demographic cohort `20260901T015343Z` and Walt seven-era run `20260901T003329Z`  
-**Current position:** **Phase 1 ACCEPTED 2026-09-04** — mutations `20260904T123556Z`, proof `20260904T130525Z`, exit 0. **Phase 2 IN PROGRESS** — first-pass ledger built; reproduce with `python3 scripts/phase2_verify_ledger.py`  
+**Current position:** **Phase 0, 1 and 2 CLOSED. Phase 3 is the CURRENT ACTION** — fix the correction-route bypass and the spouse-under-`parents.*` binding. *(Phase 1 proof: mutations `20260904T123556Z`, carried forward at zero mutations in `20260904T130525Z`, exit 0. Phase 2 audit: `python3 scripts/phase2_verify_ledger.py`.)*  
 **Phase 0:** accepted by ChatGPT against pushed commit `fdaa255`
 
 ## 1. Goal
@@ -64,7 +64,7 @@ Lorevox is not accepted merely because a transcript exists, an endpoint returns 
       Phase 2 ledger.
 - [x] **CORRECTED 2026-09-04: THREE turns produced no candidate, not twenty-seven** — `1846` (John), `1864` (Frank), `1870` (Stefi).
 - [x] **CORRECTED 2026-09-04: Pat's account of Jim's death is NOT `archived_only`.** Turn `1852` produced candidate `f130549c` (472 words, `borderline_scene_anchor`), transcript byte-identical to the statement. It is `story_candidate_provisional` — captured and awaiting review, not lost.
-- [x] **CORRECTED 2026-09-04: reviewing every existing candidate would make 35 of 38 statements memoir-eligible.** All 35 are `unreviewed`; the bottleneck is REVIEW, not capture.
+- [x] **CORRECTED 2026-09-04: reviewing every existing candidate would make 35 of 38 statements memoir-eligible.** All 35 are `unreviewed`. *(Capture was never the central bottleneck. The two real capture defects are that the factual-chain decision is not persisted and the extraction ledger was never written — see the Phase 2 closeout.)*
 - [ ] Stefi’s clarification was misrouted as a correction and received form instructions.
 - [ ] Stefi’s route bypassed normal response tracing, extraction and story capture.
 - [ ] Pat’s husband Jim, Mable’s husband Otis and Tomasita’s husband Domingo were bound or proposed under `parents.*`.
@@ -343,16 +343,18 @@ which is what a clean 1:1 capture looks like.
 Only **three** statements produced no candidate: turns `1846` (John), `1864` (Frank),
 `1870` (Stefi). Those three, not twenty-seven, are the capture gap.
 
-#### The bottleneck is REVIEW, not CAPTURE
+#### Review is unexercised — but that does NOT make mass review the next action
 
 **92% captured. 0% reviewed. 0% memoir-reachable.** All 35 candidates are `unreviewed`, so
-none satisfies `STORY_MEMOIR_ELIGIBLE = ("promoted", "memoir_only")` and all 38 statements
-are currently unreachable by the memoir. The material is there, bound to its source turn,
-byte-exact, waiting for an operator.
+none satisfies `STORY_MEMOIR_ELIGIBLE`. Phase 1 proved the review path works, so this is
+unexercised rather than blocked.
 
-That is a **completely different problem** from the one this work order was written around,
-and a far better one to have: the queue is full and nobody has worked it, rather than the
-capture stage silently dropping three quarters of what was said.
+**That is not a reason to work the queue.** These candidates preserve their words exactly
+while potentially carrying **invented family relationships** — husbands bound under
+`parents.*` — and dropped kinship wording. **A preserved story with a wrong relationship is
+not a faithful memoir**, and promoting it would carry the error into canonical output.
+Meaning integrity (Phase 3) comes before review volume. The cohort is synthetic test
+material besides: its queue is worth nothing to curate.
 
 #### A correction to this document's own 2026-09-04 entry
 
@@ -388,7 +390,7 @@ figure. Keep every metric below; they simply report better news than expected.
 - [x] **Independently addressable statement coverage** — **35/38 (92.1%)**. Identical to presence, because every candidate is exactly its own statement.
 - [x] **Over-capture / aggregation** — **0**. No candidate transcript is a strict superset of its source statement.
 - [x] **Duplicate and containment groups** — **0** within the cohort.
-- [x] **Unreachable archived statements** — **38/38**. All 35 candidates are `unreviewed`, so none satisfies `STORY_MEMOIR_ELIGIBLE`. **This is the finding: the bottleneck is REVIEW.**
+- [x] **Unreachable archived statements** — **38/38**. All 35 candidates are `unreviewed`, so none satisfies `STORY_MEMOIR_ELIGIBLE`. *(Unexercised, not blocked: Phase 1 proved the path works. **Do not read this as a mandate to review the queue** — the candidates may preserve words exactly while carrying wrong relationships, so meaning integrity comes first.)*
 
 **Sequencing:** the finalized ledger is built **after** the Phase 1 live run. Phase 1 moves
 `447eee18` from unplaced/unreviewed to placed/promoted, so a ledger completed first would
@@ -416,7 +418,77 @@ Required aggregate totals:
 
 **Exit gate:** No statement or interpretation is represented merely as `persisted`; the ledger names its real destination, lack of destination or measurement failure.
 
-## Phase 3 — Fix processing bypass and relationship binding
+
+## ✅ PHASE 2 CLOSED — mechanism audit complete (2026-09-04)
+
+**Read-only throughout. The cohort was not rerun, no candidate was curated, no threshold
+was touched.** Reproduce with `python3 scripts/phase2_verify_ledger.py`.
+
+### The classifier split — measured by running the SHIPPED trigger over all 38 turns
+
+No cohort turn reached `full_threshold`: these narrators typed, so `audio_duration_sec = 0`
+and that path requires ≥ 30 s. Capture therefore rested on two mechanisms:
+
+| Decision path | Turns | Candidate created |
+|---|---|---|
+| **Deterministic** — `anchors ≥ 3` → `borderline_scene_anchor` | **18** | 18 |
+| **Factual-chain classifier** — `chain_ctx["is_factual_chain"]` | **20** | **17** |
+| — of which the chain was silent | 3 | **0** |
+
+`story_trigger.classify_story_candidate` reproduces all 18 deterministic decisions from the
+stored text alone. It reproduces **none** of the other 20 without runtime chain context.
+
+### Turns `1846`, `1864`, `1870` — `measurement_failed`, NOT `not_story`
+
+They are **indistinguishable from captured turns on every stored signal**: all three have
+`anchor_count = 2`, `place_anchor = true`, `person_anchor = true`, `time_anchor = false`,
+236–536 words. Captured turns `1830`, `1832`, `1836`, `1840`, `1850`, `1856` carry the
+identical profile.
+
+The only differing input is the factual-chain result, and **that decision is persisted
+nowhere** — not in `turns.meta_json` (empty for all three), not in `chain_meta_json`, not in
+any ledger. No evidence-backed `not_story` reason exists, so none is recorded. Inventing one
+would be fabrication.
+
+### DEFECT — the deciding signal for 53% of story capture leaves no audit trail
+
+`trigger_diagnostic()` already computes exactly the required numbers and is never persisted.
+**For any turn — captured or missed — nobody can say why the classifier decided as it did.**
+This is not a synthetic-cohort problem: if a story of Kent's or Janice's is missed, there is
+today no way to find out why. **Fixed in Phase 4, where story capture lives — NOT in Phase 3.**
+
+### DEFECT — the extraction ledger is absent for every cohort turn
+
+`turn_extraction_ledger` holds **zero rows** for any of turns 1828–1902. Its rows for these
+same narrators are all `turnrow:1923+` and `2063+`, from later sessions. Extraction evidence
+for the audited cohort is therefore `measurement_failed` in full — for the 35 captured turns
+as much as the 3 missed ones.
+
+### Mechanism verdicts
+
+| Mechanism | Verdict |
+|---|---|
+| Turn archival | **WORKS** — 38/38 verbatim |
+| Candidate creation | **WORKS** — 35/38, one per turn |
+| Word preservation | **WORKS** — 35/35 byte-exact, zero over-capture, zero containment |
+| Source-turn binding | **WORKS** — every candidate bound to its turn |
+| Deterministic anchor trigger | **WORKS** — 18/38 reproducible from stored text |
+| Factual-chain trigger | **UNAUDITABLE** — decides 20/38, records nothing |
+| Extraction ledger | **NOT WRITTEN** for any cohort turn |
+| Operator review | **NEVER EXERCISED** — 35/35 unreviewed |
+| Memoir chain | **PROVEN** — Phase 1, one passage, canonical = preview = DOCX |
+
+### What this does NOT establish
+
+**Candidate presence is not story quality.** 35/38 says a candidate exists per turn and
+preserves its words exactly. It says nothing about whether a 450-word turn holds one memoir
+episode or four. Semantic granularity is **unmeasured**, and deliberately so: the cohort is
+synthetic test material, and curating it would prove nothing about Kent or Janice.
+
+**Exit gate: MET.** All 38 turns carry a terminal status; the three misses have an
+evidence-backed classification (`measurement_failed`); the mechanism verdicts are recorded.
+
+## Phase 3 — Fix processing bypass and relationship binding  ⬅ **CURRENT ACTION**
 
 **Outcome:** Narration cannot disappear into a special route, and spouses cannot become parents.
 
@@ -443,13 +515,25 @@ Required aggregate totals:
 
 ## Phase 4 — Make memoir-worthy story capture dependable
 
-**Outcome:** Important life narration becomes reviewable even when it does not resemble a travel chain.
+**Outcome:** Important life narration becomes reviewable even when it does not resemble a
+travel chain — and every capture decision is inspectable.
 
-**SUPERSEDED 2026-09-04 — this was not the bottleneck.** The Phase 2 ledger measured
-candidate presence at **35/38 (92.1%)** with capture byte-exact and zero over-capture;
-only three statements produced nothing. **The bottleneck is REVIEW** — all 35 candidates
-are `unreviewed`, so 0% are memoir-reachable. The goal stated below still holds and is
-nearly met: every substantive passage should be either nominated or given a defensible,
+### FIRST, BEFORE ANY THRESHOLD CHANGE: persist the capture decision
+
+Phase 2 proved the deciding signal for **20 of 38** turns is recorded nowhere. Tuning a
+classifier whose decisions cannot be inspected is guesswork.
+
+- [ ] Persist **one decision record per narrator turn — including turns that create no candidate.**
+- [ ] Attach it to the **source turn**, or to a dedicated per-turn decision table. *(Putting it on `story_candidates` is insufficient by construction: a missed turn has no candidate.)*
+- [ ] Record: source turn · narrator · the deterministic `trigger_diagnostic` measurements · the factual-chain result · the final nomination decision · the decision reason · the classifier/trigger version · the candidate id when one was created.
+- [ ] **Do NOT change any capture threshold until those decisions can be inspected.**
+- [ ] Also fix the absent `turn_extraction_ledger` writes — extraction evidence was missing for every cohort turn.
+
+**REFRAMED 2026-09-04 by the Phase 2 closeout.** Candidate presence is **35/38** with
+capture byte-exact and zero over-capture, so raising a percentage was never the work. The
+real capture defects are **auditability**: the factual-chain decision that determines 20 of
+38 turns is persisted nowhere, and `turn_extraction_ledger` was never written for this
+cohort. Fix those first — see the block above. The goal stated below still holds: every substantive passage should be either nominated or given a defensible,
 inspectable `not_story` reason. What is owed is the `not_story` reason for the three, and
 an operator pass over the thirty-five.
 
