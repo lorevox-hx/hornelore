@@ -8157,6 +8157,240 @@ def _confirmation_reason_key(reason: str):
         return (1, 0, str(reason))
 
 
+# ── GROUP-LOCAL KINSHIP GUARD ───────────────────────────────────────────────
+# WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04). Rebuild of the reverted
+# add4753, against every defect that review found in it.
+#
+# THE CASE. Mable Hudson's own words: "Otis died in 2005. Heart attack at
+# sixty-three. The kids were grown -- Charlene was in Atlanta..." The extractor
+# filed parents.firstName=Otis at 0.9 plus three more parents_0 fields. Otis was
+# her HUSBAND, and her profile already said so. Tomasita/Domingo is identical.
+#
+# WHAT THE FIRST ATTEMPT GOT WRONG, and what changes here:
+#   * it ran before grouping, so `repeatableGroup` was always None and its
+#     fallback collapsed every item of a role into one bucket  -> now runs at
+#     the seam, after materialization and grouping, per group;
+#   * its evidence test was answer-wide, so one "my father" anywhere licensed
+#     every parents.* item in a 500-word turn  -> now clause-local;
+#   * it refused on first-name equality alone  -> now that alone never refuses;
+#   * it downgraded only firstName, leaving dates and events at full authority
+#     -> now the WHOLE group is quarantined;
+#   * its downgrade was discarded downstream  -> the seam guarantees survival.
+#
+# QUARANTINE, NOT DOWNGRADE. A lower-confidence parents.firstName=Otis is still
+# an approvable claim that Otis was her father. The group leaves `items`
+# entirely and becomes ONE neutral review entry carrying every proposed field
+# as evidence. Nothing executable survives it.
+
+# SENTENCE boundaries only. An em-dash or comma continues a thought -- "The
+# kids were grown — Charlene was in Atlanta" names Charlene's relationship in
+# the same breath, and splitting there falsely quarantined a real daughter.
+#
+# Widening the window to the PRECEDING sentence was the other candidate and is
+# rejected deliberately: "My father Harold worked at Firestone. Otis died in
+# 2005." would then license Otis as a parent, which is the exact defect this
+# guard exists to stop. Local means this sentence.
+_CLAUSE_SPLIT_RX = re.compile(r"(?<=[.;!?])\s+")
+
+# Relationship language, per role, as narrators actually say it. Deliberately
+# NOT the `my <relation>` conflict cues: "Dad was Kent Horne", "the boys",
+# "we got married" are all ordinary and none of them says "my".
+_ROLE_LOCAL_LANGUAGE = {
+    "parents": re.compile(
+        r"\b(?:my\s+)?(?:mother|father|mom|mum|dad|mama|papa|stepmother|"
+        r"stepfather|parents?)\b", re.IGNORECASE),
+    "family.spouse": re.compile(
+        r"\b(?:my\s+)?(?:husband|wife|spouse)\b|\b(?:we|i)\s+(?:got\s+|were\s+)?"
+        r"(?:married|wed)\b|\bmarried\s+(?:him|her)\b", re.IGNORECASE),
+    "family.children": re.compile(
+        r"\b(?:my|our|the)\s+(?:son|daughter|child|children|kids?|boys?|girls?|"
+        r"twins?)\b|\b(?:my|our)\s+(?:eldest|oldest|youngest|firstborn)\b",
+        re.IGNORECASE),
+    "siblings": re.compile(
+        r"\b(?:my\s+)?(?:brother|sister|siblings?|twin|half[- ]?brother|"
+        r"half[- ]?sister|step[- ]?brother|step[- ]?sister)\b", re.IGNORECASE),
+    "grandparents": re.compile(
+        r"\b(?:my\s+)?(?:grand\s?(?:mother|father|ma|pa|parents?)|granny|"
+        r"grandma|grandpa|nana)\b", re.IGNORECASE),
+    "greatGrandparents": re.compile(
+        r"\b(?:my\s+)?great[- ]?grand\s?(?:mother|father|parents?)\b",
+        re.IGNORECASE),
+}
+
+_KINSHIP_ROLES = tuple(sorted(_ROLE_LOCAL_LANGUAGE, key=len, reverse=True))
+
+_KINSHIP_PROFILE_KEYS = {
+    "parents": ("parents",),
+    "family.children": ("children",),
+    "siblings": ("siblings",),
+    "family.spouse": ("spouses", "spouse"),
+    "grandparents": ("grandparents",),
+    "greatGrandparents": ("greatGrandparents",),
+}
+
+
+def _kinship_role_of(field_path: str):
+    """Longest-prefix kinship role for a fieldPath, or None."""
+    if not field_path:
+        return None
+    for role in _KINSHIP_ROLES:
+        if field_path == role or field_path.startswith(role + "."):
+            return role
+    return None
+
+
+def _clauses(answer: str):
+    """Split into clause-sized spans. Evidence must be LOCAL to the person
+    being described: one 'my father' in a long turn cannot license a claim
+    made three sentences later about somebody else."""
+    return [c.strip() for c in _CLAUSE_SPLIT_RX.split(answer or "") if c.strip()]
+
+
+def _clause_for_value(answer: str, value: str):
+    """The clause containing `value`, or None. Case-insensitive, first hit."""
+    if not answer or not value:
+        return None
+    v = str(value).strip().lower()
+    if not v:
+        return None
+    for c in _clauses(answer):
+        if v in c.lower():
+            return c
+    return None
+
+
+def _known_kinship_names(person_id):
+    """{role: {lowercased first names the profile already holds}}.
+
+    Returns {} on any failure, so a profile outage costs the identity check
+    and never the extraction.
+    """
+    if not person_id:
+        return {}
+    try:
+        from ..db import get_profile
+        prof = get_profile(person_id) or {}
+        blob = prof.get("profile_json") or {}
+        if isinstance(blob, str):
+            blob = json.loads(blob)
+        root = blob.get("profile") or blob
+        fam = root.get("family") if isinstance(root.get("family"), dict) else {}
+        out = {}
+        for role, keys in _KINSHIP_PROFILE_KEYS.items():
+            names = set()
+            for key in keys:
+                entries = root.get(key)
+                if entries is None and isinstance(fam, dict):
+                    entries = fam.get(key)
+                if isinstance(entries, dict):
+                    entries = [entries]
+                for e in entries or []:
+                    if isinstance(e, dict):
+                        n = str(e.get("firstName") or "").strip().lower()
+                        if n:
+                            names.add(n)
+            if names:
+                out[role] = names
+        return out
+    except Exception as e:
+        logger.warning("[extract][kinship-guard] profile lookup failed "
+                       "(guard continues on local evidence only): %s", e)
+        return {}
+
+
+def _apply_kinship_binding_guard(items, req, *, answer: str):
+    """Quarantine kinship groups whose relationship the narrator did not state.
+
+    Runs at the seam, on GROUPED ExtractedItem objects. Returns
+    ``(surviving_items, review_entries)``.
+
+    Per group, in order:
+      1. Find the group's subject name and the CLAUSE it appears in.
+      2. If that clause states the role's relationship, the group is
+         supported -- even if the name collides with someone else on record.
+         Explicit local wording outranks a name collision, because a narrator
+         who says "my father John" has told us which John.
+      3. Otherwise: no local relationship language -> `relationship_unstated`.
+      4. Additionally, if the profile holds that name in a DIFFERENT role and
+         the clause does not state this role -> `identity_conflict`.
+         Name equality ALONE never refuses; it only adds a reason to a group
+         that already lacks local support.
+    """
+    if not items:
+        return items, []
+    try:
+        from .. import flags as _flags
+        if not _flags.claims_validators_enabled():
+            return items, []
+    except Exception:
+        return items, []
+
+    known = _known_kinship_names(getattr(req, "person_id", None))
+
+    # Bucket by (role, repeatableGroup). Ungrouped kinship items share the
+    # role's own bucket rather than being silently exempt.
+    buckets = {}
+    for it in items:
+        role = _kinship_role_of(getattr(it, "fieldPath", "") or "")
+        if not role:
+            continue
+        key = (role, getattr(it, "repeatableGroup", None) or "@" + role)
+        buckets.setdefault(key, []).append(it)
+
+    quarantined, entries = set(), []
+    for (role, group), members in buckets.items():
+        subject = next(
+            (str(m.value) for m in members
+             if str(getattr(m, "fieldPath", "")).endswith(".firstName")
+             and str(m.value or "").strip()), "")
+
+        clause = _clause_for_value(answer, subject) if subject else None
+        # With no locatable subject the whole answer is the only span there is;
+        # using it is the permissive choice, and permissive is right here
+        # because a false quarantine costs a narrator a fact.
+        span = clause if clause else (answer or "")
+
+        pattern = _ROLE_LOCAL_LANGUAGE.get(role)
+        stated = bool(pattern and pattern.search(span))
+        if stated:
+            continue                      # local wording settles it.
+
+        reasons = ["relationship_unstated"]
+        if subject and known:
+            other = [r for r, names in known.items()
+                     if r != role and subject.strip().lower() in names]
+            if other:
+                reasons.insert(0, "identity_conflict")
+
+        for m in members:
+            quarantined.add(id(m))
+        proposed = [{"fieldPath": m.fieldPath, "value": m.value,
+                     "confidence": m.confidence} for m in members]
+        entry = {
+            "kind": "unbound_relationship",
+            "value": subject or (str(members[0].value) if members else ""),
+            # NEUTRAL. "we could not determine X's relationship to you" asks a
+            # real question; "we heard X as your father" asserts the very
+            # error it is asking about.
+            "label": (f"{subject}'s relationship to you" if subject
+                      else f"a {role} detail we could not place"),
+            "proposed_fieldPath": members[0].fieldPath if members else "",
+            "proposed_items": proposed,
+            "repeatableGroup": group if not group.startswith("@") else None,
+            "not_applied": True,
+        }
+        _sync_confirmation_reasons(entry, reasons)
+        entries.append(entry)
+        logger.info(
+            "[extract][kinship-guard] QUARANTINED role=%s group=%s subject=%r "
+            "fields=%d reasons=%s — no executable item emitted",
+            role, group, subject, len(members), ",".join(entry["reasons"]))
+
+    if not quarantined:
+        return items, []
+    return [i for i in items if id(i) not in quarantined], entries
+
+
 def _sync_confirmation_reasons(target, reasons):
     """Copy a whole ordered reason set onto an item or an envelope entry.
 
@@ -8293,9 +8527,15 @@ def _finalize_extracted_items(items, req, *, answer: str, path: str):
     # 3. AUTHORITY-REDUCING GUARDS — the seam. Everything below this line sees
     #    grouped, materialized items, and its writeMode / needs_confirmation /
     #    confirmation_reason survive into the response unaltered.
+    #    Kinship first: a group it quarantines leaves `items` entirely, so
+    #    transcript safety never needs an opinion about it. Its review entries
+    #    join the same clarification envelope.
+    final_items, _kin_entries = _apply_kinship_binding_guard(
+        final_items, req, answer=answer)
+
     final_items, clarifications = _apply_transcript_safety_layer(final_items, req)
 
-    return final_items, clarifications
+    return final_items, list(_kin_entries) + list(clarifications)
 
 
 def _apply_transcript_safety_layer(
