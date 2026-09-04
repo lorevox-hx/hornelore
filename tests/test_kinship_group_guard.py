@@ -352,6 +352,49 @@ class EvidenceIsBoundToTheEntity(unittest.TestCase):
         self.assertIn("jason", scope, scope)
         self.assertIn("vincent", scope, "the alias must still be IN scope")
 
+    def test_without_a_count_the_list_stops_at_a_sentence_naming_nobody(self):
+        """THE BOUND that keeps this from becoming answer-wide.
+
+        No count, so the list is contiguous only: a sentence that names none
+        of the roster ends it, and a name after that sentence is NOT in scope.
+        Deleting this break leaves a cue authorising the rest of the answer,
+        which is the permission the guard exists to withdraw.
+        """
+        a = ("My brothers were a lot older. Vince was the oldest. "
+             "The winter of 1958 was terrible. Then Jason.")
+        scope = {n.lower() for n in EX._plural_cue_scope(
+            a, "siblings", ["Vince", "Jason"])}
+        self.assertIn("vince", scope, scope)
+        self.assertNotIn("jason", scope,
+                         "an intervening sentence naming nobody must end an "
+                         "uncounted list — otherwise the cue is answer-wide")
+
+    def test_a_possessive_side_qualifier_is_transparent_to_the_window(self):
+        """"My grandmother on my mother's side was Josie" — case_031.
+
+        'grandmother' sits seven tokens from 'Josie' and 'mother' stands
+        between them, so a plain ±4 window with barriers missed the cue and
+        then blamed the wrong person. The qualifier says WHICH grandmother.
+        """
+        r = run("My grandmother on my mother's side was Josie.",
+                [item("grandparents.firstName", "Josie")], None)
+        self.assertIn("grandparents.firstName", paths(r))
+        self.assertEqual([], entries(r))
+
+    def test_transparency_does_not_disarm_a_real_intervening_person(self):
+        """The qualifier is transparent; a PERSON is still a barrier.
+
+        Ida reaches 'grandmother' through the qualifier. Josie stands on the
+        far side of Ida and does not, which is the barrier still working.
+        """
+        r = run("My grandmother on my mother's side was Ida, and her friend "
+                "Josie visited often.",
+                [item("grandparents.firstName", "Ida"),
+                 item("grandparents.firstName", "Josie")], None)
+        self.assertEqual([("grandparents.firstName", "Ida")],
+                         [(i.fieldPath, i.value) for i in r.items])
+        self.assertEqual(["Josie"], [e["value"] for e in entries(r)])
+
     def test_a_competing_role_cue_still_closes_the_list(self):
         """The bound that keeps this from becoming answer-wide."""
         a = ("I've got two older brothers. Vince was the oldest. "
@@ -360,6 +403,55 @@ class EvidenceIsBoundToTheEntity(unittest.TestCase):
             a, "siblings", ["Vince", "Jason"])}
         self.assertNotIn("jason", scope,
                          "a parents cue must end a list of siblings")
+
+    # ── "we got married" resolved by the next sentence (case_091) ───────
+    def _spouse(self, answer, items):
+        return run(answer, items, None)
+
+    def test_the_sentence_after_we_got_married_names_the_spouse(self):
+        """case_091, live: 'We got married on October 10th. I was twenty and
+        Kent was nineteen.'"""
+        r = self._spouse(
+            "We got married on October 10th. I was twenty and Kent was "
+            "nineteen — I was older! It was a small affair.",
+            [item("family.spouse.firstName", "Kent")])
+        self.assertIn("family.spouse.firstName", paths(r))
+        self.assertEqual([], entries(r))
+
+    def test_two_candidates_in_that_sentence_refuse(self):
+        """The function must not choose between people."""
+        r = self._spouse(
+            "We got married in 1959. Kent and Harold were both there.",
+            [item("family.spouse.firstName", "Kent"),
+             item("family.spouse.firstName", "Harold")])
+        self.assertEqual([], paths(r))
+
+    def test_they_got_married_resolves_nothing(self):
+        """Third-person marriage says nothing about the narrator's spouse."""
+        r = self._spouse(
+            "They got married in 1959. Kent was nineteen.",
+            [item("family.spouse.firstName", "Kent")])
+        self.assertEqual([], paths(r))
+
+    def test_an_explicit_different_role_wins(self):
+        """'My brother Kent' assigns Kent a role, and it is not spouse."""
+        r = self._spouse(
+            "We got married in 1959. My brother Kent was nineteen.",
+            [item("family.spouse.firstName", "Kent")])
+        self.assertEqual([], paths(r))
+
+    def test_the_continuation_reaches_only_the_next_sentence(self):
+        r = self._spouse(
+            "We got married in 1959. It was a small affair. "
+            "Kent was nineteen.",
+            [item("family.spouse.firstName", "Kent")])
+        self.assertEqual([], paths(r))
+
+    def test_a_paragraph_break_ends_the_continuation(self):
+        r = self._spouse(
+            "We got married in 1959.\n\nKent was nineteen.",
+            [item("family.spouse.firstName", "Kent")])
+        self.assertEqual([], paths(r))
 
     def test_an_ambiguous_year_quarantines_rather_than_guessing(self):
         """A year is the weakest locator in the corpus.

@@ -8720,6 +8720,62 @@ def _value_sentences(answer: str, field_path: str, value):
     return hits
 
 
+# FIRST-PERSON-PLURAL marriage only. "we got married" has two participants and
+# the narrator is one of them; "they got married" and "she married him" do not
+# say who the narrator's spouse is.
+_WE_MARRIED_RX = re.compile(
+    r"\bwe\s+(?:both\s+)?(?:got\s+|were\s+)?(?:married|wed)\b", re.IGNORECASE)
+
+
+def _spouse_continuation(answer: str, subject: str, other_names) -> bool:
+    """"We got married on October 10th. I was twenty and Kent was nineteen."
+
+    WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04).
+
+    A first-person-plural marriage cue says a marriage happened and that the
+    narrator is one of the two people in it. The very next sentence naming
+    exactly ONE other person resolves who the other one was -- case_091, where
+    Kent's spousal role is as plainly stated as English states it, in the
+    sentence after the cue.
+
+    DELIBERATELY NARROW, because "we got married" is otherwise the weakest cue
+    in the set -- it names nobody, so a loose reading would sweep in whoever
+    the answer happens to mention next. All four conditions must hold:
+
+      * the cue is first-person-plural: "they got married" resolves nothing;
+      * the resolving sentence is the IMMEDIATELY following one;
+      * it names exactly one other proposed person, and that person is this
+        subject -- two candidates is a choice this function must not make;
+      * it carries no cue for a different relationship. "We got married in
+        1959. My brother Kent was nineteen." says Kent is a brother.
+
+    A paragraph break ends it, like every other continuation here.
+    """
+    subject = str(subject or "").strip()
+    if not (answer and subject):
+        return False
+    roster = {str(n).strip().lower() for n in (other_names or [])
+              if str(n or "").strip()}
+    roster.add(subject.lower())
+
+    for para in _PARAGRAPH_RX.split(answer):
+        sents = _clauses(para)
+        for i, s in enumerate(sents[:-1]):
+            if not _WE_MARRIED_RX.search(s):
+                continue
+            nxt = sents[i + 1]
+            named = {n for n in roster
+                     if re.search(r"(?<![A-Za-z])" + re.escape(n)
+                                  + r"(?![A-Za-z])", nxt, re.IGNORECASE)}
+            if named != {subject.lower()}:
+                continue          # nobody, or a choice between people
+            if any(p.search(nxt) for r, p in _ROLE_LOCAL_LANGUAGE.items()
+                   if r != "family.spouse"):
+                continue          # the sentence assigns a different role
+            return True
+    return False
+
+
 def _nameless_group_stated(answer: str, role: str, members, other_names) -> bool:
     """Is the relationship stated for a group that carries NO name?
 
@@ -8926,6 +8982,10 @@ def _apply_kinship_binding_guard(items, req, *, answer: str, clarifications=None
             _parts = [x.strip().lower() for x in subject.split(",")
                       if x.strip()] or [subject.strip().lower()]
             stated = bool(_scope) and all(p in _scope for p in _parts)
+        # "We got married... Kent was nineteen." One narrow continuation for
+        # the one cue that names nobody -- see _spouse_continuation.
+        if not stated and subject and role == "family.spouse":
+            stated = _spouse_continuation(answer, subject, _subject_names)
         # NO NAME TO BUILD A WINDOW AROUND. Locate the value instead and
         # require the cue in its sentence -- see _nameless_group_stated.
         if not stated and not subject:
