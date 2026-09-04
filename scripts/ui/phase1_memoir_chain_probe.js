@@ -409,7 +409,27 @@ if (resumeId) {
       + " story with no proven placement is the state this phase exists to prevent");
     process.exit(2);
   }
-  prior = { runId: resumeId,
+  /* THE VERSION THE PRIOR RUN LEFT BEHIND depends on how far it got.
+   *
+   * This compared against `placementAfter.review_version` in BOTH resume
+   * modes. That is right after a placement-only run (row sits at v2) and
+   * WRONG after a full run, because the promotion bumped it again. Resume
+   * 20260904T125120Z refused on exactly that: the live row was v3, the
+   * check expected v2. Nothing was mutated and the control passed, but the
+   * refusal was the probe's arithmetic, not the product's state -- and the
+   * `promoted` mode had never been exercised until that run. */
+  const _promoMut = (p.mutations || []).filter((m) => m.kind === "promotion").pop();
+  const _expectedVersion = promotionProven
+    ? (_promoMut && _promoMut.versionTransition ? _promoMut.versionTransition.to : null)
+    : ((p.placementAfter || {}).review_version != null
+        ? p.placementAfter.review_version : null);
+  if (_expectedVersion == null) {
+    console.error(`--resume ${resumeId}: cannot determine the version the prior run left`
+      + ` (mode would be ${promotionProven ? "promoted" : "placed"});`
+      + " the report records no usable version transition");
+    process.exit(2);
+  }
+  prior = { runId: resumeId, expectedVersion: _expectedVersion,
             placementProven, promotionProven,
             placedCandidateId: p.placedCandidateId || null, placedAt: p.placedAt || null,
             promotedCandidateId: p.promotedCandidateId || null, promotedAt: p.promotedAt || null,
@@ -589,10 +609,11 @@ function docxText(file) {
       checks.push(["resumed provenance identical to the prior report", provenanceSame]);
       checks.push([`placement from ${prior.runId} still holds (${ERA}, operator_set)`,
                    PLACEMENT_STATE_OK(it, ERA)]);
-      if (prior.placement && prior.placement.review_version != null) {
-        checks.push(["review version matches the prior report's post-placement version",
-                     versionBefore === prior.placement.review_version]);
-      }
+      checks.push([
+        MODE === "promoted"
+          ? `review version is the one the prior run's promotion left (v${prior.expectedVersion})`
+          : `review version is the one the prior run's placement left (v${prior.expectedVersion})`,
+        versionBefore === prior.expectedVersion]);
       checks.push([MODE === "promoted" ? "status is promoted, as the prior report recorded"
                                        : "status is still unpromoted, awaiting this run",
                    MODE === "promoted" ? status === "promoted"

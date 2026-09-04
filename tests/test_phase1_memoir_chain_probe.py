@@ -1101,3 +1101,46 @@ class MemoirCanonicalOriginTests(unittest.TestCase):
         r = subprocess.run(["node", "-e", js], capture_output=True, text=True, timeout=60)
         self.assertEqual(0, r.returncode, r.stdout + r.stderr)
         self.assertIn("sentinel.invalid:9999", r.stdout)
+
+
+class ResumeVersionExpectationTests(_Base):
+    """The version a resumed run expects depends on how far the prior got.
+
+    Resume ``20260904T125120Z`` refused because the check compared the live
+    row against ``placementAfter.review_version`` (v2) in BOTH modes. After a
+    full run the promotion has bumped it again, so the row was at v3. Nothing
+    was mutated and the control passed — but the refusal was the probe's
+    arithmetic, not the product's state, and ``promoted`` mode had never been
+    exercised before that run.
+    """
+
+    def test_the_expected_version_is_derived_per_mode(self):
+        self.assertIn('(p.mutations || []).filter((m) => m.kind === "promotion")', self.src)
+        self.assertIn("promotionProven", self.src)
+        self.assertIn("_promoMut.versionTransition.to", self.src)
+        self.assertIn("p.placementAfter.review_version", self.src)
+
+    def test_an_underivable_version_refuses_the_resume(self):
+        self.assertIn("cannot determine the version the prior run left", self.raw)
+
+    def test_the_precondition_uses_the_derived_value(self):
+        self.assertIn("versionBefore === prior.expectedVersion", self.src)
+        self.assertNotIn("versionBefore === prior.placement.review_version", self.src)
+
+    def test_the_label_names_which_mutation_set_the_version(self):
+        self.assertIn("the prior run's promotion left", self.src)
+        self.assertIn("the prior run's placement left", self.src)
+
+    def test_the_real_report_yields_v3_for_promoted_mode(self):
+        """Exercised against the ACTUAL prior report, not a synthetic one."""
+        rep = (ROOT / ".runtime" / "eval" / "phase1-memoir-chain"
+               / "20260904T123556Z" / "report.json")
+        if not rep.exists():
+            self.skipTest("prior run evidence not present (.runtime is gitignored)")
+        import json
+        r = json.loads(rep.read_text(encoding="utf-8"))
+        promo = [m for m in r.get("mutations", []) if m["kind"] == "promotion"][-1]
+        self.assertEqual(3, promo["versionTransition"]["to"])
+        self.assertEqual(2, r["placementAfter"]["review_version"],
+                         "placement left v2; promotion left v3 — the distinction "
+                         "this class exists to preserve")
