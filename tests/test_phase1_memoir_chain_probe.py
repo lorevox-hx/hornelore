@@ -994,3 +994,34 @@ class BugPanelLauncherContractTests(_Base):
             self.skipTest("no Playwright browser binary here — run this in WSL")
         self.assertEqual(0, r.returncode, combined[-2000:])
         self.assertIn("ALL PASS", r.stdout)
+
+
+class WrongOriginDiagnosticTests(_Base):
+    """The probe's own requests must not dilute its own diagnostic.
+
+    Run 20260904T123556Z reported a bare ``preview: failed`` while the same
+    report recorded three UI-issued 404s against :8082. The predicate
+    averaged over EVERY canonical request for Pat, including the probe's own
+    step-4 :8000 check, which correctly returns 200 — so ``every()`` was
+    false and the wrong-origin label was suppressed. The guard written to
+    prevent that mislabelling was defeated by the instrument beside it.
+    """
+
+    def test_only_ui_issued_requests_are_considered(self):
+        self.assertIn("const uiCanonical = patCanonical.filter", self.src)
+        self.assertIn('!c.origin.includes("8000")', self.src)
+        self.assertIn("uiCanonical.every((c) => c.status === 404)", self.src)
+
+    def test_the_probe_records_the_split(self):
+        for f in ("uiIssued", "probeIssued", "uiAll404"):
+            self.assertIn(f, self.src)
+
+    def test_an_api_origin_404_is_still_a_real_failure(self):
+        self.assertIn("A 404 from :8000 remains a real canonical", self.raw)
+
+    def test_the_relative_fetch_defect_is_real(self):
+        html = (ROOT / "ui" / "hornelore1.0.html").read_text(encoding="utf-8")
+        self.assertIn('fetch("/api/memoir/canonical?person_id="', html,
+                      "the relative canonical fetch is the defect the preview "
+                      "step reports; if this ever becomes absolute, the "
+                      "wrong-origin branch should stop firing")

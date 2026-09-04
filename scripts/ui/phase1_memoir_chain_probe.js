@@ -1259,13 +1259,30 @@ function docxText(file) {
     const panel = await page.evaluate(PANEL_STATE, PASSAGE);
     R.observed.canonicalRequests = canonicalSeen;
     const previewOK = s1.found && s2.found && panel.visible && panel.occurrences === 1;
-    const wrongOrigin = patCanonical.length > 0
-      && patCanonical.every((c) => c.status === 404 && !c.origin.includes("8000"));
-    // Recorded so the verdict in `finally` reuses THIS test rather than
-    // re-deriving a looser one. A 404 from the API origin is a genuine
-    // canonical failure, not a wrong-origin bug, and must not be
-    // mislabelled as one.
+    /* THE PROBE'S OWN REQUESTS MUST NOT DILUTE ITS OWN DIAGNOSTIC.
+     *
+     * This read `patCanonical.every(...)` across EVERY canonical request for
+     * Pat -- including the probe's own step-4 check, which is an explicit
+     * :8000 fetch that correctly returns 200. One 200 in the list made
+     * `every()` false, so run 20260904T123556Z reported a bare
+     * `preview: failed` when the evidence in the same report showed three
+     * UI-issued 404s off :8082. The predicate written to prevent exactly
+     * that mislabelling was defeated by the instrument standing next to it.
+     *
+     * Only the UI's OWN fetches are evidence about the UI. Those are the
+     * ones that did not go to the API origin -- which is the bug:
+     * hornelore1.0.html:8551 fetches `/api/memoir/canonical` RELATIVE, so it
+     * resolves to the UI server. A 404 from :8000 remains a real canonical
+     * failure and is still not a wrong-origin bug. */
+    const uiCanonical = patCanonical.filter((c) => !c.origin.includes("8000"));
+    const wrongOrigin = uiCanonical.length > 0
+      && uiCanonical.every((c) => c.status === 404);
     R.observed.previewWrongOrigin = wrongOrigin;
+    R.observed.canonicalByOrigin = {
+      uiIssued: uiCanonical.length, uiAll404: wrongOrigin,
+      probeIssued: patCanonical.length - uiCanonical.length,
+      why: "the probe's own :8000 check is not evidence about the UI",
+    };
     step("5_preview", {
       result: previewOK ? "PASS" : "FAIL",
       acceptancePath: "#lvNarratorCtxMemoir .lv-narrator-ctx-cta -> .lv-narrator-view-cta",

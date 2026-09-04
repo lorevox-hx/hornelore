@@ -10,16 +10,18 @@ rule back. The claim that matters is the one about obligations.)*
 
 ---
 
-> # ▶ CURRENT ACTION — `WO-LORI-ARCHIVE-TO-MEMOIR-02` PHASE 1. HARNESS READY, LIVE RUN PENDING.
+> # ▶ CURRENT ACTION — `WO-LORI-ARCHIVE-TO-MEMOIR-02` PHASE 1. CHAIN PROVEN TO CANONICAL; PREVIEW BLOCKED.
 >
 > | | |
 > |---|---|
-> | **Current action** | **Phase 1 — IN IMPLEMENTATION.** Prove the memoir chain end to end with the two authorized mutations on ONE candidate. The harness is green offline; the live run has not yet succeeded |
+> | **Current action** | **Phase 1 — adjudicate `20260904T123556Z`.** The two authorized mutations are DONE and the chain is proven to canonical. What remains is the preview/export link, blocked by the relative-fetch defect. **No further mutation is authorized** |
 > | **Phase 0** | ✅ **ACCEPTED at `fdaa255`.** The evaluation is frozen |
 > | **Phase 2** | **NOT STARTED.** The 38-turn destination ledger. Read-only rebuild from existing evidence — do NOT rerun the cohort |
 > | **Authorized mutations** | **EXACTLY TWO, on `447eee18` only:** placement (`building_years`, `operator_set`) then promotion. **Control `5a56f942` must stay byte-identical.** No further mutation is authorized by this record |
-> | **Live-run state** | **ZERO mutations to date.** `20260901T212134Z` is a designed **REFUSAL**; `20260901T232656Z` is an **unhandled harness ERROR** that also mutated nothing. Both verified: `mutations: 0`, control PASS. **Seven run directories exist — preserve all of them** |
-> | **Next live attempt** | A **fresh run — no `--resume`.** `447eee18` is untouched at `review_version: 1`, so the probe enters `full` mode with a PATCH budget of 2 |
+> | **Live-run state** | ✅ **BOTH AUTHORIZED MUTATIONS PERFORMED, `20260904T123556Z`.** Placement `v1→v2` then promotion `v2→v3`, 2/2 PATCHes in order, provenance unchanged, control identical. **Chain proven archive → placement → promotion → canonical.** Preview FAILS on a named product defect; export not attempted by design |
+> | **Target state NOW** | `447eee18` is **`promoted`, placed `building_years`/`operator_set`, `review_version: 3`.** It is NO LONGER unplaced |
+> | **Next live attempt** | **`--resume 20260904T123556Z`** — mode `promoted`, PATCH budget **0**. A fresh run would refuse at preconditions, correctly, because the target is no longer unplaced. *(This row said "fresh run, no `--resume`" until the mutations landed.)* |
+> | **Failing link** | `5_preview` — `ui/hornelore1.0.html:8551` fetches `/api/memoir/canonical` **relative**, resolving to `:8082`. Three UI-issued 404s observed; the same query against `:8000` returns 200. **Not a regression, not a canonical failure** |
 >
 > **A refusal is a result.** A run that stops before mutating, names the failing link and
 > exits non-zero has done its job. It is not a failed attempt to be retried until it passes.
@@ -107,7 +109,7 @@ the count it produces is not evidence about this change.
 
 | Lane | State |
 |---|---|
-| **`WO-LORI-ARCHIVE-TO-MEMOIR-02`** | 🔵 **ACTIVE — Phase 1 in implementation. §9.** Phase 0 accepted `fdaa255`. Phase 1 harness green offline; live run pending. One designed refusal and one unhandled error both mutated nothing. Phase 2 (38-turn ledger) NOT STARTED. **Exactly two mutations authorized, on `447eee18` only** |
+| **`WO-LORI-ARCHIVE-TO-MEMOIR-02`** | 🔵 **ACTIVE — Phase 1 in implementation. §9.** Phase 0 accepted `fdaa255`. **Both authorized mutations performed `20260904T123556Z`; chain proven archive → placement → promotion → canonical.** Preview blocked by the relative-fetch defect. Target is now promoted/placed/v3 — resume, do not run fresh. Phase 2 (38-turn ledger) NOT STARTED. **Exactly two mutations authorized, on `447eee18` only** |
 | **Memory Integrity Layer / guardrail audit** | 🟡 **DESIGN THREAD — no work order yet.** Response-guard audit done; `BUG-LORI-FEWSHOT-EXEMPLAR-LEAK-01_Spec.md` (repo root) is **ACTIVE / NEXT**. Nothing here is scheduled. §10 |
 | **Repository hygiene** | ⏸️ **PHASE A ACCEPTED, REMAINDER PAUSED — the work order is INCOMPLETE.** Steps 0, 1 `5f6b01b`, 2 `db0c5e7`, 2b `ff1ff4f` and the first Step 3 cohort `5086490` are accepted. **Deferred by product-priority decision:** the remaining Step 3 cohorts, Steps 4–5, and the final verification checkpoint. Still indexed, still owed, not scheduled |
 | **Profile Seed reachability** | ⏸️ **OWED — Phase 3 IN IMPLEMENTATION with ACCEPTANCE OPEN, and no longer the current action.** *(It was, until `WO-LORI-ARCHIVE-TO-MEMOIR-02` took priority. Owed work does not become finished work when the lane changes.)* Phase 0 `661aa95` · Phase 1 `1288baa` · **Phase 2 ACCEPTED 2026-08-29, steps 1–7 complete** (step 4 `b269184`, step 5 `9127adb`, pre-Step-6 corrections `d0e5294`, step 6 `12221e0`…`58dfc40` live, step 7 `6885bb2`) · Phase 3 implementation landed through `2b7e634`; its six acceptance conditions remain open. Phases 4–5 are partially run and not accepted. See the Profile Seed spec's reconciled status block |
@@ -340,24 +342,46 @@ goes*. The ledger must record them as two destinations, never one.
 **Nothing beyond these two is authorized.** A third mutation, a wrong order, or any PATCH to
 another candidate is aborted before the request leaves the browser.
 
-### Live-run history — both refusals are valid results
+### Live-run history
 
-**The two outcomes are NOT the same kind of event, and the distinction is load-bearing.**
-
-| Run | Outcome | Verified evidence | Cause |
+| Run | Outcome | Mutations | Cause / result |
 |---|---|---|---|
-| `20260901T212134Z` | **DESIGNED REFUSAL** | `refusals: ["REFUSED before promotion: placement is building_years"]`, `1_preconditions: REFUSED`, `7_control_unchanged: PASS`, gate *"failed at preconditions"* | Required a `building_years` placement the candidate never had. **This refusal produced the finding above** |
-| `20260901T232656Z` | **UNHANDLED ERROR** that happened to mutate nothing | `refusals: []`, `error: locator.click Timeout`, links `1_preconditions/1b_narrator_active/7_control_unchanged` all PASS, gate *"incomplete — not every link ran"* | Probe-selector defect: `#lv10dBugPanelBtn` does not exist |
+| `20260901T212134Z` | **DESIGNED REFUSAL** | 0 | Demanded a placement the candidate never had. **Produced the runtime-era finding** |
+| `20260901T232656Z` | **UNHANDLED ERROR** | 0 | Probe-selector defect: `#lv10dBugPanelBtn` does not exist |
+| `20260904T120642Z` | **DESIGNED REFUSAL** | 0 | 2 of 5 rows matched the passage text. **Produced the granularity finding** |
+| `20260904T123556Z` | ✅ **BOTH MUTATIONS PERFORMED** | 2 | Placement `v1→v2`, promotion `v2→v3`, order `placement>promotion`, provenance unchanged, control identical |
 
-**Only the first demonstrates the refusal machinery.** The second proves the *mutation*
-guards hold under an exception — the PATCH budget and the `finally` control check did their
-job — but it exited through a thrown timeout, not a refusal, and its `refusals` array is
-empty. A handoff that calls both "refusals" overstates the evidence.
+**Preserve every run directory under `.runtime/eval/phase1-memoir-chain/`.** §5's no-deletion
+rule governs them, and three of the four are the evidence for findings now in the WO.
 
-**`.runtime/eval/phase1-memoir-chain/` holds SEVEN directories**, not two:
-`20260901T185211Z`, `185443Z`, `185512Z`, `185526Z`, `201406Z`, `212134Z`, `232656Z`. Only
-three carry a `report.json`. **Preserve all seven** — §5's no-deletion rule governs them,
-and "preserve both" must not be read as licence to clear the rest.
+### What `20260904T123556Z` proved, and what it did not
+
+**PROVEN — the chain reaches canonical.** `1_preconditions` · `1b_narrator_active` ·
+`2a0_bug_panel_open` · `2a0_section_expanded` · `2a_filter` · `2_row_located` ·
+`2b_detail_verified` · `3a_placed` · `3a_verify_placement` · `3b_row_refetched` ·
+`3b_promoted` · `4_canonical` all PASS. Canonical returns the passage **exactly once**, with
+`era=building_years`, `source_id=5d57a43ce780`, `lane=captured_story`, `complete=true`.
+
+**NOT PROVEN — preview and export.** `5_preview` FAILS. Both memoir-opening stages were
+found and clicked (`stage2.label = "Open your memoir"`), but the popover never became
+visible and contained the passage 0 times. **The cause is named and confirmed live:**
+`ui/hornelore1.0.html:8551` fetches `/api/memoir/canonical` **relative**, so it resolves to
+the UI server. Three UI-issued requests, all `404` off `:8082`; the identical query against
+`:8000` returns `200`. Export is `not_reached` **by design** — the probe refuses to attempt
+an export whose preview never rendered.
+
+**This is not a regression and not a canonical failure.** It is a one-line origin defect in
+the UI, sitting between a working canonical API and a working memoir popover. Fixing it is
+a product change and is **not authorized by this record.**
+
+### Target state after the run — READ THIS BEFORE RE-RUNNING
+
+`447eee18` is now **`promoted`**, placed **`building_years`/`operator_set`**,
+**`review_version: 3`**. The control `5a56f942` is byte-identical and untouched.
+
+**The next run must be `--resume 20260904T123556Z`** — mode `promoted`, PATCH budget **0**,
+so it verifies and continues downstream while mutating nothing. A fresh run would refuse at
+preconditions, correctly, because the target is no longer unplaced.
 
 ### Harness — all offline, all green on `.venv`
 
