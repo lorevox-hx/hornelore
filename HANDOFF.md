@@ -10,27 +10,27 @@ rule back. The claim that matters is the one about obligations.)*
 
 ---
 
-> # ▶ CURRENT ACTION — PROFILE SEED PHASE 3. PHASE 2 IS ACCEPTED. HYGIENE PHASE A PAUSED.
+> # ▶ CURRENT ACTION — `WO-LORI-ARCHIVE-TO-MEMOIR-02` PHASE 1. HARNESS READY, LIVE RUN PENDING.
 >
 > | | |
 > |---|---|
-> | **Current action** | Profile Seed **Phase 3 — NOT STARTED.** Reconcile the eight browser promotion sites with server authority and remove the remaining browser-controlled race. Begins with a bounded read-only review, before any UI edit |
-> | **Phase 2** | ✅ **ACCEPTED 2026-08-29.** Steps 1–7 complete. Step 6 proven live; Step 7 — consolidated closure — delivered at `6885bb2` |
-> | **Step 6** | ✅ **ACCEPTED on live evidence.** `12221e0`…`58dfc40`, instrument `525a43f`. Two runs of `scripts/step6_ws_probe.py` through the **production WebSocket and the real model — 16/16 each**; run 2 from a committed instrument on a clean tree |
-> | **Hygiene Phase A** | **ACCEPTED** through the first Step 3 cohort — Steps 0, 1, 2, 2b and the four root dated artifacts |
-> | **Hygiene remainder** | **DEFERRED by Chris's product-priority decision:** the remaining Step 3 cohorts, Steps 4–5, and the final verification checkpoint. They remain indexed, not cancelled |
-> | **Is the hygiene work order complete?** | **NO — incomplete and PAUSED.** Phase A acceptance is not completion of `WO-REPOSITORY-HYGIENE-01` |
-> | **May Phase 3 begin?** | **YES** — after its read-only review. The rule that Profile Seed waited for the whole hygiene checkpoint is **superseded** by that decision |
+> | **Current action** | **Phase 1 — IN IMPLEMENTATION.** Prove the memoir chain end to end with the two authorized mutations on ONE candidate. The harness is green offline; the live run has not yet succeeded |
+> | **Phase 0** | ✅ **ACCEPTED at `fdaa255`.** The evaluation is frozen |
+> | **Phase 2** | **NOT STARTED.** The 38-turn destination ledger. Read-only rebuild from existing evidence — do NOT rerun the cohort |
+> | **Authorized mutations** | **EXACTLY TWO, on `447eee18` only:** placement (`building_years`, `operator_set`) then promotion. **Control `5a56f942` must stay byte-identical.** No further mutation is authorized by this record |
+> | **Live-run state** | **ZERO mutations to date.** `20260901T212134Z` is a designed **REFUSAL**; `20260901T232656Z` is an **unhandled harness ERROR** that also mutated nothing. Both verified: `mutations: 0`, control PASS. **Seven run directories exist — preserve all of them** |
+> | **Next live attempt** | A **fresh run — no `--resume`.** `447eee18` is untouched at `review_version: 1`, so the probe enters `full` mode with a PATCH budget of 2 |
 >
-> **The supersession is deliberate and is recorded so it is not mistaken for drift.** The
-> earlier rule — that no individual hygiene step's acceptance releases Step 6, only Steps 3–5
-> and the final verification together — was correct when hygiene was the priority. Chris
-> changed the priority. **What that decision does not do is claim the hygiene work is
-> finished**, and no document may say it is.
+> **A refusal is a result.** A run that stops before mutating, names the failing link and
+> exits non-zero has done its job. It is not a failed attempt to be retried until it passes.
 >
-> **Still frozen, and not by hygiene:** the boundaries in §3 are the lane's own, and they do
-> not relax. Runtime safety, the model and its window, the directive registry and Kawa are
-> governed by `CLAUDE.md`, which no priority decision touches.
+> **Profile Seed Phase 3 is OWED, not current.** It was the previous current action and is
+> **NOT STARTED**; it is not cancelled and not superseded — see §2. Hygiene Phase A remains
+> ACCEPTED with its remainder PAUSED and `WO-REPOSITORY-HYGIENE-01` INCOMPLETE. **No priority
+> change ever converts owed work into finished work**, and no document may say otherwise.
+>
+> **Still frozen:** runtime safety, the model and its 8,192-token window, the directive
+> registry and Kawa are governed by `CLAUDE.md`, which no priority decision touches.
 
 ---
 
@@ -106,8 +106,10 @@ the count it produces is not evidence about this change.
 
 | Lane | State |
 |---|---|
+| **`WO-LORI-ARCHIVE-TO-MEMOIR-02`** | 🔵 **ACTIVE — Phase 1 in implementation. §9.** Phase 0 accepted `fdaa255`. Phase 1 harness green offline; live run pending, two valid zero-mutation refusals so far. Phase 2 (38-turn ledger) NOT STARTED. **Exactly two mutations authorized, on `447eee18` only** |
+| **Memory Integrity Layer / guardrail audit** | 🟡 **DESIGN THREAD — no work order yet.** Response-guard audit done; `BUG-LORI-FEWSHOT-EXEMPLAR-LEAK-01_Spec.md` (repo root) is **ACTIVE / NEXT**. Nothing here is scheduled. §10 |
 | **Repository hygiene** | ⏸️ **PHASE A ACCEPTED, REMAINDER PAUSED — the work order is INCOMPLETE.** Steps 0, 1 `5f6b01b`, 2 `db0c5e7`, 2b `ff1ff4f` and the first Step 3 cohort `5086490` are accepted. **Deferred by product-priority decision:** the remaining Step 3 cohorts, Steps 4–5, and the final verification checkpoint. Still indexed, still owed, not scheduled |
-| **Profile Seed reachability** | 🔵 **ACTIVE — Phase 3 is the current action, NOT STARTED.** Phase 0 `661aa95` · Phase 1 `1288baa` · **Phase 2 ACCEPTED 2026-08-29, steps 1–7 complete** (step 4 `b269184`, step 5 `9127adb`, pre-Step-6 corrections `d0e5294`, step 6 `12221e0`…`58dfc40` live, step 7 `6885bb2`) · Phases 4–5 not started. **Phase 3:** reconcile the eight browser promotion sites with server authority and remove the remaining browser-controlled race. It begins with a bounded read-only review, before any UI edit |
+| **Profile Seed reachability** | ⏸️ **OWED — Phase 3 NOT STARTED, and no longer the current action.** *(It was, until `WO-LORI-ARCHIVE-TO-MEMOIR-02` took priority. Owed work does not become finished work when the lane changes.)* Phase 0 `661aa95` · Phase 1 `1288baa` · **Phase 2 ACCEPTED 2026-08-29, steps 1–7 complete** (step 4 `b269184`, step 5 `9127adb`, pre-Step-6 corrections `d0e5294`, step 6 `12221e0`…`58dfc40` live, step 7 `6885bb2`) · Phases 4–5 not started. **Phase 3:** reconcile the eight browser promotion sites with server authority and remove the remaining browser-controlled race. It begins with a bounded read-only review, before any UI edit |
 | `WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` | **COMPLETE** — Phases 1–4 accepted. Closes the three L2 integration defects |
 | `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` | **ACCEPTED AND COMPLETE 2026-08-20** — story-to-memoir 11/11, deletion integrity 10/10, verified against filesystem and SQL |
 | Deletion / erasure integrity | **CLOSED 2026-08-20.** Erasure planned before the DB authority is destroyed, persisted (0049), bound to the canonical absolute root (0050); refuses every symlink below the root; eleven stores; deletes media; purges the translation cache; reports backups rather than rewriting them; fails closed; retryable with a truthful audit trail |
@@ -297,9 +299,141 @@ Full register with evidence: [`docs/BACKLOG.md`](docs/BACKLOG.md).
 | `CLAUDE.md` | Durable doctrine and prohibitions |
 | `docs/INDEX.md` | Where documentation authority lives |
 | `docs/BACKLOG.md` | Unresolved obligations, with evidence |
-| `docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md` | The **paused** repository lane — Phase A accepted, remainder deferred and incomplete. **Not the current action;** Profile Seed is |
+| `docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md` | The **paused** repository lane — Phase A accepted, remainder deferred and incomplete. **Not the current action;** `WO-LORI-ARCHIVE-TO-MEMOIR-02` Phase 1 is |
 | `docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md` + `..._PHASE2_TRANSPORT_MAP.md` | The current product lane |
 | `docs/architecture/TRAVEL_DOCUMENT_DOCTRINE.md` | Binding Travel Document rulings |
 
 Historical handoffs and long status narratives live in Git history and `docs/archive/`.
 **They must not be appended back into this operational brief.**
+
+## 9. `WO-LORI-ARCHIVE-TO-MEMOIR-02` Phase 1 — state at handoff (2026-09-03)
+
+**Plan:** [`docs/wo/WO-LORI-ARCHIVE-TO-MEMOIR-02.md`](docs/wo/WO-LORI-ARCHIVE-TO-MEMOIR-02.md).
+Phase 0 accepted at `fdaa255`. **Phase 1 is in implementation. Phase 2 is NOT STARTED.**
+
+### The finding that reshaped the phase
+
+**Runtime era is not a story placement, and conflating them is the bug this phase exists
+to avoid.** The conversation Pat spoke in carried era `building_years`; her story candidate
+carried none. `story_preservation.preserve` writes **every** candidate with
+`era_candidates=[]` and no placement (`story_preservation.py:225`). **That is deliberate.**
+Deriving a placement from whichever screen the narrator happened to be on is how a story is
+filed into the wrong memoir chapter; `story_projection` already refuses it, and the route
+enforces the same rule from the other side — *"an operator-set placement needs exactly one
+era; two eras is not a placement, it is a pair of guesses"* (`operator_story_review.py:366`).
+
+**Consequence, and it binds Phase 2:** a candidate can be **promoted and still reach
+canonical memoir unplaced**. Promotion decides *eligibility*; placement decides *where it
+goes*. The ledger must record them as two destinations, never one.
+
+### Authorized mutations — the whole authorization
+
+| | |
+|---|---|
+| Target | `447eee18-9ea5-4961-bf3d-157773d3cd44` (Pat), currently **unplaced, `unreviewed`, `review_version: 1`** |
+| Mutation 1 | **Placement** — era selector → `building_years`, then `Save placement / notes`. Sets `placement_source=operator_set` in the same gesture |
+| Mutation 2 | **Promotion** — that row's `Promote`, at the version the placement returned |
+| Control | `5a56f942-001b-453b-8e4d-01fb82062013` — **must stay byte-identical**, verified in `finally` |
+| Budget | Enforced in flight: fresh run 2, resumed-at-placement 1, fully-resumed **0** |
+
+**Nothing beyond these two is authorized.** A third mutation, a wrong order, or any PATCH to
+another candidate is aborted before the request leaves the browser.
+
+### Live-run history — both refusals are valid results
+
+**The two outcomes are NOT the same kind of event, and the distinction is load-bearing.**
+
+| Run | Outcome | Verified evidence | Cause |
+|---|---|---|---|
+| `20260901T212134Z` | **DESIGNED REFUSAL** | `refusals: ["REFUSED before promotion: placement is building_years"]`, `1_preconditions: REFUSED`, `7_control_unchanged: PASS`, gate *"failed at preconditions"* | Required a `building_years` placement the candidate never had. **This refusal produced the finding above** |
+| `20260901T232656Z` | **UNHANDLED ERROR** that happened to mutate nothing | `refusals: []`, `error: locator.click Timeout`, links `1_preconditions/1b_narrator_active/7_control_unchanged` all PASS, gate *"incomplete — not every link ran"* | Probe-selector defect: `#lv10dBugPanelBtn` does not exist |
+
+**Only the first demonstrates the refusal machinery.** The second proves the *mutation*
+guards hold under an exception — the PATCH budget and the `finally` control check did their
+job — but it exited through a thrown timeout, not a refusal, and its `refusals` array is
+empty. A handoff that calls both "refusals" overstates the evidence.
+
+**`.runtime/eval/phase1-memoir-chain/` holds SEVEN directories**, not two:
+`20260901T185211Z`, `185443Z`, `185512Z`, `185526Z`, `201406Z`, `212134Z`, `232656Z`. Only
+three carry a `report.json`. **Preserve all seven** — §5's no-deletion rule governs them,
+and "preserve both" must not be read as licence to clear the rest.
+
+### Harness — all offline, all green on `.venv`
+
+`Ran 116 — OK`, **zero skips** on `.venv/bin/python` (the Playwright tests skip only in an
+agent sandbox, which has no browser binary).
+
+- `scripts/ui/phase1_memoir_chain_probe.js` — the live probe. `--self-test` runs offline
+- `scripts/ui/phase1_bugpanel_launcher_domtest.js` — launcher contract, **12/12**
+- `scripts/ui/phase1_placement_workflow_domtest.js` — placement workflow against the **real
+  shipped panel module**, **22/22**
+- `scripts/ui/phase1_row_selection_domtest.js` — row selection, **21/21**
+- `tests/test_phase1_memoir_chain_probe.py` — 116 offline contract guards
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+node scripts/ui/phase1_bugpanel_launcher_domtest.js
+node scripts/ui/phase1_placement_workflow_domtest.js
+node scripts/ui/phase1_row_selection_domtest.js
+PYTHONPATH=server/code .venv/bin/python -m unittest tests.test_phase1_memoir_chain_probe
+```
+
+Then, and only when all four are green:
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+node scripts/ui/phase1_memoir_chain_probe.js
+```
+
+**Expected partial failure, already known and NOT a regression:** preview and export fail
+because `ui/hornelore1.0.html:8551` fetches `/api/memoir/canonical` **relative**, resolving
+to `:8082` and 404ing. The probe reports that as `failed — wrong API origin` and does not
+confuse it with a real canonical failure. Canonical itself is queried against `:8000`.
+
+### Owed before the next live attempt
+
+- **Confirm the tree is clean.** A commit block for the launcher fix was handed to Chris; it
+  may or may not have been run. `git status --porcelain` decides — not this document.
+- Nothing else. The next attempt is a **fresh run, no `--resume`**.
+
+## 10. Memory Integrity Layer — design thread, nothing scheduled
+
+A guardrail audit ran alongside Phase 1. **No work order exists and nothing here is
+approved.** Recorded so the thread is not lost or mistaken for a plan.
+
+**What is real in the tree today:** `lori_response_guards.py` is 1,294 lines exposing
+**7 `detect_` / 7 `repair_` pairs** — every detector has a repair partner. It contains **no
+environment gate: the response guards are unconditional.** Do not assume they behave like
+runtime safety, which is PARKED behind a decision.
+
+**Known gaps, both with specs or diagnoses, neither scheduled:**
+
+- **Stub collapse** — detection lives in `lori_communication_control.py`, *outside* the
+  detect/repair family, which is why no repair exists. Porting it into the pair pattern lets
+  it inherit `compose_guard_failure_fallback`.
+- **Few-shot exemplar leakage** — `BUG-LORI-FEWSHOT-EXEMPLAR-LEAK-01_Spec.md` **at the repo
+  root**. Its own status line reads **`ACTIVE / NEXT (deferred until after stub-collapse +
+  harness G4 ports land)`** — so the repo already sequences stub-collapse first, and that
+  dependency is the spec's, not a preference. Proposes placeholder examples plus
+  `detect_exemplar_leak()`.
+  *(A search scoped to `docs/wo/` misses it. Legacy `BUG-*_Spec.md` files still sit at the
+  root awaiting the archive cohort — see `CLAUDE.md`.)*
+
+**The design position reached, for whoever writes the work order:**
+
+> We do not want a weaker Lori. We want a knowledgeable Lori with a disciplined boundary
+> between *what I know about the world* and *what I know about you*.
+
+The constraint is on **attribution, not on knowing**. World knowledge predicated of the
+world is allowed and is one of Lori's main assets for cueing recall; an ungrounded specific
+predicated of *the narrator* is not. The proposed guard is
+`detect_ungrounded_personal_claim`, and its acceptance pair is: *"Bismarck was a much
+smaller city then"* must PASS, *"You stopped in Flagstaff"* must FAIL. **A guard that cannot
+separate those two is not ready** — and over-applying this rule produces the intake-clerk
+failure `CLAUDE.md` principle 8 exists to prevent.
+
+**Unmeasured, and the one thing worth doing first:** the nine post-generation layers each
+have evidence that they caught a bad case; **none has a false-positive rate.** The
+raw-vs-delivered response trace built during this lane can supply it — per-guard fire rate
+across cohort turns, plus a judged sample. Note the guards were tuned against **synthetic**
+narrators, so any cohort number is a floor, not an estimate.

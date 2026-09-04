@@ -212,6 +212,67 @@ DESIGN ONLY** — no token tables, no encryption machinery, no multi-user auth i
 to be built without Chris explicitly opening that work order. Full statement:
 `docs/wo/WO-TRAVEL-DOC-GOOGLE-PHOTOS-PICKER-01_Spec.md` §10.
 
+## Runtime era is not a story placement (permanent doctrine, 2026-09-01)
+
+**The era a conversation was in is not the era a story belongs to, and deriving one from
+the other is a defect.** `story_preservation.preserve` writes every candidate with
+`era_candidates=[]` and no placement (`story_preservation.py:225`). **That is deliberate,
+not a gap.** Filing a story into a memoir chapter on the strength of whichever screen the
+narrator happened to be looking at is exactly the wrong-chapter bug the refusal prevents,
+and `story_projection` already states it: *an era candidate nobody confirmed is not a
+placement.* The route enforces the same rule from the other side —
+*"an operator-set placement needs exactly one era; two eras is not a placement, it is a
+pair of guesses"* (`operator_story_review.py:366`).
+
+| | What it is | Where it lives |
+|---|---|---|
+| **Runtime era** | the era the conversation was in when the narrator spoke | the turn / Life Map selection |
+| **Story placement** | the era an **operator confirmed** the story belongs to | `era_candidates` + `placement_source` on the candidate |
+
+**Promotion decides eligibility; placement decides where it goes.** They are independent: a
+candidate can be promoted and still reach canonical memoir **unplaced**. Any ledger, report
+or projection that collapses them into one destination is wrong.
+
+`placement_source` is a closed set — `db.py:7865`
+`("unknown", "narrator_stated", "operator_set", "dob_derived")`. **`operator_set` is not
+hand-selectable in the UI**: choosing an era *is* the operator placement, and the era
+control writes both fields in one gesture. Offering the source separately once allowed an
+operator to build an era with source `unknown`, which the server then reported UNPLACED
+while the operator believed they had placed it.
+
+## UI harness hazards — an element that resolves is not a control that works
+
+**Recorded 2026-09-01 after two live probe runs were lost to this class.** These are
+durable facts about the shipped UI, not lane state.
+
+- **The Bug Panel is a NATIVE POPOVER.** `<div id="lv10dBugPanel" popover>` opened
+  declaratively by `popovertarget`. **There is no `onclick` anywhere to match**, and
+  clicking the container itself does nothing at all.
+- **Use `#lv10dBugBtn`** — the always-visible header launcher (#205), which exists
+  specifically because the operator needs it during a Narrator Session. **Two launchers
+  carry `popovertarget="lv10dBugPanel"`;** the other is "Open Full Bug Panel" in the
+  operator launcher section, a surface not on screen during a session. **Never require
+  uniqueness on the attribute** — that refuses against a correct product.
+- **Gate on `:popover-open`,** not on some descendant becoming visible. The popover's open
+  state is a fact the platform exposes; inferring it from a side effect can pass on an
+  already-open panel.
+- **The story-review section is COLLAPSED by default** (`bug-panel-story-review.js:116`),
+  and `render()` returns before `renderControls()`. While collapsed the panel exposes **no
+  filter input, no row and no promote control.** Expand through the section header —
+  the operator's own gesture — never through `_state`.
+- **A successful review write CLOSES the row.** `applyReview` sets
+  `_state.detail = null; _state.openId = null` and refetches, so no action survives a save
+  and the row must be reopened. This is why a stale-version promote is unreachable through
+  this UI.
+- **Assert visible AND enabled before clicking, and let a miss REFUSE.** Both lost runs
+  came from `if (el) el.click()` swallowing a selector that matched nothing, then timing
+  out thirty seconds later somewhere unrelated. The same family produced the
+  `#lvNarratorCtxMemoir` div. **A guard pinned to a phantom selector confirms the typo
+  instead of catching it** — pin every `#id` a harness uses against the shipped UI.
+- **A sandboxed agent browser cannot reach the WSL-bound servers** (`chrome-error://`).
+  Windows Chrome and Playwright *inside WSL* can. Do not conclude a product defect from an
+  agent-side browser failure, and do not route around it.
+
 ## Environment
 
 - **OS**: Windows 11 + WSL2 (Ubuntu). Chris works from WSL.
@@ -484,6 +545,18 @@ The extraction pipeline is one output surface; **Lori is the companion** — des
 **Facial awareness stack (browser-only, zero video transmission):** MediaPipe FaceMesh (468 landmarks) → geometry rules → affect labels (steady / engaged / reflective / moved / distressed / overwhelmed). Never ships video, raw landmarks, or raw emotion vectors — only derived `affect_state` + confidence + duration. `facial-consent.js` persists consent in `localStorage['lorevox_facial_consent_granted']`. `emotion.js` L348 has a load-bearing SIMD→non-SIMD WASM redirect (SIMD build crashes at `loadGraph` on Chris's stack). `cognitive-auto.js` v7.4C policy: visual can *accelerate* but not *cause* a mode transition; text has veto.
 
 **Camera / mic / TTS state-machine interactions:** activation chain is `toggleEmotionAware()` → `FacialConsent.request()` → `LoreVoxEmotion.init()` → `LoreVoxEmotion.start()` → `cameraActive=true` + `state.inputState.cameraActive=true` + `window.lv74.showCameraPreview()`. Two truth sources for `cameraActive` (global at `state.js:407` and mirror at `state.js:283`) can desync on narrator switch. Perm-card path flips `emotionAware=true` only — it does NOT call `startEmotionEngine`. `camera-preview.js` reuses the emotion-engine's hidden video `srcObject`; if absent, falls back to a second `getUserMedia` (can double-prompt or fail silently). WO-MIC-UI-02A's 4-state visual (LISTENING / OFF / WAIT amber / BLOCKED) × WO-10H turn-claim state machine × WO-10C stretched silence can interact badly when TTS on 8001 errors mid-stream (mic stuck amber).
+
+**Post-generation response guards are UNCONDITIONAL — do not assume they behave like the
+parked safety feature.** `server/code/api/services/lori_response_guards.py` contains **no
+environment gate at all**: it exposes 7 `detect_` / 7 `repair_` pairs, and every detector
+has a repair partner. Its own design rule is *"LAW 3: pure deterministic. No LLM. No DB.
+No IO."* New guards belong in that pair pattern — a detector filed elsewhere (stub collapse
+lives in `lori_communication_control.py`) cannot inherit `compose_guard_failure_fallback`,
+which is why detection there never produced a repair.
+
+**A detector that only detects is not a guardrail.** For this project reserve *guardrail*
+for something that prevents or repairs narrator-facing behaviour before the person sees it;
+a test, a prompt instruction and a Bug Panel warning are none of them.
 
 **Diag panel first.** For any camera/mic/TTS bug, open the in-app diag at `app.js:5730–5819` (`lv10dSyncHeaderControls`) — it already emits warnings for "Camera active but preview DOM not created", "emotionAware=true but facial consent declined", "Turn state stuck in awaiting_tts_end", plus live `lv10dBpFacialConsent` / `lv10dBpConsentStored` / `lv10dBpCamPreview` / `lv10dBpTts` / `lv10dBpSignalAge` readouts. Check these first; the fault surface collapses to one branch.
 
