@@ -653,6 +653,77 @@ def score_field_match(expected_val: str, actual_val: str) -> float:
     return 0.0
 
 
+def preservation_accounting(case: dict, extracted_items: List[dict],
+                            clarifications: List[dict]) -> dict:
+    """Classify each expected fact as executed / preserved / missing / wrong.
+
+    WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04).
+
+    THE SCORE CANNOT SEE QUARANTINES. The evaluator reads `data["items"]` and
+    nothing else, so an extraction that deliberately withholds a fact for
+    review is indistinguishable in the report from one that lost it. Those are
+    opposite outcomes: the first is the guard working, the second is the
+    defect it exists to prevent.
+
+    This is ACCOUNTING, NOT SCORING. `preserved_for_review` is not a pass and
+    never touches `overall_score` or the contract subsets, so the historical
+    ladder stays comparable run to run. It exists so a pass->fail flip can be
+    classified as safe quarantine rather than disappearance -- a distinction
+    that decided the wrong way once already, when the reverted guard's five
+    lost cases could not be told apart from five suppressed ones.
+
+    Per expected `must_extract` fact:
+      executed_correct     an executable item carries that value
+      preserved_for_review no executable item, but a review entry proposes it
+      wrong_executable     an executable item carries a DIFFERENT value there
+      missing              neither
+    """
+    exec_by_path: Dict[str, List[str]] = {}
+    for it in extracted_items or []:
+        exec_by_path.setdefault(str(it.get("fieldPath", "")), []).append(
+            _norm_value(it.get("value")))
+
+    proposed_by_path: Dict[str, List[str]] = {}
+    for c in clarifications or []:
+        for p in (c.get("proposed_items") or []):
+            proposed_by_path.setdefault(str(p.get("fieldPath", "")), []).append(
+                _norm_value(p.get("value")))
+        # A quarantine entry may name only its subject.
+        if c.get("proposed_fieldPath") and not c.get("proposed_items"):
+            proposed_by_path.setdefault(
+                str(c["proposed_fieldPath"]), []).append(_norm_value(c.get("value")))
+
+    fates: Dict[str, str] = {}
+    for exp in (case.get("truthZones", {}) or {}).get("must_extract", []) or []:
+        path = str(exp.get("fieldPath", ""))
+        want = _norm_value(exp.get("value"))
+        key = f"{path}={exp.get('value')}"
+        got = exec_by_path.get(path, [])
+        if want and any(want == g or want in g or g in want for g in got if g):
+            fates[key] = "executed_correct"
+        elif any(want == p or (want and p and (want in p or p in want))
+                 for p in proposed_by_path.get(path, [])):
+            fates[key] = "preserved_for_review"
+        elif got:
+            fates[key] = "wrong_executable"
+        else:
+            fates[key] = "missing"
+
+    counts = {k: 0 for k in ("executed_correct", "preserved_for_review",
+                             "wrong_executable", "missing")}
+    for v in fates.values():
+        counts[v] = counts.get(v, 0) + 1
+    return {"fates": fates, "counts": counts}
+
+
+def _norm_value(v) -> str:
+    if v is None:
+        return ""
+    if isinstance(v, (list, tuple)):
+        v = ", ".join(str(x) for x in v)
+    return re.sub(r"\s+", " ", str(v)).strip().lower()
+
+
 def score_case(case: dict, extracted_items: List[dict]) -> dict:
     """Score a single evaluation case against extracted items.
 
@@ -1233,13 +1304,19 @@ def run_live(cases: List[dict], api_base: str) -> List[dict]:
             if resp.status_code == 200:
                 data = resp.json()
                 extracted_items = data.get("items", [])
+                # Phase 3: the response also carries entries the extractor
+                # deliberately WITHHELD from execution. Reading only `items`
+                # made a safe quarantine indistinguishable from a loss.
+                clarifications = data.get("clarification_required", []) or []
                 method = data.get("method", "unknown")
             else:
                 extracted_items = []
+                clarifications = []
                 method = f"http_{resp.status_code}"
                 print(f"  WARN {case['id']}: HTTP {resp.status_code}")
         except Exception as e:
             extracted_items = []
+            clarifications = []
             method = f"error_{type(e).__name__}"
             elapsed = 0
             print(f"  ERROR {case['id']}: {e}")
@@ -1284,6 +1361,36 @@ def run_live(cases: List[dict], api_base: str) -> List[dict]:
                 "confidence": item.get("confidence"),
             })
         result["raw_items"] = compact_items
+
+        # ── PRESERVATION ACCOUNTING (Phase 3) ────────────────────────────
+        # Separate fields, separate totals. Nothing here feeds overall_score,
+        # v2/v3 or the pass flag: the historical ladder must stay comparable.
+        review_entries = []
+        for c in clarifications:
+            proposed = []
+            for p in (c.get("proposed_items") or []):
+                pv = p.get("value", "")
+                if isinstance(pv, str) and len(pv) > 100:
+                    pv = pv[:100] + "…"
+                proposed.append({"fieldPath": p.get("fieldPath", ""),
+                                 "value": pv,
+                                 "confidence": p.get("confidence")})
+            review_entries.append({
+                "kind": c.get("kind"),
+                "label": c.get("label"),
+                "value": c.get("value"),
+                "proposed_fieldPath": c.get("proposed_fieldPath"),
+                "proposed_items": proposed,
+                "reasons": c.get("reasons") or (
+                    [c["reason"]] if c.get("reason") else []),
+                "not_applied": bool(c.get("not_applied")),
+            })
+        result["review_entries"] = review_entries
+        result["review_count"] = len(review_entries)
+        result["executable_count"] = len(extracted_items)
+        _pres = preservation_accounting(case, extracted_items, clarifications)
+        result["preservation"] = _pres["counts"]
+        result["preservation_fates"] = _pres["fates"]
         # WO-EX-DENSE-DIAG-01 — pipe diagnostic metadata through for dense_metrics
         if "_diagFamily" in case:
             result["_diagFamily"] = case["_diagFamily"]
@@ -2056,6 +2163,30 @@ def print_summary(report: dict):
     # Truth zones
     tz = report.get("truth_zone_summary", {})
     if tz:
+        # ── PRESERVATION / SAFETY ACCOUNTING (Phase 3) ───────────────────
+        # Printed BESIDE the score, never folded into it. A fact preserved for
+        # review is not an extraction pass; it is also not a loss, and the
+        # report has to be able to say which.
+        _pres_tot = {"executed_correct": 0, "preserved_for_review": 0,
+                     "wrong_executable": 0, "missing": 0}
+        _rev_cases, _rev_entries = 0, 0
+        for _r in results:
+            for _k, _v in (_r.get("preservation") or {}).items():
+                _pres_tot[_k] = _pres_tot.get(_k, 0) + _v
+            if _r.get("review_count"):
+                _rev_cases += 1
+                _rev_entries += _r["review_count"]
+        if any(_pres_tot.values()) or _rev_entries:
+            print("  PRESERVATION ACCOUNTING (not part of the score):")
+            print(f"    executed_correct:       {_pres_tot['executed_correct']}")
+            print(f"    preserved_for_review:   {_pres_tot['preserved_for_review']}"
+                  "   <- withheld ON PURPOSE, not lost")
+            print(f"    wrong_executable:       {_pres_tot['wrong_executable']}")
+            print(f"    missing:                {_pres_tot['missing']}")
+            print(f"    cases with review entries: {_rev_cases}"
+                  f"  ({_rev_entries} entries)")
+            print()
+
         print("  Truth zone metrics:")
         print(f"    must_extract recall:        {tz['must_extract_recall']:.1%}")
         print(f"    may_extract bonus rate:     {tz['may_extract_bonus_rate']:.1%}")
