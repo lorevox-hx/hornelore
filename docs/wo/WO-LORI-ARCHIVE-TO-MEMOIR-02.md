@@ -211,7 +211,7 @@ ships. Both are preserved.
 | preview | **PASS** — `:popover-open` true, occurrences **1**, 1408 chars |
 | export | **PASS** — `lorevox_memoir_…__pat_structured.docx`, 36,975 bytes, occurrences **1**, `bodyPersonIsPat=true` |
 | agreement | **PASS** — canonical **1** / preview **1** / DOCX **1** |
-| control `5a56f942` | **PASS** — byte-identical |
+| control `5a56f942` | **PASS** — item identical; the changing `fetched_at` envelope is excluded by design |
 
 **Supporting gates:** 141 Python tests (zero skips on `.venv`) and all four DOM suites —
 launcher, memoir popover, placement workflow, row selection.
@@ -266,8 +266,9 @@ question of coverage and correctness rather than of whether the road is there at
 placement then promotion, in that order — and none to any other candidate.
 The budget is enforced in-flight: a third PATCH, a wrong order, or a foreign
 candidate is aborted before the request leaves the browser and the run exits
-non-zero. Control candidate `5a56f942` must be byte-identical afterwards,
-checked in `finally` so a crash cannot skip it.
+non-zero. Control candidate `5a56f942` must be **item-identical** afterwards — the
+always-changing `fetched_at` envelope is excluded by design — checked in `finally` so a
+crash cannot skip it.
 
 **Resumability.** A resumed run's mode is read from the **named prior report**,
 never from the database: a row that is already placed or promoted says nothing
@@ -379,7 +380,7 @@ figure. Keep every metric below; they simply report better news than expected.
 
 ### The ledger reports FIVE separate metrics — never one number
 
-- [ ] **Candidate presence** — how many candidates exist (this is what `11/38` was).
+- [x] **Candidate presence** — **35/38 (92.1%)**. *(`11/38` was never this metric, or any metric: it was eleven operator PATCHes in the API log.)*
 - [ ] **Independently addressable statement coverage** — statements reachable as their own story, not merely present inside some aggregate.
 - [ ] **Over-capture / aggregation** — statements swept into a span far larger than themselves.
 - [ ] **Duplicate and containment groups** — candidates nesting or overlapping, grouped.
@@ -440,7 +441,13 @@ Required aggregate totals:
 
 **Outcome:** Important life narration becomes reviewable even when it does not resemble a travel chain.
 
-This is the central bottleneck: the current **candidate-presence count** is 11/38 (29%) — **not** a coverage figure, for the reasons recorded under Phase 2. The goal is not to force every utterance into the memoir. The goal is to ensure every substantive autobiographical passage is either nominated or given a defensible, inspectable `not_story` reason.
+**SUPERSEDED 2026-09-04 — this was not the bottleneck.** The Phase 2 ledger measured
+candidate presence at **35/38 (92.1%)** with capture byte-exact and zero over-capture;
+only three statements produced nothing. **The bottleneck is REVIEW** — all 35 candidates
+are `unreviewed`, so 0% are memoir-reachable. The goal stated below still holds and is
+nearly met: every substantive passage should be either nominated or given a defensible,
+inspectable `not_story` reason. What is owed is the `not_story` reason for the three, and
+an operator pass over the thirty-five.
 
 - [ ] Treat the full coherent narrator passage as the source unit.
 - [ ] Add Pat’s Jim passage as the primary regression fixture.
@@ -638,8 +645,15 @@ Pasted completion reports are treated as committed and pushed unless Chris expli
 
 # 7. Immediate active phase
 
-Begin **Phase 0 only**.
+**IMMEDIATE INSTRUCTION — updated 2026-09-04.** Phase 0 is accepted (`fdaa255`) and
+**Phase 1 is ACCEPTED** — the chain is proven end to end and no further mutation is
+authorized.
 
-After Phase 0 is pushed and reviewed, perform Phase 1’s single end-to-end memoir proof. Do not redesign extraction, response controls or story capture before that proof and the Phase 2 ledger establish precisely what the current system does.
+Begin **Phase 2 only: the READ-ONLY 38-turn span/granularity ledger.** Do NOT rerun the
+cohort, do not create a narrator, and do not change extraction, response controls or story
+capture. The first pass is built at
+`docs/reports/PHASE2_38_TURN_SPAN_LEDGER_20260904.json` and has already overturned this
+work order's headline defect; what remains is adjudicating the eleven correctness defects
+the corrected numbers leave standing.
 
 This document is now the single shared plan. The superseded work order remains historical evidence and must not be used to direct new work.

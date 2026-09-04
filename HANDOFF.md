@@ -14,14 +14,14 @@ rule back. The claim that matters is the one about obligations.)*
 >
 > | | |
 > |---|---|
-> | **Current action** | **Phase 2 — the read-only 38-turn span/granularity ledger. NOT STARTED.** Rebuild from existing evidence; **do NOT rerun the cohort** |
-> | **Phase 1** | ✅ **ACCEPTED 2026-09-04.** Two runs, and the split matters: **`20260904T123556Z` performed the only two authorized mutations** (placement `v1→v2`, promotion `v2→v3`); **`20260904T130525Z` carried that proof forward at ZERO mutations** and completed preview and export. Exit **0**, agreement canonical **1** / preview **1** / DOCX **1**, control byte-identical |
+> | **Current action** | **Phase 2 — the read-only 38-turn span/granularity ledger. FIRST PASS BUILT** at `docs/reports/PHASE2_38_TURN_SPAN_LEDGER_20260904.json`. It overturned this lane's headline defect: candidate presence is **35/38 (92.1%)**, not 11/38; the `11` was eleven operator PATCHes in the API log. **The bottleneck is REVIEW, not capture** — 92% captured, 0% reviewed, 0% memoir-reachable. **Do NOT rerun the cohort** |
+> | **Phase 1** | ✅ **ACCEPTED 2026-09-04.** Two runs, and the split matters: **`20260904T123556Z` performed the only two authorized mutations** (placement `v1→v2`, promotion `v2→v3`); **`20260904T130525Z` carried that proof forward at ZERO mutations** and completed preview and export. Exit **0**, agreement canonical **1** / preview **1** / DOCX **1**, control **item identical** (changing `fetched_at` envelope excluded) |
 > | **The resume did NOT mutate** | mode `promoted`, budget `0`, observed `0`, no blocked PATCHes, no refusals. `3a_placed` reads `carried_forward`, not `PASS`, so this cannot be misread. **Any claim that the passing run placed or promoted is wrong** |
 > | **Defects corrected to get there** | **PRODUCT:** `hornelore1.0.html` fetched canonical from a relative URL (BUG-224 class) — now uses `ORIGIN` from `api.js`. **HARNESS:** `PANEL_STATE` used `offsetParent` on a native popover, a guaranteed false negative — now `:popover-open` alone |
 > | **Phase 0** | ✅ **ACCEPTED at `fdaa255`.** The evaluation is frozen |
 > | **Mutations — ALL SPENT** | `447eee18` is now `promoted`, `building_years`/`operator_set`, `review_version: 3`. **NO further mutation is authorized by this record** |
 > | **Contract guarantees held** | `containsSourceId: false` — no raw UUID in the document · `forbidden: []` — no known bad substitution reached the export |
-> | **What Phase 1 does NOT claim** | **ONE** passage completes the chain. It says nothing about the other 27 archived-but-uncaptured statements, nothing about capture granularity, nothing about correctness at scale. That is Phase 2 |
+> | **What Phase 1 does NOT claim** | **ONE** passage completes the chain. It says nothing about correctness at scale. *(This row cited "27 archived-but-uncaptured statements" until the Phase 2 ledger measured it: the real figure is **three**, and capture presence is **35/38**.)* That is Phase 2 |
 >
 > **A refusal is a result.** A run that stops before mutating, names the failing link and
 > exits non-zero has done its job. It is not a failed attempt to be retried until it passes.
@@ -109,7 +109,7 @@ the count it produces is not evidence about this change.
 
 | Lane | State |
 |---|---|
-| **`WO-LORI-ARCHIVE-TO-MEMOIR-02`** | 🔵 **ACTIVE — Phase 1 ACCEPTED; Phase 2 is next. §9.** Phase 0 `fdaa255`. **Phase 1 ACCEPTED** — mutations in `20260904T123556Z`, proof carried forward at **zero mutations** in `20260904T130525Z`, exit 0. Full chain archive → placement → promotion → canonical → preview → export, agreement 1/1/1, control byte-identical. Both authorized mutations SPENT; **no further mutation is authorized.** Phase 2 (read-only 38-turn span/granularity ledger) **NOT STARTED** |
+| **`WO-LORI-ARCHIVE-TO-MEMOIR-02`** | 🔵 **ACTIVE — Phase 1 ACCEPTED; Phase 2 is next. §9.** Phase 0 `fdaa255`. **Phase 1 ACCEPTED** — mutations in `20260904T123556Z`, proof carried forward at **zero mutations** in `20260904T130525Z`, exit 0. Full chain archive → placement → promotion → canonical → preview → export, agreement 1/1/1, control **item identical** (changing `fetched_at` envelope excluded). Both authorized mutations SPENT; **no further mutation is authorized.** Phase 2 (read-only 38-turn span/granularity ledger) **NOT STARTED** |
 | **Memory Integrity Layer / guardrail audit** | 🟡 **DESIGN THREAD — no work order yet.** Response-guard audit done; `BUG-LORI-FEWSHOT-EXEMPLAR-LEAK-01_Spec.md` (repo root) is **ACTIVE / NEXT**. Nothing here is scheduled. §10 |
 | **Repository hygiene** | ⏸️ **PHASE A ACCEPTED, REMAINDER PAUSED — the work order is INCOMPLETE.** Steps 0, 1 `5f6b01b`, 2 `db0c5e7`, 2b `ff1ff4f` and the first Step 3 cohort `5086490` are accepted. **Deferred by product-priority decision:** the remaining Step 3 cohorts, Steps 4–5, and the final verification checkpoint. Still indexed, still owed, not scheduled |
 | **Profile Seed reachability** | ⏸️ **OWED — Phase 3 IN IMPLEMENTATION with ACCEPTANCE OPEN, and no longer the current action.** *(It was, until `WO-LORI-ARCHIVE-TO-MEMOIR-02` took priority. Owed work does not become finished work when the lane changes.)* Phase 0 `661aa95` · Phase 1 `1288baa` · **Phase 2 ACCEPTED 2026-08-29, steps 1–7 complete** (step 4 `b269184`, step 5 `9127adb`, pre-Step-6 corrections `d0e5294`, step 6 `12221e0`…`58dfc40` live, step 7 `6885bb2`) · Phase 3 implementation landed through `2b7e634`; its six acceptance conditions remain open. Phases 4–5 are partially run and not accepted. See the Profile Seed spec's reconciled status block |
@@ -309,127 +309,33 @@ Full register with evidence: [`docs/BACKLOG.md`](docs/BACKLOG.md).
 Historical handoffs and long status narratives live in Git history and `docs/archive/`.
 **They must not be appended back into this operational brief.**
 
-## 9. `WO-LORI-ARCHIVE-TO-MEMOIR-02` Phase 1 — CLOSED AND PROVEN (2026-09-04)
+## 9. `WO-LORI-ARCHIVE-TO-MEMOIR-02` Phase 1 — ACCEPTED (2026-09-04)
 
-> ✅ **EXIT GATE MET, ACCEPTED.** Mutations in `20260904T123556Z`; proof carried forward at
-> **zero mutations** in `20260904T130525Z`, exit **0**, `Phase 1: PASS — full chain proven`.
-> Preview PASS · export PASS (`…__pat_structured.docx`, 36,975 bytes) · agreement
-> canonical **1** / preview **1** / DOCX **1** · control byte-identical · **zero mutations in the
-> proving run**. `containsSourceId: false` and `forbidden: []` — no raw UUID and no known bad
-> substitution reached the document. Full closure record, including the seven defects found
-> and fixed along the way, is in the work order.
+> **The working detail that used to live here has been REMOVED, not lost.** It described a
+> target that was unplaced at `review_version: 1`, preview and export unproven, and a "fresh
+> run, no `--resume`" instruction — every one of which became false when the mutations
+> landed, and one of which would have driven a fresh run against a promoted candidate.
+> **A current-state document must not carry executable orders that have expired.** The full
+> record, including all seven defects found while proving the chain, is in
+> [`docs/wo/WO-LORI-ARCHIVE-TO-MEMOIR-02.md`](docs/wo/WO-LORI-ARCHIVE-TO-MEMOIR-02.md);
+> the runs themselves are under `.runtime/eval/phase1-memoir-chain/`; Git holds the rest.
 
-*(The sections below are the working state that produced that result, kept as the record.)*
+**Accepted on two runs, and the split is the claim:**
 
-**Plan:** [`docs/wo/WO-LORI-ARCHIVE-TO-MEMOIR-02.md`](docs/wo/WO-LORI-ARCHIVE-TO-MEMOIR-02.md).
-Phase 0 accepted at `fdaa255`. **Phase 1 is in implementation. Phase 2 is NOT STARTED.**
+| Run | What it did | Mutations |
+|---|---|---|
+| `20260904T123556Z` | performed the **only two authorized mutations** — placement `v1→v2`, then promotion `v2→v3` | **2** |
+| `20260904T130525Z` | **carried that proof forward** and completed preview and export | **0** |
 
-### The finding that reshaped the phase
+Exit **0**, `Phase 1: PASS — full chain proven`. Agreement canonical **1** / preview **1** /
+DOCX **1**. Control `5a56f942` **item identical — the changing `fetched_at` envelope
+excluded by design**. `containsSourceId: false`; `forbidden: []`.
 
-**Runtime era is not a story placement, and conflating them is the bug this phase exists
-to avoid.** The conversation Pat spoke in carried era `building_years`; her story candidate
-carried none. `story_preservation.preserve` writes **every** candidate with
-`era_candidates=[]` and no placement (`story_preservation.py:225`). **That is deliberate.**
-Deriving a placement from whichever screen the narrator happened to be on is how a story is
-filed into the wrong memoir chapter; `story_projection` already refuses it, and the route
-enforces the same rule from the other side — *"an operator-set placement needs exactly one
-era; two eras is not a placement, it is a pair of guesses"* (`operator_story_review.py:366`).
+**Current target state:** `447eee18` is `promoted`, `building_years`/`operator_set`,
+`review_version: 3`. **No further mutation is authorized.** There is no pending live run.
 
-**Consequence, and it binds Phase 2:** a candidate can be **promoted and still reach
-canonical memoir unplaced**. Promotion decides *eligibility*; placement decides *where it
-goes*. The ledger must record them as two destinations, never one.
-
-### Authorized mutations — the whole authorization
-
-| | |
-|---|---|
-| Target | `447eee18-9ea5-4961-bf3d-157773d3cd44` (Pat), currently **unplaced, `unreviewed`, `review_version: 1`** |
-| Mutation 1 | **Placement** — era selector → `building_years`, then `Save placement / notes`. Sets `placement_source=operator_set` in the same gesture |
-| Mutation 2 | **Promotion** — that row's `Promote`, at the version the placement returned |
-| Control | `5a56f942-001b-453b-8e4d-01fb82062013` — **must stay byte-identical**, verified in `finally` |
-| Budget | Enforced in flight: fresh run 2, resumed-at-placement 1, fully-resumed **0** |
-
-**Nothing beyond these two is authorized.** A third mutation, a wrong order, or any PATCH to
-another candidate is aborted before the request leaves the browser.
-
-### Live-run history
-
-| Run | Outcome | Mutations | Cause / result |
-|---|---|---|---|
-| `20260901T212134Z` | **DESIGNED REFUSAL** | 0 | Demanded a placement the candidate never had. **Produced the runtime-era finding** |
-| `20260901T232656Z` | **UNHANDLED ERROR** | 0 | Probe-selector defect: `#lv10dBugPanelBtn` does not exist |
-| `20260904T120642Z` | **DESIGNED REFUSAL** | 0 | 2 of 5 rows matched the passage text. **Produced the granularity finding** |
-| `20260904T123556Z` | ✅ **BOTH MUTATIONS PERFORMED** | 2 | Placement `v1→v2`, promotion `v2→v3`, order `placement>promotion`, provenance unchanged, control identical |
-
-**Preserve every run directory under `.runtime/eval/phase1-memoir-chain/`.** §5's no-deletion
-rule governs them, and three of the four are the evidence for findings now in the WO.
-
-### What `20260904T123556Z` proved, and what it did not
-
-**PROVEN — the chain reaches canonical.** `1_preconditions` · `1b_narrator_active` ·
-`2a0_bug_panel_open` · `2a0_section_expanded` · `2a_filter` · `2_row_located` ·
-`2b_detail_verified` · `3a_placed` · `3a_verify_placement` · `3b_row_refetched` ·
-`3b_promoted` · `4_canonical` all PASS. Canonical returns the passage **exactly once**, with
-`era=building_years`, `source_id=5d57a43ce780`, `lane=captured_story`, `complete=true`.
-
-**NOT PROVEN — preview and export.** `5_preview` FAILS. Both memoir-opening stages were
-found and clicked (`stage2.label = "Open your memoir"`), but the popover never became
-visible and contained the passage 0 times. **The cause is named and confirmed live:**
-`ui/hornelore1.0.html:8551` fetches `/api/memoir/canonical` **relative**, so it resolves to
-the UI server. Three UI-issued requests, all `404` off `:8082`; the identical query against
-`:8000` returns `200`. Export is `not_reached` **by design** — the probe refuses to attempt
-an export whose preview never rendered.
-
-**This is not a regression and not a canonical failure.** It is a one-line origin defect in
-the UI, sitting between a working canonical API and a working memoir popover. Fixing it is
-a product change and is **not authorized by this record.**
-
-### Target state after the run — READ THIS BEFORE RE-RUNNING
-
-`447eee18` is now **`promoted`**, placed **`building_years`/`operator_set`**,
-**`review_version: 3`**. The control `5a56f942` is byte-identical and untouched.
-
-**The next run must be `--resume 20260904T123556Z`** — mode `promoted`, PATCH budget **0**,
-so it verifies and continues downstream while mutating nothing. A fresh run would refuse at
-preconditions, correctly, because the target is no longer unplaced.
-
-### Harness — all offline, all green on `.venv`
-
-`Ran 116 — OK`, **zero skips** on `.venv/bin/python` (the Playwright tests skip only in an
-agent sandbox, which has no browser binary).
-
-- `scripts/ui/phase1_memoir_chain_probe.js` — the live probe. `--self-test` runs offline
-- `scripts/ui/phase1_bugpanel_launcher_domtest.js` — launcher contract, **12/12**
-- `scripts/ui/phase1_placement_workflow_domtest.js` — placement workflow against the **real
-  shipped panel module**, **22/22**
-- `scripts/ui/phase1_row_selection_domtest.js` — row selection, **21/21**
-- `tests/test_phase1_memoir_chain_probe.py` — 116 offline contract guards
-
-```bash
-cd /mnt/c/Users/chris/hornelore
-node scripts/ui/phase1_bugpanel_launcher_domtest.js
-node scripts/ui/phase1_placement_workflow_domtest.js
-node scripts/ui/phase1_row_selection_domtest.js
-PYTHONPATH=server/code .venv/bin/python -m unittest tests.test_phase1_memoir_chain_probe
-```
-
-Then, and only when all four are green:
-
-```bash
-cd /mnt/c/Users/chris/hornelore
-node scripts/ui/phase1_memoir_chain_probe.js
-```
-
-**Expected partial failure, already known and NOT a regression:** preview and export fail
-because `ui/hornelore1.0.html:8551` fetches `/api/memoir/canonical` **relative**, resolving
-to `:8082` and 404ing. The probe reports that as `failed — wrong API origin` and does not
-confuse it with a real canonical failure. Canonical itself is queried against `:8000`.
-
-### Owed before the next live attempt
-
-- **Confirm the tree is clean.** The launcher fix is pushed at `369e9aa`; no launcher work
-  remains before the run. `git status --porcelain` still decides local cleanliness.
-- Nothing else. The next attempt is a **fresh run, no `--resume`**.
+**Gates at acceptance:** 141 Python tests (zero skips on `.venv`) and **four** DOM suites —
+launcher, memoir popover, placement workflow, row selection.
 
 ## 10. Memory Integrity Layer — design thread, nothing scheduled
 
