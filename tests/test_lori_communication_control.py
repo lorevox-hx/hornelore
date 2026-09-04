@@ -14,6 +14,7 @@ from __future__ import annotations
 import unittest
 
 from server.code.api.services.lori_communication_control import (
+    _safety_path,
     enforce_lori_communication_control,
 )
 
@@ -130,6 +131,17 @@ class QuestionCountTests(unittest.TestCase):
 
 class SafetyExemptionTests(unittest.TestCase):
     """Acute SAFETY responses bypass normal enforcement."""
+
+    def test_safety_path_records_unchanged_reflection_span(self):
+        text = (
+            "I'm an AI and I can't place calls for you, but please call "
+            "or text 988 right now."
+        )
+        r = _safety_path(text, session_style="clear_direct")
+
+        self.assertEqual(r.reflection_before_text, text)
+        self.assertEqual(r.reflection_after_text, text)
+        self.assertEqual(r.reflection_actions, [])
 
     def test_safety_path_no_mutation(self):
         # Simulating the actual Turn 06 ACUTE response from golfball-v2-clean

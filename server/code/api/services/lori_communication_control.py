@@ -667,6 +667,9 @@ def _safety_path(
     (safety_triggered=True AND softened_mode_active=False) preserves
     the original behavior.
     """
+    shape_actions: List[str] = []
+    _reflect_before = assistant_text
+    _reflect_after = assistant_text
     failures: List[str] = []
     has_safety_ack = bool(_SAFETY_ACKNOWLEDGMENT_RX.search(assistant_text))
     has_normal_q = bool(_SAFETY_NORMAL_QUESTION_RX.search(assistant_text))
@@ -732,6 +735,7 @@ def _safety_path(
             )
             if shape_actions and shape_actions[0] == "shaped_softened_truncated":
                 final_text = shaped
+                _reflect_after = shaped
                 changed = True
                 warnings.append("reflection_shaped:shaped_softened_truncated")
                 word_count = len(final_text.split())
