@@ -698,6 +698,19 @@ Both are `writeMode: candidate_only` with `applied_at = NULL`, so **neither reac
       not derivable from them**. A mis-bound true value and an invented one are different
       defects with different fixes, and a memoir system inventing a birth year is the more
       serious of the two.
+**The enforcement boundary was broken too — found by consumer tracing, 2026-09-04.**
+The server's downgrade did not bind the browser. `interview.js:1441` read
+`item.writeMode` and never passed it on, and `projection-sync.js:314`
+re-derived authority with `_map.getWriteMode(fieldPath)`. So a
+`suggest_only` + `needs_confirmation` item was still processed at the browser
+schema's `prefill_if_blank`: **the narrator got a clarification prompt and the
+prefill both.** This predates the kinship guard — it means the shipped
+transcript-safety downgrade has the same hole. `projectValue` now resolves an
+effective mode ONCE and hands it down; the reduction is one-way, so a response
+body can tighten authority but never widen it, and `needs_confirmation` is a
+defensive floor to `suggest_only`. Mutation-checked: three separate mutations of
+the product each turn the guard red.
+
 **Rebuild requirements — every one of these is a defect `add4753` shipped:**
 
 - [ ] Runs AFTER relationship grouping, or against the final extraction representation.

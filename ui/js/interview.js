@@ -1512,11 +1512,22 @@ function applyCompletedTurnExtractionResult(result, context) {
         return;
       }
 
-      // Project through the sync layer — all write-mode rules still apply
+      // Project through the sync layer, CARRYING the server's authority
+      // decision. WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04): this
+      // comment used to read "all write-mode rules still apply", which was
+      // true only of the BROWSER schema's rules. `writeMode` was read off the
+      // item at the top of this loop and then dropped on the floor, and
+      // _syncToBioBuilder re-derived authority locally — so a server-side
+      // suggest_only downgrade on a family.spouse.* field was still prefilled
+      // at the schema's prefill_if_blank. The narrator got a clarification
+      // prompt and the write both. The sync layer reduces authority one-way
+      // and never elevates above the schema, so passing these is safe.
       var projected = LorevoxProjectionSync.projectValue(fieldPath, item.value, {
         source: "backend_extract",
         turnId: turnId,
         confidence: item.confidence || 0.8,
+        writeMode: writeMode,
+        needsConfirmation: item.needs_confirmation === true,
         // The conversation this fact CAME FROM, not the one open now.
         // A delayed result would otherwise be logged against whatever
         // session happened to be on screen when it landed.

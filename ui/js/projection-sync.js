@@ -288,10 +288,24 @@
       history:    existing ? (existing.history || []).concat(historyEntry ? [historyEntry] : []).slice(-10) : []
     };
 
+    // ── EFFECTIVE AUTHORITY ──
+    // Resolved ONCE, here, and handed down. _syncToBioBuilder must not
+    // re-derive it: re-derivation is exactly how the server's downgrade was
+    // being discarded.
+    var effectiveMode = _effectiveWriteMode(fieldPath, opts);
+    var schemaMode    = _map.getWriteMode(fieldPath);
+
     _logSync(fieldPath, "projected", existing ? existing.value : null, value);
+    if (effectiveMode !== schemaMode) {
+      _logSync(fieldPath, "authority_reduced", schemaMode, effectiveMode);
+      console.log("[projection-sync][authority] " + fieldPath +
+                  " schema=" + schemaMode + " effective=" + effectiveMode +
+                  (opts.needsConfirmation ? " (needs_confirmation)" : "") +
+                  (opts.writeMode ? " server=" + opts.writeMode : ""));
+    }
 
     // ── SYNC TO BIO BUILDER ──
-    _syncToBioBuilder(fieldPath, value, source, confidence);
+    _syncToBioBuilder(fieldPath, value, source, confidence, effectiveMode);
 
     // ── AUTO-PERSIST ──
     // An EXPLICIT MUTATION, which is the only thing that may reach the
@@ -310,8 +324,62 @@
     return source === "human_edit" || source === "preload" || source === "profile_hydrate";
   }
 
-  function _syncToBioBuilder(fieldPath, value, source, confidence) {
-    var writeMode = _map.getWriteMode(fieldPath);
+  /* ── AUTHORITY REDUCTION — the server may lower authority, never raise it ──
+     WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04).
+
+     THE DEFECT THIS CLOSES. The server can mark an extracted item
+     writeMode="suggest_only" + needs_confirmation=true, and that decision
+     survived all the way to the browser — interview.js read `item.writeMode`
+     and then never passed it anywhere. `_syncToBioBuilder` re-derived
+     authority from the BROWSER schema, so a downgraded `family.spouse.*` item
+     was still processed at its schema authority of prefill_if_blank. The
+     narrator saw a clarification prompt AND the value was prefilled anyway.
+
+     The reduction is ONE-WAY by construction. A higher rank means LESS
+     authority, and the effective mode is the most restrictive of the two
+     inputs, so a server override can only ever tighten:
+
+        prefill_if_blank -> candidate_only -> suggest_only
+
+     An item claiming MORE authority than the schema grants is ignored, which
+     is what makes this safe to feed from a response body.
+
+     needs_confirmation is treated as a defensive floor: something upstream
+     said a human must look at this, so it goes to suggest_only whatever the
+     mode field says. Two guards disagreeing must not produce a write. */
+  var _AUTHORITY_RANK = {
+    prefill_if_blank: 0,
+    candidate_only:   1,
+    suggest_only:     2
+  };
+
+  function _effectiveWriteMode(fieldPath, opts) {
+    opts = opts || {};
+    var schemaMode = _map.getWriteMode(fieldPath);
+    var schemaRank = _AUTHORITY_RANK[schemaMode];
+    if (schemaRank === undefined) return schemaMode;  // unknown mode: untouched
+
+    var rank = schemaRank;
+
+    var serverMode = opts.writeMode;
+    var serverRank = _AUTHORITY_RANK[serverMode];
+    // Unknown / absent server mode contributes nothing. Never elevate.
+    if (serverRank !== undefined && serverRank > rank) rank = serverRank;
+
+    // Defensive floor.
+    if (opts.needsConfirmation) rank = _AUTHORITY_RANK.suggest_only;
+
+    for (var m in _AUTHORITY_RANK) {
+      if (_AUTHORITY_RANK[m] === rank) return m;
+    }
+    return schemaMode;
+  }
+
+  function _syncToBioBuilder(fieldPath, value, source, confidence, effectiveMode) {
+    // Use the mode the caller resolved when it supplied one. Callers that
+    // pass nothing (app.js, conflict-console.js) keep the schema behaviour
+    // they have always had.
+    var writeMode = effectiveMode || _map.getWriteMode(fieldPath);
     var parsed    = _map.parsePath(fieldPath);
     if (!parsed) return;
 
@@ -1109,6 +1177,11 @@
       var proj = _proj();
       if (proj && proj.personId) _persistProjection(proj.personId);
     },
+
+    // WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 — exported so the one-way
+    // authority reduction can be tested directly rather than inferred from
+    // its side effects. Pure: (fieldPath, opts) -> mode string.
+    effectiveWriteMode:  _effectiveWriteMode,
 
     // Constants (for external access)
     LS_PROJ_PREFIX:      LS_PROJ_PREFIX
