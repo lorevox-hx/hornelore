@@ -189,25 +189,55 @@ class ClassifierSplitTests(unittest.TestCase):
 
 
 class ExtractionLedgerTests(unittest.TestCase):
-    """Phase 2 measured ZERO cohort rows; the verifier must check that."""
+    """Phase 2 measured ZERO cohort rows; the verifier must MEASURE that.
 
-    def _con(self, keys):
+    CORRECTED 2026-09-04 after external review. The previous version of these
+    tests passed explicit id lists, so they never noticed that `main()` was
+    handing the function USER row ids while `turn_key` is derived from the
+    committed ASSISTANT row. Under that pairing the zero was guaranteed by the
+    query rather than found in the data. The tests below build both roles, the
+    way the real `turns` table does.
+    """
+
+    COHORT = "cohort-r20260831-040506-010cd6"
+
+    def _con(self, keys, turns=((1845, "user"), (1846, "assistant"))):
         con = sqlite3.connect(":memory:")
         con.execute("CREATE TABLE turn_extraction_ledger (turn_key TEXT)")
+        con.execute("CREATE TABLE turns (id INTEGER, conv_id TEXT, role TEXT)")
+        con.executemany("INSERT INTO turns VALUES (?,?,?)",
+                        [(i, self.COHORT + "-x", r) for i, r in turns])
         con.executemany("INSERT INTO turn_extraction_ledger VALUES (?)",
                         [(k,) for k in keys])
         return con
 
-    def test_zero_when_the_ledger_holds_only_other_turns(self):
-        con = self._con(["turnrow:1923", "turnrow:2063"])
-        self.assertEqual(0, V.extraction_ledger_rows(con, [1846, 1864, 1870]))
+    def test_an_assistant_keyed_row_IS_counted(self):
+        """THE REGRESSION GUARD. turn_key is `turnrow:<assistant id>`. A
+        verifier that searched only user-row ids would return 0 here and call
+        it a finding."""
+        con = self._con(["turnrow:1846"])
+        self.assertEqual(1, V.extraction_ledger_rows(con, self.COHORT))
 
-    def test_counts_rows_that_do_belong_to_the_cohort(self):
-        con = self._con(["turnrow:1846", "turnrow:1923", "turnrow:1864"])
-        self.assertEqual(2, V.extraction_ledger_rows(con, [1846, 1864, 1870]))
+    def test_zero_when_the_ledger_holds_only_other_cohorts_turns(self):
+        con = self._con(["turnrow:9923", "turnrow:9063"])
+        self.assertEqual(0, V.extraction_ledger_rows(con, self.COHORT))
+
+    def test_counts_both_roles_and_ignores_strangers(self):
+        con = self._con(["turnrow:1845", "turnrow:1846", "turnrow:9999"])
+        self.assertEqual(2, V.extraction_ledger_rows(con, self.COHORT))
 
     def test_an_empty_ledger_is_zero_not_an_error(self):
-        self.assertEqual(0, V.extraction_ledger_rows(self._con([]), [1846]))
+        self.assertEqual(0, V.extraction_ledger_rows(self._con([]), self.COHORT))
+
+    def test_the_caller_cannot_pass_the_wrong_half(self):
+        """The signature takes a COHORT, not an id list, so the original bug
+        cannot be reintroduced at a call site."""
+        import inspect
+        params = list(inspect.signature(V.extraction_ledger_rows).parameters)
+        self.assertEqual(["con", "cohort"], params)
+        src = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("extraction_ledger_rows(con, COHORT)", src)
+        self.assertNotIn("extraction_ledger_rows(con, turns.keys())", src)
 
 
 class LogCorroborationTests(unittest.TestCase):
@@ -289,8 +319,18 @@ class VerdictContentTests(unittest.TestCase):
             self.assertIn(needle, self.src)
 
     def test_it_reports_the_extraction_ledger_count(self):
+        """The count must be printed AND its cause named. A bare zero is what
+        let the number be read as a product defect for a day."""
         self.assertIn("EXTRACTION LEDGER rows for cohort turns", self.src)
-        self.assertIn("Phase 2 measured ZERO", self.src)
+        self.assertIn("turn_extraction_ledger.turn_key", self.src)
+        self.assertIn("chat_ws.py:924", self.src)
+
+    def test_the_ledger_docstring_records_why_the_key_is_assistant_derived(self):
+        """CORRECTED 2026-09-04. The zero was true but the query could not
+        have found anything else; the docstring has to say so, or the next
+        reader re-derives the same false confidence."""
+        self.assertIn("structurally predetermined", self.src)
+        self.assertIn("turn_extraction.py:44-47", self.src)
 
     def test_it_no_longer_claims_the_decision_is_persisted_nowhere(self):
         """CORRECTED 2026-09-04. chat_ws.py:1848 logs every capture decision

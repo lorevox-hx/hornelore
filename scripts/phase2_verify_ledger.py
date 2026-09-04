@@ -143,17 +143,34 @@ def classifier_split(turns, cands):
             "chain_silent": chain_silent}
 
 
-def extraction_ledger_rows(con, turn_ids):
-    """Cohort rows in turn_extraction_ledger. Phase 2 measured ZERO.
+def extraction_ledger_rows(con, cohort):
+    """Cohort rows in turn_extraction_ledger, keyed the way the LEDGER keys.
 
-    Counts BOTH the user rows and, when the caller passes them, the
-    assistant rows: turn_key is derived from the committed ASSISTANT row
-    (``turnrow:<turns.id>``) as an idempotency key
-    (``turn_extraction.py:44-47``), never from the narrator's text. A
-    count that only looked at user-row ids would report zero on a cohort
-    that had been extracted perfectly.
+    CORRECTED 2026-09-04 after external review. This function used to take a
+    caller-supplied list of turn ids, and ``main()`` passed it the USER rows.
+    ``turn_key`` is derived from the committed **assistant** row --
+    ``turnrow:<turns.id>``, an idempotency key (``turn_extraction.py:44-47``),
+    never from the narrator's words. Searching assistant-derived keys with
+    user-row ids can only ever return zero, so the headline "ZERO cohort rows"
+    was **structurally predetermined by the query** rather than measured.
+
+    (The earlier docstring even warned about this -- "a count that only looked
+    at user-row ids would report zero on a cohort that had been extracted
+    perfectly" -- while the one call site did exactly that. A hedge in prose
+    is not a guarantee in code.)
+
+    THE FINDING ITSELF SURVIVES, by two independent measurements: a direct
+    query counting BOTH roles' ids returned 0/38 and 0/38, and the API log
+    carries 38 ``[extract-turn] skipped`` lines naming the reason (the cohort
+    runner never declared ``client_capabilities.field_extraction_result=v1``,
+    ``chat_ws.py:924``). What was wrong was the method, not the number.
+
+    Takes the COHORT rather than an id list so no caller can reintroduce the
+    bug by passing the wrong half.
     """
-    keys = {f"turnrow:{t}" for t in turn_ids}
+    ids = {r[0] for r in con.execute(
+        "SELECT id FROM turns WHERE conv_id LIKE ?", (cohort + "%",))}
+    keys = {f"turnrow:{t}" for t in ids}
     n = 0
     for (tk,) in con.execute("SELECT turn_key FROM turn_extraction_ledger"):
         if tk in keys:
@@ -254,7 +271,8 @@ def main() -> int:
         "SELECT id, source_user_turn_row_id, transcript, word_count, review_status, "
         "       era_candidates, placement_source, trigger_reason, conversation_id "
         "FROM story_candidates WHERE conversation_id LIKE ?", (COHORT + "%",)))
-    ledger_rows = extraction_ledger_rows(con, turns.keys())
+    # Pass the COHORT, not turns.keys(): the ledger keys off assistant rows.
+    ledger_rows = extraction_ledger_rows(con, COHORT)
     con.close()
 
     if "--json" in sys.argv:

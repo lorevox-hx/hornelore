@@ -616,7 +616,6 @@ correction-routed turn is still considered for a story candidate.
 
 - [ ] Use Stefi’s exact Las Vegas, New Mexico statement as a regression fixture.
 
-- [ ] Use Stefi’s exact Las Vegas, New Mexico statement as a regression fixture.
 - [ ] Correction processing finalizes only when a concrete correction is parsed.
 - [ ] `parsed={}` returns the turn to normal interview processing.
 - [ ] Normal Lori response, durable persistence, extraction, trace and story consideration occur.
