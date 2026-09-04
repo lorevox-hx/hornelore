@@ -749,8 +749,23 @@
                 ? String(p.value) : '';
               const pc = (p && typeof p.confidence === 'number')
                 ? ' (' + p.confidence + ')' : '';
+              // WHICH value is ungrounded, per value. The relationship may be
+              // in doubt while most values were plainly spoken; an operator
+              // rebinding this group has to see which one nobody said.
+              var g = '';
+              if (p && p.grounding === 'unsupported') {
+                g = ' — NOT FOUND in what the narrator said';
+              } else if (p && p.grounding === 'derived') {
+                var d = (p.grounding_detail || {});
+                var ops = d.operands || {};
+                g = ' — DERIVED, not spoken'
+                  + (d.rule ? ' (' + d.rule
+                      + Object.keys(ops).map(function (k) {
+                          return ' ' + k + '=' + ops[k]; }).join('')
+                      + ')' : '');
+              }
               return el('li', {}, ['proposed ' + ((p && p.fieldPath) || '?')
-                + ' = ' + pv + pc + ' — not applied']);
+                + ' = ' + pv + pc + g + ' — not applied']);
             }))]);
         })));
     }

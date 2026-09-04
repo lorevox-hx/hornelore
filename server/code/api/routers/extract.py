@@ -8157,6 +8157,126 @@ def _confirmation_reason_key(reason: str):
         return (1, 0, str(reason))
 
 
+# ── VALUE GROUNDING ─────────────────────────────────────────────────────────
+# WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04).
+#
+# THE CASE. Mable said: "Otis died in 2005. Heart attack at sixty-three." The
+# extractor proposed parents.birthDate="1922" at 0.7. 2005 - 63 is 1942; 1922
+# appears nowhere in her words and is not derivable from them. That is a
+# FABRICATED value, a different defect from a mis-bound one: the kinship guard
+# stops it reaching the profile today, but containment is not grounding, and
+# an operator rebinding that group later would carry the invented year with it.
+#
+# GROUNDING IS PER VALUE, NOT PER GROUP. In that same quarantine:
+#     Otis        spoken            2005          spoken
+#     died 2005   supported         1922          UNSUPPORTED
+# Marking the whole group unsupported would erase that distinction, which is
+# precisely the distinction an operator needs to rebind safely.
+#
+# FIELD-AWARE, NOT STRING CONTAINMENT. A narrative field may legitimately
+# summarise ("died 2005" for "Otis died in 2005"), so only fragile SCALARS are
+# held to spoken evidence. Free-text catchment fields are not checked at all.
+#
+# KNOWN, DELIBERATE LIMIT. For dates the bar is the YEAR appearing in the
+# narration. A value whose year is spoken but whose month/day are not is left
+# alone rather than quarantined. Tightening that would quarantine ordinary
+# "born in 1962" -> "1962-12-24" completions across the whole corpus, and this
+# lane has already learned what an over-broad guard costs. The demonstrated
+# defect is a year nobody said.
+
+_YEAR_RX = re.compile(r"\b(1[6-9]\d{2}|20\d{2})\b")
+
+_WORD_UNITS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+    "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16,
+    "seventeen": 17, "eighteen": 18, "nineteen": 19,
+}
+_WORD_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50,
+              "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90}
+
+
+def _numbers_spoken(answer: str) -> Set[int]:
+    """Every integer the narrator actually said — digits and words.
+
+    "sixty-three" counts, because the derivation rule below needs the age a
+    narrator spoke aloud, and narrators say ages in words.
+    """
+    out: Set[int] = set()
+    if not answer:
+        return out
+    for m in re.finditer(r"\b\d{1,4}\b", answer):
+        try:
+            out.add(int(m.group(0)))
+        except ValueError:
+            pass
+    low = answer.lower()
+    for tens, tv in _WORD_TENS.items():
+        for m in re.finditer(r"\b" + tens + r"(?:[-\s]+([a-z]+))?\b", low):
+            unit = _WORD_UNITS.get((m.group(1) or "").strip(), 0)
+            out.add(tv + (unit if 0 < unit < 10 else 0))
+    for word, val in _WORD_UNITS.items():
+        if re.search(r"\b" + word + r"\b", low):
+            out.add(val)
+    return out
+
+
+def _value_grounding(field_path: str, value, answer: str):
+    """Classify one proposed value against the narrator's words.
+
+    Returns (status, detail) where status is one of:
+        "not_checked"  the field is narrative, or not a fragile scalar
+        "spoken"       the value appears in the narration
+        "derived"      not spoken, but reproducible by a named rule from
+                       operands that WERE spoken (rule + operands recorded)
+        "unsupported"  neither
+
+    A derived value is deliberately NOT treated as spoken. Recording the rule
+    and its operands is what lets an operator see that the system computed it
+    rather than heard it.
+    """
+    fp = str(field_path or "")
+    val = "" if value is None else str(value).strip()
+    if not fp or not val or not answer:
+        return "not_checked", {}
+
+    suffix = fp.rsplit(".", 1)[-1] if "." in fp else fp
+
+    # Free-text catchment fields may summarise; holding them to literal
+    # wording would quarantine honest paraphrase.
+    if fp in _NARRATIVE_CATCHMENT_PATHS or suffix in _NARRATIVE_CATCHMENT_SUFFIXES:
+        return "not_checked", {}
+
+    if suffix in _DATE_FIELD_SUFFIXES:
+        vy = _YEAR_RX.search(val)
+        if not vy:
+            return "not_checked", {}
+        year = int(vy.group(0))
+        spoken_years = {int(m.group(0)) for m in _YEAR_RX.finditer(answer)}
+        if year in spoken_years:
+            return "spoken", {"year": year}
+        # Derivation: a birth year the narrator implied by giving a later
+        # year and an age at that point.
+        nums = _numbers_spoken(answer)
+        for anchor in sorted(spoken_years):
+            for age in sorted(n for n in nums if 0 < n <= 120):
+                if anchor - age == year:
+                    return "derived", {
+                        "rule": "anchor_year_minus_age",
+                        "operands": {"anchor_year": anchor, "age": age},
+                        "value": val,
+                    }
+        return "unsupported", {"year": year, "spoken_years": sorted(spoken_years)}
+
+    if suffix in ("firstName", "lastName", "middleName", "maidenName",
+                  "preferredName"):
+        if _name_windows(answer, val):
+            return "spoken", {}
+        return "unsupported", {"reason": "name not in the narration"}
+
+    return "not_checked", {}
+
+
 # ── GROUP-LOCAL KINSHIP GUARD ───────────────────────────────────────────────
 # WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04). Rebuild of the reverted
 # add4753, against every defect that review found in it.
@@ -8530,8 +8650,18 @@ def _apply_kinship_binding_guard(items, req, *, answer: str, clarifications=None
 
         for m in members:
             quarantined.add(id(m))
-        proposed = [{"fieldPath": m.fieldPath, "value": m.value,
-                     "confidence": m.confidence} for m in members]
+        # Grounding is annotated PER PROPOSED VALUE. The group's relationship
+        # is in doubt; that says nothing about whether each value was spoken,
+        # and an operator rebinding this group needs to know which of them the
+        # narrator actually said.
+        proposed = []
+        for m in members:
+            g_status, g_detail = _value_grounding(m.fieldPath, m.value, answer)
+            p = {"fieldPath": m.fieldPath, "value": m.value,
+                 "confidence": m.confidence, "grounding": g_status}
+            if g_detail:
+                p["grounding_detail"] = g_detail
+            proposed.append(p)
         entry = {
             "kind": "unbound_relationship",
             "value": subject or (str(members[0].value) if members else ""),
@@ -8551,6 +8681,42 @@ def _apply_kinship_binding_guard(items, req, *, answer: str, clarifications=None
             "[extract][kinship-guard] QUARANTINED role=%s group=%s subject=%r "
             "fields=%d reasons=%s — no executable item emitted",
             role, group, subject, len(members), ",".join(entry["reasons"]))
+
+    # ── UNGROUNDED VALUES IN OTHERWISE SUPPORTED GROUPS ──────────────────
+    # The relationship may be perfectly well stated and ONE value still be
+    # something nobody said. Quarantine that value alone: removing the whole
+    # group would take a correct name and correct dates with it.
+    for it in items:
+        if id(it) in quarantined:
+            continue                    # already covered by its group entry
+        status, detail = _value_grounding(
+            getattr(it, "fieldPath", ""), getattr(it, "value", ""), answer)
+        if status not in ("unsupported", "derived"):
+            continue
+        quarantined.add(id(it))
+        entry = {
+            "kind": "unsupported_value",
+            "value": it.value,
+            "label": f"{it.fieldPath.rsplit('.', 1)[-1]} we could not find in "
+                     f"what you said",
+            "proposed_fieldPath": it.fieldPath,
+            "proposed_items": [{"fieldPath": it.fieldPath, "value": it.value,
+                                "confidence": it.confidence,
+                                "grounding": status,
+                                "grounding_detail": detail}],
+            "repeatableGroup": getattr(it, "repeatableGroup", None),
+            "not_applied": True,
+        }
+        reasons = ["value_unsupported" if status == "unsupported"
+                   else "value_derived"]
+        for r_ in (getattr(it, "confirmation_reasons", None) or []):
+            if r_ not in reasons:
+                reasons.append(r_)
+        _sync_confirmation_reasons(entry, reasons)
+        entries.append(entry)
+        logger.info(
+            "[extract][value-grounding] %s %s=%r detail=%s — not executable",
+            status.upper(), it.fieldPath, it.value, detail)
 
     if not quarantined:
         return items, [], list(clarifications or [])

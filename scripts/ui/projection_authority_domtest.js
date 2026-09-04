@@ -291,9 +291,17 @@ function landedInQuestionnaire(sandbox, value) {
         label: "Otis's relationship to you",
         proposed_fieldPath: "parents.firstName",
         proposed_items: [
-          { fieldPath: "parents.firstName", value: "Otis", confidence: 0.9 },
-          { fieldPath: "parents.birthDate", value: "1922", confidence: 0.7 },
-          { fieldPath: "parents.deathDate", value: "2005", confidence: 0.9 },
+          { fieldPath: "parents.firstName", value: "Otis", confidence: 0.9,
+            grounding: "spoken" },
+          { fieldPath: "parents.birthDate", value: "1922", confidence: 0.7,
+            grounding: "unsupported",
+            grounding_detail: { year: 1922, spoken_years: [2005] } },
+          { fieldPath: "parents.deathDate", value: "2005", confidence: 0.9,
+            grounding: "spoken" },
+          { fieldPath: "parents.dateOfBirth", value: "1942", confidence: 0.7,
+            grounding: "derived",
+            grounding_detail: { rule: "anchor_year_minus_age",
+                                operands: { anchor_year: 2005, age: 63 } } },
         ],
         reasons: ["identity_conflict", "relationship_unstated"],
         reason: "identity_conflict", not_applied: true,
@@ -312,6 +320,20 @@ function landedInQuestionnaire(sandbox, value) {
        "the entry AND each proposed value are marked not applied", rendered);
     ok(!/^\s*parents\.firstName\s*=/.test(rendered),
        "no proposed path is presented as an executable destination");
+
+    // WHICH value is ungrounded — per value, visibly.
+    const bad = rendered.slice(rendered.indexOf("parents.birthDate"),
+                               rendered.indexOf("parents.deathDate"));
+    ok(/NOT FOUND/.test(bad),
+       "the operator sees WHICH value the narrator did not say", bad);
+    const good = rendered.slice(rendered.indexOf("parents.deathDate"));
+    ok(!/NOT FOUND/.test(good.slice(0, 60)),
+       "a spoken value is NOT flagged merely for sharing the group", good);
+    ok(/DERIVED, not spoken/.test(rendered) &&
+       /anchor_year_minus_age/.test(rendered) &&
+       /anchor_year=2005/.test(rendered) && /age=63/.test(rendered),
+       "a derived value shows its rule and operands, not narrator authority",
+       rendered);
   }
 }
 
