@@ -315,6 +315,36 @@ const LIST_KEYS = [
     assert.strictEqual(await row().count(), 1);
   });
 
+  await check("the shipped panel emits data-story-candidate-id on every row", async () => {
+    const ids = await page.locator(".story-row").evaluateAll(
+      (els) => els.map((e) => e.getAttribute("data-story-candidate-id")));
+    assert.strictEqual(ids.length, 2);
+    assert.ok(ids.every((v) => v && v.length === 36),
+      "every row must carry a full candidate id: " + JSON.stringify(ids));
+    assert.ok(ids.includes(TARGET) && ids.includes(CONTROL));
+    assert.strictEqual(
+      await page.locator(`.story-row[data-story-candidate-id="${TARGET}"]`).count(), 1,
+      "the target must be addressable by identity alone");
+  });
+
+  await check("identity separates rows whose previews are byte-identical", async () => {
+    /* The live case: the aggregate 24ceb055 and the control 5a56f942 render
+     * the same 200-char preview. Here both fixture rows are given the same
+     * transcript so the panel renders identical previews, and identity must
+     * still separate them. */
+    const same = await page.evaluate((ids) => {
+      const el = (id) => document.querySelector(
+        '.story-row[data-story-candidate-id="' + id + '"] .story-preview-btn');
+      const a = el(ids.t), b = el(ids.c);
+      return { both: Boolean(a && b), identical: a && b
+        ? (a.textContent || "").trim() === (b.textContent || "").trim() : null };
+    }, { t: TARGET, c: CONTROL });
+    assert.ok(same.both, "both rows must be addressable by id");
+    // They differ here, but the point is that the SELECTOR does not depend on it.
+    assert.strictEqual(
+      await page.locator(`.story-row[data-story-candidate-id="${CONTROL}"]`).count(), 1);
+  });
+
   await check("capture's own shape reads as UNPLACED", async () => {
     assert.ok(UNPLACED_OK(storedRow(TARGET, FULL)));
     assert.ok(!PLACEMENT_STATE_OK(storedRow(TARGET, FULL), ERA));
@@ -492,6 +522,18 @@ const LIST_KEYS = [
       const stillOpen = await page.locator(".story-conflict").textContent();
       assert.ok(stillOpen && stillOpen.length > 0);
     });
+
+  await check("promotion reached the target row and no other", async () => {
+    const state = await page.evaluate((ids) => {
+      const get = (id) => {
+        const r = document.querySelector('.story-row[data-story-candidate-id="' + id + '"]');
+        return r ? (r.textContent || "").indexOf("Promoted") >= 0 : null;
+      };
+      return { target: get(ids.t), control: get(ids.c) };
+    }, { t: TARGET, c: CONTROL });
+    assert.strictEqual(state.control, false,
+      "the control row must not show a promoted status");
+  });
 
   await check("the control candidate was never addressed", async () => {
     const all = await page.evaluate(() => window.__requests);

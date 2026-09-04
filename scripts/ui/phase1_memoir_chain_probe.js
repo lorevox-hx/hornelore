@@ -78,35 +78,76 @@ const FORBIDDEN = ["father died", "my father, jim", "father jim",
                    "parents.deathdate", "harold died"];
 
 // ── page-side helpers (passed DIRECTLY to evaluate; see EvaluateSerialisation)
-const SELECT_ROW = function (head) {
+/* SELECT BY DATABASE IDENTITY. Text cannot identify every row.
+ *
+ * Live run 20260904T120642Z refused here: `.story-row=5 matching=2`. Reading
+ * the live DB explained why, and ruled out the text-based fix as well:
+ *
+ *   - Pat has FIVE candidates, not two. Three ~450-word spans from the
+ *     2026-08-31 cohort conversation, two single-turn candidates (38 and 42
+ *     words) from the 2026-09-01 switch session.
+ *   - The small ones sit VERBATIM inside the large ones: 447eee18 inside
+ *     6f2df375, and the control 5a56f942 inside 24ceb055. So a prefix match
+ *     matches both members of each pair.
+ *   - Worse, `24ceb055` and the CONTROL `5a56f942` render BYTE-IDENTICAL
+ *     previews -- both truncate at 200 chars through the same opening. No
+ *     text rule of any kind can separate those two.
+ *
+ * So selection is by `data-story-candidate-id`, added to the operator-only
+ * row for this purpose. Preview and full-transcript equality are retained
+ * BELOW as secondary verification -- they confirm the row we found by id is
+ * the passage we expect, which identity alone does not prove. */
+const SELECT_ROW = function (args) {
+  const id = String(args && args.id || "");
+  const expected = String(args && args.expected || "").trim();
   const rows = Array.from(document.querySelectorAll(".story-row"));
-  const m = rows.filter(function (r) {
-    const b = r.querySelector(".story-preview-btn");
-    return b && (b.textContent || "").includes(head);
+  const idx = [];
+  rows.forEach(function (r, i) {
+    if (r.getAttribute("data-story-candidate-id") === id) idx.push(i);
   });
-  return { rows: rows.length, matching: m.length, ok: m.length === 1,
-           preview: m[0] ? (m[0].querySelector(".story-preview-btn").textContent || "").slice(0, 160) : null };
+  const hit = idx.length === 1 ? rows[idx[0]] : null;
+  const btn = hit ? hit.querySelector(".story-preview-btn") : null;
+  const text = btn ? (btn.textContent || "").trim() : null;
+  return {
+    rows: rows.length, matching: idx.length, ok: idx.length === 1,
+    index: idx.length === 1 ? idx[0] : -1,
+    // SECONDARY: identity found the row; this proves it is the right passage.
+    previewMatches: text !== null && expected !== "" ? text === expected : null,
+    preview: text ? text.slice(0, 160) : null,
+    idsPresent: rows.map(function (r) {
+      return (r.getAttribute("data-story-candidate-id") || "").slice(0, 8);
+    }),
+    rowsCarryingId: rows.filter(function (r) {
+      return r.hasAttribute("data-story-candidate-id");
+    }).length,
+  };
 };
-const OPEN_DETAIL = function (head) {
+const OPEN_DETAIL = function (args) {
+  const id = String(args && args.id || "");
   const rows = Array.from(document.querySelectorAll(".story-row"));
   const m = rows.filter(function (r) {
-    const b = r.querySelector(".story-preview-btn");
-    return b && (b.textContent || "").includes(head);
+    return r.getAttribute("data-story-candidate-id") === id;
   });
   if (m.length !== 1) return { clicked: false, matching: m.length };
   m[0].querySelector(".story-preview-btn").click();   // addEventListener handler
   return { clicked: true, matching: 1 };
 };
 const VERIFY_ROW = function (args) {
+  const id = String(args.id || "");
+  const expected = String(args.expected || "").trim();
   const row = Array.from(document.querySelectorAll(".story-row")).find(function (r) {
-    const b = r.querySelector(".story-preview-btn");
-    return b && (b.textContent || "").includes(args.head);
+    return r.getAttribute("data-story-candidate-id") === id;
   });
   if (!row) return { found: false };
   const d = row.querySelector(".story-detail");
   const tr = d && d.querySelector(".story-transcript");
   const text = tr ? (tr.textContent || "").trim() : null;
-  return { found: true, detailOpen: Boolean(d), transcriptEqualsTarget: text === args.full.trim(),
+  const btn = row.querySelector(".story-preview-btn");
+  const shown = btn ? (btn.textContent || "").trim() : null;
+  return { found: true, detailOpen: Boolean(d),
+           rowId: row.getAttribute("data-story-candidate-id"),
+           previewMatches: shown !== null && expected !== "" ? shown === expected : null,
+           transcriptEqualsTarget: text === args.full.trim(),
            transcriptLen: text ? text.length : 0,
            promoteControlsInRow: row.querySelectorAll(".story-act-promote").length };
 };
@@ -417,6 +458,7 @@ function docxText(file) {
   const ctx = await browser.newContext({ acceptDownloads: true });
   const page = await ctx.newPage();
   let promotionAttempted = false, ctlPreItem = null;
+  let EXPECTED_PREVIEW = null;
 
   const api = (p) => page.evaluate(async (u) => {
     const r = await fetch(u); let b = null; try { b = await r.json(); } catch (_) {}
@@ -564,6 +606,21 @@ function docxText(file) {
         observedItemKeys: Object.keys(it) });
       throw new Error("preconditions not met — nothing was changed");
     }
+    /* The row's rendered text, taken from the LIVE candidate rather than
+     * hardcoded: the panel renders `transcript_preview + (truncated ? '…' : '')`
+     * (bug-panel-story-review.js renderRow). This is what makes the row
+     * selectable unambiguously when another candidate shares its opening. */
+    EXPECTED_PREVIEW = String(it.transcript_preview || "")
+      + (it.transcript_truncated ? "\u2026" : "");
+    if (!EXPECTED_PREVIEW.startsWith(PASSAGE_HEAD)) {
+      R.refusals.push("REFUSED: the target's preview does not open with the expected passage");
+      step("1_preconditions", { result: "REFUSED",
+        detail: `preview starts ${JSON.stringify(EXPECTED_PREVIEW.slice(0, 60))},`
+              + ` expected ${JSON.stringify(PASSAGE_HEAD.slice(0, 60))}` });
+      throw new Error("target candidate is not the expected passage");
+    }
+    R.observed.expectedPreview = EXPECTED_PREVIEW;
+
     step("1_preconditions", { result: "PASS",
       detail: `mode=${MODE} budget=${BUDGET} status=${status} version=${versionBefore}`
             + ` placement=${(it.era_candidates || []).join(",") || "none"}/${it.placement_source}`,
@@ -752,16 +809,36 @@ function docxText(file) {
     await page.waitForTimeout(1200);
 
     // ── 2/2b: exact row, real detail, row-scoped control ─────────────
-    const sel = await page.evaluate(SELECT_ROW, PASSAGE_HEAD);
+    const sel = await page.evaluate(SELECT_ROW, { id: TARGET, expected: EXPECTED_PREVIEW });
     step("2_row_located", { result: sel.ok ? "PASS" : "FAIL",
       detail: `.story-row=${sel.rows} matching=${sel.matching} (need exactly 1)`,
       preview: sel.preview,
       note: "review controls live in the Bug Panel: era selector, Save placement / notes,"
           + " Promote and Clear placement are all row-scoped there" });
-    if (!sel.ok) throw new Error(`row selection ambiguous: ${sel.matching}`);
-    const opened = await page.evaluate(OPEN_DETAIL, PASSAGE_HEAD);
+    if (!sel.ok) {
+      R.refusals.push(`REFUSED: ${sel.matching} rows carry data-story-candidate-id`
+        + `=${TARGET} (need exactly 1, of ${sel.rows} shown)`);
+      throw new Error(`row selection ambiguous: ${sel.matching}`);
+    }
+    /* Every row must carry an id, or a missing attribute would silently
+     * shrink the candidate set the guard is checking against. */
+    if (sel.rowsCarryingId !== sel.rows) {
+      R.refusals.push(`REFUSED: ${sel.rows - sel.rowsCarryingId} of ${sel.rows} rows`
+        + " carry no data-story-candidate-id");
+      throw new Error("not every row is identifiable");
+    }
+    /* SECONDARY: identity found a row; this proves it is the right passage. */
+    if (sel.previewMatches !== true) {
+      R.refusals.push("REFUSED: the row found by id does not render the expected preview");
+      step("2_row_located", { result: "REFUSED",
+        detail: `id matched but preview did not: ${JSON.stringify(String(sel.preview).slice(0,80))}`,
+        observed: sel });
+      throw new Error("row identity and passage disagree");
+    }
+
+    const opened = await page.evaluate(OPEN_DETAIL, { id: TARGET });
     await page.waitForTimeout(2000);
-    const rowState = await page.evaluate(VERIFY_ROW, { head: PASSAGE_HEAD, full: PASSAGE });
+    const rowState = await page.evaluate(VERIFY_ROW, { id: TARGET, expected: EXPECTED_PREVIEW, full: PASSAGE });
     step("2b_detail_verified", {
       result: (opened.clicked && rowState.detailOpen && rowState.transcriptEqualsTarget
                && rowState.promoteControlsInRow === 1) ? "PASS" : "FAIL",
@@ -777,7 +854,11 @@ function docxText(file) {
      * probe selects an era and saves -- it never composes the body. Any
      * field the panel does not put there is a field this workflow does
      * not set. */
-    const row = () => page.locator(".story-row", { hasText: PASSAGE_HEAD });
+/* Addressed by database identity, so it survives a re-render and a
+     * reordered list without re-resolution. Playwright's hasText is a
+     * SUBSTRING match and matched both Kent State candidates; an index would
+     * go stale the moment the list refetched. */
+    const row = () => page.locator(`.story-row[data-story-candidate-id="${TARGET}"]`);
     let versionAfterPlacement = versionBefore;
 
     if (MODE !== "full") {
@@ -986,7 +1067,7 @@ function docxText(file) {
             page.waitForResponse((r) => r.request().method() === "GET"
               && r.url().includes("/story-candidates/")
               && r.url().includes(TARGET), { timeout: 20000 }),
-            page.evaluate(OPEN_DETAIL, PASSAGE_HEAD),
+            page.evaluate(OPEN_DETAIL, { id: TARGET }),
           ]);
         } catch (e) {
           refetchFail("no detail response for the target after reopening", e.message);
@@ -1019,7 +1100,7 @@ function docxText(file) {
         } catch (e) {
           refetchFail("the promote control never appeared in the reopened row", e.message);
         }
-        const reState = await page.evaluate(VERIFY_ROW, { head: PASSAGE_HEAD, full: PASSAGE });
+        const reState = await page.evaluate(VERIFY_ROW, { id: TARGET, expected: EXPECTED_PREVIEW, full: PASSAGE });
         step("3b_row_refetched", {
           result: (reState.detailOpen && reState.transcriptEqualsTarget
                    && reState.promoteControlsInRow === 1) ? "PASS" : "FAIL",

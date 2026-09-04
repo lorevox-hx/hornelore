@@ -795,7 +795,17 @@
     ];
     const detail = renderDetail(item);
     if (detail) kids.push(detail);
-    return el('div', { class: 'story-row' }, kids);
+    // ROW IDENTITY, 2026-09-04. The row carried no id, so anything addressing
+    // it had to match on rendered text -- and text cannot identify every row.
+    // Pat has two candidates whose previews are BYTE-IDENTICAL (`24ceb055`
+    // and `5a56f942`, both truncating at 200 chars mid-sentence through the
+    // same opening), and one of those is a control that must never be
+    // touched. A harness selecting by preview could not distinguish them.
+    //
+    // Operator surface only -- this panel is never narrator-visible, so a raw
+    // candidate UUID here breaks no memoir rule. Non-visible attribute: it
+    // changes no layout, no text and no behaviour.
+    return el('div', { class: 'story-row', 'data-story-candidate-id': item.id }, kids);
   }
 
   function renderControls() {

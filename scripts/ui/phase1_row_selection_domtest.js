@@ -31,10 +31,10 @@ const OTHER = "I was born in Akron, Ohio, on the seventeenth of April in 1948.";
 // Rows built exactly as the panel builds them: handlers via addEventListener.
 const PAGE = `
 <div class="story-list">
-  <div class="story-row" id="row-other">
+  <div class="story-row" id="row-other" data-story-candidate-id="5a56f942-001b-453b-8e4d-01fb82062013">
     <button class="story-preview story-preview-btn">${OTHER}</button>
   </div>
-  <div class="story-row" id="row-target">
+  <div class="story-row" id="row-target" data-story-candidate-id="447eee18-9ea5-4961-bf3d-157773d3cd44">
     <button class="story-preview story-preview-btn">${HEAD} …</button>
   </div>
 </div>
@@ -72,14 +72,47 @@ const PAGE = `
   };
 
   await check("selects exactly one row by the target passage", async () => {
-    const r = await page.evaluate(SELECT_ROW, HEAD);
+    const r = await page.evaluate(SELECT_ROW, { id: "447eee18-9ea5-4961-bf3d-157773d3cd44", expected: HEAD + " \u2026" });
     assert.strictEqual(r.rows, 2, "fixture should have two rows");
     assert.strictEqual(r.matching, 1, "exactly one row must match");
     assert.ok(r.ok);
   });
 
+  await check("BYTE-IDENTICAL previews: only the target is addressable", async () => {
+    /* The case that ruled out every text rule, taken from the live DB.
+     * `24ceb055` and the CONTROL `5a56f942` both truncate at 200 chars
+     * through the same opening, so their rendered previews are byte-for-byte
+     * the same. Identity separates them; nothing else can. */
+    const shared = "I was born in Akron, Ohio, on the seventeenth of April in 1948. "
+      + "My father Harold was a rubber-plant man and my mother Dorothy was a "
+      + "homemaker in the house on Pl\u2026";
+    await page.evaluate(function (a) {
+      document.body.innerHTML =
+        '<div class="story-list">' +
+        '<div class="story-row" data-story-candidate-id="' + a.aggregate + '">' +
+        '<button class="story-preview story-preview-btn">' + a.text + '</button></div>' +
+        '<div class="story-row" data-story-candidate-id="' + a.control + '">' +
+        '<button class="story-preview story-preview-btn">' + a.text + '</button></div></div>';
+    }, { text: shared, aggregate: "24ceb055-aaaa-4aaa-8aaa-aaaaaaaaaaaa", control: "5a56f942-001b-453b-8e4d-01fb82062013" });
+
+    const byText = await page.evaluate(function (txt) {
+      return Array.from(document.querySelectorAll(".story-preview-btn"))
+        .filter(function (b) { return (b.textContent || "").trim() === txt; }).length;
+    }, shared);
+    assert.strictEqual(byText, 2, "text matches BOTH — this is why text cannot be used");
+
+    const ctl = await page.evaluate(SELECT_ROW, { id: "5a56f942-001b-453b-8e4d-01fb82062013", expected: shared });
+    assert.strictEqual(ctl.matching, 1, "identity selects exactly one");
+    assert.strictEqual(ctl.index, 1, "and it is the control row, not the aggregate");
+    assert.strictEqual(ctl.previewMatches, true, "secondary preview check still passes");
+
+    const agg = await page.evaluate(SELECT_ROW, { id: "24ceb055-aaaa-4aaa-8aaa-aaaaaaaaaaaa" });
+    assert.strictEqual(agg.index, 0, "the aggregate is separately addressable");
+    await page.setContent(PAGE);
+  });
+
   await check("refuses when the passage matches no row", async () => {
-    const r = await page.evaluate(SELECT_ROW, "a passage nobody spoke");
+    const r = await page.evaluate(SELECT_ROW, { id: "no-such-candidate-id" });
     assert.strictEqual(r.matching, 0);
     assert.strictEqual(r.ok, false);
   });
@@ -90,7 +123,7 @@ const PAGE = `
   });
 
   await check("clicking .story-preview-btn opens the detail (addEventListener)", async () => {
-    const o = await page.evaluate(OPEN_DETAIL, HEAD);
+    const o = await page.evaluate(OPEN_DETAIL, { id: "447eee18-9ea5-4961-bf3d-157773d3cd44" });
     assert.strictEqual(o.clicked, true);
     const open = await page.evaluate(() =>
       document.querySelectorAll("#row-target .story-detail").length);
@@ -106,24 +139,24 @@ const PAGE = `
   });
 
   await check("the opened row's transcript equals the complete target passage", async () => {
-    const v = await page.evaluate(VERIFY_ROW, { head: HEAD, full: TARGET_TEXT });
+    const v = await page.evaluate(VERIFY_ROW, { id: "447eee18-9ea5-4961-bf3d-157773d3cd44", expected: HEAD + " \u2026", full: TARGET_TEXT });
     assert.strictEqual(v.detailOpen, true);
     assert.strictEqual(v.transcriptEqualsTarget, true);
   });
 
   await check("a partial passage does NOT satisfy the equality check", async () => {
-    const v = await page.evaluate(VERIFY_ROW, { head: HEAD, full: HEAD });
+    const v = await page.evaluate(VERIFY_ROW, { id: "447eee18-9ea5-4961-bf3d-157773d3cd44", expected: HEAD + " \u2026", full: HEAD });
     assert.strictEqual(v.transcriptEqualsTarget, false,
       "the head alone must not pass as the full transcript");
   });
 
   await check("exactly one promote control exists inside the target row", async () => {
-    const v = await page.evaluate(VERIFY_ROW, { head: HEAD, full: TARGET_TEXT });
+    const v = await page.evaluate(VERIFY_ROW, { id: "447eee18-9ea5-4961-bf3d-157773d3cd44", expected: HEAD + " \u2026", full: TARGET_TEXT });
     assert.strictEqual(v.promoteControlsInRow, 1);
   });
 
   await check("row-scoped promotion clicks the TARGET row, not the other", async () => {
-    await page.evaluate(OPEN_DETAIL, OTHER);          // open the other row too
+    await page.evaluate(OPEN_DETAIL, { id: "5a56f942-001b-453b-8e4d-01fb82062013" });          // open the other row too
     const total = await page.evaluate(() =>
       document.querySelectorAll(".story-act-promote").length);
     assert.strictEqual(total, 2, "both rows now expose a promote control");
@@ -161,7 +194,7 @@ const PAGE = `
 
   await check("REFUSES when another narrator is active, though the panel shows Pat", async () => {
     await setActive(WALT, WALT_NAME);
-    const sel = await page.evaluate(SELECT_ROW, HEAD);
+    const sel = await page.evaluate(SELECT_ROW, { id: "447eee18-9ea5-4961-bf3d-157773d3cd44", expected: HEAD + " \u2026" });
     assert.strictEqual(sel.ok, true, "the Bug Panel still shows Pat's row");
     const a = await page.evaluate(ACTIVE_OK, { personId: PAT, displayName: PAT_NAME });
     assert.strictEqual(a.ok, false, "must refuse: preview/export would be Walt's");
