@@ -653,6 +653,68 @@ def score_field_match(expected_val: str, actual_val: str) -> float:
     return 0.0
 
 
+def normalize_truth_zones(case: dict) -> Dict[str, Any]:
+    """The ONE reader of a case's truth zones. Three real shapes, one output.
+
+    WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04). Extracted from
+    score_case so preservation_accounting cannot hold a second, different
+    opinion about what the question bank looks like -- which is exactly what
+    it did: it read `truthZones["must_extract"]` as a LIST, a shape no bank
+    uses, and returned empty fates for all 114 real cases while seven
+    synthetic tests stayed green.
+
+    The three shapes actually in the tree:
+
+      fieldPath-keyed   question_bank_extraction_cases.json
+                        {"personal.placeOfBirth": {"zone": "must_extract",
+                                                   "expected": "Williston…"}}
+      _multi            one fieldPath carrying several zone records
+                        {"hobbies.hobbies": {"_multi": [ {...}, {...} ]}}
+      top-level arrays  question_bank_generational_cases.json
+                        {"must_extract": [{"fieldPath": …, "value": …}]}
+
+    Returns fieldPath -> record, where a record is either a single
+    {"zone", "expected"} dict or {"_multi": [ ... ]} — byte-identical to what
+    score_case built inline, because this IS that code.
+    """
+    truth_zones = dict(case.get("truthZones") or {})
+    if truth_zones:
+        return truth_zones
+
+    # WO-QB-GENERATIONAL-01: build truthZones from array-style keys.
+    # WO-QB-GENERATIONAL-01B: the same fieldPath can appear in multiple zones
+    # (case_203 has hobbies.hobbies in must_extract AND should_ignore with
+    # different values), so accumulate a list and wrap it in "_multi".
+    _tz_list: Dict[str, list] = {}
+    for zone, has_value in (("must_extract", True), ("may_extract", True),
+                            ("should_ignore", False), ("must_not_write", False)):
+        for entry in case.get(zone, []) or []:
+            fp = entry.get("fieldPath", "") if isinstance(entry, dict) else str(entry)
+            if not fp:
+                continue
+            rec = {"zone": zone}
+            if has_value and isinstance(entry, dict):
+                rec["expected"] = entry.get("value", "")
+            _tz_list.setdefault(fp, []).append(rec)
+
+    for fp, entries in _tz_list.items():
+        truth_zones[fp] = entries[0] if len(entries) == 1 else {"_multi": entries}
+    return truth_zones
+
+
+def expected_must_extract(case: dict) -> List[Dict[str, str]]:
+    """Every must_extract (fieldPath, expected) pair, whatever the bank shape."""
+    out: List[Dict[str, str]] = []
+    for fp, rec in normalize_truth_zones(case).items():
+        if not isinstance(rec, dict):
+            continue
+        records = rec.get("_multi") if isinstance(rec.get("_multi"), list) else [rec]
+        for r in records:
+            if isinstance(r, dict) and r.get("zone") == "must_extract":
+                out.append({"fieldPath": fp, "expected": r.get("expected", "")})
+    return out
+
+
 def preservation_accounting(case: dict, extracted_items: List[dict],
                             clarifications: List[dict]) -> dict:
     """Classify each expected fact as executed / preserved / missing / wrong.
@@ -694,10 +756,10 @@ def preservation_accounting(case: dict, extracted_items: List[dict],
                 str(c["proposed_fieldPath"]), []).append(_norm_value(c.get("value")))
 
     fates: Dict[str, str] = {}
-    for exp in (case.get("truthZones", {}) or {}).get("must_extract", []) or []:
+    for exp in expected_must_extract(case):
         path = str(exp.get("fieldPath", ""))
-        want = _norm_value(exp.get("value"))
-        key = f"{path}={exp.get('value')}"
+        want = _norm_value(exp.get("expected"))
+        key = f"{path}={exp.get('expected')}"
         got = exec_by_path.get(path, [])
         if want and any(want == g or want in g or g in want for g in got if g):
             fates[key] = "executed_correct"
@@ -748,32 +810,10 @@ def score_case(case: dict, extracted_items: List[dict]) -> dict:
     # (e.g. case_203 has hobbies.hobbies in both must_extract and should_ignore
     # with different values). Use a list of zone entries per fieldPath so later
     # zones don't overwrite earlier ones.
-    if not truth_zones:
-        _tz_list: Dict[str, list] = {}  # fieldPath -> [zone_entry, ...]
-        for entry in case.get("must_extract", []):
-            fp = entry.get("fieldPath", "")
-            if fp:
-                _tz_list.setdefault(fp, []).append({"zone": "must_extract", "expected": entry.get("value", "")})
-        for entry in case.get("may_extract", []):
-            fp = entry.get("fieldPath", "")
-            if fp:
-                _tz_list.setdefault(fp, []).append({"zone": "may_extract", "expected": entry.get("value", "")})
-        for entry in case.get("should_ignore", []):
-            fp = entry.get("fieldPath", "")
-            if fp:
-                _tz_list.setdefault(fp, []).append({"zone": "should_ignore"})
-        for entry in case.get("must_not_write", []):
-            fp = entry.get("fieldPath", "")
-            if fp:
-                _tz_list.setdefault(fp, []).append({"zone": "must_not_write"})
-        # Flatten: if a fieldPath has only one entry, store it directly (backward compat).
-        # If it has multiple entries, store as a list under a "_multi" wrapper.
-        for fp, entries in _tz_list.items():
-            if len(entries) == 1:
-                truth_zones[fp] = entries[0]
-            else:
-                truth_zones[fp] = {"_multi": entries}
-
+    # Phase 3: one shared reader. The inline builder that used to live here
+    # moved into normalize_truth_zones() unchanged; preservation_accounting
+    # calls the same function, so the two cannot disagree about the bank.
+    truth_zones = normalize_truth_zones(case)
     # Build a lookup from extracted items: fieldPath -> list of values
     extracted_map: Dict[str, List[str]] = {}
     for item in extracted_items:
