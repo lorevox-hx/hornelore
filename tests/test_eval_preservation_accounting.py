@@ -223,3 +223,80 @@ class AccountingIsNotScoring(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SurfaceFormMustNotReadAsLoss(unittest.TestCase):
+    """"December 23rd" and "December 23" are the same day.
+
+    WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04), rule 4.
+
+    The fate classifier compared normalized strings with containment while the
+    SCORER resolved dates, role aliases and token overlap. So on
+    r5j-phase3-v1 the guard preserved case_015's fact -- the extractor
+    proposed "died December 23, 1967" against an expected "died December 23rd,
+    1967" -- and the table reported it `missing`.
+
+    That is the one confusion this accounting exists to prevent, and every
+    such mismatch understates preserved_for_review while overstating missing.
+    The fix reuses score_field_match(), the scorer's single value-equivalence
+    entry point, rather than growing a second implementation that can drift.
+
+    Driven by the REAL case_015 and the value the live extractor really
+    produced, not by an invented pair.
+    """
+
+    CASE_ID = "case_015"
+    LIVE_VALUE = "died December 23, 1967"      # what the extractor emitted
+    PATH = "parents.notableLifeEvents"
+
+    def setUp(self):
+        cases = load_cases(BANK)
+        self.case = next((c for c in cases
+                          if (c.get("id") or c.get("caseId")) == self.CASE_ID),
+                         None)
+        if self.case is None:                  # pragma: no cover
+            self.skipTest(f"{self.CASE_ID} not in the bank")
+
+    def test_the_fixture_really_does_differ_in_surface_form(self):
+        """Precondition, measured. If the bank were edited to say "23", this
+        test would stop discriminating and would say so instead of passing."""
+        expected = {e["fieldPath"]: e["expected"]
+                    for e in E.expected_must_extract(self.case)}
+        self.assertIn(self.PATH, expected)
+        self.assertNotEqual(expected[self.PATH], self.LIVE_VALUE,
+                            "the two forms are now identical — this test no "
+                            "longer proves normalization happens")
+        self.assertIn("23rd", expected[self.PATH])
+
+    def test_a_quarantined_fact_reads_as_preserved_not_missing(self):
+        """THE MUTATION: revert to containment and this returns `missing`."""
+        clar = [{
+            "kind": "unbound_relationship",
+            "value": "",
+            "proposed_fieldPath": self.PATH,
+            "proposed_items": [{"fieldPath": self.PATH,
+                                "value": self.LIVE_VALUE,
+                                "confidence": 0.9,
+                                "grounding": "spoken"}],
+            "reasons": ["relationship_unstated"],
+        }]
+        pres = E.preservation_accounting(self.case, [], clar)
+        fates = list(pres["fates"].values())
+        self.assertIn("preserved_for_review", fates,
+                      f"a preserved fact was reported as {fates}")
+        self.assertEqual(0, pres["counts"]["missing"], pres["fates"])
+
+    def test_an_unrelated_value_is_still_missing(self):
+        """Normalization must not turn every quarantine into a match."""
+        clar = [{
+            "kind": "unbound_relationship",
+            "value": "",
+            "proposed_fieldPath": self.PATH,
+            "proposed_items": [{"fieldPath": self.PATH,
+                                "value": "moved to Akron for the tyre works",
+                                "confidence": 0.9}],
+            "reasons": ["relationship_unstated"],
+        }]
+        pres = E.preservation_accounting(self.case, [], clar)
+        self.assertEqual(0, pres["counts"]["preserved_for_review"],
+                         pres["fates"])

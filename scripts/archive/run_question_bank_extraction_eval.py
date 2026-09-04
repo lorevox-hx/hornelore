@@ -715,6 +715,12 @@ def expected_must_extract(case: dict) -> List[Dict[str, str]]:
     return out
 
 
+# The scorer's own field-match threshold, reused so the preservation table
+# and the score agree about what counts as the same value. Not a new rule --
+# v2 has always called a field matched at >= 0.7.
+_FATE_MATCH_THRESHOLD = 0.7
+
+
 def compact_review_entries(clarifications: List[dict]) -> List[dict]:
     """The report's copy of what the extractor WITHHELD for operator review.
 
@@ -817,10 +823,21 @@ def preservation_accounting(case: dict, extracted_items: List[dict],
         want = _norm_value(exp.get("expected"))
         key = f"{path}={exp.get('expected')}"
         got = exec_by_path.get(path, [])
-        if want and any(want == g or want in g or g in want for g in got if g):
+        # SAME EQUIVALENCE THE SCORER USES. This compared normalized strings
+        # with containment, which is blind to exactly the surface differences
+        # the scorer already resolves: on r5j-phase3-v1 the extractor produced
+        # "died December 23, 1967" against an expected "died December 23rd,
+        # 1967", so case_015's fact was PRESERVED by the guard and reported
+        # `missing`. Every such mismatch understates preserved_for_review and
+        # overstates missing -- in a table whose entire job is telling those
+        # two apart. score_field_match() is the scorer's one value-equivalence
+        # entry point (dates, role aliases, containment, token overlap); this
+        # calls it rather than growing a second, divergent implementation.
+        if want and any(score_field_match(want, g) >= _FATE_MATCH_THRESHOLD
+                        for g in got if g):
             fates[key] = "executed_correct"
-        elif any(want == p or (want and p and (want in p or p in want))
-                 for p in proposed_by_path.get(path, [])):
+        elif want and any(score_field_match(want, p) >= _FATE_MATCH_THRESHOLD
+                          for p in proposed_by_path.get(path, []) if p):
             fates[key] = "preserved_for_review"
         elif got:
             fates[key] = "wrong_executable"
