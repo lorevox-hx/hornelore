@@ -24,7 +24,7 @@ import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..lv_eras import legacy_key_to_era_id
 # WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 2 — ONE definition of a
@@ -141,6 +141,14 @@ class ExtractedItem(BaseModel):
     audio_source: Optional[str] = None
     needs_confirmation: Optional[bool] = None   # True when fragile-field + confirmation_required
     confirmation_reason: Optional[str] = None   # short tag: "low_confidence" | "fragile_field" | ...
+    # WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04) — ADDITIVE. Two guards
+    # can doubt one item; the scalar above could only hold one of their
+    # explanations and the second silently erased the first. This carries all
+    # of them, ordered by CONFIRMATION_REASON_PRECEDENCE. The scalar is kept
+    # and holds the MOST SEVERE, so existing consumers are unaffected while
+    # updated ones read the list and fall back. Never change the scalar to a
+    # list — that breaks every reader that has one.
+    confirmation_reasons: List[str] = Field(default_factory=list)
 
 
 class ExtractFieldsResponse(BaseModel):
@@ -8102,6 +8110,78 @@ def _drop_vague_temporal_fragment(item: Dict[str, Any]) -> bool:
 
 # ── WO-STT-LIVE-02 (#99): transcript safety layer ──────────────────────────
 
+# ── CONFIRMATION REASONS — additive, ordered, lossless ──────────────────────
+# WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04).
+#
+# `confirmation_reason` is a single string, so two guards flagging the same
+# item silently erased each other's explanation. The operator then sees ONE
+# reason to doubt a value when there were two, which is the wrong direction for
+# a review surface.
+#
+# `confirmation_reasons` is added ALONGSIDE; the scalar is retained and keeps
+# the MOST SEVERE reason. Existing consumers reading `confirmation_reason` (or
+# the envelope's `reason`) are unaffected; updated consumers read the list and
+# fall back to the scalar. Both live in JSON columns, so no migration.
+#
+# Order is a DOCUMENTED PRECEDENCE, not append order. Append order would make
+# the API result depend on guard execution order: a harmless refactor could
+# reorder the same reasons, flip the legacy scalar, and produce noisy UI and
+# test diffs that describe nothing.
+#
+# THE ORDER IS PRESENTATIONAL ONLY. It selects what older consumers see in the
+# scalar and how a list renders. It never decides write authority — any item
+# needing confirmation is already pinned to suggest_only before this runs.
+CONFIRMATION_REASON_PRECEDENCE = (
+    "identity_conflict",       # 1. known identity / cross-role conflict
+    "relationship_unstated",   # 2. unsupported or ambiguous relationship binding
+    "low_confidence",          # 3. low transcript confidence
+    "fragile_field",           # 4. fragile-field precaution
+)
+
+
+def _confirmation_reason_key(reason: str):
+    """Sort key: known tags in precedence order, unknown tags after, stably."""
+    try:
+        return (0, CONFIRMATION_REASON_PRECEDENCE.index(reason), "")
+    except ValueError:
+        # Future tags must not reorder known ones, and must not depend on the
+        # order they happened to be added in.
+        return (1, 0, str(reason))
+
+
+def _add_confirmation_reason(target, reason: str):
+    """Add `reason` to an item OR a clarification-envelope entry.
+
+    ONE helper for both surfaces, so the list and the legacy scalar cannot
+    drift apart. Deduplicates, re-sorts by precedence, writes the ordered list,
+    and sets the legacy scalar to the most severe reason.
+
+    Accepts an `ExtractedItem` (attributes `confirmation_reasons` /
+    `confirmation_reason`) or a dict envelope entry (keys `reasons` / `reason`).
+    Returns the ordered list.
+    """
+    if not reason:
+        return []
+    is_dict = isinstance(target, dict)
+    list_key, scalar_key = ("reasons", "reason") if is_dict \
+        else ("confirmation_reasons", "confirmation_reason")
+
+    current = (target.get(list_key) if is_dict
+               else getattr(target, list_key, None)) or []
+    merged = list(current)
+    if reason not in merged:
+        merged.append(reason)
+    merged.sort(key=_confirmation_reason_key)
+
+    if is_dict:
+        target[list_key] = merged
+        target[scalar_key] = merged[0]
+    else:
+        setattr(target, list_key, merged)
+        setattr(target, scalar_key, merged[0])
+    return merged
+
+
 def _finalize_extracted_items(items, req, *, answer: str, path: str):
     """THE single materialization point for both extraction routes.
 
@@ -8240,15 +8320,18 @@ def _apply_transcript_safety_layer(
             if it.writeMode != "suggest_only":
                 it.writeMode = "suggest_only"
             it.needs_confirmation = True
-            it.confirmation_reason = reason
-            clarifications.append({
+            # Additive: keeps any reason another guard already recorded, and
+            # sets the legacy scalar to the most severe of them.
+            _add_confirmation_reason(it, reason)
+            _entry = {
                 "fieldPath": it.fieldPath,
                 "label": _fragile_field_label(it.fieldPath),
                 "value": it.value,
-                "reason": reason,
                 "audio_source": src,
                 "confidence": conf,
-            })
+            }
+            _add_confirmation_reason(_entry, reason)
+            clarifications.append(_entry)
             downgraded += 1
         except Exception as e:  # never crash the endpoint over a safety pass
             logger.warning("[extract][stt-safety] downgrade skipped for %s: %s",

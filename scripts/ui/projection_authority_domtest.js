@@ -177,6 +177,48 @@ function landedInQuestionnaire(sandbox, value) {
      "re-deriving unconditionally is the defect this commit closes");
 }
 
+/* ── 6. the UI renders the ordered list, falling back to the scalar ───── */
+{
+  const sandbox = { console: { log() {} }, window: {}, JSON, Array, String, Date, Math };
+  sandbox.window = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(
+    fs.readFileSync(path.join(ROOT, "ui", "js", "transcript-guard.js"), "utf8"),
+    sandbox, { filename: "transcript-guard.js" });
+  const TG = sandbox.TranscriptGuard;
+
+  // Legacy server: scalar only, no list. Must still render.
+  eq(JSON.stringify(TG.confirmationReasons({ reason: "low_confidence" })),
+     JSON.stringify(["low_confidence"]),
+     "falls back to the legacy scalar when no list is present");
+  eq(JSON.stringify(TG.confirmationReasons({})), JSON.stringify([]),
+     "no reasons at all is empty, not a crash");
+
+  // Updated server: the list wins and its ORDER is preserved, not re-sorted.
+  const both = { reasons: ["identity_conflict", "low_confidence"],
+                 reason: "identity_conflict" };
+  eq(JSON.stringify(TG.confirmationReasons(both)),
+     JSON.stringify(["identity_conflict", "low_confidence"]),
+     "the list is preferred over the scalar, in server order");
+
+  const prompt = TG.buildConfirmationPrompt(
+    { label: "your father's name", value: "Otis", reasons: ["identity_conflict", "low_confidence"] });
+  ok(prompt.indexOf("already on record") >= 0 && prompt.indexOf("audio was unclear") >= 0,
+     "BOTH reasons reach the narrator prompt", prompt);
+  ok(prompt.indexOf("identity_conflict") < 0,
+     "raw tags are not leaked to the narrator", prompt);
+
+  const legacyPrompt = TG.buildConfirmationPrompt(
+    { label: "your father's name", value: "Otis", reason: "fragile_field" });
+  ok(legacyPrompt.indexOf("easy detail to mishear") >= 0,
+     "a scalar-only entry still explains itself", legacyPrompt);
+
+  const unknown = TG.buildConfirmationPrompt(
+    { label: "x", value: "y", reasons: ["zz_future_tag"] });
+  ok(unknown.indexOf("zz_future_tag") < 0 && unknown.indexOf("is that right?") >= 0,
+     "an unrecognised tag is omitted rather than shown raw", unknown);
+}
+
 /* ── report ──────────────────────────────────────────────────────────── */
 if (failures.length) {
   console.error("FAIL  " + failures.length + " of " + checks + " checks");

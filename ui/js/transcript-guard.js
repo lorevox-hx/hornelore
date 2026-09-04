@@ -390,11 +390,43 @@
    * Callers (interview.js) can override or suppress this; we just
    * provide a sensible default so minimum-viable UX wiring exists.
    */
+  /* WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04) — reason rendering.
+     Reads the ORDERED `reasons` list and falls back to the legacy scalar
+     `reason`, so this renders correctly against both an updated server and
+     one that predates the list. Server order is precedence order (most severe
+     first) and is preserved here rather than re-sorted: two places deciding
+     severity is how they come to disagree. */
+  var _REASON_TEXT = {
+    identity_conflict:     "it conflicts with someone already on record",
+    relationship_unstated: "the relationship was not stated",
+    low_confidence:        "the audio was unclear",
+    fragile_field:         "it is an easy detail to mishear"
+  };
+
+  function confirmationReasons(entry) {
+    if (!entry) return [];
+    if (Array.isArray(entry.reasons) && entry.reasons.length) {
+      return entry.reasons.slice();
+    }
+    return entry.reason ? [entry.reason] : [];
+  }
+
   function buildConfirmationPrompt(entry) {
     if (!entry) return "";
     var label = entry.label || entry.fieldPath || "that";
     var val   = entry.value || "(nothing)";
-    return "We heard " + JSON.stringify(val) + " for " + label + " — is that right?";
+    var base  = "We heard " + JSON.stringify(val) + " for " + label;
+
+    // Narrator-facing, so reasons are phrased as plain speech and unknown
+    // tags are omitted rather than leaked as raw identifiers.
+    var why = confirmationReasons(entry)
+      .map(function (r) { return _REASON_TEXT[r]; })
+      .filter(function (t) { return !!t; });
+
+    if (!why.length) return base + " — is that right?";
+    if (why.length === 1) return base + " — " + why[0] + ", is that right?";
+    return base + " — " + why.slice(0, -1).join(", ") + " and " +
+           why[why.length - 1] + ", is that right?";
   }
 
   /**
@@ -431,6 +463,9 @@
     reconcileForSend:            reconcileForSend,
     buildExtractionPayloadFields:buildExtractionPayloadFields,
     buildConfirmationPrompt:     buildConfirmationPrompt,
+    // Ordered reasons with legacy-scalar fallback. Exported so other
+    // clarification surfaces render from one implementation.
+    confirmationReasons:         confirmationReasons,
     clearStagedTranscript:       clearStagedTranscript,
   };
 })();
