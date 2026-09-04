@@ -7074,6 +7074,236 @@ def _apply_claims_validators(items: List[dict], answer: str = "") -> List[dict]:
     return items
 
 
+# ── WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 — kinship binding refusal ─────────
+#
+# THE CASE THIS EXISTS FOR. Mable Hudson, turn 2110, her own words:
+#
+#     "Otis died in 2005. Heart attack at sixty-three. The kids were
+#      grown -- Charlene was in Atlanta with her family, Bernard in
+#      Detroit still -- and I sat in the house on Plymouth Road for a
+#      year by myself..."
+#
+# The extractor proposed parents.firstName="Otis" at confidence 0.9,
+# plus parents.birthDate, parents.deathDate and parents.notableLifeEvents
+# in the same parents_0 group. Otis was her HUSBAND. Tomasita Reyes and
+# Domingo produced the identical shape eight minutes later.
+#
+# Two things were true at that moment and neither was consulted:
+#   1. The sentence contains NO relationship word at all -- not "father",
+#      not "husband", nothing. There was no textual basis for ANY kinship
+#      binding, and "spouse" would have been a lucky guess rather than a
+#      correct inference.
+#   2. Her stored profile ALREADY held spouses=[Otis Bell] and
+#      parents=[Clarence Hudson, Ida Hudson], written 22 hours earlier.
+#      The answer was in canonical truth and the binding layer never asked.
+#
+# WHY THE EXISTING GUARD DID NOT CATCH IT. _apply_relation_scope_guard
+# (R4 Patch E) requires a CONFLICT CUE -- "my brother", "my uncle" -- to
+# be present before it will act. It catches "the wrong relative was
+# named". This catches "no relative was named", which is a different and
+# quieter failure: the model supplied the relationship itself.
+#
+# TWO RULES, DELIBERATELY DIFFERENT IN SEVERITY:
+#
+#   Rule 1 (DOWNGRADE) -- a kinship path written from an answer carrying
+#   no anchor for that role becomes an attributed fact candidate:
+#   suggest_only + needs_confirmation. It is NOT dropped. The narrator
+#   said a true thing about a real person; what is missing is the
+#   authority to file it under a relationship, and that belongs to the
+#   operator. Confidence is also capped, because model confidence alone
+#   authorises no canonical relationship.
+#
+#   Rule 2a (REFUSE) -- a name the profile already holds in a DIFFERENT
+#   relationship role is not an ambiguity, it is a contradiction with
+#   truth the system already has. The whole repeatable group is dropped,
+#   because parents_0.deathDate is just as mis-filed as
+#   parents_0.firstName once the group's subject is wrong.
+#
+#   Rule 2b (DOWNGRADE) -- the target slot is occupied by a different
+#   name. This is NOT refused: a narrator correcting a parent's name is
+#   legitimate and must not be silenced by their own stale profile. It
+#   goes to the operator with the collision named.
+#
+# Failure-silent by construction. A profile lookup that raises leaves
+# Rule 1 running and Rules 2a/2b skipped -- never the reverse, and never
+# an exception into the extraction path.
+
+_KINSHIP_ROLE_ANCHORS: Dict[str, "re.Pattern[str]"] = {
+    "parents": _PARENT_ANCHORS,
+    "family.children": _CHILD_ANCHORS,
+    "siblings": _SIBLING_CONFLICT_CUES,   # "my brother/sister/siblings"
+    "family.spouse": re.compile(
+        r"\b(?:my\s+(?:husband|wife|spouse|late\s+husband|late\s+wife)"
+        r"|we\s+(?:were\s+)?married|i\s+married|we\s+wed)\b", re.IGNORECASE),
+    "grandparents": re.compile(
+        r"\bmy\s+(?:grand\s?(?:mother|father|ma|pa|parents?)|"
+        r"granny|grandma|grandpa|nana|papa)\b", re.IGNORECASE),
+    "greatGrandparents": re.compile(
+        r"\bmy\s+great[- ]?grand\s?(?:mother|father|parents?)\b", re.IGNORECASE),
+}
+
+# The profile shapes each role is read from. Kept beside the anchors so a
+# new role cannot be half-added.
+_KINSHIP_PROFILE_KEYS: Dict[str, Tuple[str, ...]] = {
+    "parents": ("parents",),
+    "family.children": ("children",),
+    "siblings": ("siblings",),
+    "family.spouse": ("spouses", "spouse"),
+    "grandparents": ("grandparents",),
+    "greatGrandparents": ("greatGrandparents",),
+}
+
+
+def _kinship_role_of(field_path: str) -> Optional[str]:
+    """Longest-prefix kinship role for a fieldPath, or None if not kinship.
+
+    Ordered longest-first so family.children and family.spouse win over any
+    shorter prefix, matching _FAMILY_RELATIONS_ROOTS' own ordering rule.
+    """
+    if not field_path:
+        return None
+    for role in sorted(_KINSHIP_ROLE_ANCHORS, key=len, reverse=True):
+        if field_path == role or field_path.startswith(role + "."):
+            return role
+    return None
+
+
+def _known_kinship_names(person_id: Optional[str]) -> Dict[str, set]:
+    """{role: {lowercased first names the profile already holds}}.
+
+    Returns {} on any failure so the caller degrades to Rule 1 only. Reads
+    the same get_profile() shape as _fetch_dob_for_validation, including the
+    {profile: {...}} / flat ambiguity.
+    """
+    if not person_id:
+        return {}
+    try:
+        from ..db import get_profile
+        prof = get_profile(person_id) or {}
+        blob = prof.get("profile_json") or {}
+        if isinstance(blob, str):
+            blob = json.loads(blob)
+        root = blob.get("profile") or blob
+        fam = root.get("family") if isinstance(root.get("family"), dict) else {}
+        out: Dict[str, set] = {}
+        for role, keys in _KINSHIP_PROFILE_KEYS.items():
+            names: set = set()
+            for key in keys:
+                entries = root.get(key)
+                if entries is None and isinstance(fam, dict):
+                    entries = fam.get(key)
+                if isinstance(entries, dict):
+                    entries = [entries]
+                for e in entries or []:
+                    if not isinstance(e, dict):
+                        continue
+                    first = str(e.get("firstName") or "").strip().lower()
+                    if first:
+                        names.add(first)
+            if names:
+                out[role] = names
+        return out
+    except Exception as e:
+        logger.warning("[extract][kinship-guard] profile lookup failed "
+                       "(Rule 1 still applies): %s", e)
+        return {}
+
+
+def _apply_kinship_binding_guard(
+    items: List[dict], answer: str, person_id: Optional[str] = None,
+) -> List[dict]:
+    """Refuse kinship bindings the narrator did not state and truth denies.
+
+    Shares the HORNELORE_CLAIMS_VALIDATORS gate with the rest of the stack
+    rather than adding a flag of its own -- one switch for the validator
+    family is easier to reason about than six.
+    """
+    if not items:
+        return items
+    try:
+        from .. import flags as _flags
+        if not _flags.claims_validators_enabled():
+            return items
+    except Exception:
+        return items
+
+    known = _known_kinship_names(person_id)
+    text = answer or ""
+
+    # Pass 1 — Rule 2a decides at GROUP level. A group whose subject is a
+    # known other-role person is mis-filed in every one of its fields, so
+    # the refusal is computed before any field is emitted.
+    refused_groups: Dict[str, str] = {}
+    if known:
+        for it in items:
+            role = _kinship_role_of(str(it.get("fieldPath", "")))
+            if not role or not str(it.get("fieldPath", "")).endswith(".firstName"):
+                continue
+            value = str(it.get("value") or "").strip().lower()
+            if not value:
+                continue
+            for other_role, names in known.items():
+                if other_role == role or value not in names:
+                    continue
+                group = str(it.get("repeatableGroup") or "") or f"@{role}"
+                refused_groups[group] = (
+                    f"{it.get('value')!r} is already this narrator's "
+                    f"{other_role}, not their {role}")
+                break
+
+    out: List[dict] = []
+    for it in items:
+        fp = str(it.get("fieldPath", ""))
+        role = _kinship_role_of(fp)
+        if not role:
+            out.append(it)
+            continue
+
+        group = str(it.get("repeatableGroup") or "") or f"@{role}"
+        if group in refused_groups:
+            logger.info(
+                "[extract][kinship-guard][REFUSED] %s=%r group=%s — %s",
+                fp, it.get("value"), group, refused_groups[group])
+            continue
+
+        reasons: List[str] = []
+
+        # Rule 1 — no anchor for this role anywhere in the narrator's words.
+        anchor = _KINSHIP_ROLE_ANCHORS.get(role)
+        if anchor is not None and not anchor.search(text):
+            reasons.append("relationship_unstated")
+
+        # Rule 2b — the slot is occupied by someone else.
+        if known and fp.endswith(".firstName"):
+            value = str(it.get("value") or "").strip().lower()
+            occupants = known.get(role) or set()
+            if value and occupants and value not in occupants:
+                reasons.append("contradicts_known_%s" % role.replace(".", "_"))
+
+        if not reasons:
+            out.append(it)
+            continue
+
+        it["writeMode"] = "suggest_only"
+        it["needs_confirmation"] = True
+        it["confirmation_reason"] = reasons[0]
+        # Model confidence alone authorises no canonical relationship, so a
+        # downgraded item may not keep presenting as near-certain.
+        try:
+            conf = it.get("confidence")
+            if isinstance(conf, (int, float)) and conf > 0.5:
+                it["confidence"] = 0.5
+        except Exception:
+            pass
+        logger.info(
+            "[extract][kinship-guard][DOWNGRADE] %s=%r role=%s reasons=%s "
+            "— attributed candidate, operator decides the relationship",
+            fp, it.get("value"), role, ",".join(reasons))
+        out.append(it)
+
+    return out
+
+
 def _extract_via_rules(
     answer: str,
     current_section: Optional[str],
@@ -8351,6 +8581,12 @@ def run_field_extraction(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         llm_items = _apply_month_name_sanity(llm_items)
         llm_items = _apply_field_value_sanity(llm_items)
         llm_items = _apply_claims_validators(llm_items, answer=answer)  # WO-EX-CLAIMS-02
+        # WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3. Runs AFTER the claims stack
+        # so it judges what survived, and it is the only validator that
+        # consults the narrator's stored truth — which is what the Otis
+        # mis-binding needed and none of the text-only guards could give it.
+        llm_items = _apply_kinship_binding_guard(
+            llm_items, answer=answer, person_id=req.person_id)
 
     # WO-EX-SILENT-OUTPUT-01 Phase 1: post-validator count. Delta between
     # parse_count and post_validate_count attributes drops to the filter
@@ -8663,6 +8899,11 @@ def run_field_extraction(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
         rules_items = _apply_month_name_sanity(rules_items)
         rules_items = _apply_field_value_sanity(rules_items)
         rules_items = _apply_claims_validators(rules_items, answer=answer)  # WO-EX-CLAIMS-02
+        # Same guard on the rules-fallback path. An extraction that reaches
+        # the narrator's record must clear the same bar whichever engine
+        # produced it; a fallback is not a lower standard.
+        rules_items = _apply_kinship_binding_guard(
+            rules_items, answer=answer, person_id=req.person_id)
 
     if rules_items:
         result_items = []
