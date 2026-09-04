@@ -8271,7 +8271,47 @@ _KINSHIP_CUE_WINDOW_TOKENS = 4
 _TOKEN_RX = re.compile(r"[A-Za-z0-9'’\-]+")
 
 
-def _name_windows(answer: str, name: str):
+# PLURAL / LIST cues. A singular cue describes one person, so an intervening
+# name blocks it (see the barrier in _name_windows). A PLURAL cue introduces a
+# set, and every name in the list that follows belongs to it -- "We had two
+# children, Charlene and Bernard" states Bernard's relationship even though
+# Charlene stands between the cue and his name.
+_ROLE_PLURAL_LANGUAGE = {
+    "parents": re.compile(r"\b(?:my|our|the)\s+parents\b", re.IGNORECASE),
+    "family.children": re.compile(
+        r"\b(?:my|our|the|a|an|one|two|three|four|five|six|both|several)\s+"
+        r"(?:children|kids|sons|daughters|boys|girls|twins)\b", re.IGNORECASE),
+    "siblings": re.compile(
+        r"\b(?:my|our|the|two|three|four|both|several)\s+"
+        r"(?:siblings|brothers|sisters)\b", re.IGNORECASE),
+    "grandparents": re.compile(r"\b(?:my|our|the)\s+grandparents\b", re.IGNORECASE),
+    "greatGrandparents": re.compile(
+        r"\b(?:my|our|the)\s+great[- ]?grandparents\b", re.IGNORECASE),
+}
+
+
+def _plural_cue_supports(answer: str, role: str, name: str) -> bool:
+    """True when a plural cue for `role` precedes `name` in the SAME sentence.
+
+    The list path. Deliberately requires the cue to come BEFORE the name:
+    "two children, Charlene and Bernard" introduces the set and then names it.
+    A name before the cue is not part of a list the cue opened.
+    """
+    pattern = _ROLE_PLURAL_LANGUAGE.get(role)
+    if not (pattern and answer and name):
+        return False
+    target = re.compile(r"\b" + re.escape(str(name).strip()) + r"\b",
+                        re.IGNORECASE)
+    for sentence in _clauses(answer):
+        cue = pattern.search(sentence)
+        if not cue:
+            continue
+        if any(m.start() >= cue.end() for m in target.finditer(sentence)):
+            return True
+    return False
+
+
+def _name_windows(answer: str, name: str, barriers=None):
     """Every ±window token span around each occurrence of `name`.
 
     Whole-token matching, not substring: 'Ida' must not match inside
@@ -8324,6 +8364,31 @@ def _name_windows(answer: str, name: str):
             lo += 1
         while hi > i and toks[hi].end() > s_hi:
             hi -= 1
+
+        # INTERVENING-PERSON BARRIER.
+        # "My father Harold knew Otis." is five tokens long, so a fixed window
+        # puts 'father' inside Otis's span and he borrows Harold's cue. The
+        # answer is not a smaller window -- that breaks ordinary valid forms --
+        # but association: a SINGULAR cue describes one person, and another
+        # named person standing between the cue and this name is what breaks
+        # the association. Coordinated lists are handled by the plural path.
+        bar = {b.strip().lower() for b in (barriers or []) if b and b.strip()}
+        if bar:
+            j = i - 1
+            while j >= lo:
+                if words[j] in bar:
+                    lo = j + 1
+                    break
+                j -= 1
+            end = i + len(target) - 1
+            j = end + 1
+            while j <= hi:
+                if words[j] in bar:
+                    hi = j - 1
+                    break
+                j += 1
+        if lo > i or hi < i + len(target) - 1:
+            continue
         spans.append(answer[toks[lo].start():toks[hi].end()])
     return spans
 
@@ -8406,6 +8471,15 @@ def _apply_kinship_binding_guard(items, req, *, answer: str, clarifications=None
         key = (role, getattr(it, "repeatableGroup", None) or "@" + role)
         buckets.setdefault(key, []).append(it)
 
+    # Every proposed person name across all kinship groups, lowercased. Used
+    # as intervening-person barriers below.
+    _subject_names = {
+        str(m.value).strip().lower()
+        for members in buckets.values() for m in members
+        if str(getattr(m, "fieldPath", "")).endswith(".firstName")
+        and str(m.value or "").strip()
+    }
+
     quarantined, entries = set(), []
     for (role, group), members in buckets.items():
         subject = next(
@@ -8422,9 +8496,17 @@ def _apply_kinship_binding_guard(items, req, *, answer: str, clarifications=None
         # permissive choice was defensible when a miss meant losing the fact;
         # it is not defensible now that quarantine PRESERVES the evidence.
         # Unlocatable identity quarantines.
-        windows = _name_windows(answer, subject) if subject else []
+        # Every OTHER proposed person name in this answer is a barrier: a
+        # singular cue on the far side of somebody else does not describe
+        # this subject.
+        barriers = {n for n in _subject_names if n and n != subject.lower()}
+        windows = _name_windows(answer, subject, barriers) if subject else []
         pattern = _ROLE_LOCAL_LANGUAGE.get(role)
         stated = bool(pattern) and any(pattern.search(w) for w in windows)
+        # A plural cue opens a LIST, and an intervening name is part of it
+        # rather than a barrier to it.
+        if not stated and subject:
+            stated = _plural_cue_supports(answer, role, subject)
         if stated:
             continue                      # local wording settles it.
 

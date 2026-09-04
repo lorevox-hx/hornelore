@@ -211,6 +211,55 @@ class EvidenceIsBoundToTheEntity(unittest.TestCase):
         self.assertEqual(["Otis's relationship to you"],
                          [e["label"] for e in entries(r)])
 
+    def test_an_intervening_person_blocks_a_singular_cue(self):
+        """"My father Harold knew Otis." — five tokens, so a fixed ±4 window
+        puts 'father' inside Otis's span whatever its size. Shrinking the
+        window is not the fix; it would break the ordinary valid forms in
+        OrdinaryFormsAreNotQuarantined. A SINGULAR cue describes one person,
+        and another named person standing between the cue and this name is
+        what breaks the association."""
+        r = run("My father Harold knew Otis.",
+                [item("parents.firstName", "Harold"),
+                 item("parents.firstName", "Otis")], None)
+        vals = [i.value for i in r.items if i.fieldPath == "parents.firstName"]
+        self.assertEqual(["Harold"], vals)
+        self.assertEqual(["Otis's relationship to you"],
+                         [e["label"] for e in entries(r)])
+
+    def test_a_plural_cue_still_reaches_past_an_intervening_name(self):
+        """The barrier must not break lists: a PLURAL cue opens a set, and
+        Charlene standing before Bernard makes him part of it, not cut off
+        from it."""
+        r = run("We had two children, Charlene and Bernard.",
+                [item("family.children.firstName", "Charlene"),
+                 item("family.children.firstName", "Bernard")], None)
+        self.assertEqual(["family.children.firstName"] * 2, paths(r))
+        self.assertEqual([], entries(r))
+
+    def test_a_name_before_the_plural_cue_is_not_in_its_list(self):
+        """A plural cue opens a set; only names AFTER it are in that set.
+
+        The fixture puts the name and a SAME-ROLE plural cue in one sentence,
+        name first, and places the cue outside the singular window. An earlier
+        version used 'Otis died. We had two children...' where Otis is a
+        parents item and the children cue never applied to his role — so the
+        position rule was never exercised and a mutation removing it passed.
+        """
+        r = run("Ida was born in Akron and my parents moved there in 1930.",
+                [item("parents.firstName", "Ida")], None)
+        self.assertEqual([], paths(r),
+                         "'Ida' preceded the cue and was swept into its set")
+        self.assertEqual(["Ida's relationship to you"],
+                         [e["label"] for e in entries(r)])
+
+    def test_a_name_after_the_same_plural_cue_IS_in_its_list(self):
+        """The control for the test above: reverse the order and it executes,
+        so the rule is about position rather than about that sentence."""
+        r = run("My parents moved to Akron in 1930 and Ida was born there.",
+                [item("parents.firstName", "Ida")], None)
+        self.assertEqual(["parents.firstName"], paths(r))
+        self.assertEqual([], entries(r))
+
     def test_a_group_with_no_firstName_cannot_borrow_distant_evidence(self):
         r = run("My father Harold worked at Firestone. He died in 2005.",
                 [item("parents.deathDate", "2005")], None)
