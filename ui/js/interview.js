@@ -1394,11 +1394,58 @@ function requestLegacyFieldExtraction(answerText, turnId) {
    a result caught up after a reload has no local copy of the text, and
    a claim panel without the source echo is better than no panel.
 ═══════════════════════════════════════════════════════════════ */
-function applyCompletedTurnExtractionResult(result, context) {
-  if (typeof LorevoxProjectionSync === "undefined") return false;
-  if (typeof LorevoxProjectionMap === "undefined") return false;
-  if (!state.interviewProjection) return false;
+/* Review / clarification entries — handled independently of projection.
+   WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04).
 
+   These entries are NOT executable. A quarantined relationship carries a
+   `proposed_fieldPath` as diagnostic evidence and deliberately has no
+   `fieldPath`, so nothing here may write to the profile, the questionnaire,
+   the suggestion queue, or family truth. The operator decides; this browser
+   only has to not lose it.
+
+   Returns true when an entry was handed to a surface that accepted it. The
+   console fallback counts: a durable row already exists server-side and the
+   operator can see it in the Bug Panel, so refusing to acknowledge would
+   re-offer the same row forever. What it does NOT prove is that a NARRATOR
+   saw or answered anything — no narrator-facing handler ships yet. */
+function _handleReviewEntries(entries, answerText, res) {
+  if (!entries || !entries.length) return false;
+  var reviewOnly = !(res && res.items && res.items.length);
+  console.log("[extract][review] " + entries.length + " entry(s)"
+    + (reviewOnly ? " (REVIEW-ONLY result — nothing executable)" : "")
+    + " — none applied:", entries);
+
+  var handled = false;
+  if (typeof window.HorneloreClarifyFragile === "function") {
+    try {
+      window.HorneloreClarifyFragile(entries, answerText);
+      handled = true;
+    } catch (e) {
+      console.warn("[extract][review] custom handler failed:", e && e.message);
+    }
+  }
+  if (!handled && window.HorneloreShadowReview
+      && typeof window.HorneloreShadowReview.showFragileClarifications === "function") {
+    try {
+      window.HorneloreShadowReview.showFragileClarifications(entries, answerText);
+      handled = true;
+    } catch (e) {
+      console.warn("[extract][review] shadow-review handler failed:", e && e.message);
+    }
+  }
+  if (!handled && window.TranscriptGuard
+      && typeof window.TranscriptGuard.buildConfirmationPrompt === "function") {
+    for (var i = 0; i < entries.length; i++) {
+      console.log("[extract][review][prompt] "
+        + window.TranscriptGuard.buildConfirmationPrompt(entries[i]));
+    }
+    handled = true;
+  }
+  return handled;
+}
+
+
+function applyCompletedTurnExtractionResult(result, context) {
   var res = result || {};
   var ctx = context || {};
   var allItems = res.items || [];
@@ -1406,6 +1453,39 @@ function applyCompletedTurnExtractionResult(result, context) {
   var allClarifications = res.clarification_required || [];
   var answerText = ctx.answerText || "";
   var turnId = ctx.turnId || res.turn_id || "";
+
+  /* WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04) — REVIEW-ONLY RESULTS.
+     Three exits used to stand between a review entry and the operator:
+
+       1. the projection-module guards below, which returned before anything
+          ran even though a review entry needs no projection at all;
+       2. the `items.length === 0` return further down, which sat BEFORE
+          clarification handling;
+       3. applyExtractionResultFrame acknowledging regardless of the outcome.
+
+     A result that preserves meaning without producing an executable item hit
+     all three and vanished silently. Review handling therefore happens HERE,
+     before any projection dependency, and the executable branch is entered
+     only when there is something to execute. */
+  var handledReview = false;
+  if (allClarifications && allClarifications.length > 0) {
+    handledReview = _handleReviewEntries(allClarifications, answerText, res);
+  }
+
+  // Projection is required to APPLY items, and only to apply items. A
+  // review-only result must not be lost because a projection module is
+  // missing — it was never going to touch projection.
+  var projectionReady =
+    (typeof LorevoxProjectionSync !== "undefined") &&
+    (typeof LorevoxProjectionMap !== "undefined") &&
+    !!state.interviewProjection;
+
+  if (!allItems.length) {
+    // Nothing executable. Success is whether the review entries were
+    // handled; with none, this is a genuine no-op.
+    return handledReview;
+  }
+  if (!projectionReady) return false;
 
   {
     // WO-9: Deduplicate items across chunks (same fieldPath + value = skip)
@@ -1420,8 +1500,10 @@ function applyCompletedTurnExtractionResult(result, context) {
     }
 
     if (!data.items || data.items.length === 0) {
+      // Deduplication removed everything. Review entries were already
+      // handled above, so their fate is not decided here.
       console.log("[extract] No additional fields extracted (method: " + data.method + ")");
-      return false;
+      return handledReview;
     }
     console.log("[extract] Applying " + data.items.length + " item(s) via " + data.method
       + (ctx.chunks > 1 ? " (" + ctx.chunks + " chunks)" : ""));
@@ -1561,34 +1643,8 @@ function applyCompletedTurnExtractionResult(result, context) {
     //   2. shadow-review inline panel (when available) — reuses the same
     //      surface as other review prompts
     //   3. console log (diagnostic only) when no handler is installed
-    if (allClarifications && allClarifications.length > 0) {
-      console.log("[extract][stt-safety] " + allClarifications.length + " fragile-field clarification(s) requested:", allClarifications);
-      var handled = false;
-      if (typeof window.HorneloreClarifyFragile === "function") {
-        try {
-          window.HorneloreClarifyFragile(allClarifications, answerText);
-          handled = true;
-        } catch (e) {
-          console.warn("[extract][stt-safety] custom handler failed:", e && e.message);
-        }
-      }
-      if (!handled && window.HorneloreShadowReview && typeof window.HorneloreShadowReview.showFragileClarifications === "function") {
-        try {
-          window.HorneloreShadowReview.showFragileClarifications(allClarifications, answerText);
-          handled = true;
-        } catch (e) {
-          console.warn("[extract][stt-safety] shadow-review handler failed:", e && e.message);
-        }
-      }
-      if (!handled && window.TranscriptGuard && typeof window.TranscriptGuard.buildConfirmationPrompt === "function") {
-        // Minimum viable surface — log each prompt line so it is visible
-        // in the DevTools console during testing even without UI wiring.
-        for (var ci2 = 0; ci2 < allClarifications.length; ci2++) {
-          console.log("[extract][stt-safety][prompt] " +
-                      window.TranscriptGuard.buildConfirmationPrompt(allClarifications[ci2]));
-        }
-      }
-    }
+    // Review entries were handled at the top of this function, before any
+    // projection dependency — see _handleReviewEntries.
 
     // Clear the staged transcript after a successful extraction round-trip
     // so a stale capture never double-attributes to the next turn.
@@ -1771,7 +1827,19 @@ function applyExtractionResultFrame(msg, opts) {
     return false;
   }
 
-  if (m.status !== "succeeded" || !(m.items && m.items.length)) {
+  // WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04) — REVIEW-ONLY RESULTS.
+  //
+  // This condition was `m.status !== "succeeded" || !(m.items && m.items.length)`,
+  // which swallowed the exact shape this feature produces: a review-only
+  // result is `succeeded` with items=[] and one or more clarification
+  // entries. It was acknowledged and discarded here, before
+  // applyCompletedTurnExtractionResult was ever called — the server then
+  // stops offering the row, so the preserved meaning was gone for good.
+  //
+  // A frame is empty only when it carries neither items NOR review entries.
+  var _hasItems  = !!(m.items && m.items.length);
+  var _hasReview = !!(m.clarification_required && m.clarification_required.length);
+  if (m.status !== "succeeded" || (!_hasItems && !_hasReview)) {
     // noop / failed / duplicate carry nothing to apply. Acknowledge
     // anyway so the server stops offering them.
     _markExtractionKeyApplied(turnKey);
@@ -1832,6 +1900,23 @@ function applyExtractionResultFrame(msg, opts) {
     answerText: m.answer_text || "",
     turnId: m.turn_id || "",
   });
+
+  // ACKNOWLEDGE ONLY WHAT WAS HANDLED.
+  // WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04): this marked applied
+  // and acknowledged unconditionally, so a result the browser FAILED to
+  // handle was permanently retired anyway — the server stops offering a row
+  // once acknowledged. For an ordinary item result that lost a fact; for a
+  // review-only result it would destroy the only record that uncertain
+  // meaning had been preserved at all.
+  //
+  // Leaving it unacknowledged is the safe direction: the row stays pending
+  // and catch-up offers it again. A duplicate offer costs one redundant
+  // frame; a premature acknowledgement costs the narrator's words.
+  if (!ok) {
+    console.log("[extract][result] NOT acknowledged: " + turnKey
+      + " — handling returned false, so the row stays pending for catch-up");
+    return false;
+  }
   _markExtractionKeyApplied(turnKey);
   _ackExtractionResults([turnKey], m.person_id || active);
   return ok;

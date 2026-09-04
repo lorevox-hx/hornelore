@@ -711,7 +711,17 @@
         'Needs clarification before it could be trusted:']));
       bits.push(el('ul', { class: 'story-extraction-items' },
         clar.map(function (c) {
-          const path = (c && (c.fieldPath || c.field_path)) || '(no field)';
+          // A QUARANTINE ENTRY HAS NO EXECUTABLE fieldPath, deliberately.
+          // `proposed_fieldPath` is diagnostic evidence — what the extractor
+          // wanted to write — and must never read as a destination the
+          // operator is approving. It is shown as "proposed", labelled, and
+          // marked not applied.
+          const proposed = c && c.proposed_fieldPath;
+          const path = (c && (c.fieldPath || c.field_path))
+            || (proposed ? 'proposed ' + proposed : '(no field)');
+          const label = (c && c.label) ? c.label + ' — ' : '';
+          const val = (c && c.value) ? ' = ' + c.value : '';
+
           // WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04): render EVERY
           // reason. This read the scalar only, so when two guards doubted one
           // item the operator saw one doubt — on the surface built for
@@ -722,7 +732,9 @@
             ? c.reasons
             : [(c && (c.reason || c.confirmation_reason)) || ''].filter(Boolean);
           const why = reasons.join(', ');
-          return el('li', {}, [path + (why ? ' — ' + why : '')]);
+          const notApplied = (c && c.not_applied) ? ' [not applied]' : '';
+          return el('li', {}, [label + path + val
+            + (why ? ' — ' + why : '') + notApplied]);
         })));
     }
 

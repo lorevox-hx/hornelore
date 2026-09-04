@@ -236,6 +236,20 @@ class ExtractionOutcome:
     turn_mode: str = ""
     source: str = ""
     item_count: int = 0
+    # WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04) — review-only results.
+    #
+    # A turn can preserve MEANING without producing an executable item: the
+    # extractor understood a name but not the relationship, so there is
+    # something to review and nothing to apply. That is not "found nothing".
+    #
+    # Deliberately NOT a new status. The durable four-way distinction comes
+    # from the pair, and needs no schema change:
+    #
+    #   succeeded, item_count > 0                  -> executable items
+    #   succeeded, item_count == 0, review_count>0 -> review-only, preserved
+    #   noop,      both zero                       -> measured absent
+    #   failed                                     -> measurement failed
+    review_count: int = 0
     method: str = ""
     error_class: str = ""             # class name only -- never a message
     duration_ms: int = 0
@@ -268,6 +282,7 @@ class ExtractionOutcome:
             f"source={self.source or '-'} "
             f"outcome={self.status} "
             f"items={self.item_count} "
+            f"review={self.review_count} "
             f"method={self.method or '-'} "
             f"error={self.error_class or '-'} "
             f"duration_ms={self.duration_ms}"
@@ -447,6 +462,7 @@ def _outcome_for(
     *,
     started: float,
     item_count: int = 0,
+    review_count: int = 0,
     method: str = "",
     error_class: str = "",
     ledger_id: Optional[int] = None,
@@ -461,6 +477,7 @@ def _outcome_for(
         turn_mode=claim_like.get("turn_mode", ""),
         source=claim_like.get("source", ""),
         item_count=item_count,
+        review_count=review_count,
         method=method,
         error_class=error_class,
         duration_ms=int((time.monotonic() - started) * 1000),
@@ -721,7 +738,15 @@ def _store_result(
     A storage failure costs catch-up, never the turn: the caller is a
     turn the narrator already watched complete.
     """
-    if not items:
+    # BLOCKER 1, removed 2026-09-04. This read `if not items: return`, so a
+    # turn that preserved MEANING but produced no executable item was never
+    # stored -- no catch-up copy, no operator record, nothing. For a
+    # quarantined relationship that is the worst possible outcome: the whole
+    # point is that uncertain meaning SURVIVES rather than being guessed at.
+    #
+    # The store layer already supports this (db.py: `payload = items or []`,
+    # item_count=len(payload), status "succeeded" permitted), so no migration.
+    if not items and not clarification_required:
         return
     try:
         from .. import db as _db
@@ -772,6 +797,7 @@ async def _complete_claim(claim: _Claim) -> ExtractionOutcome:
             _tk or getattr(out, "turn_key", ""),
             getattr(out, "status", "unknown"),
             item_count=getattr(out, "item_count", 0),
+            review_count=getattr(out, "review_count", 0),
             method=getattr(out, "method", "") or "",
             error_class=getattr(out, "error_class", "") or "")
     except Exception:
@@ -933,7 +959,13 @@ async def _complete_claim_inner(claim: _Claim) -> ExtractionOutcome:
         )
         return out
 
-    if not items:
+    # BLOCKER 2, corrected 2026-09-04. This branched on `not items` alone, so
+    # a review-only result -- zero executable items, one or more clarification
+    # entries -- was classified as "ran cleanly, found nothing" and neither
+    # stored nor delivered. Finding a name and being unable to place it is not
+    # the same as finding nothing, and collapsing the two loses exactly the
+    # evidence an operator needs.
+    if not items and not _clar:
         # Ran cleanly, found nothing. A narrator can say something with
         # no extractable field in it; that is not an error.
         out = _outcome_for(ident, "noop", started=started,
@@ -943,11 +975,21 @@ async def _complete_claim_inner(claim: _Claim) -> ExtractionOutcome:
         logger.info("[extract-turn] extract_fields_noop %s", out.as_log_fields())
         return out
 
+    # `succeeded` covers both shapes; review_count is what tells them apart.
+    # No new status, so no enum churn and no migration -- the ledger closes
+    # succeeded with item_count=0, and the result row's own
+    # clarification_required JSON carries the review entries.
     out = _outcome_for(ident, "succeeded", started=started,
-                       item_count=len(items), method=method,
-                       ledger_id=ledger_id, items=items)
+                       item_count=len(items), review_count=len(_clar),
+                       method=method, ledger_id=ledger_id, items=items)
     _finish_ledger(ledger_id, "succeeded", item_count=len(items),
                    method=method, duration_ms=out.duration_ms)
+    if not items:
+        logger.info(
+            "[extract-turn] extract_fields_review_only %s — %d entry(s) "
+            "preserved for review; nothing executable to apply",
+            out.as_log_fields(), len(_clar),
+        )
 
     # DURABLE BEFORE DELIVERABLE. The browser still owns projection,
     # Shadow Review, repeatable grouping and fragile-fact clarification,
@@ -979,6 +1021,7 @@ except Exception:  # pragma: no cover - defensive
 
 
 def _finalize_extraction_trace(turn_key, status, *, item_count=0,
+                               review_count=0,
                                method="", error_class="", detail=None,
                                forced_result=None):
     """THE single funnel. Every terminal extraction outcome ends here.
@@ -1003,15 +1046,22 @@ def _finalize_extraction_trace(turn_key, status, *, item_count=0,
         if not key:
             return
         n = int(item_count or 0)
+        r = int(review_count or 0)
         if forced_result is not None:
             result = forced_result
-        elif status == "succeeded" and n > 0:
+        elif status == "succeeded" and (n > 0 or r > 0):
+            # WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04): a review-only
+            # result IS persisted and IS reviewable. Calling it
+            # measured_absent would assert the narrator's information was not
+            # there, when in fact it was found and deliberately withheld from
+            # automatic application pending a human decision. That is the
+            # opposite claim.
             result = _rt.RESULT_PERSISTED
         elif status in ("succeeded", "noop"):
             result = _rt.RESULT_MEASURED_ABSENT
         else:
             result = _rt.RESULT_MEASUREMENT_FAILED
-        payload = {"status": status, "items": n, "method": method,
+        payload = {"status": status, "items": n, "review": r, "method": method,
                    "error_class": error_class, "turn_key": key}
         if detail:
             payload.update(detail)
