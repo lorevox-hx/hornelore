@@ -239,3 +239,55 @@ class PreservedNotMissing(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AnElidedYearIsSpokenDigits(unittest.TestCase):
+    """"my dad dying in '67" — the narrator said a year.
+
+    WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04).
+
+    FOUND BY r5k-generational. The kinship-guard repair let case_214 through,
+    and value grounding then refused the same fact from the other side:
+    parents.deathDate=1967 was reported `unsupported` with `spoken_years: []`
+    while the answer plainly said "'67". The sentence LOCATOR had been taught
+    the elided form and the grounder had not, so two parts of the same guard
+    disagreed about the same words.
+
+    Reported `derived`, never `spoken`: two digits do not determine a
+    four-digit year. The rule and the digits actually uttered are recorded so
+    an operator can judge the century — which is the whole point of having a
+    `derived` verdict instead of collapsing it into `spoken`.
+    """
+
+    ANSWER = ("I'd want my family to hear about my dad dying in '67, "
+              "the years we built a life in Germany.")
+
+    def test_the_elided_year_is_derived_with_its_provenance(self):
+        status, detail = EX._value_grounding("parents.deathDate", "1967",
+                                             self.ANSWER)
+        self.assertEqual("derived", status)
+        self.assertEqual("elided_year", detail.get("rule"))
+        self.assertEqual("'67", detail["operands"]["spoken"])
+        self.assertEqual("19", detail["operands"]["century"])
+
+    def test_it_is_not_reported_as_spoken(self):
+        """The century was supplied by the extractor, not the narrator."""
+        status, _ = EX._value_grounding("parents.deathDate", "1967",
+                                        self.ANSWER)
+        self.assertNotEqual("spoken", status)
+
+    def test_a_year_whose_digits_do_not_match_is_still_unsupported(self):
+        status, detail = EX._value_grounding("parents.deathDate", "1965",
+                                             self.ANSWER)
+        self.assertEqual("unsupported", status)
+
+    def test_a_plainly_spoken_year_is_still_spoken(self):
+        status, _ = EX._value_grounding("parents.deathDate", "2005",
+                                        "Otis died in 2005.")
+        self.assertEqual("spoken", status)
+
+    def test_a_fabricated_year_is_still_unsupported(self):
+        """The case the whole feature exists for: 1922, which nobody said."""
+        status, _ = EX._value_grounding("parents.birthDate", "1922",
+                                        "Otis died in 2005.")
+        self.assertEqual("unsupported", status)

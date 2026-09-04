@@ -8255,6 +8255,23 @@ def _value_grounding(field_path: str, value, answer: str):
         spoken_years = {int(m.group(0)) for m in _YEAR_RX.finditer(answer)}
         if year in spoken_years:
             return "spoken", {"year": year}
+        # ELIDED YEAR. "my dad dying in '67" is the narrator SAYING a year;
+        # only the century is left implicit, and the extractor supplied it.
+        # Reported `derived` rather than `spoken` because two digits do not
+        # determine a four-digit year on their own -- the operator sees the
+        # rule and the digits actually uttered and can judge the century.
+        #
+        # Found on r5k-generational: case_214 quarantined parents.deathDate
+        # 1967 as fabricated with spoken_years=[] while the narrator had said
+        # "'67" plainly. The sentence LOCATOR already understood the form; the
+        # grounder did not, so the two disagreed about the same words.
+        for m in _ELIDED_YEAR_RX.finditer(answer):
+            if str(year)[-2:] == m.group(1):
+                return "derived", {
+                    "rule": "elided_year",
+                    "operands": {"spoken": m.group(0), "century": str(year)[:2]},
+                    "value": val,
+                }
         # Derivation: a birth year the narrator implied by giving a later
         # year and an age at that point.
         nums = _numbers_spoken(answer)
