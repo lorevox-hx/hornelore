@@ -10,18 +10,17 @@ rule back. The claim that matters is the one about obligations.)*
 
 ---
 
-> # ▶ CURRENT ACTION — `WO-LORI-ARCHIVE-TO-MEMOIR-02` PHASE 1. CHAIN PROVEN TO CANONICAL; PREVIEW BLOCKED.
+> # ▶ CURRENT ACTION — `WO-LORI-ARCHIVE-TO-MEMOIR-02` PHASE 2. PHASE 1 IS CLOSED AND PROVEN.
 >
 > | | |
 > |---|---|
-> | **Current action** | **Phase 1 — adjudicate `20260904T123556Z`.** The two authorized mutations are DONE and the chain is proven to canonical. What remains is the preview/export link, blocked by the relative-fetch defect. **No further mutation is authorized** |
+> | **Current action** | **Phase 2 — the read-only 38-turn span/granularity ledger. NOT STARTED.** Rebuild from existing evidence; **do NOT rerun the cohort** |
+> | **Phase 1** | ✅ **CLOSED AND PROVEN 2026-09-04.** `20260904T130158Z`, exit **0**, `Phase 1: PASS — full chain proven`. Preview PASS · export PASS · agreement canonical **1** / preview **1** / DOCX **1** · control byte-identical |
 > | **Phase 0** | ✅ **ACCEPTED at `fdaa255`.** The evaluation is frozen |
-> | **Phase 2** | **NOT STARTED.** The 38-turn destination ledger. Read-only rebuild from existing evidence — do NOT rerun the cohort |
-> | **Authorized mutations** | **EXACTLY TWO, on `447eee18` only:** placement (`building_years`, `operator_set`) then promotion. **Control `5a56f942` must stay byte-identical.** No further mutation is authorized by this record |
-> | **Live-run state** | ✅ **BOTH AUTHORIZED MUTATIONS PERFORMED, `20260904T123556Z`.** Placement `v1→v2` then promotion `v2→v3`, 2/2 PATCHes in order, provenance unchanged, control identical. **Chain proven archive → placement → promotion → canonical.** Preview FAILS on a named product defect; export not attempted by design |
-> | **Target state NOW** | `447eee18` is **`promoted`, placed `building_years`/`operator_set`, `review_version: 3`.** It is NO LONGER unplaced |
-> | **Next live attempt** | **`--resume 20260904T123556Z`** — mode `promoted`, PATCH budget **0**. A fresh run would refuse at preconditions, correctly, because the target is no longer unplaced. *(This row said "fresh run, no `--resume`" until the mutations landed.)* |
-> | **Failing link** | `5_preview` — `ui/hornelore1.0.html:8551` fetches `/api/memoir/canonical` **relative**, resolving to `:8082`. Three UI-issued 404s observed; the same query against `:8000` returns 200. **Not a regression, not a canonical failure** |
+> | **Mutations — ALL SPENT** | The two authorized mutations were performed in `20260904T123556Z`: placement `v1→v2`, promotion `v2→v3`. `447eee18` is now `promoted`, `building_years`/`operator_set`, `review_version: 3`. **NO further mutation is authorized by this record** |
+> | **The proving run mutated NOTHING** | mode `promoted`, budget `0`, observed `0`, no blocked PATCHes, no refusals. Control `5a56f942` byte-identical |
+> | **Contract guarantees held** | `containsSourceId: false` — no raw UUID in the document · `forbidden: []` — no known bad substitution reached the export |
+> | **What Phase 1 does NOT claim** | **ONE** passage completes the chain. It says nothing about the other 27 archived-but-uncaptured statements, nothing about capture granularity, nothing about correctness at scale. That is Phase 2 |
 >
 > **A refusal is a result.** A run that stops before mutating, names the failing link and
 > exits non-zero has done its job. It is not a failed attempt to be retried until it passes.
@@ -109,7 +108,7 @@ the count it produces is not evidence about this change.
 
 | Lane | State |
 |---|---|
-| **`WO-LORI-ARCHIVE-TO-MEMOIR-02`** | 🔵 **ACTIVE — Phase 1 in implementation. §9.** Phase 0 accepted `fdaa255`. **Both authorized mutations performed `20260904T123556Z`; chain proven archive → placement → promotion → canonical.** Preview blocked by the relative-fetch defect. Target is now promoted/placed/v3 — resume, do not run fresh. Phase 2 (38-turn ledger) NOT STARTED. **Exactly two mutations authorized, on `447eee18` only** |
+| **`WO-LORI-ARCHIVE-TO-MEMOIR-02`** | 🔵 **ACTIVE — Phase 1 CLOSED AND PROVEN; Phase 2 is next. §9.** Phase 0 `fdaa255`. **Phase 1 PASS `20260904T130158Z`, exit 0** — full chain archive → placement → promotion → canonical → preview → export, agreement 1/1/1, control byte-identical, proving run mutated nothing. Both authorized mutations SPENT in `20260904T123556Z`; **no further mutation is authorized.** Phase 2 (read-only 38-turn span/granularity ledger) **NOT STARTED** |
 | **Memory Integrity Layer / guardrail audit** | 🟡 **DESIGN THREAD — no work order yet.** Response-guard audit done; `BUG-LORI-FEWSHOT-EXEMPLAR-LEAK-01_Spec.md` (repo root) is **ACTIVE / NEXT**. Nothing here is scheduled. §10 |
 | **Repository hygiene** | ⏸️ **PHASE A ACCEPTED, REMAINDER PAUSED — the work order is INCOMPLETE.** Steps 0, 1 `5f6b01b`, 2 `db0c5e7`, 2b `ff1ff4f` and the first Step 3 cohort `5086490` are accepted. **Deferred by product-priority decision:** the remaining Step 3 cohorts, Steps 4–5, and the final verification checkpoint. Still indexed, still owed, not scheduled |
 | **Profile Seed reachability** | ⏸️ **OWED — Phase 3 IN IMPLEMENTATION with ACCEPTANCE OPEN, and no longer the current action.** *(It was, until `WO-LORI-ARCHIVE-TO-MEMOIR-02` took priority. Owed work does not become finished work when the lane changes.)* Phase 0 `661aa95` · Phase 1 `1288baa` · **Phase 2 ACCEPTED 2026-08-29, steps 1–7 complete** (step 4 `b269184`, step 5 `9127adb`, pre-Step-6 corrections `d0e5294`, step 6 `12221e0`…`58dfc40` live, step 7 `6885bb2`) · Phase 3 implementation landed through `2b7e634`; its six acceptance conditions remain open. Phases 4–5 are partially run and not accepted. See the Profile Seed spec's reconciled status block |
@@ -309,7 +308,16 @@ Full register with evidence: [`docs/BACKLOG.md`](docs/BACKLOG.md).
 Historical handoffs and long status narratives live in Git history and `docs/archive/`.
 **They must not be appended back into this operational brief.**
 
-## 9. `WO-LORI-ARCHIVE-TO-MEMOIR-02` Phase 1 — state at handoff (2026-09-03)
+## 9. `WO-LORI-ARCHIVE-TO-MEMOIR-02` Phase 1 — CLOSED AND PROVEN (2026-09-04)
+
+> ✅ **EXIT GATE MET.** `20260904T130158Z`, exit **0**, `Phase 1: PASS — full chain proven`.
+> Preview PASS · export PASS (`…__pat_structured.docx`, 36,975 bytes) · agreement
+> canonical **1** / preview **1** / DOCX **1** · control byte-identical · **zero mutations in the
+> proving run**. `containsSourceId: false` and `forbidden: []` — no raw UUID and no known bad
+> substitution reached the document. Full closure record, including the seven defects found
+> and fixed along the way, is in the work order.
+
+*(The sections below are the working state that produced that result, kept as the record.)*
 
 **Plan:** [`docs/wo/WO-LORI-ARCHIVE-TO-MEMOIR-02.md`](docs/wo/WO-LORI-ARCHIVE-TO-MEMOIR-02.md).
 Phase 0 accepted at `fdaa255`. **Phase 1 is in implementation. Phase 2 is NOT STARTED.**

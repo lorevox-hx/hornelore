@@ -3,7 +3,7 @@
 **Status:** CURRENT — central Lori/Lorevox work order  
 **Supersedes:** `WO-LORI-END-TO-END-LISTEN-RETAIN-MEMOIR-01`  
 **Starting evidence:** demographic cohort `20260901T015343Z` and Walt seven-era run `20260901T003329Z`  
-**Current position:** **Phase 1 — in implementation**  
+**Current position:** **Phase 1 CLOSED 2026-09-04** (`20260904T130158Z`, exit 0) — **Phase 2 is next**  
 **Phase 0:** accepted by ChatGPT against pushed commit `fdaa255`
 
 ## 1. Goal
@@ -76,7 +76,7 @@ Lorevox is not accepted merely because a transcript exists, an endpoint returns 
 - [ ] Accepted extraction items have not been joined to their final durable destinations.
 - [ ] Rolling-summary retention is demonstrated but accuracy, duplication and topic placement are not accepted.
 - [ ] Life Map fact placement is not measured.
-- [ ] Promotion-to-canonical-to-preview-to-export has not been proven end to end.
+- [x] **Promotion → canonical → preview → export PROVEN end to end 2026-09-04** (`20260904T130158Z`, exit 0, agreement 1/1/1, control unchanged). *One passage — this is not a coverage claim.*
 - [ ] Future demographic checkpoints still need their own durability and artifact fields verified from code.
 
 ## 4. Status vocabulary
@@ -180,6 +180,55 @@ the real Bug Panel controls and both against the same `PATCH
 - [ ] Compare canonical response, preview and export.
 - [ ] Confirm all three contain the passage exactly once.
 - [ ] Confirm no incorrect structured family fact is substituted into the passage.
+
+## ✅ PHASE 1 CLOSED — the full chain is proven (2026-09-04)
+
+**Exit gate met.** Run `20260904T130158Z`, exit code **0**,
+`Phase 1: PASS — full chain proven`.
+
+| Link | Result |
+|---|---|
+| placement | `carried_forward` from `20260904T123556Z`, re-verified live |
+| placement verified | **PASS** — sole era `building_years`, `operator_set`, provenance unchanged |
+| promotion | **PASS** — `promoted`, placement survived |
+| canonical API | **PASS** — occurrences **1**, `era=building_years`, `source_id=5d57a43ce780`, `complete=true`, `lane=read` |
+| preview | **PASS** — `:popover-open` true, occurrences **1**, 1408 chars |
+| export | **PASS** — `lorevox_memoir_…__pat_structured.docx`, 36,975 bytes, occurrences **1**, `bodyPersonIsPat=true` |
+| agreement | **PASS** — canonical **1** / preview **1** / DOCX **1** |
+| control `5a56f942` | **PASS** — byte-identical |
+
+**Mutations in the proving run: ZERO.** It resumed at mode `promoted`, budget `0`,
+observed `0`, no blocked PATCHes, no refusals. The two authorized mutations were performed
+earlier, in `20260904T123556Z`, and nothing has touched the candidate since.
+
+**Two contract guarantees held, and both are worth recording:**
+
+- `containsSourceId: false` — **no raw UUID reached the document.** `memoir_contract`
+  requires that a raw narrator or candidate id "must not appear in a document a family
+  reads", and the export honoured it.
+- `forbidden: []` — **none of the known bad substitutions reached the document.** The
+  relationship-misbinding defect (`Jim` bound under `parents.*`) did not leak into this
+  passage's export.
+
+### What Phase 1 does NOT claim
+
+It proves **one** passage completes the chain. It says nothing about the other 27
+archived-but-uncaptured statements, nothing about capture granularity, and nothing about
+whether the memoir would be *right* at scale. Those are Phase 2's subject. The value of
+this result is that the chain exists and is traversable — every later finding is now a
+question of coverage and correctness rather than of whether the road is there at all.
+
+### Defects found and fixed while proving it
+
+| Defect | Where | Fixed by |
+|---|---|---|
+| Runtime era treated as story placement | probe precondition | reversed; became permanent doctrine |
+| Bug Panel launcher id did not exist | probe | `#lv10dBugBtn`, gated on `:popover-open` |
+| Story rows unaddressable by identity | **product** | `data-story-candidate-id` on the operator row |
+| Canonical fetched from a relative URL | **product** | BUG-224 pattern, `ORIGIN` from `api.js` |
+| `NameError` on the safety-routed path | **product** | `_safety_path` locals initialized |
+| Resume expected the placement's version after a promotion | probe | derived per mode |
+| `offsetParent` used to test a native popover's visibility | probe | `:popover-open` alone |
 
 **Mutation budget.** Exactly two PATCHes to the target in a fresh run —
 placement then promotion, in that order — and none to any other candidate.
