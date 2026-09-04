@@ -281,6 +281,44 @@ durable facts about the shipped UI, not lane state.
   Windows Chrome and Playwright *inside WSL* can. Do not conclude a product defect from an
   agent-side browser failure, and do not route around it.
 
+## Cite the line that READS the value (locked 2026-09-04)
+
+**A claim about what code does with a value must cite the line that READS the value, not a
+line that names, produces, or resembles it. If the reading line is on the other side of a
+process boundary, the claim is `unverified` until that side is read.**
+
+Three failures in one day forced this, and they share one shape — **a property inferred from
+a name or a plausible producer, then reported as measured**:
+
+| Claim | What was checked | What was not |
+|---|---|---|
+| "this fixture has 3 scene anchors" | nothing — "it names a place, a person and a year" | running the shipped trigger (**it scored 2**; a bare year is not a TIME anchor, `story_trigger.py:706` matches *relative* time) |
+| "Stefi cannot reach the correction branch" | the **server** witness classifier | **who assigns `turn_mode`** — `ui/js/app.js:2713` in the **browser** does, and its regex fires on the words *"not the"* |
+| "extraction is reading Lori's words" | the column **name** `turnrow:<assistant id>` | what is passed in — `chat_ws.py:965` passes `assistant_text=None` literally |
+
+Investigation claims carry one of four labels: **`verified_by_read`** (line cited) ·
+**`verified_by_execution`** (ran it) · **`inferred`** (plausible, unconfirmed — **may not
+enter a document as fact**) · **`unverified`**. A claim without a citation does not go in a
+work order, a closeout or a report.
+
+**Two corollaries, both learned the hard way:**
+
+- **A fixture whose properties are ASSERTED tests nothing.** A comment cannot fail. Declare
+  the properties and have the harness measure them against the shipped code at import —
+  `tests/measured_fixture.py`. A wrong assumption then fails *at the fixture*, with the
+  measured values in the message, instead of silently exercising the wrong path and passing.
+  When the shipped classifier changes, every dependent fixture fails loudly.
+- **Every derived number names the symbol that produced it.** `18/38 deterministic
+  [story_trigger.classify_story_candidate]`. Without it a reader cannot tell a measurement
+  from a transcription of yesterday's conclusion — which is precisely how
+  `scripts/phase2_verify_ledger.py` came to "reproduce" an audit by restating its verdict.
+
+**And read the log before calling something unrecorded.** Two Phase 2 verdicts —
+"the capture decision is persisted NOWHERE" and "zero ledger rows is an auditability
+defect" — were both overstated, and `.runtime/logs/api.log` refuted both in one grep. It
+carried all 38 capture decisions with full anchor breakdowns, and 38 explicit skip lines
+naming the reason extraction declined. **`.runtime/` is gitignored, not empty.**
+
 ## Environment
 
 - **OS**: Windows 11 + WSL2 (Ubuntu). Chris works from WSL.

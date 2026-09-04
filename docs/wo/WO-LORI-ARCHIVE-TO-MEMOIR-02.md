@@ -520,16 +520,101 @@ completion**:
 | Destinations of previously reported accepted extraction items | **NOT DONE — transferred** | **Phase 5** |
 
 **Exit gate — MET FOR THE NARROWED SCOPE ONLY.** All 38 turns carry a terminal status at the
-*turn* level; the three misses have an evidence-backed classification (`measurement_failed`);
-the mechanism verdicts are recorded. **The correctness obligations in the table above remain
-OPEN.** Anyone reading this closeout as "Phase 2 is finished" is reading it wrong: the
-question it answered was *does the machinery work*, not *is the interpretation right*.
+*turn* level; the three misses have an evidence-backed classification; the mechanism verdicts
+are recorded. **The correctness obligations in the table above remain OPEN.** Anyone reading
+this closeout as "Phase 2 is finished" is reading it wrong: the question it answered was
+*does the machinery work*, not *is the interpretation right*.
+
+### CORRECTED 2026-09-04 — two Phase 2 verdicts overstated the defect
+
+Both corrections came from reading a source the original audit never opened: the API log.
+They are recorded here rather than quietly edited, because a closeout that revises itself
+without saying so is worth less than one that was wrong out loud.
+
+**1. "The capture decision is persisted NOWHERE" — WRONG AS STATED.** `chat_ws.py:1848`
+logs one `[story-trigger]` line per turn carrying trigger, word count and all three anchor
+dimensions. All 38 cohort decisions are in `.runtime/logs/api.log`, and they agree with the
+recomputed split *exactly* — 18 `borderline_scene_anchor`, 17 `chain_detection`, 3 `None`.
+
+That agreement is the first independent corroboration this lane has: the split was derived
+today from stored text, the log is what the server decided at run time on 2026-08-30, and
+they match. The real defect is **narrower and more fixable**: the decision is recorded only
+to a gitignored, rotating log, so it is not durably attached to the candidate it produced or
+the turn it declined.
+
+**2. The three misses are NOT unexplained.** `1846`, `1864` and `1870` share one signature —
+`anchors=2 place=True time=False person=True` — in the live log *and* under the shipped
+trigger re-run today. All three are present-day status summaries ("Today I live alone…",
+"I am eighty-nine years old…"). They carry absolute dates but no *relative* time phrasing,
+and `story_trigger.py:706` measures `_matches_relative_time`. **Whether a life inventory
+should count as a story is a product question for Phase 4, not a classifier bug.**
+
+**3. The zero extraction-ledger rows are a HARNESS gap, not a product defect.** All 38 turns
+logged the same skip: *"client did not declare field_extraction_result=v1"*
+(`chat_ws.py:924`). `run_narrator_cohort_acceptance.py` never declares
+`client_capabilities`, so the server correctly ceded extraction to a client that was not a
+browser and never ran it. **Extraction binding cannot be studied from this cohort at all** —
+the Otis and Domingo mis-bindings below come from a real browser session
+(`switch_mti0ucwl_ikwb`), not from the cohort.
+
+`scripts/phase2_verify_ledger.py` now reads both log sources and prints the corroboration
+alongside every DB-derived number, each labelled with the symbol that produced it.
 
 ## Phase 3 — Fix processing bypass and relationship binding  ⬅ **CURRENT ACTION**
 
 **Outcome:** Narration cannot disappear into a special route, and spouses cannot become parents.
 
+### Claim status vocabulary (adopted 2026-09-04)
+
+Every mechanism claim below carries one of four labels. The rule that produced them:
+
+> **A claim about what code does with a value must cite the line that READS the value, not a
+> line that names, produces, or resembles it. If the reading line is on the other side of a
+> process boundary, the claim is `unverified` until that side is read.**
+
+`verified_by_read` (line cited) · `verified_by_execution` (ran it) · `inferred` (plausible,
+unconfirmed — **may not be stated as fact**) · `unverified`.
+
+**Two withdrawn claims, and why the rule exists.** A read-only investigation on 2026-09-04
+reported that (a) Stefi's wording *would not* reach the correction branch, and (b) extraction
+*was reading Lori's replies*. Both were wrong, and both failed the same way: a property was
+inferred from a name or a nearby producer instead of from the line that consumes the value.
+(a) cited a server-side classifier that *could* set `turn_mode` without ever asking what
+actually sets it — **the browser does**. (b) cited a column name, `turnrow:<assistant id>`,
+without reading what is passed to the extractor. Neither would have survived the rule above.
+
 ### Correction routing
+
+**The routing chain, end to end — `verified_by_read` + `verified_by_execution`:**
+
+| Step | Line | What it does |
+|---|---|---|
+| 1 | `ui/js/app.js:2599` | `/\b(?:not\|wasn't\|…)\s+(?:\d+\|that\|him\|her\|them\|me\|my\|the\|a\|an\|in\|on)\b/` |
+| 2 | `ui/js/app.js:2713` | `if (_looksLikeStrongCorrection(text)) return TURN_CORRECTION;` |
+| 3 | `ui/js/app.js:6627` | `const routedMode = lvRouteTurn(text);` |
+| 4 | `ui/js/app.js:6691` | `ws.send(JSON.stringify({type:"start_turn", … turn_mode:routedMode …}))` |
+| 5 | `chat_ws.py:6743` | `params["turn_mode"] = (msg.get("turn_mode") or "interview")…` — lifts the frame field |
+| 6 | `chat_ws.py:3340` | `turn_mode = (params.get("turn_mode") or "interview")…` — **the READ line** |
+| 7 | `chat_ws.py:4341` | `if turn_mode == "correction":` |
+| 8 | `chat_ws.py:4413` | `return` — **unconditional**, whether or not `parsed` is empty |
+
+Executed against Stefi's exact text, the step-1 regex returns **true**, matching the
+substring `"not the"` in *"— not the Nevada one, the New Mexico one —"*. **The narrator's
+clarification of which Las Vegas she was born in is routed as a self-correction by two words
+of ordinary English.** The server parser then returns `{}`, `apply_correction` is correctly
+skipped, and step 8 swallows the turn anyway.
+
+**`_finalize_deterministic_turn` never writes `_persisted_turn_row_id`,
+`_archive_event_persisted` or `_persisted_user_turn_row_id`** (`chat_ws.py:322-330`), which
+is what holds the completed-turn hooks out — so the turn is extraction- and
+placement-ineligible **by construction, not by a mode gate**. That is deliberate and
+documented; the defect is reaching it with an empty parse, not the ineligibility itself.
+
+**Story capture is NOT affected** — `inferred` corrected to `verified_by_read`: preservation
+runs at `chat_ws.py:1811-1939`, roughly 2,500 lines *before* the `turn_mode` dispatch, so a
+correction-routed turn is still considered for a story candidate.
+
+- [ ] Use Stefi’s exact Las Vegas, New Mexico statement as a regression fixture.
 
 - [ ] Use Stefi’s exact Las Vegas, New Mexico statement as a regression fixture.
 - [ ] Correction processing finalizes only when a concrete correction is parsed.
@@ -539,6 +624,33 @@ question it answered was *does the machinery work*, not *is the interpretation r
 
 ### Relationship binding
 
+**The extractor reads the NARRATOR's words — `verified_by_read`, three independent lines.**
+`turn_extraction.py:419-421` states it: *"`answer` is the NARRATOR's text. The assistant reply
+is not the subject of extraction."* `chat_ws.py:963-965` passes `user_text=user_text` and
+**`assistant_text=None`** literally. `turn_extraction.py:44-47` says `turn_key` is derived
+from the committed assistant row *"never from a hash of the narrator's words"* — it is an
+idempotency key and nothing else. **This makes the mis-binding worse, not better:** it is a
+binding failure on the narrator's own sentence, not contamination from Lori's phrasing.
+
+**The two live mis-bindings — `verified_by_execution`, read from `turn_extraction_results`:**
+
+| Row | Narrator said (their own words) | Extractor proposed |
+|---|---|---|
+| `turnrow:2111` | *"Otis died in 2005. Heart attack at sixty-three."* | `parents.firstName=Otis` @0.9 · `parents.deathDate=2005` @0.9 · `parents.notableLifeEvents="died 2005"` @0.8 |
+| `turnrow:2159` | *"Domingo passed in 2008."* | `parents.firstName=Domingo` @0.9 · `parents.deathDate=2008` @0.9 |
+
+**Neither sentence contains a relationship word at all.** No "father", no "husband", nothing.
+The extractor supplied `parents_0` on its own and stamped 0.9 on it — the binding-layer
+causal-attribution failure the extractor architecture names as the primary failure surface.
+Both are `writeMode: candidate_only` with `applied_at = NULL`, so **neither reached stored
+`profiles`**; they were proposed and delivered, not applied. The containment held.
+
+- [ ] **A FABRICATED VALUE, not a mis-binding — needs its own finding.** The same row
+      proposes `parents.birthDate = "1922"` at confidence 0.7. Mable said *"died in 2005"*
+      and *"sixty-three"*; 2005 − 63 is 1942, and **1922 appears nowhere in her words and is
+      not derivable from them**. A mis-bound true value and an invented one are different
+      defects with different fixes, and a memoir system inventing a birth year is the more
+      serious of the two.
 - [ ] Jim binds as Pat’s husband.
 - [ ] Otis binds as Mable’s husband.
 - [ ] Domingo binds as Tomasita’s husband.
@@ -557,7 +669,17 @@ travel chain — and every capture decision is inspectable.
 
 ### FIRST, BEFORE ANY THRESHOLD CHANGE: persist the capture decision
 
-Phase 2 proved the deciding signal for **20 of 38** turns is recorded nowhere. Tuning a
+**REFRAMED 2026-09-04 — the decision is recorded, just not durably.** This section
+previously read "the deciding signal for 20 of 38 turns is recorded nowhere". It is recorded
+for **all 38**, at `chat_ws.py:1848`, with trigger, word count and every anchor dimension —
+into `.runtime/logs/api.log`, which is gitignored and rotates. So the work is not *start
+recording it*; it is **attach the existing record to the row it explains, durably**, which is
+a smaller and better-specified job. A missed turn still has no candidate to attach it to,
+so the record belongs on the turn.
+
+The three cohort misses now have a named cause rather than a shrug — no relative time
+phrasing in a present-day life inventory — which is exactly the kind of finding a threshold
+change would have buried. Tuning a
 classifier whose decisions cannot be inspected is guesswork.
 
 - [ ] Persist **one decision record per narrator turn — including turns that create no candidate.**
