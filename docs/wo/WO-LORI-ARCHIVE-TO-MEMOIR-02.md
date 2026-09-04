@@ -3,7 +3,7 @@
 **Status:** CURRENT — central Lori/Lorevox work order  
 **Supersedes:** `WO-LORI-END-TO-END-LISTEN-RETAIN-MEMOIR-01`  
 **Starting evidence:** demographic cohort `20260901T015343Z` and Walt seven-era run `20260901T003329Z`  
-**Current position:** **Phase 1 ACCEPTED 2026-09-04** — mutations `20260904T123556Z`, proof `20260904T130525Z`, exit 0 — **Phase 2 is next**  
+**Current position:** **Phase 1 ACCEPTED 2026-09-04** — mutations `20260904T123556Z`, proof `20260904T130525Z`, exit 0. **Phase 2 IN PROGRESS** — first-pass ledger built; reproduce with `python3 scripts/phase2_verify_ledger.py`  
 **Phase 0:** accepted by ChatGPT against pushed commit `fdaa255`
 
 ## 1. Goal
@@ -161,26 +161,30 @@ still reach canonical memoir **unplaced**. Promotion decides whether a story is
 *eligible*; placement decides where it *goes*. Phase 2's ledger must record them
 as two separate destinations, never one.
 
-### The operator workflow under test
+### The operator workflow under test — ALL PERFORMED AND VERIFIED
+
+*(Checked 2026-09-04. Placement and promotion were performed in `20260904T123556Z`;
+canonical, preview, export and agreement were proven at zero mutations in
+`20260904T130525Z`. See the acceptance record above.)*
 
 Phase 1 therefore exercises **two authorised mutations**, in order, both through
 the real Bug Panel controls and both against the same `PATCH
 /api/operator/story-candidates/{id}` endpoint:
 
-- [ ] Record candidate ID, narrator ID, conversation ID, source-turn IDs, exact passage — and the **absence** of a placement.
-- [ ] Open the real Operator review surface.
-- [ ] **Place** through the real era control, then `Save placement / notes`. Selecting an era *is* the operator placement: the control writes `placement_source=operator_set` in the same gesture, and `operator_set` is deliberately not hand-selectable from the source dropdown.
-- [ ] Confirm the candidate now carries `building_years` as its **sole** era with `placement_source=operator_set`, that the review version advanced, and that `review_status`, transcript and provenance are untouched.
-- [ ] **Refetch the row** so the panel carries the new version. `applyReview` sends the version it last rendered; promoting without refetching sends a stale version and takes a 409.
-- [ ] Promote through that row's real Promote control, at the version the placement returned.
-- [ ] Confirm status becomes `promoted` without losing provenance **or the placement**.
-- [ ] Query canonical memoir from the correct API origin.
-- [ ] Confirm the exact passage appears once with correct narrator and era.
-- [ ] Open normal memoir preview.
-- [ ] Export the memoir document.
-- [ ] Compare canonical response, preview and export.
-- [ ] Confirm all three contain the passage exactly once.
-- [ ] Confirm no incorrect structured family fact is substituted into the passage.
+- [x] Record candidate ID, narrator ID, conversation ID, source-turn IDs, exact passage — and the **absence** of a placement.
+- [x] Open the real Operator review surface.
+- [x] **Place** through the real era control, then `Save placement / notes`. Selecting an era *is* the operator placement: the control writes `placement_source=operator_set` in the same gesture, and `operator_set` is deliberately not hand-selectable from the source dropdown.
+- [x] Confirm the candidate now carries `building_years` as its **sole** era with `placement_source=operator_set`, that the review version advanced, and that `review_status`, transcript and provenance are untouched.
+- [x] **Refetch the row** so the panel carries the new version. `applyReview` sends the version it last rendered; promoting without refetching sends a stale version and takes a 409.
+- [x] Promote through that row's real Promote control, at the version the placement returned.
+- [x] Confirm status becomes `promoted` without losing provenance **or the placement**.
+- [x] Query canonical memoir from the correct API origin.
+- [x] Confirm the exact passage appears once with correct narrator and era.
+- [x] Open normal memoir preview.
+- [x] Export the memoir document.
+- [x] Compare canonical response, preview and export.
+- [x] Confirm all three contain the passage exactly once.
+- [x] Confirm no incorrect structured family fact is substituted into the passage.
 
 ## ✅ PHASE 1 ACCEPTED — the full chain is proven (2026-09-04)
 
@@ -381,10 +385,10 @@ figure. Keep every metric below; they simply report better news than expected.
 ### The ledger reports FIVE separate metrics — never one number
 
 - [x] **Candidate presence** — **35/38 (92.1%)**. *(`11/38` was never this metric, or any metric: it was eleven operator PATCHes in the API log.)*
-- [ ] **Independently addressable statement coverage** — statements reachable as their own story, not merely present inside some aggregate.
-- [ ] **Over-capture / aggregation** — statements swept into a span far larger than themselves.
-- [ ] **Duplicate and containment groups** — candidates nesting or overlapping, grouped.
-- [ ] **Unreachable archived statements** — archived, but reachable by no promotable candidate.
+- [x] **Independently addressable statement coverage** — **35/38 (92.1%)**. Identical to presence, because every candidate is exactly its own statement.
+- [x] **Over-capture / aggregation** — **0**. No candidate transcript is a strict superset of its source statement.
+- [x] **Duplicate and containment groups** — **0** within the cohort.
+- [x] **Unreachable archived statements** — **38/38**. All 35 candidates are `unreviewed`, so none satisfies `STORY_MEMOIR_ELIGIBLE`. **This is the finding: the bottleneck is REVIEW.**
 
 **Sequencing:** the finalized ledger is built **after** the Phase 1 live run. Phase 1 moves
 `447eee18` from unplaced/unreviewed to placed/promoted, so a ledger completed first would
@@ -405,8 +409,8 @@ have a stale destination state on the day it was written.
 Required aggregate totals:
 
 - [ ] 38 statements accounted for.
-- [ ] 11 current story candidates independently reproduced.
-- [ ] 27 no-candidate turns independently reproduced and classified.
+- [x] **35** current story candidates independently reproduced *(was written as 11 — that was eleven operator PATCH actions in the API log, never a candidate count)*.
+- [ ] **3** no-candidate turns — `1846`, `1864`, `1870` — reproduced; **classification still owed**: each needs a defensible, inspectable `not_story` reason *(was written as 27)*.
 - [ ] Pat, Stefi, Mable, Tomasita, Richard, Joe and Frank explicitly reviewed.
 - [ ] The final destinations of the previously reported accepted extraction items identified.
 
