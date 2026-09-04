@@ -8102,6 +8102,78 @@ def _drop_vague_temporal_fragment(item: Dict[str, Any]) -> bool:
 
 # ── WO-STT-LIVE-02 (#99): transcript safety layer ──────────────────────────
 
+def _finalize_extracted_items(items, req, *, answer: str, path: str):
+    """THE single materialization point for both extraction routes.
+
+    WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3, prerequisite commit (2026-09-04).
+
+    WHY THIS EXISTS. The LLM and rules-fallback tails had drifted apart, and
+    the gap was invisible until a guard was written against the wrong half of
+    it. The LLM tail grouped repeatable items and published
+    ``_repeatableGroup`` as ``repeatableGroup``; the rules tail did neither,
+    so every rules-fallback item reached callers with ``repeatableGroup=None``
+    no matter how many parents the answer named.
+
+    The reverted kinship guard (``add4753``, reverted ``1c70567``) ran BEFORE
+    this point, in the dict stage. Two consequences, both deterministic:
+
+      * it read ``repeatableGroup``, which does not exist yet -- the field is
+        ``_repeatableGroup`` until it is published below -- so its group
+        reasoning silently collapsed every item of a role into one bucket;
+      * it set ``writeMode`` and ``needs_confirmation`` on the dict, and the
+        constructor downstream re-derived ``writeMode`` from the SCHEMA and
+        never read ``needs_confirmation`` at all. The downgrade it advertised
+        never reached the response.
+
+    So the ordering rule this function exists to enforce:
+
+        materialize -> group -> publish repeatableGroup -> THEN apply any
+        authority-reducing guard.
+
+    A guard placed after that seam sees the same grouped, materialized items
+    the caller will receive, and its decisions cannot be overwritten by a
+    later re-derivation. ``_apply_transcript_safety_layer`` already worked for
+    exactly that reason: it mutates final ``ExtractedItem`` objects. New
+    guards go beside it, never earlier.
+
+    DELIBERATELY NOT UNIFIED HERE: the bio_fact_router side-write stays on the
+    LLM path only. Routing regex output into bio_facts may be an intentional
+    exclusion -- the rules path tags items ``rules_fallback`` precisely so the
+    family-truth layer can quarantine them -- and changing two behaviours in
+    one commit destroys the attribution that makes a regression bisectable.
+    That asymmetry is named, not fixed.
+
+    Returns ``(final_items, clarification_required)``.
+    """
+    # 1. Group repeatable fields, then PUBLISH the private tag.
+    #    WO-EX-CLAIMS-01: answer text drives position-aware entity grouping.
+    grouped = _group_repeatable_items(
+        [i.model_dump() for i in items], answer=answer)
+    final_items = []
+    for item in grouped:
+        rg = item.pop("_repeatableGroup", None)
+        ei = ExtractedItem(**item)
+        ei.repeatableGroup = rg
+        final_items.append(ei)
+
+    # 2. WO-EX-VALIDATE-01 — age-math plausibility filter. Flag-gated, off by
+    #    default. The only stage here that may DROP an item.
+    try:
+        from .. import flags as _flags
+        if _flags.age_validator_enabled():
+            _dob = _fetch_dob_for_validation(req.person_id)
+            final_items = _apply_age_math_filter(final_items, _dob)
+    except Exception as _e:
+        logger.warning("[extract][validator] filter skipped (%s path): %s", path, _e)
+
+    # 3. AUTHORITY-REDUCING GUARDS — the seam. Everything below this line sees
+    #    grouped, materialized items, and its writeMode / needs_confirmation /
+    #    confirmation_reason survive into the response unaltered.
+    final_items, clarifications = _apply_transcript_safety_layer(final_items, req)
+
+    return final_items, clarifications
+
+
 def _apply_transcript_safety_layer(
     items: List["ExtractedItem"],
     req: "ExtractFieldsRequest",
@@ -8537,33 +8609,12 @@ def run_field_extraction(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
                 )
                 continue
 
-        # Group repeatable fields — FIX-4: preserve _repeatableGroup as repeatableGroup
-        # WO-EX-CLAIMS-01: pass answer for position-aware entity grouping
-        grouped = _group_repeatable_items([i.model_dump() for i in result_items], answer=answer)
-        final_items = []
-        for item in grouped:
-            rg = item.pop("_repeatableGroup", None)
-            ei = ExtractedItem(**item)
-            ei.repeatableGroup = rg
-            final_items.append(ei)
-
-        # WO-EX-VALIDATE-01 — age-math plausibility filter. Flag-gated; off
-        # by default. When on, fetches DOB once and drops temporally
-        # impossible items, annotating survivors with plausibility_flag.
-        try:
-            from .. import flags as _flags
-            if _flags.age_validator_enabled():
-                _dob = _fetch_dob_for_validation(req.person_id)
-                final_items = _apply_age_math_filter(final_items, _dob)
-        except Exception as _e:
-            logger.warning("[extract][validator] filter skipped (llm path): %s", _e)
-
-        # WO-STT-LIVE-02 (#99): final safety pass — stamp audio_source and,
-        # when the frontend signaled confirmation_required, downgrade any
-        # fragile-field writes to suggest_only + build the clarification
-        # envelope. Byte-stable when the frontend leaves the new Request
-        # fields as None/False (today's callers).
-        final_items, _clarifications = _apply_transcript_safety_layer(final_items, req)
+        # Group, publish repeatableGroup, age-filter, then run the
+        # authority-reducing guards. Byte-identical to the sequence this path
+        # ran inline before the 2026-09-04 unification; see
+        # _finalize_extracted_items for why the ORDER is the contract.
+        final_items, _clarifications = _finalize_extracted_items(
+            result_items, req, answer=answer, path="llm")
 
         # WO-LORI-BIO-BUILDER-UNIVERSAL-01 (2026-06-14) — Phase B Tier 1.
         # Parallel write to bio_facts when the env flag is on. Default
@@ -8693,19 +8744,16 @@ def run_field_extraction(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
                 extractionMethod="rules_fallback",
             ))
 
-        # WO-EX-VALIDATE-01 — same flag-gated filter on the rules path so
-        # both extraction routes behave consistently.
-        try:
-            from .. import flags as _flags
-            if _flags.age_validator_enabled():
-                _dob = _fetch_dob_for_validation(req.person_id)
-                result_items = _apply_age_math_filter(result_items, _dob)
-        except Exception as _e:
-            logger.warning("[extract][validator] filter skipped (rules path): %s", _e)
-
-        # WO-STT-LIVE-02 (#99): same safety pass on the rules-fallback path
-        # so both routes behave consistently under confirmation_required.
-        result_items, _clarifications = _apply_transcript_safety_layer(result_items, req)
+        # Same finalization as the LLM path (2026-09-04 unification).
+        #
+        # INTENTIONAL OUTPUT CHANGE, named because it is one: this path never
+        # called _group_repeatable_items, so every rules-fallback item reached
+        # callers with repeatableGroup=None regardless of how many entities
+        # the answer described. Two parents named in one fallback answer
+        # arrived with no way to tell which surname belonged to which. They
+        # are now grouped exactly as the LLM path groups them.
+        result_items, _clarifications = _finalize_extracted_items(
+            result_items, req, answer=answer, path="rules")
 
         _record_metric("rules", parsed=0, accepted=len(result_items), rejected=0)
         return ExtractFieldsResponse(
