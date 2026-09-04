@@ -715,6 +715,62 @@ def expected_must_extract(case: dict) -> List[Dict[str, str]]:
     return out
 
 
+def compact_review_entries(clarifications: List[dict]) -> List[dict]:
+    """The report's copy of what the extractor WITHHELD for operator review.
+
+    WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04).
+
+    Lifted out of run_live() so it can be tested. It was inline, and inline is
+    why the defect below survived two live runs: nothing could call it.
+
+    GROUNDING MUST SURVIVE THE COPY. The server annotates every preserved
+    value `spoken` / `derived` / `unsupported` / `not_checked`, and the Bug
+    Panel renders those labels, but this copy listed three keys and dropped
+    both grounding keys on the floor. Measured across r5j-phase3-v1 and
+    r5j-phase3-generational: 171 preserved values reached the reports and NOT
+    ONE carried a grounding label.
+
+    That is not cosmetic. Phase 3's whole claim is that a quarantined fact is
+    preserved rather than lost -- and an operator adjudicating a quarantine
+    needs to know which of the proposed values the narrator actually SAID.
+    `parents.birthDate=1922` was fabricated; without grounding the report
+    presents it exactly like a value the narrator spoke aloud.
+
+    Values are still truncated at 100 chars: these reports are read by people
+    and a 2,000-char narrative field makes the entry unreadable. Grounding is
+    a short enum and is never truncated.
+    """
+    entries = []
+    for c in (clarifications or []):
+        proposed = []
+        for p in (c.get("proposed_items") or []):
+            pv = p.get("value", "")
+            if isinstance(pv, str) and len(pv) > 100:
+                pv = pv[:100] + "…"
+            item = {"fieldPath": p.get("fieldPath", ""),
+                    "value": pv,
+                    "confidence": p.get("confidence")}
+            # Copied only when present, so reports from before grounding
+            # existed keep their old shape rather than gaining null keys.
+            if p.get("grounding") is not None:
+                item["grounding"] = p["grounding"]
+            if p.get("grounding_detail") is not None:
+                item["grounding_detail"] = p["grounding_detail"]
+            proposed.append(item)
+        entries.append({
+            "kind": c.get("kind"),
+            "label": c.get("label"),
+            "value": c.get("value"),
+            "proposed_fieldPath": c.get("proposed_fieldPath"),
+            "proposed_items": proposed,
+            # The list is authoritative; the legacy scalar is the fallback.
+            "reasons": c.get("reasons") or (
+                [c["reason"]] if c.get("reason") else []),
+            "not_applied": bool(c.get("not_applied")),
+        })
+    return entries
+
+
 def preservation_accounting(case: dict, extracted_items: List[dict],
                             clarifications: List[dict]) -> dict:
     """Classify each expected fact as executed / preserved / missing / wrong.
@@ -1405,26 +1461,7 @@ def run_live(cases: List[dict], api_base: str) -> List[dict]:
         # ── PRESERVATION ACCOUNTING (Phase 3) ────────────────────────────
         # Separate fields, separate totals. Nothing here feeds overall_score,
         # v2/v3 or the pass flag: the historical ladder must stay comparable.
-        review_entries = []
-        for c in clarifications:
-            proposed = []
-            for p in (c.get("proposed_items") or []):
-                pv = p.get("value", "")
-                if isinstance(pv, str) and len(pv) > 100:
-                    pv = pv[:100] + "…"
-                proposed.append({"fieldPath": p.get("fieldPath", ""),
-                                 "value": pv,
-                                 "confidence": p.get("confidence")})
-            review_entries.append({
-                "kind": c.get("kind"),
-                "label": c.get("label"),
-                "value": c.get("value"),
-                "proposed_fieldPath": c.get("proposed_fieldPath"),
-                "proposed_items": proposed,
-                "reasons": c.get("reasons") or (
-                    [c["reason"]] if c.get("reason") else []),
-                "not_applied": bool(c.get("not_applied")),
-            })
+        review_entries = compact_review_entries(clarifications)
         result["review_entries"] = review_entries
         result["review_count"] = len(review_entries)
         result["executable_count"] = len(extracted_items)
@@ -2210,7 +2247,13 @@ def print_summary(report: dict):
         _pres_tot = {"executed_correct": 0, "preserved_for_review": 0,
                      "wrong_executable": 0, "missing": 0}
         _rev_cases, _rev_entries = 0, 0
-        for _r in results:
+        # READ FROM THE REPORT, which is this function's only input.
+        # This said `for _r in results` -- a name that exists in the CALLER's
+        # scope and never in this one, so the whole summary died with
+        # NameError after the score had printed and before Layer 1. The run
+        # was not lost (the JSON is pre-written) but the operator saw a
+        # truncated console and a crash notice. Found on r5j-phase3-v1.
+        for _r in (report.get("case_results") or []):
             for _k, _v in (_r.get("preservation") or {}).items():
                 _pres_tot[_k] = _pres_tot.get(_k, 0) + _v
             if _r.get("review_count"):
