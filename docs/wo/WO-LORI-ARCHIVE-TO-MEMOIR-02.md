@@ -58,7 +58,11 @@ Lorevox is not accepted merely because a transcript exists, an endpoint returns 
 
 ### Defective or incomplete
 
-- [ ] Story capture covered only **11 of 38 narrator turns (28%)**.
+- [ ] **CANDIDATE-PRESENCE COUNT: 11 of 38 narrator turns produced a candidate (29%).**
+      *(Relabelled 2026-09-04 — it was written as "story capture covered 11 of 38". It is
+      not coverage: it counts candidates without measuring span, and one 452-word aggregate
+      covers many statements while one 38-word atom covers exactly one. See the granularity
+      finding under Phase 2.)*
 - [ ] Twenty-seven turns were archived but produced no reviewable story candidate.
 - [ ] Pat’s account of Jim’s death is `archived_only`; its turn recorded `story-trigger=None`.
 - [ ] Reviewing every existing candidate would therefore still omit most cohort narration from memoir eligibility.
@@ -217,6 +221,70 @@ This is a read-only rebuild from existing evidence. Do not rerun the cohort.
 For each of 38 narrator statements record:
 
 - [ ] Exact narrator text, narrator, conversation, client turn and durable row IDs.
+### Capture granularity is not stable, and the ledger must measure it (2026-09-04)
+
+**Discovered while selecting Pat's row for the Phase 1 live run, from a read-only DB read.**
+Pat has **five** candidates, and the same narration produced two completely different
+answers to *"what is a story?"*:
+
+| Candidate | Run | Words | Chars | Source turns | Span |
+|---|---|---|---|---|---|
+| `24ceb055` | 2026-08-31 cohort | 461 | 2429 | 1848–1849 | aggregate |
+| `6f2df375` | 2026-08-31 cohort | 452 | 2332 | 1850–1851 | aggregate |
+| `f130549c` | 2026-08-31 cohort | 472 | 2474 | 1852–1853 | aggregate |
+| `5a56f942` | 2026-09-01 switch | 42 | 233 | 2090–2091 | atomic |
+| `447eee18` | 2026-09-01 switch | 38 | 182 | 2094–2095 | atomic |
+
+The three cohort candidates are **not nested in one another** — they are three sequential
+~450-word spans opening at birth, at Kent State, and at Jim's death. The two switch-session
+candidates are single turns, and each sits **verbatim inside** a cohort candidate:
+`5a56f942` ⊂ `24ceb055`, `447eee18` ⊂ `6f2df375`.
+
+**This is not duplicate capture.** It is the same content chunked at roughly 12× different
+scale depending on the run, with nothing recording which scale is correct. Promote
+`447eee18` and a family reads one paragraph about Kent State; promote `6f2df375` and they
+read 450 words spanning Kent State through forty-six years of hair appointments — from the
+same narration.
+
+`24ceb055` and `5a56f942` additionally render **byte-identical previews** (both truncate at
+200 characters through the same opening), which is what forced row identity into the
+operator UI: no text rule can separate an aggregate from an atom nested inside it.
+
+**Pre-promotion evidence:** `docs/reports/PHASE1_PRE_PROMOTION_CANDIDATE_SNAPSHOT_20260904.json`
+— full transcripts, containment and preview-clash analysis, taken read-only before Phase 1
+mutates anything. `docs/reports/` is gitignored, so it is local-only by design.
+
+### `11/38` is a CANDIDATE-PRESENCE COUNT, not statement coverage
+
+**Do not quote it as coverage anywhere.** It counts candidates without measuring span. One
+452-word aggregate covers many of the 38 statements; one 38-word atom covers exactly one.
+The same conversation therefore scores wildly differently depending on which run captured
+it, and a rising count can mean better capture *or* coarser chunking.
+
+### The ledger is SPAN-AWARE — required per row
+
+- [ ] Narrator statement / turn.
+- [ ] Candidate ID.
+- [ ] Candidate word count.
+- [ ] Source session and source-turn range.
+- [ ] Number of narrator statements the candidate covers.
+- [ ] Span class: `atomic` · `multi-turn` · `aggregate`.
+- [ ] Contained-by / contains / overlaps candidate IDs.
+- [ ] Placement state and promotion state, **recorded separately** (see Phase 1).
+- [ ] Canonical memoir reachability.
+
+### The ledger reports FIVE separate metrics — never one number
+
+- [ ] **Candidate presence** — how many candidates exist (this is what `11/38` was).
+- [ ] **Independently addressable statement coverage** — statements reachable as their own story, not merely present inside some aggregate.
+- [ ] **Over-capture / aggregation** — statements swept into a span far larger than themselves.
+- [ ] **Duplicate and containment groups** — candidates nesting or overlapping, grouped.
+- [ ] **Unreachable archived statements** — archived, but reachable by no promotable candidate.
+
+**Sequencing:** the finalized ledger is built **after** the Phase 1 live run. Phase 1 moves
+`447eee18` from unplaced/unreviewed to placed/promoted, so a ledger completed first would
+have a stale destination state on the day it was written.
+
 - [ ] Selected era and era actually sent. **Record the runtime era and the story placement separately** — see Phase 1. A candidate with no `placement_source=operator_set` is UNPLACED regardless of which era the conversation was in, and the ledger must not collapse the two.
 - [ ] Raw Lori response, each transformation and delivered response.
 - [ ] Every extracted entity, relationship, path, value and source wording.
@@ -268,7 +336,7 @@ Required aggregate totals:
 
 **Outcome:** Important life narration becomes reviewable even when it does not resemble a travel chain.
 
-This is the central bottleneck: current measured story coverage is 11/38 (28%). The goal is not to force every utterance into the memoir. The goal is to ensure every substantive autobiographical passage is either nominated or given a defensible, inspectable `not_story` reason.
+This is the central bottleneck: the current **candidate-presence count** is 11/38 (29%) — **not** a coverage figure, for the reasons recorded under Phase 2. The goal is not to force every utterance into the memoir. The goal is to ensure every substantive autobiographical passage is either nominated or given a defensible, inspectable `not_story` reason.
 
 - [ ] Treat the full coherent narrator passage as the source unit.
 - [ ] Add Pat’s Jim passage as the primary regression fixture.
