@@ -1019,9 +1019,85 @@ class WrongOriginDiagnosticTests(_Base):
     def test_an_api_origin_404_is_still_a_real_failure(self):
         self.assertIn("A 404 from :8000 remains a real canonical", self.raw)
 
-    def test_the_relative_fetch_defect_is_real(self):
+    def test_the_relative_fetch_defect_is_FIXED(self):
+        """INVERTED 2026-09-04, and the inversion is the point.
+
+        This asserted the bare relative fetch EXISTED, because it was the
+        defect the preview step reported. Its own message said: "if this ever
+        becomes absolute, the wrong-origin branch should stop firing." It
+        became absolute, and this test failed on the same commit that fixed
+        it — which is a guard doing its job, not a regression.
+
+        The wrong-origin branch stays in the probe: it is still the correct
+        label for any future UI-issued canonical read that misses the API
+        origin. What must not survive is the defect itself.
+        """
         html = (ROOT / "ui" / "hornelore1.0.html").read_text(encoding="utf-8")
-        self.assertIn('fetch("/api/memoir/canonical?person_id="', html,
-                      "the relative canonical fetch is the defect the preview "
-                      "step reports; if this ever becomes absolute, the "
-                      "wrong-origin branch should stop firing")
+        self.assertNotIn('fetch("/api/memoir/canonical?person_id="', html,
+                         "the relative canonical fetch is the BUG-224 class "
+                         "defect; it must not come back")
+        self.assertIn('fetch(_O + "/api/memoir/canonical?person_id="', html)
+
+
+class MemoirCanonicalOriginTests(unittest.TestCase):
+    """The canonical fetch must use the configured API origin.
+
+    Phase 1 live run ``20260904T123556Z`` proved the chain to canonical and
+    then failed at preview: ``hornelore1.0.html`` fetched
+    ``/api/memoir/canonical`` with a BARE RELATIVE URL, which resolves
+    against the UI static server on :8082. That server does not proxy
+    ``/api/*``, so three canonical reads 404'd and the memoir popover never
+    opened — while the identical query against the API origin returned 200
+    in the same run.
+
+    This is the same defect as BUG-224 (fixed 2026-05-01 in the Bug Panel
+    modules), missed in the page's own inline script.
+    """
+
+    def setUp(self):
+        self.html = (ROOT / "ui" / "hornelore1.0.html").read_text(encoding="utf-8")
+
+    def test_no_bare_api_fetch_survives_in_the_page(self):
+        """THE GUARD THAT WOULD HAVE CAUGHT IT. A relative /api fetch is
+        invisible to every other offline test: the file parses, the string
+        is well-formed, and only a live run sees the 404."""
+        bare = re.findall(r'fetch\(\s*"(/api/[^"]*)"', self.html)
+        self.assertEqual([], bare,
+                         f"bare relative /api fetches resolve to the UI server: {bare}")
+
+    def test_the_canonical_fetch_composes_with_the_origin(self):
+        self.assertIn('fetch(_O + "/api/memoir/canonical?person_id="', self.html)
+
+    def test_the_origin_follows_the_documented_bug224_pattern(self):
+        self.assertIn('const _O = (typeof ORIGIN !== "undefined" && ORIGIN) '
+                      '|| "http://localhost:8000";', self.html)
+        api = (ROOT / "ui" / "js" / "api.js").read_text(encoding="utf-8")
+        self.assertIn('const ORIGIN   = window.LOREVOX_API || "http://localhost:8000";', api,
+                      "ORIGIN must remain the single configured source")
+
+    def test_api_js_loads_before_the_inline_script_uses_ORIGIN(self):
+        load_at = self.html.index('src="js/api.js"')
+        use_at = self.html.index('fetch(_O + "/api/memoir/canonical')
+        self.assertLess(load_at, use_at, "ORIGIN must be defined before it is read")
+
+    def test_the_shipped_expression_really_targets_the_configured_origin(self):
+        """EXERCISED, not grepped: the expression is lifted verbatim out of
+        the shipped page and evaluated with ORIGIN set to a sentinel."""
+        m = re.search(r'(const _O = \(typeof ORIGIN[^\n]*\n)\s*'
+                      r'const r = await fetch\((_O \+ "/api/memoir/canonical\?person_id="\)?)',
+                      self.html)
+        self.assertIsNotNone(m, "could not lift the shipped expression")
+        js = (
+            'const ORIGIN = "http://sentinel.invalid:9999";\n'
+            + m.group(1)
+            + 'const personId = "abc-123";\n'
+            'const url = _O + "/api/memoir/canonical?person_id=" '
+            '+ encodeURIComponent(personId);\n'
+            'if (!url.startsWith("http://sentinel.invalid:9999/api/memoir/canonical")) {\n'
+            '  console.error("WRONG ORIGIN: " + url); process.exit(1);\n'
+            '}\n'
+            'console.log("OK " + url);\n'
+        )
+        r = subprocess.run(["node", "-e", js], capture_output=True, text=True, timeout=60)
+        self.assertEqual(0, r.returncode, r.stdout + r.stderr)
+        self.assertIn("sentinel.invalid:9999", r.stdout)

@@ -8548,7 +8548,19 @@ async function _memoirLoadCanonical(personId) {
                       (_memoirActivePerson() && _memoirActivePerson() !== personId);
 
   try {
-    const r = await fetch("/api/memoir/canonical?person_id="
+    // SAME DEFECT AS BUG-224, MISSED HERE (fixed 2026-09-04). A bare
+    // relative URL resolves against the UI static server on :8082, which
+    // does not proxy /api/*, so every canonical read 404'd. Phase 1 live
+    // run 20260904T123556Z observed three of them: the memoir popover had
+    // a working API and a working renderer with no origin between them,
+    // so it never opened and the passage appeared zero times — while the
+    // identical query against the API origin returned 200 in the same run.
+    //
+    // ORIGIN comes from api.js (= window.LOREVOX_API || the local API).
+    // The fallback is the documented BUG-224 pattern, defensive against
+    // script import order — not a second source of truth for the port.
+    const _O = (typeof ORIGIN !== "undefined" && ORIGIN) || "http://localhost:8000";
+    const r = await fetch(_O + "/api/memoir/canonical?person_id="
                           + encodeURIComponent(personId),
                           ctrl ? { signal: ctrl.signal } : undefined);
     if (stale()) return null;
