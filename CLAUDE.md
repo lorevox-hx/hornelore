@@ -319,6 +319,43 @@ defect" — were both overstated, and `.runtime/logs/api.log` refuted both in on
 carried all 38 capture decisions with full anchor breakdowns, and 38 explicit skip lines
 naming the reason extraction declined. **`.runtime/` is gitignored, not empty.**
 
+## A fixture may not supply the property being proven (locked 2026-09-04)
+
+**A fixture may supply values, but it may not supply the property being proven.** That
+property must be produced by shipped code, or loaded from the real persisted/file format.
+**Every helper-level assertion needs a production-boundary companion, and every mutation
+must make that companion fail.**
+
+**Nine instances in one lane**, all the same shape — *a test constructs the property it
+intends to prove, exercises a helper against that constructed shape, and passes without
+crossing the production boundary that creates or consumes the value*:
+
+| The claim | The fixture supplied | What production does |
+|---|---|---|
+| "this fixture has 3 scene anchors" | the number, in a comment | `story_trigger` scored 2 |
+| "the kinship guard groups correctly" | `repeatableGroup` on the dict | it is `_repeatableGroup` until after the guard |
+| "the downgrade is applied" | the helper's return value | the constructor re-derived `writeMode` from the schema |
+| "a downgraded spouse doesn't prefill" | a guessed questionnaire nesting | `parsePath` splits that path differently |
+| "noop vs succeeded is decided" | `_store_result` and the trace | neither is the deciding branch |
+| "the envelope mirrors the item" | a hand-built dict | production builds it inside the safety layer |
+| "token matching, not substring" | a fixture with no cue present | both behaviours agreed — no discrimination |
+| "preservation accounting works" | `truthZones: {"must_extract": [...]}` | no bank uses that shape; 114 cases returned empty |
+| "the operator sees the values" | `renderExtraction`'s input shape | it takes `d.extraction` and short-circuits on `status` |
+
+Every one shipped green. Mutation testing caught three; external review caught six.
+**Nothing in the suite itself objected.** The ninth was found *while writing the rule
+against it* — the rule applies to the person applying it.
+
+**What follows:** name the production producer and consumer for each test family; load the
+real file for anything about a persisted shape; at least one production-path test per
+family; evaluators load one real case per supported corpus format; **source-string
+assertions are never acceptance evidence by themselves** (this cost an export —
+`lvStoryReviewRenderExtraction` exists so the operator view is tested by rendering it);
+and a mutation must break the production-path assertion, not only the helper one.
+
+Full statement, audit table and per-family boundary check:
+[`docs/TESTING-DOCTRINE.md`](docs/TESTING-DOCTRINE.md).
+
 ## Environment
 
 - **OS**: Windows 11 + WSL2 (Ubuntu). Chris works from WSL.

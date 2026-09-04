@@ -616,10 +616,18 @@ correction-routed turn is still considered for a story candidate.
 
 - [ ] Use Stefi’s exact Las Vegas, New Mexico statement as a regression fixture.
 
-- [ ] Correction processing finalizes only when a concrete correction is parsed.
-- [ ] `parsed={}` returns the turn to normal interview processing.
-- [ ] Normal Lori response, durable persistence, extraction, trace and story consideration occur.
-- [ ] No correction mutation is applied without a parsed target and value.
+- [x] **Correction processing finalizes only when a concrete correction is parsed.**
+- [x] **`parsed={}` returns the turn to normal interview processing.** Both copies of
+      the mode are reset — the local variable AND `params["turn_mode"]`, because the
+      completed-turn hooks read the mode from `params` (`chat_ws.py:896`, `:1089`) and
+      a single-copy reset would leave extraction still refusing the turn. The correction
+      body now sits under an `else`, so the ack, the projection write and
+      `_finalize_deterministic_turn` cannot run on an empty parse.
+- [x] **Normal Lori response, durable persistence, extraction, trace and story
+      consideration occur** — `extraction_eligible("interview")` is True and
+      `"correction"` is False, which is what the reset buys.
+- [x] **No correction mutation is applied without a parsed target and value** — unchanged;
+      `apply_correction` was already gated on `parsed`.
 
 ### Kinship binding guard — BUILT, MEASURED, REVERTED (2026-09-04)
 
@@ -692,12 +700,35 @@ causal-attribution failure the extractor architecture names as the primary failu
 Both are `writeMode: candidate_only` with `applied_at = NULL`, so **neither reached stored
 `profiles`**; they were proposed and delivered, not applied. The containment held.
 
-- [ ] **A FABRICATED VALUE, not a mis-binding — needs its own finding.** The same row
-      proposes `parents.birthDate = "1922"` at confidence 0.7. Mable said *"died in 2005"*
-      and *"sixty-three"*; 2005 − 63 is 1942, and **1922 appears nowhere in her words and is
-      not derivable from them**. A mis-bound true value and an invented one are different
-      defects with different fixes, and a memoir system inventing a birth year is the more
-      serious of the two.
+- [x] **A FABRICATED VALUE, not a mis-binding — CLOSED 2026-09-04.** The same row
+      proposed `parents.birthDate = "1922"` at 0.7. Mable said *"died in 2005"* and
+      *"sixty-three"*; 2005 − 63 is 1942, and 1922 appears nowhere in her words and is not
+      derivable from them.
+
+      `_value_grounding()` classifies each proposed value **individually** as
+      `spoken` / `derived` / `unsupported` / `not_checked`. Against her live turn:
+
+      | proposed | grounding |
+      |---|---|
+      | `parents.firstName = Otis` | spoken |
+      | `parents.deathDate = 2005` | spoken |
+      | `parents.notableLifeEvents = "died 2005"` | not_checked — narrative fields may summarise |
+      | `parents.birthDate = 1922` | **unsupported** (`spoken_years: [2005]`) |
+
+      **Per value, never per group.** Marking the whole quarantine unsupported would
+      erase exactly the distinction an operator needs to rebind safely. Where the
+      relationship IS supported and one value is not, only that value is withheld.
+
+      **Derived ≠ spoken.** A year reproducible by a named rule from spoken operands
+      (`anchor_year_minus_age`, `{anchor_year: 2005, age: 63}` → 1942) is recorded with
+      its rule and operands and still does not execute — an inferred date must not
+      inherit the authority of narrator wording. 1922 is not even that; it is invented.
+
+      **Deliberate limit, named:** for dates the bar is the YEAR appearing in the
+      narration. A value whose year is spoken but whose month/day are not is left alone.
+      Tightening that would quarantine ordinary "born in 1962" → "1962-12-24"
+      completions corpus-wide, and this lane has already measured what an over-broad
+      guard costs. The demonstrated defect is a year nobody said.
 **The enforcement boundary was broken too — found by consumer tracing, 2026-09-04.**
 The server's downgrade did not bind the browser. `interview.js:1441` read
 `item.writeMode` and never passed it on, and `projection-sync.js:314`
