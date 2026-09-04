@@ -712,7 +712,16 @@
       bits.push(el('ul', { class: 'story-extraction-items' },
         clar.map(function (c) {
           const path = (c && (c.fieldPath || c.field_path)) || '(no field)';
-          const why = (c && (c.reason || c.confirmation_reason)) || '';
+          // WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04): render EVERY
+          // reason. This read the scalar only, so when two guards doubted one
+          // item the operator saw one doubt — on the surface built for
+          // deciding whether to trust it. Ordered list first (server order is
+          // precedence order), legacy scalar as the fallback for a response
+          // that predates the list.
+          const reasons = (c && Array.isArray(c.reasons) && c.reasons.length)
+            ? c.reasons
+            : [(c && (c.reason || c.confirmation_reason)) || ''].filter(Boolean);
+          const why = reasons.join(', ');
           return el('li', {}, [path + (why ? ' — ' + why : '')]);
         })));
     }

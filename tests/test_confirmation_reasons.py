@@ -95,6 +95,89 @@ class Precedence(unittest.TestCase):
                          "envelope keeps its legacy scalar key")
 
 
+class LegacyScalarIsNeverLost(unittest.TestCase):
+    """Gap found in review, 2026-09-04.
+
+    The helper read only the list. An object carrying its single reason in the
+    SCALAR -- one that predates the list, or whose scalar was set directly --
+    lost it the moment a second guard fired. That is the same information loss
+    the whole change exists to stop, reintroduced one layer down.
+    """
+
+    def test_a_scalar_only_item_keeps_its_reason(self):
+        it = item()
+        it.confirmation_reason = LOWCONF          # list left empty, as legacy
+        EX._add_confirmation_reason(it, FRAGILE)
+        self.assertEqual([LOWCONF, FRAGILE], it.confirmation_reasons)
+        self.assertEqual(LOWCONF, it.confirmation_reason)
+
+    def test_a_scalar_only_envelope_entry_keeps_its_reason(self):
+        entry = {"fieldPath": "parents.firstName", "reason": LOWCONF}
+        EX._add_confirmation_reason(entry, FRAGILE)
+        self.assertEqual([LOWCONF, FRAGILE], entry["reasons"])
+        self.assertEqual(LOWCONF, entry["reason"])
+
+    def test_seeding_does_not_duplicate_when_scalar_matches(self):
+        it = item()
+        it.confirmation_reason = LOWCONF
+        EX._add_confirmation_reason(it, LOWCONF)
+        self.assertEqual([LOWCONF], it.confirmation_reasons)
+
+    def test_an_unknown_tag_alone_may_hold_the_scalar(self):
+        """The docstring once claimed unknown tags never reach the scalar.
+        They cannot DISPLACE a known one, but with nothing else present the
+        alternative is an empty scalar beside a populated list."""
+        it = item()
+        EX._add_confirmation_reason(it, "zz_future")
+        self.assertEqual("zz_future", it.confirmation_reason)
+        EX._add_confirmation_reason(it, FRAGILE)
+        self.assertEqual(FRAGILE, it.confirmation_reason,
+                         "a known tag must take the scalar back")
+
+
+class EnvelopeMirrorsTheItem(unittest.TestCase):
+    """Gap found in review: transcript safety built its envelope entry from
+    the reason it had just added, so a reason another guard put on the item
+    never reached the operator's clarification list."""
+
+    def test_the_envelope_shows_every_reason_the_item_carries(self):
+        """Through the REAL transcript-safety pass, with a reason already on
+        the item — the shape a second guard produces.
+
+        The first version of this test called _sync_confirmation_reasons on a
+        hand-built dict, so mutating the production call back to
+        `_add_confirmation_reason(_entry, reason)` left it green. A test that
+        cannot fail when the product breaks is not a test; mutation checking is
+        the only reason that was caught."""
+        it = item(writeMode="candidate_only")
+        EX._add_confirmation_reason(it, BIND)       # an earlier guard's verdict
+        req = EX.ExtractFieldsRequest(
+            person_id="p", answer="x", transcript_source="whisper",
+            transcript_confidence=0.42, confirmation_required=True)
+
+        items, clar = EX._apply_transcript_safety_layer([it], req)
+
+        self.assertEqual([BIND, LOWCONF], items[0].confirmation_reasons)
+        self.assertEqual(1, len(clar))
+        self.assertEqual([BIND, LOWCONF], clar[0]["reasons"],
+                         "the envelope dropped a reason the item carried")
+        self.assertEqual(BIND, clar[0]["reason"],
+                         "legacy scalar must be the most severe of BOTH")
+
+    def test_sync_reorders_defensively(self):
+        entry = {}
+        EX._sync_confirmation_reasons(entry, [FRAGILE, SEVERE, LOWCONF])
+        self.assertEqual([SEVERE, LOWCONF, FRAGILE], entry["reasons"])
+        self.assertEqual(SEVERE, entry["reason"],
+                         "an unordered caller must not choose the scalar")
+
+    def test_sync_with_no_reasons_clears_both(self):
+        entry = {"reasons": [FRAGILE], "reason": FRAGILE}
+        EX._sync_confirmation_reasons(entry, [])
+        self.assertEqual([], entry["reasons"])
+        self.assertIsNone(entry["reason"])
+
+
 class BackwardCompatibility(unittest.TestCase):
     """Exact, per the contract: single-reason output is unchanged."""
 

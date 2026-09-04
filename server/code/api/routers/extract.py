@@ -8140,13 +8140,45 @@ CONFIRMATION_REASON_PRECEDENCE = (
 
 
 def _confirmation_reason_key(reason: str):
-    """Sort key: known tags in precedence order, unknown tags after, stably."""
+    """Sort key: known tags in precedence order, unknown tags after, stably.
+
+    PRECISELY: an unknown tag cannot DISPLACE a known one from the legacy
+    scalar, because it always sorts after every known tag. It can still occupy
+    the scalar when it is the ONLY reason present -- there is nothing else to
+    put there, and an empty scalar beside a populated list would be worse.
+    An earlier version of this note claimed unknown tags never reach the
+    scalar, which was broader than the code and therefore wrong.
+    """
     try:
         return (0, CONFIRMATION_REASON_PRECEDENCE.index(reason), "")
     except ValueError:
         # Future tags must not reorder known ones, and must not depend on the
         # order they happened to be added in.
         return (1, 0, str(reason))
+
+
+def _sync_confirmation_reasons(target, reasons):
+    """Copy a whole ordered reason set onto an item or an envelope entry.
+
+    Used when one surface must mirror another's reasons rather than
+    accumulate its own -- a clarification entry describes the item it came
+    from, so it must show every reason that item carries, not only the one the
+    guard building the entry happened to contribute.
+
+    Re-sorts defensively: a caller passing an unordered set must not be able to
+    put an arbitrary reason in the legacy scalar.
+    """
+    ordered = sorted(set(reasons or []), key=_confirmation_reason_key)
+    is_dict = isinstance(target, dict)
+    list_key, scalar_key = ("reasons", "reason") if is_dict \
+        else ("confirmation_reasons", "confirmation_reason")
+    if is_dict:
+        target[list_key] = ordered
+        target[scalar_key] = ordered[0] if ordered else None
+    else:
+        setattr(target, list_key, ordered)
+        setattr(target, scalar_key, ordered[0] if ordered else None)
+    return ordered
 
 
 def _add_confirmation_reason(target, reason: str):
@@ -8169,6 +8201,18 @@ def _add_confirmation_reason(target, reason: str):
     current = (target.get(list_key) if is_dict
                else getattr(target, list_key, None)) or []
     merged = list(current)
+
+    # SEED FROM THE SCALAR when the list is empty. An object that predates the
+    # list -- or one whose scalar was set directly -- carries its only reason
+    # there. Reading the list alone would drop it the moment a second guard
+    # fired, which is the exact information loss this whole change exists to
+    # stop, reintroduced one layer down.
+    if not merged:
+        legacy = (target.get(scalar_key) if is_dict
+                  else getattr(target, scalar_key, None))
+        if legacy:
+            merged.append(legacy)
+
     if reason not in merged:
         merged.append(reason)
     merged.sort(key=_confirmation_reason_key)
@@ -8322,7 +8366,7 @@ def _apply_transcript_safety_layer(
             it.needs_confirmation = True
             # Additive: keeps any reason another guard already recorded, and
             # sets the legacy scalar to the most severe of them.
-            _add_confirmation_reason(it, reason)
+            _merged = _add_confirmation_reason(it, reason)
             _entry = {
                 "fieldPath": it.fieldPath,
                 "label": _fragile_field_label(it.fieldPath),
@@ -8330,7 +8374,11 @@ def _apply_transcript_safety_layer(
                 "audio_source": src,
                 "confidence": conf,
             }
-            _add_confirmation_reason(_entry, reason)
+            # The envelope mirrors the ITEM's full reason set, not just the
+            # reason this pass contributed. Building it from `reason` alone
+            # would show the operator one doubt while the item recorded two --
+            # the same divergence, one surface over.
+            _sync_confirmation_reasons(_entry, _merged)
             clarifications.append(_entry)
             downgraded += 1
         except Exception as e:  # never crash the endpoint over a safety pass

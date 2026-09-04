@@ -219,6 +219,23 @@ function landedInQuestionnaire(sandbox, value) {
      "an unrecognised tag is omitted rather than shown raw", unknown);
 }
 
+/* ── 7. the OPERATOR view renders every reason, not just the scalar ───── */
+{
+  // bug-panel-story-review.js is a large module with its own dependencies, so
+  // this asserts the rendering expression rather than booting the panel. The
+  // defect was precisely that the expression read one field.
+  const src = fs.readFileSync(
+    path.join(ROOT, "ui", "js", "bug-panel-story-review.js"), "utf8");
+  const block = src.slice(src.indexOf("clarification_required"),
+                          src.indexOf("Nothing here has been applied"));
+  ok(/Array\.isArray\(c\.reasons\)/.test(block),
+     "Bug Panel prefers the ordered reasons list");
+  ok(/c\.reason \|\| c\.confirmation_reason/.test(block),
+     "Bug Panel still falls back to the legacy scalar");
+  ok(/reasons\.join\(/.test(block),
+     "Bug Panel renders ALL reasons, not reasons[0]");
+}
+
 /* ── report ──────────────────────────────────────────────────────────── */
 if (failures.length) {
   console.error("FAIL  " + failures.length + " of " + checks + " checks");
