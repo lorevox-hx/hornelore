@@ -29,6 +29,7 @@ creates or consumes the value.*
 | 6 | "the envelope mirrors the item" | a hand-built dict | production builds it inside `_apply_transcript_safety_layer` |
 | 7 | "token matching, not substring" | a fixture with no cue present | both behaviours quarantined it — no discrimination |
 | 8 | "preservation accounting works" | `truthZones: {"must_extract": [...]}` | no bank uses that shape; 114 real cases returned empty |
+| 9 | "the router records session and turn provenance" | `session_id="s1"`, `turn_id="t1"` passed straight into the router | `extract.py:9748` reads `req.conv_id` / `req.turn_id`, **neither of which is a field on `ExtractFieldsRequest`** — production sends `None` for both, while the real `session_id` field goes unused |
 
 Every one of these shipped green. Mutation testing caught 5, 6 and 7; external
 review caught 1, 2, 3, 4 and 8. **Nothing in the test suite itself objected.**

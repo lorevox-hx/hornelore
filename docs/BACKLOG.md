@@ -245,6 +245,31 @@ All four reproduce at `d0e5294`. Bounded tooling commits, separate from cleanup.
 | Six skips in `test_narrator_refusal_characterization` | Unexamined. Four mutations (`R1`, `R2`, `T1`, and the curly-apostrophe case) depend on that suite |
 | ~~No compile gate over `scripts/` and `tests/`~~ | **CLOSED 2026-09-05** — `tests/test_scripts_compile.py`. Byte-compiles every tracked `.py` under `scripts/` and `tests/`, names the three UI harnesses explicitly so a discovery change cannot silently drop them, and carries a positive control planting the original defect's shape |
 
+### 6b. `bio_fact_router` provenance is null in production — and a test hides it
+
+**FOUND 2026-09-05 by external review, verified by execution here. Belongs to Phase 5C.**
+
+`extract.py:9748-9749` passes `session_id=getattr(req, "conv_id", None)` and
+`turn_id=getattr(req, "turn_id", None)` into `bio_fact_router`. **Neither `conv_id` nor
+`turn_id` is a field on `ExtractFieldsRequest`** — confirmed by listing `model_fields` — so
+**both are `None` on every production call.** Worse: **`session_id` IS a real field on that
+model**, sitting unused while the caller asks for a name that does not exist.
+
+So every production-routed bio fact records `session_id: None, turn_id: None`. The router
+stores both faithfully (`bio_fact_router.py:363-364`); it is handed nothing.
+
+**And the suite cannot see it.** `tests/test_bio_fact_router*.py:219` calls the router
+directly with `session_id="s1", turn_id="t1"` and then asserts at `:230-231` that those
+values were persisted. **The fixture supplies the exact property being proven**, and the
+production caller — which supplies neither — is never exercised. A textbook instance of the
+rule in [`docs/TESTING-DOCTRINE.md`](TESTING-DOCTRINE.md), found in the wild rather than by
+mutation.
+
+**Fix in Phase 5C**, where source-turn linkage is already scoped: provenance should come
+from the completed-turn claim, not from ids guessed off the request. Add the
+production-boundary companion test at the same time — the helper-level one passes today and
+will keep passing.
+
 ### 6a. Measurement debt — the extraction baseline is not comparable
 
 **NONBLOCKING. Nothing in the current lane waits on it.** Registered so the numbers stop

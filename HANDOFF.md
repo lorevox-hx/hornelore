@@ -14,7 +14,7 @@ rule back. The claim that matters is the one about obligations.)*
 >
 > | | |
 > |---|---|
-> | **Current action** | **Phase 5 — preserve and organize extracted meaning.** Every extracted proposal must reach a correct structured field, an attributed candidate, or a defensible rejection. Kinship normalization (`daddy → father`) retains the narrator's own word in provenance. **Do not disable `HORNELORE_CLAIMS_VALIDATORS` as a product fix** — it gates several safeguards while leaving the parse-time whitelist active |
+> | **Current action** | **Phase 5 — preserve and organize extracted meaning.** Every extracted proposal must reach a correct structured field, an attributed candidate, or a defensible rejection. **Kinship normalization is a REQUIREMENT here, not an existing behaviour** — measured 2026-09-05: `daddy` appears nowhere in the extraction path, `ExtractedItem` carries no `source_phrase` or normalization field, and `mama` is only partly supported (rules + cue list, no normalization contract). **Do not disable `HORNELORE_CLAIMS_VALIDATORS` as a product fix** — it gates several safeguards while leaving the parse-time whitelist active |
 > | **Phase 4** | ✅ **ACCEPTED 2026-09-05.** The story-capture decision is durable on the source narrator turn, **including declined turns that create no candidate**. Implementation `24c7130` (clean tree); live probe `20260905-151658` on `.venv-gpu` — **11 passed / 0 failed / 0 unverified**; offline `.venv` **241 tests, ZERO skips**; **8/8 mutations caught**. Nominated turn bound candidate `8a159445`; declined turn carried a full eight-field diagnostic and no story row |
 > | **Phase 4 — what it did NOT change** | No threshold, anchor regex, chain classifier, source unit, review rule, memoir behaviour, migration or new table. The 114/14 banks were deliberately **not** rerun — Phase 4 changed observability, not extraction |
 > | **Phase 4 — one honest gap** | **Ten of eleven acceptance clauses were proven LIVE.** `measurement_failed` is covered offline and by mutations 3 and 6 but has never been seen on a live turn. Also: a trigger firing with **no `person_id`** fits none of the three closed outcomes and deliberately records nothing — opening the vocabulary is Chris's call |
@@ -306,7 +306,7 @@ Full register with evidence: [`docs/BACKLOG.md`](docs/BACKLOG.md).
 | `CLAUDE.md` | Durable doctrine and prohibitions |
 | `docs/INDEX.md` | Where documentation authority lives |
 | `docs/BACKLOG.md` | Unresolved obligations, with evidence |
-| `docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md` | The **paused** repository lane — Phase A accepted, remainder deferred and incomplete. **Not the current action;** `WO-LORI-ARCHIVE-TO-MEMOIR-02` Phase 1 is |
+| `docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md` | The **paused** repository lane — Phase A accepted, remainder deferred and incomplete. **Not the current action;** `WO-LORI-ARCHIVE-TO-MEMOIR-02` **Phase 5** is |
 | `docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md` + `..._PHASE2_TRANSPORT_MAP.md` | The owed Profile Seed lane — Phase 3 implementation landed, acceptance open |
 | `docs/architecture/TRAVEL_DOCUMENT_DOCTRINE.md` | Binding Travel Document rulings |
 
@@ -374,9 +374,10 @@ correct field, an attributed candidate, or a defensible rejection. Kinship norma
 `HORNELORE_CLAIMS_VALIDATORS` as a product fix** — it gates several safeguards while leaving
 the parse-time whitelist active.
 
-**One Phase 3 box is deliberately left unchecked:** *Jim binds as Pat's husband*. `Otis`
-appears in five test suites and `Domingo` in two; **`Jim` appears in none**. Pat's Jim
-passage is already owed as Phase 4's primary regression fixture, which is where it closes.
+**Phase 3's last open box is CLOSED (`a62bfeb`).** *Jim binds as Pat's husband* — `Jim`
+had no test anywhere while `Otis` had five and `Domingo` two. `TheJimCase` now drives the
+shipped `run_field_extraction` with Pat's own wording, with a positive spouse control.
+**The guard was already correct; the coverage was missing.**
 
 ## 9a. Phase 1 and Phase 2 — the earlier record (2026-09-04)
 
