@@ -136,15 +136,54 @@ def stefi_text() -> str:
     """
     import importlib.util
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
-    sys.modules.setdefault("websockets", type(sys)("websockets"))
-    spec = importlib.util.spec_from_file_location("_stefi", HARNESS)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    chapter = list(mod.build_config().chapters)[0]
-    text = getattr(chapter, "text", "") or getattr(chapter, "narrator_text", "")
+
+    # ── THE STUB MUST NOT SURVIVE THIS FUNCTION, 2026-09-05 ───────────
+    #
+    # The harness imports `websockets` at module scope, and this probe
+    # only wants its text. The first version did
+    # `sys.modules.setdefault("websockets", ...)` with an empty module —
+    # which loaded the fixture fine and then POISONED the live turn:
+    # `import websockets` later returned the stub, and the run died on
+    # `module 'websockets' has no attribute 'connect'` AFTER creating a
+    # narrator.
+    #
+    # So: prefer the real package, and if one has to be stubbed, remove
+    # the stub again. A test double that outlives the line it was written
+    # for stops being a double and becomes the dependency.
+    stubbed = False
+    if "websockets" not in sys.modules:
+        try:
+            import websockets  # noqa: F401
+        except ImportError:
+            sys.modules["websockets"] = type(sys)("websockets")
+            stubbed = True
+    try:
+        spec = importlib.util.spec_from_file_location("_stefi", HARNESS)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        chapter = list(mod.build_config().chapters)[0]
+        text = getattr(chapter, "text", "") or getattr(chapter, "narrator_text", "")
+    finally:
+        if stubbed:
+            sys.modules.pop("websockets", None)
     if not text.strip():
         raise SystemExit("fixture produced no narrator text")
     return text
+
+
+def require_real_websockets() -> None:
+    """Fail BEFORE creating a narrator, not after.
+
+    The stub bug cost a narrator: creation succeeded, then the transport
+    turned out to be a hollow module. Anything that can make the live
+    turn impossible is checked while the check is still free.
+    """
+    import websockets
+    if not hasattr(websockets, "connect"):
+        raise SystemExit(
+            "the `websockets` module in scope has no `connect` — a stub is "
+            "shadowing the real package; refusing to create a narrator for a "
+            "turn that cannot be sent")
 
 
 # ── assertion 1: the BROWSER's routing decision ───────────────────────
@@ -228,8 +267,55 @@ def sql(query: str, args=()) -> List[sqlite3.Row]:
         con.close()
 
 
+def reusable_narrator() -> Optional[Dict[str, str]]:
+    """A narrator a previous attempt created but never used.
+
+    ── WHY RETRIES MUST NOT ACCUMULATE, 2026-09-05 ──────────────────
+
+    The run id is a timestamp, so every invocation asks for a NEW name
+    and the duplicate guard — which matches on the exact name — never
+    fires. A crash after creation therefore leaves a narrator behind and
+    the next attempt makes another. The websockets-stub crash did
+    exactly that.
+
+    A journalled narrator with ZERO turns was created and never spoken
+    to, so it is the right one to reuse: reusing it costs nothing and
+    creating a sibling costs a permanent, undeletable row. A narrator
+    that HAS turns is left alone — it carries evidence.
+    """
+    journal_dir = JOURNAL.parent
+    if not journal_dir.is_dir():
+        return None
+    for path in sorted(journal_dir.glob("*.json"), reverse=True):
+        if path.name.endswith(".report.json"):
+            continue
+        try:
+            row = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        pid = row.get("person_id")
+        if not pid:
+            continue
+        alive = sql("SELECT id, display_name FROM people WHERE id=?;", (pid,))
+        if not alive:
+            continue
+        turns = sql("SELECT count(*) AS n FROM turns WHERE conv_id=?;",
+                    (row.get("conv_id") or "",))
+        if turns and turns[0]["n"] == 0:
+            return {"person_id": pid,
+                    "display_name": alive[0]["display_name"],
+                    "journal": path.name}
+    return None
+
+
 def create_narrator() -> str:
     """One marked, testing-only narrator. Journalled before anything else."""
+    prior = reusable_narrator()
+    if prior:
+        print(f"  reusing  : {prior['person_id']} ({prior['display_name']}) — "
+              f"created by {prior['journal']}, zero turns, never used")
+        return prior["person_id"]
+
     existing = sql("SELECT id FROM people WHERE display_name=?;", (NARRATOR_NAME,))
     if existing:
         raise SystemExit(f"REFUSING: {NARRATOR_NAME} already exists "
@@ -346,6 +432,7 @@ def main() -> int:
           str(DB_PATH))
 
     print("\n── live turn ──")
+    require_real_websockets()      # before anything is created
     person_id = create_narrator()
     log_before = len(log_lines_for_conv())
     assistant_text, frames = asyncio.run(send_correction_turn(person_id, text))
