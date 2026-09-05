@@ -165,6 +165,20 @@ COMPOSER_TESTS = ("tests.test_profile_seed_composer_section "
                   "tests.test_prompt_section_policy "
                   "tests.test_prompt_sections")
 
+# ── Phase 5B, the relationship lane (2026-09-05) ──────────────────────
+#
+# TWO modules, and the split matters. The interpreter holds the
+# vocabulary; the router holds the routing, the canonicalization and the
+# provenance that connects them. Every defect this phase corrected lived
+# in the seam between them — a reading that was correct in the
+# interpreter and lost, dropped or re-derived by the time the router
+# used it — so a gate scoped to either file alone would have caught none
+# of them.
+EXTRACT = "server/code/api/routers/extract.py"
+INTERPRETER = "server/code/api/services/relationship_interpreter.py"
+LANE_TESTS = ("tests.test_spouse_state_characterization "
+              "tests.test_kinship_qualifier_binding")
+
 
 @dataclass(frozen=True)
 class Mutation:
@@ -1044,6 +1058,100 @@ MUTATIONS: Tuple[Mutation, ...] = (
         '        "completes_walk": bool(plan.completes_walk),\n'
         '    }',
         STEP6_TESTS),
+
+    # ── L-series — Phase 5B, the relationship lane (2026-09-05) ───────
+    #
+    # SIX of these nine are `was_real`: they are the code that shipped,
+    # not defects imagined afterwards. That ratio is the point of the
+    # series — this lane's tests were written after measuring a live
+    # product path, so most of what they catch is what the product did.
+    Mutation(
+        "L1", "LEXICAL PROVENANCE DIES AT THE CONSTRUCTOR: the narrator's "
+              "phrase is recorded when `ex-wife` is canonicalized to "
+              "`wife`, and this constructor names its kwargs explicitly, "
+              "so the record is dropped one call before the lane pass "
+              "that needs it — silently, with no error anywhere",
+        EXTRACT,
+        '                    source_phrase=item.get("source_phrase"),\n'
+        '                    normalized_from=item.get("normalized_from"),',
+        '                    # provenance dropped',
+        LANE_TESTS, was_real=True),
+    Mutation(
+        "L2", "THE LANE IS CHOSEN BY THE CANONICALIZED VALUE: a relation "
+              "item is `wife` by the time the lane is picked, and \"My "
+              "wife Mary... My ex-wife Susan\" contains `wife` twice — so "
+              "Susan's relationship is handed to Mary by the very pass "
+              "that exists to separate them",
+        EXTRACT,
+        '        if sub == "relation" and said_phrase:',
+        '        if False and said_phrase:',
+        LANE_TESTS, was_real=True),
+    Mutation(
+        "L3", "PERSON ASSOCIATION IS NOT RE-DERIVED: items land on the "
+              "correct field path with no repeatableGroup, so with two "
+              "former partners nothing says which surname belongs to "
+              "which. A correct field path with broken person "
+              "association is not a pass",
+        EXTRACT,
+        '        final_items = _regroup_after_lane_change(final_items, answer=answer)',
+        '        pass',
+        LANE_TESTS, was_real=True),
+    Mutation(
+        "L4", "REGROUPING LOCATES A CANONICALIZED RELATION BY ITS VALUE: "
+              "two former wives both read `wife`, so both relations "
+              "attach to the first one",
+        EXTRACT,
+        '            if "_locate_value" in item:\n'
+        '                _loc = item["_locate_value"]\n'
+        '                val_pos = answer_lower.find(str(_loc).lower()) if _loc else -1\n'
+        '            else:\n'
+        '                val_pos = answer_lower.find(item["value"].lower())',
+        '            val_pos = answer_lower.find(item["value"].lower())',
+        LANE_TESTS),
+    Mutation(
+        "L5", "`late wife` FALLS THROUGH TO THE BARE `wife` PATTERN: the "
+              "reading comes back `current` with the word `late` "
+              "discarded, so the system asserts an ongoing marriage to a "
+              "woman the narrator just said had died",
+        INTERPRETER,
+        '    (r"late\\s+wife", GROUP_SPOUSE, "wife", STATE_DECEASED, ""),',
+        '    # late wife: removed',
+        LANE_TESTS, was_real=True),
+    Mutation(
+        "L6", "WIDOWHOOD IS FILED AS DIVORCE: a widower's wife becomes a "
+              "prior partner and, downstream, a `former_marriage` — the "
+              "system telling the family the marriage was dissolved",
+        INTERPRETER,
+        '    (r"late\\s+wife", GROUP_SPOUSE, "wife", STATE_DECEASED, ""),',
+        '    (r"late\\s+wife", GROUP_PRIOR_PARTNERS, "wife", STATE_FORMER, ""),',
+        LANE_TESTS, was_real=True),
+    Mutation(
+        "L7", "THE `adult` QUALIFIER IS DISCARDED at the vocabulary, so "
+              "`adult daughter` and `daughter` become indistinguishable "
+              "before any consumer can decide what to do with the word",
+        INTERPRETER,
+        '    (r"adult\\s+daughter", GROUP_CHILDREN, "daughter", "", "adult"),',
+        '    (r"adult\\s+daughter", GROUP_CHILDREN, "daughter", "", ""),',
+        LANE_TESTS),
+    Mutation(
+        "L8", "OVERLAP SUPPRESSION REMOVED: `ex-wife` ALSO yields a bare "
+              "current `wife` at the same offsets, because `-` is a word "
+              "boundary — the single behaviour the whole module is built "
+              "around",
+        INTERPRETER,
+        '        if any(start < c_end and end > c_start for c_start, c_end in claimed):\n'
+        '            continue',
+        '        if False:\n'
+        '            continue',
+        LANE_TESTS, was_real=True),
+    Mutation(
+        "L9", "THE CARRIED SPAN IS THROWN AWAY and the phrase is located "
+              "by searching the text again — which finds the FIRST `wife` "
+              "for both readings and collapses two people onto one",
+        INTERPRETER,
+        '        dist = abs(idx - reading.start)',
+        '        dist = abs(idx - text.lower().find(reading.source_phrase.lower()))',
+        LANE_TESTS, was_real=True),
 )
 
 CAUGHT, MISSED, BROKEN = "CAUGHT", "MISSED", "BROKEN"

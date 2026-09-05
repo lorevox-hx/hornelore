@@ -295,53 +295,97 @@ class UnsupportedSubfieldsGoToReview(unittest.TestCase):
 
 
 class LateSpouseIsNotAFormerSpouse(unittest.TestCase):
-    """`late wife` means widowed, not divorced.
+    """`late wife` means widowed — neither divorced NOR still married.
 
-    ── AN ALIAS I ADDED WITHOUT MEASURING, REMOVED 2026-09-05 ───────
+    ── TWO CORRECTIONS, AND THE SECOND ONE IS THE INTERESTING ONE ───
 
     The first Phase 5B table grouped `late wife|late husband` with
-    `former|previous|first`. It reads as a tidy alternation and it is a
-    semantic collapse — in a phase that exists to prevent exactly that.
+    `former|previous|first`. That is a semantic collapse — filing a
+    widower's wife under `priorPartners`, and downstream under
+    `former_marriage`, tells the family the marriage was dissolved — so
+    the alias was removed.
 
-      "my ex-wife Susan"   — the marriage ENDED; she is living
-      "my late wife Susan" — the marriage did not end that way; she died
+    **Removal was not neutral, and this class used to hide that.** With
+    no entry of its own, `late wife` fell through to the bare `wife`
+    pattern: the reading came back `state="current"` with
+    `source_phrase="wife"`, so the system asserted an ongoing marriage
+    to a woman the narrator had just said was dead, and the word `late`
+    vanished with no record anywhere.
 
-    Filing a widower's wife under `priorPartners`, and downstream under
-    `former_marriage`, tells the family the marriage was dissolved. For a
-    memoir that is the system contradicting the narrator about the most
-    significant relationship of their life.
+    These tests asserted `state == "current"` and passed — presenting
+    that fallthrough as the intended answer. They now assert what is
+    actually owed:
 
-    `ex`, `former` and `previous` were measured against the shipped path.
-    `late` was not — it was added by pattern-matching the shape of the
-    other words. It stays out until its destination is designed.
+      1. NOT the former lane (the original, correct, requirement);
+      2. the word `late` is still inspectable afterwards;
+      3. the death is recorded as its own state, not flattened into
+         `current` and not flattened into `former`.
     """
 
-    def test_a_late_wife_remains_on_the_CURRENT_lane(self):
+    def test_a_late_wife_is_not_filed_as_a_prior_partner(self):
         r = run("My late wife Susan was a teacher.",
                 [item("family.spouse.firstName", "Susan")])
         self.assertEqual([("family.spouse.firstName", "Susan")], paths(r))
 
-    def test_a_late_husband_remains_on_the_CURRENT_lane(self):
+    def test_a_late_husband_is_not_filed_as_a_prior_partner(self):
         r = run("My late husband Frank drove a bus.",
                 [item("family.spouse.firstName", "Frank")])
         self.assertEqual([("family.spouse.firstName", "Frank")], paths(r))
 
-    def test_the_interpreter_does_not_read_late_as_former(self):
+    def test_the_word_late_survives_the_reading(self):
+        """The regression this class exists for. Was `wife`."""
         from api.services.relationship_interpreter import interpret_phrase
         reading = interpret_phrase("my late wife Susan")
-        self.assertEqual(reading.state, "current")
-        self.assertNotEqual(reading.group, "family.priorPartners")
+        self.assertEqual("late wife", reading.source_phrase)
+
+    def test_the_death_is_recorded_as_its_own_state(self):
+        from api.services.relationship_interpreter import (
+            interpret_phrase, STATE_DECEASED)
+        reading = interpret_phrase("my late wife Susan")
+        self.assertEqual(STATE_DECEASED, reading.state)
+        self.assertNotEqual("former", reading.state)
+        self.assertNotEqual("current", reading.state,
+                            "a deceased spouse is not a current marriage")
+
+    def test_the_relation_is_still_wife_and_the_lane_is_still_current(self):
+        """`late` qualifies the marriage. It is not a different relation."""
+        from api.services.relationship_interpreter import interpret_phrase
+        reading = interpret_phrase("my late wife Susan")
+        self.assertEqual("wife", reading.relation)
+        self.assertEqual("family.spouse", reading.group)
+
+    def test_nothing_is_inferred_from_the_word_beyond_the_death(self):
+        """No date, no period, no cause. Only what was said."""
+        from api.services.relationship_interpreter import interpret_phrase
+        reading = interpret_phrase("my late wife Susan")
+        self.assertEqual("", reading.qualifier)
+
+    def test_it_survives_the_whole_extraction_path(self):
+        """Not just the helper — `readings_in` over a real answer."""
+        from api.services.relationship_interpreter import readings_in
+        found = readings_in("My late wife Susan was a teacher.")
+        self.assertEqual(1, len(found),
+                         f"`wife` also matched separately: {found}")
+        self.assertEqual("late wife", found[0].source_phrase)
 
     def test_ex_is_still_read_as_former(self):
-        """The discriminating control — `late` out, `ex` still in."""
+        """The discriminating control — `late` is deceased, `ex` former."""
         from api.services.relationship_interpreter import interpret_phrase
         self.assertEqual(interpret_phrase("my ex-wife Susan").state, "former")
 
-    def test_the_omission_is_recorded_rather_than_silent(self):
-        """So a future session re-adding `late` has to read the reason."""
+    def test_a_plain_wife_is_still_current(self):
+        """The other control. Only the word `late` differs."""
+        from api.services.relationship_interpreter import interpret_phrase
+        reading = interpret_phrase("my wife Mary")
+        self.assertEqual("current", reading.state)
+        self.assertEqual("wife", reading.source_phrase)
+
+    def test_the_reasoning_is_recorded_rather_than_silent(self):
+        """So a future session moving `late` has to read why twice."""
         src = (ROOT / "server" / "code" / "api" / "services"
                / "relationship_interpreter.py").read_text(encoding="utf-8")
-        self.assertIn("late wife` IS NOT IN THIS TABLE", src)
+        self.assertIn("`late wife` IS NOT A FORMER WIFE", src)
+        self.assertIn("The word `late` was discarded", src)
 
 
 class TheGuardHandlesAnEmptyItemList(unittest.TestCase):
@@ -422,6 +466,250 @@ class PartnerBindsWithoutManufacturingMarriage(unittest.TestCase):
                 [item("family.spouse.firstName", "Sam")])
         self.assertFalse([p for p, _v in paths(r) if "marriage" in p.lower()],
                          "a marriage field appeared for an unmarried partner")
+
+
+class ACanonicalizedRelationKeepsItsOrigin(unittest.TestCase):
+    """Phase 5B items 1+2 — lexical provenance surviving canonicalization.
+
+    ── THE DEFECT THIS PINS ─────────────────────────────────────────
+
+    The lane pass chose a lane by searching the answer for the item's
+    VALUE. For a name that works: `Susan` occurs once and locates a
+    person. For a relation it does not, because the value has already
+    been canonicalized — Susan's `ex-wife` is `wife` by then — and
+
+        "My wife Mary is a nurse. My ex-wife Susan was a teacher."
+
+    contains `wife` twice, MARY's first. So Susan's relation was handed
+    the current-spouse lane by the very pass that exists to separate
+    them, and every earlier test missed it because they sent only
+    `firstName` items through.
+
+    The phrase the narrator actually used is now recorded on the item
+    when it is canonicalized, and the lane pass matches on that.
+
+    ── WHY THE CONSTRUCTOR MATTERS ──────────────────────────────────
+
+    `ExtractedItem(...)` on the LLM path names its kwargs explicitly, so
+    the recorded phrase was dropped one call before the pass that needed
+    it — silently, with no error anywhere. These tests read the phrase
+    off the RESPONSE, which is the far side of that boundary.
+    """
+
+    def test_susans_relation_does_not_attach_to_marys_wife(self):
+        r = run(MIXED, [item("family.spouse.firstName", "Mary"),
+                        item("family.spouse.relation", "wife"),
+                        item("family.spouse.firstName", "Susan"),
+                        item("family.spouse.relation", "ex-wife")])
+        got = paths(r)
+        self.assertIn(("family.spouse.relation", "wife"), got)
+        self.assertIn(("family.priorPartners.relation", "wife"), got)
+        self.assertEqual(
+            1, len([1 for p, _v in got if p == "family.spouse.relation"]),
+            "Susan's canonicalized relation attached to Mary's lane")
+
+    def test_the_narrator_phrase_survives_onto_the_response(self):
+        r = run(MIXED, [item("family.spouse.firstName", "Susan"),
+                        item("family.spouse.relation", "ex-wife")])
+        rel = [i for i in r.items if i.fieldPath.endswith(".relation")]
+        self.assertEqual(1, len(rel))
+        self.assertEqual("wife", rel[0].value)
+        self.assertEqual("ex-wife", rel[0].source_phrase)
+        self.assertEqual("ex-wife", rel[0].normalized_from)
+
+    def test_a_canonical_phrase_records_itself_and_no_normalization(self):
+        """`wife` was not normalized FROM anything. Saying it was is a lie."""
+        r = run("My wife Mary is a nurse.",
+                [item("family.spouse.relation", "wife")])
+        rel = [i for i in r.items if i.fieldPath.endswith(".relation")][0]
+        self.assertEqual("wife", rel.source_phrase)
+        self.assertIsNone(rel.normalized_from)
+
+    def test_the_husband_form(self):
+        answer = "My husband Frank is retired. My ex-husband Walter was a driver."
+        r = run(answer, [item("family.spouse.firstName", "Frank"),
+                         item("family.spouse.relation", "husband"),
+                         item("family.spouse.firstName", "Walter"),
+                         item("family.spouse.relation", "ex-husband")])
+        got = paths(r)
+        self.assertIn(("family.spouse.relation", "husband"), got)
+        self.assertIn(("family.priorPartners.relation", "husband"), got)
+        self.assertIn(("family.priorPartners.firstName", "Walter"), got)
+        self.assertIn(("family.spouse.firstName", "Frank"), got)
+
+
+class TheReadingIsLocatedByItsSpanNotByASecondSearch(unittest.TestCase):
+    """Phase 5B item 3 — and the mutation that exposed the gap.
+
+    ── HOW THIS CLASS CAME TO EXIST ─────────────────────────────────
+
+    `lane_for` picks the reading NEAREST a name. It used to measure
+    that distance by searching the answer AGAIN for the reading's
+    phrase, which collapses every occurrence of a repeated phrase onto
+    the first one. The readings already carry the offsets `finditer`
+    found; throwing them away and rediscovering them by string search
+    was the defect.
+
+    Mutation L9 restores the search — and the suite stayed GREEN. Every
+    existing passage mentions each phrase once, where a search and a
+    span agree, so nothing discriminated. **A mutation nothing catches
+    is a missing test, not a harmless mutation**, and this class is
+    that test.
+
+    The passage below says `wife` three times: once alone, once inside
+    `ex-wife`, and once again at the end. Under the search, the LAST
+    `wife` reading reports the position of the FIRST — so the ex-wife
+    in the middle becomes the nearest reading to anything at the end of
+    the sentence, and a current wife's detail is filed as a former
+    partner's.
+    """
+
+    REPEATED = ("My wife Mary is a nurse. My ex-wife Susan was a teacher. "
+                "Everyone calls my wife Mim.")
+
+    def test_the_readings_carry_their_true_offsets(self):
+        from api.services.relationship_interpreter import readings_in
+        found = readings_in(self.REPEATED)
+        self.assertEqual([3, 28, 75], [f.start for f in found])
+        self.assertEqual(["wife", "ex-wife", "wife"],
+                         [f.source_phrase for f in found])
+
+    def test_the_nearest_reading_to_a_late_name_is_the_late_one(self):
+        from api.services.relationship_interpreter import lane_for
+        reading = lane_for(self.REPEATED, "Mim")
+        self.assertEqual(75, reading.start,
+                         "the last `wife` reported the first one's position")
+        self.assertEqual("family.spouse", reading.group)
+
+    def test_the_current_wifes_own_detail_is_not_diverted(self):
+        """The production-boundary companion.
+
+        `family.priorPartners.preferredName` does not exist, so getting
+        this wrong does not merely mislabel the value — it sends the
+        current wife's own preferred name to review as a relationship
+        with no destination.
+        """
+        r = run(self.REPEATED,
+                [item("family.spouse.preferredName", "Mim")])
+        self.assertEqual([("family.spouse.preferredName", "Mim")], paths(r))
+        self.assertFalse(
+            [c for c in (r.clarification_required or [])
+             if isinstance(c, dict)
+             and c.get("reason") == "relationship_state_has_no_destination"],
+            "a current spouse's detail was sent to review as unbound")
+
+    def test_the_ex_wife_in_the_middle_is_still_read_correctly(self):
+        """The control. The repeated phrase must not break the real one."""
+        r = run(self.REPEATED, [item("family.spouse.firstName", "Susan")])
+        self.assertEqual([("family.priorPartners.firstName", "Susan")],
+                         paths(r))
+
+
+class PersonAssociationSurvivesTheLaneChange(unittest.TestCase):
+    """Phase 5B item 4 — repeatable regrouping AFTER the lane pass.
+
+    Grouping runs once, BEFORE the lane pass, and groups by field path.
+    Everything proposed as `family.spouse.*` is non-repeatable then, so
+    it is grouped not at all; the pass moves some of it to
+    `family.priorPartners.*`, which IS repeatable, and nothing regrouped
+    it. The clearing line even carried the comment "regrouped after this
+    pass" while no regrouping existed anywhere in the file.
+
+    **A correct field path with broken person association is not a
+    pass** — with two former partners nothing said which surname
+    belonged to which.
+    """
+
+    TWO_EX = ("My ex-wife Susan Clark was a teacher. "
+              "My ex-wife Diane Palmer was a nurse.")
+
+    def _two_former_partners(self):
+        return run(self.TWO_EX, [
+            item("family.spouse.firstName", "Susan"),
+            item("family.spouse.lastName", "Clark"),
+            item("family.spouse.relation", "ex-wife"),
+            item("family.spouse.firstName", "Diane"),
+            item("family.spouse.lastName", "Palmer"),
+            item("family.spouse.relation", "ex-wife"),
+        ])
+
+    def test_a_moved_item_is_not_left_ungrouped(self):
+        r = run(MIXED, [item("family.spouse.firstName", "Susan")])
+        moved = [i for i in r.items
+                 if i.fieldPath.startswith("family.priorPartners.")]
+        self.assertTrue(moved, "nothing moved; the case proves nothing")
+        for i in moved:
+            self.assertIsNotNone(
+                i.repeatableGroup,
+                f"{i.fieldPath}={i.value!r} moved to a repeatable lane "
+                "with no person association")
+
+    def test_two_former_partners_do_not_share_one_group(self):
+        r = self._two_former_partners()
+        groups = {(i.value): i.repeatableGroup for i in r.items
+                  if i.fieldPath == "family.priorPartners.firstName"}
+        self.assertEqual({"Susan", "Diane"}, set(groups))
+        self.assertNotEqual(groups["Susan"], groups["Diane"],
+                            "both former wives landed in one group")
+
+    def test_each_surname_stays_with_its_own_partner(self):
+        r = self._two_former_partners()
+        by_group = {}
+        for i in r.items:
+            by_group.setdefault(i.repeatableGroup, {})[
+                i.fieldPath.rpartition(".")[2]] = i.value
+        pairs = {(g["firstName"], g.get("lastName"))
+                 for g in by_group.values() if "firstName" in g}
+        self.assertEqual({("Susan", "Clark"), ("Diane", "Palmer")}, pairs)
+
+    def test_each_relation_stays_with_its_own_partner(self):
+        """The one the position search cannot get right.
+
+        Both relations read `wife` after canonicalization and the answer
+        contains `wife` four times, so locating them by value picks the
+        first occurrence for BOTH. They are assigned by output order
+        instead — a weaker claim, and the honest one.
+        """
+        r = self._two_former_partners()
+        by_group = {}
+        for i in r.items:
+            by_group.setdefault(i.repeatableGroup, {})[
+                i.fieldPath.rpartition(".")[2]] = i.value
+        with_relation = [g for g in by_group.values() if "relation" in g]
+        self.assertEqual(2, len(with_relation),
+                         "a relation item was lost or merged")
+        for g in with_relation:
+            self.assertEqual("wife", g["relation"])
+            self.assertIn(g.get("firstName"), ("Susan", "Diane"))
+
+    def test_an_unrelated_repeatable_family_is_not_disturbed(self):
+        """The non-vacuity control for the regroup.
+
+        The regroup re-derives EVERY group, not only the moved ones, so
+        a second family in the same answer is the thing most likely to
+        be broken by it. Parents are repeatable and are nowhere near the
+        spouse lanes.
+        """
+        answer = ("My mother Alice Bell was a nurse and my father Walter "
+                  "Bell drove a bus. My ex-wife Susan was a teacher.")
+        r = run(answer, [
+            item("parents.firstName", "Alice"),
+            item("parents.lastName", "Bell"),
+            item("parents.firstName", "Walter"),
+            item("parents.lastName", "Bell"),
+            item("family.spouse.firstName", "Susan"),
+        ])
+        by_group = {}
+        for i in r.items:
+            if i.fieldPath.startswith("parents."):
+                by_group.setdefault(i.repeatableGroup, []).append(i.value)
+        self.assertEqual(2, len(by_group),
+                         f"the two parents did not stay separate: {by_group}")
+        self.assertTrue(
+            any("Susan" == i.value and
+                i.fieldPath.startswith("family.priorPartners.")
+                for i in r.items),
+            "the lane move did not happen, so the regroup never ran")
 
 
 if __name__ == "__main__":  # pragma: no cover
