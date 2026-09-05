@@ -10,30 +10,31 @@ rule back. The claim that matters is the one about obligations.)*
 
 ---
 
-> # ▶ CURRENT ACTION — `WO-LORI-ARCHIVE-TO-MEMOIR-02` PHASE 3. PHASES 0–2 ARE CLOSED.
+> # ▶ CURRENT ACTION — `WO-LORI-ARCHIVE-TO-MEMOIR-02` PHASE 5. PHASES 0–4 ARE CLOSED.
 >
 > | | |
 > |---|---|
-> | **Current action** | **Phase 3 — implementation COMPLETE, acceptance pending ONE gate.** Both meaning-corruption defects are fixed and a third (fabricated values) was found and fixed alongside. **The only outstanding gate is the corrected 128-case live evaluation**, which needs the stack and so is Chris's to run: `master_loop01_r5j-phase3-v1`. Read `preservation_fates`, not the pass count alone — a quarantined value is now *preserved*, not lost, and the pass count cannot tell them apart |
-> | **Phase 3 — what landed** | Group-local kinship guard (entity-bound cues, intervening-person barrier, plural/list path, whole-group quarantine); per-value grounding (`spoken`/`derived`/`unsupported`); review-only results durable + deliverable end to end; browser authority enforcement (the server's downgrade now binds the browser — it previously did not, which also silently affected shipped transcript safety); additive multi-reason confirmation; empty-correction fallthrough resetting BOTH copies of `turn_mode` |
-> | **Testing doctrine** | **A fixture may not supply the property being proven.** Nine instances in this lane; now locked in `CLAUDE.md` and `docs/TESTING-DOCTRINE.md`. Every helper assertion needs a production-boundary companion, and every mutation must make that companion fail |
-> | **Phase 2** | ✅ **CLOSED 2026-09-04** — read-only mechanism audit, cohort not rerun, nothing curated. Archival 38/38 · candidates 35/38 · transcripts 35/35 byte-exact · zero over-capture · zero containment |
-> | **Phase 2's real findings** | **CORRECTED 2026-09-04 — the first version overstated both.** Split is 18 deterministic / 17 chain-captured / 3 declined, and the live log at `chat_ws.py:1848` **agrees exactly** — the decision IS recorded, with full anchor breakdowns, just only to gitignored rotating `.runtime/logs/`. The defect is **durability**, not absence. The three misses share one cause: present-day life inventories with no *relative* time phrasing (`story_trigger.py:706`). And the **zero** `turn_extraction_ledger` rows are a **harness gap** — 38 log lines say *"client did not declare field_extraction_result=v1"* (`chat_ws.py:924`), so extraction cannot be studied from this cohort at all |
-> | **Turns `1846`, `1864`, `1870`** | **`measurement_failed`, NOT `not_story`.** Indistinguishable from captured turns on every stored signal (anchors=2, place+person, 236–536 words). No evidence-backed reason exists, so none was invented |
-> | **Phase 1** | ✅ **ACCEPTED 2026-09-04.** `20260904T123556Z` performed the only two authorized mutations; `20260904T130525Z` carried that proof forward at **zero mutations** and completed preview and export. Exit 0, agreement 1/1/1, control item identical |
-> | **Phase 0** | ✅ **ACCEPTED at `fdaa255`** |
+> | **Current action** | **Phase 5 — preserve and organize extracted meaning.** Every extracted proposal must reach a correct structured field, an attributed candidate, or a defensible rejection. Kinship normalization (`daddy → father`) retains the narrator's own word in provenance. **Do not disable `HORNELORE_CLAIMS_VALIDATORS` as a product fix** — it gates several safeguards while leaving the parse-time whitelist active |
+> | **Phase 4** | ✅ **ACCEPTED 2026-09-05.** The story-capture decision is durable on the source narrator turn, **including declined turns that create no candidate**. Implementation `24c7130` (clean tree); live probe `20260905-151658` on `.venv-gpu` — **11 passed / 0 failed / 0 unverified**; offline `.venv` **241 tests, ZERO skips**; **8/8 mutations caught**. Nominated turn bound candidate `8a159445`; declined turn carried a full eight-field diagnostic and no story row |
+> | **Phase 4 — what it did NOT change** | No threshold, anchor regex, chain classifier, source unit, review rule, memoir behaviour, migration or new table. The 114/14 banks were deliberately **not** rerun — Phase 4 changed observability, not extraction |
+> | **Phase 4 — one honest gap** | **Ten of eleven acceptance clauses were proven LIVE.** `measurement_failed` is covered offline and by mutations 3 and 6 but has never been seen on a live turn. Also: a trigger firing with **no `person_id`** fits none of the three closed outcomes and deliberately records nothing — opening the vocabulary is Chris's call |
+> | **Phase 3** | ✅ **ACCEPTED 2026-09-05.** Group-local kinship guard; per-value grounding (`spoken`/`derived`/`unsupported`); review-only results end to end; browser authority enforcement (the server's downgrade now binds the browser — it previously did not, which also silently affected shipped transcript safety); empty-correction fallthrough resetting BOTH copies of `turn_mode`. Live gate: Stefi `20260905-021741`, **9/9** over the production WebSocket |
+> | **Phase 3 — last box closed** | *Jim binds as Pat's husband* — **CLOSED 2026-09-05.** `Jim` had no test anywhere while `Otis` had five and `Domingo` two. `TheJimCase` drives the shipped `run_field_extraction` with Pat's own wording: parent language elsewhere keeps `Walter` and quarantines Jim; the spouse field still reaches him. **The guard was already correct — nobody had written the test** |
+> | **Extraction baseline** | **NOT comparable.** `r5h`/`r5j`/`r5k` span **three scorers** and two dirty trees over one case bank. `r5k`'s **0 `must_not_write` at `5afead5`** is solid current evidence; the `2 → 0` delta is **not established** — `must_not_write` is itself a scorer judgment. Nonblocking debt: [`docs/BACKLOG.md`](docs/BACKLOG.md) §6a |
+> | **Testing doctrine** | **A fixture may not supply the property being proven.** The maintained table in [`docs/TESTING-DOCTRINE.md`](docs/TESTING-DOCTRINE.md) **owns the count** — no other document restates it. Every helper assertion needs a production-boundary companion, and every mutation must make that companion fail |
+> | **Phase 2** | ✅ **CLOSED 2026-09-04** — read-only mechanism audit, cohort not rerun, nothing curated. Archival 38/38 · candidates 35/38 · transcripts 35/35 byte-exact · zero over-capture |
+> | **Phase 1** | ✅ **ACCEPTED 2026-09-04.** `20260904T123556Z` performed the only two authorized mutations; `20260904T130525Z` carried that proof forward at **zero mutations** |
 > | **Mutations — ALL SPENT** | `447eee18` is `promoted`, `building_years`/`operator_set`, `review_version: 3`. **No further mutation is authorized** |
-> | **Capture diagnostic belongs to PHASE 4** | Persist one decision record per turn — *including turns that create no candidate*, so it cannot live on `story_candidates`. **Change no capture threshold until decisions are inspectable.** Not part of Phase 3 |
-> | **Do NOT** | curate the synthetic queue, promote the 35, adjust the classifier, or rerun the cohort. The cohort is test material — its value was proving the machinery, not its memoir quality |
+> | **Do NOT** | curate the synthetic queue, promote the 35, adjust the classifier, rerun the cohort, or repair `turn_extraction_ledger` for a harness that never requested extraction |
 >
 > **A refusal is a result.** A run that stops before mutating, names the failing link and
 > exits non-zero has done its job. It is not a failed attempt to be retried until it passes.
 >
-> **Profile Seed Phase 3 is OWED, not current.** It was the previous current action and is
+> **Profile Seed Phase 3 is OWED, not current.** It was a previous current action and is
 > **IN IMPLEMENTATION with ACCEPTANCE OPEN**; it is not cancelled and not superseded — see
-> §2. Hygiene Phase A remains
-> ACCEPTED with its remainder PAUSED and `WO-REPOSITORY-HYGIENE-01` INCOMPLETE. **No priority
-> change ever converts owed work into finished work**, and no document may say otherwise.
+> §2. Hygiene Phase A remains ACCEPTED with its remainder PAUSED and
+> `WO-REPOSITORY-HYGIENE-01` INCOMPLETE. **No priority change ever converts owed work into
+> finished work**, and no document may say otherwise.
 >
 > **Still frozen:** runtime safety, the model and its 8,192-token window, the directive
 > registry and Kawa are governed by `CLAUDE.md`, which no priority decision touches.
@@ -312,7 +313,7 @@ Full register with evidence: [`docs/BACKLOG.md`](docs/BACKLOG.md).
 Historical handoffs and long status narratives live in Git history and `docs/archive/`.
 **They must not be appended back into this operational brief.**
 
-## 9. `WO-LORI-ARCHIVE-TO-MEMOIR-02` — Phases 1, 2 and 3 CLOSED; **Phase 4 CURRENT** (2026-09-05)
+## 9. `WO-LORI-ARCHIVE-TO-MEMOIR-02` — Phases 1–4 CLOSED; **Phase 5 CURRENT** (2026-09-05)
 
 **Phase 3 ACCEPTED 2026-09-05.** Its exit gate is met: Stefi follows the normal turn path,
 the three spouse fixtures bind, no false parent field is written, and uncertain
@@ -338,28 +339,40 @@ evidence**; the `2 → 0` delta is **not established** — `must_not_write` is a
 judgment. Registered as nonblocking measurement debt in
 [`docs/BACKLOG.md`](docs/BACKLOG.md) §6a. **No further Phase 3 evaluation is needed.**
 
-**Phase 4 is now current, and its design is settled (2026-09-05):**
+**PHASE 4 ACCEPTED 2026-09-05.** The capture decision is durable on the source narrator
+turn, including the declined turns that create no candidate.
 
-> **Persist the already-computed capture decision directly on the committed narrator turn.**
-> **One implementation checkpoint, then one live-acceptance/closeout checkpoint.**
+| | |
+|---|---|
+| Implementation SHA | `24c71309aa3dd3d73e58811cfec7b1359b670167`, clean tree |
+| Live probe | `20260905-151658` — `scripts/story_capture_decision_probe.py` |
+| Interpreter (live) | `.venv-gpu/bin/python`, the serving venv |
+| Interpreter (offline) | `.venv/bin/python` — **241 tests, `OK`, ZERO skips** |
+| Live result | **11 passed, 0 failed, 0 unverified** |
+| Mutations | **8/8 caught**, product restored byte-exact |
 
-The turn, not a new table — it avoids a new table, **inherits narrator deletion
-automatically**, and covers **declined turns, which have no candidate to attach to**.
-`story_candidates` cannot hold this by construction.
+Nominated turn: `borderline_scene_anchor`, candidate `8a159445`, bound to the same source
+conversation. Declined turn: `below_all_capture_paths`, `candidate_id: null`, full eight-field
+diagnostic, **no `story_candidates` row at all**. No narrator or assistant prose in either
+record; nothing written to an assistant row.
 
-**NOT in scope, and not to be smuggled in:** another classifier rewrite · another 128-case
-evaluation · an extraction-ledger repair · **any capture-threshold change**.
+**Ten of eleven acceptance clauses were proven LIVE. One was not** — `measurement_failed` is
+covered by the offline suite and by mutations 3 and 6, but has never been seen on a live
+turn, and the record says so.
 
-The decision is already computed and recorded for all 38 turns at `chat_ws.py:1848` — into
-`.runtime/logs/api.log`, which is gitignored and rotates. **Not durable is not absent**, and
-that distinction is the whole of the work. Candidate presence is 35/38 byte-exact with zero
-over-capture, so raising a percentage was never it. The Phase 3 gate supplied a live
-example of the target case: Stefi's turn logged `captured=False reason=shelf_closed` — a
-declined capture carrying its own reason, existing only in a rotating log.
+**Nothing about capture changed.** No threshold, anchor regex, chain classifier, source unit,
+review rule, memoir behaviour, migration or new table. The 114/14 extractor banks were
+deliberately not rerun — Phase 4 changed observability, not extraction.
 
-**Prose in the work order's Phase 4 section that predates this is marked SUPERSEDED**, and
-three of its claims are disproven: "persisted nowhere" (it is recorded, just not durably),
-"27 no-candidate turns" (there are three), and the ledger repair (excluded).
+**One branch records nothing deliberately:** a trigger firing with no `person_id` fits none of
+the three closed outcomes, so it stays an existing exclusion with the log line as its record,
+pinned by a test. Opening the vocabulary is Chris's call.
+
+**Phase 5 is now current** — preserve and organize extracted meaning: every proposal reaches a
+correct field, an attributed candidate, or a defensible rejection. Kinship normalization
+(`daddy → father`) must retain the narrator's own word in provenance. **Do not disable
+`HORNELORE_CLAIMS_VALIDATORS` as a product fix** — it gates several safeguards while leaving
+the parse-time whitelist active.
 
 **One Phase 3 box is deliberately left unchecked:** *Jim binds as Pat's husband*. `Otis`
 appears in five test suites and `Domingo` in two; **`Jim` appears in none**. Pat's Jim

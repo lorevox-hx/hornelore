@@ -3,9 +3,9 @@
 **Status:** CURRENT — central Lori/Lorevox work order  
 **Supersedes:** `WO-LORI-END-TO-END-LISTEN-RETAIN-MEMOIR-01`  
 **Starting evidence:** demographic cohort `20260901T015343Z` and Walt seven-era run `20260901T003329Z`  
-**Current position:** **Phase 0, 1, 2 and 3 CLOSED. Phase 4 is the CURRENT ACTION** —
-durably attach story-capture decisions and diagnostics to their source turns, **including
-turns that produce no candidate**. *(Phase 1 proof: mutations `20260904T123556Z`, carried
+**Current position:** **Phase 0, 1, 2, 3 and 4 CLOSED. Phase 5 is the CURRENT ACTION** —
+preserve and organize extracted meaning: every proposal reaches a correct field, an
+attributed candidate, or a defensible rejection. *(Phase 1 proof: mutations `20260904T123556Z`, carried
 forward at zero mutations in `20260904T130525Z`, exit 0. Phase 2 audit: `python3
 scripts/phase2_verify_ledger.py`. Phase 3 live gate: Stefi correction-fallthrough
 `20260905-021741`, 9/9 over the production WebSocket.)*
@@ -777,11 +777,17 @@ at the Phase 3 reconciliation.**
 - [x] Tested through `run_field_extraction` on BOTH paths with real ungrouped input,
       including father-John/spouse-John, asserting final emitted writeMode + metadata.
 - [x] One new live eval against the CORRECTED implementation — not another run of `add4753`.
-- [ ] **Jim binds as Pat’s husband — NOT PROVEN.** `Otis` appears in five test
-      suites and `Domingo` in two; **`Jim` appears in none.** The exit gate says
-      "all three spouse fixtures bind correctly" and two of the three are
-      demonstrated. Pat’s Jim passage is already owed as Phase 4’s primary
-      regression fixture, which is where this closes.
+- [x] **Jim binds as Pat’s husband — CLOSED 2026-09-05.** This was the one box
+      left unchecked at Phase 3 acceptance: `Otis` appeared in five test suites
+      and `Domingo` in two, while **`Jim` appeared in none** — two of three
+      demonstrated, the third asserted. `TheJimCase` in
+      `tests/test_kinship_group_guard.py` now drives the shipped
+      `run_field_extraction` with Pat’s own wording, and a fourth test pins that
+      wording against the shipped harness so a fixture cannot quote a sentence
+      the narrator no longer says. Measured: parent language elsewhere in the
+      passage keeps `Walter` and quarantines Jim as *"Jim’s relationship to
+      you"*; `family.spouse.firstName` still reaches him when the narrator says
+      husband. **The guard was already correct — nobody had written the test.**
 - [x] Otis binds as Mable’s husband.
 - [x] Domingo binds as Tomasita’s husband.
 - [x] A spouse cannot enter `parents.*`.
@@ -854,7 +860,7 @@ places); a browser lane whose `[].every()` would have reported a pass having wal
 and a probe assertion first overstated ("stamped interview") and then over-corrected
 ("vacuous") before being measured.
 
-## Phase 4 — Make memoir-worthy story capture dependable  ⬅ **CURRENT ACTION**
+## Phase 4 — Make memoir-worthy story capture dependable  ✅ **ACCEPTED 2026-09-05**
 
 **Outcome:** Important life narration becomes reviewable even when it does not resemble a
 travel chain — and every capture decision is inspectable.
@@ -962,7 +968,56 @@ three, and an operator pass over the thirty-five.
 
 **Exit gate:** Pat’s Jim passage is reviewable; every substantive baseline passage has a candidate or defensible recorded reason; no unsupported story is created; candidate provenance is complete.
 
-## Phase 5 — Preserve and organize extracted meaning
+## ✅ PHASE 4 ACCEPTED — the decision is durable on the source turn (2026-09-05)
+
+`WO-LORI-STORY-CAPTURE-DECISION-DURABILITY-01`. Every evaluated narrator turn now carries
+its capture decision on its own row, **including the declined turns that create no
+candidate** — the case the phase existed for.
+
+### The accepted evidence
+
+| | |
+|---|---|
+| **Implementation SHA** | `24c71309aa3dd3d73e58811cfec7b1359b670167`, clean tree |
+| **Live probe** | `20260905-151658`, `scripts/story_capture_decision_probe.py` |
+| **Interpreter (live)** | `.venv-gpu/bin/python` — the serving venv |
+| **Interpreter (offline)** | `.venv/bin/python` — **241 tests, `OK`, ZERO skips**, nine suites |
+| **Live result** | **11 passed, 0 failed, 0 unverified** |
+| **Mutations** | **8/8 caught**, product restored byte-exact afterwards |
+
+**The nominated turn** produced `borderline_scene_anchor` with candidate
+`8a159445-d417-48a6-a11a-df28d8bc3097`, and that candidate exists and is bound to the same
+source conversation. **The declined turn** produced `below_all_capture_paths`,
+`candidate_id: null`, a complete eight-field diagnostic, and **no `story_candidates` row at
+all** — its explanation now lives on the turn instead of only in a rotating log. Neither
+record contains a word the narrator or Lori said; neither was written to an assistant row.
+
+### What is proven live, and what is proven offline
+
+**Ten of the eleven acceptance clauses were proven by the live probe.** One was not:
+`measurement_failed` is exercised only by the offline suite, because the probe sends a
+nominating and a declining turn and does not inject a failure into a running server. It is
+covered by production-boundary tests and by mutations 3 and 6, but **it has not been seen on
+a live turn**, and this record says so rather than implying otherwise.
+
+### What did NOT change
+
+No capture threshold, no anchor regex, no factual-chain classifier, no story source unit, no
+candidate review rule, no memoir behaviour, no migration, no new table. `story_trigger`'s
+four trigger paths are byte-identical and every threshold default is pinned by test. The
+114/14 extractor banks were deliberately **not** rerun: Phase 4 changed observability, not
+extraction.
+
+### One branch records nothing, on purpose
+
+A trigger firing with **no `person_id`** fits none of the three outcomes — not `declined` (a
+trigger fired), not `nominated` (no candidate), not `measurement_failed` (nothing raised).
+The vocabulary is closed and a fourth value is a product decision this work order did not
+make, so it is treated as an existing exclusion under §4.2, the existing log line remains the
+record, and a test pins the silence so it reads as a decision rather than an oversight.
+**Opening the vocabulary is Chris's call, not an implementation detail.**
+
+## Phase 5 — Preserve and organize extracted meaning  ⬅ **CURRENT ACTION**
 
 **Outcome:** Understood meaning reaches a correct structured field or an attributed review lane without weakening canonical truth.
 
