@@ -26,21 +26,42 @@ failed before any meaningful interaction (blank `person_id`, zero-word
 replies), and its RED is a setup defect rather than a Phase 3 signal.
 This probe asserts the six properties that fix actually owes.
 
-── THE SIX ASSERTIONS ────────────────────────────────────────────────
+── WHAT IS ASSERTED ──────────────────────────────────────────────────
 
-  1. her exact statement is initially routed as `correction`
-  2. the server emits `[correction-fallthrough]` for this conversation
-  3. no correction mutation and no correction acknowledgement occur
-  4. a NONEMPTY ordinary Lori response is committed
-  5. the narrator turn and the assistant turn both persist
-  6. the completed-turn extraction/tracing hooks run normally
+Three preconditions, measured before anything live happens:
+
+  * her exact statement is routed as `correction` by the SHIPPED
+    `ui/js/app.js` regex, evaluated with node rather than retyped
+  * the server parser finds no actionable target/value, with a
+    non-vacuity control that a real correction still parses
+  * the database resolves to the server's own path and carries the
+    Hornelore schema
+
+Then the live turn:
+
+  * the server emits `[correction-fallthrough]` for this conversation
+  * no correction mutation and no correction acknowledgement occur —
+    neither a `correction_payload` frame nor a `correction-apply` line
+  * a NONEMPTY ordinary Lori response is committed
+  * the narrator turn and the assistant turn both persist
+  * no `correction` mode is persisted in turn meta (absence is how
+    ordinary turns are stored — only `_finalize_deterministic_turn`
+    stamps the mode)
+  * the turn ran the ordinary pipeline: a story candidate was preserved
+    AND bound to both turns, which a deterministic turn never does
+  * that candidate carries NO placement, per the standing rule that an
+    era nobody confirmed is not a placement
+  * the extraction/tracing hooks ran
 
 ── SAFETY ────────────────────────────────────────────────────────────
 
   * ONE synthetic narrator, created through the product endpoint with
     `testing_only=true`, named so no human could mistake it for family.
   * Its UUID is journalled to disk BEFORE any other request.
-  * It refuses to run a second time rather than creating a duplicate.
+  * A retry REUSES a journalled narrator that has zero turns rather than
+    creating a sibling; one that has turns is left alone because it
+    carries evidence. The run id is a timestamp, so a name-matching
+    duplicate guard would never fire on its own.
   * **No deletion path exists in this file.** Preserve the narrator for
     review; erasure is a separate, authorized, product-path operation.
   * No existing narrator is read, enrolled, paused or modified.
@@ -482,23 +503,70 @@ def main() -> int:
     # placement-eligible; a turn still stamped `correction` is
     # deterministic and ineligible by construction, which is precisely
     # the defect Phase 3 repaired.
+    # ── WHAT ABSENT `turn_mode` ACTUALLY PROVES, 2026-09-05 ──────────
+    #
+    # This was first worded "the committed turn is stamped interview",
+    # which the evidence does not support — `[None, None]` is not a
+    # stamp. It was then called VACUOUS, and that was an overcorrection:
+    # measured against the live database, `turn_mode` IS persisted, on 55
+    # turns, and **4 of them carry `correction`**. The assertion can fail
+    # and there is real data that would fail it.
+    #
+    # The precise fact is narrower and more useful than either reading:
+    # `_finalize_deterministic_turn` (`chat_ws.py:278`) is the ONLY
+    # writer of `turn_mode` into turn meta, and ordinary turns finalise
+    # at `:2251`/`:2262` with `meta={"ws": True}`. So the mode is stamped
+    # exactly on the deterministic routes — memory_echo, age_recall,
+    # witness, meta_question, correction, floor_buffer — and its ABSENCE
+    # is how an ordinary interview turn is stored.
+    #
+    # Hence: absence proves no correction mode was persisted, and given
+    # the writer above, that is the ordinary-pipeline representation. It
+    # is not a positive stamp, and this no longer claims to be one.
     modes = []
     for row in rows:
         try:
             modes.append((json.loads(row["meta_json"] or "{}") or {}).get("turn_mode"))
         except ValueError:
             modes.append("<unparseable meta_json>")
-    persisted_correction = [m for m in modes if m == "correction"]
-    check(rows and not persisted_correction,
-          "the committed turn is stamped interview, not correction",
-          f"persisted turn_mode values={modes}")
+    check(rows and not [m for m in modes if m == "correction"],
+          "no correction mode was persisted "
+          "(absence is how ordinary turns are stored)",
+          f"turn_mode in meta={modes}; only _finalize_deterministic_turn "
+          "stamps it")
+
+    # The POSITIVE half. A correction turn is finalised deterministically
+    # and is placement- and extraction-INELIGIBLE by construction, so it
+    # preserves and binds nothing. A candidate preserved AND bound to
+    # this conversation's turns is direct evidence the turn ran the
+    # ordinary pipeline — the property Phase 3 restored.
+    preserved = sql("SELECT id, review_status, placement_source, era_candidates "
+                    "FROM story_candidates WHERE conversation_id=?;", (CONV_ID,))
+    bound = any("[story-trigger][bind]" in ln for ln in lines)
+    check(bool(preserved) and bound,
+          "the turn ran the ordinary pipeline (story preserved AND bound)",
+          f"candidates={len(preserved)} bind_logged={bound}")
+
+    # Placement is deliberately absent: preservation writes no era, and an
+    # era nobody confirmed is not a placement. Asserted so a future change
+    # that starts auto-placing from the runtime era fails here.
+    if preserved:
+        row = preserved[0]
+        check(row["placement_source"] == "unknown"
+              and (row["era_candidates"] or "[]") in ("[]", ""),
+              "the preserved candidate carries NO placement",
+              f"placement_source={row['placement_source']!r} "
+              f"era_candidates={row['era_candidates']!r}")
 
     hooks = [ln for ln in lines
-             if "[extract]" in ln or "turnscope" in ln or "story" in ln.lower()]
+             if "[extract" in ln or "turnscope" in ln or "story-trigger" in ln]
+    skipped = [ln for ln in lines if "[extract-turn] skipped" in ln]
     check(True if hooks else None,
           "extraction/tracing hooks ran",
-          f"{len(hooks)} hook lines" if hooks
-          else "no hook lines for this conv — inspect .runtime/logs/api.log")
+          f"{len(hooks)} hook lines"
+          + ("; field extraction deferred to the client "
+             "(field_extraction_result=v1 not declared by this probe)"
+             if skipped else ""))
 
     failed = [r for r in _results if r["result"] == "FAIL"]
     unver = [r for r in _results if r["result"] == "UNVERIFIED"]
