@@ -141,6 +141,28 @@ class ExtractedItem(BaseModel):
     audio_source: Optional[str] = None
     needs_confirmation: Optional[bool] = None   # True when fragile-field + confirmation_required
     confirmation_reason: Optional[str] = None   # short tag: "low_confidence" | "fragile_field" | ...
+
+    # ── LEXICAL PROVENANCE (Phase 5B, 2026-09-05) ────────────────────
+    #
+    # The narrator's OWN relationship word, and what it was canonicalized
+    # to. Two fields, deliberately small: the committed turn already owns
+    # the full transcript, so duplicating it here would store the same
+    # sentence in two places and let them disagree.
+    #
+    #   "My daddy Walter..."   -> value stays Walter,
+    #                             source_phrase="daddy",
+    #                             normalized_from="daddy" on the relation
+    #   "My ex-wife Susan..."  -> relation value "wife",
+    #                             source_phrase="ex-wife"
+    #   "My father Walter..."  -> source_phrase="father",
+    #                             normalized_from=None
+    #
+    # `normalized_from` is set ONLY when the canonical value differs from
+    # what was said. Setting it on `father -> father` would advertise a
+    # transformation that never happened, and an operator reviewing
+    # provenance would go looking for a change that is not there.
+    source_phrase: Optional[str] = None
+    normalized_from: Optional[str] = None
     # WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 3 (2026-09-04) — ADDITIVE. Two guards
     # can doubt one item; the scalar above could only hold one of their
     # explanations and the second silently erased the first. This carries all
@@ -6159,6 +6181,23 @@ def _apply_claims_relation_allowlist(items: List[dict]) -> List[dict]:
                     normalized, _said.relation)
                 it = dict(it)
                 it["value"] = _said.relation
+                # RECORD THE PHRASE HERE, while we still know it.
+                #
+                # Downstream the value is just `wife`, and the later lane
+                # pass cannot tell Susan's `ex-wife` from Mary's `wife`
+                # by looking at it. Searching the answer for "wife" finds
+                # Mary's first. This is the last point at which the
+                # origin is unambiguous, so it is written down.
+                it["source_phrase"] = _said.source_phrase
+                it["normalized_from"] = _said.source_phrase
+                out.append(it)
+                continue
+            if _said is not None:
+                # Recognised and already canonical -- `wife`, `partner`.
+                # The phrase is still worth recording; the normalization
+                # marker is NOT, because nothing was transformed.
+                it = dict(it)
+                it["source_phrase"] = _said.source_phrase
                 out.append(it)
                 continue
 
@@ -7407,8 +7446,26 @@ def _group_repeatable_items(items: List[dict], answer: str = "") -> List[dict]:
 
         # Step 2: assign each non-name field to the nearest-preceding name
         for item in non_name_items:
-            val_lower = item["value"].lower()
-            val_pos = answer_lower.find(val_lower)
+            # ── WHAT TEXT LOCATES THIS ITEM (added 2026-09-05) ───────────
+            #
+            # The value is not always the words the narrator used. A
+            # relation item arrives CANONICALIZED — Susan's `ex-wife` is
+            # `wife` by the time regrouping sees it — so searching the
+            # answer for the value finds the current wife, or, with two
+            # former partners, the first of them.
+            #
+            # `_locate_value` lets the caller say what to search for
+            # instead. An EXPLICIT None says the value cannot be located
+            # honestly at all, which routes to the output-order fallback
+            # below — a stated fallback beats a confident wrong position.
+            #
+            # Callers that set neither key are unaffected: the `else`
+            # branch is the original line.
+            if "_locate_value" in item:
+                _loc = item["_locate_value"]
+                val_pos = answer_lower.find(str(_loc).lower()) if _loc else -1
+            else:
+                val_pos = answer_lower.find(item["value"].lower())
 
             if val_pos >= 0 and ordered_names:
                 # Find the name whose position is closest-before (or at) this value
@@ -9022,7 +9079,8 @@ def _normalize_relationship_lane(items, *, answer: str):
     grows destinations nobody designed.
     """
     from ..services.relationship_interpreter import (
-        lane_for, interpret_phrase, GROUP_SPOUSE, GROUP_PRIOR_PARTNERS)
+        lane_for, interpret_phrase, readings_in,
+        GROUP_SPOUSE, GROUP_PRIOR_PARTNERS)
 
     lanes = {GROUP_SPOUSE, GROUP_PRIOR_PARTNERS}
     moved = []
@@ -9061,7 +9119,34 @@ def _normalize_relationship_lane(items, *, answer: str):
                     pass
                 value = said.relation
 
-        reading = lane_for(answer, value) or interpret_phrase(value)
+        # ── WHICH READING DECIDES THIS ITEM'S LANE ───────────────────
+        #
+        # Corrected 2026-09-05. This was `lane_for(answer, value)`, and
+        # for a RELATION item the value has already been canonicalized
+        # to `wife` by the time it arrives. In
+        #
+        #     "My wife Mary is a nurse. My ex-wife Susan was a teacher."
+        #
+        # searching for `wife` finds MARY's occurrence first, so Susan's
+        # relation was handed the current-spouse lane. The name items
+        # were fine — `lane_for(answer, "Susan")` locates a person — but
+        # relation items lost their origin the moment they were
+        # canonicalized.
+        #
+        # So the phrase recorded during canonicalization is used when it
+        # exists, and located by SPAN rather than by searching for a word
+        # that occurs twice.
+        said_phrase = getattr(it, "source_phrase", None)
+        reading = None
+        if sub == "relation" and said_phrase:
+            for candidate in readings_in(answer):
+                if candidate.source_phrase.lower() == said_phrase.lower():
+                    reading = candidate
+                    break
+            if reading is None:
+                reading = interpret_phrase(said_phrase)
+        if reading is None:
+            reading = lane_for(answer, value) or interpret_phrase(value)
         if reading is None or reading.group not in lanes:
             continue
         if reading.group == head:
@@ -9090,7 +9175,15 @@ def _normalize_relationship_lane(items, *, answer: str):
             it.fieldPath = target
             spec = EXTRACTABLE_FIELDS.get(target) or {}
             if spec.get("repeatable"):
-                it.repeatableGroup = None   # regrouped after this pass
+                # Cleared here, RE-ASSIGNED by `_regroup_after_lane_change`.
+                #
+                # This line used to carry the comment "regrouped after
+                # this pass" and no regrouping occurred anywhere — the
+                # item reached the caller on a correct field path with
+                # no person association at all. A correct field path
+                # with broken person association is not a pass, so the
+                # caller now runs the regroup whenever anything moved.
+                it.repeatableGroup = None
             moved.append((fp, target, value, reading.source_phrase))
         except Exception:                   # pragma: no cover - defensive
             continue
@@ -9127,6 +9220,60 @@ def _normalize_relationship_lane(items, *, answer: str):
             "[extract][relationship-lane] %s value %r -> canonical %r",
             fp, was, now)
     return items, moved, review_entries
+
+
+def _regroup_after_lane_change(items, *, answer: str):
+    """Re-derive `repeatableGroup` after the lane pass moved items.
+
+    ── WHY THIS EXISTS, 2026-09-05 ──────────────────────────────────
+
+    Grouping runs ONCE, before the lane pass, and it groups by field
+    path. Everything the model proposed as `family.spouse.*` is
+    non-repeatable at that moment, so it is grouped not at all. The lane
+    pass then moves some of it to `family.priorPartners.*`, which IS
+    repeatable — and nothing regrouped it. Items arrived on a correct
+    field path with `repeatableGroup=None`, so with two former partners
+    on record there was no way to tell which surname belonged to which.
+
+    **A correct field path with broken person association is not a pass.**
+
+    ── THE POSITION PROBLEM THIS ALSO SOLVES ────────────────────────
+
+    `_group_repeatable_items` locates a non-name value by searching the
+    answer for it. A relation value has been canonicalized by the time
+    it gets here — Susan's `ex-wife` is `wife` — and two former wives
+    both read `wife`. Searching for it is a confident wrong answer.
+
+    So relation items whose value was canonicalized are handed an
+    explicit `_locate_value=None`, which routes them to the grouper's
+    output-order fallback: the last name emitted before them. That is a
+    weaker claim, and it is the honest one.
+
+    Only the grouping is taken from this pass — the items themselves are
+    mutated in place, so every earlier stage's work survives.
+    """
+    dumped = []
+    for idx, it in enumerate(items):
+        d = it.model_dump()
+        d["_lane_idx"] = idx
+        fp = d.get("fieldPath") or ""
+        if fp.endswith(".relation") and d.get("normalized_from"):
+            d["_locate_value"] = None
+        dumped.append(d)
+    try:
+        regrouped = _group_repeatable_items(dumped, answer=answer)
+    except Exception as exc:               # pragma: no cover - defensive
+        logger.warning("[extract][relationship-lane] regroup skipped: %s", exc)
+        return items
+    by_idx = {d["_lane_idx"]: d.get("_repeatableGroup") for d in regrouped
+              if "_lane_idx" in d}
+    for idx, it in enumerate(items):
+        if idx in by_idx:
+            it.repeatableGroup = by_idx[idx]
+    logger.info("[extract][relationship-lane] regrouped %d items: %s",
+                len(items),
+                [(i.fieldPath, i.repeatableGroup) for i in items])
+    return items
 
 
 def _apply_kinship_binding_guard(items, req, *, answer: str, clarifications=None):
@@ -9518,6 +9665,12 @@ def _finalize_extracted_items(items, req, *, answer: str, path: str):
     # and then move a value that had already been removed.
     final_items, _lane_moves, _lane_review = _normalize_relationship_lane(
         final_items, answer=answer)
+    if _lane_moves:
+        # Person association has to be re-derived after a move: the
+        # destination lane may be repeatable when the proposed one was
+        # not. Only runs when something actually moved, so the ordinary
+        # path is byte-identical.
+        final_items = _regroup_after_lane_change(final_items, answer=answer)
     if _lane_review:
         clarifications = list(clarifications or []) + _lane_review
 
@@ -9961,6 +10114,18 @@ def run_field_extraction(
                     confidence=item["confidence"],
                     source="backend_extract",
                     extractionMethod=_item_method,
+                    # ── LEXICAL PROVENANCE CROSSES THIS BOUNDARY ─────
+                    #
+                    # This constructor names its kwargs explicitly, so a
+                    # key added to the dict upstream is DROPPED here in
+                    # silence. `_apply_claims_relation_allowlist` records
+                    # the narrator's phrase when it canonicalizes
+                    # `ex-wife` -> `wife`; without these two lines that
+                    # record died one call before the lane pass that
+                    # needs it, and the pass fell back to searching the
+                    # answer for `wife` — which finds the CURRENT wife.
+                    source_phrase=item.get("source_phrase"),
+                    normalized_from=item.get("normalized_from"),
                 ))
             except Exception as _ei_err:
                 # Belt-and-suspenders: any other Pydantic surprise → log + skip

@@ -66,6 +66,23 @@ GROUP_GREAT_GRANDPARENTS = "greatGrandparents"
 
 STATE_CURRENT = "current"
 STATE_FORMER = "former"
+#: A marriage ended by DEATH, not by divorce.
+#:
+#: ── WHY A THIRD STATE AND NOT ONE OF THE OTHER TWO, 2026-09-05 ──────
+#:
+#: `late wife` was first written as `former`, which tells the family the
+#: marriage was dissolved. It was then removed from the table entirely,
+#: which was better and still not right: with no entry, `late wife`
+#: matched the bare `wife` pattern, so the reading came back
+#: `state="current"` with `source_phrase="wife"` — the system asserting
+#: an ongoing marriage to a woman the narrator just told it had died, and
+#: **the word `late` discarded without a trace.**
+#:
+#: Neither existing state is true, so neither is used. The lane is the
+#: CURRENT one — a widower's wife is not a prior partner — and the state
+#: carries the death. No date, no cause, and no numeric fact is invented
+#: from the word; it records only what was said.
+STATE_DECEASED = "deceased"
 
 #: Canonical relations for the spouse/prior-partner lanes. `ex-wife` is
 #: NOT here on purpose — it is a phrase, not a relation.
@@ -80,6 +97,19 @@ class RelationshipReading:
     state: str = ""
     qualifier: str = ""
     source_phrase: str = ""
+    #: Where the phrase actually sat in the answer.
+    #:
+    #: ── WHY A SPAN AND NOT A LATER `find()`, 2026-09-05 ──────────
+    #:
+    #: `lane_for` used to locate a reading by searching the text for
+    #: `source_phrase`. In "My wife Mary is a nurse. My ex-wife Susan
+    #: was a teacher." the word `wife` occurs TWICE — once alone and
+    #: once inside `ex-wife` — so the search collapsed both readings
+    #: onto the first occurrence and handed Susan's relationship to
+    #: Mary. `finditer` already knew the true offsets; dropping them
+    #: and rediscovering them by string search was the defect.
+    start: int = -1
+    end: int = -1
 
     @property
     def normalized(self) -> bool:
@@ -92,11 +122,13 @@ class RelationshipReading:
         return self.source_phrase.strip().lower() != self.relation.lower()
 
 
-# ── `late wife` IS NOT IN THIS TABLE, AND THAT IS THE POINT ──────────
+# ── `late wife` IS NOT A FORMER WIFE, AND IT IS NOT A CURRENT ONE ────
 #
-# REMOVED 2026-09-05, after review. The first draft grouped
-# `late wife|late husband` with `former|previous|first`, which reads as a
-# tidy alternation and is a semantic collapse:
+# Two corrections, in this order.
+#
+# FIRST, 2026-09-05: the original draft grouped `late wife|late husband`
+# with `former|previous|first`, which reads as a tidy alternation and is
+# a semantic collapse:
 #
 #   "my ex-wife Susan"    — a marriage that ENDED, and she is living
 #   "my late wife Susan"  — a marriage that did NOT end that way, and
@@ -105,13 +137,21 @@ class RelationshipReading:
 # Filing a widower's wife under `priorPartners` — and, downstream,
 # `former_marriage` — tells the family the marriage was dissolved. For a
 # memoir that is not a mislabelled row; it is the system contradicting
-# the narrator about the most significant relationship of their life.
+# the narrator about the most significant relationship of their life. So
+# the alias was removed.
 #
-# `ex`, `former` and `previous` were MEASURED against the shipped path.
-# `late` was not: it was added by pattern-matching on the shape of the
-# other words. It stays out until its destination is designed
-# deliberately — most likely canonical relation `wife` on the CURRENT
-# lane with a death/status marker, not a former-partner lane.
+# SECOND, same day, after review: removal was not neutral. With no entry
+# of its own, `late wife` matched the bare `wife` pattern one line down,
+# and the reading came back `state="current"`, `source_phrase="wife"`.
+# **The word `late` was discarded** — measured, not assumed — and the
+# test pinning the removal asserted `state == "current"`, which made the
+# system's claim of an ongoing marriage look like the intended answer.
+#
+# The entries below say what the narrator said and nothing more: the
+# CURRENT lane, canonical relation `wife`, `STATE_DECEASED`, and the
+# whole phrase `late wife` kept in provenance. What the memoir DOES with
+# a deceased spouse — a death date, a widowhood period, how the Family
+# Tree draws it — is not decided here and is not inferred from the word.
 #
 # Pinned by `LateSpouseIsNotAFormerSpouse` in
 # `tests/test_spouse_state_characterization.py`.
@@ -127,7 +167,16 @@ _TABLE: Tuple[Tuple[str, str, str, str, str], ...] = (
     (r"ex[-\s]?husband", GROUP_PRIOR_PARTNERS, "husband", STATE_FORMER, ""),
     (r"ex[-\s]?spouse", GROUP_PRIOR_PARTNERS, "spouse", STATE_FORMER, ""),
     (r"ex[-\s]?partner", GROUP_PRIOR_PARTNERS, "partner", STATE_FORMER, ""),
-    # `late` is DELIBERATELY ABSENT here. See the note below.
+    # ── a spouse who DIED: current lane, deceased state ──────────────
+    #
+    # These sit in the former block only because ORDER matters — they
+    # must be tried before the bare `wife` / `husband` patterns below,
+    # or `late` is eaten. Their GROUP is the current spouse lane.
+    (r"late\s+wife", GROUP_SPOUSE, "wife", STATE_DECEASED, ""),
+    (r"late\s+husband", GROUP_SPOUSE, "husband", STATE_DECEASED, ""),
+    (r"late\s+spouse", GROUP_SPOUSE, "spouse", STATE_DECEASED, ""),
+    (r"late\s+partner", GROUP_SPOUSE, "partner", STATE_DECEASED, ""),
+
     (r"(?:former|previous|first)\s+wife",
      GROUP_PRIOR_PARTNERS, "wife", STATE_FORMER, ""),
     (r"(?:former|previous|first)\s+husband",
@@ -222,7 +271,7 @@ def interpret_phrase(phrase: str) -> Optional[RelationshipReading]:
         if m:
             return RelationshipReading(
                 group=grp, relation=rel, state=st, qualifier=qual,
-                source_phrase=m.group(0))
+                source_phrase=m.group(0), start=m.start(), end=m.end())
     return None
 
 
@@ -248,7 +297,8 @@ def readings_in(text: str) -> List[RelationshipReading]:
             continue
         claimed.append((start, end))
         out.append(RelationshipReading(group=grp, relation=rel, state=st,
-                                       qualifier=qual, source_phrase=phrase))
+                                       qualifier=qual, source_phrase=phrase,
+                                       start=start, end=end))
     return out
 
 
@@ -269,10 +319,10 @@ def group_pattern(group: str):
 def lane_for(text: str, name: Optional[str] = None) -> Optional[RelationshipReading]:
     """The lane the narrator's wording makes legal for `name`.
 
-    When a name is given, the reading NEAREST that name wins — a passage
-    saying "My wife Mary is a nurse. My ex-wife Susan was a teacher."
-    must give Mary the current lane and Susan the former one, and a
-    whole-answer reading cannot do that.
+    The reading NEAREST that name wins, measured from the span each
+    reading carries — never by searching the text again for its phrase.
+    A passage naming both a wife and an ex-wife contains `wife` twice,
+    and a search finds the wrong one every time.
     """
     found = readings_in(text)
     if not found:
@@ -284,20 +334,31 @@ def lane_for(text: str, name: Optional[str] = None) -> Optional[RelationshipRead
         return found[0]
     best, best_dist = None, None
     for reading in found:
-        pos = text.lower().find(reading.source_phrase.lower())
-        if pos < 0:
+        if reading.start < 0:               # pragma: no cover - defensive
             continue
-        dist = abs(idx - pos)
-        # A relationship stated BEFORE the name is the ordinary form
-        # ("my ex-wife Susan"), so ties break toward the earlier phrase.
+        dist = abs(idx - reading.start)
         if best_dist is None or dist < best_dist:
             best, best_dist = reading, dist
     return best or found[0]
 
 
+def reading_at(text: str, span: Tuple[int, int]):
+    """The reading whose phrase occupies exactly this span, if any.
+
+    Lets a caller that already knows WHERE a relationship phrase sat ask
+    about it again after the value has been canonicalized — by then the
+    value is `wife` and searching for it would find the wrong one.
+    """
+    for reading in readings_in(text):
+        if (reading.start, reading.end) == span:
+            return reading
+    return None
+
+
 __all__ = [
     "RelationshipReading", "interpret_phrase", "readings_in", "group_pattern",
-    "lane_for", "SPOUSE_RELATIONS", "STATE_CURRENT", "STATE_FORMER",
+    "lane_for", "reading_at", "SPOUSE_RELATIONS",
+    "STATE_CURRENT", "STATE_FORMER", "STATE_DECEASED",
     "GROUP_PARENTS", "GROUP_SPOUSE", "GROUP_PRIOR_PARTNERS", "GROUP_CHILDREN",
     "GROUP_SIBLINGS", "GROUP_GRANDPARENTS", "GROUP_GREAT_GRANDPARENTS",
 ]

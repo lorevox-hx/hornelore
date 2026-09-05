@@ -62,6 +62,58 @@
 
   var FT_VIEW_MODES = ["cards", "graph", "scaffold"];
 
+  /* ─── WHICH EDGE A SPOUSE-LANE RELATIONSHIP DRAWS ───────────────────
+     WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 5B item 7, 2026-09-05.
+
+     Both seeding paths used to hardcode `relType = "marriage"` for
+     every spouse-ish word, so the tree drew a marriage for:
+
+       * `partner`   — the narrator may have said in the same breath
+                       that they never married;
+       * `ex-wife`   — a marriage that ENDED, drawn as a current one;
+       * `late wife` — correct as a marriage, but only by accident.
+
+     `partnership` and `former_marriage` were already in FT_REL_TYPES.
+     Nothing chose them.
+
+     THE THREE DISTINCTIONS, and they are three, not two:
+
+       ended by divorce → former_marriage
+       ended by death   → marriage  (the node carries `deceased`;
+                                     a widow's marriage was not
+                                     dissolved, and drawing it as
+                                     `former_marriage` tells the family
+                                     it was)
+       never a marriage → partnership
+
+     A FORMER unmarried partner has no destination in FT_REL_TYPES:
+     `partnership` would claim it is current and `former_marriage`
+     would invent a wedding. It draws `other`, and the edge LABEL keeps
+     the narrator's own wording either way — see the `_ftMakeEdge` calls,
+     which pass the raw relation as the label. Adding a
+     `former_partnership` type is a schema decision, not a mapping one.
+
+     Reads only its argument, returns a string: kept pure so
+     `tests/test_family_tree_spouse_edge_types.js` can slice it straight
+     out of this file and drive it, rather than asserting on source text. */
+  function _ftSpouseEdgeType(rel) {
+    var r = String(rel || "").toLowerCase();
+    // `priorPartners` is the SCHEMA LANE name and it contains the word
+    // `partner`. Strip the lane token before asking whether the
+    // RELATION is a partner, or every former SPOUSE arriving on that
+    // lane reads as an unmarried partner.
+    var priorLane = /prior[\s_-]?partners?/.test(r);
+    r = r.replace(/prior[\s_-]?partners?/g, " ");
+    var isPartner = r.indexOf("partner") >= 0;
+    var isFormer = priorLane || /\bex[-\s]?|\bformer\b|\bprevious\b/.test(r);
+    // Widowhood is not divorce. Checked FIRST because `late wife` also
+    // needs to beat any former-ish wording elsewhere in the string.
+    if (/\blate\b/.test(r)) return "marriage";
+    if (isFormer) return isPartner ? "other" : "former_marriage";
+    if (isPartner) return "partnership";
+    return "marriage";
+  }
+
   // v6: Era-role relevance map — which roles are most relevant to which eras.
   // WO-CANONICAL-LIFE-SPINE-01 Step 3d: keys migrated to canonical era_ids;
   // today bucket added (forward-looking present-life: parents/siblings
@@ -690,7 +742,7 @@
       var rel = (item.relation || "").toLowerCase();
       if (rel.indexOf("mother") >= 0 || rel.indexOf("father") >= 0 || rel.indexOf("parent") >= 0) { role = "parent"; }
       else if (rel.indexOf("sister") >= 0 || rel.indexOf("brother") >= 0 || rel.indexOf("sibling") >= 0) { role = "sibling"; }
-      else if (rel.indexOf("spouse") >= 0 || rel.indexOf("wife") >= 0 || rel.indexOf("husband") >= 0 || rel.indexOf("partner") >= 0) { role = "spouse"; relType = "marriage"; }
+      else if (rel.indexOf("spouse") >= 0 || rel.indexOf("wife") >= 0 || rel.indexOf("husband") >= 0 || rel.indexOf("partner") >= 0) { role = "spouse"; relType = _ftSpouseEdgeType(rel); }
       else if (rel.indexOf("child") >= 0 || rel.indexOf("son") >= 0 || rel.indexOf("daughter") >= 0) { role = "child"; }
       else if (rel.indexOf("grandparent") >= 0 || rel.indexOf("grandmother") >= 0 || rel.indexOf("grandfather") >= 0) { role = "grandparent"; }
       else if (rel.indexOf("grandchild") >= 0 || rel.indexOf("grandson") >= 0 || rel.indexOf("granddaughter") >= 0) { role = "grandchild"; }
@@ -778,7 +830,11 @@
       var rel = (d.relation || c.relation || "").toLowerCase();
       if (rel.indexOf("mother") >= 0 || rel.indexOf("father") >= 0 || rel.indexOf("parent") >= 0) role = "parent";
       else if (rel.indexOf("sister") >= 0 || rel.indexOf("brother") >= 0 || rel.indexOf("sibling") >= 0) role = "sibling";
-      else if (rel.indexOf("spouse") >= 0 || rel.indexOf("wife") >= 0 || rel.indexOf("husband") >= 0) { role = "spouse"; relType = "marriage"; }
+      // `partner` added here 2026-09-05: this path recognised `wife`,
+      // `husband` and `spouse` but not `partner`, so a partner candidate
+      // was seeded with role `other` and a `biological` edge — the
+      // narrator's partner drawn as a blood relative.
+      else if (rel.indexOf("spouse") >= 0 || rel.indexOf("wife") >= 0 || rel.indexOf("husband") >= 0 || rel.indexOf("partner") >= 0) { role = "spouse"; relType = _ftSpouseEdgeType(rel); }
       else if (rel.indexOf("child") >= 0 || rel.indexOf("son") >= 0 || rel.indexOf("daughter") >= 0) role = "child";
       else if (rel.indexOf("grandparent") >= 0) role = "grandparent";
 
