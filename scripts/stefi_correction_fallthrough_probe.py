@@ -64,7 +64,49 @@ from typing import Any, Dict, List, Optional
 REPO_ROOT = Path(__file__).resolve().parent.parent
 API = os.environ.get("HORNELORE_API", "http://localhost:8000")
 WS_URL = API.replace("http://", "ws://").replace("https://", "wss://") + "/api/chat/ws"
-DB_PATH = Path(os.environ.get("HORNELORE_DB_PATH", str(REPO_ROOT / ".runtime" / "hornelore.db")))
+def _resolve_db_path() -> Path:
+    """Resolve the database EXACTLY as the server does.
+
+    ── WHY THIS IS NOT A CONSTANT, 2026-09-04 ────────────────────────
+
+    The first version guessed `.runtime/hornelore.db`, which does not
+    exist. That is worse than a wrong path: **SQLite CREATES a database
+    on open**, so the guess produced an empty file and a manual query
+    against it reported `no such table: people` — a missing-table error
+    for a database that had just been conjured, which reads like data
+    loss and is nothing of the kind.
+
+    `server/code/api/db.py:58-63` builds the path as
+    `DATA_DIR / "db" / DB_NAME`, both from the environment, both supplied
+    by `.env`. This reads the same two keys and applies the same rule, so
+    the probe and the server cannot disagree about which database is
+    real. `db.py` is deliberately NOT imported: importing it runs
+    `DB_DIR.mkdir(parents=True, exist_ok=True)` at module scope, and a
+    read-only probe must not create directories.
+
+    `HORNELORE_DB` still overrides, matching `step6_ws_probe.py`.
+    """
+    override = os.environ.get("HORNELORE_DB")
+    if override:
+        return Path(override).expanduser()
+
+    env: Dict[str, str] = {}
+    dotenv = REPO_ROOT / ".env"
+    if dotenv.is_file():
+        for line in dotenv.read_text(encoding="utf-8", errors="replace").splitlines():
+            m = re.match(r"\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$", line)
+            # Only these two keys are read. `.env` holds credentials, and
+            # a probe has no business parsing the rest of it.
+            if m and m.group(1) in ("DATA_DIR", "DB_NAME"):
+                env[m.group(1)] = m.group(2).strip().strip('"').strip("'")
+
+    data_dir = Path(env.get("DATA_DIR") or os.getenv("DATA_DIR", "data")).expanduser()
+    db_name = (env.get("DB_NAME") or os.getenv("DB_NAME", "lorevox.sqlite3")).strip() \
+        or "lorevox.sqlite3"
+    return data_dir / "db" / db_name
+
+
+DB_PATH = _resolve_db_path()
 API_LOG = REPO_ROOT / ".runtime" / "logs" / "api.log"
 APP_JS = REPO_ROOT / "ui" / "js" / "app.js"
 HARNESS = REPO_ROOT / "scripts" / "run_regional_crypto_jewish_new_mexico_harness.py"
@@ -280,9 +322,28 @@ def main() -> int:
     browser_routes_as_correction(text)
     server_parser_finds_nothing(text)
 
+    # The database must be the REAL one, and it must already have the
+    # schema. Both halves matter: SQLite creates a file on open, so
+    # "exists" alone is satisfied by an empty database this probe just
+    # made. `people` is the table every later assertion depends on.
     if not DB_PATH.exists():
-        check(False, "database is readable", str(DB_PATH))
+        check(False, "database exists at the server-resolved path", str(DB_PATH))
+        print("\n  Resolved from .env as DATA_DIR/db/DB_NAME, the same rule as "
+              "server/code/api/db.py:58-63.\n  Set HORNELORE_DB to override.")
         return 1
+    try:
+        tables = sql("SELECT name FROM sqlite_master WHERE type='table' "
+                     "AND name='people';")
+    except sqlite3.Error as exc:
+        check(False, "database is readable", f"{DB_PATH}: {exc}")
+        return 1
+    if not tables:
+        check(False, "database has the `people` table",
+              f"{DB_PATH} opened but is not the Hornelore schema — an empty "
+              "file SQLite created on open is the usual cause")
+        return 1
+    check(True, "database resolved and carries the Hornelore schema",
+          str(DB_PATH))
 
     print("\n── live turn ──")
     person_id = create_narrator()
