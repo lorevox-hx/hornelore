@@ -1024,16 +1024,16 @@ make, so it is treated as an existing exclusion under §4.2, the existing log li
 record, and a test pins the silence so it reads as a decision rather than an oversight.
 **Opening the vocabulary is Chris's call, not an implementation detail.**
 
-## Phase 5 — Preserve and organize extracted meaning  ⬅ **CURRENT ACTION**
+## Phase 5 — Preserve and organize extracted meaning  ✅ **5A + 5B COMPLETE 2026-09-05 — see the closeout below; 5C is current**
 
 **Outcome:** Understood meaning reaches a correct structured field or an attributed review lane without weakening canonical truth.
 
-- [ ] Normalize `daddy → father` while retaining `daddy` in provenance.
-- [ ] Normalize `mama → mother` while retaining `mama`.
-- [ ] Support ex-spouse status without losing `ex-spouse`.
-- [ ] Normalize `adult child → child` while retaining `adult`.
-- [ ] Preserve older/younger sibling qualifiers.
-- [ ] Do not add `partner`; verify its existing path instead.
+- [x] Normalize `daddy → father` while retaining `daddy` in provenance. *(5B — `daddy` was quarantined `relationship_unstated` while `mama` bound; the guard's vocabulary now derives from the interpreter.)*
+- [x] Normalize `mama → mother` while retaining `mama`.
+- [x] Support ex-spouse status without losing `ex-spouse`. *(5B — relation `wife`, lane `family.priorPartners`, phrase in provenance.)*
+- [ ] Normalize `adult child → child` while retaining `adult`. **HALF: the reading is correct and the qualifier reaches no field.** The normalization and the binding are done and measured (`tests/test_kinship_qualifier_binding.py`); the retention has no destination, which is 5C.
+- [ ] Preserve older/younger sibling qualifiers. **Same half.** Read correctly, carried nowhere. `siblings.birthOrder` exists and `older` is not a birth order — deciding that is 5C, not a mapping to make quietly.
+- [x] Do not add `partner`; verify its existing path instead. *(5B — verified, and the verification FAILED: `partner` was quarantined at the binding decision while the schema, the relation field, the role mapper and the QA bank all supported it. All of that sits upstream of the decision. Now binds, and manufactures no marriage.)*
 - [ ] Confident source-bound fact → structured field.
 - [ ] Meaningful unmapped fact → attributed fact candidate.
 - [ ] Weak relationship binding → review candidate.
@@ -1045,6 +1045,99 @@ record, and a test pins the silence so it reads as a decision rather than an ove
 Do not disable `HORNELORE_CLAIMS_VALIDATORS` as a product fix. That switch gates multiple safeguards while leaving the parse-time whitelist active; it is not a clean return to earlier extraction behavior.
 
 **Exit gate:** Every extracted proposal has a correct field, attributed candidate or defensible rejection; no valid information is forced into a false schema field.
+
+## ✅ PHASE 5B COMPLETE — the narrator's wording decides the lane (2026-09-05)
+
+**Phase 5A** bound bio-fact provenance to the committed-turn `_Claim`. **Phase 5B**
+made relationship meaning survive the trip from what the narrator said to where the
+value is stored. Both are done; **Phase 5C is the current action** and is scoped
+below.
+
+### What Phase 5B changed
+
+| | Before | Now |
+|---|---|---|
+| the vocabulary | duplicated per call site — `mama` bound, `daddy` did not | one table, `server/code/api/services/relationship_interpreter.py`; the guard's per-role patterns are DERIVED from it |
+| `ex-wife` | bound to the CURRENT spouse field, unquarantined | relation `wife`, lane `family.priorPartners`, phrase `ex-wife` in provenance |
+| the crossed passage | survived untouched — Mary filed as prior partner, Susan as current spouse | corrected; the narrator's wording outranks the model's proposal |
+| `partner` | quarantined `relationship_unstated` | binds, and manufactures no marriage |
+| `late wife` | first grouped with `former`, then removed — and then read as `wife`, `current`, with the word `late` discarded | current lane, canonical `wife`, `STATE_DECEASED`, phrase `late wife` kept |
+| an ex-wife's occupation | landed as the CURRENT spouse's occupation | review, `relationship_state_has_no_destination` + `would_need` |
+| person association after a move | `repeatableGroup = None` with a comment claiming a regroup that did not exist | re-derived by `_regroup_after_lane_change` |
+| Family Tree edges | every spouse-ish word drew `marriage` | `partnership` / `former_marriage` / `marriage`, and widowhood is not divorce |
+
+### The four defects found at the production boundary
+
+Each was invisible to a helper-level test and visible only through
+`run_field_extraction`:
+
+1. **`getattr(req, "conv_id")` / `getattr(req, "turn_id")`** — neither is a field on
+   `ExtractFieldsRequest`. Production wrote null provenance while the real
+   `session_id` sat unused. *(Phase 5A; doctrine instance 9, the first found in the
+   wild rather than in review.)*
+2. **`ExtractedItem(...)` names its kwargs explicitly**, so the recorded narrator
+   phrase was dropped one call before the pass that needed it — silently, with no
+   error anywhere.
+3. **The lane was chosen by the CANONICALIZED value.** By then a relation item reads
+   `wife`, and the mixed passage contains `wife` twice, Mary's first — so the pass
+   that exists to separate the two women handed Susan's relationship to Mary.
+4. **Grouping runs once, BEFORE the lane pass.** Items moved to a repeatable lane
+   were never regrouped, so two former partners had no person association at all.
+
+### Evidence
+
+- **`.venv` is the authoritative interpreter and Chris runs it.** Every number below
+  is from the agent sandbox under bare `python3`, which is evidence, not acceptance.
+- `tests.test_spouse_state_characterization` + `tests.test_kinship_qualifier_binding`
+  — **74 tests, 0 skips.**
+- With the Phase 4/5A suites and the gate classifier — **156 tests, 0 skips.**
+- **Mutation gate `L1`–`L9`: 9/9 caught behaviourally, 7 of them designs this lane
+  actually carried.** Checked in to `scripts/run_mutation_gate.py`, reproducible.
+- `node tests/test_family_tree_spouse_edge_types.js` — 26 checks, 2 call sites wired.
+- Regression scope: 19 extraction-adjacent modules, **600 tests, failure set
+  byte-identical to the same modules at `HEAD` product code.** Those pre-existing
+  reds are the sandbox `python3` stub-ordering artifact CLAUDE.md warns about, not
+  this change.
+
+### What Phase 5B does NOT claim
+
+- **No live turn was run.** Every measurement is offline against the shipped path.
+- The r5h/r5j/r5k extraction banks were **not** re-run; scores across those scorer
+  versions are still not comparable (BACKLOG §6a).
+- `STATE_DECEASED` is **read and recorded, not consumed**. Nothing downstream yet
+  changes behaviour on it, and no death date, period or cause is inferred from the
+  word `late`.
+- The `adult` / `older` / `younger` qualifiers are read and **not carried onto any
+  item**. `siblings.birthOrder` exists and `older` is not a birth order; inventing
+  one would manufacture a fact. That is a 5C question, pinned as a measurement in
+  `TheQualifierIsReadButNotCarried`.
+
+## Phase 5C — Meaning with no schema destination  ⬅ **CURRENT ACTION**
+
+**Outcome:** every reading the interpreter produces reaches a field, a review
+entry, or a recorded refusal — and never the wrong field.
+
+Phase 5B established the disposition on one case and hard-coded it there. 5C
+generalizes it. The shape is already visible in three places:
+
+- an ex-wife's `occupation` — meaning with no destination → review, naming
+  `would_need`;
+- `STATE_DECEASED` — a state with no consumer;
+- `adult` / `older` / `younger` — a qualifier with no field.
+
+- [ ] One disposition path for "understood, no destination", not one per case.
+- [ ] The review entry always names the missing destination (`would_need`), so the
+      schema gap is legible without reading the code.
+- [ ] Decide the qualifier destinations deliberately, or record the refusal —
+      `birthOrder` is not the answer for `older`.
+- [ ] Decide what, if anything, consumes `STATE_DECEASED` (Family Tree already
+      distinguishes it from divorce; nothing else does).
+- [ ] No silent drop: a reading that reaches neither a field nor review must fail a
+      test, not disappear.
+
+**Exit gate:** for every supported reading, a test names its destination — field,
+review, or an explicit recorded refusal — and a mutation removing that destination
+is caught.
 
 ## Phase 6 — Restore Lori’s conversational quality
 

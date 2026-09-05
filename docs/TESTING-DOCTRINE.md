@@ -30,9 +30,31 @@ creates or consumes the value.*
 | 7 | "token matching, not substring" | a fixture with no cue present | both behaviours quarantined it — no discrimination |
 | 8 | "preservation accounting works" | `truthZones: {"must_extract": [...]}` | no bank uses that shape; 114 real cases returned empty |
 | 9 | "the router records session and turn provenance" | `session_id="s1"`, `turn_id="t1"` passed straight into the router | `extract.py:9748` reads `req.conv_id` / `req.turn_id`, **neither of which is a field on `ExtractFieldsRequest`** — production sends `None` for both, while the real `session_id` field goes unused |
+| 10 | "`ex-wife` is canonicalized to relation `wife`" | called `interpret_phrase()` directly and asserted on its return | no `*.relation` item was ever sent through `run_field_extraction`. Production moved the item to the right lane carrying the narrator's phrase `ex-wife` **as the stored relation value** — the exact collapse the phase existed to prevent |
+| 11 | "the lexical provenance is recorded" | asserted on the dict the canonicalizer returns | `ExtractedItem(...)` on the LLM path **names its kwargs explicitly**, so the recorded phrase was dropped one call later. No error, no warning; the field simply arrived `None` |
 
-Every one of these shipped green. Mutation testing caught 5, 6 and 7; external
-review caught 1, 2, 3, 4 and 8. **Nothing in the test suite itself objected.**
+Every one of these shipped green. Mutation testing caught 5, 6, 7 and 11;
+external review caught 1, 2, 3, 4, 8 and 10. **Nothing in the test suite itself
+objected.**
+
+**Instances 10 and 11 are the same seam twice** — a value produced correctly and
+then lost between the producer and the consumer — and they are the reason the
+rule below about mutations exists in the form it does. Number 11 was found only
+because a mutation was written for the constructor line; grepping for the field
+name would have found it present and concluded it worked.
+
+## And a mutation that catches nothing is a missing test
+
+Recorded 2026-09-05. Mutation `L9` restores the defect where a reading is
+located by searching the answer again instead of using the offsets it already
+carries — and **the whole suite stayed green.** Every passage in it mentioned
+each phrase once, where a search and a span agree, so nothing discriminated.
+
+A `MISSED` verdict is not a note that the mutation was unimportant. It is the
+gate saying *no test in this suite can tell these two products apart*, which is
+the same statement as "this behaviour is untested". The fix is the discriminating
+case — for `L9`, a passage saying `wife` three times, where the last reading
+reports the first one's position — not the removal of the mutation.
 
 ## What follows from it
 

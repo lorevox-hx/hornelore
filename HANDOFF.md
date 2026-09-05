@@ -10,11 +10,14 @@ rule back. The claim that matters is the one about obligations.)*
 
 ---
 
-> # ▶ CURRENT ACTION — `WO-LORI-ARCHIVE-TO-MEMOIR-02` PHASE 5. PHASES 0–4 ARE CLOSED.
+> # ▶ CURRENT ACTION — `WO-LORI-ARCHIVE-TO-MEMOIR-02` PHASE 5C. PHASES 0–4 AND 5A/5B ARE CLOSED.
 >
 > | | |
 > |---|---|
-> | **Current action** | **Phase 5 — preserve and organize extracted meaning.** Every extracted proposal must reach a correct structured field, an attributed candidate, or a defensible rejection. **Kinship normalization is a REQUIREMENT here, not an existing behaviour** — measured 2026-09-05: `daddy` appears nowhere in the extraction path, `ExtractedItem` carries no `source_phrase` or normalization field, and `mama` is only partly supported (rules + cue list, no normalization contract). **Do not disable `HORNELORE_CLAIMS_VALIDATORS` as a product fix** — it gates several safeguards while leaving the parse-time whitelist active |
+> | **Current action** | **Phase 5C — meaning with no schema destination.** 5B established the disposition on one case (`relationship_state_has_no_destination` + `would_need`) and hard-coded it there. 5C generalizes it, and decides the two open destinations it exposed: the `adult`/`older`/`younger` qualifiers, which are read correctly and carried nowhere, and `STATE_DECEASED`, which is recorded and consumed by nothing outside the Family Tree edge. **`siblings.birthOrder` is not the answer for `older`** — mapping it would manufacture a fact. **Do not disable `HORNELORE_CLAIMS_VALIDATORS` as a product fix** — it gates several safeguards while leaving the parse-time whitelist active |
+> | **Phase 5A + 5B** | ✅ **COMPLETE 2026-09-05, awaiting review.** 5A bound bio-fact provenance to the committed-turn `_Claim`. 5B built `relationship_interpreter.py` — one vocabulary, derived rather than duplicated — added `family.priorPartners.relation`, and made **the narrator's wording decide the lane**: the deliberately crossed passage is corrected, `ex-wife` stores relation `wife` with the phrase in provenance, `partner` binds without manufacturing a marriage, `late wife` keeps the word `late` under a third state `deceased`, an ex-wife's occupation goes to review rather than to the current spouse, person association is re-derived after a lane change, and the Family Tree draws `partnership` / `former_marriage` / `marriage` instead of `marriage` for everything. **74 tests in the two lane suites (0 skips); 156 with the Phase 4/5A suites; mutation gate `L1`–`L9` 9/9 caught, 7 of them designs this lane actually carried.** Sandbox `python3` only — `.venv` is Chris's run |
+> | **Phase 5B — the four boundary defects** | All four were invisible to helper-level tests: (1) `getattr(req, "conv_id")` — not a field on the request, so production wrote null provenance while `session_id` sat unused; (2) `ExtractedItem(...)` names its kwargs, so the recorded narrator phrase was dropped one call before the pass that needed it; (3) the lane was chosen by the CANONICALIZED value, and `wife` occurs twice in the mixed passage, Mary's first; (4) grouping runs BEFORE the lane pass, so moved items reached callers with no person association while a comment claimed they were regrouped |
+> | **Phase 5B — what it does NOT claim** | **No live turn was run.** `STATE_DECEASED` is recorded, not consumed. The qualifiers are read, not carried. The 114/14 banks were **not** rerun |
 > | **Phase 4** | ✅ **ACCEPTED 2026-09-05.** The story-capture decision is durable on the source narrator turn, **including declined turns that create no candidate**. Implementation `24c7130` (clean tree); live probe `20260905-151658` on `.venv-gpu` — **11 passed / 0 failed / 0 unverified**; offline `.venv` **241 tests, ZERO skips**; **8/8 mutations caught**. Nominated turn bound candidate `8a159445`; declined turn carried a full eight-field diagnostic and no story row |
 > | **Phase 4 — what it did NOT change** | No threshold, anchor regex, chain classifier, source unit, review rule, memoir behaviour, migration or new table. The 114/14 banks were deliberately **not** rerun — Phase 4 changed observability, not extraction |
 > | **Phase 4 — one honest gap** | **Ten of eleven acceptance clauses were proven LIVE.** `measurement_failed` is covered offline and by mutations 3 and 6 but has never been seen on a live turn. Also: a trigger firing with **no `person_id`** fits none of the three closed outcomes and deliberately records nothing — opening the vocabulary is Chris's call |
@@ -313,7 +316,7 @@ Full register with evidence: [`docs/BACKLOG.md`](docs/BACKLOG.md).
 Historical handoffs and long status narratives live in Git history and `docs/archive/`.
 **They must not be appended back into this operational brief.**
 
-## 9. `WO-LORI-ARCHIVE-TO-MEMOIR-02` — Phases 1–4 CLOSED; **Phase 5 CURRENT** (2026-09-05)
+## 9. `WO-LORI-ARCHIVE-TO-MEMOIR-02` — Phases 1–4 and 5A/5B CLOSED; **Phase 5C CURRENT** (2026-09-05)
 
 **Phase 3 ACCEPTED 2026-09-05.** Its exit gate is met: Stefi follows the normal turn path,
 the three spouse fixtures bind, no false parent field is written, and uncertain
@@ -368,11 +371,46 @@ deliberately not rerun — Phase 4 changed observability, not extraction.
 the three closed outcomes, so it stays an existing exclusion with the log line as its record,
 pinned by a test. Opening the vocabulary is Chris's call.
 
-**Phase 5 is now current** — preserve and organize extracted meaning: every proposal reaches a
-correct field, an attributed candidate, or a defensible rejection. Kinship normalization
-(`daddy → father`) must retain the narrator's own word in provenance. **Do not disable
+**PHASE 5A AND 5B ARE COMPLETE 2026-09-05, review open.** Kinship normalization now retains
+the narrator's own word: `ExtractedItem` carries `source_phrase` and `normalized_from`, and
+one vocabulary — `server/code/api/services/relationship_interpreter.py` — decides every
+relationship reading, with the kinship guard's per-role patterns DERIVED from it rather than
+maintained beside it. That duplication is what let `mama` bind while `daddy` did not.
+
+**The governing rule this phase installed:** *the model proposes an interpretation; the
+NARRATOR'S WORDING decides which lane is legal.* The deliberately crossed passage — the
+current wife proposed as prior partner, the ex-wife as current spouse — is corrected rather
+than obeyed.
+
+| Measured at the production boundary | |
+|---|---|
+| `tests.test_spouse_state_characterization` + `tests.test_kinship_qualifier_binding` | **74 tests, ZERO skips** |
+| with the Phase 4 / 5A suites and the gate classifier | **156 tests, ZERO skips** |
+| mutation gate `L1`–`L9` (checked in, reproducible) | **9/9 caught behaviourally**, 7 marked `was_real` |
+| `node tests/test_family_tree_spouse_edge_types.js` | 26 checks, 2 call sites wired |
+| 19 extraction-adjacent modules, 600 tests | failure set **byte-identical to the same modules at `HEAD` product code** |
+| Interpreter | **agent sandbox `python3` only.** `.venv` is the verification and it is Chris's run |
+
+**Four defects were found at the production boundary, and every one was invisible to a
+helper-level test:** `getattr(req, "conv_id")` on a request that has no such field, so
+production wrote null provenance while the real `session_id` sat unused; an `ExtractedItem`
+constructor that names its kwargs, silently dropping the recorded narrator phrase one call
+before the pass that needed it; a lane chosen by the *canonicalized* value, where `wife`
+occurs twice and Mary's comes first; and grouping that runs before the lane pass, so moved
+items reached callers with no person association while a comment claimed otherwise.
+
+**What 5B does NOT claim.** No live turn was run — everything is offline against the shipped
+path. `STATE_DECEASED` is recorded and consumed by nothing but the Family Tree edge. The
+`adult` / `older` / `younger` qualifiers are read correctly and carried to no field; mapping
+`older` onto `siblings.birthOrder` would manufacture a fact and was deliberately not done.
+The 114/14 banks were not rerun.
+
+**Phase 5C is now current** — meaning with no schema destination: one disposition path for
+"understood, no destination" instead of one per case, and a deliberate decision (or a
+recorded refusal) for the qualifiers and for `STATE_DECEASED`. **Do not disable
 `HORNELORE_CLAIMS_VALIDATORS` as a product fix** — it gates several safeguards while leaving
-the parse-time whitelist active.
+the parse-time whitelist active, and two of the three arity-crash paths found in 5B were that
+flag's own branches.
 
 **Phase 3's last open box is CLOSED (`a62bfeb`).** *Jim binds as Pat's husband* — `Jim`
 had no test anywhere while `Otis` had five and `Domingo` two. `TheJimCase` now drives the
