@@ -92,6 +92,30 @@ class RelationshipReading:
         return self.source_phrase.strip().lower() != self.relation.lower()
 
 
+# ── `late wife` IS NOT IN THIS TABLE, AND THAT IS THE POINT ──────────
+#
+# REMOVED 2026-09-05, after review. The first draft grouped
+# `late wife|late husband` with `former|previous|first`, which reads as a
+# tidy alternation and is a semantic collapse:
+#
+#   "my ex-wife Susan"    — a marriage that ENDED, and she is living
+#   "my late wife Susan"  — a marriage that did NOT end that way, and
+#                           she has died
+#
+# Filing a widower's wife under `priorPartners` — and, downstream,
+# `former_marriage` — tells the family the marriage was dissolved. For a
+# memoir that is not a mislabelled row; it is the system contradicting
+# the narrator about the most significant relationship of their life.
+#
+# `ex`, `former` and `previous` were MEASURED against the shipped path.
+# `late` was not: it was added by pattern-matching on the shape of the
+# other words. It stays out until its destination is designed
+# deliberately — most likely canonical relation `wife` on the CURRENT
+# lane with a death/status marker, not a former-partner lane.
+#
+# Pinned by `LateSpouseIsNotAFormerSpouse` in
+# `tests/test_spouse_state_characterization.py`.
+
 # ── The vocabulary, in ONE place ─────────────────────────────────────
 #
 # (pattern, group, relation, state, qualifier)
@@ -103,9 +127,10 @@ _TABLE: Tuple[Tuple[str, str, str, str, str], ...] = (
     (r"ex[-\s]?husband", GROUP_PRIOR_PARTNERS, "husband", STATE_FORMER, ""),
     (r"ex[-\s]?spouse", GROUP_PRIOR_PARTNERS, "spouse", STATE_FORMER, ""),
     (r"ex[-\s]?partner", GROUP_PRIOR_PARTNERS, "partner", STATE_FORMER, ""),
-    (r"(?:former|previous|first|late)\s+wife",
+    # `late` is DELIBERATELY ABSENT here. See the note below.
+    (r"(?:former|previous|first)\s+wife",
      GROUP_PRIOR_PARTNERS, "wife", STATE_FORMER, ""),
-    (r"(?:former|previous|first|late)\s+husband",
+    (r"(?:former|previous|first)\s+husband",
      GROUP_PRIOR_PARTNERS, "husband", STATE_FORMER, ""),
     (r"(?:former|previous|first)\s+spouse",
      GROUP_PRIOR_PARTNERS, "spouse", STATE_FORMER, ""),

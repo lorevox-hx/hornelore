@@ -6126,6 +6126,42 @@ def _apply_claims_relation_allowlist(items: List[dict]) -> List[dict]:
         if fp.endswith(".relation"):
             raw = str(it.get("value", ""))
             normalized = raw.strip().strip(".,;:'\"").lower()
+
+            # ── THE RELATIONSHIP INTERPRETER GOES FIRST ──────────────
+            #
+            # Phase 5B, corrected 2026-09-05. This allowlist runs long
+            # before the lane pass, so whatever it drops never reaches
+            # canonicalization. Measured: `former wife`, `previous
+            # husband` and `ex-partner` were DISCARDED here — ordinary
+            # narrator language thrown away as an LLM artifact, while
+            # `ex-wife` survived only because the allowlist happens to
+            # contain it verbatim, and then persisted as a canonical
+            # relation value it should never have been.
+            #
+            # Asking the central interpreter first fixes both halves:
+            # recognised narrator wording is canonicalized (`former
+            # wife` → `wife`) rather than dropped, and a narrator PHRASE
+            # can no longer survive as a canonical value just because it
+            # is spelled the way the allowlist expects.
+            #
+            # Genuine parse debris — `then`, `and` — is unknown to the
+            # interpreter and still falls through to the allowlist,
+            # which is what that check is for.
+            try:
+                from ..services.relationship_interpreter import interpret_phrase
+                _said = interpret_phrase(normalized)
+            except Exception:               # pragma: no cover - defensive
+                _said = None
+            if _said is not None and _said.relation != normalized:
+                logger.info(
+                    "[extract][relationship] relation canonicalized: "
+                    "%r -> %r (narrator wording preserved for provenance)",
+                    normalized, _said.relation)
+                it = dict(it)
+                it["value"] = _said.relation
+                out.append(it)
+                continue
+
             # Try plural → singular normalization first
             canonical = _RELATION_NORMALIZER.get(normalized, normalized)
             if canonical != normalized:
@@ -8940,11 +8976,13 @@ def _known_kinship_names(person_id):
         return {}
 
 
-#: Subfields that exist on BOTH the current-spouse and prior-partner
-#: lanes, so a proposal can be moved between them without inventing a
-#: destination. Anything outside this set is left alone and handled by
-#: the guard — see the over-reroute note in `_normalize_relationship_lane`.
-_SPOUSE_LANE_SHARED_SUBFIELDS = ("firstName", "lastName", "period", "relation")
+# NOTE, 2026-09-05: this file briefly carried a hand-written
+# `_SPOUSE_LANE_SHARED_SUBFIELDS` tuple listing which subfields exist on
+# both spouse lanes. It was removed for two reasons. It duplicated
+# `EXTRACTABLE_FIELDS`, which already answers the question and cannot
+# drift from itself; and because `occupation` was missing from it, the
+# very item this pass exists to catch was skipped before the check ran.
+# The schema is the list.
 
 
 def _normalize_relationship_lane(items, *, answer: str):
@@ -8984,27 +9022,69 @@ def _normalize_relationship_lane(items, *, answer: str):
     grows destinations nobody designed.
     """
     from ..services.relationship_interpreter import (
-        lane_for, GROUP_SPOUSE, GROUP_PRIOR_PARTNERS)
+        lane_for, interpret_phrase, GROUP_SPOUSE, GROUP_PRIOR_PARTNERS)
 
     lanes = {GROUP_SPOUSE, GROUP_PRIOR_PARTNERS}
     moved = []
+    canonicalized = []
+    unsupported = []
     for it in items or []:
         fp = getattr(it, "fieldPath", "") or ""
         head, _, sub = fp.rpartition(".")
-        if head not in lanes or sub not in _SPOUSE_LANE_SHARED_SUBFIELDS:
+        # EVERY subfield of the two spouse lanes is considered. Whether a
+        # move is possible is decided later, by asking the schema.
+        if head not in lanes or not sub:
             continue
         value = getattr(it, "value", None)
         if not isinstance(value, str) or not value.strip():
             continue
-        reading = lane_for(answer, value)
+        # ── THE RELATION VALUE IS CANONICALIZED, NOT JUST MOVED ──────
+        #
+        # Corrected 2026-09-05. Moving `family.spouse.relation="ex-wife"`
+        # to `family.priorPartners.relation="ex-wife"` puts a NARRATOR
+        # PHRASE in a canonical field and violates the contract this
+        # phase established: relation is `wife`, the lane carries
+        # `former`, and `ex-wife` belongs in provenance.
+        #
+        # Measured before the fix: the value survived verbatim. The test
+        # that was supposed to catch it called `interpret_phrase()`
+        # directly and never sent a `*.relation` item through
+        # `run_field_extraction` — the fixture proving the property
+        # instead of production, again.
+        if sub == "relation":
+            said = interpret_phrase(value)
+            if said is not None and said.relation != value:
+                try:
+                    it.value = said.relation
+                    canonicalized.append((fp, value, said.relation))
+                except Exception:           # pragma: no cover - defensive
+                    pass
+                value = said.relation
+
+        reading = lane_for(answer, value) or interpret_phrase(value)
         if reading is None or reading.group not in lanes:
             continue
         if reading.group == head:
             continue                       # the model agreed; nothing to do
         target = f"{reading.group}.{sub}"
         if target not in EXTRACTABLE_FIELDS:
-            # No honest destination. Leave it for the guard/review lane
-            # rather than moving it somewhere that does not exist.
+            # ── NO HONEST DESTINATION → REVIEW, NOT THE WRONG LANE ───
+            #
+            # Corrected 2026-09-05. This used to `continue`, and the
+            # claim was that the kinship guard would then quarantine it.
+            # Measured: it did NOT. `group_pattern("family.spouse")`
+            # contains bare `wife`, `-` is a word boundary, so
+            # `\bwife\b` matches inside `ex-wife` and the guard read the
+            # clause as current-spouse support. An ex-wife's occupation
+            # proposed as `family.spouse.occupation` survived as the
+            # CURRENT spouse's occupation.
+            #
+            # Leaving it was the whole defect, so the refusal is made
+            # here rather than delegated to a guard that answers a
+            # different question. The meaning is real; the schema has
+            # nowhere to put it; that is a review disposition, which is
+            # exactly the boundary Phase 5C generalizes.
+            unsupported.append((it, fp, target, value, reading))
             continue
         try:
             it.fieldPath = target
@@ -9015,12 +9095,38 @@ def _normalize_relationship_lane(items, *, answer: str):
         except Exception:                   # pragma: no cover - defensive
             continue
 
-    if moved:
-        for was, now, value, phrase in moved:
+    review_entries = []
+    if unsupported:
+        drop = {id(it) for it, *_rest in unsupported}
+        items = [it for it in items if id(it) not in drop]
+        for it, fp, target, value, reading in unsupported:
+            review_entries.append({
+                "kind": "unbound_relationship",
+                "value": value,
+                "label": f"{value} — stated about a {reading.state} "
+                         f"{reading.relation}",
+                "proposed_fieldPath": fp,
+                "not_applied": True,
+                "reasons": ["relationship_state_has_no_destination"],
+                "reason": "relationship_state_has_no_destination",
+                "narrator_phrase": reading.source_phrase,
+                "would_need": target,
+            })
             logger.info(
-                "[extract][relationship-lane] %s -> %s for %r "
-                "(narrator said %r)", was, now, value, phrase)
-    return items, moved
+                "[extract][relationship-lane] REVIEW %r proposed as %s but "
+                "the narrator said %r; %s does not exist, so it is neither "
+                "moved nor left on the current lane",
+                value, fp, reading.source_phrase, target)
+
+    for was, now, value, phrase in moved:
+        logger.info(
+            "[extract][relationship-lane] %s -> %s for %r "
+            "(narrator said %r)", was, now, value, phrase)
+    for fp, was, now in canonicalized:
+        logger.info(
+            "[extract][relationship-lane] %s value %r -> canonical %r",
+            fp, was, now)
+    return items, moved, review_entries
 
 
 def _apply_kinship_binding_guard(items, req, *, answer: str, clarifications=None):
@@ -9041,14 +9147,31 @@ def _apply_kinship_binding_guard(items, req, *, answer: str, clarifications=None
          Name equality ALONE never refuses; it only adds a reason to a group
          that already lacks local support.
     """
+    # ── ARITY, CORRECTED 2026-09-05 ──────────────────────────────────
+    #
+    # These three early returns handed back TWO values while the two
+    # normal paths hand back three, and the single call site unpacks
+    # three. So every one of them raised
+    # `ValueError: not enough values to unpack` and took the extraction
+    # endpoint down with it.
+    #
+    # Two of the three are the `HORNELORE_CLAIMS_VALIDATORS` branches —
+    # meaning turning that flag OFF crashed extraction rather than
+    # relaxing it. `CLAUDE.md` warns operators not to disable it as a
+    # product fix, which is precisely the circumstance in which someone
+    # reaches for it.
+    #
+    # Found by Phase 5B: the new lane pass can remove every item before
+    # the guard runs, which made `if not items` reachable for the first
+    # time. The bug was latent, not new.
     if not items:
-        return items, []
+        return items, [], list(clarifications or [])
     try:
         from .. import flags as _flags
         if not _flags.claims_validators_enabled():
-            return items, []
+            return items, [], list(clarifications or [])
     except Exception:
-        return items, []
+        return items, [], list(clarifications or [])
 
     known = _known_kinship_names(getattr(req, "person_id", None))
 
@@ -9393,8 +9516,10 @@ def _finalize_extracted_items(items, req, *, answer: str, path: str):
     # against the CORRECTED destination. Running it after the guard
     # would quarantine an ex-wife for lacking current-spouse language
     # and then move a value that had already been removed.
-    final_items, _lane_moves = _normalize_relationship_lane(
+    final_items, _lane_moves, _lane_review = _normalize_relationship_lane(
         final_items, answer=answer)
+    if _lane_review:
+        clarifications = list(clarifications or []) + _lane_review
 
     final_items, _kin_entries, clarifications = _apply_kinship_binding_guard(
         final_items, req, answer=answer, clarifications=clarifications)
