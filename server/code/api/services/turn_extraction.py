@@ -388,15 +388,52 @@ def _mark_probe(detail: str) -> None:
         pass
 
 
-def _call_extractor(req: Any) -> Any:
+def claim_source_identity(claim: "_Claim") -> Dict[str, str]:
+    """The committed turn's identity, for anything downstream of extraction.
+
+    WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 5A (2026-09-05).
+
+    **Extraction may interpret meaning. It may not decide which committed
+    turn the meaning came from.** This is the whole rule, and it exists
+    because the previous arrangement broke exactly there: the bio-fact
+    router was handed `getattr(req, "conv_id")` and
+    `getattr(req, "turn_id")`, and **neither is a field on
+    `ExtractFieldsRequest`** — so production routed every fact with
+    `session_id=None, turn_id=None`, while the real `session_id` field
+    sat on the request unused.
+
+    A unit test passed `session_id="s1", turn_id="t1"` straight into the
+    router and asserted they persisted, so the suite could not see it:
+    the fixture supplied the exact property being proven. Recorded as
+    instance 9 in `docs/TESTING-DOCTRINE.md` — the first found in the
+    wild rather than by mutation.
+
+    `turn_key` travels with the rest because it is already the durable
+    idempotency identity for completed-turn extraction, and the
+    `bio_facts.source` column is JSON, so carrying it costs no migration.
+    """
+    return {
+        "narrator_id": claim.narrator_id,
+        "session_id": claim.session_id,
+        "turn_id": claim.turn_id,
+        "turn_key": claim.turn_key,
+    }
+
+
+def _call_extractor(req: Any, source_identity: Optional[Dict[str, str]] = None) -> Any:
     """Invoke the single extraction implementation.
 
     Imported lazily and by name so this module does not import a router
     at module scope (routers/extract.py imports this module from inside
     its route function -- the pair is deliberately lazy on both sides).
+
+    `source_identity` is the committed turn's identity when there is one,
+    and **None when there is not** — the HTTP path has no committed turn,
+    and saying so is the point. Downstream routing refuses rather than
+    inventing provenance.
     """
     from ..routers.extract import run_field_extraction
-    return run_field_extraction(req)
+    return run_field_extraction(req, source_identity=source_identity)
 
 
 # ── Caller 1: the HTTP endpoint ──────────────────────────────────────────
@@ -844,7 +881,10 @@ async def _complete_claim_inner(claim: _Claim) -> ExtractionOutcome:
             current_pass=claim.current_pass,
             current_mode=claim.current_mode,
         )
-        return _call_extractor(req)
+        # Phase 5A — the committed turn's identity travels with the call.
+        # The request object does NOT carry it and must not: provenance is
+        # the turn's fact, not extraction's opinion.
+        return _call_extractor(req, claim_source_identity(claim))
 
     try:
         resp = await asyncio.wait_for(

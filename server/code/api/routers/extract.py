@@ -9399,7 +9399,11 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
     return run_http_extraction(req)
 
 
-def run_field_extraction(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
+def run_field_extraction(
+    req: ExtractFieldsRequest,
+    *,
+    source_identity: Optional[Dict[str, str]] = None,
+) -> ExtractFieldsResponse:
     """The extraction implementation. One copy, two callers.
 
     WO-TRUTH-PIPELINE-01 Phase 2 (2026-07-30) --- this is the body that
@@ -9742,19 +9746,54 @@ def run_field_extraction(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
                                 _items_dicts.append(it)
                         except Exception:
                             continue
-                    _bfr_summary = _bfr_route(
-                        _items_dicts,
-                        narrator_id=_narrator,
-                        session_id=getattr(req, "conv_id", None),
-                        turn_id=getattr(req, "turn_id", None),
-                    )
-                    logger.info(
-                        "[bio_fact_router] tier1 routed=%d conflicts=%d "
-                        "suppressed=%d unmapped=%d errors=%d",
-                        _bfr_summary.routed, _bfr_summary.conflicts,
-                        _bfr_summary.suppressed_by_authority,
-                        _bfr_summary.unmapped, _bfr_summary.errors,
-                    )
+                    # ── PROVENANCE COMES FROM THE COMMITTED TURN ──────
+                    #
+                    # Phase 5A (2026-09-05). This read
+                    # `getattr(req, "conv_id")` and
+                    # `getattr(req, "turn_id")`. **Neither is a field on
+                    # `ExtractFieldsRequest`**, so both were `None` on
+                    # every production call — while the real `session_id`
+                    # field sat on the request unused. Every routed bio
+                    # fact recorded null provenance.
+                    #
+                    # The suite could not see it: the router's own test
+                    # passes `session_id="s1", turn_id="t1"` straight in
+                    # and asserts they persisted, so the fixture supplied
+                    # the exact property being proven.
+                    #
+                    # Identity now arrives from the committed-turn
+                    # `_Claim` via `source_identity`, and when there is no
+                    # committed turn **routing does not happen at all**.
+                    # Extraction may interpret meaning; it may not decide
+                    # which turn the meaning came from, and routing with
+                    # `None, None` was that decision made badly.
+                    if not source_identity:
+                        logger.info(
+                            "[bio_fact_router] SKIPPED — no committed-turn "
+                            "identity for this call (%d item(s)). The HTTP "
+                            "path has no source turn, and a bio fact "
+                            "without provenance is not worth writing.",
+                            len(_items_dicts),
+                        )
+                        _bfr_summary = None
+                    else:
+                        _bfr_summary = _bfr_route(
+                            _items_dicts,
+                            narrator_id=source_identity.get("narrator_id")
+                            or _narrator,
+                            session_id=source_identity.get("session_id"),
+                            turn_id=source_identity.get("turn_id"),
+                            turn_key=source_identity.get("turn_key"),
+                        )
+                    if _bfr_summary is not None:
+                        logger.info(
+                            "[bio_fact_router] tier1 routed=%d conflicts=%d "
+                            "suppressed=%d unmapped=%d errors=%d turn=%s",
+                            _bfr_summary.routed, _bfr_summary.conflicts,
+                            _bfr_summary.suppressed_by_authority,
+                            _bfr_summary.unmapped, _bfr_summary.errors,
+                            source_identity.get("turn_key"),
+                        )
         except Exception:
             # Router failure must NEVER break extraction — the legacy
             # path is the source of truth for callers; bio_facts is a

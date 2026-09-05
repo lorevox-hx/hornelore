@@ -287,6 +287,12 @@ def route_extraction_to_bio_facts(
     *,
     session_id: Optional[str] = None,
     turn_id: Optional[str] = None,
+    # Phase 5A — the durable idempotency identity of the completed turn.
+    # `bio_facts.source` is JSON, so carrying it costs no migration, and
+    # it is the one id that survives a replay: `turn_id` is the client's
+    # string and can be absent, while `turn_key` is derived from the
+    # committed row.
+    turn_key: Optional[str] = None,
     tenant_id: str = "default",
 ) -> RouteSummary:
     """Tier 1 router — for each extracted item, write a bio_facts row
@@ -362,6 +368,7 @@ def route_extraction_to_bio_facts(
                 "tier": 1,
                 "session_id": session_id,
                 "turn_id": turn_id,
+                "turn_key": turn_key,
                 "field_path": field_path,
             }
             new_id = db.bio_fact_create(
