@@ -936,11 +936,11 @@ phrasing in a present-day life inventory — which is exactly the kind of findin
 change would have buried. Tuning a
 classifier whose decisions cannot be inspected is guesswork.
 
-- [ ] Persist **one decision record per narrator turn — including turns that create no candidate.**
-- [ ] Attach it to the **source turn**, or to a dedicated per-turn decision table. *(Putting it on `story_candidates` is insufficient by construction: a missed turn has no candidate.)*
-- [ ] Record: source turn · narrator · the deterministic `trigger_diagnostic` measurements · the factual-chain result · the final nomination decision · the decision reason · the classifier/trigger version · the candidate id when one was created.
-- [ ] **Do NOT change any capture threshold until those decisions can be inspected.**
-- [ ] Also fix the absent `turn_extraction_ledger` writes — extraction evidence was missing for every cohort turn.
+- [x] Persist **one decision record per narrator turn — including turns that create no candidate.** ✅ Phase 4, live-proven `20260905-151658`
+- [x] Attach it to the **source turn**, or to a dedicated per-turn decision table. *(Putting it on `story_candidates` is insufficient by construction: a missed turn has no candidate.)*
+- [x] Record: source turn · narrator · the deterministic `trigger_diagnostic` measurements · the factual-chain result · the final nomination decision · the decision reason · the classifier/trigger version · the candidate id when one was created.
+- [x] **Do NOT change any capture threshold until those decisions can be inspected.** ✅ every default pinned by test
+- ❌ ~~Also fix the absent `turn_extraction_ledger` writes.~~ **EXCLUDED — and the premise is false.** 38 log lines say *"client did not declare field_extraction_result=v1"* (`chat_ws.py:924`): a cohort-harness capability gap, not a product defect. Explicitly out of scope.
 
 **REFRAMED 2026-09-04 by the Phase 2 closeout — and ITSELF SUPERSEDED 2026-09-05.**
 Candidate presence is **35/38** with capture byte-exact and zero over-capture, so raising a
@@ -955,15 +955,22 @@ goal stated below still holds: every substantive passage should be either nomina
 a defensible, inspectable `not_story` reason. What is owed is the `not_story` reason for the
 three, and an operator pass over the thirty-five.
 
+**THE BOXES BELOW ARE NOT PHASE 4 WORK.** They describe broadening what counts as a
+story, which is real and still owed, but Phase 4 was scoped to observability only and is
+now ACCEPTED. **Do not execute these as current instructions** — they are carried here
+until a phase claims them. *(Leaving unchecked boxes under a superseded heading is the
+stale-instruction failure this repository has hit repeatedly; the prose above said
+"superseded" while the checkboxes still read as a to-do list.)*
+
 - [ ] Treat the full coherent narrator passage as the source unit.
-- [ ] Add Pat’s Jim passage as the primary regression fixture.
+- [x] Add Pat’s Jim passage as the primary regression fixture. ✅ `TheJimCase`, 4 tests, `a62bfeb`
 - [ ] Detect meaningful events involving relationships, loss, identity, work, migration, community, belief and turning points—not only place chains.
 - [ ] Preserve exact wording, source turn, narrator, era and involved people.
 - [ ] Never manufacture a story from extractor-only structured fields.
 - [ ] Keep fact candidates separate from story candidates.
 - [ ] Avoid duplicate candidates for one passage.
 - [ ] Record why a substantive turn was or was not nominated.
-- [ ] Re-evaluate the 27 baseline no-candidate turns without rewriting historical evidence.
+- ❌ ~~Re-evaluate the **27** baseline no-candidate turns.~~ **DISPROVEN — there are THREE.** Presence is 35/38 byte-exact with zero over-capture, and each of the three has a named cause. The number 27 predates the Phase 2 measurement.
 - [ ] Human-review the new candidate set for relevance, coherence and overcapture.
 
 **Exit gate:** Pat’s Jim passage is reviewable; every substantive baseline passage has a candidate or defensible recorded reason; no unsupported story is created; candidate provenance is complete.
