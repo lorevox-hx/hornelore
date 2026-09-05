@@ -599,5 +599,80 @@ class ReasonsCompose(unittest.TestCase):
         self.assertIn("low_confidence", clarence.confirmation_reasons)
 
 
+PAT_PROFILE = {"profile_json": {
+    "spouses": [{"firstName": "Jim", "lastName": "Whitmore"}],
+    "parents": [{"firstName": "Walter"}, {"firstName": "Dorothy"}]}}
+
+
+class TheJimCase(unittest.TestCase):
+    """Pat's husband, the third spouse fixture — and the last one covered.
+
+    ── WHY THIS CLASS EXISTS, 2026-09-05 ──────────────────────────────
+
+    `WO-LORI-ARCHIVE-TO-MEMOIR-02` Phase 3 lists three spouse fixtures and
+    its exit gate says all three bind correctly. Measured against the
+    suite: **`Otis` appeared in five test files and `Domingo` in two.
+    `Jim` appeared in NONE.** Two of three were demonstrated and the
+    third was asserted, so that box stayed unchecked at acceptance.
+
+    The wording is Pat's own, from
+    `scripts/run_pat_teacher_betty_harness.py`: *"I met James Whitmore —
+    Jim — the summer after I graduated... We were married in 1970."*
+    That is the Otis shape exactly — a husband named in a passage dense
+    with other people, where a sentence-wide reading can hand him to
+    `parents.*`.
+
+    These run the SHIPPED `run_field_extraction`, like every other test
+    in this file. The LLM is stubbed so the INPUT is fixed; the binding
+    decision under test is production's.
+    """
+
+    def test_jim_does_not_enter_parents_from_a_marriage_sentence(self):
+        """The plain case: marriage language, no parent language at all."""
+        r = run("I met James Whitmore — Jim — the summer after I graduated. "
+                "We were married in 1970.",
+                [item("parents.firstName", "Jim")], PAT_PROFILE)
+        vals = [i.value for i in r.items if i.fieldPath == "parents.firstName"]
+        self.assertEqual([], vals, "Pat's husband was filed as her parent")
+
+    def test_a_parent_cue_elsewhere_does_not_authorise_jim(self):
+        """The Otis failure, in Pat's words.
+
+        Parent language sits in the same passage as the husband's name. A
+        sentence-wide reading passes both; local evidence must not.
+        """
+        r = run("My father Walter worked at the rubber plant and Jim died in 2018.",
+                [item("parents.firstName", "Walter"),
+                 item("parents.firstName", "Jim")], PAT_PROFILE)
+        vals = [i.value for i in r.items if i.fieldPath == "parents.firstName"]
+        self.assertEqual(["Walter"], vals)
+        self.assertEqual(["Jim's relationship to you"],
+                         [e["label"] for e in entries(r)])
+
+    def test_jim_binds_as_the_spouse_he_is(self):
+        """Positive control. A guard that only ever refuses proves nothing.
+
+        The same name, in the same passage, reaching the spouse field
+        when the narrator's language says husband.
+        """
+        r = run("My husband Jim and I were married in 1970.",
+                [item("family.spouse.firstName", "Jim")], PAT_PROFILE)
+        vals = [i.value for i in r.items
+                if i.fieldPath == "family.spouse.firstName"]
+        self.assertEqual(["Jim"], vals)
+        self.assertEqual([], entries(r))
+
+    def test_the_fixture_wording_is_the_narrators_own(self):
+        """Measured against the shipped harness, not transcribed by hand.
+
+        A fixture that quotes a passage which has since changed is
+        testing a sentence nobody says any more.
+        """
+        harness = (ROOT / "scripts"
+                   / "run_pat_teacher_betty_harness.py").read_text(encoding="utf-8")
+        self.assertIn("I met James Whitmore — Jim —", harness)
+        self.assertIn("We were married in 1970", harness)
+
+
 if __name__ == "__main__":
     unittest.main()
