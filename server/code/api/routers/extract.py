@@ -259,6 +259,16 @@ EXTRACTABLE_FIELDS = {
     "family.priorPartners.firstName": {"label": "Previous partner first name", "writeMode": "candidate_only", "repeatable": "priorPartners"},
     "family.priorPartners.lastName":  {"label": "Previous partner last name", "writeMode": "candidate_only", "repeatable": "priorPartners"},
     "family.priorPartners.period":    {"label": "Period with previous partner", "writeMode": "candidate_only", "repeatable": "priorPartners"},
+    # Phase 5B. The canonical KIND of a former relationship -- wife /
+    # husband / spouse / partner. `ex-wife` is never stored here: that is
+    # a narrator phrase, it lives in lexical provenance, and membership
+    # in the priorPartners lane is what carries the former state.
+    #
+    # Added because a downstream consumer needs it: the Family Tree
+    # already declares `marriage`, `partnership` and `former_marriage`
+    # edge types, and without a canonical relation on this lane a former
+    # marriage cannot be told from a former partnership.
+    "family.priorPartners.relation":  {"label": "Previous partner relationship", "writeMode": "candidate_only", "repeatable": "priorPartners"},
 
     # ── WO-EX-SCHEMA-01 — Grandchildren (repeatable) ─────────────────────────
     "family.grandchildren.firstName": {"label": "Grandchild first name", "writeMode": "candidate_only", "repeatable": "grandchildren"},
@@ -8332,13 +8342,44 @@ _CLAUSE_SPLIT_RX = re.compile(r"(?<=[.;!?])\s+")
 # Relationship language, per role, as narrators actually say it. Deliberately
 # NOT the `my <relation>` conflict cues: "Dad was Kent Horne", "the boys",
 # "we got married" are all ordinary and none of them says "my".
+def _role_language_from_interpreter(group: str, extra: str = ""):
+    """Derive a role's vocabulary from the central relationship contract.
+
+    ── WHY DERIVED AND NOT MAINTAINED HERE, 2026-09-05 ──────────────
+
+    This table used to carry its own word list, and it drifted from
+    every other list in the tree. Measured at the production boundary:
+    **`mama` bound and `daddy` did not**, because this alternation had
+    `mama|papa` and no `daddy`. `partner` was missing for the same
+    reason, while the schema, the relation field, the role mapper and
+    the QA bank all supported it — every one of them upstream of this
+    line, which is the one that decides.
+
+    `services/relationship_interpreter` is now the single vocabulary.
+    Adding a narrator word there reaches the guard, the canonical
+    relation and the lane together, instead of needing four edits that
+    nobody remembers to make.
+    """
+    from ..services.relationship_interpreter import group_pattern
+    base = group_pattern(group)
+    if base is None:                       # pragma: no cover - defensive
+        return re.compile(r"(?!)")
+    return re.compile(base.pattern + extra, re.IGNORECASE)
+
+
 _ROLE_LOCAL_LANGUAGE = {
-    "parents": re.compile(
-        r"\b(?:my\s+)?(?:mother|father|mom|mum|dad|mama|papa|stepmother|"
-        r"stepfather|parents?)\b", re.IGNORECASE),
-    "family.spouse": re.compile(
-        r"\b(?:my\s+)?(?:husband|wife|spouse)\b|\b(?:we|i)\s+(?:got\s+|were\s+)?"
-        r"(?:married|wed)\b|\bmarried\s+(?:him|her)\b", re.IGNORECASE),
+    "parents": _role_language_from_interpreter("parents"),
+    # The spouse role keeps its marriage-event alternatives: "we got
+    # married" states the relationship without naming a relation noun,
+    # and the interpreter deliberately reads PHRASES rather than events.
+    "family.spouse": _role_language_from_interpreter(
+        "family.spouse",
+        r"|\b(?:we|i)\s+(?:got\s+|were\s+)?(?:married|wed)\b"
+        r"|\bmarried\s+(?:him|her)\b"),
+    # NEW LANE. Former partners are a role of their own, so the guard
+    # can recognise "my ex-wife Susan" as stated rather than unstated.
+    "family.priorPartners": _role_language_from_interpreter(
+        "family.priorPartners"),
     # Children get a third alternative — a COUNT or determiner before the
     # relation noun. "We had two children, Charlene and Bernard" states the
     # relationship plainly, and requiring a possessive falsely quarantined
@@ -8378,6 +8419,7 @@ _KINSHIP_PROFILE_KEYS = {
     "family.children": ("children",),
     "siblings": ("siblings",),
     "family.spouse": ("spouses", "spouse"),
+    "family.priorPartners": ("priorPartners", "formerSpouses"),
     "grandparents": ("grandparents",),
     "greatGrandparents": ("greatGrandparents",),
 }
@@ -8898,6 +8940,89 @@ def _known_kinship_names(person_id):
         return {}
 
 
+#: Subfields that exist on BOTH the current-spouse and prior-partner
+#: lanes, so a proposal can be moved between them without inventing a
+#: destination. Anything outside this set is left alone and handled by
+#: the guard — see the over-reroute note in `_normalize_relationship_lane`.
+_SPOUSE_LANE_SHARED_SUBFIELDS = ("firstName", "lastName", "period", "relation")
+
+
+def _normalize_relationship_lane(items, *, answer: str):
+    """The narrator's wording decides the lane; the model only proposes it.
+
+    ── WHY THIS EXISTS, 2026-09-05 ──────────────────────────────────
+
+    Phase 5B measured a mixed passage — *"My wife Mary is a nurse. My
+    ex-wife Susan was a teacher."* — with the destinations deliberately
+    CROSSED, and **it survived untouched**: Mary filed as a prior
+    partner and Susan as the current spouse. Nothing in the shipped path
+    compared the proposed destination against what the narrator said.
+
+    A negative lookbehind on `ex-` would have stopped one spelling of
+    one direction. It would not have moved Susan anywhere honest, and it
+    would not have touched the crossed case at all.
+
+    So this runs BEFORE the kinship guard and answers a different
+    question than the guard does. The guard asks *"did the narrator
+    state this relationship?"*. This asks *"which lane did the narrator
+    put this person in?"* — and moves the proposal when the answer
+    disagrees with the model.
+
+    ── WHEN IT MOVES A PROPOSAL ─────────────────────────────────────
+
+    All three must hold:
+
+      1. the narrator's wording near that name reads as a relationship;
+      2. that reading names a DIFFERENT lane than the proposal;
+      3. **the same subfield exists in the correct lane.**
+
+    Condition 3 is the one that stops over-reaching. If an ex-wife's
+    occupation is proposed as `family.spouse.occupation` and there is no
+    `family.priorPartners.occupation`, this does NOT move it and does
+    NOT leave it on the current spouse: it declines, and the guard sends
+    it to review. Inventing a field to make a value fit is how a schema
+    grows destinations nobody designed.
+    """
+    from ..services.relationship_interpreter import (
+        lane_for, GROUP_SPOUSE, GROUP_PRIOR_PARTNERS)
+
+    lanes = {GROUP_SPOUSE, GROUP_PRIOR_PARTNERS}
+    moved = []
+    for it in items or []:
+        fp = getattr(it, "fieldPath", "") or ""
+        head, _, sub = fp.rpartition(".")
+        if head not in lanes or sub not in _SPOUSE_LANE_SHARED_SUBFIELDS:
+            continue
+        value = getattr(it, "value", None)
+        if not isinstance(value, str) or not value.strip():
+            continue
+        reading = lane_for(answer, value)
+        if reading is None or reading.group not in lanes:
+            continue
+        if reading.group == head:
+            continue                       # the model agreed; nothing to do
+        target = f"{reading.group}.{sub}"
+        if target not in EXTRACTABLE_FIELDS:
+            # No honest destination. Leave it for the guard/review lane
+            # rather than moving it somewhere that does not exist.
+            continue
+        try:
+            it.fieldPath = target
+            spec = EXTRACTABLE_FIELDS.get(target) or {}
+            if spec.get("repeatable"):
+                it.repeatableGroup = None   # regrouped after this pass
+            moved.append((fp, target, value, reading.source_phrase))
+        except Exception:                   # pragma: no cover - defensive
+            continue
+
+    if moved:
+        for was, now, value, phrase in moved:
+            logger.info(
+                "[extract][relationship-lane] %s -> %s for %r "
+                "(narrator said %r)", was, now, value, phrase)
+    return items, moved
+
+
 def _apply_kinship_binding_guard(items, req, *, answer: str, clarifications=None):
     """Quarantine kinship groups whose relationship the narrator did not state.
 
@@ -9260,6 +9385,16 @@ def _finalize_extracted_items(items, req, *, answer: str, path: str):
     #    safety first lets the kinship guard absorb whatever it recorded, and
     #    prune the envelope entries for items it then removes.
     final_items, clarifications = _apply_transcript_safety_layer(final_items, req)
+
+    # Phase 5B — the lane pass runs BEFORE the guard, deliberately.
+    #
+    # It answers "which lane did the narrator put this person in?", and
+    # the guard then answers "did the narrator state this relationship?"
+    # against the CORRECTED destination. Running it after the guard
+    # would quarantine an ex-wife for lacking current-spouse language
+    # and then move a value that had already been removed.
+    final_items, _lane_moves = _normalize_relationship_lane(
+        final_items, answer=answer)
 
     final_items, _kin_entries, clarifications = _apply_kinship_binding_guard(
         final_items, req, answer=answer, clarifications=clarifications)

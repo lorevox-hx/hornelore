@@ -5,39 +5,47 @@
 
 `WO-LORI-ARCHIVE-TO-MEMOIR-02` Phase 5B.
 
-── THESE TESTS ASSERT THE CURRENT BEHAVIOUR, NOT THE DESIRED ONE ─────
+── CHARACTERIZATION FIRST, THEN THE REGRESSION IT BECAME ─────────────
 
-Every test here is a MEASUREMENT taken at the production boundary before
-any Phase 5B code lands. When the fix lands, the tests marked
-`CURRENT BEHAVIOUR` fail, and that failure is the signal to update them
-deliberately alongside the implementation.
+Every test here began as a MEASUREMENT of the shipped behaviour, taken
+before any Phase 5B code existed. The measurement is what decided the
+fix, and eight of these tests failed the moment it landed — deliberately,
+each carrying its own "Phase 5B has landed; update this" message. They
+now assert the corrected behaviour.
 
-A suite that asserted the desired behaviour up front would be red for
-the whole phase and get ignored, which is how a red test becomes
-decoration.
+Keeping that history matters: a suite written straight to the desired
+behaviour would have been red for the whole phase and quietly ignored.
 
 ── WHAT WAS MEASURED, 2026-09-05 ─────────────────────────────────────
 
 The predicted hazard was that the spouse cue regex matches `wife` inside
-`ex-wife`. **The reality is broader and worse: the spouse lane performs
-no relationship-state check at all.** Whatever destination the extractor
-proposes is accepted verbatim, so:
+`ex-wife`. **The reality was broader: the spouse lane performed no
+relationship-state check at all.** Whatever destination the extractor
+proposed was accepted verbatim, so:
 
-  * `My ex-wife Susan` proposed as `family.spouse.firstName` → Susan
-    becomes the CURRENT spouse, unquarantined;
-  * the same holds for `ex-husband`, `former wife` and `previous wife`;
-  * and the fully CROSSED assignment survives — the current wife filed
-    as a prior partner and the ex-wife as the current spouse, with no
-    objection from any guard.
+  * `My ex-wife Susan` proposed as `family.spouse.firstName` made Susan
+    the CURRENT spouse, unquarantined;
+  * `ex-husband`, `former wife` and `previous wife` behaved the same;
+  * and the fully CROSSED assignment survived — the current wife filed
+    as a prior partner and the ex-wife as the current spouse.
 
-`family.priorPartners.*` exists and accepts values when proposed, so the
-destination is not the missing piece. The missing piece is any
-deterministic binding of *current* versus *former* from the narrator's
-own words.
+`family.priorPartners.*` already accepted values, so the destination was
+never the missing piece. The missing piece was any deterministic binding
+of *current* versus *former* from the narrator's own words.
 
-That is why Phase 5B is not "add a negative lookbehind to one regex".
-A lookbehind would stop `ex-wife` reaching the spouse field and leave
-the meaning with nowhere honest to go.
+That is why the fix is not "a negative lookbehind on `ex-`". A lookbehind
+would have stopped one spelling of one direction, left the meaning
+nowhere honest to go, and not touched the crossed case at all.
+
+── WHAT LANDED ───────────────────────────────────────────────────────
+
+`services/relationship_interpreter` reads the narrator's phrase into
+group / relation / state / qualifier / source_phrase, and
+`_normalize_relationship_lane` moves a proposal when the narrator's
+wording names a different lane — but only when the same subfield exists
+there. When it does not, the proposal is left for the review lane rather
+than forced into a field that was never designed for it.
+
 """
 from __future__ import annotations
 
@@ -98,79 +106,97 @@ class CurrentSpouseWorks(unittest.TestCase):
         self.assertEqual([("family.priorPartners.firstName", "Susan")], paths(r))
 
 
-class FormerSpouseIsNotDistinguished(unittest.TestCase):
-    """CURRENT BEHAVIOUR — every test here is expected to change.
+class FormerSpouseReachesThePriorPartnerLane(unittest.TestCase):
+    """DESIRED BEHAVIOUR, landed 2026-09-05.
 
-    Each asserts that a former spouse currently reaches the CURRENT
-    spouse field unchallenged. When Phase 5B lands, each should fail.
+    These were `FormerSpouseIsNotDistinguished` and asserted the defect:
+    every former-spouse wording reached the CURRENT spouse field. Each
+    now asserts the correction, and each failed on the way here — which
+    is what the characterization was for.
     """
 
-    def test_ex_wife_becomes_the_current_spouse(self):
+    def test_ex_wife_reaches_the_prior_partner_lane(self):
         r = run("My ex-wife Susan worked as a teacher.",
                 [item("family.spouse.firstName", "Susan")])
-        self.assertEqual(
-            [("family.spouse.firstName", "Susan")], paths(r),
-            "an ex-wife no longer reaches the current-spouse field — "
-            "Phase 5B has landed; update this measurement deliberately")
-        self.assertEqual([], list(r.clarification_required or []),
-                         "nothing quarantined it either")
+        self.assertEqual([("family.priorPartners.firstName", "Susan")], paths(r))
 
-    def test_ex_husband_becomes_the_current_spouse(self):
+    def test_ex_husband_reaches_the_prior_partner_lane(self):
         r = run("My ex-husband Frank drove a bus.",
                 [item("family.spouse.firstName", "Frank")])
-        self.assertEqual([("family.spouse.firstName", "Frank")], paths(r))
+        self.assertEqual([("family.priorPartners.firstName", "Frank")], paths(r))
 
-    def test_former_wife_becomes_the_current_spouse(self):
-        """Unhyphenated wording, which a lookbehind on `ex-` would miss."""
+    def test_former_wife_reaches_the_prior_partner_lane(self):
+        """Unhyphenated wording — a lookbehind on `ex-` would miss it."""
         r = run("My former wife Susan worked as a teacher.",
                 [item("family.spouse.firstName", "Susan")])
-        self.assertEqual([("family.spouse.firstName", "Susan")], paths(r))
+        self.assertEqual([("family.priorPartners.firstName", "Susan")], paths(r))
 
-    def test_previous_wife_becomes_the_current_spouse(self):
+    def test_previous_wife_reaches_the_prior_partner_lane(self):
         r = run("My previous wife Susan worked as a teacher.",
                 [item("family.spouse.firstName", "Susan")])
-        self.assertEqual([("family.spouse.firstName", "Susan")], paths(r))
+        self.assertEqual([("family.priorPartners.firstName", "Susan")], paths(r))
+
+    def test_ex_wife_is_never_stored_as_a_canonical_relation(self):
+        """`ex-wife` is a phrase. The relation is `wife`.
+
+        The lane carries the former state; storing `ex-wife` as the
+        relation would collapse three separate facts into one string.
+        """
+        from api.services.relationship_interpreter import interpret_phrase
+        reading = interpret_phrase("my ex-wife Susan")
+        self.assertEqual(reading.relation, "wife")
+        self.assertEqual(reading.state, "former")
+        self.assertEqual(reading.source_phrase, "ex-wife")
 
 
-class TheCrossedAssignmentSurvives(unittest.TestCase):
-    """The decisive measurement, and the reason a regex fix is not enough.
+class TheCrossedAssignmentIsCorrected(unittest.TestCase):
+    """The decisive Phase 5B regression.
 
-    A mixed passage names both a current wife and an ex-wife. If the
-    extractor swaps them, **nothing objects** — which proves the guard
-    consults the proposal rather than the narrator's words.
+    Was `TheCrossedAssignmentSurvives`. The narrator's wording now
+    decides the lane, so a model that swaps the destinations is
+    corrected rather than obeyed.
     """
 
-    def test_both_named_as_current_spouse_survives(self):
+    def test_both_named_as_current_spouse_are_separated(self):
         r = run(MIXED, [item("family.spouse.firstName", "Mary"),
                         item("family.spouse.firstName", "Susan")])
-        self.assertEqual(
-            [("family.spouse.firstName", "Mary"),
-             ("family.spouse.firstName", "Susan")], paths(r))
+        got = paths(r)
+        self.assertIn(("family.spouse.firstName", "Mary"), got)
+        self.assertIn(("family.priorPartners.firstName", "Susan"), got)
 
-    def test_the_correct_separation_also_survives(self):
-        """Correct input stays correct — the guard is not the problem."""
+    def test_the_correct_separation_is_left_alone(self):
+        """Correct input must not be 'corrected' into something else."""
         r = run(MIXED, [item("family.spouse.firstName", "Mary"),
                         item("family.priorPartners.firstName", "Susan")])
-        self.assertIn(("family.spouse.firstName", "Mary"), paths(r))
-        self.assertIn(("family.priorPartners.firstName", "Susan"), paths(r))
+        got = paths(r)
+        self.assertIn(("family.spouse.firstName", "Mary"), got)
+        self.assertIn(("family.priorPartners.firstName", "Susan"), got)
 
-    def test_the_FULLY_CROSSED_assignment_survives_unchallenged(self):
-        """The current wife filed as prior, the ex-wife as current.
+    def test_the_FULLY_CROSSED_assignment_is_put_right(self):
+        """The measurement that decided Phase 5B's shape.
 
-        This is the measurement that decides Phase 5B's shape. Nothing
-        in the shipped path compares the destination against what the
-        narrator actually said.
+        Mary proposed as prior partner, Susan as current spouse. Both
+        are corrected from the narrator's own words.
         """
         r = run(MIXED, [item("family.priorPartners.firstName", "Mary"),
                         item("family.spouse.firstName", "Susan")])
         got = paths(r)
-        self.assertIn(("family.spouse.firstName", "Susan"), got,
-                      "the ex-wife no longer lands as current spouse — "
-                      "Phase 5B has landed; update this deliberately")
-        self.assertIn(("family.priorPartners.firstName", "Mary"), got)
+        self.assertIn(("family.spouse.firstName", "Mary"), got)
+        self.assertIn(("family.priorPartners.firstName", "Susan"), got)
+        self.assertNotIn(("family.priorPartners.firstName", "Mary"), got)
+        self.assertNotIn(("family.spouse.firstName", "Susan"), got)
+
+    def test_the_husband_equivalent(self):
+        mixed = ("My husband Frank drives a bus. "
+                 "My ex-husband Danny was a welder.")
+        r = run(mixed, [item("family.priorPartners.firstName", "Frank"),
+                        item("family.spouse.firstName", "Danny")])
+        got = paths(r)
+        self.assertIn(("family.spouse.firstName", "Frank"), got)
+        self.assertIn(("family.priorPartners.firstName", "Danny"), got)
 
 
-class PartnerIsNotRECOGNISEDToday(unittest.TestCase):
+class PartnerBindsWithoutManufacturingMarriage(unittest.TestCase):
     """CURRENT BEHAVIOUR — and it contradicts the expectation.
 
     ── MEASURED 2026-09-05, AND IT WAS A SURPRISE ────────────────────
@@ -192,22 +218,22 @@ class PartnerIsNotRECOGNISEDToday(unittest.TestCase):
     accepting `partner` says nothing about whether the guard binds it.
     """
 
-    def test_partner_is_quarantined_not_bound(self):
-        """CURRENT behaviour. Phase 5B is expected to change this."""
+    def test_partner_now_binds(self):
+        """DESIRED BEHAVIOUR. Was quarantined `relationship_unstated`."""
         r = run("My partner Sam and I have never married.",
                 [item("family.spouse.firstName", "Sam")])
-        self.assertEqual(
-            [], paths(r),
-            "partner now binds — Phase 5B has landed; update this "
-            "measurement and check that no marriage was manufactured")
-        self.assertIn("relationship_unstated",
-                      [c.get("reason") for c in (r.clarification_required or [])])
+        self.assertEqual([("family.spouse.firstName", "Sam")], paths(r))
 
     def test_the_same_holds_without_the_marriage_disclaimer(self):
-        """The quarantine is about the word `partner`, not the sentence."""
         r = run("My partner Sam is a nurse.",
                 [item("family.spouse.firstName", "Sam")])
-        self.assertEqual([], paths(r))
+        self.assertEqual([("family.spouse.firstName", "Sam")], paths(r))
+
+    def test_partner_stays_in_the_CURRENT_lane(self):
+        """A partner is current. The ex-spouse work must not move them."""
+        r = run("My partner Sam is a nurse.",
+                [item("family.spouse.firstName", "Sam")])
+        self.assertNotIn(("family.priorPartners.firstName", "Sam"), paths(r))
 
     def test_wife_binds_in_the_identical_sentence_shape(self):
         """The discriminating control. Only the relationship word differs."""

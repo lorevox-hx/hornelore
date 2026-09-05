@@ -403,31 +403,26 @@ class FailureIsolationIsPreserved(unittest.TestCase):
         self.assertTrue(resp.items, "extraction lost its result to a router failure")
 
 
-class LexicalGapIsRealAndMeasured(unittest.TestCase):
-    """The `daddy` gap, characterized at the production boundary.
+class LexicalGapWasMeasuredThenClosed(unittest.TestCase):
+    """The `daddy` gap — found by accident, closed by Phase 5B.
 
-    ── FOUND BY ACCIDENT, KEPT ON PURPOSE, 2026-09-05 ─────────────────
+    ── THE HISTORY IS THE POINT, 2026-09-05 ──────────────────────────
 
     The first draft of this file used *"My daddy worked at the mill"* as
-    ordinary narrator wording. Every routing test failed with zero items.
-    The cause is not provenance and not the router: **the shipped kinship
-    guard does not recognise `daddy` as a parent cue**, so the item is
-    quarantined `relationship_unstated` and never reaches routing at all.
+    ordinary narrator wording, and every routing test failed with zero
+    items. Not provenance, not the router: **the shipped kinship guard
+    did not recognise `daddy`**, so the item was quarantined
+    `relationship_unstated` and never reached routing.
 
-    That is Phase 5B's first requirement, and this is what it looks like
-    from production rather than from a regex grep. Recorded here so the
-    Phase 5B work starts from a measurement:
+    The vocabulary had `mama` and `papa` and no `daddy` — one word
+    missing from one alternation, invisible to every test in the tree.
+    Phase 5B replaced that alternation with a derived one from
+    `services/relationship_interpreter`, so the asymmetry cannot recur
+    without the central table disagreeing with itself.
 
-      * `daddy` — the extraction path has never heard of it. It appears
-        in `safety.py`, `lori_reflection.py` and `utterance_frame.py`,
-        and **nowhere in `extract.py` or the kinship guard**.
-      * `father` — accepted, binds normally.
-
-    **These tests assert the CURRENT behaviour, not the desired one.**
-    When Phase 5B lands `daddy → father`, the first test here fails, and
-    that failure is the signal to update it — deliberately, with the
-    provenance contract in place. A test that already asserted the
-    desired behaviour would just be red for weeks and get ignored.
+    These now assert the CLOSED behaviour. The `father` control stays,
+    because without it a passing `daddy` test proves only that something
+    binds.
     """
 
     @staticmethod
@@ -439,32 +434,48 @@ class LexicalGapIsRealAndMeasured(unittest.TestCase):
             return EX.run_field_extraction(
                 EX.ExtractFieldsRequest(person_id="N", answer=answer))
 
-    def test_father_binds_today(self):
-        """The control. Without it, the next test proves nothing."""
+    def test_father_binds(self):
+        """The control. Without it the next test proves nothing."""
         r = self._extract("My father Walter worked at the mill.", "Walter")
         self.assertEqual([("parents.firstName", "Walter")],
                          [(i.fieldPath, i.value) for i in r.items])
 
-    def test_daddy_does_NOT_bind_today(self):
-        """CURRENT behaviour. Phase 5B is expected to change this."""
+    def test_daddy_now_binds_too(self):
+        """Was quarantined `relationship_unstated`."""
         r = self._extract("My daddy Walter worked at the mill.", "Walter")
-        self.assertEqual([], [(i.fieldPath, i.value) for i in r.items],
-                         "daddy now binds — Phase 5B has landed; update this "
-                         "test deliberately and check the provenance contract")
-        self.assertIn("relationship_unstated",
-                      [c.get("reason") for c in (r.clarification_required or [])])
+        self.assertEqual([("parents.firstName", "Walter")],
+                         [(i.fieldPath, i.value) for i in r.items])
+        self.assertNotIn(
+            "relationship_unstated",
+            [c.get("reason") for c in (r.clarification_required or [])])
 
-    def test_the_narrators_word_has_nowhere_to_live_today(self):
-        """The second half of the Phase 5B requirement.
+    def test_mama_still_binds(self):
+        """The half that always worked must not regress."""
+        r = self._extract("My mama Betty kept the house.", "Betty")
+        self.assertEqual([("parents.firstName", "Betty")],
+                         [(i.fieldPath, i.value) for i in r.items])
 
-        Even once `daddy` is recognised, `ExtractedItem` has no field to
-        carry the narrator's own word, so `daddy → father` would lose it.
+    def test_daddy_and_mama_canonicalize_to_different_parents(self):
+        """The asymmetry is gone, and the meanings stayed distinct.
+
+        A central table makes it easy to fix `daddy` by mapping it to
+        whatever `mama` maps to. That would bind and be wrong.
         """
-        f = (list(EX.ExtractedItem.model_fields)
-             if hasattr(EX.ExtractedItem, "model_fields")
-             else list(EX.ExtractedItem.__fields__))
-        self.assertNotIn("source_phrase", f)
-        self.assertFalse([x for x in f if "normal" in x.lower()])
+        from api.services.relationship_interpreter import interpret_phrase
+        self.assertEqual(interpret_phrase("my daddy").relation, "father")
+        self.assertEqual(interpret_phrase("my mama").relation, "mother")
+
+    def test_the_narrators_word_is_still_recoverable(self):
+        """`daddy → father` must not lose `daddy`."""
+        from api.services.relationship_interpreter import interpret_phrase
+        reading = interpret_phrase("my daddy Walter")
+        self.assertEqual(reading.source_phrase, "daddy")
+        self.assertTrue(reading.normalized)
+
+    def test_unchanged_language_claims_no_normalization(self):
+        """`father → father` transformed nothing, and says so."""
+        from api.services.relationship_interpreter import interpret_phrase
+        self.assertFalse(interpret_phrase("my father Walter").normalized)
 
 
 if __name__ == "__main__":  # pragma: no cover
