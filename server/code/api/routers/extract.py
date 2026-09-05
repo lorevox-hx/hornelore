@@ -9767,20 +9767,55 @@ def run_field_extraction(
                     # Extraction may interpret meaning; it may not decide
                     # which turn the meaning came from, and routing with
                     # `None, None` was that decision made badly.
+                    # ── THE THREE THINGS ROUTING REQUIRES ─────────────
+                    #
+                    # Phase 5B item 0 (2026-09-05). Provenance is
+                    # authoritative, but extraction still runs against
+                    # `req.person_id` — so the two identities must AGREE
+                    # or the write is a cross-narrator one.
+                    #
+                    # On the completed-turn path they always agree: both
+                    # come from the same `_Claim`. That is exactly why a
+                    # disagreement means something has gone wrong
+                    # upstream, and why the answer is to refuse rather
+                    # than to pick one. Choosing `source_identity` would
+                    # file narrator A's extracted facts under narrator B;
+                    # choosing `req.person_id` would attach B's facts to
+                    # A's committed turn. Both are silent corruption.
+                    #
+                    # `turn_key` is required because it is the only id
+                    # that survives a replay — `turn_id` is the client's
+                    # string and can legitimately be absent.
+                    _routing_refusal = None
                     if not source_identity:
+                        _routing_refusal = (
+                            "no committed-turn identity (the HTTP path has "
+                            "no source turn)")
+                    elif not (source_identity.get("turn_key") or "").strip():
+                        _routing_refusal = "committed turn_key is missing"
+                    elif source_identity.get("narrator_id") != _narrator:
+                        _routing_refusal = (
+                            "provenance-identity-mismatch: extraction ran "
+                            f"for person_id={_narrator!r} but the committed "
+                            "turn belongs to "
+                            f"{source_identity.get('narrator_id')!r}")
+
+                    if _routing_refusal:
                         logger.info(
-                            "[bio_fact_router] SKIPPED — no committed-turn "
-                            "identity for this call (%d item(s)). The HTTP "
-                            "path has no source turn, and a bio fact "
-                            "without provenance is not worth writing.",
-                            len(_items_dicts),
+                            "[bio_fact_router] SKIPPED — %s (%d item(s)). "
+                            "The extraction result and the narrator's turn "
+                            "are unaffected; only the bio-fact side-write "
+                            "is refused.",
+                            _routing_refusal, len(_items_dicts),
                         )
                         _bfr_summary = None
                     else:
                         _bfr_summary = _bfr_route(
                             _items_dicts,
-                            narrator_id=source_identity.get("narrator_id")
-                            or _narrator,
+                            # Proven equal to `_narrator` by the guard
+                            # above, so the `or` fallback that used to sit
+                            # here could only ever have masked a mismatch.
+                            narrator_id=source_identity["narrator_id"],
                             session_id=source_identity.get("session_id"),
                             turn_id=source_identity.get("turn_id"),
                             turn_key=source_identity.get("turn_key"),

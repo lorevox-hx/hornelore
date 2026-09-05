@@ -182,7 +182,7 @@ class IdentityComesFromTheClaim(unittest.TestCase):
 class RequestSideIdentityCannotSubstitute(unittest.TestCase):
     """The negative control the work order requires."""
 
-    def _route_with(self, source_identity, **req_kw):
+    def _route_with(self, source_identity, person_id="N-req", **req_kw):
         seen = {"called": False}
 
         def _fake_route(items, narrator_id, **kw):
@@ -190,8 +190,8 @@ class RequestSideIdentityCannotSubstitute(unittest.TestCase):
             return mock.Mock(routed=1, conflicts=0, suppressed_by_authority=0,
                             unmapped=0, errors=0)
 
-        req = EX.ExtractFieldsRequest(person_id="N-req", answer=ACCEPTED_WORDING,
-                                      **req_kw)
+        req = EX.ExtractFieldsRequest(person_id=person_id,
+                                      answer=ACCEPTED_WORDING, **req_kw)
         with mock.patch("api.services.bio_fact_router.routing_enabled",
                         return_value=True), \
              mock.patch("api.services.bio_fact_router."
@@ -238,9 +238,16 @@ class RequestSideIdentityCannotSubstitute(unittest.TestCase):
         self.assertFalse(seen["called"])
 
     def test_the_claim_wins_over_a_conflicting_request(self):
-        """Identity is the turn's fact, not the request's opinion."""
+        """Identity is the turn's fact, not the request's opinion.
+
+        The narrator MATCHES here on purpose — a narrator mismatch is a
+        refusal, tested separately below. What this isolates is that a
+        `session_id` set on the request cannot displace the committed
+        turn's own conversation id.
+        """
         seen = self._route_with(
             TE.claim_source_identity(_claim(session_id="conv-real")),
+            person_id="N-real",
             session_id="conv-from-request")
         self.assertTrue(seen["called"])
         self.assertEqual(seen["session_id"], "conv-real")
@@ -251,6 +258,86 @@ class RequestSideIdentityCannotSubstitute(unittest.TestCase):
         src = inspect.getsource(TE.run_http_extraction)
         self.assertIn("_call_extractor(req)", src)
         self.assertNotIn("source_identity=", src)
+
+
+class ExtractionAndProvenanceMustNameTheSameNarrator(unittest.TestCase):
+    """Phase 5B item 0 — the cross-narrator invariant.
+
+    Provenance is authoritative, but extraction still runs against
+    `req.person_id`. On the completed-turn path the two always agree,
+    because both come from one `_Claim` — which is precisely why a
+    disagreement means something upstream is wrong.
+
+    **Refusing is the only safe answer.** Trusting `source_identity`
+    would file narrator A's extracted facts under narrator B; trusting
+    `req.person_id` would attach B's facts to A's committed turn. Both
+    are silent cross-narrator corruption, and this repository's own
+    Picker doctrine says destination is never inferred.
+    """
+
+    def _attempt(self, *, req_person, claim_narrator, turn_key="turnrow:1"):
+        seen = {"called": False}
+
+        def _fake_route(items, narrator_id, **kw):
+            seen.update({"called": True, "narrator_id": narrator_id, **kw})
+            return mock.Mock(routed=1, conflicts=0, suppressed_by_authority=0,
+                             unmapped=0, errors=0)
+
+        req = EX.ExtractFieldsRequest(person_id=req_person,
+                                      answer=ACCEPTED_WORDING)
+        ident = TE.claim_source_identity(
+            _claim(narrator_id=claim_narrator, turn_key=turn_key))
+        with mock.patch("api.services.bio_fact_router.routing_enabled",
+                        return_value=True), \
+             mock.patch("api.services.bio_fact_router."
+                        "route_extraction_to_bio_facts", _fake_route), \
+             mock.patch.object(EX, "_extract_via_llm",
+                               return_value=([{"fieldPath": "parents.firstName",
+                                               "value": "Walter",
+                                               "confidence": 0.9}], "[stub]")):
+            with self.assertLogs("lorevox.extract", level="INFO") as logs:
+                resp = EX.run_field_extraction(req, source_identity=ident)
+        return seen, resp, logs.output
+
+    def test_matching_narrators_route_normally(self):
+        """Positive control — without it, refusal proves nothing."""
+        seen, _resp, _logs = self._attempt(req_person="N-1", claim_narrator="N-1")
+        self.assertTrue(seen["called"])
+        self.assertEqual(seen["narrator_id"], "N-1")
+
+    def test_a_narrator_mismatch_REFUSES_to_route(self):
+        seen, _resp, logs = self._attempt(req_person="N-1", claim_narrator="N-2")
+        self.assertFalse(
+            seen["called"],
+            "routed a bio fact whose extraction ran for a different narrator")
+        self.assertTrue(
+            any("provenance-identity-mismatch" in m for m in logs),
+            f"the mismatch was not announced. Log: {logs}")
+
+    def test_the_mismatch_does_not_silently_pick_either_narrator(self):
+        """Neither id wins. That is the whole point."""
+        seen, _resp, _logs = self._attempt(req_person="N-1", claim_narrator="N-2")
+        self.assertNotEqual(seen.get("narrator_id"), "N-1")
+        self.assertNotEqual(seen.get("narrator_id"), "N-2")
+
+    def test_the_extraction_result_survives_a_mismatch(self):
+        """A refused side-write must not cost the narrator their result."""
+        _seen, resp, _logs = self._attempt(req_person="N-1", claim_narrator="N-2")
+        self.assertTrue(resp.items,
+                        "the extraction result was lost to a routing refusal")
+
+    def test_an_empty_turn_key_REFUSES_to_route(self):
+        """`turn_key` is the only id that survives a replay.
+
+        `turn_id` is the client's string and can legitimately be absent,
+        so it cannot carry this requirement.
+        """
+        for empty in ("", "   "):
+            with self.subTest(turn_key=repr(empty)):
+                seen, _resp, logs = self._attempt(
+                    req_person="N-1", claim_narrator="N-1", turn_key=empty)
+                self.assertFalse(seen["called"])
+                self.assertTrue(any("turn_key is missing" in m for m in logs))
 
 
 class TheCompletedTurnPathHandsIdentityDown(unittest.TestCase):
