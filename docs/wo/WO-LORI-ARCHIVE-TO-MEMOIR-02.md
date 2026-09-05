@@ -420,10 +420,13 @@ Required aggregate totals:
 - [x] **3** no-candidate turns — `1846`, `1864`, `1870` — reproduced **and classified:
       `measurement_failed`.** *(This said "classification still owed: each needs a
       defensible, inspectable `not_story` reason." That is unsatisfiable and was removed:
-      the deciding signal — the factual-chain result — is persisted nowhere, so no
-      evidence-backed `not_story` reason can exist. `measurement_failed` IS the defensible
-      classification. A `not_story` reason becomes possible only after Phase 4 persists the
-      capture decision.)*
+      the deciding signal — the factual-chain result — is not DURABLY persisted, so no
+      evidence-backed `not_story` reason can be recovered later. `measurement_failed` IS the
+      defensible classification. A `not_story` reason becomes possible only after Phase 4
+      attaches the capture decision to the turn.)* **Wording corrected 2026-09-05:** this
+      read "persisted nowhere", which is false — the decision is recorded for all 38 turns
+      at `chat_ws.py:1848`, into a gitignored rotating log. Not durable is not absent, and
+      the difference is the whole of Phase 4's scope.
 - [→] Pat, Stefi, Mable, Tomasita, Richard, Joe and Frank explicitly reviewed. **→ TRANSFERRED to DECLINED — synthetic; real-narrator validation in Phase 8** — not done in Phase 2.
 - [→] The final destinations of the previously reported accepted extraction items identified. **→ TRANSFERRED to Phase 5** — not done in Phase 2.
 
@@ -616,7 +619,7 @@ documented; the defect is reaching it with an empty parse, not the ineligibility
 runs at `chat_ws.py:1811-1939`, roughly 2,500 lines *before* the `turn_mode` dispatch, so a
 correction-routed turn is still considered for a story candidate.
 
-- [ ] Use Stefi’s exact Las Vegas, New Mexico statement as a regression fixture.
+- [x] Use Stefi’s exact Las Vegas, New Mexico statement as a regression fixture.
 
 - [x] **Correction processing finalizes only when a concrete correction is parsed.**
 - [x] **`parsed={}` returns the turn to normal interview processing.** Both copies of
@@ -745,7 +748,9 @@ defensive floor to `suggest_only`. Mutation-checked: three separate mutations of
 the product each turn the guard red.
 
 **TESTING DOCTRINE ADOPTED 2026-09-04 — [`docs/TESTING-DOCTRINE.md`](../TESTING-DOCTRINE.md).**
-Eight instances in this lane of one failure: *a test constructs the property it
+Every instance found in this lane is listed in the maintained table in
+[`docs/TESTING-DOCTRINE.md`](../TESTING-DOCTRINE.md) — that table is the count. All
+share one failure: *a test constructs the property it
 intends to prove, exercises a helper against that constructed shape, and passes
 without crossing the production boundary.* Fabricated anchor counts, supplied
 `repeatableGroup`, guessed questionnaire nesting, helper-only decision tests,
@@ -759,27 +764,31 @@ at the Phase 3 reconciliation.**
 
 **Rebuild requirements — every one of these is a defect `add4753` shipped:**
 
-- [ ] Runs AFTER relationship grouping, or against the final extraction representation.
-- [ ] Evidence is inspected LOCALLY per proposed person/group, never answer-wide.
-- [ ] `suggest_only`, `needs_confirmation` and the REASON survive serialization into the
+- [x] Runs AFTER relationship grouping, or against the final extraction representation.
+- [x] Evidence is inspected LOCALLY per proposed person/group, never answer-wide.
+- [x] `suggest_only`, `needs_confirmation` and the REASON survive serialization into the
       emitted item. A downgrade that a downstream constructor discards is not a downgrade.
-- [ ] Never hard-refuses on first-name equality alone; same-name ambiguity DOWNGRADES.
-- [ ] Refuses on a known other-role identity only when identity evidence is strong.
-- [ ] Downgrades or quarantines the WHOLE uncertain group, not just `firstName`.
-- [ ] Mixed spouse-and-parent narration produces no collateral removal.
-- [ ] Quarantines an uncertain relationship as an attributed fact rather than presenting
+- [x] Never hard-refuses on first-name equality alone; same-name ambiguity DOWNGRADES.
+- [x] Refuses on a known other-role identity only when identity evidence is strong.
+- [x] Downgrades or quarantines the WHOLE uncertain group, not just `firstName`.
+- [x] Mixed spouse-and-parent narration produces no collateral removal.
+- [x] Quarantines an uncertain relationship as an attributed fact rather than presenting
       `parents.firstName=Otis` as a merely lower-confidence parent.
-- [ ] Tested through `run_field_extraction` on BOTH paths with real ungrouped input,
+- [x] Tested through `run_field_extraction` on BOTH paths with real ungrouped input,
       including father-John/spouse-John, asserting final emitted writeMode + metadata.
-- [ ] One new live eval against the CORRECTED implementation — not another run of `add4753`.
-- [ ] Jim binds as Pat’s husband.
-- [ ] Otis binds as Mable’s husband.
-- [ ] Domingo binds as Tomasita’s husband.
-- [ ] A spouse cannot enter `parents.*`.
-- [ ] Binding checks the narrator’s actual relationship language and nearby context.
-- [ ] Model confidence alone authorizes no canonical relationship.
-- [ ] Weak or ambiguous binding becomes an attributed fact candidate.
-- [ ] Existing synthetic mis-bound fields are inventoried before correction.
+- [x] One new live eval against the CORRECTED implementation — not another run of `add4753`.
+- [ ] **Jim binds as Pat’s husband — NOT PROVEN.** `Otis` appears in five test
+      suites and `Domingo` in two; **`Jim` appears in none.** The exit gate says
+      "all three spouse fixtures bind correctly" and two of the three are
+      demonstrated. Pat’s Jim passage is already owed as Phase 4’s primary
+      regression fixture, which is where this closes.
+- [x] Otis binds as Mable’s husband.
+- [x] Domingo binds as Tomasita’s husband.
+- [x] A spouse cannot enter `parents.*`.
+- [x] Binding checks the narrator’s actual relationship language and nearby context.
+- [x] Model confidence alone authorizes no canonical relationship.
+- [x] Weak or ambiguous binding becomes an attributed fact candidate.
+- [x] Existing synthetic mis-bound fields are inventoried before correction.
 
 **Exit gate:** Stefi follows the normal turn path; all three spouse fixtures bind correctly; no false parent field is written; uncertain relationships remain reviewable.
 
@@ -850,36 +859,61 @@ and a probe assertion first overstated ("stamped interview") and then over-corre
 **Outcome:** Important life narration becomes reviewable even when it does not resemble a
 travel chain — and every capture decision is inspectable.
 
-### THE CORRECTED SCOPE — read this before anything below (2026-09-05)
+### THE SCOPE, SETTLED (2026-09-05) — this replaces everything below it
 
-**Phase 4's first job is auditability, not capture rate.** The list further down still
-describes broadening what counts as a story, and that work is real, but it is **not what
-this phase starts with** and a percentage must not be raised first.
+**Persist the already-computed capture decision directly on the committed narrator turn.**
 
-> **Durably attach story-capture decisions and diagnostics to their source turns,
-> INCLUDING turns that produced no candidate.**
+> One implementation checkpoint, then one live-acceptance/closeout checkpoint. Two
+> checkpoints, not a sequence of speculative mini-commits.
 
-Three facts fix that scope, and each was measured rather than assumed:
+**Why the turn and not a new table.** It avoids a new table entirely; it **inherits narrator
+deletion automatically**, so an erased narrator's decisions leave with them rather than
+becoming orphans in a side table nobody remembers to purge; and it **covers declined turns,
+which have no candidate to hang a record on**. `story_candidates` cannot hold this by
+construction — a missed turn never creates one.
 
-* **The decision is already recorded — just not durably.** All 38 cohort turns emit trigger,
-  word count and every anchor dimension at `chat_ws.py:1848`, into `.runtime/logs/api.log`,
-  which is **gitignored and rotates**. The job is to attach an existing record to the row it
-  explains, not to start recording.
-* **Candidate presence is 35/38, byte-exact, with zero over-capture.** Raising a threshold
+**Explicitly NOT in scope. None of these is needed and none may be smuggled in:**
+
+* ❌ another classifier rewrite
+* ❌ another 128-case evaluation
+* ❌ an extraction-ledger repair
+* ❌ **any capture-threshold change** — the decisions must be readable before anything is
+  tuned against them
+
+**The three facts that fix this scope, each measured rather than assumed:**
+
+* **The decision is already computed and already recorded — just not durably.** All 38
+  cohort turns emit trigger, word count and every anchor dimension at `chat_ws.py:1848`,
+  into `.runtime/logs/api.log`, which is **gitignored and rotates**. The work is to attach
+  an existing record to the row it explains. It is not to start recording, and it is not to
+  compute anything new.
+* **Candidate presence is 35/38, byte-exact, with zero over-capture.** Raising a percentage
   was never the work.
-* **A missed turn has no candidate**, so `story_candidates` cannot hold the record by
-  construction. It belongs on the turn, or in a per-turn decision table.
+* **The three misses have a named cause** — no relative-time phrasing in a present-day life
+  inventory — *because* the decision was inspectable at the time. A threshold change would
+  have buried exactly that.
 
-**The declined captures are the point.** The three cohort misses have a named cause — no
-relative-time phrasing in a present-day life inventory — precisely because the decision was
-inspectable. A threshold change would have buried that. **Tuning a classifier whose
-decisions cannot be inspected is guesswork**, so no capture threshold moves until the
-decisions can be read back.
-
-Live confirmation from the Phase 3 gate: Stefi's turn logged
+**Live confirmation from the Phase 3 gate.** Stefi's turn logged
 `[chat_ws][trip-story-capture] captured=False reason=shelf_closed scope=None` — a declined
-capture, with its reason, **existing only in a rotating log**. That is exactly the record
-this phase must make durable.
+capture, carrying its own reason, **existing only in a rotating log**. That single line is
+the thing this phase makes durable, and it is a turn that produced no candidate.
+
+### ⚠ THE PROSE BELOW PREDATES THIS AND CONTRADICTS IT
+
+**Superseded 2026-09-05, kept for its history only.** Three of its claims are DISPROVEN and
+must not be acted on:
+
+| Stale claim | What is actually true |
+|---|---|
+| "the deciding signal … is persisted nowhere" | It is recorded for **all 38 turns** at `chat_ws.py:1848`. It is not durable; it is not absent. `.runtime/` is gitignored, not empty |
+| "Re-evaluate the **27** baseline no-candidate turns" | Presence is **35/38**, so there are **three**, and each already has a named cause |
+| "Also fix the absent `turn_extraction_ledger` writes" | **Out of scope** — see the exclusion list above |
+
+The broadening work further down — treating the full passage as the source unit, detecting
+non-place events, Pat's Jim passage as the primary regression fixture — **remains real and
+remains owed**, but it is not what these two checkpoints deliver. Pat's Jim fixture also
+closes the one Phase 3 box that could not be checked: `Jim` appears in **no test suite**,
+while `Otis` appears in five and `Domingo` in two.
 
 ### FIRST, BEFORE ANY THRESHOLD CHANGE: persist the capture decision
 
@@ -902,13 +936,18 @@ classifier whose decisions cannot be inspected is guesswork.
 - [ ] **Do NOT change any capture threshold until those decisions can be inspected.**
 - [ ] Also fix the absent `turn_extraction_ledger` writes — extraction evidence was missing for every cohort turn.
 
-**REFRAMED 2026-09-04 by the Phase 2 closeout.** Candidate presence is **35/38** with
-capture byte-exact and zero over-capture, so raising a percentage was never the work. The
-real capture defects are **auditability**: the factual-chain decision that determines 20 of
-38 turns is persisted nowhere, and `turn_extraction_ledger` was never written for this
-cohort. Fix those first — see the block above. The goal stated below still holds: every substantive passage should be either nominated or given a defensible,
-inspectable `not_story` reason. What is owed is the `not_story` reason for the three, and
-an operator pass over the thirty-five.
+**REFRAMED 2026-09-04 by the Phase 2 closeout — and ITSELF SUPERSEDED 2026-09-05.**
+Candidate presence is **35/38** with capture byte-exact and zero over-capture, so raising a
+percentage was never the work. ~~The real capture defects are **auditability**: the
+factual-chain decision that determines 20 of 38 turns is persisted nowhere, and
+`turn_extraction_ledger` was never written for this cohort. Fix those first.~~
+**Both halves of that struck sentence are wrong.** The decision is recorded for all 38 turns
+at `chat_ws.py:1848` — not durable, not absent — and the `turn_extraction_ledger` repair is
+**explicitly excluded** from Phase 4. The settled scope is at the top of this phase: persist
+the computed decision on the committed narrator turn, two checkpoints, nothing else. The
+goal stated below still holds: every substantive passage should be either nominated or given
+a defensible, inspectable `not_story` reason. What is owed is the `not_story` reason for the
+three, and an operator pass over the thirty-five.
 
 - [ ] Treat the full coherent narrator passage as the source unit.
 - [ ] Add Pat’s Jim passage as the primary regression fixture.

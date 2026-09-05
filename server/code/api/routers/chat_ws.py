@@ -275,6 +275,64 @@ async def _ws_send(ws: WebSocket, obj: Dict[str, Any]) -> None:
         pass
 
 
+def _record_capture_decision(
+    params,
+    logger_,
+    conv_id: str,
+    *,
+    outcome: str,
+    diagnostic=None,
+    trigger_reason=None,
+    candidate_id=None,
+    error_class=None,
+) -> None:
+    """Build ONE capture decision and carry it to the commit boundary.
+
+    WO-LORI-STORY-CAPTURE-DECISION-DURABILITY-01 (Phase 4, 2026-09-05).
+
+    The four emit sites — diagnostic failure, decline, nomination and
+    preservation failure — all come through here so the object is built
+    in one place and cannot drift between them. It rides on `params`,
+    the same channel `_story_candidate_id` already uses, because
+    preservation runs BEFORE the turn is committed and the row ids do
+    not exist yet.
+
+    **LAW 3 applies to this function too.** Recording why a turn was not
+    captured must never be the reason a narrator's turn fails. Any
+    failure here is logged and swallowed: the conversation continues,
+    and the turn still persists — just without its explanation.
+    """
+    try:
+        from ..services.story_trigger import build_story_capture_decision
+        decision = build_story_capture_decision(
+            outcome=outcome,
+            diagnostic=diagnostic,
+            trigger_reason=trigger_reason,
+            candidate_id=candidate_id,
+            error_class=error_class,
+        )
+        params["_story_capture_decision"] = decision
+        logger_.info(
+            "[story-capture-decision] conv=%s outcome=%s reason=%s "
+            "candidate=%s", conv_id, decision["outcome"], decision["reason"],
+            decision["candidate_id"],
+        )
+    except Exception as _decision_exc:      # pragma: no cover - LAW 3
+        logger_.warning(
+            "[story-capture-decision] could not record (conv=%s): %s — the "
+            "turn continues and still persists, without its explanation",
+            conv_id, type(_decision_exc).__name__,
+        )
+
+
+def _capture_decision_from(params):
+    """The decision this turn produced, if any. Read at both writers."""
+    try:
+        return params.get("_story_capture_decision")
+    except Exception:                       # pragma: no cover - defensive
+        return None
+
+
 async def _finalize_deterministic_turn(
     ws: WebSocket,
     *,
@@ -395,6 +453,10 @@ async def _finalize_deterministic_turn(
         is_system_directive=bool(params.get("_is_system_directive")),
         person_id=person_id,
         row_ids_out=_det_row_ids,
+        # Phase 4 — the deterministic routes evaluate story capture too,
+        # and a memory_echo or correction turn that declined is exactly
+        # as worth explaining as an ordinary one.
+        story_capture_decision=_capture_decision_from(params),
     )
 
     # Link a story preserved earlier in this turn to the rows just
@@ -1844,6 +1906,18 @@ async def ws_chat(ws: WebSocket):
                         "[story-trigger] diagnostic failed (conv=%s): %s",
                         conv_id, _diag_exc,
                     )
+                    # Phase 4 — a turn whose measurement RAISED is not a
+                    # decline. Recording it as one would claim the
+                    # classifier looked and said no, when in fact it never
+                    # finished looking. Class name only; the exception
+                    # message routinely quotes the narrator back.
+                    _record_capture_decision(
+                        params, logger, conv_id,
+                        outcome="measurement_failed",
+                        diagnostic=None,
+                        trigger_reason="diagnostic_failed",
+                        error_class=type(_diag_exc).__name__,
+                    )
 
                 if _trigger_diag is not None:
                     logger.info(
@@ -1939,6 +2013,18 @@ async def ws_chat(ws: WebSocket):
                                 params["_story_candidate_id"] = _candidate_id
                             except Exception:
                                 pass
+                            # Phase 4 — NOMINATED, and only now. Built
+                            # after preserve_turn returned an id, so the
+                            # record cannot name a candidate that does not
+                            # exist. The trigger's own reason is carried
+                            # through rather than restated.
+                            _record_capture_decision(
+                                params, logger, conv_id,
+                                outcome="nominated",
+                                diagnostic=_trigger_diag,
+                                trigger_reason=_trigger_reason,
+                                candidate_id=_candidate_id,
+                            )
                         except Exception as _preserve_exc:
                             # LAW 3: preservation failure is loud but
                             # NOT fatal. Chat turn continues so the
@@ -1952,6 +2038,18 @@ async def ws_chat(ws: WebSocket):
                                 _preserve_exc,
                                 exc_info=True,
                             )
+                            # Phase 4 — the story was NOT saved, and the
+                            # turn must say so. Without this the row would
+                            # look identical to one that was never
+                            # evaluated, which is the case an operator
+                            # most needs to find.
+                            _record_capture_decision(
+                                params, logger, conv_id,
+                                outcome="measurement_failed",
+                                diagnostic=_trigger_diag,
+                                trigger_reason="preservation_failed",
+                                error_class=type(_preserve_exc).__name__,
+                            )
                     elif _trigger_reason and not person_id:
                         # Trigger fired but no narrator association —
                         # can't persist (FK + LAW 3 require narrator_id).
@@ -1961,6 +2059,37 @@ async def ws_chat(ws: WebSocket):
                             "person_id is missing — skipping preservation "
                             "(conv=%s)",
                             _trigger_reason, conv_id,
+                        )
+                        # ── PHASE 4 WRITES NOTHING HERE, DELIBERATELY ──
+                        #
+                        # This turn fits none of the three outcomes. It is
+                        # not `declined` — a trigger DID fire. It is not
+                        # `nominated` — no candidate exists. It is not
+                        # `measurement_failed` — nothing raised; the
+                        # measurement succeeded and said yes.
+                        #
+                        # The outcome vocabulary is CLOSED by the work
+                        # order, and inventing a fourth value is a product
+                        # choice the work order did not make. This is an
+                        # EXISTING exclusion — no narrator association, so
+                        # no narrator turn to explain — and §4.2 says
+                        # existing exclusions keep their current
+                        # behaviour. The log line above remains the record.
+                        #
+                        # Pinned by a test so the silence is a decision
+                        # somebody made rather than a branch nobody
+                        # noticed. Raise it if the vocabulary ever opens.
+                    elif not _trigger_reason:
+                        # ── DECLINED: the measurement completed and no
+                        # trigger fired. This is the case the whole phase
+                        # exists for — it creates no candidate, so without
+                        # a record on the turn there is nothing anywhere
+                        # to explain why the narration was not captured
+                        # once the rotating log ages out.
+                        _record_capture_decision(
+                            params, logger, conv_id,
+                            outcome="declined",
+                            diagnostic=_trigger_diag,
                         )
 
         # ── WO-EX-UTTERANCE-FRAME-01 Phase 0-2: observability-only log ──
@@ -6423,6 +6552,9 @@ async def ws_chat(ws: WebSocket):
                 # when this turn produced one — see the merge above.
                 meta=_turn_meta,
                 row_ids_out=_persisted_row_ids,
+                # Phase 4 — built once in `_record_capture_decision`,
+                # carried on params from before the reply was generated.
+                story_capture_decision=_capture_decision_from(params),
                 # WO-SYSTEM-DIRECTIVE-PERSISTENCE-01 Phase 1 (2026-08-09).
                 is_system_directive=bool(params.get("_is_system_directive")),
             )

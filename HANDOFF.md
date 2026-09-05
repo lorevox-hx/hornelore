@@ -338,12 +338,32 @@ evidence**; the `2 → 0` delta is **not established** — `must_not_write` is a
 judgment. Registered as nonblocking measurement debt in
 [`docs/BACKLOG.md`](docs/BACKLOG.md) §6a. **No further Phase 3 evaluation is needed.**
 
-**Phase 4 is now current**, with its scope corrected: *durably attach story-capture
-decisions and diagnostics to their source turns, including turns that produced no
-candidate.* The decisions already exist at `chat_ws.py:1848` but only in
-`.runtime/logs/api.log`, which is gitignored and rotates; candidate presence is 35/38
-byte-exact with zero over-capture, so **no capture threshold moves until the decisions can
-be read back**. Full statement in the work order's Phase 4 preamble.
+**Phase 4 is now current, and its design is settled (2026-09-05):**
+
+> **Persist the already-computed capture decision directly on the committed narrator turn.**
+> **One implementation checkpoint, then one live-acceptance/closeout checkpoint.**
+
+The turn, not a new table — it avoids a new table, **inherits narrator deletion
+automatically**, and covers **declined turns, which have no candidate to attach to**.
+`story_candidates` cannot hold this by construction.
+
+**NOT in scope, and not to be smuggled in:** another classifier rewrite · another 128-case
+evaluation · an extraction-ledger repair · **any capture-threshold change**.
+
+The decision is already computed and recorded for all 38 turns at `chat_ws.py:1848` — into
+`.runtime/logs/api.log`, which is gitignored and rotates. **Not durable is not absent**, and
+that distinction is the whole of the work. Candidate presence is 35/38 byte-exact with zero
+over-capture, so raising a percentage was never it. The Phase 3 gate supplied a live
+example of the target case: Stefi's turn logged `captured=False reason=shelf_closed` — a
+declined capture carrying its own reason, existing only in a rotating log.
+
+**Prose in the work order's Phase 4 section that predates this is marked SUPERSEDED**, and
+three of its claims are disproven: "persisted nowhere" (it is recorded, just not durably),
+"27 no-candidate turns" (there are three), and the ledger repair (excluded).
+
+**One Phase 3 box is deliberately left unchecked:** *Jim binds as Pat's husband*. `Otis`
+appears in five test suites and `Domingo` in two; **`Jim` appears in none**. Pat's Jim
+passage is already owed as Phase 4's primary regression fixture, which is where it closes.
 
 ## 9a. Phase 1 and Phase 2 — the earlier record (2026-09-04)
 

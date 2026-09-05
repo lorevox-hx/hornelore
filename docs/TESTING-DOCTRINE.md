@@ -13,7 +13,8 @@ Phase 3. **To be folded into `CLAUDE.md` at the Phase 3 reconciliation.**
 
 ## Why it exists
 
-Eight instances in one lane, all the same shape: *a test constructs the
+The table below is the authoritative count — **this file owns it, and no other
+document restates the number.** All share one shape: *a test constructs the
 property it intends to prove, exercises a helper against that constructed
 shape, and passes without crossing the production boundary that actually
 creates or consumes the value.*

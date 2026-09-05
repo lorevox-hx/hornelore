@@ -2186,8 +2186,30 @@ def persist_turn_transaction(
     *,
     is_system_directive: bool = False,
     person_id: Optional[str] = None,
+    story_capture_decision: Optional[dict] = None,
 ) -> Optional[int]:
     """Commit one user+assistant turn pair. Returns the assistant rowid.
+
+    WO-LORI-STORY-CAPTURE-DECISION-DURABILITY-01 (Phase 4, 2026-09-05) --
+    the optional keyword-only `story_capture_decision` was added here.
+    Neither the return value nor any existing behaviour changed.
+
+    It rides on the USER row's `meta_json` because the record explains
+    what the narrator said, and because that row is the only thing every
+    evaluated turn has: a DECLINED turn creates no `story_candidates`
+    row, so a side table would need its own lifecycle and its own
+    deletion path. Here the record commits inside this same transaction,
+    cannot be orphaned from the turn it describes, and disappears through
+    the turn/session/narrator deletion that already exists.
+
+    **The transcript is already on this row and is NOT copied into the
+    record.** The decision object carries measurements and an exception
+    class name; `story_trigger.validate_story_capture_decision` re-checks
+    that before the transaction opens, so a malformed or over-wide record
+    fails loudly rather than committing.
+
+    When the argument is absent this function behaves exactly as before,
+    which is what keeps every existing call site byte-equivalent.
 
     WO-TRUTH-PIPELINE-01 Phase 2 (2026-07-30) -- the signature was
     ``-> None`` until this date. It stopped being true when Phase 2
@@ -2277,6 +2299,17 @@ def persist_turn_transaction(
     ensure_session(conv_id, person_id=person_id)
     ts = _now_iso()
 
+    # VALIDATED BEFORE THE TRANSACTION OPENS, on purpose. A malformed
+    # decision must not be discovered halfway through a write that has
+    # already inserted the narrator's row — the turn itself matters far
+    # more than its diagnostic, and an exception in here would roll the
+    # conversation's own record back with it.
+    _capture_decision_for_row: Optional[Dict[str, Any]] = None
+    if story_capture_decision is not None:
+        from .services.story_trigger import validate_story_capture_decision
+        _capture_decision_for_row = validate_story_capture_decision(
+            story_capture_decision)
+
     assistant_rowid: Optional[int] = None
     user_rowid: Optional[int] = None
     con = _connect()
@@ -2297,6 +2330,12 @@ def persist_turn_transaction(
         user_meta: Dict[str, Any] = {}
         if is_system_directive:
             user_meta["origin"] = TURN_ORIGIN_SYSTEM_DIRECTIVE
+        # Phase 4. Merged rather than assigned, so the system-directive
+        # origin above survives on a turn that carries both. Validated
+        # BEFORE the transaction opened (see `_validated_capture_decision`
+        # at the top of this function) — nothing unvalidated reaches here.
+        if _capture_decision_for_row is not None:
+            user_meta["story_capture_decision"] = _capture_decision_for_row
         cur.execute(
             "INSERT INTO turns(conv_id,role,content,ts,anchor_id,meta_json) VALUES(?,?,?,?,?,?);",
             (conv_id, "user", user_message, ts, "", _json_dump(user_meta)),

@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import List, Optional
+from typing import Any, List, Optional
 
 
 # ── Thresholds (env-tunable) ──────────────────────────────────────────────
@@ -721,9 +721,195 @@ def trigger_diagnostic(
     }
 
 
+# ── The durable capture decision ──────────────────────────────────────
+#
+# WO-LORI-STORY-CAPTURE-DECISION-DURABILITY-01 (Phase 4, 2026-09-05).
+#
+# `trigger_diagnostic` already computes everything an operator needs to
+# know WHY a turn was or was not nominated, and `chat_ws` already logs it
+# in full. The log is gitignored and rotates, so the record survives only
+# until it doesn't — and the turns that most need explaining are exactly
+# the DECLINED ones, which create no `story_candidates` row to carry it.
+#
+# This builder turns that same diagnostic into one JSON-safe object that
+# rides along on the source narrator turn. It computes nothing: every
+# measurement is copied from the diagnostic it is handed, so the stored
+# record and the logged decision cannot disagree.
+#
+# **It makes no capture decision and changes no threshold.** The stored
+# thresholds describe the decision that was already made; they are not an
+# invitation to tune it.
+
+STORY_CAPTURE_DECISION_SCHEMA = "story_capture_decision/v1"
+STORY_TRIGGER_VERSION = "story_trigger/v1"
+
+#: The three outcomes, closed. Anything else is a programming error.
+STORY_CAPTURE_OUTCOMES = ("nominated", "declined", "measurement_failed")
+
+#: The reason a declined turn carries. It is deliberately NOT `not_story`:
+#: the classifier did not nominate this turn, which is a statement about
+#: the classifier, not a judgement that the narration lacks memoir value.
+STORY_CAPTURE_DECLINED_REASON = "below_all_capture_paths"
+
+#: The two failure reasons, by which stage raised.
+STORY_CAPTURE_FAILURE_REASONS = ("diagnostic_failed", "preservation_failed")
+
+#: Exactly the diagnostic fields that are copied through. Anything the
+#: diagnostic gains later is NOT persisted until it is added here on
+#: purpose — a record that silently widens is a privacy question nobody
+#: was asked.
+_DECISION_DIAGNOSTIC_FIELDS = (
+    "duration_sec",
+    "word_count",
+    "anchor_count",
+    "place_anchor",
+    "time_anchor",
+    "person_anchor",
+    "chain_is_factual",
+    "thresholds",
+)
+
+
+class StoryCaptureDecisionError(ValueError):
+    """A decision object that would be wrong to persist."""
+
+
+def build_story_capture_decision(
+    *,
+    outcome: str,
+    diagnostic: Optional[dict],
+    trigger_reason: Optional[str] = None,
+    candidate_id: Optional[str] = None,
+    error_class: Optional[str] = None,
+) -> dict:
+    """One JSON-safe capture-decision record for a narrator turn.
+
+    THE RULES ARE ENFORCED HERE, once, so the two callers cannot drift:
+
+      * `nominated` REQUIRES a candidate id and the trigger's own reason.
+      * `declined` and `measurement_failed` REQUIRE `candidate_id=None` —
+        a declined turn that names a candidate is describing something
+        that does not exist.
+      * `measurement_failed` carries an exception CLASS NAME and nothing
+        else. Never a message, never a traceback: both routinely quote
+        the narrator's own words back, and this object lives beside the
+        transcript rather than duplicating it.
+      * Only the fields in `_DECISION_DIAGNOSTIC_FIELDS` are copied, and
+        each is coerced to a JSON-safe primitive. Transcript text cannot
+        reach the record because no field carries it.
+
+    Raises `StoryCaptureDecisionError` rather than persisting something
+    malformed — a decision record that lies is worse than none.
+    """
+    if outcome not in STORY_CAPTURE_OUTCOMES:
+        raise StoryCaptureDecisionError(
+            f"outcome must be one of {STORY_CAPTURE_OUTCOMES}; got {outcome!r}")
+
+    if outcome == "nominated":
+        if not candidate_id:
+            raise StoryCaptureDecisionError(
+                "a nominated decision must name the candidate it created")
+        if not trigger_reason:
+            raise StoryCaptureDecisionError(
+                "a nominated decision must carry the trigger's own reason")
+        reason = str(trigger_reason)
+    elif outcome == "declined":
+        if candidate_id:
+            raise StoryCaptureDecisionError(
+                "a declined decision cannot name a candidate")
+        reason = STORY_CAPTURE_DECLINED_REASON
+    else:                                    # measurement_failed
+        if candidate_id:
+            raise StoryCaptureDecisionError(
+                "a measurement_failed decision cannot name a candidate")
+        if trigger_reason not in STORY_CAPTURE_FAILURE_REASONS:
+            raise StoryCaptureDecisionError(
+                f"measurement_failed reason must be one of "
+                f"{STORY_CAPTURE_FAILURE_REASONS}; got {trigger_reason!r}")
+        reason = str(trigger_reason)
+
+    source = diagnostic if isinstance(diagnostic, dict) else {}
+    measured: dict = {}
+    for field in _DECISION_DIAGNOSTIC_FIELDS:
+        value = source.get(field)
+        if field == "thresholds":
+            measured[field] = {
+                str(k): v for k, v in (value or {}).items()
+                if isinstance(v, (int, float, bool)) or v is None
+            } if isinstance(value, dict) else {}
+        elif field in ("place_anchor", "time_anchor", "person_anchor"):
+            measured[field] = bool(value)
+        elif field == "chain_is_factual":
+            # Genuinely three-valued: True, False, or None when the chain
+            # classifier did not run. Collapsing None to False would
+            # report a measurement that never happened.
+            measured[field] = None if value is None else bool(value)
+        elif field == "duration_sec":
+            measured[field] = float(value) if isinstance(value, (int, float)) else 0.0
+        else:
+            measured[field] = int(value) if isinstance(value, (int, float)) else 0
+
+    return {
+        "schema_version": STORY_CAPTURE_DECISION_SCHEMA,
+        "trigger_version": STORY_TRIGGER_VERSION,
+        "outcome": outcome,
+        "reason": reason,
+        "candidate_id": str(candidate_id) if candidate_id else None,
+        "diagnostic": measured,
+        # The CLASS name only — `type(exc).__name__`, never `str(exc)`.
+        "error_class": str(error_class) if error_class else None,
+    }
+
+
+def validate_story_capture_decision(decision: Any) -> dict:
+    """Re-check a decision at the persistence boundary.
+
+    The builder and the writer are in different modules and the object
+    crosses `params` between them, so the writer verifies rather than
+    trusts. Cheap, and it makes a malformed record impossible to commit
+    however it was constructed.
+    """
+    if not isinstance(decision, dict):
+        raise StoryCaptureDecisionError("decision must be a dict")
+    if decision.get("schema_version") != STORY_CAPTURE_DECISION_SCHEMA:
+        raise StoryCaptureDecisionError(
+            f"unknown schema_version {decision.get('schema_version')!r}")
+    if decision.get("outcome") not in STORY_CAPTURE_OUTCOMES:
+        raise StoryCaptureDecisionError(
+            f"unknown outcome {decision.get('outcome')!r}")
+    if decision.get("outcome") == "nominated":
+        if not decision.get("candidate_id"):
+            raise StoryCaptureDecisionError("nominated without a candidate_id")
+    elif decision.get("candidate_id"):
+        raise StoryCaptureDecisionError(
+            f"{decision.get('outcome')} must not name a candidate")
+    if not isinstance(decision.get("diagnostic"), dict):
+        raise StoryCaptureDecisionError("diagnostic must be a dict")
+    return {
+        "schema_version": decision["schema_version"],
+        "trigger_version": decision.get("trigger_version"),
+        "outcome": decision["outcome"],
+        "reason": decision.get("reason"),
+        "candidate_id": decision.get("candidate_id"),
+        "diagnostic": {
+            k: v for k, v in decision["diagnostic"].items()
+            if k in _DECISION_DIAGNOSTIC_FIELDS
+        },
+        "error_class": decision.get("error_class"),
+    }
+
+
 __all__ = [
     "count_scene_anchors",
     "has_scene_anchor",
     "classify_story_candidate",
     "trigger_diagnostic",
+    "STORY_CAPTURE_DECISION_SCHEMA",
+    "STORY_TRIGGER_VERSION",
+    "STORY_CAPTURE_OUTCOMES",
+    "STORY_CAPTURE_DECLINED_REASON",
+    "STORY_CAPTURE_FAILURE_REASONS",
+    "StoryCaptureDecisionError",
+    "build_story_capture_decision",
+    "validate_story_capture_decision",
 ]

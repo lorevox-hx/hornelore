@@ -326,7 +326,14 @@ property must be produced by shipped code, or loaded from the real persisted/fil
 **Every helper-level assertion needs a production-boundary companion, and every mutation
 must make that companion fail.**
 
-**Nine instances in one lane**, all the same shape — *a test constructs the property it
+**Every instance found so far is in the maintained table in
+[`docs/TESTING-DOCTRINE.md`](docs/TESTING-DOCTRINE.md)** — that table is the count, and this
+file does not carry a second one. *(This said "Nine instances" while the table itself listed
+eight and the work order said eight: three copies of one number, already disagreeing, which
+is the exact failure the "counts are derived" rule at the top of this file exists to stop. A
+hand-maintained count of a growing list is wrong the moment the list grows.)*
+
+They are all the same shape — *a test constructs the property it
 intends to prove, exercises a helper against that constructed shape, and passes without
 crossing the production boundary that creates or consumes the value*:
 
