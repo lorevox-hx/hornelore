@@ -3,10 +3,12 @@
 **Status:** CURRENT — central Lori/Lorevox work order  
 **Supersedes:** `WO-LORI-END-TO-END-LISTEN-RETAIN-MEMOIR-01`  
 **Starting evidence:** demographic cohort `20260901T015343Z` and Walt seven-era run `20260901T003329Z`  
-**Current position:** **Phase 0, 1 and 2 CLOSED. Phase 3 is the CURRENT ACTION** — fix the
-correction-route bypass and the spouse-under-`parents.*` binding. *(Phase 1 proof: mutations
-`20260904T123556Z`, carried forward at zero mutations in `20260904T130525Z`, exit 0.
-Phase 2 audit: `python3 scripts/phase2_verify_ledger.py`.)*
+**Current position:** **Phase 0, 1, 2 and 3 CLOSED. Phase 4 is the CURRENT ACTION** —
+durably attach story-capture decisions and diagnostics to their source turns, **including
+turns that produce no candidate**. *(Phase 1 proof: mutations `20260904T123556Z`, carried
+forward at zero mutations in `20260904T130525Z`, exit 0. Phase 2 audit: `python3
+scripts/phase2_verify_ledger.py`. Phase 3 live gate: Stefi correction-fallthrough
+`20260905-021741`, 9/9 over the production WebSocket.)*
 **Phase 0:** accepted by ChatGPT against pushed commit `fdaa255`
 
 ## 1. Goal
@@ -560,7 +562,7 @@ the Otis and Domingo mis-bindings below come from a real browser session
 `scripts/phase2_verify_ledger.py` now reads both log sources and prints the corroboration
 alongside every DB-derived number, each labelled with the symbol that produced it.
 
-## Phase 3 — Fix processing bypass and relationship binding  ⬅ **CURRENT ACTION**
+## Phase 3 — Fix processing bypass and relationship binding  ✅ **ACCEPTED 2026-09-05**
 
 **Outcome:** Narration cannot disappear into a special route, and spouses cannot become parents.
 
@@ -781,10 +783,103 @@ at the Phase 3 reconciliation.**
 
 **Exit gate:** Stefi follows the normal turn path; all three spouse fixtures bind correctly; no false parent field is written; uncertain relationships remain reviewable.
 
-## Phase 4 — Make memoir-worthy story capture dependable
+## ✅ PHASE 3 ACCEPTED — the exit gate is met (2026-09-05)
+
+**Every clause of the exit gate above is satisfied, and the last one open — "Stefi follows
+the normal turn path" — was proven live over the production WebSocket rather than argued
+from source.**
+
+### The accepted evidence
+
+| Obligation | Evidence |
+|---|---|
+| **Kinship containment and value grounding** | Group-local guard quarantines an unstated relationship whole-group and entity-bound; grounding is annotated **per value** (`spoken`/`derived`/`unsupported`), never per group. `parents.birthDate=1922` was fabricated and is now caught |
+| **Review-only preservation** | Review-only results travel end to end; a quarantined value is **preserved for review, not lost** |
+| **Browser authority enforcement** | The server's authority decision now binds the browser — it previously did not, which also silently affected shipped transcript safety. Effective mode resolved ONCE and handed down; reduction is one-way, so a response body can tighten authority but never widen it. Three separate product mutations each turn the guard red |
+| **Stefi live WebSocket pass** | `20260905-021741` — see below |
+| **Clean final evaluations** | `r5k-guard-v2` 71/114 at `5afead5`, **clean tree**, 0 `must_not_write`; `r5k-generational` 7/14 at `4ab00fc`, clean tree, 0 `must_not_write` |
+
+### The Stefi live gate — `20260905-021741`
+
+Run by `scripts/stefi_correction_fallthrough_probe.py` against the production WebSocket.
+Narrator `5e6a3d6c-c037-41e8-b260-d72e79f84fb5`, conversation
+`stefi-fallthrough-20260905-021741`. **9/9, zero unverified.**
+
+* Her exact statement routes as `correction` — the SHIPPED `app.js` regex, extracted from
+  the file and evaluated with node, not retyped.
+* The server parser finds no actionable target/value — with a non-vacuity control: a real
+  correction still parses to `{'family.children.count': 2, '_retracted': [3]}`.
+* `[correction-fallthrough]` emitted for this conversation.
+* **No correction mutation and no acknowledgement** — no `correction_payload` frame, no
+  `correction-apply` line. Those are the only two things the `else` branch performs.
+* A nonempty ordinary response committed; both turns persisted.
+* **No `correction` mode persisted.** Absence is how ordinary turns are stored:
+  `_finalize_deterministic_turn` (`chat_ws.py:278`) is the ONLY writer of `turn_mode` into
+  turn meta, and ordinary turns finalise with `meta={"ws": True}`.
+* **The turn ran the ordinary pipeline**: `[story-trigger] preserved
+  candidate_id=bf8f41e6…` then `[story-trigger][bind] user_row=2202 assistant_row=2203`. A
+  deterministic correction turn preserves and binds nothing, so this is the positive proof.
+* The candidate carries **no placement** — `placement_source=unknown`, `era_candidates=[]`,
+  per the standing rule that an era nobody confirmed is not a placement.
+
+### What Phase 3 does NOT claim
+
+* **No extraction-quality claim.** The r5h→r5k comparison spans three different scorers and
+  two dirty trees; the −7 measures scorer and extractor together and is registered as
+  nonblocking measurement debt in [`docs/BACKLOG.md`](../BACKLOG.md) §6a. `r5k`'s 0
+  `must_not_write` is solid current evidence; the `2 → 0` delta is **not** established.
+* **Field extraction was not exercised by the live gate.** The probe does not declare
+  `field_extraction_result=v1`, so the server correctly deferred extraction to the client.
+  The hook evidence is story-trigger.
+* **The response was `'Cuéntame más sobre eso.'`** — 23 characters, in Spanish, to a
+  2,565-character chapter. The fallthrough is proven; whether that is the right *reply* to
+  that passage is a Lori-behaviour question, not a Phase 3 one.
+
+### Testing doctrine — folded in
+
+[`docs/TESTING-DOCTRINE.md`](../TESTING-DOCTRINE.md) was adopted during this phase and is
+referenced from `CLAUDE.md`. Three further instances of the same family were found while
+closing it, all in the instruments rather than the product: a raw-text guard that failed on
+its own file's post-mortem (three times, now scanning executable source in all three
+places); a browser lane whose `[].every()` would have reported a pass having walked no tab;
+and a probe assertion first overstated ("stamped interview") and then over-corrected
+("vacuous") before being measured.
+
+## Phase 4 — Make memoir-worthy story capture dependable  ⬅ **CURRENT ACTION**
 
 **Outcome:** Important life narration becomes reviewable even when it does not resemble a
 travel chain — and every capture decision is inspectable.
+
+### THE CORRECTED SCOPE — read this before anything below (2026-09-05)
+
+**Phase 4's first job is auditability, not capture rate.** The list further down still
+describes broadening what counts as a story, and that work is real, but it is **not what
+this phase starts with** and a percentage must not be raised first.
+
+> **Durably attach story-capture decisions and diagnostics to their source turns,
+> INCLUDING turns that produced no candidate.**
+
+Three facts fix that scope, and each was measured rather than assumed:
+
+* **The decision is already recorded — just not durably.** All 38 cohort turns emit trigger,
+  word count and every anchor dimension at `chat_ws.py:1848`, into `.runtime/logs/api.log`,
+  which is **gitignored and rotates**. The job is to attach an existing record to the row it
+  explains, not to start recording.
+* **Candidate presence is 35/38, byte-exact, with zero over-capture.** Raising a threshold
+  was never the work.
+* **A missed turn has no candidate**, so `story_candidates` cannot hold the record by
+  construction. It belongs on the turn, or in a per-turn decision table.
+
+**The declined captures are the point.** The three cohort misses have a named cause — no
+relative-time phrasing in a present-day life inventory — precisely because the decision was
+inspectable. A threshold change would have buried that. **Tuning a classifier whose
+decisions cannot be inspected is guesswork**, so no capture threshold moves until the
+decisions can be read back.
+
+Live confirmation from the Phase 3 gate: Stefi's turn logged
+`[chat_ws][trip-story-capture] captured=False reason=shelf_closed scope=None` — a declined
+capture, with its reason, **existing only in a rotating log**. That is exactly the record
+this phase must make durable.
 
 ### FIRST, BEFORE ANY THRESHOLD CHANGE: persist the capture decision
 

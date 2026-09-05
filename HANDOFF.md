@@ -312,7 +312,40 @@ Full register with evidence: [`docs/BACKLOG.md`](docs/BACKLOG.md).
 Historical handoffs and long status narratives live in Git history and `docs/archive/`.
 **They must not be appended back into this operational brief.**
 
-## 9. `WO-LORI-ARCHIVE-TO-MEMOIR-02` — Phase 1 ACCEPTED, Phase 2 CLOSED (2026-09-04)
+## 9. `WO-LORI-ARCHIVE-TO-MEMOIR-02` — Phases 1, 2 and 3 CLOSED; **Phase 4 CURRENT** (2026-09-05)
+
+**Phase 3 ACCEPTED 2026-09-05.** Its exit gate is met: Stefi follows the normal turn path,
+the three spouse fixtures bind, no false parent field is written, and uncertain
+relationships stay reviewable.
+
+The last open clause was proven live rather than argued from source — the Stefi
+correction-fallthrough gate `20260905-021741`, **9/9 over the production WebSocket**
+(`scripts/stefi_correction_fallthrough_probe.py`). The turn routes as `correction` by the
+shipped `app.js` regex, the parser finds nothing actionable, `[correction-fallthrough]`
+fires, **no `correction_payload` frame and no `correction-apply`**, an ordinary response is
+committed, both turns persist, and a story candidate is **preserved and bound** —
+`bf8f41e6`, `user_row=2202`, `assistant_row=2203` — which a deterministic correction turn
+never does. That candidate carries no placement, as it must.
+
+**Clean final evaluations, at their recorded SHAs:** `r5k-guard-v2` 71/114 at `5afead5` on a
+clean tree, 0 `must_not_write`; `r5k-generational` 7/14 at `4ab00fc`, clean, 0
+`must_not_write`.
+
+**What is NOT claimed.** The extraction baseline is not comparable: `r5h`, `r5j` and `r5k`
+used **three different scorers** and two of the three ran on dirty trees. The r5h→r5k −7
+measures scorer and extractor together. `r5k`'s **0 `must_not_write` is solid current
+evidence**; the `2 → 0` delta is **not established** — `must_not_write` is a scorer
+judgment. Registered as nonblocking measurement debt in
+[`docs/BACKLOG.md`](docs/BACKLOG.md) §6a. **No further Phase 3 evaluation is needed.**
+
+**Phase 4 is now current**, with its scope corrected: *durably attach story-capture
+decisions and diagnostics to their source turns, including turns that produced no
+candidate.* The decisions already exist at `chat_ws.py:1848` but only in
+`.runtime/logs/api.log`, which is gitignored and rotates; candidate presence is 35/38
+byte-exact with zero over-capture, so **no capture threshold moves until the decisions can
+be read back**. Full statement in the work order's Phase 4 preamble.
+
+## 9a. Phase 1 and Phase 2 — the earlier record (2026-09-04)
 
 > **The working detail that used to live here has been REMOVED, not lost.** It described a
 > target that was unplaced at `review_version: 1`, preview and export unproven, and a "fresh

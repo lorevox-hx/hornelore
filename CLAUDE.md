@@ -602,6 +602,25 @@ v2=43/72, mnw=2), 2026-05-03. **Treat that as a historical reference point, not
 as today's number** — confirm against the newest report in `docs/reports/`
 before quoting it anywhere.
 
+**AND DO NOT SUBTRACT IT FROM ANYTHING (recorded 2026-09-05).** That 78/114 was
+measured under scorer `cc7dd27507b4` on a **dirty tree** (`git_dirty: True`,
+`7c2b1f1`). The three runs people compare span **three different scorers**:
+
+| Run | Result | SHA | Tree | Scorer |
+|---|---|---|---|---|
+| `r5h-followup-guard-v1` | 78/114 | `7c2b1f1` | **dirty** | `cc7dd27507b4` |
+| `r5j-phase3-v1` | 60/114 | `8aba910` | **dirty** | `591f56e47f89` |
+| `r5k-guard-v2` | 71/114 | `5afead5` | clean | `318df0d2ff1f` |
+
+The case bank is identical (`b487e54cd84d`), so the CASES are comparable and the
+SCORES are not. A pass-count delta across a scorer change measures the scorer and
+the extractor together — `case_073` moves `1.00 → 0.55` with an **empty failure
+list on both sides**, which is scorer movement or nothing. **A `must_not_write`
+count is a scorer judgment too**, so `r5k`'s 0 at `5afead5` is solid CURRENT
+evidence while the `2 → 0` improvement is NOT established. Normalizing it is a
+re-scoring pass over stored outputs, registered as nonblocking measurement debt
+in [`docs/BACKLOG.md`](docs/BACKLOG.md) §6a.
+
 **Canonical extractor architecture reference:**
 `docs/specs/LOREVOX-EXTRACTOR-ARCHITECTURE-v1.md`. Consult this when scoping any
 extractor-lane WO, prompt experiment or eval. Core Law: *Extraction is

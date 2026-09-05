@@ -243,7 +243,42 @@ All four reproduce at `d0e5294`. Bounded tooling commits, separate from cleanup.
 |---|---|
 | The mutation gate runs on the interpreter least able to exercise route tests | Documented command is `python3`; there the strict suite reports `22 ran, 5 SKIPPED` and `test_profile_seed_rest_read_authority` reports `48 ran, 6 SKIPPED`. The `S`-series mutations target `api.py` and `profile_seed_rest.py`. Decide whether the gate should now run under `.venv` |
 | Six skips in `test_narrator_refusal_characterization` | Unexamined. Four mutations (`R1`, `R2`, `T1`, and the curly-apostrophe case) depend on that suite |
-| No compile gate over `scripts/` and `tests/` | The reason Test 23 was silent for three and a half months |
+| ~~No compile gate over `scripts/` and `tests/`~~ | **CLOSED 2026-09-05** — `tests/test_scripts_compile.py`. Byte-compiles every tracked `.py` under `scripts/` and `tests/`, names the three UI harnesses explicitly so a discovery change cannot silently drop them, and carries a positive control planting the original defect's shape |
+
+### 6a. Measurement debt — the extraction baseline is not comparable
+
+**NONBLOCKING. Nothing in the current lane waits on it.** Registered so the numbers stop
+being quoted as though they were commensurable.
+
+**Re-score the stored `r5h-followup-guard-v1` outputs under scorer `318df0d2ff1f`** to
+establish a comparable extraction baseline. The historical **78/114** run used scorer
+`cc7dd27507b4` and a **dirty tree** (`git_dirty: True`, `7c2b1f1`); it must not be used for
+causal regression claims until normalized.
+
+**Three scorers span the runs that get compared to each other:**
+
+| Run | Cases | SHA | Tree | Scorer | Case bank |
+|---|---|---|---|---|---|
+| `r5h-followup-guard-v1` | 78/114 | `7c2b1f1` | **dirty** | `cc7dd27507b4` | `b487e54cd84d` |
+| `r5j-phase3-v1` | 60/114 | `8aba910` | **dirty** | `591f56e47f89` | `b487e54cd84d` |
+| `r5k-guard-v2` | 71/114 | `5afead5` | clean | `318df0d2ff1f` | `b487e54cd84d` |
+
+The case bank is identical across all three, so the *cases* are comparable and the *scores*
+are not. The r5h→r5k delta is **−7 total, −5 v3, −4 v2**, with **14 regressions and 7 fixes**
+— and it measures the scorer and the extractor together. Nine of the fourteen regressions
+fall from exactly `1.00`, several acquiring a failure category absent from their r5h row;
+`case_073` moves `1.00 → 0.55` with an **empty failure-category list on both sides**, which
+is scorer movement or it is nothing.
+
+**What may and may not be said today:**
+
+* `r5k-guard-v2` reports **0 `must_not_write` violations at `5afead5` on a clean tree**.
+  That is solid CURRENT evidence.
+* The **`2 → 0` delta is NOT established.** `must_not_write` is a scorer judgment, so the
+  improvement cannot be claimed until r5h is re-scored. *(An earlier draft called it a
+  scorer-independent improvement. It is not.)*
+
+Settling this is a **re-scoring pass over stored outputs, not a new evaluation.**
 
 ---
 
