@@ -7,6 +7,12 @@ printf '\n=== Hornelore API visible startup ===\n'
 printf 'Repo: %s\n' "$ROOT_DIR"
 printf 'Log:  %s\n\n' "$LOG_DIR/api.log"
 
+# THIS is the tab the desktop shortcut opens for the API, and the trace
+# belongs to the API process. Without the banner here, the shortcut path
+# — the one actually used — was the only path that never said whether
+# tracing was on or where it was writing.
+hornelore_trace_banner
+
 kill_stale_hornelore
 show_vram
 

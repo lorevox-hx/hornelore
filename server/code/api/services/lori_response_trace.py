@@ -388,6 +388,100 @@ def finish(delivered: Optional[str] = None, persisted: Optional[str] = None,
         return
 
 
+#: Closed vocabulary of pre-generation terminal outcomes.
+#:
+#: Each names a turn where the model was NEVER CALLED. They are not
+#: response outcomes and must never be counted among them.
+TERMINAL_PROMPT_TOO_LARGE = "prompt_too_large"
+TERMINAL_VRAM_PRESSURE = "vram_pressure"
+
+#: What a terminal record must carry to be worth having.
+#:
+#: Deliberately NOT `REQUIRED_CONTEXT`. That contract describes a turn
+#: with a response in it and demands fields a never-generated turn cannot
+#: have; reusing it would force a refusal to impersonate an ordinary
+#: trace missing some values, which is precisely the confusion this API
+#: exists to end.
+REQUIRED_TERMINAL_CONTEXT = ("narrator_input", "runtime71_current_era",
+                             "prompt_budget", "terminal_outcome",
+                             "generation_attempted")
+
+#: The VRAM refusal additionally has to say what it refused and why.
+#: A guard decision without the numbers behind it is an assertion.
+REQUIRED_TERMINAL_VRAM_CONTEXT = ("prompt_tokens", "max_new_requested",
+                                  "max_new_effective", "vram_free_pre_mb",
+                                  "vram_total_mb", "vram_required_mb",
+                                  "vram_guard_decision")
+
+
+def terminal(outcome: str, *, generation_attempted: bool = False,
+             detail: Optional[Dict[str, Any]] = None,
+             trace_id: Optional[str] = None) -> None:
+    """Close a turn where GENERATION NEVER HAPPENED, and write it.
+
+    `WO-LORI-LISTEN-AND-RETAIN-01` §9.
+
+    ── WHY NOT `seal()`/`finish()`, 2026-09-06 ─────────────────────────
+
+    `seal` closes the RESPONSE half of a trace. A prompt-budget or VRAM
+    refusal has no response half at all — no model ran. Passing empty
+    strings through `seal` would manufacture `delivered_text=""` and
+    `persisted_text=""`, and a reader could not then distinguish
+
+        the model was never called
+
+    from
+
+        the model was called and returned nothing
+
+    which are different failures with different owners. **The JSON has to
+    say which, rather than leaving a report to infer it from an absent
+    field.** So this writes `terminal_outcome` and
+    `generation_attempted` explicitly, and touches none of the response
+    fields: `raw_captured` stays False, and `raw_text`, `delivered_text`
+    and `persisted_text` are never created.
+
+    The record is written immediately and the current trace cleared —
+    there is no retention half to wait for, because nothing was said to
+    persist.
+    """
+    try:
+        tid = trace_id or current()
+        if not tid:
+            return
+        with _lock:
+            rec = _traces.pop(tid, None)
+        if rec is None:
+            return
+        rec["terminal_outcome"] = outcome
+        rec["generation_attempted"] = bool(generation_attempted)
+        if detail:
+            rec.setdefault("context", {}).update(detail)
+        # `ended_at` WITHOUT `_seal_rec`, which is the whole point: that
+        # helper's job is the delivered/persisted comparison, and there
+        # is nothing to compare.
+        rec["ended_at"] = time.time()
+
+        required = list(REQUIRED_TERMINAL_CONTEXT)
+        if outcome == TERMINAL_VRAM_PRESSURE:
+            required += list(REQUIRED_TERMINAL_VRAM_CONTEXT)
+        ctx = rec.get("context") or {}
+        missing = [k for k in required if k not in ctx]
+        rec["terminal_context_complete"] = not missing
+        if missing:
+            # Recorded, not raised. A trace that refuses to write is a
+            # trace nobody has; naming the gap keeps the record honest
+            # and still leaves the evidence on disk.
+            rec["terminal_context_missing"] = missing
+        _write(rec)
+        try:
+            _current.set(None)
+        except Exception:
+            pass
+    except Exception:
+        return
+
+
 def park(keys: Optional[List[str]] = None,
          trace_id: Optional[str] = None) -> None:
     """Hold a finished response-trace open for retention attachment.

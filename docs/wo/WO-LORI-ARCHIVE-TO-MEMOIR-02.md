@@ -3,9 +3,14 @@
 **Status:** CURRENT — central Lori/Lorevox work order  
 **Supersedes:** `WO-LORI-END-TO-END-LISTEN-RETAIN-MEMOIR-01`  
 **Starting evidence:** demographic cohort `20260901T015343Z` and Walt seven-era run `20260901T003329Z`  
-**Current position:** **Phase 0, 1, 2, 3 and 4 CLOSED. Phase 5 is the CURRENT ACTION** —
-preserve and organize extracted meaning: every proposal reaches a correct field, an
-attributed candidate, or a defensible rejection. *(Phase 1 proof: mutations `20260904T123556Z`, carried
+**Current position:** **Phases 0–4 CLOSED. Phase 5A and 5B ACCEPTED 2026-09-06.**
+**The CURRENT ACTION is not a phase of this work order** — it is the Lori
+measurement block under
+[`WO-LORI-LISTEN-AND-RETAIN-01`](WO-LORI-LISTEN-AND-RETAIN-01_Spec.md): prompt-budget,
+generation and VRAM instrumentation, then the Walt+John diagnostic on one warmed stack,
+then joint evidence review. **Phase 5C is QUEUED behind that evidence**, because what 5C
+should do about meaning with no schema destination is partly a question the measurement
+answers. *(Phase 1 proof: mutations `20260904T123556Z`, carried
 forward at zero mutations in `20260904T130525Z`, exit 0. Phase 2 audit: `python3
 scripts/phase2_verify_ledger.py`. Phase 3 live gate: Stefi correction-fallthrough
 `20260905-021741`, 9/9 over the production WebSocket.)*
@@ -1050,8 +1055,9 @@ Do not disable `HORNELORE_CLAIMS_VALIDATORS` as a product fix. That switch gates
 
 **Phase 5A** bound bio-fact provenance to the committed-turn `_Claim`. **Phase 5B**
 made relationship meaning survive the trip from what the narrator said to where the
-value is stored. Both are done; **Phase 5C is the current action** and is scoped
-below.
+value is stored. **Both are ACCEPTED 2026-09-06** on the 85/85 gate recorded below.
+**Phase 5C is QUEUED, not current** — the Lori measurement block comes first; see
+the header.
 
 ### What Phase 5B changed
 
@@ -1161,7 +1167,15 @@ The full run output, with per-mutation elapsed times, is preserved at
 `docs/reports/WO-LORI-ARCHIVE-TO-MEMOIR-02_PHASE5B_CLOSEOUT.md` (local-only; the reports
 directory is gitignored).
 
-## Phase 5C — Meaning with no schema destination  ⬅ **CURRENT ACTION**
+## Phase 5C — Meaning with no schema destination  ⏸ **QUEUED — not active**
+
+**Queued behind the Lori measurement block, 2026-09-06.** The scope below stands
+unchanged; only its position moved. The reason is substantive rather than
+administrative: two of 5C's three open destinations — what consumes
+`STATE_DECEASED`, and where the `adult` / `older` / `younger` qualifiers belong — are
+questions about what the memoir actually needs, and the Walt+John evidence is the first
+measurement that speaks to it. Deciding them first would be designing a destination before
+seeing the traffic.
 
 **Outcome:** every reading the interpreter produces reaches a field, a review
 entry, or a recorded refusal — and never the wrong field.
@@ -1347,17 +1361,31 @@ Next phase — NOT STARTED:
 
 Pasted completion reports are treated as committed and pushed unless Chris explicitly says otherwise.
 
-# 7. Immediate active phase
+# 7. Immediate active phase — ⚠ SUPERSEDED, KEPT AS DATED HISTORY
 
-**IMMEDIATE INSTRUCTION — updated 2026-09-04.** Phase 0 is accepted (`fdaa255`) and
-**Phase 1 is ACCEPTED** — the chain is proven end to end and no further mutation is
-authorized.
+**THIS SECTION IS NO LONGER AN INSTRUCTION. Marked superseded 2026-09-06.**
 
-Begin **Phase 2 only: the READ-ONLY 38-turn span/granularity ledger.** Do NOT rerun the
-cohort, do not create a narrator, and do not change extraction, response controls or story
-capture. The first pass is built at
-`docs/reports/PHASE2_38_TURN_SPAN_LEDGER_20260904.json` and has already overturned this
-work order's headline defect; what remains is adjudicating the eleven correctness defects
-the corrected numbers leave standing.
+It directed "Begin **Phase 2 only**" while the header directed Phase 5 and the phase list
+marked 5C current — **three different current actions in one governing document**, which is
+the failure `CLAUDE.md` records twice under "this file has twice carried a stale
+current-work list", and names as an operational bug rather than a documentation blemish: a
+wrong list here is a standing instruction to rebuild finished work.
+
+**Phase 2 closed on 2026-09-04**, and Phases 3, 4, 5A and 5B have closed since. The current
+action is stated ONCE, in the header, and `HANDOFF.md` outranks both.
+
+The original text is preserved below because the ledger it names is real evidence, not
+because it directs anything.
+
+> **IMMEDIATE INSTRUCTION — updated 2026-09-04.** Phase 0 is accepted (`fdaa255`) and
+> **Phase 1 is ACCEPTED** — the chain is proven end to end and no further mutation is
+> authorized.
+>
+> Begin **Phase 2 only: the READ-ONLY 38-turn span/granularity ledger.** Do NOT rerun the
+> cohort, do not create a narrator, and do not change extraction, response controls or
+> story capture. The first pass is built at
+> `docs/reports/PHASE2_38_TURN_SPAN_LEDGER_20260904.json` and has already overturned this
+> work order's headline defect; what remains is adjudicating the eleven correctness
+> defects the corrected numbers leave standing.
 
 This document is now the single shared plan. The superseded work order remains historical evidence and must not be used to direct new work.

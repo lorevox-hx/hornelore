@@ -5,6 +5,12 @@ source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 
 printf '\n=== Restarting Hornelore API ===\n\n'
 
+# A restart DURING an armed evaluation has to be obvious. It ends the
+# warm-model continuity the Walt/John diagnostic depends on, and it is
+# exactly the moment an operator is least likely to be thinking about
+# tracing state.
+hornelore_trace_banner
+
 stop_named_process "Hornelore API" "$API_PID_FILE" "hornelore_run_gpu_8000|run_gpu_8000|uvicorn.*${API_PORT}"
 sleep 1
 

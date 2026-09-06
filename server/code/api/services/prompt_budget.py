@@ -168,11 +168,45 @@ class BudgetOutcome:
     #: assistant reply it produced counts as one).
     dropped_turns: int
     kept_turns: int
-    #: "fits" | "trimmed" | "mandatory_too_large"
+    #: FOUR values, not three: "fits" | "trimmed" | "trimmed_sections"
+    #: | "mandatory_too_large".
+    #:
+    #: ── CORRECTED 2026-09-06 ────────────────────────────────────────
+    #:
+    #: This comment said three. It was written for `fit_chat_messages`
+    #: and never updated when the Phase 4 section-aware path added
+    #: `trimmed_sections` at the `BudgetOutcome(...)` construction below
+    #: — so for a fortnight the declared vocabulary was smaller than the
+    #: one the code produces, and it was quoted as authority.
+    #:
+    #: The distinction is not cosmetic. `fits` and `trimmed` and
+    #: `trimmed_sections` are all reported as `fits=True`, and they are
+    #: materially different events: nothing shed, old conversation shed,
+    #: or Lori's own optional context shed to make room. A consumer that
+    #: reads the boolean cannot tell a turn where everything fitted from
+    #: one where her identity sections were dropped.
     reason: str
     #: Phase 4. Empty for the history-only entry point, which cannot see
     #: sections and therefore may not claim to have judged any.
     sections: List[SectionPlan] = field(default_factory=list)
+
+    #: The COMPLETE rendered prompt's token count, before any history
+    #: turn or optional section was shed. `tokens` above is the
+    #: post-budget count — what Lori was actually sent.
+    #:
+    #: ── WHY IT IS CARRIED RATHER THAN RECOMPUTED, 2026-09-06 ────────
+    #:
+    #: The full count is already measured here: `fit_chat_messages`
+    #: renders `build(total_turns)` and counts it before deciding
+    #: anything. It was then discarded. Reconstructing it at the
+    #: `chat_ws.py` call site would mean a second full tokenization
+    #: through `_apply_chat_template` on every turn — the expensive path,
+    #: on the turn the narrator is waiting for — to recover a number this
+    #: function already had.
+    #:
+    #: `-1` means not measured, which is honest for callers that predate
+    #: this field. It is never a token count.
+    tokens_pre_budget: int = -1
 
     @property
     def dropped_sections(self) -> List[str]:
@@ -234,7 +268,9 @@ def fit_chat_messages(
     """
     msgs = [dict(m) for m in messages]
     if not msgs:
-        return BudgetOutcome([], True, count_tokens([]), limit, 0, 0, "fits")
+        _empty = count_tokens([])
+        return BudgetOutcome([], True, _empty, limit, 0, 0, "fits",
+                             tokens_pre_budget=_empty)
 
     head: List[Message] = []
     if (msgs[0].get("role") or "").strip().lower() == "system":
@@ -260,7 +296,8 @@ def fit_chat_messages(
     full = build(total_turns)
     tokens = count_tokens(full)
     if tokens <= limit:
-        return BudgetOutcome(full, True, tokens, limit, 0, total_turns, "fits")
+        return BudgetOutcome(full, True, tokens, limit, 0, total_turns,
+                             "fits", tokens_pre_budget=tokens)
 
     # Binary search for the largest number of NEWEST turns that fits.
     # Monotonic by construction -- adding an older turn only adds tokens --
@@ -286,10 +323,12 @@ def fit_chat_messages(
         # an empty list so an operator can see WHAT did not fit.
         minimal = build(0)
         return BudgetOutcome(minimal, False, count_tokens(minimal), limit,
-                             total_turns, 0, "mandatory_too_large")
+                             total_turns, 0, "mandatory_too_large",
+                             tokens_pre_budget=tokens)
 
     return BudgetOutcome(best_msgs, True, best_tokens, limit,
-                         total_turns - best, best, "trimmed")
+                         total_turns - best, best, "trimmed",
+                         tokens_pre_budget=tokens)
 
 
 # ── Phase 4: section-aware budgeting ────────────────────────────────────
@@ -407,6 +446,7 @@ def fit_chat_messages_with_sections(
                 outcome.dropped_turns, outcome.kept_turns,
                 "trimmed_sections",
                 _plan(ordered, keep_names, tokens_by_name),
+                tokens_pre_budget=outcome.tokens_pre_budget,
             )
 
     # Every optional section is gone and the required ones plus the
@@ -418,4 +458,5 @@ def fit_chat_messages_with_sections(
         outcome.dropped_turns, outcome.kept_turns,
         "mandatory_too_large",
         _plan(ordered, keep_names, tokens_by_name),
+        tokens_pre_budget=outcome.tokens_pre_budget,
     )

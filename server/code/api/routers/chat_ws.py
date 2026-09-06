@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import threading
+import time  # WO-LORI-LISTEN-AND-RETAIN-01 §9 — generation wall-clock + elapsed
 import uuid  # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §3.3 — per-socket conv ids
 from typing import Any, Dict, List, Optional
 
@@ -23,6 +24,110 @@ _WO10M_CHAT_CAP_HARD = int(os.getenv("MAX_NEW_TOKENS_CHAT_HARD", "1024"))  # abs
 _WO10M_GUARD_ENABLED = os.getenv("VRAM_GUARD_ENABLED", "1") in ("1", "true", "True")
 _WO10M_GUARD_BASE_MB = float(os.getenv("VRAM_GUARD_BASE_MB", "600"))
 _WO10M_GUARD_PER_TOKEN_MB = float(os.getenv("VRAM_GUARD_PER_TOKEN_MB", "0.14"))
+
+
+def _budget_evidence(budget) -> Dict[str, Any]:
+    """The prompt-budget facts, in ONE shape, for every trace that needs them.
+
+    `WO-LORI-LISTEN-AND-RETAIN-01` §9 — the VRAM/prompt-budget diagnostic.
+
+    ── WHY A FUNCTION AND NOT THREE DICT LITERALS, 2026-09-06 ──────────
+
+    Three records carry this: a normal turn, a `mandatory_too_large`
+    refusal, and a VRAM refusal. Written inline they would be three
+    copies of one shape, and the first field added to one of them is the
+    moment they stop agreeing. This repository has spent a week removing
+    exactly that pattern.
+
+    ── `reason` IS THE FIELD TO READ, NOT `fits` ───────────────────────
+
+    `fits=True` covers THREE materially different events — nothing shed,
+    old conversation shed (`trimmed`), and Lori's own optional sections
+    shed to make room (`trimmed_sections`). A reader with only the
+    boolean cannot tell a turn where everything fitted from one where her
+    identity context was dropped to fit the narrator's words, and that
+    difference is a whole cause in the four-causes framing this
+    diagnostic exists to separate.
+
+    `fits` is kept because something may already read it. It is not the
+    field to reason from.
+
+    `tokens_pre_budget` is `-1` when the outcome predates that field.
+    Honest, and never mistakable for a token count.
+    """
+    return {
+        "tokens_pre_budget": getattr(budget, "tokens_pre_budget", -1),
+        "tokens": budget.tokens,
+        "limit": budget.limit,
+        "fits": budget.fits,
+        "reason": getattr(budget, "reason", ""),
+        "kept_turns": budget.kept_turns,
+        "dropped_turns": budget.dropped_turns,
+        "kept_sections": list(getattr(budget, "kept_sections", None) or []),
+        "dropped_sections": list(getattr(budget, "dropped_sections", None) or []),
+    }
+
+
+def _trace_pre_generation_terminal(outcome: str, *, trace_id, budget,
+                                   narrator_text: str, runtime71,
+                                   turn_mode=None, client_turn_id=None,
+                                   vram=None) -> None:
+    """Record ONE turn where the model was never called, and write it.
+
+    `WO-LORI-LISTEN-AND-RETAIN-01` §9.
+
+    ── WHY ONE FUNNEL AND NOT THREE INLINE BLOCKS, 2026-09-06 ──────────
+
+    Three sites return before generation — the budget's
+    `mandatory_too_large`, the VRAM guard, and the tokenizer/budget
+    backstop. Each needs the same identity and prompt evidence, and
+    written separately they would drift a field at a time until a report
+    could not compare them. The whole reason these records exist is that
+    a refused turn currently leaves NO trace at all: the trace opens
+    after generation, so an era that refuses vanishes from the evidence
+    exactly when it is telling us the most.
+
+    Nothing here manufactures a response. `rt.terminal()` writes no
+    `raw_text`, `delivered_text` or `persisted_text`, so the record says
+    "the model was never called" rather than "the model said nothing".
+    """
+    if not _rt.enabled() or not trace_id:
+        return
+    try:
+        _rt.note("narrator_input", narrator_text or "", trace_id=trace_id)
+        _rt71 = runtime71 or {}
+        _rt.note("runtime71_current_era", _rt71.get("current_era"),
+                 trace_id=trace_id)
+        _rt.note("runtime71_current_pass", _rt71.get("current_pass"),
+                 trace_id=trace_id)
+        if turn_mode is not None:
+            _rt.note("turn_mode", turn_mode, trace_id=trace_id)
+        if client_turn_id:
+            _rt.note("client_turn_id", client_turn_id, trace_id=trace_id)
+        if budget is not None:
+            _rt.note("prompt_budget", _budget_evidence(budget),
+                     trace_id=trace_id)
+        _rt.note("terminal_outcome", outcome, trace_id=trace_id)
+        _rt.note("generation_attempted", False, trace_id=trace_id)
+        if vram:
+            # The VRAM refusal has to carry what it refused and why. A
+            # guard decision without its numbers is an assertion.
+            for _k, _v in vram.items():
+                _rt.note(_k, _v, trace_id=trace_id)
+        _rt.terminal(outcome, generation_attempted=False, trace_id=trace_id)
+    except Exception as _term_exc:            # pragma: no cover - defensive
+        # A trace failure must never become a turn failure. The turn is
+        # already being refused for a real reason; losing the record of
+        # it is bad, and turning it into a second error is worse.
+        logger.warning("[chat_ws][trace] terminal record failed: %s",
+                       _term_exc)
+
+
+# WO-LORI-LISTEN-AND-RETAIN-01 §9 — pure observation helpers. Kept in a
+# service module so they are testable without importing transformers,
+# torch and the whole router; the generation path is unchanged.
+from ..services.generation_trace import (          # noqa: E402
+    _GenerationTraceObserver, _generation_end_reason)
 
 # ── WO-QA-01: tunable repetition_penalty ──────────────────────────────────
 # Default 1.1 preserves prior hardcoded behavior. Env override lets the
@@ -191,6 +296,24 @@ except Exception:  # pragma: no cover - defensive
         def close(*a, **k): return None
         @staticmethod
         def require(*a, **k): return None
+        # ── ADDED WITH THEIR CALL SITES, 2026-09-06 ──────────────────
+        #
+        # `enabled()` and `terminal()` are called by the §9 measurement
+        # code. A stub missing them would raise AttributeError inside
+        # the very try/except that exists to keep tracing harmless — the
+        # failure would be swallowed and the turn would silently produce
+        # no record. `DefensiveStubTests` caught this the moment the
+        # call sites landed, which is what it is for.
+        #
+        # `enabled()` returns False so the observer is never installed
+        # and no CUDA counter is touched: with the real module missing,
+        # nothing should pretend to be measuring.
+        @staticmethod
+        def enabled(*a, **k): return False
+        @staticmethod
+        def terminal(*a, **k): return None
+        TERMINAL_PROMPT_TOO_LARGE = "prompt_too_large"
+        TERMINAL_VRAM_PRESSURE = "vram_pressure"
         @staticmethod
         def finish(*a, **k): return None
 
@@ -4954,6 +5077,30 @@ async def ws_chat(ws: WebSocket):
             msgs, limit=MAX_CHAT_PROMPT_TOKENS,
             count_tokens=lambda m: len(tok.encode(_apply_chat_template(m))),
             sections=_prompt_sections, render_sections=render_sections)
+
+        # ── THE TRACE OPENS HERE, NOT AFTER GENERATION ───────────────
+        #
+        # `WO-LORI-LISTEN-AND-RETAIN-01` §9, 2026-09-06. It used to open
+        # around the raw-response capture, which is AFTER the model has
+        # run — too late for generation telemetry, and far too late for
+        # the three paths that return before generation. A turn refused
+        # for an oversized prompt or VRAM pressure left no trace at all,
+        # so the evidence went missing exactly when it was most
+        # informative: the later eras, where accumulated history is
+        # doing something.
+        #
+        # ONE trace per turn. The id opened here is carried through
+        # prompt evidence, the VRAM decision, generation, the raw text,
+        # every response-control stage, and the delivered/persisted
+        # seal. A second `begin()` after generation would split one turn
+        # across two records that nothing joins.
+        _rt_id = _rt.begin(
+            narrator_id=str(person_id or ""),
+            conversation_id=str(conv_id or ""),
+        )
+        _rt_client_turn_id = (params.get("client_turn_id")
+                              or params.get("turn_id") or "")
+
         if not _budget.fits:
             # Honest refusal rather than a mutilated prompt. The
             # extraction lane already works this way; the same reasoning
@@ -4968,6 +5115,12 @@ async def ws_chat(ws: WebSocket):
                 "prompt_tokens": _budget.tokens,
                 "limit": _budget.limit,
             })
+            _trace_pre_generation_terminal(
+                _rt.TERMINAL_PROMPT_TOO_LARGE, trace_id=_rt_id,
+                budget=_budget, narrator_text=user_text,
+                runtime71=(params.get("runtime71")
+                           if isinstance(params, dict) else None), turn_mode=turn_mode,
+                client_turn_id=_rt_client_turn_id)
             await _ws_send(ws, {"type": "done", "final_text": "",
                                 "blocked": "prompt_too_large"})
             return
@@ -5091,6 +5244,21 @@ async def ws_chat(ws: WebSocket):
                 "required_mb": round(_required_mb),
                 "prompt_tokens": _prompt_tokens,
             })
+            _trace_pre_generation_terminal(
+                _rt.TERMINAL_VRAM_PRESSURE, trace_id=_rt_id,
+                budget=_budget, narrator_text=user_text,
+                runtime71=(params.get("runtime71")
+                           if isinstance(params, dict) else None), turn_mode=turn_mode,
+                client_turn_id=_rt_client_turn_id,
+                vram={
+                    "prompt_tokens": _prompt_tokens,
+                    "max_new_requested": _ui_max_new,
+                    "max_new_effective": max_new,
+                    "vram_free_pre_mb": round(_vram_free, 1),
+                    "vram_total_mb": round(_vram_total, 1),
+                    "vram_required_mb": round(_required_mb, 1),
+                    "vram_guard_decision": _guard_decision,
+                })
             await _ws_send(ws, {"type": "done", "final_text": "", "blocked": "vram_pressure"})
             return
 
@@ -5130,6 +5298,12 @@ async def ws_chat(ws: WebSocket):
                 "prompt_tokens": int(inputs["input_ids"].shape[-1]),
                 "limit": MAX_CHAT_PROMPT_TOKENS,
             })
+            _trace_pre_generation_terminal(
+                _rt.TERMINAL_PROMPT_TOO_LARGE, trace_id=_rt_id,
+                budget=_budget, narrator_text=user_text,
+                runtime71=(params.get("runtime71")
+                           if isinstance(params, dict) else None), turn_mode=turn_mode,
+                client_turn_id=_rt_client_turn_id)
             await _ws_send(ws, {"type": "done", "final_text": "",
                                 "blocked": "prompt_budget_backstop"})
             return
@@ -5141,7 +5315,45 @@ async def ws_chat(ws: WebSocket):
         # the race that could un-cancel a previous, still-running
         # generation sharing the socket-wide event. StopOnEvent receives
         # the event owned by exactly this generation.
-        stop = StoppingCriteriaList([StopOnEvent(ev)])
+        # ── THE OBSERVER IS INSTALLED ONLY WHEN TRACING IS ON ────────
+        #
+        # `WO-LORI-LISTEN-AND-RETAIN-01` §9. With tracing off this line
+        # is byte-identical to what it has always been, so ordinary
+        # narrator turns run the criteria list they always ran.
+        #
+        # The observer always returns False. It stops nothing; it is the
+        # only place the token ids are visible without retaining the
+        # generation's output tensor across the inter-turn window this
+        # diagnostic is measuring.
+        _gen_observer = None
+        if _rt.enabled() and _rt_id:
+            try:
+                _gen_observer = _GenerationTraceObserver(
+                    int(inputs["input_ids"].shape[-1]))
+                stop = StoppingCriteriaList([StopOnEvent(ev), _gen_observer])
+            except Exception as _obs_exc:     # pragma: no cover - defensive
+                logger.warning("[chat_ws][trace] observer not installed: %s",
+                               _obs_exc)
+                _gen_observer = None
+                stop = StoppingCriteriaList([StopOnEvent(ev)])
+        else:
+            stop = StoppingCriteriaList([StopOnEvent(ev)])
+
+        # PyTorch allocator peaks are per-turn, so the counter is reset
+        # immediately before generation and read immediately after.
+        # Named as ALLOCATOR measurements, never as whole-GPU usage —
+        # `nvidia-smi` is the authority for the device, and the two see
+        # different things.
+        _cuda_peak_reset = False
+        if _gen_observer is not None:
+            try:
+                if torch.cuda.is_available():
+                    torch.cuda.reset_peak_memory_stats()
+                    _cuda_peak_reset = True
+            except Exception:                 # pragma: no cover - defensive
+                _cuda_peak_reset = False
+        _gen_started_at = time.time()
+        _gen_started_perf = time.perf_counter()
 
         temperature = float(params.get("temperature", params.get("temp", 0.8)))
         top_p = float(params.get("top_p", 0.95))
@@ -5301,11 +5513,67 @@ async def ws_chat(ws: WebSocket):
         # `final_text` through the enclosing scope and mutates nothing.
         # Every call is exception-swallowed; a trace failure must never
         # become a turn failure.
-        _rt_id = _rt.begin(
-            narrator_id=str(person_id or ""),
-            conversation_id=str(conv_id or ""),
-        )
+        # `_rt_id` was opened BEFORE the budget decision (see above) and
+        # is reused here rather than re-opened. This line used to call
+        # `begin()`, which is why nothing before generation could be
+        # recorded: the trace did not exist yet.
         _rt.raw(final_text, trace_id=_rt_id)
+
+        # ── GENERATION TELEMETRY — read here, decided nowhere ────────
+        #
+        # `WO-LORI-LISTEN-AND-RETAIN-01` §9. Every number below is read
+        # from what already happened. Nothing here changed how it
+        # happened: `threading.Thread(target=model.generate, ...)` is
+        # untouched and the observer always returned False.
+        #
+        # `generation_elapsed_ms` is named honestly. It is the interval
+        # the narrator waited for the model, measured with
+        # `perf_counter` — NOT CUDA-kernel time, which would need
+        # synchronised events and would answer a question nobody asked.
+        if _gen_observer is not None:
+            try:
+                _gen_ended_at = time.time()
+                _gen_elapsed_ms = (time.perf_counter() - _gen_started_perf) * 1000.0
+                _rt.note("generation_started_at", _gen_started_at, trace_id=_rt_id)
+                _rt.note("generation_ended_at", _gen_ended_at, trace_id=_rt_id)
+                _rt.note("generation_elapsed_ms", round(_gen_elapsed_ms, 1),
+                         trace_id=_rt_id)
+                _rt.note("max_new_requested", _ui_max_new, trace_id=_rt_id)
+                _rt.note("max_new_effective", max_new, trace_id=_rt_id)
+                _rt.note("generated_tokens", _gen_observer.generated_tokens,
+                         trace_id=_rt_id)
+                _rt.note("generation_last_token_id",
+                         _gen_observer.last_token_id, trace_id=_rt_id)
+                _rt.note("generation_end_reason",
+                         _generation_end_reason(
+                             _gen_observer, cancelled=ev.is_set(),
+                             max_new=max_new, eos_token_id=tok.eos_token_id),
+                         trace_id=_rt_id)
+                # Pre-generation VRAM planning, on the SAME record as the
+                # generation it planned for. Previously these existed only
+                # in a log line, so nothing could join a turn's prompt size
+                # to the memory decision it produced.
+                _rt.note("prompt_tokens", _prompt_tokens, trace_id=_rt_id)
+                _rt.note("vram_free_pre_mb", round(_vram_free, 1), trace_id=_rt_id)
+                _rt.note("vram_total_mb", round(_vram_total, 1), trace_id=_rt_id)
+                _rt.note("vram_required_mb", round(_required_mb, 1), trace_id=_rt_id)
+                _rt.note("vram_guard_decision", _guard_decision, trace_id=_rt_id)
+                # ALLOCATOR peaks, and labelled as such. `nvidia-smi`
+                # reports the whole device across every process and
+                # context; these report what PyTorch asked for and what it
+                # reserved. Neither substitutes for the other, and a single
+                # merged "peak used" column would be a confident wrong
+                # answer.
+                if _cuda_peak_reset:
+                    _rt.note("cuda_peak_allocated_mb",
+                             round(torch.cuda.max_memory_allocated() / 1024**2, 1),
+                             trace_id=_rt_id)
+                    _rt.note("cuda_peak_reserved_mb",
+                             round(torch.cuda.max_memory_reserved() / 1024**2, 1),
+                             trace_id=_rt_id)
+            except Exception as _gen_tel_exc:  # pragma: no cover - defensive
+                logger.warning("[chat_ws][trace] generation telemetry "
+                               "failed: %s", _gen_tel_exc)
         # ── REQUIRED runtime context, read by its real name ──────────
         #
         # The previous version looped over guessed names via locals()
@@ -5335,14 +5603,8 @@ async def ws_chat(ws: WebSocket):
                      trace_id=_rt_id)
             _rt.note("turn_mode", turn_mode, trace_id=_rt_id)
             _rt.note("prompt_tokens", _prompt_tokens, trace_id=_rt_id)
-            _rt.note("prompt_budget", {
-                "tokens": _budget.tokens,
-                "limit": _budget.limit,
-                "fits": _budget.fits,
-                "kept_turns": _budget.kept_turns,
-                "dropped_turns": _budget.dropped_turns,
-                "dropped_sections": list(_budget.dropped_sections or []),
-            }, trace_id=_rt_id)
+            _rt.note("prompt_budget", _budget_evidence(_budget),
+                     trace_id=_rt_id)
             # The ACTUAL post-budget model context. Section names alone
             # cannot answer "did Lori have the material to say this" —
             # which is question 2 of the four causes. Sections carry

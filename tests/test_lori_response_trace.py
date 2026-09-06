@@ -469,15 +469,77 @@ class RequiredContextTests(_Base):
         self.assertFalse(self._written()[0]["instrumentation_failed"])
 
     def test_chat_ws_reads_real_names_not_locals_guesses(self):
+        """Real attribute names, never a swallowed `locals()` lookup.
+
+        ── UPDATED 2026-09-06, INTENT UNCHANGED ────────────────────────
+
+        This pinned `_budget.kept_turns` — the LOCAL VARIABLE's spelling.
+        The §9 work moved those reads into one named funnel,
+        `_budget_evidence(budget)`, where the same real attributes are
+        read off a parameter called `budget`. The property this test
+        exists for — evidence read by its real name — is unchanged and
+        now has ONE site instead of three.
+
+        So the assertions moved from the variable to the attribute, and
+        the funnel itself is asserted, which is strictly stronger: the
+        old form would have passed against three drifting copies.
+        """
         src = (_REPO / "server" / "code" / "api" / "routers"
                / "chat_ws.py").read_text(encoding="utf-8")
         self.assertNotIn("locals()[_rt_k]", src,
                          "required evidence read through a swallowed "
                          "locals() lookup")
-        for real in ("_budget.kept_turns", "_budget.dropped_turns",
+        self.assertIn("def _budget_evidence(", src,
+                      "the prompt-budget evidence is no longer built in "
+                      "one place, so the records can drift apart")
+        # Direct attribute access — these are always present on the
+        # outcome, so reading them any other way would be hiding a
+        # failure rather than tolerating one.
+        for real in (".kept_turns", ".dropped_turns", ".tokens",
                      "_prompt_tokens", '_rt71.get("current_era")',
                      "_rt.require("):
             self.assertIn(real, src)
+        # `tokens_pre_budget` is read through `getattr(..., -1)` ON
+        # PURPOSE: an outcome built before that field exists has no
+        # honest value for it, and `-1` says "not measured" where a
+        # crash would say nothing and a `0` would lie. The NAME is what
+        # this test cares about; the access form is a deliberate choice
+        # documented at the call site.
+        self.assertIn('"tokens_pre_budget"', src)
+
+    def test_the_budget_evidence_is_built_once_not_per_call_site(self):
+        """Three records carry it; there must be one builder.
+
+        A normal turn, a `mandatory_too_large` refusal and a VRAM
+        refusal all report the prompt budget. Written inline they would
+        be three dict literals, and the first field added to one of them
+        is the moment they stop agreeing.
+        """
+        src = (_REPO / "server" / "code" / "api" / "routers"
+               / "chat_ws.py").read_text(encoding="utf-8")
+        self.assertEqual(
+            1, src.count("def _budget_evidence("),
+            "more than one prompt-budget evidence builder")
+        self.assertGreaterEqual(
+            src.count("_budget_evidence(_budget)")
+            + src.count("_budget_evidence(budget)"), 1,
+            "the builder exists but nothing calls it")
+
+    def test_reason_is_recorded_not_just_the_fits_boolean(self):
+        """`fits=True` covers three different events.
+
+        `fits`, `trimmed` and `trimmed_sections` are all True, and they
+        mean nothing shed / old conversation shed / Lori's own optional
+        context shed. A record carrying only the boolean cannot tell
+        them apart, and that distinction is a whole cause in the
+        four-causes framing.
+        """
+        src = (_REPO / "server" / "code" / "api" / "routers"
+               / "chat_ws.py").read_text(encoding="utf-8")
+        evidence = src[src.index("def _budget_evidence("):]
+        evidence = evidence[:evidence.index("\n\n\n")]
+        self.assertIn('"reason"', evidence)
+        self.assertIn('"tokens_pre_budget"', evidence)
 
 
 class ExtractionFinalizerTests(_Base):
@@ -626,3 +688,114 @@ class ScheduledNoClaimPathTests(_Base):
         loop_fail = src[src.index("except RuntimeError as loop_exc"):]
         self.assertIn("_finalize_extraction_trace", loop_fail)
         self.assertIn("RESULT_MEASUREMENT_FAILED", loop_fail)
+
+
+# ── the pre-generation terminal record ───────────────────────────────
+class TerminalRecordsSayNothingWasGeneratedTests(_Base):
+    """A refused turn must not look like a turn that said nothing.
+
+    `WO-LORI-LISTEN-AND-RETAIN-01` §9.
+
+    ── WHY A FIRST-CLASS API AND NOT `seal("")`, 2026-09-06 ──────────
+
+    `seal`/`finish` close the RESPONSE half of a trace. A prompt-budget
+    or VRAM refusal has no response half — the model was never called.
+    Sealing with empty strings would create `delivered_text=""` and
+    `persisted_text=""`, and a reader could not then distinguish
+
+        the model was never called
+
+    from
+
+        the model was called and returned nothing
+
+    which are different failures with different owners. The JSON has to
+    say which, rather than leaving a report to infer it from an absent
+    field.
+
+    This matters most exactly where the diagnostic is most informative:
+    the later eras, where accumulated history is doing something. Before
+    this, a refused era produced no record at all — the trace opened
+    after generation, so the turn simply vanished from the evidence.
+    """
+
+    def _terminal(self, outcome, extra=None):
+        os.environ["HORNELORE_RESPONSE_TRACE"] = "1"
+        t = RT.begin(narrator_id="N", conversation_id="C")
+        RT.note("narrator_input", "a long chapter", trace_id=t)
+        RT.note("runtime71_current_era", "later_years", trace_id=t)
+        RT.note("prompt_budget", {"reason": "mandatory_too_large",
+                                  "tokens_pre_budget": 10472,
+                                  "tokens": 9061, "limit": 8192},
+                trace_id=t)
+        RT.note("terminal_outcome", outcome, trace_id=t)
+        RT.note("generation_attempted", False, trace_id=t)
+        for k, v in (extra or {}).items():
+            RT.note(k, v, trace_id=t)
+        RT.terminal(outcome, generation_attempted=False, trace_id=t)
+        recs = self._written()
+        self.assertEqual(1, len(recs), "expected exactly one record")
+        return recs[0]
+
+    def test_no_response_field_is_manufactured(self):
+        rec = self._terminal(RT.TERMINAL_PROMPT_TOO_LARGE)
+        for field in ("raw_text", "delivered_text", "persisted_text"):
+            self.assertNotIn(
+                field, rec,
+                f"{field} was manufactured for a turn the model never ran")
+
+    def test_it_says_generation_was_not_attempted(self):
+        rec = self._terminal(RT.TERMINAL_PROMPT_TOO_LARGE)
+        self.assertIs(False, rec.get("generation_attempted"))
+        self.assertFalse(rec.get("raw_captured"))
+        self.assertEqual("prompt_too_large", rec.get("terminal_outcome"))
+
+    def test_the_record_is_ended_and_written_immediately(self):
+        rec = self._terminal(RT.TERMINAL_PROMPT_TOO_LARGE)
+        self.assertIn("ended_at", rec)
+        self.assertIsNone(RT.current(),
+                          "the current trace was not cleared")
+
+    def test_the_prompt_budget_evidence_survives_onto_the_record(self):
+        """The refusal's whole value is saying WHAT did not fit."""
+        rec = self._terminal(RT.TERMINAL_PROMPT_TOO_LARGE)
+        pb = (rec.get("context") or {}).get("prompt_budget") or {}
+        self.assertEqual("mandatory_too_large", pb.get("reason"))
+        self.assertEqual(10472, pb.get("tokens_pre_budget"))
+
+    def test_a_vram_refusal_carries_the_numbers_it_refused_on(self):
+        """A guard decision without its numbers is an assertion."""
+        rec = self._terminal(RT.TERMINAL_VRAM_PRESSURE, extra={
+            "prompt_tokens": 6100, "max_new_requested": 256,
+            "max_new_effective": 256, "vram_free_pre_mb": 812.0,
+            "vram_total_mb": 16384.0, "vram_required_mb": 1489.0,
+            "vram_guard_decision": "blocked"})
+        ctx = rec.get("context") or {}
+        for field in RT.REQUIRED_TERMINAL_VRAM_CONTEXT:
+            self.assertIn(field, ctx, f"VRAM refusal lost {field}")
+        self.assertTrue(rec.get("terminal_context_complete"))
+        for field in ("raw_text", "delivered_text", "persisted_text"):
+            self.assertNotIn(field, rec)
+
+    def test_a_vram_refusal_missing_its_numbers_is_marked_incomplete(self):
+        """Recorded, not raised — and not silently accepted either.
+
+        A trace that refuses to write is a trace nobody has. Naming the
+        gap keeps the evidence on disk AND keeps it honest.
+        """
+        rec = self._terminal(RT.TERMINAL_VRAM_PRESSURE)
+        self.assertFalse(rec.get("terminal_context_complete"))
+        self.assertIn("vram_guard_decision",
+                      rec.get("terminal_context_missing") or [])
+
+    def test_it_writes_nothing_when_tracing_is_off(self):
+        """The positive control for the whole class."""
+        os.environ.pop("HORNELORE_RESPONSE_TRACE", None)
+        t = RT.begin(narrator_id="N", conversation_id="C")
+        self.assertIsNone(t)
+        RT.terminal(RT.TERMINAL_PROMPT_TOO_LARGE, trace_id=t)
+        self.assertEqual([], self._written())
+
+
+if __name__ == "__main__":  # pragma: no cover
+    unittest.main()

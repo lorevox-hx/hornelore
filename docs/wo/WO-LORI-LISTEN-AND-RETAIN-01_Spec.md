@@ -225,6 +225,11 @@ not sufficient** — they count fires, not effects.
 
 **Conversation shape — this is a requirement, not a preference.** Walt speaks
 in **several short, natural turns per era**, not one chapter-sized monologue.
+
+> **⚠ This requirement stands, and this run is still UNRUN. See §9.** The
+> VRAM/prompt-budget diagnostic authorized there deliberately uses the
+> dense-narration Python harnesses instead, for a different question. It is not
+> this run and may not be cited as it.
 The dense-narration baseline `r20260831-040506-010cd6` is preserved as a
 contrast, not repeated. Real era controls, real composer, real Continue.
 
@@ -264,6 +269,11 @@ example rather than left as a count.
 
 ## 7. Stop condition
 
+> **⚠ AMENDED 2026-09-06 — see §9.** A second, separately named experiment is
+> authorized: the VRAM / prompt-budget diagnostic, Walt **then John**, on the
+> dense-narration Python harnesses. It does not replace the short-turn run this
+> section describes, and the cohort prohibition below is untouched by it.
+
 **Stop after the Walt evidence report.** Do not open the full cohort. Do not
 implement recalibration, removal or narrowing until the report is reviewed.
 
@@ -282,3 +292,84 @@ time.
 4. Which layers, if any, made a response **better**? Nothing to date has looked
    for this, and the WO must not assume the answer is none.
 5. Does the narrator's story reach the memoir source at all?
+
+---
+
+# 9. AMENDMENT — the VRAM / prompt-budget diagnostic extension (2026-09-06)
+
+**This is an ADDITION, not a reinterpretation.** Sections 5 and 7 above describe a
+different experiment, and both remain in force for that experiment. This section
+authorizes a second one and states plainly where it departs, because silently
+reinterpreting the old contract is how a run gets cited later for a question it
+was never built to answer.
+
+## 9.1 What §5 and §7 say, and why this is not that
+
+§5 requires — *"a requirement, not a preference"* — that **Walt speaks in several
+short, natural turns per era, not one chapter-sized monologue**, and names the
+JS harness `scripts/ui/run_walt_seven_era_conversation.js`. §7 says **stop after
+the Walt evidence report**.
+
+**That run is still owed and still unrun.** It asks whether Lori is a good
+listener in a realistic conversation, which is a Phase 6 question, and a
+narrator does not deliver four hundred words in one breath.
+
+**This extension asks a different question**: what happens to the prompt budget,
+the generation cap and VRAM as conversational history accumulates against an
+8,192-token window. For that, dense chapters are the better instrument, not a
+compromise — they load the budget faster and reach the trimming, section-shedding
+and refusal paths within seven turns instead of thirty.
+
+## 9.2 The harnesses, and the deviation stated in full
+
+This diagnostic deliberately uses the existing Python stress harnesses:
+
+* `scripts/run_seven_era_walk_harness.py`
+* `scripts/run_john_baldy_seven_era_harness.py`
+
+**Measured 2026-09-06:** they send **one turn per era**, 328–432 words each
+(mean ~387), through `harness_lib.py`, which mints ONE `conv_id` and reuses it
+across all seven eras — so history accumulates naturally rather than being reset
+per era. That accumulation is the property being measured.
+
+**This is the dense-narration shape §5 forbids.** It is chosen with that
+knowledge, for this question only.
+
+**These runs are NOT evidence about conversational naturalness, listening
+quality, reply length, or any §8 question that depends on turn shape.** A result
+from this extension may not be quoted against §8 items 2 or 3.
+
+## 9.3 Narrators — the "no narrator created" rule does not apply here
+
+§5 says *"No narrator created."* **Both harnesses create a `testing_only`
+narrator row** (`run_john_baldy_seven_era_harness.py:70`,
+`run_seven_era_walk_harness.py:48`). Pretending otherwise would leave two rows in
+the database that no document accounts for.
+
+* Both narrators are **fictional** and carry `testing_only: True`.
+* **Record the resulting `person_id` values in the evidence report.**
+* No historical family narrator is touched, enrolled, backfilled, paused or
+  resumed. Del is not used. `CLAUDE.md`'s standing prohibition is unchanged.
+
+## 9.4 The run contract
+
+1. **Walt first** — seven eras plus the closing bonus probe.
+2. **Only if instrumentation is complete and the Walt run is valid**, John
+   follows immediately: seven eras plus bonus.
+3. **The SAME warmed API/model process.** No stack restart between narrators.
+4. **No CUDA reset between narrators.** The inter-narrator VRAM state is data.
+5. **The same external GPU sampler**, started before the stack and stopped after.
+6. **No code changes between the two runs.** A change mid-experiment makes the
+   second narrator a different experiment.
+7. **No broader narrator cohort.** §7's cohort prohibition is untouched.
+8. **Stop after the Walt+John evidence set** and review it before any tuning of
+   Lori. §7's "review before recalibration" rule applies here in full.
+
+## 9.5 What this amendment does NOT do
+
+* It does not retire, weaken or replace the §5 short-turn Walt run.
+* It does not open the cohort.
+* It does not authorize changing `max_new_tokens`, thresholds, controls or any
+  narrator-visible behaviour. The instrumentation is observation only, and the
+  256 cap stays **because whether it binds is one of the things being measured.**
+* It does not license a third narrator.

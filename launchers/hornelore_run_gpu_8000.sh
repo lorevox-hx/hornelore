@@ -7,6 +7,31 @@ set -e
 
 REPO_DIR=/mnt/c/Users/chris/hornelore
 
+# ── Response-trace environment, captured BEFORE .env ──────────────────────
+#
+# THIS SHELL IS THE SECOND ONE TO DECIDE THE TRACE FLAG, and it used to
+# undo the first. `scripts/common.sh` resolves it in the wrapper that
+# launches this script; the `.env` load below then re-exported
+# `HORNELORE_RESPONSE_TRACE=0` over the top, in the very process that
+# runs uvicorn and writes the traces. Measured 2026-09-06:
+#
+#   after common.sh (the wrapper):   TRACE=1
+#   after this launcher loads .env:  TRACE=0
+#
+# So an armed experiment produced a stack with tracing off, and the only
+# symptom was an empty trace directory discovered after the run.
+#
+# `trace_env.sh` holds the precedence rule; this file only calls it, on
+# both sides of its own `.env` load. Capture must precede `.env` because
+# `set -a` makes a caller's export indistinguishable from a `.env` value
+# afterwards. Sourcing `common.sh` here instead would import
+# `set -euo pipefail`, pid/log directory creation and port defaults into
+# a launcher whose contract is `set -e` — a far larger change than the
+# one fact this needs.
+# shellcheck disable=SC1091
+source "$REPO_DIR/scripts/trace_env.sh"
+hornelore_trace_capture
+
 # ── Load Hornelore .env (repo root) ───────────────────────────────────────
 if [ -f "$REPO_DIR/.env" ]; then
   set -a
@@ -14,6 +39,8 @@ if [ -f "$REPO_DIR/.env" ]; then
   set +a
   echo "[launcher] Loaded Hornelore .env"
 fi
+
+hornelore_trace_resolve "$REPO_DIR"
 
 # ── Defaults (only apply if not already set by Hornelore .env) ───────────
 export USE_TTS=${USE_TTS:-0}
@@ -88,5 +115,9 @@ echo "[launcher] WO-10M caps: chat=$MAX_NEW_TOKENS_CHAT extract=$MAX_NEW_TOKENS_
 echo "[launcher] WO-10M VRAM guard: enabled=$VRAM_GUARD_ENABLED base=${VRAM_GUARD_BASE_MB}MB per_token=${VRAM_GUARD_PER_TOKEN_MB}MB"
 echo "[launcher] WO-10M allocator: PYTORCH_CUDA_ALLOC_CONF=$PYTORCH_CUDA_ALLOC_CONF"
 echo "[launcher] SPANTAG: enabled=${HORNELORE_SPANTAG:-0} pass1_max_new=${SPANTAG_PASS1_MAX_NEW:-512} pass2_max_new=${SPANTAG_PASS2_MAX_NEW:-1024} narrative=${HORNELORE_NARRATIVE:-0}"
+# The value uvicorn will actually run with, printed by the process that
+# runs it. Every earlier statement about tracing is about some other
+# shell; this one is about this one.
+echo "[launcher] response_trace=${HORNELORE_RESPONSE_TRACE:-0} trace_dir=${HORNELORE_TRACE_DIR:-<default>}"
 
 python -m uvicorn code.api.main:app --host "$HOST" --port "$PORT"

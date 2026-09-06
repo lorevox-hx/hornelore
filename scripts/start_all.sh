@@ -24,13 +24,16 @@ printf '\n=== Starting Hornelore stack ===\n\n'
 # production turn indefinitely.
 #
 #   HORNELORE_RESPONSE_TRACE=1 ./scripts/start_all.sh
-export HORNELORE_RESPONSE_TRACE="${HORNELORE_RESPONSE_TRACE:-0}"
-if [[ "$HORNELORE_RESPONSE_TRACE" == "1" ]]; then
-  printf 'Response trace: ENABLED (observation only; artifacts under .runtime/eval/response-trace/)\n\n'
-else
-  printf 'Response trace: off. For the listening-and-retention evaluation start with:\n'
-  printf '  HORNELORE_RESPONSE_TRACE=1 ./scripts/start_all.sh\n\n'
-fi
+# RESOLVED IN `common.sh` (sourced above) via `trace_env.sh`, which is
+# the single authority; this file only reports the answer.
+#
+# The old block here exported the flag itself and printed a hardcoded
+# `.runtime/eval/response-trace/`. Both were wrong once a second shell
+# entered the picture: `launchers/hornelore_run_gpu_8000.sh` re-loads
+# `.env` and would overwrite any export made here, and the hardcoded
+# path becomes a false statement the moment a run-scoped directory is
+# used. The banner prints the destination that was actually resolved.
+hornelore_trace_banner
 
 # Pre-flight: kill ALL stale services and show VRAM before fresh start
 kill_all_hornelore

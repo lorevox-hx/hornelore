@@ -498,9 +498,19 @@ async def _send_turn_and_capture(
     speaker_name: str,
     runtime71_era: str,
     chapter_label: str,
+    client_turn_id: str = "",
     timeout_s: int = 240,
 ) -> Tuple[str, List[Dict[str, Any]]]:
-    """Send one narrator turn, stream tokens, return (final_text, events)."""
+    """Send one narrator turn, stream tokens, return (final_text, events).
+
+    `client_turn_id` is the join key between three separate records —
+    the server's response trace, this console output, and the external
+    `nvidia-smi` timeline. `chat_ws.py` already reads
+    `params.client_turn_id` into the trace; nothing was supplying one,
+    so a report had to guess which turn a trace belonged to by
+    timestamp. The seventh era and the closing bonus probe both report
+    era `today`, which is exactly where guessing fails.
+    """
 
     params = {
         "person_id": person_id,
@@ -528,9 +538,14 @@ async def _send_turn_and_capture(
             "conversation_state": "answering",
             "cognitive_support_mode": False,
         },
+        # Deliberately 256 for this diagnostic: whether that cap BINDS
+        # is one of the things being measured, so it must not be raised
+        # before the measurement.
         "max_new_tokens": 256,
         "turn_final": True,
     }
+    if client_turn_id:
+        params["client_turn_id"] = client_turn_id
     print(f"  --- SENDING {chapter_label} ({len(text.split())} words) ---")
     send_start = time.time()
     await ws.send(json.dumps({
@@ -939,7 +954,11 @@ async def run_harness(cfg: HarnessConfig) -> int:
     chapter_results: List[Tuple[ChapterConfig, str, Dict[str, Any]]] = []
     bonus_result: Optional[Tuple[str, Dict[str, Any]]] = None
     async with websockets.connect(WS_URL, max_size=1 << 22) as ws:
-        for ch in cfg.chapters:
+        for _idx, ch in enumerate(cfg.chapters, start=1):
+            # `<prefix>:<conv>:<NN>:<era>` — ordered, unique, and
+            # readable in a console scrollback. The index is what
+            # separates era seven from the bonus probe, which both
+            # report era `today`.
             text, _events = await _send_turn_and_capture(
                 ws,
                 text=ch.text,
@@ -948,6 +967,8 @@ async def run_harness(cfg: HarnessConfig) -> int:
                 speaker_name=speaker_name,
                 runtime71_era=ch.runtime71_era,
                 chapter_label=ch.label,
+                client_turn_id=(f"{cfg.report_prefix}:{conv_id}:"
+                                f"{_idx:02d}:{ch.runtime71_era}"),
             )
             score = score_chapter(ch, text)
             chapter_results.append((ch, text, score))
@@ -962,6 +983,8 @@ async def run_harness(cfg: HarnessConfig) -> int:
                 speaker_name=speaker_name,
                 runtime71_era="today",
                 chapter_label="Bonus probe",
+                client_turn_id=(f"{cfg.report_prefix}:{conv_id}:"
+                                f"{len(cfg.chapters) + 1:02d}:bonus_probe"),
             )
             # Fake chapter-config for scoring shape
             fake_bonus_ch = ChapterConfig(

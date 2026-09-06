@@ -304,5 +304,135 @@ class TheOutcomeIsLoggableTest(unittest.TestCase):
         self.assertNotIn(secret, out.as_log_fields())
 
 
+class ThePreBudgetCountSurvivesEveryOutcomeTest(unittest.TestCase):
+    """`tokens_pre_budget` is the prompt BEFORE anything was shed.
+
+    `WO-LORI-LISTEN-AND-RETAIN-01` §9.
+
+    ── WHY IT IS NEEDED, 2026-09-06 ──────────────────────────────────
+
+    `tokens` is the post-budget count — what Lori was actually sent. On
+    a trimmed turn that is, by construction, at or under the limit, so
+    reading it alone can never show that anything was dropped or how
+    much. The diagnostic's central question is whether accumulated
+    history is costing Lori her context by era six or seven, and the
+    size of the prompt that did NOT fit is the measurement that answers
+    it.
+
+    The count is not recomputed: `fit_chat_messages` already renders
+    the full message list and counts it before deciding anything, then
+    used to discard the number. Reconstructing it at the `chat_ws` call
+    site would mean a second full tokenization through the real chat
+    template on every narrator turn.
+    """
+
+    def test_a_fitting_prompt_reports_pre_equal_to_post(self):
+        msgs = [sysmsg(10), user("hi", 1)]
+        out = fit_chat_messages(msgs, limit=10_000, count_tokens=counter())
+        self.assertEqual("fits", out.reason)
+        self.assertEqual(out.tokens, out.tokens_pre_budget)
+
+    def test_a_trimmed_prompt_reports_the_size_BEFORE_the_trim(self):
+        """The regression this field exists for."""
+        msgs = [sysmsg(10)]
+        for i in range(6):
+            msgs += [user(f"u{i}", 10), bot(f"a{i}", 10)]
+        msgs += [user("now", 2)]
+        out = fit_chat_messages(msgs, limit=200, count_tokens=counter())
+        self.assertEqual("trimmed", out.reason)
+        self.assertGreater(out.dropped_turns, 0)
+        self.assertGreater(
+            out.tokens_pre_budget, out.tokens,
+            "the pre-budget count is not larger than the post-budget one, "
+            "so it cannot be the size of the prompt before the trim")
+        self.assertLessEqual(out.tokens, out.limit)
+        self.assertGreater(
+            out.tokens_pre_budget, out.limit,
+            "a trim happened, so the original must have exceeded the limit")
+
+    def test_a_refused_prompt_reports_what_did_not_fit(self):
+        """`mandatory_too_large` is where the number matters most.
+
+        The turn is refused and nothing reaches Lori, so the ONLY
+        evidence of how big the attempt was is this field.
+        """
+        msgs = [sysmsg(400), user("enormous", 200)]
+        out = fit_chat_messages(msgs, limit=50, count_tokens=counter())
+        self.assertEqual("mandatory_too_large", out.reason)
+        self.assertFalse(out.fits)
+        self.assertGreater(out.tokens_pre_budget, out.limit)
+
+    def test_the_degenerate_empty_case_is_not_minus_one(self):
+        out = fit_chat_messages([], limit=100, count_tokens=counter())
+        self.assertEqual(0, out.tokens_pre_budget)
+
+    def test_an_outcome_built_without_the_field_says_NOT_MEASURED(self):
+        """`-1` is honest for a caller that predates the field.
+
+        It must never be mistakable for a token count, which is why the
+        default is negative rather than zero — zero is a real count, as
+        the empty case above shows.
+        """
+        out = BudgetOutcome([], True, 0, 100, 0, 0, "fits")
+        self.assertEqual(-1, out.tokens_pre_budget)
+
+
+class TheFourReasonsAreDistinguishableTest(unittest.TestCase):
+    """`fits` is a boolean over FOUR states, and three of them are True.
+
+    `fits`, `trimmed` and `trimmed_sections` all report `fits=True`, and
+    they are materially different events: nothing shed, old conversation
+    shed, or Lori's own optional context shed to make room. A consumer
+    reading the boolean cannot tell a turn where everything fitted from
+    one where her identity sections were dropped — which is a whole
+    cause in the four-causes framing.
+
+    The dataclass comment declared THREE values until 2026-09-06,
+    written for `fit_chat_messages` and never updated when the
+    section-aware path added `trimmed_sections`. It was then quoted as
+    authority. This test measures the vocabulary instead of trusting the
+    comment.
+    """
+
+    def test_fits_and_trimmed_are_both_fits_true_but_not_the_same_event(self):
+        fine = fit_chat_messages([sysmsg(10), user("hi", 1)],
+                                 limit=10_000, count_tokens=counter())
+        msgs = [sysmsg(10)]
+        for i in range(6):
+            msgs += [user(f"u{i}", 10), bot(f"a{i}", 10)]
+        msgs += [user("now", 2)]
+        trimmed = fit_chat_messages(msgs, limit=200, count_tokens=counter())
+
+        self.assertTrue(fine.fits)
+        self.assertTrue(trimmed.fits)
+        self.assertNotEqual(
+            fine.reason, trimmed.reason,
+            "two different events are indistinguishable through `reason`")
+        self.assertEqual("fits", fine.reason)
+        self.assertEqual("trimmed", trimmed.reason)
+
+    def test_the_declared_vocabulary_matches_what_the_code_produces(self):
+        """The comment and the code must agree.
+
+        Asserted against the module source rather than restated here,
+        because a second list of the vocabulary is the thing that went
+        stale in the first place.
+        """
+        src = (Path(__file__).resolve().parents[1] / "server" / "code" /
+               "api" / "services" / "prompt_budget.py").read_text(
+                   encoding="utf-8")
+        produced = set()
+        for token in ('"fits"', '"trimmed"', '"trimmed_sections"',
+                      '"mandatory_too_large"'):
+            if f"BudgetOutcome" in src and token in src:
+                produced.add(token.strip('"'))
+        self.assertEqual(
+            {"fits", "trimmed", "trimmed_sections", "mandatory_too_large"},
+            produced)
+        self.assertIn(
+            "FOUR values, not three", src,
+            "the dataclass comment no longer states the real vocabulary")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
