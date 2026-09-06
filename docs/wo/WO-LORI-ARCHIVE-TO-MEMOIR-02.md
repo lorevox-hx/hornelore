@@ -1112,6 +1112,55 @@ Each was invisible to a helper-level test and visible only through
   one would manufacture a fact. That is a 5C question, pinned as a measurement in
   `TheQualifierIsReadButNotCarried`.
 
+## ✅ PHASE 5B ACCEPTED — the authoritative gate is green (2026-09-06)
+
+| | |
+|---|---|
+| Result | **85/85 CAUGHT · 0 MISSED · 0 BROKEN** |
+| Of those | **35 are designs a lane actually carried** (`was_real`) |
+| Elapsed | **180.0 min** |
+| Interpreter | **`.venv/bin/python`** — the test venv, on the laptop, in WSL |
+| Baseline | 12 unique commands, all green |
+| Baseline skips | **`test_profile_seed_rest_read_authority`: 48 ran, 6 SKIPPED** |
+| After the run | journal absent · product tree restored · no residue |
+
+**The six skips are stated rather than rounded away.** `OK` with skips is not a pass, and
+eleven `S` mutations depend on that suite; the skips themselves remain open in
+[`docs/BACKLOG.md`](../BACKLOG.md) §6.
+
+**Two findings closed on the way here, neither a product defect.**
+
+- **`C8` survived the previous run** — not a stale mutation, a test that went blind. A
+  refactor moved `identity_complete` out of the `identity_mode` decision its tests watched
+  and into `prompt_composer.py:4243`, which renders it into `LORI_RUNTIME:` on every turn.
+  Measured HEAD vs mutated: `identity_complete: False` against `True`, with no
+  interrogation either way. The prompt was telling Lori a narrator's identity was
+  established because a dict had a key. Now caught by four production-boundary tests.
+- **`X3` was never hanging.** 175.0s in this run against 172–183s for its five siblings on
+  the same suite. The runner's silence was the whole defect, and it cost a full run.
+
+### The testing policy this run establishes
+
+**The full gate is a MAJOR ACCEPTANCE instrument. It is not rerun after a phase.**
+
+Three hours is now measured rather than estimated, and three suites are 80% of it — the
+per-suite profile is in [`docs/BACKLOG.md`](../BACKLOG.md) §6c, and the touch→family map is
+in `scripts/run_mutation_gate.py`.
+
+1. **Routine work:** focused regression tests, plus the mutation family that protects the
+   changed file when one applies.
+2. **If an invariant MOVES to a new reader or writer, follow it** — re-point and run the
+   protection aimed at the old one. That is the `C8` lesson, and it is the only half of it
+   that generalizes.
+3. **Not** "run nearby families because the change is adjacent." That is how focused
+   testing becomes a three-hour gate under another name.
+4. **Next planned full gate: Phase 8 / final acceptance**, unless a change is broad enough
+   to cross several families at once — a deliberate decision, never a default.
+
+The full run output, with per-mutation elapsed times, is preserved at
+`docs/reports/WO-LORI-ARCHIVE-TO-MEMOIR-02_PHASE5B_CLOSEOUT.md` (local-only; the reports
+directory is gitignored).
+
 ## Phase 5C — Meaning with no schema destination  ⬅ **CURRENT ACTION**
 
 **Outcome:** every reading the interpreter produces reaches a field, a review
