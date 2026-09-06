@@ -49,8 +49,21 @@ anchor no longer matches, or if a mutation fails to compile.
 Each mutation announces itself BEFORE its child starts and reports its
 elapsed time with its verdict:
 
-    RUNNING X3 [73/80] tests.test_profile_seed_ws_step6
+    RUNNING X3 [73/85] tests.test_profile_seed_ws_step6
     CAUGHT  * X3     30.8s  COMPOSITION SEES PRE-RECOVERY STATE: ...
+
+**The denominator is `len(selected)`, computed at run time — never a
+number typed here.** This example said `[73/80]` for one commit. The
+gate holds 85. The eighty came from a grep whose id pattern required a
+trailing digit, `^ *"[A-Z]+[0-9]+"`, which silently dropped `M3b`,
+`C5b`, `C15a`, `C15b` and `C15c` — and the wrong total was then written
+into prose that the terminal had been contradicting all along. Derive
+it, the way `CLAUDE.md` says and for exactly this reason:
+
+    python3 -c "import ast; print(len([e for n in ast.walk(
+        ast.parse(open('scripts/run_mutation_gate.py').read()))
+        if getattr(getattr(n,'target',None),'id','')=='MUTATIONS'
+        for e in n.value.elts]))"
 
 Added 2026-09-05 after a full run was killed by hand in the belief that
 it had hung. It had not — X3's suite legitimately takes ~31 seconds, of
@@ -1350,7 +1363,8 @@ def _counts(tests: str, env: dict) -> Tuple[int, int, int, str]:
     """
     proc = subprocess.run(
         [sys.executable, "-m", "unittest", *tests.split()],
-        cwd=REPO, env=env, capture_output=True, text=True, timeout=900)
+        cwd=REPO, env=env, capture_output=True, text=True,
+        timeout=CHILD_TIMEOUT_S)
     out = proc.stderr
     ran_m, skip_m = _RAN_RE.search(out), _SKIP_RE.search(out)
     ran = int(ran_m.group(1)) if ran_m else -1
@@ -1398,13 +1412,37 @@ def _baseline_green(selected: List["Mutation"], env: dict) -> bool:
                                            - {CLASSIFIER_TESTS})
     print(f"baseline — {len(commands)} unique test command(s), unmutated:")
     ok = True
-    for tests in commands:
-        code, ran, skipped, tail = _counts(tests, env)
+    total = len(commands)
+    for index, tests in enumerate(commands, start=1):
+        # ── THE BASELINE IS SILENT TOO, AND IT RUNS FIRST ────────────
+        #
+        # Added 2026-09-05 with the mutation-phase progress line, which
+        # left this half untouched. The baseline runs the same slow
+        # suites — `test_profile_seed_ws_step6` is ~31s — so a gate that
+        # narrates its mutations perfectly still opens with minutes of
+        # silence, which is where a watcher's confidence is decided.
+        # A PLAIN LINE, not a `\r` rewrite. A carriage return looks tidy
+        # on a terminal and survives literally through a pipe, so
+        # `| tail` shows the progress and the verdict jammed onto one
+        # row — and this output is piped more often than it is watched.
+        print(f"  ....   [{index}/{total}] {tests}", flush=True)
+        started = time.perf_counter()
+        try:
+            code, ran, skipped, tail = _counts(tests, env)
+        except subprocess.TimeoutExpired as expired:
+            # A baseline timeout used to escape as an unhandled
+            # exception, which is a different failure shape from the
+            # mutation path's classified BROKEN for the same event.
+            print(f"  RED    timed out after {getattr(expired, 'timeout', '?')}s"
+                  f"      {tests}", flush=True)
+            ok = False
+            continue
+        elapsed = time.perf_counter() - started
         mark = "green" if code == 0 else "RED  "
         detail = f"{ran} ran"
         if skipped:
             detail += f", {skipped} SKIPPED"
-        print(f"  {mark}  {detail:22}  {tests}")
+        print(f"  {mark}  {detail:22} {elapsed:6.1f}s  {tests}", flush=True)
         if code != 0:
             print(f"         -> {tail}")
             ok = False
@@ -1613,7 +1651,7 @@ def main() -> int:
         # tests, only 9.2s of it CPU — and the runner printed nothing
         # from the moment a child started until it finished.
         #
-        # An 80-mutation gate that is silent for an hour is not usable
+        # A gate of this size that is silent for an hour is not usable
         # as an acceptance gate, because a normal slow suite and a hang
         # look identical from outside. `flush=True` is load-bearing:
         # stdout is a pipe under `| tail` and block-buffered, so without

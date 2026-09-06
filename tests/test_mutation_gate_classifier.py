@@ -456,7 +456,7 @@ class TimeoutIsBrokenNotCaughtTests(unittest.TestCase):
 class RunnerProgressAndPolicyTests(unittest.TestCase):
     """The runner says what it is doing, and finishes what it started.
 
-    An 80-mutation gate that prints nothing for an hour is not usable as
+    A gate of this size that prints nothing for an hour is not usable as
     an acceptance gate: a legitimately slow suite and a hang look
     identical from outside. A full run was killed by hand on 2026-09-05
     in that belief — `test_profile_seed_ws_step6` takes ~31s, of which
