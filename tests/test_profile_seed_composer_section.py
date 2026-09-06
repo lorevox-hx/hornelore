@@ -1374,5 +1374,120 @@ class PlanToPromptTests(unittest.TestCase):
                          [s.name for s in composed.sections])
 
 
+class IdentityCompleteIsReportedNotDerived(unittest.TestCase):
+    """`LORI_RUNTIME: identity_complete:` states what it was given.
+
+    ── WHY THIS CLASS EXISTS, 2026-09-05 ────────────────────────────
+
+    Mutation `C8` — *"identity_complete inferred from an onboarding
+    payload again"* — **survived the authoritative gate**, green across
+    all three composer suites. It ORs `profile_seed_onboarding_active()`
+    into the value read at `prompt_composer.py:4118`.
+
+    It survived because the invariant MOVED and no test followed it.
+    When C8 was written, the inference flipped `identity_mode`. The
+    attestation restructure then put `identity_mode = False` inside the
+    `if _ps_attested:` branch unconditionally — so under an attested
+    walk `identity_complete` is no longer read for that decision at all,
+    and every test aimed at identity interrogation went blind to it.
+
+    But `identity_complete` has a SECOND reader, and it is unconditional:
+    `prompt_composer.py:4243` renders it into the `LORI_RUNTIME:` block
+    of the system prompt on every turn. Measured HEAD versus mutated on
+    an attested active walk carrying `identity_complete: False`:
+
+        HEAD      identity_complete: False
+        C8        identity_complete: True
+
+    with `identity_mode` False and no identity interrogation in either.
+    So the surviving effect is that **the prompt tells Lori a narrator's
+    identity is established because an onboarding payload was present** —
+    the exact inference `prompt_composer.py:4103-4117` records as
+    withdrawn, reappearing at a reader that comment predates.
+
+    That is a fact about a narrator, stated to Lori, derived from the
+    shape of a dict. The composer's job here is to REPORT the value the
+    server supplied, not to improve it.
+    """
+
+    KEY = KEY
+    ATTEST = ATTEST
+
+    def _attested_walk(self, *, identity_complete):
+        """An attested ACTIVE walk — the only case where C8 differs.
+
+        With no attestation `profile_seed_onboarding_active()` is False,
+        so the mutation's added disjunct is False too and nothing can be
+        measured. The attested runtime IS the discriminating fixture.
+        """
+        runtime = dict(FULL_RUNTIME)
+        runtime["current_pass"] = "pass1"
+        runtime["identity_complete"] = identity_complete
+        runtime[KEY] = onboarding("present", A, remaining=[A, B])
+        runtime[ATTEST] = True
+        return runtime
+
+    def _runtime_line(self, text, field):
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith(field + ":"):
+                return stripped
+        self.fail(f"{field!r} is absent from the composed prompt — this "
+                  f"test cannot pass by the line simply not being there")
+
+    def test_a_false_identity_complete_is_reported_as_false(self):
+        """The C8 regression. Was `identity_complete: True`."""
+        text = _pc.compose_system_prompt(
+            "c8-false", runtime71=self._attested_walk(identity_complete=False))
+        self.assertEqual(
+            "identity_complete: False",
+            self._runtime_line(text, "identity_complete"),
+            "the composer derived identity_complete from the presence of "
+            "an onboarding payload instead of reporting what it was given")
+
+    def test_a_true_identity_complete_is_reported_as_true(self):
+        """The positive control.
+
+        Without this, the test above would still pass if the composer
+        started reporting `False` unconditionally — which would be a
+        different defect with the same green.
+        """
+        text = _pc.compose_system_prompt(
+            "c8-true", runtime71=self._attested_walk(identity_complete=True))
+        self.assertEqual(
+            "identity_complete: True",
+            self._runtime_line(text, "identity_complete"))
+
+    def test_the_walk_really_is_attested_in_this_fixture(self):
+        """Non-vacuity.
+
+        If attestation were absent, C8's disjunct would be False and both
+        tests above would pass against the mutated product — proving
+        nothing. This asserts the fixture is the discriminating one.
+        """
+        runtime = self._attested_walk(identity_complete=False)
+        self.assertTrue(
+            _pc.profile_seed_onboarding_active(runtime),
+            "the fixture is not an attested active walk, so it cannot "
+            "discriminate the mutation it exists to catch")
+        text = _pc.compose_system_prompt("c8-attested", runtime71=runtime)
+        self.assertEqual("profile_seed_active: true",
+                         self._runtime_line(text, "profile_seed_active"))
+
+    def test_identity_interrogation_is_off_either_way(self):
+        """What C8 does NOT change, recorded so the claim stays narrow.
+
+        `identity_mode` is False under an attested walk regardless of
+        `identity_complete`, so this mutation is not about interrogation
+        — and a future reader should not go looking for that difference.
+        """
+        for value in (True, False):
+            with self.subTest(identity_complete=value):
+                text = _pc.compose_system_prompt(
+                    f"c8-mode-{value}",
+                    runtime71=self._attested_walk(identity_complete=value))
+                self.assertIn("effective_pass: profile_seed", text)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

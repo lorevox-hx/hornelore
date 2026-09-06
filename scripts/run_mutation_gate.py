@@ -44,6 +44,36 @@ the entire run.** `PYTHONPATH` does not fix a missing fastapi.
 Exit 0 iff EVERY mutation was caught. Exit 1 if any survived, if an
 anchor no longer matches, or if a mutation fails to compile.
 
+── PROGRESS, TIMING, AND WHAT HAPPENS AFTER A BAD RESULT ─────────────
+
+Each mutation announces itself BEFORE its child starts and reports its
+elapsed time with its verdict:
+
+    RUNNING X3 [73/80] tests.test_profile_seed_ws_step6
+    CAUGHT  * X3     30.8s  COMPOSITION SEES PRE-RECOVERY STATE: ...
+
+Added 2026-09-05 after a full run was killed by hand in the belief that
+it had hung. It had not — X3's suite legitimately takes ~31 seconds, of
+which only 9 are CPU — but the runner was silent from the moment a child
+started until it finished, so a slow suite and a hang were
+indistinguishable from outside. An acceptance gate nobody can watch is
+one nobody runs.
+
+**THE POLICY ON A MISSED OR BROKEN RESULT IS: CONTINUE.** The run
+completes and the summary names every id in each bucket. Stopping at the
+first bad result would throw away the classification of every mutation
+after it — an hour of gate reduced to one line — and there is nothing to
+protect by stopping, because `run_one` restores the source in a `finally`
+per mutation rather than at the end. A run with any MISSED or BROKEN
+prints `NOT AN ACCEPTING RUN` and exits 1.
+
+**A TIMEOUT IS `BROKEN`, NEVER `CAUGHT`.** A killed child produced no
+assertion failure and no summary; "the tests did not finish" is not "the
+tests objected". Crediting it would retire a real test the first time a
+suite got slow. `CHILD_TIMEOUT_S` is a module constant so tests can shrink
+it by injection instead of the production value being lowered to suit
+them.
+
 ── WHAT COUNTS AS CAUGHT ─────────────────────────────────────────────
 
 **At least one real unittest ASSERTION FAILURE.** Not merely a non-zero
@@ -121,9 +151,10 @@ import py_compile
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 REPO = Path(__file__).resolve().parent.parent
 TURN = "server/code/api/services/profile_seed_turn.py"
@@ -1278,17 +1309,33 @@ _RAN_RE = re.compile(r"^Ran (\d+) tests?", re.MULTILINE)
 _SKIP_RE = re.compile(r"skipped=(\d+)")
 
 
-def _run_tests(tests: str, env: dict) -> Tuple[int, str]:
+#: Seconds one mutation's suites may take before the child is killed.
+#:
+#: A MODULE CONSTANT so tests can shrink it by injection rather than the
+#: production value being lowered to make tests convenient. 900s is sized
+#: for the slowest real suite with headroom: `test_profile_seed_ws_step6`
+#: measured 31.0s unmutated and 30.8s under X3 on 2026-09-05.
+CHILD_TIMEOUT_S = 900
+
+
+def _run_tests(tests: str, env: dict,
+               timeout: Optional[float] = None) -> Tuple[int, str]:
     """`(exit code, FULL stderr)`.
 
     *(This returned only the last line. `classify_result()` needs the
     whole run: an errors-only NameError and a real assertion failure can
     produce the same tail, and telling them apart is the difference
     between evidence and a mutation that was never tested at all.)*
+
+    Raises `subprocess.TimeoutExpired`, which `run_one` classifies. It is
+    NOT swallowed here: a timeout is a result about the mutation, and the
+    layer that knows which mutation this is has to be the one that says
+    so.
     """
     proc = subprocess.run(
         [sys.executable, "-m", "unittest", *tests.split()],
-        cwd=REPO, env=env, capture_output=True, text=True, timeout=900)
+        cwd=REPO, env=env, capture_output=True, text=True,
+        timeout=timeout if timeout is not None else CHILD_TIMEOUT_S)
     return proc.returncode, proc.stderr
 
 
@@ -1448,7 +1495,8 @@ def classify_result(code: int, output: str) -> Tuple[str, str]:
     return CAUGHT, tail
 
 
-def run_one(mutation: Mutation, env: dict) -> Tuple[str, str]:
+def run_one(mutation: Mutation, env: dict,
+            timeout: Optional[float] = None) -> Tuple[str, str]:
     path = REPO / mutation.target
     original = path.read_text(encoding="utf-8")
     matches = original.count(mutation.old)
@@ -1475,7 +1523,25 @@ def run_one(mutation: Mutation, env: dict) -> Tuple[str, str]:
             py_compile.compile(str(path), cfile=tempfile.mktemp(), doraise=True)
         except Exception as exc:
             return BROKEN, f"mutation does not compile: {exc}"
-        code, out = _run_tests(mutation.tests, env)
+        try:
+            code, out = _run_tests(mutation.tests, env, timeout=timeout)
+        except subprocess.TimeoutExpired as expired:
+            # ── A TIMEOUT IS BROKEN, NEVER CAUGHT ────────────────────
+            #
+            # Added 2026-09-05. Previously this propagated: the `finally`
+            # below still restored the source and cleared the journal —
+            # that guarantee was already sound — but the exception then
+            # escaped `main()` and killed the whole run with a traceback
+            # and no verdict for ANY remaining mutation. An hour of gate
+            # became zero classified results.
+            #
+            # It must not be CAUGHT. A child that was killed produced no
+            # assertion failure and no summary; "the tests did not finish"
+            # is not "the tests objected", and crediting it would retire a
+            # test the moment a suite got slow.
+            secs = getattr(expired, "timeout", None)
+            return BROKEN, (f"timeout after {secs}s — the child was killed, "
+                            "so nothing was measured (source restored)")
         return classify_result(code, out)
     finally:
         path.write_text(original, encoding="utf-8")
@@ -1536,20 +1602,60 @@ def main() -> int:
 
     results = []
     width = max(len(m.id) for m in selected)
-    for mutation in selected:
+    total = len(selected)
+    run_started = time.perf_counter()
+    for index, mutation in enumerate(selected, start=1):
+        # ── SAY WHAT IS RUNNING, BEFORE IT RUNS ──────────────────────
+        #
+        # Added 2026-09-05, after a full run was killed by hand in the
+        # belief that it had hung. It had not: X3's suite
+        # (`test_profile_seed_ws_step6`) legitimately takes ~31s — 36
+        # tests, only 9.2s of it CPU — and the runner printed nothing
+        # from the moment a child started until it finished.
+        #
+        # An 80-mutation gate that is silent for an hour is not usable
+        # as an acceptance gate, because a normal slow suite and a hang
+        # look identical from outside. `flush=True` is load-bearing:
+        # stdout is a pipe under `| tail` and block-buffered, so without
+        # it the line appears only after the child it announces.
+        print(f"RUNNING {mutation.id:<{width}} [{index}/{total}] "
+              f"{mutation.tests}", flush=True)
+        started = time.perf_counter()
         status, detail = run_one(mutation, env)
+        elapsed = time.perf_counter() - started
         results.append((status, mutation))
         mark = {CAUGHT: "CAUGHT ", MISSED: "MISSED!", BROKEN: "BROKEN "}[status]
         star = " *" if mutation.was_real else "  "
-        print(f"{mark}{star} {mutation.id:<{width}}  {mutation.what}")
+        print(f"{mark}{star} {mutation.id:<{width}}  {elapsed:6.1f}s  "
+              f"{mutation.what}", flush=True)
         if status != CAUGHT:
-            print(f"          -> {detail}")
+            print(f"          -> {detail}", flush=True)
 
-    caught = sum(1 for s, _ in results if s == CAUGHT)
-    real = sum(1 for s, m in results if s == CAUGHT and m.was_real)
-    print(f"\n{caught}/{len(selected)} caught behaviourally "
+    caught = [m for s, m in results if s == CAUGHT]
+    missed = [m for s, m in results if s == MISSED]
+    broken = [m for s, m in results if s == BROKEN]
+    real = sum(1 for m in caught if m.was_real)
+    run_elapsed = time.perf_counter() - run_started
+    print(f"\n{len(caught)}/{total} caught behaviourally "
           f"({real} of them designs this lane actually carried, marked *)")
-    return 0 if caught == len(selected) else 1
+    # ── EVERY OUTCOME NAMED, NOT JUST THE GOOD ONE ───────────────────
+    #
+    # The summary reported only the caught count, so a MISSED and a
+    # BROKEN both showed as "one short" and a reader had to scroll back
+    # through eighty lines to find out which — and they mean opposite
+    # things. MISSED is a missing test. BROKEN is a measurement that
+    # never happened.
+    if missed:
+        print(f"MISSED  {len(missed)}: " + ", ".join(m.id for m in missed)
+              + "  — the suite cannot tell the two products apart; "
+                "this is a missing test, not a harmless mutation")
+    if broken:
+        print(f"BROKEN  {len(broken)}: " + ", ".join(m.id for m in broken)
+              + "  — nothing was measured for these")
+    print(f"elapsed {run_elapsed / 60:.1f} min")
+    if missed or broken:
+        print("NOT AN ACCEPTING RUN.")
+    return 0 if (len(caught) == total) else 1
 
 
 if __name__ == "__main__":

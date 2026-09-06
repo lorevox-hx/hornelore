@@ -22,11 +22,15 @@ These run against captured unittest output rather than real subprocesses
 so the awkward cases — errors-only, no summary, mixed — can be stated
 exactly, including the ones that are tedious to reproduce on demand.
 """
+import contextlib
+import io
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 _REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO / "scripts"))
@@ -355,6 +359,213 @@ class ClassifierIsNotVacuousTests(unittest.TestCase):
         unittest.TextTestRunner(stream=buf, verbosity=0).run(suite)
         self.assertEqual(gate.MISSED,
                          gate.classify_result(0, buf.getvalue())[0])
+
+
+class TimeoutIsBrokenNotCaughtTests(unittest.TestCase):
+    """A killed child is not evidence, and must not end the run.
+
+    ── WHY, 2026-09-05 ──────────────────────────────────────────────
+
+    `_run_tests` ran with `timeout=900` and no handler. A timeout
+    therefore escaped `run_one` — the `finally` still restored the source
+    and cleared the journal, that guarantee was already sound — but the
+    exception then left `main()` with a traceback and NO verdict for any
+    remaining mutation. An hour of gate became zero classified results.
+
+    And it must never be CAUGHT. A child that was killed produced no
+    assertion failure and no summary, so "the tests did not finish" is
+    not "the tests objected" — crediting it would silently retire a real
+    test the first time a suite got slow. That is the same reasoning the
+    classifier already applies to errors-only runs.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.target = Path(self.tmp.name) / "target.py"
+        self.target.write_text("keep = 0\nunique_line = 1\n", encoding="utf-8")
+        self.mutation = gate.Mutation(
+            "TO1", "what", str(self.target),
+            "unique_line = 1", "unique_line = 2", "tests.irrelevant")
+
+    def _timing_out(self, *_a, **_kw):
+        raise subprocess.TimeoutExpired(cmd=["python", "-m", "unittest"],
+                                        timeout=900)
+
+    def test_a_timeout_is_classified_BROKEN(self):
+        with mock.patch.object(gate, "_run_tests", self._timing_out):
+            status, detail = gate.run_one(self.mutation, dict(os.environ))
+        self.assertEqual(gate.BROKEN, status)
+        self.assertIn("timeout", detail.lower())
+
+    def test_a_timeout_is_NEVER_classified_CAUGHT(self):
+        """Stated separately because it is the dangerous direction.
+
+        BROKEN costs a re-run. CAUGHT is a false green that removes a
+        test from the gate's protection without anyone deciding to.
+        """
+        with mock.patch.object(gate, "_run_tests", self._timing_out):
+            status, _ = gate.run_one(self.mutation, dict(os.environ))
+        self.assertNotEqual(gate.CAUGHT, status)
+
+    def test_the_source_is_restored_after_a_timeout(self):
+        before = self.target.read_text(encoding="utf-8")
+        with mock.patch.object(gate, "_run_tests", self._timing_out):
+            gate.run_one(self.mutation, dict(os.environ))
+        self.assertEqual(before, self.target.read_text(encoding="utf-8"),
+                         "a timeout left the mutation on disk")
+
+    def test_the_journal_is_cleared_after_a_timeout(self):
+        with mock.patch.object(gate, "_run_tests", self._timing_out):
+            gate.run_one(self.mutation, dict(os.environ))
+        self.assertFalse(
+            gate.JOURNAL.exists(),
+            "a surviving journal refuses every later run, so a timeout "
+            "would block the gate until someone deleted it by hand")
+
+    def test_the_production_timeout_is_injected_not_hardcoded(self):
+        """`CHILD_TIMEOUT_S` must actually reach `subprocess.run`.
+
+        Proven by reading the kwarg rather than by waiting: a test that
+        lowered the production constant to make itself fast would change
+        the very value it claims to verify.
+        """
+        seen = {}
+
+        def _fake_run(*_a, **kw):
+            seen.update(kw)
+            return subprocess.CompletedProcess([], 0, "", "OK\n")
+
+        with mock.patch.object(gate.subprocess, "run", _fake_run):
+            with mock.patch.object(gate, "CHILD_TIMEOUT_S", 1234):
+                gate._run_tests("tests.irrelevant", dict(os.environ))
+        self.assertEqual(1234, seen.get("timeout"))
+
+    def test_an_explicit_timeout_argument_overrides_the_constant(self):
+        seen = {}
+
+        def _fake_run(*_a, **kw):
+            seen.update(kw)
+            return subprocess.CompletedProcess([], 0, "", "OK\n")
+
+        with mock.patch.object(gate.subprocess, "run", _fake_run):
+            gate._run_tests("tests.irrelevant", dict(os.environ), timeout=7)
+        self.assertEqual(7, seen.get("timeout"))
+
+
+class RunnerProgressAndPolicyTests(unittest.TestCase):
+    """The runner says what it is doing, and finishes what it started.
+
+    An 80-mutation gate that prints nothing for an hour is not usable as
+    an acceptance gate: a legitimately slow suite and a hang look
+    identical from outside. A full run was killed by hand on 2026-09-05
+    in that belief — `test_profile_seed_ws_step6` takes ~31s, of which
+    only 9 are CPU, and nothing said so.
+    """
+
+    def _drive(self, verdicts):
+        """Run `main()` over fake mutations, returning (stdout, exit).
+
+        `verdicts` maps mutation id to the status `run_one` should
+        report, so a BROKEN or MISSED can be staged without needing a
+        product defect to produce one.
+        """
+        muts = tuple(
+            gate.Mutation(mid, f"what {mid}", "irrelevant.py", "a", "b",
+                          f"tests.suite_for_{mid}")
+            for mid in verdicts)
+        order = []
+
+        def _fake_run_one(mutation, _env, timeout=None):
+            order.append(("ran", mutation.id, buf.getvalue()))
+            return verdicts[mutation.id], "detail"
+
+        buf = io.StringIO()
+        with mock.patch.object(gate, "MUTATIONS", muts), \
+             mock.patch.object(gate, "_baseline_green", lambda *_a: True), \
+             mock.patch.object(gate, "_unclean_paths", lambda: []), \
+             mock.patch.object(gate, "_journal_check", lambda: 0), \
+             mock.patch.object(gate, "run_one", _fake_run_one), \
+             mock.patch.object(sys, "argv", ["run_mutation_gate.py"]), \
+             contextlib.redirect_stdout(buf):
+            code = gate.main()
+        return buf.getvalue(), code, order
+
+    def test_the_progress_line_is_printed_BEFORE_the_child_runs(self):
+        """Ordering is the whole point.
+
+        A progress line printed after the child would appear at the same
+        moment as the verdict and tell a watcher nothing during the wait
+        that prompted it.
+        """
+        _out, _code, order = self._drive({"A1": gate.CAUGHT})
+        _tag, _mid, stdout_at_call = order[0]
+        self.assertIn("RUNNING A1", stdout_at_call,
+                      "the child started before its progress line was "
+                      "printed, so the line cannot announce a wait")
+
+    def test_the_progress_line_names_the_suite_and_the_position(self):
+        out, _code, _order = self._drive({"A1": gate.CAUGHT,
+                                          "A2": gate.CAUGHT})
+        self.assertIn("RUNNING A1 ", out)
+        self.assertIn("[1/2]", out)
+        self.assertIn("[2/2]", out)
+        self.assertIn("tests.suite_for_A1", out)
+
+    def test_every_verdict_reports_an_elapsed_time(self):
+        out, _code, _order = self._drive({"A1": gate.CAUGHT})
+        self.assertRegex(out, r"CAUGHT.*A1.*\d+\.\d+s")
+
+    def test_a_BROKEN_result_does_NOT_stop_the_remaining_mutations(self):
+        """THE DOCUMENTED POLICY: continue.
+
+        Stopping at the first bad result would discard the
+        classification of every mutation after it — an hour of gate
+        reduced to one line — and there is nothing to protect by
+        stopping, because `run_one` restores the source per mutation in
+        a `finally` rather than at the end.
+        """
+        out, code, order = self._drive({"A1": gate.BROKEN,
+                                        "A2": gate.CAUGHT,
+                                        "A3": gate.MISSED})
+        self.assertEqual(["A1", "A2", "A3"], [m for _t, m, _s in order],
+                         "the run stopped early after a bad result")
+        self.assertEqual(1, code, "a run with MISSED/BROKEN must exit 1")
+        self.assertIn("NOT AN ACCEPTING RUN", out)
+
+    def test_MISSED_and_BROKEN_are_named_separately_in_the_summary(self):
+        """They mean opposite things and used to look identical.
+
+        The summary reported only the caught count, so both showed as
+        "one short" and a reader had to scroll back through eighty lines
+        to find out which. MISSED is a missing test; BROKEN is a
+        measurement that never happened.
+        """
+        out, _code, _order = self._drive({"A1": gate.BROKEN,
+                                          "A2": gate.MISSED,
+                                          "A3": gate.CAUGHT})
+        # A1 is the BROKEN one and A2 the MISSED one. Naming them exactly
+        # matters: an alternation that accepted either id would pass even
+        # if the summary put every bad result in one bucket, which is the
+        # confusion this test exists to prevent.
+        self.assertRegex(out, r"MISSED\s+1: A2\b")
+        self.assertRegex(out, r"BROKEN\s+1: A1\b")
+        self.assertNotIn("A3", out.split("caught behaviourally")[-1],
+                         "the CAUGHT mutation was listed in a failure bucket")
+        self.assertIn("1/3 caught", out)
+
+    def test_an_all_caught_run_exits_zero_and_says_nothing_alarming(self):
+        """The positive control.
+
+        Without it, a runner that printed NOT AN ACCEPTING RUN
+        unconditionally would satisfy every test above.
+        """
+        out, code, _order = self._drive({"A1": gate.CAUGHT,
+                                         "A2": gate.CAUGHT})
+        self.assertEqual(0, code)
+        self.assertNotIn("NOT AN ACCEPTING RUN", out)
+        self.assertIn("2/2 caught", out)
+        self.assertIn("elapsed", out)
 
 
 if __name__ == "__main__":

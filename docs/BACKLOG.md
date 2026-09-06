@@ -241,13 +241,30 @@ All four reproduce at `d0e5294`. Bounded tooling commits, separate from cleanup.
 
 | Item | Detail |
 |---|---|
-| The mutation gate runs on the interpreter least able to exercise route tests | Documented command is `python3`; there the strict suite reports `22 ran, 5 SKIPPED` and `test_profile_seed_rest_read_authority` reports `48 ran, 6 SKIPPED`. The `S`-series mutations target `api.py` and `profile_seed_rest.py`. Decide whether the gate should now run under `.venv` |
+| ~~The mutation gate runs on the interpreter least able to exercise route tests~~ | **DECIDED 2026-09-05: the gate runs under `.venv`.** It was `python3`, where the strict suite reported `22 ran, 5 SKIPPED` and `test_profile_seed_rest_read_authority` `48 ran, 6 SKIPPED`, while the `S`-series mutations target `api.py` and `profile_seed_rest.py`. What forced the decision: the Phase 5B `L`-series suites import `api.routers.extract` with no stubs, so under `python3` they do not skip — **they fail to import**, and the gate correctly REFUSED on a red baseline (`RED 2 ran -> FAILED (errors=2)`). A gate whose default interpreter cannot load the suites it gates is not a gate. `run_mutation_gate.py` spawns children with `sys.executable`, so the interpreter that starts it decides the whole run; its docstring now says `.venv/bin/python`, and `CLAUDE.md` agrees |
 | Six skips in `test_narrator_refusal_characterization` | Unexamined. Four mutations (`R1`, `R2`, `T1`, and the curly-apostrophe case) depend on that suite |
 | ~~No compile gate over `scripts/` and `tests/`~~ | **CLOSED 2026-09-05** — `tests/test_scripts_compile.py`. Byte-compiles every tracked `.py` under `scripts/` and `tests/`, names the three UI harnesses explicitly so a discovery change cannot silently drop them, and carries a positive control planting the original defect's shape |
 
 ### 6b. `bio_fact_router` provenance is null in production — and a test hides it
 
-**FOUND 2026-09-05 by external review, verified by execution here. Belongs to Phase 5C.**
+**✅ CLOSED 2026-09-05 in PHASE 5A, not 5C.** The row below says "Fix in Phase 5C" and that
+is now stale; it is recorded rather than rewritten because the diagnosis underneath it is
+what the fix was built from.
+
+`turn_extraction.claim_source_identity(claim)` is now the single source of that provenance,
+and the router call at `extract.py:10238-10247` takes `narrator_id` / `session_id` /
+`turn_id` / `turn_key` from it. Routing additionally REFUSES unless `source_identity` is
+present, `turn_key` is non-empty, and `source_identity["narrator_id"] == req.person_id` — so
+a caller that cannot name the committed turn gets no side-write rather than a null-provenance
+one. The production-boundary companion is `tests/test_bio_fact_provenance_binding.py`; the
+helper-level test that hid the defect no longer stands alone.
+
+**The original record follows — and its line numbers no longer resolve.** They were
+correct when the defect was found; the Phase 5B edits moved the file, so `9748-9749` now
+lands on unrelated `needs_confirmation` code, and the defective text is gone from the tree
+entirely. Kept verbatim rather than renumbered, because a historical record that silently
+tracks the current file stops being a record of what was found. The fix is cited by symbol
+above, which survives renumbering.
 
 `extract.py:9748-9749` passes `session_id=getattr(req, "conv_id", None)` and
 `turn_id=getattr(req, "turn_id", None)` into `bio_fact_router`. **Neither `conv_id` nor

@@ -43,6 +43,43 @@ rule below about mutations exists in the form it does. Number 11 was found only
 because a mutation was written for the constructor line; grepping for the field
 name would have found it present and concluded it worked.
 
+## A test can go blind when the invariant MOVES beneath it
+
+Recorded 2026-09-05, and it is a different shape from the table above.
+There the fixture supplied the property. Here the test was correct, the
+product was correct, and a refactor moved the invariant to a reader the
+test did not watch — so the coverage evaporated with nothing failing.
+
+Mutation `C8` — *"identity_complete inferred from an onboarding payload
+again"* — survived the authoritative gate green across all three
+composer suites. It was written when that inference flipped
+`identity_mode` into identity interrogation, and the tests aimed there.
+The attestation restructure then made `identity_mode = False`
+unconditional inside the `if _ps_attested:` branch, so under an attested
+walk `identity_complete` is no longer read for that decision at all.
+Every test pointed at interrogation went blind in the same commit.
+
+But `identity_complete` has a second reader and it is unconditional:
+`prompt_composer.py:4243` renders it into the `LORI_RUNTIME:` block of
+the system prompt on every turn. Measured HEAD versus mutated:
+
+| | `LORI_RUNTIME:` line |
+|---|---|
+| HEAD | `identity_complete: False` |
+| C8 | `identity_complete: True` |
+
+So the surviving effect is that the prompt tells Lori a narrator's
+identity is established because a dict had a key — the inference
+`prompt_composer.py:4103-4117` records as withdrawn, reappearing at a
+reader that comment predates.
+
+**What follows: when a refactor moves where a value is consumed, the
+mutations aimed at the old consumer must be re-pointed, not assumed
+still valid.** A surviving mutation is the only thing that reports this,
+which is why a `MISSED` is never dismissed as "the mutation is stale"
+without reading every reader of the value. Two of the three readers here
+would have supported that dismissal.
+
 ## And a mutation that catches nothing is a missing test
 
 Recorded 2026-09-05. Mutation `L9` restores the defect where a reading is
