@@ -7,6 +7,22 @@ PID_DIR="$RUNTIME_DIR/pids"
 LOG_DIR="$RUNTIME_DIR/logs"
 mkdir -p "$PID_DIR" "$LOG_DIR"
 
+# ── WHAT THE CALLER ASKED FOR, BEFORE `.env` HAS ITS SAY ────────────
+#
+# Captured here and nowhere else, because after the next block there is
+# no way to tell a value the operator typed from one `.env` supplied.
+# `.env:258` pins `HORNELORE_RESPONSE_TRACE=0`, so `${VAR:-default}`
+# below would never substitute and the evaluation marker could never arm
+# anything — measured, after writing exactly that bug.
+#
+# Precedence, most specific first:
+#   1. what the caller exported for THIS invocation
+#   2. the experiment marker (`.runtime/eval/current_eval_dir`)
+#   3. `.env`
+#   4. off
+_HL_TRACE_FROM_CALLER="${HORNELORE_RESPONSE_TRACE-}"
+_HL_TRACE_DIR_FROM_CALLER="${HORNELORE_TRACE_DIR-}"
+
 # ── Load .env if present ─────────────────────────────────────────
 if [[ -f "$ROOT_DIR/.env" ]]; then
   set -a
@@ -14,6 +30,85 @@ if [[ -f "$ROOT_DIR/.env" ]]; then
   source "$ROOT_DIR/.env"
   set +a
 fi
+
+# ── RESPONSE-TRACE ENVIRONMENT — RESOLVED HERE, FOR EVERY LAUNCHER ──
+#
+# There are TWO launch paths and they do not share an environment:
+#
+#   scripts/start_all.sh          — one WSL shell, starts everything
+#   Start Hornelore.bat           — Windows Terminal, four tabs, each
+#                                   `wsl.exe bash --login <script>`
+#
+# The second is the one Chris actually uses. A `--login` shell launched
+# from Windows inherits NOTHING from a WSL terminal, so
+# `export HORNELORE_RESPONSE_TRACE=1` typed before clicking the shortcut
+# never reaches the API process — and `start_all.sh` was the only file
+# that exported it, so the shortcut path silently ran with tracing off
+# while the operator believed it was on.
+#
+# Resolving it in `common.sh` puts it below both paths, which is the
+# only place a single answer can live. An explicitly exported value
+# still wins; this only supplies one when there is none.
+#
+# THE DESTINATION FOLLOWS A FILE, NOT AN INHERITED VARIABLE. The GPU
+# recorder writes the run directory to `.runtime/eval/current_eval_dir`
+# before the stack starts, so the API can read where this experiment's
+# traces belong no matter how it was launched. That turns "did the
+# export survive the login shell" from an inference into a fact on disk
+# — and `/api/health/response-trace` reports `output_dir` so the
+# preflight can prove it before a two-hour run is spent.
+# ── THE MARKER FILE IS THE OPT-IN, AND IT IS SELF-LIMITING ──────────
+#
+# `.env` would also reach the shortcut path (it is sourced above under
+# `set -a`), and it is the wrong place: a flag left there records every
+# ordinary narrator turn from then on, forever, which is exactly what
+# opt-in tracing exists to prevent. Nobody remembers to remove it.
+#
+# The marker is written by the GPU recorder when an experiment starts
+# and removed by `stop_all.sh` when it ends, so arming and disarming are
+# the same gesture as starting and stopping the measurement. An explicit
+# `HORNELORE_RESPONSE_TRACE=0` still wins, for the case where the stack
+# is restarted mid-experiment without wanting traces.
+_hl_eval_dir=""
+if [[ -r "$RUNTIME_DIR/eval/current_eval_dir" ]]; then
+  # `$(<file)` strips trailing newlines, so a marker written with
+  # `printf '%s\n'` yields the path and not the path-plus-newline.
+  _hl_eval_dir="$(<"$RUNTIME_DIR/eval/current_eval_dir")"
+fi
+
+if [[ -n "$_HL_TRACE_FROM_CALLER" ]]; then
+  export HORNELORE_RESPONSE_TRACE="$_HL_TRACE_FROM_CALLER"
+elif [[ -n "$_hl_eval_dir" ]]; then
+  export HORNELORE_RESPONSE_TRACE=1
+else
+  export HORNELORE_RESPONSE_TRACE="${HORNELORE_RESPONSE_TRACE:-0}"
+fi
+
+if [[ -n "$_HL_TRACE_DIR_FROM_CALLER" ]]; then
+  export HORNELORE_TRACE_DIR="$_HL_TRACE_DIR_FROM_CALLER"
+elif [[ -n "$_hl_eval_dir" ]]; then
+  # A blank or deleted marker must not resolve to the repo root.
+  # `_out_dir()` tests truthiness, so an empty value falls through to
+  # the module default rather than writing traces into the cwd.
+  export HORNELORE_TRACE_DIR="$_hl_eval_dir/response-trace"
+else
+  export HORNELORE_TRACE_DIR="${HORNELORE_TRACE_DIR:-}"
+fi
+unset _hl_eval_dir _HL_TRACE_FROM_CALLER _HL_TRACE_DIR_FROM_CALLER
+
+#: Printed by the launchers so a run is never started in the belief
+#: that tracing is on when it is off, or writing somewhere else.
+hornelore_trace_banner() {
+  if [[ "${HORNELORE_RESPONSE_TRACE:-0}" == "1" ]]; then
+    printf 'Response trace: ENABLED (observation only)\n'
+    printf '  destination: %s\n\n' \
+      "${HORNELORE_TRACE_DIR:-<default> .runtime/eval/response-trace}"
+  else
+    printf 'Response trace: off. To record an evaluation run:\n'
+    printf '  HORNELORE_RESPONSE_TRACE=1 ./scripts/start_all.sh\n'
+    printf '  (or set it in .env before using the desktop shortcut)\n\n'
+  fi
+}
 
 API_PORT="${LOREVOX_API_PORT:-8000}"
 TTS_PORT="${LOREVOX_TTS_PORT:-8001}"
