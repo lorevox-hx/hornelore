@@ -44,6 +44,45 @@ the entire run.** `PYTHONPATH` does not fix a missing fastapi.
 Exit 0 iff EVERY mutation was caught. Exit 1 if any survived, if an
 anchor no longer matches, or if a mutation fails to compile.
 
+── WHICH FAMILY PROTECTS WHICH FILE ──────────────────────────────────
+
+**The full gate is an ACCEPTANCE instrument, not a development loop.**
+It measured 180.0 minutes on 2026-09-06 (85/85), and three suites are
+80% of that — see `docs/BACKLOG.md` §6c. Running it after every commit
+is how a team stops running it at all.
+
+Day to day, run the focused tests for what changed, plus the family that
+protects it:
+
+| Family | Protects | Cost |
+|---|---|---|
+| `S` | `api.py`, `profile_seed_rest.py` | ~198s each |
+| `P` | `profile_seed.py` | ~388s each |
+| `M` `T` `H` | `profile_seed_turn.py` (reducer) | **0.2s** each |
+| `E` | presentation epoch, across three modules | ~372s each |
+| `C` | `prompt_composer.py`, `prompt_section_policy.py` | ~50s each |
+| `D` | `chat_ws.py` | ~1.2s each |
+| `X` | `profile_seed_runtime.py`, `profile_seed_rest.py` | ~176s each |
+| `L` | `extract.py`, `relationship_interpreter.py` | ~13s each |
+
+**THE RULE IS "FOLLOW A MOVED INVARIANT", NOT "RUN NEARBY FAMILIES".**
+Touching a file that a family protects is a reason to run that family.
+Touching a file that merely *sits near* one is not — that is how focused
+testing turns back into the three-hour gate under a new name.
+
+The reason the first half of that rule exists is `C8`: it survived a
+full gate because a refactor moved `identity_complete` out of the
+decision its tests watched and into a different reader, and every test
+aimed at the old consumer went blind with nothing failing. **So when a
+change moves WHERE a value is consumed, re-point the mutations aimed at
+the old reader** — a surviving mutation is the only thing that reports
+this, which is why a `MISSED` is never dismissed as a stale mutation
+without reading every reader of the value.
+
+Run the full gate at major acceptance points, or when a change is broad
+enough to cross several of the rows above at once. That is a deliberate
+decision, never the default after a commit.
+
 ── PROGRESS, TIMING, AND WHAT HAPPENS AFTER A BAD RESULT ─────────────
 
 Each mutation announces itself BEFORE its child starts and reports its

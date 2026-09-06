@@ -243,6 +243,37 @@ All four reproduce at `d0e5294`. Bounded tooling commits, separate from cleanup.
 |---|---|
 | ~~The mutation gate runs on the interpreter least able to exercise route tests~~ | **DECIDED 2026-09-05: the gate runs under `.venv`.** It was `python3`, where the strict suite reported `22 ran, 5 SKIPPED` and `test_profile_seed_rest_read_authority` `48 ran, 6 SKIPPED`, while the `S`-series mutations target `api.py` and `profile_seed_rest.py`. What forced the decision: the Phase 5B `L`-series suites import `api.routers.extract` with no stubs, so under `python3` they do not skip — **they fail to import**, and the gate correctly REFUSED on a red baseline (`RED 2 ran -> FAILED (errors=2)`). A gate whose default interpreter cannot load the suites it gates is not a gate. `run_mutation_gate.py` spawns children with `sys.executable`, so the interpreter that starts it decides the whole run; its docstring now says `.venv/bin/python`, and `CLAUDE.md` agrees |
 | Six skips in `test_narrator_refusal_characterization` | Unexamined. Four mutations (`R1`, `R2`, `T1`, and the curly-apostrophe case) depend on that suite |
+
+### 6c. Where the three hours actually go — measured 2026-09-06
+
+**`85/85` caught, 0 MISSED, 0 BROKEN, 180.0 min**, `.venv/bin/python` on the laptop, clean
+tree at `5980bef`+. This is the accepted Phase 5B/tooling baseline, and the per-mutation
+elapsed times it produced are recorded here so the next person deciding whether to run it
+is deciding from data.
+
+| Suite | Mutations | Each | Total | Share |
+|---|---|---|---|---|
+| `test_profile_seed_server_authority` | 10 (`P1`–`P10`) | ~388s | **64.6 min** | 36% |
+| the 3-module epoch command | 7 (`E1`–`E7`) | ~372s | **43.5 min** | 24% |
+| `test_profile_seed_rest_read_authority` | 11 (`S1`–`S11`) | ~198s | **36.3 min** | 20% |
+| `test_profile_seed_ws_step6` | 6 (`X1`–`X6`) | ~176s | 17.6 min | 10% |
+| the 3-module composer command | 18 (`C*`, `H4`, `H5`) | ~50s | 15.1 min | 8% |
+| `test_spouse_state_characterization` + qualifiers | 9 (`L1`–`L9`) | ~13s | 2.0 min | 1% |
+| `test_profile_seed_turn_reducer` alone | 14 (`M*`, `T*`, `H*`) | **0.2s** | 2.8s | 0% |
+
+**Three suites are 80% of the run.** `test_profile_seed_server_authority` is the single
+dominant cost — it is the whole P-series *and* part of the E-series command. The
+distribution is extreme rather than merely uneven: fourteen mutations finish in under three
+seconds combined, while any one P mutation costs six and a half minutes.
+
+**So a cheaper gate is a scheduling question, not a coverage question.** Nothing needs to be
+dropped; the fast families are nearly free to run often, and the three slow suites are what
+make the full gate an acceptance-only instrument.
+
+**And name the machine.** `test_profile_seed_ws_step6` measured **31s in the agent sandbox
+and ~176s here** — 5.7× — which is why a legitimately running gate read as a hang for three
+minutes rather than thirty seconds. A timing claim without its interpreter and machine is
+not reproducible, and the sandbox is the wrong one for any cost decision.
 | ~~No compile gate over `scripts/` and `tests/`~~ | **CLOSED 2026-09-05** — `tests/test_scripts_compile.py`. Byte-compiles every tracked `.py` under `scripts/` and `tests/`, names the three UI harnesses explicitly so a discovery change cannot silently drop them, and carries a positive control planting the original defect's shape |
 
 ### 6b. `bio_fact_router` provenance is null in production — and a test hides it
