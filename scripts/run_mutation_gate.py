@@ -19,10 +19,27 @@ same answer I got.
 
     cd /mnt/c/Users/chris/hornelore
     PYTHONPYCACHEPREFIX=/tmp/pyc PYTHONPATH=server/code \\
-        python3 scripts/run_mutation_gate.py
+        .venv/bin/python scripts/run_mutation_gate.py
 
     # one mutation, by id
-    ... python3 scripts/run_mutation_gate.py --only M10
+    ... .venv/bin/python scripts/run_mutation_gate.py --only M10
+
+**`.venv`, NOT bare `python3`.** Corrected 2026-09-05. This block said
+`python3` from the day it was written, and `CLAUDE.md` had already
+recorded that as the interpreter least able to exercise route tests —
+`22 ran, 5 SKIPPED` for the strict suite, `48 ran, 6 SKIPPED` for the
+REST route suite, while the `S`-series mutations target exactly those
+two modules. The decision sat open in `docs/BACKLOG.md` §6.
+
+The `L`-series settled it. Those suites import `api.routers.extract`
+directly and install no stubs, so under `python3` they do not skip —
+**they fail to import**, and the baseline check refused the whole run.
+A gate whose documented interpreter cannot load the suites it gates is
+not a gate.
+
+This matters more than a habit: `run_one` spawns every child with
+`sys.executable`, so **the interpreter that starts this script decides
+the entire run.** `PYTHONPATH` does not fix a missing fastapi.
 
 Exit 0 iff EVERY mutation was caught. Exit 1 if any survived, if an
 anchor no longer matches, or if a mutation fails to compile.
