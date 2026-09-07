@@ -558,6 +558,9 @@ async def _send_turn_and_capture(
     }, ensure_ascii=False))
 
     tokens: List[str] = []
+    #: Set when an `error` frame arrives. The turn is refused, but its
+    #: `done` still has to be consumed before the next one is sent.
+    error_seen = False
     events: List[Dict[str, Any]] = []
     final_text = ""
 
@@ -580,11 +583,43 @@ async def _send_turn_and_capture(
         elif typ == "done":
             final_text = msg.get("final_text") or "".join(tokens)
             elapsed = time.time() - send_start
+            if error_seen:
+                # A refused turn: the `done` is the end of the contract,
+                # not a response. Say so rather than reporting an empty
+                # string as if Lori had answered with nothing.
+                print(f"\n  --- {chapter_label} REFUSED, socket clean "
+                      f"({elapsed:.1f}s) ---")
+                return "", events
             print(f"\n  --- {chapter_label} DONE in {elapsed:.1f}s ---")
             return final_text, events
         elif typ == "error":
+            # ── DO NOT RETURN HERE. KEEP READING UNTIL `done`. ────────
+            #
+            # CORRECTED 2026-09-06, after review, and this one would have
+            # ruined the run rather than dented it.
+            #
+            # The server's blocked-turn contract is `error` THEN `done` —
+            # every refusal path sends both: `PROMPT_TOO_LARGE`,
+            # `VRAM_PRESSURE`, `GENERATION_BUSY`, `CUDA_OOM`. Returning
+            # at the error left that `done` queued on the socket. The
+            # next era would send its chapter and immediately read the
+            # PREVIOUS turn's completion frame — so from the first
+            # refusal onward every result was attributed to the wrong
+            # era, silently, with plausible-looking output.
+            #
+            # And refusal is not an edge case here: it is one of the
+            # OUTCOMES THIS DIAGNOSTIC IS LOOKING FOR. The failure mode
+            # was triggered by the thing being measured, which is the
+            # worst possible coupling.
+            #
+            # So the error is recorded and the loop continues to the
+            # matching `done`, which returns an empty final response and
+            # leaves the socket clean for the next turn.
             print(f"\n  ✗ ERROR on {chapter_label}: {json.dumps(msg)[:400]}")
-            return "", events
+            print("    (waiting for the matching `done` — the socket must "
+                  "be clean for the next era)")
+            error_seen = True
+            continue
     raise TimeoutError(f"No done event for {chapter_label} after {timeout_s}s")
 
 

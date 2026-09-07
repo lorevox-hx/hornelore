@@ -9,6 +9,48 @@
 set -euo pipefail
 source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 
+# ── DISARMING IS A TRAP, NOT A LAST STATEMENT ───────────────────────
+#
+# CORRECTED 2026-09-06, after review. `.runtime/eval/current_eval_dir`
+# is what turns response tracing ON: while it exists, EVERY start arms
+# tracing, including ordinary sessions with Kent and Janice. That makes
+# it a privacy boundary, and **a privacy boundary must not depend on
+# every unrelated shutdown command succeeding.**
+#
+# This script runs `set -euo pipefail`. As the final statement, the
+# disarm was skipped entirely if any earlier command exited non-zero — a
+# wedged process, a missing pid file, a failed snapshot — and the next
+# ordinary start would then quietly record every narrator turn. The
+# failure mode was silent and the wrong way round: the messier the
+# shutdown, the more likely tracing stayed on.
+#
+# On EVERY exit path now. Ordering is unchanged and still matters: the
+# log snapshots below write into the run's own directory, so they must
+# happen before the pointer to it is cleared — which they do, because
+# the trap fires last regardless.
+#
+# The run directory itself is never deleted. Only the "this run is
+# current" pointer is, and `last_eval_dir` is written first so analysis
+# after the Stop shortcut can `cat` it instead of hunting through
+# terminal scrollback.
+_hornelore_disarm_eval() {
+  local marker="$RUNTIME_DIR/eval/current_eval_dir"
+  [[ -r "$marker" ]] || return 0
+  local dir
+  dir="$(<"$marker")" || dir=""
+  if [[ -n "$dir" ]]; then
+    printf '%s\n' "$dir" > "$RUNTIME_DIR/eval/last_eval_dir" 2>/dev/null || true
+  fi
+  rm -f "$marker"
+  printf '\nEvaluation DISARMED — response tracing is off for the next start.\n'
+  if [[ -n "$dir" ]]; then
+    printf '  This run:  %s\n' "$dir"
+    printf '  Traces:    %s/response-trace\n' "$dir"
+    printf '  Pointer:   .runtime/eval/last_eval_dir\n'
+  fi
+}
+trap _hornelore_disarm_eval EXIT
+
 # ── Parse flags ──────────────────────────────────────────────────
 _set_clean_flag=1
 _snapshot_logs=1
@@ -82,35 +124,6 @@ if [[ "$_set_clean_flag" -eq 1 ]]; then
   mkdir -p "$RUNTIME_DIR"
   printf '%s\n' "$(date -Iseconds)" > "$RUNTIME_DIR/reset_on_start"
   printf 'Clean-start flag set — next startup will clear browser state.\n'
-fi
-
-# ── DISARM THE EVALUATION MARKER ────────────────────────────────
-#
-# Added 2026-09-06, and it is the other half of the arming design
-# rather than a tidy-up. `.runtime/eval/current_eval_dir` is what turns
-# response tracing on: while it exists, EVERY start arms tracing,
-# including ordinary sessions with Kent and Janice. Leaving it behind
-# would be worse than the `.env` flag it replaced, because at least a
-# flag in `.env` is visible when you go looking for one.
-#
-# Arming and disarming are therefore the same gesture as starting and
-# stopping the measurement. Deliberately AFTER the log snapshots above:
-# those write into the run's own directory, and removing the marker
-# first would send them somewhere else.
-#
-# The path is REPORTED before it is removed. It is the only pointer to
-# the run that just finished, and an operator who wants to analyse it
-# needs to be told where it went, not left to reconstruct it from a
-# timestamp.
-if [[ -r "$RUNTIME_DIR/eval/current_eval_dir" ]]; then
-  _eval_dir="$(<"$RUNTIME_DIR/eval/current_eval_dir")"
-  rm -f "$RUNTIME_DIR/eval/current_eval_dir"
-  printf '\nEvaluation DISARMED. Response tracing is off for the next start.\n'
-  if [[ -n "$_eval_dir" ]]; then
-    printf '  This run:  %s\n' "$_eval_dir"
-    printf '  Traces:    %s/response-trace\n' "$_eval_dir"
-  fi
-  unset _eval_dir
 fi
 
 printf '\nAll Hornelore services stopped.\n'

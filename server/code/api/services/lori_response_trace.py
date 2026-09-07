@@ -394,6 +394,22 @@ def finish(delivered: Optional[str] = None, persisted: Optional[str] = None,
 #: response outcomes and must never be counted among them.
 TERMINAL_PROMPT_TOO_LARGE = "prompt_too_large"
 TERMINAL_VRAM_PRESSURE = "vram_pressure"
+#: The BUDGET said the prompt fitted and the real tokenizer disagreed.
+#: A different event from `prompt_too_large`: that one is the budget
+#: working as designed, this one is the budget being WRONG. Collapsing
+#: them would hide a measurement disagreement inside an expected refusal.
+TERMINAL_PROMPT_BUDGET_BACKSTOP = "prompt_budget_backstop"
+#: A previous generation thread would not exit, so this turn never
+#: started. Pre-generation like the others, and just as much a turn the
+#: narrator lost.
+TERMINAL_GENERATION_BUSY = "generation_busy"
+
+#: Outcomes where GENERATION DID START and then failed. Separate from the
+#: pre-generation set on purpose: `generation_attempted` is True for
+#: these, and a report that merged them would count a turn the model
+#: began among turns it was never asked to begin.
+TERMINAL_CUDA_OOM = "cuda_oom"
+TERMINAL_GENERATION_FAILED = "generation_failed"
 
 #: What a terminal record must carry to be worth having.
 #:
@@ -455,6 +471,11 @@ def terminal(outcome: str, *, generation_attempted: bool = False,
             return
         rec["terminal_outcome"] = outcome
         rec["generation_attempted"] = bool(generation_attempted)
+        # A turn that began generating and then failed still has no
+        # response, but it is NOT the same event as one the model was
+        # never asked to run. Both belong here — the alternative is a
+        # leaked, unwritten trace, which is the worst of the three — and
+        # `generation_attempted` is what separates them.
         if detail:
             rec.setdefault("context", {}).update(detail)
         # `ended_at` WITHOUT `_seal_rec`, which is the whole point: that
@@ -465,6 +486,14 @@ def terminal(outcome: str, *, generation_attempted: bool = False,
         required = list(REQUIRED_TERMINAL_CONTEXT)
         if outcome == TERMINAL_VRAM_PRESSURE:
             required += list(REQUIRED_TERMINAL_VRAM_CONTEXT)
+        elif generation_attempted:
+            # A failure DURING generation cannot be held to the
+            # pre-generation contract: it has prompt evidence but the
+            # outcome is about what happened after the model started.
+            # Demanding the pre-generation set would mark every one of
+            # these incomplete for fields that do not apply.
+            required = ["narrator_input", "terminal_outcome",
+                        "generation_attempted"]
         ctx = rec.get("context") or {}
         missing = [k for k in required if k not in ctx]
         rec["terminal_context_complete"] = not missing

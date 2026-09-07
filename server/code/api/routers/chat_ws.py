@@ -71,7 +71,7 @@ def _budget_evidence(budget) -> Dict[str, Any]:
 def _trace_pre_generation_terminal(outcome: str, *, trace_id, budget,
                                    narrator_text: str, runtime71,
                                    turn_mode=None, client_turn_id=None,
-                                   vram=None) -> None:
+                                   extra=None) -> None:
     """Record ONE turn where the model was never called, and write it.
 
     `WO-LORI-LISTEN-AND-RETAIN-01` §9.
@@ -109,10 +109,14 @@ def _trace_pre_generation_terminal(outcome: str, *, trace_id, budget,
                      trace_id=trace_id)
         _rt.note("terminal_outcome", outcome, trace_id=trace_id)
         _rt.note("generation_attempted", False, trace_id=trace_id)
-        if vram:
-            # The VRAM refusal has to carry what it refused and why. A
-            # guard decision without its numbers is an assertion.
-            for _k, _v in vram.items():
+        if extra:
+            # Outcome-specific evidence. The VRAM refusal carries what it
+            # refused and why — a guard decision without its numbers is
+            # an assertion — and the tokenizer backstop carries the count
+            # that contradicted the budget. Named `extra` rather than
+            # `vram` because it stopped being VRAM-only the moment the
+            # backstop got its own outcome.
+            for _k, _v in extra.items():
                 _rt.note(_k, _v, trace_id=trace_id)
         _rt.terminal(outcome, generation_attempted=False, trace_id=trace_id)
     except Exception as _term_exc:            # pragma: no cover - defensive
@@ -314,6 +318,12 @@ except Exception:  # pragma: no cover - defensive
         def terminal(*a, **k): return None
         TERMINAL_PROMPT_TOO_LARGE = "prompt_too_large"
         TERMINAL_VRAM_PRESSURE = "vram_pressure"
+        TERMINAL_PROMPT_BUDGET_BACKSTOP = "prompt_budget_backstop"
+        TERMINAL_GENERATION_BUSY = "generation_busy"
+        TERMINAL_CUDA_OOM = "cuda_oom"
+        TERMINAL_GENERATION_FAILED = "generation_failed"
+        @staticmethod
+        def current(*a, **k): return None
         @staticmethod
         def finish(*a, **k): return None
 
@@ -1439,10 +1449,51 @@ async def ws_chat(ws: WebSocket):
             "message": "GPU ran out of memory mid-generation. VRAM has been freed — please try again.",
             "vram_free_mb": round(vram_after_mb) if vram_after_mb >= 0 else None,
         })
+        # ── THE ONE TURN A VRAM DIAGNOSTIC CANNOT AFFORD TO LOSE ─────
+        #
+        # Added 2026-09-06, after review. `_rt.begin()` now happens
+        # inside the inner function before generation, so a mid-generation
+        # OOM left that trace live and unwritten — in the experiment
+        # whose entire subject is VRAM. The single most informative event
+        # was the one guaranteed to leave no record.
+        #
+        # `generation_attempted=True`: the model DID start. Reusing the
+        # pre-generation vocabulary here would file a turn that began
+        # among turns that never did, and the two are opposite findings.
+        # No response text is manufactured — `terminal()` writes none.
+        try:
+            _rt.note("narrator_input", user_text or "", trace_id=_rt.current())
+            _rt.note("terminal_outcome", _rt.TERMINAL_CUDA_OOM,
+                     trace_id=_rt.current())
+            _rt.note("generation_attempted", True, trace_id=_rt.current())
+            if vram_after_mb >= 0:
+                _rt.note("vram_free_post_recovery_mb", round(vram_after_mb, 1),
+                         trace_id=_rt.current())
+            _rt.terminal(_rt.TERMINAL_CUDA_OOM, generation_attempted=True)
+        except Exception as _oom_trace_exc:    # pragma: no cover - defensive
+            logger.warning("[chat_ws][trace] OOM terminal record failed: %s",
+                           _oom_trace_exc)
         await _ws_send(ws, {"type": "done", "final_text": "", "oom": True})
         return
 
       if generic_exc is not None:
+        # Same reasoning as the OOM path: if a trace is open it must be
+        # written honestly rather than abandoned. An unwritten trace is
+        # indistinguishable from a turn that never happened.
+        try:
+            if _rt.current():
+                _rt.note("narrator_input", user_text or "",
+                         trace_id=_rt.current())
+                _rt.note("terminal_outcome", _rt.TERMINAL_GENERATION_FAILED,
+                         trace_id=_rt.current())
+                _rt.note("generation_attempted", True, trace_id=_rt.current())
+                _rt.note("generation_error", generic_msg[:300],
+                         trace_id=_rt.current())
+                _rt.terminal(_rt.TERMINAL_GENERATION_FAILED,
+                             generation_attempted=True)
+        except Exception as _gen_fail_trace_exc:  # pragma: no cover
+            logger.warning("[chat_ws][trace] failure record failed: %s",
+                           _gen_fail_trace_exc)
         await _ws_send(ws, {"type": "error", "message": f"Chat backend error: {generic_msg[:300]}"})
         await _ws_send(ws, {"type": "done", "final_text": ""})
         return
@@ -5250,7 +5301,7 @@ async def ws_chat(ws: WebSocket):
                 runtime71=(params.get("runtime71")
                            if isinstance(params, dict) else None), turn_mode=turn_mode,
                 client_turn_id=_rt_client_turn_id,
-                vram={
+                extra={
                     "prompt_tokens": _prompt_tokens,
                     "max_new_requested": _ui_max_new,
                     "max_new_effective": max_new,
@@ -5298,12 +5349,37 @@ async def ws_chat(ws: WebSocket):
                 "prompt_tokens": int(inputs["input_ids"].shape[-1]),
                 "limit": MAX_CHAT_PROMPT_TOKENS,
             })
+            # ── A DIFFERENT EVENT FROM `mandatory_too_large` ─────────
+            #
+            # Corrected 2026-09-06, after review. Both once recorded as
+            # `prompt_too_large`, and they are opposite findings: that
+            # one is the budget WORKING — it measured, it refused, it
+            # said so. This one is the budget being WRONG — it said the
+            # prompt fitted and the real tokenizer disagreed.
+            #
+            # Filing them together would bury a measurement disagreement
+            # inside an expected refusal, and telling causes apart is the
+            # whole point of this diagnostic. The deciding number is the
+            # tokenizer's own count, so it goes on the record rather than
+            # being left for a report to infer by comparing unrelated
+            # fields.
+            #
+            # The WebSocket client still sees `PROMPT_TOO_LARGE`: the
+            # narrator-facing contract is unchanged, only the evidence is
+            # more precise.
             _trace_pre_generation_terminal(
-                _rt.TERMINAL_PROMPT_TOO_LARGE, trace_id=_rt_id,
+                _rt.TERMINAL_PROMPT_BUDGET_BACKSTOP, trace_id=_rt_id,
                 budget=_budget, narrator_text=user_text,
                 runtime71=(params.get("runtime71")
                            if isinstance(params, dict) else None), turn_mode=turn_mode,
-                client_turn_id=_rt_client_turn_id)
+                client_turn_id=_rt_client_turn_id,
+                extra={
+                    "backstop_actual_input_tokens":
+                        int(inputs["input_ids"].shape[-1]),
+                    "backstop_limit": MAX_CHAT_PROMPT_TOKENS,
+                    "backstop_budget_said_tokens": _budget.tokens,
+                    "backstop_budget_said_reason": _budget.reason,
+                })
             await _ws_send(ws, {"type": "done", "final_text": "",
                                 "blocked": "prompt_budget_backstop"})
             return
@@ -5339,21 +5415,11 @@ async def ws_chat(ws: WebSocket):
         else:
             stop = StoppingCriteriaList([StopOnEvent(ev)])
 
-        # PyTorch allocator peaks are per-turn, so the counter is reset
-        # immediately before generation and read immediately after.
-        # Named as ALLOCATOR measurements, never as whole-GPU usage —
-        # `nvidia-smi` is the authority for the device, and the two see
-        # different things.
+        # The measurement window opens at `th.start()`, NOT here. See the
+        # block just above that call.
         _cuda_peak_reset = False
-        if _gen_observer is not None:
-            try:
-                if torch.cuda.is_available():
-                    torch.cuda.reset_peak_memory_stats()
-                    _cuda_peak_reset = True
-            except Exception:                 # pragma: no cover - defensive
-                _cuda_peak_reset = False
-        _gen_started_at = time.time()
-        _gen_started_perf = time.perf_counter()
+        _gen_started_at = None
+        _gen_started_perf = None
 
         temperature = float(params.get("temperature", params.get("temp", 0.8)))
         top_p = float(params.get("top_p", 0.95))
@@ -5428,11 +5494,55 @@ async def ws_chat(ws: WebSocket):
                     "message": "The previous response is still winding "
                                "down — please try again in a moment.",
                 })
+                # ── THE FOURTH PRE-GENERATION RETURN ──────────────
+                #
+                # Added 2026-09-06, after review. The trace now opens
+                # before the budget decision, so this path returned with
+                # `_rt_id` live in `_traces`, no terminal record and no
+                # file — a leaked trace, and a turn the narrator lost
+                # with nothing to show for it. Unlikely under the
+                # sequential harness is not a reason to leave it: the
+                # other three close, and a fourth that does not is
+                # exactly the asymmetry that becomes a mystery later.
+                _trace_pre_generation_terminal(
+                    _rt.TERMINAL_GENERATION_BUSY, trace_id=_rt_id,
+                    budget=_budget, narrator_text=user_text,
+                    runtime71=(params.get("runtime71")
+                               if isinstance(params, dict) else None),
+                    turn_mode=turn_mode,
+                    client_turn_id=_rt_client_turn_id)
                 await _ws_send(ws, {
                     "type": "done", "final_text": "",
                     "blocked": "generation_serialization",
                 })
                 return
+        # ── THE MEASUREMENT WINDOW OPENS HERE ────────────────────────
+        #
+        # CORRECTED 2026-09-06, after review. The reset and the timer sat
+        # ABOVE the serialization wait, so `generation_elapsed_ms`
+        # included temperature parsing, seeding, the status frame, thread
+        # construction — and, worse, up to TEN SECONDS of waiting for the
+        # PREVIOUS turn's generation thread to exit. The CUDA peak was
+        # reset while that previous generation was still unwinding, so its
+        # tail was attributed to this turn.
+        #
+        # Both are wrong in the direction that matters: they would have
+        # made this diagnostic report a slower, hungrier turn than the one
+        # that actually ran, and the numbers would have looked plausible.
+        #
+        # The honest boundary is: previous generation confirmed finished,
+        # then reset, then timestamp, then start. Nothing between these
+        # three statements and `th.start()`.
+        if _gen_observer is not None:
+            try:
+                if torch.cuda.is_available():
+                    torch.cuda.reset_peak_memory_stats()
+                    _cuda_peak_reset = True
+            except Exception:                 # pragma: no cover - defensive
+                _cuda_peak_reset = False
+        _gen_started_at = time.time()
+        _gen_started_perf = time.perf_counter()
+
         generation_thread_holder["thread"] = th
         th.start()
 
@@ -5530,10 +5640,31 @@ async def ws_chat(ws: WebSocket):
         # the narrator waited for the model, measured with
         # `perf_counter` — NOT CUDA-kernel time, which would need
         # synchronised events and would answer a question nobody asked.
-        if _gen_observer is not None:
+        if _gen_observer is not None and _gen_started_perf is not None:
             try:
                 _gen_ended_at = time.time()
                 _gen_elapsed_ms = (time.perf_counter() - _gen_started_perf) * 1000.0
+                # ── WHAT "ENDED" ACTUALLY MEANS HERE ──────────────────
+                #
+                # The streamer can signal completion just before the
+                # generation THREAD returns, so this instant is "the
+                # narrator has all the text", not "the thread is
+                # finalized". Those are different claims and the peak
+                # read below depends on which one is true.
+                #
+                # So the fact is recorded rather than assumed, and no
+                # blocking join is added: waiting here to tidy the
+                # telemetry would add real latency to a narrator's turn
+                # to make a number look better, which is the wrong trade
+                # in a system built around older narrators.
+                #
+                # When the thread is already dead the allocator peak is
+                # final. When it is not, `cuda_peak_thread_alive` says
+                # so, and the peak is read anyway as a lower bound — a
+                # labelled approximation beats a confident wrong number.
+                _gen_thread_alive = bool(th.is_alive())
+                _rt.note("generation_thread_alive_at_stream_end",
+                         _gen_thread_alive, trace_id=_rt_id)
                 _rt.note("generation_started_at", _gen_started_at, trace_id=_rt_id)
                 _rt.note("generation_ended_at", _gen_ended_at, trace_id=_rt_id)
                 _rt.note("generation_elapsed_ms", round(_gen_elapsed_ms, 1),
@@ -5565,6 +5696,8 @@ async def ws_chat(ws: WebSocket):
                 # merged "peak used" column would be a confident wrong
                 # answer.
                 if _cuda_peak_reset:
+                    _rt.note("cuda_peak_final",
+                             not _gen_thread_alive, trace_id=_rt_id)
                     _rt.note("cuda_peak_allocated_mb",
                              round(torch.cuda.max_memory_allocated() / 1024**2, 1),
                              trace_id=_rt_id)
