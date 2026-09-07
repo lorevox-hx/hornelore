@@ -163,7 +163,9 @@ def api_create_person(payload: PersonCreate):
             # so a testing-only narrator became durably indistinguishable
             # from a real one the moment creation finished. The Guard Lab
             # gates experimental configurations on exactly this, so it
-            # now has to survive the request. See migration 0054.
+            # now has to survive the request. The column is owned by
+            # init_db()'s PRAGMA-guarded people block, not by a
+            # migration — migration 0013's header records why.
             testing_only=is_testing,
         )
     except ValueError as e:
@@ -632,7 +634,8 @@ def api_create_person_intake(payload: NarratorIntakePayload):
             current_residence=payload.current_residence,
             # Same correction as the PersonCreate flow: the structured
             # intake also used this only for the consent bypass and the
-            # response body. See migration 0054.
+            # response body. Persisted by init_db()'s PRAGMA-guarded
+            # people block; there is no migration for this column.
             testing_only=bool(payload.testing_only),
         )
     except ValueError as e:

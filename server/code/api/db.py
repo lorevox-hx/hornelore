@@ -2452,7 +2452,8 @@ def create_person(
     # test narrator must say so explicitly — a person is a real narrator
     # unless somebody deliberately declared otherwise. Callers previously
     # passed this nowhere, so it was accepted at the API boundary and
-    # lost; see migration 0054.
+    # lost. The column is added by the PRAGMA-guarded people block in
+    # init_db() above — there is deliberately no migration for it.
     testing_only: bool = False,
 ) -> Dict[str, Any]:
     init_db()

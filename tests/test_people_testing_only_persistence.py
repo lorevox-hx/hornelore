@@ -67,6 +67,41 @@ class ColumnOwnershipTests(unittest.TestCase):
             source = fh.read()
         self.assertIn("ADD COLUMN testing_only", source)
 
+    def test_no_source_comment_cites_a_migration_that_does_not_exist(self):
+        """Don't leave a breadcrumb to a file nobody wrote.
+
+        The first cut of this work DID add migration 0054, discovered it
+        could never apply, and removed it — but left three comments
+        saying "see migration 0054" behind. A reader following that
+        reference finds nothing and has to reconstruct the reasoning
+        from scratch, which is how a wrong assumption gets made twice.
+
+        This is the general form: any `migration NNNN` reference in
+        server source must name a file that is actually on disk.
+        """
+        import re
+
+        existing = {
+            re.match(r"(\d{4})", os.path.basename(p)).group(1)
+            for p in glob.glob(os.path.join(_MIGRATIONS_DIR, "*.sql"))
+            if re.match(r"\d{4}", os.path.basename(p))
+        }
+        pattern = re.compile(r"migration\s+(\d{4})", re.IGNORECASE)
+        dangling = []
+        for root, _dirs, files in os.walk(os.path.join(_REPO, "server")):
+            for name in files:
+                if not name.endswith((".py", ".sql")):
+                    continue
+                path = os.path.join(root, name)
+                with open(path, encoding="utf-8", errors="replace") as fh:
+                    for lineno, line in enumerate(fh, 1):
+                        for number in pattern.findall(line):
+                            if number not in existing:
+                                dangling.append(
+                                    f"{os.path.relpath(path, _REPO)}:{lineno} "
+                                    f"cites migration {number}")
+        self.assertEqual(dangling, [], "\n".join(dangling))
+
 
 class _DbCase(unittest.TestCase):
     """Each test gets its own database file.
