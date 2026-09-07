@@ -461,6 +461,168 @@ class AtomicPresetTests(_GuardLabRouteCase):
                  if a["operator_override"] is not None])
 
 
+class CurrentNarratorEligibilityTests(_GuardLabRouteCase):
+    """The verdict about THE NARRATOR BEING INTERVIEWED is the server's.
+
+    THE GAP THIS CLOSES, found by the live acceptance on 2026-09-07.
+    `/state` could say an eligible narrator EXISTS; it could not say
+    whether the person on the other side of the microphone was that
+    narrator. An operator could select a lean baseline, talk to an
+    ordinary narrator, receive canonical Lori, and find nothing on
+    screen to explain it.
+
+    THE BROWSER SUPPLIES IDENTITY ONLY. Every assertion below sends a
+    `narrator_id` over the wire and asserts on what the server decided
+    from the durable people row — which is IC-7 in its most direct form.
+    Deciding this in JavaScript by testing whether an id appears in a
+    list would move an authority decision to where a stale or hostile
+    page could arrange the answer.
+    """
+
+    def _current(self, narrator_id=None):
+        url = "/api/operator/guard-lab/state"
+        if narrator_id is not None:
+            url += f"?narrator_id={narrator_id}"
+        resp = self.client.get(url)
+        self.assertEqual(200, resp.status_code, resp.text)
+        return resp.json()["current_narrator"]
+
+    def test_no_narrator_selected(self):
+        for value in (None, "", "   "):
+            with self.subTest(value=repr(value)):
+                block = self._current(value)
+                self.assertFalse(block["can_receive_experiment"])
+                self.assertEqual("no_narrator_selected", block["reason"])
+
+    def test_an_unknown_id_is_not_eligible(self):
+        block = self._current("no-such-person")
+        self.assertFalse(block["exists"])
+        self.assertFalse(block["can_receive_experiment"])
+        self.assertEqual("narrator_not_found", block["reason"])
+
+    def test_an_ordinary_narrator_is_refused_by_name(self):
+        """The sentence the operator needs, in the server's words."""
+        person = self.db.create_person(display_name="Ordinary Narrator")
+        block = self._current(person["id"])
+        self.assertTrue(block["exists"])
+        self.assertFalse(block["testing_only"])
+        self.assertFalse(block["can_receive_experiment"])
+        self.assertEqual("not_testing_only", block["reason"])
+        self.assertIn("will NOT affect", block["message"])
+
+    def test_the_display_name_is_server_derived(self):
+        """Not the name the browser sent — this surface must not be
+        paintable from the client side."""
+        person = self.db.create_person(display_name="Ordinary Narrator")
+        block = self._current(person["id"])
+        self.assertEqual("Ordinary Narrator", block["display_name"])
+
+    def test_a_testing_narrator_is_eligible_only_when_the_gate_agrees(self):
+        """`testing_only` is necessary, not sufficient.
+
+        The remaining gate conditions are environmental — an armed
+        evaluation and a recording trace — and the reason names whichever
+        is missing rather than reporting a bare False.
+        """
+        person = self.db.create_person(
+            display_name="Synthetic Probe", testing_only=True)
+        block = self._current(person["id"])
+        self.assertTrue(block["testing_only"])
+        if block["can_receive_experiment"]:
+            self.assertEqual("eligible", block["reason"])
+        else:
+            self.assertIn(block["reason"],
+                          ("eval_not_armed", "trace_not_recording"))
+
+    def test_every_reason_is_from_the_declared_vocabulary(self):
+        from api.routers import operator_guard_lab as mod
+        real = self.db.create_person(display_name="Ordinary Narrator")
+        probe = self.db.create_person(display_name="Probe", testing_only=True)
+        for value in (None, "nope", real["id"], probe["id"]):
+            with self.subTest(value=value):
+                self.assertIn(self._current(value)["reason"],
+                              mod.VALID_ELIGIBILITY_REASONS)
+
+    def test_a_supplied_id_cannot_manufacture_eligibility(self):
+        """The whole point. A browser may name a narrator; it may never
+        decide that narrator is experimental."""
+        real = self.db.create_person(display_name="Ordinary Narrator")
+        block = self._current(real["id"])
+        self.assertFalse(block["testing_only"])
+        self.assertFalse(block["can_receive_experiment"])
+
+    def test_a_mutation_answers_for_the_same_narrator(self):
+        """So the card never has to issue a second read to stay truthful."""
+        person = self.db.create_person(display_name="Ordinary Narrator")
+        rev = self.state()["revision"]
+        body = self.client.post(
+            "/api/operator/guard-lab/all-switchable-off",
+            json={"expected_revision": rev, "narrator_id": person["id"]}).json()
+        self.assertEqual(person["id"], body["current_narrator"]["requested_id"])
+        self.assertEqual("not_testing_only", body["current_narrator"]["reason"])
+
+    def test_a_conflict_also_answers_for_that_narrator(self):
+        person = self.db.create_person(display_name="Ordinary Narrator")
+        stale = self.state()["revision"]
+        self.client.post("/api/operator/guard-lab/all-switchable-off",
+                         json={"expected_revision": stale})
+        resp = self.client.post(
+            "/api/operator/guard-lab/restore-defaults",
+            json={"expected_revision": stale, "narrator_id": person["id"]})
+        self.assertEqual(409, resp.status_code)
+        current = resp.json()["detail"]["current"]
+        self.assertEqual(person["id"], current["current_narrator"]["requested_id"])
+
+
+class ConfigurationLabelTests(_GuardLabRouteCase):
+    """Defaults / Lean / Custom is decided HERE, not in the browser.
+
+    A page counting 43 rows to work out 'this looks lean' would be a
+    second implementation of a rule the server owns, and the two would
+    disagree the first time the registry changed.
+    """
+
+    def label(self):
+        return self.state()["configuration"]["id"]
+
+    def test_no_override_is_defaults(self):
+        self.assertEqual("defaults", self.label())
+
+    def test_all_switchable_off_is_lean(self):
+        self.client.post("/api/operator/guard-lab/all-switchable-off",
+                         json={"expected_revision": self.state()["revision"]})
+        self.assertEqual("lean", self.label())
+
+    def test_lean_plus_one_authority_back_on_is_CUSTOM(self):
+        """`lean` is EXACT, not 'mostly off'.
+
+        An operator who turned one authority back on is in a custom
+        configuration and must be told so — calling it lean is how a
+        comparison gets attributed to the wrong selection.
+        """
+        self.client.post("/api/operator/guard-lab/all-switchable-off",
+                         json={"expected_revision": self.state()["revision"]})
+        aid = self.a_switchable_id()
+        self.client.post(
+            f"/api/operator/guard-lab/authorities/{aid}",
+            json={"enabled": True, "expected_revision": self.state()["revision"]})
+        self.assertEqual("custom", self.label())
+
+    def test_a_single_override_is_custom_not_lean(self):
+        aid = self.a_switchable_id()
+        self.client.post(
+            f"/api/operator/guard-lab/authorities/{aid}",
+            json={"enabled": False, "expected_revision": self.state()["revision"]})
+        self.assertEqual("custom", self.label())
+
+    def test_restore_defaults_returns_to_defaults(self):
+        self.client.post("/api/operator/guard-lab/all-switchable-off",
+                         json={"expected_revision": self.state()["revision"]})
+        self.client.post("/api/operator/guard-lab/restore-defaults",
+                         json={"expected_revision": self.state()["revision"]})
+        self.assertEqual("defaults", self.label())
+
+
 class TestingOnlyNarratorTests(_GuardLabRouteCase):
     """Eligibility is shown, never granted."""
 

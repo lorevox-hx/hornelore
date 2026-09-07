@@ -33,6 +33,7 @@
   <link rel="stylesheet" href="css/bug-panel-story-review.css?v=2026-08-19b">
   <link rel="stylesheet" href="css/bug-panel-past-tense-review.css">
   <link rel="stylesheet" href="css/bug-panel-guard-lab.css?v=2026-09-07">
+  <link rel="stylesheet" href="css/operator-guard-lab-card.css?v=2026-09-07">
   <link rel="stylesheet" href="css/bug-panel-silence-ladder.css">
   <link rel="stylesheet" href="css/bug-panel-preflight.css">
   <link rel="stylesheet" href="css/affect.css">
@@ -3154,6 +3155,35 @@
         </div>
       </section>
 
+      <!-- ── LORI CONFIGURATION — compact Guard Lab status + control ───
+           WO-LORI-ARCHIVE-TO-MEMOIR-02 Block A.
+
+           What Lori is running (Defaults / Lean / Custom, revision),
+           whether an evaluation is armed and recording, and — the piece
+           the live acceptance showed was missing — whether THE NARRATOR
+           BEING INTERVIEWED can receive the selected configuration. The
+           Guard Lab could say an eligible narrator EXISTS; it could not
+           say whether you were talking to them, so a lean selection
+           could be silently ignored with nothing on screen to explain
+           it.
+
+           The verdict and the configuration label are SERVER-DERIVED.
+           The browser sends the selected narrator's id and renders the
+           answer; it never decides eligibility by looking for that id
+           in a list.
+
+           The full 43-row table stays in the Bug Panel and is NOT
+           duplicated here. Two renderings of one configuration is how
+           they drift. Backend gate: HORNELORE_OPERATOR_GUARD_LAB=1; off
+           → quiet placeholder. NEVER narrator-visible.
+           See ui/js/operator-guard-lab-card.js + .css. -->
+      <section class="lv-operator-section">
+        <h3 class="lv-operator-section-title">Lori Configuration</h3>
+        <div id="lvOperatorGuardLabCard">
+          <div class="oglc-off">Lori Configuration — loading…</div>
+        </div>
+      </section>
+
       <!-- ── PROFILE SEED — OPERATOR CHROME, VISIBLE AT LAST ───────────
            WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 3, §3.2.
 
@@ -5573,6 +5603,7 @@
 <script src="js/bug-panel-story-review.js?v=2026-08-19b"></script>
 <script src="js/bug-panel-past-tense-review.js?v=2026-06-14"></script>
 <script src="js/bug-panel-guard-lab.js?v=2026-09-07"></script>
+<script src="js/operator-guard-lab-card.js?v=2026-09-07"></script>
 <!-- WO-LORI-BIO-BUILDER-UNIVERSAL-01 Phase E+F (2026-06-14) — bio
      editor + bio gap map operator surfaces. Both default-OFF; the
      mounts render quiet disabled placeholders until the respective

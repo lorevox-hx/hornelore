@@ -3,12 +3,69 @@
 **Status:** CURRENT — central Lori/Lorevox work order  
 **Supersedes:** `WO-LORI-END-TO-END-LISTEN-RETAIN-MEMOIR-01`  
 **Starting evidence:** demographic cohort `20260901T015343Z` and Walt seven-era run `20260901T003329Z`  
-**Current position:** **Phases 0–4 CLOSED. Phase 5A and 5B ACCEPTED 2026-09-06.**
-**The CURRENT ACTION is not a phase of this work order** — it is the Lori
+**Current position:** **Phases 0–4 CLOSED. Phase 5A and 5B ACCEPTED 2026-09-06.
+Phase 5C is ACTIVE — see the execution revision below.**
+
+---
+
+## 0a. EXECUTION REVISION — 2026-09-07
+
+**The measurement detour is closed as the blocking current action.** The
+Guard Lab produced enough live evidence to stop treating "finish every
+acceptance clause" as a prerequisite for product work.
+
+**Active sequence:**
+
+| Block | Work | State |
+|---|---|---|
+| **A** | Operator control integration — the compact Lori Configuration card | ✅ **DONE 2026-09-07** |
+| **B** | **Phase 5C** — one disposition contract for understood meaning with no schema destination | 🔵 **ACTIVE** |
+| **C** | Response-trace closer — successful turns close independently of extraction | queued |
+| **D** | **Phase 6** — measured conversational quality, on a separate POPULATED narrator | queued |
+| **E** | **Phase 7** — normal Operator review → memoir workflow | queued |
+| — | Guard Lab live acceptance debt (4 checks) | carried, blocks only Phase 8 |
+| **F** | **Phase 8** — focused acceptance first, then the broader cohort | queued |
+
+**Guard Lab live acceptance is PARTIAL and BANKED**: 6 verifier clauses
+passed, 0 failed, 3 unverified, plus the stale second-tab 409 unexercised
+— **four live checks open in total.** Required before FINAL acceptance;
+they block nothing above. Detail:
+[`WO-LORI-BASELINE-RESET-AND-GUARD-LAB-01_Spec.md`](WO-LORI-BASELINE-RESET-AND-GUARD-LAB-01_Spec.md)
+§5a and `HANDOFF.md`.
+
+**What the Guard Lab established that changes 5C and 6:**
+
+- Under `All Switchable Off`, **`raw_equals_delivered` was TRUE on both
+  live turns** — zero words removed, against Walt's 69%. The
+  post-generation layer is no longer the suspect for what a lean Lori
+  produces.
+- The remaining lean-baseline weaknesses — over-general paraphrase,
+  dropped relationships, unsupported significance — are therefore
+  **generation/prompt behaviour, not post-generation deletion.**
+  **Phase 6 must not answer them with a new deterministic guard.**
+- Extraction ran on the lean path, so 5C has live material to validate
+  against rather than fixtures alone.
+
+**Phase 5C is no longer queued behind the measurement.** What it should
+do about `STATE_DECEASED` and the kinship qualifiers was said to be
+partly a question the measurement answers; the measurement is in, and
+the answer it gives is that these are memory-integrity decisions
+independent of the control layer. **An explicit recorded refusal is
+preferable to inventing a schema field**, and `siblings.birthOrder` is
+still not the answer for `older`.
+
+*(This block SUPERSEDES the sequencing note that stood here. The
+superseded text is preserved immediately below rather than deleted,
+because its accepted evidence is still cited elsewhere.)*
+
+---
+
+**SUPERSEDED 2026-09-07 — kept for its evidence citations, not as an
+instruction:** *The CURRENT ACTION is not a phase of this work order* — it was the Lori
 measurement block under
 [`WO-LORI-LISTEN-AND-RETAIN-01`](WO-LORI-LISTEN-AND-RETAIN-01_Spec.md): prompt-budget,
 generation and VRAM instrumentation, then the Walt+John diagnostic on one warmed stack,
-then joint evidence review. **Phase 5C is QUEUED behind that evidence**, because what 5C
+then joint evidence review. *Phase 5C is QUEUED behind that evidence*, because what 5C
 should do about meaning with no schema destination is partly a question the measurement
 answers. *(Phase 1 proof: mutations `20260904T123556Z`, carried
 forward at zero mutations in `20260904T130525Z`, exit 0. Phase 2 audit: `python3

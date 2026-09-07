@@ -4300,6 +4300,22 @@ async function lvxSwitchNarratorSafe(pid){
     console.warn("[narrator-switch] story-review hook threw:", e);
   }
 
+  // WO-LORI-ARCHIVE-TO-MEMOIR-02 Block A.
+  //
+  // The Lori Configuration card's eligibility verdict is about ONE
+  // person — "can THIS narrator receive the selected configuration?" —
+  // so it is stale the instant the narrator changes. Left unrefreshed it
+  // would keep saying "Eligible" after a switch to an ordinary narrator,
+  // which is precisely the false reassurance the card was added to
+  // remove. It re-asks the server; it does not recompute the answer.
+  try {
+    if (typeof window.lvOperatorGuardLabOnNarratorSwitch === "function") {
+      window.lvOperatorGuardLabOnNarratorSwitch(pid);
+    }
+  } catch (e) {
+    console.warn("[narrator-switch] guard-lab card hook threw:", e);
+  }
+
   await loadPerson(pid);
 
   // Phase G: hydrate canonical state from backend state-snapshot

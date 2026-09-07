@@ -1,0 +1,128 @@
+/* WO-LORI-ARCHIVE-TO-MEMOIR-02 Block A — Lori Configuration card.
+ *
+ * Operator tab only. Sits with the other operator cards, so it inherits
+ * the dark session chrome rather than introducing a second visual
+ * language for the same surface.
+ *
+ * The colours carry meaning: an INELIGIBLE narrator has to read as a
+ * warning at a glance, because the whole point of the card is that a
+ * selected configuration silently not reaching the session was
+ * invisible before it existed. */
+
+#lvOperatorGuardLabCard {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #dbe4ee;
+  background: #131b26;
+  border: 1px solid #24313f;
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+#lvOperatorGuardLabCard .oglc-off {
+  color: #8b9bad;
+}
+
+#lvOperatorGuardLabCard .oglc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+#lvOperatorGuardLabCard .oglc-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+#lvOperatorGuardLabCard .oglc-chip {
+  border-radius: 12px;
+  padding: 2px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #24313f;
+  color: #cfe0f2;
+}
+#lvOperatorGuardLabCard .oglc-chip-defaults { background: #1e3a2c; color: #a8e6c1; }
+#lvOperatorGuardLabCard .oglc-chip-lean     { background: #1f3550; color: #a9cdf5; }
+#lvOperatorGuardLabCard .oglc-chip-custom   { background: #4a3a12; color: #f0d79a; }
+
+#lvOperatorGuardLabCard .oglc-detail {
+  color: #8b9bad;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+#lvOperatorGuardLabCard .oglc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 4px 16px;
+  margin: 8px 0;
+}
+#lvOperatorGuardLabCard .oglc-field {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid #1d2733;
+  padding: 3px 0;
+}
+#lvOperatorGuardLabCard .oglc-label { color: #8b9bad; }
+#lvOperatorGuardLabCard .oglc-value { font-weight: 600; text-align: right; }
+#lvOperatorGuardLabCard .oglc-ok    { color: #7fd6a4; }
+#lvOperatorGuardLabCard .oglc-warn  { color: #f0b458; }
+#lvOperatorGuardLabCard .oglc-muted { color: #8b9bad; font-weight: 400; }
+
+#lvOperatorGuardLabCard .oglc-verdict {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border-left: 4px solid #24313f;
+}
+#lvOperatorGuardLabCard .oglc-verdict-ok {
+  background: #16281f; border-left-color: #2e8b57; color: #bfe8cf;
+}
+#lvOperatorGuardLabCard .oglc-verdict-warn {
+  background: #2b2313; border-left-color: #c67a1e; color: #f2ddb4;
+}
+
+#lvOperatorGuardLabCard .oglc-conflict {
+  background: #2b2313; border-left: 4px solid #c67a1e;
+  padding: 6px 10px; margin: 6px 0; border-radius: 6px; color: #f2ddb4;
+}
+#lvOperatorGuardLabCard .oglc-error {
+  background: #2c1a18; border-left: 4px solid #b4441a;
+  padding: 6px 10px; margin: 6px 0; border-radius: 6px; color: #f0c3b8;
+}
+
+#lvOperatorGuardLabCard .oglc-actions {
+  display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px;
+}
+#lvOperatorGuardLabCard .oglc-btn {
+  border: 1px solid #35465a;
+  background: #1b2531;
+  color: #dbe4ee;
+  border-radius: 5px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+#lvOperatorGuardLabCard .oglc-btn:hover { background: #223044; }
+#lvOperatorGuardLabCard .oglc-btn-primary {
+  background: #1f5f8b; border-color: #1f5f8b; color: #fff;
+}
+#lvOperatorGuardLabCard .oglc-btn-link {
+  background: transparent; border-color: transparent; color: #8fc0ee;
+  text-decoration: underline;
+}
+#lvOperatorGuardLabCard .oglc-btn[disabled] { opacity: 0.5; cursor: default; }
+
+#lvOperatorGuardLabCard .oglc-applies {
+  color: #75859a;
+  font-size: 11px;
+  margin-top: 8px;
+  font-style: italic;
+}
+
+@media (max-width: 720px) {
+  #lvOperatorGuardLabCard .oglc-grid { grid-template-columns: 1fr; }
+  #lvOperatorGuardLabCard .oglc-actions .oglc-btn { flex: 1 1 auto; }
+}

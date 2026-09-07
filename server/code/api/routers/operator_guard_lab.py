@@ -51,7 +51,7 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from .. import db as _db
@@ -102,12 +102,17 @@ class AuthorityChange(BaseModel):
     enabled: Optional[bool] = Field(
         None, description="true select · false exclude · null reset to default")
     expected_revision: int = Field(..., ge=0)
+    #: Identity only, echoed back so the response can answer the same
+    #: question the card was asking. It has no bearing on the write.
+    narrator_id: Optional[str] = None
 
 
 class PresetRequest(BaseModel):
     """An atomic preset. One request, one transaction, one revision."""
 
     expected_revision: int = Field(..., ge=0)
+    #: Identity only. See AuthorityChange.narrator_id.
+    narrator_id: Optional[str] = None
 
 
 # ── State assembly ─────────────────────────────────────────────────────────
@@ -229,7 +234,152 @@ def _gate_readiness() -> Dict[str, Any]:
     }
 
 
-def _state_payload(con: sqlite3.Connection) -> Dict[str, Any]:
+# ── Configuration classification ───────────────────────────────────────────
+
+CONFIG_DEFAULTS = "defaults"
+CONFIG_LEAN = "lean"
+CONFIG_CUSTOM = "custom"
+
+
+def _configuration(overrides: Dict[int, bool]) -> Dict[str, Any]:
+    """Name the configuration ON THE SERVER, from the overrides it just read.
+
+    The Operator card shows one word — Defaults, Lean, or Custom — and
+    that word must not be computed in the browser. A page that decided
+    'this looks like the lean baseline' by counting 43 rows would be a
+    second implementation of a rule the server already owns, and the two
+    would disagree the first time the registry changed.
+
+    `lean` is deliberately EXACT, not 'mostly off': every switchable
+    authority present, every one excluded. An operator who turned one
+    back on is in a CUSTOM configuration and needs to be told so —
+    calling that lean is how a comparison gets attributed to the wrong
+    selection.
+    """
+    switchable_ids = {item.id for item in registry.switchable()}
+    if not overrides:
+        return {"id": CONFIG_DEFAULTS, "label": "Defaults",
+                "detail": "no operator override; the registry and any "
+                          "deployment defaults decide every authority"}
+    if (set(overrides) == switchable_ids
+            and all(value is False for value in overrides.values())):
+        return {"id": CONFIG_LEAN, "label": "Lean (All Switchable Off)",
+                "detail": f"all {len(switchable_ids)} switchable authorities "
+                          f"excluded; protected authorities unchanged"}
+    return {"id": CONFIG_CUSTOM, "label": "Custom",
+            "detail": f"{len(overrides)} operator override(s) of "
+                      f"{len(switchable_ids)} switchable authorities"}
+
+
+# ── Current-narrator eligibility ───────────────────────────────────────────
+
+ELIGIBLE = "eligible"
+NO_NARRATOR_SELECTED = "no_narrator_selected"
+NARRATOR_NOT_FOUND = "narrator_not_found"
+NOT_TESTING_ONLY = "not_testing_only"
+EVAL_NOT_ARMED = "eval_not_armed"
+TRACE_NOT_RECORDING = "trace_not_recording"
+
+VALID_ELIGIBILITY_REASONS = frozenset({
+    ELIGIBLE, NO_NARRATOR_SELECTED, NARRATOR_NOT_FOUND, NOT_TESTING_ONLY,
+    EVAL_NOT_ARMED, TRACE_NOT_RECORDING,
+})
+
+
+def _current_narrator(narrator_id: Optional[str],
+                      gate_info: Dict[str, Any]) -> Dict[str, Any]:
+    """Can the configuration reach THE NARRATOR BEING INTERVIEWED?
+
+    THE GAP THIS CLOSES, found during the live acceptance. `/state`
+    could say an eligible narrator EXISTS; it could not say whether the
+    person on the other side of the microphone was that narrator. So an
+    operator could select a lean baseline, talk to an ordinary narrator,
+    receive canonical Lori, and have nothing on screen explain it.
+
+    THE BROWSER SUPPLIES IDENTITY ONLY. It says which narrator is
+    selected; the server looks up the durable row and returns the
+    verdict. A stale or hostile `narrator_id` cannot manufacture
+    `testing_only` — that is read from the people table by
+    `person_is_testing_only`, which is fail-closed, and IC-7 is the
+    contract being kept here. Deciding this in JavaScript by testing
+    whether an id appears in a list would put eligibility on the wire
+    where a browser could arrange the answer.
+
+    Reasons are ordered most-specific first, so the card can say the one
+    thing the operator has to fix rather than a list of everything.
+    """
+    requested = (narrator_id or "").strip()
+    out: Dict[str, Any] = {
+        "requested_id": requested or None,
+        "exists": False,
+        "display_name": None,
+        "testing_only": False,
+        "can_receive_experiment": False,
+        "reason": NO_NARRATOR_SELECTED,
+    }
+    if not requested:
+        out["message"] = ("No narrator is selected, so nothing here can "
+                          "reach a session.")
+        return out
+
+    try:
+        person = _db.get_person(requested)
+    except Exception:
+        logger.exception(
+            "[guard-lab][api] narrator lookup failed for %r", requested)
+        person = None
+
+    if not person:
+        out["reason"] = NARRATOR_NOT_FOUND
+        out["message"] = "That narrator id does not resolve to a person."
+        return out
+
+    out["exists"] = True
+    # SERVER-DERIVED. Not the display name the browser sent — this
+    # surface must not be paintable from the client side.
+    out["display_name"] = person.get("display_name")
+
+    try:
+        is_testing = bool(_db.person_is_testing_only(requested))
+    except Exception:
+        logger.exception(
+            "[guard-lab][api] testing_only probe failed for %r", requested)
+        is_testing = False
+    out["testing_only"] = is_testing
+
+    if not is_testing:
+        out["reason"] = NOT_TESTING_ONLY
+        out["message"] = (
+            f"{person.get('display_name') or 'This narrator'} is an ordinary "
+            f"narrator. Experimental selections will NOT affect this "
+            f"session — Lori runs canonically for them whatever is selected "
+            f"here.")
+        return out
+
+    if not gate_info.get("experiment_armed"):
+        out["reason"] = EVAL_NOT_ARMED
+        out["message"] = ("This narrator is eligible, but no evaluation is "
+                          "armed, so turns still run canonically.")
+        return out
+
+    if not gate_info.get("trace_recording"):
+        out["reason"] = TRACE_NOT_RECORDING
+        out["message"] = (
+            "This narrator is eligible and an evaluation is armed, but the "
+            "response trace is not recording — an unmeasured experimental "
+            "turn is refused. Tracing resolves when a process STARTS.")
+        return out
+
+    out["can_receive_experiment"] = True
+    out["reason"] = ELIGIBLE
+    out["message"] = (
+        f"{person.get('display_name') or 'This narrator'} will receive the "
+        f"selected configuration on their next turn.")
+    return out
+
+
+def _state_payload(con: sqlite3.Connection,
+                   narrator_id: Optional[str] = None) -> Dict[str, Any]:
     """The whole truthful configuration, from ONE coherent read.
 
     `read_state` is a single statement precisely so the overrides and
@@ -250,8 +400,13 @@ def _state_payload(con: sqlite3.Connection) -> Dict[str, Any]:
 
     by_id = {item.id: item for item in registry.REGISTRY}
     rows = [_row(s, by_id[s.id], deployment) for s in snapshot.states]
+    gate_info = _gate_readiness()
 
     return {
+        # Server-owned, so the compact Operator card and the 43-row panel
+        # cannot disagree about what configuration is running.
+        "configuration": _configuration(dict(overrides)),
+        "current_narrator": _current_narrator(narrator_id, gate_info),
         # The generation an experimental turn taken RIGHT NOW would
         # consume, and the token every write must echo back.
         "revision": revision,
@@ -273,7 +428,7 @@ def _state_payload(con: sqlite3.Connection) -> Dict[str, Any]:
             {"id": i.id, "display": i.display, "policy_reason": i.policy_reason}
             for i in registry.pending_seam()
         ],
-        "gate": _gate_readiness(),
+        "gate": gate_info,
         # THE SEMANTICS, ON THE WIRE. A change takes effect on the NEXT
         # turn; a turn already in flight keeps the snapshot it acquired
         # (IC-10). The panel renders this string rather than composing
@@ -290,7 +445,8 @@ def _state_payload(con: sqlite3.Connection) -> Dict[str, Any]:
 
 
 def _conflict(exc: store.StaleRevisionError,
-              con: sqlite3.Connection) -> HTTPException:
+              con: sqlite3.Connection,
+              narrator_id: Optional[str] = None) -> HTTPException:
     """409 carrying the CURRENT state, not just a complaint.
 
     An operator whose write is refused needs to see what is live now, in
@@ -298,7 +454,7 @@ def _conflict(exc: store.StaleRevisionError,
     refresh and a guess about what changed.
     """
     try:
-        current = _state_payload(con)
+        current = _state_payload(con, narrator_id)
     except HTTPException:
         current = None
     return HTTPException(status_code=409, detail={
@@ -313,12 +469,19 @@ def _conflict(exc: store.StaleRevisionError,
 # ── Endpoints ──────────────────────────────────────────────────────────────
 
 @router.get("/state")
-def api_guard_lab_state() -> Dict[str, Any]:
+def api_guard_lab_state(
+    narrator_id: Optional[str] = Query(
+        None,
+        description="The narrator currently selected in the interview. "
+                    "Identity ONLY — the server resolves eligibility from "
+                    "the durable person row and never trusts this for "
+                    "testing_only."),
+) -> Dict[str, Any]:
     """Every registered authority, truthfully, with the identity to cite."""
     _require_enabled()
     con = _open_store()
     try:
-        return _state_payload(con)
+        return _state_payload(con, narrator_id)
     finally:
         try:
             con.close()
@@ -350,7 +513,7 @@ def api_guard_lab_set_authority(
                 con, {int(authority_id): change.enabled},
                 expected_revision=change.expected_revision)
         except store.StaleRevisionError as exc:
-            raise _conflict(exc, con)
+            raise _conflict(exc, con, change.narrator_id)
         except store.NotSwitchableError as exc:
             raise HTTPException(status_code=400, detail={
                 "error": "not_switchable",
@@ -358,7 +521,7 @@ def api_guard_lab_set_authority(
                 "policy": item.policy,
                 "message": str(exc),
             })
-        return _state_payload(con)
+        return _state_payload(con, change.narrator_id)
     finally:
         try:
             con.close()
@@ -383,8 +546,8 @@ def api_guard_lab_all_switchable_off(
             store.all_switchable_off(
                 con, expected_revision=request.expected_revision)
         except store.StaleRevisionError as exc:
-            raise _conflict(exc, con)
-        payload = _state_payload(con)
+            raise _conflict(exc, con, request.narrator_id)
+        payload = _state_payload(con, request.narrator_id)
         logger.info(
             "[guard-lab][api] all switchable off — revision=%s selection=%s",
             payload["revision"], payload["selection_fingerprint"][:12])
@@ -412,8 +575,8 @@ def api_guard_lab_restore_defaults(
             store.restore_canonical_defaults(
                 con, expected_revision=request.expected_revision)
         except store.StaleRevisionError as exc:
-            raise _conflict(exc, con)
-        payload = _state_payload(con)
+            raise _conflict(exc, con, request.narrator_id)
+        payload = _state_payload(con, request.narrator_id)
         logger.info(
             "[guard-lab][api] restored canonical defaults — revision=%s",
             payload["revision"])
