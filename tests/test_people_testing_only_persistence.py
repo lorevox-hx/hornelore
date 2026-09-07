@@ -263,24 +263,47 @@ class ClientCannotManufactureEligibilityTests(_DbCase):
             "narrator truth that reaches the memoir.")
 
     def test_ordinary_person_update_does_not_carry_the_flag(self):
-        """A stale or hostile PATCH must not convert a real narrator."""
-        import inspect
-        from api.routers import people as people_router
-        source = inspect.getsource(people_router)
-        update_models = [
-            line for line in source.splitlines()
-            if "testing_only" in line and "class PersonUpdate" in source
+        """A stale or hostile PATCH must not convert a real narrator.
+
+        Read by AST rather than by importing the router. Importing it
+        pulls fastapi, and CLAUDE.md records the stub-ordering artifact
+        that makes that unreliable: `test_extract_claims_validators`
+        installs a stub that wins whenever it loads first, so this
+        passed alone and errored inside a larger run with
+        "cannot import name 'Query' from 'fastapi'". The class
+        declaration is what matters and the source has it.
+        """
+        import ast
+
+        path = os.path.join(
+            _REPO, "server", "code", "api", "routers", "people.py")
+        with open(path, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+
+        update_classes = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.ClassDef) and "Update" in node.name
         ]
-        # The assertion that matters: PersonUpdate must not declare it.
-        update_cls = getattr(people_router, "PersonUpdate", None)
-        if update_cls is not None:
-            fields = getattr(update_cls, "model_fields", None) or getattr(
-                update_cls, "__fields__", {})
-            self.assertNotIn(
-                "testing_only", fields,
-                "PersonUpdate must not be able to flip experiment "
-                "eligibility.")
-        del update_models
+        self.assertTrue(
+            update_classes,
+            "No *Update model found in people.py — this guard has lost "
+            "its subject and would pass vacuously.")
+
+        for cls in update_classes:
+            declared = {
+                target.target.id if isinstance(target, ast.AnnAssign)
+                else getattr(target.targets[0], "id", None)
+                for target in cls.body
+                if isinstance(target, (ast.AnnAssign, ast.Assign))
+                and (isinstance(target, ast.AnnAssign)
+                     or getattr(target.targets[0], "id", None))
+            }
+            with self.subTest(model=cls.name):
+                self.assertNotIn(
+                    "testing_only", declared,
+                    f"{cls.name} must not be able to flip experiment "
+                    f"eligibility. Converting a real narrator into an "
+                    f"experiment target has to be an explicit act.")
 
 
 if __name__ == "__main__":

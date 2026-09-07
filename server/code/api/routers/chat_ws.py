@@ -678,6 +678,35 @@ async def _finalize_deterministic_turn(
         done.update(done_extra)
     await _ws_send(ws, done)
 
+    # ── GUARD LAB — complete the trace for a routed turn ───────────────
+    #
+    # A deterministic answer IS a response. It is delivered to the
+    # narrator, persisted and archived, so it is completed with
+    # `finish()` — seal and write — and NOT with `terminal()`, whose
+    # closed vocabulary means "the model was never called AND no response
+    # was produced". Recording a real answer as a terminal outcome would
+    # corrupt the one distinction that vocabulary exists to protect.
+    #
+    # Completed here, in the shared seam, rather than in each of the six
+    # branches: `_finalize_deterministic_turn` exists precisely because
+    # five inline copies had already drifted apart once, and only
+    # meta_question wrote its archive event.
+    #
+    # `generation_attempted=false` is recorded plainly. It is not a
+    # prompt-budget failure, not a refusal, and not a fallback — the
+    # route answered by design.
+    try:
+        _rt.note("effective_turn_mode", turn_mode)
+        _rt.note("deterministic_route", True)
+        _rt.note("generation_attempted", False)
+        _rt.note("deterministic_model_name", model_name)
+        _rt.finish(delivered=assistant_text, persisted=assistant_text)
+    except Exception as _rt_exc:
+        # Losing a trace line must never cost the narrator their turn.
+        logger.debug(
+            "[chat_ws][deterministic-finalize] trace completion failed "
+            "(non-fatal) mode=%s conv=%s: %s", turn_mode, conv_id, _rt_exc)
+
 
 async def _safety_notify_operator(
     *,
@@ -1564,6 +1593,35 @@ async def ws_chat(ws: WebSocket):
                         _authority.log_line(), conv_id, person_id)
         else:
             logger.debug("%s conv=%s", _authority.log_line(), conv_id)
+
+        # ── The response trace opens HERE, with the authority bound ────
+        #
+        # It used to open at the prompt-budget decision, which is BELOW
+        # the deterministic route finalizers. So "every traced turn
+        # carries the authority identity" was true only because routed
+        # turns were not traced at all — ids 20-26 answered the narrator
+        # and returned before a trace existed.
+        #
+        # That is exactly backwards for the Guard Lab. The moment we
+        # start turning individual routes on and off, an ON deterministic
+        # route has to be as attributable as an LLM turn, or the
+        # comparison has evidence on one side only. John's era 01 is the
+        # standing example: it answered a narrator and left no trace.
+        #
+        # ONE trace id for the whole turn. The LLM path continues on this
+        # one rather than opening a second; `_finalize_deterministic_turn`
+        # completes it for routed turns.
+        _rt_id = _rt.begin(
+            narrator_id=str(person_id or ""),
+            conversation_id=str(conv_id or ""),
+        )
+        try:
+            for _ak, _av in _authority.trace_identity().items():
+                _rt.note(f"authority_{_ak}", _av, trace_id=_rt_id)
+        except Exception as _auth_note_exc:
+            logger.debug(
+                "[guard-lab][trace] identity note failed (non-fatal): %s",
+                _auth_note_exc)
 
         # WO-LORI-MEMORY-ECHO-ERA-STORIES-01 Phase 1 (2026-05-06):
         # Pull current_era from runtime71 once at the top of the turn so
@@ -2697,6 +2755,20 @@ async def ws_chat(ws: WebSocket):
                 except Exception:
                     _meta_lang = "en"
                 _meta_question_answer = _meta_dac(user_text, target_language=_meta_lang)
+                # GUARD LAB id 21 — DISCARD THE VERDICT, don't just skip
+                # the route. `_is_meta_question` is read outside the
+                # route branch, at `:4093`, where it suppresses bank
+                # flush on an ordinary turn. Clamping only the route
+                # would leave an excluded authority still changing what
+                # a supposedly ordinary turn does — the switch would not
+                # be isolating the thing it claims to isolate.
+                if (_meta_question_answer is not None
+                        and not _authority.snapshot.is_selected(21)):
+                    logger.info(
+                        "[guard-lab][detector-clamp] conv=%s meta_question "
+                        "id=21 EXCLUDED — verdict discarded, not merely "
+                        "unrouted", conv_id)
+                    _meta_question_answer = None
                 if _meta_question_answer is not None:
                     _is_meta_question = True
                     logger.info(
@@ -2969,6 +3041,24 @@ async def ws_chat(ws: WebSocket):
                     except Exception:
                         _wm_lang = "en"
                 _witness_answer = _wm_dac(user_text, target_language=_wm_lang)
+                # GUARD LAB ids 22 / 23 — one detector, TWO authorities.
+                # META_FEEDBACK (including the correction sub-type) is id
+                # 22 and bypasses the model entirely; STRUCTURED_NARRATIVE
+                # is id 23 and instead pins the receipt directive and
+                # validator. They are separately selectable, so the
+                # verdict is discarded per detection type rather than
+                # wholesale.
+                if _witness_answer is not None:
+                    _wm_authority = (
+                        23 if _witness_answer.detection_type
+                        == "STRUCTURED_NARRATIVE" else 22)
+                    if not _authority.snapshot.is_selected(_wm_authority):
+                        logger.info(
+                            "[guard-lab][detector-clamp] conv=%s witness "
+                            "type=%s id=%s EXCLUDED — verdict discarded",
+                            conv_id, _witness_answer.detection_type,
+                            _wm_authority)
+                        _witness_answer = None
                 if _witness_answer is not None:
                     _is_witness_mode = True
                     logger.info(
@@ -3814,7 +3904,25 @@ async def ws_chat(ws: WebSocket):
                     # ordinary narration -- "my grandmother told me about
                     # the river" -- out of it.
                     _recall_req = _detect_story_recall(user_text or "")
-                    if _recall_req.matched:
+                    # GUARD LAB id 24 — the clearest case for discarding
+                    # the verdict rather than blocking the route.
+                    # `_story_recall_subject` is not confined to the
+                    # memory-echo branch: `:4267` reads it to turn story
+                    # grounding ON for an ORDINARY turn, and its own
+                    # comment says so — "turn grounding on for ordinary
+                    # turns: `_story_recall_subject` is set only by the
+                    # recall detector". So an excluded route would still
+                    # have injected grounding context into a turn that
+                    # was supposed to be ordinary.
+                    if (_recall_req.matched
+                            and not _authority.snapshot.is_selected(24)):
+                        logger.info(
+                            "[guard-lab][detector-clamp] conv=%s "
+                            "memory_echo/story-recall id=24 EXCLUDED — "
+                            "verdict discarded, so no recall subject and "
+                            "no grounding side effect", conv_id)
+                        _recall_req = None  # type: ignore[assignment]
+                    if _recall_req is not None and _recall_req.matched:
                         turn_mode = "memory_echo"
                         _story_recall_subject = _recall_req.subject
                         logger.info(
@@ -3866,22 +3974,13 @@ async def ws_chat(ws: WebSocket):
             if _witness_answer.detection_type == "META_FEEDBACK":
                 turn_mode = "witness"
             elif _witness_answer.detection_type == "STRUCTURED_NARRATIVE":
-                # GUARD LAB id 23. This route does not set a turn_mode —
-                # it leaves generation running and subjects the result to
-                # the receipt directive and validator — so the clamp
-                # below cannot reach it and it is clamped here instead.
-                #
-                # It is the second exit of the same over-claiming witness
-                # detector as id 22: the better a narrator gets at
-                # chronological storytelling, the more likely this fires.
-                if not _authority.snapshot.is_selected(23):
-                    logger.info(
-                        "[guard-lab][route-clamp] conv=%s "
-                        "structured_narrative id=23 EXCLUDED by revision=%s "
-                        "— ordinary interview generation", conv_id,
-                        _authority.snapshot.revision)
-                else:
-                    _witness_use_llm_receipt = True
+                # Id 23 is clamped at the DETECTOR now, not here: an
+                # excluded verdict leaves `_witness_answer` None and this
+                # branch is unreachable. Blocking it here as well would
+                # be a second authority for one decision, and the point
+                # of discarding the verdict is that the detector's
+                # findings do not exist for this turn at all.
+                _witness_use_llm_receipt = True
                 # BUG-LORI-SESSION-LANGUAGE-CONTRACT-01: Pin the
                 # validator-fallback language to the session contract
                 # FIRST. Without this, the deterministic fallback
@@ -4284,17 +4383,39 @@ async def ws_chat(ws: WebSocket):
         #
         # An excluded route falls through to ordinary generation, which
         # is the whole point: Lori answers instead of a template.
+        # BOTH COPIES. The local variable governs the response branch; the
+        # completed-turn hooks read the mode back out of `params` (`:896`,
+        # `:1089`) to decide extraction and placement eligibility. The
+        # correction-fallthrough fix below already had to learn this — its
+        # comment says "Reset BOTH copies of the mode" — and the first cut
+        # of this clamp reset only the local one.
+        #
+        # The consequence was precise and bad: a stale browser proposes
+        # "correction", id 26 is excluded, the clamp correctly sends the
+        # turn down the ordinary interview path, Lori answers properly,
+        # and then the completion hook still sees "correction" in params
+        # and drops the turn as extraction-ineligible. Conversation light,
+        # bought by silently weakening memory strict — the exact trade
+        # this work order exists to refuse.
+        #
+        # The rejected proposal is kept for the trace, never for a
+        # decision. No truth, extraction or placement eligibility may read
+        # what the client asked for after the server resolved otherwise.
         from ..services import lori_guard_registry as _guard_registry
+        _proposed_turn_mode = turn_mode
         if turn_mode and turn_mode != "interview":
             _route_id = _guard_registry.DETERMINISTIC_ROUTE_GATES.get(turn_mode)
             if _route_id is not None and not _authority.snapshot.is_selected(
                     _route_id):
+                turn_mode = "interview"
+                params["turn_mode"] = "interview"
                 logger.info(
                     "[guard-lab][route-clamp] conv=%s proposed=%s id=%s "
-                    "EXCLUDED by revision=%s — falling through to ordinary "
-                    "generation", conv_id, turn_mode, _route_id,
+                    "EXCLUDED by revision=%s — BOTH turn_mode copies reset to "
+                    "interview; the turn continues on the ordinary pipeline "
+                    "and remains extraction- and placement-eligible",
+                    conv_id, _proposed_turn_mode, _route_id,
                     _authority.snapshot.revision)
-                turn_mode = "interview"
 
         # ── BUG-LORI-FLOOR-HOLD-DETERMINISTIC-01 ──────────────────────
         # When the narrator has pressed and held the floor, Lori must
@@ -5113,9 +5234,15 @@ async def ws_chat(ws: WebSocket):
         # can shed named optional sections instead of refusing outright.
         # `_composed.text` is byte-identical to what `compose_system_prompt`
         # returns — both come from the same renderer.
+        # GUARD LAB — the prompt surface reads THIS TURN'S frozen
+        # selection. PROMPT authorities are `requires_rerun`: excluding
+        # one changes what the model is given, so there is no in-turn
+        # counterfactual and the trace may record `excluded` but never
+        # what the block would have produced.
         _composed = compose_prompt_sections(
             conv_id, ui_system=_ui_system_for_prompt, user_text=user_text,
-            runtime71=runtime71)
+            runtime71=runtime71,
+            guard_selection=_authority.snapshot.selected)
         _prompt_sections = list(_composed.sections)
         system_prompt = _composed.text
 
@@ -5260,33 +5387,12 @@ async def ws_chat(ws: WebSocket):
         # every response-control stage, and the delivered/persisted
         # seal. A second `begin()` after generation would split one turn
         # across two records that nothing joins.
-        _rt_id = _rt.begin(
-            narrator_id=str(person_id or ""),
-            conversation_id=str(conv_id or ""),
-        )
+        # The trace for this turn was opened at acquisition, far above,
+        # so the deterministic routes are covered too. Do NOT begin a
+        # second one here: two traces for one turn means two partial
+        # records and no way to say which is the response.
         _rt_client_turn_id = (params.get("client_turn_id")
                               or params.get("turn_id") or "")
-
-        # GUARD LAB — bind this turn's authority identity to its trace.
-        #
-        # A transcript that cannot name the configuration that produced
-        # it is not evidence. Three identifiers plus the gate reason:
-        # registry fingerprint (which authority MAP), revision (which
-        # persisted generation), selection fingerprint (which effective
-        # selection), and why the gate allowed or refused an experiment.
-        #
-        # Recorded even on canonical turns. "This ran with production
-        # defaults, gate reason not_testing_only" is exactly as much a
-        # fact about the turn as an armed experiment is, and a trace that
-        # only annotated experiments would leave the baseline turns
-        # ambiguous.
-        try:
-            for _ak, _av in _authority.trace_identity().items():
-                _rt.note(f"authority_{_ak}", _av, trace_id=_rt_id)
-        except Exception as _auth_note_exc:
-            logger.debug(
-                "[guard-lab][trace] identity note failed (non-fatal): %s",
-                _auth_note_exc)
 
         if not _budget.fits:
             # Honest refusal rather than a mutilated prompt. The
@@ -6055,6 +6161,13 @@ async def ws_chat(ws: WebSocket):
                         _phantom_noun_guard_enabled as _phantom_guard_on,
                         _phantom_noun_scrub_enabled as _phantom_scrub_on,
                     )
+                    # GUARD LAB id 30 — DETECTION, distinct from the id 31
+                    # scrub it feeds. "A detector that only detects is not
+                    # a guardrail" is this project's own rule, so the two
+                    # are separately selectable and the pair can be tested
+                    # apart: detect-only, detect-and-scrub, or neither.
+                    if not _authority.snapshot.is_selected(30):
+                        _phantom_guard_on = lambda: False
                 except Exception as _imp_exc:
                     _scrub_phantom = None
                     _phantom_guard_on = lambda: False
@@ -6097,7 +6210,8 @@ async def ws_chat(ws: WebSocket):
                                 _phantom_result["scrubbed"],
                                 conv_id,
                             )
-                            if _phantom_result.get("scrubbed"):
+                            if (_phantom_result.get("scrubbed")
+                                    and _authority.snapshot.is_selected(31)):
                                 final_text = _phantom_result["final_text"]
                     except Exception as _phantom_exc:
                         logger.warning(
@@ -6108,6 +6222,11 @@ async def ws_chat(ws: WebSocket):
                 _cc_result = enforce_lori_communication_control(
                     assistant_text=final_text,
                     user_text=user_text or "",
+                    # GUARD LAB ids 32-42. One frozen selection, so the
+                    # eleven bundled authorities are individually
+                    # selectable and none of them queries durable state
+                    # for itself.
+                    guard_selection=_authority.snapshot.selected,
                     safety_triggered=_safety_triggered_now,
                     session_style=str(_session_style),
                     softened_mode_active=_softened_now,
@@ -6271,7 +6390,10 @@ async def ws_chat(ws: WebSocket):
             from ..prompt_composer import _trim_to_one_question
             if _buffer_mode_for_trim and final_text:
                 _trimmed, _was_trimmed, _reason = _trim_to_one_question(final_text)
-                if _was_trimmed:
+                # GUARD LAB id 43. Overlaps ids 33 and 34: three
+                # layers enforce one question and none knows about
+                # the others. Now individually testable.
+                if _was_trimmed and _authority.snapshot.is_selected(43):
                     logger.info(
                         "[lori][discipline] trim-to-one-q conv=%s reason=%s before_len=%d after_len=%d",
                         conv_id, _reason, len(final_text), len(_trimmed),
@@ -6389,6 +6511,8 @@ async def ws_chat(ws: WebSocket):
                 # Lowercase the leading article so "The conversations..." →
                 # "the conversations..."
                 _repaired = "Can you tell me about " + _ft_stripped[0].lower() + _ft_stripped[1:]
+                if not _authority.snapshot.is_selected(44):  # GUARD LAB
+                    _repaired = ""
                 logger.info(
                     "[lori][era-fragment-repair] noun-phrase fragment repaired conv=%s "
                     "original=%r → repaired=%r",
@@ -6414,7 +6538,7 @@ async def ws_chat(ws: WebSocket):
                 detect_question_quality as _detect_es_q_quality,
             )
             _es_repaired, _es_changes = _apply_es_guards(final_text, user_text)
-            if _es_changes:
+            if _es_changes and _authority.snapshot.is_selected(45):
                 logger.info(
                     "[lori][es-guard] conv=%s changes=%s original=%r → repaired=%r",
                     conv_id, _es_changes, final_text[:120], _es_repaired[:120],
@@ -6491,7 +6615,7 @@ async def ws_chat(ws: WebSocket):
                     "Is there a particular memory from that time that "
                     "still feels close?",
                 )
-                if _bit_identical:
+                if _bit_identical and _authority.snapshot.is_selected(46):
                     # Pick a bridge by hash so we don't always emit the
                     # same one when this fires repeatedly in a session.
                     _idx = int(_final_hash, 16) % len(_BRIDGES)
@@ -6555,10 +6679,19 @@ async def ws_chat(ws: WebSocket):
                     compose_witness_response as _compose_wr,
                     compose_structured_witness_receipt as _compose_rich,
                 )
-                _wr_ok, _wr_failures = _validate_wr(
-                    lori_text=final_text,
-                    narrator_text=user_text or "",
-                )
+                # GUARD LAB id 47 — the validator, distinct from the
+                # id 48 fallback it triggers. Its 'too_short' fires on
+                # text id 35 shortened for being 'too_long'.
+                if not _authority.snapshot.is_selected(47):
+                    # Excluded: nothing judges the receipt, so nothing
+                    # can reject it. The model's own words stand and id
+                    # 48's fallback has no trigger.
+                    _wr_ok, _wr_failures = True, []
+                else:
+                    _wr_ok, _wr_failures = _validate_wr(
+                        lori_text=final_text,
+                        narrator_text=user_text or "",
+                    )
                 if not _wr_ok:
                     # WO-LORI-WITNESS-FOLLOWUP-BANK-01 — prefer the
                     # rich receipt + immediate-door composer when in
@@ -6613,6 +6746,12 @@ async def ws_chat(ws: WebSocket):
                             _witness_detection_for_fallback,
                             target_language=_witness_receipt_lang,
                         )
+                    if _wr_fallback and not _authority.snapshot.is_selected(48):
+                        logger.info(
+                            "[guard-lab][replace] conv=%s witness receipt "
+                            "fallback id=48 EXCLUDED — the model's own "
+                            "words stand", conv_id)
+                        _wr_fallback = ""
                     if _wr_fallback:
                         logger.warning(
                             "[chat_ws][witness][llm-receipt] validator "
@@ -6740,7 +6879,7 @@ async def ws_chat(ws: WebSocket):
                             "compose_witness_response raised conv=%s: %s",
                             conv_id, _es_repair_exc,
                         )
-                if _es_repair_text:
+                if _es_repair_text and _authority.snapshot.is_selected(50):
                     logger.warning(
                         "[chat_ws][lang-contract][es-repair] english-mode "
                         "Spanish leak repaired conv=%s tokens=%s "
@@ -6938,7 +7077,10 @@ async def ws_chat(ws: WebSocket):
                 is_factual_chain=_is_chain_for_guard,
                 seeded_facts=_seeded_facts_for_guard or None,
             )
-            if _guards_fired:
+            # GUARD LAB id 51. Registered as ONE authority because
+            # production calls the seven detect/repair pairs as one
+            # block; the trace preserves which pair fired.
+            if _guards_fired and _authority.snapshot.is_selected(51):
                 logger.warning(
                     "[chat_ws][response-guards] fired=%s conv=%s "
                     "before=%r after=%r",
@@ -7020,7 +7162,35 @@ async def ws_chat(ws: WebSocket):
         from ..services import profile_seed_turn as _ps_turn
         if _ps_plan is not None and _ps_plan.action in (
                 _ps_turn.PRESENT, _ps_turn.RE_PRESENT):
-            _ps_delivered = _ps_turn.finalize_presentation(final_text, _ps_plan)
+            # ── GUARD LAB id 54 — THE SEAM WRAPS THIS CALL ONLY ────────
+            #
+            # Id 53, the durable topic ledger, is PROTECTED and keeps
+            # running. Id 54 is this narrator-facing final write, which
+            # discarded Lori's question on 7 of 15 measured turns and
+            # substituted an onboarding question the narrator had usually
+            # already answered — John's session ended on "Are you retired
+            # now?" moments after he said he works as a school
+            # psychologist.
+            #
+            # THE ENCLOSING BLOCK MUST NOT BE GATED. The Phase 3
+            # containment below — "the stamp follows the DELIVERED text,
+            # never the plan" — is what stops the protected ledger
+            # stamping a presentation the narrator never received. With
+            # this call skipped, the canonical question is absent from
+            # final_text, `delivers_question()` returns False, and
+            # `_ps_planned_meta` is cleared by the guard that already
+            # exists. Gating the block instead would remove that guard
+            # and manufacture the exact phantom presentation it prevents.
+            if _authority.snapshot.is_selected(54):
+                _ps_delivered = _ps_turn.finalize_presentation(
+                    final_text, _ps_plan)
+            else:
+                logger.info(
+                    "[guard-lab][final-writer] conv=%s profile_seed_delivery "
+                    "id=54 EXCLUDED — Lori's own question stands; the ledger "
+                    "remains active and the delivered-text check below will "
+                    "decline to stamp a presentation", conv_id)
+                _ps_delivered = None
             if _ps_delivered:
                 if _ps_delivered != final_text:
                     logger.info(

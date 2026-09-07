@@ -17,7 +17,7 @@ import json
 import logging
 import os
 import re
-from typing import Any, Dict, List, NamedTuple, Optional, Tuple
+from typing import Any, Dict, FrozenSet, List, NamedTuple, Optional, Tuple
 
 from . import db
 # Lean Lori item 1 — the section policy registry, imported at MODULE
@@ -3890,11 +3890,50 @@ class _PromptAssembly:
             pass
         return out
 
+def _guard_selected(guard_selection, intervention_id: int) -> bool:
+    """Is this PROMPT authority included in the turn's configuration?
+
+    WO-LORI-BASELINE-RESET-AND-GUARD-LAB-01 — the prompt surface.
+
+    `None` is PRODUCTION and means every block is composed, which is the
+    default for every existing caller and keeps composition byte-stable
+    until an operator deliberately arms an experiment.
+
+    The selection arrives as a frozen set threaded from the turn's single
+    acquisition. This module never resolves its own configuration: a
+    composer that decided its own membership could disagree with the turn
+    it is composing for, and would do so silently, because both answers
+    look equally authoritative from the inside.
+
+    Ids are literals here rather than imported from the registry so a
+    data module does not become a runtime dependency of prompt
+    composition; `test_guard_lab_prompt_authorities` asserts the two
+    agree.
+    """
+    if guard_selection is None:
+        return True
+    return intervention_id in guard_selection
+
+
+# Registry ids for the PROMPT-class authorities composed below.
+GUARD_CORE_IDENTITY = 1
+GUARD_INTERVIEW_DISCIPLINE = 3
+GUARD_REFLECTION_EXAMPLES = 4
+GUARD_ORAL_HISTORY_RESPONSE = 5
+GUARD_STORY_MODE_DIRECTIVE = 6
+GUARD_QUESTION_HIERARCHY = 7
+GUARD_THREAD_SURFACING = 8
+GUARD_ANCHORED_ASK = 9
+GUARD_WITNESS_RECEIPT_DIRECTIVE = 10
+GUARD_WITNESS_FEWSHOT_EXAMPLES = 11
+
+
 def _compose_prompt_assembly(
     conv_id: str,
     ui_system: Optional[str] = None,
     user_text: Optional[str] = None,
     runtime71: Optional[Dict[str, Any]] = None,
+    guard_selection: Optional[FrozenSet[int]] = None,
 ) -> "_PromptAssembly":
     """Compose the unified system prompt, returning the CLASSIFIED assembly.
 
@@ -3968,7 +4007,20 @@ def _compose_prompt_assembly(
 
     # Prefer UI base prompt when present, but always anchor with DEFAULT_CORE.
     base = (ui_base or "").strip()
-    _core = _system_head_core()   # identity, plus the safety manual only when ACTIVE
+    # GUARD LAB id 1. Excluding core identity is the most drastic
+    # prompt experiment available and it is deliberately reachable: the
+    # whole point of the lean-baseline question is what Lori does with
+    # less instruction, and the accumulated system-side payload measured
+    # 6,065-7,267 tokens of an 8,192-token window.
+    #
+    # Id 2, the acute safety protocol, is NOT reachable this way. It is
+    # PROTECTED, and `_system_head_core()` appends it only when the
+    # safety family is ACTIVE, governed by flags.safety_parked() and not
+    # by any selection.
+    if _guard_selected(guard_selection, GUARD_CORE_IDENTITY):
+        _core = _system_head_core()   # identity, plus the safety manual only when ACTIVE
+    else:
+        _core = ""
     if base:
         # If UI already contains a role declaration, we still prepend our stable core.
         system_head = _core + "\n\n" + base
@@ -4577,7 +4629,15 @@ def _compose_prompt_assembly(
         # via the chat_ws memory_echo branch (deterministic readback,
         # not subject to discipline since the narrator explicitly asked
         # for a structured summary).
-        directive_lines.append(LORI_INTERVIEW_DISCIPLINE.strip())
+        # GUARD LAB ids 3 and 4. The rules and their illustrations are
+        # separately selectable: `include_examples=False` drops the four
+        # example fragments and leaves the numbered constraints intact.
+        if _guard_selected(guard_selection, GUARD_INTERVIEW_DISCIPLINE):
+            directive_lines.append(
+                compose_interview_discipline(
+                    include_examples=_guard_selected(
+                        guard_selection, GUARD_REFLECTION_EXAMPLES)
+                ).strip())
         directive_lines.append("")
 
         # ── WO-LORI-ORAL-HISTORY-DEFAULT-01 (2026-06-14) ────────────────
@@ -4615,7 +4675,9 @@ def _compose_prompt_assembly(
                         )
                     except Exception:
                         pass
-                directive_lines.append(LORI_ORAL_HISTORY_RESPONSE.strip())
+                if _guard_selected(guard_selection,
+                                   GUARD_ORAL_HISTORY_RESPONSE):
+                    directive_lines.append(LORI_ORAL_HISTORY_RESPONSE.strip())
                 directive_lines.append("")
                 # Verifiable log line per WO acceptance gate 0
                 try:
@@ -4648,19 +4710,25 @@ def _compose_prompt_assembly(
             # threshold. Adds the no-Layer-3-or-4 rules on top of the
             # standard interview discipline.
             if _phase_1_momentum == "story":
-                directive_lines.append(LORI_STORY_MODE_DIRECTIVE.strip())
+                if _guard_selected(guard_selection,
+                                   GUARD_STORY_MODE_DIRECTIVE):
+                    directive_lines.append(LORI_STORY_MODE_DIRECTIVE.strip())
                 directive_lines.append("")
 
             # Question-hierarchy guidance — emitted whenever Phase 1 is
             # active (momentum field is present), regardless of the
             # current mode. Reminds the LLM of the Layer 1-4 ladder.
             if _phase_1_momentum in ("story", "emerging", "normal"):
-                directive_lines.append(LORI_QUESTION_HIERARCHY_GUIDANCE.strip())
+                if _guard_selected(guard_selection, GUARD_QUESTION_HIERARCHY):
+                    directive_lines.append(
+                        LORI_QUESTION_HIERARCHY_GUIDANCE.strip())
                 directive_lines.append("")
 
             # Thread-surfacing directive — only when chat_ws selected a
             # banked thread to surface this turn.
-            if _phase_1_surface and isinstance(_phase_1_surface, str):
+            if (_phase_1_surface and isinstance(_phase_1_surface, str)
+                    and _guard_selected(guard_selection,
+                                        GUARD_THREAD_SURFACING)):
                 directive_lines.append(
                     LORI_THREAD_SURFACING_DIRECTIVE_TEMPLATE
                     .format(surface_text=_phase_1_surface.strip())
@@ -4684,7 +4752,8 @@ def _compose_prompt_assembly(
                 runtime71.get("bio_anchored_ask_surface_text")
                 if isinstance(runtime71, dict) else None
             )
-            if _anchored_surface and isinstance(_anchored_surface, str):
+            if (_anchored_surface and isinstance(_anchored_surface, str)
+                    and _guard_selected(guard_selection, GUARD_ANCHORED_ASK)):
                 directive_lines.append(
                     LORI_ANCHORED_ASK_DIRECTIVE_TEMPLATE
                     .format(surface_text=_anchored_surface.strip())
@@ -4711,10 +4780,19 @@ def _compose_prompt_assembly(
         # falls back to deterministic multi-anchor template if the LLM
         # drifts (forbidden tokens, first-person mimicry, length out
         # of bounds, too-few-facts).
-        _witness_block = _witness_receipt_block(runtime71)
-        if _witness_block:
-            directive_lines.append(_witness_block)
-            directive_lines.append("")
+        # GUARD LAB ids 10 and 11. The directive and its authentic
+        # oral-history examples are separately selectable: excluding 11
+        # keeps the receipt instructions and drops the Kent/Janice
+        # few-shots that Walt turn 5 reproduced verbatim.
+        if _guard_selected(guard_selection, GUARD_WITNESS_RECEIPT_DIRECTIVE):
+            _witness_block = _witness_receipt_block(runtime71)
+            if _witness_block:
+                if not _guard_selected(guard_selection,
+                                       GUARD_WITNESS_FEWSHOT_EXAMPLES):
+                    _witness_block = compose_witness_receipt_directive(
+                        include_examples=False)
+                directive_lines.append(_witness_block)
+                directive_lines.append("")
 
         # WO-PROVISIONAL-TRUTH-01 Phase A polish (2026-05-04):
         # ERA EXPLAINER — narrator-friendly definitions of the seven
@@ -5914,15 +5992,17 @@ def compose_system_prompt(
     ui_system: Optional[str] = None,
     user_text: Optional[str] = None,
     runtime71: Optional[Dict[str, Any]] = None,
+    guard_selection: Optional[FrozenSet[int]] = None,
 ) -> str:
     """The historical contract: compose and render, returning the string.
 
-    Unchanged for every existing caller. See `_compose_prompt_assembly`
+    Unchanged for every existing caller — `guard_selection=None` is
+    production and composes every block. See `_compose_prompt_assembly`
     for the composition itself and for why the split exists.
     """
     return _compose_prompt_assembly(
         conv_id, ui_system=ui_system, user_text=user_text,
-        runtime71=runtime71,
+        runtime71=runtime71, guard_selection=guard_selection,
     ).render(conv_id)
 
 
@@ -5931,6 +6011,7 @@ def compose_prompt_sections(
     ui_system: Optional[str] = None,
     user_text: Optional[str] = None,
     runtime71: Optional[Dict[str, Any]] = None,
+    guard_selection: Optional[FrozenSet[int]] = None,
 ) -> ComposedPrompt:
     """Compose, and hand back the classified sections with the text.
 
@@ -5941,6 +6022,6 @@ def compose_prompt_sections(
     """
     assembly = _compose_prompt_assembly(
         conv_id, ui_system=ui_system, user_text=user_text,
-        runtime71=runtime71,
+        runtime71=runtime71, guard_selection=guard_selection,
     )
     return ComposedPrompt(assembly.render(conv_id), assembly.sections())

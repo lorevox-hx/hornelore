@@ -26,8 +26,16 @@ THREE IDENTIFIERS, NOT ONE HASH. A turn is attributable to
 answers a question the others cannot:
 
     registry_fingerprint   which authority MAP was this code using?
-    revision               which persisted configuration generation?
+    revision               which configuration generation did this turn
+                           CONSUME?
     selection_fingerprint  which effective selection did the turn use?
+
+`revision` is the CONSUMED generation, not the currently persisted one.
+A turn that legitimately consumed no operator configuration — a real
+narrator, an unarmed evaluation — carries
+`lori_guard_gate.CANONICAL_REVISION` (0), even when the store is at 12.
+Saying 12 would invite the wrong conclusion when two transcripts are
+compared, because that turn read none of generation 12.
 
 The registry fingerprint deliberately covers behavioural fields ONLY.
 Editing a `known_harm` paragraph must not make it look like the
@@ -152,6 +160,9 @@ class AuthoritySnapshot:
     """
 
     registry_fingerprint: str
+    # The generation this turn CONSUMED. 0 means "consumed no operator
+    # configuration", which is the normal case for every real narrator
+    # and is not a claim about what the store currently holds.
     revision: int
     selection_fingerprint: str
     states: Tuple[AuthorityState, ...]

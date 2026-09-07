@@ -48,7 +48,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, FrozenSet, List, Optional, Sequence
 
 from .question_atomicity import classify_atomicity, enforce_question_atomicity
 from .lori_reflection import validate_memory_echo, shape_reflection
@@ -563,6 +563,55 @@ class CommunicationControlResult:
         }
 
 
+# ── Guard Lab selection seam ──────────────────────────────────────────
+#
+# This wrapper bundles ELEVEN independently meaningful authorities
+# (registry ids 32-42). Until they could be named apart, a diagnostic
+# could only say "comm_control changed the text", never which of the
+# eleven did it — and the Walt turns needed exactly that resolution,
+# because word truncation, reflection shaping, stub repair and the
+# chain-anchor opener all fired on the same turns.
+#
+# A FROZEN PER-TURN SNAPSHOT, NOT A GLOBAL. The operator can change
+# configuration mid-conversation, and a turn must finish under the
+# configuration it started with, or a transcript cannot be attributed to
+# any configuration at all. The caller resolves once at turn start and
+# threads the selection here; nothing in this module reads mutable
+# global state or resolves its own authority.
+#
+# Ids are literals rather than imported so a data module does not become
+# a runtime dependency of the response path; `test_lori_guard_registry`
+# asserts the two agree.
+CC_SAFETY_PATH = 32
+CC_QUESTION_ATOMICITY = 33
+CC_QUESTION_COUNT_TRUNCATE = 34
+CC_WORD_LIMIT = 35
+CC_REFLECTION_SHAPER = 36
+CC_REFLECTION_VALIDATOR = 37
+CC_PUSH_AFTER_RESISTANCE = 38
+CC_STUB_COLLAPSE_REPAIR = 39
+CC_CHAIN_ANCHOR_OPENER = 40
+CC_STORY_FIRST_GROUNDING = 41
+CC_STORY_FIRST_HIERARCHY = 42
+
+
+def _selected(guard_selection: Optional[FrozenSet[int]],
+              intervention_id: int) -> bool:
+    """Is this intervention active for the current turn?
+
+    `None` is PRODUCTION and means everything runs — the default for
+    every existing caller, so behaviour is unchanged until an operator
+    deliberately arms an experiment.
+
+    It never consults an environment variable or a module global. A
+    toggle flipped while Lori is mid-sentence cannot change the turn
+    underneath itself.
+    """
+    if guard_selection is None:
+        return True
+    return intervention_id in guard_selection
+
+
 def _truncate_to_first_question(text: str) -> str:
     """Keep everything up to and including the first '?'. Used when
     question_count > 1."""
@@ -878,6 +927,11 @@ def enforce_lori_communication_control(
     # _chain_ctx["is_factual_chain"]). Gates the Step 6b anchor-echo
     # injection. Defaults False so legacy callers stay byte-stable.
     is_factual_chain: bool = False,
+    # WO-LORI-BASELINE-RESET-AND-GUARD-LAB-01 — the frozen selection for
+    # this turn, threaded from the single acquisition in chat_ws. None
+    # means production: every operation runs, byte-stable for every
+    # existing caller, in line with the other optional parameters above.
+    guard_selection: Optional[FrozenSet[int]] = None,
 ) -> CommunicationControlResult:
     """The single runtime enforcement entry point.
 
@@ -926,15 +980,18 @@ def enforce_lori_communication_control(
     warnings: List[str] = []
     current = assistant_text
 
-    # Step 1: atomicity (truncate compounds)
-    atom_text, atomicity_failures = enforce_question_atomicity(current)
-    if atomicity_failures:
-        if atom_text != current:
-            current = atom_text
+    # Step 1: atomicity (truncate compounds) — registry id 33
+    atomicity_failures: List[str] = []
+    if _selected(guard_selection, CC_QUESTION_ATOMICITY):
+        atom_text, atomicity_failures = enforce_question_atomicity(current)
+        if atomicity_failures:
+            if atom_text != current:
+                current = atom_text
 
-    # Step 2: question count
+    # Step 2: question count — registry id 34
     question_count = current.count("?")
-    if question_count > 1:
+    if question_count > 1 and _selected(
+            guard_selection, CC_QUESTION_COUNT_TRUNCATE):
         failures.append("too_many_questions")
         current = _truncate_to_first_question(current)
         question_count = current.count("?")
@@ -961,7 +1018,8 @@ def enforce_lori_communication_control(
     else:
         word_limit = base_word_limit
     word_count = len(current.split())
-    if word_count > word_limit:
+    # registry id 35
+    if word_count > word_limit and _selected(guard_selection, CC_WORD_LIMIT):
         failures.append("too_long")
         current = _truncate_to_word_limit(current, word_limit)
         word_count = len(current.split())
@@ -976,7 +1034,9 @@ def enforce_lori_communication_control(
     shape_actions: List[str] = []
     _reflect_before = current
     _reflect_after = current
-    if _reflection_shaping_enabled():
+    # registry id 36
+    if (_reflection_shaping_enabled()
+            and _selected(guard_selection, CC_REFLECTION_SHAPER)):
         shaped, shape_actions = shape_reflection(
             assistant_text=current,
             narrator_text=user_text or "",
@@ -994,17 +1054,22 @@ def enforce_lori_communication_control(
     # shaper didn't catch — e.g. echo_contains_diagnostic_language is
     # NOT in the shaper's lane (the shaper trims length, not content
     # violations) and remains report-only here.).
-    _passed, reflection_failures = validate_memory_echo(
-        assistant_text=current,
-        user_text=user_text or "",
-    )
+    # registry id 37
+    reflection_failures: List[str] = []
+    if _selected(guard_selection, CC_REFLECTION_VALIDATOR):
+        _passed, reflection_failures = validate_memory_echo(
+            assistant_text=current,
+            user_text=user_text or "",
+        )
 
     # Step 5: push-after-resistance (Phelan SIN 3 — too much arguing).
     # Single-turn detection: narrator-side resistance phrase + Lori-side
     # probe verb in the same turn. Report-only; never modifies output.
     # Skipped on safety/softened paths — those own no-probe via the
     # safety_path branch above.
-    if _detect_push_after_resistance(user_text or "", current):
+    # registry id 38
+    if (_selected(guard_selection, CC_PUSH_AFTER_RESISTANCE)
+            and _detect_push_after_resistance(user_text or "", current)):
         failures.append("push_after_resistance")
 
     # Step 6: BUG-LORI-RESPONSE-STUB-COLLAPSE-01 (2026-05-09) — detect
@@ -1041,7 +1106,8 @@ def enforce_lori_communication_control(
     # and the meta-question deterministic intercept upstream owns the
     # short-answer classes that are supposed to be short.
     if (
-        _stub_word_count <= 5
+        _selected(guard_selection, CC_STUB_COLLAPSE_REPAIR)  # registry id 39
+        and _stub_word_count <= 5
         and _narrator_word_count >= 4
         and not safety_triggered  # safety paths legitimately emit short responses
     ):
@@ -1063,7 +1129,8 @@ def enforce_lori_communication_control(
     # their natural one-anchor replies (spec non-goal). Skipped on
     # safety/softened paths.
     if (
-        is_factual_chain
+        _selected(guard_selection, CC_CHAIN_ANCHOR_OPENER)  # registry id 40
+        and is_factual_chain
         and not safety_triggered
         and not softened_mode_active
         and narrator_anchors
@@ -1122,7 +1189,11 @@ def enforce_lori_communication_control(
         try:
             from .reflection_grounding import check_reflection_grounding
             _grounding = check_reflection_grounding(current, user_text or "")
-            if not _grounding.passed:
+            # registry id 41 — gated at the APPEND. These Phase 1 steps
+            # are report-only, so the label in `failures` is their entire
+            # observable effect and withholding it IS the disable.
+            if not _grounding.passed and _selected(
+                    guard_selection, CC_STORY_FIRST_GROUNDING):
                 failures.append(
                     f"reflection_not_grounded:{_grounding.failure_reason}"
                 )
@@ -1165,7 +1236,9 @@ def enforce_lori_communication_control(
                 session_state=_sh_state,
                 momentum_mode=str(momentum_mode or "normal"),
             )
-            if not _hier.passed:
+            # registry id 42 — gated at the append, as 41 above
+            if not _hier.passed and _selected(
+                    guard_selection, CC_STORY_FIRST_HIERARCHY):
                 failures.append(
                     f"question_layer_ineligible:{_hier.failure_reason}"
                 )

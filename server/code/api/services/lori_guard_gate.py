@@ -81,16 +81,25 @@ VALID_GATE_REASONS = frozenset({
 
 # ── The evaluation marker ─────────────────────────────────────────────
 #
-# Mirrors `scripts/trace_env.sh:hornelore_trace_resolve`, which is the
+# Follows `scripts/trace_env.sh:hornelore_trace_resolve`, which is the
 # authority for this file's meaning:
 #
 #     marker="$repo_root/.runtime/eval/current_eval_dir"
 #     if [ -r "$marker" ]; then eval_dir="$(<"$marker")"; fi
 #
-# `$(<file)` strips trailing newlines, and the shell's own comment says
-# "A blank or deleted marker must not resolve to the repo root". Same
-# three rules here: unreadable is unarmed, blank is unarmed, trailing
-# whitespace is not part of the path.
+# NOT byte-for-byte identical, and the difference is deliberate rather
+# than accidental. `$(<file)` strips TRAILING NEWLINES only; this uses
+# `.strip()`, which also removes leading and trailing spaces and tabs.
+#
+# That is conservative in the safe direction. A marker of "   " arms an
+# experiment under the shell's rule and does not here, and the shell's
+# own comment — "a blank or deleted marker must not resolve to the repo
+# root" — says which way it would rather be wrong. A whitespace-only
+# marker is not a run directory under any reading.
+#
+# Saying "same semantics as trace_env.sh" would have been a comment that
+# is subtly false, which is worse than a documented difference: the next
+# person to change one would assume the other already matched.
 #
 # Deliberately NOT a second convention. The marker is written when an
 # experiment starts and removed by `stop_all.sh` when it ends; that
@@ -171,9 +180,32 @@ class TurnAuthorityAcquisition:
         )
 
 
+CANONICAL_REVISION = 0
+"""Sentinel: this turn consumed NO operator configuration.
+
+`snapshot.revision` means THE CONFIGURATION GENERATION THIS TURN
+CONSUMED — not the current durable operator revision. The two diverge
+constantly and legitimately: the store can sit at revision 12 while a
+real narrator correctly receives canonical Lori, because the gate
+refused to consume any of it.
+
+Reporting 12 there would be false in the way that matters — a trace
+saying "persisted generation 12" for a turn that read none of generation
+12 invites exactly the wrong conclusion when two transcripts are
+compared. So canonical turns carry 0, documented as "consumed nothing".
+
+The alternative — reading the store on every ordinary narrator turn
+purely so telemetry can name a revision the turn ignored — adds a
+database read to every real conversation for no behavioural benefit, and
+was rejected for that reason. If diagnostics later need the currently
+available operator revision, it gets its own field (`operator_revision`)
+rather than overloading this one.
+"""
+
+
 def canonical_acquisition(
         reason: str = GATE_STORE_UNAVAILABLE,
-        revision: int = 0) -> TurnAuthorityAcquisition:
+        revision: int = CANONICAL_REVISION) -> TurnAuthorityAcquisition:
     """Production defaults, with a reason.
 
     PUBLIC so the router has exactly one door to this subsystem. Its
