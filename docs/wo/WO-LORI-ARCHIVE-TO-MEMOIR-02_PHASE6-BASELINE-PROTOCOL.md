@@ -105,6 +105,14 @@ it.
 
 ## 4. The ten turns
 
+**The authoritative list is `data/evals/phase6_lean_baseline_turns.json`.**
+The table below describes it; the file decides. Three consumers read that
+one file — the JS route preflight routes those exact strings, the Python
+capture requires those exact narrator inputs in that exact order, and
+this document points at it. It was briefly written out in three places,
+which is the failure this repo has already recorded twice: two copies of
+one truth stay equal until the first edit.
+
 Categories are yours; the wording is Ada's.
 
 | # | Category | Turn |
@@ -125,6 +133,22 @@ herself said, not of a profile field. Turn 7 offers three threads at once
 (Claire, the move, losing the house) so the follow-up choice is
 observable. Turn 8 is a detail with no significance attached, so invented
 significance would be visible. Turn 10 withholds a date on purpose.
+
+### Turn 6 is scored separately — two questions, not one
+
+Turn 6 routes deterministically and **never reaches the model**, so it
+cannot be evidence about what the model does. It stays in the baseline
+and in the report, answering its own question:
+
+| Turns | Question |
+|---|---|
+| 1–5, 7–10 (nine) | What does lean **generated** Lori do conversationally? |
+| 6 | Does the **correction path** handle a genuine self-correction appropriately, and hand continuity back to the conversation? |
+
+The turn set carries `in_quality_aggregate: false` on turn 6, and the
+rendered report says so at the top and again on the turn itself.
+Averaging one deterministic response into a model-quality measurement
+would contaminate it.
 
 ---
 
@@ -155,10 +179,16 @@ matters: *"it wasn't the same after that"* is exactly how someone talks
 about a loss, and Lori would answer it from a deterministic correction
 branch.
 
-**This is an observation for the Phase 6 pile, not a fix.** It is also
-the reason the ten turns are worded the way they are — otherwise the
+**This is an observation for the Phase 6 defect list, not a fix.** It is
+also the reason the ten turns are worded the way they are — otherwise the
 baseline would have silently measured a regex. The witness is pinned in
-the preflight, so if the detector is ever narrowed the script says so.
+the preflight and in the turn-set file, so if the detector is ever
+narrowed the script says so.
+
+**We word around it once, for this first baseline only.** Real future
+conversations must not be shaped to survive a regex; a narrator saying
+"it wasn't the same after that" is the product's problem to handle, not
+the narrator's to avoid.
 
 ---
 
@@ -178,6 +208,24 @@ Details reflected, details dropped, invented significance, and whether
 the question follows the strongest thread are judgements. A generated
 guess in those columns would be indistinguishable from a finding, so the
 script prints them empty for a human.
+
+**It refuses anything but the intended ten turns.** Selecting by narrator
+id alone is right only on a perfect first run — an interrupted or retried
+session leaves 11 or 15 Ada turns behind, and a renderer that drew them
+all would produce a report indistinguishable from a clean one. So the run
+is checked against the authoritative set for exact text, exact order and
+once each. Wrong count, wrong text, wrong order or a retried turn all
+REFUSE rather than render; `--diagnose` lists what was actually traced.
+A contaminated run is not repaired by rendering it — preserve the
+directory, arm a new one, start again.
+
+`tests/test_phase6_baseline_turnset.py` pins every arm of that refusal
+(14 tests, no skips). Its fixtures build their records by calling the
+shipped trace store rather than hand-writing the shape, so a rename of
+`narrator_input` fails at the fixture instead of passing against a shape
+nothing produces. Three mutations were run against the enforcement —
+duplicate detection off, length check off, order check off — and each
+one kills a test.
 
 ---
 
@@ -203,7 +251,38 @@ cd /mnt/c/Users/chris/hornelore
 node scripts/ui/phase6_turn_route_preflight.js
 ```
 
-**Step 3 — with the stack up, select Ada in the Operator panel, set the
+**Step 3 — give this baseline its own evidence container, BEFORE the
+stack starts.** Response tracing is resolved at process startup
+(`trace_env.sh:63`), so arming after the server is up records nothing.
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+RUN="$PWD/.runtime/eval/phase6-lean-20260907"
+mkdir -p "$RUN"
+printf '%s\n' "$RUN" > .runtime/eval/current_eval_dir
+```
+
+Verified: that marker path is what the server actually reads
+(`lori_guard_gate.py:110`, `trace_env.sh:69`), and a non-empty marker is
+itself what turns tracing on (`trace_env.sh:79`).
+
+**Two things that follow from how the marker works:**
+
+* **`stop_all.sh` removes the marker on every exit path** (its EXIT trap,
+  `stop_all.sh:56`) — deliberately, because a stale marker would record
+  every ordinary Kent and Janice turn. So **if the stack is stopped and
+  restarted mid-baseline, re-arm first or the remaining turns are not
+  traced.** That is also a reason the capture refuses a short run rather
+  than rendering one.
+* It writes `.runtime/eval/last_eval_dir` before removing it, so the
+  capture can still find the run after shutdown. The capture falls back
+  to that pointer **and prints which pointer it used** — reading the
+  wrong run silently is the thing to avoid.
+
+If the baseline has to be abandoned, keep that directory and arm a
+different new one. Never reuse it.
+
+**Step 4 — with the stack up, select Ada in the Operator panel, set the
 Lean preset, and snapshot the configuration:**
 
 ```bash
@@ -212,10 +291,11 @@ cd /mnt/c/Users/chris/hornelore
   snapshot phase6-lean-before
 ```
 
-**Step 4 — I send the ten turns in order**, one at a time, waiting for
-each response, changing nothing between them.
+**Step 5 — I send the ten turns in order**, exactly once each, waiting
+for each response, changing nothing between them.
 
-**Step 5 — snapshot again and render the capture:**
+**Step 6 — snapshot again, confirm the configuration never moved, and
+render the capture:**
 
 ```bash
 cd /mnt/c/Users/chris/hornelore
@@ -229,6 +309,15 @@ PYTHONPATH=server/code .venv-gpu/bin/python \
 `docs/reports/` is gitignored, which is correct — the report carries a
 transcript. Do not `git add` it.
 
+The before/after snapshots must show the **same revision and the same
+selection fingerprint**. If they differ, the configuration moved during
+the run and the ten turns were not all produced under one configuration —
+that is a discarded baseline, not a footnote.
+
+**Step 7 — human review of the four blank judgement fields.** That is
+where the conversational verdict comes from; nothing upstream of it
+generates one.
+
 ---
 
 ## 8. What comes back
@@ -239,6 +328,26 @@ transcript. Do not `git add` it.
 4. which Guard Lab authorities were active (revision + both fingerprints);
 5. extraction result per turn, reported separately;
 6. observations — **with nothing fixed.**
+
+### The question is not "was Lori better"
+
+For the **nine generated turns**, what we are looking for is whether the
+earlier lean problems survive now that Profile Seed is no longer a
+confound:
+
+* Does she reflect **specific narrator material** rather than a generic
+  summary?
+* Does she preserve **causal structure**?
+* **Which** meaningful detail does she choose to follow?
+* Does she **invent significance** — turn 8 exists for this?
+* Does she keep steering toward biography or intake **even though Profile
+  Seed is complete**?
+* Does she ask **exactly one** useful question, naturally?
+* Does **raw still equal delivered** under Lean?
+* Does **extraction behave independently** of conversational quality?
+
+**Turn 6 separately:** how does the deterministic correction route feel
+inside an otherwise natural conversation?
 
 ## 9. What this deliberately does not do
 

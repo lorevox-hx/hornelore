@@ -83,54 +83,45 @@ const scope = {};
 // eslint-disable-next-line no-eval
 const routeTurn = eval(`${BLOCK}\n;lvRouteTurn;`);
 
-/** The Phase 6 turn set. Category names are Chris's. */
-const TURNS = [
-  ["childhood / family",
-   "My brother Dennis used to walk me to school through the cemetery " +
-   "because it was the fast way."],
-  ["place / move",
-   "We left Currier Street the summer I turned eleven and moved out " +
-   "toward Websterville."],
-  ["daily routine",
-   "These days I'm up before Warren. I make the coffee and do the " +
-   "crossword while the house is quiet."],
-  ["work",
-   "At the practice I ended up building the schedule for both dentists. " +
-   "Nobody ever asked me to. I just started doing it."],
-  ["emotionally meaningful memory",
-   "My father came home from the quarry one afternoon and told us his " +
-   "hands had stopped working right. He was fifty-two."],
-  ["correction (DELIBERATE — must route to correction)",
-   "Actually, he was fifty-four, not fifty-two. I keep getting that wrong."],
-  ["multiple possible threads",
-   "Claire moved out to California the same year we lost the house on " +
-   "Berlin Street."],
-  ["detail Lori should NOT over-interpret",
-   "There was a green glass dish on the hall table. I have no idea why " +
-   "I remember it."],
-  ["place / leisure",
-   "We used to drive up to Groton Pond on Sundays in the summer, all " +
-   "four of us in the wagon."],
-  ["resists date pressure",
-   "I couldn't tell you what year we got the camp. Somewhere in the " +
-   "seventies."],
-];
+// ── ONE LIST, THREE CONSUMERS ───────────────────────────────────────
+//
+// The turn set lives in `data/evals/phase6_lean_baseline_turns.json` and
+// nowhere else. This preflight routes those exact strings; the Python
+// capture requires those exact narrator inputs in that exact order; the
+// protocol document describes them and points here.
+//
+// It was briefly in all three places, which is the failure this repo has
+// now recorded against a renderer and its predicate, and a baseline
+// inventory beside its registry: two copies of one truth stay equal
+// until the first edit.
+const SET_PATH = path.join(REPO, "data", "evals",
+                           "phase6_lean_baseline_turns.json");
+const SET = JSON.parse(fs.readFileSync(SET_PATH, "utf8"));
+const TURNS = SET.turns || [];
 
-const EXPECT_CORRECTION = 5;   // zero-based index of the deliberate one
+if (TURNS.length !== 10) {
+  console.error(`REFUSING: ${SET_PATH} defines ${TURNS.length} turns, ` +
+                `not 10.`);
+  process.exit(2);
+}
 
 let failures = 0;
 console.log(`Routing ${TURNS.length} turns through the shipped ` +
-            `lvRouteTurn (app.js:${FIRST_LINE}-${LAST_LINE})\n`);
-TURNS.forEach(([category, text], i) => {
-  const mode = routeTurn(text);
-  const want = i === EXPECT_CORRECTION ? "correction" : "interview";
+            `lvRouteTurn (app.js:${FIRST_LINE}-${LAST_LINE})`);
+console.log(`Turn set: ${path.relative(REPO, SET_PATH)}  ` +
+            `[${SET.set_id}]\n`);
+TURNS.forEach((turn, i) => {
+  const mode = routeTurn(turn.text);
+  const want = turn.expected_route;
   const ok = mode === want;
   if (!ok) failures += 1;
-  console.log(`${ok ? "  ok  " : "  FAIL"}  T${i + 1}  ${mode.padEnd(12)}` +
-              ` ${category}`);
+  const agg = turn.in_quality_aggregate ? "" : "   (excluded from the " +
+                                               "quality aggregate)";
+  console.log(`${ok ? "  ok  " : "  FAIL"}  T${turn.index}  ` +
+              `${mode.padEnd(12)} ${turn.category}${agg}`);
   if (!ok) {
     console.log(`        wanted ${want}`);
-    console.log(`        "${text}"`);
+    console.log(`        "${turn.text}"`);
   }
 });
 
@@ -146,22 +137,16 @@ TURNS.forEach(([category, text], i) => {
 // discovered by surprise.
 console.log("");
 console.log("Hazard witness — ordinary narration vs app.js:2600");
-const WITNESS = [
-  ["a passing aside",
-   "There was a green glass dish on the hall table. I do not know why " +
-   "I remember it, not that it matters."],
-  ["a plain description",
-   "It was not a big house, but we managed."],
-  ["a sentence about loss",
-   "It wasn't the same after that."],
-  ["the same turn, reworded to survive",
-   "We used to drive up to Groton Pond on Sundays."],
-];
+const WITNESS = (SET.hazard_witness || {}).sentences || [];
+const CONTROL = (SET.hazard_witness || {}).control;
 let caught = 0;
-for (const [label, text] of WITNESS) {
+for (const text of WITNESS) {
   const mode = routeTurn(text);
   if (mode === "correction") caught += 1;
-  console.log(`  ${mode.padEnd(12)} ${label}`);
+  console.log(`  ${mode.padEnd(12)} "${text}"`);
+}
+if (CONTROL) {
+  console.log(`  ${routeTurn(CONTROL).padEnd(12)} "${CONTROL}"   (control)`);
 }
 console.log(`  -> ${caught} of ${WITNESS.length} route deterministically ` +
             `and never reach the model.`);
