@@ -44,6 +44,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sqlite3
 import sys
 import urllib.error
@@ -119,6 +120,125 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+#: `state-<ISO8601 basic>-<label>.json`, written by `snapshot`.
+_SNAPSHOT_RX = re.compile(r"^state-(\d{8}T\d{6}Z)-(.+)\.json$")
+
+RESTART_BEFORE = "before-restart"
+RESTART_AFTER = "after-restart"
+
+
+def _labelled_snapshots(run_dir: Path) -> Dict[str, List[Path]]:
+    """Snapshots grouped by the label the operator gave them, oldest first.
+
+    THE LABEL IS THE WHOLE POINT and the first version ignored it. It
+    took `sorted(glob("state-*.json"))[0]` and `[-1]`, so on a correct
+    run — which the procedure itself asks for — the pair compared was
+    `before-all-off` (revision 0, no overrides) against `after-restart`
+    (37 overrides). Those differ for the obvious reason, the guard fell
+    through to its `else`, and a restart that worked perfectly was
+    reported UNVERIFIED.
+
+    It failed in the safe direction, which is the only good thing about
+    it: it under-reported a passing restart rather than certifying a
+    failing one. It would still have cost the run, and then an argument
+    about whether persistence actually worked — which is exactly the
+    kind of question the instrument exists to settle.
+    """
+    out: Dict[str, List[Path]] = {}
+    for path in sorted(run_dir.glob("state-*.json")):
+        match = _SNAPSHOT_RX.match(path.name)
+        if not match:
+            continue
+        out.setdefault(match.group(2), []).append(path)
+    for paths in out.values():
+        paths.sort(key=lambda p: _SNAPSHOT_RX.match(p.name).group(1))  # type: ignore[union-attr]
+    return out
+
+
+def _overrides_of(payload: Dict[str, Any]) -> Dict[int, Any]:
+    return {a["id"]: a["operator_override"]
+            for a in payload.get("authorities", [])
+            if a.get("operator_override") is not None}
+
+
+def _restart_verdict(run_dir: Path) -> Tuple[str, str]:
+    """Decide restart persistence from the NAMED pair, and nothing else.
+
+    Returns (verdict, detail). Separated from `cmd_verify` so the
+    decision can be tested against real snapshot files rather than
+    against a reimplementation of it.
+    """
+    groups = _labelled_snapshots(run_dir)
+    before_paths = groups.get(RESTART_BEFORE) or []
+    after_paths = groups.get(RESTART_AFTER) or []
+
+    missing = [name for name, paths in ((RESTART_BEFORE, before_paths),
+                                        (RESTART_AFTER, after_paths))
+               if not paths]
+    if missing:
+        found = ", ".join(sorted(groups)) or "none"
+        return UNVERIFIED, (
+            f"no snapshot labelled {' and '.join(missing)}. "
+            f"Labels present: {found}.\n"
+            f"Run `snapshot {RESTART_BEFORE}` and `snapshot "
+            f"{RESTART_AFTER}` either side of the stop/start, with "
+            f"nothing else changed in between.")
+
+    # The latest matching pair, so a retried restart supersedes an
+    # earlier attempt rather than being averaged with it.
+    before_path, after_path = before_paths[-1], after_paths[-1]
+    before_stamp = _SNAPSHOT_RX.match(before_path.name).group(1)   # type: ignore[union-attr]
+    after_stamp = _SNAPSHOT_RX.match(after_path.name).group(1)     # type: ignore[union-attr]
+    if after_stamp <= before_stamp:
+        return UNVERIFIED, (
+            f"{after_path.name} was taken before {before_path.name}. "
+            f"A restart pair has to be in order to mean anything.")
+
+    try:
+        before = json.loads(before_path.read_text(encoding="utf-8"))
+        after = json.loads(after_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return UNVERIFIED, f"could not read the snapshot pair: {exc}"
+
+    before_overrides = _overrides_of(before)
+    after_overrides = _overrides_of(after)
+
+    # AN EMPTY PAIR PROVES NOTHING. Two snapshots with no overrides on
+    # either side compare equal and would report a green restart while
+    # testing nothing at all — the fixture supplying the property.
+    if not before_overrides:
+        return UNVERIFIED, (
+            f"{before_path.name} carries no operator override, so a "
+            f"matching {after_path.name} proves nothing. Apply a "
+            f"configuration BEFORE the restart snapshot.")
+
+    if before_overrides != after_overrides:
+        lost = sorted(set(before_overrides) - set(after_overrides))
+        changed = sorted(k for k in set(before_overrides) & set(after_overrides)
+                         if before_overrides[k] != after_overrides[k])
+        added = sorted(set(after_overrides) - set(before_overrides))
+        return FAIL, (
+            f"the operator configuration did not survive the restart.\n"
+            f"before {before_path.name}: {len(before_overrides)} override(s), "
+            f"revision {before.get('revision')}\n"
+            f"after  {after_path.name}: {len(after_overrides)} override(s), "
+            f"revision {after.get('revision')}\n"
+            f"lost {lost or '[]'} · changed {changed or '[]'} · "
+            f"added {added or '[]'}")
+
+    if before.get("revision") != after.get("revision"):
+        return UNVERIFIED, (
+            f"the overrides match but the revision moved "
+            f"{before.get('revision')} -> {after.get('revision')}, so "
+            f"something changed the configuration between the two "
+            f"snapshots. That is not a clean restart pair.")
+
+    return PASS, (
+        f"{len(after_overrides)} override(s) identical across the restart, "
+        f"revision {after.get('revision')} unchanged\n"
+        f"{before_path.name} -> {after_path.name}")
+
+
 def _line(verdict: str, clause: str, detail: str = "") -> None:
     mark = {PASS: "  ok  ", FAIL: " FAIL ", UNVERIFIED: " ---- "}[verdict]
     print(f"[{mark}] {clause}")
@@ -130,18 +250,35 @@ def _line(verdict: str, clause: str, detail: str = "") -> None:
 # ── preflight ─────────────────────────────────────────────────────────
 
 def cmd_preflight(_args) -> int:
-    """Run this BEFORE starting the stack. Order is load-bearing.
+    """The four conditions, SORTED BY WHEN THEY MUST HOLD.
+
+    TWO PHASES, NOT ONE CHECKLIST — and conflating them made the first
+    version of this impossible to satisfy on a first run.
 
     `trace_env.sh` resolves the marker into `HORNELORE_RESPONSE_TRACE`
-    only when a PROCESS STARTS. Arming after the API is up leaves
-    tracing off, the gate refuses every experimental turn with
-    `trace_not_enabled`, and the panel looks broken for a reason that is
-    nowhere on screen.
+    only when a PROCESS STARTS, so the marker and the operator flag must
+    be set before the API comes up; arming afterwards leaves tracing off
+    and the gate refuses every experimental turn with
+    `trace_not_enabled` for a reason that is nowhere on screen.
+
+    The testing-only narrator is different. It can only be created
+    through the product UI, which needs a running stack — so requiring
+    it before startup demands this command's own output as its input.
+    It has to exist before the acceptance TURNS, not before the process.
+
+    So a run with only the narrator missing is BOOTSTRAP INCOMPLETE, not
+    a failure: start the stack, create the narrator through New narrator
+    -> "Skip - add narrator for testing only", and run this again while
+    that same correctly-armed stack keeps running. Re-running a
+    read-only check after startup is not a violation of the ordering
+    rule; the rule is about when the CONFIGURATION exists, not about
+    when this executable may be run.
     """
     print("Guard Lab live acceptance — PREFLIGHT")
     print(f"repo: {REPO_ROOT}")
     print()
     problems: List[str] = []
+    before_start: List[str] = []
 
     armed = _armed_dir()
     if armed:
@@ -154,6 +291,7 @@ def cmd_preflight(_args) -> int:
               "  mkdir -p \"$RUN\"\n"
               "  echo \"$PWD/$RUN\" > .runtime/eval/current_eval_dir")
         problems.append("marker")
+        before_start.append("marker")
 
     env_file = REPO_ROOT / ".env"
     gate_on = False
@@ -171,6 +309,7 @@ def cmd_preflight(_args) -> int:
               "Without it every guard-lab route answers 404 and the panel\n"
               "renders its disabled placeholder.")
         problems.append("gate")
+        before_start.append("gate")
 
     db = _db_path()
     if not db.is_file():
@@ -196,9 +335,14 @@ def cmd_preflight(_args) -> int:
                     _line(FAIL, "NO testing-only narrator exists",
                           "Every experimental turn will be refused with\n"
                           "`not_testing_only`, which is the gate working.\n"
-                          "Create one through the product path: New narrator\n"
-                          "-> 'Skip - add narrator for testing only'.\n"
-                          "It CANNOT be granted to an existing narrator.")
+                          "THIS ONE NEEDS A RUNNING STACK. It is created\n"
+                          "through the product path — New narrator ->\n"
+                          "'Skip - add narrator for testing only' — so it is\n"
+                          "not a before-startup condition. Start the stack,\n"
+                          "create it, and run this check again while that\n"
+                          "same stack keeps running.\n"
+                          "It CANNOT be granted to an existing narrator, and\n"
+                          "no existing narrator may be converted into one.")
                     problems.append("narrator")
             tables = {r[0] for r in con.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' "
@@ -221,12 +365,26 @@ def cmd_preflight(_args) -> int:
             con.close()
 
     print()
-    if problems:
-        print(f"PREFLIGHT INCOMPLETE — {len(problems)} condition(s) unmet: "
-              f"{', '.join(problems)}")
-        print("Fix these BEFORE starting the stack, then run preflight again.")
+    if before_start:
+        # These decide what the API process reads at startup. Starting
+        # the stack now would bake the wrong answer in for its lifetime.
+        print(f"BLOCKED BEFORE STARTUP — {len(before_start)} condition(s) "
+              f"must be set before the API process starts: "
+              f"{', '.join(before_start)}")
+        print("Fix these, then run preflight again. Do NOT start the stack "
+              "first: the trace flag is resolved once, at process start.")
         return 1
-    print("PREFLIGHT OK — start the stack, then open Bug Panel -> Guard Lab.")
+    if problems:
+        print(f"BOOTSTRAP INCOMPLETE — {len(problems)} condition(s) unmet: "
+              f"{', '.join(problems)}")
+        print("The startup-time configuration is correct, so START THE "
+              "STACK now, create the testing-only narrator through the "
+              "product UI, and run this command again while that same "
+              "stack keeps running.")
+        return 3
+    print("PREFLIGHT OK — all four conditions met.")
+    print("If the stack is not running yet, start it now; if it is already "
+          "running with this configuration, continue the acceptance on it.")
     return 0
 
 
@@ -476,33 +634,12 @@ def cmd_verify(args) -> int:
                "measurement.")
 
     # ── the override survived a restart ────────────────────────────────
-    snapshots = sorted(_run_dir().glob("state-*.json"))
-    if len(snapshots) >= 2:
-        first = json.loads(snapshots[0].read_text(encoding="utf-8"))
-        last = json.loads(snapshots[-1].read_text(encoding="utf-8"))
-        overridden_first = {a["id"]: a["operator_override"]
-                            for a in first.get("authorities", [])
-                            if a.get("operator_override") is not None}
-        overridden_last = {a["id"]: a["operator_override"]
-                           for a in last.get("authorities", [])
-                           if a.get("operator_override") is not None}
-        if overridden_first and overridden_first == overridden_last:
-            record(PASS, "the operator configuration is durable across the run",
-                   f"{len(overridden_last)} override(s) identical between "
-                   f"{snapshots[0].name} and {snapshots[-1].name}; revision "
-                   f"{first.get('revision')} -> {last.get('revision')}")
-        else:
-            record(UNVERIFIED,
-                   "the operator configuration is durable across the run",
-                   f"snapshots differ ({len(overridden_first)} -> "
-                   f"{len(overridden_last)} overrides). That is expected if "
-                   f"you deliberately changed it; take a snapshot either "
-                   f"side of the RESTART with nothing else in between.")
-    else:
-        record(UNVERIFIED,
-               "the operator configuration is durable across the run",
-               "Fewer than two snapshots. Run `snapshot before-restart` and "
-               "`snapshot after-restart` around the stop/start.")
+    #
+    # Decided from the snapshots the operator LABELLED, never from
+    # whichever files the glob happened to order first and last.
+    verdict, detail = _restart_verdict(_run_dir())
+    record(verdict, "the operator configuration survived a stack restart",
+           detail)
 
     return _summarise(results)
 

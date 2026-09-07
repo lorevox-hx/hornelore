@@ -24,6 +24,7 @@ THE THREE PROPERTIES
 from __future__ import annotations
 
 import ast
+import json
 import unittest
 from pathlib import Path
 
@@ -162,6 +163,174 @@ class VerdictTests(unittest.TestCase):
         m = self._module()
         self.assertEqual(
             1, m._summarise([(m.UNVERIFIED, "a", ""), (m.FAIL, "b", "")]))
+
+
+class RestartPersistenceTests(unittest.TestCase):
+    """The verdict must come from the NAMED pair, not from file order.
+
+    THE BUG THIS EXISTS FOR, found in review before the live run. The
+    first version took `sorted(glob("state-*.json"))[0]` and `[-1]`. The
+    acceptance procedure asks for three snapshots — `before-all-off`,
+    `before-restart`, `after-restart` — so on a CORRECT run the pair
+    compared was `before-all-off` (revision 0, no overrides) against
+    `after-restart` (37 overrides). They differ for the obvious reason,
+    the guard fell through, and a restart that worked was reported
+    UNVERIFIED.
+
+    It failed safe — under-reporting a pass rather than certifying a
+    failure — and it would still have cost the run, then an argument
+    about whether persistence actually worked. Which is the question the
+    instrument exists to settle.
+
+    These tests write real snapshot files in the format `snapshot`
+    emits and run the shipped decision over them.
+    """
+
+    def setUp(self):
+        import importlib.util
+        import tempfile
+        spec = importlib.util.spec_from_file_location(
+            "_guard_lab_live_acceptance_restart", SCRIPT)
+        self.m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.m)          # type: ignore[union-attr]
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.run_dir = Path(self._tmp.name)
+
+    def _write(self, stamp: str, label: str, *, revision: int,
+               overridden: dict) -> Path:
+        """A snapshot in the exact shape `snapshot` saves."""
+        authorities = []
+        for aid in range(1, 6):
+            authorities.append({
+                "id": aid,
+                "name": f"a{aid}",
+                "switchable": True,
+                "canonical_default": True,
+                "operator_override": overridden.get(aid),
+                "effective": overridden.get(aid, True),
+                "reason": ("operator_override" if aid in overridden
+                           else "canonical_default"),
+            })
+        path = self.run_dir / f"state-{stamp}-{label}.json"
+        path.write_text(json.dumps({
+            "revision": revision,
+            "registry_fingerprint": "r" * 64,
+            "selection_fingerprint": "s" * 64,
+            "authorities": authorities,
+        }), encoding="utf-8")
+        return path
+
+    def _procedure_run(self, *, after_overrides=None, after_revision=None):
+        """The three snapshots the written procedure actually produces."""
+        self._write("20260907T120000Z", "before-all-off",
+                    revision=0, overridden={})
+        self._write("20260907T121000Z", "before-restart",
+                    revision=1, overridden={1: False, 2: False, 3: False})
+        self._write("20260907T123000Z", "after-restart",
+                    revision=1 if after_revision is None else after_revision,
+                    overridden={1: False, 2: False, 3: False}
+                    if after_overrides is None else after_overrides)
+
+    def test_a_correct_run_passes_despite_the_earlier_snapshot(self):
+        """The exact shape that used to report UNVERIFIED."""
+        self._procedure_run()
+        verdict, detail = self.m._restart_verdict(self.run_dir)
+        self.assertEqual(self.m.PASS, verdict, detail)
+        self.assertIn("before-restart", detail)
+        self.assertIn("after-restart", detail)
+        self.assertNotIn("before-all-off", detail,
+                         "the pre-All-Off snapshot must play no part in "
+                         "the restart verdict")
+
+    def test_a_lost_override_fails(self):
+        """MUTATION: the restart drops one. It must go red, not amber."""
+        self._procedure_run(after_overrides={1: False, 2: False})
+        verdict, detail = self.m._restart_verdict(self.run_dir)
+        self.assertEqual(self.m.FAIL, verdict, detail)
+        self.assertIn("[3]", detail.replace(" ", ""))
+
+    def test_a_flipped_override_fails(self):
+        self._procedure_run(after_overrides={1: True, 2: False, 3: False})
+        verdict, _ = self.m._restart_verdict(self.run_dir)
+        self.assertEqual(self.m.FAIL, verdict)
+
+    def test_everything_lost_fails(self):
+        self._procedure_run(after_overrides={})
+        verdict, _ = self.m._restart_verdict(self.run_dir)
+        self.assertEqual(self.m.FAIL, verdict)
+
+    def test_a_moved_revision_is_unverified_not_a_pass(self):
+        """Matching overrides at a different revision is not a clean pair —
+        something changed the configuration between the snapshots."""
+        self._procedure_run(after_revision=4)
+        verdict, detail = self.m._restart_verdict(self.run_dir)
+        self.assertEqual(self.m.UNVERIFIED, verdict, detail)
+
+    def test_an_empty_before_snapshot_proves_nothing(self):
+        """Two override-free snapshots compare equal and test nothing.
+
+        A green verdict there would be the fixture supplying the very
+        property under test.
+        """
+        self._write("20260907T120000Z", "before-restart",
+                    revision=0, overridden={})
+        self._write("20260907T121000Z", "after-restart",
+                    revision=0, overridden={})
+        verdict, detail = self.m._restart_verdict(self.run_dir)
+        self.assertEqual(self.m.UNVERIFIED, verdict, detail)
+
+    def test_a_missing_label_says_which_one(self):
+        self._write("20260907T120000Z", "before-all-off",
+                    revision=0, overridden={})
+        self._write("20260907T121000Z", "before-restart",
+                    revision=1, overridden={1: False})
+        verdict, detail = self.m._restart_verdict(self.run_dir)
+        self.assertEqual(self.m.UNVERIFIED, verdict)
+        self.assertIn("after-restart", detail)
+
+    def test_the_latest_pair_wins_when_a_restart_is_retried(self):
+        """A second attempt supersedes the first rather than being mixed."""
+        self._write("20260907T120000Z", "before-restart",
+                    revision=1, overridden={1: False})
+        self._write("20260907T120500Z", "after-restart",
+                    revision=9, overridden={4: False})      # failed attempt
+        self._write("20260907T121000Z", "before-restart",
+                    revision=2, overridden={2: False})
+        self._write("20260907T122000Z", "after-restart",
+                    revision=2, overridden={2: False})      # good attempt
+        verdict, detail = self.m._restart_verdict(self.run_dir)
+        self.assertEqual(self.m.PASS, verdict, detail)
+        self.assertIn("20260907T122000Z", detail)
+
+    def test_an_out_of_order_pair_is_refused(self):
+        self._write("20260907T123000Z", "before-restart",
+                    revision=1, overridden={1: False})
+        self._write("20260907T120000Z", "after-restart",
+                    revision=1, overridden={1: False})
+        verdict, detail = self.m._restart_verdict(self.run_dir)
+        self.assertEqual(self.m.UNVERIFIED, verdict, detail)
+
+    def test_the_label_parser_matches_what_snapshot_writes(self):
+        """Pin the filename format against the writer, not against hope.
+
+        If `snapshot` ever changes its naming, this fails here rather
+        than silently making every restart UNVERIFIED during a live run.
+        """
+        import ast
+        tree = ast.parse(SCRIPT.read_text(encoding="utf-8"))
+        joined = [
+            n for n in ast.walk(tree)
+            if isinstance(n, ast.JoinedStr)
+            and any(isinstance(v, ast.Constant)
+                    and isinstance(v.value, str) and "state-" in v.value
+                    for v in n.values)
+        ]
+        self.assertTrue(joined, "snapshot no longer builds a state- filename")
+        self._write("20260907T120000Z", "before-restart",
+                    revision=1, overridden={1: False})
+        groups = self.m._labelled_snapshots(self.run_dir)
+        self.assertIn("before-restart", groups)
 
 
 if __name__ == "__main__":

@@ -230,24 +230,57 @@ path at all**; the acceptance is Chris in the browser and the script
 records what that leaves behind. `tests/test_guard_lab_live_acceptance.py`
 fails if it ever gains one.
 
-**ORDER IS LOAD-BEARING.** `trace_env.sh` resolves the eval marker into
-`HORNELORE_RESPONSE_TRACE` **only when a process starts**. Arm after the
-API is up and tracing stays off, the gate refuses every experimental
-turn with `trace_not_enabled`, and nothing on screen explains why.
+**ORDER IS LOAD-BEARING, AND IT HAS TWO PHASES.** `trace_env.sh`
+resolves the eval marker into `HORNELORE_RESPONSE_TRACE` **only when a
+process starts**. Arm after the API is up and tracing stays off, the
+gate refuses every experimental turn with `trace_not_enabled`, and
+nothing on screen explains why.
+
+**The testing-only narrator is NOT a before-startup condition, and
+treating it as one made this procedure impossible to satisfy.** It can
+only be created through the product UI, which needs a running stack —
+so demanding it before startup asks `preflight` for its own output as
+its input. The rule is about when the *startup configuration* exists,
+not about when a read-only check may be run. So:
+
+> marker armed and `HORNELORE_OPERATOR_GUARD_LAB=1` set **before the
+> process starts** → start the stack → create the narrator through the
+> product path → **re-run the read-only `preflight` against that same
+> still-running stack** → continue the acceptance on it. No restart, and
+> no second arming.
+
+`preflight` distinguishes the two itself: **exit 1** when a
+startup-time condition is unmet (*do not start the stack, you would
+bake the wrong answer in*), **exit 3** for BOOTSTRAP INCOMPLETE when
+only the narrator is missing (*start the stack and create it*), **exit
+0** when all four hold.
 
 | | Step | Evidence |
 |---|---|---|
-| 1 | `HORNELORE_OPERATOR_GUARD_LAB=1` in `.env`; arm a run-scoped marker | `preflight` exits 0 |
-| 2 | Create ONE testing narrator through the product path — **New narrator → "Skip — add narrator for testing only"**. It cannot be granted to an existing narrator, and **the live database currently holds none** | `preflight` lists it |
-| 3 | Start the stack (Chris) | trace banner says ENABLED, and names the run directory |
+| 1 | `HORNELORE_OPERATOR_GUARD_LAB=1` in `.env`; arm a run-scoped marker | `preflight` no longer exits 1 |
+| 2 | Start the stack (Chris) | trace banner says ENABLED and names the run directory |
+| 3 | Create ONE testing narrator through the product path — **New narrator → "Skip — add narrator for testing only"**. **The live database holds none**, and it cannot be granted to an existing narrator afterwards | `preflight` exits 0 and lists it |
 | 4 | Bug Panel → Guard Lab: 43 rows, four state fields, four gate conditions | `snapshot before-all-off` |
 | 5 | Select the **listed testing narrator** for the interview, press `All Switchable Off`, talk to Lori | revision +1; traced turns carry `experiment_applied=true` |
 | 6 | Change one authority without restarting; take another turn | two distinct consumed revisions in one process |
 | 7 | Toggle **while Lori is generating**; note the unix second | `verify --toggle-at` decides the freeze |
 | 8 | Second browser tab, stale revision, press a control | 409, conflict shown, live configuration adopted |
-| 9 | Talk to an ordinary narrator once with a configuration selected | a turn refused `not_testing_only` |
-| 10 | `snapshot before-restart`, stop, start, `snapshot after-restart` | identical overrides across the restart |
+| 9 | Talk once to an ordinary narrator with a configuration selected | a turn refused `not_testing_only` |
+| 10 | `snapshot before-restart`, stop, re-arm, start, `snapshot after-restart` | identical overrides at an unchanged revision |
 | 11 | `verify`, then `Restore Defaults` unless the lean baseline is wanted | `N passed / 0 failed / 0 unverified` |
+
+**Step 9 needs an ordinary narrator, not a family one.** The property
+under test is `not_testing_only` — it says nothing about any particular
+person, and any narrator whose `testing_only` is false demonstrates it
+identically. Use one of the synthetic `ZZ COHORT` narrators already in
+the database. There is no reason to route this through Kent or Janice.
+
+**Step 10's snapshots are selected BY LABEL.** `verify` compares the
+snapshot named `before-restart` against the one named `after-restart`
+(the latest such pair, so a retried restart supersedes an earlier
+attempt) — never the first and last files in the run directory. It also
+refuses a vacuous pass: if `before-restart` carries no override, two
+matching snapshots prove nothing and the clause is `UNVERIFIED`.
 
 **`UNVERIFIED` IS NOT A SOFT PASS** and exits 2. Six of the clauses are
 decided by comparing two recorded facts, and a person reading a log at
