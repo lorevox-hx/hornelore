@@ -447,23 +447,67 @@ class AddingTheObserverCannotChangeTerminationTests(unittest.TestCase):
     def test_the_or_semantics_match_the_real_StoppingCriteriaList(self):
         """The stand-in above must model the real class, not a guess.
 
-        Skipped only where `transformers` is genuinely absent — and the
-        skip is reported rather than silently counted as a pass, because
-        an unverified stand-in is exactly the fixture-supplies-the-
-        property failure this repository keeps finding.
+        ── THE FIXTURE WAS WRONG FOR THE REAL-CLASS HALF, 2026-09-07 ──
+
+        This drove the REAL `StoppingCriteriaList` with `_Ids`, the
+        narrow stand-in the rest of this file uses. `_Ids` implements
+        exactly what OUR observer consumes — `.shape` and `[0, -1]` —
+        and the installed Transformers now also reads
+        `input_ids.device`, so the authoritative `.venv` gate raised
+        `AttributeError: '_Ids' object has no attribute 'device'`.
+
+        That is the fixture being too narrow for the third-party class,
+        NOT a defect in Lori's generation and NOT a reason to pin or
+        downgrade Transformers.
+
+        THE FIX IS TO BE MORE TRUTHFUL, NOT MORE PERMISSIVE. `_Ids`
+        stays exactly as it is for the production-independent tests
+        above — widening it, or adding a fake `.device` to satisfy the
+        real class, would turn a genuine third-party composition check
+        into a check against our own guess about that class. This one
+        test therefore uses a REAL tensor, because executing the actual
+        composition is its entire purpose.
+
+        Skipped only where `torch` or `transformers` is genuinely
+        absent, and the skip is reported rather than silently counted
+        as a pass.
         """
         try:
+            import torch
             from transformers import StoppingCriteriaList
-        except Exception:                     # pragma: no cover
-            self.skipTest("transformers absent — OR semantics unverified "
-                          "on this interpreter; run on .venv-gpu")
+        except Exception as exc:              # pragma: no cover
+            self.skipTest(f"torch/transformers absent ({exc.__class__.__name__})"
+                          " — OR semantics unverified on this interpreter; "
+                          "run on .venv or .venv-gpu")
+
         class _T:
             def __call__(self, ids, scores, **kw): return True
+
         class _F:
             def __call__(self, ids, scores, **kw): return False
-        ids = _Ids(range(12))
-        self.assertTrue(StoppingCriteriaList([_T(), _F()])(ids, None))
-        self.assertFalse(StoppingCriteriaList([_F(), _F()])(ids, None))
+
+        # A REAL tensor: the real class builds its own per-row boolean
+        # tensor on `input_ids.device`, so nothing narrower will do.
+        ids = torch.tensor([list(range(12))], dtype=torch.long)
+
+        def _stops(*criteria):
+            """The real class returns a per-row tensor; `.item()` is the
+            explicit conversion. Letting unittest coerce it would make
+            the assertion depend on truthiness rules rather than on the
+            value, and a shape change upstream would then read as a
+            behaviour change."""
+            verdict = StoppingCriteriaList(list(criteria))(ids, None)
+            try:
+                return bool(verdict.item())
+            except AttributeError:
+                return bool(verdict)
+
+        self.assertTrue(_stops(_T(), _F()),
+                        "OR semantics: any criterion stopping stops")
+        self.assertFalse(_stops(_F(), _F()),
+                         "and none stopping does not")
         self.assertEqual(
-            StoppingCriteriaList([_F()])(ids, None),
-            StoppingCriteriaList([_F(), _observer(10)])(ids, None))
+            _stops(_F()), _stops(_F(), _observer(10)),
+            "adding the observer to an otherwise-false list must not "
+            "change the real class's verdict — the whole point of the "
+            "observer being an observer")
