@@ -1070,6 +1070,79 @@ async def ws_chat(ws: WebSocket):
             "answer_text": (source_text or "") if st == "succeeded" else "",
         }, ensure_ascii=False))
 
+    def _terminalize_parked_extraction(
+        params: Dict[str, Any],
+        result: str,
+        reason: str,
+        *,
+        detail: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Give a parked trace its extraction verdict, then CLOSE it.
+
+        WO-LORI-ARCHIVE-TO-MEMOIR-02 Block C. ONE SEAM, not five copies
+        of attach-and-close.
+
+        THE INVARIANT THIS CREATES. After an ordinary generated response
+        is parked, exactly two things may happen:
+
+          * ownership passes to `schedule_completed_turn_extraction`,
+            whose completion funnel attaches the real retention result
+            and closes; or
+          * this seam attaches a truthful terminal disposition and
+            closes.
+
+        **There is no third legal state.** Returning while still parked
+        leaves the record waiting on the 180-second sweep, which is
+        recovery for abnormal abandonment and not a way for understood
+        branches to finish. `tests/test_response_trace_lifecycle.py`
+        walks this function's AST and fails on any pre-schedule `return`
+        that does not pass through here — so a sixth early return added
+        later cannot recreate the problem by simply not having a test
+        written for it.
+
+        WHY NOT A SECOND `close()` IN THE MAIN PATH. Because the main
+        path already closes correctly: measured live on 2026-09-07,
+        both Guard Lab turns reached `_complete_claim` ->
+        `_finalize_extraction_trace` -> `attach` -> `close` and wrote
+        promptly, with `swept` absent. Adding another closer would risk
+        closing BEFORE retention attaches — converting real unmeasured
+        work into apparently finished evidence, which is worse than a
+        late record.
+
+        THE RESULT VOCABULARY IS NOT INTERCHANGEABLE:
+
+          not_applicable      we deliberately do not extract this turn
+          not_measured        somebody else owns the measurement
+          measurement_failed  we expected to measure and could not
+          measured_absent     WE LOOKED and found nothing
+
+        `measured_absent` is never correct here. Nothing was queried on
+        any of these paths, and reporting absence without looking is the
+        failure this vocabulary exists to prevent.
+        """
+        try:
+            _row_id = (params or {}).get("_persisted_turn_row_id")
+            if not _row_id:
+                # Nothing was parked under a durable key, so there is
+                # nothing to terminalize. The trace either never opened
+                # or was completed by another path.
+                return
+            try:
+                from ..db import turn_extraction_key_for_row as _key_of
+                _key = _key_of(_row_id) or str(_row_id)
+            except Exception:
+                _key = str(_row_id)
+            _payload = {"reason": reason}
+            if detail:
+                _payload.update(detail)
+            _rt.attach(_key, "extraction", result, detail=_payload)
+            _rt.close(_key)
+        except Exception:
+            # Instrumentation must never cost a narrator anything. By
+            # this point the turn is delivered and persisted.
+            logger.debug("[trace] extraction terminalization failed "
+                         "(non-fatal)", exc_info=True)
+
     async def _run_completed_turn_extraction(
         conv_id: str,
         user_text: str,
@@ -1130,6 +1203,12 @@ async def ws_chat(ws: WebSocket):
             # Cheapest gate first — most short-circuit modes exit here
             # without importing db or touching the ledger at all.
             if not _eligible(turn_mode):
+                # DELIBERATELY not extracted. A truthful record, not a
+                # gap: this mode was never going to be measured.
+                _terminalize_parked_extraction(
+                    params, _rt.RESULT_NOT_APPLICABLE,
+                    "turn_mode_not_extraction_eligible",
+                    detail={"turn_mode": turn_mode})
                 return
 
             # WO-EXTRACTION-OWNERSHIP-AND-VRAM-STABILITY-01 Phase 2 —
@@ -1155,6 +1234,21 @@ async def ws_chat(ws: WebSocket):
                     "turn (declared=%s)",
                     conv_id, _client_caps.get("field_extraction_result") or "-",
                 )
+                # NOT `measured_absent`. The server performed no
+                # measurement — an older browser is doing its own, and
+                # the server yielded deliberately to avoid extracting
+                # this turn twice. `not_measured` with the owner named
+                # is the honest classification, and an evaluation
+                # verifier REJECTS a Guard Lab turn that lands here:
+                # the shipped browser is supposed to negotiate backend
+                # ownership, so this on an experimental run is an
+                # instrumentation defect even though it is correct
+                # compatibility behaviour in production.
+                _terminalize_parked_extraction(
+                    params, _rt.RESULT_NOT_MEASURED,
+                    "legacy_client_owns_extraction",
+                    detail={"declared": _client_caps.get(
+                        "field_extraction_result") or None})
                 return
 
             # A cancelled turn did not complete for the narrator. Its
@@ -1165,6 +1259,11 @@ async def ws_chat(ws: WebSocket):
                     "[extract-turn] skipped conv=%s — turn cancelled",
                     conv_id,
                 )
+                # Policy, not breakage: a turn the narrator abandoned is
+                # deliberately excluded from extraction.
+                _terminalize_parked_extraction(
+                    params, _rt.RESULT_NOT_APPLICABLE,
+                    "turn_cancelled_extraction_excluded")
                 return
 
             # The required archive event must have landed. Set by the
@@ -1174,6 +1273,12 @@ async def ws_chat(ws: WebSocket):
                     "[extract-turn] skipped conv=%s — required archive "
                     "event not persisted for this turn", conv_id,
                 )
+                # A PRECONDITION THAT SHOULD HAVE HELD. Measurement was
+                # expected here and could not proceed, which is a
+                # failure rather than a policy exclusion.
+                _terminalize_parked_extraction(
+                    params, _rt.RESULT_MEASUREMENT_FAILED,
+                    "archive_event_not_persisted")
                 return
 
             from ..db import turn_extraction_key_for_row as _key_for_row
@@ -1183,6 +1288,10 @@ async def ws_chat(ws: WebSocket):
                     "[extract-turn] skipped conv=%s — no committed turn "
                     "row id, so no stable idempotency key", conv_id,
                 )
+                # Same class: the canonical key should have existed.
+                _terminalize_parked_extraction(
+                    params, _rt.RESULT_MEASUREMENT_FAILED,
+                    "canonical_turn_key_unavailable")
                 return
 
             _outcome = _schedule_extraction(
@@ -7390,6 +7499,29 @@ async def ws_chat(ws: WebSocket):
                 # hook knows the row, not the trace. A parked record
                 # nobody closes is swept out later with its unattached
                 # stages marked not_measured.
+                # Block C: LATE-BIND THE CANONICAL KEY.
+                #
+                # The trace opened before persistence, so `turn_key` was
+                # correctly empty then. The committed assistant row now
+                # exists, so the key the extraction ledger and results
+                # rows use is knowable — and both live Guard Lab traces
+                # persisted with `turn_key: ""` while their ledger rows
+                # carried `turnrow:2259` / `turnrow:2261`. The join
+                # worked only by reconstructing the key from
+                # `context.turn_row_ids` by hand.
+                #
+                # Derived through the SAME canonical builder the ledger
+                # uses, never from the browser's `turn_id`.
+                try:
+                    from ..db import turn_extraction_key_for_row as _key_of
+                    _canonical_key = _key_of(_persisted_turn_row_id)
+                    if _canonical_key:
+                        _rt.bind_turn_key(_canonical_key, trace_id=_rt_id)
+                except Exception:
+                    logger.debug(
+                        "[trace] canonical turn_key bind failed (non-fatal)",
+                        exc_info=True)
+
                 _rt.seal(delivered=final_text, persisted=final_text,
                          trace_id=_rt_id)
                 _rt.park(keys=[str(_persisted_turn_row_id or ""),

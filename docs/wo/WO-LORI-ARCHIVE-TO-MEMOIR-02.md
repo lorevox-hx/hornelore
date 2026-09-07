@@ -3,8 +3,9 @@
 **Status:** CURRENT — central Lori/Lorevox work order  
 **Supersedes:** `WO-LORI-END-TO-END-LISTEN-RETAIN-MEMOIR-01`  
 **Starting evidence:** demographic cohort `20260901T015343Z` and Walt seven-era run `20260901T003329Z`  
-**Current position:** **Phases 0–4 CLOSED. Phase 5A and 5B ACCEPTED 2026-09-06.
-Phase 5C is ACTIVE — see the execution revision below.**
+**Current position:** **Phases 0–4 CLOSED. 5A, 5B and 5C COMPLETE; the Phase 5
+memory-integrity exit gate is closed for current scope, with era/event review
+grouping transferred to Phase 7. Blocks A, B and C done. PHASE 6 IS NEXT.**
 
 ---
 
@@ -19,9 +20,9 @@ acceptance clause" as a prerequisite for product work.
 | Block | Work | State |
 |---|---|---|
 | **A** | Operator control integration — the compact Lori Configuration card | ✅ **DONE 2026-09-07** |
-| **B** | **Phase 5C** — one disposition contract for understood meaning with no schema destination | 🔵 **ACTIVE** |
-| **C** | Response-trace closer — successful turns close independently of extraction | queued |
-| **D** | **Phase 6** — measured conversational quality, on a separate POPULATED narrator | queued |
+| **B** | **Phase 5C** — one disposition contract, corrected and audited to a truthful Phase 5 exit gate | ✅ **DONE 2026-09-07** |
+| **C** | Response-trace lifecycle — every completed turn closes by its actual retention outcome | ✅ **DONE 2026-09-07** |
+| **D** | **Phase 6** — measured conversational quality, on a separate POPULATED narrator | 🔵 **NEXT** |
 | **E** | **Phase 7** — normal Operator review → memoir workflow | queued |
 | — | Guard Lab live acceptance debt (4 checks) | carried, blocks only Phase 8 |
 | **F** | **Phase 8** — focused acceptance first, then the broader cohort | queued |

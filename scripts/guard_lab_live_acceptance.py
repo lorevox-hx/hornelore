@@ -633,6 +633,78 @@ def cmd_verify(args) -> int:
                "guessing it from turn order would be inference reported as\n"
                "measurement.")
 
+    # ── extraction ownership on an experimental turn ───────────────────
+    #
+    # Legacy compatibility is DELIBERATE in production: a browser that
+    # does not declare `field_extraction_result=v1` owns extraction
+    # itself, and the server yields rather than extracting the turn
+    # twice. That is correct, and this verifier does not ask the product
+    # to stop supporting it.
+    #
+    # It IS a defect on an evaluation run. The shipped browser negotiates
+    # backend ownership, so a Guard Lab turn that fell back to legacy was
+    # not measured by the instrument the experiment depends on — and the
+    # trace would say `not_measured / legacy_client_owns_extraction`
+    # rather than carrying a retention result at all.
+    legacy = []
+    unswept_check = []
+    for rec in records:
+        storage = (rec.get("storage") or {}).get("extraction") or {}
+        detail = storage.get("detail") or {}
+        if str(detail.get("reason") or "") == "legacy_client_owns_extraction":
+            legacy.append(rec.get("trace_id"))
+        if rec.get("swept"):
+            unswept_check.append(rec.get("trace_id"))
+
+    if legacy:
+        record(FAIL, "the backend owned extraction on every traced turn",
+               f"{len(legacy)} turn(s) ran with LEGACY client ownership: "
+               f"{', '.join(str(t)[:8] for t in legacy)}.\n"
+               f"Compatible in production, wrong for an evaluation — the "
+               f"shipped browser is supposed to negotiate backend "
+               f"ownership, so these turns were not measured by the "
+               f"instrument the experiment relies on.")
+    else:
+        record(PASS, "the backend owned extraction on every traced turn",
+               "no turn fell back to legacy client ownership")
+
+    # ── the sweep is recovery, not the normal way a turn finishes ──────
+    if unswept_check:
+        record(FAIL, "every traced turn closed without the sweep",
+               f"{len(unswept_check)} turn(s) carry `swept` — they waited "
+               f"the full 180 seconds instead of closing on their "
+               f"retention outcome: "
+               f"{', '.join(str(t)[:8] for t in unswept_check)}")
+    else:
+        record(PASS, "every traced turn closed without the sweep",
+               f"{len(records)} turn(s), none swept")
+
+    # ── the trace carries the committed turn's canonical key ───────────
+    unbound = [r.get("trace_id") for r in records
+               if not str(r.get("turn_key") or "").strip()]
+    if not unbound:
+        record(PASS, "every traced turn carries its canonical turn_key",
+               "trace and ledger can be joined directly")
+    elif len(unbound) == len(records):
+        # ALL of them. Almost certainly a run recorded before the
+        # late-binding existed — the two 2026-09-07 Guard Lab turns are
+        # exactly this, and calling that a FAILURE would blame a run for
+        # not satisfying a clause that had no implementation yet.
+        # UNVERIFIED is the honest verdict: the property is untested by
+        # this evidence, not violated by it.
+        record(UNVERIFIED, "every traced turn carries its canonical turn_key",
+               f"all {len(records)} turn(s) persisted with an empty "
+               f"turn_key. Runs recorded before the canonical key was "
+               f"late-bound cannot show it; take one bounded turn on the "
+               f"current build to decide this clause.")
+    else:
+        # A MIX is a real inconsistency inside one run — the binding
+        # exists and did not happen for some turns.
+        record(FAIL, "every traced turn carries its canonical turn_key",
+               f"{len(unbound)} of {len(records)} turn(s) persisted with "
+               f"an empty turn_key while others carried one: "
+               f"{', '.join(str(t)[:8] for t in unbound)}")
+
     # ── the override survived a restart ────────────────────────────────
     #
     # Decided from the snapshots the operator LABELLED, never from

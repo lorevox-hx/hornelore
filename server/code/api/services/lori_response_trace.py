@@ -594,6 +594,74 @@ def park(keys: Optional[List[str]] = None,
         return
 
 
+#: Recorded when a second, DIFFERENT canonical key is offered.
+BIND_CONFLICT = "turn_key_bind_conflict"
+
+
+def bind_turn_key(canonical: str, trace_id: Optional[str] = None) -> bool:
+    """Bind the committed turn's canonical key to an open trace.
+
+    WO-LORI-ARCHIVE-TO-MEMOIR-02 Block C.
+
+    WHY THE FIELD WAS EMPTY, and why that was only half a defect. The
+    trace OPENS at authority acquisition, before generation and long
+    before persistence, so there is no committed row and no canonical
+    key to record — `begin(turn_key="")` is correct at that moment.
+    What was wrong is that nothing filled it in afterwards. Both live
+    Guard Lab traces persisted with `turn_key: ""` while the extraction
+    ledger for the same turns carried `turnrow:2259` and `turnrow:2261`.
+
+    The mechanism still worked, because `park()` indexes several
+    aliases and `_finalize_extraction_trace` found the record through
+    one of them. But the EVIDENCE was weaker than the mechanism that
+    produced it: joining a trace to its ledger row meant going through
+    `context.turn_row_ids` and reconstructing the key by hand, which is
+    exactly the reconstruction that makes a later investigation
+    unreliable.
+
+    THREE RULES, and the third is the one that matters:
+
+      empty -> canonical      allowed, once
+      same key again          idempotent, no-op
+      a DIFFERENT key         REFUSED and recorded as an
+                              instrumentation failure
+
+    A silent overwrite would let one trace claim two committed turns,
+    and the join would then be confidently wrong rather than merely
+    absent. Refusing is the only safe answer, and saying so in the
+    record is what makes it findable.
+
+    Only the canonical `turnrow:<assistant_row_id>` from the committed
+    row belongs here. The browser's `turn_id` is a client identifier
+    and must never be substituted for it.
+    """
+    try:
+        canonical = str(canonical or "").strip()
+        if not canonical:
+            return False
+        tid = trace_id or current()
+        if not tid:
+            return False
+        with _lock:
+            rec = _traces.get(tid) or _parked.get(tid)
+            if rec is None:
+                return False
+            existing = str(rec.get("turn_key") or "").strip()
+            if existing == canonical:
+                return True                      # idempotent
+            if existing:
+                rec.setdefault("context", {})[BIND_CONFLICT] = {
+                    "existing": existing,
+                    "offered": canonical,
+                }
+                rec["instrumentation_failed"] = True
+                return False
+            rec["turn_key"] = canonical
+            return True
+    except Exception:
+        return False
+
+
 def attach(key: str, stage_name: str, result: str, *,
            detail: Any = None) -> bool:
     """Add a retention result to a parked trace. True if it landed."""
