@@ -892,6 +892,44 @@ def init_db() -> None:
         if col_name not in people_cols:
             cur.execute(alter_sql)
 
+    # -----------------------------
+    # Testing-only narrator eligibility.
+    #
+    # THIS BLOCK OWNS THE COLUMN. There is deliberately no migration for
+    # it, and that is not an oversight — it is the rule this table
+    # already learned the hard way. Migration 0013 records the incident
+    # in its own header: an earlier version ALTERed `people` to add
+    # pronouns / pronouns_other / current_residence, SQLite has no
+    # "ADD COLUMN IF NOT EXISTS", so on every init_db retry the migration
+    # re-ran, failed with "duplicate column name", never marked itself
+    # complete, and "knock[ed] out every endpoint that consulted the
+    # schema". The recorded fix was to let this PRAGMA-guarded block
+    # handle people-column adds instead.
+    #
+    # The convention that follows is visible in the tree: `narrator_type`
+    # is added here and by no migration; `presentation_epoch` is added by
+    # a migration and mirrored nowhere. One owner per column, never both.
+    #
+    # `testing_only` was accepted by both creation paths for a long time
+    # and stored by neither — it bypassed the consent gate, went into the
+    # response body, and was dropped. Nothing depended on the difference
+    # until the Guard Lab, whose whole safety gate is "armed evaluation
+    # AND durably testing-only narrator". Experiments that strip Lori's
+    # narrator-facing interventions must never be able to reach a real
+    # narrator by accident, and a flag that is not persisted cannot
+    # protect anyone.
+    #
+    # Existing rows become 0. Fail-closed is the only safe direction, and
+    # the tempting inference — treat missing consent attestations as
+    # evidence of a test narrator — is actively wrong: consent writes are
+    # best-effort, so a failed write on a REAL narrator would silently
+    # reclassify them as an experiment subject.
+    if "testing_only" not in people_cols:
+        cur.execute(
+            "ALTER TABLE people ADD COLUMN testing_only INTEGER NOT NULL "
+            "DEFAULT 0 CHECK (testing_only IN (0, 1));"
+        )
+
     # Index for fast active-narrator queries (exclude soft-deleted)
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_people_active ON people(is_deleted, updated_at);"
@@ -2410,6 +2448,12 @@ def create_person(
     pronouns: str = "",
     pronouns_other: str = "",
     current_residence: str = "",
+    # Guard Lab eligibility. DEFAULT FALSE, and every caller that wants a
+    # test narrator must say so explicitly — a person is a real narrator
+    # unless somebody deliberately declared otherwise. Callers previously
+    # passed this nowhere, so it was accepted at the API boundary and
+    # lost; see migration 0054.
+    testing_only: bool = False,
 ) -> Dict[str, Any]:
     init_db()
     pid = _uuid()
@@ -2444,9 +2488,10 @@ def create_person(
             INSERT INTO people(
                 id, display_name, role, date_of_birth, place_of_birth,
                 created_at, updated_at, narrator_type,
-                pronouns, pronouns_other, current_residence
+                pronouns, pronouns_other, current_residence,
+                testing_only
             )
-            VALUES(?,?,?,?,?,?,?,?,?,?,?);
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?);
             """,
             (
                 pid, display_name, role or "",
@@ -2455,6 +2500,7 @@ def create_person(
                 (pronouns or "").strip(),
                 (pronouns_other or "").strip(),
                 (current_residence or "").strip(),
+                1 if testing_only else 0,
             ),
         )
         _profile_seed.enroll(con, pid, now)
@@ -2757,13 +2803,40 @@ def get_person(person_id: str) -> Optional[Dict[str, Any]]:
                narrator_type,
                COALESCE(pronouns, '') AS pronouns,
                COALESCE(pronouns_other, '') AS pronouns_other,
-               COALESCE(current_residence, '') AS current_residence
+               COALESCE(current_residence, '') AS current_residence,
+               COALESCE(testing_only, 0) AS testing_only
         FROM people WHERE id=?;
         """,
         (person_id,),
     ).fetchone()
     con.close()
-    return dict(row) if row else None
+    if not row:
+        return None
+    person = dict(row)
+    # Exposed as a real bool so callers cannot accidentally treat the
+    # SQLite integer 0 as truthy-by-presence.
+    person["testing_only"] = bool(person.get("testing_only"))
+    return person
+
+
+def person_is_testing_only(person_id: Optional[str]) -> bool:
+    """Guard Lab eligibility, resolved fail-closed.
+
+    An unknown person, a missing id, or any read failure answers False.
+    The question this gates is "may an experimental configuration that
+    strips Lori's narrator-facing interventions apply to this turn?", and
+    the only safe answer when anything is uncertain is no.
+    """
+    if not person_id:
+        return False
+    try:
+        person = get_person(str(person_id))
+    except Exception:
+        logger.exception(
+            "person_is_testing_only: lookup failed for %r — answering False",
+            person_id)
+        return False
+    return bool(person and person.get("testing_only"))
 
 
 # -----------------------------------------------------------------------------

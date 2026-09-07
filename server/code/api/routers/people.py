@@ -158,6 +158,13 @@ def api_create_person(payload: PersonCreate):
             pronouns=pron,
             pronouns_other=payload.pronouns_other or "",
             current_residence=payload.current_residence or "",
+            # Previously this flag only bypassed the consent gate above
+            # and was echoed back in the response — it was never stored,
+            # so a testing-only narrator became durably indistinguishable
+            # from a real one the moment creation finished. The Guard Lab
+            # gates experimental configurations on exactly this, so it
+            # now has to survive the request. See migration 0054.
+            testing_only=is_testing,
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -623,6 +630,10 @@ def api_create_person_intake(payload: NarratorIntakePayload):
             pronouns=payload.pronouns,
             pronouns_other=payload.pronouns_other or "",
             current_residence=payload.current_residence,
+            # Same correction as the PersonCreate flow: the structured
+            # intake also used this only for the consent bypass and the
+            # response body. See migration 0054.
+            testing_only=bool(payload.testing_only),
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
