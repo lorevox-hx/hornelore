@@ -75,6 +75,28 @@ REASON_PENDING_SEAM = "pending_seam"
 leaves it RUNNING, and the panel must say so rather than implying it was
 turned off."""
 
+REASON_DEPLOYMENT_DEFAULT = "deployment_default"
+"""A legacy environment flag supplied this authority's default.
+
+Several authorities predate the registry and were gated by their own
+`.env` reads — `HORNELORE_REFLECTION_SHAPING`, the two phantom-noun
+flags, the story-first Phase 1 gate. Leaving those in place beside the
+snapshot would keep TWO runtime authorities for one decision, and the
+environment would silently win: an operator could select id 36 ON, see
+it ON in the panel, and get nothing, because `.env` says 0. A Phase 6
+experiment would then report "no effect" for entirely the wrong reason.
+
+So the flag is interpreted ONCE, at acquisition, as a DEFAULT rather
+than a veto. Precedence is:
+
+    system state  >  operator override  >  deployment default  >  canonical
+
+An operator override deliberately outranks it. That is the whole point:
+the lab exists to turn these on and find out whether they help, and a
+deployment default that could not be overridden would make exactly the
+five most interesting authorities untestable.
+"""
+
 REASON_SYSTEM_PARKED = "system_parked"
 """A separate server-authoritative feature state overrides both the
 canonical default and any operator intent. The parked safety family is
@@ -82,7 +104,7 @@ the live example."""
 
 VALID_REASONS = frozenset({
     REASON_CANONICAL_DEFAULT, REASON_OPERATOR_OVERRIDE, REASON_PROTECTED,
-    REASON_PENDING_SEAM, REASON_SYSTEM_PARKED,
+    REASON_PENDING_SEAM, REASON_SYSTEM_PARKED, REASON_DEPLOYMENT_DEFAULT,
 })
 
 
@@ -219,6 +241,7 @@ def resolve(
     *,
     revision: int = 0,
     safety_parked_probe: Optional[Callable[[], bool]] = None,
+    deployment_defaults: Optional[Mapping[int, bool]] = None,
 ) -> AuthoritySnapshot:
     """Produce the immutable snapshot for a turn.
 
@@ -233,6 +256,7 @@ def resolve(
     environment.
     """
     overrides = dict(overrides or {})
+    deployment = dict(deployment_defaults or {})
     if safety_parked_probe is None:
         from .. import flags as _flags
         safety_parked_probe = _flags.safety_parked
@@ -253,7 +277,14 @@ def resolve(
         elif item.policy == registry.POLICY_PENDING_SEAM:
             effective, reason = item.default_on, REASON_PENDING_SEAM
         elif override is not None:
+            # Deliberately ABOVE the deployment default. An operator
+            # arming an experiment must be able to switch on an
+            # authority whose legacy flag ships off, or the five most
+            # interesting authorities are untestable.
             effective, reason = bool(override), REASON_OPERATOR_OVERRIDE
+        elif item.id in deployment:
+            effective, reason = (bool(deployment[item.id]),
+                                 REASON_DEPLOYMENT_DEFAULT)
         else:
             effective, reason = item.default_on, REASON_CANONICAL_DEFAULT
 
@@ -295,5 +326,11 @@ def all_switchable_off_overrides() -> Dict[int, bool]:
 
 
 def canonical_defaults_snapshot(**kwargs) -> AuthoritySnapshot:
-    """Production: no overrides at all."""
+    """Production: no operator overrides at all.
+
+    The caller still supplies `deployment_defaults` when it wants the
+    legacy `.env` flags honoured — a canonical turn must behave exactly
+    as production does today, and for the five flag-gated authorities
+    that means the environment decides.
+    """
     return resolve({}, **kwargs)

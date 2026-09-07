@@ -1,11 +1,10 @@
 """WO-LORI-BASELINE-RESET-AND-GUARD-LAB-01 Continuation A, section F.
 
-Covers the work order's named negative cases:
+Covers these isolation contracts from the spec's IC-1..IC-12 table:
 
-    V6  "All Switchable Off" implemented as sequential non-atomic changes
-    V7  a protected authority can be changed through the API
-    V8  restart loses Operator overrides / revision
-    V9  reset copies the canonical default into an override
+    IC-6   a protected authority can be changed through the API
+    IC-9   store failure is fail-closed and a restart keeps overrides
+    IC-11  "All Switchable Off" is atomic and truthful
 
 THE MIGRATION FILE IS EXECUTED, NOT MIRRORED. `ensure_schema()` exists
 for convenience, but a test that only ever ran the Python mirror would
@@ -93,7 +92,7 @@ class MigrationTests(unittest.TestCase):
 class WriteGuardTests(unittest.TestCase):
 
     def test_protected_authority_cannot_be_overridden(self):
-        """V7."""
+        """IC-6."""
         con = _db()
         for item in reg.protected():
             with self.subTest(id=item.id):
@@ -119,7 +118,7 @@ class WriteGuardTests(unittest.TestCase):
 class ResetSemanticsTests(unittest.TestCase):
 
     def test_reset_deletes_the_row_rather_than_pinning_the_default(self):
-        """V9.
+        """Reset semantics.
 
         A copied default freezes today's value into this installation
         and silently detaches the authority from the registry.
@@ -158,7 +157,7 @@ class ResetSemanticsTests(unittest.TestCase):
 class AtomicityTests(unittest.TestCase):
 
     def test_all_switchable_off_is_one_revision(self):
-        """V6.
+        """IC-11.
 
         Thirty-seven sequential writes would create 37 revisions and let
         a turn begin on a mixture no operator ever chose.
@@ -224,7 +223,7 @@ class StaleRevisionTests(unittest.TestCase):
 
 
 class PersistenceAcrossRestartTests(unittest.TestCase):
-    """V8 — a restart must not silently return Lori to defaults."""
+    """IC-9 — a restart must not silently return Lori to defaults."""
 
     def test_overrides_and_revision_survive_reconnection(self):
         import tempfile

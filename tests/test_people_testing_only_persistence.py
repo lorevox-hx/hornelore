@@ -214,7 +214,7 @@ class FailClosedTests(_DbCase):
 
 
 class ClientCannotManufactureEligibilityTests(_DbCase):
-    """Eligibility is server-side person metadata, nothing else.
+    """IC-7 — eligibility is server-side person metadata, nothing else.
 
     It must not be derivable from anything a browser can send: not
     runtime71, not a params payload, not profile biography.

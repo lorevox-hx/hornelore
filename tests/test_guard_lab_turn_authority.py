@@ -4,8 +4,8 @@ This is the slice where the 43 authorities stop being an inventory and
 start governing the response path, so the tests are about the properties
 that make that safe rather than about any single authority:
 
-    V2  a consumer re-reads live configuration mid-turn
-    V3  a stale browser turn_mode reactivates a disabled route
+    IC-2  a consumer re-reads live configuration mid-turn
+    IC-3  a stale browser turn_mode reactivates a disabled route
 
 Structural assertions here walk the AST of `chat_ws.py`. They are not a
 stylistic preference: no behavioural test can reliably catch "somebody
@@ -127,7 +127,7 @@ class AcquisitionIsSingularTests(unittest.TestCase):
 
 
 class NoConsumerReResolvesTests(unittest.TestCase):
-    """V2 — downstream reads the snapshot, never live configuration."""
+    """IC-2 — downstream reads the snapshot, never live configuration."""
 
     FORBIDDEN_CALLS = (
         "read_state", "read_overrides", "read_revision",   # the store
@@ -165,7 +165,7 @@ class NoConsumerReResolvesTests(unittest.TestCase):
 
 
 class RouteClampTests(unittest.TestCase):
-    """V3 — client proposes, server resolves."""
+    """IC-3 — client proposes, server resolves."""
 
     def _snapshot_without(self, *ids):
         overrides = {i: False for i in ids}
@@ -256,7 +256,7 @@ class RouteClampTests(unittest.TestCase):
 
 
 class EffectiveModeHandoffTests(unittest.TestCase):
-    """V3, completed: the clamp must reset BOTH copies of turn_mode.
+    """IC-4 — a rejected route resets the effective mode downstream too.
 
     The local variable governs the response branch; the completed-turn
     hooks read the mode back out of `params` (`:896`, `:1089`) to decide
@@ -361,7 +361,7 @@ class DeterministicRouteTraceTests(unittest.TestCase):
 
 
 class DetectorIsolationTests(unittest.TestCase):
-    """An excluded route's DETECTOR must not still change the turn.
+    """IC-5 — an excluded route's DETECTOR must not still change the turn.
 
     The clamp controls entry into the deterministic finalizer. That is
     not the same as isolating the authority, because two detectors set
@@ -650,6 +650,380 @@ class PromptSurfaceTests(unittest.TestCase):
                           "lori_guard_authority", "lori_guard_registry"):
             with self.subTest(module=forbidden):
                 self.assertNotIn(forbidden, imported)
+
+
+class LegacyEnvRetirementTests(unittest.TestCase):
+    """REQUIREMENT T — one authority per decision, not two.
+
+    Five registered authorities carried their own `.env` reads. Left in
+    place beside the snapshot they were a second runtime decision, and
+    the environment would silently win: an operator could select id 36
+    ON, see it ON, and get nothing — so a Phase 6 experiment would
+    report "no effect" for entirely the wrong reason and the
+    intervention would be judged on a measurement that never ran.
+    """
+
+    LEGACY_GATES = (
+        "_reflection_shaping_enabled",
+        "_phantom_noun_guard_enabled",
+        "_phantom_noun_scrub_enabled",
+        "_phase_1_enabled",
+    )
+    LEGACY_ENV = (
+        "HORNELORE_REFLECTION_SHAPING",
+        "HORNELORE_PHANTOM_NOUN_GUARD",
+        "HORNELORE_PHANTOM_NOUN_SCRUB",
+        "HORNELORE_STORY_FIRST_PHASE_1",
+    )
+    CONSUMERS = (
+        ("server", "code", "api", "routers", "chat_ws.py"),
+        ("server", "code", "api", "prompt_composer.py"),
+        ("server", "code", "api", "services", "lori_communication_control.py"),
+    )
+
+    def _calls_in(self, parts):
+        path = os.path.join(_REPO, *parts)
+        with open(path, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        called = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                name = (node.func.attr
+                        if isinstance(node.func, ast.Attribute)
+                        else getattr(node.func, "id", ""))
+                if name in self.LEGACY_GATES:
+                    called.add(name)
+        return called
+
+    def test_no_runtime_consumer_calls_a_legacy_authority_gate(self):
+        """Definitions may remain; consumer CALLS may not.
+
+        The functions stay so the gate can read them once at
+        acquisition. What must disappear is a response consumer asking
+        the environment whether a registered authority is active.
+        """
+        offenders = {}
+        for parts in self.CONSUMERS:
+            called = self._calls_in(parts)
+            # comm_control still DEFINES them; a definition is not a call.
+            if called:
+                offenders[parts[-1]] = sorted(called)
+        self.assertEqual(
+            offenders, {},
+            f"Legacy authority gates still called at runtime: {offenders}. "
+            f"That is a second decision layered with the frozen snapshot.")
+
+    def test_no_consumer_reads_the_legacy_env_directly(self):
+        for parts in self.CONSUMERS:
+            path = os.path.join(_REPO, *parts)
+            with open(path, encoding="utf-8") as fh:
+                tree = ast.parse(fh.read())
+            literals = {
+                node.value for node in ast.walk(tree)
+                if isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and node.value in self.LEGACY_ENV
+            }
+            # comm_control's own definitions legitimately name them.
+            if parts[-1] == "lori_communication_control.py":
+                continue
+            with self.subTest(module=parts[-1]):
+                self.assertEqual(
+                    literals, set(),
+                    f"{parts[-1]} reads {sorted(literals)} directly.")
+
+    def test_the_gate_supplies_them_as_deployment_defaults(self):
+        defaults = gate.deployment_defaults()
+        for authority_id in (6, 7, 8, 30, 31, 36, 41, 42):
+            with self.subTest(id=authority_id):
+                self.assertIn(authority_id, defaults)
+
+    def test_an_operator_override_beats_the_deployment_default(self):
+        """The whole point: these five must be testable.
+
+        A deployment default that could not be overridden would leave
+        exactly the most interesting authorities unreachable by the lab.
+        """
+        snap = authority.resolve(
+            {36: True}, deployment_defaults={36: False},
+            safety_parked_probe=lambda: False)
+        state = snap.state(36)
+        self.assertTrue(state.effective)
+        self.assertEqual(state.reason, authority.REASON_OPERATOR_OVERRIDE)
+
+    def test_without_an_override_the_deployment_default_applies(self):
+        snap = authority.resolve(
+            {}, deployment_defaults={36: False},
+            safety_parked_probe=lambda: False)
+        state = snap.state(36)
+        self.assertFalse(state.effective)
+        self.assertEqual(state.reason, authority.REASON_DEPLOYMENT_DEFAULT)
+
+    def test_none_selection_means_production_not_everything(self):
+        """The regression this cutover actually caused, pinned.
+
+        Treating `None` as "everything runs" silently switched the
+        reflection shaper on for every caller that passes no selection,
+        and a golfball regression caught it prepending "Captain Kirk."
+        to a turn that had never had it.
+        """
+        from api.services import lori_communication_control as cc
+        for authority_id in cc._CANONICALLY_OFF:
+            with self.subTest(id=authority_id):
+                self.assertFalse(cc._selected(None, authority_id))
+                self.assertFalse(
+                    reg.by_id(authority_id).default_on,
+                    "The module's canonically-off set must match the "
+                    "registry's canonical defaults.")
+        self.assertTrue(cc._selected(None, cc.CC_WORD_LIMIT))
+
+
+class CommControlAttributionTests(unittest.TestCase):
+    """REQUIREMENT L — nine authorities, nine identities.
+
+    They may share a service; they may not be observationally collapsed
+    into one generic `comm_control` intervention. Phase 6 asks which
+    intervention changed the response, and a trace saying only
+    "comm_control fired" cannot answer it — Walt turn 5 had word
+    truncation, reflection shaping, stub repair and the chain-anchor
+    opener all firing on the same turn.
+    """
+
+    NINE = (33, 34, 35, 37, 38, 39, 40, 41, 42)
+
+    def _run(self, **kw):
+        from api.services import lori_communication_control as cc
+        return cc.enforce_lori_communication_control(
+            assistant_text=(
+                "I hear how much that meant to you and I want to sit with "
+                "it for a moment because it sounds like it shaped a great "
+                "deal of what came afterwards. What was that like?"),
+            user_text="My father worked nights at the packing plant.",
+            **kw)
+
+    def test_every_one_of_the_nine_reports_itself(self):
+        records = {r["id"] for r in self._run().authority_records}
+        missing = sorted(set(self.NINE) - records)
+        self.assertEqual(
+            missing, [],
+            f"Authorities with no attribution row: {missing}. Each must "
+            f"be distinguishable, not collapsed into comm_control.")
+
+    def test_each_row_carries_the_required_fields(self):
+        for row in self._run().authority_records:
+            with self.subTest(id=row["id"]):
+                self.assertIn("id", row)
+                self.assertIn("name", row)
+                self.assertIn("selected", row)
+                self.assertIn("fired", row)
+                self.assertIsNotNone(reg.by_id(row["id"]))
+                self.assertEqual(reg.by_id(row["id"]).name.removeprefix("cc_"),
+                                 row["name"])
+
+    def test_selected_and_fired_are_distinct(self):
+        """Selected means ALLOWED, not that it acted."""
+        rows = {r["id"]: r for r in self._run().authority_records}
+        allowed_but_idle = [
+            i for i, r in rows.items() if r["selected"] and not r["fired"]]
+        self.assertTrue(
+            allowed_but_idle,
+            "If every selected authority also fired, the two fields are "
+            "not measuring different things.")
+
+    def test_excluding_one_authority_shows_only_that_row_deselected(self):
+        without = frozenset(i.id for i in reg.REGISTRY if i.id != 35)
+        rows = {r["id"]: r
+                for r in self._run(guard_selection=without).authority_records}
+        self.assertFalse(rows[35]["selected"])
+        self.assertFalse(rows[35]["fired"])
+        for other in (33, 34, 37):
+            self.assertTrue(rows[other]["selected"])
+
+    def test_text_mutations_record_before_and_after(self):
+        rows = self._run().authority_records
+        mutating = [r for r in rows if r["fired"] and "before" in r]
+        for row in mutating:
+            with self.subTest(id=row["id"]):
+                self.assertNotEqual(row["before"], row["after"])
+
+    def test_the_router_emits_one_trace_stage_per_authority(self):
+        lines = _lines()
+        idx = next(i for i, l in enumerate(lines)
+                   if 'f"cc_{_ar[\'id\']:02d}_{_ar[\'name\']}"' in l)
+        window = "\n".join(lines[max(0, idx - 6):idx + 16])
+        self.assertIn("_rt.stage(", window)
+        self.assertIn("authority_id", window)
+        self.assertIn("selected", window)
+        self.assertIn("eligible", window)
+
+    def test_id36_keeps_its_own_existing_stage(self):
+        """`reflection_shape` predates this and must not be flattened."""
+        self.assertEqual(reg.by_id(36).trace_stage, "reflection_shape")
+
+
+class MidTurnFreezeTests(unittest.TestCase):
+    """IC-10 — a change after acquisition cannot affect the current turn.
+
+    The snapshot is taken once and carried whole. An operator toggling a
+    switch while Lori is composing changes the NEXT turn, never this
+    one — otherwise a transcript names a configuration that never
+    existed as a single coherent state.
+    """
+
+    def _db(self):
+        import sqlite3
+        from api.services import lori_guard_store as store
+        con = sqlite3.connect(":memory:")
+        path = os.path.join(
+            _REPO, "server", "code", "db", "migrations",
+            "0053_lori_guard_authority_overrides.sql")
+        with open(path, encoding="utf-8") as fh:
+            con.executescript(fh.read())
+        con.commit()
+        return con, store
+
+    def test_a_change_after_acquisition_does_not_reach_the_held_snapshot(self):
+        con, store = self._db()
+        wid = reg.by_name("cc_word_limit").id
+
+        overrides, revision = store.read_state(con)
+        held = authority.resolve(overrides, revision=revision,
+                                 safety_parked_probe=lambda: False)
+        self.assertTrue(held.is_selected(wid))
+
+        # The operator acts mid-turn.
+        store.apply_changes(con, {wid: False})
+
+        # The turn in flight is unchanged, in every observable field.
+        self.assertTrue(held.is_selected(wid))
+        self.assertEqual(held.revision, revision)
+        self.assertEqual(held.state(wid).reason,
+                         authority.REASON_CANONICAL_DEFAULT)
+
+    def test_the_next_acquisition_sees_the_new_revision(self):
+        con, store = self._db()
+        wid = reg.by_name("cc_word_limit").id
+        overrides, revision = store.read_state(con)
+        first = authority.resolve(overrides, revision=revision,
+                                  safety_parked_probe=lambda: False)
+        store.apply_changes(con, {wid: False})
+        overrides, revision = store.read_state(con)
+        second = authority.resolve(overrides, revision=revision,
+                                   safety_parked_probe=lambda: False)
+        self.assertEqual(second.revision, first.revision + 1)
+        self.assertFalse(second.is_selected(wid))
+        self.assertNotEqual(first.selection_fingerprint,
+                            second.selection_fingerprint)
+
+    def test_the_snapshot_cannot_be_mutated_in_place(self):
+        import dataclasses
+        snap = authority.resolve({}, safety_parked_probe=lambda: False)
+        with self.assertRaises(dataclasses.FrozenInstanceError):
+            snap.selected = frozenset()          # type: ignore[misc]
+
+
+class ProfileSeedPresentationIntegrityTests(unittest.TestCase):
+    """IC-12 — id 54 OFF must not let id 53 stamp a phantom presentation.
+
+    The protected ledger stays active while the narrator-facing final
+    write is suppressed. What makes that safe is the Phase 3 containment
+    already in the router — "the stamp follows the DELIVERED text, never
+    the plan" — which clears the planned metadata when the canonical
+    question is absent from what the narrator received.
+    """
+
+    def test_the_seam_wraps_finalize_presentation_only(self):
+        lines = _lines()
+        gate_line = next(i for i, l in enumerate(lines)
+                         if "is_selected(54)" in l)
+        finalize = next(i for i, l in enumerate(lines)
+                        if "_ps_turn.finalize_presentation(" in l
+                        and not l.strip().startswith("#"))
+        containment = next(i for i, l in enumerate(lines)
+                           if "_ps_turn.delivers_question(" in l)
+        self.assertLess(gate_line, finalize)
+        self.assertLess(
+            finalize, containment,
+            "The delivered-text containment must still run after the "
+            "seam. Gating the enclosing block would remove the guard "
+            "that prevents a phantom presentation.")
+
+    def test_the_containment_check_is_not_itself_gated(self):
+        """It protects a PROTECTED authority and must be unconditional."""
+        lines = _lines()
+        idx = next(i for i, l in enumerate(lines)
+                   if "_ps_turn.delivers_question(" in l)
+        window = "\n".join(lines[max(0, idx - 8):idx + 2])
+        self.assertNotIn("is_selected", window)
+
+    def test_the_ledger_is_protected_and_the_writer_is_not(self):
+        self.assertEqual(reg.by_name("profile_seed_ledger").policy,
+                         reg.POLICY_PROTECTED)
+        self.assertEqual(reg.by_name("profile_seed_delivery").policy,
+                         reg.POLICY_SWITCHABLE)
+
+    def test_all_switchable_off_suppresses_the_writer_not_the_ledger(self):
+        snap = authority.resolve(
+            authority.all_switchable_off_overrides(),
+            safety_parked_probe=lambda: False)
+        self.assertFalse(snap.is_selected(54), "the final writer")
+        self.assertTrue(snap.is_selected(53), "the durable ledger")
+
+
+class NoUnregisteredAuthorityTests(unittest.TestCase):
+    """The complement of the consumer accounting.
+
+    "Every switch has a wire" is only half of it. The other half is
+    that every relevant wire has a switch — an unregistered
+    narrator-facing decision on a controlled surface is an authority
+    nobody can turn off and nobody can see.
+    """
+
+    def test_every_final_text_writer_is_registered_or_locked(self):
+        """Already enforced by FINAL_TEXT_WRITERS in both directions;
+        asserted here so this contract has a named home."""
+        tree = _tree()
+        writers = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for t in node.targets:
+                    if isinstance(t, ast.Name) and t.id == "final_text":
+                        writers.add(ast.unparse(node.value))
+        unaccounted = sorted(writers - set(reg.FINAL_TEXT_WRITERS))
+        self.assertEqual(unaccounted, [], f"unregistered writers: {unaccounted}")
+
+    def test_every_turn_mode_route_gate_is_registered(self):
+        tree = _tree()
+        gates = set()
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Compare)
+                    and isinstance(node.left, ast.Name)
+                    and node.left.id == "turn_mode"):
+                for op, comp in zip(node.ops, node.comparators):
+                    if (isinstance(op, ast.Eq)
+                            and isinstance(comp, ast.Constant)
+                            and isinstance(comp.value, str)
+                            and comp.value != "interview"):
+                        gates.add(comp.value)
+        self.assertEqual(
+            sorted(gates - set(reg.DETERMINISTIC_ROUTE_GATES)), [],
+            "A deterministic route with no registry entry can bypass the "
+            "model with no way to switch it off.")
+
+    def test_the_prompt_surface_declares_every_block_it_gates(self):
+        """Each registered PROMPT id must have a named constant."""
+        from api import prompt_composer as pc
+        for item in reg.by_class(reg.CLASS_PROMPT):
+            if item.id == 2:            # safety protocol is PROTECTED
+                continue
+            with self.subTest(id=item.id):
+                names = [n for n in dir(pc)
+                         if n.startswith("GUARD_")
+                         and getattr(pc, n) == item.id]
+                self.assertTrue(
+                    names,
+                    f"PROMPT authority {item.id} ({item.name}) has no "
+                    f"GUARD_* constant in the composer.")
 
 
 class RevisionSemanticsTests(unittest.TestCase):

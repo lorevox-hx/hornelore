@@ -84,6 +84,28 @@ Pushed and accepted. See `HANDOFF.md` for live state.
   the deterministic route family clamped.
 - **`scripts/lori_guard_catalog.py`** — the catalog, generated from registry
   metadata. There is no second hand-maintained list.
+- **All four runtime surfaces consume the snapshot.** Prompt composition
+  (ids 1, 3–11), the route family (20–26) clamped at the DETECTOR rather
+  than only at the finalizer, communication control (32–42) individually
+  selectable, and the post-generation and final-writer authorities
+  (30–31, 43–54) including the id 54 seam.
+- **Legacy env authority retired (requirement T).** Four flags —
+  `HORNELORE_REFLECTION_SHAPING`, the two phantom-noun flags, and
+  `HORNELORE_STORY_FIRST_PHASE_1` — governed **eight** registered
+  authorities (6, 7, 8, 30, 31, 36, 41, 42), not the five first
+  identified. They are read once at acquisition as deployment DEFAULTS
+  an operator override outranks; no runtime consumer calls them, and a
+  structural test enforces that.
+- **Distinct attribution (requirement L).** Ten identities across the
+  comm-control service — 33, 34, 35, 37, 38, 39, 40, 41, 42 plus 36's
+  pre-existing `reflection_shape` — each carrying selected / eligible /
+  fired / result and before-after where text changes. Id 51 stays one
+  authority and records which of its seven detect/repair pairs fired.
+  **`selected` and `fired` are separate fields**, and a test fails if
+  they ever coincide: selected means allowed, not that it acted.
+- **Consumer accounting, both directions.** Every switchable id has a
+  production consumer, and every narrator-facing writer, route gate and
+  prompt block is registered or deliberately protected.
 
 ---
 
@@ -118,15 +140,51 @@ Pushed and accepted. See `HANDOFF.md` for live state.
 
 ---
 
+## 4a. Isolation contracts IC-1 … IC-12
+
+**The authoritative negative-acceptance list.** Earlier work orders
+referred to "V1–V12" without ever defining them here, and the only
+`V1`/`V6` vocabulary that exists in this repository is the unrelated
+pre-pivot SECTION-EFFECT extraction matrix
+(`docs/archive/workorders-pre-pivot/`). Citing an undefined label as
+acceptance is how a claim becomes unfalsifiable, so these are numbered
+`IC-n` to avoid colliding with that older meaning.
+
+Each is proven by a test that fails against the specific wrong
+implementation named in the right-hand column.
+
+| | Contract | The false implementation it catches |
+|---|---|---|
+| **IC-1** | One and only one authority acquisition per turn | Two acquisitions, so a turn runs half on one configuration |
+| **IC-2** | No mid-turn re-resolution — no consumer reads the store, marker, eligibility, legacy env, or calls the resolver again | A consumer reads live state and changes underneath a half-composed response |
+| **IC-3** | A client `turn_mode` proposal cannot reactivate a disabled route | A stale browser re-enters an excluded deterministic route |
+| **IC-4** | A rejected route resets the effective mode downstream too, not only the local | `params["turn_mode"]` keeps the rejected proposal and extraction eligibility is lost |
+| **IC-5** | Detector isolation — an OFF route discards its detector's narrator-facing side effects, not merely finalizer entry | Route OFF, but the detector still suppresses bank flush or injects grounding |
+| **IC-6** | A real narrator cannot receive an experiment, whatever is armed | Overrides reach an ordinary narrator |
+| **IC-7** | Client data cannot manufacture eligibility | `runtime71` / `profile_json` / `params` makes a narrator experimental |
+| **IC-8** | An unmeasured experiment cannot run | Armed + testing-only + tracing off still applies overrides |
+| **IC-9** | Store failure is fail-closed and never fails the turn | A Guard Lab read error costs the narrator their turn |
+| **IC-10** | Mid-turn configuration change affects the next turn only | A toggle changes the turn already in flight |
+| **IC-11** | `All Switchable Off` is truthful across all 37 | An authority survives through an env gate or an alternate path |
+| **IC-12** | Id 54 OFF suppresses the replacement while `delivers_question()` containment still prevents id 53 stamping | The protected ledger stamps a presentation the narrator never received |
+
+**Complement of the consumer accounting.** "Every switch has a wire" is
+only half. The other half is *every relevant wire has a switch, or is
+deliberately PROTECTED or outside the registry* — an unregistered
+narrator-facing decision on a controlled surface is an authority nobody
+can turn off and nobody can see.
+
+---
+
 ## 5. What remains
 
 | | |
 |---|---|
-| **Next slice** | Prompt authorities (1, 3–11) read the snapshot; `comm_control` ids 32–42 selected per turn; post-generation and final-writer consumers wired, including the id 54 seam |
-| **Then** | Operator API, Operator Guard Lab panel, counterfactual attribution, distinct trace identity for the nine authorities sharing `comm_control`, sub-attribution inside id 51 |
-| **Then** | Structural accounting for prompt and comm_control consumers — the current `EXPECTED_OPERATIONS` tuple is hand-written and checked against another hand-written list, which proves nothing about the code |
-| **Then** | Live acceptance: no-restart toggling, mid-turn freeze, stale-client clamp, restart persistence |
-| **Owed separately** | The response-trace closer (diagnostic finding 2, untouched); the §5 short-natural Walt run |
+| **Next slice** | Operator API and Guard Lab panel; atomic `All Switchable Off` / `Restore Defaults` controls; optimistic-revision UI |
+| **Then** | Live acceptance on a running stack: no-restart toggling, the mid-turn freeze observed rather than only structurally proven, the stale-client clamp, restart persistence |
+| **Then** | The lean baseline prompt and a populated synthetic Walt, then the owed §5 short-natural run |
+| **Owed separately** | The response-trace closer (diagnostic finding 2, untouched) |
+| **External dependency** | The `chat_ws` behavioural suites cannot execute in the agent sandbox — `transformers` is absent and fails identically at HEAD — so `.venv-gpu` in WSL is their only verification |
 
 **No Walt or John run until `All Switchable Off` is truthful across routing,
 prompt composition, transforms/replacements and the Profile Seed final writer.**

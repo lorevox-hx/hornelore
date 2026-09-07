@@ -116,6 +116,7 @@ class GateDecisionTableTests(unittest.TestCase):
         return gate.acquire_turn_authority(**params)
 
     def test_all_four_conditions_met_applies_the_experiment(self):
+        """IC-6/IC-8 boundary: the only state that applies overrides."""
         result = self._acquire()
         self.assertTrue(result.experiment_applied)
         self.assertEqual(result.gate_reason, gate.GATE_EXPERIMENT_APPLIED)
@@ -147,7 +148,7 @@ class GateDecisionTableTests(unittest.TestCase):
         self.assertFalse(result.experiment_applied)
 
     def test_armed_but_not_recording_is_refused(self):
-        """An unmeasured experimental turn is worse than no experiment."""
+        """IC-8 — an unmeasured experimental turn is worse than none."""
         result = self._acquire(trace_enabled_probe=lambda: False)
         self.assertFalse(result.experiment_applied)
         self.assertEqual(result.gate_reason, gate.GATE_TRACE_NOT_ENABLED)
@@ -228,7 +229,7 @@ class AcquisitionShapeTests(unittest.TestCase):
 
 
 class ClientCannotArmItselfTests(unittest.TestCase):
-    """Server-side state only.
+    """IC-7 — server-side state only.
 
     A browser may propose a turn mode; it may never nominate itself for
     an experiment.

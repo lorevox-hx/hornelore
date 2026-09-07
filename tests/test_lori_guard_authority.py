@@ -1,11 +1,14 @@
 """WO-LORI-BASELINE-RESET-AND-GUARD-LAB-01 Continuation A, sections D+E.
 
-Covers the negative cases the work order names explicitly:
+Covers these isolation contracts from the spec's IC-1..IC-12 table:
 
-    V7   a protected authority can be changed through the API
-    V9   reset copies the canonical default into an override
-    V11  two different effective selections share a fingerprint
-    V12  editing descriptive prose moves the behavioural fingerprint
+    IC-6  a protected authority can be overridden, or a real narrator
+          receives an experiment
+
+plus two identity properties the contracts depend on: two different
+effective selections must never share a selection fingerprint, and
+editing descriptive prose must not move the behavioural registry
+fingerprint.
 
 and the three-state resolution that keeps the Operator panel honest
 about rows where effective differs from canonical.
@@ -32,7 +35,7 @@ class RegistryFingerprintTests(unittest.TestCase):
         int(first, 16)
 
     def test_editing_prose_does_not_move_it(self):
-        """V12.
+        """Registry fingerprint covers behaviour, not prose.
 
         If a `known_harm` paragraph moved the fingerprint, every
         transcript comparison would show a behaviour change whenever
@@ -82,7 +85,8 @@ class SelectionFingerprintTests(unittest.TestCase):
             auth.selection_fingerprint([33, 40]))
 
     def test_different_selections_never_collide(self):
-        """V11 — checked across every adjacent pair, not one example."""
+        """Selection fingerprints must never collide — checked across
+        every adjacent pair, not on one example."""
         ids = [i.id for i in reg.REGISTRY]
         seen = {}
         for n in range(len(ids) + 1):
@@ -113,7 +117,7 @@ class ThreeStateResolutionTests(unittest.TestCase):
         self.assertFalse(snap.is_selected(35))
 
     def test_protected_authority_ignores_an_override(self):
-        """V7 — second line of defence behind API validation.
+        """IC-6 — second line of defence behind API validation.
 
         Persisted state could be edited by hand, or predate a policy
         change. Resolution must refuse it rather than quietly obey.
@@ -127,7 +131,7 @@ class ThreeStateResolutionTests(unittest.TestCase):
                               (auth.REASON_PROTECTED, auth.REASON_SYSTEM_PARKED))
 
     def test_absent_override_is_not_the_same_as_an_override_to_default(self):
-        """V9 — reset deletes the row, it does not write the default in."""
+        """Reset deletes the row; it does not write the default in."""
         reset = auth.resolve({}, safety_parked_probe=_not_parked).state(35)
         pinned = auth.resolve({35: True}, safety_parked_probe=_not_parked).state(35)
         self.assertEqual(reset.effective, pinned.effective)

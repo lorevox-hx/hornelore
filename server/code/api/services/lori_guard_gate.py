@@ -226,6 +226,60 @@ def _canonical(reason: str, revision: int = 0) -> TurnAuthorityAcquisition:
     return canonical_acquisition(reason, revision)
 
 
+def deployment_defaults() -> dict:
+    """Interpret the legacy environment flags ONCE, here.
+
+    Five authorities predate the registry and carried their own `.env`
+    reads. Left in place beside the snapshot they would be a SECOND
+    runtime authority, and the environment would silently win — an
+    operator could select id 36 ON, see it ON, and get nothing, so a
+    Phase 6 experiment would report "no effect" for the wrong reason and
+    the intervention would be judged on a measurement that never ran.
+
+    Read here, they become a DEFAULT the operator can override. The
+    consumers no longer read them at all, which is what makes the
+    snapshot the single authority rather than one of two.
+
+    Failure is conservative: an unreadable flag module leaves the
+    registry's canonical default in place rather than guessing.
+    """
+    try:
+        from . import lori_communication_control as _cc
+    except Exception:
+        logger.warning(
+            "[guard-lab][gate] legacy flag module unreadable — canonical "
+            "registry defaults apply")
+        return {}
+
+    # `HORNELORE_STORY_FIRST_PHASE_1` reaches FIVE registered
+    # authorities, not two. Besides the comm_control validators 41 and
+    # 42, it decides in chat_ws whether story momentum and thread
+    # surfacing are computed at all — and those feed prompt authorities
+    # 6, 7 and 8. Their registry canonical default is ON, but production
+    # today ships the flag OFF, so recording the flag as their
+    # deployment default is what keeps the cutover behaviour-preserving
+    # rather than silently switching three prompt blocks on.
+    out = {}
+    for authority_id, probe in (
+        (6, "_phase_1_enabled"),
+        (7, "_phase_1_enabled"),
+        (8, "_phase_1_enabled"),
+        (30, "_phantom_noun_guard_enabled"),
+        (31, "_phantom_noun_scrub_enabled"),
+        (36, "_reflection_shaping_enabled"),
+        (41, "_phase_1_enabled"),
+        (42, "_phase_1_enabled"),
+    ):
+        fn = getattr(_cc, probe, None)
+        if fn is None:
+            continue
+        try:
+            out[authority_id] = bool(fn())
+        except Exception:
+            continue
+    return out
+
+
 def acquire_turn_authority(
     person_id: Optional[str],
     *,
@@ -314,7 +368,9 @@ def acquire_turn_authority(
             pass
 
     return TurnAuthorityAcquisition(
-        snapshot=authority.resolve(overrides, revision=revision),
+        snapshot=authority.resolve(
+            overrides, revision=revision,
+            deployment_defaults=deployment_defaults()),
         gate_reason=GATE_EXPERIMENT_APPLIED,
         experiment_applied=True,
         eval_dir=eval_dir,

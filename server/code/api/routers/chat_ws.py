@@ -3169,9 +3169,21 @@ async def ws_chat(ws: WebSocket):
         # wrapper sees `momentum_mode="normal"` + `session_hierarchy_state
         # =None` which means the Phase 1 validators are vacuously inactive
         # — byte-stable to pre-WO behavior.
-        _phase_1_enabled_now = os.environ.get(
-            "HORNELORE_STORY_FIRST_PHASE_1", "0",
-        ).strip().lower() in ("1", "true", "yes", "on")
+        # GUARD LAB — REQUIREMENT T. This was a direct read of
+        # HORNELORE_STORY_FIRST_PHASE_1, which independently decided
+        # whether momentum and thread surfacing were computed and
+        # therefore whether prompt authorities 6, 7 and 8 could fire at
+        # all. That made the environment a second runtime authority for
+        # five registered ids.
+        #
+        # The flag is now interpreted once at acquisition as a deployment
+        # DEFAULT for ids 6/7/8/41/42, so production behaviour is
+        # unchanged and an operator can still switch any of them on for
+        # an experiment. This asks the frozen snapshot, nothing else.
+        _phase_1_enabled_now = any(
+            _authority.snapshot.is_selected(_pid)
+            for _pid in (6, 7, 8, 41, 42)
+        )
         _phase_1_momentum_mode = "normal"
         _phase_1_thread_to_surface: Optional[Dict[str, Any]] = None
         _phase_1_thread_surface_text = ""
@@ -6155,26 +6167,32 @@ async def ws_chat(ws: WebSocket):
                 # recent narrator turns from comm-control's user_text
                 # (current turn) + last 2 archive turns when available.
                 # profile_seed comes straight from runtime71.
+                # GUARD LAB ids 30 and 31. REQUIREMENT T: the two legacy
+                # env readers are NOT imported here any more. They are
+                # interpreted once at acquisition as deployment defaults
+                # (`lori_guard_gate.deployment_defaults`), so the frozen
+                # snapshot is the single per-turn authority and an
+                # operator can switch either one on for an experiment
+                # even though both flags ship off.
+                #
+                # 30 is DETECTION, 31 is the SCRUB it feeds. "A detector
+                # that only detects is not a guardrail" is this project's
+                # own rule, so they are separately selectable and the
+                # pair can be tested apart: detect-only, detect-and-
+                # scrub, or neither.
                 try:
                     from ..services.lori_communication_control import (
                         scrub_phantom_proper_nouns as _scrub_phantom,
-                        _phantom_noun_guard_enabled as _phantom_guard_on,
-                        _phantom_noun_scrub_enabled as _phantom_scrub_on,
                     )
-                    # GUARD LAB id 30 — DETECTION, distinct from the id 31
-                    # scrub it feeds. "A detector that only detects is not
-                    # a guardrail" is this project's own rule, so the two
-                    # are separately selectable and the pair can be tested
-                    # apart: detect-only, detect-and-scrub, or neither.
-                    if not _authority.snapshot.is_selected(30):
-                        _phantom_guard_on = lambda: False
                 except Exception as _imp_exc:
                     _scrub_phantom = None
-                    _phantom_guard_on = lambda: False
-                    _phantom_scrub_on = lambda: False
                     logger.debug("[chat_ws][phantom-noun] import failed: %s", _imp_exc)
 
-                if _scrub_phantom is not None and _phantom_guard_on():
+                _phantom_detect_on = _authority.snapshot.is_selected(30)
+                _phantom_scrub_on = (
+                    lambda: _authority.snapshot.is_selected(31))
+
+                if _scrub_phantom is not None and _phantom_detect_on:
                     try:
                         # Build narrator_corpus from current turn + recent archive
                         _narrator_parts = [user_text or ""]
@@ -6280,6 +6298,38 @@ async def ws_chat(ws: WebSocket):
                         _cc_result.word_count,
                     )
                     final_text = _cc_result.final_text
+                    # ── REQUIREMENT L — one trace stage PER AUTHORITY ──
+                    #
+                    # Nine authorities (33, 34, 35, 37, 38, 39, 40, 41,
+                    # 42) share this service and used to share one
+                    # `comm_control` stage, so a trace could only say
+                    # "comm_control fired". Phase 6 asks which
+                    # intervention changed the response; that stage
+                    # cannot answer it. Walt turn 5 had word truncation,
+                    # reflection shaping, stub repair and the chain-anchor
+                    # opener all firing on one turn.
+                    #
+                    # Each now emits `cc_<id>_<name>` carrying selected,
+                    # eligible, fired, result and before/after. The
+                    # parent `comm_control` stage stays for readability
+                    # and for the existing consumers of its reason dict.
+                    for _ar in getattr(_cc_result, "authority_records", []):
+                        try:
+                            _rt.stage(
+                                f"cc_{_ar['id']:02d}_{_ar['name']}",
+                                fired=bool(_ar.get("fired")),
+                                before=_ar.get("before"),
+                                after=_ar.get("after"),
+                                reason={
+                                    "authority_id": _ar.get("id"),
+                                    "selected": _ar.get("selected"),
+                                    "eligible": _ar.get("eligible"),
+                                    "result": _ar.get("result", ""),
+                                },
+                                trace_id=_rt_id,
+                            )
+                        except Exception:
+                            pass
                     _rt_ck("comm_control", {
                         "failures": list(_cc_result.failures or []),
                         "atomicity": list(_cc_result.atomicity_failures or []),
@@ -7090,6 +7140,30 @@ async def ws_chat(ws: WebSocket):
                     _guarded_text[:120],
                 )
                 final_text = _guarded_text
+                # ── REQUIREMENT M — id 51 keeps SUB-ATTRIBUTION ────────
+                #
+                # It stays ONE authority because production calls the
+                # seven detect/repair pairs as one block, and reopening
+                # the 43-authority inventory for that is not this work
+                # order's job. But "response_guards fired" is as unhelpful
+                # as "comm_control fired" was: `_guards_fired` names the
+                # pairs that actually acted, so the trace records them
+                # rather than flattening seven behaviours into one bit.
+                try:
+                    _rt.stage(
+                        "response_guards_detail",
+                        fired=bool(_guards_fired),
+                        before=final_text,
+                        after=_guarded_text,
+                        reason={
+                            "authority_id": 51,
+                            "selected": True,
+                            "pairs_fired": list(_guards_fired or []),
+                        },
+                        trace_id=_rt_id,
+                    )
+                except Exception:
+                    pass
                 _rt_ck("response_guards")
         except Exception as _guard_exc:
             # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §3.1 —
