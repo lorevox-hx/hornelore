@@ -256,6 +256,183 @@ class PersistenceAcrossRestartTests(unittest.TestCase):
             con2.close()
 
 
+class ConcurrencyTests(unittest.TestCase):
+    """The snapshot is only trustworthy if its acquisition is coherent.
+
+    Commit 4 freezes this state before route detection and carries it
+    through the whole turn. An immutable dataclass built from a torn
+    read is still wrong — it just fails to admit it.
+    """
+
+    def _file_db(self, tmp):
+        path = os.path.join(tmp, "guard.sqlite3")
+        con = sqlite3.connect(path)
+        with open(_MIGRATION, encoding="utf-8") as fh:
+            con.executescript(fh.read())
+        con.commit()
+        con.close()
+        return path
+
+    def test_two_writers_on_the_same_base_revision_do_not_both_win(self):
+        """Section P, under real concurrency rather than in sequence.
+
+        Both callers believe revision 0. Exactly one may commit as
+        revision 1; the loser must surface the stale/conflict condition
+        after serialization, never silently overwrite the winner.
+        """
+        import tempfile
+        import threading
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._file_db(tmp)
+            wid_a = reg.by_name("cc_word_limit").id
+            wid_b = reg.by_name("cc_chain_anchor_opener").id
+            barrier = threading.Barrier(2)
+            results = {}
+
+            def attempt(label, authority_id):
+                con = sqlite3.connect(path, timeout=10)
+                try:
+                    barrier.wait(timeout=10)
+                    results[label] = store.apply_changes(
+                        con, {authority_id: False}, expected_revision=0)
+                except store.StaleRevisionError as exc:
+                    results[label] = exc
+                except Exception as exc:                 # pragma: no cover
+                    results[label] = exc
+                finally:
+                    con.close()
+
+            threads = [
+                threading.Thread(target=attempt, args=("a", wid_a)),
+                threading.Thread(target=attempt, args=("b", wid_b)),
+            ]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=20)
+
+            winners = [v for v in results.values() if isinstance(v, int)]
+            losers = [v for v in results.values()
+                      if isinstance(v, store.StaleRevisionError)]
+            self.assertEqual(
+                len(winners), 1,
+                f"exactly one write may succeed; got {results}")
+            self.assertEqual(winners[0], 1)
+            self.assertEqual(
+                len(losers), 1,
+                f"the loser must raise StaleRevisionError; got {results}")
+
+            con = sqlite3.connect(path)
+            overrides, revision = store.read_state(con)
+            self.assertEqual(revision, 1)
+            self.assertEqual(
+                len(overrides), 1,
+                "The loser must not have written alongside the winner.")
+            con.close()
+
+    def test_read_state_never_mixes_two_generations(self):
+        """A torn read would pair one generation's rows with another's
+        revision number.
+
+        The writer alternates between two configurations whose override
+        COUNT is a function of the revision, so any incoherent pair is
+        detectable: odd revisions have every switchable authority
+        overridden, even revisions have none.
+        """
+        import tempfile
+        import threading
+
+        switchable = len(reg.switchable())
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._file_db(tmp)
+            stop = threading.Event()
+            failures = []
+
+            def writer():
+                con = sqlite3.connect(path, timeout=10)
+                try:
+                    for _ in range(40):
+                        store.all_switchable_off(con)
+                        store.restore_canonical_defaults(con)
+                finally:
+                    stop.set()
+                    con.close()
+
+            def reader():
+                con = sqlite3.connect(path, timeout=10)
+                try:
+                    while not stop.is_set():
+                        overrides, revision = store.read_state(con)
+                        if revision == 0:
+                            expected = 0
+                        else:
+                            expected = switchable if revision % 2 else 0
+                        if len(overrides) != expected:
+                            failures.append(
+                                f"revision {revision} carried "
+                                f"{len(overrides)} overrides, expected "
+                                f"{expected} — the read was torn")
+                            return
+                finally:
+                    con.close()
+
+            threads = [threading.Thread(target=writer),
+                       threading.Thread(target=reader)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=30)
+            self.assertEqual(failures, [], failures[:3])
+
+    def test_read_state_is_a_single_statement(self):
+        """Structural guard on the fix.
+
+        Re-deriving read_state from read_overrides() + read_revision()
+        would silently restore the tear, and no behavioural test can be
+        relied on to catch a race every run.
+        """
+        import ast
+        import inspect
+
+        source = inspect.getsource(store.read_state)
+        tree = ast.parse(source.lstrip())
+        called = {
+            node.func.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        self.assertNotIn("read_overrides", called)
+        self.assertNotIn("read_revision", called)
+        executes = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "execute"
+        ]
+        self.assertEqual(
+            len(executes), 1,
+            "read_state must issue exactly one statement.")
+
+    def test_writes_serialize_before_reading_the_revision(self):
+        """The write lock must precede the revision read, not follow it."""
+        import ast
+        import inspect
+
+        source = inspect.getsource(store._WriteTransaction.__enter__)
+        self.assertIn("BEGIN IMMEDIATE", source)
+
+        body = inspect.getsource(store.apply_changes)
+        tree = ast.parse(body.lstrip())
+        withs = [n for n in ast.walk(tree) if isinstance(n, ast.With)]
+        self.assertTrue(
+            withs, "apply_changes must run inside a write transaction.")
+        self.assertNotIn(
+            "with con:", body,
+            "`with con:` defers BEGIN to the first DML, which is the race "
+            "this fix removes.")
+
+
 class StoreFeedsResolverTests(unittest.TestCase):
 
     def test_read_state_drives_a_snapshot_end_to_end(self):

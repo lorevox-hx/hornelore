@@ -124,13 +124,43 @@ def read_overrides(con: sqlite3.Connection) -> Dict[int, bool]:
     return out
 
 
-def read_state(con: sqlite3.Connection) -> Tuple[Dict[int, bool], int]:
-    """Overrides and revision read together.
+_READ_STATE_SQL = """
+    SELECT s.revision, o.authority_id, o.enabled
+      FROM lori_guard_control_state AS s
+      LEFT JOIN lori_guard_authority_override AS o
+     WHERE s.id = 1
+"""
 
-    One call, so a snapshot cannot be built from overrides at revision N
-    and a revision number from N+1.
+
+def read_state(con: sqlite3.Connection) -> Tuple[Dict[int, bool], int]:
+    """Overrides and revision from ONE committed generation.
+
+    CORRECTED. This was two independent SELECTs with a comment claiming
+    they could not be torn — which was wrong, and the wrong half was the
+    comment. Between `read_overrides()` and `read_revision()` another
+    connection can commit, so a turn could take overrides from revision
+    7 and stamp them revision 8. That breaks the entire frozen-snapshot
+    attribution contract: the transcript would name a configuration that
+    never existed, and making the resulting dataclass immutable does not
+    help if the state used to build it was already torn.
+
+    One statement now. The singleton control row is cross-joined against
+    the override rows, so SQLite evaluates both against a single
+    consistent view and there is no window between them. A LEFT JOIN
+    with no ON clause is a cross join, and because `s` is constrained to
+    the one row it yields exactly one row per override — or a single row
+    with NULL override columns when no overrides exist.
     """
-    return read_overrides(con), read_revision(con)
+    overrides: Dict[int, bool] = {}
+    revision = 0
+    known = {item.id for item in registry.REGISTRY}
+    for rev, authority_id, enabled in con.execute(_READ_STATE_SQL):
+        revision = int(rev)
+        if authority_id is None:
+            continue                       # no overrides; singleton only
+        if int(authority_id) in known:
+            overrides[int(authority_id)] = bool(enabled)
+    return overrides, revision
 
 
 # ── Writes ────────────────────────────────────────────────────────────
@@ -148,6 +178,53 @@ def _assert_writable(authority_id: int) -> None:
             authority_id,
             "PENDING_SEAM — not separable in code yet, so an override "
             "here would be recorded but not honoured")
+
+
+class _WriteTransaction:
+    """Take the write lock BEFORE reading the revision it guards.
+
+    CORRECTED. The first version opened `with con:` and then read the
+    revision. Python's sqlite3 defers BEGIN until the first DML, so that
+    read ran outside any write transaction and two connections could
+    both observe revision 7, both pass the `expected_revision` check,
+    and both write — which is precisely the protection section P exists
+    to provide.
+
+    `BEGIN IMMEDIATE` acquires the RESERVED lock up front, so the second
+    caller waits, then reads revision 8, then correctly raises
+    StaleRevisionError instead of overwriting a newer configuration.
+
+    If the caller already has a transaction open it owns serialization
+    and this steps aside rather than raising "cannot start a transaction
+    within a transaction".
+    """
+
+    def __init__(self, con: sqlite3.Connection):
+        self._con = con
+        self._owns = False
+
+    def __enter__(self) -> sqlite3.Connection:
+        if not self._con.in_transaction:
+            self._con.execute("BEGIN IMMEDIATE")
+            self._owns = True
+        return self._con
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        if self._owns:
+            if exc_type is None:
+                self._con.commit()
+            else:
+                self._con.rollback()
+        return False
+
+
+def _advance_revision(con: sqlite3.Connection, current: int) -> int:
+    new_revision = current + 1
+    con.execute(
+        "UPDATE lori_guard_control_state "
+        "SET revision = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
+        (new_revision,))
+    return new_revision
 
 
 def apply_changes(
@@ -168,9 +245,9 @@ def apply_changes(
     for authority_id in changes:
         _assert_writable(int(authority_id))
 
-    # One transaction. `with con` commits on success and rolls back on
-    # any exception, so a refused id cannot leave a partial write.
-    with con:
+    # Serialized first, checked second, written third. Rolls back on any
+    # exception, so a refused id cannot leave a partial write.
+    with _WriteTransaction(con):
         current = read_revision(con)
         if expected_revision is not None and int(expected_revision) != current:
             raise StaleRevisionError(int(expected_revision), current)
@@ -190,12 +267,7 @@ def apply_changes(
                     "updated_at = CURRENT_TIMESTAMP",
                     (int(authority_id), 1 if value else 0))
 
-        new_revision = current + 1
-        con.execute(
-            "UPDATE lori_guard_control_state "
-            "SET revision = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
-            (new_revision,))
-    return new_revision
+        return _advance_revision(con, current)
 
 
 def all_switchable_off(con: sqlite3.Connection, *,
@@ -217,17 +289,12 @@ def restore_canonical_defaults(con: sqlite3.Connection, *,
     Deliberately a DELETE of all rows rather than writing each default
     back — see the reset reasoning in the module docstring.
     """
-    with con:
+    with _WriteTransaction(con):
         current = read_revision(con)
         if expected_revision is not None and int(expected_revision) != current:
             raise StaleRevisionError(int(expected_revision), current)
         con.execute("DELETE FROM lori_guard_authority_override")
-        new_revision = current + 1
-        con.execute(
-            "UPDATE lori_guard_control_state "
-            "SET revision = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
-            (new_revision,))
-    return new_revision
+        return _advance_revision(con, current)
 
 
 def reset_authority(con: sqlite3.Connection, authority_id: int, *,
