@@ -24,6 +24,9 @@ const vm = require("vm");
 const ROOT = path.resolve(__dirname, "..", "..");
 const failures = [];
 let checks = 0;
+/* Asynchronous checks. The report waits for these — a check that
+   resolves after the process has already printed OK is not a check. */
+const pending = [];
 
 function ok(cond, label, detail) {
   checks++;
@@ -249,9 +252,21 @@ function landedInQuestionnaire(sandbox, value) {
   }
   const doc = {
     createElement(tag) {
-      return { tag, attrs: {}, children: [],
+      return { tag, attrs: {}, children: [], _listeners: {},
                setAttribute(k, v) { this.attrs[k] = v; },
                appendChild(c) { this.children.push(c); return c; },
+               // The panel attaches real handlers; a node without this
+               // throws the moment render() builds its header, which is
+               // how the full-render check found this shim was too thin.
+               addEventListener(evt, fn) {
+                 (this._listeners[evt] = this._listeners[evt] || []).push(fn); },
+               click() { (this._listeners.click || []).forEach(f => f()); },
+               set className(v) { this.attrs.class = v; },
+               get className() { return this.attrs.class || ""; },
+               set value(v) { this.attrs.value = v; },
+               get value() { return this.attrs.value || ""; },
+               set innerHTML(v) { if (v === "") this.children = []; },
+               get innerHTML() { return ""; },
                set textContent(v) { this.children = [String(v)]; },
                get textContent() { return textOf(this); } };
     },
@@ -362,6 +377,153 @@ function landedInQuestionnaire(sandbox, value) {
     ok(/relationship_qualifier_has_no_destination/.test(refusal),
        "and the reason it carries", refusal);
 
+    /* A CORRECTLY UNDERSTOOD PHRASE IS NOT UNTRUSTED. Corrected after
+       review: every entry used to be filed under "Needs clarification
+       before it could be trusted", which sends an operator to
+       re-interview somebody about a SCHEMA gap. */
+    ok(/Understood, but no approved destination exists/.test(refusal),
+       "a no-destination record is described as understood, not doubtful",
+       refusal);
+    ok(!/could be trusted/.test(refusal),
+       "and NOT as something the narrator must clarify", refusal);
+
+    /* `measurement_failed` is its own third fact: nothing was CHECKED,
+       which is not the same as nothing being found. */
+    const failed = textOf(render({ extraction: {
+      status: "succeeded", items: [],
+      clarification_required: [{
+        kind: "meaning_disposition", disposition: "measurement_failed",
+        meaning: "meaning_disposition_accounting", value: null,
+        label: "Disposition accounting failed — whether every understood "
+             + "meaning on this turn reached a destination is UNVERIFIED",
+        proposed_fieldPath: null, not_applied: true,
+        reasons: ["meaning_disposition_failed"],
+        reason: "meaning_disposition_failed", narrator_phrase: "",
+        would_need: "a working disposition accounting pass",
+        error_class: "RuntimeError", completeness: "unverified",
+      }],
+    }}));
+    ok(/UNVERIFIED/.test(failed),
+       "an accounting failure says completeness is unverified", failed);
+    ok(!/could be trusted/.test(failed) && !/no approved destination/.test(failed),
+       "and is not filed as either a trust problem or a refusal", failed);
+
+    /* ── Phase 5C: THE OPERATOR SURFACE THAT WAS MISSING ────────────
+       These records were durable and unreachable. The only endpoint
+       serving them needed a story candidate; a disposition-only turn
+       creates none; and the browser handler chain ends at a
+       console.log. This block is the ordinary route back to them. */
+    const renderDisp = S.lvStoryReviewRenderDispositions;
+    ok(typeof renderDisp === "function",
+       "the panel exports its disposition renderer");
+    if (typeof renderDisp === "function") {
+      const surfaced = textOf(renderDisp({
+        count: 1, unverified_turns: 0,
+        counts_by_reason: { relationship_qualifier_has_no_destination: 1 },
+        items: [{
+          turn_key: "turnrow:412", item_count: 0,
+          dispositions: [{
+            disposition: "no_destination",
+            meaning: "relationship_qualifier", value: "older",
+            label: "older brother — the narrator said it and no field holds it",
+            reason: "relationship_qualifier_has_no_destination",
+            narrator_phrase: "older brother",
+            would_need: "a relative-age destination; NOT siblings.birthOrder",
+            not_applied: true,
+          }],
+        }],
+      }));
+      ok(/Understood, but no approved destination exists/.test(surfaced),
+         "a disposition-only turn is reachable and correctly described",
+         surfaced);
+      ok(/turnrow:412/.test(surfaced),
+         "bound to the committed turn it came from", surfaced);
+      ok(/narrator said: "older brother"/.test(surfaced),
+         "carrying the narrator's own words", surfaced);
+      ok(/would need:/.test(surfaced), "and what would be needed", surfaced);
+      ok(!/could be trusted/.test(surfaced),
+         "and never as a trust problem", surfaced);
+
+      /* An accounting failure reads as UNVERIFIED, not as absence. */
+      const failedBlock = textOf(renderDisp({
+        count: 1, unverified_turns: 1, counts_by_reason: {},
+        items: [{ turn_key: "turnrow:99", item_count: 0, dispositions: [{
+          disposition: "measurement_failed",
+          reason: "meaning_disposition_failed",
+          label: "Disposition accounting failed", narrator_phrase: "",
+          would_need: "a working accounting pass", not_applied: true }] }],
+      }));
+      ok(/UNVERIFIED/.test(failedBlock),
+         "an accounting failure is surfaced as unverified", failedBlock);
+
+      /* THE DISCRIMINATION. Nothing to show must show nothing. */
+      ok(renderDisp({ count: 0, items: [] }) === null,
+         "no dispositions renders no heading at all");
+
+      /* AND IT MUST BE MOUNTED BY THE SHIPPED render(), not merely
+         exported. The first version of this check called the renderer
+         directly, so deleting the appendChild in render() left the
+         records exactly as unreachable as before and nothing objected.
+         This drives the real refresh against a real mount. */
+      {
+        const mounted = { tag: "div", attrs: {}, children: [],
+          setAttribute(k, v) { this.attrs[k] = v; },
+          appendChild(c) { this.children.push(c); return c; },
+          set innerHTML(v) { if (v === "") this.children = []; },
+          get innerHTML() { return ""; },
+          set textContent(v) { this.children = [String(v)]; },
+          get textContent() { return textOf(this); } };
+        S.document.getElementById = (id) =>
+          (id === "lv10dBpStoryReview" ? mounted : null);
+        S.state = { person_id: "p-disp" };
+        S.fetch = (url) => Promise.resolve({
+          ok: true, status: 200,
+          json: () => Promise.resolve(
+            /meaning-dispositions/.test(url)
+              ? { count: 1, unverified_turns: 0, counts_by_reason: {},
+                  items: [{ turn_key: "turnrow:412", item_count: 0,
+                    dispositions: [{ disposition: "no_destination",
+                      label: "older brother", value: "older",
+                      reason: "relationship_qualifier_has_no_destination",
+                      narrator_phrase: "older brother",
+                      would_need: "a relative-age destination",
+                      not_applied: true }] }] }
+              : { items: [], count: 0, counts: {}, projection: null,
+                  fetched_at: "" }),
+        });
+        pending.push(
+          Promise.resolve(S.lvStoryReviewRefresh())
+            .then(() => new Promise(r => setTimeout(r, 0)))
+            .then(() => new Promise(r => setTimeout(r, 0)))
+            .then(() => {
+              const mountedText = textOf(mounted);
+              ok(/Understood, but no approved destination exists/.test(mountedText),
+                 "render() MOUNTS the disposition block — without this the "
+                 + "records are durable and unreachable, which was the defect",
+                 mountedText.slice(0, 300));
+            }));
+      }
+    }
+
+    /* A MIXED result keeps all three sections separate. */
+    const mixed = textOf(render({ extraction: {
+      status: "succeeded", items: [],
+      clarification_required: [
+        { kind: "meaning_disposition", disposition: "no_destination",
+          label: "older brother", reason: "relationship_qualifier_has_no_destination",
+          reasons: ["relationship_qualifier_has_no_destination"],
+          narrator_phrase: "older brother", would_need: "a relative-age destination",
+          not_applied: true, proposed_fieldPath: null },
+        { kind: "unbound_relationship", label: "Otis's relationship to you",
+          proposed_fieldPath: "parents.firstName", not_applied: true,
+          reasons: ["identity_conflict"], reason: "identity_conflict" },
+      ],
+    }}));
+    ok(/Understood, but no approved destination exists/.test(mixed)
+       && /could be trusted/.test(mixed),
+       "a mixed result shows BOTH headings, not one that fits half the rows",
+       mixed);
+
     const good = rendered.slice(rendered.indexOf("parents.deathDate"));
     ok(!/NOT FOUND/.test(good.slice(0, 60)),
        "a spoken value is NOT flagged merely for sharing the group", good);
@@ -374,9 +536,14 @@ function landedInQuestionnaire(sandbox, value) {
 }
 
 /* ── report ──────────────────────────────────────────────────────────── */
-if (failures.length) {
-  console.error("FAIL  " + failures.length + " of " + checks + " checks");
-  failures.forEach(f => console.error("  ✗ " + f));
-  process.exit(1);
-}
-console.log("OK    " + checks + " checks passed");
+Promise.all(pending).then(() => {
+  if (failures.length) {
+    console.error("FAIL  " + failures.length + " of " + checks + " checks");
+    failures.forEach(f => console.error("  ✗ " + f));
+    process.exit(1);
+  }
+  console.log("OK    " + checks + " checks passed");
+}).catch((e) => {
+  console.error("harness error: " + ((e && e.stack) || e));
+  process.exit(2);
+});

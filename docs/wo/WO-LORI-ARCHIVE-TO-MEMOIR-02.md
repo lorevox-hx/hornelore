@@ -1096,13 +1096,13 @@ record, and a test pins the silence so it reads as a decision rather than an ove
 - [x] Normalize `adult child → child` while retaining `adult`. **5C ANSWERED IT: there is no honest field, so the destination is an explicit recorded refusal.** The qualifier reaches `clarification_required` carrying the narrator's phrase and a `would_need` of *a life-stage destination — NOT an age and NOT a date of birth*. It still reaches no field, and that assertion is unchanged in `tests/test_kinship_qualifier_binding.py`; what changed is that it is no longer LOST.
 - [x] Preserve older/younger sibling qualifiers. **Same answer.** `siblings.birthOrder` exists and is still refused BY NAME: the record's `would_need` says *NOT siblings.birthOrder, which is a position in a sequence and would assert an order nobody stated*. `half` and `step` fall out of the same mechanism for free.
 - [x] Do not add `partner`; verify its existing path instead. *(5B — verified, and the verification FAILED: `partner` was quarantined at the binding decision while the schema, the relation field, the role mapper and the QA bank all supported it. All of that sits upstream of the decision. Now binds, and manufactures no marriage.)*
-- [ ] Confident source-bound fact → structured field.
-- [ ] Meaningful unmapped fact → attributed fact candidate.
-- [ ] Weak relationship binding → review candidate.
-- [ ] Genuine parse debris → rejected with source and reason.
+- [x] Confident source-bound fact → structured field. *(5 exit-gate audit, 2026-09-07.)*
+- [x] Meaningful unmapped fact → attributed fact candidate. *(5C, and reachable from `/api/operator/meaning-dispositions` — the first version was durable and unreachable.)*
+- [x] Weak relationship binding → review candidate. **Both paths.** The kinship guard already quarantined an unstated relationship; the confidence-floor drop produced nothing durable until the audit.
+- [x] Genuine parse debris → rejected with source and reason. The reason names the STEP that judged it, diffed one validator at a time.
 - [x] No meaningful interpretation silently disappears. **5C — this is now enforced rather than intended.** `server/code/api/services/meaning_disposition.py` holds a DECLARED table of reading components to destinations, and `tests/test_meaning_disposition_completeness.py` enumerates the interpreter's own `_TABLE` and fails on any component nobody has ruled on. A new qualifier or state added with nowhere to go fails there, with the component named — instead of being discovered months later the way `older` and `late wife` were.
-- [ ] Group candidates by narrator, era, person and event so review remains usable.
-- [ ] Link every structured or candidate item to its source turn.
+- [ ] Group candidates by narrator, era, person and event so review remains usable. **PARTLY — narrator and person yes; ERA and EVENT have no producer, measured, and are TRANSFERRED TO PHASE 7.** Deriving them from the runtime era is forbidden.
+- [x] Link every structured or candidate item to its source turn. At the ROW — one result belongs to one committed turn; per-item duplication would be a second copy of one truth.
 
 Do not disable `HORNELORE_CLAIMS_VALIDATORS` as a product fix. That switch gates multiple safeguards while leaving the parse-time whitelist active; it is not a clean return to earlier extraction behavior.
 
@@ -1157,8 +1157,79 @@ renderer dropping `would_need` (2 of the 42 browser checks). The
 operator view is proven by RENDERING it in
 `scripts/ui/projection_authority_domtest.js`.
 
-**Still open in Phase 5:** the four unchecked boxes above about candidate
-grouping, source-turn linkage and rejection of parse debris.
+### Corrections after review, 2026-09-07 — and the Phase 5 exit-gate audit
+
+**The count was wrong.** This closeout said "four unchecked boxes"; the
+work order carried **six**. A checklist that miscounts itself is how it
+starts describing a different repository than the one it lives in. All
+six are now audited at the production boundary in
+`tests/test_phase5_exit_gate_audit.py`.
+
+| # | Obligation | Verdict |
+|---|---|---|
+| 1 | confident source-bound fact -> structured field | ✅ SATISFIED — reaches the field with a `writeMode` a consumer reads |
+| 2 | meaningful unmapped fact -> attributed candidate | ✅ SATISFIED by 5C |
+| 3 | weak relationship binding -> review candidate | ✅ **NOW** satisfied on BOTH paths. The kinship guard already quarantined an unstated relationship; the CONFIDENCE-FLOOR path dropped the item into a log and produced nothing durable |
+| 4 | genuine parse debris -> rejected with source and reason | ✅ **NOW** satisfied. The reason is attributed to the STEP that removed it |
+| 5 | group candidates by narrator, era, person, event | ⚠️ **PARTLY — TRANSFERRED TO PHASE 7.** Narrator and person: yes. **Era and event have no producer**, and deriving one from the runtime era is forbidden. Measured, so the transfer cannot quietly stop being true |
+| 6 | link every item to its source turn | ✅ SATISFIED at the ROW, which is correct — one result belongs to one committed turn, and per-item duplication would be a second copy of one truth |
+
+**THE GAP THE AUDIT FOUND, and it was the same one a layer down.** The
+validator chain dropped items with `[extract][WO-CLAIMS-02] dropping …`
+and `cause=validator_drop` into `.runtime/logs/api.log` — gitignored,
+and it rotates. A rejection defensible only to somebody reading a log at
+the right moment is indistinguishable, on every operator surface, from
+the narrator never having said it. **The empty-result path was worse**:
+a turn whose every proposal was rejected returned an empty envelope with
+nothing durable at all. Both now emit `disposition: "rejected"` records
+naming the step that judged them, with the value and the confidence.
+
+**Attribution without touching a validator.** The steps run one at a
+time and the survivors are diffed after each, so a dropped item is
+attributed to the step that removed it. Rewriting seven accepted,
+mutation-covered validators to report their own drops would have been a
+far larger change for the same answer.
+
+**Four more corrections in the same slice:**
+
+- **The Phase 5C accounting pass was fail-open.** It caught its own
+  exception, logged "meaning with no destination went unrecorded", and
+  continued — narrator-safe, and a recreation of the exact silent loss
+  the phase prohibits. It now writes a durable
+  `measurement_failed` record: completeness for that turn is
+  **UNVERIFIED**, which is not `no_destination` and not
+  `measured_absent`. One says we looked; this says we could not.
+- **"Operator-visible" was an overstatement.**
+  `interview.js:_handleReviewEntries` tries `HorneloreClarifyFragile`
+  (**defined nowhere in the tree**) then
+  `HorneloreShadowReview.showFragileClarifications` (the module is
+  loaded and its exported API has no such function), and falls through
+  to a `console.log`. The only route serving these rows needed a story
+  candidate, and a disposition-only turn creates none — durable and
+  practically unreachable. **`GET /api/operator/meaning-dispositions`**
+  is the correction: same table, read-only, narrator-scoped, rendered
+  ABOVE the story section's collapse gate because it is not about a
+  story.
+- **The UI called a perfectly understood phrase untrusted.** Every entry
+  sat under *"Needs clarification before it could be trusted"*. Three
+  headings now: understood-but-no-destination, accounting-failed, and
+  the original trust language for genuinely fragile extraction.
+- **A test claimed a producer it did not use.** `_readings()` said it
+  built through `interpret_phrase`; it constructed
+  `RelationshipReading` directly. Renamed `_declared_rows`, the claim
+  corrected, and a real production-boundary family added that drives
+  nine narrator phrases through `readings_in` and the shipped path.
+
+**And one correction to a correction.** A comment here claimed the
+two-pass validator chain forced an EXTEND rather than an assignment,
+and said so as measured. It was not: the probe printed no rejections
+because the empty-result path discarded them, and the extend was
+credited for a fix it did not make. Mutating it back changed nothing
+observable, which is how the mis-attribution was caught. Assignment
+restored, redundant reset removed, comment corrected.
+
+**Phase 5 exit gate: TRUTHFUL for five of six obligations**, with the
+sixth measured, named and transferred rather than ticked.
 
 ## ✅ PHASE 5B COMPLETE — the narrator's wording decides the lane (2026-09-05)
 

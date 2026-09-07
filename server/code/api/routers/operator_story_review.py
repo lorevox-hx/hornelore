@@ -239,6 +239,66 @@ def api_story_review_list(
     }
 
 
+@router.get("/meaning-dispositions")
+def api_meaning_dispositions(
+    narrator_id: str = Query(..., min_length=1, description="Required narrator scope"),
+    limit: int = Query(100, ge=1, le=500),
+) -> Dict[str, Any]:
+    """Meaning the narrator stated that reached no approved field.
+
+    WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 5C, added after review.
+
+    THE SURFACE PHASE 5C WAS MISSING. The records were durable from the
+    start — bound to the committed turn, in `turn_extraction_results` —
+    and the only route serving them was the candidate DETAIL endpoint
+    below, which needs a story candidate to exist. A turn whose only
+    outcome is a disposition creates none, so the record was
+    unreachable the moment the live frame was acknowledged, and the
+    browser's own handler chain ends at a `console.log`.
+
+    Claiming an "attributed review destination" while that was true was
+    an overstatement, and this route is the correction rather than a
+    new store: same table, same rows, read-only.
+
+    **NOT a narrator-facing prompt.** `CLAUDE.md` keeps HITL review
+    asynchronous and operator-side, and a disposition is emphatically
+    not something to interrupt an interview over — the narrator said
+    something perfectly clear and the SCHEMA has the gap.
+    """
+    _require_enabled()
+    try:
+        rows = _db.turn_extraction_dispositions(narrator_id, limit=limit)
+    except Exception:
+        logger.exception(
+            "[operator-story-review] disposition read failed (narrator=%s)",
+            narrator_id)
+        raise HTTPException(status_code=503,
+                            detail="meaning dispositions unavailable")
+
+    # Counted by kind so the operator can see at a glance whether this
+    # is one odd turn or a schema gap they meet constantly.
+    by_reason: Dict[str, int] = {}
+    unverified = 0
+    for row in rows:
+        for entry in row["dispositions"]:
+            reason = str(entry.get("reason") or "")
+            by_reason[reason] = by_reason.get(reason, 0) + 1
+            if entry.get("disposition") == "measurement_failed":
+                unverified += 1
+
+    return {
+        "items": rows,
+        "count": len(rows),
+        "narrator_id": narrator_id,
+        "counts_by_reason": by_reason,
+        # Said separately because it is a different fact: these are turns
+        # where completeness could not be established at all.
+        "unverified_turns": unverified,
+        "limit": limit,
+        "fetched_at": _now_iso(),
+    }
+
+
 @router.get("/story-candidates/{candidate_id}")
 def api_story_candidate_detail(
     candidate_id: str,

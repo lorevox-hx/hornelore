@@ -9871,6 +9871,86 @@ def turn_source_text_for_key(turn_key: str) -> str:
         con.close()
 
 
+def turn_extraction_dispositions(
+    narrator_id: str,
+    limit: int = 100,
+) -> List[Dict[str, Any]]:
+    """Recorded meaning-dispositions for one narrator, newest first.
+
+    WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 5C, added after review.
+
+    WHY THIS EXISTS. Phase 5C wrote durable records saying "the narrator
+    said this, we understood it, and no approved field holds it" — and
+    then claimed they were operator-visible. **They were not.** Traced:
+    `interview.js:_handleReviewEntries` tries `HorneloreClarifyFragile`
+    (defined NOWHERE in the tree) then
+    `HorneloreShadowReview.showFragileClarifications` (the module IS
+    loaded, and its exported API has no such function), and falls
+    through to `TranscriptGuard.buildConfirmationPrompt` — a
+    `console.log`. A console log is not a review destination.
+
+    The rows themselves were fine. The only surface serving them was
+    `operator_story_review`'s candidate DETAIL route, which needs a
+    story candidate to exist — and a turn whose only outcome is a
+    disposition creates none. So the record was durable and practically
+    unreachable the moment the live frame was acknowledged.
+
+    THIS IS A READ OVER THE EXISTING TABLE. No second review store, no
+    migration, no new column: `turn_extraction_results` already holds
+    them, bound to the committed turn with narrator identity.
+
+    NARRATOR-SCOPED BY REQUIRED ARGUMENT, like
+    `turn_extraction_results_pending` — a review read with no narrator
+    is a cross-person read, and a signature keeps that boundary better
+    than a caller's discipline.
+
+    UNFILTERED BY `applied`. A disposition is not a proposal an operator
+    accepts or rejects; it is a record that something had nowhere to go.
+    Hiding it once the browser acknowledged the frame would recreate
+    exactly the disappearance this phase exists to prevent.
+    """
+    narrator_id = (narrator_id or "").strip()
+    if not narrator_id:
+        return []
+    init_db()
+    con = _connect()
+    try:
+        rows = con.execute(
+            "SELECT * FROM turn_extraction_results "
+            "WHERE narrator_id = ? "
+            "ORDER BY id DESC LIMIT ?;",
+            (narrator_id, int(limit)),
+        ).fetchall()
+    finally:
+        con.close()
+
+    out: List[Dict[str, Any]] = []
+    for raw in rows:
+        row = dict(raw)
+        entries = _json_load(row.get("clarification_required"), [])
+        # Only rows carrying a Phase 5C disposition. A fragile-fact
+        # clarification is a different fact and belongs to the surface
+        # that already shows it.
+        dispositions = [
+            e for e in (entries or [])
+            if isinstance(e, dict) and e.get("disposition")
+        ]
+        if not dispositions:
+            continue
+        out.append({
+            "id": row.get("id"),
+            "narrator_id": row.get("narrator_id"),
+            "turn_key": row.get("turn_key"),
+            "turn_id": row.get("turn_id"),
+            "session_id": row.get("session_id"),
+            "status": row.get("status"),
+            "created_at": row.get("created_at"),
+            "item_count": row.get("item_count"),
+            "dispositions": dispositions,
+        })
+    return out
+
+
 def turn_extraction_result_mark_delivered(
     narrator_id: str, turn_key: str,
 ) -> bool:

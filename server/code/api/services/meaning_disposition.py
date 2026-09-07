@@ -2,12 +2,28 @@
 
 WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 5C.
 
-THE RULE THIS ENFORCES
+WHAT THIS ENFORCES — STATED NARROWLY, ON PURPOSE
 
-    Every meaning Lori understands must reach a real field, an
-    attributed review destination, or an EXPLICIT RECORDED REFUSAL.
-    Nothing understood may silently disappear, and nothing may be
-    forced into a false schema field to avoid a review item.
+    Every meaningful component produced by the SUPPORTED RELATIONSHIP
+    INTERPRETER reaches a real field or an explicit durable
+    no-destination disposition, and new state or qualifier vocabulary
+    cannot enter undeclared.
+
+**NOT "every meaning Lori understands" across all extraction.** The
+wider claim was written first and withdrawn on review: this module
+accounts for components of `relationship_interpreter` readings, which
+is one domain of several. The validator-rejection path is covered
+separately (`rejected_record` below, added by the Phase 5 exit-gate
+audit); other extraction domains are not covered here at all, and
+saying otherwise would be the same overstatement that put an
+"operator-visible" claim on records the operator could not reach.
+
+The PHASE 5 exit gate is the wider statement, and it is audited
+obligation by obligation in `tests/test_phase5_exit_gate_audit.py`:
+
+    Every extracted proposal has a correct structured destination, an
+    attributed review/candidate destination, or a defensible rejection;
+    no valid information is forced into a false schema field.
 
 WHY ONE CONTRACT AND NOT ONE BRANCH PER CASE. Phase 5B produced the
 first instance of this — `relationship_state_has_no_destination`, with
@@ -43,16 +59,33 @@ IT INVENTS NOTHING. That is the point rather than a caveat:
     cause, or a relationship end date. It records that the narrator
     said `late wife`, and nothing else.
 
-NO SECOND REVIEW STORE. Measured before writing a line of this: the
-existing path is
+NO SECOND REVIEW STORE, AND THE OPERATOR CAN ACTUALLY REACH IT — the
+second half of that was NOT true when this module first shipped, and
+was corrected after review. `interview.js:_handleReviewEntries` tries
+`HorneloreClarifyFragile` (defined nowhere in the tree) then
+`HorneloreShadowReview.showFragileClarifications` (the module is
+loaded; its exported API has no such function), and falls through to a
+`console.log`. The only route serving these rows needed a story
+candidate, and a disposition-only turn creates none. The rows were
+durable and practically unreachable. `GET /api/operator/meaning-
+dispositions` is the correction — same table, read-only.
+
+Measured before writing a line of this: the existing path is
 `_normalize_relationship_lane` -> `clarification_required` on
 `ExtractFieldsResponse` -> `turn_extraction._clarifications` ->
 `db.turn_extraction_result_store` (a real column, JSON) ->
 `db.py:8615` on read -> `operator_story_review.py:321` ->
-`bug-panel-story-review.js:707` "Needs clarification before it could be
-trusted". It is durable, narrator-scoped, operator-visible, and
+`bug-panel-story-review.js`. It is durable and narrator-scoped, and
 `_store_result` already persists a result with NO items when only
 dispositions exist. Every record built here travels that path.
+
+Two corrections to that rendering, both after review: a no-destination
+record is NOT filed under "Needs clarification before it could be
+trusted" — when the narrator says "my older brother" they were
+perfectly clear and the SCHEMA has the gap, and telling an operator
+otherwise sends them to re-interview somebody about a missing field.
+And the panel now renders `would_need`, without which a recorded
+refusal is a silence with extra steps.
 """
 from __future__ import annotations
 
@@ -73,6 +106,24 @@ DISPOSITION_NO_DESTINATION = "no_destination"
 """Understood, and no approved destination exists. A RECORDED REFUSAL —
 which is preferable to inventing a schema field, and is not the same as
 silence."""
+
+DISPOSITION_MEASUREMENT_FAILED = "measurement_failed"
+"""ACCOUNTING ITSELF BROKE. Completeness for this turn is UNVERIFIED.
+
+Not an outcome either, and emphatically NOT a refusal. The first cut of
+this phase caught an exception from the accounting pass, logged
+"meaning with no destination went unrecorded", and continued — which is
+narrator-safe and recreates the exact silent loss Phase 5C exists to
+prohibit. A rotating gitignored log is not a durable record.
+
+The distinction that matters: `no_destination` means WE LOOKED and
+there is nowhere to put it. This means WE COULD NOT LOOK. Collapsing
+them would let a broken accounting pass read as a tidy set of
+deliberate refusals, and the count would look right.
+
+`measured_absent` is deliberately not used here either — nothing was
+queried, so nothing may be reported as absent.
+"""
 
 DISPOSITION_UNDECLARED = "undeclared"
 """NOBODY HAS RULED ON THIS COMPONENT.
@@ -263,6 +314,89 @@ def no_destination_record(
         "meaning": meaning,
         "normalized": normalized,
         "person": person or {},
+    }
+
+
+DISPOSITION_REJECTED = "rejected"
+"""A DEFENSIBLE REJECTION — the Phase 5 exit gate's third category.
+
+Distinct from `no_destination`, which says the meaning was real and the
+schema had nowhere to put it. This says a validator judged the proposal
+itself unfit: below the confidence floor, contradicted by a negation,
+outside the relation's scope, refused by the narrator.
+
+Measured during the Phase 5 exit-gate audit: these were dropped with a
+log line into `.runtime/logs/api.log`, which is gitignored and rotates.
+The exit gate asks for a rejection "with source and reason", and a
+reason that survives only in a rotating log is not one an operator can
+ever reach — indistinguishable, on every surface, from the narrator
+never having said it.
+"""
+
+
+def rejected_record(*, field_path: str, value: Any, reason: str,
+                    confidence: Any = None) -> Dict[str, Any]:
+    """One validator rejection, durable and attributed.
+
+    `reason` names the STEP that removed it, diffed one validator at a
+    time, so "we rejected this" comes with "and this is what judged it".
+    """
+    return {
+        "kind": "meaning_disposition",
+        "disposition": DISPOSITION_REJECTED,
+        "meaning": "extraction_proposal",
+        "value": value,
+        "label": f"{field_path or '(no field)'} — proposed and rejected",
+        "proposed_fieldPath": field_path or None,
+        "not_applied": True,
+        "reasons": [reason],
+        "reason": reason,
+        "narrator_phrase": "",
+        "would_need": ("nothing — this was judged unfit to write. Shown so "
+                       "a rejection is reviewable rather than only logged"),
+        "normalized": None,
+        "person": {},
+        "confidence": confidence,
+    }
+
+
+REASON_ACCOUNTING_FAILED = "meaning_disposition_failed"
+"""The reason string for a failed accounting pass."""
+
+
+def accounting_failed_record(error_class: str) -> Dict[str, Any]:
+    """A DURABLE record that completeness could not be established.
+
+    Travels the same path every other disposition does, so the failure
+    is persisted on the committed turn with the narrator's identity
+    bound — the difference between "we failed to account for this
+    meaning" and "there was nothing to preserve", which a log line
+    cannot express and a missing row cannot express at all.
+
+    CARRIES NO NARRATOR TEXT, and not even the exception's message. A
+    message can quote the input, and this record is written on a path
+    whose whole purpose is that uncertain material survives rather than
+    leaking. The exception CLASS is enough to find the fault.
+    """
+    return {
+        "kind": "meaning_disposition",
+        "disposition": DISPOSITION_MEASUREMENT_FAILED,
+        "meaning": "meaning_disposition_accounting",
+        "value": None,
+        "label": ("Disposition accounting failed — whether every understood "
+                  "meaning on this turn reached a destination is UNVERIFIED"),
+        "proposed_fieldPath": None,
+        "not_applied": True,
+        "reasons": [REASON_ACCOUNTING_FAILED],
+        "reason": REASON_ACCOUNTING_FAILED,
+        "narrator_phrase": "",
+        "would_need": ("a working disposition accounting pass; re-run "
+                       "extraction for this turn once the fault is fixed"),
+        "normalized": None,
+        "person": {},
+        "error_class": str(error_class or "Exception"),
+        # Said in the record rather than inferred by whoever reads it.
+        "completeness": "unverified",
     }
 
 

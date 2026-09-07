@@ -35,6 +35,9 @@
   const _O = (typeof ORIGIN !== 'undefined' && ORIGIN) || 'http://localhost:8000';
   const ENDPOINT = _O + '/api/operator/story-candidates';
   const REVIEW_ENDPOINT = _O + '/api/operator/story-candidates/review';
+  // WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 5C, added after review: the
+  // ONLY ordinary operator route to meaning that reached no field.
+  const DISPOSITIONS_ENDPOINT = _O + '/api/operator/meaning-dispositions';
   const DEFAULT_LIMIT = 50;
 
   // Review status -> operator-facing label. The server owns the
@@ -127,6 +130,11 @@
     edits: {},
     conflict: null,        // {id, message, current}
     actionBusy: null,      // candidate id with a write in flight
+    // Phase 5C. Narrator-scoped records of meaning with no destination.
+    // Independent of story candidates BY DESIGN: a turn whose only
+    // outcome is a disposition creates no candidate, and that was
+    // exactly the turn nobody could reach.
+    dispositions: null,
   };
 
   function _currentPersonId() {
@@ -301,7 +309,25 @@
       .then(function () {
         if (stale()) return;
         _state.loading = false; render();
-      });
+      })
+      .then(function () { if (!stale()) return fetchDispositions(pid, stale); });
+  }
+
+  /* Phase 5C. Read-only, narrator-scoped, and deliberately NOT gated on
+     a story candidate existing — that gating is what made these records
+     unreachable in the first place. A failure here costs this block and
+     never the story review beside it. */
+  function fetchDispositions(pid, stale) {
+    if (!pid) { _state.dispositions = null; return Promise.resolve(); }
+    return fetch(DISPOSITIONS_ENDPOINT + '?narrator_id=' + encodeURIComponent(pid),
+                 { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (body) {
+        if (stale && stale()) return;
+        _state.dispositions = body;
+        render();
+      })
+      .catch(function () { /* the story review must still render */ });
   }
 
   function openDetail(id) {
@@ -706,11 +732,44 @@
 
     const clar = Array.isArray(x.clarification_required)
       ? x.clarification_required : [];
-    if (clar.length) {
-      bits.push(el('div', { class: 'story-extraction-note' }, [
-        'Needs clarification before it could be trusted:']));
+
+    // ── THREE DIFFERENT FACTS, THREE DIFFERENT SENTENCES ─────────────
+    //
+    // CORRECTED after review, 2026-09-07. Every entry used to be filed
+    // under "Needs clarification before it could be trusted", and for a
+    // Phase 5C no-destination record that is FALSE. When the narrator
+    // says "my older brother", Lorevox understood them perfectly. The
+    // meaning is not doubtful and the narrator has nothing to clarify —
+    // there is simply no approved field for "older relative to the
+    // narrator". Telling an operator that a correctly understood phrase
+    // is untrustworthy sends them to re-interview somebody about a
+    // schema gap.
+    //
+    // A mixed result may contain all three, so they are separate
+    // sections rather than one list with a heading that fits some rows.
+    const _disp = function (c) { return (c && c.disposition) || ''; };
+    const groups = [
+      { rows: clar.filter(function (c) { return _disp(c) === 'no_destination'; }),
+        cls: 'story-extraction-note story-disposition-note',
+        head: 'Understood, but no approved destination exists — recorded, '
+            + 'not applied:' },
+      { rows: clar.filter(function (c) { return _disp(c) === 'measurement_failed'; }),
+        cls: 'story-extraction-note story-disposition-failed',
+        // NOT "nothing was found". Nothing was CHECKED.
+        head: 'Disposition accounting failed — completeness for this turn '
+            + 'is UNVERIFIED:' },
+      { rows: clar.filter(function (c) {
+          return _disp(c) !== 'no_destination'
+              && _disp(c) !== 'measurement_failed'; }),
+        cls: 'story-extraction-note',
+        head: 'Needs clarification before it could be trusted:' },
+    ];
+
+    groups.forEach(function (group) {
+      if (!group.rows.length) return;
+      bits.push(el('div', { class: group.cls }, [group.head]));
       bits.push(el('ul', { class: 'story-extraction-items' },
-        clar.map(function (c) {
+        group.rows.map(function (c) {
           // A QUARANTINE ENTRY HAS NO EXECUTABLE fieldPath, deliberately.
           // `proposed_fieldPath` is diagnostic evidence — what the extractor
           // wanted to write — and must never read as a destination the
@@ -791,7 +850,7 @@
                 + ' = ' + pv + pc + g + ' — not applied']);
             }))]);
         })));
-    }
+    });
 
     bits.push(el('div', { class: 'story-extraction-note' }, [
       'Nothing here has been applied. Use the controls below to decide.']));
@@ -820,6 +879,57 @@
     const conflict = renderConflict(d);
     if (conflict) bits.push(conflict);
     return el('div', { class: 'story-detail' }, bits);
+  }
+
+  /* ── Phase 5C: meaning with no destination ────────────────────────
+     THE SURFACE THAT WAS MISSING. These records were durable from the
+     day they were written and had no ordinary operator route: the only
+     endpoint serving them needed a story candidate, and a turn whose
+     only outcome is a disposition creates none. The browser's own
+     handler chain — HorneloreClarifyFragile (defined nowhere),
+     HorneloreShadowReview.showFragileClarifications (not in its
+     exported API) — ends at a console.log.
+
+     Rendered ABOVE the candidate list because it is not about a story:
+     it is about what the schema could not hold. */
+  function renderDispositions(body) {
+    const d = body || {};
+    const rows = d.items || [];
+    if (!rows.length) return null;
+
+    const total = rows.reduce(function (n, r) {
+      return n + ((r.dispositions || []).length); }, 0);
+    const kids = [
+      el('div', { class: 'story-disposition-head' }, [
+        'Understood, but no approved destination exists — ' + total
+        + ' across ' + rows.length + ' turn(s)']),
+    ];
+    if (d.unverified_turns) {
+      // A DIFFERENT FACT. Not "nothing was found" — nothing was checked.
+      kids.push(el('div', { class: 'story-disposition-failed' }, [
+        d.unverified_turns + ' turn(s) where disposition accounting '
+        + 'FAILED — completeness is UNVERIFIED']));
+    }
+    kids.push(el('ul', { class: 'story-extraction-items' },
+      rows.map(function (row) {
+        return el('li', {}, [
+          (row.turn_key || '(no turn key)'),
+          el('ul', { class: 'story-extraction-items' },
+            (row.dispositions || []).map(function (e) {
+              const bits = [];
+              if (e.narrator_phrase) bits.push('narrator said: "' + e.narrator_phrase + '"');
+              if (e.value) bits.push('meaning: ' + e.value);
+              if (e.would_need) bits.push('would need: ' + e.would_need);
+              return el('li', {}, [
+                (e.label || e.reason || '') + ' — ' + (e.reason || '')
+                + ' [not applied]',
+                el('ul', { class: 'story-extraction-items' },
+                   bits.map(function (b) { return el('li', {}, [b]); })),
+              ]);
+            })),
+        ]);
+      })));
+    return el('div', { class: 'story-dispositions' }, kids);
   }
 
   function renderRow(item) {
@@ -945,6 +1055,21 @@
 
     mount.appendChild(renderHeader());
 
+    // ── Phase 5C: ABOVE THE COLLAPSE GATE, DELIBERATELY ──────────────
+    //
+    // The story section is collapsed by default because it is a
+    // historical backlog. These records are not that: they are the ONLY
+    // ordinary operator route to meaning the narrator stated that
+    // reached no field, and burying them behind a collapse — inside a
+    // section about STORIES, which they are not — would leave them
+    // exactly as unreachable as they were when the browser's handler
+    // chain ended at a console.log.
+    //
+    // It renders NOTHING when there are none, so an ordinary session is
+    // visually unchanged.
+    const dispositionBlock = renderDispositions(_state.dispositions);
+    if (dispositionBlock) mount.appendChild(dispositionBlock);
+
     // Collapsed by default — this is a historical operator backlog, not the
     // live Lori-chat capture surface (that is Travel Doc \u2192 Story notes).
     if (_state.collapsed) {
@@ -995,6 +1120,9 @@
   // the operator actually sees the proposed values; the same class of
   // false confidence that the `disabled: undefined` note above describes.
   window.lvStoryReviewRenderExtraction = renderExtraction;
+  // Phase 5C: exported for the same reason — a source scan cannot tell
+  // whether the operator actually SEES these.
+  window.lvStoryReviewRenderDispositions = renderDispositions;
 
   window.lvStoryReviewRefresh = fetchReview;
   window.lvStoryReviewOnNarratorSwitch = onNarratorSwitch;

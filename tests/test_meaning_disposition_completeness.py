@@ -51,19 +51,28 @@ from api.services import relationship_interpreter as ri   # noqa: E402
 FIELDS = set(ex.EXTRACTABLE_FIELDS)
 
 
-def _readings():
-    """One representative reading per row of the shipped table.
+def _declared_rows():
+    """One `RelationshipReading` per row of the shipped vocabulary table.
 
-    Built through `interpret_phrase`, the production entry point, so a
-    row whose pattern stops matching its own canonical phrase fails here
-    rather than being silently skipped.
+    CONSTRUCTED DIRECTLY, AND THE NAME NOW SAYS SO. The first version of
+    this helper was called `_readings` and claimed in its docstring to
+    build them "through `interpret_phrase`, the production entry point".
+    It did not — it constructed `RelationshipReading` from `ri._TABLE` —
+    and a comment describing a production boundary the code does not
+    cross is the repository's own recorded failure mode.
+
+    Direct construction is the RIGHT tool for the job this helper has,
+    which is enumerating the DECLARED vocabulary so no row can lack a
+    disposition ruling. It is not, and must not be mistaken for,
+    evidence that the interpreter produces those readings from real
+    narrator wording. `ProducedByTheRealInterpreter` below does that,
+    through `readings_in` and the shipped extraction path.
     """
-    out = []
-    for pattern, group, relation, state, qualifier in ri._TABLE:
-        out.append(ri.RelationshipReading(
-            group=group, relation=relation, state=state,
-            qualifier=qualifier, source_phrase=relation))
-    return out
+    return [
+        ri.RelationshipReading(group=group, relation=relation, state=state,
+                               qualifier=qualifier, source_phrase=relation)
+        for _pattern, group, relation, state, qualifier in ri._TABLE
+    ]
 
 
 class TheTableItselfIsNonEmpty(unittest.TestCase):
@@ -89,7 +98,7 @@ class EveryComponentOfEveryReadingIsRuledOn(unittest.TestCase):
 
     def test_no_component_is_undeclared(self):
         undeclared = []
-        for reading in _readings():
+        for reading in _declared_rows():
             for component in md.COMPONENTS:
                 disposition, _dest = md.destination_for(
                     reading, component, FIELDS)
@@ -106,7 +115,7 @@ class EveryComponentOfEveryReadingIsRuledOn(unittest.TestCase):
             "\n  ".join(undeclared))
 
     def test_every_disposition_is_from_the_declared_vocabulary(self):
-        for reading in _readings():
+        for reading in _declared_rows():
             for component in md.COMPONENTS:
                 disposition, _dest = md.destination_for(
                     reading, component, FIELDS)
@@ -118,7 +127,7 @@ class EveryComponentOfEveryReadingIsRuledOn(unittest.TestCase):
 
     def test_a_field_disposition_actually_names_something(self):
         """A destination of `None` alongside `field` would be a lie."""
-        for reading in _readings():
+        for reading in _declared_rows():
             for component in md.COMPONENTS:
                 disposition, dest = md.destination_for(
                     reading, component, FIELDS)
@@ -310,6 +319,424 @@ class ItSurvivesToTheOperator(unittest.TestCase):
         paths = [i.fieldPath for i in resp.items]
         self.assertNotIn("siblings.birthOrder", paths)
         self.assertIn("siblings.firstName", paths)
+
+
+#: The eight no-destination families, as a narrator would actually say
+#: them. Driven through the REAL producer, not constructed.
+PRODUCTION_CASES = (
+    ("older",       "My older brother Ray was a welder.",
+     ("siblings.firstName", "Ray"),  md.REASON_QUALIFIER_HAS_NO_DESTINATION),
+    ("younger",     "My younger sister Joan moved away.",
+     ("siblings.firstName", "Joan"), md.REASON_QUALIFIER_HAS_NO_DESTINATION),
+    ("adult",       "My adult daughter Nina lives in Boston.",
+     ("family.children.firstName", "Nina"),
+     md.REASON_QUALIFIER_HAS_NO_DESTINATION),
+    ("grown",       "My grown son Peter took over the shop.",
+     ("family.children.firstName", "Peter"),
+     md.REASON_QUALIFIER_HAS_NO_DESTINATION),
+    ("half",        "My half-sister Joan lived upstate.",
+     ("siblings.firstName", "Joan"),  md.REASON_QUALIFIER_HAS_NO_DESTINATION),
+    ("step",        "My step-brother Alan joined the navy.",
+     ("siblings.firstName", "Alan"),  md.REASON_QUALIFIER_HAS_NO_DESTINATION),
+    ("deceased",    "My late wife Susan taught school.",
+     ("family.spouse.firstName", "Susan"),
+     md.REASON_DECEASED_HAS_NO_DESTINATION),
+    ("grandparent", "My grandmother Elsie kept bees.",
+     ("grandparents.firstName", "Elsie"),
+     md.REASON_RELATION_HAS_NO_DESTINATION),
+    ("greatgrand",  "My great-grandmother Ada came over in 1901.",
+     ("greatGrandparents.firstName", "Ada"),
+     md.REASON_RELATION_HAS_NO_DESTINATION),
+)
+
+
+class ProducedByTheRealInterpreter(unittest.TestCase):
+    """THE PRODUCTION BOUNDARY the enumeration above does not cross.
+
+    `_declared_rows` proves every DECLARED vocabulary row has a ruling.
+    It constructs its readings, so it cannot show that the interpreter
+    produces them from what a narrator actually says — and a helper
+    claiming otherwise is the failure this repository has paid for most
+    often.
+
+    So these drive the real phrase through `readings_in`, the shipped
+    producer, and then through the shipped extraction path.
+    """
+
+    def _run(self, answer, item_pair):
+        from tests.test_kinship_qualifier_binding import item, run
+        return run(answer, [item(*item_pair)])
+
+    def test_the_interpreter_really_reads_each_phrase(self):
+        """Non-vacuity FIRST. If `readings_in` returns nothing, every
+        assertion below would pass by finding nothing to place."""
+        for name, answer, _item, _reason in PRODUCTION_CASES:
+            with self.subTest(case=name):
+                self.assertTrue(
+                    ri.readings_in(answer),
+                    f"the shipped interpreter reads nothing in {answer!r}")
+
+    def test_each_family_reaches_the_envelope_from_a_real_phrase(self):
+        for name, answer, item_pair, reason in PRODUCTION_CASES:
+            with self.subTest(case=name):
+                resp = self._run(answer, item_pair)
+                reasons = [c.get("reason")
+                           for c in (resp.clarification_required or [])]
+                self.assertIn(reason, reasons,
+                              f"{name}: {answer!r} produced {reasons}")
+
+    def test_each_record_carries_the_phrase_the_narrator_used(self):
+        for name, answer, item_pair, reason in PRODUCTION_CASES:
+            with self.subTest(case=name):
+                resp = self._run(answer, item_pair)
+                recs = [c for c in (resp.clarification_required or [])
+                        if c.get("reason") == reason]
+                self.assertTrue(recs)
+                for rec in recs:
+                    self.assertTrue(rec["narrator_phrase"])
+                    self.assertIn(rec["narrator_phrase"].split()[-1].lower(),
+                                  answer.lower())
+
+    def test_no_family_invents_a_field(self):
+        for name, answer, item_pair, _reason in PRODUCTION_CASES:
+            with self.subTest(case=name):
+                resp = self._run(answer, item_pair)
+                paths = [i.fieldPath for i in resp.items]
+                for invented in ("siblings.birthOrder",
+                                 "family.children.birthOrder",
+                                 "personal.birthOrder",
+                                 "grandparents.deathDate"):
+                    self.assertNotIn(invented, paths)
+
+
+class AnAccountingFailureIsItselfDurable(unittest.TestCase):
+    """CORRECTION, found in review of the pushed Phase 5C.
+
+    The pass used to catch its own exception, log
+    "meaning with no destination went unrecorded", and continue. The
+    narrator keeps their turn — correct — but a rotating gitignored log
+    is not a record, and the result is exactly the silent loss this
+    phase prohibits.
+
+    `measurement_failed` is NOT `no_destination`. One says we looked and
+    there is nowhere to put it; the other says we could not look.
+    """
+
+    def _run_with_broken_accounting(self):
+        from unittest import mock
+        from tests.test_kinship_qualifier_binding import item, run
+        with mock.patch.object(md, "account_for_readings",
+                               side_effect=RuntimeError("boom")):
+            return run("My older brother Ray was a welder.",
+                       [item("siblings.firstName", "Ray")])
+
+    def test_the_turn_still_succeeds(self):
+        resp = self._run_with_broken_accounting()
+        self.assertEqual([("siblings.firstName", "Ray")],
+                         [(i.fieldPath, i.value) for i in resp.items])
+
+    def test_the_failure_is_recorded_not_swallowed(self):
+        resp = self._run_with_broken_accounting()
+        recs = [c for c in (resp.clarification_required or [])
+                if c.get("reason") == md.REASON_ACCOUNTING_FAILED]
+        self.assertEqual(1, len(recs), resp.clarification_required)
+        rec = recs[0]
+        self.assertEqual(md.DISPOSITION_MEASUREMENT_FAILED, rec["disposition"])
+        self.assertEqual("unverified", rec["completeness"])
+        self.assertEqual("RuntimeError", rec["error_class"])
+        self.assertTrue(rec["not_applied"])
+
+    def test_it_is_not_filed_as_a_refusal(self):
+        """Filing it as `no_destination` would claim we looked."""
+        resp = self._run_with_broken_accounting()
+        for rec in (resp.clarification_required or []):
+            if rec.get("reason") == md.REASON_ACCOUNTING_FAILED:
+                self.assertNotEqual(md.DISPOSITION_NO_DESTINATION,
+                                    rec["disposition"])
+
+    def test_it_carries_no_narrator_text(self):
+        """Not even the exception message, which can quote the input."""
+        resp = self._run_with_broken_accounting()
+        recs = [c for c in (resp.clarification_required or [])
+                if c.get("reason") == md.REASON_ACCOUNTING_FAILED]
+        blob = " ".join(str(v) for v in recs[0].values()).lower()
+        for word in ("ray", "brother", "welder", "boom"):
+            self.assertNotIn(word, blob)
+
+
+class ItIsDurableOnTheCommittedTurn(unittest.TestCase):
+    """A disposition-only turn must PERSIST and READ BACK.
+
+    The earlier suite stopped at `ExtractFieldsResponse`. A record that
+    reaches a response and not a row is gone the moment the frame is
+    acknowledged — and this is the Phase 3 behaviour that
+    `_store_result` persists a review-only result with ZERO executable
+    items, exercised here rather than assumed.
+
+    THE PERSISTED ROW IS NOT HAND-BUILT. It is written by the shipped
+    store function and read back by the shipped accessor.
+    """
+
+    def setUp(self):
+        import importlib
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self._prev = {k: os.environ.get(k) for k in ("DATA_DIR", "DB_NAME")}
+        os.environ["DATA_DIR"] = self._tmp.name
+        os.environ["DB_NAME"] = "test_disposition_durability.sqlite3"
+        from api import db as _db
+        importlib.reload(_db)
+        self.db = _db
+        self.db.init_db()
+        self.assertTrue(str(self.db.DB_PATH).startswith(self._tmp.name),
+                        f"refusing to run against {self.db.DB_PATH}")
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        import importlib
+        for key, value in self._prev.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        from api import db as _db
+        importlib.reload(_db)
+
+    def test_a_disposition_only_result_persists_and_reads_back(self):
+        from api.services import turn_extraction as te
+
+        answer = "My older brother Ray was a welder."
+        dispositions = md.account_for_readings(answer, FIELDS)
+        self.assertTrue(dispositions, "fixture would prove nothing")
+
+        person = self.db.create_person(display_name="Disposition Probe")
+        # A REAL LEDGER ROW. `turn_extraction_results.ledger_id` is a
+        # foreign key, and the first version of this test passed a
+        # literal 1 and was refused with IntegrityError — the shipped
+        # store rejecting a shape production never produces, which is
+        # exactly why the row is not hand-built here.
+        ledger_id = self.db.turn_extraction_claim(
+            narrator_id=person["id"], turn_key="tk-disposition-only",
+            turn_id="turn-1", session_id="sess-1", turn_mode="interview",
+            source="test")
+        self.assertIsNotNone(ledger_id)
+        claim = te._Claim(
+            ledger_id=ledger_id, started=0.0, narrator_id=person["id"],
+            turn_id="turn-1", turn_key="tk-disposition-only",
+            session_id="sess-1", turn_mode="interview", source="test",
+            user_text=answer,
+        )
+        # ZERO executable items. This is the case Phase 3 opened the
+        # store for and the case Phase 5C depends on.
+        te._store_result(claim, [], dispositions, "test")
+
+        rows = self.db.turn_extraction_results_pending(person["id"])
+        self.assertEqual(1, len(rows), rows)
+        row = rows[0]
+        self.assertEqual(person["id"], row["narrator_id"])
+        self.assertEqual("tk-disposition-only", row["turn_key"])
+
+        stored = row["clarification_required"]
+        self.assertTrue(stored, "the disposition did not survive the round trip")
+        rec = stored[0]
+        for key in ("reason", "narrator_phrase", "would_need", "not_applied",
+                    "disposition", "meaning"):
+            self.assertIn(key, rec)
+        self.assertEqual(md.REASON_QUALIFIER_HAS_NO_DESTINATION, rec["reason"])
+        self.assertEqual("older brother", rec["narrator_phrase"])
+        self.assertEqual(md.DISPOSITION_NO_DESTINATION, rec["disposition"])
+        self.assertTrue(rec["not_applied"])
+        self.assertIn("NOT siblings.birthOrder", rec["would_need"])
+
+    def test_an_empty_turn_still_writes_nothing(self):
+        """The discrimination. `_store_result` must not have become a
+        function that writes a row for every turn."""
+        from api.services import turn_extraction as te
+        person = self.db.create_person(display_name="Quiet Probe")
+        ledger_id = self.db.turn_extraction_claim(
+            narrator_id=person["id"], turn_key="tk-empty", turn_id="turn-2",
+            session_id="sess-1", turn_mode="interview", source="test")
+        claim = te._Claim(
+            ledger_id=ledger_id, started=0.0, narrator_id=person["id"],
+            turn_id="turn-2", turn_key="tk-empty", session_id="sess-1",
+            turn_mode="interview", source="test", user_text="It was warm.")
+        te._store_result(claim, [], [], "test")
+        self.assertEqual(
+            [], self.db.turn_extraction_results_pending(person["id"]))
+
+
+class ItHasAnOrdinaryOperatorRoute(ItIsDurableOnTheCommittedTurn):
+    """CORRECTION. "Operator-visible" was an overstatement.
+
+    Traced in review: `interview.js:_handleReviewEntries` tries
+    `HorneloreClarifyFragile` — **defined nowhere in the tree** — then
+    `HorneloreShadowReview.showFragileClarifications`, and the module IS
+    loaded while its exported API contains no such function. Both miss,
+    and the chain ends at `TranscriptGuard.buildConfirmationPrompt`
+    inside a `console.log`.
+
+    The rows were durable the whole time. The only route serving them
+    was the story-candidate DETAIL endpoint, and a turn whose only
+    outcome is a disposition creates no candidate — so the record became
+    unreachable the moment the live frame was acknowledged.
+
+    A console log is not a review destination. These prove the real one,
+    over the SAME table: no second store, no migration.
+    """
+
+    def _seed(self, answer="My older brother Ray was a welder."):
+        from api.services import turn_extraction as te
+        person = self.db.create_person(display_name="Route Probe")
+        recs = md.account_for_readings(answer, FIELDS)
+        self.assertTrue(recs, "fixture would prove nothing")
+        ledger_id = self.db.turn_extraction_claim(
+            narrator_id=person["id"], turn_key="tk-route", turn_id="t1",
+            session_id="s1", turn_mode="interview", source="test")
+        te._store_result(te._Claim(
+            ledger_id=ledger_id, started=0.0, narrator_id=person["id"],
+            turn_id="t1", turn_key="tk-route", session_id="s1",
+            turn_mode="interview", source="test", user_text=answer), [],
+            recs, "test")
+        return person
+
+    def test_the_accessor_finds_a_disposition_only_turn(self):
+        person = self._seed()
+        rows = self.db.turn_extraction_dispositions(person["id"])
+        self.assertEqual(1, len(rows))
+        self.assertEqual(0, rows[0]["item_count"],
+                         "this is the zero-executable-item case")
+        self.assertEqual("tk-route", rows[0]["turn_key"])
+        self.assertTrue(rows[0]["dispositions"])
+
+    def test_it_is_narrator_scoped(self):
+        mine = self._seed()
+        other = self.db.create_person(display_name="Someone Else")
+        self.assertEqual([], self.db.turn_extraction_dispositions(other["id"]))
+        self.assertEqual([], self.db.turn_extraction_dispositions(""))
+        self.assertEqual(1, len(self.db.turn_extraction_dispositions(mine["id"])))
+
+    def test_a_plain_result_is_not_listed(self):
+        """The discrimination. Without it the route would return every
+        extraction result and mean nothing."""
+        from api.services import turn_extraction as te
+        person = self.db.create_person(display_name="Plain Probe")
+        ledger_id = self.db.turn_extraction_claim(
+            narrator_id=person["id"], turn_key="tk-plain", turn_id="t9",
+            session_id="s1", turn_mode="interview", source="test")
+        te._store_result(te._Claim(
+            ledger_id=ledger_id, started=0.0, narrator_id=person["id"],
+            turn_id="t9", turn_key="tk-plain", session_id="s1",
+            turn_mode="interview", source="test", user_text="x"),
+            [{"fieldPath": "personal.firstName", "value": "Ray"}], [], "test")
+        self.assertEqual([], self.db.turn_extraction_dispositions(person["id"]))
+
+    def test_the_route_serves_it(self):
+        import importlib
+        try:
+            from fastapi import FastAPI
+            from fastapi.testclient import TestClient
+        except Exception as exc:                     # pragma: no cover
+            self.skipTest(f"fastapi unavailable: {exc}")
+        person = self._seed()
+        os.environ["HORNELORE_OPERATOR_STORY_REVIEW"] = "1"
+        self.addCleanup(os.environ.pop, "HORNELORE_OPERATOR_STORY_REVIEW", None)
+        from api.routers import operator_story_review as _osr
+        importlib.reload(_osr)
+        app = FastAPI()
+        app.include_router(_osr.router)
+        resp = TestClient(app).get(
+            "/api/operator/meaning-dispositions"
+            f"?narrator_id={person['id']}")
+        self.assertEqual(200, resp.status_code, resp.text)
+        body = resp.json()
+        self.assertEqual(1, body["count"])
+        self.assertIn(md.REASON_QUALIFIER_HAS_NO_DESTINATION,
+                      body["counts_by_reason"])
+        entry = body["items"][0]["dispositions"][0]
+        self.assertEqual("older brother", entry["narrator_phrase"])
+        self.assertIn("NOT siblings.birthOrder", entry["would_need"])
+        self.assertTrue(entry["not_applied"])
+
+    def test_the_route_is_404_when_the_feature_is_off(self):
+        import importlib
+        try:
+            from fastapi import FastAPI
+            from fastapi.testclient import TestClient
+        except Exception as exc:                     # pragma: no cover
+            self.skipTest(f"fastapi unavailable: {exc}")
+        person = self._seed()
+        os.environ["HORNELORE_OPERATOR_STORY_REVIEW"] = "0"
+        self.addCleanup(os.environ.pop, "HORNELORE_OPERATOR_STORY_REVIEW", None)
+        from api.routers import operator_story_review as _osr
+        importlib.reload(_osr)
+        app = FastAPI()
+        app.include_router(_osr.router)
+        resp = TestClient(app).get(
+            "/api/operator/meaning-dispositions"
+            f"?narrator_id={person['id']}")
+        self.assertEqual(404, resp.status_code)
+
+    def test_an_accounting_failure_is_surfaced_as_unverified(self):
+        from api.services import turn_extraction as te
+        person = self.db.create_person(display_name="Failed Probe")
+        ledger_id = self.db.turn_extraction_claim(
+            narrator_id=person["id"], turn_key="tk-failed", turn_id="t2",
+            session_id="s1", turn_mode="interview", source="test")
+        te._store_result(te._Claim(
+            ledger_id=ledger_id, started=0.0, narrator_id=person["id"],
+            turn_id="t2", turn_key="tk-failed", session_id="s1",
+            turn_mode="interview", source="test", user_text="x"), [],
+            [md.accounting_failed_record("RuntimeError")], "test")
+        rows = self.db.turn_extraction_dispositions(person["id"])
+        self.assertEqual(1, len(rows))
+        self.assertEqual(md.DISPOSITION_MEASUREMENT_FAILED,
+                         rows[0]["dispositions"][0]["disposition"])
+
+
+class TheBrowserHandlerChainIsRecordedAsBROKEN(unittest.TestCase):
+    """Measured, so the finding cannot quietly stop being true.
+
+    If somebody later implements one of these handlers, this fails and
+    the record above must be corrected rather than left describing a
+    world that has moved on.
+    """
+
+    def _ui(self, name):
+        return (ROOT / "ui" / "js" / name).read_text(
+            encoding="utf-8", errors="replace")
+
+    def test_HorneloreClarifyFragile_is_defined_nowhere(self):
+        import re
+        defined = []
+        for path in (ROOT / "ui" / "js").glob("*.js"):
+            text = path.read_text(encoding="utf-8", errors="replace")
+            # `=(?!=)` because `=== "function"` in the CONSUMER also
+            # contains an `=`, and the first version of this matched the
+            # `typeof` check in interview.js and reported a definition
+            # that does not exist. An assignment, not a comparison.
+            if re.search(r"(window|global)\.HorneloreClarifyFragile\s*=(?!=)",
+                         text):
+                defined.append(path.name)
+        self.assertEqual(
+            [], defined,
+            "HorneloreClarifyFragile now exists — the disposition route's "
+            "docstrings say it does not. Correct them.")
+
+    def test_shadow_review_exports_no_fragile_clarification_handler(self):
+        text = self._ui("shadow-review.js")
+        export = text[text.index("global.HorneloreShadowReview = {"):]
+        self.assertNotIn(
+            "showFragileClarifications", export.split("};")[0],
+            "shadow-review now exports showFragileClarifications — the "
+            "finding recorded in db.turn_extraction_dispositions is stale.")
+
+    def test_the_fallback_really_is_a_console_log(self):
+        text = self._ui("interview.js")
+        chain = text[text.index("_handleReviewEntries"):]
+        chain = chain[:chain.index("function applyCompletedTurnExtractionResult")]
+        self.assertIn("buildConfirmationPrompt", chain)
+        self.assertIn("console.log", chain)
 
 
 if __name__ == "__main__":

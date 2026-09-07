@@ -291,7 +291,107 @@ async function main() {
        "and the corrected configuration is what the operator now sees");
   }
 
-  /* ── 9. an off backend renders a placeholder ──────────────────────── */
+  /* ── 9. OUT-OF-ORDER NARRATOR RESPONSES ──────────────────────────── */
+  {
+    // The defect found in review of the pushed Block A. A slow answer
+    // about narrator A must never repaint a card that now shows B.
+    const app = (() => {
+      let personId = "p-test";
+      const resolvers = [];
+      const fetchFn = recorder((entry) => new Promise(resolve => {
+        resolvers.push({ url: entry.url, resolve });
+      }));
+      const document = makeDocument();
+      const mount = document._mount("lvOperatorGuardLabCard");
+      document._mount("lv10dBugPanel"); document._mount("lv10dBpGuardLab");
+      const sandbox = {
+        console: { log() {}, warn() {}, error() {} },
+        document, fetch: fetchFn,
+        get state() { return { person_id: personId }; },
+        JSON, String, Object, Array, Math, Date, Promise, encodeURIComponent,
+        setTimeout, clearTimeout,
+      };
+      sandbox.window = sandbox; sandbox.globalThis = sandbox;
+      vm.createContext(sandbox);
+      vm.runInContext(fs.readFileSync(
+        path.join(ROOT, "ui", "js", "operator-guard-lab-card.js"), "utf8"),
+        sandbox, { filename: "operator-guard-lab-card.js" });
+      return { sandbox, mount, resolvers, fetchFn,
+               setPerson: (v) => { personId = v; } };
+    })();
+
+    await tick();
+    ok(app.resolvers.length === 1, "request A is in flight");
+    ok(/narrator_id=p-test/.test(app.resolvers[0].url), "and it names A");
+
+    // The operator switches to B while A is still outstanding.
+    app.setPerson("p-real");
+    app.sandbox.lvOperatorGuardLabOnNarratorSwitch("p-real");
+    await tick();
+    ok(app.resolvers.length === 2, "the switch issues a request for B");
+    ok(/narrator_id=p-real/.test(app.resolvers[1].url), "naming B");
+
+    // B answers FIRST, then A arrives late.
+    app.resolvers[1].resolve({ status: 200,
+      json: () => Promise.resolve(withNarrator(REAL_STATE, ORDINARY)) });
+    await tick(); await tick();
+    app.resolvers[0].resolve({ status: 200,
+      json: () => Promise.resolve(withNarrator(REAL_STATE, ELIGIBLE)) });
+    await tick(); await tick();
+
+    const st = app.sandbox.lvOperatorGuardLabState();
+    eq(st.data.current_narrator.requested_id, "p-real",
+       "the LATE answer about A did not replace B — this is the defect");
+    st.collapsed = false;
+    app.sandbox.lvOperatorGuardLabRenderInto(app.mount, st);
+    const text = textOf(app.mount);
+    ok(text.indexOf("Ordinary Narrator") !== -1,
+       "the card still shows the narrator who is selected", text);
+    ok(text.indexOf("Guard Lab Test Narrator") === -1,
+       "and never the one who is not", text);
+  }
+
+  /* ── 10. a stale ERROR does not overwrite newer state either ──────── */
+  {
+    let personId = "p-test";
+    const resolvers = [];
+    const fetchFn = recorder(() => new Promise((resolve, reject) => {
+      resolvers.push({ resolve, reject });
+    }));
+    const document = makeDocument();
+    const mount = document._mount("lvOperatorGuardLabCard");
+    const sandbox = {
+      console: { log() {}, warn() {}, error() {} },
+      document, fetch: fetchFn,
+      get state() { return { person_id: personId }; },
+      JSON, String, Object, Array, Math, Date, Promise, encodeURIComponent,
+      setTimeout, clearTimeout,
+    };
+    sandbox.window = sandbox; sandbox.globalThis = sandbox;
+    vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(
+      path.join(ROOT, "ui", "js", "operator-guard-lab-card.js"), "utf8"),
+      sandbox, { filename: "operator-guard-lab-card.js" });
+    await tick();
+
+    personId = "p-real";
+    sandbox.lvOperatorGuardLabOnNarratorSwitch("p-real");
+    await tick();
+    resolvers[1].resolve({ status: 200,
+      json: () => Promise.resolve(withNarrator(REAL_STATE, ORDINARY)) });
+    await tick(); await tick();
+    resolvers[0].reject(new Error("A timed out"));
+    await tick(); await tick();
+
+    const st = sandbox.lvOperatorGuardLabState();
+    ok(!st.error,
+       "narrator A's timeout is not shown on narrator B's card",
+       String(st.error));
+    eq(st.data.current_narrator.requested_id, "p-real",
+       "and B's state survives it");
+  }
+
+  /* ── 11. an off backend renders a placeholder ─────────────────────── */
   {
     const app = load(recorder(() => jsonResponse(404, null)), "p-test");
     await tick(); await tick();

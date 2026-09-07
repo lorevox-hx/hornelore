@@ -7137,33 +7137,106 @@ def _apply_claims_validators(items: List[dict], answer: str = "") -> List[dict]:
         return items  # if flag module fails, skip gracefully
 
     before = len(items)
-    # WO-EX-GUARD-REFUSAL-01: refusal guard fires first — if narrator refuses
-    # the topic entirely, strip everything before wasting time on other checks.
-    items = _apply_refusal_guard(items, answer)
+
+    # ── PHASE 5 OBLIGATION 4: A REJECTION NEEDS A SOURCE AND A REASON ──
+    #
+    # Measured during the Phase 5 exit-gate audit: this chain dropped
+    # items with `[extract][WO-CLAIMS-02] dropping ...` and
+    # `cause=validator_drop` — into `.runtime/logs/api.log`, which is
+    # gitignored and rotates. So a "defensible rejection" was defensible
+    # only to somebody reading a log file at the right moment, and to
+    # every operator surface it was indistinguishable from the narrator
+    # never having said it. That is the SAME silent loss Phase 5C fixed
+    # one layer up, and the audit found it here rather than assuming
+    # this layer was fine.
+    #
+    # ATTRIBUTION WITHOUT TOUCHING A SINGLE VALIDATOR. The steps run one
+    # at a time and the survivors are diffed after each, so a dropped
+    # item is attributed to the step that actually removed it. Rewriting
+    # seven validators to report their own drops would have been a much
+    # larger change to accepted, mutation-covered code for the same
+    # answer.
+    _rejected: List[Dict[str, Any]] = []
+
+    def _step(fn, reason, *args, **kwargs):
+        nonlocal items
+        survivors = fn(items, *args, **kwargs)
+        kept = {id(i) for i in survivors}
+        for item in items:
+            if id(item) not in kept:
+                _rejected.append((item, reason))
+        items = survivors
+        return survivors
+
+    _step(_apply_refusal_guard, "rejected_narrator_refusal", answer)
     if not items and before > 0:
         logger.info("[extract][WO-CLAIMS-02] refusal guard stripped all %d items", before)
-        return items
-    items = _apply_claims_value_shape(items)
+        return _finish_claims_validators(items, _rejected, before)
+    _step(_apply_claims_value_shape, "rejected_value_shape")
     # LOOP-01 R4 Patch A — cap scalar/narrative field values before the
     # other validators run. Catches LLM answer-dumps early so downstream
     # stages don't waste cycles on 500+ char scalar values.
-    items = _apply_value_length_cap(items)
-    items = _apply_claims_relation_allowlist(items)
+    _step(_apply_value_length_cap, "rejected_value_length_cap")
+    _step(_apply_claims_relation_allowlist, "rejected_relation_allowlist")
     # LOOP-01 R4 Patch E — relation-scope safety; eliminates must_not_write
     # violations where family.children.* was written from an uncle/aunt
     # anecdote or parents.* was written from a sibling anecdote.
-    items = _apply_relation_scope_guard(items, answer)
+    _step(_apply_relation_scope_guard, "rejected_relation_scope", answer)
     # LOOP-01 R4 Patch H — normalise scalar surface forms (birthOrder, dates,
     # names) AFTER the shape/allowlist/scope checks have filtered the bad
     # items but BEFORE confidence-floor and negation-guard. Keeps values
     # consistent for downstream consumers and scorers without affecting
     # guard decisions (both check against the raw answer text).
     items = _apply_write_time_normalisation(items)
-    items = _apply_claims_confidence_floor(items)
-    items = _apply_negation_guard(items, answer)
+    _step(_apply_claims_confidence_floor, "rejected_confidence_floor")
+    _step(_apply_negation_guard, "rejected_negation_guard", answer)
+    return _finish_claims_validators(items, _rejected, before)
+
+
+#: Where the current turn's validator rejections are parked between
+#: `_apply_claims_validators` and the envelope assembly.
+#:
+#: A MODULE-LEVEL HANDOFF, RELUCTANTLY. The validator chain is called
+#: from two places and its `List[dict] -> List[dict]` signature is
+#: relied on by accepted, mutation-covered tests; widening it to a tuple
+#: would have rippled through both callers and their guards for a
+#: reporting change. This is reset at the start of every extraction and
+#: read once, at the seam.
+_LAST_VALIDATOR_REJECTIONS: List[Dict[str, Any]] = []
+
+
+def _finish_claims_validators(items, rejected, before):
+    """Log as before, and PARK the rejections for the envelope."""
+    global _LAST_VALIDATOR_REJECTIONS
     dropped = before - len(items)
     if dropped:
         logger.info("[extract][WO-CLAIMS-02] validators dropped %d of %d items", dropped, before)
+    records = []
+    try:
+        from ..services import meaning_disposition as _md
+        for item, reason in rejected:
+            records.append(_md.rejected_record(
+                field_path=str((item or {}).get("fieldPath") or ""),
+                value=(item or {}).get("value"),
+                reason=reason,
+                confidence=(item or {}).get("confidence"),
+            ))
+    except Exception:
+        logger.exception(
+            "[extract][disposition] could not record validator rejections")
+    # ASSIGNMENT, AND THE PREVIOUS COMMENT HERE WAS WRONG.
+    #
+    # It said the chain running twice meant this had to EXTEND rather
+    # than replace, and claimed that was measured. It was not. When the
+    # probe printed no rejections, the cause was the empty-result return
+    # path discarding them — fixed separately — and the extend was
+    # credited for it. Mutating extend back to assignment changes
+    # nothing observable, which is how the mis-attribution was caught.
+    #
+    # Assignment is also the SAFER of the two: if an extraction raises
+    # between here and the seam that consumes this, the next turn
+    # overwrites rather than inheriting a stale list.
+    _LAST_VALIDATOR_REJECTIONS = records
     return items
 
 
@@ -9715,14 +9788,51 @@ def _finalize_extracted_items(items, req, *, answer: str, path: str):
                     "value=%r narrator said %r; would need %s",
                     _rec.get("meaning"), _rec.get("value"),
                     _rec.get("narrator_phrase"), _rec.get("would_need"))
-    except Exception as _md_exc:               # pragma: no cover - defensive
-        # An accounting failure must never cost the narrator their
-        # extraction. It costs the RECORD of what could not be placed,
-        # which is logged loudly rather than swallowed.
+    except Exception as _md_exc:
+        # AN ACCOUNTING FAILURE IS ITSELF A DURABLE OUTCOME.
+        #
+        # CORRECTED after review of the pushed Phase 5C. This used to
+        # log "meaning with no destination went unrecorded" and
+        # continue. That is narrator-safe and it is NOT memory-integrity
+        # safe: it recreates precisely the silent loss this phase
+        # prohibits, and a rotating gitignored log is not a record.
+        #
+        # The turn still completes — a narrator must never lose their
+        # turn to an accounting fault. But the failure is written down,
+        # on the same path and bound to the same committed turn, so that
+        # "we could not check" is distinguishable from "there was
+        # nothing to preserve". It is NOT filed as `no_destination`:
+        # that would claim we looked.
         logger.exception(
-            "[extract][disposition] accounting pass failed (%s) — items are "
-            "unaffected, but meaning with no destination went unrecorded "
-            "for this turn", _md_exc.__class__.__name__)
+            "[extract][disposition] accounting pass FAILED (%s) — items are "
+            "unaffected; recording measurement_failed so completeness for "
+            "this turn is not silently assumed",
+            _md_exc.__class__.__name__)
+        try:
+            from ..services import meaning_disposition as _md_fail
+            clarifications = list(clarifications or []) + [
+                _md_fail.accounting_failed_record(
+                    _md_exc.__class__.__name__)]
+        except Exception:
+            # The failure record itself failed. Nothing further is
+            # available on this path, and the turn still must not die.
+            logger.exception(
+                "[extract][disposition] could not even record the "
+                "accounting failure")
+
+    # Phase 5 obligation 4. The validator chain parked whatever it
+    # rejected; this is where those become durable records instead of a
+    # line in a rotating log. Read once and CLEARED, so a later turn
+    # cannot inherit an earlier turn's rejections.
+    try:
+        global _LAST_VALIDATOR_REJECTIONS
+        if _LAST_VALIDATOR_REJECTIONS:
+            clarifications = list(clarifications or []) + list(
+                _LAST_VALIDATOR_REJECTIONS)
+        _LAST_VALIDATOR_REJECTIONS = []
+    except Exception:
+        logger.exception(
+            "[extract][disposition] could not attach validator rejections")
 
     final_items, _kin_entries, clarifications = _apply_kinship_binding_guard(
         final_items, req, answer=answer, clarifications=clarifications)
@@ -9880,6 +9990,16 @@ def run_field_extraction(
     observability vocabulary, and (on the turn path) the persisted
     idempotency claim are applied uniformly.
     """
+    # Phase 5 obligation 4. The parked rejection list is declared global
+    # here because both exit paths below clear it after reading.
+    #
+    # NO RESET AT ENTRY. One was written and then removed: mutating it
+    # away changed nothing, because the chain assigns on every pass and
+    # both consumers clear on the way out. Redundancy that cannot fail
+    # still reads as load-bearing to the next person, which is worse
+    # than not having it.
+    global _LAST_VALIDATOR_REJECTIONS
+
     answer = (req.answer or "").strip()
     if not answer:
         return ExtractFieldsResponse(items=[], method="fallback")
@@ -10455,7 +10575,30 @@ def run_field_extraction(
                 req.current_section or "?",
                 req.current_target_path or "?")
 
-    return ExtractFieldsResponse(items=[], method="fallback", raw_llm_output=raw_output)
+    # PHASE 5 OBLIGATION 4 — THE TURN WHERE IT MATTERS MOST.
+    #
+    # This is the "everything was dropped" exit, and it used to return an
+    # empty envelope: no items, no clarifications, nothing durable. The
+    # `[extract][silent-root] cause=...` line above says exactly why, and
+    # says it into a gitignored rotating log. To every operator surface a
+    # turn whose every proposal was rejected looked identical to a turn
+    # where the narrator said nothing extractable at all.
+    #
+    # The rejections parked by the validator chain travel out here, so a
+    # defensible rejection is reviewable rather than merely logged.
+    _rejections = []
+    try:
+        # `global` is already declared at the top of this function, where
+        # the per-turn reset happens.
+        _rejections = list(_LAST_VALIDATOR_REJECTIONS)
+        _LAST_VALIDATOR_REJECTIONS = []
+    except Exception:
+        logger.exception(
+            "[extract][disposition] could not attach rejections on the "
+            "empty-result path")
+    return ExtractFieldsResponse(items=[], method="fallback",
+                                 raw_llm_output=raw_output,
+                                 clarification_required=_rejections)
 
 
 # ── Diagnostic endpoint ─────────────────────────────────────────────────────

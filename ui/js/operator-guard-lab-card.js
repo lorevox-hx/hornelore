@@ -41,7 +41,44 @@
     conflict: null,
     busy: null,
     data: null,
+    // True while a verdict for the PREVIOUS narrator has been discarded
+    // and the replacement has not arrived. The card says so rather than
+    // showing the old one for a few hundred milliseconds.
+    resolving: false,
   };
+
+  // ── THE NARRATOR-SWITCH CLAMP ──────────────────────────────────────
+  //
+  // Found in review of the pushed Block A. The card refreshes
+  // asynchronously on narrator switch and bound nothing to the request
+  // that produced a response, so this sequence made it lie:
+  //
+  //   A selected -> request A starts
+  //   switch to B -> request B starts
+  //   B returns first -> card correctly shows B
+  //   A returns LATE -> _state.data replaced with A's answer, and the
+  //                     card shows A's eligibility under B
+  //
+  // The runtime gate is unaffected — eligibility is still decided
+  // server-side per turn — so this was never an experiment-security
+  // hole. It was worse in a quieter way: an OPERATOR-TRUTH defect in
+  // the one card built to answer "does THIS narrator receive the
+  // configuration?", which is exactly the false reassurance it exists
+  // to remove.
+  //
+  // Every read now carries the generation and the narrator id it was
+  // issued under, and nothing writes state unless BOTH still match.
+  var _switchGen = 0;
+
+  function _context(extra) {
+    var ctx = { gen: _switchGen, pid: currentPersonId() };
+    if (extra) Object.keys(extra).forEach(function (k) { ctx[k] = extra[k]; });
+    return ctx;
+  }
+
+  function _stale(ctx) {
+    return !ctx || ctx.gen !== _switchGen || ctx.pid !== currentPersonId();
+  }
 
   function el(tag, attrs, children) {
     var n = document.createElement(tag);
@@ -72,11 +109,43 @@
     } catch (_) { return ''; }
   }
 
-  function request(path, options) {
+  function adopt(body, ctx) {
+    if (!body) return;
+    if (_stale(ctx)) {
+      // A LATE ANSWER ABOUT THE PREVIOUS NARRATOR.
+      //
+      // The configuration half is a global truth and stays
+      // authoritative — a revision the server reported really did
+      // happen. The `current_narrator` half answered about somebody who
+      // is no longer selected, and showing it under the new narrator is
+      // the whole defect. So a stale READ is discarded outright, and a
+      // stale MUTATION keeps its configuration while its verdict is
+      // dropped and re-resolved for the narrator now on screen.
+      if (ctx && ctx.mutation) {
+        var kept = {};
+        Object.keys(body).forEach(function (k) { kept[k] = body[k]; });
+        kept.current_narrator = null;
+        _state.data = kept;
+        _state.enabled = true;
+        _state.resolving = true;
+        refresh();
+      }
+      return;
+    }
+    _state.data = body;
+    _state.enabled = true;
+    _state.error = null;
+    _state.resolving = false;
+  }
+
+  function request(path, options, ctx) {
     _state.error = null;
     return fetch(BASE + path, options)
       .then(function (r) {
-        if (r.status === 404) { _state.enabled = false; return null; }
+        if (r.status === 404) {
+          if (!_stale(ctx)) _state.enabled = false;
+          return null;
+        }
         return r.json().catch(function () { return null; })
           .then(function (b) { return { status: r.status, body: b }; });
       })
@@ -84,29 +153,37 @@
         if (!res) return null;
         if (res.status === 409) {
           var d = (res.body && res.body.detail) || {};
-          _state.conflict = {
-            message: d.message || 'The configuration changed underneath this request.',
-            expected: d.expected_revision,
-            actual: d.current_revision,
-          };
+          if (!_stale(ctx)) {
+            _state.conflict = {
+              message: d.message || 'The configuration changed underneath this request.',
+              expected: d.expected_revision,
+              actual: d.current_revision,
+            };
+          }
           // Adopt the live configuration the refusal carried, exactly as
-          // the Bug Panel does. A card that kept insisting on its stale
-          // view would be the second place this bug could live.
-          if (d.current) { _state.data = d.current; _state.enabled = true; }
+          // the Bug Panel does — through the same clamp, so a stale
+          // conflict cannot repaint a newer narrator either.
+          if (d.current) adopt(d.current, ctx);
           return null;
         }
         if (res.status >= 400) {
-          var detail = res.body && res.body.detail;
-          _state.error = (detail && detail.message) ||
-            (typeof detail === 'string' ? detail : 'HTTP ' + res.status);
+          if (!_stale(ctx)) {
+            var detail = res.body && res.body.detail;
+            _state.error = (detail && detail.message) ||
+              (typeof detail === 'string' ? detail : 'HTTP ' + res.status);
+          }
           return null;
         }
-        _state.conflict = null;
-        _state.data = res.body;
-        _state.enabled = true;
+        if (!_stale(ctx)) _state.conflict = null;
+        adopt(res.body, ctx);
         return res.body;
       })
       .catch(function (e) {
+        // A STALE NETWORK ERROR MUST NOT REPLACE NEWER STATE EITHER.
+        // The first version of this clamp guarded the success path and
+        // left the failure path writing unconditionally, which would
+        // have put narrator A's timeout on narrator B's card.
+        if (_stale(ctx)) return null;
         _state.enabled = true;
         _state.error = String((e && e.message) || e);
         return null;
@@ -115,25 +192,29 @@
 
   function refresh() {
     _state.loading = true; render();
-    var pid = currentPersonId();
-    var q = pid ? ('?narrator_id=' + encodeURIComponent(pid)) : '';
-    return request('/state' + q, { credentials: 'same-origin' })
-      .then(function () { _state.loading = false; render(); });
+    var ctx = _context();
+    var q = ctx.pid ? ('?narrator_id=' + encodeURIComponent(ctx.pid)) : '';
+    return request('/state' + q, { credentials: 'same-origin' }, ctx)
+      .then(function () {
+        if (_stale(ctx)) return;      // a newer read owns the card now
+        _state.loading = false; render();
+      });
   }
 
   function revision() { return _state.data ? _state.data.revision : 0; }
 
   function post(path, token) {
     _state.busy = token; render();
+    var ctx = _context({ mutation: true });
     return request(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
       body: JSON.stringify({
         expected_revision: revision(),
-        narrator_id: currentPersonId() || null,
+        narrator_id: ctx.pid || null,
       }),
-    }).then(function () { _state.busy = null; render(); });
+    }, ctx).then(function () { _state.busy = null; render(); });
   }
 
   // ONE request each. Never a loop over the switchable population.
@@ -189,6 +270,10 @@
     var cfg = d.configuration || {};
     var narrator = d.current_narrator || {};
     var gate = d.gate || {};
+    // The server always sends `current_narrator`. It is null ONLY when
+    // this card cleared it after a narrator switch, so null means "not
+    // yet resolved for the narrator now selected" and nothing else.
+    var unresolved = !d.current_narrator || s.resolving;
 
     mount.appendChild(el('div', { class: 'oglc-head' }, [
       el('span', { class: 'oglc-title' }, ['Lori Configuration']),
@@ -209,18 +294,29 @@
             gate.experiment_armed ? 'oglc-ok' : 'oglc-muted'),
       field('Trace', gate.trace_recording ? 'Recording' : 'Off',
             gate.trace_recording ? 'oglc-ok' : 'oglc-muted'),
-      field('Narrator', narrator.display_name ||
-            (narrator.requested_id ? '(unknown)' : '(none selected)')),
+      field('Narrator', unresolved ? 'checking…'
+            : (narrator.display_name ||
+               (narrator.requested_id ? '(unknown)' : '(none selected)'))),
+      // UNRESOLVED IS NOT "NOT ELIGIBLE". The card discarded a verdict
+      // that belonged to a narrator who is no longer selected, and the
+      // replacement has not arrived. Printing either answer here would
+      // be a guess, and a guess is what the clamp exists to stop.
       field('Experimental narrator',
-            narrator.can_receive_experiment ? 'Eligible' : 'Not eligible',
-            narrator.can_receive_experiment ? 'oglc-ok' : 'oglc-warn'),
+            unresolved ? 'checking…'
+            : (narrator.can_receive_experiment ? 'Eligible' : 'Not eligible'),
+            unresolved ? 'oglc-muted'
+            : (narrator.can_receive_experiment ? 'oglc-ok' : 'oglc-warn')),
     ]);
     mount.appendChild(grid);
 
     // THE SENTENCE THE LIVE RUN SHOWED WAS MISSING. The server writes
     // it, because the reason it gives and the behaviour it describes
     // have to come from the same place.
-    if (narrator.message) {
+    if (unresolved) {
+      mount.appendChild(el('div', { class: 'oglc-verdict oglc-verdict-warn' }, [
+        'Re-checking whether the selected narrator can receive this '
+        + 'configuration…']));
+    } else if (narrator.message) {
       mount.appendChild(el('div', {
         class: 'oglc-verdict ' + (narrator.can_receive_experiment
           ? 'oglc-verdict-ok' : 'oglc-verdict-warn'),
@@ -276,6 +372,13 @@
   // app.js calls this on narrator switch: the eligibility verdict is
   // about a specific person and is stale the moment that changes.
   window.lvOperatorGuardLabOnNarratorSwitch = function () {
+    // Moving the generation CANCELS every read already in flight: their
+    // context no longer matches, so none of them can write state.
+    _switchGen += 1;
+    _state.conflict = null;
+    _state.error = null;
+    _state.resolving = true;
+    if (_state.data) _state.data.current_narrator = null;
     if (_state.enabled !== false) refresh(); else render();
   };
 
