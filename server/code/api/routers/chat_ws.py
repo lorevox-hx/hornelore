@@ -321,6 +321,9 @@ except Exception:  # pragma: no cover - defensive
         TERMINAL_PROMPT_BUDGET_BACKSTOP = "prompt_budget_backstop"
         TERMINAL_GENERATION_BUSY = "generation_busy"
         TERMINAL_CUDA_OOM = "cuda_oom"
+        TERMINAL_CANCELLED = "cancelled"
+        @staticmethod
+        def abort(*a, **k): return None
         TERMINAL_GENERATION_FAILED = "generation_failed"
         @staticmethod
         def current(*a, **k): return None
@@ -1449,13 +1452,28 @@ async def ws_chat(ws: WebSocket):
             "message": "GPU ran out of memory mid-generation. VRAM has been freed — please try again.",
             "vram_free_mb": round(vram_after_mb) if vram_after_mb >= 0 else None,
         })
-        # ── THE ONE TURN A VRAM DIAGNOSTIC CANNOT AFFORD TO LOSE ─────
+        # ── WHAT THIS HANDLER CAN AND CANNOT CATCH ───────────────────
         #
-        # Added 2026-09-06, after review. `_rt.begin()` now happens
-        # inside the inner function before generation, so a mid-generation
-        # OOM left that trace live and unwritten — in the experiment
-        # whose entire subject is VRAM. The single most informative event
-        # was the one guaranteed to leave no record.
+        # Added 2026-09-06; the comment CORRECTED the same day, because
+        # the first version claimed more than the code can do.
+        #
+        # `model.generate` runs in `threading.Thread`, and an exception
+        # raised inside that thread does NOT propagate to this async
+        # `try`. So this handler catches an OOM raised on the
+        # async/main path — preparation, tokenization, the post-
+        # generation pipeline — and **cannot** catch a true
+        # mid-generation OOM inside the model thread.
+        #
+        # That gap is a PRE-EXISTING generation-architecture limitation,
+        # not something this instrumentation introduced, and closing it
+        # would mean thread-exception propagation — the redesign this
+        # measurement block deliberately does not attempt. The VRAM
+        # guard exists to prevent reaching that state. **If Walt or John
+        # hits a generation-thread OOM or hang, stop the run and open it
+        # as a separate product defect rather than patching it here.**
+        #
+        # What this close DOES do is stop the paths it genuinely catches
+        # from leaking a live, unwritten trace.
         #
         # `generation_attempted=True`: the model DID start. Reusing the
         # pre-generation vocabulary here would file a turn that began
@@ -5540,8 +5558,12 @@ async def ws_chat(ws: WebSocket):
                     _cuda_peak_reset = True
             except Exception:                 # pragma: no cover - defensive
                 _cuda_peak_reset = False
-        _gen_started_at = time.time()
-        _gen_started_perf = time.perf_counter()
+            # Inside the guard: with tracing off nothing reads these, so
+            # taking two clocks on every ordinary narrator turn is work
+            # done for no reader. Small, but the contract for this block
+            # is that untraced operation is left alone.
+            _gen_started_at = time.time()
+            _gen_started_perf = time.perf_counter()
 
         generation_thread_holder["thread"] = th
         th.start()
@@ -5809,6 +5831,25 @@ async def ws_chat(ws: WebSocket):
                 "— discarding %d chars of partial text; nothing persisted",
                 conv_id, len(final_text),
             )
+            # ── A CANCELLED TURN IS NOT A TURN THAT NEVER RAN ────────
+            #
+            # Added 2026-09-06, after review. The trace opens before
+            # generation now, so this return leaked a live, unwritten
+            # record — and this is the more interesting of the two
+            # cancellation paths, because generation had already spent
+            # VRAM and time before the narrator stopped it.
+            #
+            # `abort()` rather than `terminal()`: the model DID speak.
+            # Whatever `raw()` captured is kept, because partial output
+            # is real evidence about what generation was doing when it
+            # was stopped. Nothing was delivered or persisted, so those
+            # fields are never created.
+            try:
+                _rt.note("cancelled_partial_chars", len(final_text),
+                         trace_id=_rt_id)
+                _rt.abort(_rt.TERMINAL_CANCELLED, trace_id=_rt_id)
+            except Exception as _cx:          # pragma: no cover - defensive
+                logger.warning("[chat_ws][trace] cancel record failed: %s", _cx)
             await _ws_send(ws, {
                 "type": "done", "final_text": "", "cancelled": True,
             })
@@ -6158,6 +6199,14 @@ async def ws_chat(ws: WebSocket):
         # Same contract: empty final_text, nothing persisted.
         if ev.is_set():
             logger.warning("[chat-ws] Turn cancelled/disconnected — skipping persistence (fail-closed)")
+            # The SECOND cancellation return. Same leak, same reasoning:
+            # a cancel landing during the post-generation pipeline still
+            # leaves a turn that generated and delivered nothing.
+            try:
+                _rt.abort(_rt.TERMINAL_CANCELLED, trace_id=_rt_id,
+                          detail={"cancelled_during": "post_generation"})
+            except Exception as _cx2:         # pragma: no cover - defensive
+                logger.warning("[chat_ws][trace] cancel record failed: %s", _cx2)
             await _ws_send(ws, {"type": "done", "final_text": "", "cancelled": True})
             return
 

@@ -799,3 +799,148 @@ class TerminalRecordsSayNothingWasGeneratedTests(_Base):
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
+
+
+class ACancelledTurnIsNotATurnThatNeverRanTests(_Base):
+    """`abort()` — generated, delivered nothing.
+
+    `WO-LORI-LISTEN-AND-RETAIN-01` §9, added 2026-09-06 after review.
+
+    ── WHY A THIRD SHAPE ─────────────────────────────────────────────
+
+    `terminal()` means the model was NEVER CALLED. A cancelled turn is
+    the opposite: the model ran, tokens arrived, and the narrator or the
+    socket ended it before anything was delivered. Both end with no
+    response, and merging them would file a turn Lori spoke among turns
+    she was never asked to speak — while the point of this diagnostic is
+    telling those apart, because one cost VRAM and time and the other
+    cost nothing.
+
+    Two returns leaked a live trace before this existed: cancellation
+    immediately after generation, and cancellation during the
+    post-generation pipeline.
+    """
+
+    def _abort(self, raw=None, detail=None):
+        os.environ["HORNELORE_RESPONSE_TRACE"] = "1"
+        t = RT.begin(narrator_id="N", conversation_id="C")
+        RT.note("narrator_input", "a long chapter", trace_id=t)
+        if raw is not None:
+            RT.raw(raw, trace_id=t)
+        RT.abort(RT.TERMINAL_CANCELLED, detail=detail, trace_id=t)
+        recs = self._written()
+        self.assertEqual(1, len(recs))
+        return recs[0]
+
+    def test_generation_attempted_is_TRUE(self):
+        """The distinction from every `terminal()` outcome."""
+        rec = self._abort(raw="I was starting to say")
+        self.assertIs(True, rec.get("generation_attempted"))
+        self.assertEqual("cancelled", rec.get("terminal_outcome"))
+
+    def test_partial_raw_output_is_KEPT(self):
+        """It is the only record of what generation was doing.
+
+        Discarding it would lose the evidence from a turn that spent
+        real VRAM and real time — the exact quantity under study.
+        """
+        rec = self._abort(raw="I was starting to say")
+        self.assertEqual("I was starting to say", rec.get("raw_text"))
+        self.assertTrue(rec.get("raw_captured"))
+
+    def test_delivered_and_persisted_are_never_created(self):
+        """Nothing was delivered and nothing was persisted."""
+        rec = self._abort(raw="partial")
+        for field in ("delivered_text", "persisted_text",
+                      "delivered_equals_persisted"):
+            self.assertNotIn(field, rec)
+        self.assertIs(False, rec.get("delivered_anything"))
+
+    def test_a_cancel_before_any_output_still_writes_a_record(self):
+        rec = self._abort(raw=None)
+        self.assertFalse(rec.get("raw_captured"))
+        self.assertNotIn("raw_text", rec)
+        self.assertIs(True, rec.get("generation_attempted"))
+
+    def test_the_detail_says_where_it_was_cancelled(self):
+        rec = self._abort(raw="x",
+                          detail={"cancelled_during": "post_generation"})
+        self.assertEqual("post_generation",
+                         (rec.get("context") or {}).get("cancelled_during"))
+
+    def test_it_ends_and_clears_the_current_trace(self):
+        self._abort(raw="x")
+        self.assertIsNone(RT.current())
+
+    def test_it_writes_nothing_when_tracing_is_off(self):
+        os.environ.pop("HORNELORE_RESPONSE_TRACE", None)
+        RT.abort(RT.TERMINAL_CANCELLED, trace_id=RT.begin())
+        self.assertEqual([], self._written())
+
+
+class EveryReturnAfterBeginIsClosedTests(_Base):
+    """No route through the generation section may leak a live trace.
+
+    The trace opens before the budget decision now, so every early
+    return became a potential leak. Counted rather than described,
+    because "I checked them all" is exactly the claim that goes stale
+    the next time a return is added.
+    """
+
+    def test_the_router_closes_each_known_early_return(self):
+        src = (_REPO / "server" / "code" / "api" / "routers"
+               / "chat_ws.py").read_text(encoding="utf-8")
+        # ── COUNT CALL SITES BY LINE, NOT BY SUBSTRING ──────────────
+        #
+        # `src.count("_trace_pre_generation_terminal(")` also counts the
+        # `def`, and an indentation-prefixed count is brittle the moment
+        # a call moves a level. Line-based and indentation-agnostic:
+        # a call site is a line whose stripped form STARTS with the name,
+        # which a definition line never does.
+        #
+        # Third source-slicing miscount of the day. A substring that
+        # appears in a definition, a comment and a statement is three
+        # different things, and `count`/`index` cannot tell them apart.
+        lines = [ln.strip() for ln in src.splitlines()]
+        call_sites = sum(
+            1 for ln in lines
+            if ln.startswith("_trace_pre_generation_terminal("))
+        self.assertEqual(
+            4, call_sites,
+            f"expected 4 pre-generation funnel call sites (budget, VRAM, "
+            f"backstop, busy), found {call_sites}")
+        self.assertEqual(
+            1, sum(1 for ln in lines
+                   if ln.startswith("def _trace_pre_generation_terminal(")),
+            "more than one funnel — the records will drift")
+        # two cancellation returns
+        self.assertEqual(
+            2, src.count("_rt.abort("),
+            "a cancellation return does not close its trace")
+
+    def test_generation_busy_is_a_pre_generation_outcome(self):
+        """It never started, so `generation_attempted` must be False."""
+        src = (_REPO / "server" / "code" / "api" / "routers"
+               / "chat_ws.py").read_text(encoding="utf-8")
+        self.assertIn("_rt.TERMINAL_GENERATION_BUSY", src)
+        # The STATEMENT, not the word "returned" in the comment above it
+        # — `index("return")` matched the prose and sliced away the code.
+        block = src[src.index("THE FOURTH PRE-GENERATION RETURN"):]
+        block = block[:block.index("\n                return")]
+        self.assertIn("_trace_pre_generation_terminal(", block)
+        self.assertIn("_rt.TERMINAL_GENERATION_BUSY", block)
+
+    def test_the_backstop_records_the_count_that_triggered_it(self):
+        """The budget said it fitted; the tokenizer disagreed.
+
+        Without the tokenizer's own number the record shows
+        `budget: fits` beside a refusal and leaves a reader to infer the
+        disagreement from unrelated fields.
+        """
+        src = (_REPO / "server" / "code" / "api" / "routers"
+               / "chat_ws.py").read_text(encoding="utf-8")
+        self.assertIn("_rt.TERMINAL_PROMPT_BUDGET_BACKSTOP", src)
+        for field in ("backstop_actual_input_tokens", "backstop_limit",
+                      "backstop_budget_said_tokens",
+                      "backstop_budget_said_reason"):
+            self.assertIn(field, src)

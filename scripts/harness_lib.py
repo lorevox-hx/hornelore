@@ -546,7 +546,18 @@ async def _send_turn_and_capture(
     }
     if client_turn_id:
         params["client_turn_id"] = client_turn_id
+    # ── THE JOIN KEY MUST BE IN THE CONSOLE, NOT ONLY THE PAYLOAD ────
+    #
+    # Added 2026-09-06, after review. The id was being SENT correctly and
+    # described as the join key between the server trace, this console
+    # and the GPU timeline — but it was never printed, so the console
+    # (which is what `tee` captures) carried no such key and the claim
+    # was two-thirds true. Correlating a console line to a trace still
+    # meant guessing by timestamp, which is exactly what the id exists
+    # to avoid, and worst on the two turns that both report era `today`.
     print(f"  --- SENDING {chapter_label} ({len(text.split())} words) ---")
+    if client_turn_id:
+        print(f"      client_turn_id={client_turn_id}")
     send_start = time.time()
     await ws.send(json.dumps({
         "type": "start_turn",

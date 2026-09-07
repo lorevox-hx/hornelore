@@ -200,6 +200,20 @@ class TheHarnessSendsADeterministicTurnIdTests(unittest.TestCase):
         self.assertEqual("t:Era 3",
                          sent["params"].get("client_turn_id"))
 
+    def test_the_id_is_PRINTED_not_only_sent(self):
+        """The console is one of the three things it joins.
+
+        It was sent in `params` and never printed, so `tee` captured a
+        console with no join key in it — and correlating a console line
+        to a trace still meant guessing by timestamp.
+        """
+        import io, contextlib
+        ws = _FakeWS([{"type": "done", "final_text": "ok"}])
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            _capture(ws, label="Era 5")
+        self.assertIn("client_turn_id=t:Era 5", buf.getvalue())
+
     def test_the_cap_is_still_256(self):
         """Not raised before the measurement that asks whether it binds."""
         ws = _FakeWS([{"type": "done", "final_text": "ok"}])

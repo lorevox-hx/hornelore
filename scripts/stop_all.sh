@@ -24,10 +24,15 @@ source "$(cd "$(dirname "$0")" && pwd)/common.sh"
 # failure mode was silent and the wrong way round: the messier the
 # shutdown, the more likely tracing stayed on.
 #
-# On EVERY exit path now. Ordering is unchanged and still matters: the
-# log snapshots below write into the run's own directory, so they must
-# happen before the pointer to it is cleared — which they do, because
-# the trap fires last regardless.
+# On EVERY exit path now, because the trap fires last regardless of how
+# the script leaves.
+#
+# CORRECTED 2026-09-06: an earlier version of this comment said the log
+# snapshots below "write into the run's own directory". They do not —
+# `snapshot_api_log` and `snapshot_useful_log` both write to
+# `docs/reports/`. The ordering is still right, but not for the reason
+# stated, and a plausible wrong reason in a comment is how the next
+# person reasons wrongly about it.
 #
 # The run directory itself is never deleted. Only the "this run is
 # current" pointer is, and `last_eval_dir` is written first so analysis

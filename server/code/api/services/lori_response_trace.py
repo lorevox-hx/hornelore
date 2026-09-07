@@ -409,6 +409,11 @@ TERMINAL_GENERATION_BUSY = "generation_busy"
 #: these, and a report that merged them would count a turn the model
 #: began among turns it was never asked to begin.
 TERMINAL_CUDA_OOM = "cuda_oom"
+#: The narrator or the socket ended the turn after generation began.
+#: Closed through `abort()`, not `terminal()` — the model DID speak, and
+#: filing it among turns never asked to speak would blur the one
+#: distinction a VRAM diagnostic most needs.
+TERMINAL_CANCELLED = "cancelled"
 TERMINAL_GENERATION_FAILED = "generation_failed"
 
 #: What a terminal record must carry to be worth having.
@@ -502,6 +507,59 @@ def terminal(outcome: str, *, generation_attempted: bool = False,
             # trace nobody has; naming the gap keeps the record honest
             # and still leaves the evidence on disk.
             rec["terminal_context_missing"] = missing
+        _write(rec)
+        try:
+            _current.set(None)
+        except Exception:
+            pass
+    except Exception:
+        return
+
+
+def abort(outcome: str, *, detail: Optional[Dict[str, Any]] = None,
+          trace_id: Optional[str] = None) -> None:
+    """Close a turn that GENERATED but delivered nothing, and write it.
+
+    `WO-LORI-LISTEN-AND-RETAIN-01` §9, added 2026-09-06 after review.
+
+    ── WHY NOT `terminal()`, WHICH ALREADY EXISTS ──────────────────────
+
+    `terminal()` means *the model was never called*. A cancelled turn is
+    the opposite: the model ran, tokens arrived, and then the narrator or
+    the socket ended it before anything was delivered or persisted. Both
+    end with no response, and treating them as the same event would put a
+    turn Lori spoke into the same bucket as turns she was never asked to
+    speak — while a VRAM diagnostic is trying to tell exactly those apart.
+
+    So this is a third shape, and it is deliberately narrow:
+
+    * `generation_attempted` is **True**;
+    * whatever `raw()` already captured is **kept** — partial output is
+      real evidence about what the model was doing when it was stopped,
+      and discarding it would lose the only record of a turn that cost
+      real VRAM and real time;
+    * `delivered_text` and `persisted_text` are **never created**,
+      because nothing was delivered and nothing was persisted.
+
+    Written immediately; there is no retention half, since nothing
+    reached storage to attach to.
+    """
+    try:
+        tid = trace_id or current()
+        if not tid:
+            return
+        with _lock:
+            rec = _traces.pop(tid, None)
+        if rec is None:
+            return
+        rec["terminal_outcome"] = outcome
+        rec["generation_attempted"] = True
+        rec["delivered_anything"] = False
+        if detail:
+            rec.setdefault("context", {}).update(detail)
+        # NOT `_seal_rec`: that helper's job is the delivered/persisted
+        # comparison, and there is no delivered text to compare against.
+        rec["ended_at"] = time.time()
         _write(rec)
         try:
             _current.set(None)
