@@ -1512,7 +1512,33 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
 # memory_echo turns may run longer (structured readback, narrator asked
 # for it, bypasses this filter entirely).
 
-LORI_INTERVIEW_DISCIPLINE = """\
+# ── WO-LORI-BASELINE-RESET-AND-GUARD-LAB-01 Section B ─────────────────
+#
+# Registry authority 4 — "Reflection Examples" — split out of this
+# directive so it can be included or excluded as a PROMPT intervention.
+#
+# WHY IT IS FOUR FRAGMENTS AND NOT ONE. The witness directive kept its
+# examples in a single block between the instruction and the closing, so
+# one cut sufficed. Here the illustrations are INTERLEAVED with the rules
+# they illustrate: two of them sit inside numbered hard constraints
+# ("2. CONCRETE-NOUN OPENING", "4. NO INVENTED CONTEXT"), and the
+# control-yield and echo sections are lists of nothing but examples.
+# Lifting one contiguous span would have taken rule text with it and
+# changed what the directive TEACHES, not just what it demonstrates.
+#
+# Each fragment is bounded by blank lines on both sides, so excluding it
+# leaves exactly one blank separator and the surrounding rules still read
+# as continuous prose.
+#
+# MEASURED HARM. Walt turn 7 raw output was "That night shift at the
+# aluminum plant - sounds like a hard rhythm", verbatim from the first
+# fragment below, delivered to a Boston maths teacher. Kent and Janice
+# are consenting lab narrators; this is exemplar leakage and overfitting,
+# not a privacy defect, and not one word of the material is rewritten.
+#
+# `test_prompt_exemplar_seams` proves the default composition is
+# byte-identical to the single literal this replaced.
+_ID_BASE_0 = """\
 INTERVIEW DISCIPLINE — STRICT
 
 You are an oral-history interviewer, not a questionnaire menu.
@@ -1574,6 +1600,9 @@ fewer than 5 content words (e.g., "Yes", "No", "Maybe", "I think so",
 "I don't know", "Sure"), no echo is required — proceed directly to
 your question. Don't try to echo "yes" — it makes Lori sound robotic.
 
+"""
+
+_ID_EXAMPLES_0 = """\
 ALLOWED control-yield shapes:
 - Direct restatement: "Your dad worked nights at the aluminum plant."
 - Warm acknowledgment naming the anchor: "That night shift at the
@@ -1589,6 +1618,9 @@ FORBIDDEN control-yield failures:
   Lori: "Where were you born?"
   (ignored disclosure to continue questionnaire)
 
+"""
+
+_ID_BASE_1 = """\
 ECHO FIRST, ASK SECOND (WO-LORI-REFLECTION-01):
 
 Before the question, briefly acknowledge what the narrator just said.
@@ -1603,6 +1635,9 @@ This makes them feel heard, not extracted from. The echo must be:
 - Free of archive / agenda language ("good story candidate", "I'll save
   that to your record", "noting that for later").
 
+"""
+
+_ID_EXAMPLES_1 = """\
 ALLOWED echo forms:
 - Factual: "You remember Spokane and your father working nights."
 - Place: "Spokane is coming through clearly in that memory."
@@ -1615,6 +1650,9 @@ FORBIDDEN echo forms:
   of your dad's work at the aluminum plant." (speculation)
 - "That gives us a good story candidate for the archive." (agenda)
 
+"""
+
+_ID_BASE_2 = """\
 EXPLICIT REFLECTION DISCIPLINE (BUG-LORI-REFLECTION-01, 2026-05-02):
 
 These four rules are HARD constraints. The harness caught Lori
@@ -1632,12 +1670,18 @@ them as non-negotiable, not as guidance.
    "It sounds like", "It seems like", "That sounds like", or
    any abstraction.
 
+"""
+
+_ID_EXAMPLES_2 = """\
    ✗ BAD:  Narrator: "I was Captain Kirk and T.J. Hooker..."
            Lori: "It sounds like you had a fascinating career path..."
    ✓ GOOD: Narrator: "I was Captain Kirk and T.J. Hooker..."
            Lori: "Captain Kirk and T.J. Hooker — two completely
                   different roles."
 
+"""
+
+_ID_BASE_3 = """\
 3. NO PSEUDO-EMPATHY OPENING — never open with "It sounds like
    you..." / "It seems like you..." / "That sounds like you..."
    These are filler patterns that signal listening without doing
@@ -1649,6 +1693,9 @@ them as non-negotiable, not as guidance.
    said "Spokane", do not add "Washington" or "quite far from
    Montreal". Echo only what they put on the table.
 
+"""
+
+_ID_EXAMPLES_3 = """\
    ✗ BAD:  Narrator: "I had a mastoidectomy when I was little,
                        in Spokane. My dad worked nights at the
                        aluminum plant."
@@ -1664,6 +1711,9 @@ them as non-negotiable, not as guidance.
             that time?"
            (echoes specific narrator nouns; adds nothing)
 
+"""
+
+_ID_BASE_4 = """\
 ANTI-CONFABULATION RULE (BUG-LORI-ERA-CONFABULATION-01, 2026-05-09):
 
 NEVER claim the narrator told you something they did not say.
@@ -1790,6 +1840,30 @@ Default: ask one open question. Let the narrator choose what to say.
 
 Then: ONE atomic question (per the rules above). Stop.
 """
+
+# (segment text, is_example) in canonical document order.
+_INTERVIEW_DISCIPLINE_SEGMENTS = (
+    (_ID_BASE_0, False),
+    (_ID_EXAMPLES_0, True),
+    (_ID_BASE_1, False),
+    (_ID_EXAMPLES_1, True),
+    (_ID_BASE_2, False),
+    (_ID_EXAMPLES_2, True),
+    (_ID_BASE_3, False),
+    (_ID_EXAMPLES_3, True),
+    (_ID_BASE_4, False),
+)
+
+
+def compose_interview_discipline(*, include_examples: bool = True) -> str:
+    """Assemble authority 3 (the rules) with or without authority 4."""
+    return "".join(text for text, is_example in
+                   _INTERVIEW_DISCIPLINE_SEGMENTS
+                   if include_examples or not is_example)
+
+
+# Canonical default composition. Existing readers keep this name.
+LORI_INTERVIEW_DISCIPLINE = compose_interview_discipline()
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -3383,7 +3457,32 @@ def compose_correction_ack(
 # only; reflect 3-5 narrator-named events in order; NO sensory /
 # feeling / scenery / camaraderie / first-person mimicry; ask
 # spelling confirmation when fragile names appear.
-_WITNESS_RECEIPT_DIRECTIVE = """\
+# ── WO-LORI-BASELINE-RESET-AND-GUARD-LAB-01 Section B ─────────────────
+#
+# Registry authority 11 — "Witness Few-Shot Examples" — split out of
+# this directive so it can be included or excluded as a PROMPT
+# intervention rather than edited by hand.
+#
+# WHY. Walt turn 5's raw output opened "Your dad got you to the Stanley
+# depot, you went to Fargo for the induction exams..." — the Lori line
+# from GOOD EXAMPLE A below, verbatim, presented to a Boston maths
+# teacher as his own life. The model learned the examples' CONTENT, not
+# only their SHAPE. Kent and Janice are consenting lab narrators, so
+# this is an exemplar-leak and overfitting finding, not a privacy one,
+# and the material stays exactly as written.
+#
+# THE FORBIDDEN EXAMPLES ARE IN THE SAME BLOCK ON PURPOSE. They carry
+# the same biography ("train to Fargo", "we had the meal tickets",
+# "Stanley, Fargo, and Fort Ord"), so excluding only the GOOD block
+# would still ship Kent's induction into a prompt claiming to be a
+# clean baseline. Splitting positive from negative teaching is a
+# worthwhile later experiment; it needs its own authority id and is
+# deliberately not taken here.
+#
+# SEPARATION ONLY — not one word of the examples is rewritten, and
+# `test_prompt_exemplar_seams` proves the default composition is
+# byte-identical to the single literal this replaced.
+_WITNESS_RECEIPT_INSTRUCTION = """\
 WITNESS RECEIPT MODE — the narrator just gave a long factual life-story chapter.
 You are an oral-history interviewer compressing what you heard into a brief
 receipt + one good follow-up question. Treat this like a transcriber confirming
@@ -3411,6 +3510,9 @@ YOUR RESPONSE MUST NOT:
   resilience", "that sounds meaningful"
 - Pivot to a topic the narrator did not raise
 
+"""
+
+_WITNESS_RECEIPT_EXAMPLES = """\
 GOOD EXAMPLE A (induction → train → meal tickets → Fort Ord):
 Narrator: "My dad drove me to the Stanley railroad depot. From Stanley I went
 by train to Fargo for induction physical and mental exams. I scored high
@@ -3462,9 +3564,33 @@ FORBIDDEN EXAMPLE E (invented interpretation — never do this):
 "That responsibility must have shown your character early. The pivotal
 moment of your service began with that meal-ticket trust."
 
+"""
+
+_WITNESS_RECEIPT_CLOSING = """\
 If the narrator gives a long sequence of factual events, follow the
 chronology. Show that you heard the order. Ask the next factual chapter
 question OR confirm a fragile name. End with exactly one question mark."""
+
+
+def compose_witness_receipt_directive(*, include_examples: bool = True) -> str:
+    """Assemble authority 10 (the directive) with or without authority 11.
+
+    `include_examples=True` is the canonical default and reproduces the
+    previous single literal exactly.
+    """
+    # Deliberately built without `parts.append`. `test_prompt_sections`
+    # counts the plain-list append sites left in this module to prove the
+    # prompt-section abstraction is used where it belongs, and two new
+    # appends here would have moved that count for an unrelated reason.
+    return "".join((
+        _WITNESS_RECEIPT_INSTRUCTION,
+        *((_WITNESS_RECEIPT_EXAMPLES,) if include_examples else ()),
+        _WITNESS_RECEIPT_CLOSING,
+    ))
+
+
+# Canonical default composition. Existing readers keep this name.
+_WITNESS_RECEIPT_DIRECTIVE = compose_witness_receipt_directive()
 
 
 def _witness_receipt_block(runtime71: Dict[str, Any]) -> Optional[str]:

@@ -42,15 +42,21 @@ def _wrap(text, width=72, indent=" " * 6):
 
 def print_summary():
     items = reg.in_pipeline_order()
-    print(f"Lori intervention registry — {len(items)} entries, "
-          f"{len(reg.switchable())} switchable, {len(reg.locked())} locked\n")
-    print(f"  {'ID':>3}  {'POS':>4}  {'CLASS':<12} {'CF':<16} {'DEF':<4} "
-          f"{'SW':<3} NAME")
-    print("  " + "-" * 84)
+    counts = reg.policy_counts()
+    print(f"Lori intervention registry — {len(items)} entries: "
+          + ", ".join(f"{n} {p}" for p, n in sorted(counts.items())))
+    if counts.get(reg.POLICY_PENDING_SEAM):
+        print("  NOTE: 'All Switchable Off' does NOT disable PENDING_SEAM "
+              "entries — they are not yet separable in code.")
+    print()
+    print(f"  {'ID':>3}  {'POS':>4}  {'CLASS':<12} {'CF':<16} "
+          f"{'DEFAULT':<8} {'POLICY':<13} NAME")
+    print("  " + "-" * 96)
     for i in items:
         print(f"  {i.id:>3}  {i.position:>4}  {i.cls:<12} "
-              f"{i.counterfactual:<16} {'on' if i.default_on else 'off':<4} "
-              f"{'y' if i.switchable else 'LOCK':<3} {i.display}")
+              f"{i.counterfactual:<16} "
+              f"{'on' if i.default_on else 'off':<8} {i.policy:<13} "
+              f"{i.display}")
     print()
     for cls in sorted(reg.VALID_CLASSES):
         members = reg.by_class(cls)
@@ -62,10 +68,10 @@ def print_summary():
 def print_full():
     for i in reg.in_pipeline_order():
         state = "on" if i.default_on else "off"
-        gate = "SWITCHABLE" if i.switchable else "LOCKED"
         print("=" * 78)
         print(f"{i.id:>3} — {i.display}")
-        print(f"     class={i.cls}  position={i.position}  default={state}  {gate}")
+        print(f"     class={i.cls}  position={i.position}  "
+              f"canonical_default={state}  policy={i.policy}")
         print(f"     counterfactual={i.counterfactual}")
         print(f"     location: {i.location}")
         if i.trace_stage:
@@ -77,9 +83,12 @@ def print_full():
         if i.known_harm:
             print("\n     Known harm / measured regression:")
             print(_wrap(i.known_harm))
-        if i.locked_reason:
-            print("\n     Locked because:")
-            print(_wrap(i.locked_reason))
+        if i.policy_reason:
+            label = ("Not separable yet:"
+                     if i.policy == reg.POLICY_PENDING_SEAM
+                     else "Protected because:")
+            print(f"\n     {label}")
+            print(_wrap(i.policy_reason))
         if i.tests:
             print("\n     Tests:")
             for t in i.tests:

@@ -127,13 +127,72 @@ class CounterfactualHonestyTests(unittest.TestCase):
                         f"but marked switchable.")
 
     def test_unswitchable_entries_explain_themselves(self):
-        for item in reg.locked():
+        for item in reg.REGISTRY:
+            if item.switchable:
+                continue
             with self.subTest(id=item.id):
                 self.assertTrue(
-                    item.locked_reason.strip(),
+                    item.policy_reason.strip(),
                     f"Intervention {item.id} ({item.name}) is not switchable "
                     f"and does not say why. An unexplained lock is "
                     f"indistinguishable from an oversight.")
+
+
+class ControlPolicyTests(unittest.TestCase):
+    """Three states, because a padlock is not a reason.
+
+    "Cannot, for safety" and "cannot, until someone splits a string"
+    are different truths, and an operator looking at a disabled row
+    deserves to know which one it is.
+    """
+
+    def test_policies_are_valid(self):
+        for item in reg.REGISTRY:
+            with self.subTest(id=item.id):
+                self.assertIn(item.policy, reg.VALID_POLICIES)
+
+    def test_switchable_is_derived_not_stored(self):
+        """Two fields meaning the same thing is how they drift."""
+        self.assertNotIn(
+            "switchable", getattr(reg.Intervention, "__dataclass_fields__", {}),
+            "`switchable` must remain a derived property of `policy`.")
+        for item in reg.REGISTRY:
+            with self.subTest(id=item.id):
+                self.assertEqual(
+                    item.switchable, item.policy == reg.POLICY_SWITCHABLE)
+
+    def test_population_after_the_seams_landed(self):
+        """37 / 6 / 0 — derived, not hard-coded anywhere in runtime logic.
+
+        Was 35/6/2 at the Parts 4-7 checkpoint. Section B split the two
+        prompt example families out of their parent constants, so the
+        PENDING_SEAM population is now empty and `All Switchable Off`
+        can finally be truthful about prompt composition.
+        """
+        counts = reg.policy_counts()
+        self.assertEqual(counts[reg.POLICY_SWITCHABLE], 37)
+        self.assertEqual(counts[reg.POLICY_PROTECTED], 6)
+        self.assertEqual(counts[reg.POLICY_PENDING_SEAM], 0)
+        self.assertEqual(sum(counts.values()), len(reg.REGISTRY))
+
+    def test_no_authority_remains_unseparable(self):
+        """The state that exists to be eliminated."""
+        self.assertEqual(
+            [i.id for i in reg.pending_seam()], [],
+            "A PENDING_SEAM authority means All Switchable Off silently "
+            "leaves it running.")
+
+    def test_the_exemplar_families_are_now_switchable(self):
+        for name in ("prompt_reflection_examples",
+                     "prompt_witness_fewshot_examples"):
+            with self.subTest(name=name):
+                self.assertEqual(
+                    reg.by_name(name).policy, reg.POLICY_SWITCHABLE)
+
+    def test_floor_hold_is_protected_not_pending(self):
+        """Id 20 is withheld by product judgment, not by a missing seam."""
+        item = reg.by_name("route_floor_hold")
+        self.assertEqual(item.policy, reg.POLICY_PROTECTED)
 
     def test_safety_entries_are_locked(self):
         for name in ("prompt_safety_protocol", "cc_safety_path"):
@@ -287,21 +346,39 @@ class ExemplarBlocksAreRegisteredTests(unittest.TestCase):
                     item.known_harm.strip(),
                     f"{name} must record its measured leak evidence.")
 
-    def test_exemplar_blocks_are_not_yet_separable(self):
-        """Recorded as owed work, not silently assumed done.
+    def test_exemplar_blocks_point_at_their_seams(self):
+        """The debt this test used to record is now paid.
 
-        Both families are embedded inside larger string constants
-        (_WITNESS_RECEIPT_DIRECTIVE and LORI_INTERVIEW_DISCIPLINE) and
-        cannot be switched without splitting those. The baseline needs
-        that split; this test documents the debt so it cannot be
-        forgotten, and it will need inverting once the split lands.
+        It previously asserted PENDING_SEAM and `NOT SEPARABLE YET`.
+        Section B split both families out of their parent constants, so
+        the assertion inverts: each must now name the composition
+        function that assembles it.
+        """
+        for name, fn in (
+            ("prompt_witness_fewshot_examples",
+             "compose_witness_receipt_directive"),
+            ("prompt_reflection_examples",
+             "compose_interview_discipline"),
+        ):
+            item = reg.by_name(name)
+            with self.subTest(name=name):
+                self.assertEqual(item.policy, reg.POLICY_SWITCHABLE)
+                self.assertNotIn("NOT SEPARABLE YET", item.policy_reason)
+                self.assertIn(fn, item.location)
+
+    def test_exemplar_residuals_are_recorded_not_hidden(self):
+        """Excluding the examples does not make the prompt name-free.
+
+        Both directives keep narrator nouns inside PROHIBITIONS — the
+        witness MUST NOT names Vince and Janice, and reflection rule 4
+        names Spokane and Montreal. Those are the guards against the
+        failures they describe, not exemplars, so they stay; a baseline
+        that claimed to be free of narrator names would be lying.
         """
         for name in ("prompt_witness_fewshot_examples",
                      "prompt_reflection_examples"):
-            item = reg.by_name(name)
             with self.subTest(name=name):
-                self.assertFalse(item.switchable)
-                self.assertIn("NOT SEPARABLE YET", item.locked_reason)
+                self.assertIn("RESIDUAL", reg.by_name(name).known_harm)
 
 
 class ProductionUnchangedTests(unittest.TestCase):

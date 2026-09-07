@@ -104,6 +104,43 @@ VALID_COUNTERFACTUALS = frozenset({
 })
 
 
+# ── Control policy ────────────────────────────────────────────────────
+#
+# THREE STATES, NOT A BOOLEAN. The first cut of this registry used
+# `switchable: bool`, which collapsed three unlike conditions into one
+# padlock and would have told the operator the same lie about all of
+# them:
+#
+#   * the acute safety protocol cannot be disabled, ever;
+#   * the Kent/Janice witness examples cannot be disabled YET, because
+#     they are embedded in a larger string constant nobody has split;
+#   * the floor-hold route is not offered because letting Lori talk over
+#     a narrator who has claimed the floor is a product decision.
+#
+# "Cannot, for safety" and "cannot, until someone splits a string" are
+# completely different truths, and an operator staring at a disabled
+# checkbox deserves to know which one they are looking at.
+
+POLICY_SWITCHABLE = "SWITCHABLE"
+"""The operator may include or exclude this authority."""
+
+POLICY_PROTECTED = "PROTECTED"
+"""Safety, provenance, narrator floor ownership, fail-closed or
+memory-integrity behaviour. Visible in the catalog, never overridable —
+not by the API, not by the panel, not by an environment value."""
+
+POLICY_PENDING_SEAM = "PENDING_SEAM"
+"""Would be switchable, and is not yet separable in code. A temporary
+state that exists to be eliminated: at the Parts 4-7 checkpoint ids 4
+and 11 hold it because their example families live inside larger prompt
+constants. Once split they become SWITCHABLE and this population is
+empty. `All Switchable Off` cannot be truthful while any remain."""
+
+VALID_POLICIES = frozenset({
+    POLICY_SWITCHABLE, POLICY_PROTECTED, POLICY_PENDING_SEAM,
+})
+
+
 @dataclass(frozen=True)
 class Intervention:
     """One thing that can change what the narrator receives."""
@@ -114,15 +151,33 @@ class Intervention:
     cls: str                     # one of VALID_CLASSES
     position: int                # canonical pipeline order
     location: str                # production site, file:line-ish
-    default_on: bool             # state in normal production
-    switchable: bool
+    # CANONICAL DEFAULT ONLY — not the effective runtime state.
+    #
+    # These are two different questions and one field cannot answer
+    # both. Id 2 is canonically ON while the runtime safety family is
+    # server-authoritatively PARKED, and `prompt_composer.py:3560` has a
+    # branch returning core identity WITHOUT the safety protocol
+    # appended. A panel that renders this field as "ON" would be lying
+    # about what the next turn receives. Effective state is resolved by
+    # the control service from canonical default + operator override +
+    # protected/system state, and carries its own reason.
+    default_on: bool
+    policy: str                  # one of VALID_POLICIES
     counterfactual: str
     purpose: str                 # what it is for
     motivating_failure: str      # the live failure that created it
     known_harm: str = ""         # measured regression, if any
     trace_stage: str = ""        # name in the response trace, if any
-    locked_reason: str = ""
+    policy_reason: str = ""      # why PROTECTED, or what seam is missing
     tests: Tuple[str, ...] = field(default_factory=tuple)
+
+    @property
+    def switchable(self) -> bool:
+        """Retained as a derived convenience, never as stored state.
+
+        Two fields meaning almost the same thing is how they drift.
+        """
+        return self.policy == POLICY_SWITCHABLE
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -147,7 +202,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=1, name="prompt_core_identity", display="Core Identity",
         cls=CLASS_PROMPT, position=100,
         location="prompt_composer.LORI_CORE_IDENTITY (DEFAULT_CORE head)",
-        default_on=True, switchable=True, counterfactual=CF_REQUIRES_RERUN,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_REQUIRES_RERUN,
         purpose="Establishes who Lori is and the interviewing frame.",
         motivating_failure="Foundational; predates the guard lane.",
         known_harm="Part of the 6,065-7,267 token system-side payload "
@@ -158,17 +213,17 @@ REGISTRY: Tuple[Intervention, ...] = (
         cls=CLASS_LOCKED, position=101,
         location="prompt_composer.LORI_SAFETY_PROTOCOL (DEFAULT_CORE tail, "
                  "split at _SAFETY_PROTOCOL_MARKER)",
-        default_on=True, switchable=False, counterfactual=CF_LOCKED,
+        default_on=True, policy=POLICY_PROTECTED, counterfactual=CF_LOCKED,
         purpose="Acute safety behaviour in the system prompt.",
         motivating_failure="Safety boundary.",
-        locked_reason="CLAUDE.md: safety may never be activated or "
+        policy_reason="CLAUDE.md: safety may never be activated or "
                       "deactivated through an environment value.",
     ),
     Intervention(
         id=3, name="prompt_interview_discipline", display="Interview Discipline",
         cls=CLASS_PROMPT, position=110,
         location="prompt_composer.LORI_INTERVIEW_DISCIPLINE",
-        default_on=True, switchable=True, counterfactual=CF_REQUIRES_RERUN,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_REQUIRES_RERUN,
         purpose="One-question discipline and listening guidance.",
         motivating_failure="Lori asking stacked questions and talking over "
                            "the narrator.",
@@ -176,28 +231,29 @@ REGISTRY: Tuple[Intervention, ...] = (
     Intervention(
         id=4, name="prompt_reflection_examples", display="Reflection Examples",
         cls=CLASS_PROMPT, position=111,
-        location="prompt_composer.py:1578-1662, embedded INSIDE "
-                 "LORI_INTERVIEW_DISCIPLINE",
-        default_on=True, switchable=False, counterfactual=CF_REQUIRES_RERUN,
+        location="prompt_composer._ID_EXAMPLES_0..3, four fragments in "
+                 "_INTERVIEW_DISCIPLINE_SEGMENTS; assembled by "
+                 "compose_interview_discipline(include_examples=)",
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_REQUIRES_RERUN,
         purpose="Teach acknowledgment of volunteered facts by example.",
         motivating_failure="Lori acknowledging narrator facts vaguely or "
                            "pivoting to sensory probes.",
         known_harm="EXEMPLAR LEAK, measured. Walt turn 7 raw output was "
                    "'That night shift at the aluminum plant - sounds like a "
-                   "hard rhythm', verbatim from prompt_composer.py:1580. "
+                   "hard rhythm', verbatim from the first fragment. "
                    "Walt is a Boston maths teacher; the aluminum plant is "
-                   "not his life.",
-        locked_reason="NOT SEPARABLE YET. These examples are embedded in "
-                      "the LORI_INTERVIEW_DISCIPLINE string literal and "
-                      "cannot be switched without splitting that constant. "
-                      "Registered so the work is visible; switchability is "
-                      "owed before the baseline run.",
+                   "not his life. RESIDUAL: excluding these fragments does "
+                   "NOT remove every narrator noun from the directive - "
+                   "rule 4's prohibition itself names Spokane and Montreal "
+                   "('if they said Spokane, do not add Washington'). That "
+                   "is instruction, not exemplar; moving it would delete "
+                   "the rule it teaches.",
     ),
     Intervention(
         id=5, name="prompt_oral_history_response", display="Oral History Posture",
         cls=CLASS_PROMPT, position=112,
         location="prompt_composer.LORI_ORAL_HISTORY_RESPONSE",
-        default_on=True, switchable=True, counterfactual=CF_REQUIRES_RERUN,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_REQUIRES_RERUN,
         purpose="Listening-led oral-history posture; the default interview "
                 "style per the universal pivot.",
         motivating_failure="Questionnaire-style interrogation displacing "
@@ -207,7 +263,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=6, name="prompt_story_mode_directive", display="Story Mode Directive",
         cls=CLASS_PROMPT, position=113,
         location="prompt_composer.LORI_STORY_MODE_DIRECTIVE",
-        default_on=True, switchable=True, counterfactual=CF_REQUIRES_RERUN,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_REQUIRES_RERUN,
         purpose="Story-first behaviour on narrative turns.",
         motivating_failure="WO-LORI-STORY-FIRST-PHASE-1-01.",
     ),
@@ -215,7 +271,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=7, name="prompt_question_hierarchy", display="Question Hierarchy Guidance",
         cls=CLASS_PROMPT, position=114,
         location="prompt_composer.LORI_QUESTION_HIERARCHY_GUIDANCE",
-        default_on=True, switchable=True, counterfactual=CF_REQUIRES_RERUN,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_REQUIRES_RERUN,
         purpose="Orders question types so Lori follows the thread rather "
                 "than jumping levels.",
         motivating_failure="Lori jumping from a specific moment to a "
@@ -225,7 +281,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=8, name="prompt_thread_surfacing", display="Thread Surfacing Directive",
         cls=CLASS_PROMPT, position=115,
         location="prompt_composer.LORI_THREAD_SURFACING_DIRECTIVE_TEMPLATE",
-        default_on=True, switchable=True, counterfactual=CF_REQUIRES_RERUN,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_REQUIRES_RERUN,
         purpose="Surfaces unresolved story threads into the prompt.",
         motivating_failure="Open threads dropped between turns.",
     ),
@@ -233,7 +289,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=9, name="prompt_anchored_ask", display="Anchored Ask Directive",
         cls=CLASS_PROMPT, position=116,
         location="prompt_composer.LORI_ANCHORED_ASK_DIRECTIVE_TEMPLATE",
-        default_on=True, switchable=True, counterfactual=CF_REQUIRES_RERUN,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_REQUIRES_RERUN,
         purpose="Ties Lori's question to a narrator-named anchor.",
         motivating_failure="Ungrounded follow-up questions.",
         known_harm="Contains a narrator-specific example at "
@@ -243,7 +299,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=10, name="prompt_witness_receipt_directive", display="Witness Receipt Directive",
         cls=CLASS_PROMPT, position=120,
         location="prompt_composer._WITNESS_RECEIPT_DIRECTIVE",
-        default_on=True, switchable=True, counterfactual=CF_REQUIRES_RERUN,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_REQUIRES_RERUN,
         purpose="Instructs a structured factual receipt on long "
                 "chronological narration instead of a sensory probe.",
         motivating_failure="Kent's basic-training chronology answered with "
@@ -258,9 +314,9 @@ REGISTRY: Tuple[Intervention, ...] = (
     Intervention(
         id=11, name="prompt_witness_fewshot_examples", display="Witness Few-Shot Examples",
         cls=CLASS_PROMPT, position=121,
-        location="prompt_composer.py:3414-3463, embedded INSIDE "
-                 "_WITNESS_RECEIPT_DIRECTIVE",
-        default_on=True, switchable=False, counterfactual=CF_REQUIRES_RERUN,
+        location="prompt_composer._WITNESS_RECEIPT_EXAMPLES; assembled by "
+                 "compose_witness_receipt_directive(include_examples=)",
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_REQUIRES_RERUN,
         purpose="Teach the chronological receipt shape using authentic "
                 "oral-history material (GOOD EXAMPLE A: induction, train, "
                 "meal tickets, Fort Ord; GOOD EXAMPLE B: Germany, Bismarck "
@@ -273,12 +329,16 @@ REGISTRY: Tuple[Intervention, ...] = (
                    "sentence as prompt_composer.py:3420-3423. The model "
                    "reproduced the example's CONTENT rather than only its "
                    "SHAPE. This is consenting lab material and not a privacy "
-                   "finding; it is a contamination and overfitting finding.",
-        locked_reason="NOT SEPARABLE YET. Embedded in the "
-                      "_WITNESS_RECEIPT_DIRECTIVE string literal. Splitting "
-                      "that constant is owed before the baseline run, so "
-                      "'Baseline' vs 'Baseline + real witness examples' can "
-                      "be one switch rather than a code edit.",
+                   "finding; it is a contamination and overfitting finding. "
+                   "The FORBIDDEN examples are inside this authority too, "
+                   "deliberately: they carry the same biography ('train to "
+                   "Fargo', 'Stanley, Fargo, and Fort Ord'), so excluding "
+                   "only the GOOD block would still ship Kent's induction "
+                   "into a prompt claiming to be a clean baseline. RESIDUAL: "
+                   "the MUST NOT section still names Vince and Janice as "
+                   "forbidden first-person phrasing; that is the guard "
+                   "against the original K10 mimicry, not an exemplar, and "
+                   "removing it would reintroduce the failure it prevents.",
     ),
 
     # ── ROUTE (positions 200-299) ─────────────────────────────────────
@@ -293,18 +353,18 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=20, name="route_floor_hold", display="Floor Hold Route",
         cls=CLASS_ROUTE, position=200,
         location="chat_ws.py:4207 gate -> 4223 finalize",
-        default_on=True, switchable=False, counterfactual=CF_ELIGIBILITY_ONLY,
+        default_on=True, policy=POLICY_PROTECTED, counterfactual=CF_ELIGIBILITY_ONLY,
         purpose="Acknowledges that the narrator has claimed the floor and is "
                 "still composing.",
         motivating_failure="Lori interrupting a narrator mid-thought.",
-        locked_reason="Turn-ownership behaviour, not conversational style. "
+        policy_reason="Turn-ownership behaviour, not conversational style. "
                       "Disabling it makes Lori talk over the narrator.",
     ),
     Intervention(
         id=21, name="route_meta_question", display="Meta-Question Route",
         cls=CLASS_ROUTE, position=210,
         location="chat_ws.py:4246 gate -> 4331 finalize",
-        default_on=True, switchable=True, counterfactual=CF_ELIGIBILITY_ONLY,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_ELIGIBILITY_ONLY,
         purpose="Deterministic answers when the narrator asks about Lori "
                 "herself, AI, safety or identity.",
         motivating_failure="Mary asked 'what is an AI?' twice and received "
@@ -314,7 +374,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=22, name="route_witness_meta_feedback", display="Witness / Correction Route",
         cls=CLASS_ROUTE, position=220,
         location="chat_ws.py:3822 sets turn_mode -> 4359 gate -> 4361 finalize",
-        default_on=True, switchable=True, counterfactual=CF_ELIGIBILITY_ONLY,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_ELIGIBILITY_ONLY,
         purpose="Intercepts narrator meta-feedback and factual corrections "
                 "with a deterministic second-person acknowledgment.",
         motivating_failure="Kent's K10: Lori first-person-echoed his hospital "
@@ -331,7 +391,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=23, name="route_structured_narrative", display="Structured-Narrative Witness Route",
         cls=CLASS_ROUTE, position=221,
         location="chat_ws.py:3823-3824 sets _witness_use_llm_receipt",
-        default_on=True, switchable=True, counterfactual=CF_ELIGIBILITY_ONLY,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_ELIGIBILITY_ONLY,
         purpose="Places long factual narration into witness-receipt mode: "
                 "generation still runs, under the receipt directive, and the "
                 "result is judged by the receipt validator.",
@@ -346,7 +406,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=24, name="route_memory_echo", display="Memory Echo Route",
         cls=CLASS_ROUTE, position=230,
         location="chat_ws.py:4384 gate -> 4605 finalize",
-        default_on=True, switchable=True, counterfactual=CF_ELIGIBILITY_ONLY,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_ELIGIBILITY_ONLY,
         purpose="Deterministic readback when the narrator asks what Lori "
                 "remembers about them.",
         motivating_failure="LLM drift and confabulation on 'what do you know "
@@ -356,7 +416,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=25, name="route_age_recall", display="Age Recall Route",
         cls=CLASS_ROUTE, position=240,
         location="chat_ws.py:4624 gate -> 4649 finalize",
-        default_on=True, switchable=True, counterfactual=CF_ELIGIBILITY_ONLY,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_ELIGIBILITY_ONLY,
         purpose="Deterministic arithmetic answer to 'how old am I'.",
         motivating_failure="BUG-LORI-LATE-AGE-RECALL-01: v8 deflected with "
                            "'Is there something else on your mind?'",
@@ -366,7 +426,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         cls=CLASS_ROUTE, position=250,
         location="chat_ws.py:4662 gate -> 4759 finalize; turn_mode assigned "
                  "in the BROWSER by ui/js/app.js lvRouteTurn:2713",
-        default_on=True, switchable=True, counterfactual=CF_ELIGIBILITY_ONLY,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_ELIGIBILITY_ONLY,
         purpose="A SECOND correction path, distinct from id 22 and decided "
                 "client-side.",
         motivating_failure="BUG-LORI-MIDSTREAM-CORRECTION-01: Mary's "
@@ -388,7 +448,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         cls=CLASS_VALIDATE, position=300,
         location="lori_communication_control._verify_proper_noun; "
                  "gate _phantom_noun_guard_enabled()",
-        default_on=False, switchable=True, counterfactual=CF_PURE,
+        default_on=False, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
         purpose="Flags personal proper nouns in Lori's reply that are not "
                 "grounded in narrator or profile context.",
         motivating_failure="Lori naming people the narrator never mentioned.",
@@ -398,7 +458,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         cls=CLASS_TRANSFORM, position=301,
         location="chat_ws.py:5983 final_text = _phantom_result['final_text']; "
                  "gate _phantom_noun_scrub_enabled()",
-        default_on=False, switchable=True, counterfactual=CF_PURE,
+        default_on=False, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
         purpose="Removes sentences containing detected phantom nouns.",
         motivating_failure="As id 30, where flagging alone was not enough.",
     ),
@@ -406,17 +466,17 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=32, name="cc_safety_path", display="Communication-Control Safety Exemption",
         cls=CLASS_LOCKED, position=310,
         location="lori_communication_control.py:917 _safety_path",
-        default_on=True, switchable=False, counterfactual=CF_LOCKED,
+        default_on=True, policy=POLICY_PROTECTED, counterfactual=CF_LOCKED,
         purpose="Routes a safety-triggered turn around ordinary "
                 "communication control entirely.",
         motivating_failure="Safety boundary.",
-        locked_reason="Acute safety. CLAUDE.md forbids env-value control.",
+        policy_reason="Acute safety. CLAUDE.md forbids env-value control.",
     ),
     Intervention(
         id=33, name="cc_question_atomicity", display="Question Atomicity",
         cls=CLASS_TRANSFORM, position=311,
         location="lori_communication_control.py:930 enforce_question_atomicity",
-        default_on=True, switchable=True, counterfactual=CF_PURE,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
         purpose="Splits compound questions so Lori asks one thing.",
         motivating_failure="WO-LORI-QUESTION-ATOMICITY-01.",
         known_harm="Walt turn 4: removed the clause naming his father, "
@@ -428,7 +488,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=34, name="cc_question_count_truncate", display="Question Count Cap",
         cls=CLASS_TRANSFORM, position=312,
         location="lori_communication_control.py:939 _truncate_to_first_question",
-        default_on=True, switchable=True, counterfactual=CF_PURE,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
         purpose="Truncates to the first question when more than one '?' "
                 "survives atomicity.",
         motivating_failure="Stacked questions overwhelming older narrators.",
@@ -438,7 +498,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=35, name="cc_word_limit", display="Response Word Limit",
         cls=CLASS_TRANSFORM, position=313,
         location="lori_communication_control.py:966 _truncate_to_word_limit",
-        default_on=True, switchable=True, counterfactual=CF_PURE,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
         purpose="Caps Lori's reply at the session-style word limit, with "
                 "+35 headroom when the narrator's turn is >= 50 words.",
         motivating_failure="Lori producing multi-paragraph replies that "
@@ -453,7 +513,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         cls=CLASS_TRANSFORM, position=314,
         location="lori_communication_control.py:980 shape_reflection; "
                  "gate _reflection_shaping_enabled()",
-        default_on=False, switchable=True, counterfactual=CF_PURE,
+        default_on=False, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
         purpose="Deterministically re-arranges or trims the reflection Lori "
                 "already produced. Never invents a narrator fact.",
         motivating_failure="WO-LORI-REFLECTION-02: prompt-heavy reflection "
@@ -469,7 +529,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=37, name="cc_reflection_validator", display="Reflection Validator",
         cls=CLASS_VALIDATE, position=315,
         location="lori_communication_control.py:997 validate_memory_echo",
-        default_on=True, switchable=True, counterfactual=CF_PURE,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
         purpose="Reports whether Lori's reflection was grounded in what the "
                 "narrator said. Report-only by design - a deterministic "
                 "rewrite here would invent narrator facts.",
@@ -480,7 +540,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=38, name="cc_push_after_resistance", display="Push-After-Resistance Detector",
         cls=CLASS_VALIDATE, position=316,
         location="lori_communication_control.py:1007 _detect_push_after_resistance",
-        default_on=True, switchable=True, counterfactual=CF_PURE,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
         purpose="Flags Lori continuing to probe after the narrator signalled "
                 "resistance. Report-only; never modifies output.",
         motivating_failure="Phelan SIN 3 - too much arguing.",
@@ -490,7 +550,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=39, name="cc_stub_collapse_repair", display="Stub Collapse Repair",
         cls=CLASS_REPLACE, position=317,
         location="lori_communication_control.py:1049 compose_stub_collapse_repair",
-        default_on=True, switchable=True, counterfactual=CF_PURE,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
         purpose="Replaces a <=5-word reply to a substantive narrator turn "
                 "with a composed continuation.",
         motivating_failure="Mary received 'AI.' as an entire response; later "
@@ -504,7 +564,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=40, name="cc_chain_anchor_opener", display="Chain Anchor Opener",
         cls=CLASS_TRANSFORM, position=318,
         location="lori_communication_control.py:1102-1105",
-        default_on=True, switchable=True, counterfactual=CF_PURE,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
         purpose="Prepends 'From X to Y to Z - ' on factual-chain turns where "
                 "Lori echoed fewer than two of >=3 narrator anchors.",
         motivating_failure="BUG-LORI-CHAIN-ANCHOR-ECHO-STRENGTH-01 Path B: "
@@ -523,7 +583,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         cls=CLASS_VALIDATE, position=319,
         location="lori_communication_control.py:1124 check_reflection_grounding; "
                  "gate _phase_1_enabled()",
-        default_on=False, switchable=True, counterfactual=CF_PURE,
+        default_on=False, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
         purpose="Phase 1 validator; appends structured labels the "
                 "regeneration loop consumes.",
         motivating_failure="WO-LORI-STORY-FIRST-PHASE-1-01.",
@@ -534,7 +594,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         cls=CLASS_VALIDATE, position=320,
         location="lori_communication_control.py:1135 enforce_question_hierarchy; "
                  "gate _phase_1_enabled()",
-        default_on=False, switchable=True, counterfactual=CF_PURE,
+        default_on=False, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
         purpose="Phase 1 validator for question level ordering.",
         motivating_failure="WO-LORI-STORY-FIRST-PHASE-1-01.",
         trace_stage="comm_control",
@@ -543,7 +603,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=43, name="legacy_one_question_trim", display="Legacy One-Question Trim",
         cls=CLASS_TRANSFORM, position=330,
         location="chat_ws.py:6161 final_text = _trimmed",
-        default_on=True, switchable=True, counterfactual=CF_PURE,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
         purpose="A second, older truncation to a single question, outside "
                 "communication control.",
         motivating_failure="Predates comm_control's own question cap.",
@@ -555,7 +615,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=44, name="era_fragment_repair", display="Era Fragment Repair",
         cls=CLASS_TRANSFORM, position=340,
         location="chat_ws.py:6279 final_text = _repaired",
-        default_on=True, switchable=True, counterfactual=CF_PURE,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
         purpose="Repairs replies that open with a bare era label fragment.",
         motivating_failure="Lori speaking a system era label at the narrator.",
         known_harm="Walt turn 2: prepended 'Can you tell me about' to a reply "
@@ -568,7 +628,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=45, name="language_repair_es", display="Spanish Language Repair",
         cls=CLASS_TRANSFORM, position=350,
         location="chat_ws.py:6304 final_text = _es_repaired",
-        default_on=True, switchable=True, counterfactual=CF_PURE,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
         purpose="Repairs Spanish-session replies that drifted structurally.",
         motivating_failure="WO-SPANISH-LIVE-READINESS-01.",
         trace_stage="language_repair_es",
@@ -577,7 +637,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=46, name="duplicate_response_bridge", display="Duplicate Response Bridge",
         cls=CLASS_REPLACE, position=360,
         location="chat_ws.py:6386 final_text = _bridge",
-        default_on=True, switchable=True, counterfactual=CF_PURE,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
         purpose="Substitutes a bridge line when Lori's reply is bit-identical "
                 "to her previous one.",
         motivating_failure="Lori repeating herself verbatim across turns.",
@@ -588,7 +648,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         cls=CLASS_VALIDATE, position=370,
         location="chat_ws.py:6440 validate_witness_receipt; "
                  "gate _witness_use_llm_receipt at 6429",
-        default_on=True, switchable=True, counterfactual=CF_PURE,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
         purpose="Checks a witness-receipt reply for forbidden tokens, "
                 "first-person mimicry, 35-110 words, <=1 question and >=3 "
                 "echoed narrator facts.",
@@ -603,7 +663,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=48, name="witness_receipt_fallback", display="Witness Receipt Fallback",
         cls=CLASS_REPLACE, position=371,
         location="chat_ws.py:6507 final_text = _wr_fallback",
-        default_on=True, switchable=True, counterfactual=CF_PURE,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
         purpose="Replaces a failing receipt with the deterministic composed "
                 "receipt for the same detection.",
         motivating_failure="As id 47 - Kent must never see a sensory probe "
@@ -621,11 +681,11 @@ REGISTRY: Tuple[Intervention, ...] = (
         display="Witness Receipt Fallback (exception path)",
         cls=CLASS_LOCKED, position=372,
         location="chat_ws.py:6560 final_text = _wr_fallback",
-        default_on=True, switchable=False, counterfactual=CF_LOCKED,
+        default_on=True, policy=POLICY_PROTECTED, counterfactual=CF_LOCKED,
         purpose="Fail-closed substitution when the validator itself raises.",
         motivating_failure="An exception in a protection layer must not ship "
                            "unvalidated text.",
-        locked_reason="Fail-closed infrastructure for an exception path, not "
+        policy_reason="Fail-closed infrastructure for an exception path, not "
                       "a conversational style choice.",
         trace_stage="witness_receipt_fallback_on_exception",
     ),
@@ -633,7 +693,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=50, name="language_drift_repair", display="Language Drift Repair",
         cls=CLASS_TRANSFORM, position=380,
         location="chat_ws.py:6635 final_text = _es_repair_text",
-        default_on=True, switchable=True, counterfactual=CF_PURE,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
         purpose="Repairs replies that drifted out of the pinned session "
                 "language.",
         motivating_failure="BUG-LORI-SESSION-LANGUAGE-CONTRACT-01.",
@@ -644,7 +704,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         cls=CLASS_TRANSFORM, position=390,
         location="chat_ws.py:6832 final_text = _guarded_text; "
                  "lori_response_guards.py, 7 detect_/repair_ pairs",
-        default_on=True, switchable=True, counterfactual=CF_PURE,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
         purpose="Seven paired detectors and repairs: language drift, dangling "
                 "determiner, meta-response leak, broken code-mix, seeded-fact "
                 "intake, sensory pivot on chain, narrator echo.",
@@ -660,12 +720,12 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=52, name="guard_failure_fallback", display="Guard Failure Fallback",
         cls=CLASS_LOCKED, position=391,
         location="chat_ws.py:6864 final_text = _COMPOSE_GUARD_FAILURE_FALLBACK",
-        default_on=True, switchable=False, counterfactual=CF_LOCKED,
+        default_on=True, policy=POLICY_PROTECTED, counterfactual=CF_LOCKED,
         purpose="Fail-closed deterministic response when the guard wrapper "
                 "itself raises.",
         motivating_failure="BUG-GUARDS-DEAD-ON-PY311-INLINE-FLAG-01 proved "
                            "this class fires in production.",
-        locked_reason="Disabling it ships unguarded LLM text on a crash - the "
+        policy_reason="Disabling it ships unguarded LLM text on a crash - the "
                       "exact inversion the layer exists to prevent "
                       "(chat_ws.py:6840-6851).",
         trace_stage="compose_guard_failure_fallback",
@@ -675,13 +735,13 @@ REGISTRY: Tuple[Intervention, ...] = (
         cls=CLASS_LOCKED, position=399,
         location="profile_seed_turn / profile_seed state; topic disposition, "
                  "epoch, presentation recovery, stale-event protection",
-        default_on=True, switchable=False, counterfactual=CF_LOCKED,
+        default_on=True, policy=POLICY_PROTECTED, counterfactual=CF_LOCKED,
         purpose="Durable record of which onboarding topics were presented, "
                 "addressed or remain open.",
         motivating_failure="A phantom presentation marked childhood_home "
                            "ADDRESSED - a durable disposition - and closed it "
                            "forever without ever asking.",
-        locked_reason="Memory integrity, not conversational style. Registered "
+        policy_reason="Memory integrity, not conversational style. Registered "
                       "SEPARATELY from id 54 so the ledger stays strict while "
                       "the prose authority becomes selectable.",
     ),
@@ -689,7 +749,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         id=54, name="profile_seed_delivery", display="Profile Seed Delivery",
         cls=CLASS_FINAL_WRITER, position=400,
         location="chat_ws.py:6905-6915 finalize_presentation -> final_text",
-        default_on=True, switchable=True, counterfactual=CF_ELIGIBILITY_ONLY,
+        default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_ELIGIBILITY_ONLY,
         purpose="Makes the canonical onboarding question the SERVER'S "
                 "sentence, delivered by construction, so a topic cannot be "
                 "stamped presented without actually being asked.",
@@ -783,12 +843,36 @@ def by_name(name: str) -> Optional[Intervention]:
     return None
 
 
+def by_policy(policy: str) -> Tuple[Intervention, ...]:
+    return tuple(i for i in REGISTRY if i.policy == policy)
+
+
 def switchable() -> Tuple[Intervention, ...]:
-    return tuple(i for i in REGISTRY if i.switchable)
+    return by_policy(POLICY_SWITCHABLE)
 
 
-def locked() -> Tuple[Intervention, ...]:
-    return tuple(i for i in REGISTRY if not i.switchable)
+def protected() -> Tuple[Intervention, ...]:
+    return by_policy(POLICY_PROTECTED)
+
+
+def pending_seam() -> Tuple[Intervention, ...]:
+    """Authorities that would be switchable but are not yet separable.
+
+    This should trend to empty. While it is non-empty, an operator
+    action labelled `All Switchable Off` leaves these ACTIVE, and the
+    UI must say so rather than implying they were turned off.
+    """
+    return by_policy(POLICY_PENDING_SEAM)
+
+
+def policy_counts() -> Dict[str, int]:
+    """Derived, never written down.
+
+    The expected shape at the Parts 4-7 checkpoint is 35/6/2, and 37/6/0
+    once the two prompt seams land. Those numbers belong in a report, in
+    a test, and nowhere in runtime logic.
+    """
+    return {p: len(by_policy(p)) for p in sorted(VALID_POLICIES)}
 
 
 def by_class(cls: str) -> Tuple[Intervention, ...]:
