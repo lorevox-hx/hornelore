@@ -231,9 +231,76 @@ one kills a test.
 
 ## 7. Runbook
 
-Nothing below starts or stops the stack — that is yours.
+**Chris starts and stops the stack.** No block in this document does it,
+and none should be added.
 
-**Step 1 — create and verify the narrator** (the only write):
+**Step 1 — arm a fresh evidence container, BEFORE the stack starts.**
+Tracing is resolved at process startup (`trace_env.sh:63`), so arming
+afterwards records nothing.
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+RUN="$PWD/.runtime/eval/phase6-lean-20260907"
+mkdir -p "$RUN"
+printf '%s\n' "$RUN" > .runtime/eval/current_eval_dir
+```
+
+**Measured, not inferred:** that marker is what the server actually reads
+(`lori_guard_gate.py:110`, `trace_env.sh:69`), and a non-empty marker is
+itself what turns tracing on (`trace_env.sh:79`).
+
+**The arm survives startup.** `start_all.sh` prints the resolved banner
+(line 36) and then runs `kill_all_hornelore` (line 39) — **not
+`stop_all.sh`** — and that helper contains no marker reference. So the
+sequence *arm → start → API comes up armed* holds.
+
+Disarming belongs to `stop_all.sh` alone: its EXIT trap copies the
+pointer to `last_eval_dir`, then removes `current_eval_dir`
+(`stop_all.sh:56`). Deliberately — a stale marker would record every
+ordinary Kent and Janice turn. Two consequences:
+
+* **Stopping the stack mid-baseline ends that baseline.** Preserve the
+  directory, arm a different new one, start over. Never reuse it. The
+  capture refusing a short run is the backstop for this.
+* Analysis after shutdown still works: the capture falls back to
+  `last_eval_dir` **and prints which pointer it used** — reading the
+  wrong run silently is the thing to avoid.
+
+**Step 2 — Chris starts Hornelore his normal way, and confirms the
+startup banner.** It must read `Response trace: ENABLED` and name the
+Phase 6 directory. The banner prints the destination that was actually
+resolved rather than a hardcoded path, which is what makes it worth
+reading. **If it says OFF, or names another directory, stop there** — the
+turns would not be recorded and there would be no baseline to render.
+
+**Step 3 — create and verify the narrator** (the only write).
+
+> **This step failed silently on its first run, 2026-09-07, and the
+> failure is worth stating in full.** Ada was created, ten topics read
+> `answered`, `plan_turn` returned `idle`, the script printed `PASS` —
+> and `GET /api/people/<id>` returned **404**. Every check was true about
+> a database nothing serves.
+>
+> `api.db` resolves `DATA_DIR` at import (`db.py:58`), defaulting to a
+> repo-relative `data/`, and `DB_NAME` to `lorevox.sqlite3`
+> (`db.py:62`). The server runs with `.env` loaded
+> (`DATA_DIR=/mnt/c/hornelore_data`, `DB_NAME=hornelore.sqlite3`); the
+> script exported neither, so `init_db()` created a **second, empty
+> database** inside the repo and populated that. The instrument was
+> correct and pointed at the wrong world — which is the same failure
+> family as citing a name instead of the line that reads the value.
+>
+> Two corrections, both in the script: it now loads those two keys from
+> `.env` before importing `db` (an exported value still wins, matching
+> the server), and **`--create` refuses when the resolved database file
+> does not already exist**, because being about to create one is the
+> proof of pointing somewhere the product does not read. The resolved
+> path is printed on every run. `tests/test_phase6_baseline_turnset.py`
+> executes that refusal and asserts no database is created by it;
+> removing the guard fails the test.
+>
+> The stray `data/db/lorevox.sqlite3` is gitignored (`.gitignore:76`), so
+> nothing can commit it. Deleting it is a separate, authorized act.
 
 ```bash
 cd /mnt/c/Users/chris/hornelore
@@ -244,46 +311,15 @@ PYTHONPATH=server/code .venv-gpu/bin/python \
 Expect ten `answered` rows, then `plan_turn action: idle` and **PASS**.
 If it does not say PASS, stop — the baseline is not clean.
 
-**Step 2 — preflight the turn set** (read-only, no stack needed):
+**Step 4 — preflight the turn set** (read-only):
 
 ```bash
 cd /mnt/c/Users/chris/hornelore
 node scripts/ui/phase6_turn_route_preflight.js
 ```
 
-**Step 3 — give this baseline its own evidence container, BEFORE the
-stack starts.** Response tracing is resolved at process startup
-(`trace_env.sh:63`), so arming after the server is up records nothing.
-
-```bash
-cd /mnt/c/Users/chris/hornelore
-RUN="$PWD/.runtime/eval/phase6-lean-20260907"
-mkdir -p "$RUN"
-printf '%s\n' "$RUN" > .runtime/eval/current_eval_dir
-```
-
-Verified: that marker path is what the server actually reads
-(`lori_guard_gate.py:110`, `trace_env.sh:69`), and a non-empty marker is
-itself what turns tracing on (`trace_env.sh:79`).
-
-**Two things that follow from how the marker works:**
-
-* **`stop_all.sh` removes the marker on every exit path** (its EXIT trap,
-  `stop_all.sh:56`) — deliberately, because a stale marker would record
-  every ordinary Kent and Janice turn. So **if the stack is stopped and
-  restarted mid-baseline, re-arm first or the remaining turns are not
-  traced.** That is also a reason the capture refuses a short run rather
-  than rendering one.
-* It writes `.runtime/eval/last_eval_dir` before removing it, so the
-  capture can still find the run after shutdown. The capture falls back
-  to that pointer **and prints which pointer it used** — reading the
-  wrong run silently is the thing to avoid.
-
-If the baseline has to be abandoned, keep that directory and arm a
-different new one. Never reuse it.
-
-**Step 4 — with the stack up, select Ada in the Operator panel, set the
-Lean preset, and snapshot the configuration:**
+**Step 5 — select Ada in the Operator panel, set the Lean preset, and
+snapshot the configuration:**
 
 ```bash
 cd /mnt/c/Users/chris/hornelore
@@ -291,10 +327,10 @@ cd /mnt/c/Users/chris/hornelore
   snapshot phase6-lean-before
 ```
 
-**Step 5 — I send the ten turns in order**, exactly once each, waiting
+**Step 6 — I send the ten turns in order**, exactly once each, waiting
 for each response, changing nothing between them.
 
-**Step 6 — snapshot again, confirm the configuration never moved, and
+**Step 7 — snapshot again, confirm the configuration never moved, and
 render the capture:**
 
 ```bash
@@ -314,7 +350,7 @@ selection fingerprint**. If they differ, the configuration moved during
 the run and the ten turns were not all produced under one configuration —
 that is a discarded baseline, not a footnote.
 
-**Step 7 — human review of the four blank judgement fields.** That is
+**Step 8 — human review of the four blank judgement fields.** That is
 where the conversational verdict comes from; nothing upstream of it
 generates one.
 

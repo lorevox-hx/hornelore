@@ -61,6 +61,37 @@ VERIFIED BEFORE WRITING, NOT ASSUMED
     `merged.update(...)`), so each top-level key below replaces rather
     than deep-merges. That is what we want for a fresh narrator.
 
+IT MUST WRITE TO THE DATABASE THE SERVER IS SERVING
+===================================================
+
+**This script created Ada in the wrong database on its first run**, and
+the failure was silent in the worst way: every check passed. Ten topics
+answered, `plan_turn` IDLE, `PASS` — all true, and all about a narrator
+the running product could not see. `GET /api/people/<id>` returned 404.
+
+`db.py:58` resolves `DATA_DIR` from the process environment, defaulting
+to a repo-relative `data/`, and `db.py:62` defaults `DB_NAME` to
+`lorevox.sqlite3`. The SERVER runs with `.env` loaded
+(`DATA_DIR=/mnt/c/hornelore_data`, `DB_NAME=hornelore.sqlite3`); this
+script ran with neither set, so `init_db()` cheerfully CREATED a second,
+empty database inside the repo and populated it.
+
+Two corrections, both here:
+
+  * `_load_env()` reads the same two keys out of `.env` before `api.db`
+    is imported — which is what `guard_lab_live_acceptance._db_path()`
+    already does, and its docstring says why: "resolved exactly as the
+    server resolves it". A process-supplied value still wins, matching
+    the server's own precedence.
+  * `--create` REFUSES when the resolved database file does not already
+    exist. A Phase 6 narrator belongs in the running system's database;
+    being about to create a new one is proof of pointing at the wrong
+    world, and that is the check that turns this class of mistake from
+    a passing run into a stop.
+
+The resolved path is PRINTED on every run, so the destination is visible
+rather than assumed.
+
 SAFETY
 ======
   * `testing_only=True`, passed to `create_person` (db.py:2457) — the only
@@ -75,11 +106,30 @@ SAFETY
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "server" / "code"))
+
+
+def _load_env() -> None:
+    """Resolve the database the SERVER serves. Call BEFORE importing db.
+
+    `api.db` reads `DATA_DIR` and `DB_NAME` at import time (db.py:58,62),
+    so setting them afterwards has no effect at all — the module-level
+    `DB_PATH` is already bound. An already-exported value wins, which is
+    the server's own precedence.
+    """
+    env = REPO_ROOT / ".env"
+    if not env.is_file():
+        return
+    for line in env.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        for key in ("DATA_DIR", "DB_NAME"):
+            if line.startswith(f"{key}=") and not os.environ.get(key):
+                os.environ[key] = line.split("=", 1)[1].strip()
 
 DISPLAY_NAME = "Ada Pruitt"
 """Deliberately an ordinary name, not a `ZZ …` marker.
@@ -248,7 +298,22 @@ def main() -> int:
     if not (args.create or args.check):
         parser.error("pass --create or --check")
 
+    _load_env()                      # BEFORE the import. See the docstring.
     from api import db
+
+    print(f"Database: {db.DB_PATH}")
+    if not Path(db.DB_PATH).is_file():
+        print(
+            f"\nREFUSING: that database does not exist yet.\n"
+            f"  Writing would CREATE a second, empty database and populate "
+            f"it, and every check in this script would then pass about a "
+            f"narrator the running product cannot see. That is exactly what "
+            f"happened on the first run.\n"
+            f"  Expected the live database named by .env "
+            f"(DATA_DIR/db/DB_NAME). Check DATA_DIR and DB_NAME before "
+            f"rerunning.", file=sys.stderr)
+        return 2
+    print()
 
     existing = _find_existing(db)
 

@@ -199,5 +199,98 @@ class PreflightAgreesWithTheSameFile(unittest.TestCase):
         self.assertIn("nine reach the model", proc.stdout)
 
 
+class WritesOnlyToTheServersDatabase(unittest.TestCase):
+    """The failure that produced a passing run about the wrong world.
+
+    On its first live run the creation script wrote Ada into a database
+    nothing serves. `api.db` resolves `DATA_DIR` at import (db.py:58),
+    defaulting to a repo-relative `data/`; the server runs with `.env`
+    loaded. With neither variable exported, `init_db()` CREATED a second
+    empty database and populated it — and then every check passed: ten
+    topics answered, `plan_turn` IDLE, `PASS`. The product returned 404
+    for that narrator.
+
+    So the guard is not "warn if the path looks odd". It is: a database
+    that does not exist yet is proof of pointing at the wrong world, and
+    the script must refuse WITHOUT creating it.
+    """
+
+    SCRIPT = REPO_ROOT / "scripts" / "phase6_populated_narrator.py"
+
+    def test_create_refuses_and_creates_nothing_when_the_db_is_absent(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            env = dict(os.environ)
+            env["DATA_DIR"] = tmp
+            env["DB_NAME"] = "nonexistent.sqlite3"
+            env["PYTHONPATH"] = str(REPO_ROOT / "server" / "code")
+            proc = subprocess.run(
+                [sys.executable, str(self.SCRIPT), "--create"],
+                cwd=str(REPO_ROOT), env=env, capture_output=True,
+                text=True, timeout=180)
+
+            self.assertEqual(
+                proc.returncode, 2,
+                f"expected the refusal exit code.\n{proc.stdout}\n{proc.stderr}")
+            self.assertIn("REFUSING", proc.stderr)
+            # The property that matters: nothing was created.
+            self.assertFalse(
+                (Path(tmp) / "db" / "nonexistent.sqlite3").exists(),
+                "the script CREATED a database it had just refused to use — "
+                "which is the original bug, not a fix for it")
+
+    def test_the_resolved_database_path_is_printed(self):
+        """A destination that is never shown is a destination nobody checks."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            env = dict(os.environ)
+            env["DATA_DIR"] = tmp
+            env["DB_NAME"] = "nonexistent.sqlite3"
+            env["PYTHONPATH"] = str(REPO_ROOT / "server" / "code")
+            proc = subprocess.run(
+                [sys.executable, str(self.SCRIPT), "--create"],
+                cwd=str(REPO_ROOT), env=env, capture_output=True,
+                text=True, timeout=180)
+        self.assertIn("Database:", proc.stdout)
+        self.assertIn("nonexistent.sqlite3", proc.stdout)
+
+    def test_dotenv_supplies_the_keys_but_the_environment_wins(self):
+        """Precedence matches the server: an exported value is not clobbered."""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "_phase6_narrator_for_test", self.SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        dotenv = REPO_ROOT / ".env"
+        if not dotenv.is_file():
+            self.skipTest("no .env on this host")
+        declared = {}
+        for line in dotenv.read_text(encoding="utf-8",
+                                     errors="replace").splitlines():
+            for key in ("DATA_DIR", "DB_NAME"):
+                if line.strip().startswith(f"{key}="):
+                    declared[key] = line.strip().split("=", 1)[1].strip()
+        if "DATA_DIR" not in declared:
+            self.skipTest(".env declares no DATA_DIR")
+
+        prev = {k: os.environ.get(k) for k in ("DATA_DIR", "DB_NAME")}
+        try:
+            os.environ.pop("DATA_DIR", None)
+            os.environ["DB_NAME"] = "already-exported.sqlite3"
+            module._load_env()
+            self.assertEqual(os.environ["DATA_DIR"], declared["DATA_DIR"],
+                             "the .env value should fill an unset key")
+            self.assertEqual(os.environ["DB_NAME"], "already-exported.sqlite3",
+                             "an exported value must win, as it does for "
+                             "the server")
+        finally:
+            for key, value in prev.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+
 if __name__ == "__main__":
     unittest.main()
