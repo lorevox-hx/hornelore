@@ -106,6 +106,37 @@ Pushed and accepted. See `HANDOFF.md` for live state.
 - **Consumer accounting, both directions.** Every switchable id has a
   production consumer, and every narrator-facing writer, route gate and
   prompt block is registered or deliberately protected.
+- **The operator control surface (sections Q + R).**
+  `routers/operator_guard_lab.py`, gated by
+  `HORNELORE_OPERATOR_GUARD_LAB=1` and answering 404 when off so an
+  outside probe cannot distinguish "off" from "absent".
+  - `GET /state` — all 43 rows with **four separate state fields**
+    (canonical default, deployment default, operator override,
+    effective) plus the reason, the policy and its reason, the revision,
+    both fingerprints, the pending-seam list, and the gate's four
+    eligibility conditions **named individually**. Without that last
+    block the panel is a trap: an operator selects a lean baseline, gets
+    canonical Lori because nothing is armed, and concludes the switches
+    do nothing.
+  - `POST /authorities/{id}` — `enabled` is three-valued; **null RESETS**
+    by deleting the row, so the canonical default stays live in code.
+    404 unknown · 400 with the policy reason for PROTECTED · 409 stale.
+  - `POST /all-switchable-off`, `POST /restore-defaults` — **one request,
+    one transaction, one revision**. Asserted as an exact delta.
+  - `GET /narrators` — testing-only eligibility, **read-only, with no
+    write partner**. This surface may show eligibility and never confer
+    it.
+  - Every mutation returns the WHOLE new state, which is what makes the
+    panel reload-free and stops it re-deriving rows locally; a 409
+    carries the live configuration so a stale second tab corrects itself
+    instead of overwriting a newer selection.
+  - The panel is a section of the **existing** Bug Panel
+    (`ui/js/bug-panel-guard-lab.js`, mount `#lv10dBpGuardLab`), not a
+    second experimental application. It is tested by RENDERING the
+    shipped module (`scripts/ui/guard_lab_panel_domtest.js`) against a
+    real server response — four mutations of the product turn it red,
+    including one that loops 37 writes and one that patches a row
+    locally instead of adopting the server's answer.
 
 ---
 
@@ -180,11 +211,10 @@ can turn off and nobody can see.
 
 | | |
 |---|---|
-| **Next slice** | Operator API and Guard Lab panel; atomic `All Switchable Off` / `Restore Defaults` controls; optimistic-revision UI |
-| **Then** | Live acceptance on a running stack: no-restart toggling, the mid-turn freeze observed rather than only structurally proven, the stale-client clamp, restart persistence |
+| **Next slice** | **Live acceptance on a running stack**: no-restart toggling, the mid-turn freeze observed rather than only structurally proven, the stale-client clamp against a real second tab, restart persistence |
 | **Then** | The lean baseline prompt and a populated synthetic Walt, then the owed §5 short-natural run |
-| **Owed separately** | The response-trace closer (diagnostic finding 2, untouched) |
-| **External dependency** | The `chat_ws` behavioural suites cannot execute in the agent sandbox — `transformers` is absent and fails identically at HEAD — so `.venv-gpu` in WSL is their only verification |
+| **Owed separately** | The response-trace closer (diagnostic finding 2, untouched). **Its sibling finding — that the deterministic witness path produced no trace at all — is CLOSED**: that was true of the frozen diagnostic tree, where those turns returned before tracing opened; the trace now opens at authority acquisition and deterministic responses complete through the shared finalizer |
+| **External dependency — DISCHARGED 2026-09-07** | The `chat_ws` behavioural suites cannot execute in the agent sandbox (`transformers` absent, fails identically at HEAD), so `.venv-gpu` in WSL is their only verification. Run there: **48 tests, 48 passed, 0 skipped** — safety precedence, the fail-closed guard path, session identity and turn cancellation |
 
 **No Walt or John run until `All Switchable Off` is truthful across routing,
 prompt composition, transforms/replacements and the Profile Seed final writer.**

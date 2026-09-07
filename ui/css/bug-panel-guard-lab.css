@@ -1,0 +1,187 @@
+/* WO-LORI-BASELINE-RESET-AND-GUARD-LAB-01 — Guard Lab section styling.
+ *
+ * Operator-only; this section lives inside the Bug Panel popover and is
+ * never reachable from the narrator surface.
+ *
+ * The colours carry meaning and are not decoration: RUNNING and EXCLUDED
+ * must be distinguishable at a glance across 43 rows, and a row whose
+ * effective state differs from its canonical default has to announce
+ * itself — that is the row an operator will otherwise misread. */
+
+#lv10dBpGuardLab {
+  font-size: 12px;
+  line-height: 1.45;
+  color: #1d2733;
+  margin: 12px 0;
+  border: 1px solid #d5dde6;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #fbfcfe;
+}
+
+#lv10dBpGuardLab .gl-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-weight: 600;
+}
+
+#lv10dBpGuardLab .gl-title { font-size: 13px; }
+
+#lv10dBpGuardLab .gl-collapse,
+#lv10dBpGuardLab .gl-why {
+  border: 1px solid #c3cedb;
+  background: #fff;
+  border-radius: 4px;
+  padding: 1px 8px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+#lv10dBpGuardLab .gl-collapsed,
+#lv10dBpGuardLab .gl-empty {
+  color: #5a6b7d;
+  padding: 6px 0;
+}
+
+#lv10dBpGuardLab .gl-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* ── identity ───────────────────────────────────────────────────────── */
+
+#lv10dBpGuardLab .gl-identity {
+  margin: 8px 0;
+  padding: 6px 8px;
+  background: #eef3f9;
+  border-radius: 4px;
+}
+#lv10dBpGuardLab .gl-id-row { display: flex; gap: 8px; align-items: baseline; }
+#lv10dBpGuardLab .gl-id-key { width: 68px; color: #4a5a6b; }
+#lv10dBpGuardLab .gl-id-val { font-weight: 600; }
+#lv10dBpGuardLab .gl-id-note { color: #7a8899; font-size: 11px; }
+
+#lv10dBpGuardLab .gl-applies {
+  margin: 6px 0;
+  color: #3a4a5b;
+  font-style: italic;
+}
+
+/* ── gate readiness ─────────────────────────────────────────────────── */
+
+#lv10dBpGuardLab .gl-gate {
+  margin: 8px 0;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border-left: 4px solid #b7c3d1;
+}
+#lv10dBpGuardLab .gl-gate-open { background: #eaf7ee; border-left-color: #2e8b57; }
+#lv10dBpGuardLab .gl-gate-shut { background: #fdf3e7; border-left-color: #c67a1e; }
+#lv10dBpGuardLab .gl-gate-head { font-weight: 600; margin-bottom: 4px; }
+#lv10dBpGuardLab .gl-cond-list { list-style: none; margin: 0; padding: 0; }
+#lv10dBpGuardLab .gl-cond-list li { display: flex; gap: 6px; }
+#lv10dBpGuardLab .gl-cond-mark { width: 12px; }
+#lv10dBpGuardLab .gl-cond-met .gl-cond-mark { color: #2e8b57; }
+#lv10dBpGuardLab .gl-cond-unmet .gl-cond-mark { color: #b4441a; }
+#lv10dBpGuardLab .gl-cond-name { min-width: 190px; font-weight: 500; }
+#lv10dBpGuardLab .gl-cond-detail { color: #6c7a89; }
+#lv10dBpGuardLab .gl-narrators { margin-top: 6px; }
+#lv10dBpGuardLab .gl-narrators-head { font-weight: 600; }
+#lv10dBpGuardLab .gl-narrators ul { list-style: none; margin: 0; padding: 0 0 0 12px; }
+#lv10dBpGuardLab .gl-narrators-none { margin-top: 6px; color: #8a5a12; }
+
+/* ── controls ───────────────────────────────────────────────────────── */
+
+#lv10dBpGuardLab .gl-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+  flex-wrap: wrap;
+}
+#lv10dBpGuardLab .gl-btn {
+  border: 1px solid #b7c3d1;
+  background: #fff;
+  border-radius: 4px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+#lv10dBpGuardLab .gl-btn-primary { background: #1f5f8b; border-color: #1f5f8b; color: #fff; }
+#lv10dBpGuardLab .gl-btn[disabled] { opacity: 0.55; cursor: default; }
+#lv10dBpGuardLab .gl-controls-note { color: #7a8899; font-size: 11px; }
+
+#lv10dBpGuardLab .gl-error {
+  background: #fdecea; border-left: 4px solid #b4441a;
+  padding: 6px 8px; margin: 6px 0; border-radius: 4px;
+}
+#lv10dBpGuardLab .gl-conflict {
+  background: #fff6e0; border-left: 4px solid #c67a1e;
+  padding: 6px 8px; margin: 6px 0; border-radius: 4px;
+}
+#lv10dBpGuardLab .gl-conflict-head { font-weight: 600; }
+#lv10dBpGuardLab .gl-conflict-rev { color: #6c5a2e; font-size: 11px; }
+#lv10dBpGuardLab .gl-pending {
+  background: #f3eefc; border-left: 4px solid #6a4fa3;
+  padding: 6px 8px; margin: 6px 0; border-radius: 4px;
+}
+
+/* ── rows ───────────────────────────────────────────────────────────── */
+
+#lv10dBpGuardLab .gl-group { margin: 10px 0; }
+#lv10dBpGuardLab .gl-group-head {
+  display: flex; justify-content: space-between;
+  font-weight: 600; color: #33475c;
+  border-bottom: 1px solid #dde5ee; padding-bottom: 2px;
+}
+#lv10dBpGuardLab .gl-group-count { color: #7a8899; font-weight: 400; }
+
+#lv10dBpGuardLab .gl-row {
+  padding: 5px 6px;
+  border-bottom: 1px solid #eef2f6;
+}
+#lv10dBpGuardLab .gl-row-off { background: #f6f7f9; }
+#lv10dBpGuardLab .gl-row-head { display: flex; gap: 8px; align-items: baseline; }
+#lv10dBpGuardLab .gl-num { width: 24px; color: #7a8899; }
+#lv10dBpGuardLab .gl-name { flex: 1 1 auto; font-weight: 500; }
+#lv10dBpGuardLab .gl-class { width: 96px; color: #6c7a89; font-size: 11px; }
+#lv10dBpGuardLab .gl-eff { width: 78px; font-weight: 600; }
+#lv10dBpGuardLab .gl-on { color: #2e8b57; }
+#lv10dBpGuardLab .gl-off { color: #96562a; }
+#lv10dBpGuardLab .gl-reason { width: 200px; color: #6c7a89; font-size: 11px; }
+
+#lv10dBpGuardLab .gl-states {
+  display: flex; gap: 10px; flex-wrap: wrap;
+  color: #6c7a89; font-size: 11px; padding-left: 32px;
+}
+#lv10dBpGuardLab .gl-state-set { color: #1f5f8b; font-weight: 600; }
+#lv10dBpGuardLab .gl-state-deploy { color: #6a4fa3; }
+#lv10dBpGuardLab .gl-differs { color: #b4441a; font-weight: 600; }
+
+#lv10dBpGuardLab .gl-actions {
+  display: flex; gap: 6px; align-items: center;
+  padding-left: 32px; margin-top: 3px;
+}
+#lv10dBpGuardLab .gl-mini {
+  border: 1px solid #c3cedb; background: #fff;
+  border-radius: 3px; padding: 0 8px; cursor: pointer; font-size: 11px;
+}
+#lv10dBpGuardLab .gl-mini-active { background: #1f5f8b; border-color: #1f5f8b; color: #fff; }
+#lv10dBpGuardLab .gl-mini[disabled] { opacity: 0.5; cursor: default; }
+#lv10dBpGuardLab .gl-policy {
+  border-radius: 3px; padding: 0 6px; font-size: 11px; font-weight: 600;
+}
+#lv10dBpGuardLab .gl-policy-protected { background: #e6e1f5; color: #4a3a7a; }
+#lv10dBpGuardLab .gl-policy-pending_seam { background: #fdf0d5; color: #8a5a12; }
+#lv10dBpGuardLab .gl-policy-reason { color: #6c7a89; font-size: 11px; }
+
+#lv10dBpGuardLab .gl-docs {
+  margin: 4px 0 4px 32px; padding: 6px 8px;
+  background: #fff; border: 1px solid #e3e9f0; border-radius: 4px;
+}
+#lv10dBpGuardLab .gl-docs p { margin: 2px 0; }
+#lv10dBpGuardLab .gl-harm { color: #8a3b12; }
+#lv10dBpGuardLab .gl-loc { color: #7a8899; font-size: 11px; }
+#lv10dBpGuardLab .gl-cf { color: #6c7a89; font-size: 11px; }
+
+#lv10dBpGuardLab .gl-fetched { color: #97a3b0; font-size: 11px; margin-top: 6px; }

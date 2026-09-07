@@ -154,6 +154,7 @@ from .routers import (  # type: ignore
     operator_followup_bank,  # WO-LORI-WITNESS-FOLLOWUP-BANK-01 — patience-layer bank operator surface
     operator_bio_editor,     # WO-LORI-BIO-BUILDER-UNIVERSAL-01 Phase E — Tier 4 operator entry + conflict resolution
     operator_bio_gap_map,    # WO-LORI-BIO-BUILDER-UNIVERSAL-01 Phase F — bio gap map dashboard
+    operator_guard_lab,      # WO-LORI-BASELINE-RESET-AND-GUARD-LAB-01 — intervention control surface
     trips,                   # WO-TRIP-IMPORT-AND-CLUSTER-01 — trip import + EXIF clustering (HORNELORE_TRIPS=1 to enable)
     import_provenance,       # WO-TRAVEL-DOC-IMPORT-PROVENANCE-FOUNDATION-01 Phase 4 -- minimal verification surface (HORNELORE_IMPORT_PROVENANCE=1 to enable)
     google_picker,           # WO-TRAVEL-DOC-GOOGLE-PHOTOS-PICKER-01 Phase 1 -- Google Photos Picker session lifecycle (HORNELORE_GOOGLE_PICKER=1 AND HORNELORE_IMPORT_PROVENANCE=1 to enable)
@@ -196,6 +197,7 @@ app.include_router(operator_harness.router)        # WO-LORI-HARNESS-01 — golf
 app.include_router(operator_followup_bank.router)  # WO-LORI-WITNESS-FOLLOWUP-BANK-01 — patience-layer bank (HORNELORE_OPERATOR_FOLLOWUP_BANK=1 to enable)
 app.include_router(operator_bio_editor.router)     # WO-LORI-BIO-BUILDER-UNIVERSAL-01 Phase E — Tier 4 operator editor (HORNELORE_OPERATOR_BIO_EDITOR=1 to enable)
 app.include_router(operator_bio_gap_map.router)    # WO-LORI-BIO-BUILDER-UNIVERSAL-01 Phase F — bio gap map dashboard (HORNELORE_OPERATOR_BIO_GAP_MAP=1 to enable)
+app.include_router(operator_guard_lab.router)      # WO-LORI-BASELINE-RESET-AND-GUARD-LAB-01 — Guard Lab intervention control (HORNELORE_OPERATOR_GUARD_LAB=1 to enable)
 app.include_router(trips.router)                    # WO-TRIP-IMPORT-AND-CLUSTER-01 — trip lane (HORNELORE_TRIPS=1 to enable)
 app.include_router(import_provenance.router)        # WO-TRAVEL-DOC-IMPORT-PROVENANCE-FOUNDATION-01 Phase 4 -- import provenance verification surface (HORNELORE_IMPORT_PROVENANCE=1 to enable)
 app.include_router(google_picker.router)             # WO-TRAVEL-DOC-GOOGLE-PHOTOS-PICKER-01 Phase 1 -- Picker session lifecycle; 404s unless HORNELORE_GOOGLE_PICKER=1 AND HORNELORE_IMPORT_PROVENANCE=1

@@ -2840,6 +2840,39 @@ def person_is_testing_only(person_id: Optional[str]) -> bool:
     return bool(person and person.get("testing_only"))
 
 
+def list_testing_only_people(limit: int = 50) -> List[Dict[str, Any]]:
+    """The narrators an experimental configuration is permitted to reach.
+
+    READ ONLY, AND DELIBERATELY SO. The Guard Lab panel needs to answer
+    "is there anybody I can actually run this against?", because an
+    operator can otherwise select a configuration, start a session, and
+    receive canonical Lori with no visible explanation — the gate refused
+    silently and correctly, and the panel looked broken.
+
+    There is no write partner to this function and there must not be one
+    here. Converting a real narrator into an experiment target is an
+    explicit act at creation; `tests/test_people_testing_only_persistence.py`
+    fails if any *Update model in `routers/people.py` ever accepts the
+    column, precisely so a stale or hostile PATCH cannot do it.
+    """
+    init_db()
+    con = _connect()
+    try:
+        rows = con.execute(
+            """
+            SELECT id, display_name, narrator_type, created_at, updated_at
+            FROM people
+            WHERE is_deleted = 0 AND COALESCE(testing_only, 0) = 1
+            ORDER BY updated_at DESC
+            LIMIT ?;
+            """,
+            (int(limit),),
+        ).fetchall()
+    finally:
+        con.close()
+    return [dict(r) for r in rows]
+
+
 # -----------------------------------------------------------------------------
 # WO-13 Phase 3 — Reference narrator helpers
 # -----------------------------------------------------------------------------

@@ -32,6 +32,7 @@
   <link rel="stylesheet" href="css/bug-panel-dashboard.css">
   <link rel="stylesheet" href="css/bug-panel-story-review.css?v=2026-08-19b">
   <link rel="stylesheet" href="css/bug-panel-past-tense-review.css">
+  <link rel="stylesheet" href="css/bug-panel-guard-lab.css?v=2026-09-07">
   <link rel="stylesheet" href="css/bug-panel-silence-ladder.css">
   <link rel="stylesheet" href="css/bug-panel-preflight.css">
   <link rel="stylesheet" href="css/affect.css">
@@ -4523,6 +4524,28 @@
     </div>
 
     <!-- ═══════════════════════════════════════════════════════════
+         WO-LORI-BASELINE-RESET-AND-GUARD-LAB-01 — Guard Lab.
+         The 43 registered narrator-facing authorities, with their
+         canonical default, deployment default, operator override and
+         effective state shown SEPARATELY plus the reason that decided
+         each row. Atomic `All Switchable Off` and `Restore Defaults`
+         (one request, one revision — never 37 writes). Optimistic
+         revision: a stale view is refused with the live configuration
+         attached. The gate block reports all four eligibility
+         conditions by name, so a selection that cannot reach a turn
+         says so instead of looking broken.
+
+         Deliberately INSIDE this panel rather than a second
+         experimental application. Backend gate:
+         HORNELORE_OPERATOR_GUARD_LAB=1; off → quiet disabled
+         placeholder. NEVER narrator-visible.
+         See ui/js/bug-panel-guard-lab.js + .css.
+    ═══════════════════════════════════════════════════════════════ -->
+    <div id="lv10dBpGuardLab">
+      <div class="gl-empty">Loading Guard Lab…</div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════
          WO-LORI-BIO-BUILDER-UNIVERSAL-01 Phase F (2026-06-14) — bio
          gap map dashboard. Mounts via ui/js/bug-panel-bio-gap-map.js.
          Backend gate: HORNELORE_OPERATOR_BIO_GAP_MAP=1 → endpoint
@@ -5549,6 +5572,7 @@
 <script src="js/story-evidence.js?v=2026-08-17c"></script>
 <script src="js/bug-panel-story-review.js?v=2026-08-19b"></script>
 <script src="js/bug-panel-past-tense-review.js?v=2026-06-14"></script>
+<script src="js/bug-panel-guard-lab.js?v=2026-09-07"></script>
 <!-- WO-LORI-BIO-BUILDER-UNIVERSAL-01 Phase E+F (2026-06-14) — bio
      editor + bio gap map operator surfaces. Both default-OFF; the
      mounts render quiet disabled placeholders until the respective
