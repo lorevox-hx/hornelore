@@ -42,16 +42,28 @@ def _final_text_assignments(tree):
 
 
 def _turn_mode_gate_values(tree):
-    """Every constant `turn_mode == "..."` comparison in the router."""
+    """Every `turn_mode == "..."` EQUALITY gate in the router.
+
+    Equality only, and "interview" excluded. A route gate is an equality
+    test against a mode name; the Guard Lab clamp asks the opposite
+    question (`turn_mode != "interview"`, i.e. "is this a route at
+    all?"), and "interview" is the fall-through, not a deterministic
+    route. Counting either as an unregistered route makes this test fail
+    on correct code — which it did, on the clamp added to satisfy it.
+    """
     out = set()
     for node in ast.walk(tree):
-        if (isinstance(node, ast.Compare)
+        if not (isinstance(node, ast.Compare)
                 and isinstance(node.left, ast.Name)
                 and node.left.id == "turn_mode"):
-            for comparator in node.comparators:
-                if isinstance(comparator, ast.Constant) and isinstance(
-                        comparator.value, str):
-                    out.add(comparator.value)
+            continue
+        for op, comparator in zip(node.ops, node.comparators):
+            if not isinstance(op, ast.Eq):
+                continue
+            if (isinstance(comparator, ast.Constant)
+                    and isinstance(comparator.value, str)
+                    and comparator.value != "interview"):
+                out.add(comparator.value)
     return out
 
 
@@ -384,29 +396,60 @@ class ExemplarBlocksAreRegisteredTests(unittest.TestCase):
 class ProductionUnchangedTests(unittest.TestCase):
     """Parts 4-7 are an inventory. They must not alter behaviour."""
 
-    RESPONSE_PATH = (
-        ("server", "code", "api", "routers", "chat_ws.py"),
+    ROUTER = ("server", "code", "api", "routers", "chat_ws.py")
+
+    DOWNSTREAM = (
         ("server", "code", "api", "services", "lori_communication_control.py"),
         ("server", "code", "api", "services", "lori_response_guards.py"),
         ("server", "code", "api", "services", "lori_witness_mode.py"),
         ("server", "code", "api", "prompt_composer.py"),
     )
 
-    def test_registry_is_not_imported_by_the_response_path(self):
-        """Inert by design for this checkpoint.
+    def _imports(self, parts):
+        path = os.path.join(_REPO, *parts)
+        with open(path, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        names = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                if node.module:
+                    names.add(node.module.rsplit(".", 1)[-1])
+                for alias in node.names:
+                    names.add(alias.name)
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    names.add(alias.name.rsplit(".", 1)[-1])
+        return names
 
-        The seams that consume these ids land with the selector that
-        gives them meaning, so production response behaviour is touched
-        once rather than twice — once to add unused seams and again to
-        wire them up. Until then nothing narrator-facing may consult the
-        registry, or the inventory starts changing the behaviour it
-        exists to describe.
+    def test_the_router_never_reaches_persistence_directly(self):
+        """INVERTED at the wiring boundary, deliberately.
+
+        This used to assert the registry was imported nowhere, which was
+        right while the inventory was inert. The router now consults it —
+        it has to, to clamp routes — so the invariant becomes narrower
+        and more useful: the router may reach the registry and the gate,
+        and must reach durable configuration ONLY through the gate's
+        single acquisition. A direct store import would be a second way
+        to learn the configuration, and two ways is how a turn ends up
+        half on one revision and half on another.
         """
-        for parts in self.RESPONSE_PATH:
-            path = os.path.join(_REPO, *parts)
+        imported = self._imports(self.ROUTER)
+        self.assertNotIn("lori_guard_store", imported)
+        self.assertNotIn("lori_guard_authority", imported)
+
+    def test_downstream_consumers_do_not_resolve_their_own_authority(self):
+        """They receive the snapshot; they never build one.
+
+        A guard that resolved its own configuration could disagree with
+        the turn it is running inside — and would do so silently, since
+        both answers look equally authoritative from the inside.
+        """
+        for parts in self.DOWNSTREAM:
+            imported = self._imports(parts)
             with self.subTest(module=parts[-1]):
-                with open(path, encoding="utf-8") as fh:
-                    self.assertNotIn("lori_guard_registry", fh.read())
+                for forbidden in ("lori_guard_store", "lori_guard_gate",
+                                  "lori_guard_authority"):
+                    self.assertNotIn(forbidden, imported)
 
 
 if __name__ == "__main__":

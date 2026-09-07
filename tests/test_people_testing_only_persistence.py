@@ -193,8 +193,10 @@ class FailClosedTests(_DbCase):
         self.assertFalse(self.db.person_is_testing_only("no-such-person"))
 
     def test_missing_id_is_not_eligible(self):
-        for value in (None, "", "   "[:0]):
-            with self.subTest(value=value):
+        # `"   "[:0]` was here and is just another empty string — it
+        # never exercised whitespace-only input at all.
+        for value in (None, "", "   ", "\t\n"):
+            with self.subTest(value=repr(value)):
                 self.assertFalse(self.db.person_is_testing_only(value))
 
     def test_a_failing_lookup_is_not_eligible(self):
@@ -228,17 +230,37 @@ class ClientCannotManufactureEligibilityTests(_DbCase):
             con.close()
 
     def test_writing_profile_json_does_not_confer_eligibility(self):
+        """Actually write the key, then prove it changes nothing.
+
+        The first version called `self.db.update_profile(...)` — which
+        does not exist; the accessor is `update_profile_json()` — inside
+        a bare `except Exception: pass`. So it could pass without ever
+        putting `testing_only` into profile JSON, which is the entire
+        property under test. A swallowed exception turns an assertion
+        into a wish.
+        """
         person = self.db.create_person(display_name="Real Narrator")
         pid = person["id"]
-        try:
-            self.db.update_profile(pid, {"testing_only": True})
-        except Exception:
-            # Whatever the accessor is named, the point is the same: no
-            # profile write may change the answer.
-            pass
+
+        self.db.update_profile_json(pid, {"testing_only": True}, merge=True)
+
+        # The write really happened — otherwise the assertion below is
+        # proving nothing.
+        profile = self.db.get_profile(pid) or {}
+        stored = profile.get("profile_json", profile)
+        if isinstance(stored, str):
+            import json
+            stored = json.loads(stored)
+        self.assertTrue(
+            stored.get("testing_only"),
+            "Fixture failed: testing_only was not written into profile "
+            "JSON, so this test would prove nothing.")
+
         self.assertFalse(
             self.db.person_is_testing_only(pid),
-            "Profile biography must not be able to arm an experiment.")
+            "Narrator biography must not be able to arm an experiment. "
+            "Eligibility is people-table metadata, and profile JSON is "
+            "narrator truth that reaches the memoir.")
 
     def test_ordinary_person_update_does_not_carry_the_flag(self):
         """A stale or hostile PATCH must not convert a real narrator."""

@@ -1520,6 +1520,51 @@ async def ws_chat(ws: WebSocket):
         # Extract person_id from params (sent by UI)
         person_id: Optional[str] = params.get("person_id") or None
 
+        # ── GUARD LAB — acquire this turn's authority, exactly once ────
+        #
+        # WO-LORI-BASELINE-RESET-AND-GUARD-LAB-01 Continuation A §G/H/I.
+        #
+        # WHY HERE AND NOT LOWER. Every registered authority lives inside
+        # this function, and the earliest of them acts long before a
+        # prompt exists: witness detection runs at ~L2884, the browser's
+        # proposed turn_mode is adopted at ~L3661, and the deterministic
+        # route gates begin at ~L4207. Acquiring immediately after
+        # person_id therefore DOMINATES all of them, which is the
+        # requirement — "before prompt composition" would already be too
+        # late for the routes.
+        #
+        # ONE SNAPSHOT, FROZEN, FOR THE WHOLE TURN. An operator toggling
+        # a switch while Lori is mid-sentence changes the NEXT turn and
+        # never this one. Without that, a transcript could not be
+        # attributed to any configuration that actually existed, and an
+        # immutable dataclass built from a moving read would merely stop
+        # admitting it.
+        #
+        # NOTHING DOWNSTREAM MAY RE-RESOLVE. Consumers read
+        # `_authority.snapshot`; they do not read the override store, the
+        # eval marker, the testing flag, or a legacy environment gate.
+        # `test_guard_lab_turn_authority` enforces that structurally.
+        #
+        # Fail-closed: an unknown person, a real narrator, an unarmed
+        # evaluation, a trace that is not recording, or an unreadable
+        # store all yield the canonical production configuration with a
+        # reason attached.
+        from ..services import lori_guard_gate as _guard_gate
+        try:
+            _authority = _guard_gate.acquire_turn_authority(person_id)
+        except Exception as _auth_exc:
+            # The authority layer must never be able to fail a narrator's
+            # turn. Canonical production is the safe resting state.
+            logger.exception(
+                "[guard-lab][gate] acquisition raised — canonical "
+                "production for conv=%s: %s", conv_id, _auth_exc)
+            _authority = _guard_gate.canonical_acquisition()
+        if _authority.experiment_applied:
+            logger.info("%s conv=%s person=%s",
+                        _authority.log_line(), conv_id, person_id)
+        else:
+            logger.debug("%s conv=%s", _authority.log_line(), conv_id)
+
         # WO-LORI-MEMORY-ECHO-ERA-STORIES-01 Phase 1 (2026-05-06):
         # Pull current_era from runtime71 once at the top of the turn so
         # both archive writes (user @ L454, assistant @ L1534) bind the
@@ -3821,7 +3866,22 @@ async def ws_chat(ws: WebSocket):
             if _witness_answer.detection_type == "META_FEEDBACK":
                 turn_mode = "witness"
             elif _witness_answer.detection_type == "STRUCTURED_NARRATIVE":
-                _witness_use_llm_receipt = True
+                # GUARD LAB id 23. This route does not set a turn_mode —
+                # it leaves generation running and subjects the result to
+                # the receipt directive and validator — so the clamp
+                # below cannot reach it and it is clamped here instead.
+                #
+                # It is the second exit of the same over-claiming witness
+                # detector as id 22: the better a narrator gets at
+                # chronological storytelling, the more likely this fires.
+                if not _authority.snapshot.is_selected(23):
+                    logger.info(
+                        "[guard-lab][route-clamp] conv=%s "
+                        "structured_narrative id=23 EXCLUDED by revision=%s "
+                        "— ordinary interview generation", conv_id,
+                        _authority.snapshot.revision)
+                else:
+                    _witness_use_llm_receipt = True
                 # BUG-LORI-SESSION-LANGUAGE-CONTRACT-01: Pin the
                 # validator-fallback language to the session contract
                 # FIRST. Without this, the deterministic fallback
@@ -4198,6 +4258,43 @@ async def ws_chat(ws: WebSocket):
                 "[chat_ws][profile-seed] bridge failed conv=%s person=%s: %s",
                 conv_id, person_id, _seed_exc,
             )
+
+        # ── GUARD LAB — the route clamp. CLIENT PROPOSES, SERVER RESOLVES.
+        #
+        # One choke point, deliberately placed AFTER the whole routing
+        # chain and BEFORE the first gate below, so it covers both ways a
+        # deterministic route can be entered:
+        #
+        #   * the browser's proposed turn_mode, adopted at ~L3661 — and
+        #     id 26's classifier really is client-side, `lvRouteTurn` in
+        #     ui/js/app.js, so a stale or hostile client can propose
+        #     "correction" whatever the server has selected;
+        #   * a SERVER detector, which sets turn_mode at ~L3693-3822.
+        #
+        # A disabled route must not be enterable by either. Clamping only
+        # the client half would make "Correction Route OFF" a claim the
+        # server does not keep.
+        #
+        # WHAT IS DELIBERATELY NOT CLAMPED. Safety precedence already ran
+        # above: `_safety_forced_interview` pins turn_mode to "interview"
+        # before this point, and "interview" is not a route, so the clamp
+        # cannot touch it. Floor hold is registry id 20 and PROTECTED, so
+        # it is always selected and always survives — a narrator who has
+        # claimed the floor is not an experiment.
+        #
+        # An excluded route falls through to ordinary generation, which
+        # is the whole point: Lori answers instead of a template.
+        from ..services import lori_guard_registry as _guard_registry
+        if turn_mode and turn_mode != "interview":
+            _route_id = _guard_registry.DETERMINISTIC_ROUTE_GATES.get(turn_mode)
+            if _route_id is not None and not _authority.snapshot.is_selected(
+                    _route_id):
+                logger.info(
+                    "[guard-lab][route-clamp] conv=%s proposed=%s id=%s "
+                    "EXCLUDED by revision=%s — falling through to ordinary "
+                    "generation", conv_id, turn_mode, _route_id,
+                    _authority.snapshot.revision)
+                turn_mode = "interview"
 
         # ── BUG-LORI-FLOOR-HOLD-DETERMINISTIC-01 ──────────────────────
         # When the narrator has pressed and held the floor, Lori must
@@ -5169,6 +5266,27 @@ async def ws_chat(ws: WebSocket):
         )
         _rt_client_turn_id = (params.get("client_turn_id")
                               or params.get("turn_id") or "")
+
+        # GUARD LAB — bind this turn's authority identity to its trace.
+        #
+        # A transcript that cannot name the configuration that produced
+        # it is not evidence. Three identifiers plus the gate reason:
+        # registry fingerprint (which authority MAP), revision (which
+        # persisted generation), selection fingerprint (which effective
+        # selection), and why the gate allowed or refused an experiment.
+        #
+        # Recorded even on canonical turns. "This ran with production
+        # defaults, gate reason not_testing_only" is exactly as much a
+        # fact about the turn as an armed experiment is, and a trace that
+        # only annotated experiments would leave the baseline turns
+        # ambiguous.
+        try:
+            for _ak, _av in _authority.trace_identity().items():
+                _rt.note(f"authority_{_ak}", _av, trace_id=_rt_id)
+        except Exception as _auth_note_exc:
+            logger.debug(
+                "[guard-lab][trace] identity note failed (non-fatal): %s",
+                _auth_note_exc)
 
         if not _budget.fits:
             # Honest refusal rather than a mutilated prompt. The
