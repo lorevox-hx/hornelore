@@ -171,11 +171,92 @@ _META_ASK_ABOUT_X_NOT_Y_EN = [
 # "I" perspective markers. Like meta-feedback, this fires before the
 # LLM, so the perspective-mimicry failure mode becomes structurally
 # impossible.
+# ── "not X but Y" — the LAST un-narrowed member of this family ────────
+#
+# WO-LORI-BASELINE-RESET-AND-GUARD-LAB-01 Part 2 (2026-09-06). Every
+# other pattern below carries a comment recording a live regression
+# where ordinary narration was read as a repair, and each was narrowed
+# to require real correction grammar: "actually …" after Walt Era 6's
+# "the work I am doing today actually began"; "I meant/said …" after
+# "I meant to call, but…"; "the name was …" after Jake's "the name was
+# originally Schong with a C". This one kept the loose form because no
+# passage had yet used "not X but Y" as ordinary contrast.
+#
+# John's opening chapter did, and it cost him the turn:
+#
+#   "a house I have not lived in for decades but that I still
+#    picture clearly"
+#
+# 238 words of autobiography — his mother at 99, West St. Paul in the
+# sixties — were routed to META_FEEDBACK/correction, generation was
+# bypassed entirely, and Lori answered "Got it — That I Still Picture
+# Clearly. What happened next?" Deterministic: identical on both runs.
+#
+# TWO INDEPENDENT DISCRIMINATORS, either of which rejects John.
+#
+# 1. VERBAL negation, not a value correction. When "not" follows an
+#    auxiliary AND the negated token is neither capitalised nor a
+#    number, the narrator is negating an ACTION ("have not lived",
+#    "did not go"), not replacing a VALUE. "it was not Fargo but
+#    Bismarck" survives on the capital; "not 1961 but 1962" on the
+#    digit.
+# 2. The "but" side is a CLAUSE, not a replacement. "but that I still
+#    picture clearly" continues a thought about the same thing. A
+#    repair puts a value there. "not Lansdale but it was Landstuhl"
+#    survives — "it" is not a subordinator.
+#
+# KNOWN RECALL GAP, recorded rather than silently widened, on the
+# precedent this file already set at the Bismarck test: a lowercase
+# correction with no marker — "the hospital was not lansdale but
+# landstuhl" — is no longer intercepted here and falls through to the
+# ordinary LLM turn. Kent's real K10 still routes, on the
+# "you have the name of X wrong" pattern below. **A missed
+# deterministic intercept is a much smaller harm than a wrong one.**
+_NEGATION_AUXILIARIES = frozenset({
+    "have", "has", "had", "havent", "hasnt", "hadnt",
+    "do", "does", "did", "dont", "doesnt", "didnt",
+    "am", "are", "is", "was", "were", "be", "been", "being",
+    "will", "would", "shall", "should", "can", "could",
+    "may", "might", "must", "cannot",
+})
+_BUT_SIDE_SUBORDINATORS = frozenset({
+    "that", "which", "who", "whom", "whose", "because", "since",
+    "when", "while", "where", "though", "although", "whether", "as",
+})
+_NOT_X_BUT_Y_RX = re.compile(
+    r"\b(?:(?P<aux>[A-Za-z']+)\s+)?not\s+(?P<x>[A-Za-z0-9']+)"
+    r"(?:\s+[A-Za-z0-9']+){0,8}?\s+but\s+(?:the\s+)?(?P<y>[A-Za-z0-9']+)"
+)
+
+
+def _not_x_but_y_is_a_repair(text: str) -> bool:
+    """True when a "not X but Y" span replaces a VALUE rather than
+    drawing an ordinary autobiographical contrast.
+
+    Case-sensitive by design: the capitalisation of X is one of the two
+    signals, so this must NOT be given a lower-cased string.
+    """
+    if not text:
+        return False
+    for m in _NOT_X_BUT_Y_RX.finditer(text):
+        aux = (m.group("aux") or "").lower().replace("'", "")
+        x = m.group("x") or ""
+        y = m.group("y") or ""
+        if y.lower() in _BUT_SIDE_SUBORDINATORS:
+            continue
+        if aux in _NEGATION_AUXILIARIES and not (x[:1].isupper() or x[:1].isdigit()):
+            continue
+        return True
+    return False
+
+
 _META_CORRECTION_EN = [
     # "you have/got the name of X wrong"
     re.compile(r"\byou\s+(?:have|got)\s+(?:the\s+)?(?:name\s+of\s+)?(?:the\s+)?\w+(?:\s+\w+){0,5}\s+wrong\b", re.IGNORECASE),
-    # "not X but Y" / "not X, it was Y"
-    re.compile(r"\bnot\s+\w+(?:\s+\w+){1,8}\s+but\s+(?:the\s+)?\w+", re.IGNORECASE),
+    # "not X but Y" is NOT in this list — it is guarded by
+    # _not_x_but_y_is_a_repair() above and consulted separately at the
+    # detection site, because the discriminators need the match groups
+    # and the original capitalisation.
     # "actually it was/is Y not X" — REQUIRES trailing " not " to be a
     # correction. WO-SPANISH-LIVE-READINESS-01 follow-up (2026-06-24):
     # the prior pattern matched "actually" + any word, false-positiving
@@ -204,12 +285,18 @@ _META_CORRECTION_ES = [
 # Pattern to extract the CORRECTION (the AFTER value) from a correction
 # turn. We look for "not X but Y" / "not X, Y" forms where Y is the
 # correct value. Captures multi-word values up to 8 tokens.
+# "not [X] but/, [Y]" — stops at first terminator after Y.
+# NAMED so `_extract_correction_value` can skip it by identity when
+# `_not_x_but_y_is_a_repair` says the span is ordinary contrast rather
+# than a repair. Positional skipping would silently follow the wrong
+# pattern the moment this tuple is reordered.
+_CORRECTION_AFTER_NOT_BUT_RX = re.compile(
+    r"\bnot\s+[A-Za-z][A-Za-z\s]{2,40}?\s+(?:but|,)\s+([A-Za-z][A-Za-z\s]{2,80}?)(?:\.|,|;|$)",
+    re.IGNORECASE,
+)
+
 _CORRECTION_AFTER_RX = (
-    # "not [X] but/, [Y]" — stops at first terminator after Y
-    re.compile(
-        r"\bnot\s+[A-Za-z][A-Za-z\s]{2,40}?\s+(?:but|,)\s+([A-Za-z][A-Za-z\s]{2,80}?)(?:\.|,|;|$)",
-        re.IGNORECASE,
-    ),
+    _CORRECTION_AFTER_NOT_BUT_RX,
     # "actually [Y] not [X]" — REQUIRES trailing " not " to be a real
     # correction. WO-SPANISH-LIVE-READINESS-01 follow-up (2026-06-24)
     # narrowed this: prior version accepted any punctuation as the Y
@@ -285,7 +372,26 @@ def _extract_correction_value(text: str) -> str:
         return ""
     cleaned = re.sub(r"\[SYSTEM:.*?\]", " ", text or "", flags=re.DOTALL)
     for rx in _CORRECTION_AFTER_RX:
+        # The detector and the extractor must agree about what counts as
+        # a repair. Without this, a turn detected as a correction on one
+        # of the OTHER patterns could still have its value harvested
+        # from an ordinary "not … but …" contrast elsewhere in the same
+        # passage — which is how John's "That I Still Picture Clearly"
+        # became a narrator-facing anchor.
+        #
+        # SCOPED TO THE "but" FORM ONLY. This regex also accepts the
+        # comma form ("not Lansdale, Landstuhl"), which was never the
+        # John failure and which the guard's own pattern deliberately
+        # does not recognise — ordinary prose is full of "not X, Y"
+        # ("not lonely, just quiet", from John's own later-years
+        # chapter), so widening the guard to commas would invent false
+        # repairs. Skipping unconditionally would instead have silently
+        # regressed comma-form repairs to a generic acknowledgment.
         m = rx.search(cleaned)
+        if (m and rx is _CORRECTION_AFTER_NOT_BUT_RX
+                and " but " in m.group(0).lower()
+                and not _not_x_but_y_is_a_repair(cleaned)):
+            continue
         if m:
             value = m.group(1).strip().rstrip(".,;:")
             if not value:
@@ -1009,7 +1115,11 @@ def detect_witness_event(text: Optional[str]) -> WitnessDetection:
     # never first-person echoing. This fires AFTER meta-feedback
     # (meta-feedback handles "you are being vague" — broader behavior
     # critique) and BEFORE structured-narrative.
-    if _matches_any(_META_CORRECTION_EN + _META_CORRECTION_ES, cleaned):
+    # `cleaned` keeps the narrator's original capitalisation — do not
+    # lower-case it here. `_not_x_but_y_is_a_repair` reads the case of
+    # the negated token as one of its two discriminators.
+    if (_matches_any(_META_CORRECTION_EN + _META_CORRECTION_ES, cleaned)
+            or _not_x_but_y_is_a_repair(cleaned)):
         corrected = _extract_correction_value(cleaned)
         return WitnessDetection(
             detection_type="META_FEEDBACK",
