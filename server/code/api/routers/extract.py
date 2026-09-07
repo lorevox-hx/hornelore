@@ -9192,19 +9192,30 @@ def _normalize_relationship_lane(items, *, answer: str):
     if unsupported:
         drop = {id(it) for it, *_rest in unsupported}
         items = [it for it in items if id(it) not in drop]
+        from ..services import meaning_disposition as _md
         for it, fp, target, value, reading in unsupported:
-            review_entries.append({
-                "kind": "unbound_relationship",
-                "value": value,
-                "label": f"{value} — stated about a {reading.state} "
-                         f"{reading.relation}",
-                "proposed_fieldPath": fp,
-                "not_applied": True,
-                "reasons": ["relationship_state_has_no_destination"],
-                "reason": "relationship_state_has_no_destination",
-                "narrator_phrase": reading.source_phrase,
-                "would_need": target,
-            })
+            # Phase 5C: built by the SHARED builder rather than inline.
+            # The keys, the `kind` and the reason string are unchanged —
+            # `test_spouse_state_characterization` asserts that exact
+            # reason, and renaming it to fit a tidier scheme would break
+            # a working guard for cosmetic reasons. What changed is that
+            # this is now one INSTANCE of a disposition path rather than
+            # the only place that idea exists.
+            review_entries.append(_md.no_destination_record(
+                kind="unbound_relationship",
+                meaning="relationship_attribute",
+                value=value,
+                label=f"{value} — stated about a {reading.state} "
+                      f"{reading.relation}",
+                reason=_md.REASON_LANE_HAS_NO_DESTINATION,
+                narrator_phrase=reading.source_phrase,
+                would_need=target,
+                proposed_fieldPath=fp,
+                normalized=reading.relation,
+                person={"group": reading.group, "relation": reading.relation,
+                        "state": reading.state,
+                        "qualifier": reading.qualifier},
+            ))
             logger.info(
                 "[extract][relationship-lane] REVIEW %r proposed as %s but "
                 "the narrator said %r; %s does not exist, so it is neither "
@@ -9673,6 +9684,45 @@ def _finalize_extracted_items(items, req, *, answer: str, path: str):
         final_items = _regroup_after_lane_change(final_items, answer=answer)
     if _lane_review:
         clarifications = list(clarifications or []) + _lane_review
+
+    # Phase 5C — ACCOUNT FOR EVERY COMPONENT OF EVERY READING.
+    #
+    # The lane pass above answers "did this value go to the right lane?".
+    # It says nothing about the parts of a reading that are not values at
+    # all: the qualifier (`older`, `adult`, `half`), and a state with no
+    # field (`late wife`). Those were read correctly by the interpreter
+    # from Phase 5B onward and carried NOWHERE, which is a silent loss —
+    # the one outcome this phase exists to make impossible.
+    #
+    # Runs on the answer rather than on the surviving items, deliberately.
+    # "My older brother Ray was a welder" loses the word `older` whether
+    # or not `Ray` survived extraction, and a pass that only fired
+    # alongside a successful item would miss the case where the meaning
+    # is all there was.
+    #
+    # After the lane pass so a moved item's lane is already correct;
+    # before the kinship guard because the guard removes ITEMS and these
+    # records are about meaning, which the guard neither creates nor
+    # destroys.
+    try:
+        from ..services import meaning_disposition as _md
+        _unplaced = _md.account_for_readings(answer, EXTRACTABLE_FIELDS)
+        if _unplaced:
+            clarifications = list(clarifications or []) + _unplaced
+            for _rec in _unplaced:
+                logger.info(
+                    "[extract][disposition] NO DESTINATION meaning=%s "
+                    "value=%r narrator said %r; would need %s",
+                    _rec.get("meaning"), _rec.get("value"),
+                    _rec.get("narrator_phrase"), _rec.get("would_need"))
+    except Exception as _md_exc:               # pragma: no cover - defensive
+        # An accounting failure must never cost the narrator their
+        # extraction. It costs the RECORD of what could not be placed,
+        # which is logged loudly rather than swallowed.
+        logger.exception(
+            "[extract][disposition] accounting pass failed (%s) — items are "
+            "unaffected, but meaning with no destination went unrecorded "
+            "for this turn", _md_exc.__class__.__name__)
 
     final_items, _kin_entries, clarifications = _apply_kinship_binding_guard(
         final_items, req, answer=answer, clarifications=clarifications)

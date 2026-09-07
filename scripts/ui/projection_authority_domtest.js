@@ -326,6 +326,42 @@ function landedInQuestionnaire(sandbox, value) {
                                rendered.indexOf("parents.deathDate"));
     ok(/NOT FOUND/.test(bad),
        "the operator sees WHICH value the narrator did not say", bad);
+    /* ── Phase 5C: a recorded refusal must be ACTIONABLE ─────────────
+       A disposition the operator can see but not act on is a silence
+       with extra steps. `would_need` is the difference, and for `older`
+       it has to warn against the field that looks nearest. */
+    const refusal = textOf(render({ extraction: {
+      status: "succeeded", items: [],
+      clarification_required: [{
+        kind: "meaning_disposition", disposition: "no_destination",
+        meaning: "relationship_qualifier", value: "older",
+        label: "older brother — the narrator said it and no field holds it",
+        proposed_fieldPath: null, not_applied: true,
+        reasons: ["relationship_qualifier_has_no_destination"],
+        reason: "relationship_qualifier_has_no_destination",
+        narrator_phrase: "older brother",
+        would_need: "a relative-age destination — a comparison to the "
+          + "narrator. NOT siblings.birthOrder, which is a position in a "
+          + "sequence and would assert an order nobody stated",
+        normalized: "older",
+        person: { group: "siblings", relation: "brother", state: "",
+                  qualifier: "older" },
+      }],
+    }}));
+    ok(/older brother/.test(refusal),
+       "the operator sees WHAT was understood", refusal);
+    ok(/narrator said: "older brother"/.test(refusal),
+       "and the narrator's own wording", refusal);
+    ok(/would need:/.test(refusal),
+       "and what a destination WOULD require - without it the refusal is "
+       + "unactionable", refusal);
+    ok(/NOT siblings\.birthOrder/.test(refusal),
+       "including the warning against the nearest wrong field", refusal);
+    ok(/not applied/.test(refusal),
+       "and that nothing was written", refusal);
+    ok(/relationship_qualifier_has_no_destination/.test(refusal),
+       "and the reason it carries", refusal);
+
     const good = rendered.slice(rendered.indexOf("parents.deathDate"));
     ok(!/NOT FOUND/.test(good.slice(0, 60)),
        "a spoken value is NOT flagged merely for sharing the group", good);

@@ -211,12 +211,24 @@ class TheQualifierIsReadButNotCarried(unittest.TestCase):
     word would manufacture a fact about a family the narrator never
     stated, in a system whose whole Phase 5B is about not doing that.
 
-    So the qualifier's destination is a Phase 5C question — the same
-    "meaning with no schema destination" boundary that produced the
-    `relationship_state_has_no_destination` review disposition — and
-    this test exists so that a future session designing that
-    destination has to come here and change a measurement rather than
-    discover the gap again.
+    ── PHASE 5C ANSWERED THE QUESTION THIS CLASS ASKED, 2026-09-07 ──
+
+    The original text said the qualifier's destination was "a Phase 5C
+    question" and asked a future session to come here and change a
+    measurement rather than rediscover the gap. That happened, and the
+    answer is that **there is no honest field, so the destination is an
+    explicit recorded refusal** — `relationship_qualifier_has_no_destination`
+    on the `clarification_required` envelope, carrying the narrator's
+    phrase and a `would_need` that names why `siblings.birthOrder` is
+    the wrong answer.
+
+    **The assertions below are unchanged and still true**, which is the
+    point: the qualifier still reaches NO FIELD, and no birth order is
+    invented. What changed is that it is no longer LOST. The refusal
+    itself is proven in
+    `tests/test_meaning_disposition_completeness.py`; keeping the
+    measurement here means a future session that wires a real field has
+    to update both, deliberately.
     """
 
     def test_no_birth_order_is_invented_from_older(self):

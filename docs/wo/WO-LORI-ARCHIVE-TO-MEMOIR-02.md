@@ -1093,14 +1093,14 @@ record, and a test pins the silence so it reads as a decision rather than an ove
 - [x] Normalize `daddy → father` while retaining `daddy` in provenance. *(5B — `daddy` was quarantined `relationship_unstated` while `mama` bound; the guard's vocabulary now derives from the interpreter.)*
 - [x] Normalize `mama → mother` while retaining `mama`.
 - [x] Support ex-spouse status without losing `ex-spouse`. *(5B — relation `wife`, lane `family.priorPartners`, phrase in provenance.)*
-- [ ] Normalize `adult child → child` while retaining `adult`. **HALF: the reading is correct and the qualifier reaches no field.** The normalization and the binding are done and measured (`tests/test_kinship_qualifier_binding.py`); the retention has no destination, which is 5C.
-- [ ] Preserve older/younger sibling qualifiers. **Same half.** Read correctly, carried nowhere. `siblings.birthOrder` exists and `older` is not a birth order — deciding that is 5C, not a mapping to make quietly.
+- [x] Normalize `adult child → child` while retaining `adult`. **5C ANSWERED IT: there is no honest field, so the destination is an explicit recorded refusal.** The qualifier reaches `clarification_required` carrying the narrator's phrase and a `would_need` of *a life-stage destination — NOT an age and NOT a date of birth*. It still reaches no field, and that assertion is unchanged in `tests/test_kinship_qualifier_binding.py`; what changed is that it is no longer LOST.
+- [x] Preserve older/younger sibling qualifiers. **Same answer.** `siblings.birthOrder` exists and is still refused BY NAME: the record's `would_need` says *NOT siblings.birthOrder, which is a position in a sequence and would assert an order nobody stated*. `half` and `step` fall out of the same mechanism for free.
 - [x] Do not add `partner`; verify its existing path instead. *(5B — verified, and the verification FAILED: `partner` was quarantined at the binding decision while the schema, the relation field, the role mapper and the QA bank all supported it. All of that sits upstream of the decision. Now binds, and manufactures no marriage.)*
 - [ ] Confident source-bound fact → structured field.
 - [ ] Meaningful unmapped fact → attributed fact candidate.
 - [ ] Weak relationship binding → review candidate.
 - [ ] Genuine parse debris → rejected with source and reason.
-- [ ] No meaningful interpretation silently disappears.
+- [x] No meaningful interpretation silently disappears. **5C — this is now enforced rather than intended.** `server/code/api/services/meaning_disposition.py` holds a DECLARED table of reading components to destinations, and `tests/test_meaning_disposition_completeness.py` enumerates the interpreter's own `_TABLE` and fails on any component nobody has ruled on. A new qualifier or state added with nowhere to go fails there, with the component named — instead of being discovered months later the way `older` and `late wife` were.
 - [ ] Group candidates by narrator, era, person and event so review remains usable.
 - [ ] Link every structured or candidate item to its source turn.
 
@@ -1108,13 +1108,65 @@ Do not disable `HORNELORE_CLAIMS_VALIDATORS` as a product fix. That switch gates
 
 **Exit gate:** Every extracted proposal has a correct field, attributed candidate or defensible rejection; no valid information is forced into a false schema field.
 
+## ✅ PHASE 5C — ONE DISPOSITION PATH FOR MEANING WITH NO DESTINATION (2026-09-07)
+
+**One contract, not one branch per case.** Phase 5B produced the first
+instance — `relationship_state_has_no_destination` with `would_need` —
+and three more cases were already known. Writing `if adult`, `if older`,
+`if deceased` beside it would have produced four refusals with four
+shapes and no way to ask whether the list was complete.
+
+**Measured against the shipped `EXTRACTABLE_FIELDS` (141 paths), not assumed:**
+
+| Meaning | Destination that exists | Outcome |
+|---|---|---|
+| group / lane | all 7 lanes have fields | **field** |
+| relation | `.relation` on 5 of 7 lanes | **field**, except `grandparents` / `greatGrandparents` |
+| state `current` / `former` | the lane itself | **field** |
+| state `deceased` | **none** — no `deceased`, `status` or `livingState` anywhere; `grandparents.deathDate` is a DATE on another lane | **recorded refusal** |
+| qualifier `older` `younger` `adult` `half` `step` | **none** | **recorded refusal** |
+| narrator wording | `ExtractedItem.source_phrase` | **field** (5B) |
+
+**NO SECOND REVIEW STORE.** Traced end to end before writing anything:
+`clarification_required` on the response → `turn_extraction._clarifications`
+→ `db.turn_extraction_result_store` (a real JSON column) → `db.py:8615`
+on read → `operator_story_review.py:321` → the Bug Panel. It is durable,
+narrator-scoped and operator-visible, and `_store_result` already
+persists a result with **no items** when only dispositions exist.
+
+**Nothing is invented.** `older` does not become `siblings.birthOrder` —
+a birth order is a position in a sequence and `older` is a comparison to
+the narrator, and the `would_need` says so in those words so a future
+session cannot wire it by accident. `adult` becomes no age and no date
+of birth. `deceased` becomes no death date, year, cause or end date.
+
+**A new finding, recorded not fixed:** `grandparents` and
+`greatGrandparents` have **no `.relation` field**, so `grandmother`
+itself has no destination and now produces a refusal. `grandparents.side`
+is maternal/paternal and the word says nothing about which, so it must
+not be used. Whether to add the field is a schema decision, not this
+phase's to make.
+
+**Evidence:** `tests/test_meaning_disposition_completeness.py` — 21
+tests, enumerating the interpreter's own table. **Six mutations caught**:
+removing the accounting pass (3 red), pretending `older` has a
+destination (2), answering it with `siblings.birthOrder` (2), letting an
+unknown state silently refuse instead of reporting `undeclared` (1),
+emitting on every reading so the discrimination is lost (2), and the
+renderer dropping `would_need` (2 of the 42 browser checks). The
+operator view is proven by RENDERING it in
+`scripts/ui/projection_authority_domtest.js`.
+
+**Still open in Phase 5:** the four unchecked boxes above about candidate
+grouping, source-turn linkage and rejection of parse debris.
+
 ## ✅ PHASE 5B COMPLETE — the narrator's wording decides the lane (2026-09-05)
 
 **Phase 5A** bound bio-fact provenance to the committed-turn `_Claim`. **Phase 5B**
 made relationship meaning survive the trip from what the narrator said to where the
 value is stored. **Both are ACCEPTED 2026-09-06** on the 85/85 gate recorded below.
-**Phase 5C is QUEUED, not current** — the Lori measurement block comes first; see
-the header.
+**Phase 5C IMPLEMENTED 2026-09-07** — see §5C below. The measurement block that
+once preceded it is closed; the header carries the execution revision.
 
 ### What Phase 5B changed
 

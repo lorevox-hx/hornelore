@@ -740,9 +740,32 @@
           // `proposed_fieldPath` showed the operator "Otis" and hid the
           // proposed 1922, 2005 and event text — the values they most need to
           // see, because those are what a rebinding would carry with it.
+          // WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 5C: `would_need` and the
+          // narrator's own phrase.
+          //
+          // A RECORDED REFUSAL AN OPERATOR CANNOT ACT ON IS A SILENCE
+          // WITH EXTRA STEPS. `would_need` is the whole difference —
+          // it names the destination that does not exist, and for
+          // `older` it says explicitly why siblings.birthOrder is the
+          // wrong answer. Rendering the reason without it would show
+          // the operator that something was refused and nothing about
+          // what would fix it.
+          const extras = [];
+          if (c && c.narrator_phrase) {
+            extras.push(el('li', {}, ['narrator said: "' + c.narrator_phrase + '"']));
+          }
+          if (c && c.would_need) {
+            extras.push(el('li', {}, ['would need: ' + c.would_need]));
+          }
+
           const proposedItems = (c && Array.isArray(c.proposed_items))
             ? c.proposed_items : [];
-          if (!proposedItems.length) return el('li', {}, [head]);
+          if (!proposedItems.length) {
+            return extras.length
+              ? el('li', {}, [head,
+                  el('ul', { class: 'story-extraction-items' }, extras)])
+              : el('li', {}, [head]);
+          }
           return el('li', {}, [head, el('ul', { class: 'story-extraction-items' },
             proposedItems.map(function (p) {
               const pv = (p && p.value !== undefined && p.value !== null)
