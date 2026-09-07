@@ -365,6 +365,42 @@ the database that no document accounts for.
 8. **Stop after the Walt+John evidence set** and review it before any tuning of
    Lori. §7's "review before recalibration" rule applies here in full.
 
+## 9.6 ✅ RUN COMPLETE — 2026-09-06/07
+
+Executed as specified: Walt then John, one warm model process, no restart
+between them, external GPU sampler started before the stack, code frozen
+at `f8eeea7` and unchanged throughout. **Collection is closed. Do not
+repeat this run.**
+
+Full evidence: `docs/reports/WALT-JOHN-VRAM-PROMPT-BUDGET-DIAGNOSTIC.md`
+(local-only). Run directory `.runtime/eval/walt-john-20260906_200514`.
+
+**The premise of this extension was wrong, and the measurement is what
+says so.** It was framed around VRAM and the token cap. Neither is the
+constraint:
+
+| suspect | verdict |
+|---|---|
+| 256-token cap | **never bound** — 15/15 turns ended `eos`, zero `max_new`, zero `eos_at_limit` |
+| VRAM | **never close** — 7.2–9.4 GB free against 1.5–1.8 GB required, `pass` every turn |
+| prompt budget | **real** — Walt 6,506 → 10,671 pre-budget, 2,958 shed by era seven, `kept_turns=0` on five of eight |
+| post-generation controls | **DOMINANT** — 69% of Walt's words removed, 34% of John's |
+
+Walt's era five is the case in miniature: **237 tokens generated, ending
+at `eos`, 199 words — delivered as 29.** Cut for `too_long`, then failed
+by the receipt validator for `too_short`, then replaced by a template
+phrase that appears on five of the fifteen turns.
+
+**A `testing_only` narrator's opening chapter was classified as a
+correction.** John's 238 words about West St. Paul and his mother at 99
+were routed `META_FEEDBACK / correction` and answered with a title-cased
+fragment of his own sentence. Identical on both John runs, sub-second,
+no generation. That is a routing defect before generation, and it is the
+most narrator-facing failure in the dataset.
+
+**§5's short-natural-turn Walt run is still OWED and UNRUN**, and nothing
+here may be cited against the §8 questions that depend on turn shape.
+
 ## 9.5 What this amendment does NOT do
 
 * It does not retire, weaken or replace the §5 short-turn Walt run.
