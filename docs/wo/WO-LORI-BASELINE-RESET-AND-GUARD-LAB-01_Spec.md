@@ -221,6 +221,57 @@ prompt composition, transforms/replacements and the Profile Seed final writer.**
 
 ---
 
+## 5a. The live acceptance — procedure and clauses
+
+**Section X.** Run on the laptop, where `.venv-gpu`, the model and the
+live database already are. The instrument is
+`scripts/guard_lab_live_acceptance.py` — **read-only, with no mutation
+path at all**; the acceptance is Chris in the browser and the script
+records what that leaves behind. `tests/test_guard_lab_live_acceptance.py`
+fails if it ever gains one.
+
+**ORDER IS LOAD-BEARING.** `trace_env.sh` resolves the eval marker into
+`HORNELORE_RESPONSE_TRACE` **only when a process starts**. Arm after the
+API is up and tracing stays off, the gate refuses every experimental
+turn with `trace_not_enabled`, and nothing on screen explains why.
+
+| | Step | Evidence |
+|---|---|---|
+| 1 | `HORNELORE_OPERATOR_GUARD_LAB=1` in `.env`; arm a run-scoped marker | `preflight` exits 0 |
+| 2 | Create ONE testing narrator through the product path — **New narrator → "Skip — add narrator for testing only"**. It cannot be granted to an existing narrator, and **the live database currently holds none** | `preflight` lists it |
+| 3 | Start the stack (Chris) | trace banner says ENABLED, and names the run directory |
+| 4 | Bug Panel → Guard Lab: 43 rows, four state fields, four gate conditions | `snapshot before-all-off` |
+| 5 | Select the **listed testing narrator** for the interview, press `All Switchable Off`, talk to Lori | revision +1; traced turns carry `experiment_applied=true` |
+| 6 | Change one authority without restarting; take another turn | two distinct consumed revisions in one process |
+| 7 | Toggle **while Lori is generating**; note the unix second | `verify --toggle-at` decides the freeze |
+| 8 | Second browser tab, stale revision, press a control | 409, conflict shown, live configuration adopted |
+| 9 | Talk to an ordinary narrator once with a configuration selected | a turn refused `not_testing_only` |
+| 10 | `snapshot before-restart`, stop, start, `snapshot after-restart` | identical overrides across the restart |
+| 11 | `verify`, then `Restore Defaults` unless the lean baseline is wanted | `N passed / 0 failed / 0 unverified` |
+
+**`UNVERIFIED` IS NOT A SOFT PASS** and exits 2. Six of the clauses are
+decided by comparing two recorded facts, and a person reading a log at
+midnight believes whichever they expected.
+
+**The mid-turn freeze is not decidable from the trace alone.** It needs
+the operator's own timestamp for the toggle compared against the turn's
+start and end, so the script requires `--toggle-at` and reports
+`UNVERIFIED` without it rather than inferring it from turn order.
+
+**One distinction the panel does not close.** It answers *is there an
+eligible testing narrator?* — not *is the narrator currently selected in
+the interview that narrator?* So the test narrator has to be chosen
+deliberately. Talking to Kent, Janice or any other ordinary narrator
+gives canonical Lori whatever the panel shows selected. **That is the
+safety property, not a failure**, and step 9 exists to observe it rather
+than assume it.
+
+**`stop_all.sh` disarms the marker.** The override and the revision live
+in SQLite and survive the restart; tracing does not. Re-arm before the
+second start or step 10's turns are unrecorded.
+
+---
+
 ## 6. Harness consequence
 
 `run_lori_behavior_harness.py` uses synthetic ids such as `eval_person`. Under
