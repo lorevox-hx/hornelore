@@ -29,6 +29,16 @@ happening right now — active lane, what is next, what is owed — read
 | Why does this subsystem behave like this? | [`docs/CHANGELOG-AGENT.md`](docs/CHANGELOG-AGENT.md) — the decision INDEX — then the lane's WO in `docs/wo/` |
 | What are the standing rules and hazards? | **this file** |
 | Who is Lori for, and how is her behaviour produced? | `docs/architecture/` (see below) |
+| What is this project, and how do I get oriented? | `README.md` — orientation only, never current state |
+| Where are the documents, and which are live vs history? | `docs/INDEX.md` · `docs/archive/INDEX.md` |
+| Where are the scripts, and which should I actually run? | `scripts/INDEX.md` |
+| What is owed but not scheduled? | [`docs/BACKLOG.md`](docs/BACKLOG.md) |
+| How may an outside contributor participate? | `CONTRIBUTING.md` — external process, not an internal status authority |
+
+**ONE JOB PER DOCUMENT.** No two live documents may answer the same
+current-state question. That rule, not the file count, is what this
+repository keeps getting wrong: two lists of one truth is how they drift,
+and it has happened twice in this file alone.
 
 **The governing order:**
 
@@ -38,6 +48,7 @@ current code
 > accepted reports / ADRs / closeout records
 > HANDOFF.md
 > MASTER_WORK_ORDER_CHECKLIST.md
+> README.md
 > old WO status lines
 > archived design history
 > docs/CHANGELOG-AGENT.md
@@ -50,6 +61,23 @@ document ranked the handoff above the checklist while this one skipped it entire
 one file agents are told to read first was the one place its authority was not written
 down. Restored in the position the other four documents already used: below accepted
 closeout records, above the checklist.)*
+
+*(**`README.md` was MISSING from this list too, corrected 2026-09-08** under
+WO-REPOSITORY-RATIONALIZATION-02. It is ranked BELOW the checklist deliberately:
+README orients a newcomer, and orientation written by someone who has not read
+the handoff must never outrank the handoff. README therefore carries no phase
+status, no work queue and no counts — it points at the documents that own
+those.)*
+
+*(**`AGENT_CONTRACT.md` was archived 2026-09-08** to
+[`docs/archive/governance/AGENT_CONTRACT-2026-05-01.md`](docs/archive/governance/AGENT_CONTRACT-2026-05-01.md),
+byte-for-byte. It was a sixth control document that no governing order ranked,
+untouched since 2026-05-01, and it had gone beyond stale into contradiction: its
+§9 named `r5h` as "the active baseline" — a figure this file now records as
+un-subtractable because the scorers differ — and its line 40 stated Kawa was
+"retired as system / UI / logic", which the standing prohibition below
+specifically forbids saying. Only its §13 was unique and still wanted; it is
+reproduced under **WO header convention** near the end of this file.)*
 
 Before changing product code in a lane: read recent commits, read that lane's
 implementation and tests, check for a later closeout, *then* reconcile the
@@ -644,6 +672,57 @@ typology LOCKED.
 - When three agents (Claude/Gemini/ChatGPT) converge on the same answer, act on it; don't re-argue.
 - Do not regenerate command blocks from memory — copy from this file.
 - Read logs and reports directly from the workspace mount; don't ask Chris to paste.
+
+## WO header convention (tiered)
+
+*Extracted 2026-09-08 from the archived `AGENT_CONTRACT.md` §13 — the one part
+of that document that was unique, durable, and documented nowhere else. Every
+work order in `docs/wo/` already follows this shape; until now nothing current
+said so, and `WO-TRAVEL-DOC-UNIFY-01_Spec.md` cited a root file that no longer
+exists.*
+
+**Tier 1 is mandatory on every WO. Tiers 2–5 apply only when relevant** — forcing
+a UI-cleanup WO to declare a "Type A/B/C failure mode" is a category error,
+because that vocabulary belongs to the extractor lane.
+
+**Tier 1 — ALWAYS**
+
+```text
+## Mission alignment
+[1-3 sentences: how this WO serves the Mission and the design principles]
+
+## Non-regression requirements
+This WO MUST NOT:
+- reduce narrator dignity
+- introduce new must_not_write violations or system-tone outputs
+- regress the CURRENT locked baseline without explicit justification
+  (name the baseline and its scorer — see "Extractor lane" below; a
+  pass-count delta across a scorer change measures the scorer)
+- expand operator surfaces into narrator UI
+- add detectors that duplicate existing signals
+```
+
+**Tier 2 — extractor-lane WOs:** `Target layer` (Architectural / Control /
+Binding / Decision / Evaluation, plus justification) · `Failure mode` (Type A
+target-anchored / B overdetermined-factual / C weakly-constrained-narrative;
+observed, expected, causing layer) · `Eval plan` (master eval tag, and the six
+audit-block items: pass · v3 · v2 · mnw · named flips · scorer-drift).
+
+**Tier 3 — narrator-facing WOs:** `Lori impact` (response length, questions per
+turn — must be ≤1, tone, pacing/silence, narrator-vs-operator role boundary) ·
+`Narrator dignity check` (walk the locked design principles and confirm).
+
+**Tier 4 — story-capture-touching WOs:** `Preservation integrity` — capture
+cannot fail because of this change, chat flow continues if the component errors,
+and LAW 3 isolation holds (no extraction-stack imports).
+
+**Tier 5 — any WO introducing or modifying env flags:** `Flags / gating` — flags
+introduced or modified, and whether the default state preserves current
+behaviour.
+
+Typical combinations: a pure-docs WO carries Tier 1 only; a backend-config WO
+Tier 1 + 5; an extractor WO Tier 1 + 2; a narrator-UI WO Tier 1 + 3; a
+story-capture WO Tier 1 + 4, and Tier 3 as well if it touches the chat surface.
 
 ## Companion stack (Lori — the point of the whole system)
 

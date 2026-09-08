@@ -23,7 +23,9 @@ This WO MUST NOT:
 - silently drop a production affordance — see the retire list; anything not on it ports or blocks
 - regress the destructive-action posture established by `WO-EVIDENCE-LIFECYCLE-TRIP-FORCE-01` (no native `window.confirm` / `window.prompt` for destructive actions)
 
-**Tiers skipped and why (per AGENT_CONTRACT §13):** Tier 2 N/A — no extractor-lane code. Tier 3 N/A — operator surface, not narrator-facing; the role-boundary half of the check is covered under non-regression above. Tier 4 N/A — story capture untouched. Tier 5 N/A — no env flags introduced or modified.
+**Tiers skipped and why (per CLAUDE.md "WO header convention (tiered)"; the
+convention lived in `AGENT_CONTRACT.md` §13 until that document was archived
+2026-09-08):** Tier 2 N/A — no extractor-lane code. Tier 3 N/A — operator surface, not narrator-facing; the role-boundary half of the check is covered under non-regression above. Tier 4 N/A — story capture untouched. Tier 5 N/A — no env flags introduced or modified.
 
 ## Goal
 

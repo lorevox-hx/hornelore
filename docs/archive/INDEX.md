@@ -149,6 +149,48 @@ manifest.
      Step 3 first cohort (handoffs/ x3, mockups/ x1)
        — moved by hygiene Step 3, 2026-08-28, recorded from the move -->
 
+### `docs/archive/governance/` — added 2026-09-08
+
+**Added by `WO-REPOSITORY-RATIONALIZATION-02` Commit 1.** The first cohort of a new
+class: superseded *governance* documents, as distinct from superseded work.
+
+| | |
+|---|---|
+| File | `AGENT_CONTRACT-2026-05-01.md` |
+| **Original path** | **`AGENT_CONTRACT.md`** (repository root) |
+| Destination | `docs/archive/governance/AGENT_CONTRACT-2026-05-01.md` |
+| Moved | byte-for-byte, `sha256 80148a3e75025e1f…` identical either side |
+| Last live edit | 2026-05-01 — untouched for four months |
+
+**Why archived.** It was a sixth root control document that no governing order
+ranked, and it had passed from stale into contradiction:
+
+* **§9 line 134** — *"r5h is the active baseline (70/104, v3=41/62, v2=35/62,
+  mnw=2)"*. `CLAUDE.md` now records that the r5h family of numbers may not be
+  subtracted from anything, because the three runs people compare span three
+  different scorers.
+* **Line 40** — *"Kawa / Memory River retired as system / UI / logic."* The
+  standing prohibitions say the opposite and say it explicitly: the surface is
+  reachable frozen legacy UI awaiting adjudication, and **"do not describe it as
+  retired in code."**
+* **Lines 158, 266** — scope locks and "current phase" language naming the
+  BINDING lane and parent-session-readiness gates, four months gone.
+
+**What survived, and where it went.** Exactly one section was unique, durable and
+documented nowhere else: **§13, the tiered WO header convention.** It is now in
+`CLAUDE.md` under **"WO header convention (tiered)"**, with the one stale clause
+("degrade r5h baseline") rewritten to name the current locked baseline and its
+scorer. Everything else in the document was either already in `CLAUDE.md` — the
+mission anchor, the locked design principles, git and stack discipline, narrator
+dignity — or was the stale material listed above.
+
+**Obligations.** None outstanding. This document issued no work; it stated rules,
+and the rules that still apply now live in `CLAUDE.md`.
+
+**Inbound references repointed.** `docs/wo/WO-TRAVEL-DOC-UNIFY-01_Spec.md:26`
+cited "AGENT_CONTRACT §13" and now cites the CLAUDE.md section. It was the only
+tracked reference — `git grep -l AGENT_CONTRACT HEAD` returned that file alone.
+
 ### `docs/archive/changelogs/` — 1 file, 614,130 bytes
 
 **Added by `WO-REPOSITORY-HYGIENE-01` Step 2b, 2026-08-28.**
