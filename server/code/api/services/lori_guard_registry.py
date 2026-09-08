@@ -800,7 +800,12 @@ FINAL_TEXT_WRITERS: Dict[str, Tuple[int, ...]] = {
     "_phantom_result['final_text']": (31,),
     "_cc_result.final_text": (32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42),
     "_trimmed": (43,),
-    "_repaired": (44,),
+    # Renamed from `_repaired` when 44's decision moved out of the
+    # handler into the pure `api.services.lori_era_fragment`. The
+    # registry is read by nothing at runtime, so this is the name of a
+    # write site and not a behaviour — but a registry that describes
+    # code which no longer exists is the stale-control-document failure.
+    "_fr_text": (44,),
     "_es_repaired": (45,),
     "_bridge": (46,),
     "_wr_fallback": (48, 49),          # two sites: normal + exception path
