@@ -145,7 +145,7 @@ lesson.
 `df82215` (2026-05-06). **Test 23 has not run since.** It is the only Python parse failure
 in the tracked tree, confirmed by byte-compiling every tracked `.py`.
 
-Recorded, deliberately not repaired: [`../BUG-HARNESS-TEST23-INDENTATION-01_Spec.md`](../BUG-HARNESS-TEST23-INDENTATION-01_Spec.md).
+Recorded, deliberately not repaired: [`../BUG-HARNESS-TEST23-INDENTATION-01_Spec.md`](../docs/wo/BUG-HARNESS-TEST23-INDENTATION-01_Spec.md).
 
 The interesting part is not the file. It is that **nothing in the ordinary test path
 compiles it**, so a harness stopped parsing and stayed silent for three and a half months.

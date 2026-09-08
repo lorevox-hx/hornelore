@@ -149,6 +149,31 @@ manifest.
      Step 3 first cohort (handoffs/ x3, mockups/ x1)
        — moved by hygiene Step 3, 2026-08-28, recorded from the move -->
 
+### `docs/archive/design-packets/memory-truth/` — 5 files, added 2026-09-08
+
+**Added by `WO-REPOSITORY-HYGIENE-01`, resumed, Block 2.** Former top-level `shadow/`,
+which is now removed. Binary `.docx`, unsearchable by grep — **which is exactly why this
+entry names each file and its subject**, so nothing here can secretly govern current
+behaviour.
+
+| File | Subject | Bytes |
+|---|---|---|
+| `CLAUDE_KICKOFF_PROMPT_MEMORY_TRUTH_HORNELORE.docx` | Governing brief for the agent implementing Shadow Archive, Proposal Layer and Review Role | 39,176 |
+| `HORNELORE_MEMORY_TRUTH_OUTLINE.docx` | Outline — preserve raw source exactly as received; Lori helps organise | 38,823 |
+| `HORNELORE_MEMORY_TRUTH_PLAN.docx` | Implementation plan, dated 2026-04-11 — shadow archive, proposal, review, promotion, Lori transparency | 41,530 |
+| `HORNELORE_MEMORY_TRUTH_REVIEW_AND_FIT.docx` | Why the Lorevox memory-truth architecture matches the WO-12B findings | 41,112 |
+| `HORNELORE_MEMORY_TRUTH_TEST_PACKET.docx` | Acceptance case: Kent Horne's paternal Elizabeth Shong / Horne branch | 40,523 |
+
+**Why historical rather than authoritative.** The architecture they describe **shipped**,
+and its governing rule is live and searchable in `CLAUDE.md`'s locked design principles:
+*"Provisional truth persists. Final truth waits for the operator. The interview never
+waits."* No current requirement exists only inside these binaries — the requirement is in
+the principle, and the principle is in the control document.
+
+**Verified before moving:** nothing consumes them programmatically. The one apparent code
+hit, `scripts/archive/golfball_narrator_isolation.py`, says *"shadow/proposal"* about a
+data concept and is not a path reference.
+
 ### `docs/archive/workorders-june-july-2026/` — 14 files, added 2026-09-08
 
 **Added by `WO-REPOSITORY-HYGIENE-01`, resumed, Block 1.** The root work-order pile is

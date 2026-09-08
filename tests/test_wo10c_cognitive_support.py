@@ -21,7 +21,15 @@ _repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_repo, "server", "code"))
 
 # ── Fixtures
-_fix_dir = os.path.join(os.path.dirname(__file__), "fixtures")
+#
+# MOVED 2026-09-08 from the singular `test/` tree into the canonical `tests/`
+# tree (WO-REPOSITORY-HYGIENE-01, resumed, Block 2). Two test roots one letter
+# apart meant any glob or discovery run over `tests/` silently missed this
+# file — and this file is the ONLY coverage for
+# `api.archive.wo10c_select_single_support_thread`, which is live production.
+# The fixture cohort moved with it, to `tests/fixtures/wo10c/`, so the seven
+# JSON scenarios stay together rather than being scattered by consumer count.
+_fix_dir = os.path.join(os.path.dirname(__file__), "fixtures", "wo10c")
 
 
 def _load_fixture(name):

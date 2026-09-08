@@ -157,6 +157,30 @@ never edited; the
 
 ---
 
+### 2.3 WO-10C cognitive-support contract runs under pytest only
+
+**Found 2026-09-08 while consolidating the two test roots. Recorded, not fixed —
+changing a test's framework is not repository hygiene.**
+
+`tests/test_wo10c_cognitive_support.py` is the **only** coverage anywhere for
+`api.archive.wo10c_select_single_support_thread`, which is live production at
+`server/code/api/archive.py:1049`. Its six classes are **bare Python classes, not
+`unittest.TestCase`**.
+
+| Invocation | Result |
+|---|---|
+| `python -m unittest tests.test_wo10c_cognitive_support` | **`Ran 0 tests` — and prints `OK`** |
+| `python -m pytest tests/test_wo10c_cognitive_support.py` | **40 passed** |
+
+The repository's canonical command is unittest (`CLAUDE.md`, *Standard test command*),
+so **forty assertions protecting a live production symbol do not execute in ordinary
+verification, and the run reports success.** This is the same family as the documented
+`OK (skipped=12)` trap, one step worse: a skip is at least counted.
+
+**Decide one of:** convert the classes to `unittest.TestCase`; add pytest to the canonical
+gate; or otherwise guarantee the 40 assertions run in normal verification. **Not
+scheduled.**
+
 ## 3. `docs/wo/` — parked, banked, and spec-only work
 
 A mix of active implementation specs and completed, superseded, parked and future-only
