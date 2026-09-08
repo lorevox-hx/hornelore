@@ -152,7 +152,7 @@ the count it produces is not evidence about this change.
 | Lean Lori | **L1 COMPLETE. L2 PARTIAL and CLOSED by product-priority decision — DO NOT RESUME.** Eleven commits already landed; do not rebuild. **Gate B stays OPEN**, Phase 10 open |
 | Legacy photo-day scalar retirement (Phase 6) | **DEFERRED — reopening requires Chris's explicit authorization. Not approved, not scheduled, not a decision currently on the table.** Palette and multi-day acceptance do not imply it. The scalar is frozen, unwritten, ignored for authoritative decisions and correctly derived on read; dropping it buys nothing and costs a risky SQLite rebuild. [`docs/BACKLOG.md`](docs/BACKLOG.md) §3b |
 | Test-artifact **cleanup** | **DEFERRED — needs Chris's authorization.** The 22 harness narrators were deliberately not deleted |
-| Kawa / Memory River | **REACHABLE FROZEN LEGACY UI.** Non-authoritative; do not extend, build on it, or describe it as retired in code. **Removal is NOT decided and NOT scheduled** — it needs Chris's explicit decision AND confirmed Life Map coverage |
+| Kawa / Memory River | 🗑️ **REMOVAL DECIDED 2026-09-08 by Chris.** Retired product functionality; do not extend or build on it. The mounted UI, API, prompts, memoir-context and state paths are **removal debt**, owed to a bounded follow-up work order. *(This row said "Removal is NOT decided and NOT scheduled" — that was true until 2026-09-08 and is not now.)* Historical research and archived specs stay; `DATA_DIR/kawa/` narrator data is NOT deleted by that work order |
 | Runtime safety | **PARKED**, server-authoritative. Never reactivate through an environment value |
 | Model / 8,192-token window | **LOCKED.** Any proposed change is stop-and-report |
 | Directive-family registry | **INERT** — built, gated, deliberately not activated |
@@ -215,7 +215,8 @@ path, leave the nine covered.
 
 **Step 6 must NOT touch:** REST persistence · UI promotion sites (Phase 3) · schema or
 migrations · chronology · Life Map · memoir · story authority · safety (PARKED) · model /
-8,192-token window (LOCKED) · directive-family registry (INERT) · Kawa (frozen legacy).
+8,192-token window (LOCKED) · directive-family registry (INERT) · Kawa (**removal decided 2026-09-08 — untouched by
+Step 6, removed by its own bounded work order**).
 **Stop after focused implementation and tests, before Step 7.**
 
 Detail: [`docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_PHASE2_TRANSPORT_MAP.md`](docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_PHASE2_TRANSPORT_MAP.md)

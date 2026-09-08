@@ -63,7 +63,7 @@ down. Restored in the position the other four documents already used: below acce
 closeout records, above the checklist.)*
 
 *(**`README.md` was MISSING from this list too, corrected 2026-09-08** under
-WO-REPOSITORY-RATIONALIZATION-02. It is ranked BELOW the checklist deliberately:
+`WO-REPOSITORY-HYGIENE-01`, resumed. It is ranked BELOW the checklist deliberately:
 README orients a newcomer, and orientation written by someone who has not read
 the handoff must never outrank the handoff. README therefore carries no phase
 status, no work queue and no counts — it points at the documents that own
@@ -140,7 +140,7 @@ These do not expire with a lane, and none of them may be lifted by an agent.
 |---|---|
 | **Model + 8,192-token window** | 🔒 **LOCKED.** A change request here is a stop-and-report condition, not a task. |
 | **Runtime safety** | ⏸️ **PARKED**, server-authoritative, code + corpus + tests preserved. **Never reactivate through an environment value** — it takes Chris's explicit decision. [`docs/decisions/2026-08-04-park-safety-feature.md`](docs/decisions/2026-08-04-park-safety-feature.md) |
-| **Kawa / Memory River** | **Reachable frozen legacy UI awaiting adjudication.** Non-authoritative. **Do not extend it, do not build on it, and do not describe it as retired in code** — the button, popover, `chronology_river` mode and `js/lori-kawa.js` are still mounted in `ui/hornelore1.0.html`. |
+| **Kawa / Memory River** | 🗑️ **REMOVAL DECIDED by Chris Horne, 2026-09-08.** Retired product functionality. **Do not extend it and do not build on it.** The still-mounted implementation is **removal debt**, not a surface awaiting a decision — it comes out in a bounded follow-up work order. See the Kawa removal note below. Historical research and archived Kawa work orders stay; existing narrator data under `DATA_DIR/kawa/` is **not** deleted by that work order. |
 | **Directive-family registry** | **INERT** — built, gated, deliberately not activated. Do not activate it. |
 | **Lean Lori L2** | **PARTIAL and closed by product-priority decision. DO NOT RESUME.** Gate B stays OPEN. Substantial work is already in-tree — do not rebuild it. |
 | **Per-narrator Google credentials** | **Permanently forbidden, not deferred.** See the Picker identity boundary below. |
@@ -153,6 +153,42 @@ expansion; a broad inference coordinator; framework rewrite; mass migration
 cleanup; automatic historical rewrite of stored `[SYSTEM:]` rows.
 *Deferred is not forgotten. Deferred means intentionally not active.*
 
+## Kawa / Memory River — removal decided 2026-09-08
+
+**Chris Horne decided removal on 2026-09-08.** This closes the condition the
+repository had been waiting on: `HANDOFF.md` and the checklist both said removal
+"needs Chris's explicit decision", and that decision now exists. **Kawa / Memory
+River is retired product functionality.**
+
+**What that changes:** nothing is "awaiting adjudication" any more. The mounted
+implementation is **removal debt**, scheduled into a bounded follow-up work
+order — not a frozen surface to be preserved, and not something to extend or
+build on in the meantime.
+
+**Verified still mounted at `e0fde84`** — this is implementation, not stale
+documentation:
+
+| | |
+|---|---|
+| `ui/hornelore1.0.html` | 69 hits — button, popover, CSS, mode selectors, script load |
+| `ui/js/app.js` | 148 hits — state, preload, rendering, **Kawa context inserted into memoir prompts** |
+| `ui/js/api.js` | 18 hits — REST client |
+| `ui/js/lori-kawa.js` | 12,572 bytes, the whole client implementation |
+| `server/code/api/main.py:187` | `app.include_router(kawa.router)` |
+| `server/code/api/routers/kawa.py` | four live routes: `/api/kawa/list`, `/segment` GET+PUT, `/build` |
+| `server/code/kawa_store.py`, `kawa_projection.py` | persistence under `DATA_DIR/kawa/`, projection generation |
+| `data/prompts/kawa_prompts.json` | river / rocks / driftwood / banks / spaces prompt set |
+| `chronology_river` | 8 hits across `ui/` and `server/` — still an available memoir organization mode |
+
+**Two things the removal work order must NOT do:**
+
+* **Do not delete historical research or archived Kawa work orders.** The four
+  Kawa papers and the archived specs are history and research; removing the
+  product path does not retract the reading.
+* **Do not delete narrator data under `DATA_DIR/kawa/`.** Stop creating and
+  reading it first. Deleting stored narrator material is a separate operator and
+  data-retention decision, not a side effect of a code removal.
+
 ## Mission
 
 Lorevox is a privacy-first conversational memory system that helps older adults preserve life stories, supports cognitive engagement, and provides structured legacy outputs for family. The broader goal is a digital companion for aging populations — supporting memory recall, emotional processing, and intergenerational storytelling.
@@ -163,7 +199,7 @@ Lorevox is a privacy-first conversational memory system that helps older adults 
 
 ## Design principles (locked)
 
-- **No dual metaphors.** Life Map is the only navigation surface. The river metaphor (Kawa, Memory River) was a useful theoretical lens early; it's retired as system, UI, and logic. Kept as a research citation only. **DOCTRINE ONLY — the tree disagrees:** the Memory River button, its popover, the `chronology_river` memoir mode and `js/lori-kawa.js` are all still mounted in `ui/hornelore1.0.html`. See **Standing prohibitions** above; that surface is frozen, not gone.
+- **No dual metaphors.** Life Map is the only navigation surface. The river metaphor (Kawa, Memory River) was a useful theoretical lens early and is retired as system, UI and logic; it is kept as a research citation only. **The implementation is still mounted and is now REMOVAL DEBT, not a frozen surface** — removal was decided 2026-09-08 and happens in its own bounded work order. *(This bullet previously said the surface was "frozen, not gone", which was accurate while the decision was outstanding and is not accurate now.)*
 - **No operator leakage.** Anything a narrator can see or interact with must be designed for narrators. No Return-to-Operator buttons, no diagnostic surfaces, no operator-only controls in the narrator flow. Every UI element passes a role check.
 - **No system-tone outputs.** Anything visible to the narrator sounds like a person talking, not a database query result. "(not on record yet)" disappears in narrator-facing output. "Based on: interview projection, session notes" never reaches the narrator. Source-of-truth attribution is operator-side.
 - **No partial resets.** Reset Identity clears all narrator-scoped state in one operation, atomically. No lingering memoir cache, no surviving runtime softened-mode, no localStorage remnants. If a reset doesn't reset everything, it isn't done.
@@ -751,7 +787,7 @@ a test, a prompt instruction and a Bug Panel warning are none of them.
 
 **Parallel/supporting subsystems:**
 
-- **Kawa — DOCTRINE retired 2026-05-01; the SURFACE is reachable frozen legacy UI awaiting adjudication.** *(This bullet read `Kawa (RETIRED 2026-05-01)` until 2026-08-20, which reads as settled and is not: the button, popover, `chronology_river` mode and `js/lori-kawa.js` are still mounted. Retiring a metaphor in doctrine is not the same as removing a surface from the tree, and collapsing the two is how a reader skips a decision nobody made.)* The river metaphor was a useful theoretical lens early on; gave the project vocabulary for client-as-theorist framing and "river of memories" visualization. The implementation has converged on the canonical 7-era life spine + Life Map UI, and a second river metaphor confused both the model and the user (the broken "narrator-room Memory River view tab" in the 2026-04-30 audit was the trigger). Decision: **Life Map is the only navigation surface; Memory River is removed as a UI.** Kawa is kept as a research citation only — the four papers in `Research/Kawa/` (OTI2023-2768898, TST.2024.9010104, The_Dynamic_Use_of_the_Kawa_Model_A_Scop, newbury-lape-2021-well-being-aging-in-place) support the academic framing of "narrator-as-theorist of their own life" for write-ups. No Kawa engine, no Kawa rendering, no River-of-Memories pre-generation.
+- **Kawa — DOCTRINE retired 2026-05-01; REMOVAL of the surface decided 2026-09-08.** *(This bullet read `Kawa (RETIRED 2026-05-01)` until 2026-08-20, which reads as settled and is not: the button, popover, `chronology_river` mode and `js/lori-kawa.js` are still mounted. Retiring a metaphor in doctrine is not the same as removing a surface from the tree, and collapsing the two is how a reader skips a decision nobody made.)* The river metaphor was a useful theoretical lens early on; gave the project vocabulary for client-as-theorist framing and "river of memories" visualization. The implementation has converged on the canonical 7-era life spine + Life Map UI, and a second river metaphor confused both the model and the user (the broken "narrator-room Memory River view tab" in the 2026-04-30 audit was the trigger). Decision: **Life Map is the only navigation surface.** *(That sentence used to end "Memory River is removed as a UI", which was false while the UI was still mounted — the doctrine had been decided and the code had not moved. Both are now true in sequence: doctrine retired 2026-05-01, removal decided 2026-09-08, implementation removed by the follow-up work order.)* Kawa is kept as a research citation only — the four papers in `Research/Kawa/` (OTI2023-2768898, TST.2024.9010104, The_Dynamic_Use_of_the_Kawa_Model_A_Scop, newbury-lape-2021-well-being-aging-in-place) support the academic framing of "narrator-as-theorist of their own life" for write-ups. No Kawa engine, no Kawa rendering, no River-of-Memories pre-generation.
 
 - **Pheno (PARKED)** — lived experience + wisdom extraction, separate from truth fields. DESIGN COMPLETE spec, not wired. Doesn't conflict with anything currently shipping. Reactivate when extractor lane settles.
 

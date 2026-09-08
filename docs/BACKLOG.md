@@ -181,6 +181,30 @@ verification, and the run reports success.** This is the same family as the docu
 gate; or otherwise guarantee the 40 assertions run in normal verification. **Not
 scheduled.**
 
+### 2.4 Kawa / Memory River removal debt — DECIDED 2026-09-08, not yet implemented
+
+**Chris Horne decided removal on 2026-09-08**, resolving the condition this repository had
+been waiting on. Kawa is retired product functionality; what remains is **implementation
+debt**, owed to a bounded follow-up work order and deliberately **not** done inside
+repository hygiene, which held zero `server/` and `ui/` changes across all three blocks.
+
+**Still mounted, verified at `e0fde84`:** `ui/hornelore1.0.html` (69 hits — button, popover,
+CSS, mode selectors, script load) · `ui/js/app.js` (148 — state, preload, render, **Kawa
+context inserted into memoir prompts**) · `ui/js/api.js` (18) · `ui/js/lori-kawa.js` (12,572
+bytes) · `server/code/api/main.py:187` mounts the router · `routers/kawa.py` serves four
+live routes · `kawa_store.py` + `kawa_projection.py` · `data/prompts/kawa_prompts.json` ·
+`chronology_river` (8 hits) still selectable as a memoir organization mode.
+
+**Two hard boundaries on the removal work order:**
+
+* **Keep** the historical research and the archived Kawa work orders. Removing a product
+  path does not retract the reading behind it.
+* **Do not delete narrator data under `DATA_DIR/kawa/`.** Stop creating and reading it
+  first. Deleting stored narrator material is a separate operator and data-retention
+  decision and must never be a side effect of a code removal.
+
+**Not scheduled here** — the checklist owns the queue position (row 6).
+
 ## 3. `docs/wo/` — parked, banked, and spec-only work
 
 A mix of active implementation specs and completed, superseded, parked and future-only
@@ -459,8 +483,11 @@ automatic historical rewrite of stored `[SYSTEM:]` rows.
 ## 8. Preserved boundaries — never archive candidates
 
 Parked runtime safety (server-authoritative; reactivation takes Chris's explicit
-decision) · frozen Kawa / Memory River, reachable legacy UI awaiting adjudication · the
-inert directive-family registry · compatibility readers · migrations `0001–0051` · the
+decision) · the historical Kawa research and archived Kawa work orders, and existing
+narrator data under `DATA_DIR/kawa/` — **note the change: the Kawa IMPLEMENTATION is no
+longer a preserved boundary. Removal was decided 2026-09-08 (§2.4). The research, the
+archived specs and the stored narrator data remain preserved; the mounted product path
+does not** · the inert directive-family registry · compatibility readers · migrations `0001–0051` · the
 main `tests/` tree · Profile Seed onboarding preservation tests.
 
 ---
