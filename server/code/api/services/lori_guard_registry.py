@@ -199,7 +199,7 @@ REGISTRY: Tuple[Intervention, ...] = (
     # ── PROMPT (positions 100-199) ────────────────────────────────────
 
     Intervention(
-        id=1, name="prompt_core_identity", display="Core Identity",
+        id=1, name="prompt_core_identity", display="Who Lori Is",
         cls=CLASS_PROMPT, position=100,
         location="prompt_composer.LORI_CORE_IDENTITY (DEFAULT_CORE head)",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_REQUIRES_RERUN,
@@ -209,7 +209,7 @@ REGISTRY: Tuple[Intervention, ...] = (
                    "that leaves ~925 tokens for conversation at the high end.",
     ),
     Intervention(
-        id=2, name="prompt_safety_protocol", display="Acute Safety Protocol",
+        id=2, name="prompt_safety_protocol", display="Acute Safety Rules",
         cls=CLASS_LOCKED, position=101,
         location="prompt_composer.LORI_SAFETY_PROTOCOL (DEFAULT_CORE tail, "
                  "split at _SAFETY_PROTOCOL_MARKER)",
@@ -220,7 +220,7 @@ REGISTRY: Tuple[Intervention, ...] = (
                       "deactivated through an environment value.",
     ),
     Intervention(
-        id=3, name="prompt_interview_discipline", display="Interview Discipline",
+        id=3, name="prompt_interview_discipline", display="Listen + One Question",
         cls=CLASS_PROMPT, position=110,
         location="prompt_composer.LORI_INTERVIEW_DISCIPLINE",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_REQUIRES_RERUN,
@@ -229,7 +229,7 @@ REGISTRY: Tuple[Intervention, ...] = (
                            "the narrator.",
     ),
     Intervention(
-        id=4, name="prompt_reflection_examples", display="Reflection Examples",
+        id=4, name="prompt_reflection_examples", display="Reflection Examples — Leak Risk",
         cls=CLASS_PROMPT, position=111,
         location="prompt_composer._ID_EXAMPLES_0..3, four fragments in "
                  "_INTERVIEW_DISCIPLINE_SEGMENTS; assembled by "
@@ -250,7 +250,7 @@ REGISTRY: Tuple[Intervention, ...] = (
                    "the rule it teaches.",
     ),
     Intervention(
-        id=5, name="prompt_oral_history_response", display="Oral History Posture",
+        id=5, name="prompt_oral_history_response", display="Oral-History Listening",
         cls=CLASS_PROMPT, position=112,
         location="prompt_composer.LORI_ORAL_HISTORY_RESPONSE",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_REQUIRES_RERUN,
@@ -260,7 +260,7 @@ REGISTRY: Tuple[Intervention, ...] = (
                            "narrator-led storytelling.",
     ),
     Intervention(
-        id=6, name="prompt_story_mode_directive", display="Story Mode Directive",
+        id=6, name="prompt_story_mode_directive", display="Story-First Guidance",
         cls=CLASS_PROMPT, position=113,
         location="prompt_composer.LORI_STORY_MODE_DIRECTIVE",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_REQUIRES_RERUN,
@@ -268,7 +268,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         motivating_failure="WO-LORI-STORY-FIRST-PHASE-1-01.",
     ),
     Intervention(
-        id=7, name="prompt_question_hierarchy", display="Question Hierarchy Guidance",
+        id=7, name="prompt_question_hierarchy", display="Follow-Up Priority",
         cls=CLASS_PROMPT, position=114,
         location="prompt_composer.LORI_QUESTION_HIERARCHY_GUIDANCE",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_REQUIRES_RERUN,
@@ -278,7 +278,7 @@ REGISTRY: Tuple[Intervention, ...] = (
                            "life-level question mid-thread.",
     ),
     Intervention(
-        id=8, name="prompt_thread_surfacing", display="Thread Surfacing Directive",
+        id=8, name="prompt_thread_surfacing", display="Remember Open Threads",
         cls=CLASS_PROMPT, position=115,
         location="prompt_composer.LORI_THREAD_SURFACING_DIRECTIVE_TEMPLATE",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_REQUIRES_RERUN,
@@ -286,7 +286,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         motivating_failure="Open threads dropped between turns.",
     ),
     Intervention(
-        id=9, name="prompt_anchored_ask", display="Anchored Ask Directive",
+        id=9, name="prompt_anchored_ask", display="Anchor Follow-Up to Narrator",
         cls=CLASS_PROMPT, position=116,
         location="prompt_composer.LORI_ANCHORED_ASK_DIRECTIVE_TEMPLATE",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_REQUIRES_RERUN,
@@ -296,7 +296,7 @@ REGISTRY: Tuple[Intervention, ...] = (
                    "prompt_composer.py:1905 ('Were you Army at Fort Ord').",
     ),
     Intervention(
-        id=10, name="prompt_witness_receipt_directive", display="Witness Receipt Directive",
+        id=10, name="prompt_witness_receipt_directive", display="Chronology Witness Instructions",
         cls=CLASS_PROMPT, position=120,
         location="prompt_composer._WITNESS_RECEIPT_DIRECTIVE",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_REQUIRES_RERUN,
@@ -312,7 +312,7 @@ REGISTRY: Tuple[Intervention, ...] = (
                    "the fallback template's voice.",
     ),
     Intervention(
-        id=11, name="prompt_witness_fewshot_examples", display="Witness Few-Shot Examples",
+        id=11, name="prompt_witness_fewshot_examples", display="Witness Examples — Leak Risk",
         cls=CLASS_PROMPT, position=121,
         location="prompt_composer._WITNESS_RECEIPT_EXAMPLES; assembled by "
                  "compose_witness_receipt_directive(include_examples=)",
@@ -350,7 +350,7 @@ REGISTRY: Tuple[Intervention, ...] = (
     # selector design does not assume otherwise.
 
     Intervention(
-        id=20, name="route_floor_hold", display="Floor Hold Route",
+        id=20, name="route_floor_hold", display="Narrator Has the Floor",
         cls=CLASS_ROUTE, position=200,
         location="chat_ws.py:4207 gate -> 4223 finalize",
         default_on=True, policy=POLICY_PROTECTED, counterfactual=CF_ELIGIBILITY_ONLY,
@@ -361,7 +361,7 @@ REGISTRY: Tuple[Intervention, ...] = (
                       "Disabling it makes Lori talk over the narrator.",
     ),
     Intervention(
-        id=21, name="route_meta_question", display="Meta-Question Route",
+        id=21, name="route_meta_question", display="Questions About Lori Shortcut",
         cls=CLASS_ROUTE, position=210,
         location="chat_ws.py:4246 gate -> 4331 finalize",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_ELIGIBILITY_ONLY,
@@ -371,7 +371,7 @@ REGISTRY: Tuple[Intervention, ...] = (
                            "'AI.' as the entire response.",
     ),
     Intervention(
-        id=22, name="route_witness_meta_feedback", display="Witness / Correction Route",
+        id=22, name="route_witness_meta_feedback", display="Feedback/Correction Shortcut",
         cls=CLASS_ROUTE, position=220,
         location="chat_ws.py:3822 sets turn_mode -> 4359 gate -> 4361 finalize",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_ELIGIBILITY_ONLY,
@@ -388,7 +388,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         tests=("tests/test_witness_correction_narrowing.py",),
     ),
     Intervention(
-        id=23, name="route_structured_narrative", display="Structured-Narrative Witness Route",
+        id=23, name="route_structured_narrative", display="Long-Story Witness Shortcut",
         cls=CLASS_ROUTE, position=221,
         location="chat_ws.py:3823-3824 sets _witness_use_llm_receipt",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_ELIGIBILITY_ONLY,
@@ -403,7 +403,7 @@ REGISTRY: Tuple[Intervention, ...] = (
                    "over-claiming detector as id 22.",
     ),
     Intervention(
-        id=24, name="route_memory_echo", display="Memory Echo Route",
+        id=24, name="route_memory_echo", display="Memory-Echo Shortcut",
         cls=CLASS_ROUTE, position=230,
         location="chat_ws.py:4384 gate -> 4605 finalize",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_ELIGIBILITY_ONLY,
@@ -413,7 +413,7 @@ REGISTRY: Tuple[Intervention, ...] = (
                            "about me'.",
     ),
     Intervention(
-        id=25, name="route_age_recall", display="Age Recall Route",
+        id=25, name="route_age_recall", display="Age-Recall Shortcut",
         cls=CLASS_ROUTE, position=240,
         location="chat_ws.py:4624 gate -> 4649 finalize",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_ELIGIBILITY_ONLY,
@@ -422,7 +422,7 @@ REGISTRY: Tuple[Intervention, ...] = (
                            "'Is there something else on your mind?'",
     ),
     Intervention(
-        id=26, name="route_correction_ack", display="Correction Acknowledgment Route",
+        id=26, name="route_correction_ack", display="Confirm Real Corrections",
         cls=CLASS_ROUTE, position=250,
         location="chat_ws.py:4662 gate -> 4759 finalize; turn_mode assigned "
                  "in the BROWSER by ui/js/app.js lvRouteTurn:2713",
@@ -444,7 +444,7 @@ REGISTRY: Tuple[Intervention, ...] = (
     # single `comm_control` checkpoint.
 
     Intervention(
-        id=30, name="phantom_noun_detect", display="Phantom Proper-Noun Detection",
+        id=30, name="phantom_noun_detect", display="Invented-Name Detector",
         cls=CLASS_VALIDATE, position=300,
         location="lori_communication_control._verify_proper_noun; "
                  "gate _phantom_noun_guard_enabled()",
@@ -454,7 +454,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         motivating_failure="Lori naming people the narrator never mentioned.",
     ),
     Intervention(
-        id=31, name="phantom_noun_scrub", display="Phantom Proper-Noun Scrub",
+        id=31, name="phantom_noun_scrub", display="Invented-Name Remover",
         cls=CLASS_TRANSFORM, position=301,
         location="chat_ws.py:5983 final_text = _phantom_result['final_text']; "
                  "gate _phantom_noun_scrub_enabled()",
@@ -463,7 +463,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         motivating_failure="As id 30, where flagging alone was not enough.",
     ),
     Intervention(
-        id=32, name="cc_safety_path", display="Communication-Control Safety Exemption",
+        id=32, name="cc_safety_path", display="Safety Control Exemption",
         cls=CLASS_LOCKED, position=310,
         location="lori_communication_control.py:917 _safety_path",
         default_on=True, policy=POLICY_PROTECTED, counterfactual=CF_LOCKED,
@@ -473,7 +473,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         policy_reason="Acute safety. CLAUDE.md forbids env-value control.",
     ),
     Intervention(
-        id=33, name="cc_question_atomicity", display="Question Atomicity",
+        id=33, name="cc_question_atomicity", display="One-Question Rewriter",
         cls=CLASS_TRANSFORM, position=311,
         location="lori_communication_control.py:930 enforce_question_atomicity",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
@@ -485,7 +485,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         trace_stage="comm_control",
     ),
     Intervention(
-        id=34, name="cc_question_count_truncate", display="Question Count Cap",
+        id=34, name="cc_question_count_truncate", display="Extra-Question Trimmer",
         cls=CLASS_TRANSFORM, position=312,
         location="lori_communication_control.py:939 _truncate_to_first_question",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
@@ -495,7 +495,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         trace_stage="comm_control",
     ),
     Intervention(
-        id=35, name="cc_word_limit", display="Response Word Limit",
+        id=35, name="cc_word_limit", display="Response Length Trimmer",
         cls=CLASS_TRANSFORM, position=313,
         location="lori_communication_control.py:966 _truncate_to_word_limit",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
@@ -509,7 +509,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         trace_stage="comm_control",
     ),
     Intervention(
-        id=36, name="cc_reflection_shaper", display="Reflection Shaper",
+        id=36, name="cc_reflection_shaper", display="Reflection Rewriter",
         cls=CLASS_TRANSFORM, position=314,
         location="lori_communication_control.py:980 shape_reflection; "
                  "gate _reflection_shaping_enabled()",
@@ -526,7 +526,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         trace_stage="reflection_shape",
     ),
     Intervention(
-        id=37, name="cc_reflection_validator", display="Reflection Validator",
+        id=37, name="cc_reflection_validator", display="Reflection Grounding Check",
         cls=CLASS_VALIDATE, position=315,
         location="lori_communication_control.py:997 validate_memory_echo",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
@@ -537,7 +537,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         trace_stage="comm_control",
     ),
     Intervention(
-        id=38, name="cc_push_after_resistance", display="Push-After-Resistance Detector",
+        id=38, name="cc_push_after_resistance", display="Narrator Boundary Check",
         cls=CLASS_VALIDATE, position=316,
         location="lori_communication_control.py:1007 _detect_push_after_resistance",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
@@ -547,7 +547,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         trace_stage="comm_control",
     ),
     Intervention(
-        id=39, name="cc_stub_collapse_repair", display="Stub Collapse Repair",
+        id=39, name="cc_stub_collapse_repair", display="Short-Reply Replacement",
         cls=CLASS_REPLACE, position=317,
         location="lori_communication_control.py:1049 compose_stub_collapse_repair",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
@@ -561,7 +561,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         trace_stage="comm_control",
     ),
     Intervention(
-        id=40, name="cc_chain_anchor_opener", display="Chain Anchor Opener",
+        id=40, name="cc_chain_anchor_opener", display="Chain-Anchor Prefix",
         cls=CLASS_TRANSFORM, position=318,
         location="lori_communication_control.py:1102-1105",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
@@ -579,7 +579,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         trace_stage="comm_control",
     ),
     Intervention(
-        id=41, name="cc_story_first_grounding", display="Story-First Reflection Grounding",
+        id=41, name="cc_story_first_grounding", display="Story Reflection Check",
         cls=CLASS_VALIDATE, position=319,
         location="lori_communication_control.py:1124 check_reflection_grounding; "
                  "gate _phase_1_enabled()",
@@ -590,7 +590,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         trace_stage="comm_control",
     ),
     Intervention(
-        id=42, name="cc_story_first_hierarchy", display="Story-First Question Hierarchy",
+        id=42, name="cc_story_first_hierarchy", display="Story Question Check",
         cls=CLASS_VALIDATE, position=320,
         location="lori_communication_control.py:1135 enforce_question_hierarchy; "
                  "gate _phase_1_enabled()",
@@ -600,7 +600,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         trace_stage="comm_control",
     ),
     Intervention(
-        id=43, name="legacy_one_question_trim", display="Legacy One-Question Trim",
+        id=43, name="legacy_one_question_trim", display="Legacy Question Trimmer",
         cls=CLASS_TRANSFORM, position=330,
         location="chat_ws.py:6161 final_text = _trimmed",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
@@ -612,7 +612,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         trace_stage="trim_to_one_q",
     ),
     Intervention(
-        id=44, name="era_fragment_repair", display="Era Fragment Repair",
+        id=44, name="era_fragment_repair", display="Era-Label Repair",
         cls=CLASS_TRANSFORM, position=340,
         location="chat_ws.py:6279 final_text = _repaired",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
@@ -625,7 +625,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         trace_stage="era_fragment_repair",
     ),
     Intervention(
-        id=45, name="language_repair_es", display="Spanish Language Repair",
+        id=45, name="language_repair_es", display="Spanish Reply Repair",
         cls=CLASS_TRANSFORM, position=350,
         location="chat_ws.py:6304 final_text = _es_repaired",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
@@ -634,7 +634,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         trace_stage="language_repair_es",
     ),
     Intervention(
-        id=46, name="duplicate_response_bridge", display="Duplicate Response Bridge",
+        id=46, name="duplicate_response_bridge", display="Repeated-Reply Replacement",
         cls=CLASS_REPLACE, position=360,
         location="chat_ws.py:6386 final_text = _bridge",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
@@ -644,7 +644,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         trace_stage="bridge",
     ),
     Intervention(
-        id=47, name="witness_receipt_validator", display="Witness Receipt Validator",
+        id=47, name="witness_receipt_validator", display="Witness Receipt Check",
         cls=CLASS_VALIDATE, position=370,
         location="chat_ws.py:6440 validate_witness_receipt; "
                  "gate _witness_use_llm_receipt at 6429",
@@ -660,7 +660,7 @@ REGISTRY: Tuple[Intervention, ...] = (
                    "turn.",
     ),
     Intervention(
-        id=48, name="witness_receipt_fallback", display="Witness Receipt Fallback",
+        id=48, name="witness_receipt_fallback", display="Witness Reply Replacement",
         cls=CLASS_REPLACE, position=371,
         location="chat_ws.py:6507 final_text = _wr_fallback",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
@@ -678,7 +678,7 @@ REGISTRY: Tuple[Intervention, ...] = (
     ),
     Intervention(
         id=49, name="witness_receipt_fallback_on_exception",
-        display="Witness Receipt Fallback (exception path)",
+        display="Witness Failure Safety Fallback",
         cls=CLASS_LOCKED, position=372,
         location="chat_ws.py:6560 final_text = _wr_fallback",
         default_on=True, policy=POLICY_PROTECTED, counterfactual=CF_LOCKED,
@@ -690,7 +690,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         trace_stage="witness_receipt_fallback_on_exception",
     ),
     Intervention(
-        id=50, name="language_drift_repair", display="Language Drift Repair",
+        id=50, name="language_drift_repair", display="Session-Language Repair",
         cls=CLASS_TRANSFORM, position=380,
         location="chat_ws.py:6635 final_text = _es_repair_text",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
@@ -700,7 +700,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         trace_stage="language_drift_repair",
     ),
     Intervention(
-        id=51, name="response_guards", display="Unconditional Response Guards",
+        id=51, name="response_guards", display="Response Repair Bundle",
         cls=CLASS_TRANSFORM, position=390,
         location="chat_ws.py:6832 final_text = _guarded_text; "
                  "lori_response_guards.py, 7 detect_/repair_ pairs",
@@ -717,7 +717,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         trace_stage="response_guards",
     ),
     Intervention(
-        id=52, name="guard_failure_fallback", display="Guard Failure Fallback",
+        id=52, name="guard_failure_fallback", display="Guard Crash Fallback",
         cls=CLASS_LOCKED, position=391,
         location="chat_ws.py:6864 final_text = _COMPOSE_GUARD_FAILURE_FALLBACK",
         default_on=True, policy=POLICY_PROTECTED, counterfactual=CF_LOCKED,
@@ -731,7 +731,7 @@ REGISTRY: Tuple[Intervention, ...] = (
         trace_stage="compose_guard_failure_fallback",
     ),
     Intervention(
-        id=53, name="profile_seed_ledger", display="Profile Seed Topic Ledger",
+        id=53, name="profile_seed_ledger", display="Profile Seed Memory Ledger",
         cls=CLASS_LOCKED, position=399,
         location="profile_seed_turn / profile_seed state; topic disposition, "
                  "epoch, presentation recovery, stale-event protection",
@@ -746,7 +746,7 @@ REGISTRY: Tuple[Intervention, ...] = (
                       "the prose authority becomes selectable.",
     ),
     Intervention(
-        id=54, name="profile_seed_delivery", display="Profile Seed Delivery",
+        id=54, name="profile_seed_delivery", display="Profile Seed Forced Question",
         cls=CLASS_FINAL_WRITER, position=400,
         location="chat_ws.py:6905-6915 finalize_presentation -> final_text",
         default_on=True, policy=POLICY_SWITCHABLE, counterfactual=CF_ELIGIBILITY_ONLY,
