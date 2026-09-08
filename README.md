@@ -48,18 +48,12 @@ preserved rather than normalised.
 These are checked against every UI element, every data write, and every acceptance criterion.
 The full statements live in [`CLAUDE.md`](CLAUDE.md).
 
-1. **No dual metaphors.** **Life Map is the only navigation surface** by doctrine, and the
-   river/Kawa metaphor is retired as system, UI and logic.
-   **The code has not caught up, and the honest statement is not "retired".** As of 2026-08-17
-   `ui/hornelore1.0.html` still renders the `#lv80RiverBtn` "🌊 Memory River" button, still
-   defines the `#kawaRiverPopover` it targets, still offers `chronology_river` as a memoir
-   mode, and still loads `js/lori-kawa.js`. `chronology_river` is also live in `ui/js/app.js`
-   and `ui/js/state.js`.
-   **Memory River / Kawa therefore contradicts current doctrine and remains mounted and
-   reachable legacy UI. It is FROZEN and awaiting adjudication — do not extend it, and do not
-   build anything on it.** *(An earlier revision of this file called it "not a live surface".
-   That was wrong: the check had been made against `ui/js/` only, and never against the shell
-   HTML that mounts it.)*
+1. **No dual metaphors — Life Map is the only navigation surface.** Kawa / Memory River is
+   **retired as the intended direction, and still mounted in the tree**: the
+   `#lv80RiverBtn` button, the `#kawaRiverPopover`, the `chronology_river` memoir mode and
+   `js/lori-kawa.js` are all present today. It is **frozen reachable legacy awaiting
+   adjudication** — not a surface to extend or build on, and not a thing to describe as
+   gone. `CLAUDE.md` carries the standing prohibition and the full history.
 2. **No operator leakage.** Anything a narrator can see is designed for narrators. No
    diagnostic surfaces, no operator-only controls in the narrator flow.
 3. **No system-tone outputs.** Narrator-facing text sounds like a person, not a query result.

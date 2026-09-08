@@ -15,6 +15,80 @@ git ls-tree -r --name-only origin/main -- scripts | wc -l
 
 ---
 
+## 0. THIS INDEX IS NOT EVIDENCE OF LIVENESS — added 2026-09-08
+
+**Read this before using the tables below to justify keeping or moving anything.**
+
+The resumed hygiene pass tried to classify all 122 non-archive scripts by asking *"is it
+named in a live command document?"* — and this file is a live command document that names
+almost every script. **So the answer came back "yes" for nearly all of them, which proves
+nothing.** An index that lists a script cannot also be the proof that the script is alive;
+that is circular, and it would let a genuinely dead tool survive every future cleanup
+purely by having a row here.
+
+**The rule this file now works under:**
+
+> A script's ownership state must rest on evidence **independent of this index** — a
+> caller, an entrypoint, a current work order, an acceptance gate, a named replacement, or
+> a historical closeout. This index **records** that evidence. It never **is** that
+> evidence.
+
+**Ownership states, and what counts as independent evidence for each:**
+
+| State | Independent evidence required |
+|---|---|
+| `runtime/launcher-reachable` | a root `.bat`/`.sh`, `launchers/`, `shortcuts/`, `package.json`, or another script that sources or executes it |
+| `acceptance/gate` | invoked by a gate, a cohort runner, or a test |
+| `operator-invoked` | a current run command in `CLAUDE.md`, `HANDOFF.md`, or a live `docs/wo/` work order — **the command, not a mention in this file** |
+| `reproducibility/evidence` | named by an accepted report or closeout as the instrument that produced a recorded result |
+| `excluded but retained` | named in a registry that deliberately excludes it, with the reason recorded — e.g. `run_narrator_cohort_acceptance.EXCLUSIONS` |
+| `unknown — retained pending adjudication` | **none found.** Says so, and stays put |
+| `historical/superseded` | a named replacement, or a closeout recording it as retired. **Age, filename and reference count are not evidence** |
+
+**Measured 2026-09-08 by execution-reachability graph** — roots were root launchers,
+`launchers/`, `shortcuts/`, `package.json`, `tests/`, and the canonical operational and
+acceptance entrypoints; edges were shell `source`/`bash`/`./`, `python -m` and script-path
+invocations, Python imports, quoted `scripts/...` paths, and `node` calls:
+
+| | count |
+|---|---|
+| execution-reachable from a live root | **21** |
+| operator/reproducibility-owned | **91** |
+| **historical or superseded** | **0** |
+| **unknown — retained, not moved** | **10** |
+
+**No script was archived in this pass, and that is a result rather than an omission.**
+Nothing in `scripts/` could be shown to be historical. Two earlier candidate lists were
+both wrong: a reference-count heuristic scored `common.sh` (sourced by every launcher),
+`status_all.sh` and a live Phase 6 cohort harness at zero, and a hand-written candidate
+list included `run_jake_long_narration_harness.py` and
+`run_shatner_long_narration_harness.py`, which are named in the cohort runner's own
+`EXCLUSIONS` registry with recorded reasons.
+
+**The ten still unknown** — no reachable caller and no independent ownership evidence
+found. They are **retained**, and listed here so the next pass starts from a real question
+instead of re-deriving the same uncertainty:
+
+```text
+scripts/build_demographic_cohort_ui_plan.py
+scripts/ui/operator_guard_lab_card_domtest.js
+scripts/ui/phase1_bugpanel_launcher_domtest.js
+scripts/ui/phase1_memoir_chain_probe.js
+scripts/ui/phase1_memoir_popover_domtest.js
+scripts/ui/phase1_placement_workflow_domtest.js
+scripts/ui/phase1_row_selection_domtest.js
+scripts/ui/review_only_result_domtest.js
+scripts/ui/run_demographic_narrator_sessions.js
+scripts/ui/run_narrator_room_viewports.js
+```
+
+Nine of the ten are browser DOM tests under `scripts/ui/`, which are run by a human against
+a live stack rather than invoked by code — **that is a plausible explanation, not a
+finding**, and it is recorded as `unknown` rather than upgraded to `operator-invoked`
+without a command naming them.
+
+---
+
 ## 1. The finding this index exists to record
 
 > `scripts/archive/` is **not** a genuine inert archive.

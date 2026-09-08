@@ -1,11 +1,77 @@
 # WO-REPOSITORY-HYGIENE-01 — indexed reorganization, not a deletion sweep
 
-**Status:** ▶️ **RESUMED 2026-09-08 by Chris. Phase A remains accepted; the remainder is
-now IN PROGRESS rather than paused.**
+**Status:** ✅ **COMPLETE 2026-09-08 — with named residual obligations in
+[`../BACKLOG.md`](../BACKLOG.md).** Phase A (2026-08-28) and the resumed Blocks 1-3
+(2026-09-08) are accepted. **This is not a claim that the repository is "fully clean":
+ten scripts remain explicitly `unknown` and are retained, and several product and test
+obligations discovered during the pass are registered rather than fixed.**
 Steps 0, 1 `5f6b01b`, 2 `db0c5e7`, 2b `ff1ff4f` and the **first Step 3 cohort** `5086490`
 were accepted 2026-08-28. The remaining Step 3 cohorts, Steps 4–5, and the §6 final
-verification checkpoint were **deferred** by the product-priority decision of that date;
-they are now live work. **Do not record this work order as complete.**
+verification checkpoint were **deferred** by the product-priority decision of that date,
+resumed 2026-09-08, and are now discharged across `93a8f85`, `9e1db2a` and this commit.
+
+*(This line read **"Do not record this work order as complete."** That instruction was
+correct for four months and is now discharged, not deleted — the sentence is kept visible
+so a reader who remembers it can see it was answered rather than quietly dropped. The one
+thing it must NOT be read as: a claim that everything is adjudicated. Ten scripts remain
+`unknown`; see the closeout.)*
+
+## Closeout — 2026-09-08
+
+**What actually happened, which is not what the plan predicted.**
+
+| | Result |
+|---|---|
+| Pre-rationalization baseline | `cbecce7e`, tag `archive/pre-rationalization-2026-09-08` — 1,313 tracked, 57 root, 30 root WO/BUG specs |
+| **Block 1** `93a8f85` | All 30 root specs reconciled against code, tests and later commits, then rehomed: **16 live → `docs/wo/`**, **14 discharged → `docs/archive/workorders-june-july-2026/`**. **Root WO/BUG count: 0** |
+| **Block 2** `9e1db2a` | Singular `test/` eliminated as tracked content; `shadow/` archived; docs consolidated by ownership; **no script archived** |
+| **Block 3** (this commit) | Generated-index lifecycle resolved; entry surfaces reconciled; stale paths and stale language swept; this closeout |
+
+**The five things worth carrying forward, because each one contradicts an assumption the
+plan started with:**
+
+1. **Directory names, reference counts and "looks old" were wrong three separate times.**
+   `test/test_wo10c_cognitive_support.py` looked like a stale second-tree artefact and is
+   the **only** coverage for a live production symbol. `run_jake_…` and `run_shatner_…`
+   looked like superseded one-offs and are named in the cohort runner's own `EXCLUSIONS`
+   registry. A duplicate work order looked like it held unique locked rules and did not.
+   **Every disposition in this pass rests on reading the tree, never on a filename.**
+2. **No script was archived, and that is a result rather than an omission.** An
+   execution-reachability graph found **21 reachable · 91 operator/reproducibility-owned ·
+   0 historical · 10 unknown**. Nothing could be *shown* to be misplaced, so nothing moved.
+   The ten unknowns are retained and named in `scripts/INDEX.md` §0.
+3. **`scripts/INDEX.md` was circular and now says so.** A script being listed there was
+   being used as evidence that the script is alive — by the document that lists nearly
+   every script. §0 now states that ownership must rest on evidence *independent* of the
+   index, and names what counts.
+4. **The archive cohort is named for the months it covers, not "pre-pivot".** All 14 files
+   post-date the 2026-06-14 pivot; filing them as pre-pivot would have been a wrong answer
+   that looked authoritative.
+5. **Obligations were moved into `BACKLOG.md`, never buried in the archive.** Including one
+   that closed a loop: `BUG-LORI-CHAIN-ANCHOR-ECHO-STRENGTH-01` was archived as landed, and
+   its owed "live verification" now exists and is **negative** — Phase 6 measured that
+   authority emitting non-entities to narrators.
+
+**Deliberately did not move:** the main `tests/` tree · `scripts/archive/` (documented as
+containing live reproducibility tooling) · all 122 non-archive scripts · `docs/references/`
+PDFs and the MediaPipe binaries (byte-reduction is a separate gated step) · `runbooks/` and
+`voice_models/` at one file each, because a durable concept with one file is still a
+durable concept · the untracked `test/live test one no camera.docx`, which is local
+personal material and outside this work order entirely.
+
+**Handed to `docs/BACKLOG.md`, not fixed here:** Test 23's RED adjudication (§2.1) · three
+residual live verifications that survived into the archive cohort, one of them the
+authority-40 finding (§2.2) · the WO-10C pytest-only contract, where the canonical
+`unittest` invocation reports `Ran 0 tests → OK` over 40 assertions guarding live
+production (§2.3).
+
+**No product behaviour was intentionally changed.** No file under `server/`, no live UI
+behaviour, no schema and no migration was edited in any of the three blocks. Two structural
+tests were **added** — `tests/test_single_test_root.py` and
+`tests/test_cohort_harness_registry.py` — and both were mutation-checked: planting a second
+test tree, and hiding a registered harness, each make the corresponding test fail.
+
+---
 
 ## Resumption — 2026-09-08
 

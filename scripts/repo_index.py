@@ -1,12 +1,22 @@
 #!/usr/bin/env python3
-"""Generate the repository index for WO-REPOSITORY-RATIONALIZATION-2026-09-08.
+"""Generate the repository index for `WO-REPOSITORY-HYGIENE-01`.
 
     cd /mnt/c/Users/chris/hornelore
-    .venv/bin/python scripts/repo_index.py --out docs/repository
+    .venv/bin/python scripts/repo_index.py
 
 READ-ONLY. Enumerates tracked files, measures them, proposes a
 disposition, and writes a Markdown index plus a machine-readable JSON.
 It moves nothing, deletes nothing and stages nothing.
+
+WHERE THE OUTPUT GOES, AND WHY IT IS NOT TRACKED. Default `--out` is
+`.runtime/repo-index/`, which is gitignored. The first run of this tool
+wrote a 465 KB `repository-index.json` into `docs/repository/` and it
+was committed; a tracked-tree search then found **no consumer of it
+anywhere except this generator**. A half-megabyte generated blob that
+regenerates on demand, has no reader, and produces a fresh diff every
+time a path moves is exactly the churn this cleanup exists to remove.
+The pre-rationalization Markdown snapshot is preserved as dated evidence
+at `docs/reviews/HORNELORE_REPOSITORY_BASELINE_2026-09-08_at_cbecce7e.md`.
 
 WHY GENERATED, NOT HAND-COUNTED. CLAUDE.md's rule is that counts are
 derived and never written down, because a hand-maintained count of a
@@ -54,7 +64,7 @@ ARCHIVE_ROOTS = ("docs/archive/", "scripts/archive/", "tests/archive/")
 #: Root files that genuinely belong at root (WO section 4).
 ROOT_KEEP = {
     "README.md", "CLAUDE.md", "HANDOFF.md", "MASTER_WORK_ORDER_CHECKLIST.md",
-    "CONTRIBUTING.md", "AGENT_CONTRACT.md", "LICENSE", ".env.example",
+    "CONTRIBUTING.md", "LICENSE", ".env.example",
     ".gitignore", "package.json", "package-lock.json", "playwright.config.ts",
     "tsconfig.playwright.json", "requirements-gpu.txt", "requirements-test.txt",
     "requirements-tts.txt", "hornelore-serve.py",
@@ -155,8 +165,10 @@ def classify(path: str, days_old: Optional[int]) -> tuple:
     if p.startswith("tests/"):
         return ("test", "KEEP_TEST", "test surface - coverage map required")
     if p.startswith("test/"):
-        return ("test", "ADJUDICATE",
-                "second test tree; WO 10.1 requires assertion mapping first")
+        # The singular tree was eliminated 2026-09-08 (Block 2). Kept as a
+        # rule so a reappearance is classified rather than mistaken for
+        # the canonical tree; tests/test_single_test_root.py refuses it.
+        return ("test", "ADJUDICATE", "SECOND TEST TREE - should not exist")
     if p.startswith("scripts/"):
         return ("script", "ADJUDICATE" if stale else "KEEP_ACTIVE",
                 "stale >= %sd" % STALE_DAYS if stale else "")
@@ -190,7 +202,14 @@ def classify(path: str, days_old: Optional[int]) -> tuple:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--rev", default="HEAD")
-    ap.add_argument("--out", default="docs/repository")
+    ap.add_argument("--out", default=".runtime/repo-index",
+                    help="OUTPUT IS NOT TRACKED BY DEFAULT. .runtime/ is "
+                         "gitignored; the JSON is 465 KB and nothing but "
+                         "this generator ever read it, so committing a "
+                         "fresh snapshot after every move manufactures the "
+                         "churn the cleanup exists to remove. Pass an "
+                         "explicit --out to place it somewhere tracked, "
+                         "deliberately.")
     ap.add_argument("--no-refs", action="store_true",
                     help="skip the reference scan (much faster)")
     args = ap.parse_args()

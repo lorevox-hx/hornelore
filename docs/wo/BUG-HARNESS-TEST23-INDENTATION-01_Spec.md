@@ -1,4 +1,15 @@
-# BUG-HARNESS-TEST23-INDENTATION-01 — Test 23 does not parse
+# BUG-HARNESS-TEST23-INDENTATION-01 — Test 23 parses; the live run is RED and unadjudicated
+
+> **TITLE CORRECTED 2026-09-08.** This read *"Test 23 does not parse"*, which stopped
+> being true at `66197c3` (2026-08-30). The parse repair and the compile gate
+> (`tests/test_scripts_compile.py`, which pins this harness by name) are both DONE. The
+> required live run EXECUTED on 2026-09-04 at `5afead5` and returned **RED** on both
+> narrators. **Measured:** RED. **Inferred:** the empty `person_id`, empty step tables and
+> all-`None` BB state are consistent with the session never establishing. **Unknown:** the
+> cause — it is neither a proven product regression nor a proven harness defect. Evidence:
+> `docs/reports/test23_two_person_resume_test23_v12.md` (local working copy only;
+> `docs/reports/` is gitignored). The remaining obligation is to ADJUDICATE the RED, which
+> needs a live stack and is its own bounded follow-up — see `docs/BACKLOG.md` §2.1.
 
 **Status:** OPEN, bounded, **not scheduled into any active lane.**
 **Found:** 2026-08-27, during the Profile Seed pre-Step-6 review.

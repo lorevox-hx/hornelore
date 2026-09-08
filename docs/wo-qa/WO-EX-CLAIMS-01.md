@@ -4,7 +4,7 @@
 
 ## Rationale
 
-Live sessions on 2026-04-15 (see `docs/observations/2026-04-15-extraction-taxonomy.md`)
+Live sessions on 2026-04-15 (see `docs/decisions/2026-04-15-extraction-taxonomy.md`)
 exposed two structural failures:
 
 1. **Compound-loss** — "my sisters linda and sharon" produces zero sibling
