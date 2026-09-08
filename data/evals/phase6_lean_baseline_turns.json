@@ -3,84 +3,75 @@
   "description": "The Phase 6 lean conversational baseline turn set. THIS FILE IS AUTHORITATIVE. The protocol document describes the set; the JS route preflight routes these exact strings through the shipped browser router; the Python capture requires these exact narrator inputs in this exact order and refuses anything else. Three consumers, one list.",
   "narrator": "Ada Pruitt",
   "scoring": {
-    "quality_aggregate": "Only turns with in_quality_aggregate=true answer 'what does lean GENERATED Lori do conversationally'. Turn 6 routes deterministically and never reaches the model, so averaging it into that aggregate would let one deterministic response contaminate a model-quality measurement.",
-    "turn_6": "Kept in the baseline and reported, answering a different question: does the correction path handle a genuine self-correction appropriately and hand continuity back to the conversation?"
+    "quality_aggregate": "Membership is MEASURED, not declared. A turn belongs to the generated-Lori aggregate when its trace records generation_attempted=true. The first run proved why: turn 6 was declared out of the aggregate on the assumption that the browser's 'correction' route made it deterministic, and it generated anyway.",
+    "requested_vs_effective": "The browser router (app.js lvRouteTurn) decides the REQUESTED mode. The server may reset it: chat_ws.py:5031 resets both copies to 'interview' when parse_correction_rule_based() finds no actionable target or value. A trace showing effective_turn_mode='interview' therefore does NOT prove the browser sent 'interview'. The preflight checks the requested route only; the trace records requested_turn_mode, effective_turn_mode and generation_attempted as three separate facts.",
+    "turn_6": "Kept in the baseline. It additionally answers whether the correction path handles a genuine self-correction and hands continuity back — but if it generated, it is also ordinary conversational evidence."
   },
   "turns": [
     {
       "index": 1,
       "category": "childhood / family",
       "text": "My brother Dennis used to walk me to school through the cemetery because it was the fast way.",
-      "expected_route": "interview",
-      "in_quality_aggregate": true
+      "expected_requested_route": "interview"
     },
     {
       "index": 2,
       "category": "place / move",
       "text": "We left Currier Street the summer I turned eleven and moved out toward Websterville.",
-      "expected_route": "interview",
-      "in_quality_aggregate": true
+      "expected_requested_route": "interview"
     },
     {
       "index": 3,
       "category": "daily routine",
       "text": "These days I'm up before Warren. I make the coffee and do the crossword while the house is quiet.",
-      "expected_route": "interview",
-      "in_quality_aggregate": true
+      "expected_requested_route": "interview"
     },
     {
       "index": 4,
       "category": "work",
       "text": "At the practice I ended up building the schedule for both dentists. Nobody ever asked me to. I just started doing it.",
-      "expected_route": "interview",
-      "in_quality_aggregate": true
+      "expected_requested_route": "interview"
     },
     {
       "index": 5,
       "category": "emotionally meaningful memory",
       "text": "My father came home from the quarry one afternoon and told us his hands had stopped working right. He was fifty-two.",
-      "expected_route": "interview",
-      "in_quality_aggregate": true
+      "expected_requested_route": "interview"
     },
     {
       "index": 6,
       "category": "correction (deliberate, deterministic route)",
       "text": "Actually, he was fifty-four, not fifty-two. I keep getting that wrong.",
-      "expected_route": "correction",
-      "in_quality_aggregate": false,
-      "corrects_turn": 5
+      "corrects_turn": 5,
+      "expected_requested_route": "correction"
     },
     {
       "index": 7,
       "category": "multiple possible threads",
       "text": "Claire moved out to California the same year we lost the house on Berlin Street.",
-      "expected_route": "interview",
-      "in_quality_aggregate": true
+      "expected_requested_route": "interview"
     },
     {
       "index": 8,
       "category": "detail Lori should NOT over-interpret",
       "text": "There was a green glass dish on the hall table. I have no idea why I remember it.",
-      "expected_route": "interview",
-      "in_quality_aggregate": true
+      "expected_requested_route": "interview"
     },
     {
       "index": 9,
       "category": "place / leisure",
       "text": "We used to drive up to Groton Pond on Sundays in the summer, all four of us in the wagon.",
-      "expected_route": "interview",
-      "in_quality_aggregate": true
+      "expected_requested_route": "interview"
     },
     {
       "index": 10,
       "category": "resists date pressure",
       "text": "I couldn't tell you what year we got the camp. Somewhere in the seventies.",
-      "expected_route": "interview",
-      "in_quality_aggregate": true
+      "expected_requested_route": "interview"
     }
   ],
   "hazard_witness": {
-    "why": "The ten turns above are worded AROUND the browser correction detector at ui/js/app.js:2600. These sentences are ordinary narration and route deterministically anyway, so they would never reach the model. Recorded as a Phase 6 defect-list item. We word around it ONLY for this first baseline, so it measures what we intend; real future conversations must not be shaped by a regex.",
+    "why": "The ten turns above are worded AROUND the browser correction detector at ui/js/app.js:2600, which fires on ordinary narration. CORRECTED 2026-09-07: an earlier version of this note said such sentences 'would never reach the model'. That is not established. The browser sets the REQUESTED mode; chat_ws.py:5031 resets it to interview when parse_correction_rule_based() finds nothing actionable, and the turn then generates normally. What the detector reliably does is route the turn through the correction branch first, where an actionable parse WOULD produce a deterministic acknowledgement instead of a conversation. Recorded as a Phase 6 defect-list item. We word around it ONLY for this first baseline; real future conversations must not be shaped by a regex.",
     "sentences": [
       "There was a green glass dish on the hall table. I do not know why I remember it, not that it matters.",
       "It was not a big house, but we managed.",

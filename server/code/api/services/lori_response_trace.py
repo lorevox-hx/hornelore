@@ -213,6 +213,29 @@ SCHEMA_VERSION = 2
 REQUIRED_CONTEXT = ("narrator_input", "runtime71_current_era",
                     "prompt_tokens", "prompt_budget")
 
+#: Required keys whose value may legitimately be NULL.
+#:
+#: ── "NOT SET" IS A RUNTIME FACT, NOT A BROKEN INSTRUMENT (2026-09-07) ──
+#:
+#: `runtime71_current_era` is null whenever the narrator has no Life Map
+#: era selected, which is the ordinary state of a session that has not
+#: touched the Life Map. The old check treated present-but-null the same
+#: as absent, so EVERY turn of the Phase 6 lean baseline was stamped
+#: `instrumentation_failed=True` — all eleven, including the nine that
+#: delivered perfectly.
+#:
+#: That is worse than a cosmetic mislabel. It made the flag useless
+#: exactly when it mattered: turn 10 lost its entire response, and its
+#: `instrumentation_failed` was indistinguishable from the nine healthy
+#: turns, which is precisely the reading error the flag exists to
+#: prevent. A signal that fires on every run cannot discriminate.
+#:
+#: The contract is therefore: the key must have been CAPTURED. For these
+#: keys, `None` is a captured value. Genuinely missing prompt evidence —
+#: an absent key, or an empty `narrator_input` / `prompt_tokens` /
+#: `prompt_budget` — remains a failure.
+NULLABLE_CONTEXT = frozenset({"runtime71_current_era"})
+
 
 def require(keys: Optional[List[str]] = None, *, failed: Optional[str] = None,
             trace_id: Optional[str] = None) -> None:
@@ -232,8 +255,11 @@ def require(keys: Optional[List[str]] = None, *, failed: Optional[str] = None,
             if rec is None:
                 return
             ctx = rec.get("context") or {}
-            missing = [k for k in (keys or REQUIRED_CONTEXT)
-                       if k not in ctx or ctx[k] in (None, "")]
+            missing = [
+                k for k in (keys or REQUIRED_CONTEXT)
+                if k not in ctx
+                or (k not in NULLABLE_CONTEXT and ctx[k] in (None, ""))
+            ]
             if failed or missing:
                 rec["instrumentation_failed"] = True
                 rec["instrumentation_error"] = failed

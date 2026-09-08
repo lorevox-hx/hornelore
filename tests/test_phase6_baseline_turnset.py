@@ -95,26 +95,28 @@ class TurnSetFile(unittest.TestCase):
         self.assertEqual([t["index"] for t in self.turns],
                          list(range(1, 11)))
 
-    def test_exactly_one_turn_is_the_deterministic_correction(self):
+    def test_exactly_one_turn_requests_the_correction_route(self):
         corrections = [t for t in self.turns
-                       if t["expected_route"] == "correction"]
+                       if t["expected_requested_route"] == "correction"]
         self.assertEqual(
             [t["index"] for t in corrections], [6],
-            "the deliberate correction is turn 6 and nothing else routes "
-            "deterministically")
+            "turn 6 is the only turn the BROWSER should route as a "
+            "correction")
 
-    def test_the_correction_turn_is_excluded_from_the_aggregate(self):
-        """One deterministic response must not enter a model-quality mean.
+    def test_the_set_declares_no_static_aggregate_membership(self):
+        """Membership follows generation evidence, never a prediction.
 
-        Turn 6 never reaches the model, so it cannot be evidence about
-        what the model does. It stays in the report answering its own
-        question.
+        Run 1 declared turn 6 outside the aggregate because the browser
+        routes it as a correction. It generated anyway — the server
+        returns an unparseable correction to the ordinary pipeline
+        (chat_ws.py:5031) — so the declaration described an assumption
+        rather than the run. The field is gone; the capture reads
+        `generation_attempted` from each trace instead.
         """
-        by_index = {t["index"]: t for t in self.turns}
-        self.assertFalse(by_index[6]["in_quality_aggregate"])
-        aggregate = [t["index"] for t in self.turns
-                     if t["in_quality_aggregate"]]
-        self.assertEqual(aggregate, [1, 2, 3, 4, 5, 7, 8, 9, 10])
+        for turn in self.turns:
+            self.assertNotIn(
+                "in_quality_aggregate", turn,
+                "aggregate membership must be measured, not declared")
 
     def test_every_turn_carries_a_category_and_nonempty_text(self):
         for turn in self.turns:
@@ -176,6 +178,68 @@ class SequenceEnforcement(_TracingOn):
             cap._sequence_problems(self._traced(padded), self.turns), [])
 
 
+class SystemDirectivesAreNotNarratorTurns(_TracingOn):
+    """An idle session appends system turns. They are not contamination.
+
+    Phase 6 run 1: the silence/re-entry directive fired two minutes after
+    turn 10 and the capture refused an otherwise perfect baseline. The
+    discriminator it needed was already in the trace — the extraction
+    stage records `is_system_directive` because it deliberately skips
+    these turns.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.turns = json.loads(
+            cap.TURN_SET.read_text(encoding="utf-8"))["turns"]
+        self.texts = [t["text"] for t in self.turns]
+
+    def _with_extraction(self, rec, is_directive):
+        """Attach the storage shape the SHIPPED extraction stage writes."""
+        rec["storage"] = {"extraction": {"detail": {
+            "is_system_directive": is_directive,
+            "method": "system_directive" if is_directive else "llm",
+        }}}
+        return rec
+
+    def test_a_system_directive_does_not_contaminate_a_valid_baseline(self):
+        recs = self._traced(self.texts)
+        for r in recs:
+            self._with_extraction(r, False)
+        directive = self._traced([
+            "[SYSTEM: The narrator has been quiet for a while. Offer a "
+            "gentle, warm invitation to continue their life story.]"])[0]
+        self._with_extraction(directive, True)
+        everything = recs + [directive]
+
+        narrator_turns = [r for r in everything
+                          if not cap.is_system_directive(r)]
+        self.assertEqual(len(narrator_turns), 10)
+        self.assertEqual(
+            cap._sequence_problems(narrator_turns, self.turns), [],
+            "a valid ten-turn baseline was refused because a system "
+            "directive fired while the session sat idle")
+
+    def test_an_eleventh_NARRATOR_turn_still_refuses(self):
+        """The real contamination case must keep failing."""
+        extra = self.texts + ["And one more thing I forgot to mention."]
+        recs = [self._with_extraction(r, False) for r in self._traced(extra)]
+        narrator_turns = [r for r in recs if not cap.is_system_directive(r)]
+        self.assertEqual(len(narrator_turns), 11)
+        problems = cap._sequence_problems(narrator_turns, self.turns)
+        self.assertTrue(any("found 11" in p for p in problems), problems)
+
+    def test_the_product_decision_outranks_the_text_prefix(self):
+        """`is_system_directive` is read; the prefix is only a fallback."""
+        rec = self._traced(["[SYSTEM: looks like a directive]"])[0]
+        self._with_extraction(rec, False)
+        self.assertFalse(
+            cap.is_system_directive(rec),
+            "the shipped extraction decision must win over a text sniff")
+        bare = self._traced(["[SYSTEM: no extraction stage attached]"])[0]
+        self.assertTrue(cap.is_system_directive(bare))
+
+
 class PreflightAgreesWithTheSameFile(unittest.TestCase):
     """The JS consumer is EXECUTED, not grepped.
 
@@ -196,7 +260,7 @@ class PreflightAgreesWithTheSameFile(unittest.TestCase):
             proc.returncode, 0,
             f"the route preflight refused the committed turn set:\n"
             f"{proc.stdout}\n{proc.stderr}")
-        self.assertIn("nine reach the model", proc.stdout)
+        self.assertIn("nine requested as interview", proc.stdout)
 
 
 class WritesOnlyToTheServersDatabase(unittest.TestCase):

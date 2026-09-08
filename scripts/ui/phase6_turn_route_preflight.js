@@ -10,9 +10,11 @@
  *
  * `turn_mode` is assigned in the BROWSER, by `lvRouteTurn` at
  * `ui/js/app.js:2704`, and a turn routed to `correction` or `age_recall`
- * takes a DETERMINISTIC path — no LLM generation at all. A conversational
- * baseline built from turns that were quietly deterministic would not be
- * a measurement of Lori; it would be a measurement of a regex.
+ * enters a DETERMINISTIC branch. Whether it stays there is a second
+ * question: `chat_ws.py:5031` sends a `correction` back to the ordinary
+ * pipeline when the parser finds nothing actionable. A baseline built
+ * from turns that were quietly deterministic would not be a measurement
+ * of Lori; it would be a measurement of a regex.
  *
  * That is not a hypothetical. `CLAUDE.md` already records a run lost to
  * exactly this: Stefi's "cannot reach the correction branch" claim was
@@ -38,6 +40,12 @@
  * EXPECTATION: exactly ONE turn (the deliberate correction) routes to
  * `correction`; every other turn routes to `interview`. Any other result
  * is a REFUSAL — fix the wording, do not run the session.
+ *
+ * THIS CHECKS THE REQUESTED ROUTE ONLY. The server may reset a requested
+ * `correction` to `interview` (chat_ws.py:5031) when the correction
+ * parser finds no actionable target, and the turn then generates. So a
+ * pass here is not a prediction about what the model does — it is a
+ * statement about what the browser asked for.
  */
 "use strict";
 
@@ -112,13 +120,11 @@ console.log(`Turn set: ${path.relative(REPO, SET_PATH)}  ` +
             `[${SET.set_id}]\n`);
 TURNS.forEach((turn, i) => {
   const mode = routeTurn(turn.text);
-  const want = turn.expected_route;
+  const want = turn.expected_requested_route;
   const ok = mode === want;
   if (!ok) failures += 1;
-  const agg = turn.in_quality_aggregate ? "" : "   (excluded from the " +
-                                               "quality aggregate)";
   console.log(`${ok ? "  ok  " : "  FAIL"}  T${turn.index}  ` +
-              `${mode.padEnd(12)} ${turn.category}${agg}`);
+              `${mode.padEnd(12)} ${turn.category}`);
   if (!ok) {
     console.log(`        wanted ${want}`);
     console.log(`        "${turn.text}"`);
@@ -127,9 +133,12 @@ TURNS.forEach((turn, i) => {
 
 // ── HAZARD WITNESS ──────────────────────────────────────────────────
 //
-// The turns above were WORDED AROUND app.js:2600. These five show what
-// that wording avoided: four are ordinary narration and route as
-// CORRECTION anyway, so they would never reach the model.
+// The turns above were WORDED AROUND app.js:2600. These show what that
+// wording avoided: ordinary narration routed as CORRECTION, entering the
+// correction branch rather than the conversation. Whether such a turn
+// still generates depends on the server parser (chat_ws.py:5031) — so
+// "routed as correction" is the measured fact here, not "never reached
+// the model".
 //
 // This block is a characterization, not a pass/fail. If the detector is
 // ever narrowed, these stop routing to `correction` and the note below
@@ -148,8 +157,8 @@ for (const text of WITNESS) {
 if (CONTROL) {
   console.log(`  ${routeTurn(CONTROL).padEnd(12)} "${CONTROL}"   (control)`);
 }
-console.log(`  -> ${caught} of ${WITNESS.length} route deterministically ` +
-            `and never reach the model.`);
+console.log(`  -> ${caught} of ${WITNESS.length} are routed into the ` +
+            `correction branch rather than ordinary conversation.`);
 if (caught === 0) {
   console.log("  NOTE: none of them did. The browser correction detector " +
               "has been narrowed since this witness was written — update " +
@@ -160,10 +169,10 @@ if (caught === 0) {
 console.log("");
 if (failures) {
   console.log(`${failures} turn(s) route to a mode the baseline did not ` +
-              `intend. A turn that routes deterministically never reaches ` +
-              `the model, so it cannot be evidence about Lori. Reword and ` +
-              `rerun — do NOT start the session.`);
+              `intend. A turn entering a deterministic branch is not the ` +
+              `conversational evidence we asked for. Reword and rerun — ` +
+              `do NOT start the session.`);
   process.exit(1);
 }
-console.log("All 10 turns route as intended: nine reach the model, one " +
-            "exercises the correction path on purpose.");
+console.log("All 10 turns route as intended: nine requested as " +
+            "interview, one requested as correction on purpose.");

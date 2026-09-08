@@ -521,6 +521,58 @@ def _safe_json(obj: Any) -> str:
         return "{}"
 
 
+def resolve_speaker_name(runtime71: Optional[Dict[str, Any]]) -> str:
+    """The narrator's name, from session state OR durable truth.
+
+    ── ONE RESOLVER, BECAUSE TWO DRIFTED (2026-09-07) ──────────────────
+
+    `runtime71.speaker_name` is SESSION-SCOPED. The browser writes it at
+    `session-loop.js:301`, and only when the narrator SAYS their name in
+    an utterance this session; `app.js:3039` reads
+    `state.session.speakerName || state.session.identityCapture.name`
+    and never consults `state.profile.basics`. So a narrator whose name
+    is durably on file, who simply has not introduced themselves today,
+    arrives here with an empty name.
+
+    `_narrator_identity_block` already compensated, falling back to
+    `profile_seed.preferred_name` / `.full_name` (the WO-PROVISIONAL-
+    TRUTH-01 Phase A note below). `_known_identity_facts_block` did not —
+    it just omitted the Name line, while the rules beside it instruct
+    Lori to ASK for whatever is missing.
+
+    Measured, Phase 6 (2026-09-07): across all eleven traced turns for a
+    narrator with `display_name` "Ada Pruitt" persisted and Profile Seed
+    complete, the string "Ada" appeared ZERO times in the 5,737-character
+    system prompt, while DOB and place of birth were present. Lori asked
+    for her name on turns 3 and 7 — the prompt working exactly as
+    written, on an identity block that had been handed nothing.
+
+    The two blocks now share this resolver so they cannot drift again.
+
+    DELIBERATELY NOT SHARED: `_narrator_identity_block` also falls back
+    `pob <- profile_seed.childhood_home`. That is defensible in a soft
+    recall heading and wrong in a block labelled authoritative — where
+    someone grew up is not where they were born, and asserting it as a
+    verified fact is the exact class of invention BUG-LG-01 exists to
+    stop. Names have no such problem: a preferred name IS a name.
+    """
+    rt = runtime71 or {}
+    name = (rt.get("speaker_name") or "").strip()
+    if name:
+        return name
+    seed = rt.get("profile_seed") or {}
+    preferred = (seed.get("preferred_name") or "").strip()
+    if preferred:
+        return preferred
+    full = (seed.get("full_name") or "").strip()
+    if full:
+        # First token as the friendlier address form — matching how the
+        # client populates speakerName, so the two paths agree.
+        parts = full.split()
+        return parts[0] if parts else full
+    return ""
+
+
 def _known_identity_facts_block(runtime71: Optional[Dict[str, Any]]) -> str:
     """Compact verified identity facts for the current turn.
 
@@ -530,7 +582,8 @@ def _known_identity_facts_block(runtime71: Optional[Dict[str, Any]]) -> str:
     """
     rt = runtime71 or {}
 
-    speaker_name = (rt.get("speaker_name") or "").strip()
+    # Durable identity, not just what was said aloud this session.
+    speaker_name = resolve_speaker_name(rt)
     dob = str(rt.get("dob") or "").strip()
     pob = str(rt.get("pob") or rt.get("place_of_birth") or "").strip()
 
@@ -2951,15 +3004,10 @@ def compose_memory_echo(
     # provisional values, so chat-extracted names like Mary's "mary Holts"
     # → "Mary Holts" reach Lori's readback even when the canonical
     # profile_json has nothing yet.
-    if not speaker_name:
-        seed_preferred = (profile_seed.get("preferred_name") or "").strip()
-        seed_full = (profile_seed.get("full_name") or "").strip()
-        if seed_preferred:
-            speaker_name = seed_preferred
-        elif seed_full:
-            # Use first token of full name as a friendlier address form,
-            # matching how speakerName is typically populated client-side.
-            speaker_name = seed_full.split()[0] if seed_full.split() else seed_full
+    # ONE resolver, shared with `_known_identity_facts_block`. This logic
+    # used to live here only, which is how the two identity renderers came
+    # to disagree about whether a durably-known name reaches Lori.
+    speaker_name = resolve_speaker_name(runtime)
     # _generic_you is the locale-appropriate fallback for missing names
     # ("you" in English, "ti" in Spanish). Used both for the heading
     # interpolation and the name-known check below.

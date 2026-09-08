@@ -1,7 +1,12 @@
 # Phase 6 — lean conversational baseline: the protocol
 
-**Status: SETUP BUILT, NOT RUN.** Nothing live has happened. This document
-is the setup Chris asked for before any turn is sent.
+**Status: RUN 1 COMPLETE AND REJECTED AS A BASELINE; CORRECTIONS LANDED;
+RUN 2 NOT YET ARMED.** Run 1 (2026-09-07,
+`.runtime/eval/phase6-lean-20260907_165520/`) is preserved as exploratory
+evidence — see §4a for what it established and the three measurement
+defects it exposed. It is **not** the accepted Phase 6 baseline. Nothing
+about Lori's prompt has been tuned and no conversational guard has been
+added.
 
 **What Phase 6 measures.** Not "is Lori good". The first question is
 narrower and answerable: *what does lean Lori actually do when the
@@ -134,23 +139,78 @@ herself said, not of a profile field. Turn 7 offers three threads at once
 observable. Turn 8 is a detail with no significance attached, so invented
 significance would be visible. Turn 10 withholds a date on purpose.
 
-### Turn 6 is scored separately — two questions, not one
+### Turn 6: membership in the aggregate is MEASURED
 
-Turn 6 routes deterministically and **never reaches the model**, so it
-cannot be evidence about what the model does. It stays in the baseline
-and in the report, answering its own question:
+**Corrected 2026-09-07, after run 1.** This section previously declared
+turn 6 outside the conversational aggregate because the browser routes it
+as a `correction`. It generated anyway.
 
-| Turns | Question |
+The browser sets the **requested** mode. `chat_ws.py:5031` returns a
+requested correction to the ordinary pipeline when
+`parse_correction_rule_based()` finds no actionable target or value — so
+`effective_turn_mode: interview` in a trace does **not** prove the
+browser asked for `interview`. Three separate facts are now recorded per
+turn, and none is inferred from another:
+
+| Fact | Written at |
 |---|---|
-| 1–5, 7–10 (nine) | What does lean **generated** Lori do conversationally? |
-| 6 | Does the **correction path** handle a genuine self-correction appropriately, and hand continuity back to the conversation? |
+| `requested_turn_mode` | `chat_ws.py`, immediately after the client payload is read, before any override |
+| `effective_turn_mode` | after routing and the correction fallthrough have settled |
+| `generation_attempted` | `True` on reaching prompt composition |
 
-The turn set carries `in_quality_aggregate: false` on turn 6, and the
-rendered report says so at the top and again on the turn itself.
-Averaging one deterministic response into a model-quality measurement
-would contaminate it.
+**A turn is generated-Lori evidence when its trace says generation
+happened.** The turn set no longer carries `in_quality_aggregate`; the
+capture reads the trace. Turn 6 still answers its own extra question —
+does the correction path handle a genuine self-correction and hand
+continuity back — but if it generated, it is ordinary conversational
+evidence too.
 
 ---
+
+## 4a. What run 1 established (2026-09-07)
+
+Run 1 is **exploratory evidence, not the accepted baseline.** Three
+measurement defects were found and corrected; the run is preserved at
+`.runtime/eval/phase6-lean-20260907_165520/`.
+
+**Guard Lab held throughout** — before and after both read revision 3,
+selection `55a52f0cb045`, registry `bfcbfb69b9e5`, 4/43 running; all ten
+Ada traces carry `experiment_applied=True, revision=3`.
+
+**Banked observations.** Raw equalled delivered on all nine delivered
+replies — under Lean the post-generation layer removed nothing. Lori
+often reflected concrete detail, asked exactly one question per turn, and
+did **not** over-interpret the green glass dish. Against that: she
+repeatedly asked for DOB and birthplace that were explicitly present in
+`KNOWN IDENTITY FACTS`; a disclosure about her father losing the use of
+his hands became *"Your father's age is helpful information"*; and a
+precise self-correction drew a generic reassurance that never
+acknowledged the corrected value.
+
+**Three defects, since fixed:**
+
+1. **Authority 44 deleted a turn.** Era Fragment Repair is SWITCHABLE
+   with a PURE counterfactual; its OFF arm set `_repaired = ""` and
+   assigned unconditionally, so Lean emptied turn 10. The reply generated
+   normally (`eos`, 22 tokens) and was delivered *and persisted* as the
+   empty string on `turnrow:2285`. OFF now leaves the model's text
+   byte-for-byte unchanged.
+2. **A durably-known name never reached the model.** `speaker_name` is
+   session-scoped — the browser sets it only when the narrator says their
+   name (`session-loop.js:301`) — and `_known_identity_facts_block` had no
+   fallback, so "Ada" appeared zero times in all eleven prompts while the
+   rules beside the block told Lori to ask for anything missing. Both
+   identity renderers now share `resolve_speaker_name`.
+3. **Every turn was stamped `instrumentation_failed`** because
+   `runtime71_current_era` was null, which is the ordinary state of a
+   session with no Life Map era selected. A flag that fires on every turn
+   cannot discriminate — it made turn 10 look exactly like the nine
+   healthy ones.
+
+**Still open, and genuinely conversational:** asking for the *name* was
+the prompt doing what it says, but DOB and birthplace **were** present
+and authoritative. That half is not explained by the identity gap and
+remains the Phase 6 question.
 
 ## 5. A finding from the preflight — reported, not fixed
 

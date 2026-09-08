@@ -8,7 +8,7 @@ import os
 import threading
 import time  # WO-LORI-LISTEN-AND-RETAIN-01 §9 — generation wall-clock + elapsed
 import uuid  # WO-POST-REVIEW-SAFETY-DRAFT-EXPORT-HARDENING-01 §3.3 — per-socket conv ids
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 _LV_DEBUG = os.getenv("LV_DEV_MODE", "0") in ("1", "true", "True")
@@ -148,6 +148,17 @@ _REP_PENALTY_DEFAULT = float(os.getenv("REPETITION_PENALTY_DEFAULT", "1.1"))
 # for a debug counter; not a durability concern. Read via
 # get_safety_llm_parse_failures(conv_id) below.
 _SAFETY_LLM_PARSE_FAILURES: Dict[str, int] = {}
+
+
+# Guard Lab authority 44. The function is a PURE service so it can be
+# tested without importing this router's web stack — the first
+# placement, at module scope here, still needed FastAPI and its six
+# tests SKIPPED on the authoritative .venv run while a deliberate
+# mutation "passed". Re-exported under the old name so callers and
+# the structural-accounting map are unaffected.
+from ..services.lori_era_fragment import (  # noqa: E402
+    era_fragment_repair,
+)
 
 
 def get_safety_llm_parse_failures(conv_id: str) -> int:
@@ -3916,6 +3927,29 @@ async def ws_chat(ws: WebSocket):
         runtime71: Dict[str, Any] = _ps_sanitize(params.get("runtime71") or {})
         turn_mode = (params.get("turn_mode") or "interview").strip() or "interview"
 
+        # ── WHAT THE CLIENT ASKED FOR, BEFORE ANYTHING OVERRIDES IT ──────
+        #
+        # Recorded here and nowhere later, because every line below this
+        # one may legitimately change `turn_mode`: the meta_question
+        # override immediately following, and the correction fallthrough
+        # at :5031 which resets BOTH copies to "interview" when
+        # `parse_correction_rule_based` finds no actionable target.
+        #
+        # The trace previously noted `turn_mode` ONCE, at :6104 — long
+        # after those mutations — so a reader could not tell a turn the
+        # browser sent as `interview` from one it sent as `correction`
+        # that fell through. Phase 6 turn 6 was read as "the browser
+        # preflight was falsified" on exactly that ambiguity; the
+        # evidence supported both stories and distinguished neither.
+        #
+        # Requested and effective are now separate facts. Neither is
+        # inferred from the other.
+        _requested_turn_mode = turn_mode
+        try:
+            _rt.note("requested_turn_mode", _requested_turn_mode)
+        except Exception:
+            pass
+
         # BUG-LORI-IDENTITY-META-QUESTION-DETERMINISTIC-ROUTE-01 — if the
         # upstream detector matched, override whatever the FE asked for.
         # The "meta_question" turn_mode is handled by a dedicated branch
@@ -6102,6 +6136,18 @@ async def ws_chat(ws: WebSocket):
             _rt.note("effective_pass", _rt71.get("effective_pass"),
                      trace_id=_rt_id)
             _rt.note("turn_mode", turn_mode, trace_id=_rt_id)
+            # The SETTLED route. This point is downstream of every
+            # override — meta_question, and the correction fallthrough at
+            # :5031 — so `turn_mode` here is by definition the effective
+            # one. Named explicitly rather than left for a reader to
+            # infer from where the note happens to sit in the file.
+            _rt.note("effective_turn_mode", turn_mode, trace_id=_rt_id)
+            # Reaching this line means the ordinary pipeline is composing
+            # a prompt for the model; the deterministic branches return
+            # long before it. Recorded as a positive fact so scoring can
+            # follow generation evidence instead of a static expectation
+            # about which turns "should" have been deterministic.
+            _rt.note("generation_attempted", True, trace_id=_rt_id)
             _rt.note("prompt_tokens", _prompt_tokens, trace_id=_rt_id)
             _rt.note("prompt_budget", _budget_evidence(_budget),
                      trace_id=_rt_id)
@@ -6623,6 +6669,27 @@ async def ws_chat(ws: WebSocket):
         try:
             import re as _re
             _ft_stripped = (final_text or "").strip()
+            # ── THE DECISION LIVES IN `era_fragment_repair` ─────────────
+            # Detection and the ON/OFF counterfactual moved to a module-
+            # level pure function so they have a boundary a test can
+            # reach; this handler is unreachable from unit tests, which
+            # is how the OFF arm shipped deleting the reply. The
+            # commentary below documents the detector shape and is kept
+            # verbatim; the regexes it describes now live beside the
+            # function as module constants.
+            _fr_selected = _authority.snapshot.is_selected(44)  # GUARD LAB
+            _fr_text, _fr_fired, _fr_would = era_fragment_repair(
+                final_text, selected=_fr_selected)
+            if _fr_would:
+                logger.info(
+                    "[lori][era-fragment-repair] noun-phrase fragment %s "
+                    "conv=%s original=%r → repaired=%r",
+                    "repaired" if _fr_fired
+                    else "DETECTED; repair EXCLUDED (44 off) — original kept",
+                    conv_id, _ft_stripped[:80], _fr_would[:100],
+                )
+                final_text = _fr_text
+                _rt_ck("era_fragment_repair")
             # Detect: starts with "The ..." OR "Those ..." OR "Your ..."
             # AND ends with "?" AND doesn't already have a wh-word or
             # auxiliary verb starting it. Targets the exact failure shape.
@@ -6646,39 +6713,8 @@ async def ws_chat(ws: WebSocket):
             # Doesn't skip:
             #   "The conversations you had..."   ← The + conversations + you + had (verb is 4th token, "you" between)
             #   "The walk you took every morning?" ← (same shape)
-            _MAIN_VERB_RX = _re.compile(
-                r"^(?:The|Those|Your|That|These|This)\s+"
-                r"(?:\w+\s+)?"  # optional ONE noun
-                r"(?:was|were|is|are|had|have|will|would|should|"
-                r"could|might|may|do|does|did|can|won't|isn't|"
-                r"wasn't|weren't|aren't)\b",
-                _re.IGNORECASE,
-            )
-            if (
-                _ft_stripped
-                and _ft_stripped.endswith("?")
-                and _re.match(r"^(?:The|Those|Your|That)\s+\w", _ft_stripped)
-                and not _MAIN_VERB_RX.match(_ft_stripped)
-                and not _re.match(
-                    r"^(?:What|Where|When|Who|How|Why|Did|Were|Was|Had|Could|"
-                    r"Can|Do|Does|Is|Are|Will|Would|Should|May|Might|Tell|"
-                    r"Share|Say|Describe)\b",
-                    _ft_stripped,
-                    _re.IGNORECASE,
-                )
-            ):
-                # Lowercase the leading article so "The conversations..." →
-                # "the conversations..."
-                _repaired = "Can you tell me about " + _ft_stripped[0].lower() + _ft_stripped[1:]
-                if not _authority.snapshot.is_selected(44):  # GUARD LAB
-                    _repaired = ""
-                logger.info(
-                    "[lori][era-fragment-repair] noun-phrase fragment repaired conv=%s "
-                    "original=%r → repaired=%r",
-                    conv_id, _ft_stripped[:80], _repaired[:100],
-                )
-                final_text = _repaired
-                _rt_ck("era_fragment_repair")
+            # (Detection and the counterfactual are applied above, by
+            # `era_fragment_repair`. Nothing further to do here.)
         except Exception as _frag_err:
             logger.debug("[lori][era-fragment-repair] check failed (non-fatal): %s", _frag_err)
 

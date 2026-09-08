@@ -48,15 +48,23 @@ repaired by rendering it: preserve the directory, arm a new one, start
 again. `tests/test_phase6_baseline_turnset.py` fails if any arm of that
 refusal stops refusing.
 
-TWO QUESTIONS, SCORED SEPARATELY
-================================
+TWO QUESTIONS, AND MEMBERSHIP IS MEASURED
+=========================================
 
-Turn 6 routes deterministically (`expected_route: correction`) and never
-reaches the model, so it cannot be evidence about what the model does.
-It stays in the report — it answers whether the correction path handles a
-genuine self-correction and hands continuity back — but it is marked
-`in_quality_aggregate: false`, and the rendered report says so at the top
-and again on the turn. One deterministic response must not contaminate a
+A turn is generated-Lori evidence when its trace records
+`generation_attempted`. It is NOT decided in advance by the turn set.
+
+Run 1 got this wrong in a way worth keeping: turn 6 was declared outside
+the aggregate because the browser routes "Actually, he was fifty-four,
+not fifty-two" as a `correction`. It generated anyway —
+`chat_ws.py:5031` returns a requested correction to the ordinary pipeline
+when `parse_correction_rule_based()` finds no actionable target. The
+declaration described an assumption, not the run.
+
+Turns that genuinely did not reach the model still belong in the report,
+answering a different question — does the deterministic path handle this
+well and hand continuity back — and are excluded from the conversational
+aggregate so one deterministic response cannot contaminate a
 model-quality measurement.
 
 MEASURED VS JUDGED — AND WHY THE JUDGEMENT COLUMNS ARE LEFT EMPTY
@@ -120,6 +128,41 @@ def _load_turn_set() -> List[Dict[str, Any]]:
 
 def _narrator_input(rec: Dict[str, Any]) -> str:
     return str((rec.get("context") or {}).get("narrator_input") or "").strip()
+
+
+def is_system_directive(rec: Dict[str, Any]) -> bool:
+    """Was this turn authored by the system rather than the narrator?
+
+    ── ASK THE PRODUCT, DO NOT PATTERN-MATCH IT ────────────────────────
+
+    The extraction stage already decides this and records the decision:
+    `storage.extraction.detail.is_system_directive`, alongside
+    `method: "system_directive"` and the reason "deliberately excluded
+    from extraction; no attempt was made". That is the shipped judgement,
+    made by the code that acts on it.
+
+    Sniffing for a "[SYSTEM:" prefix would be a SECOND definition of
+    "system-authored" living in a report script — the shape this
+    repository has now paid for several times. The prefix check remains
+    only as a fallback for a trace whose extraction stage never attached.
+
+    WHY IT MATTERS HERE. Phase 6's first run left Ada's session idle for
+    two minutes, and the silence/re-entry directive fired: an eleventh
+    trace at 23:27:59Z, `turnrow:2287`, "[SYSTEM: The narrator has been
+    quiet for a while...]". The capture counted it as an eleventh
+    narrator turn and refused the whole baseline — while its own
+    count-only refusal proved the ten real turns had matched exactly and
+    in order. A valid run was reported as contaminated.
+
+    System activity is still EVIDENCE. It is reported separately, never
+    dropped from the directory, and never entered into narrator-turn
+    count or order validation.
+    """
+    detail = (((rec.get("storage") or {}).get("extraction") or {})
+              .get("detail") or {})
+    if isinstance(detail, dict) and "is_system_directive" in detail:
+        return bool(detail["is_system_directive"])
+    return _narrator_input(rec).startswith("[SYSTEM:")
 
 
 def _sequence_problems(records: List[Dict[str, Any]],
@@ -245,11 +288,20 @@ def _extraction_summary(rec: Optional[Dict[str, Any]]) -> str:
 
 def _render(records: List[Dict[str, Any]], narrator: Dict[str, Any],
             extraction: Dict[str, Dict[str, Any]],
-            turns: List[Dict[str, Any]], armed: str, source: str) -> str:
+            turns: List[Dict[str, Any]], armed: str, source: str,
+            ancillary: Optional[List[Dict[str, Any]]] = None) -> str:
     out: List[str] = []
     add = out.append
-    aggregate = [t["index"] for t in turns if t.get("in_quality_aggregate")]
-    excluded = [t["index"] for t in turns if not t.get("in_quality_aggregate")]
+    # MEMBERSHIP IS MEASURED. A turn is generated-Lori evidence when its
+    # trace says generation happened — not when the turn set predicted it
+    # would. Run 1 declared turn 6 out of the aggregate because the
+    # browser routes it as a correction; the server's empty-parse
+    # fallthrough sent it to the model anyway, and the declaration was
+    # simply wrong about the run it was describing.
+    def _generated(rec):
+        return bool((rec.get("context") or {}).get("generation_attempted"))
+    aggregate = [i for i, r in enumerate(records, start=1) if _generated(r)]
+    excluded = [i for i, r in enumerate(records, start=1) if not _generated(r)]
 
     add("# Phase 6 — lean conversational baseline")
     add("")
@@ -261,21 +313,44 @@ def _render(records: List[Dict[str, Any]], narrator: Dict[str, Any],
     add("")
     add("## How to read this")
     add("")
-    add(f"**Two questions, scored separately.** Turns "
-        f"{', '.join(str(i) for i in aggregate)} reached the model and "
-        f"answer *what does lean generated Lori do conversationally*. "
-        f"Turn{'s' if len(excluded) != 1 else ''} "
-        f"{', '.join(str(i) for i in excluded)} routed deterministically "
-        f"and never reached it, so it answers a different question — "
-        f"*does the correction path handle a genuine self-correction and "
-        f"hand continuity back?* It is **excluded from the conversational "
-        f"aggregate**: one deterministic response would otherwise "
-        f"contaminate a model-quality measurement.")
+    if excluded:
+        add(f"**Two questions, scored separately.** Turns "
+            f"{', '.join(str(i) for i in aggregate)} record "
+            f"`generation_attempted` and answer *what does lean generated "
+            f"Lori do conversationally*. Turn"
+            f"{'s' if len(excluded) != 1 else ''} "
+            f"{', '.join(str(i) for i in excluded)} did not reach the "
+            f"model, so they answer a different question — *does the "
+            f"deterministic path handle this well and hand continuity "
+            f"back?* — and are **excluded from the conversational "
+            f"aggregate**, because one deterministic response would "
+            f"otherwise contaminate a model-quality measurement.")
+    else:
+        add(f"**All {len(aggregate)} turns record `generation_attempted`**, "
+            f"so all of them are generated-Lori evidence. Membership is "
+            f"measured from the trace, never declared in advance: the "
+            f"turn set's `expected_requested_route` describes what the "
+            f"BROWSER asked for, and the server may send a requested "
+            f"correction to the model anyway "
+            f"(`chat_ws.py:5031`).")
     add("")
     add("Measured fields come from the shipped response trace. The four "
         "judgement lines under each turn are left blank on purpose — see "
         "the script docstring.")
     add("")
+    if ancillary:
+        add(f"### Ancillary system activity ({len(ancillary)})")
+        add("")
+        add("System-authored turns in this run, identified by the "
+            "product's own `is_system_directive`. They are evidence and "
+            "are preserved, but they are not narrator turns and take no "
+            "part in count or order validation.")
+        add("")
+        for rec in ancillary:
+            text = _narrator_input(rec)
+            add(f"* `{rec.get('turn_key') or 'UNBOUND'}` — "
+                f"{text[:96]}{'…' if len(text) > 96 else ''}")
+        add("")
 
     for index, rec in enumerate(records, start=1):
         turn_def = turns[index - 1]
@@ -287,13 +362,17 @@ def _render(records: List[Dict[str, Any]], narrator: Dict[str, Any],
 
         add(f"## Turn {index} — {turn_def['category']}")
         add("")
-        if not turn_def.get("in_quality_aggregate"):
+        if index in excluded:
             add("> **Not part of the conversational aggregate.** This turn "
-                "routes deterministically; judge the correction path and "
+                "records no generation; judge the deterministic path and "
                 "the return to continuity, not model quality.")
             add("")
         add(f"* trace `{rec.get('trace_id') or '?'}`   turn_key "
             f"`{key or 'UNBOUND'}`")
+        add(f"* route: requested `{ctx.get('requested_turn_mode')}` → "
+            f"effective `{ctx.get('effective_turn_mode') or ctx.get('turn_mode')}`"
+            f"   generation_attempted="
+            f"{bool(ctx.get('generation_attempted'))}")
         add(f"* revision `{auth.get('revision')}`   selection "
             f"`{auth.get('selection_fingerprint')}`   registry "
             f"`{auth.get('registry_fingerprint')}`")
@@ -385,8 +464,12 @@ def main() -> int:
         return 1
 
     everything = _trace_records(armed)
-    mine = [r for r in everything
-            if str(r.get("narrator_id") or "") == narrator["id"]]
+    for_narrator = [r for r in everything
+                    if str(r.get("narrator_id") or "") == narrator["id"]]
+    # Narrator turns and system activity are different evidence. Both are
+    # kept; only the first is a baseline turn. See `is_system_directive`.
+    mine = [r for r in for_narrator if not is_system_directive(r)]
+    ancillary = [r for r in for_narrator if is_system_directive(r)]
     if not mine:
         print(f"{len(everything)} traced turns in {armed} (from {source}), "
               f"NONE for {narrator['display_name']}. Refusing to render a "
@@ -416,7 +499,7 @@ def main() -> int:
         return 1
 
     text = _render(mine, narrator, _extraction_by_turn_key(narrator["id"]),
-                   turns, armed, source)
+                   turns, armed, source, ancillary)
     if args.out:
         Path(args.out).write_text(text, encoding="utf-8")
         print(f"Wrote {args.out}  ({len(mine)} turns)")
