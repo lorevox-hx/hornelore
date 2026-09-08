@@ -312,3 +312,89 @@ def sanitize_client_runtime(
     for key in PROFILE_SEED_RESERVED_RUNTIME_KEYS:
         out.pop(key, None)
     return out
+
+
+#: The browser's own default once identity is complete —
+#: `getEffectivePass74()` returns `state.session.currentPass || "pass1"`
+#: (`ui/js/app.js:5372`). Reused rather than invented so the override
+#: reproduces the shipped semantics instead of introducing a new phase.
+_BROWSER_DEFAULT_PASS = "pass1"
+
+#: The browser's literal for a finished identity (`app.js:5359`).
+_PHASE_COMPLETE = "complete"
+
+#: The pass value that means "identity collection owns this turn".
+_PASS_IDENTITY = "identity"
+
+#: runtime71 keys, as `buildRuntime71()` emits them (`app.js:3030-3036`)
+#: and as `chat_ws` reads them back for the trace.
+EFFECTIVE_PASS_KEY = "effective_pass"
+CURRENT_PASS_KEY = "current_pass"
+
+
+def apply_server_identity(
+    runtime: Optional[Mapping[str, Any]],
+    state: Optional[Mapping[str, Any]],
+) -> Dict[str, Any]:
+    """Server-resolved identity completion outranks the browser's guess.
+
+    ── WHY THIS EXISTS — PHASE 6 BASELINE 2, MEASURED ──────────────────
+
+    The browser decides identity completion from `state.profile.basics`:
+    `hasIdentityBasics74()` (`app.js:5341`) requires name AND dob AND
+    pob, and `buildRuntime71()` (`app.js:3034-3036`) ships that verdict
+    as `identity_complete` / `identity_phase` / `effective_pass`.
+
+    But `basics.fullname` and `basics.preferred` are only populated when
+    the narrator SAYS their name in-session (`session-loop.js:298-301`).
+    A narrator whose name is durably on file, who has not introduced
+    themselves today, therefore reports identity INCOMPLETE — while the
+    server's Profile Seed resolver has already resolved that same
+    narrator as complete, and `_known_identity_facts_block` renders the
+    name as an authoritative fact.
+
+    The composer then sees the contradiction and resolves it the wrong
+    way, because `identity_mode = (effective_pass == "identity") or (not
+    identity_complete)` (`prompt_composer.py:4418`) trusts the browser.
+
+    Measured, Ada Pruitt, Phase 6 Baseline 2 (2026-09-07): all ten
+    prompts carried `KNOWN IDENTITY FACTS: - Name: Ada Pruitt` AND
+    `IDENTITY MODE: ... Still needed: name, date of birth...`, with
+    `effective_pass='identity'` while `current_pass='pass1'`. Lori asked
+    for a known identity fact on 10 of 10 turns — obeying the prompt
+    exactly. The "invented significance" on the green dish was likewise
+    recited: `"what a tender thing to keep"` is an exemplar inside the
+    IDENTITY MODE directive (`prompt_composer.py:5066`).
+
+    THE RULE. Browser runtime state is OBSERVATIONAL; server-derived
+    narrator truth wins when they disagree. This is the same precedence
+    the Guard Lab gate and the Profile Seed resolver already use.
+
+    SCOPE, deliberately narrow. This only ever turns identity mode OFF,
+    and only when the server has resolved the narrator as complete. It
+    never turns it on, never edits the IDENTITY MODE collection branch,
+    and returns the runtime untouched for a genuinely new or incomplete
+    narrator — who must still walk name -> DOB -> birthplace exactly as
+    designed.
+    """
+    out: Dict[str, Any] = dict(runtime or {})
+    if not isinstance(state, Mapping) or not state.get("identity_complete"):
+        # New or incomplete narrator, or no resolved state at all: the
+        # browser's account stands and onboarding proceeds unchanged.
+        return out
+
+    out["identity_complete"] = True
+    out["identity_phase"] = _PHASE_COMPLETE
+
+    # A stale `effective_pass="identity"` alone re-activates identity
+    # mode through the first disjunct, so correcting `identity_complete`
+    # without this would fix nothing.
+    if str(out.get(EFFECTIVE_PASS_KEY) or "").strip() == _PASS_IDENTITY:
+        current = str(out.get(CURRENT_PASS_KEY) or "").strip()
+        # Preserve the narrator's REAL interview pass. `current_pass`
+        # was `pass1` throughout Baseline 2 while `effective_pass` was
+        # overridden to `identity`, so the true pass was there all along.
+        out[EFFECTIVE_PASS_KEY] = (
+            current if current and current != _PASS_IDENTITY
+            else _BROWSER_DEFAULT_PASS)
+    return out

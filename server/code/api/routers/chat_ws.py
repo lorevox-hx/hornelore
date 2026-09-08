@@ -5246,6 +5246,23 @@ async def ws_chat(ws: WebSocket):
                     )
                 runtime71 = _ps_runtime.attach_onboarding(
                     runtime71, _ps_plan, _ps_state)
+                # ── SERVER-RESOLVED IDENTITY OUTRANKS THE BROWSER ─────
+                #
+                # Applied for EVERY plan, including IDLE. A completed
+                # walk plans IDLE and attaches no onboarding payload, so
+                # the composer sees no attested server state and falls
+                # back to the browser's `identity_complete` — which is
+                # computed from `state.profile.basics` and is False for
+                # any narrator who has not spoken their name this
+                # session. That is Ada's exact shape, and it put the
+                # IDENTITY MODE collection directive into all ten
+                # Baseline 2 prompts alongside her own name as a known
+                # fact. See `apply_server_identity` for the measurement.
+                #
+                # Narrowly one-directional: it can only turn identity
+                # mode OFF, and only when the server says complete.
+                runtime71 = _ps_runtime.apply_server_identity(
+                    runtime71, _ps_state)
                 logger.info(
                     "[chat_ws][profile-seed][plan] action=%s topic=%s "
                     "version=%s eligible=%s conv=%s person=%s",
