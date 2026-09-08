@@ -149,6 +149,62 @@ manifest.
      Step 3 first cohort (handoffs/ x3, mockups/ x1)
        — moved by hygiene Step 3, 2026-08-28, recorded from the move -->
 
+### `docs/archive/workorders-june-july-2026/` — 14 files, added 2026-09-08
+
+**Added by `WO-REPOSITORY-HYGIENE-01`, resumed, Block 1.** The root work-order pile is
+gone: **root now holds zero `WO-*` / `BUG-*` specifications.**
+
+**Why this cohort is NOT `workorders-pre-pivot/`.** Every file here is dated
+**2026-06-17 → 2026-07-09**, which is *after* the universal pivot of 2026-06-14. Filing
+them under "pre-pivot" would have been false, and an archive whose directory name misstates
+the era is worse than no archive at all — it is a wrong answer that looks authoritative.
+The cohort is named for the months it actually covers.
+
+**All 30 root specs were reconciled against current code, current tests and later commits
+before anything moved — not from their own status headers.** The 16 carrying live
+obligations went to `docs/wo/`; the 14 below had none.
+
+| Spec | Header claimed | Verified against |
+|---|---|---|
+| `BUG-CHATWS-CONV-FK-01` | CLOSED 2026-06-17 | `db.py:3282 ensure_interview_session` exists |
+| `BUG-DEPRECATION-DATETIME-UTCNOW-01` | CLOSED | **zero live `datetime.utcnow()` call sites** under `server/`; the single grep hit is inside a comment explaining the replacement |
+| `BUG-FE-FACTS-ADD-PAYLOAD-SHAPE-422-01` | CLOSED 2026-06-17 | header + no open obligation in BACKLOG |
+| `BUG-HARNESS-SCORER-TOO-LENIENT-CONTENT-QUALITY-01` | CLOSED 2026-06-17 | as above |
+| `BUG-LORI-ANCHOR-CASCADE-DUMP-01` | CLOSED 2026-06-17 | as above |
+| `BUG-LORI-ASKS-WHAT-OPERATOR-SEEDED-01` | CLOSED 2026-06-17 | `tests/test_lori_seeded_fact_intake_guard.py` |
+| `BUG-LORI-CHAIN-ANCHOR-ECHO-STRENGTH-01` | LANDED 2026-07-02 | `lori_communication_control.py:1305` — **see the residual note below** |
+| `BUG-LORI-META-RESPONSE-LEAK-01` | CLOSED 2026-06-17 | `tests/test_lori_meta_response_leak_guard.py` |
+| `BUG-LORI-PHRASE-AS-NAME-CONFIRMATION-01` | CLOSED 2026-06-17 | `tests/test_witness_phrase_as_name_guard.py` |
+| `BUG-LORI-THEMATIC-TRIP-CHAIN-DETECTION-01` | LANDED 2026-07-02 | `factual_chain_capture.py:536` — residual below |
+| `BUG-ML-SPANISH-DETECT-FRENCH-PLACE-OVERFIRE-01` | LANDED 2026-07-02 | `tests/test_lori_spanish_guard.py` — residual below |
+| `BUG-SAFETY-CHILD-ABUSE-FALSE-POSITIVE-DEATH-CAR-01` | CLOSED 2026-06-17 | `tests/test_safety_compound_accident_guard.py` |
+| `WO-TRAVEL-DOC-ACCORDION-TIMELINE-01` | LANDED 2026-07-08 | frontend/CSS only |
+| `WO-TRIP-PHOTO-CONTEXT-ENRICHMENT-FOR-LORI-01_Spec.ORIGINAL-FILING.md` | duplicate | reconciled — see below |
+
+**The duplicate, reconciled before either copy moved.** Two copies of one work order
+existed. The root copy's own first line read `(ORIGINAL FILING)` and
+`SUPERSEDED for status tracking`, naming `docs/wo/` as the living copy — and the living
+copy is 11,981 bytes against the root's 5,631, carrying current phase status the root
+never had. **Before archiving, all five of the root copy's "Locked rules" were checked
+against the living copy and all five are present**, reworded as a numbered list: approved
+context only, never "I can see …", no raw GPS, no auto-promotion, no live browsing. Nothing
+unique was lost. The root copy is archived under an explicit `.ORIGINAL-FILING.md` suffix
+so the two are never confused again; the living copy stays at
+`docs/wo/WO-TRIP-PHOTO-CONTEXT-ENRICHMENT-FOR-LORI-01_Spec.md`.
+
+**RESIDUAL OBLIGATIONS THAT SURVIVED THE ARCHIVE — registered, not buried.** Three of
+these specs say "live verification pending next stack cycle". Archiving the document does
+not discharge that, and each is recorded in `docs/BACKLOG.md`:
+
+* `BUG-LORI-CHAIN-ANCHOR-ECHO-STRENGTH-01` — **its live verification now exists, and it is
+  negative.** The Phase 6 A/B/C cohort measured this authority (Guard Lab id 40, "Chain
+  Anchor Prefix") emitting non-entities to narrators: `"West St and Paul"`, `"For and
+  They"`, `"From Saint Patrick to Day to 1950"`. The spec was archived as landed; the
+  behaviour it landed is now evidenced as harmful. **That is a live product question and it
+  belongs to Phase 6, not to this archive.**
+* `BUG-LORI-THEMATIC-TRIP-CHAIN-DETECTION-01` — live-harness verification still owed.
+* `BUG-ML-SPANISH-DETECT-FRENCH-PLACE-OVERFIRE-01` — live verification still owed.
+
 ### `docs/archive/governance/` — added 2026-09-08
 
 **Added by `WO-REPOSITORY-RATIONALIZATION-02` Commit 1.** The first cohort of a new

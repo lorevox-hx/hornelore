@@ -310,10 +310,20 @@ Full register with evidence: [`docs/BACKLOG.md`](docs/BACKLOG.md).
   default `min-width: auto`; measured 39 px wide × 240 px tall at a 697 px viewport. Needs
   ~500 px of row width. A `min-width` fix was written and **withdrawn unverified** — it may
   clip Send. Open.
-* **`scripts/ui/run_test23_two_person_resume.py` does not parse** — `IndentationError` at
-  line 2082 from `df82215` (2026-05-06), so Test 23 has not run since. Spec:
-  [`BUG-HARNESS-TEST23-INDENTATION-01_Spec.md`](BUG-HARNESS-TEST23-INDENTATION-01_Spec.md).
-  **Do not repair it inside a product lane.**
+* **Test 23 parses and has run; the run came back RED and nobody has adjudicated it.**
+  *(This entry said the script "does not parse" — false since `66197c3`, 2026-08-30.
+  Corrected 2026-09-08 during the resumed repository-hygiene pass.)* The parse repair and
+  the compile gate (`tests/test_scripts_compile.py`, which pins the harness by name) are
+  both done. The live run executed 2026-09-04 at `5afead5` on a clean tree and reported
+  **RED** for both narrators. Evidence:
+  `docs/reports/test23_two_person_resume_test23_v12.md` **(local working copy only —
+  `docs/reports/` is gitignored, so this is deliberately not a link)**.
+  **Measured:** the run was RED. **Inferred:** its empty `person_id`, empty step tables and
+  all-`None` BB state are consistent with the session never establishing. **Unknown:** the
+  cause. It is neither a proven product regression nor a proven harness defect.
+  Spec: [`docs/wo/BUG-HARNESS-TEST23-INDENTATION-01_Spec.md`](docs/wo/BUG-HARNESS-TEST23-INDENTATION-01_Spec.md).
+  **Do not repair or re-run it inside a product lane** — adjudication needs a live stack and
+  is its own bounded follow-up.
 * Six pre-existing `interview_sessions → people` FK violations from old harness narrators.
 * Hard-delete filesystem residue root cause · legacy-column retirement · privacy canon
   extraction and public-history purge · broad `ws_chat`/extract-router decomposition ·

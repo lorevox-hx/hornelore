@@ -14,8 +14,10 @@ the number drifted inside the very commit that added it.
 next live in [`../HANDOFF.md`](../HANDOFF.md); sequencing questions are answered there and
 nowhere else. This file answers *where a document is and whether it is authoritative*.
 
-Two moves have happened so far — the agent changelog to `archive/changelogs/`, and the four
-root dated artifacts to `archive/handoffs/` and `archive/mockups/`. Nothing has been deleted.
+Moves so far: the agent changelog to `archive/changelogs/`; the four root dated artifacts to
+`archive/handoffs/` and `archive/mockups/`; `AGENT_CONTRACT.md` to `archive/governance/`; and
+**the entire 30-file root work-order pile, 2026-09-08** — 16 to `wo/`, 14 to
+`archive/workorders-june-july-2026/`. Nothing has been deleted.
 Every archived path and its identity evidence are in [`archive/INDEX.md`](archive/INDEX.md).
 
 ---
@@ -134,7 +136,7 @@ itself is not a fact worth writing down.*
 | Eval JSON / console reports | `docs/reports/master_loop01_*.json` / `.console.txt` |
 | Eval case source | `data/qa/question_bank_extraction_cases.json` |
 | Active WO specs | `docs/wo/<NAME>_Spec.md` |
-| Legacy WO/BUG specs | Still at the repository root — see [`BACKLOG.md`](BACKLOG.md) §2. Count: `git ls-tree -r --name-only origin/main \| grep -cE '^(WO-\|BUG-)[^/]*\.md$'` |
+| Legacy WO/BUG specs | **No longer at the repository root — root holds zero specs as of 2026-09-08.** All 30 were reconciled against current code, tests and later commits, then split: 16 with live obligations to [`wo/`](wo/), 14 without to [`archive/workorders-june-july-2026/`](archive/workorders-june-july-2026/). Obligations stay in [`BACKLOG.md`](BACKLOG.md) §2 and §2.2 |
 | Pre-pivot specs | `docs/archive/workorders-pre-pivot/` — history only |
 | Scripts | [`../scripts/INDEX.md`](../scripts/INDEX.md) |
 

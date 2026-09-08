@@ -1,11 +1,63 @@
 # WO-REPOSITORY-HYGIENE-01 — indexed reorganization, not a deletion sweep
 
-**Status:** ⏸️ **PHASE A ACCEPTED — REMAINDER PAUSED. THE WORK ORDER IS INCOMPLETE.**
+**Status:** ▶️ **RESUMED 2026-09-08 by Chris. Phase A remains accepted; the remainder is
+now IN PROGRESS rather than paused.**
 Steps 0, 1 `5f6b01b`, 2 `db0c5e7`, 2b `ff1ff4f` and the **first Step 3 cohort** `5086490`
-are accepted. **Deferred by Chris's product-priority decision of 2026-08-28:** the remaining
-Step 3 cohorts, Steps 4–5, and the §6 final verification checkpoint. They stay indexed here
-and in `docs/archive/INDEX.md` §4 — **deferred, not cancelled, and not done.**
-**Do not record this work order as complete.**
+were accepted 2026-08-28. The remaining Step 3 cohorts, Steps 4–5, and the §6 final
+verification checkpoint were **deferred** by the product-priority decision of that date;
+they are now live work. **Do not record this work order as complete.**
+
+## Resumption — 2026-09-08
+
+**This work order is the ONLY repository-cleanup authority.** Commit `867b390` and the
+planning discussion around it used the label `WO-REPOSITORY-RATIONALIZATION-02`. **No such
+work order exists in this repository and none is to be created.** The label was an external
+planning name; creating a second cleanup authority would have violated the *one job per
+document* rule that the very same commit added to `CLAUDE.md`. Where the commit message
+says `WO-REPOSITORY-RATIONALIZATION-02`, read: **this work order, resumed.**
+
+**Commit `867b390` is accepted as the preparatory governance commit** for the resumed pass.
+It archived `AGENT_CONTRACT.md` byte-for-byte to `docs/archive/governance/`, ranked
+`README.md` in the governing order for the first time, extracted the tiered WO header
+convention into `CLAUDE.md`, and added the generated repository index. **It combined an
+archive move with governance and index work**, which §5's original commit-splitting rule
+discouraged. It is not reverted: the newer block cadence below supersedes that rule.
+
+**The cadence is superseded.** The original Step 3 shape — one small cohort, one commit,
+then stop for supervisory review — is replaced by Chris's direction of 2026-09-08:
+
+> Work through coherent structural blocks. Run focused verification while working. Prepare
+> a commit only at a meaningful structural boundary. Do not stop after every file group.
+
+Three remaining structural blocks, not nine more micro-commits: **(1)** root authority and
+spec reconciliation; **(2)** structural tree cleanup — `test/`, scripts, `shadow/`, docs
+topology; **(3)** entry surfaces, generated-index lifecycle and final verification. A
+fourth is acceptable only if a genuine risk boundary forces a split. **Commits are not
+manufactured to match a number written into an earlier label.**
+
+**Baseline at resumption, derived at `867b390`** — recorded as evidence, not as a
+maintained fact, and not to be copied into any governance document:
+
+| | at `cbecce7e` (pre-rationalization tag) | at `867b390` (resumption) |
+|---|---|---|
+| tracked files | 1,313 | **1,316** |
+| root tracked files | 57 | **56** |
+| root `WO-*`/`BUG-*` specs | 30 | **30** |
+| `docs/` | 294 | **297** |
+| `docs/archive/` | 136 | **137** |
+| `scripts/` | 153 | **154** |
+| `scripts/archive/` | 32 | **32** |
+| `tests/` | 350 | **350** |
+| singular `test/` | 9 | **9** |
+| `shadow/` | 5 | **5** |
+| top-level `docs/` subdirectories | 23 | **25** |
+| …of those, holding one or two files | 13 | **13** |
+
+The 1,313 figure remains the valid **pre-rationalization** baseline and is not rewritten to
+match today's tree. The rollback tag `archive/pre-rationalization-2026-09-08` sits at
+`cbecce7e`; `archive/pre-hygiene-2026-08-28` at `d0e5294` remains the older boundary.
+
+**The product lane's status is not restated here.** Read [`../../HANDOFF.md`](../../HANDOFF.md).
 **Opened:** 2026-08-28
 **Authority:** [`../reviews/HORNELORE_REPOSITORY_ARCHIVE_AUDIT_2026-08-28.md`](../reviews/HORNELORE_REPOSITORY_ARCHIVE_AUDIT_2026-08-28.md)
 and its [verification addendum](../reviews/HORNELORE_REPOSITORY_ARCHIVE_AUDIT_2026-08-28_VERIFICATION_ADDENDUM.md)

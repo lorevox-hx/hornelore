@@ -51,9 +51,26 @@ complete registry of the unexamined cohorts, and no later session should read th
 
 ## 2. Root specifications with unresolved or unclear obligations
 
-The root specs must each be represented here before their full specs move. **The sixteen
-below carry unresolved or unclear obligations** — the audit named fifteen; the sixteenth is
-new, see §2.1. For the current root population:
+> **RESOLVED AS A ROOT PROBLEM, 2026-09-08.** All 30 root `WO-*`/`BUG-*` specifications
+> were reconciled against current code, current tests and later commits — not their own
+> status headers — and moved. **Root now holds zero specs.** 16 with live obligations went
+> to `docs/wo/`; 14 with none went to `docs/archive/workorders-june-july-2026/`, named for
+> the months they actually cover because every one post-dates the 2026-06-14 pivot.
+>
+> **This section stays, and stays a list of obligations, because moving a document does not
+> discharge what it owed.** The specs below are now at `docs/wo/<name>`; three further
+> obligations survived into the archive cohort and are recorded in §2.2.
+
+**Seventeen carry unresolved or unclear obligations: the sixteen in the table below, plus
+the one in §2.1.**
+
+*(**Corrected 2026-09-08.** The sentence here read "The sixteen below carry unresolved or
+unclear obligations" while §2.1 added a seventeenth immediately underneath — prose and
+table disagreeing inside one section, which is the defect this file exists to prevent. The
+figure is the table plus §2.1, and the command below gives the root population it is drawn
+from.)*
+
+For the current root population:
 
 ```bash
 git ls-tree -r --name-only origin/main | grep -cE '^(WO-|BUG-)[^/]*\.md$'
@@ -82,7 +99,55 @@ git ls-tree -r --name-only origin/main | grep -cE '^(WO-|BUG-)[^/]*\.md$'
 
 | Spec | State | Owed |
 |---|---|---|
-| `BUG-HARNESS-TEST23-INDENTATION-01_Spec.md` | **OPEN, bounded, unscheduled** | `scripts/ui/run_test23_two_person_resume.py` has not parsed since `df82215` (2026-05-06). Repair owes: correct indentation *deliberately* (inside or outside the per-narrator loop — the traceback does not say which was meant), a live run, **and a compile gate over `scripts/` and `tests/`**. The gate is the part that matters; three and a half months of silence is the real defect |
+| `BUG-HARNESS-TEST23-INDENTATION-01_Spec.md` | **TWO OF THREE DISCHARGED; the third changed shape** — see below | The parse repair and the compile gate are done. The live run has been executed and came back **RED, unadjudicated** |
+
+**Test 23 — reconciled 2026-09-08 against code, tests and the local report set.** The
+entry above described all three obligations as open. Two are discharged and the third is
+no longer the obligation it was written as:
+
+| Original obligation | State | Evidence |
+|---|---|---|
+| Correct the indentation deliberately | **DONE** | `66197c3` (2026-08-30) *"Test 23 parses again, and a gate that notices when it stops"*. Both `ctx.add_init_script(CONSENT_SEED_SCRIPT)` sites — `:1574` and `:2077` — are correctly indented in the live script |
+| A compile gate over `scripts/` and `tests/` | **DONE** | `tests/test_scripts_compile.py` compiles every tracked Python file under both trees and **pins `scripts/ui/run_test23_two_person_resume.py` by name** at `:93`, so the harness cannot silently stop parsing again. This was called "the part that matters" and it landed |
+| A live run | **EXECUTED — and it is RED** | `test23_v12`, 2026-09-04T17:04:36→17:13:01, commit `5afead5`, `dirty=False`. Topline **RED**; Mary RED, Marvin RED. Evidence: `docs/reports/test23_two_person_resume_test23_v12.md` and `…_v12_failures.csv` — **(local working copy only; `docs/reports/` is gitignored, so this is deliberately not a link and no clone can resolve it)** |
+
+**What is owed now is adjudication of that RED, not another run.** The recorded failures
+are `post_restart_recall` and `today_after_resume` for both narrators, with
+`text_elapsed≈90,100 ms` and *"no Lori reply within 90s text-window"*.
+
+**Three separate claims, and they must not be collapsed:**
+
+| | |
+|---|---|
+| **measured** | the run was **RED** on both narrators |
+| **inferred** | its empty `person_id`, empty step tables and all-`None` BB state are *consistent with* the session never establishing |
+| **unknown** | the actual cause |
+
+**It is not a Lori/product regression** unless later evidence establishes that, **and it is
+not a harness defect either.** Both labels are currently unearned. The report's own
+`api.log signal counts per phase` table reads `resume | (none)`, which is itself consistent
+with either story.
+
+**Do not rerun Test 23 to settle this during repository hygiene.** Adjudication needs a
+live stack and belongs in its own bounded follow-up.
+
+**Disposition:** the spec carries a live, bounded obligation, so under the resumed
+hygiene work order it moves to **`docs/wo/`** — not to archive, and not left at root.
+Root is not a second work-order directory.
+
+### 2.2 Residual obligations that survived into the archive cohort
+
+**Three specs archived 2026-09-08 as landed still owe live verification.** Archiving a
+document does not discharge what it owed; these are the obligations, kept here so they
+cannot vanish with the file.
+
+| Obligation | Archived spec | State |
+|---|---|---|
+| **Chain-anchor opener emits non-entities to narrators** | `BUG-LORI-CHAIN-ANCHOR-ECHO-STRENGTH-01` | **Its live verification now exists and is NEGATIVE.** Phase 6 A/B/C measured Guard Lab authority 40 ("Chain-Anchor Prefix") delivering `"West St and Paul"` (splits *West St. Paul* on the period), `"For and They"` (two function words as anchors) and `"From Saint Patrick to Day to 1950"` (splits *Saint Patrick's Day* on the apostrophe). Evidence: `docs/reports/PHASE6-COHORT-AB-20260908.md` **(local working copy only; `docs/reports/` is gitignored)**. **This is a live product question owned by Phase 6, not by repository hygiene** |
+| Live-harness verification of thematic trip-chain detection | `BUG-LORI-THEMATIC-TRIP-CHAIN-DETECTION-01` | Code landed 2026-07-02 (`factual_chain_capture.py:536`); live verification "pending next stack cycle" and never recorded as done |
+| Live verification of the Spanish/French place overfire fix | `BUG-ML-SPANISH-DETECT-FRENCH-PLACE-OVERFIRE-01` | Code + unit tests landed 2026-07-02 (`tests/test_lori_spanish_guard.py`); live verification never recorded |
+
+**None of these is scheduled.** They are owed, not queued.
 
 **Appendix A of the audit enumerates the root specs as they stood at `ea3ab27`. At least one
 has been filed since** — `BUG-HARNESS-TEST23-INDENTATION-01`, at `157af46`. The audit is
