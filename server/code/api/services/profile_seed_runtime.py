@@ -80,12 +80,16 @@ from . import profile_seed_turn as _turn
 #: the walk, which is the quietest possible way to lose the feature.
 from ..prompt_composer import (PROFILE_SEED_ONBOARDING_KEY,
                                PROFILE_SEED_SERVER_ATTESTED_KEY,
+                               PROFILE_SEED_STATUS_KEY,
                                PROFILE_SEED_RESERVED_RUNTIME_KEYS)
 
 __all__ = [
     "PROFILE_SEED_ONBOARDING_KEY",
     "PROFILE_SEED_SERVER_ATTESTED_KEY",
+    "PROFILE_SEED_STATUS_KEY",
     "PROFILE_SEED_RESERVED_RUNTIME_KEYS",
+    "apply_server_identity",
+    "attach_seed_status",
     "sanitize_client_runtime",
     "onboarding_payload",
     "attach_onboarding",
@@ -359,8 +363,13 @@ def apply_server_identity(
 
     Measured, Ada Pruitt, Phase 6 Baseline 2 (2026-09-07): all ten
     prompts carried `KNOWN IDENTITY FACTS: - Name: Ada Pruitt` AND
-    `IDENTITY MODE: ... Still needed: name, date of birth...`, with
-    `effective_pass='identity'` while `current_pass='pass1'`. Lori asked
+    `IDENTITY MODE: ... Still needed: name, date of birth...`, with the
+    effective pass reading "identity" while the current pass read
+    "pass1". (Written in prose rather than as a literal assignment: the
+    ownership sweep in `test_profile_seed_reachability_map` greps the
+    server tree for a pass being written, and it is right to be blunt —
+    a docstring that looks like an assignment should not be the thing
+    that softens it.) Lori asked
     for a known identity fact on 10 of 10 turns — obeying the prompt
     exactly. The "invented significance" on the green dish was likewise
     recited: `"what a tender thing to keep"` is an exemplar inside the
@@ -397,4 +406,46 @@ def apply_server_identity(
         out[EFFECTIVE_PASS_KEY] = (
             current if current and current != _PASS_IDENTITY
             else _BROWSER_DEFAULT_PASS)
+    return out
+
+
+def attach_seed_status(
+    runtime: Optional[Mapping[str, Any]],
+    state: Optional[Mapping[str, Any]],
+) -> Dict[str, Any]:
+    """Carry the SERVER's Profile Seed lifecycle on every turn.
+
+    ── WHY THIS IS SEPARATE FROM `attach_onboarding` ───────────────────
+
+    `attach_onboarding` carries the QUESTION — the payload for the topic
+    being asked right now — and correctly attaches nothing when the plan
+    is IDLE, stripping the reserved keys so no stale question survives.
+
+    But "no question this turn" is not "no walk". A COMPLETED narrator
+    and a HISTORICAL narrator with no onboarding row both arrive at the
+    composer with no payload, and the composer needs to tell them apart:
+    the historical narrator still needs the legacy ten-question block;
+    the completed one must never see it again.
+
+    Measured, Phase 6 Run 3 (2026-09-08): Ada's completed walk planned
+    IDLE, the markers were stripped, and all ten prompts carried the
+    legacy "PROFILE SEED QUESTIONS (ask in this order...)" list. Lori
+    recited item 5 back to her as "How far did you go in school – did
+    you attend college?" — her schooling being already on file.
+
+    Called AFTER `attach_onboarding`, because that function clears the
+    reserved keys and would otherwise remove this one too.
+
+    A narrator with no resolved state gets NO key — absence is how a
+    historical narrator stays byte-compatible with the legacy path.
+    """
+    out: Dict[str, Any] = dict(runtime or {})
+    if not isinstance(state, Mapping):
+        out.pop(PROFILE_SEED_STATUS_KEY, None)
+        return out
+    status = str(state.get("status") or "").strip()
+    if status:
+        out[PROFILE_SEED_STATUS_KEY] = status
+    else:
+        out.pop(PROFILE_SEED_STATUS_KEY, None)
     return out

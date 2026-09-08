@@ -5263,6 +5263,19 @@ async def ws_chat(ws: WebSocket):
                 # mode OFF, and only when the server says complete.
                 runtime71 = _ps_runtime.apply_server_identity(
                     runtime71, _ps_state)
+                # ── AND THE WALK'S LIFECYCLE, ALSO ON IDLE ────────────
+                #
+                # `attach_onboarding` carries the QUESTION and clears the
+                # reserved keys when there is none. That is right for the
+                # question and wrong for the walk: a COMPLETED narrator
+                # and a HISTORICAL narrator with no row both arrive with
+                # no payload, and the composer must tell them apart or a
+                # finished narrator gets the legacy ten-question block
+                # again. Measured in all ten Run 3 prompts.
+                #
+                # After attach_onboarding, which would otherwise strip it.
+                runtime71 = _ps_runtime.attach_seed_status(
+                    runtime71, _ps_state)
                 logger.info(
                     "[chat_ws][profile-seed][plan] action=%s topic=%s "
                     "version=%s eligible=%s conv=%s person=%s",
@@ -6139,8 +6152,27 @@ async def ws_chat(ws: WebSocket):
         # INSTRUMENTATION FAILURE recorded on the trace, not a silent
         # gap: `require()` marks the record so the report can refuse it.
         try:
-            _rt71 = (params.get("runtime71") or {}) if isinstance(
-                params, dict) else {}
+            # ── TRACE THE RUNTIME THE COMPOSER USED, NOT THE ONE THE
+            #    BROWSER SENT ──────────────────────────────────────────
+            #
+            # This read `params["runtime71"]` — the raw client payload —
+            # while the composer receives the local `runtime71`, which
+            # by this point carries the server's corrections
+            # (`apply_server_identity`, `attach_seed_status`).
+            #
+            # Measured, Run 3: every trace recorded
+            # `effective_pass: identity` although the composer had the
+            # corrected value and IDENTITY MODE was demonstrably absent
+            # from all ten prompts. The trace was describing the
+            # browser's opinion while claiming to describe the turn.
+            #
+            # TELEMETRY ONLY. Nothing downstream reads `_rt71`; it exists
+            # to be noted. The corrected local is preferred, with the
+            # client payload kept as the fallback for any path that
+            # reaches here before composition.
+            _rt71 = runtime71 if isinstance(runtime71, dict) else (
+                (params.get("runtime71") or {}) if isinstance(params, dict)
+                else {})
             _rt.note("narrator_input", user_text or "", trace_id=_rt_id)
             _rt.note("client_turn_id",
                      (params.get("client_turn_id")

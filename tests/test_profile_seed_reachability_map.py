@@ -216,13 +216,105 @@ class EightDistinctPromotionSitesTests(unittest.TestCase):
                          "two mapped sites share a context, so one of them "
                          "is not independently pinned")
 
-    def test_setPass_is_a_single_plain_setter(self):
-        """No indirection, so the literal sites ARE the population."""
+    def test_setPass_is_the_one_promotion_choke_point(self):
+        """`setPass` is single, and it DELEGATES.
+
+        ── REWRITTEN 2026-09-08, AND WHY ───────────────────────────────
+
+        This asserted the literal one-line body:
+
+            function setPass(p)  { if (state.session)
+                                     state.session.currentPass = p; }
+
+        `c46a386` (2026-08-29, "Phase 3B correction — single promotion
+        policy") deliberately replaced that with the choke point that
+        delegates to `LorevoxProfileSeedAuthority.applyPass`. The test
+        was written 2026-08-26 and has failed since, three days later:
+        it was demanding the architecture Phase 3B removed, so the only
+        way to make it pass was to undo accepted work.
+
+        The claim it existed to protect is still worth protecting, and
+        is now stated against the current design — that the eight mapped
+        sites really are the whole population, because promotion has one
+        door. Strengthened rather than relaxed: the delegation and the
+        fallback are each pinned, and the fallback must sit AFTER the
+        delegating return so it cannot shadow it.
+        """
+        src = _read(_UI / "js" / "state.js")
+        self.assertEqual(
+            src.count("function setPass"), 1,
+            "more than one setPass definition; the choke point is not one door")
+        body = src[src.index("function setPass"):]
+        body = body[:body.index("\nfunction ")]
+
+        delegate = body.index("auth.applyPass(state.session, p)")
+        fallback = body.index("state.session.currentPass = p")
+        self.assertLess(
+            delegate, fallback,
+            "the direct assignment precedes the delegation, so the policy "
+            "would be bypassed whenever the authority module IS present")
         self.assertIn(
-            'function setPass(p)  { if (state.session) state.session.currentPass = p; }',
-            _read(_UI / "js" / "state.js"),
-            "setPass is no longer a one-line setter; indirect promotions "
-            "are now possible and the map must account for them")
+            "return;", body[delegate:fallback],
+            "the delegating branch must return, or both paths run")
+
+    def test_no_promotion_is_written_directly_anywhere(self):
+        """Every `pass2a` promotion goes through `setPass`.
+
+        The old single-setter assertion made this true by construction.
+        With delegation in place it has to be checked, or a caller could
+        promote by assigning `currentPass` itself and never appear in the
+        eight-site map.
+        """
+        offenders = []
+        direct = re.compile(r'currentPass\s*=\s*["\']pass2a["\']')
+        for path in sorted(_UI.rglob("*")):
+            if path.suffix not in (".js", ".html") or "vendor" in path.parts:
+                continue
+            for n, line in enumerate(_read(path).splitlines(), 1):
+                if direct.search(line):
+                    rel = str(path.relative_to(_REPO_ROOT)).replace("\\", "/")
+                    offenders.append(f"{rel}:{n}  {line.strip()[:70]}")
+        self.assertEqual(
+            offenders, [],
+            "a promotion to pass2a bypassed setPass by assigning "
+            "currentPass directly:\n  " + "\n  ".join(offenders))
+
+    def test_the_direct_currentPass_writers_are_a_known_closed_set(self):
+        """Not every write is a promotion — but the list is finite.
+
+        Enumerated so a NEW direct writer fails here and gets read by a
+        human, rather than quietly joining a category that sounds
+        harmless. Each entry below was read before being allowed:
+
+          state.js            the fallback inside `setPass` itself, used
+                              only when the authority module is absent;
+          app.js x2           `applyDeferred` replay callbacks — the
+                              authority decides, the caller applies;
+          app.js              narrator-switch reset to "pass1", a
+                              demotion and never a promotion;
+          profile-seed-       the policy owner itself. It is what
+          authority.js x2     `setPass` delegates TO.
+        """
+        found = set()
+        writer = re.compile(r'\bcurrentPass\s*=\s*(?!=)')
+        for path in sorted(_UI.rglob("*")):
+            if path.suffix not in (".js", ".html") or "vendor" in path.parts:
+                continue
+            rel = str(path.relative_to(_REPO_ROOT)).replace("\\", "/")
+            for n, line in enumerate(_read(path).splitlines(), 1):
+                if writer.search(line) and "currentPass:" not in line:
+                    found.add(f"{rel}:{n}")
+        self.assertEqual(
+            found,
+            {
+                "ui/js/state.js:607",
+                "ui/js/app.js:3707", "ui/js/app.js:3853", "ui/js/app.js:4079",
+                "ui/js/profile-seed-authority.js:405",
+                "ui/js/profile-seed-authority.js:438",
+            },
+            "the set of direct currentPass writers changed. Read each new "
+            "one: a promotion belongs in setPass, and anything else needs "
+            "a reason recorded in this docstring.")
 
 
 class ThePassIsBrowserOwnedTests(unittest.TestCase):

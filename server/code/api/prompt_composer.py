@@ -5114,6 +5114,15 @@ def _compose_prompt_assembly(
             # asserted line by line in the byte-stability tests.
             if profile_seed_onboarding_active(runtime71):
                 pass
+            elif profile_seed_walk_completed(runtime71):
+                # A FINISHED walk is not a HISTORICAL narrator: both
+                # arrive with no payload, and only the second one still
+                # needs the legacy list. See `profile_seed_walk_completed`
+                # for the Run 3 measurement. (Kept short deliberately —
+                # the proximity pin in
+                # `test_profile_seed_reachability_map` measures the
+                # distance to the identity gate above.)
+                pass
             elif current_pass == "pass1":
                 # Build a "what we already know" hint so Lori doesn't re-ask things
                 # that came through the identity anchors or the existing profile.
@@ -5626,10 +5635,65 @@ PROFILE_SEED_ONBOARDING_KEY = "profile_seed_onboarding"
 PROFILE_SEED_SERVER_ATTESTED_KEY = "profile_seed_server_attested"
 
 #: Reserved: server-only, never accepted from a client.
+#: The server's own view of the walk's lifecycle, carried on EVERY turn
+#: — including the ones with no onboarding payload.
+#:
+#: ── WHY A THIRD KEY AND NOT A REUSED ONE (Phase 6 Intervention 2) ────
+#:
+#: `PROFILE_SEED_SERVER_ATTESTED_KEY` means "there is an active,
+#: validated onboarding plan for this turn". A COMPLETED walk has no
+#: plan, so making it attested would be a lie that happens to suppress
+#: the right block — and would then leak into every other consumer that
+#: reasonably reads attested as "onboarding is running".
+#:
+#: These are different facts and stay different keys. Status
+#: distinguishes the three cases the composer must tell apart:
+#:
+#:   key ABSENT      -> historical narrator, no onboarding row. The
+#:                      legacy ten-question block is the only Profile
+#:                      Seed behaviour they have; it MUST still render.
+#:   pending/active/paused
+#:                   -> the server owns onboarding; the legacy block is
+#:                      suppressed by the attested payload as before.
+#:   "completed"     -> the walk is finished. The legacy block must
+#:                      never render again, for any browser pass.
+PROFILE_SEED_STATUS_KEY = "profile_seed_status"
+
+#: The terminal status, matching `profile_seed.STATUS_COMPLETED`.
+PROFILE_SEED_STATUS_COMPLETED = "completed"
+
 PROFILE_SEED_RESERVED_RUNTIME_KEYS = (
     PROFILE_SEED_ONBOARDING_KEY,
     PROFILE_SEED_SERVER_ATTESTED_KEY,
+    # Reserved so a client cannot author it. Only the server may say a
+    # walk is complete — the same boundary as attestation.
+    PROFILE_SEED_STATUS_KEY,
 )
+
+
+def profile_seed_walk_completed(
+        runtime71: Optional[Dict[str, Any]]) -> bool:
+    """Has the SERVER resolved this narrator's Profile Seed as finished?
+
+    Measured, Phase 6 Run 3 (2026-09-08): Ada's walk was COMPLETED and
+    `plan_turn` correctly returned IDLE — so `onboarding_payload()`
+    returned None, `attach_onboarding()` stripped the server markers, and
+    the composer could no longer tell her apart from a historical
+    narrator with no row at all. She fell into the `current_pass ==
+    "pass1"` compatibility branch and received the legacy ten-question
+    list in all ten prompts. Item 5 of that list reads "EDUCATION — How
+    far did they go in school — did they go to college?"; Lori asked
+    "How far did you go in school – did you attend college?" That is
+    recitation, not a model decision — the same shape as the IDENTITY
+    MODE exemplar in Intervention 1.
+
+    THE INVARIANT: once a narrator has completed Profile Seed, no
+    browser pass, stale client value or IDLE plan may resurrect Profile
+    Seed questions.
+    """
+    rt = runtime71 or {}
+    return (str(rt.get(PROFILE_SEED_STATUS_KEY) or "").strip().lower()
+            == PROFILE_SEED_STATUS_COMPLETED)
 
 
 def _validated_onboarding_plan(
