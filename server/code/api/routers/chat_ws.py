@@ -6396,6 +6396,42 @@ async def ws_chat(ws: WebSocket):
                 _phantom_scrub_on = (
                     lambda: _authority.snapshot.is_selected(31))
 
+                # ── GUARD LAB ids 30 / 31 — OBSERVABILITY ONLY ──────────
+                # Phase 6 B1. These two authorities wrote NO trace
+                # evidence at all: their only record was a logger.warning
+                # that fires when something is flagged. So "selected, ran,
+                # found nothing" and "never ran" were indistinguishable in
+                # every trace — the exact observability gap Phase 6 exists
+                # to close, and the reason the cohort-C report had to mark
+                # them `unverified` rather than measure them.
+                #
+                # FOUR SEPARATE FACTS, and none is inferred from another:
+                #   selected  — the operator's snapshot allows it
+                #   evaluated — the detector actually executed
+                #   eligible  — there was something for it to act on
+                #   fired     — it changed the narrator-facing text
+                # "No text changed" is not enough: a detector that was
+                # never reached and one that ran against an empty corpus
+                # must not read the same.
+                #
+                # A stage is emitted on EVERY turn that reaches here,
+                # including when the authority is unselected, its import
+                # failed, or it ran and stayed silent. NOTHING BELOW
+                # CHANGES final_text — the assignment at the end of the
+                # try block is byte-for-byte the one that was already
+                # there, and this block is narrator-behaviour-neutral.
+                _ph_before = final_text
+                _ph_evaluated = False
+                _ph_flagged: List[str] = []
+                _ph_scrubbed = False
+                _ph_corpus_chars = 0
+                _ph_reason: Optional[str] = None
+
+                if _scrub_phantom is None:
+                    _ph_reason = "import_failed"
+                elif not _phantom_detect_on:
+                    _ph_reason = "not_selected"
+
                 if _scrub_phantom is not None and _phantom_detect_on:
                     try:
                         # Build narrator_corpus from current turn + recent archive
@@ -6417,12 +6453,25 @@ async def ws_chat(ws: WebSocket):
                             if isinstance(runtime71, dict) else {}
                         ) or {}
 
+                        _ph_corpus_chars = len(_narrator_corpus)
+
                         _phantom_result = _scrub_phantom(
                             final_text,
                             narrator_corpus=_narrator_corpus,
                             profile_seed=_profile_seed,
                             scrub_mode=_phantom_scrub_on(),
                         )
+                        # The detector returned. That is `evaluated`, and
+                        # it is true whether or not anything was flagged.
+                        _ph_evaluated = True
+                        try:
+                            _ph_flagged = [
+                                str(_f) for _f in
+                                (_phantom_result.get("flagged") or [])
+                            ]
+                        except Exception:
+                            _ph_flagged = []
+                        _ph_scrubbed = bool(_phantom_result.get("scrubbed"))
                         if _phantom_result.get("flagged"):
                             logger.warning(
                                 "[chat_ws][phantom-noun] flagged=%s scrub_mode=%s "
@@ -6436,10 +6485,59 @@ async def ws_chat(ws: WebSocket):
                                     and _authority.snapshot.is_selected(31)):
                                 final_text = _phantom_result["final_text"]
                     except Exception as _phantom_exc:
+                        _ph_reason = "guard_threw"
                         logger.warning(
                             "[chat_ws][phantom-noun] guard threw (chat continues): %s",
                             _phantom_exc,
                         )
+
+                # Emit both authorities' evidence unconditionally. Wrapped
+                # so a trace failure can never cost the narrator a turn.
+                try:
+                    _rt.stage(
+                        "phantom_noun_detect",
+                        fired=bool(_ph_flagged),
+                        before=_ph_before,
+                        after=_ph_before,
+                        reason=_ph_reason,
+                        trace_id=_rt_id,
+                        authority_id=30,
+                        selected=bool(_phantom_detect_on),
+                        evaluated=_ph_evaluated,
+                        # It had a corpus to judge against. A detector
+                        # that ran on an empty corpus found nothing
+                        # because there was nothing to find, which is a
+                        # different fact from finding nothing in real
+                        # material.
+                        eligible=bool(_ph_evaluated and _ph_corpus_chars > 0),
+                        flagged=_ph_flagged,
+                        narrator_corpus_chars=_ph_corpus_chars,
+                    )
+                    _rt.stage(
+                        "phantom_noun_scrub",
+                        # id 31 is the only one of the pair that may write.
+                        fired=(final_text != _ph_before),
+                        before=_ph_before,
+                        after=final_text,
+                        reason=(
+                            _ph_reason if _ph_reason is not None
+                            else (None if _phantom_scrub_on()
+                                  else "not_selected")
+                        ),
+                        trace_id=_rt_id,
+                        authority_id=31,
+                        selected=bool(_phantom_scrub_on()),
+                        # id 31 never runs independently — it is a mode of
+                        # the id 30 call, so it is evaluated exactly when
+                        # the detector was.
+                        evaluated=_ph_evaluated,
+                        # Nothing to scrub unless the detector flagged and
+                        # the scrub actually produced replacement text.
+                        eligible=bool(_ph_scrubbed),
+                        flagged=_ph_flagged,
+                    )
+                except Exception:
+                    pass
 
                 _cc_result = enforce_lori_communication_control(
                     assistant_text=final_text,
@@ -6912,11 +7010,40 @@ async def ws_chat(ws: WebSocket):
         # never sees a sensory probe even when the LLM drifts under
         # directive pressure. Runs BEFORE the surface-level response
         # guards so we don't waste polish on text we're throwing away.
-        if (
+        # Phase 6 B1 — the receipt path has its own entry condition, and
+        # when it is false ids 47/48 previously left no trace at all. That
+        # made "this turn was never a witness receipt" indistinguishable
+        # from "the validator was excluded", so the stage is emitted on
+        # both arms. The boolean is the original condition, unchanged.
+        _wr_path_reached = bool(
             _witness_use_llm_receipt
             and _witness_detection_for_fallback is not None
             and final_text
-        ):
+        )
+        if not _wr_path_reached:
+            try:
+                _rt.stage(
+                    "witness_receipt_validator",
+                    fired=False,
+                    before=final_text,
+                    after=final_text,
+                    reason="receipt_path_not_reached",
+                    trace_id=_rt_id,
+                    authority_id=47,
+                    selected=bool(_authority.snapshot.is_selected(47)),
+                    evaluated=False,
+                    eligible=False,
+                    verdict="not_reached",
+                    failures=[],
+                    llm_receipt_enabled=bool(_witness_use_llm_receipt),
+                    witness_detection=bool(
+                        _witness_detection_for_fallback is not None),
+                    has_text=bool(final_text),
+                )
+            except Exception:
+                pass
+
+        if _wr_path_reached:
             try:
                 from ..services.lori_witness_mode import (
                     validate_witness_receipt as _validate_wr,
@@ -6926,7 +7053,16 @@ async def ws_chat(ws: WebSocket):
                 # GUARD LAB id 47 — the validator, distinct from the
                 # id 48 fallback it triggers. Its 'too_short' fires on
                 # text id 35 shortened for being 'too_long'.
-                if not _authority.snapshot.is_selected(47):
+                # Phase 6 B1 — id 47 wrote no trace stage of its own, so
+                # a validator that PASSED and a validator that was never
+                # selected produced identical evidence: both left
+                # `_wr_ok=True` and no record. Its verdict could only be
+                # inferred backwards from whether id 48's fallback stage
+                # appeared, which cannot distinguish "judged and approved"
+                # from "nobody judged". Recorded explicitly now.
+                _wr_selected = bool(_authority.snapshot.is_selected(47))
+                _wr_evaluated = False
+                if not _wr_selected:
                     # Excluded: nothing judges the receipt, so nothing
                     # can reject it. The model's own words stand and id
                     # 48's fallback has no trigger.
@@ -6936,6 +7072,40 @@ async def ws_chat(ws: WebSocket):
                         lori_text=final_text,
                         narrator_text=user_text or "",
                     )
+                    _wr_evaluated = True
+                try:
+                    _rt.stage(
+                        "witness_receipt_validator",
+                        # A VALIDATOR FIRES WHEN IT REJECTS. It never
+                        # writes text itself — id 48 does — so before and
+                        # after are deliberately the same string and
+                        # `changed` is always False here. Attributing id
+                        # 48's replacement to id 47 is the conflation
+                        # this stage exists to prevent.
+                        fired=bool(_wr_evaluated and not _wr_ok),
+                        before=final_text,
+                        after=final_text,
+                        reason=(
+                            None if _wr_evaluated
+                            else "not_selected_receipt_unjudged"
+                        ),
+                        trace_id=_rt_id,
+                        authority_id=47,
+                        selected=_wr_selected,
+                        evaluated=_wr_evaluated,
+                        # There was a receipt to judge: this branch is
+                        # only reached with a witness detection and
+                        # non-empty text, so eligibility is the
+                        # evaluation actually happening.
+                        eligible=_wr_evaluated,
+                        verdict=(
+                            "unjudged" if not _wr_evaluated
+                            else ("pass" if _wr_ok else "fail")
+                        ),
+                        failures=list(_wr_failures or []),
+                    )
+                except Exception:
+                    pass
                 if not _wr_ok:
                     # WO-LORI-WITNESS-FOLLOWUP-BANK-01 — prefer the
                     # rich receipt + immediate-door composer when in

@@ -452,15 +452,28 @@ REGISTRY: Tuple[Intervention, ...] = (
         purpose="Flags personal proper nouns in Lori's reply that are not "
                 "grounded in narrator or profile context.",
         motivating_failure="Lori naming people the narrator never mentioned.",
+        known_harm="NOT MEASURED. Until 2026-09-08 this authority emitted no "
+                   "trace stage, so 'selected, ran, found nothing' and 'never "
+                   "ran' were indistinguishable and the Phase 6 cohort had to "
+                   "report it `unverified`. It now records selected / "
+                   "evaluated / eligible / fired on every turn.",
+        trace_stage="phantom_noun_detect",
     ),
     Intervention(
         id=31, name="phantom_noun_scrub", display="Invented-Name Remover",
         cls=CLASS_TRANSFORM, position=301,
-        location="chat_ws.py:5983 final_text = _phantom_result['final_text']; "
-                 "gate _phantom_noun_scrub_enabled()",
+        location="chat_ws.py final_text = _phantom_result['final_text'] "
+                 "inside the id-30 guard block; gate is "
+                 "snapshot.is_selected(31), passed as scrub_mode",
         default_on=False, policy=POLICY_SWITCHABLE, counterfactual=CF_PURE,
         purpose="Removes sentences containing detected phantom nouns.",
         motivating_failure="As id 30, where flagging alone was not enough.",
+        known_harm="NOT MEASURED, as id 30 — no trace stage existed until "
+                   "2026-09-08. Note it never runs independently: it is a "
+                   "MODE of the id-30 call (`scrub_mode=`), so it is "
+                   "`evaluated` exactly when the detector was, and it is the "
+                   "only one of the pair that may write text.",
+        trace_stage="phantom_noun_scrub",
     ),
     Intervention(
         id=32, name="cc_safety_path", display="Safety Control Exemption",
@@ -657,7 +670,18 @@ REGISTRY: Tuple[Intervention, ...] = (
         known_harm="Only runs on turns id 23 already claimed. Its "
                    "'too_short' fires on text id 35 shortened for being "
                    "'too_long' - two layers with opposite objectives on one "
-                   "turn.",
+                   "turn. AND UNTIL 2026-09-08 IT WROTE NO TRACE STAGE: a "
+                   "validator that PASSED and one that was never selected "
+                   "left identical evidence, so its verdict could only be "
+                   "inferred backwards from whether id 48's fallback stage "
+                   "appeared - which cannot separate 'judged and approved' "
+                   "from 'nobody judged'. It now records selected / "
+                   "evaluated / eligible / fired plus an explicit verdict "
+                   "(pass / fail / unjudged / not_reached). NOTE: a VALIDATOR "
+                   "fires when it REJECTS; it never writes text, so its "
+                   "before and after are deliberately equal and `changed` is "
+                   "always false. The replacement belongs to id 48.",
+        trace_stage="witness_receipt_validator",
     ),
     Intervention(
         id=48, name="witness_receipt_fallback", display="Witness Reply Replacement",
