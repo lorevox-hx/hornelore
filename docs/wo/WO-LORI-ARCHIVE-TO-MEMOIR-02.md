@@ -1348,9 +1348,16 @@ The full run output, with per-mutation elapsed times, is preserved at
 `docs/reports/WO-LORI-ARCHIVE-TO-MEMOIR-02_PHASE5B_CLOSEOUT.md` (local-only; the reports
 directory is gitignored).
 
-## Phase 5C — Meaning with no schema destination  ⏸ **QUEUED — not active**
+## Phase 5C — Meaning with no schema destination  ✅ **DONE 2026-09-07 (Block B)**
 
-**Queued behind the Lori measurement block, 2026-09-06.** The scope below stands
+**This section is the original scoping statement, kept as written.** It was headed
+"⏸ QUEUED — not active" until 2026-09-08, which contradicted this work order's own §B
+table and the implemented record at **§5C above** (*"PHASE 5C — ONE DISPOSITION PATH FOR
+MEANING WITH NO DESTINATION (2026-09-07)"*). **§5C and §B are the authority for what
+landed; what follows is the scope it was built against, not open work.**
+
+**It was queued behind the Lori measurement block on 2026-09-06, and that block then ran.**
+The scope below stands
 unchanged; only its position moved. The reason is substantive rather than
 administrative: two of 5C's three open destinations — what consumes
 `STATE_DECEASED`, and where the `adult` / `older` / `younger` qualifiers belong — are

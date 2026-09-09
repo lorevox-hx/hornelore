@@ -34,7 +34,7 @@ rule back. The claim that matters is the one about obligations.)*
 > | **Dataset — frozen, do not extend** | Walt `9d96e1db-8f8` **8/8 traced** (primary) · John 1 `da567099-505` **7/8** (era 01 diverted to the witness path, never traced) · John 2 `8bd4ae81-1ec` **0/8** (accidental repeat, parked at shutdown; behavioural replication only, via `api.log`) · GPU 4,230 samples · **`api.log` is the fallback for every untraced turn.** `…_200124` is a stray from an abandoned arming — ignore it, delete nothing |
 > | **What it does NOT establish** | **Nothing about conversational quality or listening.** These are the dense-narration harnesses, authorised by §9 for context pressure and explicitly barred from answering the §8 turn-shape questions. **The short-natural-turn Walt run in §5 remains OWED and UNRUN.** No refusal, cancellation or `measurement_failed` path occurred, so the terminal-trace machinery is untested live. Nothing was tuned |
 > | **Why before 5C** | Two of Phase 5C's three open destinations — what consumes `STATE_DECEASED`, and where the `adult`/`older`/`younger` qualifiers belong — are questions about what the memoir needs. Walt+John is the first measurement that speaks to them. Deciding them first would design a destination before seeing the traffic |
-> | **Phase 5C** | ⏸ **QUEUED, not active.** Scope unchanged in the work order: one disposition path for "understood, no destination", and a deliberate decision or recorded refusal for the qualifiers and `STATE_DECEASED`. **`siblings.birthOrder` is not the answer for `older`** — mapping it would manufacture a fact. **Do not disable `HORNELORE_CLAIMS_VALIDATORS` as a product fix** — it gates several safeguards while leaving the parse-time whitelist active |
+> | **Phase 5C** | ✅ **DONE 2026-09-07 as Block B** — one disposition contract for "understood, no destination", corrected and audited to a truthful Phase 5 exit gate. `WO-LORI-ARCHIVE-TO-MEMOIR-02` §B and §5C. *(This row said "QUEUED, not active" until 2026-09-08, contradicting the Blocks A/B/C row four lines above it.)* **The prohibitions it carried still bind:** `siblings.birthOrder` is not the answer for `older` — mapping it would manufacture a fact; and **do not disable `HORNELORE_CLAIMS_VALIDATORS` as a product fix**, since it gates several safeguards while leaving the parse-time whitelist active |
 > | **Mutation gate** | ✅ **85/85 caught, 0 MISSED, 0 BROKEN, 180.0 min** — 2026-09-06, `.venv/bin/python`, clean tree, journal absent, product tree restored. 35 of the 85 are designs a lane actually carried. **Baseline: 12 unique commands, all green — and `test_profile_seed_rest_read_authority` ran 48 with 6 SKIPPED**, which is stated because `OK` with skips is not a pass and eleven `S` mutations depend on that suite. **This is the accepted Phase 5B/tooling baseline, and the gate is now ACCEPTANCE-ONLY.** Three suites are 80% of the three hours (`docs/BACKLOG.md` §6c); day to day run the focused tests plus the family that protects the changed file, per the map in `scripts/run_mutation_gate.py`. **The rule is "follow a moved invariant", not "run nearby families"** — `C8` survived a full gate because a refactor moved `identity_complete` into a reader its tests did not watch |
 > | **Phase 5A + 5B** | ✅ **ACCEPTED 2026-09-06** on the 85/85 gate. 5A bound bio-fact provenance to the committed-turn `_Claim`. 5B built `relationship_interpreter.py` — one vocabulary, derived rather than duplicated — added `family.priorPartners.relation`, and made **the narrator's wording decide the lane**: the deliberately crossed passage is corrected, `ex-wife` stores relation `wife` with the phrase in provenance, `partner` binds without manufacturing a marriage, `late wife` keeps the word `late` under a third state `deceased`, an ex-wife's occupation goes to review rather than to the current spouse, person association is re-derived after a lane change, and the Family Tree draws `partnership` / `former_marriage` / `marriage` instead of `marriage` for everything. **74 tests in the two lane suites (0 skips); 156 with the Phase 4/5A suites; mutation gate `L1`–`L9` 9/9 caught, 7 of them designs this lane actually carried.** Sandbox `python3` only — `.venv` is Chris's run |
 > | **Phase 5B — the four boundary defects** | All four were invisible to helper-level tests: (1) `getattr(req, "conv_id")` — not a field on the request, so production wrote null provenance while `session_id` sat unused; (2) `ExtractedItem(...)` names its kwargs, so the recorded narrator phrase was dropped one call before the pass that needed it; (3) the lane was chosen by the CANONICALIZED value, and `wife` occurs twice in the mixed passage, Mary's first; (4) grouping runs BEFORE the lane pass, so moved items reached callers with no person association while a comment claimed they were regrouped |
@@ -56,8 +56,12 @@ rule back. The claim that matters is the one about obligations.)*
 >
 > **Profile Seed Phase 3 is OWED, not current.** It was a previous current action and is
 > **IN IMPLEMENTATION with ACCEPTANCE OPEN**; it is not cancelled and not superseded — see
-> §2. Hygiene Phase A remains ACCEPTED with its remainder PAUSED and
-> `WO-REPOSITORY-HYGIENE-01` INCOMPLETE. **No priority change ever converts owed work into
+> §2. **Repository hygiene is COMPLETE** — `WO-REPOSITORY-HYGIENE-01` closed 2026-09-08 at
+> `e0fde84`, its deferred remainder resumed and discharged across `93a8f85`, `9e1db2a` and
+> `e0fde84`. *(These lines said "Phase A ACCEPTED, remainder PAUSED, work order INCOMPLETE"
+> until 2026-09-08. That was true when written and is now false; the residual obligations
+> the closeout registered rather than fixed are in `docs/BACKLOG.md`, and completing the
+> work order did not discharge them.)* **No priority change ever converts owed work into
 > finished work**, and no document may say otherwise.
 >
 > **Still frozen:** runtime safety, the model and its 8,192-token window, the directive
@@ -100,7 +104,8 @@ stopped moving:
 | `5f6b01b` | Repository hygiene **Step 1** (indexes) accepted |
 | `db0c5e7` | Repository hygiene **Step 2** (control authority) accepted |
 | `ff1ff4f` | Repository hygiene **Step 2b** (changelog preservation) accepted |
-| `5086490` | Repository hygiene **Step 3, first cohort** — the four root dated artifacts, moved byte-for-byte. **The last accepted hygiene commit; Phase A ends here** |
+| `5086490` | Repository hygiene **Step 3, first cohort** — the four root dated artifacts, moved byte-for-byte. **Phase A ends here** |
+| `93a8f85` · `9e1db2a` · `e0fde84` | Repository hygiene **Blocks 1–3, resumed and accepted 2026-09-08**. `e0fde84` is the closeout and **the last hygiene commit; `WO-REPOSITORY-HYGIENE-01` is COMPLETE** |
 | `12221e0`…`58dfc40` | Profile Seed **Phase 2 Step 6** — implementation and correction block. **ACCEPTED 2026-08-29**, 16/16 live through the production WebSocket |
 | `525a43f` | The Step 6 live probe, committed. Run 2's provenance rests on this |
 | `6885bb2` | Profile Seed **Phase 2 Step 7** — consolidated closure and control reconciliation |
@@ -138,9 +143,9 @@ the count it produces is not evidence about this change.
 
 | Lane | State |
 |---|---|
-| **`WO-LORI-ARCHIVE-TO-MEMOIR-02`** | 🔵 **ACTIVE — Phases 0–4 and 5A/5B ACCEPTED; 5C QUEUED. NOT the current action** — `WO-LORI-BASELINE-RESET-AND-GUARD-LAB-01` is, and 5C waits on it deliberately. §9.** **Phase 1** proved the memoir chain (`20260904T123556Z` mutations, `20260904T130525Z` proof at zero mutations, exit 0, agreement 1/1/1). **Phase 2** closed the mechanism audit read-only: archival 38/38, candidates 35/38, transcripts 35/35 byte-exact, zero over-capture. **Its findings were CORRECTED 2026-09-04 after reading `.runtime/logs/api.log`, which the original audit never opened:** the capture decision is recorded for all 38 turns and agrees exactly with the recomputed split (18/17/3), so the defect is durability not absence; the three misses share one cause (no relative time phrasing in a present-day life inventory); and the zero ledger rows are a **harness** gap, not a product defect. **Phase 3:** correction-route bypass + spouse-under-`parents.*`, both now cited to their reading lines — the browser regex at `app.js:2599` fires on *"not the"* in Stefi's clarification, and `chat_ws.py:965` passes `assistant_text=None` so the extractor reads the narrator. Capture-decision persistence is **Phase 4**. Reproduce: `python3 scripts/phase2_verify_ledger.py` |
+| **`WO-LORI-ARCHIVE-TO-MEMOIR-02`** | 🔵 **ACTIVE AND CURRENT — Phases 0–4, 5A/5B and 5C ACCEPTED; Blocks A, B and C DONE. PHASE 6 (Block D, conversational quality) IS THE CURRENT WORK.** `WO-LORI-BASELINE-RESET-AND-GUARD-LAB-01` built the instrument and is no longer the blocking action; its four open live checks are acceptance evidence and block nothing. §9. *(This row said "5C QUEUED, NOT the current action" until 2026-09-08.)* **Phase 1** proved the memoir chain (`20260904T123556Z` mutations, `20260904T130525Z` proof at zero mutations, exit 0, agreement 1/1/1). **Phase 2** closed the mechanism audit read-only: archival 38/38, candidates 35/38, transcripts 35/35 byte-exact, zero over-capture. **Its findings were CORRECTED 2026-09-04 after reading `.runtime/logs/api.log`, which the original audit never opened:** the capture decision is recorded for all 38 turns and agrees exactly with the recomputed split (18/17/3), so the defect is durability not absence; the three misses share one cause (no relative time phrasing in a present-day life inventory); and the zero ledger rows are a **harness** gap, not a product defect. **Phase 3:** correction-route bypass + spouse-under-`parents.*`, both now cited to their reading lines — the browser regex at `app.js:2599` fires on *"not the"* in Stefi's clarification, and `chat_ws.py:965` passes `assistant_text=None` so the extractor reads the narrator. Capture-decision persistence is **Phase 4**. Reproduce: `python3 scripts/phase2_verify_ledger.py` |
 | **Memory Integrity Layer / guardrail audit** | 🟡 **DESIGN THREAD — no work order yet.** Response-guard audit done; `BUG-LORI-FEWSHOT-EXEMPLAR-LEAK-01_Spec.md` (repo root) is **ACTIVE / NEXT**. Nothing here is scheduled. §10 |
-| **Repository hygiene** | ⏸️ **PHASE A ACCEPTED, REMAINDER PAUSED — the work order is INCOMPLETE.** Steps 0, 1 `5f6b01b`, 2 `db0c5e7`, 2b `ff1ff4f` and the first Step 3 cohort `5086490` are accepted. **Deferred by product-priority decision:** the remaining Step 3 cohorts, Steps 4–5, and the final verification checkpoint. Still indexed, still owed, not scheduled |
+| **Repository hygiene** | ✅ **COMPLETE 2026-09-08 — `WO-REPOSITORY-HYGIENE-01` is CLOSED at `e0fde84`. Do not reopen it.** Phase A: Steps 0, 1 `5f6b01b`, 2 `db0c5e7`, 2b `ff1ff4f`, first Step 3 cohort `5086490`. The remainder, deferred 2026-08-28 by product-priority decision, was resumed and discharged 2026-09-08 across `93a8f85` (root spec pile emptied, 30 specs reconciled and rehomed, **root WO/BUG count 0**), `9e1db2a` (one test root, shadow archived, docs by ownership) and `e0fde84` (index lifecycle, entry surfaces, closeout). **Completion is not a claim the repository is "fully clean":** ten scripts remain explicitly `unknown` and are retained, and the product and test obligations the pass discovered were **registered in [`docs/BACKLOG.md`](docs/BACKLOG.md), not fixed** — closing the work order did not discharge them. *(This row read "PHASE A ACCEPTED, REMAINDER PAUSED — INCOMPLETE" until 2026-09-08.)* |
 | **Profile Seed reachability** | ⏸️ **OWED — Phase 3 IN IMPLEMENTATION with ACCEPTANCE OPEN, and no longer the current action.** *(It was, until `WO-LORI-ARCHIVE-TO-MEMOIR-02` took priority. Owed work does not become finished work when the lane changes.)* Phase 0 `661aa95` · Phase 1 `1288baa` · **Phase 2 ACCEPTED 2026-08-29, steps 1–7 complete** (step 4 `b269184`, step 5 `9127adb`, pre-Step-6 corrections `d0e5294`, step 6 `12221e0`…`58dfc40` live, step 7 `6885bb2`) · Phase 3 implementation landed through `2b7e634`; its six acceptance conditions remain open. Phases 4–5 are partially run and not accepted. See the Profile Seed spec's reconciled status block |
 | `WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01` | **COMPLETE** — Phases 1–4 accepted. Closes the three L2 integration defects |
 | `WO-LORI-CONVERSATION-TO-LIFE-MAP-MEMOIR-01` | **ACCEPTED AND COMPLETE 2026-08-20** — story-to-memoir 11/11, deletion integrity 10/10, verified against filesystem and SQL |
@@ -342,14 +347,14 @@ Full register with evidence: [`docs/BACKLOG.md`](docs/BACKLOG.md).
 | `CLAUDE.md` | Durable doctrine and prohibitions |
 | `docs/INDEX.md` | Where documentation authority lives |
 | `docs/BACKLOG.md` | Unresolved obligations, with evidence |
-| `docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md` | The **paused** repository lane — Phase A accepted, remainder deferred and incomplete. **Not the current action;** `WO-LORI-BASELINE-RESET-AND-GUARD-LAB-01` is |
+| `docs/wo/WO-REPOSITORY-HYGIENE-01_Spec.md` | The **closed** repository lane — COMPLETE 2026-09-08 at `e0fde84`. Read for its closeout and its registered residuals only. **Do not reopen repository hygiene** |
 | `docs/wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md` + `..._PHASE2_TRANSPORT_MAP.md` | The owed Profile Seed lane — Phase 3 implementation landed, acceptance open |
 | `docs/architecture/TRAVEL_DOCUMENT_DOCTRINE.md` | Binding Travel Document rulings |
 
 Historical handoffs and long status narratives live in Git history and `docs/archive/`.
 **They must not be appended back into this operational brief.**
 
-## 9. `WO-LORI-ARCHIVE-TO-MEMOIR-02` — Phases 1–4 and 5A/5B CLOSED; **5C QUEUED behind the Lori measurement block** (2026-09-06)
+## 9. `WO-LORI-ARCHIVE-TO-MEMOIR-02` — Phases 1–4, 5A/5B **and 5C CLOSED**; **Phase 6 is next** (updated 2026-09-08)
 
 **Phase 3 ACCEPTED 2026-09-05.** Its exit gate is met: Stefi follows the normal turn path,
 the three spouse fixtures bind, no false parent field is written, and uncertain
@@ -438,12 +443,14 @@ path. `STATE_DECEASED` is recorded and consumed by nothing but the Family Tree e
 `older` onto `siblings.birthOrder` would manufacture a fact and was deliberately not done.
 The 114/14 banks were not rerun.
 
-**Phase 5C is QUEUED, not current** — the Lori measurement block runs first (see the
-current-action box at the top of this file), because two of 5C's three open destinations
-are questions the Walt+John evidence speaks to. Its scope is unchanged: meaning with no
-schema destination, one disposition path for
-"understood, no destination" instead of one per case, and a deliberate decision (or a
-recorded refusal) for the qualifiers and for `STATE_DECEASED`. **Do not disable
+**PHASE 5C IS DONE — 2026-09-07, as Block B.** One disposition contract for meaning with no
+schema destination, corrected and audited to a truthful Phase 5 exit gate; detail in
+`WO-LORI-ARCHIVE-TO-MEMOIR-02` §5C. *(This paragraph read "Phase 5C is QUEUED, not current"
+until 2026-09-08. It was written while the measurement block ran first — which it did, and
+which is why the "Why before 5C" row in the current-action box is still an accurate
+historical rationale — but the
+measurement finished, 5C landed, and the queued status did not follow.)* **The prohibition
+it carried is unchanged and still binds: do not disable
 `HORNELORE_CLAIMS_VALIDATORS` as a product fix** — it gates several safeguards while leaving
 the parse-time whitelist active, and two of the three arity-crash paths found in 5B were that
 flag's own branches.

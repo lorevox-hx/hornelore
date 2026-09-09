@@ -184,7 +184,8 @@ scheduled.**
 ### 2.4 Kawa / Memory River removal debt — ✅ DISCHARGED 2026-09-08
 
 **Implementation-removal debt is CLOSED.** `WO-KAWA-REMOVAL-01` landed as `3481d1a`
-(compatibility half) + `0a16c88` (removal half): 1,389 deletions against 187 insertions,
+(compatibility half) + `0a16c88` (removal half): **16 files changed, 1,389 deletions against
+393 insertions** — 187 of those into existing files and 206 the new structural test —
 five runtime files deleted, router unmounted, `/api/kawa/*` gone, and the Kawa injection
 into memoir prompts — the one place Kawa language reached narrator-facing output —
 removed. Verified with `tests/test_kawa_product_path_removed.py`, which asserts in **both**

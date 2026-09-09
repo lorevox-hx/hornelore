@@ -12,7 +12,7 @@ Memory River — REMOVED from the product 2026-09-08*.
 | Commit | Half | What it did |
 |---|---|---|
 | `3481d1a` | **compatibility** | Retired-value normalization for all three fields, landed **before** anything was deleted, so no step of the removal could strand a narrator |
-| `0a16c88` | **removal** | Deleted the subsystem; 1,389 deletions against 187 insertions across 16 files |
+| `0a16c88` | **removal** | Deleted the subsystem; **1,389 deletions against 393 insertions across 16 files** — 187 into existing files, 206 the new `tests/test_kawa_product_path_removed.py`. *(This cell said "187 insertions" as the whole-commit figure until 2026-09-08.)* |
 
 **Why two commits.** Part 1 makes legacy state safe; Part 2 destroys the retired
 implementation. If Part 2 had a problem it could be stopped or reverted without
@@ -34,7 +34,7 @@ the test instead of destroying them:**
 | Retired-language eval, which **rejects** Kawa vocabulary | `data/evals/sentence_diagram_cultural_context_cases_sd044_sd065.json` |
 | Geographic `River` in the place-fragment anchor regex | `ui/hornelore1.0.html` `_LV80_PLACE_FRAG_ANCHOR_RX` |
 | On-disk footprint reporting for `kawa/people` | `scripts/step6_ws_probe.py` |
-| Research papers and archived Kawa work orders | `Research/Kawa/`, `docs/archive/` |
+| Research papers and archived Kawa work orders | `docs/references/`, `docs/archive/workorders-pre-pivot/` — **not** `Research/Kawa/`, which this row named until 2026-09-08 and which does not exist at HEAD |
 
 **Narrator data: `DATA_DIR/kawa/` was never touched.** On this deployment the
 directory **did not exist**, so the pre-removal manifest was empty and the boundary
