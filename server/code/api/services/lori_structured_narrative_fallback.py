@@ -41,9 +41,64 @@ _CASCADE_FILTER_TOKENS = frozenset({
 # Proper-noun-shaped tokens from narrator text. Multi-word phrases
 # captured greedily: "Saint Augustine", "Cochiti Pueblo", "Mount Olive
 # AME", "Boston Latin School", "Mexico City", "North Quincy".
-_PROPER_NOUN_RX = re.compile(
-    r"\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,3})\b"
+#
+# ── Punctuation-aware name-token grammar ─────────────────────────────
+#
+# WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 6 Block C (2026-09-09).
+#
+# The previous token pattern was `[A-Z][a-zA-Z]+`, whose character class
+# admits neither "." nor "'". Punctuation inside a legitimate proper name
+# therefore TERMINATED the phrase and the remainder began a new one:
+#
+#     "West St. Paul"        -> ['West St', 'Paul']
+#     "Saint Patrick's Day"  -> ['Saint Patrick', 'Day']
+#     "O'Connor"             -> ['Connor']
+#
+# Those are manufactured entities, not truncations. This extractor is
+# the anchor source for the witness-receipt fallback (Guard Lab id 48) —
+# lori_witness_mode.compose_structured_witness_receipt calls
+# extract_safe_anchors at lori_witness_mode.py:2157 and renders the pair
+# straight into "X and Y — there's a lot held in that." So a split name
+# reached the narrator as two separate things they had supposedly said.
+#
+# The repair admits punctuation ONLY inside proper-name structure; every
+# other phrase-termination decision is unchanged.
+#
+#   _NAME_TOKEN        Bardstown, O'Connor, D'Angelo — internal
+#                      apostrophe continuing into another capitalized
+#                      letter. Two-character minimum, exactly as before.
+#   _POSSESSIVE_TOKEN  Patrick's — glued ONLY when another capitalized
+#                      token follows, so a trailing possessive
+#                      ("Kent's house") still yields "Kent".
+#   _ABBREV_TOKEN      "St." ONLY when it immediately continues into
+#                      another capitalized token ("St. Paul").
+#
+# DELIBERATELY UNSOLVED: "We lived on Currier St. Paul visited that
+# winter" is ambiguous to any regex. This reads it as one name. Do not
+# grow the parser into pretend grammatical understanding.
+#
+# Mirrors the grammar in factual_chain_capture but kept LOCAL and
+# separate on purpose: that module caps phrases at 3 words and filters
+# through _BAD_ANCHOR_TOKENS, this one caps at 4 and filters through
+# _CASCADE_FILTER_TOKENS. The mirroring is intentional and the modules
+# stay independently auditable. Do NOT factor these into a shared
+# helper, and do not assert the two extractors return identical anchor
+# sets — only the punctuation invariant is common to both.
+_NAME_TOKEN = r"[A-Z](?:[a-zA-Z]+|['’][A-Z][a-zA-Z]*)"
+_POSSESSIVE_TOKEN = r"[A-Z][a-zA-Z]+['’]s"
+_ABBREV_TOKEN = r"St\."
+_NAME_UNIT = (
+    r"(?:"
+    + _ABBREV_TOKEN + r"(?=\s+[A-Z])"
+    + r"|" + _POSSESSIVE_TOKEN + r"(?=\s+[A-Z])"
+    + r"|" + _NAME_TOKEN
+    + r")"
 )
+
+# Up to four name tokens, preserving this module's own phrase cap.
+_NAME_PHRASE = _NAME_UNIT + r"(?:\s+" + _NAME_UNIT + r"){0,3}"
+
+_PROPER_NOUN_RX = re.compile(r"\b(" + _NAME_PHRASE + r")\b")
 
 
 def extract_safe_anchors(text: str, *, max_n: int = 4) -> List[str]:

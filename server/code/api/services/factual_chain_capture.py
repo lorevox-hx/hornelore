@@ -68,17 +68,71 @@ DEFAULT_BLOCKED_PROBE_TYPES = (
 # Regex patterns
 # ──────────────────────────────────────────────────────────────────────────
 
-# Proper-noun place (1-3 capitalized words). Mirrors the pattern in
-# lori_structured_narrative_fallback._PROPER_NOUN_RX but kept local so
-# this module remains independently auditable.
-_PROPER_NOUN_RX = re.compile(
-    r"\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,2})\b"
+# ── Proper-noun name-token grammar (punctuation-aware) ───────────────
+#
+# WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 6 Block C (2026-09-09).
+#
+# The previous token pattern was `[A-Z][a-zA-Z]+`, whose character class
+# admits neither "." nor "'". Punctuation inside a legitimate proper name
+# therefore TERMINATED the phrase and the remainder began a new one:
+#
+#     "West St. Paul"        -> ['West St', 'Paul']
+#     "Saint Patrick's Day"  -> ['Saint Patrick', 'Day']
+#     "O'Connor"             -> ['Connor']
+#
+# Those are not truncations, they are manufactured entities, and Guard
+# Lab ids 40 and 48 echoed them to the narrator verbatim ("From Saint
+# Patrick to Day to 1950 —"). The measured harm is recorded at
+# lori_guard_registry.py:586 (id 40).
+#
+# The repair admits punctuation ONLY where it sits inside proper-name
+# structure. Every other phrase-termination decision is unchanged.
+#
+#   _NAME_TOKEN        Bardstown, O'Connor, D'Angelo — an internal
+#                      apostrophe continuing into another capitalized
+#                      letter. Two-character minimum, exactly as before.
+#   _POSSESSIVE_TOKEN  Patrick's — glued ONLY when another capitalized
+#                      token follows, so a trailing possessive
+#                      ("Kent's house") still yields "Kent" as it did
+#                      before this change.
+#   _ABBREV_TOKEN      "St." ONLY when it immediately continues into
+#                      another capitalized token ("St. Paul"). A
+#                      sentence-final "St." keeps its old behaviour.
+#
+# DELIBERATELY UNSOLVED, do not grow the parser to chase it: "We lived
+# on Currier St. Paul visited that winter" is ambiguous to any regex —
+# "Currier St." then "Paul", or "Currier St. Paul". This reads it as the
+# latter. A regex cannot know, and pretending otherwise is worse than
+# the residue.
+#
+# Mirrors the grammar in lori_structured_narrative_fallback but kept
+# LOCAL and separate on purpose (see the note above _BAD_ANCHOR_TOKENS):
+# the two modules cap phrase length differently (3 words here, 4 there)
+# and filter through different vocabularies. Do not factor these into a
+# shared helper.
+_NAME_TOKEN = r"[A-Z](?:[a-zA-Z]+|['’][A-Z][a-zA-Z]*)"
+_POSSESSIVE_TOKEN = r"[A-Z][a-zA-Z]+['’]s"
+_ABBREV_TOKEN = r"St\."
+_NAME_UNIT = (
+    r"(?:"
+    + _ABBREV_TOKEN + r"(?=\s+[A-Z])"
+    + r"|" + _POSSESSIVE_TOKEN + r"(?=\s+[A-Z])"
+    + r"|" + _NAME_TOKEN
+    + r")"
 )
 
+# Proper-noun place (1-3 name tokens).
+_NAME_PHRASE = _NAME_UNIT + r"(?:\s+" + _NAME_UNIT + r"){0,2}"
+
+_PROPER_NOUN_RX = re.compile(r"\b(" + _NAME_PHRASE + r")\b")
+
 # "from X to Y" — strong travel-leg signal, captures both endpoints.
+# Built from the same grammar: this is the anchor pair that feeds the
+# id-40 chain opener most directly, so leaving it punctuation-blind
+# would have preserved the defect on exactly the surface Block C is
+# repairing.
 _FROM_TO_RX = re.compile(
-    r"\bfrom\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,2})\s+to\s+"
-    r"([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,2})\b"
+    r"\bfrom\s+(" + _NAME_PHRASE + r")\s+to\s+(" + _NAME_PHRASE + r")\b"
 )
 
 # Sequence connectors that link sentences/clauses into a chain.
@@ -320,16 +374,56 @@ def _filter_anchor(candidate: str) -> str:
 
 
 def _extract_proper_noun_anchors(text: str, max_n: int = 12) -> List[str]:
-    """Pull proper-noun phrases that pass the bad-token filter."""
+    """Pull proper-noun phrases that pass the bad-token filter.
+
+    WO-LORI-ARCHIVE-TO-MEMOIR-02 Phase 6 Block C (2026-09-09): the scan
+    is position-driven rather than a bare `finditer`, because a leading
+    filter token used to cost the real name one of its three phrase
+    slots.
+
+    `_PROPER_NOUN_RX` allows at most three name tokens. `_filter_anchor`
+    strips a leading filter token, but it runs AFTER the regex has
+    already spent a slot on it, so a sentence opening
+
+        "The Saint Patrick's Day parade ..."
+
+    matched "The Saint Patrick's" (three slots, cap reached), was
+    stripped to "Saint Patrick's", and left "Day" to begin a fresh
+    anchor — manufacturing the very split this Block exists to remove.
+    A lowercase "the" in the same sentence produced the correct
+    "Saint Patrick's Day", which is how the defect stayed invisible.
+
+    When the leading token is a filter token, the phrase is re-matched
+    from just after it so the real name gets the full window, and the
+    scan resumes past the re-matched span so the tail cannot be picked
+    up a second time as its own anchor. The re-match is accepted ONLY
+    when it begins inside the original span — otherwise it would skip
+    to an unrelated later phrase.
+
+    This changes nothing about which characters may appear in a name.
+    It only stops a discarded function word from truncating one.
+    """
     if not text:
         return []
     anchors: List[str] = []
-    for m in _PROPER_NOUN_RX.finditer(text):
-        candidate = _filter_anchor(m.group(1))
+    pos = 0
+    while len(anchors) < max_n:
+        m = _PROPER_NOUN_RX.search(text, pos)
+        if not m:
+            break
+        raw = m.group(1)
+        end = m.end(1)
+        tokens = raw.split()
+        if len(tokens) > 1 and tokens[0].lower() in _BAD_ANCHOR_TOKENS:
+            retry = _PROPER_NOUN_RX.search(
+                text, m.start(1) + len(tokens[0]))
+            if retry is not None and retry.start(1) <= end:
+                raw = retry.group(1)
+                end = retry.end(1)
+        candidate = _filter_anchor(raw)
         if candidate:
             anchors.append(candidate)
-        if len(anchors) >= max_n:
-            break
+        pos = end
     return _dedupe_preserving_order(anchors)
 
 
