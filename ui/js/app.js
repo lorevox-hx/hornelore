@@ -3171,15 +3171,19 @@ function buildRuntime71() {
        When true, backend shifts to extended silence, invitational prompts,
        single-thread context, no correction, no observation language. */
     cognitive_support_mode: !!(state.session?.cognitiveSupportMode),
-    /* WO-KAWA RETIRED 2026-05-01. The kawa_mode field was historically
-       routed to a "river" reflective-prompt block in prompt_composer.py
-       (WO-KAWA-02A). Per CLAUDE.md design principles ("Life Map is the
-       only navigation surface; Kawa is retired as system, UI, and
-       logic. Kept as research citation only."), the field no longer
-       reaches the LLM. The state.session.kawaMode value is preserved
-       for backwards compat with any local callers but never emitted
-       in runtime71. Deeper retirement (state field + lori-kawa.js
-       module + interview.js helpers) is a follow-up cleanup lane. */
+    /* WO-KAWA retired as doctrine 2026-05-01; IMPLEMENTATION REMOVED
+       2026-09-08 by WO-KAWA-REMOVAL-01. The kawa_mode field was
+       historically routed to a "river" reflective-prompt block in
+       prompt_composer.py (WO-KAWA-02A); it has not reached the LLM
+       since the doctrine retirement and is still not emitted in
+       runtime71.
+
+       The "deeper retirement is a follow-up cleanup lane" note that
+       used to close this comment is DONE — lori-kawa.js and the
+       interview.js helpers are gone. What survives is the
+       `state.session.kawaMode` FIELD, kept deliberately under its
+       historical name so persisted sessions are not orphaned, and
+       normalized to "chronological" by lvNormalizeInterviewMode. */
     /* WO-CR-PACK-01 (CR-04) — chronology context for Lori.
        Lightweight, provenance-aware snapshot of the currently focused
        year/era slice of the accordion. Null when trainer mode is active,

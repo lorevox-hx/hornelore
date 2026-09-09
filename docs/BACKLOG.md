@@ -181,29 +181,54 @@ verification, and the run reports success.** This is the same family as the docu
 gate; or otherwise guarantee the 40 assertions run in normal verification. **Not
 scheduled.**
 
-### 2.4 Kawa / Memory River removal debt — DECIDED 2026-09-08, not yet implemented
+### 2.4 Kawa / Memory River removal debt — ✅ DISCHARGED 2026-09-08
 
-**Chris Horne decided removal on 2026-09-08**, resolving the condition this repository had
-been waiting on. Kawa is retired product functionality; what remains is **implementation
-debt**, owed to a bounded follow-up work order and deliberately **not** done inside
-repository hygiene, which held zero `server/` and `ui/` changes across all three blocks.
+**Implementation-removal debt is CLOSED.** `WO-KAWA-REMOVAL-01` landed as `3481d1a`
+(compatibility half) + `0a16c88` (removal half): 1,389 deletions against 187 insertions,
+five runtime files deleted, router unmounted, `/api/kawa/*` gone, and the Kawa injection
+into memoir prompts — the one place Kawa language reached narrator-facing output —
+removed. Verified with `tests/test_kawa_product_path_removed.py`, which asserts in **both**
+directions and is mutation-verified in both.
 
-**Still mounted, verified at `e0fde84`:** `ui/hornelore1.0.html` (69 hits — button, popover,
-CSS, mode selectors, script load) · `ui/js/app.js` (148 — state, preload, render, **Kawa
-context inserted into memoir prompts**) · `ui/js/api.js` (18) · `ui/js/lori-kawa.js` (12,572
-bytes) · `server/code/api/main.py:187` mounts the router · `routers/kawa.py` serves four
-live routes · `kawa_store.py` + `kawa_projection.py` · `data/prompts/kawa_prompts.json` ·
-`chronology_river` (8 hits) still selectable as a memoir organization mode.
+**Nothing residual is owed.** The items below are **permanent design decisions, not debt**,
+and are recorded here so a future reader does not mistake them for leftovers and "finish
+the job":
 
-**Two hard boundaries on the removal work order:**
+* **Historical research and archived Kawa work orders stay.** Removing a product path does
+  not retract the reading behind it.
+* **Narrator data under `DATA_DIR/kawa/` was not deleted, and deleting it is not owed.** It
+  remains a separate operator and data-retention decision, and must never be a side effect
+  of a code removal. *(On this deployment the directory did not exist at removal time —
+  true of this laptop, not of every deployment, which is why the next item matters.)*
+* **Narrator-erasure support is preserved on purpose** (`narrator_erasure.py:105` and the
+  `kawa_segments` count in `api/db.py`). Removing the product must not make historical
+  narrator data uneraseable.
+* **`kawa_segment` stays in the media-archive type vocabulary** for rows that already carry
+  it, and **migration 0003 is immutable.**
 
-* **Keep** the historical research and the archived Kawa work orders. Removing a product
-  path does not retract the reading behind it.
-* **Do not delete narrator data under `DATA_DIR/kawa/`.** Stop creating and reading it
-  first. Deleting stored narrator material is a separate operator and data-retention
-  decision and must never be a side effect of a code removal.
+**The completion measure was ZERO REACHABLE PRODUCT PATH, not zero occurrences** — and the
+negative test asserts every item above **present**, so a future case-insensitive sweep
+fails that test rather than destroying the preservation set.
 
-**Not scheduled here** — the checklist owns the queue position (row 6).
+### 2.5 `test_profile_seed_reachability_map` pins EXACT LINE NUMBERS — pre-existing RED
+
+**Not caused by the Kawa removal, and confirmed so by measurement rather than argument:** a
+pristine `git archive` of `3481d1a` — the commit *before* any Kawa code was deleted —
+reproduces this failure.
+
+`test_the_direct_currentPass_writers_are_a_known_closed_set` identifies the `currentPass`
+writers by **file plus exact line number**. Those coordinates were already stale before the
+removal (expected `state.js:607` / `app.js:3707`, `3853`, `4079`; actual at `3481d1a` was
+`state.js:611` / `app.js:3722`, `3868`, `4094`). The Kawa removal moved them again
+(`state.js:592` / `app.js:3716`, `3862`, `4088`) while **the writer set stayed
+byte-identical in content** — six sites, same code.
+
+**The defect is the pinning strategy, not the drift.** Any unrelated deletion above those
+lines breaks the test, which means it reports edit distance rather than the invariant it
+cares about. **When that test lane is next touched, replace line-number identity with
+semantic identity** — file plus enclosing function/context plus writer shape. Deliberately
+**not** repaired inside the Kawa work order: re-pinning a Profile Seed test has no business
+riding along with a product removal.
 
 ## 3. `docs/wo/` — parked, banked, and spec-only work
 
@@ -483,11 +508,13 @@ automatic historical rewrite of stored `[SYSTEM:]` rows.
 ## 8. Preserved boundaries — never archive candidates
 
 Parked runtime safety (server-authoritative; reactivation takes Chris's explicit
-decision) · the historical Kawa research and archived Kawa work orders, and existing
-narrator data under `DATA_DIR/kawa/` — **note the change: the Kawa IMPLEMENTATION is no
-longer a preserved boundary. Removal was decided 2026-09-08 (§2.4). The research, the
-archived specs and the stored narrator data remain preserved; the mounted product path
-does not** · the inert directive-family registry · compatibility readers · migrations `0001–0051` · the
+decision) · the historical Kawa research and archived Kawa work orders, existing narrator
+data under `DATA_DIR/kawa/`, and **Kawa narrator-ERASURE support plus the historical
+`kawa_segment` media type** — **note the change: the Kawa IMPLEMENTATION is no longer a
+preserved boundary and no longer exists. It was removed 2026-09-08 (§2.4). Everything else
+named here stays, and `tests/test_kawa_product_path_removed.py` asserts it PRESENT so a
+future "remove the rest of Kawa" sweep fails a test instead of orphaning narrator data**
+· the inert directive-family registry · compatibility readers · migrations `0001–0051` · the
 main `tests/` tree · Profile Seed onboarding preservation tests.
 
 ---

@@ -1,12 +1,64 @@
 # WO-KAWA-REMOVAL-01 — remove the retired Kawa / Memory River implementation
 
-**Status:** ▶️ **OPEN — not started.** Mapped 2026-09-08 at `fc781426`; the cutting
-begins in a fresh session.
-**Opened:** 2026-09-08
+**Status:** ✅ **COMPLETE — ACCEPTED by Chris Horne, 2026-09-08.**
+**Opened:** 2026-09-08 · **Closed:** 2026-09-08
 **Authority for the decision:** Chris Horne, 2026-09-08 — see `CLAUDE.md` §*Kawa /
-Memory River — removal decided 2026-09-08* and `docs/BACKLOG.md` §2.4.
-**Baseline:** `fc781426` (clean tree). **Review the diff against that commit.**
-**Queue position:** `MASTER_WORK_ORDER_CHECKLIST.md` row 6.
+Memory River — REMOVED from the product 2026-09-08*.
+**Baseline:** `fc781426` (mapping) → `ad15231e` (spec landed).
+**Queue position:** `MASTER_WORK_ORDER_CHECKLIST.md` row 6 — **completed, not queued.**
+
+**Landed in two commits, split at a real risk boundary:**
+
+| Commit | Half | What it did |
+|---|---|---|
+| `3481d1a` | **compatibility** | Retired-value normalization for all three fields, landed **before** anything was deleted, so no step of the removal could strand a narrator |
+| `0a16c88` | **removal** | Deleted the subsystem; 1,389 deletions against 187 insertions across 16 files |
+
+**Why two commits.** Part 1 makes legacy state safe; Part 2 destroys the retired
+implementation. If Part 2 had a problem it could be stopped or reverted without
+losing the compatibility protections. The intermediate state — fallbacks present,
+Kawa still mounted but no longer reachable by default — is harmless by design.
+
+## Closeout — what was preserved
+
+**Verified present after removal, and asserted PRESENT by
+`tests/test_kawa_product_path_removed.py` so a future zero-occurrences sweep fails
+the test instead of destroying them:**
+
+| Preserved | Where |
+|---|---|
+| Narrator erasure still erases historical Kawa records | `services/narrator_erasure.py:105` |
+| Erasure-integrity count of on-disk Kawa files | `api/db.py` `kawa_seg_dir` |
+| Migration 0003 — immutable, untouched | `db/migrations/0003_media_archive.sql` |
+| `kawa_segment` media type for rows that already carry it | `services/media_archive/types.py` |
+| Retired-language eval, which **rejects** Kawa vocabulary | `data/evals/sentence_diagram_cultural_context_cases_sd044_sd065.json` |
+| Geographic `River` in the place-fragment anchor regex | `ui/hornelore1.0.html` `_LV80_PLACE_FRAG_ANCHOR_RX` |
+| On-disk footprint reporting for `kawa/people` | `scripts/step6_ws_probe.py` |
+| Research papers and archived Kawa work orders | `Research/Kawa/`, `docs/archive/` |
+
+**Narrator data: `DATA_DIR/kawa/` was never touched.** On this deployment the
+directory **did not exist**, so the pre-removal manifest was empty and the boundary
+was satisfied trivially *here*. That says nothing about other deployments, which is
+exactly why the erasure-support code above is preserved rather than removed.
+
+## Closeout — verification evidence
+
+Interpreter **`python3` 3.10.12**. **9 tests across 2 suites, `OK`, ZERO skips.**
+
+* `node --check` clean on all six changed JS files **and** both inline `<script>`
+  blocks extracted from `hornelore1.0.html`;
+* `compileall` clean across `scripts/` and `tests/`;
+* **five mutations each make the negative test fail** — remounting the router,
+  restoring a `chronology_river` option, re-injecting `kawaContext` into the memoir
+  prompt, deleting the erasure line, and stripping `River` from the place regex —
+  and it returns green when reverted. Three test regression, two test over-deletion.
+
+**Pre-existing RED, not caused by this work order and deliberately not repaired
+here:** `tests/test_profile_seed_reachability_map.py` pins the *exact line numbers*
+of the `currentPass` writers and was **already stale at `3481d1a`** — a pristine
+`git archive` of that commit reproduces the failure. Removal moved those lines
+further while the writer set stayed byte-identical in content. Registered in
+[`docs/BACKLOG.md`](../BACKLOG.md) §2.5.
 
 **This is the first change in the repository sequence that intentionally touches
 `server/` and `ui/`.** Blocks 1-3 of `WO-REPOSITORY-HYGIENE-01` held zero product
