@@ -968,12 +968,27 @@ window._lvNarratorPaintIdentity = _lvNarratorPaintIdentity;
 
 /** Return the current narrator view name. */
 function lvNarratorCurrentView() {
-  return (state && state.session && state.session.narratorView) || "map";
+  // WO-KAWA-REMOVAL-01: `|| "map"` is NOT sufficient. A stored "river" is
+  // truthy, so it survives the `||`, and the caller below then rejected it
+  // with a bare return and painted nothing. Normalize, never coalesce.
+  const stored = state && state.session && state.session.narratorView;
+  return (typeof lvNormalizeNarratorView === "function")
+    ? lvNormalizeNarratorView(stored)
+    : (["map", "photos", "memoir", "trips"].includes(stored) ? stored : "map");
 }
 
 /** Switch narrator-room view. */
 function lvNarratorShowView(view) {
-  if (!["map", "photos", "memoir", "trips"].includes(view)) return;
+  // WO-KAWA-REMOVAL-01 — THE CONSUMPTION BOUNDARY.
+  //
+  // This was `if (!ALLOWED.includes(view)) return;` — a bare return, no
+  // error and nothing rendered. A session carrying the retired "river"
+  // view therefore produced a BLANK NARRATOR ROOM, silently. Normalizing
+  // here (rather than refusing) is what protects restored and persisted
+  // state, which changing the default alone does not.
+  view = (typeof lvNormalizeNarratorView === "function")
+    ? lvNormalizeNarratorView(view)
+    : (["map", "photos", "memoir", "trips"].includes(view) ? view : "map");
   if (!state.session) state.session = {};
   state.session.narratorView = view;
   // Paint tab active state.

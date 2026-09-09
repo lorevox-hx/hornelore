@@ -186,9 +186,13 @@ let state = {
        no-op when false (transcript still flows).  Lori audio is
        NEVER captured regardless of this flag. */
     recordVoice:  true,
-    /* Current narrator-room view — "river" | "map" | "photos" | "memoir".
-       Defaults to "river" (Memory River). */
-    narratorView: "river",
+    /* Current narrator-room view — "map" | "photos" | "memoir" | "trips".
+       WO-KAWA-REMOVAL-01: this defaulted to "river" (Memory River) until
+       2026-09-08. Changing the default is only half the fix — persisted and
+       restored sessions can still carry "river", and `lvNarratorShowView`
+       rejected an unknown view with a BARE RETURN, painting nothing. See
+       `lvNormalizeNarratorView` below; both halves are required. */
+    narratorView: "map",
     /* Break overlay active (Take a break clicked).  Pauses auto-rearm. */
     breakActive: false,
 
@@ -680,3 +684,51 @@ function setEra(e) {
   state.session.currentEra = _canonicalEra(e);
 }
 function setMode(m)  { if (state.session) state.session.currentMode = m; }
+
+/* ── WO-KAWA-REMOVAL-01 — retired-value normalization ────────────────
+   Kawa / Memory River was retired as doctrine on 2026-05-01 and its
+   removal was decided 2026-09-08. Persisted and restored sessions can
+   still carry retired values, so each field gets a boundary helper in
+   the same spirit as `_canonicalEra` above: the store never holds a
+   value the product can no longer render.
+
+   THREE FIELDS, THREE VOCABULARIES. They do not share values and a
+   fallback must never map a value onto a field it does not belong to:
+
+     narratorView   river                            -> map
+     kawaMode       hybrid, kawa_reflection          -> chronological
+     memoirMode     chronology_river, river_organized -> chronology
+
+   `hybrid` is the one that hides. It reads like a neutral interview
+   setting and is not: `lori-kawa.js` paired it with `kawa_reflection`,
+   triggered on it, and counted `hybridPromptsShown`. A narrator left on
+   `hybrid` would have kept receiving Kawa follow-ups after a removal
+   that looked complete.
+
+   These normalize UNKNOWN values too, not just the named retired ones.
+   The failure being prevented is silent: `lvNarratorShowView` rejected
+   an unrecognized view with a bare `return`, so a stale "river" painted
+   nothing at all and the narrator got an empty room. */
+
+const LV_NARRATOR_VIEWS  = ["map", "photos", "memoir", "trips"];
+const LV_INTERVIEW_MODES = ["chronological"];
+const LV_MEMOIR_MODES    = ["chronology"];
+
+function lvNormalizeNarratorView(v) {
+  return LV_NARRATOR_VIEWS.includes(v) ? v : "map";
+}
+function lvNormalizeInterviewMode(v) {
+  return LV_INTERVIEW_MODES.includes(v) ? v : "chronological";
+}
+function lvNormalizeMemoirMode(v) {
+  return LV_MEMOIR_MODES.includes(v) ? v : "chronology";
+}
+
+if (typeof window !== "undefined") {
+  window.lvNormalizeNarratorView  = lvNormalizeNarratorView;
+  window.lvNormalizeInterviewMode = lvNormalizeInterviewMode;
+  window.lvNormalizeMemoirMode    = lvNormalizeMemoirMode;
+  window.LV_NARRATOR_VIEWS        = LV_NARRATOR_VIEWS;
+  window.LV_INTERVIEW_MODES       = LV_INTERVIEW_MODES;
+  window.LV_MEMOIR_MODES          = LV_MEMOIR_MODES;
+}
