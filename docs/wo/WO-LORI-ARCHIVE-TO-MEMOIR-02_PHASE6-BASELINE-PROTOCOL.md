@@ -1,12 +1,39 @@
 # Phase 6 — lean conversational baseline: the protocol
 
-**Status: RUN 1 COMPLETE AND REJECTED AS A BASELINE; CORRECTIONS LANDED;
-RUN 2 NOT YET ARMED.** Run 1 (2026-09-07,
-`.runtime/eval/phase6-lean-20260907_165520/`) is preserved as exploratory
-evidence — see §4a for what it established and the three measurement
-defects it exposed. It is **not** the accepted Phase 6 baseline. Nothing
-about Lori's prompt has been tuned and no conversational guard has been
-added.
+**Status, updated 2026-09-08: RUNS 1-4 AND THE A/B/C COHORT ARE COMPLETE.
+THE HUMAN CONVERSATIONAL VERDICT IS STILL OWED.** *(This header read
+"RUN 1 COMPLETE AND REJECTED AS A BASELINE; CORRECTIONS LANDED; RUN 2 NOT
+YET ARMED" until 2026-09-08 — false the same evening it was written, since
+Run 2 was captured that night. It is corrected rather than deleted because
+the run-1 rejection it records is still the reason §4a exists.)*
+
+| Run | Evidence | State |
+|---|---|---|
+| Run 1 | `.runtime/eval/phase6-lean-20260907_165520/` | **REJECTED as a baseline**, preserved as exploratory. §4a |
+| Run 2 | `docs/reports/PHASE6-LEAN-BASELINE-RUN2-20260907.md` | Captured, 10 turns, judgement fields **UNSCORED** |
+| Run 3 | `docs/reports/PHASE6-RUN3-INTERVENTION1-20260908.md` | Captured after `ee7063c`, judgement fields **UNSCORED** |
+| Run 4 | `docs/reports/PHASE6-RUN4-INTERVENTION2-20260908.md` | Captured after `49c219c`, judgement fields **UNSCORED** |
+| Cohort A/B/C | `docs/reports/PHASE6-COHORT-AB-20260908.md` | Complete; verdict LEAN, monotonic. No further broad cohort runs recommended |
+
+**Two interventions have LANDED, and neither is a conversational guard:**
+
+* **Intervention 1 — `ee7063c`**, *server-resolved identity outranks the
+  browser*. `profile_seed_runtime.apply_server_identity` (called
+  `chat_ws.py:5264`) stops a stale browser completeness verdict putting Lori
+  into identity-collection mode while `KNOWN IDENTITY FACTS` already carries
+  the answers. Boundary test: `tests/test_phase6_identity_ownership.py`.
+* **Intervention 2 — `49c219c`**, *a completed walk never sees the legacy
+  list*. `prompt_composer.py:5115-5125`. Boundary test:
+  `tests/test_phase6_completed_walk_suppression.py`.
+
+**Still true, and the point of the phase: nothing about Lori's prompt has
+been tuned and NO conversational guard has been added.** Both interventions
+removed a contradiction between two things the system already knew; neither
+adds an authority.
+
+**The four judgement fields are scored by Chris, not by an agent.** A model
+filling them and calling the result human review would make the verdict
+worthless. See §8.
 
 **What Phase 6 measures.** Not "is Lori good". The first question is
 narrower and answerable: *what does lean Lori actually do when the

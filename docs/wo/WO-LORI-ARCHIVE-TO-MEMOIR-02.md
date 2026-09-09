@@ -5,7 +5,16 @@
 **Starting evidence:** demographic cohort `20260901T015343Z` and Walt seven-era run `20260901T003329Z`  
 **Current position:** **Phases 0–4 CLOSED. 5A, 5B and 5C COMPLETE; the Phase 5
 memory-integrity exit gate is closed for current scope, with era/event review
-grouping transferred to Phase 7. Blocks A, B and C done. PHASE 6 IS NEXT.**
+grouping transferred to Phase 7. Blocks A, B and C done. PHASE 6 (Block D) IS
+UNDERWAY — four measurement rounds captured and two interventions landed;
+the human conversational verdict is owed.** *(This line read "PHASE 6 IS NEXT"
+until 2026-09-08, while four completed runs sat in `docs/reports/`.)*
+
+**The block sequence is A–F. There is no Block G**, and the "D/G" shorthand
+used in conversation is retired: **D = Phase 6, E = Phase 7, F = Phase 8.**
+Note also that Phase 6's own cohort arms are labelled **A / B / C** (Lean /
+Defaults / All-switchables-on) — that is a different alphabet from the Block
+A/B/C above, and conflating them names the wrong work.
 
 ---
 
@@ -22,7 +31,7 @@ acceptance clause" as a prerequisite for product work.
 | **A** | Operator control integration — the compact Lori Configuration card | ✅ **DONE 2026-09-07** |
 | **B** | **Phase 5C** — one disposition contract, corrected and audited to a truthful Phase 5 exit gate | ✅ **DONE 2026-09-07** |
 | **C** | Response-trace lifecycle — every completed turn closes by its actual retention outcome | ✅ **DONE 2026-09-07** |
-| **D** | **Phase 6** — measured conversational quality, on a separate POPULATED narrator | 🔵 **NEXT** |
+| **D** | **Phase 6** — measured conversational quality, on a separate POPULATED narrator | 🔵 **UNDERWAY.** Runs 1–4 + cohort A/B/C captured; interventions `ee7063c` and `49c219c` landed. **OWED: the human-scored verdict, and the malformed-anchor repair (ids 40/48 upstream extractors).** Protocol: `WO-LORI-ARCHIVE-TO-MEMOIR-02_PHASE6-BASELINE-PROTOCOL.md` |
 | **E** | **Phase 7** — normal Operator review → memoir workflow | queued |
 | — | Guard Lab live acceptance debt (4 checks) | carried, blocks only Phase 8 |
 | **F** | **Phase 8** — focused acceptance first, then the broader cohort | queued |

@@ -222,11 +222,34 @@ these specs say "live verification pending next stack cycle". Archiving the docu
 not discharge that, and each is recorded in `docs/BACKLOG.md`:
 
 * `BUG-LORI-CHAIN-ANCHOR-ECHO-STRENGTH-01` — **its live verification now exists, and it is
-  negative.** The Phase 6 A/B/C cohort measured this authority (Guard Lab id 40, "Chain
-  Anchor Prefix") emitting non-entities to narrators: `"West St and Paul"`, `"For and
-  They"`, `"From Saint Patrick to Day to 1950"`. The spec was archived as landed; the
-  behaviour it landed is now evidenced as harmful. **That is a live product question and it
-  belongs to Phase 6, not to this archive.**
+  negative.** The Phase 6 A/B/C cohort measured non-entities reaching narrators:
+  `"West St and Paul"`, `"For and They"`, `"From Saint Patrick to Day to 1950"`. The spec
+  was archived as landed; the behaviour it landed is now evidenced as harmful. **That is a
+  live product question and it belongs to Phase 6, not to this archive.**
+
+  **ATTRIBUTION CORRECTED 2026-09-08 — this entry named Guard Lab id 40 as the cause of all
+  three strings, and the cohort-C response trace says otherwise.** Two authorities are
+  involved, and they produce two *different* malformed shapes:
+
+  | Stage that introduced it | Shape | Turns of 38 |
+  |---|---|---|
+  | `witness_receipt_fallback` — **id 48** | `"X and Y — there's a lot held in that."` | 17 |
+  | `cc_40_chain_anchor_opener` — **id 40** | `"From A to B to C — "` | 16 |
+
+  So `"From Saint Patrick to Day to 1950"` is id 40, while `"West St and Paul"` and
+  `"For and They"` are id 48's composed receipt (`lori_witness_mode.py:2176-2177`).
+  **On `turnrow:2531`…`2537`, id 40 did not fire at all on the `"West St and Paul"` turn** —
+  `witness_receipt_fallback` was the only stage that changed the text. Id 40's own registry
+  entry (`lori_guard_registry.py:577`) already called that example "downstream" and was
+  right; this entry dropped the caveat, which is how one authority came to carry another's
+  evidence.
+
+  **The defect is upstream of both**: punctuation-blind proper-noun extraction, mirrored in
+  `factual_chain_capture.py:74` and `lori_structured_narrative_fallback.py:44`. Neither
+  character class contains `.` or `'`, so `"West St. Paul"` yields `['West St', 'Paul']` and
+  `"Saint Patrick's Day"` yields `['Saint Patrick', 'Day']`. **Repairing the extractors does
+  not decide whether id 40 or id 48 should be enabled** — that stays a Phase 6 judgement on
+  measured benefit against harm.
 * `BUG-LORI-THEMATIC-TRIP-CHAIN-DETECTION-01` — live-harness verification still owed.
 * `BUG-ML-SPANISH-DETECT-FRENCH-PLACE-OVERFIRE-01` — live verification still owed.
 
