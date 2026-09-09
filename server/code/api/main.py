@@ -141,7 +141,6 @@ from .routers import (  # type: ignore
     family_truth,    # WO-13 — Family Truth (Shadow / Proposal / Promoted)
     chronology_accordion,  # WO-CR-01 — Chronology Accordion (read-only)
     test_lab,        # WO-QA-01 — Hornelore Quality Harness (operator-only)
-    kawa,            # WO-KAWA-UI-01A — River View (Kawa meaning layer)
     photos,          # WO-LORI-PHOTO-SHARED-01 — Phase 1 photo authority layer
     memory_archive,  # WO-ARCHIVE-AUDIO-01 — durable transcript + narrator-audio archive
     media_archive,   # WO-MEDIA-ARCHIVE-01 — Document Archive lane (PDFs, scanned docs, genealogy)
@@ -184,8 +183,12 @@ app.include_router(transcript.router)      # WO-8 — Transcript History & Threa
 app.include_router(family_truth.router)    # WO-13 — Family Truth (Shadow / Proposal / Promoted)
 app.include_router(chronology_accordion.router)  # WO-CR-01 — Chronology Accordion
 app.include_router(test_lab.router)               # WO-QA-01 — Quality Harness
-app.include_router(kawa.router)                   # WO-KAWA-UI-01A — River View
-app.include_router(photos.router)                 # WO-LORI-PHOTO-SHARED-01 — Phase 1 photo authority layer (404s when HORNELORE_PHOTO_ENABLED=0)
+# WO-KAWA-REMOVAL-01 (2026-09-08): the Kawa / Memory River router was mounted
+# here. Removed with routers/kawa.py, kawa_store.py and kawa_projection.py.
+# /api/kawa/list, /segment (GET+PUT) and /build no longer exist. Narrator data
+# under DATA_DIR/kawa/ is deliberately NOT deleted and stays eraseable — see
+# services/narrator_erasure.py and db.py.
+app.include_router(photos.router)               # WO-LORI-PHOTO-SHARED-01 — Phase 1 photo authority layer (404s when HORNELORE_PHOTO_ENABLED=0)
 app.include_router(memory_archive.router)         # WO-ARCHIVE-AUDIO-01 — narrator-only audio + transcript archive (404s when HORNELORE_ARCHIVE_ENABLED=0)
 app.include_router(media_archive.router)          # WO-MEDIA-ARCHIVE-01 — Document Archive lane for PDFs / scans / genealogy (404s when HORNELORE_MEDIA_ARCHIVE_ENABLED=0)
 app.include_router(safety_events.router)           # WO-LORI-SAFETY-INTEGRATION-01 Phase 3 — operator notification surface (Bug Panel banner + digest)

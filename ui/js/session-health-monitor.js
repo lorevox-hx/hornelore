@@ -69,7 +69,11 @@ window.lvSessionHealthMonitor = (function () {
   // even if they FAIL (optional / feature-flagged surfaces).
   const _DOWNGRADE_TO_AMBER_FRAGMENTS = [
     /Photos/i,
-    /Memory River/i, /Life Map/i, /Peek at Memoir/i,
+    // WO-KAWA-REMOVAL-01 (2026-09-08): /Memory River/i was here, downgrading a
+    // failed Memory River check to AMBER. The check is now an ABSENCE check
+    // ("Memory River popover absent"), and a failure of that means the retired
+    // subsystem came back — which must not be softened to AMBER.
+    /Life Map/i, /Peek at Memoir/i,
     /Media Tab/i, /Document Archive/i, /Disabled note state/i,
     /hands-free state fields/i,
     /face mesh/i, /faceMesh/i, /emotion engine/i,

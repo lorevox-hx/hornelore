@@ -940,12 +940,15 @@ async function processInterviewAnswer(text, skipped=false){
     const j=await r.json();
     if(j.next_question){
       state.interview.question_id=j.next_question.id;
-      // WO-KAWA-02A: intercept question with Kawa follow-up in hybrid/reflection modes
-      const _anchorForKawa = j.anchor || state?.timeline?.activeEvent || state?.chronologyAccordion?.focus || null;
-      state.interview.prompt = normalizeKawaLanguageForUser(
-        maybeApplyKawaFollowup(j.next_question.prompt, _anchorForKawa)
-      );
-      if (typeof tickKawaPromptCooldown === "function") tickKawaPromptCooldown();
+      /* WO-KAWA-REMOVAL-01 (2026-09-08): THE FOLLOW-UP INTERCEPTION WAS HERE.
+         The server's next question was passed through maybeApplyKawaFollowup
+         (which could REPLACE it entirely with a Kawa prompt in hybrid or
+         kawa_reflection mode) and then normalizeKawaLanguageForUser. The
+         narrator now receives the question the interview plan actually chose.
+         normalizeKawaLanguageForUser was a passthrough unless the removed
+         "Plain language" checkbox was ticked, so dropping it changes nothing
+         for anyone who never opened the Memory River popover. */
+      state.interview.prompt = j.next_question.prompt;
     }
     if(j.summary_section_id){
       // Translate backend plan ID → UI roadmap ID (they use different naming conventions)
@@ -1998,76 +2001,15 @@ function _ivResetProjectionForNarrator(newPid) {
   }
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   WO-KAWA-UI-01A — Kawa interview mode hooks
-═══════════════════════════════════════════════════════════════ */
+/* WO-KAWA-REMOVAL-01 (2026-09-08): the Kawa interview hooks were here -
+   setKawaMode / getKawaMode / shouldOfferKawaReflection, and the follow-up
+   interception pair maybeApplyKawaFollowup / normalizeKawaLanguageForUser.
 
-/**
- * Set the Kawa interview mode.
- * 'chronological' — default, no Kawa prompts
- * 'hybrid'        — chronological + selective Kawa follow-ups
- * 'kawa_reflection' — river-first questioning
- */
-function setKawaMode(mode) {
-  if (!state?.session) return;
-  state.session.lastKawaMode = state.session.kawaMode || "chronological";
-  state.session.kawaMode = mode;
-  console.log("[kawa] Interview mode set to:", mode);
-}
+   normalizeKawaLanguageForUser was the last reader of window.KAWA_PROMPTS in
+   this file; data/prompts/kawa_prompts.json is deleted, so the global no
+   longer exists and every `?.` on it would have silently returned undefined.
 
-function getKawaMode() {
-  return state?.session?.kawaMode || "chronological";
-}
-
-/**
- * Check if a given anchor is a high-meaning life event
- * that warrants offering Kawa reflection.
- */
-function shouldOfferKawaReflection(anchor){
-  if (!anchor) return false;
-  const label = String(anchor.label || "").toLowerCase();
-  return [
-    "marriage","divorce","move","retirement","first job","loss","death",
-    "caregiving","graduation","military","health","birth","relocation",
-    "diagnosis","separation"
-  ].some(x => label.includes(x));
-}
-
-
-/* ═══════════════════════════════════════════════════════════════
-   WO-KAWA-02A — Kawa follow-up interception + language normalization
-   Called from the question assignment path to inject Kawa prompts
-   in hybrid/kawa_reflection modes.
-═══════════════════════════════════════════════════════════════ */
-
-/**
- * Intercept the next question and optionally replace it with a Kawa
- * follow-up in hybrid or kawa_reflection mode.
- */
-function maybeApplyKawaFollowup(nextQuestion, anchor){
-  const mode = state?.session?.kawaMode || "chronological";
-  if (mode === "chronological") return nextQuestion;
-  if (typeof shouldOfferKawaReflectionForAnchor !== "function") return nextQuestion;
-  if (!shouldOfferKawaReflectionForAnchor(anchor)) return nextQuestion;
-  if (typeof buildKawaFollowup !== "function") return nextQuestion;
-  const kawaQuestion = buildKawaFollowup(anchor);
-  if (!kawaQuestion) return nextQuestion;
-  return kawaQuestion;
-}
-
-/**
- * Replace river metaphor language with plain equivalents when the
- * narrator has opted into plain meaning language.
- */
-function normalizeKawaLanguageForUser(text){
-  if (!text) return text;
-  const prefersPlain = !!state?.ui?.prefersPlainMeaningLanguage;
-  if (!prefersPlain) return text;
-  const fb = window.KAWA_PROMPTS?.fallback_vocabulary || {};
-  return text
-    .replace(/\briver\b/gi, fb.water || "life")
-    .replace(/\brock(s?)\b/gi, (fb.rocks || "obstacle") + "$1")
-    .replace(/\bdriftwood\b/gi, fb.driftwood || "support")
-    .replace(/\bbanks\b/gi, fb.banks || "context")
-    .replace(/\bwater\b/gi, fb.water || "flow");
-}
+   NOT REMOVED, and deliberately: setInterviewMode at :843. It is the v7.1
+   pass-engine setter (setPass / update71RuntimeUI / renderRoadmap /
+   renderInterview), it is not Kawa, and it is pinned by
+   tests/test_profile_seed_reachability_map.py:111. */

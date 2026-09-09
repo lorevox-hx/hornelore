@@ -384,6 +384,11 @@ async def main() -> int:
         except sqlite3.Error as exc:
             print(f"  {label:<16} : (not queryable: {exc})")
     data_dir = Path(os.environ.get("DATA_DIR", "/mnt/c/hornelore_data"))
+    # WO-KAWA-REMOVAL-01 (2026-09-08): "kawa/people" STAYS. The Kawa product
+    # code was removed; the narrator data was deliberately NOT deleted, and
+    # this probe's job is to report the on-disk footprint that still exists.
+    # Dropping it would hide historical narrator data from the one report that
+    # is supposed to find it. Same reasoning as narrator_erasure.py:105.
     for sub in ("memory/archive/people", "kawa/people", "media/archive/people"):
         p = data_dir / sub / person_id
         print(f"  {sub}/<id> : {'EXISTS' if p.exists() else 'absent'}")

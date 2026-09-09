@@ -55,7 +55,7 @@ window.lvUiHealthCheck = (function () {
     { key: "camera",     label: "Camera Consent",      fn: _check_camera_consent },
     { key: "mic",        label: "Mic / STT",           fn: _check_mic_stt        },
     { key: "scroll",     label: "Chat Scroll",         fn: _check_chat_scroll    },
-    { key: "river",      label: "Memory River",        fn: _check_memory_river   },
+    { key: "kawa_removed", label: "Kawa Removed",      fn: _check_kawa_removed   },
     { key: "map",        label: "Life Map",            fn: _check_life_map       },
     { key: "memoir",     label: "Peek at Memoir",      fn: _check_peek_memoir    },
     { key: "media",      label: "Media Tab",           fn: _check_media_tab      },
@@ -246,8 +246,12 @@ window.lvUiHealthCheck = (function () {
     }
 
     // Operator launcher grid populated (popovers moved out of header)
+    // WO-KAWA-REMOVAL-01 (2026-09-08): "lv80RiverBtn" was in this list, so a
+    // correct removal would have reported 6/7 launchers found and WARNed
+    // forever. The count is derived from the list, so dropping the entry is
+    // the whole fix.
     const launchers = [
-      "lv80BioBuilderBtn", "lv80LifeMapBtn", "lv80RiverBtn", "lv80PeekBtn",
+      "lv80BioBuilderBtn", "lv80LifeMapBtn", "lv80PeekBtn",
       "wo10TranscriptBtn", "wo13ReviewBtn", "lv10dBugBtn",
     ];
     const found = launchers.filter(id => document.getElementById(id));
@@ -607,29 +611,45 @@ window.lvUiHealthCheck = (function () {
       `typeof=${typeof window.lvNarratorScrollToBottom}`);
   }
 
-  // ── Category: Memory River ─────────────────────────────────────
-  async function _check_memory_river() {
-    const cat = "river";
+  // ── Category: Kawa removed ─────────────────────────────────────
+  // WO-KAWA-REMOVAL-01 (2026-09-08). This was `_check_memory_river`, and it
+  // asserted the OPPOSITE of what the product now guarantees: three of its
+  // four assertions FAILED when Kawa was absent, including
+  // "#kawaRiverPopover missing" as a hard FAIL. Leaving it would have made a
+  // correct removal read as a regression.
+  //
+  // It is INVERTED rather than deleted, so the check keeps earning its place:
+  // it now fails if the retired subsystem comes back. Note the tab assertion
+  // was ALREADY failing before this commit — no `[data-view="river"]` tab has
+  // existed in the markup for some time, and per CLAUDE.md that broken tab in
+  // the 2026-04-30 audit is what triggered the Kawa retirement in the first
+  // place. This closes that loop.
+  async function _check_kawa_removed() {
+    const cat = "kawa_removed";
 
     const pop = document.getElementById("kawaRiverPopover");
-    _push(cat, "Memory River popover present",
-      pop ? STATUS.PASS : STATUS.FAIL,
-      pop ? "" : "#kawaRiverPopover missing");
+    _push(cat, "Memory River popover absent",
+      pop ? STATUS.FAIL : STATUS.PASS,
+      pop ? "#kawaRiverPopover has returned — Kawa was removed 2026-09-08" : "");
 
     const tab = document.querySelector('.lv-narrator-view-tab[data-view="river"]');
-    _push(cat, "narrator-room Memory River view tab present",
-      tab ? STATUS.PASS : STATUS.FAIL,
-      tab ? "" : "narrator room missing river tab — WO-NARRATOR-ROOM-01 broken");
+    _push(cat, "narrator-room river view tab absent",
+      tab ? STATUS.FAIL : STATUS.PASS,
+      tab ? "a river view tab has returned to the narrator room" : "");
 
+    const btn = document.getElementById("lv80RiverBtn");
+    _push(cat, "Memory River launcher absent",
+      btn ? STATUS.FAIL : STATUS.PASS,
+      btn ? "#lv80RiverBtn has returned" : "");
+
+    // NOT a Kawa assertion — kept because lvNarratorShowView is the
+    // consumption boundary that normalizes a stored "river" to "map".
+    // It is the single thing standing between a legacy session and a blank
+    // narrator room, so it stays checked.
     const showFn = typeof window.lvNarratorShowView;
     _push(cat, "lvNarratorShowView available",
       showFn === "function" ? STATUS.PASS : STATUS.FAIL,
       `typeof=${showFn}`);
-
-    const kawa = state && state.kawa;
-    _push(cat, "state.kawa.segmentList array present",
-      kawa && Array.isArray(kawa.segmentList) ? STATUS.PASS : STATUS.WARN,
-      kawa ? `count=${(kawa.segmentList || []).length}` : "state.kawa missing");
   }
 
   // ── Category: Life Map ─────────────────────────────────────────

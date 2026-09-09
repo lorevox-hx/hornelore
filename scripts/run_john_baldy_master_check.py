@@ -377,10 +377,11 @@ def write_master_report(
     )
     lines.append("")
     lines.append(
-        "AMBER block flagged Memory River tab as missing — that's the "
-        "retired Kawa metaphor per CLAUDE.md design principle 1, so the "
-        "operator-log gate itself is stale and should be removed, not "
-        "the feature restored."
+        "Memory River was REMOVED from the product on 2026-09-08 "
+        "(WO-KAWA-REMOVAL-01), so its absence is no longer an AMBER note to "
+        "explain away. The health check now asserts the opposite — that the "
+        "popover, launcher and river view tab are all gone — and a FAIL there "
+        "means the retired subsystem returned."
     )
     lines.append("")
 

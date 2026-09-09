@@ -112,11 +112,6 @@ const API = {
   UPDATE_THREADS: ORIGIN + "/api/transcript/update-threads",
   // WO-CR-01 — Chronology Accordion (read-only)
   CHRONOLOGY_ACCORDION: (id) => `${ORIGIN}/api/chronology-accordion?person_id=${encodeURIComponent(id)}`,
-  // WO-KAWA-UI-01A — Kawa River View
-  KAWA_LIST:    (pid) => `${ORIGIN}/api/kawa/list?person_id=${encodeURIComponent(pid)}`,
-  KAWA_SEGMENT: (pid, sid) => `${ORIGIN}/api/kawa/segment?person_id=${encodeURIComponent(pid)}&segment_id=${encodeURIComponent(sid)}`,
-  KAWA_BUILD:   `${ORIGIN}/api/kawa/build`,
-  KAWA_SAVE:    `${ORIGIN}/api/kawa/segment`,
   // WO-ARCHIVE-AUDIO-01 — Memory archive (narrator-only audio + transcript)
   MEMORY_ARCHIVE_HEALTH:  ORIGIN + "/api/memory-archive/health",
   MEMORY_ARCHIVE_START:   ORIGIN + "/api/memory-archive/session/start",
@@ -127,36 +122,7 @@ const API = {
   MEMORY_ARCHIVE_DELETE:  (pid) => `${ORIGIN}/api/memory-archive/people/${encodeURIComponent(pid)}`,
 };
 
-/* ── WO-KAWA-UI-01A — Kawa API helpers ───────────────────────── */
-
-async function apiListKawaSegments(personId){
-  const r = await fetch(API.KAWA_LIST(personId));
-  if (!r.ok) throw new Error(`Kawa list failed: ${r.status}`);
-  return r.json();
-}
-
-async function apiGetKawaSegment(personId, segmentId){
-  const r = await fetch(API.KAWA_SEGMENT(personId, segmentId));
-  if (!r.ok) throw new Error(`Kawa get failed: ${r.status}`);
-  return r.json();
-}
-
-async function apiBuildKawaSegment(personId, anchor){
-  const r = await fetch(API.KAWA_BUILD, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ person_id: personId, anchor })
-  });
-  if (!r.ok) throw new Error(`Kawa build failed: ${r.status}`);
-  return r.json();
-}
-
-async function apiSaveKawaSegment(payload){
-  const r = await fetch(API.KAWA_SAVE, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-  if (!r.ok) throw new Error(`Kawa save failed: ${r.status}`);
-  return r.json();
-}
+/* WO-KAWA-REMOVAL-01 (2026-09-08): the four Kawa REST helpers
+   (apiListKawaSegments / apiGetKawaSegment / apiBuildKawaSegment /
+   apiSaveKawaSegment) and their four API entries were removed here along
+   with the server routes they called. Nothing else consumed them. */

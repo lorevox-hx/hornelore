@@ -240,15 +240,21 @@ let state = {
        'safety'      : safety companion mode                                        */
     assistantRole: "interviewer",
 
-    /* WO-KAWA-UI-01A — Interview mode for Kawa integration.
-       'chronological' : default milestone-driven interview (no Kawa prompts)
-       'hybrid'        : chronological skeleton + selective Kawa follow-ups
-       'kawa_reflection': narrator explores life in river/meaning terms      */
+    /* Interview mode. WO-KAWA-REMOVAL-01 (2026-09-08): 'chronological' is now
+       the ONLY supported value. It previously also accepted 'hybrid'
+       (chronological skeleton + selective Kawa follow-ups) and
+       'kawa_reflection'; both are retired and normalize back to
+       'chronological' via lvNormalizeInterviewMode below.
+
+       THE FIELD KEEPS ITS `kawaMode` NAME ON PURPOSE. Renaming it would
+       orphan every persisted session that already stores it, which is the
+       exact failure this work order exists to prevent. The name is history;
+       the value is normalized.
+
+       lastKawaMode / kawaPromptCooldown / lastKawaSegmentId were removed with
+       the prompt machinery that read them (lori-kawa.js, interview.js). */
     kawaMode: "chronological",
-    lastKawaMode: null,
-    kawaPromptCooldown: 0,         // WO-KAWA-02A: suppress Kawa prompts for N turns after one fires
-    lastKawaSegmentId: null,       // WO-KAWA-02A: last segment used in a Kawa prompt
-    memoirMode: "chronology",      // WO-KAWA-02A: chronology | chronology_river | river_organized
+    memoirMode: "chronology",      // only supported value; see lvNormalizeMemoirMode
 
     /* WO-10C — Cognitive Support Mode: narrator-scoped flag.
        When true, the entire stack shifts to dementia-safe companion behavior:
@@ -302,37 +308,12 @@ let state = {
     fatigueScore:     0,           // 0–100, estimated by session_vitals
   },
 
-  /* ── WO-KAWA-UI-01A — Kawa River View ─────────────────────────
-     Parallel meaning layer. Never canonical by itself.
-     Segment-level, narrator-confirmed only when explicitly saved.
-  ─────────────────────────────────────────────────────────────── */
-  kawa: {
-    mode: "river",              // river | timeline_split
-    segmentList: [],            // [{ segment_id, anchor, kawa, provenance }]
-    activeSegmentId: null,
-    activeSegment: null,
-    isLoading: false,
-    isDirty: false,
-    lastBuiltAt: null,
-    /* WO-KAWA-02A — question context for hybrid/reflection modes */
-    questionContext: {
-      lastAnchorId: null,
-      lastPromptType: null
-    },
-    /* WO-KAWA-02A — memoir overlay configuration */
-    memoir: {
-      overlayEnabled: true,
-      organizationMode: "chronology_river"  // chronology | chronology_river | river_organized
-    },
-    metrics: {
-      proposalsBuilt: 0,
-      promptsShown: 0,
-      confirmed: 0,
-      edited: 0,
-      hybridPromptsShown: 0,           // WO-KAWA-02A
-      kawaSegmentsUsedInMemoir: 0      // WO-KAWA-02A
-    }
-  },
+  /* WO-KAWA-REMOVAL-01 (2026-09-08): the whole `kawa: { ... }` state slot was
+     here - segmentList, activeSegment, questionContext, the memoir overlay
+     config whose organizationMode defaulted to "chronology_river", and the
+     metrics (hybridPromptsShown, kawaSegmentsUsedInMemoir). Every reader of
+     it was removed in this commit. Note that `organizationMode` was a FOURTH
+     place a retired memoir value lived, separate from session.memoirMode. */
 
   /* ── WO-11 Trainer Narrators ──────────────────────────────────────
      WO-11 (TRAINER MODE REPAIR): canonical state shape.
