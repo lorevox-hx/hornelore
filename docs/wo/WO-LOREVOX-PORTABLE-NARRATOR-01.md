@@ -370,13 +370,30 @@ Delete" as one button.**
 
 ## 17. Phase plan
 
-**Phase 0 — Read-only repo and live-data ownership audit.** No product mutation. Build
-the ownership map from the live schema, migrations, `person_delete_inventory`,
-`_EXTENDED_PERSON_SCOPED_TABLES`, FK descendants, `narrator_erasure.build_plan`, and the
-configured data roots. Report: `portable narrator-owned` · `shared/unassigned` ·
-`installation-owned` · `cache` · `historical` · `unknown`. Run it against at least
-Chris, Kent, Janice and one synthetic Ada. **Exit gate: no unexplained narrator-data
-lane.**
+**Phase 0 — Read-only repo and live-data ownership audit.** No product mutation, no
+stack, no UI. **Method, decided 2026-09-09 (§25.16):**
+
+1. **Live SQLite inspection — primary.** A script opens
+   `/mnt/c/hornelore_data/db/hornelore.sqlite3` with `mode=ro` via a URI, **takes the
+   path as an explicit argument** (the WSL profile carries stale `DATA_DIR` /
+   `DB_NAME` exports), and **refuses to run if it cannot prove read-only** — any
+   write attempt must raise. It reads the actual tables, columns and foreign keys,
+   narrator-owned row counts for Chris, Kent, Janice and one synthetic Ada, and every
+   narrator-linked path the rows name.
+2. **Repo derivation — reconciliation check.** Migrations `0001`–`0053`, `db.py`
+   including `init_db()`'s non-migration columns, `person_delete_inventory()`,
+   `_EXTENDED_PERSON_SCOPED_TABLES`, and `narrator_erasure.build_plan()`. Where the
+   live database and the code disagree, that disagreement is a row in the table, not
+   something to resolve quietly.
+3. **Filesystem inventory — read-only.** What exists under `/mnt/c/hornelore_data`
+   compared with what the live database references. Orphan / unreferenced material is
+   **classified, never deleted or guessed into an owner.**
+
+The report is written only under `.runtime/` or `docs/reports/` — real-family counts
+and paths never enter Git. Chris's part is one command and pasting the result; nothing
+is deleted, moved, imported, exported or altered. Output classes: `portable
+narrator-owned` · `shared/unassigned` · `installation-owned` · `cache` · `historical` ·
+`unknown`. **Exit gate: no unexplained narrator-data lane.**
 
 **Phase 1 — Land the ownership contract.** The small shared declaration used by
 portability; reconcile erasure coverage with it. A structural parity check must fail
@@ -516,6 +533,17 @@ any package is imported · **J** preservation — `/mnt/c/hornelore_data` not de
     evidence it needs.
 13. **The Horne-family auto-seeder is REMOVED from the Lorevox product runtime — not
     disabled by flag.** See §27.6.
+14. **A consistent database snapshot does not make the whole package consistent.
+    Database and filesystem consistency are separate proofs.** A file that appears
+    while export runs can become neither an undeclared extra nor an omitted asset
+    without being detected. See §28.2.
+15. **BagIt tooling operates only inside an exporter-created temporary staging
+    directory.** It is never pointed at `/mnt/c/hornelore_data`, `/mnt/c/lorevox_data`,
+    or any live `DATA_DIR`. See §28.1.
+16. **Phase 0 uses live read-only SQLite inspection as primary evidence**, with the
+    migrations / `db.py` / erasure-plan derivation as the reconciliation check and a
+    read-only filesystem inventory classifying what exists on disk against what the
+    database references. See §17 Phase 0 and §27.9.
 
 ## 26. First implementation action after approval
 
