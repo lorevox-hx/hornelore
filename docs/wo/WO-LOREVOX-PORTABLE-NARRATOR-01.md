@@ -420,7 +420,7 @@ narrator-owned` · `shared/unassigned` · `installation-owned` · `cache` · `hi
 portability; reconcile erasure coverage with it. A structural parity check must fail
 when portability owns a lane erasure does not know, or erasure finds narrator data
 portability would omit, unless the difference has an explicit policy classification.
-**Exit gate: one reviewed ownership truth.**
+**Exit gate: one reviewed ownership truth.** *(**LANDED 2026-09-10** — see §30.)*
 
 **Phase 2 — Package v1 exporter.** Manifest, row serialization, filesystem collection,
 path normalization, SHA-256, secret refusal, snapshot consistency, temp-file ZIP,
@@ -762,3 +762,43 @@ are targeted; §17 Phase 1's "do not rewrite hard deletion wholesale" stands.
 `bagit`.** Everything else is stdlib — `sqlite3`, `zipfile`, `hashlib`, `json`,
 `tempfile`, `pathlib`, `shutil` — already in `.venv-gpu` (Python 3.12). No new database,
 service, container or daemon.
+
+## 30. Phase 1 closeout — landed 2026-09-10
+
+**Exit gate met: one reviewed ownership truth, held by test in both directions.**
+Measured under `.venv`: `tests.test_narrator_erasure_ownership_gaps` **4/4** and
+`tests.test_narrator_data_inventory_parity` **15/15**, 19 ran, 0 skipped, 170 s.
+
+**What landed.**
+
+| piece | where | what it is |
+|---|---|---|
+| The declaration | `server/code/api/services/narrator_data_inventory.py` | Every one of the 72 live tables carries an owner — `Direct(column)`, `Parent(fk, table)` or `Installation(reason)` — a class (§5), `portable`, `erasable`, `path_columns` (§8.5) and `external_person_columns` (§13). Thirteen filesystem lanes keyed by person, by row (with the resolving SQL), shared, or installation. `select_sql()` / `delete_sql()` generate the narrator selector by recursion through parents, bound to one `:pid`. Stdlib only. |
+| The three repairs | `server/code/api/db.py` `_PARENT_OWNED_CHILDREN` | The inline media-archive parent-child loop lifted into a named list and extended with `interview_threads` (via `interview_sessions.person_id`), `trip_photo_day_placement_skips` (via `trips.person_id`) and `media_archive_people` (via `media_archive_items.person_id`, in addition to its own `person_id`). Same subselect idiom; nothing else in `hard_delete_person` changed. |
+| Gap tests | `tests/test_narrator_erasure_ownership_gaps.py` | Through the real `hard_delete_person()` with `foreign_keys=ON`: delete succeeds AND A's rows are gone AND B is untouched. 3 RED at `c575570` (two rollbacks, one residue), 4 GREEN after the repair. |
+| Parity | `tests/test_narrator_data_inventory_parity.py` | Against the schema `init_db()` actually builds, never a hand list: completeness both ways; reach — every erasable lane is hit by `_EXTENDED_PERSON_SCOPED_TABLES`, `_PARENT_OWNED_CHILDREN`, `_hard_delete_media`, or an `ON DELETE CASCADE` chain read from `PRAGMA foreign_key_list` to fixpoint, and the reverse; installation tables never reached; `db.py`'s columns equal the declaration's; every selector `EXPLAIN`s against the live schema; a two-narrator boundary; FS lanes equal `FIXED_TARGETS` / `SHARED_PURGE`, and the row lanes are checked by **running** `_dynamic_plan`. `POLICY_EXCEPTIONS` is the only sanctioned way to differ, and it is empty. |
+
+**Found while landing, not in Phase 0.** The erasure planner names a fourth row-keyed
+lane — legacy transcript exports under `memory/agents/<sub>/<slug>`, keyed by
+`sessions.conv_id` and named only by `chat_memory_paths.export_basenames()`
+(`narrator_erasure.py:376-395`). Added as `agent_transcripts` (class C, portable). The
+dynamic-plan parity test is what caught it; a hand-listed set would have passed.
+
+**The one allowed asymmetry, declared rather than exempted.** `media_archive_people` is
+Parent-owned (follows the item) *and* is still swept by its own `person_id` at
+`db.py` `_EXTENDED_PERSON_SCOPED_TABLES` — tags naming this narrator on other people's
+items go with the narrator, the item stays. The parity test permits that only because the
+column is declared in `external_person_columns`; any other column mismatch fails.
+
+**Not done, on purpose.** Erasure does not consume the declaration (§17: no wholesale
+rewrite). `import_candidate`'s staged original remains *conditional* (§29). Nothing was
+exported. `bagit` is not installed.
+
+**Data-location finding for Phase 6 (recorded here, decided later).** Phase 0
+`20260910T015024Z` and a read-only probe on 2026-09-10 show the live
+`/mnt/c/hornelore_data/db/hornelore.sqlite3` has **0 `trips`, 0 `trip_sources`, 4
+`photos`** and no `trip_sources/` directory; the two `backup_real_pre_0035_20260723_*`
+files hold 1 trip and 0 sources; `db/lorevox.sqlite3` is a 0-byte file; and
+`/home/chris/lorevox_data` exists and has not been audited. The "richest real narrator"
+for Phase 6 is therefore **measured at Phase 6 time from a Phase 0 run of whichever root is
+in scope**, not assumed. Any second root gets its own Phase 0 before a package is built from it.

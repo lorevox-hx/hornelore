@@ -10,7 +10,7 @@ rule back. The claim that matters is the one about obligations.)*
 
 ---
 
-> # ▶ CURRENT ACTION — `WO-LOREVOX-PORTABLE-NARRATOR-01`, PHASE 0 (read-only ownership audit). **PHASE 6 IS PAUSED WITH ITS VERDICT RECORDED** — see the Block D row and `docs/handoffs/HANDOFF_2026-09-09_PHASE6_C-BLOCK-AND-LEAN-QUALITY.md`.
+> # ▶ CURRENT ACTION — `WO-LOREVOX-PORTABLE-NARRATOR-01`, PHASE 2 (Package v1 exporter). **Phase 0 landed** (`20260910T015024Z`, 0 unexplained lanes) and **Phase 1 landed 2026-09-10** — ownership declaration `narrator_data_inventory.py`, three erasure repairs in `db.py::_PARENT_OWNED_CHILDREN`, gap suite 4/4 + parity 15/15 under `.venv`; closeout in the WO §30. Before Phase 6, the live root has **zero travel rows** and `/home/chris/lorevox_data` is unaudited — see §30's data-location finding. **PHASE 6 IS PAUSED WITH ITS VERDICT RECORDED** — see the Block D row and `docs/handoffs/HANDOFF_2026-09-09_PHASE6_C-BLOCK-AND-LEAN-QUALITY.md`.
 >
 > *(This header read "PHASE 6 — LORI'S CONVERSATIONAL QUALITY — IS NEXT" from 2026-09-08 to 2026-09-09, through four runs, a cohort, Block C and the Lean verdict. Decided 2026-09-09: portability lands before the compact prompt is written, so the family can leave Hornelore before more is built on top of it.)*
 >
