@@ -5689,22 +5689,58 @@ def _extended_person_scoped_counts(con, person_id: str) -> Dict[str, int]:
     return counts
 
 
+# Rows owned THROUGH a parent row rather than by a person column of
+# their own: `(child, child_fk_column, parent, parent_person_column)`.
+# Each is deleted as
+#   DELETE FROM child WHERE child_fk IN (SELECT id FROM parent WHERE parent_col=?)
+# BEFORE the direct-column loop, while the parent rows still exist to
+# be selected from. Ownership follows the parent row, never the child's
+# own columns — a tag on A's item that names B is A's tag.
+#
+# The first two are the original media-archive pair (their NO ACTION
+# FKs would otherwise block the parent delete). The last three are the
+# WO-LOREVOX-PORTABLE-NARRATOR-01 Phase 0 erasure gaps, repaired in
+# Phase 1 and pinned by tests/test_narrator_erasure_ownership_gaps.py:
+#
+#   interview_threads       0009:56 FK to interview_sessions with no ON
+#                           DELETE; nothing deleted threads, so a narrator
+#                           with any thread could not be hard-deleted at
+#                           all (rollback).
+#   trip_photo_day_placement_skips
+#                           0043 skip ledger, NO FK; not in any list, so
+#                           it survived as residue after a "complete"
+#                           delete.
+#   media_archive_people    0003:156 FK with no ON DELETE; deleted only by
+#                           its OWN person_id below, so a tag naming
+#                           another person on this narrator's item was
+#                           deleted by neither path and blocked the
+#                           parent (rollback).
+#
+# The declaration these must agree with is
+# api/services/narrator_data_inventory.py; the agreement is held by
+# tests/test_narrator_data_inventory_parity.py in both directions.
+_PARENT_OWNED_CHILDREN: List[tuple] = [
+    ("media_archive_links", "archive_item_id", "media_archive_items", "person_id"),
+    ("media_archive_family_lines", "archive_item_id", "media_archive_items", "person_id"),
+    ("media_archive_people", "archive_item_id", "media_archive_items", "person_id"),
+    ("interview_threads", "session_id", "interview_sessions", "person_id"),
+    ("trip_photo_day_placement_skips", "trip_id", "trips", "person_id"),
+]
+
+
 def _extended_person_scoped_delete(con, person_id: str) -> None:
     """Delete extended person-scoped rows inside the caller's
     transaction (no commit here — hard_delete_person owns the
     all-or-nothing boundary)."""
-    # NO-ACTION FK children of media_archive_items go first.
-    if _table_column_exists(con, "media_archive_items", "person_id"):
-        for child, fk_col in (
-            ("media_archive_links", "archive_item_id"),
-            ("media_archive_family_lines", "archive_item_id"),
-        ):
-            if _table_column_exists(con, child, fk_col):
-                con.execute(
-                    f"DELETE FROM {child} WHERE {fk_col} IN "  # noqa: S608
-                    f"(SELECT id FROM media_archive_items WHERE person_id=?);",
-                    (person_id,),
-                )
+    # Parent-owned children go first, while their parents still exist.
+    for child, fk_col, parent, parent_col in _PARENT_OWNED_CHILDREN:
+        if (_table_column_exists(con, parent, parent_col)
+                and _table_column_exists(con, child, fk_col)):
+            con.execute(
+                f"DELETE FROM {child} WHERE {fk_col} IN "  # noqa: S608
+                f"(SELECT id FROM {parent} WHERE {parent_col}=?);",
+                (person_id,),
+            )
     for table, col in _EXTENDED_PERSON_SCOPED_TABLES:
         if _table_column_exists(con, table, col):
             con.execute(
