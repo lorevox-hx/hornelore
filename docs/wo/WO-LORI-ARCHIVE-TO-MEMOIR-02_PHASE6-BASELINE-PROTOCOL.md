@@ -1,7 +1,16 @@
 # Phase 6 — lean conversational baseline: the protocol
 
-**Status, updated 2026-09-08: RUNS 1-4 AND THE A/B/C COHORT ARE COMPLETE.
-THE HUMAN CONVERSATIONAL VERDICT IS STILL OWED.** *(This header read
+**Status, updated 2026-09-09: THE HUMAN VERDICT IS RECORDED. Lean scored 3 / 4 / 4 / 2
+by Chris on the frozen ten (desktop, Ada `8ec7a427`, revision 1, `55a52f0cb045`).
+Arm B (Lean + prompt ids 1,3,5,6,7) REJECTED — stub collapse from generation alone.
+Single-factor screen done. PHASE 6 IS PAUSED for `WO-LOREVOX-PORTABLE-NARRATOR-01`;
+next is a compact Lori prompt, not another arm.** Record:
+`docs/handoffs/HANDOFF_2026-09-09_PHASE6_C-BLOCK-AND-LEAN-QUALITY.md`. Retention
+numbers from these runs are QUARANTINED — extraction hit `PROMPT_TOO_LARGE` on every
+turn, independently of any arm.
+
+*(Previous header, 2026-09-08: "RUNS 1-4 AND THE A/B/C COHORT ARE COMPLETE.
+THE HUMAN CONVERSATIONAL VERDICT IS STILL OWED.")* *(This header read
 "RUN 1 COMPLETE AND REJECTED AS A BASELINE; CORRECTIONS LANDED; RUN 2 NOT
 YET ARMED" until 2026-09-08 — false the same evening it was written, since
 Run 2 was captured that night. It is corrected rather than deleted because

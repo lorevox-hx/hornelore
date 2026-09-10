@@ -231,6 +231,42 @@ semantic identity** — file plus enclosing function/context plus writer shape. 
 **not** repaired inside the Kawa work order: re-pinning a Profile Seed test has no business
 riding along with a product removal.
 
+### 2.6 Recorded 2026-09-09 during the Phase 6 quality session — none blocking portability
+
+Full evidence: `docs/handoffs/HANDOFF_2026-09-09_PHASE6_C-BLOCK-AND-LEAN-QUALITY.md`.
+
+* **LLM extraction prompt overflows the locked window on every turn.** `PROMPT_TOO_LARGE`,
+  `prompt_tokens` ≈ 9,830 against 8,192, ten of ten on Ada under Lean and on Chris's own
+  turn under Defaults (`api.log`, 2026-09-09 16:20 and 16:57–17:01 local). Rules fallback
+  kept 3 items in 10 turns; story capture declined 10 of 10. Independent of the Guard Lab.
+  **Lead:** earlier successful extractions in the same log carry `era=earliest_years
+  pass=pass1`; the failing ones carry `era=? pass=?`. Undated regression. **The window is
+  locked; the prompt must shrink** — in whichever lane it runs. Every retention number
+  from the 2026-09-09 runs is quarantined.
+* **Session health is false-green on extraction failure.** `104 PASS · 3 AMBER · 0 RED`
+  while ten consecutive extractions failed. Same class as the replay instrument's original
+  zeroed report: "nothing was measured" rendered as "nothing was wrong".
+* **`_horneloreEnsureNarrators()` re-creates the Horne family on first boot**
+  (`ui/hornelore1.0.html:10083`, from `ui/templates/*-horne.json`) and `:10136` disables
+  their deletion — the "LOCKED NARRATOR UNIVERSE" block. A fresh data root cannot be clean
+  while it runs. **Removal (not a flag) is a required Phase 7 gate of
+  `WO-LOREVOX-PORTABLE-NARRATOR-01`.**
+* **Trainer launcher blanks the session before its surface renders.**
+  `lv80RunTrainerNarrator()` (`:6749`) nulls `state.person_id`, removes `LS_ACTIVE` and
+  clears the transcript, then can fail to render, with no visible restore path. The
+  begin-chooser's "Questionnaire First" is this launcher, not narrator intake.
+* **WSL profile still exports stale `DATA_DIR=/home/chris/lorevox_data` /
+  `DB_NAME=lorevox.sqlite3`.** `phase6_populated_narrator.py` now lets `.env` win
+  (matching `common.sh:26-29`), but any other script with export-wins precedence will
+  still land in the wrong world. A stray Ada `85f52c6e` sits in that unused database.
+* **`_CASCADE_FILTER_TOKENS` lacks function words** — `For`, `She`, `That`, `Mostly` reach
+  id 48's receipt pool (`lori_structured_narrative_fallback.py:28`). `_BAD_ANCHOR_TOKENS`
+  in the sibling extractor has them. Not punctuation; not Block C's.
+* **The stub-collapse guard treats a symptom the prompt set causes.** Arm B reproduced the
+  `BUG-LORI-RESPONSE-STUB-COLLAPSE-01` shape from generation alone, `eos`, no guard
+  involved. When id 39 is next judged, judge it against a prompt that does not induce the
+  stubs.
+
 ## 3. `docs/wo/` — parked, banked, and spec-only work
 
 A mix of active implementation specs and completed, superseded, parked and future-only
