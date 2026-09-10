@@ -168,6 +168,14 @@ real domain relationships.
 
 Every durable lane is assigned exactly one class.
 
+**Classes describe what KIND of data a lane holds, never WHOSE.** `testing_only`,
+`narrator_type` and `is_deleted` are narrator dispositions on the `people` row and are
+orthogonal to these classes (decided 2026-09-10, Phase 0 R5). A `testing_only` narrator is
+exportable — Phases 2–4 round-trip on a synthetic narrator depends on it — and a
+soft-deleted narrator still owns its rows and directories (§14). Which narrators are
+*selected* for export is an operator decision at export time. There is no "test-fixture"
+class.
+
 **A — Narrator authoritative.** Original information or operator / narrator decisions
 that must survive: identity; transcripts; narrator audio; photographs / original
 documents; operator corrections; review decisions; trip source documents.
