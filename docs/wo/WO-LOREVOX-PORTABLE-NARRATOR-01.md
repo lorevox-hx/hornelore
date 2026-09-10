@@ -733,12 +733,32 @@ actionable — verified against the candidate's `file_hash`. Once a candidate ha
 materialized into a permanent `photos` row and file, the staging copy is redundant and need
 not travel. `import_staging/.incoming/…` is acquisition scratch and never travels.
 
-**29.4 The four column-only chains are closed with deletion evidence, not inference.**
-`turns → sessions.person_id`, `interview_threads → interview_sessions.person_id`,
-`import_candidate → photos.narrator_id`, `trip_photo_day_placement_skips → trips.person_id`.
-Phase 1 cites the line in `db.py` or `narrator_erasure.py` that deletes each, or records
-that nothing does — and a parity test fails loudly if a narrator-owned lane is known to
-export and not to erasure, or the reverse, without an explicit policy classification. Phases 0–1: nothing. Phase 2: `bagit`.
-Everything else is stdlib — `sqlite3`, `zipfile`, `hashlib`, `json`, `tempfile`,
-`pathlib`, `shutil` — already in `.venv-gpu` (Python 3.12). No new database, service,
-container or daemon.
+**29.4 The column-only chains are closed with deletion evidence, not inference — and three
+of them are erasure GAPS, verified 2026-09-10.** *(This clause listed four chains until
+2026-09-10; `import_candidate` was miscounted — it has a direct FK to `people`, which the
+Phase 0 instrument's own `FKs→people: 1` column recorded while its chain walker reported a
+longer path through `photos`. Instrument corrected to prefer the direct FK and to capture
+`ON DELETE`.)* The three that remain:
+
+| chain | declared FK | erasure today | status |
+|---|---|---|---|
+| `turns → sessions.person_id` | `turns.session` FK, `sessions.person_id` added by `ALTER` (`0044`) with no FK | `sessions` is an erasure lane; `turns` coverage to be cited | **VERIFY** |
+| `interview_threads → interview_sessions.person_id` | `0009:56` `REFERENCES interview_sessions(id)`, **no `ON DELETE`** | only a `DELETE … WHERE session_id=?` helper (`db.py:9017`) that hard-delete does not call; not in `_EXTENDED_PERSON_SCOPED_TABLES` | **GAP — repair in Phase 1** |
+| `trip_photo_day_placement_skips → trips.person_id` | **no FK at all** (`0043`, a historical skip ledger) | not in the extended list; `db.py` names it only in schema checks (`493–534`) | **GAP — repair in Phase 1** |
+
+And one asymmetry in the media archive: `media_archive_people` FKs to `media_archive_items`
+(`0003:156`, no `ON DELETE`) and is deleted only by its own `person_id` (`db.py:5613`),
+while `media_archive_links` and `media_archive_family_lines` are deleted **by parent item**
+(`5696–5705`). A tag on a narrator-owned item that names a *different* person is deleted by
+neither path and can block the parent delete. **GAP — repair in Phase 1**, with a test that
+pins the other-person tag case.
+
+Phase 1 cites the line in `db.py` or `narrator_erasure.py` that deletes each lane, or
+repairs it, and a parity test fails loudly if a narrator-owned lane is known to export and
+not to erasure, or the reverse, without an explicit policy classification. These repairs
+are targeted; §17 Phase 1's "do not rewrite hard deletion wholesale" stands.
+
+*(§28.7, restored — the §29 insertion split it:)* **Phases 0–1: nothing. Phase 2:
+`bagit`.** Everything else is stdlib — `sqlite3`, `zipfile`, `hashlib`, `json`,
+`tempfile`, `pathlib`, `shutil` — already in `.venv-gpu` (Python 3.12). No new database,
+service, container or daemon.

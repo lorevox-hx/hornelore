@@ -147,7 +147,11 @@ def live_schema(con: sqlite3.Connection) -> Dict[str, Dict[str, Any]]:
         tables[name] = {
             "columns": [c["name"] for c in cols],
             "column_types": {c["name"]: c["type"] for c in cols},
-            "fks": [{"from": f["from"], "table": f["table"], "to": f["to"]} for f in fks],
+            # on_delete is what decides whether erasure reaches a child row by
+            # cascade or has to name it. Captured here so no reader has to
+            # assert it from a migration's prose.
+            "fks": [{"from": f["from"], "table": f["table"], "to": f["to"],
+                     "on_delete": f.get("on_delete")} for f in fks],
             "row_count": count,
             "sql": r["sql"] or "",
         }
@@ -259,12 +263,18 @@ def fk_path_to_people(name: str, schema: Dict[str, Dict[str, Any]],
     if name in seen:
         return None
     seen = seen | {name}
-    for fk in schema.get(name, {}).get("fks", []):
+    fks = schema.get(name, {}).get("fks", [])
+    # A DIRECT FK to people wins over any longer chain. The first run
+    # walked FKs in PRAGMA order and reported import_candidate through
+    # photos, while its own "FKs->people: 1" column said otherwise.
+    for fk in fks:
+        if fk["table"] == "people":
+            return [name, f"people (ON DELETE {fk.get('on_delete') or 'NO ACTION'})"]
+    for fk in fks:
         parent = fk["table"]
-        if parent == "people":
-            return [name, "people"]
         if _person_column(schema.get(parent, {}).get("columns", [])):
-            return [name, f"{parent}(.{_person_column(schema[parent]['columns'])}, no FK to people)"]
+            return [name, f"{parent}(.{_person_column(schema[parent]['columns'])}, "
+                          f"child FK ON DELETE {fk.get('on_delete') or 'NO ACTION'}; no FK to people)"]
         sub = fk_path_to_people(parent, schema, seen)
         if sub:
             return [name] + sub

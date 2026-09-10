@@ -132,7 +132,7 @@ Archive Export = the current `memory_archive.py:634` ZIP. v1 = Portable Narrator
 | `photo_session_shows` | 0 | narrator | FK child via `photos` | via parent | no | yes |
 | `photo_memories` | 0 | narrator | FK child via `photo_session_shows` | via parent | no | yes |
 | `import_batch` | 2 | narrator | explicit (lane) | explicit | no | yes |
-| `import_candidate` | 4 | narrator | **column only** → `photos.narrator_id` (R1) | **VERIFY** | no | yes |
+| `import_candidate` | 4 | narrator | **direct FK→people** + `person_id` *(corrected 2026-09-10 — first version reported a chain via `photos`; the audit's own `FKs→people: 1` said otherwise)* | cascade | no | yes |
 | `media` | 0 | narrator | FK→people + `person_id` | cascade | no | yes |
 | `media_attachments` | 0 | narrator | FK→people + `person_id` | cascade | no | yes |
 | `media_archive_items` | 0 | narrator **row-level** (`person_id`; unowned rows are shared/unassigned, §6) | explicit | explicit | no | yes for owned rows |
@@ -168,8 +168,11 @@ Archive Export = the current `memory_archive.py:634` ZIP. v1 = Portable Narrator
 | `schema_migrations` | 52 | installation | migration ledger | n/a | no | **no** |
 
 **Counts:** 62 narrator-owned (four of them **row-level**, see R11) · 10 installation-owned ·
-0 whole-table shared · 0 unexplained. **4 column-only chains need erasure coverage VERIFIED
-in Phase 1**, and every one of them is on the export side by the rule in R1.
+0 whole-table shared · 0 unexplained. **Three column-only chains** (`turns`,
+`interview_threads`, `trip_photo_day_placement_skips`) plus the `media_archive_people`
+other-person asymmetry go to Phase 1 — verified 2026-09-10 to be **two erasure gaps and one
+asymmetry**, not merely unverified; see WO §29.4. Every one of them is on the export side by
+the rule in R1.
 
 **R11 — Ownership is a property of ROWS, and the contract must express selectors, not table
 names.** *(Corrected 2026-09-10; the first version of this matrix labelled two whole tables
