@@ -31,7 +31,14 @@ USAGE (stack down; Chris's whole part):
     cd /mnt/c/Users/chris/hornelore
     python3 scripts/phase0_narrator_ownership_audit.py \\
         --db /mnt/c/hornelore_data/db/hornelore.sqlite3 \\
-        --data-root /mnt/c/hornelore_data
+        --data-root /mnt/c/hornelore_data \\
+        --label desktop-live
+
+`--label` names WHICH COPY this is (machine + root). The report header
+records hostname, label and the repo commit (read from .git files, no git
+process) so two machines' audits cannot be mistaken for each other.
+Narrator data has provably been distributed across roots and backups
+(WO §30); one root is never assumed to be everything.
 
 Doctrine (CLAUDE.md): a claim about what code does with a value cites the
 line that reads the value. Every classification below carries its
@@ -561,11 +568,50 @@ def _fmt_bytes(n: Any) -> str:
     return f"{n:.1f} PB"
 
 
+def _machine_name() -> str:
+    import socket
+    try:
+        return socket.gethostname()
+    except Exception:
+        return "unknown-host"
+
+
+def _repo_head_without_git(repo: Path) -> str:
+    """The commit the audit code came from, read from `.git/` FILES.
+
+    No `git` subprocess: CLAUDE.md records that a git command from a
+    sandbox can leave `.git/index.lock` behind, and an audit that is
+    read-only by contract must not take any lock at all. Returns
+    `unknown (<reason>)` rather than guessing.
+    """
+    try:
+        head = (repo / ".git" / "HEAD").read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        return f"unknown ({exc.__class__.__name__})"
+    if not head.startswith("ref:"):
+        return head[:12] + " (detached)"
+    ref = head.split(":", 1)[1].strip()
+    loose = repo / ".git" / ref
+    try:
+        if loose.is_file():
+            return loose.read_text(encoding="utf-8").strip()[:12] + f" ({ref})"
+        packed = (repo / ".git" / "packed-refs").read_text(encoding="utf-8")
+        for line in packed.splitlines():
+            parts = line.split()
+            if len(parts) == 2 and parts[1] == ref:
+                return parts[0][:12] + f" ({ref}, packed)"
+    except OSError as exc:
+        return f"unknown ({exc.__class__.__name__})"
+    return f"unknown ({ref} not found)"
+
+
 def build_report(ctx: Dict[str, Any]) -> str:
     L: List[str] = []
     w = L.append
     w("# Phase 0 — narrator ownership audit (READ ONLY)")
     w("")
+    w(f"**Machine:** `{ctx['machine']}`  ·  **Label:** `{ctx['label']}`  ·  "
+      f"**Repo commit:** `{ctx['commit']}`")
     w(f"**Database:** `{ctx['db']}`  ·  opened `mode=ro`, write lock refused by SQLite: **proven**")
     w(f"**Data root:** `{ctx['data_root']}`  ·  **Repo:** `{ctx['repo']}`")
     w(f"**Interpreter:** `{sys.executable}` {sys.version.split()[0]}  ·  **Run:** {ctx['when']}")
@@ -771,7 +817,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="ABSOLUTE DATA_DIR the running product uses (e.g. /mnt/c/hornelore_data).")
     ap.add_argument("--repo", type=Path, default=REPO_ROOT)
     ap.add_argument("--out", type=Path, default=None,
-                    help="report directory; default .runtime/eval/phase0-ownership-audit-<ts>/")
+                    help="report directory; default .runtime/eval/phase0-ownership-audit-<label>-<ts>/")
+    ap.add_argument("--label", default="",
+                    help="which copy this is (e.g. desktop-live, desktop-backup-0723, laptop-live). "
+                         "Goes into the report header and the output directory name so two "
+                         "machines' reports cannot be confused.")
     args = ap.parse_args(argv)
 
     if not args.db.is_absolute() or not args.data_root.is_absolute():
@@ -780,7 +830,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         raise SystemExit(f"REFUSING: data root is not a directory: {args.data_root}")
 
     when = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    out = args.out or (args.repo / ".runtime" / "eval" / f"phase0-ownership-audit-{when}")
+    label = re.sub(r"[^A-Za-z0-9._-]+", "-", args.label.strip()) or "unlabelled"
+    out = args.out or (args.repo / ".runtime" / "eval" / f"phase0-ownership-audit-{label}-{when}")
     _refuse_unless_gitignored_out(out, args.repo)
 
     con = open_readonly_or_refuse(args.db)
@@ -798,7 +849,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     fs = filesystem_inventory(args.data_root, consts, people)
 
     ctx = {"db": args.db.as_posix(), "data_root": args.data_root.as_posix(), "repo": args.repo.as_posix(),
-           "when": when, "schema": schema, "people": people, "migrations": migrations, "consts": consts,
+           "when": when, "label": label, "machine": _machine_name(),
+           "commit": _repo_head_without_git(args.repo), "schema": schema, "people": people, "migrations": migrations, "consts": consts,
            "table_rows": table_rows, "per_narrator": per_narrator, "paths": paths, "fs": fs, "dyn": dyn}
     report = build_report(ctx)
 
