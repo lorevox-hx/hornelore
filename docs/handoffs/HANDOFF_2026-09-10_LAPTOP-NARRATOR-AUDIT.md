@@ -17,6 +17,19 @@ placements — was done **on the laptop**. This handoff measures that.
 exist yet (Phase 2); deleting anything comes only after a package has been restored and
 verified on the desktop (Phase 7). Today is inventory.
 
+## Desktop — fully audited 2026-09-10 (six reports under `.runtime/eval/`, all read-only PROVEN)
+
+| root | audit label | trips | Chris |
+|---|---|---|---|
+| `C:\hornelore_data` (live) | `desktop-live-20260910T124545Z` | 0 | `a4b2f07a`: 3 sessions / 26 turns / 7 threads / 16 bio_facts / 4 photos / 1 import batch |
+| `db/backup_real_pre_0035_20260723_080119` | `desktop-backup-0723-…` | 1 = `PASTE_UU` (placeholder, not a narrator) | subset of live |
+| `C:\lorevox_data` (April 27) | `desktop-lorevox-root-0427-…` | no `trips` table | not present; 343 people incl. duplicate Kent/Janice/Christopher ids; 4768 turns with no `person_id` |
+| `E:\ai\data\lorevox_data` (`/home/chris/lorevox_data` symlinks here) | `desktop-e-drive-live-…` | 0 | January ids `2a5b9286` / `efe51d9b` / `ac2204d6` with 10 interview answers; plus yesterday's stray Ada `85f52c6e` and a `4aa0cc2b (harness-pinned)` row |
+| E: `lorevox.sqlite3.bak_20260215_082200` | `desktop-e-drive-bak-0215-…` | — | 13 tables, 4 people, January era |
+
+**Conclusion: no real narrator has a trip or a travel document anywhere on the desktop.**
+If the travel work exists, it is on the laptop.
+
 ## Rules that still apply on the laptop
 
 * Do **not** copy desktop data over the laptop, and do not copy laptop data anywhere yet.
