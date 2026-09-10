@@ -298,13 +298,11 @@ re-verify staged hashes rather than trusting the manifest.
 2. Desktop: write the read-only Desktop↔Laptop comparator over the JSONs.
 3. Build the Phase 2 `.lorevox.zip` BagIt exporter and prove it on synthetic Ada
    **on the desktop**.
-4. Only then export Christopher **on the laptop**, restore into a clean desktop
-   root, re-export and hash-compare (Phases 3–4).
-5. After export/restore is proven, push the code to the laptop and export the real
-   **Christopher, Kent and Janice** packages there.
-6. Restore those packages into a clean desktop root and validate semantic DB state
-   plus payload hashes.
-7. **No laptop deletion** until *each* real narrator package has restored and
+4. Only after export/restore is proven synthetically, push the code to the laptop
+   and export the real **Christopher, Kent and Janice** packages there.
+5. Restore each package into a clean desktop root, re-export, and compare semantic
+   DB state plus payload hashes (Phases 3–4).
+6. **No laptop deletion** until *each* real narrator package has restored and
    independently verified. Deletion is last, not first.
 
 ### Smoke-residue decision — DECIDED 2026-09-10
