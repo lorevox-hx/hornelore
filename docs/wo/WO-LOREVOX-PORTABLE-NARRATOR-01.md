@@ -213,6 +213,19 @@ disposition; if significant shared-family data exists, a companion shared-librar
 package is proposed as an amendment rather than silently added to V1. **No data is
 discarded while that decision is pending.**
 
+**Orphan material — locked 2026-09-10 (Phase 0 R6 found 185 such directories).** A file or
+directory whose owner cannot be read from a row or a declared path rule is handled by
+exactly one of three branches, and proximity to a narrator's files is never one of them:
+
+1. ownership proven for a narrator → packaged with that narrator;
+2. a database row still references it → the relationship is preserved and reported, and
+   Phase 1 determines why the owner is unresolved before anything moves;
+3. ownership cannot be proven → it stays in the frozen Hornelore root and is reported as
+   orphan / unattributed.
+
+An orphan is never placed in a package because it happens to sit beside that narrator's
+data.
+
 ## 7. Lorevox Narrator Package v1
 
 ### 7.1 File format
@@ -691,7 +704,41 @@ passphrase) wrapping an already-correct package — `<name>.lorevox.zip.age` —
 only after export → restore → re-export equivalence is proven. Not on V1's critical
 path; recorded so it is not forgotten.
 
-**28.7 What this does and does not install.** Phases 0–1: nothing. Phase 2: `bagit`.
+**28.7 What this does and does not install.**
+
+---
+
+## 29. Phase 1 policy edges — locked 2026-09-10 after Phase 0
+
+**29.1 The contract expresses selectors and relationships, never bare table names.** A
+table can hold rows of different disposition. The Phase 2 exporter consumes the Phase 1
+declaration and never reconstructs ownership from the Phase 0 matrix document, which is
+evidence, not code.
+
+**29.2 Media archive ownership is row-level through the parent item.**
+`media_archive_links` and `media_archive_family_lines` have no person column; they belong
+through `archive_item_id → media_archive_items.person_id`. `db.py:5696-5705` already
+deletes them by that selector. If the item is narrator-owned, the item and all its child
+rows travel. If the item has no person owner it is shared/family or unassigned — reported
+under §6, not packaged. `media_archive_people` follows the item; a tag naming another
+person is preserved with the item and recorded as an external-person dependency (§13).
+**Proximity or a mention never establishes ownership.**
+
+**29.3 Import provenance and staging.** `import_batch` and `import_candidate` rows are
+portable narrator state. `import_staging/<batch>/<candidate>/original.<ext>` is portable
+**conditionally**: it is the verified local byte source promotion builds from
+(`import_repository.py:136-152, 231-235`; promotion refuses without it), so it travels when
+the candidate is unresolved and excluding it would make the restored candidate no longer
+actionable — verified against the candidate's `file_hash`. Once a candidate has
+materialized into a permanent `photos` row and file, the staging copy is redundant and need
+not travel. `import_staging/.incoming/…` is acquisition scratch and never travels.
+
+**29.4 The four column-only chains are closed with deletion evidence, not inference.**
+`turns → sessions.person_id`, `interview_threads → interview_sessions.person_id`,
+`import_candidate → photos.narrator_id`, `trip_photo_day_placement_skips → trips.person_id`.
+Phase 1 cites the line in `db.py` or `narrator_erasure.py` that deletes each, or records
+that nothing does — and a parity test fails loudly if a narrator-owned lane is known to
+export and not to erasure, or the reverse, without an explicit policy classification. Phases 0–1: nothing. Phase 2: `bagit`.
 Everything else is stdlib — `sqlite3`, `zipfile`, `hashlib`, `json`, `tempfile`,
 `pathlib`, `shutil` — already in `.venv-gpu` (Python 3.12). No new database, service,
 container or daemon.

@@ -135,10 +135,10 @@ Archive Export = the current `memory_archive.py:634` ZIP. v1 = Portable Narrator
 | `import_candidate` | 4 | narrator | **column only** → `photos.narrator_id` (R1) | **VERIFY** | no | yes |
 | `media` | 0 | narrator | FK→people + `person_id` | cascade | no | yes |
 | `media_attachments` | 0 | narrator | FK→people + `person_id` | cascade | no | yes |
-| `media_archive_items` | 0 | narrator | explicit | explicit | no | yes |
-| `media_archive_people` | 0 | narrator | explicit | explicit | no | yes |
-| `media_archive_family_lines` | 0 | **shared/family — decide (§6)** | no person link | no | no | decision |
-| `media_archive_links` | 0 | **shared/family — decide (§6)** | no person link | no | no | decision |
+| `media_archive_items` | 0 | narrator **row-level** (`person_id`; unowned rows are shared/unassigned, §6) | explicit | explicit | no | yes for owned rows |
+| `media_archive_people` | 0 | narrator **row-level via parent item**; a tag naming another person is an external-person dependency (§13), never a pull | explicit | explicit | no | yes with owned item |
+| `media_archive_family_lines` | 0 | narrator **row-level via parent** `media_archive_items.person_id` (R11) | `db.py:5696-5705` deletes by parent | via parent | no | yes with owned item |
+| `media_archive_links` | 0 | narrator **row-level via parent** `media_archive_items.person_id` (R11) | `db.py:5696-5705` deletes by parent | via parent | no | yes with owned item |
 | `trips` | 0 | narrator | explicit (lane) | explicit | no | yes |
 | `trip_regions` | 0 | narrator | FK child via `trips` | via parent | no | yes |
 | `trip_stops` | 0 | narrator | FK child via `trip_regions` | via parent | no | yes |
@@ -167,9 +167,31 @@ Archive Export = the current `memory_archive.py:634` ZIP. v1 = Portable Narrator
 | `narrator_erasure_jobs` | 0 | installation (§12) | job records, `0049`/`0050` | n/a | no | **no** |
 | `schema_migrations` | 52 | installation | migration ledger | n/a | no | **no** |
 
-**Counts:** 60 narrator-owned · 10 installation-owned · 2 shared/family (decision) · 0
-unexplained. **4 column-only chains need erasure coverage VERIFIED in Phase 1**, and every
-one of them is on the export side by the rule in R1.
+**Counts:** 62 narrator-owned (four of them **row-level**, see R11) · 10 installation-owned ·
+0 whole-table shared · 0 unexplained. **4 column-only chains need erasure coverage VERIFIED
+in Phase 1**, and every one of them is on the export side by the rule in R1.
+
+**R11 — Ownership is a property of ROWS, and the contract must express selectors, not table
+names.** *(Corrected 2026-09-10; the first version of this matrix labelled two whole tables
+"shared".)* `media_archive_links` and `media_archive_family_lines` have no person column
+and are owned through `media_archive_items.archive_item_id`; `db.py:5696-5705` already
+deletes them by exactly that selector — `WHERE archive_item_id IN (SELECT id FROM
+media_archive_items WHERE person_id=?)`. An item with `person_id` is narrator-owned and
+carries all its children; an item with no person owner is shared/family or unassigned (§6)
+and is reported, not packaged. `media_archive_people` follows the item; a tag naming a
+different person is preserved as an external-person dependency (§13), and that person's
+record is never pulled in because they were mentioned. A table can hold rows of different
+disposition; the Phase 1 declaration states the selector for each lane, and the exporter
+reads the declaration — never this document.
+
+**R12 — Import staging is portable CONDITIONALLY, not "transient therefore excluded."**
+`import_batch` and `import_candidate` rows travel (provenance and review state).
+`import_staging/<batch>/<candidate>/original.<ext>` is what promotion builds the archive
+photo from, verified against the candidate's `file_hash`, and promotion refuses without it
+(`import_repository.py:136-152, 231-235`). So the staged original travels when it is the only
+verified local byte source for an unresolved candidate; once a candidate has materialized
+into a permanent `photos` row and file, the redundant staging copy need not.
+`import_staging/.incoming/…` is acquisition scratch and never travels.
 
 ## 3. Filesystem lanes
 
@@ -182,7 +204,8 @@ one of them is on the export side by the rule in R1.
 | uploads | `media/<pid>` | person id | `FIXED_TARGETS` (empty here) | yes | no | yes |
 | Kawa segments (historical) | `kawa/people/<pid>` | person id | `FIXED_TARGETS` | yes | no | yes (§5-C) |
 | trip sources | `trip_sources/<source-id>` | **row** (R7) | `_dynamic_plan` | yes | no | yes |
-| import staging | `import_staging/<batch-id>`, `.incoming/<batch-id>` | **row** (R7) | `_dynamic_plan` | yes | no | decision — staging is transient; §2.4 |
+| import staging | `import_staging/<batch>/<candidate>/original.*` | **row** (R7) | `_dynamic_plan`; promotion source, `import_repository.py:231-235` | yes | no | **conditional** — travels when the verified byte source for an unresolved candidate (R12) |
+| import incoming | `import_staging/.incoming/<batch-id>` | **row** (R7) | `_dynamic_plan` | yes | no | **no** — acquisition scratch (R12) |
 | translation cache | `translations-cache/` | shared | `SHARED_PURGE` | purge | no | no (§5-D) |
 | TTS cache, `cache_audio`, `voices` | top level | installation | — | no | no | no |
 | `backups/`, `exports/` | top level | historical | excluded by erasure | no | no | no |
@@ -192,8 +215,10 @@ one of them is on the export side by the rule in R1.
 
 * This matrix, with 4 `VERIFY` rows to close against `narrator_erasure.build_plan` and the
   FK cascade actually declared (`ON DELETE` per table was not captured by Phase 0).
-* Two `decision` rows (§6) and one (`import_staging`) that is transient by design.
-* R1–R10 as the rules the single ownership declaration must encode.
+* Row-level selectors for the media-archive family (R11) and the conditional
+  import-staging rule (R12); no whole-table `decision` rows remain — §6 applies per row.
+* R1–R12 as the rules the single ownership declaration must encode. **The declaration
+  expresses selectors and relationships, not table names.**
 * The local report for real counts, orphan ids and paths — read there, not copied here.
 
 ## 5. What Phase 0 did not do
