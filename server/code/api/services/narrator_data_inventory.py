@@ -237,7 +237,11 @@ DB_LANES: Tuple[DbLane, ...] = (
 
 FS_LANES: Tuple[FsLane, ...] = (
     FsLane("memory_archive", ("memory", "archive", "people"), "person", CLASS_AUTHORITATIVE, "yes", True,
-           note="the only lane the current Archive Export covers (memory_archive.py:634)"),
+           note="the only lane the current Archive Export covers (memory_archive.py:634). "
+                "CARRIES SAVED NARRATOR AUDIO: <pid>/sessions/<conv>/audio/<turn>.webm "
+                "(archive_paths.py:107, memory_archive_turns.audio_ref). Saved narrator "
+                "VIDEO, when the product persists it, goes under the same session dir "
+                "(WO §9) so it inherits this lane rather than needing a new one"),
     FsLane("stories_captured", ("stories-captured",), "person", CLASS_DERIVED, "yes", True),
     FsLane("photo_archive", ("memory", "archive", "photos"), "person", CLASS_AUTHORITATIVE, "yes", True,
            note="photos.image_path points here with an ABSOLUTE prefix (R3)"),

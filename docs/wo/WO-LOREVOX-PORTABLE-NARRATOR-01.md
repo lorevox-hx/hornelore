@@ -297,9 +297,44 @@ censored.
 
 Existing archive policy remains authoritative. The package includes narrator text, Lori
 text, narrator audio when the narrator opted to save it, and audio metadata /
-provenance. It does NOT include Lori-generated audio, live microphone buffers, video, or
-browser media streams. The transcript remains the primary recoverable evidence even when
-audio is unavailable.
+provenance. The transcript remains the primary recoverable evidence even when audio is
+unavailable.
+
+*(Amended 2026-09-10, before Phase 1 closed. This paragraph said the package "does NOT
+include … video". That collapsed two different things: a live camera stream that is never
+written, and a recording a narrator chose to keep. Only the first is excluded.)*
+
+**The rule is about intent to keep, not about medium:**
+
+| | travels |
+|---|---|
+| Narrator text · Lori text | yes |
+| Narrator audio the narrator chose to save | yes |
+| Narrator video the narrator chose to save — **if/when the product persists it** | yes |
+| Audio / video metadata and provenance · session / turn / story links | yes |
+| Lori-generated audio or video | no |
+| Live microphone buffer · live camera / browser stream · unsaved temporary recording | no |
+
+**Where saved audio actually lives today (`verified_by_read`):** the file is written by
+`routers/memory_archive.py:553-563` to `utils/archive_paths.py:107` →
+`memory/archive/people/<pid>/sessions/<conv>/audio/<turn>.webm`, which is inside the
+person-keyed `memory_archive` FS lane; its metadata is `memory_archive_turns.audio_ref`
+(`0002:51`), narrator-only by `CHECK` (`0002:57-60`); a best-effort copy sits under
+`stories-captured/…/audio.webm` (`story_preservation.py:414-419`), the `stories_captured`
+lane. Both lanes are declared portable and erasable in `narrator_data_inventory.py`. **So
+saved audio was never outside the contract — it is carried by the lane it is stored in,
+and needs no lane of its own.**
+
+**Video today:** `memory_archive_sessions.video_enabled` exists (`0002:24`) and is
+carried as a column; no code path writes a video file (`memory_archive.py:12` "Video
+uploads are not part of this WO"; `stack_monitor.py:753` reports `video_archive:
+disabled`; the Google Picker refuses VIDEO at `google_picker.py:827`). **When video
+persistence is added, its files must be written under the same session archive directory
+(`…/sessions/<conv>/video/<turn>.<ext>`) with a `video_ref` column beside `audio_ref`,
+so it inherits the `memory_archive` lane's portability and erasure without a new lane.**
+Writing it anywhere else is a Phase 1 parity failure by design: the completeness test
+fails on an undeclared table, and a new top-level directory under `DATA_DIR` must be
+declared as an FS lane before the exporter will collect it.
 
 ## 10. Restore v1
 
