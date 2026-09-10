@@ -81,13 +81,20 @@ Two corrections, both here:
   * `_load_env()` reads the same two keys out of `.env` before `api.db`
     is imported — which is what `guard_lab_live_acceptance._db_path()`
     already does, and its docstring says why: "resolved exactly as the
-    server resolves it". A process-supplied value still wins, matching
-    the server's own precedence.
+    server resolves it". **`.env` WINS over an exported value**, because
+    `scripts/common.sh:26-29` sources it under `set -a`. *(This bullet
+    said the opposite — "a process-supplied value still wins, matching
+    the server's own precedence" — until 2026-09-09, and the wrong
+    sentence is what made the failure below look impossible.)*
   * `--create` REFUSES when the resolved database file does not already
-    exist. A Phase 6 narrator belongs in the running system's database;
-    being about to create a new one is proof of pointing at the wrong
-    world, and that is the check that turns this class of mistake from
-    a passing run into a stop.
+    exist. **That guard is necessary and NOT sufficient, proven
+    2026-09-09.** A stale `/home/chris/lorevox_data/db/lorevox.sqlite3`
+    left in a WSL profile already existed, so the refusal passed and
+    Ada was created in a database nothing serves — a second time, by a
+    different route. Existence was never the property worth checking.
+    **The only check that caught it both times was asking the running
+    product:** `GET /api/operator/guard-lab/narrators` returned
+    `count: 0` while the script printed PASS.
 
 The resolved path is PRINTED on every run, so the destination is visible
 rather than assumed.
@@ -119,8 +126,38 @@ def _load_env() -> None:
 
     `api.db` reads `DATA_DIR` and `DB_NAME` at import time (db.py:58,62),
     so setting them afterwards has no effect at all — the module-level
-    `DB_PATH` is already bound. An already-exported value wins, which is
-    the server's own precedence.
+    `DB_PATH` is already bound.
+
+    ── CORRECTED 2026-09-09 ──────────────────────────────────────────
+    This function used to skip any key already present in the
+    environment, and its docstring said an exported value winning "is
+    the server's own precedence." **That was false, and the false
+    comment is what made the resulting failure look impossible.**
+
+    `scripts/common.sh:26-29` sources `.env` under `set -a`, which
+    OVERWRITES an exported value. The server therefore takes `.env`;
+    this script took the shell. On 2026-09-09 a WSL profile carrying a
+    stale `DATA_DIR=/home/chris/lorevox_data` and
+    `DB_NAME=lorevox.sqlite3` silently won, and Ada was created in a
+    database nothing serves — while `.env`, three lines away, named the
+    right one. Measured from three sources that all agreed:
+
+        shell env    /home/chris/lorevox_data   lorevox.sqlite3
+        .env         /mnt/c/hornelore_data      hornelore.sqlite3
+        api.log      /mnt/c/hornelore_data/db/hornelore.sqlite3
+
+    `.env` now wins, matching `common.sh`. When it overrides an exported
+    value the difference is PRINTED rather than applied quietly — a
+    silent correction of this would have been just as hard to see as the
+    silent failure was.
+
+    THE OLD GUARD DID NOT SAVE US, and it is worth being precise about
+    why. `--create` refuses when the resolved database does not exist,
+    on the reasoning that being about to create one proves you are
+    pointing where the product does not read. That reasoning holds only
+    when no stale database is lying around. One was, so the refusal
+    passed and the write landed in it. Existence was never the property
+    worth checking; agreement with `.env` is.
     """
     env = REPO_ROOT / ".env"
     if not env.is_file():
@@ -128,8 +165,19 @@ def _load_env() -> None:
     for line in env.read_text(encoding="utf-8", errors="replace").splitlines():
         line = line.strip()
         for key in ("DATA_DIR", "DB_NAME"):
-            if line.startswith(f"{key}=") and not os.environ.get(key):
-                os.environ[key] = line.split("=", 1)[1].strip()
+            if not line.startswith(f"{key}="):
+                continue
+            value = line.split("=", 1)[1].strip()
+            previous = os.environ.get(key)
+            if previous is not None and previous != value:
+                print(
+                    f"  {key}: .env value {value!r} overrides the exported "
+                    f"{previous!r}\n"
+                    f"    (scripts/common.sh:26-29 sources .env under "
+                    f"`set -a`, so this is what the server resolves)",
+                    file=sys.stderr,
+                )
+            os.environ[key] = value
 
 DISPLAY_NAME = "Ada Pruitt"
 """Deliberately an ordinary name, not a `ZZ …` marker.
@@ -294,9 +342,19 @@ def main() -> int:
                         help="create and populate (the only writes)")
     parser.add_argument("--check", action="store_true",
                         help="verify Profile Seed coverage, read only")
+    parser.add_argument(
+        "--sibling", action="store_true",
+        help="with --create: make ANOTHER narrator from the same frozen "
+             "profile even though one already exists. Same display name, "
+             "same profile, new person id. Phase 6 crossover arms each "
+             "need a narrator with no prior turns, and the capture "
+             "refuses more than ten traced turns per narrator per run "
+             "— so every arm gets its own Ada. Track it by id.")
     args = parser.parse_args()
     if not (args.create or args.check):
         parser.error("pass --create or --check")
+    if args.sibling and not args.create:
+        parser.error("--sibling only means something with --create")
 
     _load_env()                      # BEFORE the import. See the docstring.
     from api import db
@@ -325,11 +383,15 @@ def main() -> int:
         print(f"{DISPLAY_NAME}  {existing['id']}\n")
         return _report(db, existing["id"])
 
-    if existing:
+    if existing and not args.sibling:
         person_id = existing["id"]
         print(f"Already exists: {person_id} — re-verifying rather than "
-              f"creating a sibling.\n")
+              f"creating a sibling. (Pass --sibling to make another.)\n")
     else:
+        if existing:
+            print(f"Sibling requested: {existing['id']} already exists and "
+                  f"is left untouched; creating a second {DISPLAY_NAME!r} "
+                  f"from the same frozen profile.\n")
         person = db.create_person(
             display_name=DISPLAY_NAME,
             role="subject",
