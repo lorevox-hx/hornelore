@@ -586,3 +586,76 @@ database path (the WSL profile carries stale `DATA_DIR` / `DB_NAME` exports — 
 path, do not rely on the environment), or a static derivation from migrations
 `0001`–`0053` reconciled against `db.py`. The live one is stronger; both are legitimate
 and the report must say which it used.
+
+---
+
+## 28. Packaging amendments — accepted 2026-09-09, apply from Phase 2
+
+No new phases. These sharpen §7, §8, §12, §16 and Phase 4. Nothing here is needed for
+Phase 0 or Phase 1, and nothing is installed until Phase 2 begins.
+
+**28.1 The package is BagIt-compatible internally (RFC 8493), with
+`lorevox-manifest.json` layered on top.** §7.2's layout becomes:
+
+```text
+<Narrator>_<package-id>.lorevox.zip
+├── bagit.txt
+├── bag-info.txt              (includes Payload-Oxum: bytes.count)
+├── manifest-sha256.txt       (every payload file under data/, SHA-256)
+├── tagmanifest-sha256.txt    (the tag files above, including lorevox-manifest.json)
+├── lorevox-manifest.json     (§7.3 — narrator id, source commit, schema, counts,
+│                              dependencies, compatibility; BagIt does not know
+│                              what the payload means, this does)
+└── data/
+    ├── records/   one .jsonl per narrator-owned table/domain, per the inventory
+    └── files/     DATA_DIR-relative narrator-owned paths
+```
+
+BagIt's *complete* (every listed file present, no undeclared files) and *valid*
+(complete + every checksum verifies) are exactly §7.4 and §11's requirements, with
+standard vocabulary and an independent validator. `records/*.jsonl` are payload files
+and are hashed like everything else. Adopt `bagit` (Library of Congress, Python) and
+**pin it in both `requirements-gpu.txt` and `requirements-test.txt` at Phase 2**, at
+whatever version is current and verified then. **The library builds a bag in place —
+it moves files into `data/`. It runs only on the exporter's temporary directory, never
+on `DATA_DIR`.**
+
+**28.2 Export reads narrator rows from a `sqlite3` `backup()` snapshot, not the live
+database.** Python's `Connection.backup()` produces a consistent point-in-time copy
+while other connections keep using the live file. The exporter takes one snapshot into
+a temporary database, extracts that narrator's rows from it, and discards it. The
+whole snapshot never enters the package. This replaces the DB half of §8.3's
+before/after measurement; **the filesystem half stays** — files are measured before
+and after collection, and cross-checked against the snapshot's rows so a file no row
+references is refused or warned, never silently packed. A narrator who changes between
+the snapshot and the file pass still produces `refused_changed_during_snapshot`.
+
+**28.3 ZIP is written to a temporary file with ZIP64 enabled** (`force_zip64` where a
+member's size is not known ahead), consistent with §8.4. Restore never calls
+`extractall()` on a package: every member is inspected first against §11 before any
+byte lands.
+
+**28.4 Phase 4 compares semantics, never outer bytes.** Two ZIPs of the same narrator
+legitimately differ in member order, timestamps and package/job metadata. Equivalence
+is: narrator DB records compared semantically by stable id · every payload file's
+SHA-256 · record counts by lane · relationships and provenance references. That is
+BagIt's own notion of validity — completeness plus declared checksums — not container
+identity.
+
+**28.5 One service, two front ends.** `server/code/api/services/narrator_package.py`
+holds export, validate, dry-run and restore. The operator UI (§16) and a thin
+`scripts/narrator_package.py {validate|export|restore}` recovery CLI both call it.
+**There is never a second implementation of portability.** The CLI exists for when the
+UI is unavailable; it is not the normal way to operate Lorevox.
+
+**28.6 Encryption is a later, separate WO.** A `.lorevox.zip` is a complete copy of a
+person's life record and will sit on USB drives. Python's `zipfile` cannot encrypt, and
+ZIP passwords are the wrong tool. The intended shape is `age` (recipient key or
+passphrase) wrapping an already-correct package — `<name>.lorevox.zip.age` — added
+only after export → restore → re-export equivalence is proven. Not on V1's critical
+path; recorded so it is not forgotten.
+
+**28.7 What this does and does not install.** Phases 0–1: nothing. Phase 2: `bagit`.
+Everything else is stdlib — `sqlite3`, `zipfile`, `hashlib`, `json`, `tempfile`,
+`pathlib`, `shutil` — already in `.venv-gpu` (Python 3.12). No new database, service,
+container or daemon.
