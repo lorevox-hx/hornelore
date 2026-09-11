@@ -30,6 +30,7 @@ import hashlib
 import json
 import sqlite3
 import uuid
+import zipfile
 from pathlib import Path
 from typing import Dict
 
@@ -223,6 +224,41 @@ class ComparatorIsNotVacuous(_Trip):
         self.assertEqual(len(hits), 1, rep.differences)
         self.assertEqual(hits[0]["path"], str(p.relative_to(self.dest_root)).replace("\\", "/"))
         self.assertEqual(len(rep.differences), 1)
+
+    def test_duplicate_id_less_row_is_a_difference_not_a_collapse(self):
+        """Multiplicity: the same id-less row twice in A and once in B is a difference.
+        `profiles` has no `id` column (PK `person_id`), so its rows take the whole-row
+        identity. The mutated package is re-bagged with the real library so it stays a
+        VALID bag — only semantics can tell the two apart."""
+        import bagit  # type: ignore
+        import tempfile
+        self.restore()
+        b = self.export_b()
+        a_dup = self.out_b / "a_dup.lorevox.zip"
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            with zipfile.ZipFile(self.res.package_path) as zf:
+                zf.extractall(tmp)        # our own package, in a test temp dir
+            rp = tmp / "data" / "records" / "profiles.jsonl"
+            lines = [l for l in rp.read_text(encoding="utf-8").splitlines() if l.strip()]
+            self.assertEqual(len(lines), 1)
+            self.assertNotIn("id", json.loads(lines[0]), "fixture: profiles rows must carry no `id` for this test to mean anything")
+            rp.write_text(lines[0] + "\n" + lines[0] + "\n", encoding="utf-8")
+            man = json.loads((tmp / pkg.MANIFEST_NAME).read_text(encoding="utf-8"))
+            man["record_counts_by_lane"]["profiles"] = 2
+            (tmp / pkg.MANIFEST_NAME).write_text(json.dumps(man, indent=2), encoding="utf-8")
+            bagit.Bag(str(tmp)).save(manifests=True)     # regenerates manifests and Payload-Oxum
+            with zipfile.ZipFile(a_dup, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for f in sorted(tmp.rglob("*")):
+                    if f.is_file():
+                        zf.write(f, f.relative_to(tmp).as_posix())
+        self.assertTrue(pkg.validate_package(a_dup).ok, pkg.validate_package(a_dup).problems)
+        rep = pkg.compare_packages_semantically(a_dup, b.package_path)
+        self.assertFalse(rep.equivalent)
+        extra = [d for d in rep.differences if d["kind"] == "row_only_in_a" and d["table"] == "profiles"]
+        self.assertEqual(len(extra), 1, rep.differences)
+        # and the manifest count difference is reported too — two independent signals
+        self.assertTrue(any(d["kind"] == "manifest" and d["field"] == "record_counts_by_lane" for d in rep.differences))
 
     def test_an_invalid_package_is_a_difference_not_a_crash(self):
         bad = self.out_b / "bad.lorevox.zip"

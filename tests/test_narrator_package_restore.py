@@ -433,6 +433,46 @@ class CrashRecovery(_RoundTrip):
         self.assertEqual(self.dest_files(), files_before)
         self.assertIn("recovery_required", self.job()["error"])
 
+    def test_cleanup_required_under_a_published_narrator_is_refused_too(self):
+        """The realistic path to this contradiction: a restore dies mid-copy, recovery leaves
+        the job `cleanup_required` because foreign bytes sit at a planned path, the operator
+        resolves that and runs a SECOND restore, which publishes the narrator with files
+        whose bytes hash-match the OLD job's manifest. Recovering the old job must now
+        refuse — deleting those matching files would gut the live narrator."""
+        def seam(point):
+            if point == "after_first_file":
+                raise _SimulatedCrash(point)
+
+        with self.assertRaises(_SimulatedCrash):
+            pkg.restore_narrator(self.zip, data_dir=self.dest_root, db_path=self.dest_db, _crash_seam=seam)
+        old = self.job()
+        planned = json.loads(old["file_manifest_json"])
+        created = set(json.loads(old["files_json"]))
+        foreign = next(rel for rel in sorted(planned) if rel not in created)
+        fp = self.dest_root / foreign
+        fp.parent.mkdir(parents=True, exist_ok=True)
+        fp.write_bytes(b"SOMEBODY ELSE'S BYTES")
+        reports = pkg.recover_restore_jobs(data_dir=self.dest_root, db_path=self.dest_db)
+        self.assertEqual((reports[0]["action"], reports[0]["state_after"]), ("cleaned", "cleanup_required"))
+        # operator resolves the foreign file and restores successfully — Ada is now PUBLISHED
+        fp.unlink()
+        res = self.restore()
+        con = self.dest()
+        self.assertIsNotNone(con.execute("SELECT 1 FROM people WHERE id=?", (self.ada,)).fetchone())
+        published_files = {rel: hashlib.sha256((self.dest_root / rel).read_bytes()).hexdigest() for rel in planned}
+        self.assertEqual(published_files, planned, "the second restore's files hash-match the old job's manifest")
+        rows_before = con.execute("SELECT COUNT(*) FROM turns").fetchone()[0]
+        # recovering the OLD cleanup_required job must refuse, not delete
+        reports = pkg.recover_restore_jobs(data_dir=self.dest_root, db_path=self.dest_db, job_id=old["id"])
+        self.assertEqual(reports[0]["action"], "refused", reports)
+        old_after = con.execute("SELECT * FROM narrator_package_jobs WHERE id=?", (old["id"],)).fetchone()
+        self.assertEqual(old_after["state"], "cleanup_required")
+        self.assertIn("recovery_required", old_after["error"])
+        self.assertEqual({rel: hashlib.sha256((self.dest_root / rel).read_bytes()).hexdigest() for rel in planned},
+                         planned, "a published narrator's files were touched")
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM turns").fetchone()[0], rows_before)
+        self.assertEqual(con.execute("SELECT state FROM narrator_package_jobs WHERE id=?", (res.job_id,)).fetchone()[0], "complete")
+
     def test_db_committed_with_a_missing_file_is_recovery_required_not_complete(self):
         def seam(point):
             if point == "after_commit":

@@ -1359,7 +1359,10 @@ def recover_restore_jobs(*, data_dir: Path, db_path: Path, job_id: Optional[str]
             narrator_present = con.execute("SELECT 1 FROM people WHERE id=?", (pid,)).fetchone() is not None
 
             if state in ("staged", "validated", "files_copied", "cleanup_required"):
-                if narrator_present and state != "cleanup_required":
+                if narrator_present:
+                    # ALL four pre-commit states, cleanup_required included: a later successful
+                    # restore of the same package publishes the narrator with files whose bytes
+                    # hash-match THIS job's manifest — deleting them would gut a live narrator.
                     _job_set(con, jid, error=f"recovery_required: state {state} but people row {pid} exists; "
                                              f"refusing to delete files under a published narrator")
                     rep.update(action="refused", state_after=state, detail="narrator present below db_committed")
@@ -1473,11 +1476,29 @@ _MANIFEST_IGNORED = ("package_id", "created_at", "residue_not_packaged", "warnin
 
 def _canonical_rows(tmp: Path, table: str) -> Dict[str, str]:
     """row identity -> canonical JSON of the whole row (sorted keys), independent of
-    JSONL order. Identity is the row's `id`, else `conv_id`, else the whole row."""
+    JSONL order. THE CONTRACT, exactly:
+
+      rows WITH `id`     compared by that stable id; a changed row is reported as
+                         `row_differs` with the changed columns named.
+      rows WITHOUT `id`  the whole canonical row is the identity (the comparator has
+                         no schema and does not know which other column is a key), and
+                         identical rows keep their MULTIPLICITY through an occurrence
+                         index. So an id-less row that CHANGED cannot be paired with
+                         its old version: it is reported as `row_only_in_a` plus
+                         `row_only_in_b` — inequality is detected, columns are not
+                         named. A duplicate present twice in one package and once in
+                         the other is one extra `row_only_in_…`.
+    """
     out: Dict[str, str] = {}
+    seen: Dict[str, int] = {}
     for rec in _read_records(tmp, table):
         canon = json.dumps(rec, sort_keys=True, ensure_ascii=False, default=str)
-        key = str(rec.get("id") if rec.get("id") is not None else rec.get("conv_id", canon))
+        if rec.get("id") is not None:
+            key = f"id:{rec['id']}"
+        else:
+            n = seen.get(canon, 0)
+            seen[canon] = n + 1
+            key = f"row:{canon}" if n == 0 else f"row#{n}:{canon}"
         out[key] = canon
     return out
 
@@ -1523,15 +1544,17 @@ def compare_packages_semantically(a: Path, b: Path) -> ComparisonReport:
             ra, rb = _canonical_rows(ta, table), _canonical_rows(tb, table)
             compared["tables"] += 1
             compared["rows"] += max(len(ra), len(rb))
+            def _shown(key: str) -> str:      # 'id:<pk>' -> '<pk>'; whole-row keys shown as the row
+                return key.split(":", 1)[1]
             for rid in sorted(set(ra) - set(rb)):
-                diffs.append({"kind": "row_only_in_a", "table": table, "id": rid})
+                diffs.append({"kind": "row_only_in_a", "table": table, "id": _shown(rid)})
             for rid in sorted(set(rb) - set(ra)):
-                diffs.append({"kind": "row_only_in_b", "table": table, "id": rid})
+                diffs.append({"kind": "row_only_in_b", "table": table, "id": _shown(rid)})
             for rid in sorted(set(ra) & set(rb)):
                 if ra[rid] != rb[rid]:
                     da, db_ = json.loads(ra[rid]), json.loads(rb[rid])
                     cols = sorted(c for c in set(da) | set(db_) if da.get(c) != db_.get(c))
-                    diffs.append({"kind": "row_differs", "table": table, "id": rid, "columns": cols,
+                    diffs.append({"kind": "row_differs", "table": table, "id": _shown(rid), "columns": cols,
                                   "a": {c: da.get(c) for c in cols}, "b": {c: db_.get(c) for c in cols}})
 
         # payload files: data/files/<rel> -> sha256, from the manifests BagIt just validated
