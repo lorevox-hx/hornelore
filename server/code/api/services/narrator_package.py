@@ -1,8 +1,18 @@
-"""Lorevox Narrator Package v1 — WO-LOREVOX-PORTABLE-NARRATOR-01 Phase 2 (export + validate).
+"""Lorevox Narrator Package v1 — WO-LOREVOX-PORTABLE-NARRATOR-01 Phases 2–3.
 
-ONE service (§28.5). The operator UI and `scripts/narrator_package.py` both call
-this; there is never a second implementation of portability. Dry-run and
-Restore are Phase 3 and are not here.
+ONE service (§28.5): export, validate, dry-run, restore. The operator UI and
+`scripts/narrator_package.py` both call this; there is never a second
+implementation of portability.
+
+RESTORE (§10–§12, Phase 3) has one meaning: restore this narrator AS this
+narrator — every id verbatim, nothing overwritten, nothing merged, nothing
+remapped. `dry_run_restore()` is mandatory and writes nothing. `restore_narrator()`
+follows §12's fifteen steps in order: files first (no-overwrite create, re-hashed),
+then the rows in ONE transaction with foreign keys deferred to COMMIT and verified
+against the manifest before COMMIT, so a crash can leave a job row and staged
+files but never a half-imported narrator. Path columns the source stored absolute
+are rewritten under the destination root; the manifest's `path_column_basis` says
+which, recorded at export.
 
 THE INVARIANT (§30): given ONE selected narrator id, follow
 `narrator_data_inventory.py` and export that narrator's complete portable
@@ -72,6 +82,8 @@ SOURCE_APP = "hornelore"
 MANIFEST_NAME = "lorevox-manifest.json"
 
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_SAFE_PACKAGE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{3,63}$")   # enters a filename
+_SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
 
 # §8.6 — credential shapes. Ordinary URLs and narrator text do not match these.
 _SECRET_PATTERNS: Tuple[Tuple[str, "re.Pattern[str]"], ...] = (
@@ -130,6 +142,61 @@ def _sha256_file(path: Path) -> Tuple[str, int]:
     return h.hexdigest(), n
 
 
+def _copy_bound(src: Path, dest: Path) -> Tuple[str, int]:
+    """Copy `src` to `dest` hashing the SOURCE bytes as they are read, then hash
+    the DESTINATION and require equality (§7.4: the final hash must equal the
+    hash measured during collection). Returns (sha256, bytes)."""
+    h = hashlib.sha256()
+    n = 0
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with src.open("rb") as fh, dest.open("wb") as out:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+            out.write(chunk)
+            n += len(chunk)
+    source_digest = h.hexdigest()
+    dest_digest, dest_n = _sha256_file(dest)
+    if dest_digest != source_digest or dest_n != n:
+        raise ExportRefused([{"code": "copy_digest_mismatch", "path": str(src),
+                              "detail": "bytes written to the package are not the bytes read from the source"}])
+    return source_digest, n
+
+
+def _lane_files_or_refuse(paths: Iterable[Path], refuse: "_Refusals", lane: str) -> List[Path]:
+    """Every regular file under the given lane paths. A symlink ANYWHERE — a
+    file, a directory, a path component — is refused, never skipped: the rule
+    narrator_erasure.safe_target() established, because a link can leave one
+    narrator's lane while staying inside DATA_DIR, and a package that silently
+    omits one is not complete."""
+    files: List[Path] = []
+    for p in paths:
+        if p.is_symlink():
+            refuse.add("symlink_in_lane", lane=lane, path=str(p))
+            continue
+        if p.is_file():
+            files.append(p)
+            continue
+        if not p.is_dir():
+            continue
+        for f in sorted(p.rglob("*")):
+            if f.is_symlink():
+                refuse.add("symlink_in_lane", lane=lane, path=str(f))
+            elif f.is_file():
+                files.append(f)
+    return files
+
+
+def _repo_root_default() -> Path:
+    """The repository this service runs from: walk up until a `.git` entry is
+    found. (`parents[3]` from server/code/api/services/ is `server`, not the
+    repo — a fixed index recorded `unknown` for the source commit.)"""
+    here = Path(__file__).resolve()
+    for cand in [here] + list(here.parents):
+        if (cand / ".git").exists():
+            return cand
+    return here.parents[4] if len(here.parents) > 4 else here.parent
+
+
 def _safe_segment(value: Any) -> Optional[str]:
     s = str(value or "").strip()
     if not s or not _SAFE_ID.match(s) or s in (".", ".."):
@@ -161,20 +228,17 @@ def _display_slug(name: str) -> str:
     return s[:48] or "Narrator"
 
 
-def _measure_tree(paths: Iterable[Path]) -> Dict[str, Tuple[int, int]]:
-    """path -> (size, mtime_ns) for every FILE under the given paths."""
+def _measure_files(files: Iterable[Path]) -> Dict[str, Tuple[int, int]]:
+    """path -> (size, mtime_ns). The independent snapshot-consistency proof
+    (§8.3): measured before and after collection; byte binding is separate."""
     out: Dict[str, Tuple[int, int]] = {}
-    for p in paths:
-        if p.is_file():
-            st = p.stat()
-            out[str(p)] = (st.st_size, st.st_mtime_ns)
-        elif p.is_dir():
-            for f in sorted(p.rglob("*")):
-                if f.is_symlink():
-                    continue
-                if f.is_file():
-                    st = f.stat()
-                    out[str(f)] = (st.st_size, st.st_mtime_ns)
+    for f in files:
+        try:
+            st = f.lstat()
+        except FileNotFoundError:
+            out[str(f)] = (-1, -1)
+            continue
+        out[str(f)] = (st.st_size, st.st_mtime_ns)
     return out
 
 
@@ -265,6 +329,14 @@ def export_narrator(person_id: str, *, data_dir: Path, db_path: Path, out_dir: P
     db_path = Path(db_path)
     if not db_path.is_absolute() or not db_path.is_file():
         raise ExportRefused([{"code": "db_not_found", "path": str(db_path)}])
+    try:
+        db_path.resolve().relative_to(root)
+    except ValueError:
+        raise ExportRefused([{"code": "db_outside_data_dir", "db": str(db_path), "data_dir": str(root),
+                              "detail": "a package must not combine one data world's rows with another's files; "
+                                        "the database lives under DATA_DIR (db/<DB_NAME>)"}])
+    if package_id is not None and not _SAFE_PACKAGE_ID.match(str(package_id)):
+        raise ExportRefused([{"code": "unsafe_package_id", "value": str(package_id)[:64]}])
     out_dir = Path(out_dir)
     if not out_dir.is_absolute():
         raise ExportRefused([{"code": "out_dir_not_absolute", "path": str(out_dir)}])
@@ -275,7 +347,7 @@ def export_narrator(person_id: str, *, data_dir: Path, db_path: Path, out_dir: P
     except ValueError:
         pass
     out_dir.mkdir(parents=True, exist_ok=True)
-    repo_root = repo_root or Path(__file__).resolve().parents[3]
+    repo_root = Path(repo_root) if repo_root else _repo_root_default()
     package_id = package_id or uuid.uuid4().hex[:12]
     refuse = _Refusals()
     warnings: List[Dict[str, Any]] = []
@@ -332,6 +404,11 @@ def export_narrator(person_id: str, *, data_dir: Path, db_path: Path, out_dir: P
             installation_deps: Dict[str, Set[str]] = {}
             referenced_files: Dict[str, Tuple[str, str, str]] = {}  # rel -> (table, column, id)
             secret_hits: List[Dict[str, Any]] = []
+            # §8.5: how the SOURCE stored each declared path column. Restore rewrites
+            # an "absolute" column under the destination root; a "relative" column
+            # stays relative. A column that mixes both cannot be restored faithfully
+            # and refuses here, not on the other machine.
+            path_basis_seen: Dict[str, Dict[str, Set[str]]] = {}
 
             owned_values: Dict[Tuple[str, str], Set[Any]] = {}
 
@@ -413,6 +490,8 @@ def export_narrator(person_id: str, *, data_dir: Path, db_path: Path, out_dir: P
                             if rel is None:
                                 refuse.add("path_outside_data_dir", table=table, row_id=row_id, column=pc, value=str(raw)[:200])
                                 continue
+                            path_basis_seen.setdefault(table, {}).setdefault(pc, set()).add(
+                                "absolute" if Path(str(raw).replace("\\", "/")).is_absolute() else "relative")
                             rec[pc] = rel
                             target = root / rel
                             if not target.exists():
@@ -431,11 +510,21 @@ def export_narrator(person_id: str, *, data_dir: Path, db_path: Path, out_dir: P
                 record_counts[table] = n
             for hit in secret_hits:
                 refuse.add("credential_shaped_value", **hit)
+            path_column_basis: Dict[str, Dict[str, str]] = {}
+            for table, cols_seen in path_basis_seen.items():
+                for pc, kinds in cols_seen.items():
+                    if len(kinds) > 1:
+                        refuse.add("path_column_mixed_basis", table=table, column=pc,
+                                   detail="some rows store this path absolute and some relative; "
+                                          "Restore could not rewrite it faithfully (§8.5)")
+                    else:
+                        path_column_basis.setdefault(table, {})[pc] = next(iter(kinds))
             refuse.raise_if_any()
 
             # ── files: lanes, resolved through the snapshot's rows ──
             file_sets: Dict[str, List[Path]] = {}   # lane -> absolute paths (files or dirs)
             residue: List[Dict[str, Any]] = []
+            expected_file_digests: Dict[str, str] = {}   # source path -> digest a ROW says it must have
             for lane in inv.FS_LANES:
                 base = root.joinpath(*lane.parts)
                 if lane.keyed_by == "person":
@@ -484,16 +573,54 @@ def export_narrator(person_id: str, *, data_dir: Path, db_path: Path, out_dir: P
                         continue
                     paths = []
                     for r in rows:
-                        segs = [_safe_segment(v) for v in r]
+                        cells = list(r)
+                        expected_digest = None
+                        if lane.verified_by_digest:
+                            expected_digest = cells.pop()      # LAST column: the row's SHA-256
+                        segs = [_safe_segment(v) for v in cells]
                         if not all(segs):
                             refuse.add("unsafe_row_id_for_path", lane=lane.name, value=str(tuple(r))[:64])
                             continue
                         d = base.joinpath(*segs)
-                        if d.is_dir():
+                        rel_d = "/".join(lane.parts + tuple(segs))
+                        if not lane.verified_by_digest:
+                            if d.is_dir():
+                                paths.append(d)
+                            else:
+                                warnings.append({"code": "conditional_lane_dir_absent", "lane": lane.name, "path": rel_d})
+                            continue
+                        # §29.3 — classified MECHANICALLY from the digest, never from a name:
+                        digest = str(expected_digest or "").strip().lower()
+                        if _SHA256_HEX.match(digest):
+                            # a real verified source: it must be there and it must be those bytes
+                            if not d.is_dir():
+                                refuse.add("verified_source_missing", lane=lane.name, path=rel_d,
+                                           expected_sha256=digest,
+                                           detail="an unresolved candidate with a valid digest has no staged "
+                                                  "original; the package cannot claim a byte source it lost (§29.3)")
+                                continue
+                            regular = _lane_files_or_refuse([d], refuse, lane.name)
+                            if len(regular) != 1:
+                                refuse.add("verified_source_ambiguous", lane=lane.name, path=rel_d,
+                                           files=[str(f.relative_to(root)) for f in regular][:5],
+                                           detail="exactly one regular file must be the verified original")
+                                continue
+                            actual, _n = _sha256_file(regular[0])
+                            if actual != digest:
+                                refuse.add("verified_source_hash_mismatch", lane=lane.name,
+                                           path=str(regular[0].relative_to(root)),
+                                           expected_sha256=digest, actual_sha256=actual)
+                                continue
+                            expected_file_digests[str(regular[0])] = digest
                             paths.append(d)
                         else:
-                            warnings.append({"code": "unresolved_candidate_without_staged_original",
-                                             "lane": lane.name, "path": str(d.relative_to(root))})
+                            # historical residue: no valid digest to verify against. The ROW
+                            # travels (it is in records/); the bytes are not a verified source.
+                            warnings.append({"code": "unverifiable_candidate_staging_not_packaged",
+                                             "lane": lane.name, "path": rel_d, "stored_digest": digest[:32] or None,
+                                             "staged_dir_present": d.is_dir(),
+                                             "detail": "candidate has no valid SHA-256; its row is preserved, "
+                                                       "its staging is residue"})
                     if paths:
                         file_sets[lane.name] = paths
                     # everything else under this narrator's batch dirs is residue
@@ -534,28 +661,41 @@ def export_narrator(person_id: str, *, data_dir: Path, db_path: Path, out_dir: P
                                detail="the row's file is on disk but no declared narrator lane contains it")
             refuse.raise_if_any()
 
-            # ── consistency: measure, copy+hash, re-measure ──
-            before = _measure_tree(lane_roots)
+            # ── enumerate every file the package will carry; a symlink anywhere refuses ──
+            lane_files: Dict[str, List[Path]] = {}
+            for lane_name, paths in file_sets.items():
+                lane_files[lane_name] = _lane_files_or_refuse(paths, refuse, lane_name)
+            refuse.raise_if_any()
+            all_files = [f for fs in lane_files.values() for f in fs]
+
+            # ── §8.3 snapshot consistency (independent of byte binding): measure before … ──
+            before = _measure_files(all_files)
+
+            # ── collect: hash the SOURCE as it is read, hash the copy, require equality (§7.4) ──
             file_counts: Dict[str, int] = {}
             bytes_by_lane: Dict[str, int] = {}
-            for lane_name, paths in file_sets.items():
+            collected_digests: Dict[str, str] = {}   # DATA_DIR-relative -> sha256 of the source bytes
+            for lane_name, files in lane_files.items():
                 cnt = 0
                 total = 0
-                for p in paths:
-                    files = [p] if p.is_file() else [f for f in sorted(p.rglob("*")) if f.is_file() and not f.is_symlink()]
-                    for f in files:
-                        rel = f.relative_to(root)
-                        dest = files_dir / rel
-                        dest.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copyfile(f, dest)
-                        _, n = _sha256_file(dest)
-                        cnt += 1
-                        total += n
+                for f in files:
+                    rel = f.relative_to(root)
+                    digest, n = _copy_bound(f, files_dir / rel)
+                    want = expected_file_digests.get(str(f))
+                    if want and want != digest:
+                        refuse.add("verified_source_hash_mismatch", lane=lane_name, path=rel.as_posix(),
+                                   expected_sha256=want, actual_sha256=digest,
+                                   detail="bytes read at collection differ from the digest the row declares")
+                    collected_digests[rel.as_posix()] = digest
+                    cnt += 1
+                    total += n
                 file_counts[lane_name] = cnt
                 bytes_by_lane[lane_name] = total
+            refuse.raise_if_any()
             if _after_collect_hook:
                 _after_collect_hook(root)
-            after = _measure_tree(lane_roots)
+            # … and after
+            after = _measure_files(all_files)
             if before != after:
                 changed = sorted(set(before) ^ set(after)) or sorted(k for k in before if before[k] != after.get(k))
                 raise ExportRefused([{"code": "refused_changed_during_snapshot",
@@ -582,6 +722,10 @@ def export_narrator(person_id: str, *, data_dir: Path, db_path: Path, out_dir: P
                 "source_schema_migrations": _applied_migrations(con),
                 "source_schema_fingerprint": _schema_fingerprint(con),
                 "path_basis": "DATA_DIR-relative",
+                "path_column_basis": path_column_basis,
+                "payload_integrity": "sha256 of source bytes at collection == sha256 of packaged copy; "
+                                     "BagIt manifest-sha256.txt then binds the ZIP to that copy",
+                "verified_source_digests_checked": len(expected_file_digests),
                 "ownership_declaration": "api.services.narrator_data_inventory",
                 "record_counts_by_lane": record_counts,
                 "file_counts_by_lane": file_counts,
@@ -647,76 +791,462 @@ def _normalise_path(raw: str, root: Path) -> Optional[str]:
 
 # ── validate a package (the half of Phase 3 the exporter's own tests need) ──
 
+_MAX_MEMBER_BYTES = 8 * 1024 ** 3        # one payload file larger than 8 GiB is not a narrator's
+_BOMB_RATIO = 200                        # uncompressed/compressed above this, on a big member, refuses
+
+
+def _safe_extract(zip_path: Path, into: Path) -> List[str]:
+    """§11: inspect every member BEFORE any byte lands; extract into `into` only.
+    Returns the problems found (empty = clean). Never calls extractall()."""
+    problems: List[str] = []
+    seen: Set[str] = set()
+    with zipfile.ZipFile(zip_path) as zf:
+        for info in zf.infolist():
+            name = info.filename
+            parts = Path(name).parts
+            if (name.startswith(("/", "\\")) or ".." in parts or (parts and ":" in parts[0])
+                    or "\\" in name or any(p in ("", ".") for p in parts[:-1])):
+                problems.append(f"unsafe member path: {name}")
+                continue
+            if (info.external_attr >> 16) & 0o170000 == 0o120000:
+                problems.append(f"symlink member refused: {name}")
+                continue
+            key = Path(name).as_posix().lower()     # destination identity, not literal spelling
+            if key in seen:
+                problems.append(f"duplicate member (same destination): {name}")
+                continue
+            seen.add(key)
+            if name.endswith("/"):
+                continue
+            if info.file_size > _MAX_MEMBER_BYTES:
+                problems.append(f"member too large: {name} ({info.file_size} bytes)")
+                continue
+            if info.compress_size and info.file_size > 16 * 1024 ** 2 and info.file_size / info.compress_size > _BOMB_RATIO:
+                problems.append(f"unsafe expansion ratio: {name}")
+                continue
+            dest = into / name
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(info) as src, dest.open("wb") as dst:
+                shutil.copyfileobj(src, dst)
+    return problems
+
+
+def _inspect_bag(tmp: Path) -> Tuple[Optional[Dict[str, Any]], List[str], int, int]:
+    """BagIt-validate an extracted package and cross-check the manifest."""
+    problems: List[str] = []
+    manifest = None
+    try:
+        import bagit  # type: ignore
+        bagit.Bag(str(tmp)).validate()
+    except Exception as exc:
+        problems.append(f"bagit validation failed: {exc}")
+    mpath = tmp / MANIFEST_NAME
+    if not mpath.is_file():
+        problems.append(f"{MANIFEST_NAME} missing")
+    else:
+        try:
+            manifest = json.loads(mpath.read_text(encoding="utf-8"))
+        except ValueError as exc:
+            problems.append(f"{MANIFEST_NAME} unreadable: {exc}")
+    n_files = n_bytes = 0
+    if manifest:
+        if manifest.get("package_format") != PACKAGE_FORMAT:
+            problems.append("unsupported package_format")
+        if str(manifest.get("package_format_version", "")).split(".")[0] != PACKAGE_FORMAT_VERSION.split(".")[0]:
+            problems.append(f"unsupported package_format_version {manifest.get('package_format_version')}")
+        if manifest.get("package_kind") != PACKAGE_KIND:
+            problems.append(f"unsupported package_kind {manifest.get('package_kind')}")
+        for table, n in (manifest.get("record_counts_by_lane") or {}).items():
+            rp = tmp / "data" / "records" / f"{table}.jsonl"
+            if not rp.is_file():
+                problems.append(f"records/{table}.jsonl declared, absent")
+                continue
+            with rp.open(encoding="utf-8") as fh:
+                lines = sum(1 for _ in fh)
+            if lines != n:
+                problems.append(f"records/{table}.jsonl has {lines} rows, manifest says {n}")
+        files_root = tmp / "data" / "files"
+        actual = [f for f in files_root.rglob("*") if f.is_file()] if files_root.is_dir() else []
+        n_files = len(actual)
+        n_bytes = sum(f.stat().st_size for f in actual)
+        declared = sum((manifest.get("file_counts_by_lane") or {}).values())
+        if declared != n_files:
+            problems.append(f"manifest declares {declared} payload files, package holds {n_files}")
+    return manifest, problems, n_files, n_bytes
+
+
 def validate_package(zip_path: Path) -> ValidationReport:
     """BagIt-valid (complete + every checksum verifies) AND manifest-consistent.
     Members are inspected before any byte is extracted (§11); extraction is
     into a temporary directory only."""
     zip_path = Path(zip_path)
-    problems: List[str] = []
-    manifest = None
-    n_files = 0
-    n_bytes = 0
     if not zip_path.is_file():
         return ValidationReport(False, zip_path, None, ["package file not found"], 0, 0)
     with tempfile.TemporaryDirectory(prefix="lorevox-validate-") as tmp:
         tmp = Path(tmp)
-        seen: Set[str] = set()
-        with zipfile.ZipFile(zip_path) as zf:
-            for info in zf.infolist():
-                name = info.filename
-                if name.startswith("/") or name.startswith("\\") or ".." in Path(name).parts or ":" in name.split("/")[0]:
-                    problems.append(f"unsafe member path: {name}")
-                    continue
-                if (info.external_attr >> 16) & 0o170000 == 0o120000:
-                    problems.append(f"symlink member refused: {name}")
-                    continue
-                if name in seen:
-                    problems.append(f"duplicate member: {name}")
-                    continue
-                seen.add(name)
-                if name.endswith("/"):
-                    continue
-                dest = tmp / name
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                with zf.open(info) as src, dest.open("wb") as dst:
-                    shutil.copyfileobj(src, dst)
+        problems = _safe_extract(zip_path, tmp)
         if problems:
             return ValidationReport(False, zip_path, None, problems, 0, 0)
-        try:
-            import bagit  # type: ignore
-            bag = bagit.Bag(str(tmp))
-            bag.validate()
-        except Exception as exc:
-            problems.append(f"bagit validation failed: {exc}")
-        mpath = tmp / MANIFEST_NAME
-        if not mpath.is_file():
-            problems.append(f"{MANIFEST_NAME} missing")
-        else:
-            try:
-                manifest = json.loads(mpath.read_text(encoding="utf-8"))
-            except ValueError as exc:
-                problems.append(f"{MANIFEST_NAME} unreadable: {exc}")
-        if manifest:
-            if manifest.get("package_format") != PACKAGE_FORMAT:
-                problems.append("unsupported package_format")
-            for table, n in (manifest.get("record_counts_by_lane") or {}).items():
-                rp = tmp / "data" / "records" / f"{table}.jsonl"
-                if not rp.is_file():
-                    problems.append(f"records/{table}.jsonl declared, absent")
-                    continue
-                with rp.open(encoding="utf-8") as fh:
-                    lines = sum(1 for _ in fh)
-                if lines != n:
-                    problems.append(f"records/{table}.jsonl has {lines} rows, manifest says {n}")
-            files_root = tmp / "data" / "files"
-            actual = [f for f in files_root.rglob("*") if f.is_file()] if files_root.is_dir() else []
-            n_files = len(actual)
-            n_bytes = sum(f.stat().st_size for f in actual)
-            declared = sum((manifest.get("file_counts_by_lane") or {}).values())
-            if declared != n_files:
-                problems.append(f"manifest declares {declared} payload files, package holds {n_files}")
+        manifest, problems, n_files, n_bytes = _inspect_bag(tmp)
     return ValidationReport(not problems, zip_path, manifest, problems, n_files, n_bytes)
 
 
-__all__ = ["export_narrator", "validate_package", "ExportRefused", "ExportResult", "ValidationReport",
+# ══════════════════════════════════════════════════════════════════════
+# Phase 3 — dry run and Restore v1 (§10–§12)
+# ══════════════════════════════════════════════════════════════════════
+
+@dataclass
+class DryRunReport:
+    ready: bool
+    verdict: str                                  # "RESTORE READY" | "RESTORE REFUSED"
+    package_path: Path
+    manifest: Optional[Dict[str, Any]]
+    reasons: List[Dict[str, Any]]                 # why refused (empty when ready)
+    records_by_lane: Dict[str, int]
+    files_by_lane: Dict[str, int]
+    total_bytes: int
+    collisions: List[Dict[str, Any]]
+    unsupported_schema: List[Dict[str, Any]]
+    missing_dependencies: List[Dict[str, Any]]
+    warnings: List[Dict[str, Any]]
+
+
+@dataclass
+class RestoreResult:
+    job_id: str
+    narrator_id: str
+    package_id: str
+    records_inserted: Dict[str, int]
+    files_created: List[str]
+    dry_run: DryRunReport
+
+
+class RestoreRefused(Exception):
+    def __init__(self, report: DryRunReport):
+        self.report = report
+        super().__init__("RESTORE REFUSED — %d reason(s): %s" % (
+            len(report.reasons), "; ".join(r.get("code", "?") for r in report.reasons[:8])))
+
+
+def _read_records(tmp: Path, table: str) -> Iterable[Dict[str, Any]]:
+    rp = tmp / "data" / "records" / f"{table}.jsonl"
+    if not rp.is_file():
+        return
+    with rp.open(encoding="utf-8") as fh:
+        for line in fh:
+            if line.strip():
+                yield json.loads(line)
+
+
+def _payload_hashes(tmp: Path) -> Dict[str, str]:
+    """data/... member -> sha256 from manifest-sha256.txt (what BagIt validated)."""
+    out: Dict[str, str] = {}
+    mp = tmp / "manifest-sha256.txt"
+    if mp.is_file():
+        for line in mp.read_text(encoding="utf-8").splitlines():
+            parts = line.split(maxsplit=1)
+            if len(parts) == 2:
+                out[parts[1].strip()] = parts[0].strip()
+    return out
+
+
+def _safe_destination(root: Path, rel: str) -> Optional[Path]:
+    """DATA_DIR/<rel>, refusing traversal and any symlink component (§11 —
+    the narrator-erasure lstat walk is the model)."""
+    p = Path(rel)
+    if p.is_absolute() or ".." in p.parts or not p.parts:
+        return None
+    cur = root
+    for part in p.parts[:-1]:
+        cur = cur / part
+        if cur.is_symlink():
+            return None
+    dest = cur / p.parts[-1]
+    if dest.is_symlink():
+        return None
+    try:
+        dest.resolve().relative_to(root.resolve())
+    except ValueError:
+        return None
+    return dest
+
+
+def _dry_run_on_extracted(tmp: Path, manifest: Dict[str, Any], root: Path, db_path: Path,
+                          bag_problems: List[str], zip_path: Path) -> DryRunReport:
+    reasons: List[Dict[str, Any]] = [{"code": "package_invalid", "detail": p} for p in bag_problems]
+    collisions: List[Dict[str, Any]] = []
+    unsupported: List[Dict[str, Any]] = []
+    missing: List[Dict[str, Any]] = []
+    warnings: List[Dict[str, Any]] = list(manifest.get("warnings") or [])
+    counts = dict(manifest.get("record_counts_by_lane") or {})
+    files_by_lane = dict(manifest.get("file_counts_by_lane") or {})
+    total_bytes = int(sum((manifest.get("bytes_by_lane") or {}).values()))
+    pid = str(manifest.get("narrator_id") or "")
+    if not _safe_segment(pid):
+        reasons.append({"code": "unsafe_narrator_id", "value": pid[:64]})
+
+    con = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    try:
+        present = _tables(con)
+        # ── schema compatibility: every packaged table and column must exist here ──
+        for table, n in counts.items():
+            if table not in present:
+                unsupported.append({"table": table, "detail": "table absent in destination schema", "rows": n})
+                continue
+            if table not in set(inv.narrator_owned_tables()):
+                unsupported.append({"table": table, "detail": "not a narrator-owned lane in this installation's declaration"})
+                continue
+            live = set(_columns(con, table))
+            first = next(iter(_read_records(tmp, table)), None)
+            if first is not None:
+                extra = sorted(set(first) - live)
+                if extra:
+                    unsupported.append({"table": table, "detail": "package columns absent in destination", "columns": extra})
+        # ── collisions (§10.2): narrator id, any packaged id, any destination file ──
+        if "people" in present and con.execute("SELECT 1 FROM people WHERE id=?", (pid,)).fetchone():
+            collisions.append({"kind": "narrator_exists", "person_id": pid})
+        for table in counts:
+            if table not in present:
+                continue
+            pk = _pk_columns(con, table)
+            if pk == ["rowid"]:
+                continue
+            where = " AND ".join(f'"{c}" = ?' for c in pk)
+            hits = 0
+            sample = None
+            for rec in _read_records(tmp, table):
+                key = tuple(rec.get(c) for c in pk)
+                if con.execute(f'SELECT 1 FROM "{table}" WHERE {where}', key).fetchone():
+                    hits += 1
+                    sample = sample or key
+            if hits:
+                collisions.append({"kind": "row_id_exists", "table": table, "rows": hits, "example": [str(k) for k in sample]})
+        for member in _payload_hashes(tmp):
+            if not member.startswith("data/files/"):
+                continue
+            rel = member[len("data/files/"):]
+            dest = _safe_destination(root, rel)
+            if dest is None:
+                reasons.append({"code": "unsafe_destination_path", "path": rel})
+            elif dest.exists():
+                collisions.append({"kind": "file_exists", "path": rel})
+        # ── installation dependencies the package cannot carry (§5-E) ──
+        for table, ids in (manifest.get("installation_dependencies") or {}).items():
+            if table not in present:
+                missing.append({"table": table, "ids": ids, "detail": "table absent in destination"})
+                continue
+            pk = _pk_columns(con, table)[0]
+            absent = [i for i in ids if not con.execute(f'SELECT 1 FROM "{table}" WHERE "{pk}" = ?', (i,)).fetchone()]
+            if absent:
+                missing.append({"table": table, "ids": absent,
+                                "detail": "installation-owned rows this narrator references; create them here first"})
+        # ── external-person references are recorded, and reported: they will dangle by design (§13) ──
+        for table, deps in (manifest.get("external_person_dependencies") or {}).items():
+            for d in deps:
+                if "people" in present and not con.execute("SELECT 1 FROM people WHERE id=?", (d["person_id"],)).fetchone():
+                    warnings.append({"code": "external_person_absent_in_destination", "table": table,
+                                     "row_id": d["row_id"], "person_id": d["person_id"],
+                                     "detail": "kept as recorded; that person is not part of this package"})
+        # ── credential shapes, again, on the receiving side ──
+        for table in counts:
+            for n, rec in enumerate(_read_records(tmp, table)):
+                line = json.dumps(rec, ensure_ascii=False, default=str)
+                for name, rx in _SECRET_PATTERNS:
+                    if rx.search(line):
+                        reasons.append({"code": "credential_shaped_value", "table": table, "row": n, "pattern": name})
+                        break
+    finally:
+        con.close()
+
+    for c in collisions:
+        reasons.append({"code": "collision", **c})
+    for u in unsupported:
+        reasons.append({"code": "unsupported_schema", **u})
+    for m in missing:
+        reasons.append({"code": "missing_dependency", **m})
+    ready = not reasons
+    return DryRunReport(ready, "RESTORE READY" if ready else "RESTORE REFUSED", zip_path, manifest, reasons,
+                        counts, files_by_lane, total_bytes, collisions, unsupported, missing, warnings)
+
+
+def dry_run_restore(zip_path: Path, *, data_dir: Path, db_path: Path) -> DryRunReport:
+    """§10.4 — mandatory, writes nothing. Everything Restore would check, reported."""
+    zip_path = Path(zip_path)
+    root = validate_root(data_dir)
+    db_path = Path(db_path)
+    if not zip_path.is_file():
+        return DryRunReport(False, "RESTORE REFUSED", zip_path, None, [{"code": "package_not_found"}], {}, {}, 0, [], [], [], [])
+    if not db_path.is_file():
+        return DryRunReport(False, "RESTORE REFUSED", zip_path, None, [{"code": "db_not_found", "path": str(db_path)}], {}, {}, 0, [], [], [], [])
+    with tempfile.TemporaryDirectory(prefix="lorevox-dryrun-") as tmp:
+        tmp = Path(tmp)
+        problems = _safe_extract(zip_path, tmp)
+        if problems:
+            return DryRunReport(False, "RESTORE REFUSED", zip_path, None,
+                                [{"code": "package_invalid", "detail": p} for p in problems], {}, {}, 0, [], [], [], [])
+        manifest, bag_problems, _n, _b = _inspect_bag(tmp)
+        if manifest is None:
+            return DryRunReport(False, "RESTORE REFUSED", zip_path, None,
+                                [{"code": "package_invalid", "detail": p} for p in bag_problems], {}, {}, 0, [], [], [], [])
+        return _dry_run_on_extracted(tmp, manifest, root, db_path, bag_problems, zip_path)
+
+
+def _job_write(db_path: Path, job: Dict[str, Any]) -> None:
+    """The durable job row, in its OWN connection and committed at once (§12 step 7)."""
+    con = sqlite3.connect(str(db_path))
+    try:
+        con.execute("PRAGMA foreign_keys=ON")
+        job = dict(job, updated_at=_now())
+        cols = ", ".join(f'"{k}"' for k in job)
+        con.execute(
+            f'INSERT INTO narrator_package_jobs ({cols}) VALUES ({", ".join("?" for _ in job)}) '
+            f'ON CONFLICT(id) DO UPDATE SET ' + ", ".join(f'"{k}"=excluded."{k}"' for k in job if k != "id"),
+            tuple(job.values()))
+        con.commit()
+    finally:
+        con.close()
+
+
+def restore_narrator(zip_path: Path, *, data_dir: Path, db_path: Path, requested_by: str = "") -> RestoreResult:
+    """§12, exactly in that order. Files first, database visibility last; one
+    transaction; ids preserved verbatim (§10.1); nothing overwritten (§10.2).
+    Raises RestoreRefused (nothing written) or RuntimeError after cleanup."""
+    zip_path = Path(zip_path)
+    root = validate_root(data_dir)
+    db_path = Path(db_path)
+    with tempfile.TemporaryDirectory(prefix="lorevox-restore-") as tmp:
+        tmp = Path(tmp)
+        # 1–4: stage, validate structure / manifest / hashes
+        problems = _safe_extract(zip_path, tmp)
+        if problems:
+            raise RestoreRefused(DryRunReport(False, "RESTORE REFUSED", zip_path, None,
+                                              [{"code": "package_invalid", "detail": p} for p in problems], {}, {}, 0, [], [], [], []))
+        manifest, bag_problems, _n, _b = _inspect_bag(tmp)
+        if manifest is None:
+            raise RestoreRefused(DryRunReport(False, "RESTORE REFUSED", zip_path, None,
+                                              [{"code": "package_invalid", "detail": p} for p in bag_problems], {}, {}, 0, [], [], [], []))
+        # 5–6: compatibility, ownership, collisions
+        report = _dry_run_on_extracted(tmp, manifest, root, db_path, bag_problems, zip_path)
+        if not report.ready:
+            raise RestoreRefused(report)
+        pid = str(manifest["narrator_id"])
+        hashes = _payload_hashes(tmp)
+        file_members = sorted(m for m in hashes if m.startswith("data/files/"))
+
+        # 7: durable job, committed before the first byte lands
+        job_id = uuid.uuid4().hex
+        job = {"id": job_id, "kind": "restore", "state": "validated", "package_id": str(manifest["package_id"]),
+               "package_path": str(zip_path), "narrator_id": pid, "data_root": str(root),
+               "source_commit": str(manifest.get("source_commit") or ""), "files_json": "[]",
+               "counts_json": "{}", "error": None, "requested_by": requested_by, "created_at": _now()}
+        _job_write(db_path, job)
+
+        created: List[Path] = []
+        created_dirs: List[Path] = []
+
+        def _cleanup_files() -> List[str]:
+            left: List[str] = []
+            for f in reversed(created):
+                try:
+                    f.unlink()
+                except OSError:
+                    left.append(str(f.relative_to(root)))
+            for d in reversed(created_dirs):
+                try:
+                    d.rmdir()
+                except OSError:
+                    pass
+            return left
+
+        def _fail(stage: str, exc: Exception):
+            left = _cleanup_files()
+            job.update(state="cleanup_required" if left else "failed",
+                       error=f"{stage}: {exc.__class__.__name__}: {exc}"[:2000],
+                       files_json=json.dumps(left))
+            _job_write(db_path, job)
+            raise RuntimeError(f"RESTORE FAILED at {stage}; job {job_id} is {job['state']}: {exc}") from exc
+
+        # 8–9: copy files, no overwrite, re-hash
+        try:
+            for member in file_members:
+                rel = member[len("data/files/"):]
+                dest = _safe_destination(root, rel)
+                if dest is None:
+                    raise ValueError(f"unsafe destination {rel}")
+                # record every directory we create so a failed job removes only its own
+                need = []
+                cur = dest.parent
+                while not cur.exists():
+                    need.append(cur)
+                    cur = cur.parent
+                for d in reversed(need):
+                    d.mkdir()
+                    created_dirs.append(d)
+                fd = os.open(str(dest), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)   # refuses to overwrite
+                with os.fdopen(fd, "wb") as dst, (tmp / member).open("rb") as src:
+                    shutil.copyfileobj(src, dst)
+                created.append(dest)
+                digest, _ = _sha256_file(dest)
+                if digest != hashes[member]:
+                    raise ValueError(f"re-hash mismatch after copy: {rel}")
+            job.update(state="files_copied", files_json=json.dumps([str(p.relative_to(root)) for p in created]))
+            _job_write(db_path, job)
+        except Exception as exc:  # noqa: BLE001
+            _fail("files", exc)
+
+        # 10–13: one transaction, ids verbatim, paths rewritten per the recorded basis
+        basis = manifest.get("path_column_basis") or {}
+        inserted: Dict[str, int] = {}
+        con = sqlite3.connect(str(db_path), isolation_level=None)
+        try:
+            con.execute("PRAGMA foreign_keys=ON")
+            con.execute("BEGIN IMMEDIATE")
+            con.execute("PRAGMA defer_foreign_keys=ON")   # order-independent; violations fail at COMMIT
+            try:
+                for table in inv.narrator_owned_tables():          # declaration order: parents first
+                    n = 0
+                    for rec in _read_records(tmp, table):
+                        for col, kind in (basis.get(table) or {}).items():
+                            v = rec.get(col)
+                            if v not in (None, "") and kind == "absolute":
+                                rec[col] = str(root / v)
+                        cols = ", ".join(f'"{c}"' for c in rec)
+                        con.execute(f'INSERT INTO "{table}" ({cols}) VALUES ({", ".join("?" for _ in rec)})',
+                                    tuple(rec.values()))
+                        n += 1
+                    if n:
+                        inserted[table] = n
+                # 12: verify counts and references before anything becomes visible
+                expected = {t: n for t, n in (manifest.get("record_counts_by_lane") or {}).items() if n}
+                if inserted != expected:
+                    raise ValueError(f"inserted counts {inserted} != manifest {expected}")
+                bad = []
+                for table in inserted:      # only the tables this job wrote; pre-existing damage is not ours to judge
+                    bad += con.execute(f'PRAGMA foreign_key_check("{table}")').fetchall()
+                if bad:
+                    raise ValueError(f"foreign_key_check: {[tuple(r) for r in bad[:10]]}")
+                con.execute("COMMIT")
+            except Exception:
+                con.execute("ROLLBACK")
+                raise
+        except Exception as exc:  # noqa: BLE001
+            con.close()
+            _fail("database", exc)
+        finally:
+            try:
+                con.close()
+            except Exception:
+                pass
+        # 14: complete
+        job.update(state="complete", counts_json=json.dumps(inserted))
+        _job_write(db_path, job)
+    # 15: staging removed by the context manager
+    return RestoreResult(job_id=job_id, narrator_id=pid, package_id=str(manifest["package_id"]),
+                         records_inserted=inserted, files_created=[str(p.relative_to(root)) for p in created],
+                         dry_run=report)
+
+
+__all__ = ["export_narrator", "validate_package", "dry_run_restore", "restore_narrator",
+           "ExportRefused", "ExportResult", "ValidationReport", "DryRunReport", "RestoreResult", "RestoreRefused",
            "PACKAGE_FORMAT", "PACKAGE_FORMAT_VERSION", "PACKAGE_KIND", "MANIFEST_NAME"]

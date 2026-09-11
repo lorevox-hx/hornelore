@@ -19,8 +19,16 @@ wrong root is worse than no package).
     PYTHONPATH=server/code .venv/bin/python scripts/narrator_package.py validate \\
         /mnt/c/lorevox_packages/<Narrator>_<id>.lorevox.zip
 
+    PYTHONPATH=server/code .venv/bin/python scripts/narrator_package.py dry-run \\
+        <package.lorevox.zip> --data-dir /mnt/c/lorevox_data --db /mnt/c/lorevox_data/db/lorevox.sqlite3
+
+    PYTHONPATH=server/code .venv/bin/python scripts/narrator_package.py restore \\
+        <package.lorevox.zip> --data-dir /mnt/c/lorevox_data --db /mnt/c/lorevox_data/db/lorevox.sqlite3 --yes
+
 Export is read-only against the source. `--out` must be OUTSIDE the data
-root. Nothing here deletes, restores or merges (Phases 3 and 7).
+root. `restore` writes the DESTINATION database and root — STACK DOWN — and
+always dry-runs first; it restores this narrator as this narrator (ids
+verbatim) and refuses any collision. Nothing here deletes or merges (Phase 7).
 """
 from __future__ import annotations
 
@@ -70,9 +78,64 @@ def _validate(args) -> int:
     return 0 if rep.ok else 2
 
 
+def _print_dry_run(rep) -> None:
+    print(rep.verdict + f"  {rep.package_path}")
+    if rep.manifest:
+        m = rep.manifest
+        print(f"narrator={m.get('narrator_id')} {m.get('narrator_display_name')!r} package_id={m.get('package_id')} "
+              f"format={m.get('package_format')}/{m.get('package_format_version')} created={m.get('created_at')} "
+              f"source_commit={m.get('source_commit')}")
+    print("records_by_lane=" + json.dumps({k: v for k, v in rep.records_by_lane.items() if v}, sort_keys=True))
+    print("files_by_lane=" + json.dumps(rep.files_by_lane, sort_keys=True) + f" total_bytes={rep.total_bytes}")
+    for r in rep.reasons:
+        print("  refused: " + json.dumps(r, ensure_ascii=False))
+    for w in rep.warnings:
+        print("  warning: " + json.dumps(w, ensure_ascii=False))
+
+
+def _dry_run(args) -> int:
+    rep = pkg.dry_run_restore(Path(args.package), data_dir=Path(args.data_dir), db_path=Path(args.db))
+    _print_dry_run(rep)
+    return 0 if rep.ready else 2
+
+
+def _restore(args) -> int:
+    """Dry run first, always; then restore. Stack must be DOWN — this writes the live database."""
+    rep = pkg.dry_run_restore(Path(args.package), data_dir=Path(args.data_dir), db_path=Path(args.db))
+    _print_dry_run(rep)
+    if not rep.ready:
+        return 2
+    if not args.yes:
+        print("dry run is READY. Re-run with --yes to restore (stack down).")
+        return 3
+    try:
+        res = pkg.restore_narrator(Path(args.package), data_dir=Path(args.data_dir), db_path=Path(args.db),
+                                   requested_by=args.requested_by)
+    except pkg.RestoreRefused as exc:
+        _print_dry_run(exc.report)
+        return 2
+    except RuntimeError as exc:
+        print(str(exc))
+        return 4
+    print(f"RESTORED narrator={res.narrator_id} package_id={res.package_id} job={res.job_id}")
+    print("records_inserted=" + json.dumps(res.records_inserted, sort_keys=True))
+    print(f"files_created={len(res.files_created)}")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
+    for name, fn, help_ in (("dry-run", _dry_run, "everything restore would check; writes nothing"),
+                            ("restore", _restore, "dry-run, then restore this narrator as this narrator (stack DOWN)")):
+        p = sub.add_parser(name, help=help_)
+        p.add_argument("package")
+        p.add_argument("--data-dir", required=True, help="ABSOLUTE DATA_DIR of the DESTINATION installation")
+        p.add_argument("--db", required=True, help="ABSOLUTE path to the DESTINATION SQLite file")
+        if name == "restore":
+            p.add_argument("--yes", action="store_true", help="actually restore after a READY dry run")
+            p.add_argument("--requested-by", default="cli")
+        p.set_defaults(fn=fn)
     e = sub.add_parser("export", help="build one narrator's package (read-only against the source)")
     e.add_argument("--narrator", required=True, help="people.id")
     e.add_argument("--data-dir", required=True, help="ABSOLUTE DATA_DIR of the source installation")

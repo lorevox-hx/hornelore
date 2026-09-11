@@ -92,7 +92,16 @@ class FsLane:
     conditional_sql: Optional[str] = None  # portable == "conditional": yields the
                                            # sub-path segments (one row = one dir) that
                                            # DO travel; everything else in the lane is
-                                           # erasable residue, never packaged
+                                           # erasable residue, never packaged.
+                                           # When `verified_by_digest` is set, the LAST
+                                           # column is the row's expected SHA-256.
+    verified_by_digest: bool = False       # §29.3: the dir travels only as a VERIFIED
+                                           # byte source — exactly one regular file
+                                           # whose SHA-256 equals the row's digest.
+                                           # A valid digest with a missing or
+                                           # mismatching file REFUSES; a row with no
+                                           # valid digest is residue: recorded, warned,
+                                           # never packaged as verified.
     note: str = ""
 
 
@@ -247,6 +256,9 @@ DB_LANES: Tuple[DbLane, ...] = (
     DbLane("narrator_delete_audit", _I("deletion audit — must survive the delete it records"),
            CLASS_INSTALLATION, "no", False),
     DbLane("narrator_erasure_jobs", _I("erasure job records, 0049/0050"), CLASS_INSTALLATION, "no", False),
+    DbLane("narrator_package_jobs", _I("restore job records, 0054 — how a narrator ARRIVED must "
+                                       "survive the narrator, like narrator_delete_audit"),
+           CLASS_INSTALLATION, "no", False),
 )
 
 # ══════════════════════════════════════════════════════════════════════
@@ -274,11 +286,14 @@ FS_LANES: Tuple[FsLane, ...] = (
            note="R7: travel documents keyed by source id; mirrors narrator_erasure.py:357-361"),
     FsLane("import_staging", ("import_staging",), "row", CLASS_AUTHORITATIVE, "conditional", True,
            resolver_sql="SELECT id FROM import_batch WHERE person_id = :pid",
-           conditional_sql="SELECT batch_id, id FROM import_candidate "
+           conditional_sql="SELECT batch_id, id, file_hash FROM import_candidate "
                            "WHERE person_id = :pid AND photo_id IS NULL AND state = 'pending'",
-           note="R12: <batch>/<candidate>/original.* travels when it is the verified byte "
-                "source for an UNRESOLVED candidate (import_repository.py:231-235); "
-                "redundant once the candidate has a permanent photos row"),
+           verified_by_digest=True,
+           note="R12/§29.3: <batch>/<candidate>/original.* travels ONLY as the verified byte "
+                "source for an UNRESOLVED candidate — promotion refuses without it and "
+                "compares the staged bytes to import_candidate.file_hash "
+                "(import_repository.py:136-156, 231-235). The exporter applies the same "
+                "comparison; redundant once the candidate has a permanent photos row"),
     FsLane("import_staging_incoming", ("import_staging", ".incoming"), "row", CLASS_CACHE, "no", True,
            resolver_sql="SELECT id FROM import_batch WHERE person_id = :pid",
            note="R12: acquisition scratch; erased with the narrator, never packaged"),

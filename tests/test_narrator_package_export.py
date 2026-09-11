@@ -36,6 +36,7 @@ Run:
 """
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 import os
@@ -278,15 +279,24 @@ class _Fixture(unittest.TestCase):
         self.file(f"trip_sources/{bsrc}/b.pdf", b"%PDF-BEA")
         self.file("trip_sources/orphan-dir-0000/stray.pdf", b"%PDF-ORPHAN")
 
-        # import provenance: one pending candidate with staged original, one accepted
+        # import provenance (§29.3): a pending candidate whose staged original is the
+        # VERIFIED byte source (valid SHA-256 that matches the bytes), a pending
+        # candidate with historical residue for a digest (not a SHA-256) and a staged
+        # dir that therefore cannot be verified, and an accepted one whose staging is
+        # redundant. Only the first travels.
         batch = keep("import_batch", self.ins("import_batch", person_id=A))
-        pending = keep("import_candidate", self.ins("import_candidate", batch_id=batch, person_id=A, state="pending"))
+        staged_bytes = b"STAGED-PENDING"
+        pending = keep("import_candidate", self.ins("import_candidate", batch_id=batch, person_id=A, state="pending",
+                                                    file_hash=hashlib.sha256(staged_bytes).hexdigest()))
+        legacy = keep("import_candidate", self.ins("import_candidate", batch_id=batch, person_id=A, state="pending",
+                                                   file_hash="legacyhash02"))
         accepted = keep("import_candidate", self.ins("import_candidate", batch_id=batch, person_id=A,
                                                      state="accepted", photo_id=self.photos[2]))
-        self.file(f"import_staging/{batch}/{pending}/original.jpg", b"STAGED-PENDING")
+        self.file(f"import_staging/{batch}/{pending}/original.jpg", staged_bytes)
+        self.file(f"import_staging/{batch}/{legacy}/original.jpg", b"UNVERIFIABLE")
         self.file(f"import_staging/{batch}/{accepted}/original.jpg", b"STAGED-ACCEPTED")
         self.file(f"import_staging/.incoming/{batch}/partial.bin", b"INCOMING")
-        self.batch, self.pending, self.accepted = batch, pending, accepted
+        self.batch, self.pending, self.legacy, self.accepted = batch, pending, legacy, accepted
 
         # media archive item owned by Ada, tagged with Bea (§13 external dependency)
         item = keep("media_archive_items", self.ins(
@@ -400,18 +410,39 @@ class ExportCarriesTheWholeNarrator(_Fixture):
         self.assertIn(f"data/files/memory/archive/people/{self.ada}/sessions/conv-ada-1/audio/t1.webm", zf.namelist())
         self.assertNotIn(f"data/files/memory/archive/people/{self.bea}/sessions/conv-bea-1/audio/t9.webm", zf.namelist())
 
-    def test_import_staging_is_conditional_and_incoming_never_travels(self):
+    def test_import_staging_travels_only_as_a_verified_byte_source(self):
+        """§29.3, four branches, classified from the digest — never from a name."""
         res = self.export()
         zf = self.open_pkg(res)
         names = zf.namelist()
-        self.assertIn(f"data/files/import_staging/{self.batch}/{self.pending}/original.jpg", names)
+        # 1. valid SHA-256 + matching staged bytes → travels, and the packaged bytes ARE those bytes
+        member = f"data/files/import_staging/{self.batch}/{self.pending}/original.jpg"
+        self.assertIn(member, names)
+        declared = next(r["file_hash"] for r in self.records(zf, "import_candidate") if r["id"] == self.pending)
+        self.assertEqual(hashlib.sha256(zf.read(member)).hexdigest(), declared)
+        self.assertEqual(res.manifest["verified_source_digests_checked"], 1)
+        # 2. historical residue digest → the ROW travels, the staging does not, and it is warned
+        self.assertIn(self.legacy, {r["id"] for r in self.records(zf, "import_candidate")})
+        self.assertNotIn(f"data/files/import_staging/{self.batch}/{self.legacy}/original.jpg", names)
+        w = [w for w in res.warnings if w["code"] == "unverifiable_candidate_staging_not_packaged"]
+        self.assertEqual(len(w), 1, res.warnings)
+        self.assertTrue(w[0]["staged_dir_present"])
+        # 3. accepted/materialised → redundant residue, never travels
         self.assertNotIn(f"data/files/import_staging/{self.batch}/{self.accepted}/original.jpg", names)
+        # 4. .incoming never travels
         self.assertFalse(any("/.incoming/" in n for n in names))
         # and the non-travelling bytes are REPORTED as residue, honestly
         residue = res.manifest["residue_not_packaged"]
         self.assertTrue(any(r["lane"] == "import_staging" for r in residue), residue)
         self.assertTrue(any(r["lane"] == "import_staging_incoming" for r in residue), residue)
         self.assertTrue(any(r["lane"] == "sessions" and r["rows_with_no_owner_on_source"] == 1 for r in residue), residue)
+
+    def test_default_repo_discovery_records_the_real_source_commit(self):
+        """No repo_root passed: the service must find the repository itself."""
+        res = pkg.export_narrator(self.ada, data_dir=self.root, db_path=self.db_path, out_dir=self.out)
+        self.assertNotEqual(res.manifest["source_commit"], "unknown")
+        self.assertEqual(res.manifest["source_commit"], pkg._repo_head(REPO_ROOT))
+        self.assertRegex(res.manifest["source_commit"], r"^[0-9a-f]{7,40}$")
 
     def test_manifest_records_provenance_and_installation_dependencies(self):
         res = self.export()
@@ -476,6 +507,49 @@ class ExportRefusesRatherThanDangles(_Fixture):
         self.file(f"trip_sources/{src}/ticket.pdf", b"%PDF-ADA-0")
         self.assertTrue((self.root / "trip_sources" / "orphan-dir-0000").is_dir())
         self.assertTrue(self.export().package_path.is_file())
+
+    def test_verified_source_missing_refuses(self):
+        """§29.3: a valid digest with no staged original is a lost byte source, not a warning."""
+        shutil.rmtree(self.root / "import_staging" / self.batch / self.pending)
+        r = self._refused("verified_source_missing")
+        self.assertEqual(r["lane"], "import_staging")
+        self.assertIn(self.pending, r["path"])
+
+    def test_verified_source_hash_mismatch_refuses(self):
+        (self.root / "import_staging" / self.batch / self.pending / "original.jpg").write_bytes(b"NOT THE BYTES")
+        r = self._refused("verified_source_hash_mismatch")
+        self.assertEqual(r["lane"], "import_staging")
+        self.assertNotEqual(r["expected_sha256"], r["actual_sha256"])
+
+    def test_nested_symlink_inside_a_lane_refuses_rather_than_skips(self):
+        """narrator_erasure.safe_target()'s rule: a link anywhere under the lane refuses.
+        Here a link inside Ada's archive points at Bea's audio — resolving it would
+        cross narrators while staying inside DATA_DIR."""
+        link = self.root / "memory/archive/people" / self.ada / "sessions/conv-ada-1/audio/borrowed.webm"
+        target = self.root / "memory/archive/people" / self.bea / "sessions/conv-bea-1/audio/t9.webm"
+        try:
+            link.symlink_to(target)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"cannot create a symlink on this filesystem: {exc}")
+        r = self._refused("symlink_in_lane")
+        self.assertEqual(r["lane"], "memory_archive")
+        self.assertTrue(r["path"].endswith("borrowed.webm"))
+
+    def test_db_outside_data_dir_refuses(self):
+        elsewhere = Path(self._tmp.name) / "elsewhere.sqlite3"
+        shutil.copyfile(self.db_path, elsewhere)
+        with self.assertRaises(pkg.ExportRefused) as cm:
+            pkg.export_narrator(self.ada, data_dir=self.root, db_path=elsewhere, out_dir=self.out)
+        self.assertEqual(cm.exception.reasons[0]["code"], "db_outside_data_dir")
+
+    def test_unsafe_package_id_refuses(self):
+        for bad in ("../x", "a b", "", "x", "id/with/slash", "x" * 65):
+            with self.subTest(bad=bad):
+                with self.assertRaises(pkg.ExportRefused) as cm:
+                    pkg.export_narrator(self.ada, data_dir=self.root, db_path=self.db_path, out_dir=self.out,
+                                        package_id=bad)
+                self.assertEqual(cm.exception.reasons[0]["code"], "unsafe_package_id")
+        self.assertEqual(list(self.out.glob("*.lorevox.zip")), [])
 
     def test_photo_path_outside_data_dir_refuses(self):
         self.con.execute("UPDATE photos SET image_path='/etc/passwd' WHERE id=?", (self.photos[0],))
