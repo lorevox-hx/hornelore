@@ -4333,6 +4333,15 @@ async function lvxSwitchNarratorSafe(pid){
   } catch (e) {
     console.warn("[narrator-switch] guard-lab card hook threw:", e);
   }
+  // WO-LOREVOX-PORTABLE-NARRATOR-01 Phase 5: the export preflight is about a
+  // specific narrator and is stale the moment the selection changes.
+  try {
+    if (typeof window.lvOperatorPortableNarratorOnNarratorSwitch === "function") {
+      window.lvOperatorPortableNarratorOnNarratorSwitch(pid);
+    }
+  } catch (e) {
+    console.warn("[narrator-switch] portable-narrator card hook threw:", e);
+  }
 
   await loadPerson(pid);
 

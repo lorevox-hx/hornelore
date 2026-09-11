@@ -313,15 +313,21 @@ class _Refusals:
             raise ExportRefused(self.items)
 
 
+EXPORT_STAGES = ("snapshot", "records", "files", "bag", "verify", "zip")
+
+
 def export_narrator(person_id: str, *, data_dir: Path, db_path: Path, out_dir: Path,
                     package_id: Optional[str] = None, repo_root: Optional[Path] = None,
-                    _after_collect_hook=None) -> ExportResult:
+                    progress=None, _after_collect_hook=None) -> ExportResult:
     """Build `<Narrator>_<package-id>.lorevox.zip` under `out_dir`, or raise ExportRefused.
 
     Read-only against the source (§8.1). `data_dir` and `db_path` are explicit —
     the environment is never consulted, so a stale export cannot pick the wrong
-    root. `_after_collect_hook` exists for the consistency test only.
+    root. `progress(stage, done, total)` is called at each of EXPORT_STAGES as it
+    begins, and per file during "files" — stages, not invented percentages (§16.1).
+    `_after_collect_hook` exists for the consistency test only.
     """
+    _p = progress or (lambda stage, done=None, total=None: None)
     pid = _safe_segment(person_id)
     if not pid:
         raise ExportRefused([{"code": "unsafe_person_id", "value": str(person_id)[:64]}])
@@ -360,6 +366,7 @@ def export_narrator(person_id: str, *, data_dir: Path, db_path: Path, out_dir: P
         records_dir.mkdir(parents=True)
         files_dir.mkdir(parents=True)
 
+        _p("snapshot")
         con = _snapshot(db_path, tmp / "snapshot.sqlite3")
         try:
             present = _tables(con)
@@ -399,6 +406,7 @@ def export_narrator(person_id: str, *, data_dir: Path, db_path: Path, out_dir: P
                 col_refs.setdefault(ref.table, []).append(ref)
 
             # ── pass 2: write records, check every reference, normalise paths ──
+            _p("records")
             record_counts: Dict[str, int] = {}
             external_person_deps: Dict[str, List[Dict[str, Any]]] = {}
             installation_deps: Dict[str, Set[str]] = {}
@@ -675,12 +683,17 @@ def export_narrator(person_id: str, *, data_dir: Path, db_path: Path, out_dir: P
             file_counts: Dict[str, int] = {}
             bytes_by_lane: Dict[str, int] = {}
             collected_digests: Dict[str, str] = {}   # DATA_DIR-relative -> sha256 of the source bytes
+            total_files = len(all_files)
+            done_files = 0
+            _p("files", 0, total_files)
             for lane_name, files in lane_files.items():
                 cnt = 0
                 total = 0
                 for f in files:
                     rel = f.relative_to(root)
                     digest, n = _copy_bound(f, files_dir / rel)
+                    done_files += 1
+                    _p("files", done_files, total_files)
                     want = expected_file_digests.get(str(f))
                     if want and want != digest:
                         refuse.add("verified_source_hash_mismatch", lane=lane_name, path=rel.as_posix(),
@@ -746,6 +759,7 @@ def export_narrator(person_id: str, *, data_dir: Path, db_path: Path, out_dir: P
             raise ExportRefused([{"code": "bagit_not_installed",
                                   "detail": "pin bagit==1.8.1 (requirements-gpu.txt / requirements-test.txt)",
                                   "error": str(exc)}])
+        _p("bag")
         bag = bagit.make_bag(str(staging), checksums=["sha256"], bag_info={
             "Source-Organization": SOURCE_APP,
             "External-Identifier": f"{PACKAGE_FORMAT}:{package_id}",
@@ -754,8 +768,10 @@ def export_narrator(person_id: str, *, data_dir: Path, db_path: Path, out_dir: P
         })
         (staging / MANIFEST_NAME).write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
         bag.save(manifests=True)
+        _p("verify")
         bag.validate()
 
+        _p("zip")
         final_name = f"{_display_slug(display_name)}_{package_id}.lorevox.zip"
         final_path = out_dir / final_name
         if final_path.exists():
@@ -1571,7 +1587,87 @@ def compare_packages_semantically(a: Path, b: Path) -> ComparisonReport:
     return ComparisonReport(not diffs, a, b, diffs, info, compared)
 
 
+# ══════════════════════════════════════════════════════════════════════
+# Phase 5 — preflight and plain-language summary (§16.1, §35)
+# ══════════════════════════════════════════════════════════════════════
+
+def preflight_narrator(person_id: str, *, data_dir: Path, db_path: Path) -> Dict[str, Any]:
+    """What an export of this narrator WOULD contain, from the declaration —
+    per-lane record counts and per-lane file counts/bytes — without building a
+    package. Read-only, no snapshot, no copy. Lets the operator ask "why zero
+    trips?" before minutes of ZIP building, not after."""
+    pid = _safe_segment(person_id)
+    root = validate_root(data_dir)
+    db_path = Path(db_path)
+    if not pid:
+        return {"ok": False, "reason": "unsafe_person_id"}
+    if not db_path.is_file():
+        return {"ok": False, "reason": "db_not_found"}
+    con = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    try:
+        present = _tables(con)
+        person = con.execute("SELECT * FROM people WHERE id=?", (pid,)).fetchone() if "people" in present else None
+        if person is None:
+            return {"ok": False, "reason": "narrator_not_found", "person_id": pid}
+        records: Dict[str, int] = {}
+        absent: List[str] = []
+        for table in inv.narrator_owned_tables():
+            if table not in present:
+                absent.append(table)
+                continue
+            try:
+                records[table] = con.execute(
+                    f'SELECT COUNT(*) FROM "{table}" WHERE {inv.owner_predicate(table)}', {"pid": pid}).fetchone()[0]
+            except sqlite3.Error:
+                records[table] = -1
+        files: Dict[str, Dict[str, int]] = {}
+        for lane in inv.FS_LANES:
+            base = root.joinpath(*lane.parts)
+            paths: List[Path] = []
+            if lane.keyed_by == "person":
+                if (base / pid).is_dir():
+                    paths = [base / pid]
+            elif lane.keyed_by == "row" and lane.resolver_sql and lane.portable != "no":
+                if lane.name == "agent_transcripts":
+                    if "sessions" in present:
+                        for r in con.execute(lane.resolver_sql, {"pid": pid}):
+                            for sub, fname in export_basenames(str(r[0] or "")):
+                                if (base / sub / fname).is_file():
+                                    paths.append(base / sub / fname)
+                else:
+                    try:
+                        sql = lane.conditional_sql if lane.portable == "conditional" and lane.conditional_sql else lane.resolver_sql
+                        for r in con.execute(sql, {"pid": pid}):
+                            cells = list(r)
+                            if lane.verified_by_digest:
+                                cells.pop()
+                            segs = [_safe_segment(v) for v in cells]
+                            if all(segs) and base.joinpath(*segs).is_dir():
+                                paths.append(base.joinpath(*segs))
+                    except sqlite3.Error:
+                        continue
+            if not paths:
+                continue
+            n = b = 0
+            for p in paths:
+                for f in ([p] if p.is_file() else p.rglob("*")):
+                    if f.is_file() and not f.is_symlink():
+                        n += 1
+                        b += f.stat().st_size
+            files[lane.name] = {"files": n, "bytes": b}
+        # the one truth-in-advance check that costs nothing: the narrator's own row
+        display_name = str(person["display_name"] or "")
+    finally:
+        con.close()
+    # plain language is presentation and lives in narrator_package_summary — this module
+    # names no lane (test-pinned); the router attaches `summary` from the counts above
+    return {"ok": True, "narrator_id": pid, "narrator_display_name": display_name,
+            "record_counts_by_lane": records, "files_by_lane": files,
+            "lanes_absent_in_source": absent}
+
+
 __all__ = ["export_narrator", "validate_package", "dry_run_restore", "restore_narrator", "recover_restore_jobs",
-           "compare_packages_semantically", "ComparisonReport",
+           "compare_packages_semantically", "ComparisonReport", "preflight_narrator", "EXPORT_STAGES",
            "ExportRefused", "ExportResult", "ValidationReport", "DryRunReport", "RestoreResult", "RestoreRefused",
            "PACKAGE_FORMAT", "PACKAGE_FORMAT_VERSION", "PACKAGE_KIND", "MANIFEST_NAME"]

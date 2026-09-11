@@ -34,6 +34,7 @@
   <link rel="stylesheet" href="css/bug-panel-past-tense-review.css">
   <link rel="stylesheet" href="css/bug-panel-guard-lab.css?v=2026-09-07">
   <link rel="stylesheet" href="css/operator-guard-lab-card.css?v=2026-09-07">
+  <link rel="stylesheet" href="css/operator-portable-narrator-card.css?v=2026-09-11">
   <link rel="stylesheet" href="css/bug-panel-silence-ladder.css">
   <link rel="stylesheet" href="css/bug-panel-preflight.css">
   <link rel="stylesheet" href="css/affect.css">
@@ -3077,6 +3078,33 @@
         </div>
       </section>
 
+      <!-- ── PORTABLE NARRATOR — Export / Import Narrator Package ──────
+           WO-LOREVOX-PORTABLE-NARRATOR-01 Phase 5 (§16, §16.1, §35).
+
+           Export ONE narrator as a standards-based package (BagIt
+           .lorevox.zip: records + files, every byte hashed), and import
+           a package into this installation. Both are SERVICE operations
+           (services/narrator_package.py); this card sends ids and files
+           and renders what the server says. It computes no counts, no
+           verdicts, no eligibility of its own.
+
+           Two verdicts on import, never one: package INTEGRITY (is the
+           file a complete, valid bag?) and Lorevox restore READINESS
+           (can THIS installation restore it — no id collisions, no
+           missing dependencies?). A refusal is final: there is no
+           "restore anyway". Export and delete are never one control,
+           and nothing on this card deletes narrator data.
+
+           Backend gate: HORNELORE_OPERATOR_PORTABLE_NARRATOR=1; off →
+           quiet placeholder. NEVER narrator-visible.
+           See ui/js/operator-portable-narrator-card.js -->
+      <section class="lv-operator-section">
+        <h3 class="lv-operator-section-title">Portable Narrator</h3>
+        <div id="lvOperatorPortableNarrator">
+          <div class="opnc-off">Portable Narrator — loading…</div>
+        </div>
+      </section>
+
       <!-- ── PROFILE SEED — OPERATOR CHROME, VISIBLE AT LAST ───────────
            WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 3, §3.2.
 
@@ -5474,6 +5502,9 @@
 <script src="js/bug-panel-past-tense-review.js?v=2026-06-14"></script>
 <script src="js/bug-panel-guard-lab.js?v=2026-09-07"></script>
 <script src="js/operator-guard-lab-card.js?v=2026-09-07"></script>
+<!-- WO-LOREVOX-PORTABLE-NARRATOR-01 Phase 5 — Export / Import Narrator Package card.
+     Default-OFF (HORNELORE_OPERATOR_PORTABLE_NARRATOR); operator tab only. -->
+<script src="js/operator-portable-narrator-card.js?v=2026-09-11"></script>
 <!-- WO-LORI-BIO-BUILDER-UNIVERSAL-01 Phase E+F (2026-06-14) — bio
      editor + bio gap map operator surfaces. Both default-OFF; the
      mounts render quiet disabled placeholders until the respective

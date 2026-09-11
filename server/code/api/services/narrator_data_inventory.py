@@ -259,6 +259,9 @@ DB_LANES: Tuple[DbLane, ...] = (
     DbLane("narrator_package_jobs", _I("restore job records, 0054 — how a narrator ARRIVED must "
                                        "survive the narrator, like narrator_delete_audit"),
            CLASS_INSTALLATION, "no", False),
+    DbLane("narrator_package_export_jobs", _I("export job records, 0056 — what this installation "
+                                              "exported, and where; outlives the narrator"),
+           CLASS_INSTALLATION, "no", False),
 )
 
 # ══════════════════════════════════════════════════════════════════════
