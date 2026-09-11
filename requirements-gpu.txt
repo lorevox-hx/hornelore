@@ -135,7 +135,10 @@ typing_inspection==0.4.2
 annotated_types==0.7.0
 tqdm==4.67.3
 psutil==7.2.2
-requests==2.32.5
+requests==2.33.1
+# 2026-09-11: 2.32.5 warned RequestsDependencyWarning at every start because
+# chardet 7.x (pulled in by readability-lxml) exceeded its chardet<6 bound;
+# 2.33 accepts chardet<8. Same pin as requirements-test.txt.
 certifi==2026.2.25
 charset_normalizer==3.4.5
 idna==3.11
