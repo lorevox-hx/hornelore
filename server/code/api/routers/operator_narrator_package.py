@@ -27,8 +27,12 @@ Paths are explicit and validated, never inferred from a request: DATA_DIR and
 the database come from the running installation's own configuration, the
 package output and staging directories from `HORNELORE_PACKAGE_OUT_DIR` /
 `HORNELORE_PACKAGE_STAGING_DIR` (defaults beside DATA_DIR, never inside it).
-NOTHING ON THIS ROUTER DELETES NARRATOR DATA, and nothing will (§16): the one
-"discard" verb removes a staged upload that was never narrator state.
+NOTHING ON THIS ROUTER DELETES NARRATOR DATA, and nothing will (§16). Two verbs
+remove files, both outside DATA_DIR and neither narrator state: "discard" removes
+a staged upload; "remove-server-copy" removes a finished package artifact, checked
+to resolve under the configured output directory first, and keeps the job record.
+Exclusivity (`_OP_LOCK`) is per process; a multi-worker deployment would need a
+cross-process lock (WO §35.3, deployment hardening — not a Phase 5a concern).
 """
 from __future__ import annotations
 
