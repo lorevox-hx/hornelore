@@ -1182,3 +1182,67 @@ unchanged except `narrator_package_jobs`; one changed `trips.title` → exactly 
 
 **Not done, on purpose.** No real narrator (Phase 6). No UI (Phase 5, §16.1). No remap —
 the integer-id boundary above is recorded, pinned, and deferred to its own WO.
+
+## 35. Phase 5 design — operator jobs and UI, decided 2026-09-11 against the shipped patterns
+
+**What Phase 5 is.** A safe operator workflow over the proven service. It adds an HTTP
+layer and one Operator-tab card; it adds no portability logic. Every decision below cites
+the shipped pattern it copies.
+
+| decision | choice | copied from |
+|---|---|---|
+| Gate | `HORNELORE_OPERATOR_PORTABLE_NARRATOR=1`; router prefix `/api/operator/narrator-package`; **404 when off**, never 403 | `operator_guard_lab.py:64-77`, `.env.example` |
+| Where packages are written | `HORNELORE_PACKAGE_OUT_DIR` — absolute, **outside `DATA_DIR`** (the service already refuses inside); default `<DATA_DIR's parent>/lorevox_packages` | `narrator_package.py` `out_dir_inside_data_dir` |
+| Where uploads land | `HORNELORE_PACKAGE_STAGING_DIR` — absolute, outside `DATA_DIR`; default `<parent>/lorevox_package_staging/<upload_id>/package.lorevox.zip`; **streamed to disk in 64 KiB chunks, never buffered**; size cap `HORNELORE_PACKAGE_MAX_MB` (default 20480) → 413 | `media_archive.py:228-245` (tempfile, chunked), not `memory_archive.py:568` (whole-body) |
+| Export job persistence | **its own table**, `narrator_package_export_jobs`, migration **`0056`** (`queued → running → complete` / `failed`); `0054`/`0055` untouched; declared installation-owned | §16.1 decision; `0049`/`0054` durable-job pattern |
+| Asynchrony | one daemon `threading.Thread` per export or restore, state durable in the job tables and polled by `GET`; **one package operation at a time** in-process (a module lock) — the Phase 3 exclusivity assumption becomes an application lock | no `BackgroundTasks` exists in the tree; generation threads are the only precedent |
+| Download | `FileResponse` of the finished file on disk with `Content-Disposition` | `media_archive.py:147-153`, not the in-memory `memory_archive.py:655` |
+| Two verdicts | `POST /import/upload` returns `integrity` (structure · BagIt complete · checksums · manifest readable) and `readiness` (the dry-run report) **as separate objects**; readiness is only computed when integrity passes | §16.1 |
+| No "restore anyway" | `POST /import/{upload_id}/restore` re-runs the dry run and refuses unless READY; the card renders Restore disabled until readiness is READY and never offers an override | §16.1 |
+| Preflight | `GET /preflight/{person_id}` — narrator identity + per-lane record counts and file counts/bytes **from the declaration**, nothing built | §16.1; `narrator_data_inventory` |
+| Plain language first | the router returns a `summary` (records · conversations · photos · documents · trips · files · size · warnings) computed once, server-side; BagIt/manifest detail is under `advanced` | §16.1; the card computes nothing |
+| UI | one card on the Operator tab, `#lvOperatorPortableNarrator`, `ui/js/operator-portable-narrator-card.js`, IIFE, local `request()` wrapper, 404 = feature off, narrator-switch clamp, `renderInto` exported for the DOM harness; nothing narrator-visible; **no delete control anywhere on it** | `operator-guard-lab-card.js` |
+| Recovery | `POST /recover` → `recover_restore_jobs()`; the card shows incomplete restore jobs and offers Recover, which deletes only what the service's rules allow | §33.1 |
+
+**Not in Phase 5:** merge/remap (§10.3, Phase 4 finding), deletion (Phase 7), any real
+narrator (Phase 6), encryption (§28.6).
+
+**35.1 Phase 5 split, decided 2026-09-11 — the Narrator Data Center.** Review reframed the
+surface as the operator's one window into what Lorevox holds for a narrator, with
+portability as its most consequential capability. Adopted, and **split so the migration is
+not behind a UI project**:
+
+* **5a — NOW, on the migration path.** The Data Center *entry* on the Operator tab: a
+  persistent header (narrator, summary line from `preflight`, "Creating or downloading a
+  package does not remove this narrator"); three plain views — **View & Download** (the
+  Complete Data Check: what Lorevox recognises, from the same declaration the exporter
+  uses; the "Photo Timeline says 27, inventory says 25" question is answered here),
+  **Move or Restore** (one complete, **non-selective** package — every domain listed, nothing
+  to untick; and Import as an explicit seven-step stepper whose completed/current/pending
+  marks are the server's, so leaving and returning re-orients), **Activity** (the durable
+  `0056` export and `0054` restore ledgers — no second persistence model; plain downloads get
+  no jobs). Stage progress (snapshot → records → files n/N → bag → verify → zip) is
+  observational — a callback that cannot change what the package contains — persisted in
+  `0056.progress_json`, rendered as stages with a native `<progress>` only where the
+  denominator is real, never a percentage. A native `<dialog>` confirms Restore with the
+  narrator's name and plain consequences, initial focus on Cancel; the control exists only
+  while the server says READY. A polite `role="status"` region announces transitions only.
+  **Retention:** "Remove server copy" deletes the finished artifact outside `DATA_DIR`; the
+  job record stays and says the copy was removed; the period of automatic removal is a
+  decision still owed and is stated as such, never invented. Facts stated on the card:
+  thumbnails are preserved files in the `photo_archive` lane and travel; Lori audio is not
+  stored (`0002:57-60` CHECK).
+* **5b — AFTER Phase 7, its own scope, never blocking Phase 6 or the cutover.** Rich
+  per-domain inspection: domain cards with cross-surface counts (timeline placements, Life
+  Map associations, trip links), an audio browser with per-turn play/download/transcript
+  jump, a live memoir view, Bio Builder and questionnaire completeness, drag-and-drop
+  upload as an enhancement over the labelled file control, richer activity. Each needs
+  aggregate endpoints that do not exist and inspects the product that will actually
+  remain — built against Lorevox, not against Hornelore.
+
+**35.2 The card's contract, made precise on review.** No "Restore anyway"; no control that
+deletes narrator rows or files; no combined Export+Delete. "Discard upload" and "Remove
+server copy" are the only removal controls and touch only a staged file and a finished
+artifact, both outside `DATA_DIR`. Pinned by `tests/test_operator_narrator_package_api.py`
+(source pins, labelled as such) and by the router's route table (no DELETE verb — the
+stronger server invariant).
