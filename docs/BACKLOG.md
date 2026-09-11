@@ -421,8 +421,15 @@ All four reproduce at `d0e5294`. Bounded tooling commits, separate from cleanup.
   the day's opens while nobody spoke to her, and `interview_threads` went 8 → 0 on open.
   The narrator-load hydration (profile-seed / projection sync) is not idempotent. Not a
   Data Center defect — it reported each live count correctly — and not in the portability
-  lane; whoever owns Bio Builder hydration should find the writer
-  (`grep -n "bio_fact_create" server/code/api`) and make the seed conditional on absence.
+  lane. **Mechanism named 2026-09-11 (Phase 6, real narrator):** opening Christopher
+  appended four rows — `full_legal_name`, `birth_date`, `birth_place`, `military_served` —
+  every one `via: questionnaire_put`, tier 4, `status: operator_entered`, created in the
+  same second as `profiles.updated_at` / `bio_builder_questionnaires.updated_at`. The UI
+  re-saves the questionnaire on narrator load and the PUT projects identity fields into
+  `bio_facts` as NEW rows instead of upserting by `(narrator_id, field_key)`. **Proven not
+  to be restore:** the same package restored and re-exported with no interaction was
+  `EQUIVALENT` (WO §36.1). A real product defect for the Bio Builder owner: make the
+  projection an upsert, or skip it when the value is unchanged.
 * **Package upload registry is in-process** (`operator_narrator_package.py` `_UPLOADS`): a
   staged upload survives an API restart on disk without its record. A start-up sweep of
   `HORNELORE_PACKAGE_STAGING_DIR` (delete only what no live upload names) is owed with 5b.

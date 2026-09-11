@@ -1349,7 +1349,147 @@ package's server copy (through Remove server copy, so the ledger says so), and a
 residue. Retained by contract: the three `0056` job rows (one refused, two complete) and the
 `.env` flag.
 
-**Boundaries kept:** no narrator data deleted by any verb; the only removals were a staged
+**Boundaries kept (5a):** no narrator data deleted by any verb; the only removals were a staged
 upload and a finished artifact, both outside `DATA_DIR`; `/mnt/c/hornelore_data` unchanged
 except by the app's own narrator-open writes; `0054`/`0055`/`0056` untouched; model and
 window untouched.
+
+## 36. Phase 6 — real-family portability, desktop origin (running log from 2026-09-11)
+
+**Method, fixed for every narrator.** Preflight through the router (nothing built) → Complete
+Narrator Package through the Data Center on the live stack → stack down →
+`bash launchers/hornelore_run_clean_root.sh /mnt/c/hornelore_clean_<name>` (its own
+`<root>.packages` / `<root>.staging`) → package uploaded through the Phase 5 router (`curl`,
+the package is over the browser tool's 10 MB cap) → readiness → restore → the narrator
+opens in the UI on the clean root and the app's own read paths resolve → re-export from the
+clean root → `scripts/narrator_package.py compare` original vs re-export. **A refusal or a
+difference is recorded first and explained second; nothing under `/mnt/c/hornelore_data` is
+edited to make a run pass.** Packages and reports stay outside Git.
+
+**Desktop preflight, all three, no refusals (2026-09-11):** Christopher `a4b2f07a` 82
+records · 3 conversations · 26 turns · 4 photos · 112 files · 31.8 MB (memory archive 90,
+photo archive 22 / 30.1 MB); Kent `4aa0cc2b` 56 records · 0 conversations · follow-up bank
+50 · 62 archive files · 410 KB; Janice `93479171` 5 records · 1 story · 51 archive files ·
+154 KB. No trips on this root — the travel domain is the laptop's (§31). Melanie Zollner is
+`testing_only` and is not a Phase 6 narrator.
+
+### 36.1 Desktop → Christopher — PASS
+
+| | |
+|---|---|
+| source narrator | Christopher Todd Horne `a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2`, `/mnt/c/hornelore_data` |
+| package | `Christopher_Todd_Horne_ea4ae5d6afc5.lorevox.zip`, 32,997,475 B; 86 records / 17 lanes, 112 files (memory archive 90 = 3,196,762 B; photo archive 22 = 30,134,767 B); 0 warnings; 0 external-person deps; installation deps `interview_plans`, `bio_fields`; photo path columns absolute at source; residue: 10,790 unowned `sessions` rows on the root, reported and left |
+| stages observed | `snapshot → records → files 0/112 → 112/112 → bag → verify → zip → complete`, native progress 112/112, no percentage |
+| clean root | `/mnt/c/hornelore_clean_christopher` via the launcher |
+| readiness | first two uploads **REFUSED `db_not_found`** — defect E below; after the fix: integrity VERIFIED, **RESTORE READY**, 0 collisions, 0 missing dependencies |
+| restore | 202 → complete in ~2 s; stepper 1–7 complete; `/api/people` = Christopher, id verbatim |
+| restored counts | 86 records lane-for-lane equal to the package; files 90 + 22, bytes equal |
+| domains resolved | transcript sessions and history (200; the memory-archive files carry 247 turns across the older sessions — the `turns` table holds 26; both travelled); profile (200); relationship graph (1 person); timeline (200, empty at source too); photos: `/api/photos` lists 0 **because all four rows are soft-deleted at source** (`deleted_at` 2026-04-26) — with `include_deleted=true` all four appear with paths rewritten under the clean root and every original and thumbnail serves (573 KB – 5.5 MB); trips/stories/documents: none at source |
+| UI | picker shows only Christopher; header "Chris · Christopher Todd Horne · Dec 24, 1962 · Williston, North Dakota"; Data Center 86 / 112 / 31.8 MB |
+| re-export | `Christopher_Todd_Horne_6d338527a200.lorevox.zip` from the clean root, 32,997,639 B, 112 files |
+| compare (after opening him in the UI) | `tables=60 rows=90 files=112`: all 112 files equivalent; 57/60 tables equivalent; the differences are exactly the app's narrator-open writes — 4 `bio_facts` rows (`full_legal_name`, `birth_date`, `birth_place`, `military_served`; `via: questionnaire_put`, tier 4, `operator_entered`, all created 23:01:35, the second the UI opened him) and `profiles` / `bio_builder_questionnaires` differing in **`updated_at` only** (A 22:23:07 when opened for export, B 23:01:36 when opened after restore). No narrator-authored value differs. |
+| **decisive probe — restore, never open, re-export** | fresh root `/mnt/c/hornelore_clean_christopher_probe` on port 8010 beside the running stack; upload READY → restore complete → preflight **86 records, `bio_facts` 24** before any interaction → re-export `Christopher_Todd_Horne_464ab46e323e` → **`EQUIVALENT tables=60 rows=86 files=112`**, only the informational schema fingerprint. **Restore preserves narrator state exactly; the four rows are a post-restore application write through the questionnaire path, not portability drift.** |
+
+**Defect E — a never-initialised root refused `db_not_found`** (`routers/operator_narrator_package.py`).
+The database file is created lazily by the first `init_db()`; an operator whose first act on a
+fresh installation is to upload a package was refused for a database nobody had made yet. The
+5a walk missed it because a `/api/people` probe had run first. Fix: `_db_path()` calls
+`init_db()` (idempotent) so the installation initialises itself — schema, migrations,
+installation-owned seeds — before any verdict. Pinned:
+`FreshInstallationInitialisesItself` (`tests/test_operator_narrator_package_api.py`).
+
+**Comparator correction — an empty lane equals an absent lane.** The desktop manifest carried
+`kawa_segments: 0`; the clean root's omitted the lane. Zero-valued entries in the per-lane
+count maps are dropped before comparing (rows and files still compared one by one). Pinned:
+`test_an_empty_lane_and_an_absent_lane_are_the_same_narrator_state`.
+
+### 36.2 Desktop → Kent — PASS · 36.3 Desktop → Janice — PASS (2026-09-11)
+
+Run with the proven no-open method, fully scripted beside the running stack (export through
+the router on 8000; each narrator its own clean root on its own port; upload → readiness →
+restore → **no interaction** → immediate re-export → compare):
+
+| narrator | package (live stack) | clean root | readiness | restore | clean-root preflight, no interaction | compare |
+|---|---|---|---|---|---|---|
+| Kent `4aa0cc2b` | `451876ad9efa`, 196,959 B; 56 records, 62 archive files | `/mnt/c/hornelore_clean_kent` :8011 | integrity ok, **RESTORE READY**, 0 reasons | complete | 56 records · 62 files · 419,856 B | **`EQUIVALENT tables=60 rows=56 files=62`**, fingerprint informational |
+| Janice `93479171` | `74252b2e79c5`, 141,145 B; 5 records, 51 archive files | `/mnt/c/hornelore_clean_janice` :8012 | integrity ok, **RESTORE READY**, 0 reasons | complete | 5 records · 51 files · 158,069 B | **`EQUIVALENT tables=60 rows=5 files=51`**, fingerprint informational |
+
+**Desktop origin: all three family narrators PASS.** The `cycle` script (the runbook in §36.4
+reuses it verbatim on the laptop):
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+cycle() {
+  NAME=$1; PID=$2; PORT=$3
+  L=http://127.0.0.1:8000/api/operator/narrator-package
+  JOB=$(curl -s -X POST $L/export/$PID | python3 -c "import json,sys; print(json.load(sys.stdin)['job_id'])")
+  for i in $(seq 1 90); do S=$(curl -s $L/export/jobs/$JOB | python3 -c "import json,sys; print(json.load(sys.stdin)['state'])"); [ "$S" = "complete" ] && break; [ "$S" = "refused" ] && break; sleep 1; done
+  PK=$(curl -s $L/export/jobs/$JOB | python3 -c "import json,sys; print(json.load(sys.stdin)['package_id'])")
+  A=$(ls /mnt/c/lorevox_packages/*${PK}*.lorevox.zip 2>/dev/null) || { echo "no package on disk, stopping $NAME"; return; }
+  ROOT=/mnt/c/hornelore_clean_${NAME}
+  ( bash launchers/hornelore_run_clean_root.sh $ROOT --port $PORT > /tmp/p6_${NAME}_server.log 2>&1 & )
+  for i in $(seq 1 40); do curl -s -o /dev/null http://127.0.0.1:$PORT/api/people && break; sleep 2; done
+  R=http://127.0.0.1:$PORT/api/operator/narrator-package
+  UID_=$(curl -s -F "file=@$A" $R/import/upload | python3 -c "import json,sys; u=json.load(sys.stdin); print(u['upload_id']); r=u['readiness']; print('integrity', u['integrity']['ok'], 'readiness', r['verdict'], 'reasons', r['reasons'], file=sys.stderr)")
+  curl -s -X POST $R/import/$UID_/restore > /dev/null
+  for i in $(seq 1 60); do S=$(curl -s $R/import/$UID_ | python3 -c "import json,sys; u=json.load(sys.stdin); print((u.get('restore_job') or {}).get('state') or u.get('state'))"); [ "$S" = "complete" ] && break; sleep 1; done; echo "restore: $S"
+  curl -s $R/preflight/$PID | python3 -c "import json,sys; p=json.load(sys.stdin); print('clean-root preflight, no interaction:', p['summary']['records'], 'records', p['summary']['files'], 'files', p['summary']['bytes'], 'bytes')"
+  JOB2=$(curl -s -X POST $R/export/$PID | python3 -c "import json,sys; print(json.load(sys.stdin)['job_id'])")
+  for i in $(seq 1 90); do S=$(curl -s $R/export/jobs/$JOB2 | python3 -c "import json,sys; print(json.load(sys.stdin)['state'])"); [ "$S" = "complete" ] && break; sleep 1; done; echo "re-export: $S"
+  B=$(ls -t ${ROOT}.packages/*.lorevox.zip | head -1)
+  PYTHONPATH=server/code .venv/bin/python scripts/narrator_package.py compare "$A" "$B" 2>&1 | grep -v pkg_resources | cut -c1-160
+  pkill -f "hornelore_clean_${NAME}" ; sleep 1; echo "$NAME clean-root server stopped"
+}
+cycle kent   4aa0cc2b-1f27-433a-9152-203bb1f69a55 8011
+cycle janice 93479171-0b97-4072-bcf0-d44c7f9078ba 8012
+```
+
+**Baseline artifact for the two-origin comparison:** `.runtime/phase6/desktop_christopher_baseline.json`
+(gitignored, machine-local) — package id, every manifest count, the probe result, and what to
+expect the laptop to hold that this root does not.
+
+### 36.4 Second-origin runbook — the laptop (prepared 2026-09-11, to run the next day)
+
+The laptop is driven from the laptop: the agent there cannot see this session, so this is the
+whole procedure. **Same launcher, same scripted cycle, its own roots, its own ports. No merge,
+no remap, nothing restored into the laptop's live `DATA_DIR`, nothing copied between machines
+except, later, the finished packages for comparison.**
+
+Preconditions on the laptop: `main` at or after the commit that carries §36 and
+`launchers/hornelore_run_clean_root.sh`; `.venv-gpu` has `bagit==1.8.1` (check with
+`.venv-gpu/bin/python -c "import bagit"`); `HORNELORE_OPERATOR_PORTABLE_NARRATOR=1` in the
+laptop's `.env`; the laptop's normal stack running (exports happen on it, port 8000).
+
+1. **Preflight, nothing built.** `GET /api/operator/narrator-package/preflight/<pid>` for
+   `a4b2f07a` (Christopher), `4aa0cc2b` (Kent), `93479171` (Janice) — the family ids are
+   identical on both machines (§31). Record per-lane counts and files. The laptop audit says
+   Christopher carries the travel domain here (2 trips / 39 days / 27 photos / 20 turn links,
+   0 `trip_sources` rows): **trips, trip_days, trip_photo_links, trip_turn_links must be
+   non-zero on his preflight.** A refusal is recorded, not worked around.
+2. **Export on the live laptop stack** — router `POST /export/<pid>` (or the Data Center),
+   one package per narrator, into the laptop's `lorevox_packages` sibling directory. Note each
+   `package_id`, bytes, `record_counts_by_lane`, `file_counts_by_lane`, warnings, residue.
+3. **Clean root per narrator, beside the running stack:**
+   `bash launchers/hornelore_run_clean_root.sh /mnt/c/hornelore_clean_laptop_christopher --port 8010`
+   (`…_laptop_kent` on 8011, `…_laptop_janice` on 8012). The launcher refuses the laptop's real
+   `DATA_DIR`; the root names carry the origin so a desktop-origin root is never reused.
+4. **Upload → readiness → restore → NO narrator open → immediate re-export → compare**, the
+   `cycle` script in §36.2 verbatim (export URL on 8000, restore/re-export on the root's port).
+   Acceptance per narrator: `RESTORE READY`, restore `complete`, clean-root preflight equal to
+   the export summary, `EQUIVALENT` with only the schema-fingerprint informational line.
+5. **Travel-domain resolution on the laptop clean root** (Christopher only, after the compare):
+   `GET /api/trips?person_id=…` and the trip's days/photos/turn links through the app's own
+   routes — every reference resolves, none dangles (§30). Photo bytes serve.
+6. **Stop each clean-root server; leave the roots in place** until the two-origin comparison
+   is done. Record §36.5 (laptop) in this WO the same way §36.1–36.3 are recorded.
+7. **Then, and only then, the two-origin comparison** — desktop package vs laptop package for
+   the same narrator, `scripts/narrator_package.py compare` and `scripts/phase0_report_comparator.py`,
+   as evidence: what exists only on the desktop, only on the laptop, on both. Its output is
+   the input to the Multi-Origin Merge/Remap WO (§30, Phase 4 finding), which is designed
+   after this and not before. Christopher will be `narrator_exists` on any root that already
+   holds his other-origin package — expected, correct, and not to be worked around.
+
+**Observed, outside the lane:** the launcher runs against `db/lorevox.sqlite3` while `.env`
+says `DB_NAME=hornelore.sqlite3` — shell environment wins over `.env`, so a WSL profile export
+names the database; harmless on a clean root, to be reconciled with the `DB_NAME` question
+before Phase 7 (the stack's `[launcher]` line says which file it serves).
