@@ -89,7 +89,25 @@ class FsLane:
     portable: str                        # "yes" | "no" | "conditional"
     erasable: bool
     resolver_sql: Optional[str] = None   # for keyed_by == "row": yields the id segment
+    conditional_sql: Optional[str] = None  # portable == "conditional": yields the
+                                           # sub-path segments (one row = one dir) that
+                                           # DO travel; everything else in the lane is
+                                           # erasable residue, never packaged
     note: str = ""
+
+
+@dataclass(frozen=True)
+class ColumnRef:
+    """A reference that the schema does NOT declare as a foreign key but the
+    product relies on. The exporter checks these exactly like FKs (WO §30):
+    a narrator-owned row that names a row the package would omit is an
+    unresolved dependency — refused and named, never dangled.
+    `empty_means_none`: '' or NULL is "no reference" (0039 `conv_id DEFAULT ''`)."""
+    table: str
+    column: str
+    parent_table: str
+    parent_key: str = "id"
+    empty_means_none: bool = True
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -256,6 +274,8 @@ FS_LANES: Tuple[FsLane, ...] = (
            note="R7: travel documents keyed by source id; mirrors narrator_erasure.py:357-361"),
     FsLane("import_staging", ("import_staging",), "row", CLASS_AUTHORITATIVE, "conditional", True,
            resolver_sql="SELECT id FROM import_batch WHERE person_id = :pid",
+           conditional_sql="SELECT batch_id, id FROM import_candidate "
+                           "WHERE person_id = :pid AND photo_id IS NULL AND state = 'pending'",
            note="R12: <batch>/<candidate>/original.* travels when it is the verified byte "
                 "source for an UNRESOLVED candidate (import_repository.py:231-235); "
                 "redundant once the candidate has a permanent photos row"),
@@ -272,6 +292,23 @@ FS_LANES: Tuple[FsLane, ...] = (
            note="narrator_erasure.SHARED_PURGE; not per-narrator"),
     FsLane("backups", ("backups",), "installation", CLASS_INSTALLATION, "no", False),
     FsLane("exports", ("exports",), "installation", CLASS_INSTALLATION, "no", False),
+)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# References the schema does not declare (Phase 0 column-only chains,
+# plus the product's own cross-table ids). Checked by the exporter with
+# the same rule as real FKs.
+# ══════════════════════════════════════════════════════════════════════
+
+COLUMN_ONLY_REFERENCES: Tuple[ColumnRef, ...] = (
+    ColumnRef("trip_turn_links", "conv_id", "sessions", "conv_id"),           # 0039:130
+    ColumnRef("trip_turn_links", "user_turn_row_id", "turns", "id"),           # 0039:135
+    ColumnRef("trip_turn_links", "assistant_turn_row_id", "turns", "id"),
+    ColumnRef("trip_photo_context", "photo_id", "photos", "id"),               # 0030:28, 0037:104 "no FK"
+    ColumnRef("trip_story_links", "story_candidate_id", "story_candidates"),   # 0015:148
+    ColumnRef("trip_stops", "timeline_event_id", "timeline_events"),           # 0015:64
+    ColumnRef("memory_archive_turns", "conv_id", "memory_archive_sessions", "conv_id"),  # 0002:47
 )
 
 
@@ -366,8 +403,8 @@ def fs_lane(name: str) -> FsLane:
 __all__ = [
     "CLASS_AUTHORITATIVE", "CLASS_DERIVED", "CLASS_HISTORICAL", "CLASS_CACHE",
     "CLASS_INSTALLATION", "CLASS_SHARED_ROW",
-    "Direct", "Parent", "Installation", "DbLane", "FsLane",
-    "DB_LANES", "FS_LANES",
+    "Direct", "Parent", "Installation", "DbLane", "FsLane", "ColumnRef",
+    "DB_LANES", "FS_LANES", "COLUMN_ONLY_REFERENCES",
     "lane", "db_tables", "narrator_owned_tables", "installation_tables",
     "erasable_tables", "parent_owned_tables", "owner_predicate", "select_sql",
     "delete_sql", "dependency_columns", "path_columns", "fs_lane",

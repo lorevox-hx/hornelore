@@ -83,6 +83,13 @@ ctranslate2==4.7.1
 python-docx==1.2.0
 lxml==6.0.2
 
+# ── Portable narrator package (services/narrator_package.py) ───────────────
+# Library of Congress BagIt (RFC 8493), WO-LOREVOX-PORTABLE-NARRATOR-01 §28.1.
+# Builds the bag ONLY inside the exporter's temporary directory — it moves
+# files into data/, so it must never be pointed at DATA_DIR. Same pin as
+# requirements-test.txt.
+bagit==1.8.1
+
 # ── Photo system (services/photo_intake/*, services/photos/*) ──────────────
 # Pillow drives BOTH thumbnail generation (services/photo_intake/thumbnail.py)
 # AND EXIF auto-fill (services/photo_intake/exif.py). Both modules fail-soft
