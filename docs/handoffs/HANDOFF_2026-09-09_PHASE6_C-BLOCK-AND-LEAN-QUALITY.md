@@ -164,6 +164,17 @@ Seven `testing_only` "Ada Pruitt" rows exist in the live database, all from
 serves — from the wrong-world create below. Leave it; deleting a database is a
 separate authorized act.
 
+**Addendum 2026-09-11 — `8ec7a427` (A) was exercised by another lane and is no longer in
+its post-run state.** WO-LOREVOX-PORTABLE-NARRATOR-01 Phase 5a used it as the synthetic
+narrator for the live Chrome acceptance walk (WO §35.3): it was opened through the picker
+several times, exported twice, and restored into a disposable clean root that has since been
+deleted. On the live root it gained what opening a narrator writes — a second `sessions` row
+with its turns, and `bio_facts` rows appended on every open (12 → 96; the hydration is not
+idempotent, BACKLOG §5) — and `interview_threads` went 8 → 0. **Nothing was deleted and no
+row was hand-edited.** The other six are untouched. Decided by Chris 2026-09-11: all seven
+stay held for this lane; when Block D resumes it decides whether A is reused, reset through a
+sanctioned fixture mechanism, or erased — Phase 5a does not decide the fate of a Block D fixture.
+
 Guard Lab is left at revision 16 on S7's configuration. Nothing else is selected.
 Restoring Defaults is not required for the repo; it is required before the running
 stack talks to a real narrator, and real narrators are never eligible for a selection

@@ -1334,6 +1334,21 @@ picker (the app's behaviour, not the card's).
 went 8 → 0 on open — the app's narrator-load hydration rewrites rows. The Data Center reported
 each live count correctly; the growth is the product's, and it belongs in BACKLOG.
 
+**Deployment note recorded on review (ChatGPT, 2026-09-11), not a 5a change:** the
+one-operation-at-a-time guarantee is a process-local `threading.Lock`. The stack runs one
+Uvicorn process, so the Phase 3 exclusivity assumption holds; a multi-worker deployment would
+need a cross-process lock. Hardening, owed with deployment, documented in the router header.
+
+**Cleanup, decided by Chris 2026-09-11 (his option 4).** The seven Ada rows are
+WO-LORI-ARCHIVE-TO-MEMOIR-02 Block D fixtures (`scripts/phase6_populated_narrator.py`,
+2026-09-09, `testing_only`), held by that lane's handoff — Phase 5a borrowed `8ec7a427` and
+does not own it, so **none of the seven is erased here**; `8ec7a427`'s changed state is
+recorded in that handoff's §7 addendum. Phase 5a removes only what it created: the clean root
+`/mnt/c/hornelore_clean_5a`, the package copies on Desktop and in Downloads, the second
+package's server copy (through Remove server copy, so the ledger says so), and any staging
+residue. Retained by contract: the three `0056` job rows (one refused, two complete) and the
+`.env` flag.
+
 **Boundaries kept:** no narrator data deleted by any verb; the only removals were a staged
 upload and a finished artifact, both outside `DATA_DIR`; `/mnt/c/hornelore_data` unchanged
 except by the app's own narrator-open writes; `0054`/`0055`/`0056` untouched; model and
