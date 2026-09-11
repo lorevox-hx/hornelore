@@ -1246,3 +1246,95 @@ server copy" are the only removal controls and touch only a staged file and a fi
 artifact, both outside `DATA_DIR`. Pinned by `tests/test_operator_narrator_package_api.py`
 (source pins, labelled as such) and by the router's route table (no DELETE verb — the
 stronger server invariant).
+
+## 35.3 Phase 5a live acceptance — walked 2026-09-11 in Chrome, ACCEPTED with three repairs
+
+**Method.** Chris's real Chrome, driven from the desktop, against the shipped UI. Part A
+(steps 1–9) on the running stack over `/mnt/c/hornelore_data`; Part B (steps 10–14) on the
+same API started alone against an **empty root `/mnt/c/hornelore_clean_5a`** (the UI hard-wires
+`localhost:8000`, so the clean installation took the stack's port while the stack was down).
+Narrator: **synthetic Ada Pruitt `8ec7a427`** — one of seven Ada rows the Phase 0 probes left
+on the live root (all created 2026-09-09, `testing_only`), the richest one: 2 conversations,
+24 turns, 9 `memory_archive` files, no photos, no trips. **No real narrator was touched.**
+Every claim below was read from the DOM, the card's exported state, or the router's own
+responses, not from the card's wording.
+
+| # | Acceptance point | Result | Evidence |
+|---|---|---|---|
+| 1 | Stack with `HORNELORE_OPERATOR_PORTABLE_NARRATOR=1` | PASS | flag absent → card reads "Narrator Data Center is off…" and every route 404; flag on → `GET /export/jobs` 200 |
+| 2 | Operator → Narrator Data Center | PASS | `#lvOperatorPortableNarrator` is inside `#lvOperatorTab`; zero `opnc-` elements outside it; hidden while Intake is selected |
+| 3 | Select the synthetic narrator | **FAIL → FIXED** | defect A below; after the fix the card follows the picker |
+| 4 | View & Download | PASS | header "Ada Pruitt — everything Lorevox currently holds"; Complete Data Check `authoritative records 93 · narrator-owned files 9 · 16.2 KB · Complete ✓`, numbers equal to `GET /preflight/<id>`; the no-removal sentence is in the header |
+| 5 | Move or Restore | PASS | eleven domains, all ticked, "nothing to untick", no checkboxes; job `queued → running → complete` in ~2 s; server progress observed `snapshot → bag → complete` at 60 ms sampling (the throttled ledger skips stages a 34 KB narrator finishes inside one write), card rendered `✓ snapshot ✓ records ✓ files ● bag ○ verify ○ zip`; `files 9 of 9` was observed persisted on the refused first run; **no `%` anywhere** (`/\d+\s*%/` false on every sample) |
+| 6 | Leave and return | PASS in-page; **reload → FIXED** | Intake → Operator kept the job; after a full reload Activity listed it with Download but the Move view offered a fresh Create — defect B below |
+| 7 | Complete: verified · download · Activity | PASS | `Integrity Verified · Warnings 0`; download 200, 33,884 bytes = `package_bytes`, SHA-256 stable across three fetches; `api.log`: 7 download requests, 6×200 + 1×410, **no 503** (Chrome's extension log showed 503 on anchor-click downloads — a browser-side artifact, refuted by the server log) |
+| 8 | Remove server copy | PASS | download → 410 `package_file_gone`; narrator still in `/api/people`; preflight record and file lanes byte-identical before/after; job row kept with `package_removed_at`; Activity "· server copy removed"; status "Server copy removed. The narrator is untouched." |
+| 9 | Fresh package for restore | PASS | `Ada_Pruitt_a73d71c8bcd5.lorevox.zip`, 34,853 bytes, downloaded through Chrome |
+| 10 | Clean root: import without a narrator; seven steps; two verdicts | PASS in form; **readiness FAIL → FIXED** | `{"people":[]}`; import reachable with no narrator; stepper `✓1 ✓2 ✓3 ✕4 ○5 ○6 ○7`; Integrity VERIFIED in its own box while Readiness read CANNOT RESTORE — the refusal was genuine and exposed defects C and D below |
+| 11 | READY → Restore offered → dialog → Cancel focused → confirm | PASS (after C+D) | Readiness READY, step 5 current, "Restore this narrator…" present; `<dialog>` "Restore Ada Pruitt? … Existing records will not be overwritten. A collision will stop the restore. Nothing is deleted."; `document.activeElement` = Cancel; no "anyway" |
+| 12 | Restore completes; narrator available; records/files resolve | PASS | steps `5 → 6 → 7` in 2 s; `/api/people` = Ada with id `8ec7a427` verbatim; clean-root preflight 141 records · 24 turns · 2 conversations · 9 files 16,560 B = the package; transcript endpoint returns her events (200); picker shows her with DOB and birthplace; **photos / trips N/A — none in the source narrator** (the travel domain is proven by the suites, not by this root, which the audit already showed has no real trips) |
+| 13 | Same package again | PASS | Integrity VERIFIED; Readiness CANNOT RESTORE with `narrator_exists · row_id_exists · file_exists`; no Restore control; `POST /import/{id}/restore` with `{"force":true,"restore_anyway":true}` → **409 `restore_refused`**; narrator lanes unchanged |
+| 14 | Activity and recovery from the ledgers | PASS | Activity "✓ Restore · 8ec7a427 · complete"; `POST /recover` → `state_before complete · action none`, `refused 0`; Recover control absent while `incomplete = 0` |
+
+**Defects found and repaired during the walk (product, not cosmetics):**
+
+* **A — the card ignored the narrator picked from the picker** (`ui/js/operator-portable-narrator-card.js`).
+  `app.js:4340` announces the switch **before** `await loadPerson(pid)` assigns
+  `state.person_id` (`app.js:3823`); the hook discarded its `pid` argument and read state,
+  so it preflighted the *previous* narrator — nothing on first pick — and the card sat on
+  "Choose a narrator." after every selection. Fix: the announced pid is the answer until
+  state catches up, then state is the authority again (a later delete nulls state without
+  announcing and is still seen).
+* **B — "you may leave this screen; the job continues" was true of the server, not the card.**
+  After a full reload the ledger held the job and Activity listed it, but the Move view
+  offered a fresh Create with no progress. Fix: on preflight the card re-attaches this
+  narrator's newest ledger job — running resumes polling, complete-with-file offers the
+  download. It reads the server's records; it decides nothing.
+* **C — dry-run matched installation dependencies on the wrong column**
+  (`narrator_package.py`). The exporter records dependency ids from the column the
+  narrator's rows **reference** (`_check_ref` receives `parent_key`: `bio_facts.field_key →
+  bio_fields.field_key`); dry-run looked them up by the **primary key** (`bio_fields.id`, a
+  UUID from the product's seed loader). Every clean installation refused every narrator
+  with a questionnaire: `missing_dependency bio_fields: birth_date, birth_place, …` against
+  a fully seeded table. **The suites never reached it because synthetic Ada carried no
+  `bio_facts`** — a coverage gap in the fixture, now closed: Ada has a questionnaire value
+  whose `bio_fields` row comes from `init_db()`'s seed loader, never from the fixture. Fix:
+  `_dependency_key_columns()` resolves the key column from the destination's own FK graph;
+  the refusal now names the key value (`['birth_place']`) when the row is really absent.
+* **D — a clean installation could not accept anyone who had ever talked to Lori**
+  (`db.py init_db`). Every chat session references plan `chat_ws`, which
+  `BUG-CHATWS-CONV-FK-01` lazy-seeds on the first chat turn only; a root that has never
+  chatted refused with `missing_dependency interview_plans: chat_ws` and offered no
+  operator path to create it except starting a conversation. Fix: `init_db()` seeds
+  `chat_ws` beside `default` (idempotent `INSERT OR IGNORE`; the lazy seed stays).
+
+C and D are exactly the Phase 7 cutover case — restoring into a root that has never run —
+and they would have been met there with real narrators. Pinned by
+`DryRun.test_dependency_ids_are_matched_on_the_referenced_column_not_the_primary_key` and
+`DryRun.test_clean_installation_owns_the_chat_plan_before_anyone_has_chatted`
+(`tests/test_narrator_package_restore.py`, production-boundary: exporter ids on one side,
+`init_db()`'s own seed on the other).
+
+**Environment finding, not code:** `bagit` was pinned in `requirements-gpu.txt` but never
+installed into `.venv-gpu`; the first Create was refused `bagit_not_installed` — a durable
+*refused* job, "Nothing was written." — which is the right product behaviour and also the
+first thing the Activity ledger recorded. Installed 1.8.1; the `pkg_resources` warning is
+BACKLOG §5.
+
+**Observations for 5b (presentation, deliberately not changed now):** the queued frame renders
+an empty stage list until the server writes the first `progress_json` (the card invents no
+stages); the Move view shows only the six stage names for a narrator this small because the
+job outruns the 1 s poll; the confirmation `<dialog>` opens top-left rather than centred; the
+upload registry is in-process, so a staged file survives an API restart without its record
+(a start-up sweep of the staging directory is owed); the full-page reload always reopens the
+picker (the app's behaviour, not the card's).
+
+**Pre-existing behaviour observed, outside this WO:** opening a narrator appends **12
+`bio_facts` rows every time** (Ada: 12 → 72 → 96 across the day's opens) and `interview_threads`
+went 8 → 0 on open — the app's narrator-load hydration rewrites rows. The Data Center reported
+each live count correctly; the growth is the product's, and it belongs in BACKLOG.
+
+**Boundaries kept:** no narrator data deleted by any verb; the only removals were a staged
+upload and a finished artifact, both outside `DATA_DIR`; `/mnt/c/hornelore_data` unchanged
+except by the app's own narrator-open writes; `0054`/`0055`/`0056` untouched; model and
+window untouched.

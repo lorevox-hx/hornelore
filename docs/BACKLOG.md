@@ -416,6 +416,16 @@ All four reproduce at `d0e5294`. Bounded tooling commits, separate from cleanup.
   import, bump the pin in BOTH `requirements-gpu.txt` and `requirements-test.txt`
   together and re-run `tests.test_narrator_package_export`. Dependency-compatibility
   note only.
+* **Narrator open appends 12 `bio_facts` rows every time** (observed 2026-09-11 during the
+  Portable Narrator Phase 5a walk, WO §35.3): synthetic Ada went 12 → 24 → 72 → 96 across
+  the day's opens while nobody spoke to her, and `interview_threads` went 8 → 0 on open.
+  The narrator-load hydration (profile-seed / projection sync) is not idempotent. Not a
+  Data Center defect — it reported each live count correctly — and not in the portability
+  lane; whoever owns Bio Builder hydration should find the writer
+  (`grep -n "bio_fact_create" server/code/api`) and make the seed conditional on absence.
+* **Package upload registry is in-process** (`operator_narrator_package.py` `_UPLOADS`): a
+  staged upload survives an API restart on disk without its record. A start-up sweep of
+  `HORNELORE_PACKAGE_STAGING_DIR` (delete only what no live upload names) is owed with 5b.
 
 ---
 
