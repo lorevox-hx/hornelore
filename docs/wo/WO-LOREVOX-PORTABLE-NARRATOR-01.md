@@ -466,7 +466,7 @@ endpoint (§16) is deferred to Phase 5 with the UI; the service and recovery CLI
 **Phase 3 — Dry-run + Restore v1.** Validation, ZIP / path safety, compatibility,
 collisions, durable job, staged file restore, one DB transaction, cleanup / recovery,
 exact-id restoration. **Exit gate: synthetic package restores into an empty disposable
-Lorevox DB with no missing lane.**
+Lorevox DB with no missing lane.** *(**LANDED 2026-09-11** — see §33.)*
 
 **Phase 4 — Round-trip equivalence.** original → export A → empty Lorevox → restore →
 export B → compare, separately for DB rows, files, binary hashes, transcripts, audio,
@@ -923,10 +923,11 @@ complete travel domain, built by a generic exporter that knows no narrator.**
 
 **Measured under `.venv` (Python 3.12, `bagit==1.8.1`):** `tests.test_narrator_package_export`
 **18/18**, 0 skipped, 180 s — the first run in which `_seed()` completed and the exporter
-itself was exercised. The three runs before it failed inside the fixture (a `TEXT PRIMARY
+itself was exercised. The **four** runs before it failed inside the fixture (a `TEXT PRIMARY
 KEY` reported `notnull=0`, so no ids were minted; `trip_location_notes` rebuilt by `0019`;
 a `%`-formatted bytes literal; the `0039:161` one-link-per-assistant-turn UNIQUE) and
-touched no exporter line. `tests.test_narrator_data_inventory_parity` 15/15 and
+touched no exporter line. *(This said "three runs" while listing four causes — corrected
+2026-09-11 on review.)* `tests.test_narrator_data_inventory_parity` 15/15 and
 `tests.test_narrator_erasure_ownership_gaps` 4/4 were green in the combined run
 immediately before and nothing they cover changed after it. The `sha256 validation failed`
 line printed during `test_validator_rejects_a_tampered_package` is the validator catching
@@ -953,3 +954,62 @@ the deliberately corrupted payload — evidence, not a warning.
 Phase 6, after Phases 3–4 prove restore and round-trip on synthetic Ada. The
 `session_ownership_residue` class (§6) is reported in every manifest and decided nowhere
 in this phase.
+
+**Review corrections, 2026-09-11 (review of pushed `a6d5805`; folded into the Phase 3
+block, same service).** Seven findings, all accepted:
+
+1. **§29.3 was not implemented.** The conditional lane packaged a staged original because
+   its directory existed; `import_candidate.file_hash` was never compared. Now
+   `FsLane.verified_by_digest` (declared, not coded): the `conditional_sql`'s last column
+   is the row's digest; a valid SHA-256 with a missing original → `verified_source_missing`
+   REFUSES, with mismatching bytes → `verified_source_hash_mismatch` REFUSES; a row whose
+   digest is not a SHA-256 (historical residue) travels as a ROW, its staging is residue,
+   `unverifiable_candidate_staging_not_packaged` WARNS; accepted candidates never travel.
+   Classified mechanically from the digest — no name, no narrator.
+2. **Bytes are bound.** `_copy_bound` hashes the source as it is read, hashes the copy,
+   requires equality (`copy_digest_mismatch`); the row-declared digest check sits on that
+   same source digest. The before/after `(size, mtime_ns)` measure stays as the
+   independent §8.3 snapshot proof.
+3. **Nested symlinks refuse.** `_lane_files_or_refuse` applies erasure's `safe_target`
+   rule — a link anywhere under a selected lane is `symlink_in_lane`, never skipped.
+4. `parents[3]` was `server`; default repo discovery now walks to `.git`.
+5. `db_outside_data_dir`: the source database must live under the supplied DATA_DIR.
+6. `unsafe_package_id`: caller-supplied ids are shape-checked before entering a filename.
+7. "three runs" → four (above); the stale `Current action` row label in `HANDOFF.md`.
+
+## 33. Phase 3 closeout — dry-run + Restore v1 landed 2026-09-11
+
+**Exit gate met: the synthetic Ada package restores into an empty, disposable root built
+by `init_db()`, with no missing lane, every id verbatim, and nothing of any other narrator.**
+
+**Measured under `.venv` (Python 3.12, `bagit==1.8.1`), one run after the §32 review
+corrections were folded in: `tests.test_narrator_package_export` 24/24 (18 before review; the
+staging test replaced by the four-branch digest test, six added) ·
+`tests.test_narrator_package_restore` 13/13 · `tests.test_narrator_data_inventory_parity`
+15/15 · `tests.test_narrator_erasure_ownership_gaps` 4/4 — 56 ran, 0 skipped, 734 s.**
+The 46/46 run that preceded it (restore 13/13 on its first real execution, before the
+corrections) is the Phase 3 baseline; the 56/56 run is the acceptance evidence for the
+corrected Phase 2 foundation and Phase 3 together. The nested-symlink test created a real
+link and refused it (`ok`, not skipped). The two `sha256 validation failed` lines are the
+validator catching the deliberately corrupted payload.
+
+**What landed.**
+
+| piece | where | what it is |
+|---|---|---|
+| Restore job | `server/code/db/migrations/0054_narrator_package_jobs.sql` | `narrator_package_jobs` — `staged → validated → files_copied → db_committed → complete` / `failed` / `cleanup_required`; holds paths, counts, error, never life-story content. Declared **installation-owned** in the inventory; parity proves erasure never reaches it and a re-export from a restored root does not carry it. |
+| Untrusted-package safety (§11) | `narrator_package._safe_extract` | Every member inspected before a byte lands: absolute / `..` / drive-letter / backslash paths, symlink members, duplicates by **normalised destination**, members over 8 GiB, expansion ratio > 200 on members over 16 MiB. Never `extractall()`. Shared by validate, dry-run and restore. |
+| Dry run (§10.4) | `dry_run_restore()` | Writes nothing. Structure, manifest, BagIt hashes, format/version/kind; schema compatibility (every packaged table must exist and be narrator-owned in the destination's declaration, every packaged column must exist); collisions — narrator id, any packaged primary key, any destination file (§10.2); installation dependencies the package cannot carry (e.g. `interview_plans` ids) → `missing_dependency`, named; external-person rows reported as warnings, never refused (§13); credential shapes; unsafe destination paths via an `lstat` component walk. Verdict `RESTORE READY` / `RESTORE REFUSED` with every reason. |
+| Restore (§12, steps 1–15 in order) | `restore_narrator()` | Dry run first, always. Job row committed in its own connection **before** the first file. Files copied with `O_CREAT\|O_EXCL` (cannot overwrite), directories the job creates recorded, each copy re-hashed against `manifest-sha256.txt`. Then ONE `BEGIN IMMEDIATE` with `defer_foreign_keys` so order is irrelevant and violations fail at COMMIT; rows inserted in declaration order with ids verbatim; path columns the source stored **absolute** rewritten under the new root per the manifest's `path_column_basis`, relative ones untouched; inserted counts must equal the manifest and `foreign_key_check` on every written table must be empty before COMMIT. On failure: rollback, the job's own files removed, job `failed` (or `cleanup_required` naming what is left). |
+| CLI | `scripts/narrator_package.py dry-run \| restore --yes` | Restore always dry-runs first and needs `--yes`; destination paths explicit; **stack down** — it writes the live destination database. |
+| Proof | `tests/test_narrator_package_restore.py` | Reuses the Phase 2 fixture; exports Ada, builds a fresh destination with `init_db()`, seeds the one installation dependency. Dry run READY and write-free; missing dependency named; narrator / row-id / file collisions; tampered and traversal packages refused before any byte lands; every packaged row present in the destination by primary key with FKs holding; every payload file at `DATA_DIR/<rel>` hash-identical; photo paths absolute under the **new** root and pointing at nothing on the source; relative columns still relative; the complete travel domain at fixture-measured counts with turn links resolving; Bea absent, the §13 tag kept verbatim; a second restore refused, not overwritten; a deferred-FK failure at COMMIT leaves no rows, no files, a `failed` job. |
+
+**Decisions this phase made for the format.** `path_column_basis` (per table, per
+declared path column: `absolute` / `relative`, recorded at export, mixed refuses) is now
+part of the manifest and is what Restore rewrites by. Installation dependencies are the
+destination's to provide — a package never carries them and Restore never creates them.
+
+**Not done, on purpose.** No merge, remap or clone (§10.3). No operator UI or endpoint
+(Phase 5). No deletion (Phase 7). No round-trip equivalence proof yet — Phase 4 compares
+export A → restore → export B semantically (§28.4); one Phase 3 test already shows equal
+record counts on re-export from the restored root, which is a preview, not the proof.
