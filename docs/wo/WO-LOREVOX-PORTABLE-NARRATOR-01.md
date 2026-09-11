@@ -3,9 +3,11 @@
 **Portable Narrator Package, Restore, and Clean Lorevox Cutover**
 
 **Opened:** 2026-09-09
-**Status:** APPROVED IN ARCHITECTURE 2026-09-09 — implementation begins with Phase 0
-only (read-only ownership audit). No exporter, importer or deletion is authorized by
-this document alone.
+**Status (2026-09-11):** **Phases 0–4 LANDED** (§31 · §32 · §33 + §33.1 · §34);
+**Phase 5 (operator jobs + UI, §16.1) is CURRENT.** Deletion remains outside this WO:
+Phase 7 is a clean-root cutover and `/mnt/c/hornelore_data` remains preserved (§25). *(This line read "APPROVED IN ARCHITECTURE 2026-09-09 —
+implementation begins with Phase 0 only" until 2026-09-11; that was true for two days and
+then became a standing instruction to redo finished work.)*
 **Repository reviewed:** `lorevox-hx/hornelore` · `main` ·
 `7d5d040cf8060e9501a6053c77978047dc6b41f9`
 **Drafted** from the 2026-09-09 review (ChatGPT draft, Claude repo-grounded amendments
@@ -235,6 +237,9 @@ depend on proprietary software.
 
 ### 7.2 Top-level structure
 
+**SUPERSEDED by §28.1 (BagIt), which is what the exporter builds.** Kept as the original
+design so the amendment reads against something; do not implement from this diagram.
+
 ```text
 manifest.json
 checksums.json
@@ -259,6 +264,11 @@ files/
 not frozen into this diagram.**
 
 ### 7.3 Manifest
+
+*(The file is `lorevox-manifest.json`, a BagIt tag file — §28.1; the field list below is
+current and the implementation adds `path_column_basis`, `ownership_declaration`,
+`lanes_absent_in_source`, `installation_dependencies`, `residue_not_packaged`,
+`payload_integrity`, `verified_source_digests_checked` — §32, §33.)*
 
 `manifest.json` includes at minimum: `package_format`, `package_format_version`,
 `package_id`, `created_at`, `narrator_id`, `narrator_display_name`, `package_kind`,
@@ -448,8 +458,9 @@ the service as built; none of this is implemented yet):
 * **Export jobs are NOT `narrator_package_jobs` rows.** `0054` is landed and its `kind CHECK`
   is immutable; the export lifecycle (queued → snapshotting → collecting → bagging →
   complete) is not the restore lifecycle. Either a separate `narrator_package_export_jobs`
-  table or a deliberately designed generalised `0055` — **decided in Phase 5, not before**,
-  and never by destabilising the proven restore state machine.
+  table or a deliberately designed generalisation in a **new** migration (`0056` or later —
+  `0055` is landed, for `file_manifest_json`) — **decided in Phase 5, not before**, and
+  never by destabilising the proven restore state machine.
 * **One service.** Routers manage jobs, uploads and downloads; `narrator_package.py` remains
   the only export, dry-run, restore and recovery implementation (§28.5).
 * **Hard rules restated:** dry-run refusal is final — no "restore anyway"; export and delete
@@ -537,6 +548,17 @@ every reference to `turns.id` (FKs, `trip_turn_links.user_turn_row_id` /
 keys) before choosing between integer remapping and a globally unique turn identity.
 **That design is not absorbed into V1.** Recorded as a Phase 4 success: the round trip
 found a limit of the format before Kent or the cutover did.
+
+**The broader shape of that WO (recorded 2026-09-11).** Integer keys are only half of it.
+Christopher carries the **same `people.id`** on the desktop and the laptop (§31), so once
+either Christopher package is restored into a root, the other is a `narrator_exists`
+refusal (§10.2) — correctly — even if every integer were disjoint. The Merge/Remap WO
+therefore has two distinct problems: **same-person merge across installations**
+(combining complementary lanes of one narrator without duplicating or overwriting
+identity or provenance) and **installation-local id reconciliation** (`turns` and the
+extraction ledgers, and everything that references them). Phase 6's per-package clean
+roots are what give that WO real packages to design against; it is not built before
+Phase 6.
 
 **Phase 5 — Operator UI acceptance.** Export, download, import select, dry run, refusal
 on collision, successful restore, narrator in picker, transcript / photo / travel
@@ -795,8 +817,9 @@ BagIt's own notion of validity — completeness plus declared checksums — not 
 identity.
 
 **28.5 One service, two front ends.** `server/code/api/services/narrator_package.py`
-holds export, validate, dry-run and restore. The operator UI (§16) and a thin
-`scripts/narrator_package.py {validate|export|restore}` recovery CLI both call it.
+holds export, validate, dry-run, restore, **recover** (§33.1) and **compare** (§34). The
+operator UI (§16) and a thin `scripts/narrator_package.py
+{export|validate|dry-run|restore|recover|compare}` recovery CLI both call it.
 **There is never a second implementation of portability.** The CLI exists for when the
 UI is unavailable; it is not the normal way to operate Lorevox.
 
@@ -1102,16 +1125,24 @@ rows with a job that said `files_copied`, which a recovery routine would have re
   are verified **against the job's own manifest — the package ZIP is not consulted** —
   then `complete`, or `recovery_required` with nothing deleted. A pre-`0055` job with no
   manifest is `recovery_required`, never guessed. A job below `db_committed` whose
-  narrator IS present is refused as a contradiction.
-* **Five crash cases pinned** with a test-only seam that raises a `BaseException` so
-  ordinary cleanup provably does not run: death after the first file (job names what
+  narrator IS present is refused as a contradiction — **in all four pre-commit states,
+  `cleanup_required` included** *(the first cut exempted `cleanup_required`; review of
+  pushed `main` caught it: a failed job left `cleanup_required`, then a successful second
+  restore of the same package, then recovery of the old job would have deleted the live
+  narrator's files because their bytes hash-match the old manifest. Corrected 2026-09-11,
+  pinned by `test_cleanup_required_under_a_published_narrator_is_refused_too`, which builds
+  exactly that sequence.)*
+* **Six recovery cases pinned** — five through a test-only seam that raises a
+  `BaseException` so ordinary cleanup provably does not run, plus the `cleanup_required`
+  contradiction above: death after the first file (job names what
   landed, recovery removes exactly those by hash, idempotent after `failed`); death after
   the first file **plus foreign bytes at a planned path** (preserved, named,
   `cleanup_required`, retry after the operator resolves it → `failed`); death after
   COMMIT (`db_committed` with counts, **package deleted before recovery**, verified from
   the manifest, `complete`, idempotent); forged `files_copied` under a published narrator
   (refused); `db_committed` with a missing and an altered file (`recovery_required`,
-  nothing deleted). Restore suite: **18/18**.
+  nothing deleted); `cleanup_required` under a narrator a later restore published
+  (refused, files and rows untouched). Restore suite: **19/19**.
 
 ## 34. Phase 4 closeout — round-trip equivalence landed 2026-09-11
 
@@ -1129,8 +1160,11 @@ was corrected and the boundary pinned as its own test.
 **What landed.** `compare_packages_semantically(a, b)` in the same service (§28.5) and a
 `compare` CLI verb. Both packages pass the §11 extraction and BagIt validation first — an
 invalid package is a `package_invalid` difference, not an exception. **Compared:** narrator
-id and display name; every record table as a set of canonical rows keyed by stable id
-(`id`, else `conv_id`), independent of JSONL order, with differing columns named;
+id and display name; every record table independent of JSONL order — **rows carrying `id`
+are compared by stable id and changed columns are named; rows without `id` are compared
+as multiplicity-preserving canonical-row multisets**, so a changed id-less row is reported
+as one `row_only_in_a` plus one `row_only_in_b` (inequality detected, columns not named)
+and a duplicate occurrence as one extra row-only difference;
 `data/files/<rel>` → SHA-256 from the validated manifests; record / file / byte counts by
 lane; `path_column_basis`; installation-dependency and external-person-dependency
 declarations. **Informational, never a difference:** source commit, migrations, schema
