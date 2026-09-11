@@ -424,6 +424,39 @@ narrator + contents + warnings → restore → verification → narrator availab
 narrator-facing interview UI shows no package mechanics. **Do NOT create "Export and
 Delete" as one button.**
 
+**16.1 Phase 5 requirements recorded 2026-09-11, after Phases 2–3 landed** (from review of
+the service as built; none of this is implemented yet):
+
+* **Two verdicts, never one.** *Package integrity* (ZIP structurally safe · BagIt complete ·
+  checksums valid · Lorevox manifest readable) is shown separately from *Lorevox restore
+  readiness* (schema compatible · narrator identity · installation dependencies satisfied ·
+  no id collisions · no destination-file collisions · external-person warnings → `RESTORE
+  READY` / `RESTORE REFUSED`). A valid bag can still be unrestorable *here*.
+* **Plain language first, RFC detail behind "Advanced".** The operator sees *Package verified
+  · N records · N photos · N documents · N audio files · size · Integrity: Verified ·
+  Warnings: N*; BagIt validity, package id, source commit, schema fingerprint, per-lane
+  counts, dependencies, residue and checksums live in an Advanced panel.
+* **Export has a preflight.** Before the final Export button: narrator identity and the
+  domains expected to travel, estimated from the ownership declaration without building a
+  package — so "why zero trips?" is asked before minutes of ZIP building, not after.
+* **Asynchronous jobs, explicit artifacts.** Export runs as a server-side job with
+  status/progress; the `.lorevox.zip` is written to disk **outside `DATA_DIR`**; the browser
+  gets a job id, polls or subscribes, then a download endpoint streams the existing file.
+  Never a package in server or browser memory.
+* **Uploads land in a controlled staging area outside `DATA_DIR`.** Upload → validate →
+  dry-run → restore. A selected file is not narrator state until `restore_narrator()` says so.
+* **Export jobs are NOT `narrator_package_jobs` rows.** `0054` is landed and its `kind CHECK`
+  is immutable; the export lifecycle (queued → snapshotting → collecting → bagging →
+  complete) is not the restore lifecycle. Either a separate `narrator_package_export_jobs`
+  table or a deliberately designed generalised `0055` — **decided in Phase 5, not before**,
+  and never by destabilising the proven restore state machine.
+* **One service.** Routers manage jobs, uploads and downloads; `narrator_package.py` remains
+  the only export, dry-run, restore and recovery implementation (§28.5).
+* **Hard rules restated:** dry-run refusal is final — no "restore anyway"; export and delete
+  are never one control; `bagit` stays at 1.8.1 (SHA-256 manifests are RFC 8493-compliant)
+  until Phase 6 is accepted, with the `1.9b1` prerelease that drops `pkg_resources` noted
+  for later evaluation.
+
 ## 17. Phase plan
 
 **Phase 0 — Read-only repo and live-data ownership audit.** No product mutation, no
@@ -472,7 +505,38 @@ Lorevox DB with no missing lane.** *(**LANDED 2026-09-11** — see §33.)*
 export B → compare, separately for DB rows, files, binary hashes, transcripts, audio,
 photos, documents, travel, structured memory, story / review state, timeline,
 provenance. Volatile package / job metadata excluded explicitly. **Exit gate: A and the
-restored state are equivalent for every authoritative / portable lane.**
+restored state are equivalent for every authoritative / portable lane.** *(**LANDED
+2026-09-11** — see §34.)*
+
+**Phase 4 finding, 2026-09-11 — the Restore-only V1 boundary, measured on the first
+round-trip run.** Three narrator-owned lanes have `INTEGER PRIMARY KEY AUTOINCREMENT` keys
+— `turns` (`db.py:588`), `turn_extraction_ledger` (`0038:55`), `turn_extraction_results`
+(`0041:62`); every other narrator key is a UUID or text. Restore preserves ids verbatim
+(§10.1) and refuses any package-owned id already present (§10.2) — Phase 4's sentinel
+narrator, created on a fresh destination, took `turns.id` 1, Ada's package carried
+`turns.id` 1, and dry run refused. Correct behaviour, and a named boundary:
+
+**Installation-local integer-id boundary.** `turns.id` (and the two extraction ledgers)
+are AUTOINCREMENT surrogates allocated per installation, not identities. Exact-id Restore
+is fully portable into a collision-free target. **Packages exported from the SAME source
+installation** share one `turns` sequence, so their integer ranges are disjoint by
+construction and they may coexist in one root, subject to the ordinary dry-run check.
+**Packages from DIFFERENT installations** have no shared integer namespace and may collide
+even when the narrators are unrelated — V1 refuses and does not remap. Dry run is
+authoritative either way. Pinned by
+`tests/test_narrator_package_roundtrip.py::RestoreOnlyV1Boundary`.
+
+What follows: Phase 6 stays as written — each real package, from each machine, into its
+**own** disposable clean root; no remapping is attempted there. Phase 7's "restore
+packages only when desired" **must not be read as consolidating multi-origin packages
+into one `/mnt/c/lorevox_data`.** Before the final one-root family cutover an explicit
+decision is owed: (1) restore only a mutually collision-free, same-origin package set into
+that root, or (2) open a separate Multi-Origin Merge/Remap WO — which must first inventory
+every reference to `turns.id` (FKs, `trip_turn_links.user_turn_row_id` /
+`assistant_turn_row_id`, extraction ledger/result keys, provenance and embedded JSON turn
+keys) before choosing between integer remapping and a globally unique turn identity.
+**That design is not absorbed into V1.** Recorded as a Phase 4 success: the round trip
+found a limit of the format before Kent or the cutover did.
 
 **Phase 5 — Operator UI acceptance.** Export, download, import select, dry run, refusal
 on collision, successful restore, narrator in picker, transcript / photo / travel
@@ -488,7 +552,10 @@ into a disposable clean root; verify counts and hashes. **No deletion of origina
 leave it untouched; create `/mnt/c/lorevox_data` and `lorevox.sqlite3`; run migrations;
 verify zero real narrators; reconcile `DATA_DIR`, `AUTHORS_DIR`, `KNOWLEDGE_DIR`,
 `UPLOADS_DIR`, `MEDIA_DIR`, `DB_NAME` so no mixed root is accepted; restore packages
-only when desired. **See §27.6–27.7 for the required runtime gate.**
+only when desired — **and only a mutually collision-free set: same-origin packages, or
+packages whose dry runs all pass against that root. Multi-origin consolidation into one
+root is NOT a V1 capability (Phase 4 finding above; §10.3).** **See §27.6–27.7 for the
+required runtime gate.**
 
 **Phase 8 — Product naming cutover.** Package / UI language becomes Lorevox. No blind
 repository-wide rename; compatibility names kept where change adds unrelated risk.
@@ -1013,3 +1080,71 @@ destination's to provide — a package never carries them and Restore never crea
 (Phase 5). No deletion (Phase 7). No round-trip equivalence proof yet — Phase 4 compares
 export A → restore → export B semantically (§28.4); one Phase 3 test already shows equal
 record counts on re-export from the restored root, which is a preview, not the proof.
+
+**33.1 Crash-recovery correction, 2026-09-11 (review of pushed `1bc24b8`).** The first
+implementation wrote `files_copied` after ALL files, and jumped from COMMIT straight to
+`complete` — `db_committed` existed in `0054` and was never written. Two crash windows:
+a death mid-copy left files the job could not name; a death after COMMIT left published
+rows with a job that said `files_copied`, which a recovery routine would have read as
+"delete the files". Corrected in the same service, no redesign:
+
+* **`0055_narrator_package_jobs_file_manifest.sql`** (additive; `0054` untouched) —
+  `file_manifest_json`: DATA_DIR-relative path → expected SHA-256 for every planned file,
+  written **before the first byte**. `files_json` keeps `0054`'s meaning exactly — files
+  CREATED — and is journaled after each file lands.
+* **`db_committed` is written INSIDE the narrator transaction**, on the same connection,
+  after count and FK verification and before `COMMIT`: rows and state publish together or
+  not at all. `complete` follows in its own write.
+* **`recover_restore_jobs()`** + CLI `recover`. Below `db_committed`: every planned path
+  is safe-walked and **hashed; a file is removed only when its bytes equal the job's
+  planned digest** — foreign bytes at a planned path are left, named, and the job goes to
+  `cleanup_required`. At `db_committed`: rows, per-table counts and every planned file
+  are verified **against the job's own manifest — the package ZIP is not consulted** —
+  then `complete`, or `recovery_required` with nothing deleted. A pre-`0055` job with no
+  manifest is `recovery_required`, never guessed. A job below `db_committed` whose
+  narrator IS present is refused as a contradiction.
+* **Five crash cases pinned** with a test-only seam that raises a `BaseException` so
+  ordinary cleanup provably does not run: death after the first file (job names what
+  landed, recovery removes exactly those by hash, idempotent after `failed`); death after
+  the first file **plus foreign bytes at a planned path** (preserved, named,
+  `cleanup_required`, retry after the operator resolves it → `failed`); death after
+  COMMIT (`db_committed` with counts, **package deleted before recovery**, verified from
+  the manifest, `complete`, idempotent); forged `files_copied` under a published narrator
+  (refused); `db_committed` with a missing and an altered file (`recovery_required`,
+  nothing deleted). Restore suite: **18/18**.
+
+## 34. Phase 4 closeout — round-trip equivalence landed 2026-09-11
+
+**Exit gate met (§17): export A → restore into an empty root → export B, and A and B are
+equivalent for every authoritative / portable lane — proven by a comparator that is shown
+to catch a single changed value and a single changed byte.**
+
+**Measured under `.venv`:** `tests.test_narrator_package_roundtrip` **9/9** (215 s);
+combined restore 18 + round-trip 9 + export 24 + parity 15 = **66** — see the run recorded
+in `HANDOFF.md`. The first combined run (65) failed all seven restore-dependent
+round-trip tests on ONE collision — `row_id_exists turns.id=1` — which was correct
+production behaviour and the boundary recorded under Phase 4 above; the sentinel fixture
+was corrected and the boundary pinned as its own test.
+
+**What landed.** `compare_packages_semantically(a, b)` in the same service (§28.5) and a
+`compare` CLI verb. Both packages pass the §11 extraction and BagIt validation first — an
+invalid package is a `package_invalid` difference, not an exception. **Compared:** narrator
+id and display name; every record table as a set of canonical rows keyed by stable id
+(`id`, else `conv_id`), independent of JSONL order, with differing columns named;
+`data/files/<rel>` → SHA-256 from the validated manifests; record / file / byte counts by
+lane; `path_column_basis`; installation-dependency and external-person-dependency
+declarations. **Informational, never a difference:** source commit, migrations, schema
+fingerprint. **Ignored by design:** `package_id`, `created_at`, ZIP order and timestamps,
+`residue_not_packaged`, `warnings` — a restore deliberately does not carry source-only
+residue.
+
+**Proven:** A ≡ B while the two ZIPs are byte-different with different package ids; path
+columns equivalent though the live rows point at two different absolute roots; the
+complete travel domain and both dependency declarations equal; a sentinel narrator
+already in the destination unchanged row-for-row and hash-for-hash; installation state
+unchanged except `narrator_package_jobs`; one changed `trips.title` → exactly one
+`row_differs`; one flipped photo byte → exactly one `file_hash_differs`; a junk file → one
+`package_invalid`.
+
+**Not done, on purpose.** No real narrator (Phase 6). No UI (Phase 5, §16.1). No remap —
+the integer-id boundary above is recorded, pinned, and deferred to its own WO.
