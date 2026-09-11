@@ -409,6 +409,13 @@ All four reproduce at `d0e5294`. Bounded tooling commits, separate from cleanup.
 * **Test Lab** points at nonexistent root script paths. **Repointing it at
   `scripts/archive/` is known to fail after returning a false success.** Separate bounded
   lane; do not attempt in passing
+* **`bagit==1.8.1` imports `pkg_resources`** (recorded 2026-09-10, Portable Narrator
+  Phase 2). The library's own `bagit.py:24` emits a setuptools deprecation warning on
+  import; `pkg_resources` is slated for removal from setuptools. Nothing is broken and
+  **no speculative setuptools pin was added.** When a newer `bagit` release drops the
+  import, bump the pin in BOTH `requirements-gpu.txt` and `requirements-test.txt`
+  together and re-run `tests.test_narrator_package_export`. Dependency-compatibility
+  note only.
 
 ---
 

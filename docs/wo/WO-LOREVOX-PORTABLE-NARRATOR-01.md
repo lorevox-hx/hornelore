@@ -455,12 +455,13 @@ narrator-owned` · `shared/unassigned` · `installation-owned` · `cache` · `hi
 portability; reconcile erasure coverage with it. A structural parity check must fail
 when portability owns a lane erasure does not know, or erasure finds narrator data
 portability would omit, unless the difference has an explicit policy classification.
-**Exit gate: one reviewed ownership truth.** *(**LANDED 2026-09-10** — see §30.)*
+**Exit gate: one reviewed ownership truth.** *(**LANDED 2026-09-10** — see §31. Phase 2 is governed by §30.)*
 
 **Phase 2 — Package v1 exporter.** Manifest, row serialization, filesystem collection,
 path normalization, SHA-256, secret refusal, snapshot consistency, temp-file ZIP,
 operator endpoint. Memory Archive export unchanged. **Exit gate: synthetic narrator
-package with all expected domains.**
+package with all expected domains.** *(**LANDED 2026-09-10** — see §32. The operator
+endpoint (§16) is deferred to Phase 5 with the UI; the service and recovery CLI landed.)*
 
 **Phase 3 — Dry-run + Restore v1.** Validation, ZIP / path safety, compatibility,
 collisions, durable job, staged file restore, one DB transaction, cleanup / recovery,
@@ -798,7 +799,52 @@ are targeted; §17 Phase 1's "do not rewrite hard deletion wholesale" stands.
 `tempfile`, `pathlib`, `shutil` — already in `.venv-gpu` (Python 3.12). No new database,
 service, container or daemon.
 
-## 30. Phase 1 closeout — landed 2026-09-10
+## 30. Travel domain and referential integrity — locked 2026-09-10, governs Phase 2
+
+**Product requirement, generic:** for ANY narrator, if Lorevox holds narrator-owned travel
+material, the package carries the **entire travel domain** and restores it faithfully. No
+export logic may depend on which narrator is being exported.
+
+**What "entire travel domain" means** — every lane the declaration owns through
+`trips.person_id`, when present: `trips`, `trip_regions`, `trip_stops`, `trip_days`,
+`trip_themes`, `trip_location_notes`, `trip_bio_suggestions`, `trip_story_links`,
+`trip_public_context`, `trip_photo_links`, `trip_photo_context`,
+`trip_photo_day_placements`, `trip_photo_day_placement_skips`, `trip_turn_links`,
+`trip_sources` rows **and the `trip_sources/<id>` files those rows name**; plus the
+narrator's photos and media those rows reference, which travel through their own
+ownership lanes, not through travel. Current review / placement / live state and
+provenance columns travel as-is (§14, §18). All of this is already declared in
+`narrator_data_inventory.py` and proven reachable by the Phase 1 parity test — Phase 2
+adds no travel-specific ownership, it consumes the declaration.
+
+**Referenced files must exist — and only referenced files count.** A narrator-owned
+`trip_sources` row whose `storage_path` names a file that is not on disk is an unresolved
+dependency: the exporter reports it and refuses a package that would claim the document,
+never packages a row that points at nothing. The rule is scoped to **files referenced by
+this narrator's rows**. Directories under `trip_sources/` (or any lane) that no row of this
+narrator references are filesystem residue, not narrator travel evidence: they are reported
+as residue, never packaged, and never block an otherwise valid export.
+
+**Referential-integrity invariant (generic, all lanes, first met in travel):** *a package
+must never contain a narrator-owned row whose referenced turn / session / photo / item
+the exporter would otherwise omit.* Resolution, in order: (1) if the accepted ownership
+declaration proves the referenced row belongs to this narrator, it is included through
+its normal lane; (2) otherwise the dependency is **reported as unresolved and the export
+refuses**, naming the rows. The exporter does **not** guess ownership, does not sweep
+unowned sessions, and carries no per-narrator attribution rule. Whether an
+operator-confirmed attribution mechanism is needed at all is decided only if the generic
+exporter demonstrates it on a real acceptance run — not built in advance.
+
+**Acceptance fixtures:** synthetic Ada with a seeded travel domain (two trips, days,
+placements, `trip_sources` files, turn links, and a deliberately dangling link) proves the
+rules in Phases 2–4. The laptop's real narrator with two trips / 39 days / 27 photos /
+20 turn links is the demanding Phase 6 acceptance case — a fixture, never a definition.
+
+**Recorded and closed:** the 2026-09-10 desktop probe of `trip_turn_links` ran on a machine
+with zero trips and measured nothing; the laptop probe is deferred to Phase 6, because
+the invariant above resolves the question generically without it.
+
+## 31. Phase 1 closeout — landed 2026-09-10
 
 **Exit gate met: one reviewed ownership truth, held by test in both directions.**
 Measured under `.venv`: `tests.test_narrator_erasure_ownership_gaps` **4/4** and
@@ -829,11 +875,81 @@ column is declared in `external_person_columns`; any other column mismatch fails
 rewrite). `import_candidate`'s staged original remains *conditional* (§29). Nothing was
 exported. `bagit` is not installed.
 
-**Data-location finding for Phase 6 (recorded here, decided later).** Phase 0
-`20260910T015024Z` and a read-only probe on 2026-09-10 show the live
-`/mnt/c/hornelore_data/db/hornelore.sqlite3` has **0 `trips`, 0 `trip_sources`, 4
-`photos`** and no `trip_sources/` directory; the two `backup_real_pre_0035_20260723_*`
-files hold 1 trip and 0 sources; `db/lorevox.sqlite3` is a 0-byte file; and
-`/home/chris/lorevox_data` exists and has not been audited. The "richest real narrator"
-for Phase 6 is therefore **measured at Phase 6 time from a Phase 0 run of whichever root is
-in scope**, not assumed. Any second root gets its own Phase 0 before a package is built from it.
+**Data-location finding for Phase 6 (measured 2026-09-10, both machines).** Eleven labelled
+Phase 0 reports under `.runtime/eval/` — five desktop roots / backups, five laptop, one
+laptop id-comparison. **No real narrator has a trip on the desktop** (its July backup's one
+`trips` row is the placeholder id `PASTE_UU`; `C:\lorevox_data` is a pre-trip April world;
+the E: root is January experiments). **The laptop live root holds the travel domain**: 2
+trips, 39 days, 21 stops, 24 location notes, 51 photo-context rows, 40 photo links, 3
+placements, 20 turn links, 27 photos — and **0 `trip_sources` rows** (the directory holds
+3 files, 433 B). Laptop backups are subsets of laptop live by id. Desktop live holds
+conversations, bio facts and saved audio the laptop does not. **Neither machine is the
+copy; both hold unique narrator evidence, and Phase 6 exports from both.** Both machines
+also carry ~10,800 `sessions` rows with no owner — the §6 residue class, generic, reported
+never swept. Details: `docs/handoffs/HANDOFF_2026-09-10_LAPTOP-NARRATOR-AUDIT.md`.
+
+**Cross-copy comparison — `scripts/phase0_report_comparator.py`, run
+`phase0-report-comparison-20260910T234618Z` over desktop-live, laptop-live and one
+backup of each.** 176 `people` ids seen across the four reports (label from the row's own
+fields and name: 39 "real"-looking, 69 synthetic/test, 68 deleted residue — the 39
+includes repeated `John` / `Walt` fixtures with plain names, so it is an upper bound).
+**Only 5 ids exist on both machines, 3 of them real: Chris, Kent, Janice.** 131 ids on
+"more than one copy" is each machine's live + its own backup, not reconciliation scope.
+Pre-0044 schemas report `unattrib.` for `sessions`/`turns`, never a false zero. Of the 5
+shared ids, all 5 have lanes on one machine only and 1 (Chris) has lanes whose counts differ
+between machines. **The real / synthetic-test / deleted-residue classification is comparator
+reporting metadata only.** Phase 2 never decides inclusion from a name or from that label:
+the exporter receives one selected `people.id` and follows `narrator_data_inventory.py`.
+Per narrator, lanes on exactly one machine (counts from the audit JSONs; ids not compared):
+
+| narrator | only on desktop | only on laptop |
+|---|---|---|
+| Christopher `a4b2f07a` | `sessions` 3, `turns` 26, `interview_threads` 7, `bio_facts` 16, `memory_archive_*` (saved audio) | the whole travel domain (2 trips … 20 turn links), `graph_*`, `family_truth_*`, `story_candidates` 3, `timeline_events` 2, `safety_events` 4; `photos` 27 vs 4 and `import_*` 5/14 vs 1/3 differ — ids to compare |
+| Kent `4aa0cc2b` | `follow_up_bank` 50, `import_batch` 1 / `import_candidate` 1 | `graph_*` 12/10, `family_truth_*` 5/5/5, `interview_sessions` 1, `media_archive_items` 1 |
+| Janice `93479171` | `story_candidates` 1 | `graph_*` 14/10, `family_truth_*`, `photos` 1 + photo children, `sessions` 1 / `turns` 13 |
+| Melanie `d56900b5` | — (not on desktop) | everything |
+
+**THE LAPTOP AUDIT IS CLOSED.** Phase 6 exports each family narrator from **both**
+machines (Melanie from the laptop only) and the comparison above is the checklist a
+restored narrator is measured against. Nothing is merged; §10.2's collision rule means
+the two copies of one narrator restore into **separate** clean roots until a later WO
+defines merge. No further audit questions are opened unless a generic package invariant
+cannot be resolved from the accepted contract and the schema.
+
+## 32. Phase 2 closeout — Package v1 exporter landed 2026-09-10
+
+**Exit gate met: a synthetic narrator package with every declared domain, including the
+complete travel domain, built by a generic exporter that knows no narrator.**
+
+**Measured under `.venv` (Python 3.12, `bagit==1.8.1`):** `tests.test_narrator_package_export`
+**18/18**, 0 skipped, 180 s — the first run in which `_seed()` completed and the exporter
+itself was exercised. The three runs before it failed inside the fixture (a `TEXT PRIMARY
+KEY` reported `notnull=0`, so no ids were minted; `trip_location_notes` rebuilt by `0019`;
+a `%`-formatted bytes literal; the `0039:161` one-link-per-assistant-turn UNIQUE) and
+touched no exporter line. `tests.test_narrator_data_inventory_parity` 15/15 and
+`tests.test_narrator_erasure_ownership_gaps` 4/4 were green in the combined run
+immediately before and nothing they cover changed after it. The `sha256 validation failed`
+line printed during `test_validator_rejects_a_tampered_package` is the validator catching
+the deliberately corrupted payload — evidence, not a warning.
+
+**What landed.**
+
+| piece | where | what it is |
+|---|---|---|
+| The service (§28.5, one implementation) | `server/code/api/services/narrator_package.py` | `export_narrator(person_id, data_dir, db_path, out_dir)` and `validate_package(zip)`. `sqlite3.backup()` snapshot (§28.2) → pass 1 collects the narrator's keys per lane through `owner_predicate` → pass 2 streams `records/<table>.jsonl` and checks every `PRAGMA foreign_key_list` FK plus every declared `ColumnRef`: owned parent must be in the package; installation parent recorded as a dependency Restore must satisfy; declared external-person column recorded, never pulled; anything else refused by name (§30). Declared path columns rewritten DATA_DIR-relative and must exist (§8.5). Person-keyed lanes walked whole; row-keyed lanes only for ids the snapshot resolves; `import_staging` only for `conditional_sql` sub-paths; `.incoming` never; unreferenced directories reported as residue and never a refusal. File set measured before and after copy (§8.3). Credential shapes refuse (§8.6). `bagit.make_bag` on the temporary directory only, `lorevox-manifest.json` as a tag file, `Bag.validate()` before a ZIP64 stream to `.part` then rename (§28.1, §28.3). Refuses to write inside DATA_DIR. **Names no table but `people` and `sessions`; a test pins that.** |
+| Declaration additions | `narrator_data_inventory.py` | `ColumnRef` + `COLUMN_ONLY_REFERENCES` (turn links → sessions/turns, photo context → photos, story links, `timeline_event_id`, memory-archive `conv_id`); `FsLane.conditional_sql` on `import_staging`. Ownership rules stay where they were — the exporter consumes, never reconstructs. |
+| Recovery CLI | `scripts/narrator_package.py export\|validate` | Thin; explicit `--data-dir` / `--db` / `--out`; environment never consulted. |
+| Dependency | `requirements-gpu.txt`, `requirements-test.txt` | `bagit==1.8.1`, same pin in both. `pkg_resources` deprecation noted in `docs/BACKLOG.md` §5, no setuptools pin. |
+| Proof | `tests/test_narrator_package_export.py` | Synthetic Ada + Bea in one DATA_DIR built by `init_db()`. Ada: two trips with all 15 `trip_*` lanes populated (placements, a skip, turn links into her own two conversations, two source files on disk), saved audio, three photos with absolute paths, pending + accepted import candidates with staged originals, a media item tagged with Bea, family truth / graph / timeline / interview thread. Proven: valid BagIt and manifest-consistent; every seeded Ada row travels and nothing of Bea's except the one declared §13 tag; all travel lanes at fixture-measured counts; paths rewritten and files present; conditional staging and honest residue; provenance and installation dependencies; source untouched. Refusals proven by reason code: dangling `conv_id`, dangling turn rowid, missing source file (orphan dir does not block), path outside DATA_DIR, credential, files changing during collection, out-dir inside DATA_DIR, unknown narrator, tampered package fails validation. The fixture is schema-driven and fails at the seed line naming any unknown column or dangling FK value. |
+
+**Package layout, as built:** `bagit.txt` · `bag-info.txt` (Payload-Oxum) ·
+`manifest-sha256.txt` · `tagmanifest-sha256.txt` · `lorevox-manifest.json` ·
+`data/records/<table>.jsonl` · `data/files/<DATA_DIR-relative path>`. Manifest fields per
+§7.3 plus `ownership_declaration`, `lanes_absent_in_source`, `installation_dependencies`,
+`residue_not_packaged`.
+
+**Not done, on purpose.** No dry-run, no Restore (Phase 3). No operator endpoint or UI
+(Phase 5). No deletion, no merge. No real narrator exported — the first real export is
+Phase 6, after Phases 3–4 prove restore and round-trip on synthetic Ada. The
+`session_ownership_residue` class (§6) is reported in every manifest and decided nowhere
+in this phase.

@@ -66,8 +66,10 @@ where a decision is ratified.
 | Profile Seed onboarding | [`wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md`](wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_Spec.md) · [transport map](wo/WO-LORI-PROFILE-SEED-REACHABILITY-01_PHASE2_TRANSPORT_MAP.md) | — lane opened after the snapshot |
 | Kawa / Memory River — **frozen** | [`CLAUDE.md`](../CLAUDE.md) standing prohibitions | Kawa retirement, 2026-05-01 |
 | Repository hygiene | [`wo/WO-REPOSITORY-HYGIENE-01_Spec.md`](wo/WO-REPOSITORY-HYGIENE-01_Spec.md) | — lane opened after the snapshot |
-| Narrator portability — package, restore, clean cutover | [`wo/WO-LOREVOX-PORTABLE-NARRATOR-01.md`](wo/WO-LOREVOX-PORTABLE-NARRATOR-01.md) §25 locked decisions · §29 policy edges · §30 Phase 1 closeout | — lane opened 2026-09-09 |
-| Narrator ownership — ONE declaration, erasure held to it by test | [`wo/WO-LOREVOX-PORTABLE-NARRATOR-01.md`](wo/WO-LOREVOX-PORTABLE-NARRATOR-01.md) §30 · `server/code/api/services/narrator_data_inventory.py` · `db.py::_PARENT_OWNED_CHILDREN` | — Phase 1 landed 2026-09-10 |
+| Narrator portability — package, restore, clean cutover | [`wo/WO-LOREVOX-PORTABLE-NARRATOR-01.md`](wo/WO-LOREVOX-PORTABLE-NARRATOR-01.md) §25 locked decisions · §29 policy edges · §30 travel domain + referential integrity (governs Phase 2) · §31 Phase 1 closeout | — lane opened 2026-09-09 |
+| Two-machine narrator data audit — CLOSED; neither machine is the copy | [`wo/WO-LOREVOX-PORTABLE-NARRATOR-01.md`](wo/WO-LOREVOX-PORTABLE-NARRATOR-01.md) §31 data-location + cross-copy table · `scripts/phase0_report_comparator.py` | — 2026-09-10 |
+| Portable Narrator Package v1 exporter — generic, declaration-driven, BagIt, refuses rather than dangles | [`wo/WO-LOREVOX-PORTABLE-NARRATOR-01.md`](wo/WO-LOREVOX-PORTABLE-NARRATOR-01.md) §32 · `server/code/api/services/narrator_package.py` · `tests/test_narrator_package_export.py` | — Phase 2 landed 2026-09-10 |
+| Narrator ownership — ONE declaration, erasure held to it by test | [`wo/WO-LOREVOX-PORTABLE-NARRATOR-01.md`](wo/WO-LOREVOX-PORTABLE-NARRATOR-01.md) §31 · `server/code/api/services/narrator_data_inventory.py` · `db.py::_PARENT_OWNED_CHILDREN` | — Phase 1 landed 2026-09-10 |
 | Phase 6 conversational verdict — Lean vs prompt stack | [`handoffs/HANDOFF_2026-09-09_PHASE6_C-BLOCK-AND-LEAN-QUALITY.md`](handoffs/HANDOFF_2026-09-09_PHASE6_C-BLOCK-AND-LEAN-QUALITY.md) | — |
 
 ---
