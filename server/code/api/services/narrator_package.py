@@ -1108,13 +1108,28 @@ def _job_write(db_path: Path, job: Dict[str, Any]) -> None:
         con.close()
 
 
-def restore_narrator(zip_path: Path, *, data_dir: Path, db_path: Path, requested_by: str = "") -> RestoreResult:
+def restore_narrator(zip_path: Path, *, data_dir: Path, db_path: Path, requested_by: str = "",
+                     _crash_seam=None) -> RestoreResult:
     """§12, exactly in that order. Files first, database visibility last; one
     transaction; ids preserved verbatim (§10.1); nothing overwritten (§10.2).
-    Raises RestoreRefused (nothing written) or RuntimeError after cleanup."""
+    Raises RestoreRefused (nothing written) or RuntimeError after cleanup.
+
+    THE JOB ROW IS CRASH-TRUTHFUL. Before the first destination file is created
+    the job durably names every file it intends to create; `db_committed` is
+    written INSIDE the narrator transaction so it and the rows become visible
+    together or not at all; `complete` follows in its own write. So after a
+    process death at any point, `recover_restore_jobs()` can decide from the
+    job row alone what may exist and whether the narrator was published.
+
+    `_crash_seam(point)` is a test-only hook: it is called at 'after_first_file'
+    and 'after_commit' and may raise a BaseException to simulate process death
+    — nothing in this function catches BaseException, exactly as a real crash
+    would not be caught.
+    """
     zip_path = Path(zip_path)
     root = validate_root(data_dir)
     db_path = Path(db_path)
+    seam = _crash_seam or (lambda _point: None)
     with tempfile.TemporaryDirectory(prefix="lorevox-restore-") as tmp:
         tmp = Path(tmp)
         # 1–4: stage, validate structure / manifest / hashes
@@ -1134,11 +1149,23 @@ def restore_narrator(zip_path: Path, *, data_dir: Path, db_path: Path, requested
         hashes = _payload_hashes(tmp)
         file_members = sorted(m for m in hashes if m.startswith("data/files/"))
 
-        # 7: durable job, committed before the first byte lands
+        # 7: durable job, committed before the first byte lands. It carries the
+        # package's own payload manifest for this narrator (relative path -> expected
+        # SHA-256, 0055) so recovery can attribute and verify every file WITHOUT the
+        # package; `files_json` (0054) stays what 0054 says — files CREATED — and grows
+        # one entry per file as each lands.
+        planned: Dict[str, str] = {}
+        for member in file_members:
+            rel = member[len("data/files/"):]
+            if _safe_destination(root, rel) is None:
+                raise RestoreRefused(DryRunReport(False, "RESTORE REFUSED", zip_path, manifest,
+                                                  [{"code": "unsafe_destination_path", "path": rel}], {}, {}, 0, [], [], [], []))
+            planned[rel] = hashes[member]
         job_id = uuid.uuid4().hex
         job = {"id": job_id, "kind": "restore", "state": "validated", "package_id": str(manifest["package_id"]),
                "package_path": str(zip_path), "narrator_id": pid, "data_root": str(root),
                "source_commit": str(manifest.get("source_commit") or ""), "files_json": "[]",
+               "file_manifest_json": json.dumps(planned, sort_keys=True),
                "counts_json": "{}", "error": None, "requested_by": requested_by, "created_at": _now()}
         _job_write(db_path, job)
 
@@ -1167,7 +1194,8 @@ def restore_narrator(zip_path: Path, *, data_dir: Path, db_path: Path, requested
             _job_write(db_path, job)
             raise RuntimeError(f"RESTORE FAILED at {stage}; job {job_id} is {job['state']}: {exc}") from exc
 
-        # 8–9: copy files, no overwrite, re-hash
+        # 8–9: copy files, no overwrite, re-hash; journal each created file durably
+        journal = sqlite3.connect(str(db_path))
         try:
             for member in file_members:
                 rel = member[len("data/files/"):]
@@ -1190,10 +1218,21 @@ def restore_narrator(zip_path: Path, *, data_dir: Path, db_path: Path, requested
                 digest, _ = _sha256_file(dest)
                 if digest != hashes[member]:
                     raise ValueError(f"re-hash mismatch after copy: {rel}")
+                journal.execute("UPDATE narrator_package_jobs SET files_json=?, updated_at=? WHERE id=?",
+                                (json.dumps([str(p.relative_to(root)) for p in created]), _now(), job_id))
+                journal.commit()
+                if len(created) == 1:
+                    seam("after_first_file")
             job.update(state="files_copied", files_json=json.dumps([str(p.relative_to(root)) for p in created]))
             _job_write(db_path, job)
         except Exception as exc:  # noqa: BLE001
+            journal.close()
             _fail("files", exc)
+        finally:
+            try:
+                journal.close()
+            except Exception:
+                pass
 
         # 10–13: one transaction, ids verbatim, paths rewritten per the recorded basis
         basis = manifest.get("path_column_basis") or {}
@@ -1226,6 +1265,10 @@ def restore_narrator(zip_path: Path, *, data_dir: Path, db_path: Path, requested
                     bad += con.execute(f'PRAGMA foreign_key_check("{table}")').fetchall()
                 if bad:
                     raise ValueError(f"foreign_key_check: {[tuple(r) for r in bad[:10]]}")
+                # `db_committed` travels in THE SAME transaction as the rows: COMMIT publishes
+                # both or neither, so no crash can leave visible rows with a job that says less.
+                con.execute("UPDATE narrator_package_jobs SET state='db_committed', counts_json=?, updated_at=? WHERE id=?",
+                            (json.dumps(inserted), _now(), job_id))
                 con.execute("COMMIT")
             except Exception:
                 con.execute("ROLLBACK")
@@ -1238,8 +1281,10 @@ def restore_narrator(zip_path: Path, *, data_dir: Path, db_path: Path, requested
                 con.close()
             except Exception:
                 pass
-        # 14: complete
-        job.update(state="complete", counts_json=json.dumps(inserted))
+        seam("after_commit")
+        # 14: complete — its own write; a death before it leaves `db_committed`, which recovery finishes
+        job.update(state="db_committed", counts_json=json.dumps(inserted))
+        job.update(state="complete")
         _job_write(db_path, job)
     # 15: staging removed by the context manager
     return RestoreResult(job_id=job_id, narrator_id=pid, package_id=str(manifest["package_id"]),
@@ -1247,6 +1292,263 @@ def restore_narrator(zip_path: Path, *, data_dir: Path, db_path: Path, requested
                          dry_run=report)
 
 
-__all__ = ["export_narrator", "validate_package", "dry_run_restore", "restore_narrator",
+# ── crash recovery for restore jobs ─────────────────────────────────────
+
+def _job_set(con: sqlite3.Connection, job_id: str, **fields) -> None:
+    fields["updated_at"] = _now()
+    con.execute("UPDATE narrator_package_jobs SET " + ", ".join(f'"{k}"=?' for k in fields) + " WHERE id=?",
+                (*fields.values(), job_id))
+    con.commit()
+
+
+def recover_restore_jobs(*, data_dir: Path, db_path: Path, job_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Finish or undo restore jobs a process death left behind. Decides from the
+    DURABLE job row, whose states are truthful by construction:
+
+      staged / validated / files_copied   the narrator transaction cannot have
+                                          committed (db_committed is written inside
+                                          it). Remove only the files this job named,
+                                          each through the safe-destination walk;
+                                          `failed` when clean, `cleanup_required`
+                                          naming what is left.
+      db_committed                        the rows ARE published. NEVER delete.
+                                          Verify rows/counts and every recorded file
+                                          (hash against the package if it is still
+                                          there); advance to `complete`, or leave
+                                          `db_committed` with error='recovery_required'
+                                          and refuse automatic destruction.
+      cleanup_required                    retry only the recorded set.
+      complete / failed                   idempotent no-op, reported.
+
+    Defensive check on top of the invariant: if a job below db_committed finds
+    the narrator's people row present, it does NOT touch the files — that is a
+    contradiction to report, not a state to repair by deleting.
+
+    FILES ARE NEVER JUDGED BY PATHNAME. The job's `file_manifest_json` (0055) is
+    the package's payload manifest for this narrator, written before the first
+    byte. Below db_committed a file is removed only when its bytes hash to the
+    digest the job planned for that path; anything else at a planned path is
+    left and named. At db_committed every planned file is verified against
+    that same map — the package ZIP is not needed and is not consulted.
+    """
+    root = validate_root(data_dir)
+    db_path = Path(db_path)
+    con = sqlite3.connect(str(db_path))
+    con.row_factory = sqlite3.Row
+    out: List[Dict[str, Any]] = []
+    try:
+        if "narrator_package_jobs" not in _tables(con):
+            return out
+        rows = con.execute("SELECT * FROM narrator_package_jobs WHERE kind='restore'" +
+                           (" AND id=?" if job_id else "") + " ORDER BY created_at", (job_id,) if job_id else ()).fetchall()
+        for row in rows:
+            jid, state, pid = row["id"], row["state"], row["narrator_id"]
+            rep: Dict[str, Any] = {"job_id": jid, "narrator_id": pid, "state_before": state}
+            created_list = json.loads(row["files_json"] or "[]")
+            planned: Dict[str, str] = json.loads(row["file_manifest_json"] or "{}") if "file_manifest_json" in row.keys() else {}
+            # every path this job may have touched: what it journaled as created, and what it planned
+            candidates = sorted(set(created_list) | set(planned))
+            if str(row["data_root"]) != str(root):
+                rep.update(action="skipped", detail=f"job belongs to root {row['data_root']}, not {root}")
+                out.append(rep)
+                continue
+            if state in ("complete", "failed"):
+                rep.update(action="none", state_after=state)
+                out.append(rep)
+                continue
+            narrator_present = con.execute("SELECT 1 FROM people WHERE id=?", (pid,)).fetchone() is not None
+
+            if state in ("staged", "validated", "files_copied", "cleanup_required"):
+                if narrator_present and state != "cleanup_required":
+                    _job_set(con, jid, error=f"recovery_required: state {state} but people row {pid} exists; "
+                                             f"refusing to delete files under a published narrator")
+                    rep.update(action="refused", state_after=state, detail="narrator present below db_committed")
+                    out.append(rep)
+                    continue
+                left: List[Dict[str, str]] = []
+                removed: List[str] = []
+                for rel in candidates:
+                    dest = _safe_destination(root, rel)
+                    if dest is None:
+                        left.append({"path": rel, "why": "unsafe path"})
+                        continue
+                    if not dest.exists():
+                        continue                                  # planned, never created: nothing to remove
+                    if dest.is_symlink() or not dest.is_file():
+                        left.append({"path": rel, "why": "not a regular file"})
+                        continue
+                    expected = planned.get(rel)
+                    actual, _n = _sha256_file(dest)
+                    if expected is None or actual != expected:
+                        # bytes at a planned path that are NOT the package's bytes: not ours to delete
+                        left.append({"path": rel, "why": "bytes do not match the job's payload manifest",
+                                     "expected_sha256": expected, "actual_sha256": actual})
+                        continue
+                    try:
+                        dest.unlink()
+                        removed.append(rel)
+                    except OSError as exc:
+                        left.append({"path": rel, "why": f"unlink failed: {exc.__class__.__name__}"})
+                        continue
+                    # prune directories the copy created, innermost first, only while empty
+                    cur = dest.parent
+                    while cur != root and cur.is_dir():
+                        try:
+                            cur.rmdir()
+                        except OSError:
+                            break
+                        cur = cur.parent
+                new_state = "cleanup_required" if left else "failed"
+                _job_set(con, jid, state=new_state, files_json=json.dumps([l["path"] for l in left]),
+                         error=(row["error"] or "") + f" | recovered {_now()}: interrupted at {state}, "
+                                                      f"removed {len(removed)} matching file(s), left {len(left)}"
+                               + ("; " + "; ".join(f"{l['path']}: {l['why']}" for l in left)[:1200] if left else ""))
+                rep.update(action="cleaned", state_after=new_state, removed=removed, left=left)
+                out.append(rep)
+                continue
+
+            # db_committed: publish is done; finish, never destroy
+            problems: List[str] = []
+            if not narrator_present:
+                problems.append("people row absent although db_committed")
+            counts = json.loads(row["counts_json"] or "{}")
+            for table, n in counts.items():
+                if table not in inv.narrator_owned_tables() or table not in _tables(con):
+                    problems.append(f"{table}: not a narrator lane here")
+                    continue
+                got = con.execute(f'SELECT COUNT(*) FROM "{table}" WHERE {inv.owner_predicate(table)}', {"pid": pid}).fetchone()[0]
+                if got != n:
+                    problems.append(f"{table}: {got} rows, job recorded {n}")
+            # every planned file, verified against the job's OWN manifest — no package needed
+            if not planned and created_list:
+                problems.append("job carries no payload manifest (pre-0055 job); cannot verify files without the package")
+            for rel, expected in sorted(planned.items()):
+                dest = _safe_destination(root, rel)
+                if dest is None or not dest.is_file():
+                    problems.append(f"file missing: {rel}")
+                    continue
+                if _sha256_file(dest)[0] != expected:
+                    problems.append(f"file hash differs from the job's manifest: {rel}")
+            if problems:
+                _job_set(con, jid, error="recovery_required: " + "; ".join(problems)[:1900])
+                rep.update(action="refused", state_after="db_committed", problems=problems)
+            else:
+                _job_set(con, jid, state="complete", files_json=json.dumps(sorted(planned)),
+                         error=(row["error"] or "") + f" | recovered {_now()}: verified after interrupted completion")
+                rep.update(action="completed", state_after="complete", verified_files=len(planned),
+                           hashes_checked=len(planned))
+            out.append(rep)
+    finally:
+        con.close()
+    return out
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Phase 4 — semantic equivalence of two packages (§28.4)
+# ══════════════════════════════════════════════════════════════════════
+
+@dataclass
+class ComparisonReport:
+    equivalent: bool
+    a: Path
+    b: Path
+    differences: List[Dict[str, Any]]      # each names WHAT differs and where; empty when equivalent
+    informational: List[Dict[str, Any]]    # differences §28.4 treats as non-semantic (recorded, not judged)
+    compared: Dict[str, int]               # how much was compared: tables, rows, files
+
+
+# Manifest fields compared for equality. Everything else in the manifest is either
+# identity-of-this-export (package_id, created_at), source-machine provenance
+# (source_commit, migrations, fingerprint — informational), or source-only residue
+# and warnings that a restore deliberately does not carry.
+_MANIFEST_SEMANTIC = ("narrator_id", "narrator_display_name", "package_kind", "path_basis",
+                      "record_counts_by_lane", "file_counts_by_lane", "bytes_by_lane",
+                      "path_column_basis", "installation_dependencies", "external_person_dependencies")
+_MANIFEST_INFORMATIONAL = ("source_commit", "source_schema_migrations", "source_schema_fingerprint",
+                           "source_app", "package_format_version", "lanes_absent_in_source",
+                           "verified_source_digests_checked")
+_MANIFEST_IGNORED = ("package_id", "created_at", "residue_not_packaged", "warnings", "payload_integrity",
+                     "ownership_declaration", "package_format")
+
+
+def _canonical_rows(tmp: Path, table: str) -> Dict[str, str]:
+    """row identity -> canonical JSON of the whole row (sorted keys), independent of
+    JSONL order. Identity is the row's `id`, else `conv_id`, else the whole row."""
+    out: Dict[str, str] = {}
+    for rec in _read_records(tmp, table):
+        canon = json.dumps(rec, sort_keys=True, ensure_ascii=False, default=str)
+        key = str(rec.get("id") if rec.get("id") is not None else rec.get("conv_id", canon))
+        out[key] = canon
+    return out
+
+
+def compare_packages_semantically(a: Path, b: Path) -> ComparisonReport:
+    """§28.4: two packages of the same narrator are equivalent when their narrator
+    records agree by stable id, every payload file's SHA-256 agrees, counts by lane
+    agree, and dependency/provenance declarations agree — never when their outer
+    bytes do. Both packages are extracted through the same §11 inspection as a
+    restore; an invalid package is a difference, not an exception."""
+    a, b = Path(a), Path(b)
+    diffs: List[Dict[str, Any]] = []
+    info: List[Dict[str, Any]] = []
+    compared = {"tables": 0, "rows": 0, "files": 0}
+    with tempfile.TemporaryDirectory(prefix="lorevox-cmp-a-") as ta, tempfile.TemporaryDirectory(prefix="lorevox-cmp-b-") as tb:
+        ta, tb = Path(ta), Path(tb)
+        for label, zp, t in (("A", a, ta), ("B", b, tb)):
+            try:
+                problems = _safe_extract(zp, t) if zp.is_file() else ["package file not found"]
+            except zipfile.BadZipFile as exc:
+                problems = [f"not a ZIP: {exc}"]
+            if not problems:
+                m, problems, _n, _b = _inspect_bag(t)
+                if m is None:
+                    problems.append("manifest unreadable")
+            for p in problems:
+                diffs.append({"kind": "package_invalid", "package": label, "detail": p})
+        if diffs:
+            return ComparisonReport(False, a, b, diffs, info, compared)
+        ma = json.loads((ta / MANIFEST_NAME).read_text(encoding="utf-8"))
+        mb = json.loads((tb / MANIFEST_NAME).read_text(encoding="utf-8"))
+
+        for key in _MANIFEST_SEMANTIC:
+            if ma.get(key) != mb.get(key):
+                diffs.append({"kind": "manifest", "field": key, "a": ma.get(key), "b": mb.get(key)})
+        for key in _MANIFEST_INFORMATIONAL:
+            if ma.get(key) != mb.get(key):
+                info.append({"kind": "manifest", "field": key, "a": ma.get(key), "b": mb.get(key)})
+
+        # records: every table either side names, compared as sets of canonical rows by id
+        tables = sorted(set(ma.get("record_counts_by_lane") or {}) | set(mb.get("record_counts_by_lane") or {}))
+        for table in tables:
+            ra, rb = _canonical_rows(ta, table), _canonical_rows(tb, table)
+            compared["tables"] += 1
+            compared["rows"] += max(len(ra), len(rb))
+            for rid in sorted(set(ra) - set(rb)):
+                diffs.append({"kind": "row_only_in_a", "table": table, "id": rid})
+            for rid in sorted(set(rb) - set(ra)):
+                diffs.append({"kind": "row_only_in_b", "table": table, "id": rid})
+            for rid in sorted(set(ra) & set(rb)):
+                if ra[rid] != rb[rid]:
+                    da, db_ = json.loads(ra[rid]), json.loads(rb[rid])
+                    cols = sorted(c for c in set(da) | set(db_) if da.get(c) != db_.get(c))
+                    diffs.append({"kind": "row_differs", "table": table, "id": rid, "columns": cols,
+                                  "a": {c: da.get(c) for c in cols}, "b": {c: db_.get(c) for c in cols}})
+
+        # payload files: data/files/<rel> -> sha256, from the manifests BagIt just validated
+        ha = {m[len("data/files/"):]: h for m, h in _payload_hashes(ta).items() if m.startswith("data/files/")}
+        hb = {m[len("data/files/"):]: h for m, h in _payload_hashes(tb).items() if m.startswith("data/files/")}
+        compared["files"] = max(len(ha), len(hb))
+        for rel in sorted(set(ha) - set(hb)):
+            diffs.append({"kind": "file_only_in_a", "path": rel})
+        for rel in sorted(set(hb) - set(ha)):
+            diffs.append({"kind": "file_only_in_b", "path": rel})
+        for rel in sorted(set(ha) & set(hb)):
+            if ha[rel] != hb[rel]:
+                diffs.append({"kind": "file_hash_differs", "path": rel, "a": ha[rel], "b": hb[rel]})
+    return ComparisonReport(not diffs, a, b, diffs, info, compared)
+
+
+__all__ = ["export_narrator", "validate_package", "dry_run_restore", "restore_narrator", "recover_restore_jobs",
+           "compare_packages_semantically", "ComparisonReport",
            "ExportRefused", "ExportResult", "ValidationReport", "DryRunReport", "RestoreResult", "RestoreRefused",
            "PACKAGE_FORMAT", "PACKAGE_FORMAT_VERSION", "PACKAGE_KIND", "MANIFEST_NAME"]

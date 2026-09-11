@@ -123,9 +123,43 @@ def _restore(args) -> int:
     return 0
 
 
+def _recover(args) -> int:
+    """Finish or undo restore jobs a process death left incomplete (stack DOWN)."""
+    reports = pkg.recover_restore_jobs(data_dir=Path(args.data_dir), db_path=Path(args.db), job_id=args.job)
+    if not reports:
+        print("no restore jobs")
+        return 0
+    worst = 0
+    for r in reports:
+        print(json.dumps(r, ensure_ascii=False))
+        if r.get("action") == "refused":
+            worst = 2
+    return worst
+
+
+def _compare(args) -> int:
+    rep = pkg.compare_packages_semantically(Path(args.a), Path(args.b))
+    print(("EQUIVALENT" if rep.equivalent else "DIFFERENT") +
+          f"  tables={rep.compared['tables']} rows={rep.compared['rows']} files={rep.compared['files']}")
+    for d in rep.differences:
+        print("  differs: " + json.dumps(d, ensure_ascii=False, default=str)[:400])
+    for i in rep.informational:
+        print("  informational: " + json.dumps(i, ensure_ascii=False, default=str)[:200])
+    return 0 if rep.equivalent else 2
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
+    cp = sub.add_parser("compare", help="semantic equivalence of two packages (§28.4); never outer bytes")
+    cp.add_argument("a")
+    cp.add_argument("b")
+    cp.set_defaults(fn=_compare)
+    rc = sub.add_parser("recover", help="finish or undo interrupted restore jobs (stack DOWN)")
+    rc.add_argument("--data-dir", required=True)
+    rc.add_argument("--db", required=True)
+    rc.add_argument("--job", default=None, help="one job id; default every incomplete restore job")
+    rc.set_defaults(fn=_recover)
     for name, fn, help_ in (("dry-run", _dry_run, "everything restore would check; writes nothing"),
                             ("restore", _restore, "dry-run, then restore this narrator as this narrator (stack DOWN)")):
         p = sub.add_parser(name, help=help_)

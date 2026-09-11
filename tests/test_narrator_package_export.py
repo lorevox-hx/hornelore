@@ -277,6 +277,10 @@ class _Fixture(unittest.TestCase):
         bsrc = self.ins("trip_sources", trip_id=btrip, title="B ticket", storage_path="x")
         c.execute("UPDATE trip_sources SET storage_path=? WHERE id=?", (f"trip_sources/{bsrc}/b.pdf", bsrc))
         self.file(f"trip_sources/{bsrc}/b.pdf", b"%PDF-BEA")
+        # Bea's files, by exact DATA_DIR-relative path — ownership evidence, never a name
+        self.bea_files = (f"memory/archive/people/{B}/sessions/conv-bea-1/audio/t9.webm",
+                          f"memory/archive/photos/{B}/b0.jpg",
+                          f"trip_sources/{bsrc}/b.pdf")
         self.file("trip_sources/orphan-dir-0000/stray.pdf", b"%PDF-ORPHAN")
 
         # import provenance (§29.3): a pending candidate whose staged original is the

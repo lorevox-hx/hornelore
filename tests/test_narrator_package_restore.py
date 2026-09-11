@@ -243,7 +243,17 @@ class Restore(_RoundTrip):
         # §13: the tag naming Bea is preserved verbatim, dangling by design, reported by dry run
         tag = con.execute("SELECT person_id FROM media_archive_people").fetchone()
         self.assertEqual(tag[0], self.bea)
-        self.assertFalse(any("bea" in f.lower() or self.bea in f for f in self.dest_files()))
+        # ownership evidence only — never a name substring (a hex id can spell "bea")
+        dest = self.dest_files()
+        self.assertFalse(any(self.bea in f for f in dest), [f for f in dest if self.bea in f])
+        for rel in self.bea_files:
+            self.assertFalse((self.dest_root / rel).exists(), f"Bea's file arrived: {rel}")
+        for table, col in (("photos", "narrator_id"), ("trips", "person_id"), ("trip_sources", "trip_id")):
+            if col == "trip_id":
+                n = con.execute("SELECT COUNT(*) FROM trip_sources s JOIN trips t ON t.id=s.trip_id WHERE t.person_id=?", (self.bea,)).fetchone()[0]
+            else:
+                n = con.execute(f'SELECT COUNT(*) FROM "{table}" WHERE "{col}"=?', (self.bea,)).fetchone()[0]
+            self.assertEqual(n, 0, f"Bea has rows in {table}")
 
     def test_second_restore_is_refused_not_overwritten(self):
         self.restore()
@@ -296,6 +306,150 @@ class Restore(_RoundTrip):
         job = con.execute("SELECT state, error FROM narrator_package_jobs").fetchone()
         self.assertEqual(job["state"], "failed")
         self.assertIn("foreign", job["error"].lower())
+
+
+class _SimulatedCrash(BaseException):
+    """NOT an Exception: nothing in the service catches it, exactly as nothing
+    catches a process death. The ordinary cleanup handlers must not run."""
+
+
+class CrashRecovery(_RoundTrip):
+    """§12: the job row is crash-truthful, and recovery decides from it alone."""
+
+    def job(self):
+        return self.dest().execute("SELECT * FROM narrator_package_jobs ORDER BY created_at DESC").fetchone()
+
+    def test_death_during_file_copy_leaves_a_job_that_names_its_files_and_recovery_removes_only_them(self):
+        files_before = self.dest_files()
+
+        def seam(point):
+            if point == "after_first_file":
+                raise _SimulatedCrash(point)
+
+        with self.assertRaises(_SimulatedCrash):
+            pkg.restore_narrator(self.zip, data_dir=self.dest_root, db_path=self.dest_db, _crash_seam=seam)
+        # durable truth after the "crash": still `validated`; the job carries the package's
+        # payload manifest (planned path -> sha256, 0055) and has journaled what it CREATED (0054)
+        job = self.job()
+        self.assertEqual(job["state"], "validated")
+        planned = json.loads(job["file_manifest_json"])
+        self.assertEqual(len(planned), sum(self.res.manifest["file_counts_by_lane"].values()))
+        self.assertTrue(all(len(h) == 64 for h in planned.values()))
+        created = json.loads(job["files_json"])
+        on_disk = [rel for rel in planned if (self.dest_root / rel).is_file()]
+        self.assertEqual(sorted(created), sorted(on_disk), "files_json must be exactly what landed, not the plan")
+        self.assertGreaterEqual(len(on_disk), 1, "the crash was simulated after the first file landed")
+        self.assertLess(len(on_disk), len(planned))
+        con = self.dest()
+        self.assertIsNone(con.execute("SELECT 1 FROM people WHERE id=?", (self.ada,)).fetchone())
+        # recovery: removes exactly the job's files (by hash, not by name), no rows, job failed
+        reports = pkg.recover_restore_jobs(data_dir=self.dest_root, db_path=self.dest_db)
+        self.assertEqual([r["action"] for r in reports], ["cleaned"])
+        self.assertEqual(sorted(reports[0]["removed"]), sorted(on_disk))
+        self.assertEqual(reports[0]["left"], [])
+        self.assertEqual(self.job()["state"], "failed")
+        self.assertEqual(self.dest_files(), files_before)
+        self.assertIsNone(con.execute("SELECT 1 FROM people WHERE id=?", (self.ada,)).fetchone())
+        # idempotent after `failed`: nothing on disk or in the database moves
+        db_before = self.dest_db.read_bytes()
+        self.assertEqual([r["action"] for r in pkg.recover_restore_jobs(data_dir=self.dest_root, db_path=self.dest_db)], ["none"])
+        self.assertEqual(self.dest_files(), files_before)
+        self.assertEqual(self.dest_db.read_bytes(), db_before)
+        # and a normal restore now succeeds on the cleaned destination
+        self.assertEqual(self.restore().records_inserted, {t: n for t, n in self.res.manifest["record_counts_by_lane"].items() if n})
+
+    def test_recovery_never_deletes_foreign_bytes_at_a_planned_path(self):
+        """Mid-copy crash; then something else writes DIFFERENT bytes at a path the job
+        planned but never created. Recovery must leave it, name it, and not call the
+        cleanup clean."""
+        def seam(point):
+            if point == "after_first_file":
+                raise _SimulatedCrash(point)
+
+        with self.assertRaises(_SimulatedCrash):
+            pkg.restore_narrator(self.zip, data_dir=self.dest_root, db_path=self.dest_db, _crash_seam=seam)
+        job = self.job()
+        planned = json.loads(job["file_manifest_json"])
+        created = set(json.loads(job["files_json"]))
+        foreign = next(rel for rel in sorted(planned) if rel not in created)
+        fp = self.dest_root / foreign
+        fp.parent.mkdir(parents=True, exist_ok=True)
+        fp.write_bytes(b"SOMEBODY ELSE'S BYTES")
+        reports = pkg.recover_restore_jobs(data_dir=self.dest_root, db_path=self.dest_db)
+        self.assertEqual(reports[0]["action"], "cleaned")
+        self.assertEqual(sorted(reports[0]["removed"]), sorted(created))
+        self.assertEqual([l["path"] for l in reports[0]["left"]], [foreign])
+        self.assertIn("do not match", reports[0]["left"][0]["why"])
+        self.assertTrue(fp.is_file(), "the foreign file was deleted")
+        self.assertEqual(fp.read_bytes(), b"SOMEBODY ELSE'S BYTES")
+        job = self.job()
+        self.assertEqual(job["state"], "cleanup_required")
+        self.assertEqual(json.loads(job["files_json"]), [foreign])
+        self.assertIn(foreign, job["error"])
+        # the operator resolves it; a retry then closes the job
+        fp.unlink()
+        reports = pkg.recover_restore_jobs(data_dir=self.dest_root, db_path=self.dest_db)
+        self.assertEqual((reports[0]["action"], reports[0]["state_after"]), ("cleaned", "failed"))
+
+    def test_death_after_commit_leaves_db_committed_and_recovery_finishes_without_deleting(self):
+        def seam(point):
+            if point == "after_commit":
+                raise _SimulatedCrash(point)
+
+        with self.assertRaises(_SimulatedCrash):
+            pkg.restore_narrator(self.zip, data_dir=self.dest_root, db_path=self.dest_db, _crash_seam=seam)
+        job = self.job()
+        self.assertEqual(job["state"], "db_committed", "db_committed must be published WITH the rows")
+        expected = {t: n for t, n in self.res.manifest["record_counts_by_lane"].items() if n}
+        self.assertEqual(json.loads(job["counts_json"]), expected)
+        con = self.dest()
+        self.assertIsNotNone(con.execute("SELECT 1 FROM people WHERE id=?", (self.ada,)).fetchone())
+        files_after_crash = self.dest_files()
+        for rel in json.loads(job["files_json"]):
+            self.assertTrue((self.dest_root / rel).is_file(), rel)
+        # the package is GONE before recovery runs — Phase 5's upload staging will not
+        # outlive a restart. Recovery must verify from the durable job alone.
+        self.zip.unlink()
+        reports = pkg.recover_restore_jobs(data_dir=self.dest_root, db_path=self.dest_db)
+        self.assertEqual([r["action"] for r in reports], ["completed"], reports)
+        self.assertEqual(reports[0]["hashes_checked"], sum(self.res.manifest["file_counts_by_lane"].values()))
+        self.assertEqual(self.job()["state"], "complete")
+        self.assertEqual(self.dest_files(), files_after_crash)
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM trips").fetchone()[0], 2)
+        # idempotent
+        self.assertEqual([r["action"] for r in pkg.recover_restore_jobs(data_dir=self.dest_root, db_path=self.dest_db)], ["none"])
+
+    def test_recovery_refuses_to_delete_under_a_published_narrator(self):
+        """The defensive check: a job below db_committed whose narrator IS present
+        is a contradiction to report, never a licence to delete."""
+        self.restore()
+        con = sqlite3.connect(str(self.dest_db))
+        con.execute("UPDATE narrator_package_jobs SET state='files_copied'")   # forge the contradiction
+        con.commit()
+        con.close()
+        files_before = self.dest_files()
+        reports = pkg.recover_restore_jobs(data_dir=self.dest_root, db_path=self.dest_db)
+        self.assertEqual(reports[0]["action"], "refused")
+        self.assertEqual(self.dest_files(), files_before)
+        self.assertIn("recovery_required", self.job()["error"])
+
+    def test_db_committed_with_a_missing_file_is_recovery_required_not_complete(self):
+        def seam(point):
+            if point == "after_commit":
+                raise _SimulatedCrash(point)
+
+        with self.assertRaises(_SimulatedCrash):
+            pkg.restore_narrator(self.zip, data_dir=self.dest_root, db_path=self.dest_db, _crash_seam=seam)
+        rels = json.loads(self.job()["files_json"])
+        (self.dest_root / rels[0]).unlink()
+        (self.dest_root / rels[1]).write_bytes(b"ALTERED AFTER COMMIT")
+        reports = pkg.recover_restore_jobs(data_dir=self.dest_root, db_path=self.dest_db)
+        self.assertEqual(reports[0]["action"], "refused")
+        problems = reports[0]["problems"]
+        self.assertTrue(any(p.startswith("file missing") and rels[0] in p for p in problems), problems)
+        self.assertTrue(any(p.startswith("file hash differs") and rels[1] in p for p in problems), problems)
+        self.assertEqual(self.job()["state"], "db_committed")
+        self.assertTrue((self.dest_root / rels[1]).is_file(), "recovery must delete nothing at db_committed")
 
 
 class DeclarationCoversTheJobTable(_RoundTrip):
