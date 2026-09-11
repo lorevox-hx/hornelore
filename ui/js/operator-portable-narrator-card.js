@@ -49,9 +49,24 @@
 
   // ── narrator-switch clamp ─────────────────────────────────────────
   var _switchGen = 0;
+  // Phase 5a live acceptance (2026-09-11): app.js announces the switch
+  // (`lvOperatorPortableNarratorOnNarratorSwitch(pid)`, app.js:4340) BEFORE
+  // `await loadPerson(pid)` assigns `state.person_id` (app.js:3823). Reading
+  // state alone at that moment gave the PREVIOUS narrator — nothing on the
+  // first pick — so the preflight was skipped and the card sat on "Choose a
+  // narrator." after the picker. The announced pid is the answer until state
+  // catches up; once the two agree, state is the authority again, so a later
+  // delete (which nulls state without announcing) is still seen.
+  var _switchPid = null;
   function currentPersonId() {
-    try { return (typeof state !== 'undefined' && state && state.person_id) ? String(state.person_id) : ''; }
-    catch (_) { return ''; }
+    var s = '';
+    try { s = (typeof state !== 'undefined' && state && state.person_id) ? String(state.person_id) : ''; }
+    catch (_) { s = ''; }
+    if (_switchPid !== null) {
+      if (s === _switchPid) _switchPid = null;
+      else return _switchPid;
+    }
+    return s;
   }
   function _ctx() { return { gen: _switchGen, pid: currentPersonId() }; }
   function _stale(ctx) { return !ctx || ctx.gen !== _switchGen || ctx.pid !== currentPersonId(); }
@@ -115,6 +130,27 @@
       if (body && !body.error) { _state.preflight = body; _state.preflightFor = ctx.pid; }
       else { _state.preflight = null; _state.preflightFor = ctx.pid; }
       render();
+      reattachExportJob(ctx);
+    });
+  }
+
+  // Phase 5a live acceptance (2026-09-11): "You may leave this screen; the
+  // job continues" was true of the server but not of the card after a full
+  // browser reload — the ledger still held the job, Activity listed it, and
+  // the Move view offered a fresh Create button with no progress. The card
+  // re-attaches this narrator's newest job FROM THE LEDGER: a running one
+  // resumes polling, a finished one with its package still on disk offers the
+  // download. It reads the server's records; it decides nothing.
+  function reattachExportJob(ctx) {
+    if (_state.exportJob) return;
+    request('/export/jobs?limit=10').then(function (body) {
+      if (_stale(ctx) || _state.exportJob || !body || body.error || !body.jobs) return;
+      var mine = body.jobs.filter(function (j) { return j.narrator_id === ctx.pid; });
+      if (!mine.length) return;
+      var j = mine[0];
+      var running = j.state === 'queued' || j.state === 'running';
+      if (running) { _state.exportJob = j; _state.exportBusy = true; render(); pollExport(j.job_id); }
+      else if (j.state === 'complete' && j.download_available) { _state.exportJob = j; render(); }
     });
   }
 
@@ -585,8 +621,9 @@
   window.lvOperatorPortableNarratorRenderInto = renderInto;
   window.lvOperatorPortableNarratorState = function () { return _state; };
   window.lvOperatorPortableNarratorRefresh = function () { return refreshPreflight().then(refreshRestoreJobs).then(refreshExportJobs); };
-  window.lvOperatorPortableNarratorOnNarratorSwitch = function () {
+  window.lvOperatorPortableNarratorOnNarratorSwitch = function (pid) {
     _switchGen += 1;
+    _switchPid = (pid === undefined || pid === null) ? '' : String(pid);
     _state.preflight = null; _state.preflightFor = null; _state.exportJob = null; _state.exportBusy = false;
     if (_state.enabled !== false) refreshPreflight(); else render();
   };

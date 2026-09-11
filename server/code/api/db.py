@@ -987,6 +987,17 @@ def init_db() -> None:
         "INSERT OR IGNORE INTO interview_plans(id,title,created_at) VALUES(?,?,?);",
         ("default", "Default Plan", now),
     )
+    # WO-LOREVOX-PORTABLE-NARRATOR-01 Phase 5a live acceptance (2026-09-11):
+    # every chat session row points at plan 'chat_ws', which was lazy-seeded
+    # by the first chat turn only (BUG-CHATWS-CONV-FK-01). A CLEAN installation
+    # that has never chatted therefore refused to restore any narrator who
+    # had — "missing_dependency interview_plans: chat_ws" — with no operator
+    # path to create the row except starting a conversation. Installation-
+    # owned defaults belong to init_db. Idempotent; the lazy seed stays.
+    cur.execute(
+        "INSERT OR IGNORE INTO interview_plans(id,title,created_at) VALUES(?,?,?);",
+        ("chat_ws", "Plan: chat_ws", now),
+    )
 
     # -----------------------------
     # RAG (optional; used by inspector/router if you keep it)

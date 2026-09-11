@@ -318,6 +318,14 @@ class _Fixture(unittest.TestCase):
         isess = keep("interview_sessions", self.ins("interview_sessions", person_id=A, plan_id=plan))
         keep("interview_threads", self.ins("interview_threads", session_id=isess, thread_anchor="the train"))
         self.ins("interview_sessions", person_id=B, plan_id=plan)
+        # questionnaire value (Phase 5a live acceptance, 2026-09-11): bio_facts
+        # references the INSTALLATION table bio_fields by field_key, not by its
+        # UUID primary key. The row it names comes from the product's own seed
+        # loader (init_db above), never from this fixture — the fixture may not
+        # supply the property under test.
+        self.bio_field_key = "birth_place"
+        keep("bio_facts", self.ins("bio_facts", narrator_id=A, field_key=self.bio_field_key,
+                                   value='"Barre, Vermont"', status="operator_confirmed", last_updated=T))
         c.commit()
 
     # ── helpers over a built package ──

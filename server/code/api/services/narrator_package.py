@@ -284,6 +284,18 @@ def _fks(con: sqlite3.Connection, table: str) -> List[Tuple[str, str, str]]:
     return out
 
 
+def _dependency_key_columns(con: sqlite3.Connection, parent: str, tables) -> List[str]:
+    """The columns of `parent` that other tables' foreign keys point at — the
+    columns whose VALUES the exporter recorded as installation dependencies.
+    Falls back to the primary key when nothing references the table."""
+    cols: Set[str] = set()
+    for t in tables:
+        for _frm, ptable, pcol in _fks(con, t):
+            if ptable == parent:
+                cols.add(pcol)
+    return sorted(cols) or _pk_columns(con, parent)[:1]
+
+
 def _schema_fingerprint(con: sqlite3.Connection) -> str:
     h = hashlib.sha256()
     for r in con.execute("SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type, name"):
@@ -1052,8 +1064,16 @@ def _dry_run_on_extracted(tmp: Path, manifest: Dict[str, Any], root: Path, db_pa
             if table not in present:
                 missing.append({"table": table, "ids": ids, "detail": "table absent in destination"})
                 continue
-            pk = _pk_columns(con, table)[0]
-            absent = [i for i in ids if not con.execute(f'SELECT 1 FROM "{table}" WHERE "{pk}" = ?', (i,)).fetchone()]
+            # Phase 5a live acceptance (2026-09-11): the exporter records these ids
+            # from the REFERENCED column (`_check_ref` receives `parent_key`), which
+            # is not always the primary key — bio_facts.field_key → bio_fields.field_key
+            # while bio_fields.id is a UUID. Looking the ids up by primary key refused
+            # every narrator with a questionnaire on every clean installation
+            # ("missing_dependency bio_fields: birth_date, …" against a seeded table).
+            # The destination's own FK graph says which column the ids name.
+            keys = _dependency_key_columns(con, table, present)
+            absent = [i for i in ids if not any(
+                con.execute(f'SELECT 1 FROM "{table}" WHERE "{k}" = ?', (i,)).fetchone() for k in keys)]
             if absent:
                 missing.append({"table": table, "ids": absent,
                                 "detail": "installation-owned rows this narrator references; create them here first"})

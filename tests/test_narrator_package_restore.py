@@ -125,6 +125,43 @@ class DryRun(_RoundTrip):
         self.assertEqual(m[0]["table"], "interview_plans")
         self.assertIn(self.plan_id, m[0]["ids"])
 
+    def test_dependency_ids_are_matched_on_the_referenced_column_not_the_primary_key(self):
+        """Phase 5a live acceptance (2026-09-11), the clean-root defect.
+
+        The exporter records installation dependencies by the values of the column
+        the narrator's rows REFERENCE (bio_facts.field_key → bio_fields.field_key);
+        dry run looked them up by bio_fields' primary key, a UUID minted by the
+        product's seed loader, and refused every questionnaire on every clean
+        installation. Both sides here are production: the package's ids come from
+        the exporter and the destination's bio_fields rows from init_db()'s seed."""
+        deps = self.res.manifest["installation_dependencies"]
+        self.assertIn("bio_fields", deps)
+        self.assertIn(self.bio_field_key, deps["bio_fields"])
+        con = self.dest()
+        row = con.execute("SELECT id, field_key FROM bio_fields WHERE field_key=?", (self.bio_field_key,)).fetchone()
+        self.assertIsNotNone(row, "init_db() must seed the questionnaire schema")
+        self.assertNotEqual(row["id"], row["field_key"], "the seeded primary key is a UUID, not the key")
+        rep = self.dry_run()
+        self.assertTrue(rep.ready, rep.reasons)
+        self.assertEqual(rep.missing_dependencies, [])
+        # remove the referenced row: the refusal names the table and the key value
+        w = sqlite3.connect(str(self.dest_db))
+        w.execute("DELETE FROM bio_fields WHERE field_key=?", (self.bio_field_key,))
+        w.commit(); w.close()
+        rep = self.dry_run()
+        self.assertFalse(rep.ready)
+        m = [r for r in rep.reasons if r["code"] == "missing_dependency" and r["table"] == "bio_fields"]
+        self.assertEqual(len(m), 1, rep.reasons)
+        self.assertEqual(m[0]["ids"], [self.bio_field_key])
+
+    def test_clean_installation_owns_the_chat_plan_before_anyone_has_chatted(self):
+        """Every chat session references plan 'chat_ws'. It used to exist only after
+        the first turn on an installation, so a clean root could not accept any
+        narrator who had ever talked to Lori. init_db() seeds it now."""
+        con = self.dest()
+        self.assertIsNotNone(con.execute("SELECT 1 FROM interview_plans WHERE id='chat_ws'").fetchone())
+        self.assertIsNotNone(con.execute("SELECT 1 FROM interview_plans WHERE id='default'").fetchone())
+
     def test_existing_narrator_is_a_collision(self):
         self.restore()
         rep = self.dry_run()
