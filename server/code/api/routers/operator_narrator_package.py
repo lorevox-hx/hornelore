@@ -84,6 +84,14 @@ def _data_dir() -> Path:
 
 
 def _db_path() -> Path:
+    # Phase 6 first real run (2026-09-11): on a brand-new root the database file
+    # is created lazily by the first init_db(), so an operator whose first act on
+    # a fresh installation is to upload a package was refused `db_not_found` for
+    # a database nobody had made yet. The 5a walk missed it only because a
+    # /api/people probe had run first. The installation initialises itself
+    # (schema, migrations, installation-owned seeds) before any verdict is given;
+    # init_db() is idempotent and every other accessor already calls it.
+    _db.init_db()
     return Path(_db.DB_PATH)
 
 

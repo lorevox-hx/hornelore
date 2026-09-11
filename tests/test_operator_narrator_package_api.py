@@ -252,6 +252,49 @@ class ExportJobs(_Api):
             self.router_mod._OP_LOCK.release()
 
 
+class FreshInstallationInitialisesItself(_Api):
+    """Phase 6 first real run (2026-09-11): the operator's FIRST act on a brand-new
+    root was to upload a package, and readiness refused `db_not_found` because the
+    database file is created lazily by init_db() and nothing had called it yet. The
+    5a walk had probed /api/people first, which hid it. The router must initialise
+    the installation before it gives any verdict."""
+
+    def setUp(self):
+        super().setUp()
+        self.package = self.export().package_path
+        # a root that has NEVER been initialised: no db directory, no file, no seeds
+        self.dest_root = Path(self._tmp.name) / "fresh"
+        self.dest_root.mkdir()
+        os.environ["DATA_DIR"] = str(self.dest_root)
+        os.environ["DB_NAME"] = "fresh.sqlite3"
+        from api import db as _db
+        importlib.reload(_db)
+        self.dest_db = Path(_db.DB_PATH)
+        self.assertFalse(self.dest_db.exists(), "the fixture must start with no database file")
+        self.client = self._client()
+
+    def test_first_upload_on_a_never_initialised_root_gets_a_real_readiness_verdict(self):
+        with self.package.open("rb") as fh:
+            r = self.client.post("/api/operator/narrator-package/import/upload",
+                                 files={"file": ("ada.lorevox.zip", fh, "application/zip")})
+        self.assertEqual(r.status_code, 201, r.text)
+        u = r.json()
+        self.assertTrue(u["integrity"]["ok"], u["integrity"])
+        codes = {x["code"] for x in u["readiness"]["reasons"]}
+        self.assertNotIn("db_not_found", codes, u["readiness"])
+        self.assertNotIn("unsupported_schema", codes, u["readiness"])
+        self.assertTrue(self.dest_db.exists(), "the installation initialised itself before judging")
+        # the installation-owned seeds are there too: the questionnaire schema and the
+        # chat plan — the only dependency left unmet is the fixture's own minted plan id
+        missing = {m["table"] for m in u["readiness"]["missing_dependencies"]}
+        self.assertNotIn("bio_fields", missing, u["readiness"]["missing_dependencies"])
+        con = sqlite3.connect(str(self.dest_db))
+        try:
+            self.assertIsNotNone(con.execute("SELECT 1 FROM interview_plans WHERE id='chat_ws'").fetchone())
+        finally:
+            con.close()
+
+
 class ImportWorkflow(_Api):
 
     def setUp(self):

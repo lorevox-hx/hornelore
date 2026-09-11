@@ -1567,8 +1567,20 @@ def compare_packages_semantically(a: Path, b: Path) -> ComparisonReport:
         ma = json.loads((ta / MANIFEST_NAME).read_text(encoding="utf-8"))
         mb = json.loads((tb / MANIFEST_NAME).read_text(encoding="utf-8"))
 
+        def _sem(m, key):
+            # Phase 6 first real compare (2026-09-11): the desktop manifest listed
+            # `kawa_segments: 0` (the lane exists on that root, empty) while the clean
+            # root's manifest omitted the lane entirely (absent in source). A lane with
+            # nothing in it and a lane that is not there carry the same narrator state,
+            # so zero-valued entries in the per-lane count maps are dropped before the
+            # comparison. Rows and files are still compared one by one below.
+            v = m.get(key)
+            if key in ("record_counts_by_lane", "file_counts_by_lane", "bytes_by_lane") and isinstance(v, dict):
+                return {k: n for k, n in v.items() if n}
+            return v
+
         for key in _MANIFEST_SEMANTIC:
-            if ma.get(key) != mb.get(key):
+            if _sem(ma, key) != _sem(mb, key):
                 diffs.append({"kind": "manifest", "field": key, "a": ma.get(key), "b": mb.get(key)})
         for key in _MANIFEST_INFORMATIONAL:
             if ma.get(key) != mb.get(key):

@@ -260,6 +260,35 @@ class ComparatorIsNotVacuous(_Trip):
         # and the manifest count difference is reported too — two independent signals
         self.assertTrue(any(d["kind"] == "manifest" and d["field"] == "record_counts_by_lane" for d in rep.differences))
 
+    def test_an_empty_lane_and_an_absent_lane_are_the_same_narrator_state(self):
+        """Phase 6 first real compare (2026-09-11): the desktop manifest carried
+        `kawa_segments: 0` (lane present on that root, nothing in it) and the clean
+        root's manifest omitted the lane (absent in source). Same narrator state; the
+        comparator must not call that a difference. Re-bagged with the real library so
+        the mutated package stays a VALID bag."""
+        import bagit  # type: ignore
+        import tempfile
+        self.restore()
+        b = self.export_b()
+        a_zero = self.out_b / "a_zero.lorevox.zip"
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            with zipfile.ZipFile(self.res.package_path) as zf:
+                zf.extractall(tmp)
+            man = json.loads((tmp / pkg.MANIFEST_NAME).read_text(encoding="utf-8"))
+            for field in ("file_counts_by_lane", "bytes_by_lane"):   # the observed case: a file lane
+                self.assertNotIn("zz_lane_nobody_has", man[field])
+                man[field]["zz_lane_nobody_has"] = 0
+            (tmp / pkg.MANIFEST_NAME).write_text(json.dumps(man, indent=2), encoding="utf-8")
+            bagit.Bag(str(tmp)).save(manifests=True)
+            with zipfile.ZipFile(a_zero, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for f in sorted(tmp.rglob("*")):
+                    if f.is_file():
+                        zf.write(f, f.relative_to(tmp).as_posix())
+        self.assertTrue(pkg.validate_package(a_zero).ok, pkg.validate_package(a_zero).problems)
+        rep = pkg.compare_packages_semantically(a_zero, b.package_path)
+        self.assertTrue(rep.equivalent, rep.differences)
+
     def test_an_invalid_package_is_a_difference_not_a_crash(self):
         bad = self.out_b / "bad.lorevox.zip"
         bad.write_bytes(b"not a zip")
