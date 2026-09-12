@@ -1,8 +1,72 @@
 # WO-LORI-NARRATOR-FOCUS-MODE-01 — Interview focus mode for the narrator room
 
-**Status: DRAFTED 2026-09-12, REVISED same day after Chris's review against the shipped
-page; not started.** Drafted on the laptop at the close of the Phase 6 laptop-origin
-session; intended for implementation in a desktop session. Docs-only until then.
+**Status: IMPLEMENTED 2026-09-12; LIVE ACCEPTANCE PARTIAL — NOT ACCEPTED.**
+Drafted and revised on the laptop at the close of the Phase 6 laptop-origin session,
+implemented the same day in a desktop session. **Do not record this WO as accepted until
+cases 7 and 8 below have evidence.**
+
+Shipped files: `ui/css/narrator-focus-mode.css`, `ui/js/narrator-focus-mode.js`, three
+edits to `ui/hornelore1.0.html` (stylesheet link, entry control in the header strip,
+script tag), `tests/test_narrator_focus_mode.py`.
+
+**Naming decision, made at implementation.** The body class is **`lv-narrator-focus`**, not
+the spec's working name `lv-interview-focus`. The shipped page already carries
+`body.lv-interview-mode-active` (WO-INTERVIEW-MODE-01), which is **not** presentation-only —
+`lvEnterInterviewMode()` switches shell tabs (`app.js:1598`) and can dispatch a Lori turn via
+`startIdentityOnboarding()` (`app.js:1641`) — and `FocusCanvas`/`fc-*` is a third "focus"
+surface. A name one word from the first invites a future session to merge them. A test pins
+that focus mode never keys off it.
+
+**Acceptance ledger — live walk 2026-09-12, Chrome 153.0.0.0, disposable narrator
+`ZZ FOCUS MODE TEST cb2a22ff` (no family narrator, none of the seven Ada fixtures):**
+
+| # | Case | Result |
+|---|---|---|
+| 1 | Enter/leave mutates nothing | **PASS** — baseline taken AFTER narrator-open settled (8 records / `bio_facts` 4, two reads 4 s apart identical); unchanged after repeated cycles. **Delta 0.** The known four open-time `questionnaire_put` rows (BACKLOG §5) sit before the window by construction |
+| 2 | No operator surface reachable by click or tab | **FAILED, REPAIRED, RETEST OWED** — see below |
+| 3 | Generic popover closure | **PASS** — Bug Panel alone and Memoir alone, neither named in the module; `offsetParent` measured `null` while the Bug Panel was genuinely open |
+| 4 | `dialog[open]` refuses, dialog untouched | **PASS** — `memoirEditModal` with an unsaved edit: refused, still open, edit byte-identical |
+| 5 | Warmup / no-narrator refusal | **PASS** — wrong tab and no narrator both refused with a reason; full UI retained |
+| 6 | Focus transfer both directions | **PASS** — entry → `#crChatInner`; exit → `#lvNarratorFocusBtn`; `tabindex` added then removed |
+| 7 | One real spoken turn | **UNVERIFIED — needs Chris present** (TTS-aware testing rule; an agent can read mic classes but cannot hear playback) |
+| 8 | Composer geometry at 697px and at the derived minimum | **PARTIAL/UNVERIFIED.** Measured at **755px** (inside the ≤820px wrapped regime): textarea 328×61, Send 97×56 fully inside, mic 88px, zero overflow — all five checks pass. **697px and 650px are still owed and 755px does not substitute.** Chrome's `resize_window` is a no-op in this harness; the built-in pane emulates but its page had an empty narrator list and a non-painting layout. Route: resize the Chrome window by hand, or Playwright in WSL. **650px is derived, not invented** — the narrowest breakpoint any shipped stylesheet declares (`lori80.css:43`) |
+| 9 | Exit chord, and no accidental exit | **PASS** — chord exits from a focused textarea; twelve negatives held (plain F, Ctrl+F, Alt+F, Shift+F, Ctrl+Shift+F, full chord on the wrong key, Enter, Escape, arrows, Tab, ordinary typing, transcript click) |
+| 10 | Reload → full operator UI | **PASS** — body class empty, header and tabs back, no stored keys |
+| 11 | Ordinary room after exit, no style bleed | **PASS** — mic 64px, input 15px, bubble 18px, speaker opacity 0.55, transparent ground, Bug Panel opens normally |
+
+Also measured: three enter/exit cycles clean with no duplicate controls; **no network
+activity attributable to the mode** (every request during enter/exit was a pre-existing
+poller — `test-lab/*`, `safety-events`, `ui-heartbeat`); console clean but for one
+pre-existing WebSocket log.
+
+**Case 2 — the failure, because how it was first recorded matters.** Five operator controls
+were probed and found not-focusable, and the case was marked PASS; separately, the
+FocusCanvas controls (`fcDoneBtn` and siblings) were found keyboard-focusable while parked
+below the viewport, and that was filed as "pre-existing, backlog". **Chris rejected the
+reasoning on review and was right:** the contract is *no* operator control reachable by
+click **or tab traversal**, and where the defect came from changes who caused it, not
+whether the case passes. Repaired in focus-mode scope only — `#fcCanvas` and `#fcScrim` are
+`display: none` while the mode is active (display, not `visibility`/`opacity`, because only
+display leaves the tab order and the accessibility tree), plus a fifth refusal when that
+overlay is **open**, since `#fcTextarea` can hold text the narrator typed and has not sent —
+the same unsaved-work rule as `memoirEditModal`, which the native-`<dialog>` check cannot
+see because `#fcCanvas` is a dialog in ARIA only. **The global leak in the ordinary UI is a
+separate defect and is deliberately NOT repaired here.** Pinned by
+`test_the_parked_capture_overlay_is_removed_from_the_tab_order`; the first version of the
+suite passed the defect because it only asked about controls the author had named.
+
+**One defect of the implementation's own, found live and fixed:** the composer row was
+capped at the reading measure (65ch), leaving the textarea **284px at a 1437px viewport** —
+under this WO's own 300px floor — and pushing Send onto a second row. Now
+`min(100%, 980px)`: 592px at desktop, 328px at 755px.
+
+**Harness note for future UI work (belongs with CLAUDE.md's UI hazards).** Automated layout
+reads can return **stale** values when the tab or pane has not painted; a screenshot forces
+the paint. This produced a false "the mic is 64px, my rule is not applying" defect that
+survived six rounds of investigation — including a `!important` probe — until a screenshot
+showed the element was 88px and lime all along. Force a paint before geometry evidence. This
+is a statement about non-painting automated contexts, **not** a claim that
+`getBoundingClientRect()` is unreliable in general.
 
 *(Revision record: the first draft claimed the composer `min-width` fix was still
 withdrawn — a stale status line copied from HANDOFF §7 without reading the shipped page,

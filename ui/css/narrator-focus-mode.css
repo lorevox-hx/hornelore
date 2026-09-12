@@ -1,0 +1,324 @@
+/* WO-LORI-NARRATOR-FOCUS-MODE-01 — interview focus mode for the narrator room.
+ *
+ * PRESENTATION ONLY. Every rule here is gated on `body.lv-narrator-focus`.
+ * Nothing in this file changes what the application DOES: no state, no
+ * transport, no turn_mode, no mic state machine. It changes what the narrator
+ * SEES while an operator has handed them the room.
+ *
+ * ── THE NAME, AND WHY IT IS NOT THE SPEC'S WORKING NAME ──────────────
+ * The spec proposed the working name `lv-interview-focus`. Rejected at
+ * implementation, because the shipped page already has TWO neighbours it
+ * would be confused with, and both were read before choosing:
+ *
+ *   1. `body.lv-interview-mode-active` — WO-INTERVIEW-MODE-01's three-column
+ *      interview view (`app.js:1583` `lvEnterInterviewMode`). It is NOT
+ *      presentation-only: it switches shell tabs (`lvShellShowTab("narrator")`,
+ *      app.js:1598) and can DISPATCH A LORI TURN via `startIdentityOnboarding()`
+ *      (app.js:1641). Focus mode is forbidden from doing either. A class name
+ *      one word away from it invites a future reader to merge the two.
+ *   2. `FocusCanvas` / the `fc-*` family (`ui/js/focus-canvas.js`, mounted at
+ *      `hornelore1.0.html:5592`) — the Phase N capture overlay with its own
+ *      scrim. A second thing called "focus" with a different meaning.
+ *
+ * So: `lv-narrator-focus`, `narrator-focus-mode.{css,js}`, `lvNarratorFocus*`.
+ * The name says whose surface it is. Do not rename it back.
+ *
+ * ── SPECIFICITY, DELIBERATE ──────────────────────────────────────────
+ * `hornelore1.0.html` carries a large inline <style> block AFTER every
+ * <link>, so an external stylesheet cannot win by source order. Every rule
+ * below therefore leads with `body.lv-narrator-focus`, which outranks the
+ * inline `#chatInput` / `#btnMic.mic-wait` rules on specificity alone.
+ * `!important` is used ONLY where a rule must beat an inline style
+ * attribute in the markup (the voice bar and capture bar carry one).
+ */
+
+/* ── 0. The entry control's refusal line ─────────────────────────────
+ * The ONLY rules in this file not gated on the body class, because they
+ * style an element that is shown when focus mode is REFUSED — i.e. when
+ * the class is absent. Operator-side, in the header, next to the button.
+ * It carries `role="status"` so the reason is announced, not just drawn. */
+.lv-narrator-focus-status {
+  max-width: 34ch;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #fcd34d;
+  background: rgba(120, 53, 15, .35);
+  border: 1px solid rgba(245, 158, 11, .45);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+.lv-narrator-focus-status[hidden] { display: none; }
+
+/* ── 1. What leaves the screen ───────────────────────────────────────
+ * Operator surface first (the "no operator leakage" principle applied to
+ * furniture), then the competing animated status indicator. */
+body.lv-narrator-focus #lv80Header,
+body.lv-narrator-focus #lvShellTabs,
+body.lv-narrator-focus .lv-narrator-topbar,
+body.lv-narrator-focus .lv-narrator-view-tabs,
+body.lv-narrator-focus #lvNarratorViewHost,
+body.lv-narrator-focus #lvNarratorContextPanel,
+body.lv-narrator-focus #crAccordionCol,
+body.lv-narrator-focus #lvInterviewActiveFocus,
+body.lv-narrator-focus #lvInterviewPeekFloater,
+body.lv-narrator-focus #lvInterviewLifeMap,
+body.lv-narrator-focus #lvAddTripPhotoBtn,
+body.lv-narrator-focus #lvNarratorFocusBtn,
+body.lv-narrator-focus #lvNarratorFocusStatus {
+  display: none !important;
+}
+
+/* ── The parked FocusCanvas capture surface ──────────────────────────
+ * `#fcCanvas` (the Phase N capture overlay, `ui/js/focus-canvas.js`) and its
+ * scrim sit in the DOM at all times. When closed they are parked BELOW the
+ * viewport rather than removed, so their controls — Close, the five memory
+ * chips, the two mode buttons, `fcMicBtn`, `fcDoneBtn` — stay in the tab
+ * order. Measured 2026-09-12 in focus mode: `fcDoneBtn` was focusable at
+ * y≈1074 with the viewport 723 tall.
+ *
+ * That fails this WO's acceptance outright — "no operator control reachable
+ * by click or TAB-FOCUS TRAVERSAL" — and the fact that the leak predates
+ * focus mode does not change the result, only who caused it. A narrator
+ * alone with a keyboard must not tab into an invisible capture panel.
+ *
+ * `display: none` (not `visibility`, not `opacity`) is what removes an
+ * element from the tab order and from the accessibility tree. Scoped to the
+ * mode: ordinary FocusCanvas behaviour is untouched, and entry is REFUSED
+ * outright while the panel is open (see narrator-focus-mode.js), so this
+ * rule never hides a capture in progress. The global leak in the ordinary
+ * UI is a separate defect and is NOT repaired here. */
+body.lv-narrator-focus #fcCanvas,
+body.lv-narrator-focus #fcScrim {
+  display: none !important;
+}
+
+/* The voice bar and the capture bar carry inline `style="display:flex"` /
+ * utility classes in the markup, so these two need the important flag to
+ * beat the attribute. Both are operator/diagnostic furniture. */
+body.lv-narrator-focus #wo8VoiceBar,
+body.lv-narrator-focus #lv80CaptureBar {
+  display: none !important;
+}
+
+/* §"The mic is the hero, and the SOLE status surface". SOLE is the whole
+ * requirement, so BOTH of the room's other status indicators go:
+ *
+ *   `#lv80LoriDot`  (markup 3579, driven from 5801) — pulses for
+ *       thinking / drafting / speaking.
+ *   `#lv80Thinking` ("Lori is thinking…", markup 3557) — a second status
+ *       surface in words. Implementation first kept it, rendered static,
+ *       reasoning that an older narrator needs to know Lori heard them.
+ *       OVERRULED on review 2026-09-12, correctly: the mic's WAIT state
+ *       already says Lori owns the turn, and a static second indicator is
+ *       still a second indicator. The spec had settled this and the
+ *       implementation was re-deciding it.
+ *
+ * Neither state machine is touched — only what they are allowed to draw
+ * while the narrator has the room. Both behave exactly as before outside
+ * focus mode. */
+body.lv-narrator-focus #lv80LoriDot,
+body.lv-narrator-focus #lv80Thinking { display: none !important; }
+
+/* ── 2. The ground ───────────────────────────────────────────────────
+ * Soft off-white, never glare-white (#fff at full screen is its own
+ * glare problem for older eyes). Dark ink on light ground is the
+ * readable direction for aging vision. Scoped to the surfaces focus
+ * mode actually shows, so nothing outside the room is re-themed. */
+body.lv-narrator-focus #lvNarratorRoom,
+body.lv-narrator-focus .lv-narrator-main,
+body.lv-narrator-focus #lvNarratorConversation,
+body.lv-narrator-focus #lv80ChatWrap,
+body.lv-narrator-focus #crChatInner {
+  background: #f7f5f0;
+}
+
+body.lv-narrator-focus #lvNarratorRoom { border: 0; }
+
+/* The room fills the viewport once the shell chrome is gone. */
+body.lv-narrator-focus #lvNarratorTab,
+body.lv-narrator-focus #lvNarratorRoom,
+body.lv-narrator-focus .lv-narrator-main {
+  height: 100%;
+  max-height: 100%;
+}
+
+body.lv-narrator-focus #crChatInner:focus { outline: none; }
+body.lv-narrator-focus #crChatInner:focus-visible {
+  outline: 3px solid #6366f1;
+  outline-offset: -3px;
+}
+
+/* ── 3. The conversation ─────────────────────────────────────────────
+ * Current exchange is the page; history stays FULLY READABLE and is
+ * subordinated by size, spacing and weight ONLY. No opacity, no reduced
+ * contrast: a narrator must never have to work harder to reread
+ * something they said. Measure capped near 65ch. */
+body.lv-narrator-focus #chatMessages {
+  max-width: 65ch;
+  padding: 40px 24px 180px;
+  gap: 32px;
+}
+
+body.lv-narrator-focus .bubble {
+  max-width: 100%;
+  padding: 18px 22px;
+  border-radius: 14px;
+  margin-bottom: 0;
+}
+
+body.lv-narrator-focus .bubble-body {
+  font-size: 20px;          /* history */
+  line-height: 1.6;
+  color: #1c1a17;           /* full contrast, not a wash */
+  font-weight: 400;         /* no thin weights anywhere in this file */
+}
+
+/* The current turn — the last thing said, whoever said it. */
+body.lv-narrator-focus #chatMessages > :last-child .bubble-body {
+  font-size: 24px;
+  line-height: 1.6;
+}
+
+body.lv-narrator-focus .bubble-speaker {
+  font-size: 13px;
+  letter-spacing: .06em;
+  opacity: 1;               /* shipped default is .55 — too faint here */
+  margin-bottom: 8px;
+  color: #5b5346;
+}
+body.lv-narrator-focus .bubble-ai .bubble-speaker  { color: #4c3f8f; }
+body.lv-narrator-focus .bubble-user .bubble-speaker { color: #5b5346; }
+
+body.lv-narrator-focus .bubble-ai {
+  background: #ffffff;
+  border: 1px solid #e3ddd0;
+  box-shadow: 0 1px 2px rgba(28,26,23,.05);
+}
+body.lv-narrator-focus .bubble-user {
+  background: #ece7dc;
+  border: 1px solid #ddd5c5;
+}
+/* System bubbles are operator-facing status; focus mode does not show them. */
+body.lv-narrator-focus .bubble-sys { display: none !important; }
+
+/* ── 4. Patience, not pressure ───────────────────────────────────────
+ * WO-10C's protected silence has a visual counterpart: nothing on this
+ * screen may count, tick, or hurry.
+ *
+ * `#lv80IdleCue` ("Take your time…") is KEPT, and the distinction is the
+ * point of this section: it is not a status indicator and not a pressure
+ * cue — it is WO-10C's own invitational re-entry, the surface telling the
+ * narrator that silence is allowed. Removing it would remove the patience,
+ * not the pressure. (`#lv80Thinking` was hidden above: that one reports
+ * what the SYSTEM is doing, which is the mic's job in focus mode.) */
+body.lv-narrator-focus #lv80IdleCue {
+  font-size: 18px;
+  color: #5b5346;
+}
+body.lv-narrator-focus #seeNewMsgBtn {
+  font-size: 17px;
+  min-height: 48px;
+  padding: 12px 20px;
+}
+
+/* ── 5. The composer ─────────────────────────────────────────────────
+ * ⚠ THE LANDED NARROW-WIDTH REPAIR IS LOAD-BEARING AND MUST SURVIVE.
+ * `#chatInput { flex: 1 1 auto; min-width: 0 }` (inline style block
+ * 707-709), `.lv-composer-row { flex-wrap: wrap }` and
+ * `.lv-composer-row > * { flex-shrink: 0 }` (611-612), plus the
+ * ≤820px full-row rule (613-619), are what stopped this textarea
+ * rendering 33px wide at a 690px viewport. Focus mode RE-ASSERTS
+ * `min-width: 0` rather than relying on inheritance, sets no width or
+ * flex-basis on the row, and never reintroduces `flex-shrink` on the
+ * children. Do not add a fixed width here. */
+body.lv-narrator-focus footer {
+  background: #f2efe8;
+  border-top: 1px solid #ddd5c5;
+  padding: 16px 20px;
+}
+
+/* The composer is NOT held to the reading measure. 65ch is the right width
+ * for a column of prose; applied here it left the textarea 284px at a
+ * 1568px viewport — under the WO's own 300px floor — and pushed Send onto a
+ * second row while there was empty space either side. Measured live
+ * 2026-09-12. The row gets its own wider cap so the mic, the textarea and
+ * Send sit on one line at desktop widths, and the landed ≤820px wrap rule
+ * still takes over below that. */
+body.lv-narrator-focus .lv-composer-row {
+  max-width: min(100%, 980px);
+  margin: 0 auto;
+  gap: 14px;
+  align-items: center;
+}
+
+body.lv-narrator-focus #chatInput {
+  flex: 1 1 auto;
+  min-width: 0;             /* re-asserted: the repair, not a rebuild */
+  font-size: 20px;
+  line-height: 1.5;
+  min-height: 56px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  background: #ffffff;
+  border: 2px solid #c9c0ad;
+  color: #1c1a17;
+}
+body.lv-narrator-focus #chatInput::placeholder { color: #8a8172; }
+body.lv-narrator-focus #chatInput:focus { border-color: #6366f1; }
+
+body.lv-narrator-focus #lv80SendBtn {
+  font-size: 18px;
+  min-height: 56px;
+  padding: 14px 28px;
+  border-radius: 14px;
+}
+
+body.lv-narrator-focus #btnPause {
+  font-size: 16px;
+  min-height: 48px;
+  padding: 12px 18px;
+}
+
+/* ── 6. The mic — hero, and the only animation ───────────────────────
+ * WO-MIC-UI-02A's four states keep their colours, their semantics and
+ * their labels. Only the scale changes, and one animation is suppressed:
+ *
+ *   LISTENING (.mic-active) — red pulse KEPT. It answers "is this thing
+ *     actually hearing me?", the most basic question an older narrator
+ *     has. It is positive confirmation, not a pressure cue.
+ *   WAIT (.mic-wait)        — amber state and label kept, rendered STATIC.
+ *     The shipped amber pulse is a waiting cue; focus mode suppresses it.
+ *   BLOCKED / OFF           — static, as shipped.
+ *
+ * This is a CSS presentation override. `#btnMic`'s class list is set by
+ * the mic state machine, which this WO does not touch. */
+body.lv-narrator-focus #btnMic {
+  width: 88px;
+  height: 88px;
+  flex-shrink: 0;
+}
+body.lv-narrator-focus #btnMic svg { width: 38px; height: 38px; }
+
+body.lv-narrator-focus #btnMicLabel {
+  font-size: 17px;
+  font-weight: 700;
+  margin-left: 12px;
+  color: #5b5346;
+}
+body.lv-narrator-focus .mic-label-wait { font-size: 17px !important; }
+
+/* WAIT: keep the amber, drop the pulse. */
+body.lv-narrator-focus #btnMic.mic-wait { animation: none; }
+
+/* Anything the platform or the narrator asks to be still, is still —
+ * including the one animation focus mode otherwise keeps. */
+@media (prefers-reduced-motion: reduce) {
+  body.lv-narrator-focus #btnMic.mic-active { animation: none; }
+}
+
+/* ── 7. Targets ──────────────────────────────────────────────────────
+ * ≥48px for everything the narrator can press. */
+body.lv-narrator-focus footer button,
+body.lv-narrator-focus footer label {
+  min-height: 48px;
+}

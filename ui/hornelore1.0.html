@@ -60,6 +60,10 @@
   <link rel="stylesheet" href="css/bio-control-center.css">
   <link rel="stylesheet" href="css/test-narrator-lab.css">
   <link rel="stylesheet" href="vendor/mind-elixir/mind-elixir.css">
+  <!-- WO-LORI-NARRATOR-FOCUS-MODE-01. Every rule is gated on
+       `body.lv-narrator-focus` and leads with that selector, because the
+       inline <style> block below outranks a <link> on source order. -->
+  <link rel="stylesheet" href="css/narrator-focus-mode.css?v=2026-09-12">
 
   <!-- 9.0 layout stubs — tailwind.min.css is a minimal pre-compiled build;
        utility classes used only in 9.0 need explicit definitions here -->
@@ -2983,6 +2987,32 @@
         <span>Bug</span>
       </button>
 
+      <!-- WO-LORI-NARRATOR-FOCUS-MODE-01: the entry control.
+           Operator-side and visible, in the same always-present header strip
+           as the Bug launcher (#205) and for the same reason — the operator
+           needs it DURING a Narrator Session, which is exactly when the
+           Operator tab is not on screen.
+
+           It enters a presentation mode and nothing else: no narrator is
+           re-opened or re-selected (that path appends four bio_facts,
+           BACKLOG §5), no tab is switched, no state is written. Entry is
+           refused, with a reason, if a dialog is open, if the Narrator
+           Session tab is not the active panel, if no narrator is chosen, or
+           if Lori is still warming up.
+
+           There is deliberately NO exit button: the locked principles forbid
+           a Return-to-Operator control in narrator flow. Exit is the
+           documented operator chord (see js/narrator-focus-mode.js). The
+           mode is never persisted, so a reload is always a way back. -->
+      <button class="lv10d-ctrl-btn" id="lvNarratorFocusBtn" type="button"
+              onclick="window.lvNarratorFocusEnter && window.lvNarratorFocusEnter()"
+              title="Hand the room to the narrator: large print, one conversation, nothing else on screen">
+        <span aria-hidden="true">🕮</span>
+        <span>Focus</span>
+      </button>
+      <span id="lvNarratorFocusStatus" class="lv-narrator-focus-status" hidden
+            role="status" aria-live="polite"></span>
+
       <button class="settings-btn" onclick="toggleSettings()" title="Settings">
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -5613,6 +5643,10 @@
 <script src="js/narrator-audio-recorder.js"></script>
 <script src="js/ui-health-check.js"></script>
 <script src="js/session-health-monitor.js"></script>
+<!-- WO-LORI-NARRATOR-FOCUS-MODE-01. Presentation only: no transport, no
+     state write, no turn_mode, no persistence. Loads last so the shipped
+     surfaces it reads (readiness gate, shell panels) are already defined. -->
+<script src="js/narrator-focus-mode.js?v=2026-09-12"></script>
 
 <script>
 /* ── Auto-reset on startup ──────────────────────────────────────
