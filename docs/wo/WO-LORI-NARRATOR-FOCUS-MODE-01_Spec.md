@@ -60,7 +60,7 @@ counterpart of WO-10C's protected-silence guarantee, not a change to its timings
 |---|---|
 | No dual metaphors | No navigation surface added or altered. Life Map untouched. |
 | No operator leakage | **The point of the WO.** In focus mode: no tabs, no Bug Panel launcher, no operator controls, no exit *button* (see Exit). |
-| No system-tone outputs | Extended to furniture: no timestamps, ids, status strings, connection chrome in narrator view. |
+| No system-tone outputs | Extended to furniture: no operator, diagnostic, connection, database, or internal status strings; no timestamps or ids. **Narrator-facing microphone state labels remain** (`LISTENING`, `MIC OFF`, `WAIT — LORI IS SPEAKING`, `MIC BLOCKED`) — they are capture feedback that tells the narrator whose turn it is, not system tone. |
 | No partial resets | Nothing narrator-scoped is written, so nothing new to reset. The mode flag is **not persisted** (see State). |
 | Provisional truth persists / interview never waits | Untouched — no write path changes. |
 | Lorevox is the memory system; Lori the interface | Untouched. |
@@ -71,8 +71,9 @@ counterpart of WO-10C's protected-silence guarantee, not a change to its timings
 
 **IS:** one body-level mode class (working name `lv-interview-focus`) on the existing
 narrator room in `hornelore1.0.html`; the CSS it gates; an operator control to enter;
-an operator gesture to leave; closure of open popovers on entry; the composer
-`min-width` repair; acceptance evidence.
+an operator gesture to leave; closure of open popovers on entry; composer narrow-width
+**regression verification** (the repair itself is landed — see below); acceptance
+evidence.
 
 **IS NOT:** a second page or route · any server change · any new endpoint · any change
 to `chat_ws.py`, routing, guards, prompts, extraction, or the model (LOCKED) · a
@@ -120,9 +121,14 @@ both directions.
   semantics **and its existing LISTENING pulse unchanged**, scaled to be the dominant
   control. The pulse is positive confirmation — it answers "is this thing actually
   hearing me?", the most basic question an older narrator has — and is not a pressure
-  cue. `#lv80LoriDot` (line 3579; pulses for thinking/drafting/speaking) is **hidden**
-  in focus mode: two animated status indicators compete for attention, and the mic wins.
-  The state machine is not touched; only its clothes are.
+  cue. **Per-state animation, settled explicitly:** in focus mode LISTENING retains the
+  existing red pulse; WAIT retains its amber state and label but is rendered **static**
+  (the shipped WAIT pulses — that pulse is a waiting cue and focus mode suppresses it);
+  BLOCKED and OFF are static. This is a CSS presentation override only; the mic state
+  machine is unchanged. `#lv80LoriDot` (line 3579; pulses for
+  thinking/drafting/speaking) is **hidden** in focus mode: two animated status
+  indicators compete for attention, and the mic wins. The state machine is not touched;
+  only its clothes are.
 - **Composer** remains for typed input (the WO-STT-LIVE-02 fragile-fact typed-input
   fallback depends on it): full row width, large text, Send always visible.
 - **Typography:** conversation text 22–24px minimum; line-height ≈1.6; measure ≤~65ch;
@@ -161,10 +167,13 @@ class, entry closes **every** currently-open native popover —
 added next month is covered without touching this code. This is the most likely
 implementation miss in the whole WO.
 
-**Modal dialogs are different.** `memoirEditModal` is a native `<dialog>` and may hold
-an unsaved edit. Focus mode must **never silently close a modal dialog**: if one is
-open, **entry is refused** and the operator resolves the dialog first. Discarding an
-edit as a side effect of a presentation toggle would be its own defect.
+**Modal dialogs are different, and the rule is generic there too.** A native `<dialog>`
+may hold an unsaved edit, so focus mode must **never silently close one**: if **any**
+`dialog[open]` exists at entry, **entry is refused** and the operator resolves it first.
+The check is the selector, not a name — a dialog added next month is covered the same
+way a new popover is. `memoirEditModal` is the known real unsaved-edit hazard and is
+the acceptance example. Discarding an edit as a side effect of a presentation toggle
+would be its own defect.
 
 ### Composer narrow-width — regression VERIFICATION, not repair
 **The repair has landed.** The first draft of this spec said the fix was still
@@ -215,20 +224,25 @@ recorded like Phase 5a §35.3:
    (`:popover-open` is the check; never `offsetParent`). Repeat with one
    narrator-side popover (Memoir or Life Map) open — the generic closure covers it
    without naming it.
-4. Enter with `memoirEditModal` open → entry **refused**, dialog and its content
-   untouched.
+4. Enter with a `dialog[open]` present (`memoirEditModal`, the real unsaved-edit
+   hazard, is the example) → entry **refused**, dialog and its content untouched.
 5. Entry attempted during warmup / no active narrator → entry **refused**; full UI
    retained.
 6. Focus transfer: on entry `document.activeElement` is inside the narrator-safe
    conversation surface; on exit it is the focus-mode entry control.
 7. A full spoken turn completes in focus mode — mic states render correctly at the new
-   scale through LISTENING → WAIT → response → TTS playback, **with the LISTENING
-   pulse present** and no other animated status indicator on screen. **One** spoken
-   case (TTS-aware testing rule); text turns for everything else. Wait until Lori
-   finishes speaking before continuing.
-8. A typed turn completes; composer and Send measured ≥ required geometry at 697px
-   with focus-mode styles applied (the landed `min-width: 0` repair preserved, not
-   rebuilt).
+   scale through LISTENING → WAIT → response → TTS playback: **LISTENING pulses, WAIT
+   is static amber**, and no other animated status indicator is on screen. **One**
+   spoken case (TTS-aware testing rule); text turns for everything else. Wait until
+   Lori finishes speaking before continuing.
+8. A typed turn completes, and composer geometry is measured with focus-mode styles
+   applied, at **697px** (the documented failing viewport) and at the declared
+   narrowest supported viewport. Hard regression boundary, not a visual judgment:
+   textarea width **≥ 300px**, textarea height **≥ 44px**, Send fully inside the
+   viewport with **≥ 48px** target height, and **zero horizontal clipping or
+   overflow**. Record all four numbers at both widths. (This pins the old 33–39px
+   collapse as a measured impossibility; the landed `min-width: 0` repair is
+   preserved, not rebuilt.)
 9. Exit chord works; single keys, ordinary typing, and taps/swipes on the transcript
    do **not** exit.
 10. Reload mid-focus-mode → full operator UI returns (invariant 4).
