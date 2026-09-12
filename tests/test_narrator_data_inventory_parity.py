@@ -200,6 +200,16 @@ class SelectorTests(_SchemaCase):
             l = inv.lane(table)
             if isinstance(l.owner, inv.Direct) and l.owner.column == col:
                 continue
+            # §36.4: DirectOrExclusiveInbound RETAINS the direct column and
+            # ADDS a derived path; db.py deleting by that column is still
+            # agreement, not drift. This clause covers the column only —
+            # whether erasure reaches the DERIVED rows is a different
+            # invariant, held by test_erasure_reach_equals_declaration_closure
+            # below. Column parity and closure parity are not the same thing,
+            # and this test passing has never implied the second.
+            if (isinstance(l.owner, inv.DirectOrExclusiveInbound)
+                    and l.owner.column == col):
+                continue
             # The §13 asymmetry: a Parent-owned table may ALSO be swept by a
             # column that names another person (media_archive_people.person_id
             # — tags naming this narrator on other people's items go with the
@@ -209,6 +219,72 @@ class SelectorTests(_SchemaCase):
             mismatches.append((table, col, l.owner))
         self.assertEqual(mismatches, [],
                          f"db.py deletes by a column the declaration does not own by: {mismatches}")
+
+    def test_erasure_reach_equals_declaration_closure(self):
+        """CLOSURE parity, not column parity (WO §36.4).
+
+        The gap this exists for: `sessions` gained derived ownership, the
+        exporter began packaging 9 residue sessions and 100 turns, and
+        `hard_delete_person` still matched `person_id=?` — so the rows would
+        have shipped in a package and survived the erasure of the narrator
+        who owned them. Export-only ownership. Every test in this file
+        passed throughout, because all of them compared column names.
+
+        Run against a real database: the shipped erasure path against the
+        shipped selector, on the same fixture.
+
+        IT IS ALSO THE ORDERING REGRESSION. `("trips", "person_id")` sits
+        before `("sessions", "person_id")` in _EXTENDED_PERSON_SCOPED_TABLES,
+        and deleting a narrator's trips destroys the trip_turn_links that
+        prove a residue session is reachable. The first version of this
+        reconciliation evaluated the closure inside the delete loop and so
+        asked the question after the evidence was gone — it removed the
+        directly-owned session and left the derived one. The fixture below
+        reproduces that ordering deliberately: `trips` is populated, so a
+        closure resolved mid-loop finds nothing and this test fails.
+        """
+        import sqlite3
+        con = sqlite3.connect(":memory:")
+        con.row_factory = sqlite3.Row
+        con.executescript("""
+            CREATE TABLE people (id TEXT PRIMARY KEY, display_name TEXT);
+            CREATE TABLE trips (id TEXT PRIMARY KEY, person_id TEXT);
+            CREATE TABLE trip_turn_links (id TEXT PRIMARY KEY, trip_id TEXT,
+                                          conv_id TEXT DEFAULT '');
+            CREATE TABLE sessions (conv_id TEXT PRIMARY KEY, person_id TEXT);
+            CREATE TABLE turns (id INTEGER PRIMARY KEY, conv_id TEXT);
+        """)
+        a = "aaaaaaaa-0000-0000-0000-00000000000a"
+        b = "bbbbbbbb-0000-0000-0000-00000000000b"
+        con.executemany("INSERT INTO people VALUES (?,?)",
+                        [(a, "A"), (b, "B")])
+        con.executemany("INSERT INTO trips VALUES (?,?)",
+                        [("t-a", a), ("t-b", b)])
+        con.executemany("INSERT INTO sessions VALUES (?,?)", [
+            ("direct", a), ("residue", None),
+            ("shared", None), ("orphan", None)])
+        con.executemany("INSERT INTO trip_turn_links VALUES (?,?,?)", [
+            ("l1", "t-a", "residue"),
+            ("l2", "t-a", "shared"), ("l3", "t-b", "shared")])
+
+        selected = {r["conv_id"] for r in con.execute(
+            inv.select_sql("sessions"), {"pid": a})}
+        self.assertEqual({"direct", "residue"}, selected)
+
+        self.db._extended_person_scoped_delete(con, a)
+        survived = {r["conv_id"] for r in con.execute(
+            "SELECT conv_id FROM sessions")}
+        erased = {"direct", "residue", "shared", "orphan"} - survived
+
+        self.assertEqual(
+            selected, erased,
+            "what the exporter packages and what erasure removes must be the "
+            "same set of rows; a difference is export-only ownership")
+        self.assertIn("shared", survived,
+                      "an ambiguous residue session belongs to nobody and "
+                      "must survive either narrator's erasure")
+        self.assertIn("orphan", survived)
+        con.close()
 
     def test_db_parent_children_match_the_declaration(self):
         mismatches = []

@@ -5684,16 +5684,63 @@ def _table_column_exists(con, table: str, column: str) -> bool:
         return False
 
 
+def _derived_closure_spec(table: str):
+    """(key_column, where_clause) from the DECLARATION, for a lane the
+    declaration owns with DERIVED closure. `None` means this lane's plain
+    `col=?` form is authoritative and nothing here changes.
+
+    NO SILENT FALLBACK. If a lane declares derived closure, erasure uses it.
+    An environment where the declaration cannot be consulted is a broken
+    installation, not a licence to delete less than the exporter packages —
+    downgrading only erasure to direct ownership is precisely the
+    export-only ownership this exists to prevent, and a swallowed exception
+    would make that downgrade invisible.
+
+    WO-LOREVOX-PORTABLE-NARRATOR-01 §36.4. `sessions` became
+    DirectOrExclusiveInbound: a residue session (`person_id` NULL) reached
+    EXCLUSIVELY through one narrator's owned rows is that narrator's by
+    derivation. The exporter already puts such rows in the package. If
+    erasure kept matching on `person_id` alone it would leave them behind —
+    export-only ownership, where narrator speech ships in a package and
+    survives the erasure of the narrator who owns it.
+
+    This is the ONE place erasure consults the declaration, and deliberately
+    so: §17 Phase 1 says do not rewrite hard deletion wholesale, and every
+    other lane below is untouched. The alternative — restating the closure
+    rule in a second place — is the "two lists of one truth" drift CLAUDE.md
+    exists to prevent, and the parity test cannot catch a rule it does not
+    share.
+    """
+    from api.services import narrator_data_inventory as _inv
+    try:
+        lane = _inv.lane(table)
+    except KeyError:
+        return None
+    if not isinstance(lane.owner, _inv.DirectOrExclusiveInbound):
+        return None
+    return lane.owner.key, _inv.owner_predicate(table)
+
+
 def _extended_person_scoped_counts(con, person_id: str) -> Dict[str, int]:
     counts: Dict[str, int] = {}
     for table, col in _EXTENDED_PERSON_SCOPED_TABLES:
         if not _table_column_exists(con, table, col):
             continue
         try:
-            row = con.execute(
-                f"SELECT COUNT(*) AS cnt FROM {table} WHERE {col}=?;",  # noqa: S608
-                (person_id,),
-            ).fetchone()
+            derived = _derived_closure_spec(table)
+            if derived is not None:
+                # R2.5: the operator must see what deletion will actually
+                # remove. Counting by `col` while deleting by the closure
+                # would show 0 sessions and then delete nine.
+                row = con.execute(
+                    f"SELECT COUNT(*) AS cnt FROM {table} WHERE {derived[1]};",  # noqa: S608
+                    {"pid": person_id},
+                ).fetchone()
+            else:
+                row = con.execute(
+                    f"SELECT COUNT(*) AS cnt FROM {table} WHERE {col}=?;",  # noqa: S608
+                    (person_id,),
+                ).fetchone()
             counts[table] = row["cnt"] if row else 0
         except Exception:
             counts[table] = -1  # visible signal that the count failed
@@ -5743,6 +5790,35 @@ def _extended_person_scoped_delete(con, person_id: str) -> None:
     """Delete extended person-scoped rows inside the caller's
     transaction (no commit here — hard_delete_person owns the
     all-or-nothing boundary)."""
+    # ── derived closures are resolved BEFORE anything is deleted ──────
+    #
+    # WO §36.4. Ownership is a property of the state this erasure STARTED
+    # from, not of whatever is left midway through it. `("trips",
+    # "person_id")` sits earlier in the list than `("sessions",
+    # "person_id")`, and deleting a narrator's trips cascades the whole
+    # trip_* family — including `trip_turn_links`, which is the evidence
+    # that a residue session is reachable at all. Evaluating the session
+    # closure after that point asks "which sessions are reached by links
+    # that no longer exist" and correctly answers "none", leaving behind
+    # exactly the rows the exporter packages.
+    #
+    # The failure mode that makes this worse than a no-op: the operator's
+    # confirmation inventory is computed before deletion and would say
+    # nine sessions, while the deletion removed zero. A hard delete must
+    # never report more than it did.
+    derived_targets: Dict[str, tuple] = {}
+    for table, col in _EXTENDED_PERSON_SCOPED_TABLES:
+        if not _table_column_exists(con, table, col):
+            continue
+        spec = _derived_closure_spec(table)
+        if spec is None:
+            continue
+        key, where = spec
+        derived_targets[table] = (key, [
+            r[0] for r in con.execute(
+                f'SELECT "{table}"."{key}" FROM "{table}" WHERE {where};',  # noqa: S608
+                {"pid": person_id})])
+
     # Parent-owned children go first, while their parents still exist.
     for child, fk_col, parent, parent_col in _PARENT_OWNED_CHILDREN:
         if (_table_column_exists(con, parent, parent_col)
@@ -5753,7 +5829,19 @@ def _extended_person_scoped_delete(con, person_id: str) -> None:
                 (person_id,),
             )
     for table, col in _EXTENDED_PERSON_SCOPED_TABLES:
-        if _table_column_exists(con, table, col):
+        if not _table_column_exists(con, table, col):
+            continue
+        if table in derived_targets:
+            # Declaration-driven, against the snapshot taken above: the same
+            # rows the exporter packages, decided before any cascade ran.
+            key, values = derived_targets[table]
+            if values:
+                marks = ",".join("?" * len(values))
+                con.execute(
+                    f'DELETE FROM "{table}" WHERE "{key}" IN ({marks});',  # noqa: S608
+                    values,
+                )
+        else:
             con.execute(
                 f"DELETE FROM {table} WHERE {col}=?;",  # noqa: S608
                 (person_id,),

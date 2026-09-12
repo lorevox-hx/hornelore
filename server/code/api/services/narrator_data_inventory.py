@@ -69,6 +69,46 @@ class Installation:
 
 
 @dataclass(frozen=True)
+class InboundRef:
+    """A declared reference FROM a narrator-owned lane INTO this lane:
+    `<table>.<column>` names this lane's `key`. Used by
+    DirectOrExclusiveInbound to decide reachability AND exclusivity."""
+    table: str
+    column: str
+
+
+@dataclass(frozen=True)
+class DirectOrExclusiveInbound:
+    """The row carries the narrator id in `column` — OR that column is
+    RESIDUE (NULL/'') and the row is reached from this narrator's owned rows
+    through one of `via`, and through no OTHER narrator's owned rows.
+
+    WHY (WO §36.4, laptop origin, 2026-09-12). `trip_turn_links` is owned
+    through `trips.person_id`; `sessions` was owned only by `person_id`.
+    On the laptop Christopher has 2 trips and 0 directly-owned sessions, so
+    20 narrator-owned travel links named 9 sessions whose `person_id` is
+    NULL — legacy residue from before 0044 added the column. The export
+    selected the links and omitted the rows they require, and the §30
+    unresolved-reference guard refused 60 references. Correctly: the package
+    would have been internally incomplete.
+
+    The fix is DERIVED ownership, never a write. `sessions.person_id` stays
+    NULL and `person_id_source` stays empty; proving exclusive reachability
+    today is not a durable fact about the row, and a later narrator linking
+    the same session must be able to change the answer.
+
+    EXCLUSIVITY IS EVALUATED ACROSS EVERY `via` ENTRY, not just the one that
+    reached it. If any inbound path carries a row owned by a different
+    narrator, this narrator does not get the session — it stays outside the
+    closure and the existing §30 guard refuses the package rather than
+    choosing an owner. A residue row nobody reaches stays residue.
+    """
+    column: str                       # the direct owner column, when set
+    key: str                          # the column inbound refs point at
+    via: Tuple[InboundRef, ...]
+
+
+@dataclass(frozen=True)
 class DbLane:
     table: str
     owner: object                       # Direct | Parent | Installation
@@ -139,10 +179,17 @@ DB_LANES: Tuple[DbLane, ...] = (
     DbLane("profile_seed_onboarding", _D("person_id"), CLASS_DERIVED, "yes", True),
 
     # ── conversation ──────────────────────────────────────────────────
-    DbLane("sessions", _D("person_id"), CLASS_AUTHORITATIVE, "yes", True,
+    DbLane("sessions",
+           DirectOrExclusiveInbound("person_id", "conv_id",
+                                    (InboundRef("trip_turn_links", "conv_id"),)),
+           CLASS_AUTHORITATIVE, "yes", True,
            note="person_id added by ALTER in 0044 with NO FK (R1); deleted explicitly "
                 "by db._EXTENDED_PERSON_SCOPED_TABLES. Rows with NULL person_id are "
-                "residue, reported by session_ownership_residue(), never swept"),
+                "residue, reported by session_ownership_residue(), never swept — "
+                "EXCEPT where a narrator-owned row in `via` reaches one EXCLUSIVELY, "
+                "which makes it that narrator's by derivation for BOTH verbs (§36.4). "
+                "`turns` needs no change: it is Parent('conv_id','sessions','conv_id') "
+                "and composes from whatever this predicate admits"),
     DbLane("turns", _P("conv_id", "sessions", "conv_id"), CLASS_AUTHORITATIVE, "yes", True,
            note="R1: the narrator's words. turns.conv_id -> sessions ON DELETE CASCADE "
                 "(db.py:595); reachable only through sessions.person_id"),
@@ -361,11 +408,48 @@ def parent_owned_tables() -> List[str]:
     return [l.table for l in DB_LANES if isinstance(l.owner, Parent)]
 
 
+def _owner_chain_sql(table: str) -> Tuple[str, str]:
+    """(FROM-clause, owner-column-expression) for `table`, walking its Parent
+    chain to the Direct column that ultimately decides ownership.
+
+    Used only by DirectOrExclusiveInbound's exclusivity clause, which must ask
+    "is any row here owned by SOMEONE ELSE" — a question `owner_predicate`
+    cannot express, because it is parameterised by one narrator.
+    """
+    frm = f'"{table}"'
+    cur = table
+    seen = {table}
+    while isinstance(lane(cur).owner, Parent):
+        p = lane(cur).owner
+        nxt = p.parent_table
+        if nxt in seen:
+            raise ValueError(
+                f"ownership chain for {table} revisits {nxt}; cannot generate "
+                f"an unaliased exclusivity join")
+        seen.add(nxt)
+        frm += (f' JOIN "{nxt}" ON "{nxt}"."{p.parent_key}" = '
+                f'"{cur}"."{p.fk_column}"')
+        cur = nxt
+    o = lane(cur).owner
+    if isinstance(o, Direct):
+        return frm, f'"{cur}"."{o.column}"'
+    if isinstance(o, DirectOrExclusiveInbound):
+        # An inbound lane whose own ownership is itself derived cannot be used
+        # to confer ownership — that would let two derivations bootstrap each
+        # other. Refuse to generate rather than guess.
+        raise ValueError(
+            f"{table} resolves ownership through {cur}, which is itself "
+            f"DirectOrExclusiveInbound; derived ownership may not be chained")
+    raise ValueError(f"{table} has no Direct owner at the end of its chain")
+
+
 def owner_predicate(table: str, alias: Optional[str] = None) -> str:
     """SQL predicate selecting the rows of `table` that belong to `:pid`.
 
     Direct:  <alias>.<column> = :pid
     Parent:  <alias>.<fk> IN (SELECT <pk> FROM <parent> WHERE <parent predicate>)
+    DirectOrExclusiveInbound:
+             the Direct form, OR residue reached exclusively through `via`.
     Chains compose by recursion, and every level binds the SAME named
     parameter, so a caller passes {"pid": person_id} once.
     """
@@ -378,6 +462,32 @@ def owner_predicate(table: str, alias: Optional[str] = None) -> str:
         inner = owner_predicate(p.parent_table, p.parent_table)
         return (f'"{a}"."{p.fk_column}" IN (SELECT "{p.parent_table}"."{p.parent_key}" '
                 f'FROM "{p.parent_table}" WHERE {inner})')
+    if isinstance(l.owner, DirectOrExclusiveInbound):
+        o = l.owner
+        direct = f'"{a}"."{o.column}" = :pid'
+        if not o.via:
+            return direct
+        residue = (f'("{a}"."{o.column}" IS NULL OR "{a}"."{o.column}" = \'\')')
+
+        # reached by THIS narrator through at least one declared inbound ref
+        mine = " OR ".join(
+            f'EXISTS (SELECT 1 FROM "{r.table}" WHERE "{r.table}"."{r.column}" = '
+            f'"{a}"."{o.key}" AND {owner_predicate(r.table)})'
+            for r in o.via)
+
+        # reached by ANY OTHER narrator through ANY declared inbound ref.
+        # Evaluated across every `via` entry, not only the one that reached it:
+        # a lane added later that points at the same row disqualifies it here
+        # without any change to this function.
+        theirs = " OR ".join(
+            (lambda frm_expr: (
+                f'EXISTS (SELECT 1 FROM {frm_expr[0]} WHERE '
+                f'"{r.table}"."{r.column}" = "{a}"."{o.key}" '
+                f'AND {frm_expr[1]} IS NOT NULL AND {frm_expr[1]} != \'\' '
+                f'AND {frm_expr[1]} != :pid)'))(_owner_chain_sql(r.table))
+            for r in o.via)
+
+        return f'({direct} OR ({residue} AND ({mine}) AND NOT ({theirs})))'
     raise ValueError(f"{table} is installation-owned; it has no narrator selector")
 
 
@@ -389,7 +499,14 @@ def select_sql(table: str) -> str:
 def delete_sql(table: str) -> str:
     """DELETE the narrator's rows in `table`; bind {"pid": id}. Provided so
     a repair or a test can use the SAME selector portability uses — one
-    truth, two verbs."""
+    truth, two verbs.
+
+    PARITY IS THE POINT (§36.4). Derived ownership that made a row travel
+    with the narrator must also make it die with the narrator; an
+    export-only ownership would leave narrator speech behind on erasure
+    while shipping it in a package. The DirectOrExclusiveInbound branch
+    therefore reuses `owner_predicate` verbatim rather than restating it.
+    """
     l = lane(table)
     if isinstance(l.owner, Direct):
         return f'DELETE FROM "{table}" WHERE "{l.owner.column}" = :pid'
@@ -398,6 +515,13 @@ def delete_sql(table: str) -> str:
         inner = owner_predicate(p.parent_table, p.parent_table)
         return (f'DELETE FROM "{table}" WHERE "{p.fk_column}" IN '
                 f'(SELECT "{p.parent_table}"."{p.parent_key}" FROM "{p.parent_table}" WHERE {inner})')
+    if isinstance(l.owner, DirectOrExclusiveInbound):
+        # Subselect on the primary key: the predicate is correlated on the
+        # table's own alias, and SQLite will not accept a table-qualified
+        # reference to the DELETE target in its WHERE clause.
+        key = l.owner.key
+        return (f'DELETE FROM "{table}" WHERE "{key}" IN '
+                f'(SELECT "{table}"."{key}" FROM "{table}" WHERE {owner_predicate(table)})')
     raise ValueError(f"{table} is installation-owned; it is never deleted with a narrator")
 
 
@@ -421,7 +545,8 @@ def fs_lane(name: str) -> FsLane:
 __all__ = [
     "CLASS_AUTHORITATIVE", "CLASS_DERIVED", "CLASS_HISTORICAL", "CLASS_CACHE",
     "CLASS_INSTALLATION", "CLASS_SHARED_ROW",
-    "Direct", "Parent", "Installation", "DbLane", "FsLane", "ColumnRef",
+    "Direct", "Parent", "Installation", "InboundRef", "DirectOrExclusiveInbound",
+    "DbLane", "FsLane", "ColumnRef",
     "DB_LANES", "FS_LANES", "COLUMN_ONLY_REFERENCES",
     "lane", "db_tables", "narrator_owned_tables", "installation_tables",
     "erasable_tables", "parent_owned_tables", "owner_predicate", "select_sql",
