@@ -1506,3 +1506,122 @@ laptop's `.env`; the laptop's normal stack running (exports happen on it, port 8
 says `DB_NAME=hornelore.sqlite3` — shell environment wins over `.env`, so a WSL profile export
 names the database; harmless on a clean root, to be reconciled with the `DB_NAME` question
 before Phase 7 (the stack's `[launcher]` line says which file it serves).
+
+### 36.5 Laptop origin — ALL THREE PASS, and the defect the laptop found (2026-09-12)
+
+**ACCEPTED.** Each narrator exported from the live laptop stack (:8000,
+`DATA_DIR=/mnt/c/hornelore_data`), restored into its own brand-new clean root via
+`launchers/hornelore_run_clean_root.sh`, **never opened**, immediately re-exported, and
+compared. Nothing was restored into the live `DATA_DIR`; no origin was merged.
+
+| narrator | source package (preserved) | clean root | readiness | restore | clean-root preflight, no interaction | compare |
+|---|---|---|---|---|---|---|
+| Christopher `a4b2f07a` | `Christopher_Todd_Horne_a2f360689b58.lorevox.zip`, 128,550,992 B | `/mnt/c/hornelore_clean_laptop_christopher` :8010 | integrity ok, **RESTORE READY**, 0 reasons | complete | 533 records · 214 files · 129,508,043 B | **`EQUIVALENT tables=60 rows=533 files=214`** |
+| Kent `4aa0cc2b` | `Kent_f42a80afb420.lorevox.zip`, 13,913,129 B | `/mnt/c/hornelore_clean_laptop_kent` :8011 | integrity ok, **RESTORE READY**, 0 reasons | complete | 43 records · 45 files · 14,079,845 B | **`EQUIVALENT tables=60 rows=43 files=45`** |
+| Janice `93479171` | `Janice_aca0cdfd9c13.lorevox.zip`, 4,084,020 B | `/mnt/c/hornelore_clean_laptop_janice` :8012 | integrity ok, **RESTORE READY**, 0 reasons | complete | 66 records · 21 files · 4,106,960 B | **`EQUIVALENT tables=60 rows=66 files=21`** |
+
+Sole difference on all three, informational: `source_schema_fingerprint`
+`67cd5bff6cbd0599` → `748c99f6e81eab29`. Same fingerprint pair as the desktop run
+(§36.1–36.3); it records that the clean root's schema was built by `init_db()` rather
+than carried in the package, which is by design.
+
+**The three source packages above are AUTHORITATIVE and are preserved** for the
+two-origin comparison, along with the three desktop packages. Six in total.
+
+#### The defect the laptop origin exposed — ownership closure
+
+The desktop could not have found this. Christopher's conversations are on the desktop
+and his entire travel domain on the laptop (§31), so the laptop is the only place where
+narrator-owned travel rows point at conversation rows the narrator does not directly own.
+
+**Initial laptop preflight, nothing built:** 424 records / 214 files; travel domain
+present — trips **2**, trip_days **39**, trip_turn_links **20**, trip_photo_links **40**,
+`trip_sources` **0**. Exactly the 2026-09-10 audit's prediction on all five.
+
+**First export refused** (`c34105144cee`, refused in 1s at stage `records`, fully
+recorded): **60 `unresolved_reference`** from **20** Christopher-owned `trip_turn_links`
+— 20 → `sessions.conv_id`, 40 → `turns.id`. **The guard was right**; the package would
+have been internally incomplete. A refusal is a result, and it was recorded not worked
+around.
+
+**Cause.** `trip_turn_links` is `Parent("trip_id","trips")`; `sessions` was
+`Direct("person_id")`; `turns` is `Parent("conv_id","sessions","conv_id")`. Christopher
+has 2 trips and **0 directly-owned sessions** here. The travel branch selected the links;
+the conversation branch had nothing to satisfy them. The **9** sessions carry
+`person_id = NULL` — legacy residue predating 0044 — and **100** turns hang off them.
+
+**Exclusivity audit, read-only.** All 9 reached only through Christopher-owned trips; no
+competing narrator reference on any lane carrying `conv_id` nor through any declared
+`COLUMN_ONLY_REFERENCES` entry into `turns`; no `people` UUID in any session
+`payload_json` or turn `meta_json`; `person_id_source` empty on all 9.
+**9/9 `EXCLUSIVE_CHRISTOPHER`.** Reach: **9 of 911** installation-wide residue sessions
+= **0.99%**; **902 untouched**. A bounded reachability rule, not a residue sweep.
+
+**The rule.** New `DirectOrExclusiveInbound(column, key, via)` owner type on the
+`sessions` lane only. A residue row reached **exclusively** from one narrator's owned
+rows through a declared inbound reference is that narrator's **by derivation**.
+
+* **Derived, never written.** `sessions.person_id` and `person_id_source` are untouched.
+  Exclusive reachability proven today is not a durable fact about the row; a narrator
+  linking the same session tomorrow must be able to change the answer.
+* `turns` needed **no change** — it composes through its existing `Parent` chain.
+* Exclusivity is evaluated across **every** `via` entry, not per-path. A lane added later
+  that points at the same row disqualifies it with no change to the predicate.
+* Ambiguous rows stay **outside** the closure; the existing §30 guard then refuses.
+  Refuse rather than choose an owner — using the guard already there, not a weakened one.
+* Derived ownership **may not chain**: an inbound lane whose own ownership is derived
+  raises rather than generating SQL.
+
+**Export/erasure parity — and it was not free.** Hard deletion does not consume the
+declaration (§17 Phase 1). Left alone this would have been **export-only ownership**:
+rows shipping in a package and surviving the erasure of the narrator who owns them.
+`db.py` now consults the declaration for lanes carrying derived closure **and only
+those**; every other lane is byte-identical. The confirmation inventory uses the same
+predicate, so R2.5 stays truthful — counting by `person_id` while deleting by the
+closure would show the operator 0 sessions and then delete nine.
+
+**Closure is resolved BEFORE any deletion.** `("trips","person_id")` precedes
+`("sessions","person_id")` in `_EXTENDED_PERSON_SCOPED_TABLES`, and deleting a
+narrator's trips cascades `trip_turn_links` — the evidence a residue session is
+reachable at all. Resolved inside the delete loop, the closure asked which sessions were
+reached by links that no longer existed and correctly answered none, leaving behind
+exactly the rows the exporter packages. **Ownership is a property of the state the
+erasure started from.** The fail-open fallback (swallowed exceptions, and a
+missing-inbound-table downgrade) was removed: a declaration that cannot be consulted now
+raises inside the transaction and rolls back.
+
+**Measured blast radius, read-only, no erasure executed:** 74 people evaluated, every
+narrator-owned lane, old predicate vs new — **73 zero delta**, Christopher **+9 sessions
+/ +100 turns**, **0 unexpected**, **none losing rows**.
+
+**Evidence.** `.venv-gpu`, zero skips: `tests/test_narrator_residue_closure.py` **18/18**;
+five-suite Portable Narrator bank (residue closure · inventory parity · export · restore ·
+round-trip) **90/90**. Christopher's final count is **424 + 9 + 100 = 533 exactly**, files
+unchanged at 214 — this defect moved 109 database rows and no files;
+`lanes_with_records` 33 → 35.
+
+**Three defects were found by tests, not by reasoning**, and each would have shipped
+green: (1) two declaration-patching tests set `DB_LANES` only, while `lane()` reads
+`_BY_TABLE` built at import — so both silently exercised the shipped declaration, and the
+same bug in the erasure preview would have reported a false zero delta for every narrator
+on a hard-delete change; (2) **no closure-parity invariant existed at all** — every
+assertion in `test_narrator_data_inventory_parity.py` compared column names, so teaching
+it the new owner type would have turned the bank green over a live export-only-ownership
+defect; (3) the deletion-ordering bug above, created by the reconciliation itself and
+caught within one run.
+
+#### Harness, not product
+
+Re-running Christopher against the **already-populated** clean root was correctly refused
+at readiness — `narrator_exists` plus `row_id_exists` / `file_exists` collisions. That is
+the §33 collision guard working; the root was no longer fresh. Two harness defects it
+exposed, both fixed: `laptop_cycle.sh` POSTed a restore the server had already declined,
+then polled an upload state (`checked`) that is neither `complete` nor `refused` for the
+full 300s. It now gates on the readiness verdict and aborts if no restore job appears
+within 20s. **The second Christopher package (`099be475a35e`) is not evidence** and is
+disposable; `a2f360689b58` is the authoritative one.
+
+**Stale-process note.** The first retry after the fix refused identically because the
+running stack still held the pre-fix declaration. Discriminated by measurement, not
+inference: preflight read 424 (old) vs 533 (new). Restarting the stack is part of the
+procedure whenever the declaration changes.
