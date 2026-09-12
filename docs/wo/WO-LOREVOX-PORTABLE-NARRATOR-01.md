@@ -1526,7 +1526,17 @@ Sole difference on all three, informational: `source_schema_fingerprint`
 than carried in the package, which is by design.
 
 **The three source packages above are AUTHORITATIVE and are preserved** for the
-two-origin comparison, along with the three desktop packages. Six in total.
+two-origin comparison, in the LAPTOP's `/mnt/c/lorevox_packages` (verified on disk
+2026-09-12: those three plus the disposable rerun copy `099be475a35e`, and nothing else).
+
+**They are the only packages on this machine.** The three desktop packages
+(`ea4ae5d6afc5`, `451876ad9efa`, `74252b2e79c5`) live in the DESKTOP's own
+`/mnt/c/lorevox_packages`. Six packages exist, on two machines. **§36.4 Step 7's
+comparison therefore has an unstated precondition: both sets must be in one place**,
+and copying finished packages between machines is the one transfer §36.4 permits
+("nothing copied between machines except, later, the finished packages for
+comparison"). Whichever machine runs the comparison needs the other's three; that
+step has not been run and is not implied by either origin's PASS.
 
 #### The defect the laptop origin exposed — ownership closure
 
