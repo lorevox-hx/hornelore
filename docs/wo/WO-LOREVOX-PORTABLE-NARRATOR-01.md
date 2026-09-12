@@ -1488,6 +1488,19 @@ laptop's `.env`; the laptop's normal stack running (exports happen on it, port 8
    the input to the Multi-Origin Merge/Remap WO (§30, Phase 4 finding), which is designed
    after this and not before. Christopher will be `narrator_exists` on any root that already
    holds his other-origin package — expected, correct, and not to be worked around.
+8. **Cleanup after acceptance — the same boundaries as the desktop (Chris, 2026-09-12).**
+   Once §36.5 is recorded: delete the laptop's clean roots and their `.packages` / `.staging`
+   siblings, every re-export copy, and any disposable `.runtime/phase6` outputs. **Keep the
+   three source packages** (`lorevox_packages`) until the two-origin comparison has consumed
+   them; keep `tests/` untouched (permanent regression protection); keep the live `DATA_DIR`
+   untouched. Verify the roots are gone and the live narrator list is unchanged. **Narrators
+   are a separate decision, never part of artifact cleanup:** the laptop session lists every
+   narrator on that installation with its provenance (`testing_only`, creating script or
+   session, dates), Chris names which synthetic ones go, and the existing erasure path removes
+   them one at a time with the declaration verified afterwards — the same rule that kept the
+   seven Ada rows on the desktop for Block D. The desktop's own Phase 6 roots
+   (`hornelore_clean_{christopher,christopher_probe,kent,janice}` and siblings) are disposable
+   on the same terms; its source packages stay until the comparison.
 
 **Observed, outside the lane:** the launcher runs against `db/lorevox.sqlite3` while `.env`
 says `DB_NAME=hornelore.sqlite3` — shell environment wins over `.env`, so a WSL profile export
