@@ -416,6 +416,10 @@ def export_narrator(person_id: str, *, data_dir: Path, db_path: Path, out_dir: P
             col_refs: Dict[str, List[inv.ColumnRef]] = {}
             for ref in inv.COLUMN_ONLY_REFERENCES:
                 col_refs.setdefault(ref.table, []).append(ref)
+            # ids serialised inside TEXT/JSON values (§30, extended 2026-09-12)
+            enc_refs: Dict[str, List[inv.EncodedRef]] = {}
+            for eref in inv.ENCODED_REFERENCES:
+                enc_refs.setdefault(eref.table, []).append(eref)
 
             # ── pass 2: write records, check every reference, normalise paths ──
             _p("records")
@@ -495,6 +499,25 @@ def export_narrator(person_id: str, *, data_dir: Path, db_path: Path, out_dir: P
                         for ref in refs:
                             _check_ref(table, row_id, ref.column, rec.get(ref.column),
                                        ref.parent_table, ref.parent_key, ref.empty_means_none)
+                        # Encoded references: an id serialised inside a TEXT or JSON
+                        # value, invisible to both the schema and a ColumnRef. Added
+                        # 2026-09-12 — the two-origin comparison found `turns.id`
+                        # stored in seven places while the checker covered two, so a
+                        # package could satisfy "refuse, never dangle" and still carry
+                        # a ledger row pointing at a turn it does not contain. Same
+                        # rule as every other reference; one declaration drives it.
+                        for eref in enc_refs.get(table, ()):
+                            parsed, malformed = eref.parse(rec.get(eref.column))
+                            if malformed:
+                                refuse.add("malformed_encoded_reference", table=table, row_id=row_id,
+                                           column=eref.column, form=eref.form, expected_prefix=eref.prefix,
+                                           value=str(rec.get(eref.column))[:200],
+                                           detail="a value in a reference-carrying column did not parse; "
+                                                  "silently skipping it is how a broken reference ships")
+                                continue
+                            if parsed is not None:
+                                _check_ref(table, row_id, eref.column, parsed,
+                                           eref.parent_table, eref.parent_key, True)
                         # §13: a declared external-person column may name someone else,
                         # FK or not — recorded as a dependency, never pulled.
                         for ec in external_cols.get(table, ()):

@@ -33,8 +33,9 @@ LAW 3-style isolation: stdlib only. No `api.db`, no routers, no IO.
 """
 from __future__ import annotations
 
+import json as _json
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 # ── Ownership classes (WO §5) ────────────────────────────────────────────
 CLASS_AUTHORITATIVE = "A"   # original evidence / operator decisions
@@ -374,7 +375,119 @@ COLUMN_ONLY_REFERENCES: Tuple[ColumnRef, ...] = (
     ColumnRef("trip_story_links", "story_candidate_id", "story_candidates"),   # 0015:148
     ColumnRef("trip_stops", "timeline_event_id", "timeline_events"),           # 0015:64
     ColumnRef("memory_archive_turns", "conv_id", "memory_archive_sessions", "conv_id"),  # 0002:47
+    # ── added 2026-09-12 after the two-origin comparison ──────────────
+    # `story_candidates` gained two turn-provenance columns in migration 0047.
+    # SQLite's ALTER TABLE cannot add a foreign key, so these are bare INTEGERs
+    # with no SQL FK — and until now no ColumnRef either, which meant the
+    # exporter's "refuse, never dangle" rule did not see them at all.
+    ColumnRef("story_candidates", "source_user_turn_row_id", "turns", "id"),            # 0047:68
+    ColumnRef("story_candidates", "completed_assistant_turn_row_id", "turns", "id"),    # 0047:69
 )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# ENCODED references — an id serialised INSIDE a value
+#
+# Added 2026-09-12. The two-origin comparison found `turns.id` stored in seven
+# places while `PRAGMA foreign_key_list` sees two. Four of the seven hide the id
+# inside a string or a JSON document, where neither the schema nor a ColumnRef
+# can reach it:
+#
+#     turn_extraction_ledger.turn_key    TEXT  'turnrow:<turns.id>'   (0038:62)
+#     turn_extraction_results.turn_key   TEXT  'turnrow:<turns.id>'   (0041:71)
+#     bio_facts.source                   JSON  {"turn_key": "turnrow:<turns.id>"}
+#
+# THE CONSEQUENCE, and it is the reason this block exists: a database can pass
+# `PRAGMA foreign_key_check` and still be internally broken. Lorevox has its own
+# reference vocabulary, so it needs its own integrity rule — one declaration,
+# consumed by export integrity, restore validation, the two-origin comparator
+# and (later) merge/remap closure, so the four can never drift apart.
+#
+# A malformed encoding is NOT silently ignored: `malformed_is_error` makes a
+# value that looks like a reference but does not parse an explicit refusal,
+# because silently skipping it is how a broken reference ships.
+# ══════════════════════════════════════════════════════════════════════
+
+FORM_TEXT_PREFIXED = "text_prefixed"   # the whole column value is '<prefix><id>'
+FORM_JSON_FIELD = "json_field"         # the column is a JSON object; one key holds '<prefix><id>'
+
+
+@dataclass(frozen=True)
+class EncodedRef:
+    """A reference to `parent_table.parent_key` serialised inside a column value.
+
+    `prefix` + an integer is the whole grammar the product uses today
+    (`db.turn_extraction_key_for_row`, db.py:9679, is the single writer of the
+    turn form). `json_key` names the field when `form` is FORM_JSON_FIELD.
+    An empty / NULL value is "no reference" and is never an error.
+    """
+    table: str
+    column: str
+    form: str
+    parent_table: str
+    prefix: str
+    parent_key: str = "id"
+    json_key: str = ""
+    malformed_is_error: bool = True
+    cite: str = ""
+
+    def parse(self, raw: Any) -> Tuple[Optional[int], bool]:
+        """(referenced_id, malformed). (None, False) means 'no reference here'.
+
+        THE ID COMES BACK AS AN INT, and that is not cosmetic. Every parent this
+        grammar points at is an INTEGER PRIMARY KEY, so SQLite hands back ints;
+        returning the digits as a string made every comparison `"1455" in {1455,…}`
+        fail, and the checker refused every legitimately resolvable reference —
+        which would have blocked the export of every narrator with extraction
+        history. Caught by the positive tests, 2026-09-12.
+        """
+        if raw is None:
+            return None, False
+        if self.form == FORM_JSON_FIELD:
+            text = str(raw).strip()
+            if not text or text in ("{}", "null"):
+                return None, False
+            try:
+                blob = _json.loads(text)
+            except Exception:
+                return None, self.malformed_is_error
+            if not isinstance(blob, dict) or self.json_key not in blob:
+                return None, False
+            value = blob.get(self.json_key)
+            if value in (None, ""):
+                return None, False
+            text = str(value).strip()
+        else:
+            text = str(raw).strip()
+            if not text:
+                return None, False
+        if not text.startswith(self.prefix):
+            # Not this reference's vocabulary at all — e.g. a key from a future
+            # producer. Not silently accepted: report it as malformed so a new
+            # format is a refusal rather than an unchecked reference.
+            return None, self.malformed_is_error
+        rest = text[len(self.prefix):]
+        if not rest.isdigit():
+            return None, self.malformed_is_error
+        return int(rest), False
+
+
+ENCODED_REFERENCES: Tuple[EncodedRef, ...] = (
+    EncodedRef("turn_extraction_ledger", "turn_key", FORM_TEXT_PREFIXED, "turns", "turnrow:",
+               cite="0038:62-65; written by db.turn_extraction_key_for_row (db.py:9679)"),
+    EncodedRef("turn_extraction_results", "turn_key", FORM_TEXT_PREFIXED, "turns", "turnrow:",
+               cite="0041:71-73"),
+    EncodedRef("bio_facts", "source", FORM_JSON_FIELD, "turns", "turnrow:",
+               json_key="turn_key",
+               # A bio fact may legitimately have no turn provenance (operator
+               # entry, tier 4), so an absent key is not an error — only a
+               # present-but-unparseable one is.
+               cite="bio_fact_router.py:367-373 source_payload"),
+)
+
+
+def encoded_references_for(table: str) -> Tuple[EncodedRef, ...]:
+    return tuple(r for r in ENCODED_REFERENCES if r.table == table)
 
 
 # ══════════════════════════════════════════════════════════════════════
