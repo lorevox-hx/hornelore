@@ -27,8 +27,8 @@ product mints graph-person ids deterministically from narrator + name, so two
 installations that met the same relative independently mint the same id for different
 rows. Two such rows cannot both be inserted under one `TEXT PRIMARY KEY`.
 
-So the collision hunt runs over **every packaged table that has an `id` column**, by
-comparing the actual values, and the remap is type-agnostic:
+So the collision hunt runs over **every packaged table**, comparing the actual values of
+whatever the schema declares as the primary key, and the remap is type-agnostic:
 
   INTEGER surrogates in `REMAP_TARGETS`   renumbered UNIFORMLY (see `plan_remap`)
   every other colliding physical id       reallocated ONLY where it collides,
@@ -43,6 +43,11 @@ one of them would leave a merged root whose ids match neither origin, for no ben
 **An id collision in a table whose reference closure has not been ESTABLISHED is a
 refusal, not a guess** (`CLOSURE_ESTABLISHED`). Remapping a row whose children we
 cannot enumerate would silently orphan them.
+
+**And equal bytes never make a shared id safe in a no-safe-key table.** Whether a
+collision may be left alone depends on what the TABLE can prove, not on whether the rows
+match — see `find_physical_collisions`, which is where that distinction lives and where
+the first implementation got it wrong.
 
 ━━━ WHEN IS A DIFFERENT REFERENCE "THE SAME"? ━━━━━━━━━━━━━━━━━━━━━━━
 Only when both references resolve to the SAME MERGED ROW. This module's first draft
@@ -94,6 +99,13 @@ HASH_MANIFEST = "manifest-sha256.txt"
 #: Stable namespace for reallocated TEXT ids. Frozen: changing it changes every
 #: reallocated id the merge would produce, which breaks determinism across versions.
 REMAP_NAMESPACE = uuid.UUID("6f2d1f48-0c1e-4a3b-9f07-2b7c5a1d8e33")
+
+#: Physical primary key per table, where it is NOT a single `id` column. Empty today:
+#: every narrator-owned lane in the shipped schema keys on `id`, and no table anywhere
+#: uses a composite `PRIMARY KEY (a, b)` — both measured 2026-09-14 and pinned by test.
+#: The map exists so a future lane cannot bypass the collision hunt by naming its key
+#: something else; the test fails first and the fix is an entry here.
+PHYSICAL_KEYS: Dict[str, Tuple[str, ...]] = {}
 
 #: The installation-local INTEGER surrogates, renumbered uniformly. Established by the
 #: §3d closure hunt; `test_remap_targets_cover_every_narrator_owned_integer_surrogate`
@@ -352,13 +364,52 @@ def _canonical(row: Dict[str, Any], drop: Sequence[str] = ()) -> str:
                                      default=str).encode("utf-8")).hexdigest()
 
 
+def physical_key_columns(table: str) -> Tuple[str, ...]:
+    """The physical primary key the collision hunt compares.
+
+    Every narrator-owned lane in the shipped schema keys on a single `id` column, and
+    no table anywhere uses a composite `PRIMARY KEY (a, b)` — both measured, and pinned
+    by `test_every_no_safe_key_table_is_covered_by_the_collision_hunt`. The override map
+    exists so that a future `something_key TEXT PRIMARY KEY` lane cannot bypass the hunt
+    merely by not being called `id`: the test fails first, and the answer is an entry
+    here rather than a silently unscanned table.
+    """
+    return PHYSICAL_KEYS.get(table, ("id",))
+
+
+def _physical_value(row: Dict[str, Any], cols: Sequence[str]) -> Optional[Any]:
+    if any(c not in row or row[c] is None for c in cols):
+        return None
+    return row[cols[0]] if len(cols) == 1 else tuple(row[c] for c in cols)
+
+
 def find_physical_collisions(origins: Sequence[Origin]) -> List[Dict[str, Any]]:
-    """Every table whose `id` values overlap across origins, compared BY VALUE.
+    """Every table whose physical primary-key values overlap across origins, BY VALUE.
 
     Deliberately not restricted to integers, and deliberately not skipping a table
     because its ids look like UUIDs: UUID syntax is a minting format, and the product
     mints some ids deterministically from content, so two installations can and do
     produce the same id for different rows.
+
+    **WHETHER A SHARED ID IS SAFE DEPENDS ON THE TABLE, NOT ON THE BYTES.** Two
+    classifications come out of this, and conflating them was a real defect in the first
+    implementation:
+
+      `safe_same_record`   the table has a PROVEN cross-origin logical key, both rows
+                           carry the same logical key, AND their content matches. Only
+                           then is one row the other, and only then may it be
+                           represented once. `people` is the case this exists for.
+      `must_reallocate`    everything else — INCLUDING a shared id whose rows are
+                           BYTE-IDENTICAL in a `NO_SAFE_CROSS_ORIGIN_KEY` table.
+
+    That last clause is the fix. §1 is explicit that `CONTENT_OVERLAP` does **not** mean
+    the two rows are the same record, and a no-safe-key table is one where correspondence
+    could not be proven at all — so V1 must preserve both rows, and two rows cannot share
+    one `TEXT PRIMARY KEY`. The first implementation skipped reallocation whenever the
+    bytes matched, which would have handed the executor two `graph_persons` rows under
+    one primary key and forced it to either fail or drop one. Letting content equality
+    decide identity is exactly what this work order exists to prevent, and the earlier
+    test missed it because it exercised `people`, which HAS a proven logical key.
     """
     ordered = sorted(origins, key=lambda o: o.rank_key)
     a, b = ordered[0], ordered[1]
@@ -367,21 +418,38 @@ def find_physical_collisions(origins: Sequence[Origin]) -> List[Dict[str, Any]]:
         rows_a, rows_b = a.records.get(table, []), b.records.get(table, [])
         if not rows_a or not rows_b:
             continue
-        if not any("id" in r for r in rows_a) or not any("id" in r for r in rows_b):
-            continue
-        by_a = {r["id"]: r for r in rows_a if "id" in r}
-        by_b = {r["id"]: r for r in rows_b if "id" in r}
+        cols = physical_key_columns(table)
+        by_a = {v: r for r in rows_a if (v := _physical_value(r, cols)) is not None}
+        by_b = {v: r for r in rows_b if (v := _physical_value(r, cols)) is not None}
         shared = sorted(set(by_a) & set(by_b), key=str)
         if not shared:
             continue
-        same = [i for i in shared if _canonical(by_a[i]) == _canonical(by_b[i])]
-        diff = [i for i in shared if _canonical(by_a[i]) != _canonical(by_b[i])]
+
+        kind, key_cols, _why = xid.logical_key_for(table)
+        same_content, diff_content, safe, must = [], [], [], []
+        for pk in shared:
+            ra, rb = by_a[pk], by_b[pk]
+            identical = _canonical(ra) == _canonical(rb)
+            (same_content if identical else diff_content).append(pk)
+            if kind == xid.KIND_DECLARED:
+                ka, kb = _key_of(ra, key_cols), _key_of(rb, key_cols)
+                same_record = ka is not None and ka == kb
+                (safe if (same_record and identical) else must).append(pk)
+            else:
+                # No defensible cross-origin key: correspondence was never established,
+                # so both rows are preserved and the shared id must be broken.
+                must.append(pk)
+
         out.append({
-            "table": table, "parent": f"{table}.id",
+            "table": table, "parent": f"{table}.{cols[0]}",
+            "physical_key": list(cols),
+            "logical_key_kind": kind,
             "shared": len(shared),
-            "shared_same_content": same,
-            "shared_different_content": diff,
-            "closure_established": f"{table}.id" in CLOSURE_ESTABLISHED,
+            "shared_same_content": same_content,
+            "shared_different_content": diff_content,
+            "safe_same_record": safe,
+            "must_reallocate": must,
+            "closure_established": f"{table}.{cols[0]}" in CLOSURE_ESTABLISHED,
         })
     return out
 
@@ -440,13 +508,17 @@ def plan_remap(origins: Sequence[Origin],
         parent = coll["parent"]
         if parent in REMAP_TARGETS:
             continue                      # already renumbered uniformly above
-        if not coll["shared_different_content"]:
-            continue                      # identical rows; represented once, no remap
+        if not coll["must_reallocate"]:
+            # Every shared id here is `safe_same_record`: a PROVEN logical key, the same
+            # logical record, identical content. That row is represented once by the
+            # keyed classification and needs no new id. Note the test is NOT "the bytes
+            # match" — see `find_physical_collisions`.
+            continue
         if not coll["closure_established"]:
             # Remapping a row whose children we cannot enumerate would orphan them.
             refusals.append({
                 "code": R_UNKNOWN_COLLISION_CLOSURE,
-                "detail": f"{coll['table']} has {len(coll['shared_different_content'])} "
+                "detail": f"{coll['table']} has {len(coll['must_reallocate'])} "
                           f"colliding physical id(s) and no established reference "
                           f"closure — establish it (read the schema and the writers) "
                           f"before this pair can be merged",
@@ -454,7 +526,7 @@ def plan_remap(origins: Sequence[Origin],
             continue
         higher = ordered[1]
         per_label = {ordered[0].label: {}, higher.label: {}}
-        for old in coll["shared_different_content"]:
+        for old in coll["must_reallocate"]:
             per_label[higher.label][old] = _realloc_text(higher.package_id,
                                                          coll["table"], old)
         remap[parent] = per_label

@@ -291,6 +291,33 @@ table is that both sides are preserved. So:
   would silently orphan them. "Established and empty" (`turn_extraction_results.id`) and
   "unknown" are different states and must stay distinguishable.
 
+**AND EQUAL BYTES DO NOT MAKE A SHARED ID SAFE — corrected 2026-09-14 in review of
+`2e10319`.** The first implementation reallocated a shared physical id only when the two
+rows differed in content, and skipped it when they were byte-identical. That is right for
+a table with a **proven** cross-origin logical key — `people.id` was measured identical on
+both machines (§31), so an identical row there is one row and is represented once. It is
+**wrong for a `NO_SAFE_CROSS_ORIGIN_KEY` table**, and `graph_persons` is exactly that:
+correspondence was never established, §1 says `CONTENT_OVERLAP` does not mean two rows are
+the same *record*, and V1 preserves both sides — so two byte-identical rows would have been
+carried under one `TEXT PRIMARY KEY`, leaving the executor to fail on a duplicate key or
+drop one of the narrator's rows. Letting content equality decide identity is the precise
+failure this work order exists to prevent, and it survived the first review because the
+test that covered it used `people`.
+
+The rule is therefore split by what the table can prove:
+
+| table | shared physical id | outcome |
+|---|---|---|
+| proven logical key | same logical record **and** same content | represent once, no reallocation |
+| proven logical key | different logical record, or different content | reallocate (or the keyed conflict refuses) |
+| `NO_SAFE_CROSS_ORIGIN_KEY` | **any** shared id, identical bytes included | **always reallocate**, or refuse if the closure is unknown |
+
+**The hunt must also be generic over the key's NAME, not only its type.** It compares
+whatever the schema declares as the primary key. Measured 2026-09-14: every narrator-owned
+lane keys on a single `id` column and **no table anywhere uses a composite
+`PRIMARY KEY (a, b)`** — both pinned by test, so a future `something_key TEXT PRIMARY KEY`
+lane fails the guard instead of silently bypassing collision detection.
+
 **Out of scope because it never enters a package:** the response trace embeds `turns.id`
 and `turnrow:` keys (`chat_ws.py:7743-7748`, `:7782-7786`) but writes to
 `.runtime/eval/response-trace` (`lori_response_trace.py:136-144`), which is under the

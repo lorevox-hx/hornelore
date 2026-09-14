@@ -35,7 +35,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "server" / "code"))
 
-from api.services import narrator_merge as nm           # noqa: E402
+from api.services import cross_origin_identity as xid    # noqa: E402
+from api.services import narrator_merge as nm            # noqa: E402
 from api.services import narrator_data_inventory as inv  # noqa: E402
 from api.services import narrator_package as npkg        # noqa: E402
 
@@ -123,7 +124,14 @@ def _desktop_records() -> dict:
         # product mints graph-person ids deterministically from narrator + name, so
         # this is the shape the real Christopher comparison actually reports.
         "graph_persons": [{"id": "gp-shared", "narrator_id": NARRATOR,
-                           "display_name": "Kent Horne", "source": "manual"}],
+                           "display_name": "Kent Horne", "source": "manual"},
+                          # same id on BOTH origins with BYTE-IDENTICAL content. This
+                          # is the case the first implementation got wrong: in a
+                          # NO_SAFE_CROSS_ORIGIN_KEY table, equal bytes do not make two
+                          # rows the same record, so both must survive and the shared
+                          # primary key must still be broken.
+                          {"id": "gp-twin", "narrator_id": NARRATOR,
+                           "display_name": "Ruth Horne", "source": "manual"}],
         "bio_facts": [
             # same key as the laptop's, and the ONLY difference is which turn it cites:
             # a reference difference is not a content conflict (§1)
@@ -166,6 +174,8 @@ def _laptop_records() -> dict:
         # and the two relationships pointing at it must follow the reallocation
         "graph_persons": [{"id": "gp-shared", "narrator_id": NARRATOR,
                            "display_name": "Kenneth Horne", "source": "manual"},
+                          {"id": "gp-twin", "narrator_id": NARRATOR,
+                           "display_name": "Ruth Horne", "source": "manual"},
                           {"id": "gp-lap", "narrator_id": NARRATOR,
                            "display_name": "Janice Horne", "source": "manual"}],
         "graph_relationships": [{"id": "gr-1", "narrator_id": NARRATOR,
@@ -492,19 +502,49 @@ class TextPrimaryKeyCollisions(_Fixtures):
         self.assertIn("graph_persons", tables)
         self.assertEqual(self._graph_collision()["shared_different_content"], ["gp-shared"])
 
+    def test_an_IDENTICAL_row_sharing_a_physical_id_is_STILL_reallocated(self):
+        """THE defect this class was extended for, caught in review of `2e10319`.
+
+        `gp-twin` exists on both origins with byte-identical content. The first
+        implementation skipped reallocation whenever the bytes matched, so both rows
+        were carried unchanged under one `TEXT PRIMARY KEY` — leaving an executor to
+        either fail on a duplicate key or drop one of the narrator's rows.
+
+        §1 is explicit: `CONTENT_OVERLAP` does not mean the two rows are the same
+        RECORD. `graph_persons` has no defensible cross-origin key at all, so
+        correspondence was never established and equal bytes prove nothing about it.
+        """
+        coll = self._graph_collision()
+        self.assertIn("gp-twin", coll["shared_same_content"])
+        self.assertIn("gp-twin", coll["must_reallocate"],
+                      "an identical-content collision was treated as the same record")
+        self.assertEqual(coll["safe_same_record"], [],
+                         "a table with no logical key can have no safe shared id")
+        self.assertIn("gp-twin", self.plan.remap["graph_persons.id"]["laptop"])
+
+    def test_both_copies_of_the_identical_row_survive(self):
+        rows = [r for r in self.plan.merged_records["graph_persons"]
+                if r["display_name"] == "Ruth Horne"]
+        self.assertEqual(len(rows), 2, "an identical row was silently deduplicated")
+        self.assertNotEqual(rows[0]["id"], rows[1]["id"])
+        self.assertEqual({r["_origin"] for r in rows}, {"desktop", "laptop"})
+
     def test_the_colliding_text_id_is_reallocated_for_exactly_one_origin(self):
         mapping = self.plan.remap["graph_persons.id"]
         self.assertEqual(mapping["desktop"], {}, "the lower-ranked origin keeps its id")
-        self.assertIn("gp-shared", mapping["laptop"])
-        self.assertNotEqual(mapping["laptop"]["gp-shared"], "gp-shared")
+        for old in ("gp-shared", "gp-twin"):
+            self.assertIn(old, mapping["laptop"])
+            self.assertNotEqual(mapping["laptop"][old], old)
+        self.assertNotIn("gp-lap", mapping["laptop"], "a non-colliding id was churned")
 
-    def test_both_graph_persons_survive_with_distinct_ids(self):
+    def test_every_graph_person_survives_with_a_unique_primary_key(self):
         rows = self.plan.merged_records["graph_persons"]
-        self.assertEqual(len(rows), 3)          # 1 desktop + 2 laptop, none collapsed
+        self.assertEqual(len(rows), 5)          # 2 desktop + 3 laptop, none collapsed
         ids = [r["id"] for r in rows]
-        self.assertEqual(len(ids), len(set(ids)))
-        names = {r["display_name"] for r in rows}
-        self.assertEqual(names, {"Kent Horne", "Kenneth Horne", "Janice Horne"})
+        self.assertEqual(len(ids), len(set(ids)), "a merged root would refuse this insert")
+        self.assertEqual(sorted(r["display_name"] for r in rows),
+                         ["Janice Horne", "Kenneth Horne", "Kent Horne",
+                          "Ruth Horne", "Ruth Horne"])
 
     def test_the_relationship_follows_the_reallocated_id(self):
         """Both FK columns, not just the one that happens to be listed first."""
@@ -523,14 +563,19 @@ class TextPrimaryKeyCollisions(_Fixtures):
         self.assertEqual(again.remap["graph_persons.id"],
                          self.plan.remap["graph_persons.id"])
 
-    def test_identical_rows_sharing_a_physical_id_are_not_reallocated(self):
-        """A shared id whose content matches is the same row, not a collision. Both
-        origins carry `people` under the narrator's id with identical content — that
-        must produce no reallocation and no refusal."""
+    def test_a_PROVEN_logical_key_still_lets_an_identical_row_be_represented_once(self):
+        """The other half of the rule, and it must NOT be weakened by the fix above.
+
+        `people.id` has a measured cross-origin identity (§31: the same id on both
+        machines), so a shared id carrying the same logical record and the same content
+        IS one row. Reallocating it would give the merged root two narrators.
+        """
         people = next(c for c in self.plan.physical_collisions if c["table"] == "people")
-        self.assertEqual(people["shared_same_content"], [NARRATOR])
-        self.assertEqual(people["shared_different_content"], [])
+        self.assertEqual(people["logical_key_kind"], "declared_logical_key")
+        self.assertEqual(people["safe_same_record"], [NARRATOR])
+        self.assertEqual(people["must_reallocate"], [])
         self.assertNotIn("people.id", self.plan.remap)
+        self.assertEqual(self.plan.carried_rows["people"], 1)
 
     def test_a_collision_in_a_table_with_no_established_closure_REFUSES(self):
         """Remapping a row whose children cannot be enumerated would orphan them, so
@@ -619,6 +664,62 @@ class ClosureIntegrity(_Fixtures):
         remap silently orphans rows."""
         self.assertIn("turn_extraction_results.id", nm.CLOSURE_ESTABLISHED)
         self.assertEqual(nm.reference_sites("turn_extraction_results.id"), [])
+
+    def test_every_no_safe_key_table_is_covered_by_the_collision_hunt(self):
+        """"Generic physical-primary-key collision hunt" has to mean it.
+
+        The hunt compares whatever `physical_key_columns()` says the key is, which
+        defaults to a single `id` column. That is true of every narrator-owned lane in
+        the shipped schema today — but "today" is the operative word, and a future
+        `something_key TEXT PRIMARY KEY` lane would bypass the hunt silently, which for
+        a NO_SAFE_CROSS_ORIGIN_KEY table means two preserved rows colliding on a
+        primary key nobody checked.
+
+        So this derives each table's real primary key from the schema and holds the
+        declaration against it. A new lane that keys on anything else fails HERE, and
+        the fix is an entry in `PHYSICAL_KEYS` rather than a silently unscanned table.
+        """
+        sources = list((REPO / "server" / "code" / "db" / "migrations").glob("*.sql"))
+        sources.append(REPO / "server" / "code" / "api" / "db.py")
+        table_rx = re.compile(
+            r"CREATE TABLE(?:\s+IF NOT EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)\s*\((.*?)\)\s*;",
+            re.S | re.I)
+        pk_rx = re.compile(
+            r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s+(?:TEXT|INTEGER|REAL|BLOB|NUMERIC)"
+            r"[^,]*?PRIMARY\s+KEY", re.I | re.M)
+        scanned: dict = {}
+        for src in sources:
+            text = src.read_text(encoding="utf-8", errors="ignore")
+            for name, body in table_rx.findall(text):
+                # 0018/0021/0034/0037-style rebuilds create `<table>_new` and rename it
+                base = re.sub(r"__?new$", "", name)
+                pk = pk_rx.findall(body)
+                if pk and base not in scanned:
+                    scanned[base] = (pk[0],)
+
+        no_safe = [t for t in inv.narrator_owned_tables() if t not in xid.LOGICAL_KEYS]
+        self.assertTrue(no_safe, "the inventory returned no no-safe-key lanes")
+
+        unscanned = sorted(t for t in no_safe if t not in scanned)
+        self.assertEqual(unscanned, [],
+                         f"packaged lanes whose primary key could not be read from the "
+                         f"schema — the hunt cannot be proven to cover them: {unscanned}")
+
+        mismatched = {t: (scanned[t], nm.physical_key_columns(t)) for t in no_safe
+                      if scanned[t] != nm.physical_key_columns(t)}
+        self.assertEqual(mismatched, {},
+                         f"tables whose real primary key is not what the collision hunt "
+                         f"compares — add a PHYSICAL_KEYS entry: {mismatched}")
+
+    def test_no_table_anywhere_uses_a_composite_primary_key(self):
+        """The hunt supports composite keys, but nothing uses one — so if that changes,
+        the support is exercised for the first time on real data. Fail instead."""
+        sources = list((REPO / "server" / "code" / "db" / "migrations").glob("*.sql"))
+        sources.append(REPO / "server" / "code" / "api" / "db.py")
+        hits = [p.name for p in sources
+                if re.search(r"PRIMARY\s+KEY\s*\(", p.read_text(encoding="utf-8",
+                                                                errors="ignore"), re.I)]
+        self.assertEqual(hits, [], f"a composite PRIMARY KEY now exists in: {hits}")
 
     def test_remap_targets_cover_every_narrator_owned_integer_surrogate(self):
         """§3d pinned against the shipped schema. If a future migration gives a
