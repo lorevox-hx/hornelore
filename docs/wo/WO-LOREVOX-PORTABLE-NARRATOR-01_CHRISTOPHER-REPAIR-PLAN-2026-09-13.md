@@ -1,3 +1,35 @@
+# Christopher source-data repair — SUPERSEDED as a portability plan; retained as Phase 7 input
+
+> **STATUS 2026-09-14: THIS PLAN IS NOT A PORTABILITY PREREQUISITE, and never should
+> have read as one.** The portability fault was **nine stale
+> `turn_extraction_ledger` rows** and nothing else. They were removed (ids
+> 7,8,9,10,11,17,18,19,28; 533 → 524 records; files unchanged at 214), Christopher
+> was re-exported as `24560db21dd6`, and the clean-root round trip compared
+> **`EQUIVALENT tables=60 rows=524 files=214`** with zero unresolved references.
+> **Laptop Christopher Phase 6 is RE-CLOSED** — see WO §36.5a.
+>
+> **None of §1–§3 below was executed and none of it was needed.** No ownership was
+> materialised, no `trip_turn_link` was touched, no session was curated, no fact was
+> salvaged. This document drifted from portability into curation: it asked which of
+> Christopher's conversations deserve to be permanent family history, which is a
+> **Phase 7 clean-data question** that portability does not ask.
+>
+> **§6's arithmetic is withdrawn.** It rested on the claim that "a session left NULL
+> stays out of the package by construction", which is **false** under the shipped
+> declaration — `DirectOrExclusiveInbound` admits a NULL-owner session that a
+> Christopher-owned `trip_turn_link` reaches exclusively, and the 533 baseline
+> already contained 9 such sessions and 100 turns. The 578 / 597 / 654 figures are
+> wrong; the measured result was 524. §4's option C is also already implemented via
+> `ENCODED_REFERENCES` (corrected in place below).
+>
+> **What remains useful:** §1's session inventory, §3's salvage destinations, and the
+> distinction between preserving a *session* and preserving the *information* in it.
+> Read it as Phase 7 input when deciding what enters the clean Lorevox world.
+
+---
+
+## Original document follows (as written 2026-09-13)
+
 # Christopher source-data repair — DRY RUN, nothing executed
 
 **`WO-LOREVOX-PORTABLE-NARRATOR-01`, 2026-09-13.** Derived entirely from the

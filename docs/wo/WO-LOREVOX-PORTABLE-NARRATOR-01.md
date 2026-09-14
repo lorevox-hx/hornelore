@@ -1635,3 +1635,60 @@ disposable; `a2f360689b58` is the authoritative one.
 running stack still held the pre-fix declaration. Discriminated by measurement, not
 inference: preflight read 424 (old) vs 533 (new). Restarting the stack is part of the
 procedure whenever the declaration changes.
+
+#### 36.5a Laptop Christopher — RE-CLOSED 2026-09-14 under the semantic-reference invariant
+
+**Reopened 2026-09-12**, not by a failed proof but by a stronger validator: the
+expanded reference audit found **9 `turn_extraction_ledger` rows carrying
+`turnrow:<turns.id>` references to turns package `a2f360689b58` did not contain.**
+The original `EQUIVALENT` stands as a round-trip proof and never certified
+referential completeness — `turn_extraction_ledger → turns` is an encoded TEXT
+reference that the §30 closure model could not reach until `ENCODED_REFERENCES`
+landed. **Structurally valid, semantically incomplete. Never a corrupted zip.**
+
+**The fault was stale derived bookkeeping, and only that.** The read-only
+investigation (findings: `..._SESSION-OWNERSHIP-FINDINGS-2026-09-13.md`) proved the
+referenced turns exist in three NULL-owner sessions that are Christopher's by 0044's
+pass-1 evidence. It also produced a preservation/curation analysis — which is **Phase
+7 input and gated nothing here**. Portability does not ask which conversations
+deserve to be permanent history.
+
+**Source repair, authoritative laptop DB** `/mnt/c/hornelore_data/db/hornelore.sqlite3`:
+
+| | |
+|---|---|
+| rows removed | `turn_extraction_ledger` ids **7, 8, 9, 10, 11, 17, 18, 19, 28** — and nothing else |
+| method | `scripts/repair_stale_ledger_references.py --apply`, one `BEGIN IMMEDIATE`; `rowcount` must equal 9; every surviving ledger row fingerprint-compared before and after |
+| successful apply | the **07:20:10** run. A later `--apply` **correctly refused** (0/9 targets present) — the safety check working, not a failure |
+| records | **533 → 524**, exactly nine |
+| files | **214, unchanged.** Bytes unchanged. Nine database rows, no files |
+| DB sha256 after | `1cd55ec6b59b625477b2e1f39ea2bed4c33b102055632c40e27e9077ed17cb4a` |
+| recovery | the nine original rows written verbatim to `.runtime/two_origin/reports/ledger-repair-*/recovery.json` **before** the transaction opened |
+
+**Deliberately NOT changed** — no session ownership materialised, no
+`trip_turn_links` altered, no session curated, no facts salvaged.
+`DirectOrExclusiveInbound` carries Christopher's 9 sessions and 100 turns exactly as
+§36.5 proved, so the re-export re-proves the *same* mechanism rather than a modified
+one. **Worth recording: Christopher has ZERO directly-owned sessions** — his entire
+conversational content is derived through that closure, which makes the mechanism
+load-bearing for a real family narrator and not a synthetic edge case.
+
+**Re-proof, same harness as §36.5, fresh root, no narrator interaction:**
+
+| | |
+|---|---|
+| new authoritative package | **`Christopher_Todd_Horne_24560db21dd6.lorevox.zip`**, 128,550,504 B |
+| supersedes | `a2f360689b58` (and `099be475a35e`, always disposable) |
+| clean root | `/mnt/c/hornelore_clean_laptop_christopher_v2` :8013 |
+| readiness | integrity `True`, **RESTORE READY**, 0 reasons |
+| restore | complete |
+| clean-root preflight, **narrator NOT opened** | **524 records · 214 files · 129,508,043 bytes** |
+| re-export | `Christopher_Todd_Horne_f03759af038a.lorevox.zip` |
+| comparator (`.venv-gpu`) | **`EQUIVALENT tables=60 rows=524 files=214`** |
+| informational only | `source_schema_fingerprint` `67cd5bff6cbd0599` → `748c99f6e81eab29` |
+
+**LAPTOP CHRISTOPHER PHASE 6 IS RE-CLOSED**, now with zero unresolved FK, `ColumnRef`,
+encoded-TEXT or encoded-JSON references. **Portability is complete for all six source
+packages** and hands off to Multi-Origin Merge/Remap. **The laptop portability lane is
+closed**; Phase 7 curation is a separate decision and is not a prerequisite for
+anything above.
