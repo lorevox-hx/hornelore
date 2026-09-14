@@ -138,7 +138,7 @@ VOLATILE_COLUMNS: Dict[str, Dict[str, str]] = {
 
 #: Where an installation-local surrogate is REFERENCED. The Merge/Remap closure must
 #: rewrite every one of these consistently, or the merged root dangles.
-#: `kind` matters: an integer column can be rewritten by a join; a STRING-EMBEDDED
+#: `form` matters: an integer column can be rewritten by a join; a STRING-EMBEDDED
 #: reference has to be parsed and rebuilt, and an FK-graph walk does not see it at all.
 # ── ONE reference-record shape, validated at the producer ────────────
 #
@@ -149,18 +149,95 @@ VOLATILE_COLUMNS: Dict[str, Dict[str, str]] = {
 # Every reference record is now built through `_ref()`, which raises on a missing
 # field, and a test asserts the shape of every emitted record.
 
-REFERENCE_RECORD_FIELDS = ("table", "column", "form", "declared", "requires_rewrite", "cite")
-#: Audit records add these three to the base shape.
+# ── `declared` is ASKED of production, never restated here (2026-09-14) ──
+#
+# It used to be a hand-written boolean beside each site, and five of them went
+# stale the moment the 2026-09-12 repair landed: that repair added both
+# `story_candidates` turn columns to `COLUMN_ONLY_REFERENCES` and all three
+# encoded forms to `ENCODED_REFERENCES`, and nothing updated this file. The
+# report then told a real family comparison that the exporter's §30 "refuse,
+# never dangle" guard does not check references it had been checking for two
+# days — and `narrator_data_inventory` names THIS FILE as one of the four
+# consumers the single declaration exists to keep from drifting.
+#
+# THE SEVEN SITES BELOW STAY INDEPENDENTLY DISCOVERED, by reading the shipped
+# migrations and writers. Deriving the closure itself from the declaration
+# would make this file ask the declaration what exists, and the comparator
+# would lose the one thing that can catch the declaration being WRONG. What is
+# derived is a single bit per site — whether production currently declares it —
+# so the two lists can be COMPARED (`closure_parity`) instead of silently
+# agreeing with each other.
+
+REFERENCE_RECORD_FIELDS = ("table", "column", "form", "declared", "declared_by",
+                           "requires_rewrite", "cite")
+#: Audit records add these four to the base shape.
 REFERENCE_AUDIT_FIELDS = REFERENCE_RECORD_FIELDS + ("rows_in_package", "references_found",
                                                     "dangling", "dangling_samples")
 
+#: What `declared_by` reports. A real SQL FK is declared by SQLite itself and is
+#: NOT in `COLUMN_ONLY_REFERENCES`, whose whole purpose is references the schema
+#: does *not* declare — so asking only the two inventory tuples would report the
+#: one genuine foreign key in this closure as undeclared, replacing a stale false
+#: statement with a fresh one.
+DECLARED_BY_SQL_FK = "SQL FOREIGN KEY"
+DECLARED_BY_NOTHING = "(not declared)"
 
-def _ref(table: str, column: str, form: str, declared: bool, cite: str,
-         requires_rewrite: bool = True) -> Dict[str, Any]:
-    """Build a reference record, refusing to create a malformed one."""
-    rec = {"table": table, "column": column, "form": form, "declared": declared,
-           "requires_rewrite": requires_rewrite, "cite": cite}
-    missing = [f for f in REFERENCE_RECORD_FIELDS if f not in rec or rec[f] in (None, "")]
+
+def _inventory():
+    """Import the live production declaration, or REFUSE.
+
+    Deliberately NOT the swallow-and-degrade idiom `ownership_path` uses: there a
+    missing declaration costs a printed label, whereas here it would silently mark
+    every site undeclared and reproduce the exact defect this lookup was written to
+    remove. A refusal is a result; a quiet `False` is a false report.
+    """
+    root = str(Path(__file__).resolve().parents[1] / "server" / "code")
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from api.services import narrator_data_inventory as inv  # type: ignore
+    return inv
+
+
+def production_declared_references(parent_table: str,
+                                   parent_key: str = "id") -> Dict[Tuple[str, str], str]:
+    """Every (table, column) PRODUCTION declares as a reference to `parent_table.parent_key`,
+    mapped to the mechanism that declares it.
+
+    BOTH inventory mechanisms count, and reading only one is how this drifted:
+    `COLUMN_ONLY_REFERENCES` carries the bare-INTEGER columns SQLite cannot declare
+    (ALTER TABLE cannot add an FK), `ENCODED_REFERENCES` the TEXT and JSON forms an
+    FK walk cannot see at all.
+    """
+    inv = _inventory()
+    found: Dict[Tuple[str, str], str] = {}
+    for cr in inv.COLUMN_ONLY_REFERENCES:
+        if cr.parent_table == parent_table and cr.parent_key == parent_key:
+            found[(cr.table, cr.column)] = "COLUMN_ONLY_REFERENCES"
+    for er in inv.ENCODED_REFERENCES:
+        if er.parent_table == parent_table and er.parent_key == parent_key:
+            found[(er.table, er.column)] = "ENCODED_REFERENCES"
+    return found
+
+
+def _ref(table: str, column: str, form: str, cite: str, parent: str,
+         requires_rewrite: bool = True, sql_fk: bool = False) -> Dict[str, Any]:
+    """Build a reference record, refusing to create a malformed one.
+
+    `declared` is resolved against the CURRENT production declaration at build
+    time. `parent` is '<table>.<key>' — the surrogate this site stores.
+    """
+    parent_table, _, parent_key = parent.partition(".")
+    if sql_fk:
+        declared_by = DECLARED_BY_SQL_FK
+    else:
+        declared_by = production_declared_references(
+            parent_table, parent_key or "id").get((table, column), DECLARED_BY_NOTHING)
+    rec = {"table": table, "column": column, "form": form,
+           "declared": declared_by != DECLARED_BY_NOTHING, "declared_by": declared_by,
+           "requires_rewrite": requires_rewrite, "cite": cite, "sql_fk": sql_fk,
+           "parent": parent}
+    missing = [f for f in REFERENCE_RECORD_FIELDS
+               if f not in rec or (f != "declared" and rec[f] in (None, ""))]
     if missing:
         raise ValueError(f"reference record for {table}.{column} is missing {missing}")
     return rec
@@ -175,34 +252,76 @@ def validate_reference_record(rec: Dict[str, Any], audit: bool = False) -> None:
 
 
 #: Built by READING the shipped migrations and writers, 2026-09-12, not by walking
-#: PRAGMA foreign_key_list -- which would find NONE of the string or JSON forms and
-#: only two of the seven. `declared` records whether the ownership declaration
-#: (`narrator_data_inventory.COLUMN_ONLY_REFERENCES`) knows about it: where it is
-#: False, the exporter's §30 "refuse, never dangle" guard does not check the column.
-#: `form` is also the parse instruction: INTEGER / TEXT / JSON decide how a value is
-#: read and how it would have to be rewritten.
+#: PRAGMA foreign_key_list -- which finds NONE of these seven. Corrected 2026-09-14:
+#: this comment said "only two of the seven", conflating "two are declared in
+#: COLUMN_ONLY_REFERENCES" with "two are visible to SQLite". They are different
+#: claims and both trip_turn_links columns are the counter-example -- 0039:135-136
+#: declares them bare INTEGER with no REFERENCES clause, the 0040 rebuild keeps them
+#: bare, and no migration anywhere contains `REFERENCES turns`. SQLite sees ZERO
+#: references to turns.id, which is a stronger statement of the same point.
+#: This list is INDEPENDENT EVIDENCE and must stay that way:
+#: it is what `closure_parity` holds the production declaration against. Whether a
+#: site is declared is resolved by `_ref` against the live inventory, never written
+#: down here. `form` is also the parse instruction: INTEGER / TEXT / JSON decide how
+#: a value is read and how it would have to be rewritten.
 SURROGATE_REFERENCES: Dict[str, List[Dict[str, Any]]] = {
     "turns.id": [
-        _ref("trip_turn_links", "user_turn_row_id", "INTEGER column", True,
-             "COLUMN_ONLY_REFERENCES (0039:135)"),
-        _ref("trip_turn_links", "assistant_turn_row_id", "INTEGER column", True,
-             "COLUMN_ONLY_REFERENCES"),
-        _ref("story_candidates", "source_user_turn_row_id", "INTEGER column", False,
-             "0047:68 ALTER TABLE ADD COLUMN INTEGER -- no SQL FK, NOT in the declaration"),
-        _ref("story_candidates", "completed_assistant_turn_row_id", "INTEGER column", False,
-             "0047:69 -- no SQL FK, NOT in the declaration"),
-        _ref("turn_extraction_ledger", "turn_key", "TEXT 'turnrow:<turns.id>'", False,
-             "0038:62-65; built by db.turn_extraction_key_for_row (db.py:9679)"),
-        _ref("turn_extraction_results", "turn_key", "TEXT 'turnrow:<turns.id>'", False,
-             "0041:71-73"),
-        _ref("bio_facts", "source", "JSON object, key `turn_key` = 'turnrow:<turns.id>'", False,
-             "bio_fact_router.py:367-373 source_payload"),
+        _ref("trip_turn_links", "user_turn_row_id", "INTEGER column",
+             "0039:135 -- no SQL FK", "turns.id"),
+        _ref("trip_turn_links", "assistant_turn_row_id", "INTEGER column",
+             "0039:135 -- no SQL FK", "turns.id"),
+        _ref("story_candidates", "source_user_turn_row_id", "INTEGER column",
+             "0047:68 ALTER TABLE ADD COLUMN INTEGER -- SQLite cannot add an FK", "turns.id"),
+        _ref("story_candidates", "completed_assistant_turn_row_id", "INTEGER column",
+             "0047:69 -- SQLite cannot add an FK", "turns.id"),
+        _ref("turn_extraction_ledger", "turn_key", "TEXT 'turnrow:<turns.id>'",
+             "0038:62-65; built by db.turn_extraction_key_for_row (db.py:9679)", "turns.id"),
+        _ref("turn_extraction_results", "turn_key", "TEXT 'turnrow:<turns.id>'",
+             "0041:71-73", "turns.id"),
+        _ref("bio_facts", "source", "JSON object, key `turn_key` = 'turnrow:<turns.id>'",
+             "bio_fact_router.py:367-373 source_payload", "turns.id"),
     ],
     "turn_extraction_ledger.id": [
-        _ref("turn_extraction_results", "ledger_id", "INTEGER column (real SQL FK)", True,
-             "0041:67-68 REFERENCES turn_extraction_ledger(id) ON DELETE CASCADE"),
+        _ref("turn_extraction_results", "ledger_id", "INTEGER column (real SQL FK)",
+             "0041:67-68 REFERENCES turn_extraction_ledger(id) ON DELETE CASCADE",
+             "turn_extraction_ledger.id", sql_fk=True),
     ],
 }
+
+
+def closure_parity(parent: str = "turns.id") -> Dict[str, Any]:
+    """Hold the INDEPENDENTLY discovered closure against the production declaration.
+
+    This is the cross-check the `declared` bit exists to enable, and it is printed in
+    the report rather than living only in a test, because either direction is a real
+    finding that a merge design must not inherit silently:
+
+      * discovered but NOT declared -> an EXPORT GAP. The exporter's §30 guard is not
+        checking that column, so a package can ship a dangling reference.
+      * declared but NOT discovered -> EVIDENCE DRIFT. Production knows a reference
+        this closure does not carry, so a remap built from this list would leave it
+        unrewritten.
+
+    Neither is resolved here. Both are named. Sites declared by a real SQL FK are
+    excluded: they are declared by SQLite, not by the inventory tuples, and counting
+    them either way would make the comparison meaningless.
+    """
+    parent_table, _, parent_key = parent.partition(".")
+    discovered = {(r["table"], r["column"]) for r in SURROGATE_REFERENCES[parent]
+                  if not r["sql_fk"]}
+    declared = production_declared_references(parent_table, parent_key or "id")
+    only_discovered = sorted(discovered - set(declared))
+    only_declared = sorted(set(declared) - discovered)
+    return {
+        "parent": parent,
+        "discovered": sorted(discovered),
+        "declared": sorted(declared),
+        "discovered_count": len(discovered),
+        "declared_count": len(declared),
+        "discovered_not_declared": only_discovered,
+        "declared_not_discovered": only_declared,
+        "in_parity": not only_discovered and not only_declared,
+    }
 
 TURNROW_RX = re.compile(r"^turnrow:(\d+)$")
 
@@ -447,7 +566,7 @@ def surrogate_collisions(table: str, rows_a, rows_b) -> Dict[str, Any]:
         "reference_closure_note": (
             "every reference above must be rewritten consistently with any remap. "
             "STRING-EMBEDDED references are NOT visible to a foreign-key graph walk."
-        ) if refs else "no declared references to this surrogate",
+        ) if refs else "no references to this surrogate in the discovered closure",
     }
 
 
@@ -589,6 +708,7 @@ def compare_packages(pa, pb, label_a: str, label_b: str) -> Dict[str, Any]:
         "reference_integrity": {label_a: reference_integrity_audit(pa),
                                 label_b: reference_integrity_audit(pb)},
         "remap_closure_for_turns_id": SURROGATE_REFERENCES["turns.id"],
+        "closure_parity_for_turns_id": closure_parity("turns.id"),
         "files": compare_files(pa["files"], pb["files"]),
         "installation_dependencies": {label_a: ma.get("installation_dependencies") or {},
                                       label_b: mb.get("installation_dependencies") or {}},
@@ -719,15 +839,41 @@ def summarize(rep: Dict[str, Any], label_a: str, label_b: str) -> str:
     ap("### Remap closure for `turns.id` — every place the local integer is stored")
     ap("")
     ap("Built by reading the shipped migrations and writers. A `PRAGMA foreign_key_list`")
-    ap("walk finds **none** of the TEXT/JSON forms and only two of the seven.")
+    ap("walk finds **none of these seven** — no migration declares `REFERENCES turns`,")
+    ap("so the bare INTEGER columns, the TEXT keys and the JSON field are all invisible")
+    ap("to SQLite. That is why `PRAGMA foreign_key_check` passing says nothing about")
+    ap("whether a merged root is sound, and why Merge/Remap owes a semantic validator.")
     ap("")
-    ap("| where stored | form | declared in ownership inventory | requires rewrite | source |")
+    ap("`declared by` is read from the LIVE production declaration at run time, never")
+    ap("restated here, so this column cannot go stale against the exporter.")
+    ap("")
+    ap("| where stored | form | declared by | requires rewrite | source |")
     ap("|---|---|---|---|---|")
     for r in rep["remap_closure_for_turns_id"]:
         validate_reference_record(r)
-        d = "yes" if r["declared"] else "**NO**"
+        d = r["declared_by"] if r["declared"] else f"**{DECLARED_BY_NOTHING}**"
         ap(f"| `{r['table']}.{r['column']}` | {r['form']} | {d} | "
            f"{'yes' if r['requires_rewrite'] else 'no'} | {r['cite']} |")
+    ap("")
+
+    cp = rep["closure_parity_for_turns_id"]
+    ap("#### Closure parity — independent evidence vs the production declaration")
+    ap("")
+    ap("The seven sites above were found by reading migrations and writers. The set below")
+    ap("is what `narrator_data_inventory` declares. They are derived SEPARATELY and then")
+    ap("compared: a site found here but undeclared is an **export gap** (§30 does not check")
+    ap("it); a site declared but missing here is **evidence drift** (a remap built from this")
+    ap("closure would leave it unrewritten).")
+    ap("")
+    ap(f"- independently discovered (excluding real SQL FKs): **{cp['discovered_count']}**")
+    ap(f"- declared by `COLUMN_ONLY_REFERENCES` + `ENCODED_REFERENCES`: **{cp['declared_count']}**")
+    if cp["in_parity"]:
+        ap(f"- **PARITY — the two sets are identical.**")
+    else:
+        for t, c in cp["discovered_not_declared"]:
+            ap(f"- ⚠ **EXPORT GAP** — `{t}.{c}` is stored but not declared")
+        for t, c in cp["declared_not_discovered"]:
+            ap(f"- ⚠ **EVIDENCE DRIFT** — `{t}.{c}` is declared but absent from this closure")
     ap("")
 
     ap("### Reference integrity inside each package")
@@ -744,10 +890,11 @@ def summarize(rep: Dict[str, Any], label_a: str, label_b: str) -> str:
         if not rows:
             ap("*No stored turn references of any form in this package — nothing to rewrite.*")
         else:
-            ap("| reference | declared | form | refs found | dangling |")
+            ap("| reference | declared by | form | refs found | dangling |")
             ap("|---|---|---|---|---|")
             for c in rows:
-                ap(f"| `{c['table']}.{c['column']}` | {'yes' if c['declared'] else '**NO**'} "
+                ap(f"| `{c['table']}.{c['column']}` "
+                   f"| {c['declared_by'] if c['declared'] else '**' + DECLARED_BY_NOTHING + '**'} "
                    f"| {c['form']} | {c['references_found']} "
                    f"| {'**' + str(c['dangling']) + '**' if c['dangling'] else 0} |")
         ap("")

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -329,9 +330,13 @@ class SurrogateCollisionsAndClosure(_TwoOrigins):
 
 class RemapClosure(_TwoOrigins):
     """The closure is built by READING the shipped migrations and writers. A
-    `PRAGMA foreign_key_list` walk finds none of the TEXT/JSON forms and only two
-    of the seven — which is exactly why a merge can pass `foreign_key_check` and
-    still be internally broken."""
+    `PRAGMA foreign_key_list` walk finds NONE of the seven — no migration declares
+    `REFERENCES turns` at all — which is exactly why a merge can pass
+    `foreign_key_check` and still be internally broken.
+
+    *(This docstring said "and only two of the seven" until 2026-09-14. That
+    conflated "two are declared in COLUMN_ONLY_REFERENCES" with "two are visible to
+    SQLite"; both trip_turn_links columns are bare INTEGERs at 0039:135-136.)*"""
 
     def test_the_closure_covers_all_seven_storage_sites(self):
         refs = {(r["table"], r["column"]) for r in toc.SURROGATE_REFERENCES["turns.id"]}
@@ -358,9 +363,19 @@ class RemapClosure(_TwoOrigins):
 
     def test_the_producer_refuses_to_build_a_malformed_reference_record(self):
         with self.assertRaises(ValueError):
-            toc._ref("t", "c", "", True, "cite")          # empty form
+            toc._ref("t", "c", "", "cite", "turns.id")            # empty form
         with self.assertRaises(ValueError):
-            toc._ref("t", "c", "INTEGER column", True, "")  # no citation
+            toc._ref("t", "c", "INTEGER column", "", "turns.id")  # no citation
+
+    def test_declared_false_is_not_mistaken_for_a_missing_field(self):
+        """`declared` is the one field allowed to be falsy: an undeclared site is a
+        FINDING, not a malformed record, and the producer must still build it so the
+        report can name it."""
+        rec = toc._ref("no_such_table", "no_such_column", "INTEGER column",
+                       "synthetic", "turns.id")
+        self.assertFalse(rec["declared"])
+        self.assertEqual(rec["declared_by"], toc.DECLARED_BY_NOTHING)
+        toc.validate_reference_record(rec)
 
     def test_every_emitted_audit_record_satisfies_the_audit_schema(self):
         for lbl in ("desktop", "laptop"):
@@ -373,17 +388,95 @@ class RemapClosure(_TwoOrigins):
         md = toc.summarize(self.rep, "desktop", "laptop")
         self.assertIn("Remap closure for `turns.id`", md)
         self.assertIn("Reference integrity inside each package", md)
+        self.assertIn("Closure parity", md)
+        # the parity verdict must be VISIBLE in the report, not only in this suite
+        self.assertIn("PARITY — the two sets are identical.", md)
 
-    def test_the_undeclared_references_are_flagged_as_undeclared(self):
-        """`story_candidates` turn columns (0047) are bare INTEGERs with no SQL FK and
-        no COLUMN_ONLY_REFERENCES entry, so the exporter's §30 guard does not check
-        them. Recording that is the point."""
-        by = {(r["table"], r["column"]): r["declared"] for r in toc.SURROGATE_REFERENCES["turns.id"]}
-        self.assertFalse(by[("story_candidates", "source_user_turn_row_id")])
-        self.assertFalse(by[("story_candidates", "completed_assistant_turn_row_id")])
-        self.assertFalse(by[("turn_extraction_ledger", "turn_key")])
-        self.assertFalse(by[("bio_facts", "source")])
-        self.assertTrue(by[("trip_turn_links", "user_turn_row_id")])
+    # ── declaration status is DERIVED, and the two sets are COMPARED ──────
+    #
+    # These replace `test_the_undeclared_references_are_flagged_as_undeclared`,
+    # which asserted `declared is False` for four sites. It went false the moment
+    # the 2026-09-12 repair declared all four — and then PINNED the stale report
+    # for two days, so the comparator told a real family comparison that the
+    # exporter's §30 guard does not check references it had been checking since
+    # that repair. A test that hard-codes the answer to a question about another
+    # module's CURRENT state can only ever confirm yesterday.
+
+    def _by_site(self):
+        return {(r["table"], r["column"]): r for r in toc.SURROGATE_REFERENCES["turns.id"]}
+
+    def test_all_seven_turn_reference_sites_are_declared_at_head(self):
+        by = self._by_site()
+        self.assertEqual(len(by), 7)
+        undeclared = sorted(k for k, r in by.items() if not r["declared"])
+        self.assertEqual(undeclared, [], f"undeclared turn reference sites at HEAD: {undeclared}")
+
+    def test_column_ref_sites_are_recognised(self):
+        by = self._by_site()
+        for site in (("trip_turn_links", "user_turn_row_id"),
+                     ("trip_turn_links", "assistant_turn_row_id"),
+                     ("story_candidates", "source_user_turn_row_id"),
+                     ("story_candidates", "completed_assistant_turn_row_id")):
+            self.assertEqual(by[site]["declared_by"], "COLUMN_ONLY_REFERENCES", site)
+
+    def test_encoded_text_sites_are_recognised(self):
+        by = self._by_site()
+        for site in (("turn_extraction_ledger", "turn_key"),
+                     ("turn_extraction_results", "turn_key")):
+            self.assertEqual(by[site]["declared_by"], "ENCODED_REFERENCES", site)
+            self.assertTrue(by[site]["form"].startswith("TEXT"), site)
+
+    def test_the_encoded_json_site_is_recognised(self):
+        rec = self._by_site()[("bio_facts", "source")]
+        self.assertEqual(rec["declared_by"], "ENCODED_REFERENCES")
+        self.assertIn("JSON", rec["form"])
+
+    def test_a_real_sql_fk_is_not_reported_as_undeclared(self):
+        """`turn_extraction_results.ledger_id` IS declared — by SQLite. It is absent
+        from COLUMN_ONLY_REFERENCES on purpose, because that tuple carries references
+        the schema does NOT declare. Asking only the two inventory tuples would have
+        replaced a stale false statement with a fresh one."""
+        rec = toc.SURROGATE_REFERENCES["turn_extraction_ledger.id"][0]
+        self.assertEqual((rec["table"], rec["column"]), ("turn_extraction_results", "ledger_id"))
+        self.assertTrue(rec["sql_fk"])
+        self.assertTrue(rec["declared"])
+        self.assertEqual(rec["declared_by"], toc.DECLARED_BY_SQL_FK)
+
+    def test_closure_parity_with_the_production_declaration(self):
+        """THE cross-check, and the reason the closure is NOT built from the inventory.
+        Both sets are derived separately — one by reading migrations and writers, one
+        from the live declaration — and must agree: 7 == 7 at HEAD. It fails if either
+        side moves without the other, in either direction."""
+        cp = toc.closure_parity("turns.id")
+        self.assertEqual(cp["discovered_count"], 7, cp["discovered"])
+        self.assertEqual(cp["declared_count"], 7, cp["declared"])
+        self.assertEqual(cp["discovered_not_declared"], [],
+                         "stored but UNDECLARED — the exporter's §30 guard is not checking these")
+        self.assertEqual(cp["declared_not_discovered"], [],
+                         "declared but MISSING from the closure — a remap would leave these unrewritten")
+        self.assertTrue(cp["in_parity"])
+
+    def test_the_declaration_status_is_read_from_production_not_restated(self):
+        """The production-boundary companion. Asks `narrator_data_inventory` directly
+        and compares, rather than trusting the record the comparator built — so a
+        hard-coded boolean creeping back in fails here."""
+        from api.services import narrator_data_inventory as inv
+        declared = {(c.table, c.column) for c in inv.COLUMN_ONLY_REFERENCES
+                    if c.parent_table == "turns" and c.parent_key == "id"}
+        declared |= {(e.table, e.column) for e in inv.ENCODED_REFERENCES
+                     if e.parent_table == "turns" and e.parent_key == "id"}
+        from_records = {(r["table"], r["column"]) for r in toc.SURROGATE_REFERENCES["turns.id"]
+                        if r["declared"]}
+        self.assertEqual(from_records, declared)
+
+    def test_no_migration_declares_a_foreign_key_to_turns(self):
+        """The claim the report now makes, measured instead of asserted: SQLite sees
+        ZERO of the seven. If a future migration rebuilds a table WITH a real
+        `REFERENCES turns` clause, this fails and the report's wording is revisited."""
+        root = Path(__file__).resolve().parents[1] / "server" / "code" / "db" / "migrations"
+        hits = [p.name for p in sorted(root.glob("*.sql"))
+                if re.search(r"REFERENCES\s+turns\s*\(", p.read_text(encoding="utf-8"), re.I)]
+        self.assertEqual(hits, [], f"a migration now declares a real FK to turns: {hits}")
 
     def test_a_package_whose_turn_references_all_resolve_is_reported_clean(self):
         ri = self.rep["reference_integrity"]["desktop"]

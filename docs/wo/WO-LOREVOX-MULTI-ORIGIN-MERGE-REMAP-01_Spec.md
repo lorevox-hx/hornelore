@@ -1,6 +1,9 @@
 # WO-LOREVOX-MULTI-ORIGIN-MERGE-REMAP-01 — combining one narrator from two installations
 
 **Status: DESIGN DRAFT 2026-09-12. NOT APPROVED, NOT STARTED, NOTHING IMPLEMENTED.**
+**§3 corrected 2026-09-14** — the declaration now knows all seven `turns.id` reference
+sites, and the `PRAGMA foreign_key_list` walk finds none of them rather than two. Still
+design only; no implementation followed the correction.
 Owed since the Portable Narrator Phase 4 finding (`WO-LOREVOX-PORTABLE-NARRATOR-01` §34)
 and blocking the Phase 7 one-root cutover. Drafted from the two-origin comparison
 evidence, not from expectation — the measured numbers live in
@@ -95,31 +98,61 @@ turns are merged by **conversation**, never paired row-to-row.
 ## 3. The remap closure — the finding that shapes this WO
 
 `turns.id` is stored in **seven** places. A `PRAGMA foreign_key_list` walk finds
-**two**, and the ownership declaration knows about the same two.
+**none of them**, and Lorevox's own semantic-reference declaration now knows **all
+seven**.
 
-| where stored | form | declared? | how it must be rewritten |
+*(**Both halves of that sentence were wrong until 2026-09-14** and they failed in
+opposite directions. It said the FK walk finds "two" and the declaration knows "the
+same two". The FK count conflated *declared in `COLUMN_ONLY_REFERENCES`* with *visible
+to SQLite*: both `trip_turn_links` columns are bare `INTEGER` at `0039:135-136`, the
+`0040` rebuild keeps them bare, and **no migration contains `REFERENCES turns` at
+all**. The declaration count was overtaken by the 2026-09-12 repair, which added the
+two `story_candidates` columns and all three encoded forms. Correcting the first
+**strengthens** this section's conclusion rather than weakening it.)*
+
+| where stored | form | declared by | how it must be rewritten |
 |---|---|---|---|
-| `trip_turn_links.user_turn_row_id` | INTEGER | yes | join on the remap table |
-| `trip_turn_links.assistant_turn_row_id` | INTEGER | yes | join |
-| `story_candidates.source_user_turn_row_id` | INTEGER | **no** (0047:68, no SQL FK) | join |
-| `story_candidates.completed_assistant_turn_row_id` | INTEGER | **no** (0047:69) | join |
-| `turn_extraction_ledger.turn_key` | TEXT `turnrow:<id>` | **no** (0038:62) | parse, rebuild |
-| `turn_extraction_results.turn_key` | TEXT `turnrow:<id>` | **no** (0041:71) | parse, rebuild |
-| `bio_facts.source` | JSON `.turn_key` | **no** (`bio_fact_router.py:367`) | parse JSON, rewrite, re-serialise |
+| `trip_turn_links.user_turn_row_id` | INTEGER | `COLUMN_ONLY_REFERENCES` | join on the remap table |
+| `trip_turn_links.assistant_turn_row_id` | INTEGER | `COLUMN_ONLY_REFERENCES` | join |
+| `story_candidates.source_user_turn_row_id` | INTEGER (0047:68, no SQL FK) | `COLUMN_ONLY_REFERENCES` | join |
+| `story_candidates.completed_assistant_turn_row_id` | INTEGER (0047:69) | `COLUMN_ONLY_REFERENCES` | join |
+| `turn_extraction_ledger.turn_key` | TEXT `turnrow:<id>` (0038:62) | `ENCODED_REFERENCES` | parse, rebuild |
+| `turn_extraction_results.turn_key` | TEXT `turnrow:<id>` (0041:71) | `ENCODED_REFERENCES` | parse, rebuild |
+| `bio_facts.source` | JSON `.turn_key` (`bio_fact_router.py:367`) | `ENCODED_REFERENCES` | parse JSON, rewrite, re-serialise |
 
-And `turn_extraction_ledger.id` → `turn_extraction_results.ledger_id` is a real FK that
-must be remapped with it.
+And `turn_extraction_ledger.id` → `turn_extraction_results.ledger_id` is a real SQL FK
+(`0041:67-68`) that must be remapped with it. It is declared by **SQLite**, not by the
+inventory tuples — those exist precisely for references the schema does *not* declare —
+so a tool that decides "is this declared?" by reading only `COLUMN_ONLY_REFERENCES` and
+`ENCODED_REFERENCES` will report this one undeclared and be wrong.
 
-**Two consequences the implementation is built around:**
+**Three consequences the implementation is built around:**
 
-1. **A merged database can be SQL-valid and still broken.** `PRAGMA foreign_key_check`
-   passes over every TEXT and JSON form above. The merge therefore owes a **semantic
-   reference validator** that understands Lorevox's own reference vocabulary, and
-   acceptance is that validator passing — not SQLite's.
-2. **The closure is a maintained artifact, not a one-off reading.** Any future writer
-   that serialises a local id into a string, a JSON payload or a path joins this table.
-   A test asserts the closure matches what the code actually does, so a new encoded
-   reference fails a test rather than corrupting a merge.
+1. **A merged database can be SQL-valid and still broken — and the declaration being
+   complete does not change that.** `PRAGMA foreign_key_check` passes over every row
+   above, because SQLite cannot see a bare INTEGER, a `turnrow:` string or a JSON
+   field. Production knowing about all seven means the **exporter** refuses to ship a
+   dangling one; it does not give SQLite the ability to check a merge. The merge
+   therefore still owes a **semantic reference validator** that understands Lorevox's
+   own reference vocabulary, and acceptance is that validator passing — never SQLite's.
+2. **Merge/Remap consumes the same production declaration** (`narrator_data_inventory`),
+   as export integrity, restore validation and the two-origin comparator already do. A
+   fifth private copy of this list is how the fourth one went stale.
+3. **And it keeps an INDEPENDENT closure with a parity test.** The seven sites were
+   found by reading migrations and writers, not by asking the declaration. That
+   independence is the only thing that can catch the declaration being *wrong*, so the
+   merge keeps its own discovered list and a test holds the two sets against each other
+   — `discovered == declared == 7` at HEAD. A site discovered but undeclared is an
+   **export gap**; a site declared but not discovered is **evidence drift**. Deriving
+   the closure from the declaration would make the check tautological and must not be
+   done.
+
+**How this drifted, recorded so it is not repeated.** `scripts/two_origin_compare.py`
+carried `declared` as a hand-written boolean per site. The 2026-09-12 repair made five
+of them false, nothing updated the comparator, and on 2026-09-14 a real family
+comparison reported that the exporter does not check references it had been checking
+for two days — with a regression test pinning the stale answer. Fixed by deriving the
+bit from the live declaration at run time and inverting the test.
 
 **Owed before implementation:** repeat the closure hunt for every other
 installation-local surrogate the packages carry (the extraction ledger ids, and any
@@ -127,11 +160,15 @@ installation-local surrogate the packages carry (the extraction ledger ids, and 
 derived from row ids. The hunt method is the one that found these: grep the migrations
 and the writers, not the FK graph.
 
-**Separately reportable finding, outside this WO's scope to fix:** because the two
-`story_candidates` turn columns are undeclared, the exporter's §30 "refuse, never
-dangle" guard does not check them. The comparator's `reference_integrity_audit`
-measures whether any real package actually dangles there. If it does, that is a
-Portable Narrator defect and is fixed there, not here.
+**Separately reportable finding — CLOSED 2026-09-12, kept because the mechanism
+matters.** This paragraph read: *"because the two `story_candidates` turn columns are
+undeclared, the exporter's §30 'refuse, never dangle' guard does not check them."*
+That was true when written and was fixed the same day — both columns are now
+`ColumnRef`s and all three encoded forms are `EncodedRef`s, so §30 covers the whole
+closure. The comparator's `reference_integrity_audit` still measures every site
+independently of whether it is declared, which is what let the audit find the nine
+dangling laptop references in the first place; a dangle there is a Portable Narrator
+defect and is fixed there, not here.
 
 ## 3a. Measured evidence — the real comparison, 2026-09-12
 
