@@ -1,9 +1,12 @@
 # WO-LOREVOX-MULTI-ORIGIN-MERGE-REMAP-01 — combining one narrator from two installations
 
-**Status: DESIGN DRAFT 2026-09-12. NOT APPROVED, NOT STARTED, NOTHING IMPLEMENTED.**
-**§3 corrected 2026-09-14** — the declaration now knows all seven `turns.id` reference
-sites, and the `PRAGMA foreign_key_list` walk finds none of them rather than two. Still
-design only; no implementation followed the correction.
+**Status: UNBLOCKED AND IN IMPLEMENTATION, 2026-09-14.** Both prerequisites are
+discharged: the laptop Christopher package is re-closed and its replacement comparison is
+complete (§3c, §3a), and the full surrogate + path closure hunt the design owed is done
+(§3d). **§3 corrected the same day** — the declaration knows all seven `turns.id`
+reference sites, and the `PRAGMA foreign_key_list` walk finds none of them rather than
+two. Acceptance (§6) is unchanged and nothing is accepted yet: synthetic fixtures with
+deliberate collisions first, real packages only after.
 Owed since the Portable Narrator Phase 4 finding (`WO-LOREVOX-PORTABLE-NARRATOR-01` §34)
 and blocking the Phase 7 one-root cutover. Drafted from the two-origin comparison
 evidence, not from expectation — the measured numbers live in
@@ -154,11 +157,10 @@ comparison reported that the exporter does not check references it had been chec
 for two days — with a regression test pinning the stale answer. Fixed by deriving the
 bit from the live declaration at run time and inverting the test.
 
-**Owed before implementation:** repeat the closure hunt for every other
-installation-local surrogate the packages carry (the extraction ledger ids, and any
-`INTEGER PRIMARY KEY AUTOINCREMENT` in a narrator-owned lane), and for path components
-derived from row ids. The hunt method is the one that found these: grep the migrations
-and the writers, not the FK graph.
+**Owed before implementation — ✅ DISCHARGED 2026-09-14, recorded in §3d.** The hunt was
+repeated for every other installation-local surrogate the packages carry and for path
+components derived from row ids, by the method that found the first seven: read the
+migrations and the writers, never the FK graph.
 
 **Separately reportable finding — CLOSED 2026-09-12, kept because the mechanism
 matters.** This paragraph read: *"because the two `story_candidates` turn columns are
@@ -170,10 +172,18 @@ independently of whether it is declared, which is what let the audit find the ni
 dangling laptop references in the first place; a dangle there is a Portable Narrator
 defect and is fixed there, not here.
 
-## 3a. Measured evidence — the real comparison, 2026-09-12
+## 3a. Measured evidence — the real comparisons
 
-All three pairs compared read-only from the six staged packages; all six byte-identical
-before and after. Reports in `.runtime/two_origin/reports/` (gitignored).
+Kent and Janice: 2026-09-12. **Christopher: re-run 2026-09-14 against the replacement
+laptop package `24560db21dd6`** (the 2026-09-12 figures were against the superseded
+`a2f360689b58`). Every substantive Christopher number below is **unchanged** between the
+two runs — the repair removed nine stale ledger rows, which changed no keyed row, no
+conflict, no file and no collision verdict. All packages byte-identical before and after
+every run. Reports in `.runtime/two_origin/reports/` (gitignored).
+
+**Authoritative merge inputs:** desktop `ea4ae5d6afc5` · laptop `24560db21dd6`
+(Christopher), `451876ad9efa` / `f42a80afb420` (Kent), `74252b2e79c5` / `aca0cdfd9c13`
+(Janice). Kent and Janice are **not** re-run: nothing in the repair touched them.
 
 | | Christopher | Kent | Janice |
 |---|---|---|---|
@@ -191,8 +201,111 @@ before and after. Reports in `.runtime/two_origin/reports/` (gitignored).
 the file-level merge is overwhelmingly union, not reconciliation. The only same-path
 collisions are the two derived archive files resolved in §3b.
 
-**Christopher's laptop package carries nine dangling encoded turn references** and is
-therefore **not yet usable as a merge input** — see §3c.
+**Zero dangling references on both origins, all three narrators**, under the expanded
+reference audit. *(This paragraph read "Christopher's laptop package carries nine dangling
+encoded turn references and is therefore not yet usable as a merge input" until 2026-09-14
+— true of the superseded `a2f360689b58`, false of `24560db21dd6`. See §3c.)*
+
+## 3d. The full surrogate and path closure hunt — completed 2026-09-14
+
+Method: read every migration under `server/code/db/migrations/` and every writer under
+`server/code/api/`, plus `ui/js`. **The FK graph was not consulted for discovery**, only
+for classification. Every row is `verified_by_read` with the writing or reading line
+cited.
+
+**There are exactly THREE narrator-owned installation-local integer surrogates.** Nothing
+else in a packaged lane is an `INTEGER PRIMARY KEY`; every other narrator-owned table uses
+a TEXT/UUID primary key.
+
+| surrogate | minted at | referenced by | what the merge must do |
+|---|---|---|---|
+| `turns.id` | `db.py:588` | the **seven** sites of §3 | renumber **and** rewrite all seven |
+| `turn_extraction_ledger.id` | `0038:55` | `turn_extraction_results.ledger_id` **only** (`0041:67-68`, a real SQL FK; written `db.py:9911` from `db.py:9765` `lastrowid`) | renumber and rewrite that one join |
+| `turn_extraction_results.id` | `0041:62` | **nothing at all** | renumber only — **no reference rewrite exists to get wrong** |
+
+**`turn_extraction_results.id` has zero referents, and that is a measured finding rather
+than an absence of evidence.** No column, no TEXT, no JSON key holds it anywhere in the
+tree. Its only uses are ordering and a replay short-circuit (`db.py:9893`, `:9953`,
+`:8743`, `:10056`), a return value its single caller discards (`turn_extraction.py:790-800`
+ignores `db.py:9919`), and one outbound read-only API field (`db.py:10076` →
+`operator_story_review.py:270`) that nothing writes back — the ack path is keyed by
+`turn_key` (`extract.py:10695-10698`), and the browser holds `turn_key` only
+(`interview.js:1793-1794`). **This matters because it is the ONLY physical collision
+measured in the real family data** (Christopher, `id = 1`, different content on each
+origin): the one collision we must actually resolve is also the cheapest.
+
+**No eighth `turns.id` reference exists.** Four near-misses were ruled out by reading
+their writers, and are recorded so they are not re-investigated: `follow_up_bank
+.triggering_turn_index` / `.asked_at_turn` and `interview_threads.source_turn_index` are
+per-session turn **counters** (`chat_ws.py:7999`, `:3343`), and `trip_location_notes
+.source_ref` / `.source_turn_ref` and `trip_photo_context.source_ref` embed the **client's
+TEXT** turn id under different grammars (`trip_story_capture.py:488`, `:495`, `:537`).
+`turns.meta_json` never stores another turn's id — the only non-literal `meta` is
+`chat_ws.py:7700-7702`, and `story_capture_decision` is field-whitelisted at
+`story_trigger.py:888-899`. Of six `source_json` producers only `bio_facts.source` carries
+a turn reference.
+
+**`turnrow:<int>` is the only grammar that encodes an integer row id**, with one canonical
+writer (`db.py:9693`). The other `<word>:<id>` grammars in the tree (`turn:`,
+`modal_turn:`, `photo_link:`, `trip:`, `qb:`, `child_birth:`) all carry TEXT ids.
+
+**NO path contains an integer row id — the merge rewrites columns, it renames no files.**
+Every path-bearing value is keyed by a TEXT id, `person_id`, `conv_id`, a `uuid4`, or a
+timestamp:
+
+| path | keyed by | cite |
+|---|---|---|
+| `memory_archive_sessions.archive_dir` | `person_id` + `conv_id` | `utils/archive_paths.py:94-104` |
+| `photos.image_path` / `.thumbnail_path` | `narrator_id` + `uuid4().hex` photo id | `photo_intake/storage.py:52-60`, `:86`, `:93`, `:101` |
+| `media_archive_items.storage_path` | `person_id` + `uuid4().hex` item id | `media_archive/storage.py:97-109` |
+| `trip_sources.storage_path` | `uuid4()` source id | `routers/trips.py:2113-2117` |
+| archive audio `audio/<turn>.webm` | `memory_archive_turns.turn_id`, a **TEXT** uuid — **not** `turns.id` | `routers/memory_archive.py:563`, minted `:469` / `archive-writer.js:191-197` |
+| `stories-captured/…` | `narrator_id` + `<ts>__<candidate_id[:8]>`, a TEXT uuid | `story_preservation.py:386-391` |
+| `import_staging/…` | TEXT `batch_id` / `candidate_id` | `import_staging.py:130-139` |
+| `memory/agents/…` | `slug(conv_id)` | `chat_memory_paths.py:37-60` |
+
+The archive audio filename was the highest-risk candidate and is clean. All five
+`lastrowid` sites in the tree (`db.py:2395`, `:2401`, `:9765`, `:9919`) feed columns or
+handles, never a filename.
+
+**A PHYSICAL ID COLLISION IS NOT AN INTEGER PROBLEM — corrected 2026-09-14 on review.**
+The three integer surrogates above are the only *installation-local counters*, and the
+first implementation drew the wrong conclusion from that: it remapped them and assumed a
+TEXT/UUID primary key cannot collide across installations. **The real Christopher
+comparison disproves that on its own evidence.** `graph_persons` is
+`NO_SAFE_CROSS_ORIGIN_KEY`, holds 1 desktop row against 14 laptop rows, and reports
+**one shared physical id whose content is not identical** — because the product mints
+graph-person ids deterministically from narrator + name, so two installations that met
+the same relative independently mint the same id for different rows. Two such rows
+cannot both be inserted under one `TEXT PRIMARY KEY`, and V1's rule for a no-safe-key
+table is that both sides are preserved. So:
+
+- the collision hunt runs over **every packaged table that has an `id` column**, by
+  comparing the actual values — never by assuming a UUID-shaped id is collision-free;
+- reallocation is **type-agnostic**: integers renumber, TEXT ids become a deterministic
+  `uuid5`, and only where they actually collide;
+- `graph_relationships.from_person_id` and `.to_person_id` are **real table-level SQL
+  foreign keys** (`db.py:7421-7423`, `ON DELETE CASCADE`) and must be rewritten with it;
+- **a collision in a table whose reference closure has not been established is a
+  REFUSAL**, never a guess — reallocating a row whose children cannot be enumerated
+  would silently orphan them. "Established and empty" (`turn_extraction_results.id`) and
+  "unknown" are different states and must stay distinguishable.
+
+**Out of scope because it never enters a package:** the response trace embeds `turns.id`
+and `turnrow:` keys (`chat_ws.py:7743-7748`, `:7782-7786`) but writes to
+`.runtime/eval/response-trace` (`lori_response_trace.py:136-144`), which is under the
+**repository**, not `DATA_DIR`, and which no `FsLane` declares. Merged roots therefore
+carry no stale trace references. The same applies to
+`scripts/repair_stale_ledger_references.py`'s recovery artifact.
+
+**One NEW defect found, and it belongs to Portable Narrator, not here.** `media.filename`
+stores a **full absolute path** (`routers/media.py:108`, whose own comment says so) while
+`DbLane("media", …)` declares **no `path_columns`** (`narrator_data_inventory.py:250`) —
+so §8.5's restore-time path rewrite does not normalise it, and a restored or merged root
+would keep the origin machine's absolute path. **It is latent, not urgent: no `media` rows
+appear in any of the six real packages**, so it gates nothing here. Registered as a
+Portable Narrator obligation; do not fix it inside this WO (§3's rule — a dangle or a path
+defect is fixed where it is created).
 
 ## 3b. The two same-path archive files — resolved from code, not from filenames
 
@@ -205,32 +318,38 @@ either by its filename would have been wrong:
 | `index.json` | **derived registry, fully regenerable** | `_register_session_in_index` writes only `{session_id, title, mode, started_at}` (`archive.py:1217-1224`), and every one of those fields is already written into `sessions/<id>/meta.json` (`archive.py:90-96`) | **Regenerate after merge** by walking the merged `sessions/*/meta.json`. Different bytes are NOT a narrator-content conflict and must not be surfaced as one. |
 | `rolling_summary.json` | **derived but NOT regenerable** | LLM-produced running memory, scored and **pruned** — lossy by construction — then contamination-filtered, carrying a `wo13_filtered` audit block and `last_updated` (`archive.py:654-687`, WO-13 Phase 5) | **A real divergence.** Each origin evolved its own memory of the narrator. V1 **refuses and reports both**; it is never silently overwritten and never merged by taking the newer `last_updated`, because pruning means neither side is a superset. |
 
-## 3c. Reopened Portable Narrator obligation — the laptop Christopher package
+## 3c. Reopened Portable Narrator obligation — **CLOSED 2026-09-14, this WO is UNBLOCKED**
 
-The full-reference audit found **nine** `turn_extraction_ledger` rows in the laptop's
-Christopher package whose `turnrow:<turns.id>` keys name turns the package does not
-contain. The package is **structurally valid under the old validator and semantically
-incomplete under the newly discovered reference invariant** — it is not a corrupted ZIP
-or an invalid bag, and its Phase 6 export→restore→export equivalence remains historically
-true under the validator that existed then.
+**The blocker this section described is discharged. Implementation no longer waits on
+anything.** The authoritative laptop Christopher package is
+`Christopher_Todd_Horne_24560db21dd6.lorevox.zip` — **524 records / 214 files, zero
+unresolved FK, `ColumnRef`, encoded-TEXT or encoded-JSON references** — and the
+replacement two-origin comparison against desktop `ea4ae5d6afc5` is complete (§3a).
 
-**This is a Portable Narrator integrity obligation, not something the merge compensates
-for.** The merge must not import the missing turns: a reference pointing outside the
-narrator-owned closure is a refusal, and only the ownership declaration decides what
-belongs to a narrator (§30).
+**What it was.** The full-reference audit found nine `turn_extraction_ledger` rows in the
+**superseded** package `a2f360689b58` whose `turnrow:<turns.id>` keys named turns the
+package did not contain: structurally valid under the old validator, semantically
+incomplete under the newly discovered reference invariant — never a corrupted ZIP.
 
-**What the package proves** and **what it cannot** are separated in
-`scripts/dangling_turn_reference_report.py`. It cannot establish whether those turns ever
-existed in the laptop's live database, whether they belong to this narrator, or whether
-the ledger rows are simply stale — a ledger records extraction *attempts*, which can
-outlive the turn they were about. Distinguishing an ownership/declaration gap from stale
-derived rows from legacy residue needs **one read-only query against the laptop's live
-database**, and the laptop is available for exactly that bounded step.
+**What it turned out to be: stale derived bookkeeping, and only that.** Ledger ids
+7, 8, 9, 10, 11, 17, 18, 19, 28 were removed from the authoritative laptop database and
+nothing else, under one `BEGIN IMMEDIATE` requiring `rowcount == 9`, with the originals
+written verbatim to a recovery artifact first. 533 → 524 records; files unchanged at 214.
+The replacement package restored into a brand-new clean root with the narrator never
+opened, re-exported, and compared `EQUIVALENT tables=60 rows=524 files=214`.
 
-**Consequence for this WO:** design continues; implementation waits on the disposition.
-A corrected authoritative Christopher-laptop package is re-exported only after the cause
-is known, using the extended checker — which now refuses rather than shipping the same
-gap. The current package is retained unmodified as evidence.
+**Deliberately NOT done, and not to be resurrected:** no ownership was materialised, no
+`trip_turn_links` touched, no session curated, no facts salvaged. `DirectOrExclusiveInbound`
+carries Christopher's 9 sessions and 100 turns exactly as §36.5 proved — he has **zero
+directly-owned sessions**, which is what makes that closure load-bearing for a real family
+narrator. The superseded ownership-repair theory, the four candidate-session decisions and
+the withdrawn 578/597/654 arithmetic are **history, not work**. The preservation/curation
+analysis is Phase 7 input and gates nothing.
+
+**What still stands from the original obligation:** the merge must not import missing
+turns. A reference pointing outside the narrator-owned closure is a refusal, and only the
+ownership declaration decides what belongs to a narrator (§30). `a2f360689b58` is retained
+unmodified as historical evidence and is **not** a merge input.
 
 ## 4. Merge classes and their policies
 
@@ -253,6 +372,22 @@ be proven*, not *the rows are duplicates*. The merge preserves every such row fr
 origins with its origin provenance. If that produces two records a human can see are the
 same thing, a human decides later; a tool that guesses here would delete a narrator's
 history on the strength of a similarity score.
+
+**A DIFFERING REFERENCE IS "THE SAME" ONLY ONCE THE REFERENCED ROWS ARE PROVEN TO
+CORRESPOND — corrected 2026-09-14 on review.** The first implementation normalised every
+reference to a sentinel before comparing row content, so that two origins citing "their
+own copy" of a conversation would not be reported as a conflict. **That was wrong in the
+one direction this WO cannot afford.** `turns` has no defensible cross-origin key *by
+design*, so desktop turn 17 and laptop turn 84 have never been shown to be the same
+evidence; blanking both citations declared two facts identical on the strength of a
+correspondence nobody proved — similarity silently becoming identity, §1's first rule.
+
+The rule is therefore: **classify rows AFTER the remap, on the remapped values.** Two
+references are equal if and only if they resolve to the same merged row, which is
+exactly the condition under which ignoring the difference is safe. Where the parent
+genuinely corresponds the ids converge and the difference disappears on its own; where
+it does not, the difference survives and is reported. Refusing is not dropping — both
+rows are still carried while a human decides.
 
 **V1 refuses every conflict rather than resolving it.** A merge that picks a winner
 without being told is exactly the silent edit this WO exists to prevent. Policies for

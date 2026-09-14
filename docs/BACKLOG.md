@@ -398,6 +398,29 @@ the durable one. Either way it is a documentation commit, not a hygiene move.
 
 ---
 
+## 4b. Portable Narrator — `media.filename` is an undeclared absolute path
+
+**Recorded 2026-09-14 by the Merge/Remap §3d closure hunt. Latent, not urgent — and the
+reason it is latent is the reason it is easy to forget.**
+
+`routers/media.py:108` writes `filename=str(out_path)` — a **full absolute** `DATA_DIR`
+path, and its own comment says so — while `DbLane("media", …)` at
+`narrator_data_inventory.py:250` declares the lane portable with **no `path_columns`**.
+So §8.5's restore-time path rewrite, which reads `path_columns()`
+(`narrator_data_inventory.py:646-648`), never normalises it. A narrator restored into a
+different root — or merged into a new one — keeps the *origin machine's* absolute path,
+which will not exist there.
+
+**Why nothing is broken today:** no `media` rows appear in any of the six real family
+packages, so every Phase 6 proof and the two-origin comparisons are unaffected.
+`narrator_package.py:431-435` already models absolute-vs-relative bases as
+`path_basis_seen` and refuses a column that mixes them, so the machinery to handle it
+exists; what is missing is the declaration.
+
+**Fix it before any lane that adds documents or media for a narrator** — travel-laptop
+readiness is the obvious one. It is a Portable Narrator repair (a path defect is fixed
+where it is created), not a Merge/Remap change, and it does not gate the merge.
+
 ## 5. Tooling defects — repairs, not archival
 
 All four reproduce at `d0e5294`. Bounded tooling commits, separate from cleanup.

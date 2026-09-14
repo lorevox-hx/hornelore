@@ -77,64 +77,48 @@ MANIFEST_NAME = "lorevox-manifest.json"
 RECORDS_PREFIX = "data/records/"
 FILES_PREFIX = "data/files/"
 
+# ── the shared registries live in ONE place, not two ──────────────────
+#
+# The logical-key registry and the verdict vocabulary were defined HERE until
+# 2026-09-14, when Merge/Remap became their second consumer. A second copy would
+# have been a second list of one truth — the drift that had just cost a session
+# via the `declared` booleans — so they moved to the service layer and this file
+# imports them. Names are re-exported unchanged: `toc.LOGICAL_KEYS`,
+# `toc.SAME_DIFF` and the rest still resolve, and no caller or test changed.
+_SERVER_CODE = str(Path(__file__).resolve().parents[1] / "server" / "code")
+if _SERVER_CODE not in sys.path:
+    sys.path.insert(0, _SERVER_CODE)
+
+from api.services import cross_origin_identity as _xid  # noqa: E402
+
 # ── row verdicts: the vocabulary the Merge/Remap WO consumes ──────────
-SAME_SAME = "SAME_LOGICAL_RECORD_SAME_CONTENT"
-SAME_DIFF = "SAME_LOGICAL_RECORD_DIFFERENT_CONTENT"
-ONLY_A = "ONLY_A"
-ONLY_B = "ONLY_B"
-NO_SAFE_KEY = "NO_SAFE_CROSS_ORIGIN_KEY"
-KEYED = "KEYED"
+SAME_SAME = _xid.SAME_SAME
+SAME_DIFF = _xid.SAME_DIFF
+ONLY_A = _xid.ONLY_A
+ONLY_B = _xid.ONLY_B
+NO_SAFE_KEY = _xid.NO_SAFE_KEY
+KEYED = _xid.KEYED
 # ── reported separately, never folded into the row verdicts ───────────
-PHYSICAL_COLLISION = "PHYSICAL_ID_COLLISION_DIFFERENT_CONTENT"
-FILE_SAME = "FILE_PATH_SAME_HASH"
-FILE_DIFF = "FILE_PATH_DIFFERENT_HASH"
-FILE_ONLY_A = "FILE_ONLY_A"
-FILE_ONLY_B = "FILE_ONLY_B"
+PHYSICAL_COLLISION = _xid.PHYSICAL_COLLISION
+FILE_SAME = _xid.FILE_SAME
+FILE_DIFF = _xid.FILE_DIFF
+FILE_ONLY_A = _xid.FILE_ONLY_A
+FILE_ONLY_B = _xid.FILE_ONLY_B
 
 
 # ══════════════════════════════════════════════════════════════════════
 # The logical-key registry. Every entry states WHY. A table absent from
 # this registry has NO logical key -- the default is refusal, not a guess.
+#
+# DEFINED IN `api.services.cross_origin_identity`, not here, since 2026-09-14.
+# Merge/Remap needs the same judgements to classify a row, and the entries carry
+# their own justifications -- a second copy would drift exactly the way the
+# `declared` booleans in this file had just drifted. Re-exported so every existing
+# reference (`toc.LOGICAL_KEYS`, `toc.VOLATILE_COLUMNS`) still resolves.
 # ══════════════════════════════════════════════════════════════════════
 
-LOGICAL_KEYS: Dict[str, Tuple[Tuple[str, ...], str]] = {
-    # The narrator themself. §31 measured the SAME people.id on both machines for
-    # Chris, Kent and Janice -- empirical evidence that the row was created once
-    # and carried, which is what makes this UUID an identity rather than a format.
-    "people": (("id",),
-               "same people.id measured on both installations (WO §31): created once, carried"),
-
-    # One row per narrator per installation; the PK is the narrator. What differs
-    # is the CONTENT, which is exactly what we want surfaced.
-    "profiles": (("person_id",), "PK is person_id: one row per narrator per installation"),
-    "bio_builder_questionnaires": (("person_id",), "PK is person_id"),
-    "interview_projections": (("person_id",), "PK is person_id"),
-    "profile_seed_onboarding": (("person_id",), "PK is person_id"),
-
-    # A fact is (narrator, field). bio_facts.id is a per-installation UUID, so the
-    # PK would wrongly report every fact as origin-unique. Multiple rows per field
-    # are expected (BACKLOG §5 questionnaire_put duplication) and are reported as
-    # duplicate keys rather than collapsed.
-    "bio_facts": (("narrator_id", "field_key"),
-                  "domain key: a fact is (narrator, field); the VALUE is the conflict"),
-
-    # conv_id is the product-wide conversation identity (0039) and is carried in
-    # every lane that references a conversation.
-    "sessions": (("conv_id",), "conv_id is the product-wide conversation key (0039)"),
-    "memory_archive_sessions": (("person_id", "conv_id"), "archive session is keyed by conversation"),
-    "memory_archive_turns": (("person_id", "conv_id", "seq"),
-                             "seq is a stable per-conversation ordinal in this table (0002)"),
-}
-
-#: Columns excluded from CONTENT comparison, per table, each with a reason that it
-#: is non-semantic for merge purposes. Deliberately NOT a blanket "ignore all
-#: timestamps": a timestamp can be narrator meaning (when a trip happened) and
-#: hiding it would hide a real conflict.
-VOLATILE_COLUMNS: Dict[str, Dict[str, str]] = {
-    "profiles": {"updated_at": "row rewrite stamp; the app rewrites it on narrator open (BACKLOG §5)"},
-    "bio_builder_questionnaires": {"updated_at": "row rewrite stamp; rewritten on narrator open"},
-    "sessions": {"updated_at": "row rewrite stamp; not narrator meaning"},
-}
+LOGICAL_KEYS: Dict[str, Tuple[Tuple[str, ...], str]] = _xid.LOGICAL_KEYS
+VOLATILE_COLUMNS: Dict[str, Dict[str, str]] = _xid.VOLATILE_COLUMNS
 
 #: Where an installation-local surrogate is REFERENCED. The Merge/Remap closure must
 #: rewrite every one of these consistently, or the merged root dangles.
@@ -325,8 +309,8 @@ def closure_parity(parent: str = "turns.id") -> Dict[str, Any]:
 
 TURNROW_RX = re.compile(r"^turnrow:(\d+)$")
 
-KIND_DECLARED = "declared_logical_key"
-KIND_NO_KEY = "no_defensible_logical_key"
+KIND_DECLARED = _xid.KIND_DECLARED
+KIND_NO_KEY = _xid.KIND_NO_KEY
 
 _UUIDISH = re.compile(r"^[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}$")
 
@@ -373,18 +357,16 @@ def ownership_path(table: str) -> str:
 
 
 def logical_key_for(table: str) -> Tuple[str, Tuple[str, ...], str]:
-    """(kind, columns, justification). Absence from the registry is a VERDICT."""
-    if table in LOGICAL_KEYS:
-        cols, why = LOGICAL_KEYS[table]
-        return KIND_DECLARED, cols, why
-    return (KIND_NO_KEY, (),
-            "no entry in the logical-key registry: no domain key, and a physical id "
-            "is either installation-local or independently minted per installation. "
-            "Refusing to invent a correspondence.")
+    """(kind, columns, justification). Absence from the registry is a VERDICT.
+
+    Delegates to the shared registry so the comparator and the merge cannot disagree
+    about what makes a row the same row.
+    """
+    return _xid.logical_key_for(table)
 
 
 def _volatile(table: str) -> Dict[str, str]:
-    return VOLATILE_COLUMNS.get(table, {})
+    return _xid.volatile_columns(table)
 
 
 def _key_of(row: Dict[str, Any], cols: Tuple[str, ...]) -> str:
