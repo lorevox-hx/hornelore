@@ -167,7 +167,29 @@ contains **zero unique narrator content** — all five turns replay fixtures fro
 | **Janice** | `switch_ms18e7zp_z62u` — 2 turns, the only user row is an injected `[SYSTEM: Janice is returning…]`, **zero narrator-authored speech**. EMPTY/STRUCTURAL SHELL | **no replacement needed** |
 | **Kent** | `harness-1785381831` — test-prefixed, content duplicated in `harness-1785381790` | **no replacement needed** |
 | **Del** | duplicated development material; pre-deployment-indeterminate | none |
-| **Christopher** | 42 sessions as above; salvage list refined to a small set | **new authoritative package required** |
+| **Christopher** | 42 sessions as above; salvage list refined to the table below | **new authoritative package required** |
+
+### The final salvage list — adjudicated by Chris, 2026-09-13
+
+Twelve candidates were re-judged; the automated pass returned four "genuine", and
+**Chris corrected two of them**. The corrections are recorded because both are
+limits of the method, not of the data:
+
+| turn | text | verdict |
+|---|---|---|
+| `tdlab_9538…` [1482] | "I went to my grandparents gravesite and my old schools with Melanie." | **GENUINE — salvage.** The strongest unique life/travel fact found, and the only one naming Melanie |
+| `switch_mre0txvh_tb7w` [1182] | "I was not in the outfit it is a picture of men in lederhosen" | **PHOTO CORRECTION.** Belongs in photo context/metadata, not memoir prose — so preserving it does NOT require keeping the session |
+| `switch_mrkpipjr_twr7` [1218] | "My mother sewed all our clothes. She was patient with me." | **CHRIS REVIEW.** The first clause is a fixture used repeatedly elsewhere; only "She was patient with me" is novel. Not automatically canonical |
+| `tdlab_9538…` [1448] | "We spent the morning walking… the light looked on the water…" | **UNCERTAIN / likely fixture.** Repeated three times inside one lab session. Does not migrate automatically |
+| `tdlab_9538…` [1532] | "Gravesite of my mom's parents, in Bismarck." | **ALREADY SURVIVES.** `trip_location_notes` holds "i went to visit my moms parents gravesite in Bismarck." Token Jaccard scored 0.43 and the script called it genuine; **that was the algorithm being conservative about two sentences that state the same fact.** Corrected by Chris |
+
+**Net position: at most one genuine family fact plus one photo correction require
+deliberate salvage**, from an investigation that began with 28 "missing" turns and
+nine dangling references. Two further items await Chris's judgement.
+
+Two method limits worth carrying forward: token-overlap scoring cannot recognise a
+paraphrase, and "unique text" is not "memoir content" — a photo correction is
+genuinely valuable and genuinely not narrator history.
 
 **Do not rebuild Janice's or Kent's package on account of these sessions.** Only an
 independent defect would justify it.
@@ -208,13 +230,22 @@ which 0044's pass 1 matched nothing.
 
 ## Tooling (all read-only, all under `scripts/`)
 
-`inspect_dangling_turn_origins.py` · `inspect_residue_session_provenance.py` ·
-`audit_null_owner_sessions.py` · `migration_0044_verdict.py` *(rowid watermark
-withdrawn — see §C)* · `migration_0044_literal_predicate.py` ·
-`del_deployment_chronology.py` · `classify_sessions_for_preservation.py`
-*(superseded)* · `classify_sessions_structural.py` *(superseded)* ·
-`preservation_plan.py` · `christopher_salvage_map.py` ·
-`christopher_salvage_final.py`
+In the order they were used:
+
+| script | what it established |
+|---|---|
+| `inspect_dangling_turn_origins.py` | the nine turns exist, in NULL-owner sessions. **Its `reached by: []` is a false negative** — see §B |
+| `inspect_residue_session_provenance.py` | 0044's three recorded links, per conversation; pass 1 names Christopher |
+| `audit_null_owner_sessions.py` | chronology, and the blast radius: 81 of 912 |
+| `classify_null_owner_sessions.py` | the 81 by narrator, writer prefix and date; raised the Del post-fix question |
+| `migration_0044_verdict.py` | runner semantics. **Its rowid watermark is circular and withdrawn** — see §C |
+| `migration_0044_literal_predicate.py` | the literal pass predicates, and order-consistency in place of the withdrawn test |
+| `del_deployment_chronology.py` | Del is pre-deployment-indeterminate, not a live regression |
+| `classify_sessions_for_preservation.py` | **superseded** — keyword heuristic, counted `[SYSTEM:]` as speech |
+| `classify_sessions_structural.py` | **superseded** — fixed identity, still let vocabulary decide inside the family set |
+| `preservation_plan.py` | the classification that holds: structural provenance outranks vocabulary |
+| `christopher_salvage_map.py` | per-turn survival against clean destinations |
+| `christopher_salvage_final.py` | the adjudicated list; **two of its four "genuine" verdicts were corrected by Chris** |
 
 Reports are written under `.runtime/two_origin/reports/`, which is **gitignored**.
 They quote bounded excerpts of real narrator speech and must not be committed or
