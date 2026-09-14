@@ -69,16 +69,30 @@ exists to clean up.
 Their content is discardable; their **references are not yet resolved**. Three
 options, with the trade-off stated rather than a choice made:
 
+> **CORRECTED 2026-09-14, and the correction removes an option.** This section
+> originally offered a third choice — "declare `turn_extraction_ledger → turns` in
+> `COLUMN_ONLY_REFERENCES`" — and recommended it alongside B. **That work is already
+> done, by a better mechanism, and implementing it again would add a duplicate
+> declaration.** `narrator_data_inventory.ENCODED_REFERENCES` (line 475) declares
+> `turn_extraction_ledger.turn_key` → `turns` as `FORM_TEXT_PREFIXED` with prefix
+> `turnrow:`, cited to `0038:62-65`, alongside `turn_extraction_results.turn_key` and
+> the `bio_facts.source` JSON field; the exporter consumes it, and a malformed
+> encoding refuses rather than being skipped. `COLUMN_ONLY_REFERENCES` compares
+> **column values** and structurally cannot reach a reference embedded *inside a
+> string* — which is precisely why `ENCODED_REFERENCES` exists.
+>
+> **The plan was written without knowledge of that landed repair.** The guard gap is
+> closed; only the data question remains.
+
 | option | effect | cost |
 |---|---|---|
 | **A. Repair ownership on all three** | 28 turns enter the package; the 9 ledger rows resolve | migrates 28 turns of capability-probing into the canonical record — the opposite of this plan's intent |
-| **B. Delete the 9 stale ledger rows** | references disappear; sessions stay out | a write to a derived audit ledger on real data; needs its own authorization and a truthful record |
-| **C. Declare `turn_extraction_ledger → turns` in `COLUMN_ONLY_REFERENCES`** | the exporter refuses until A or B is done | correct long-term regardless; does not by itself resolve anything |
+| **B. Remove the 9 stale ledger rows** | references disappear; the sessions stay out | a write to a derived audit ledger on real data; needs its own authorization and a truthful record |
 
-**Recommendation: C plus B.** C closes the declaration gap that let this ship
-silently — the guard should check that edge whatever else happens. B then removes
-derived rows that point at conversations nobody is keeping. A is the option to
-avoid: it would preserve "can you read my travel docs" as family history.
+**Recommendation: B.** The rows are derived extraction bookkeeping pointing at
+conversations nobody is keeping, and the semantic guard already in production will
+stop an incomplete package shipping again. A is the option to avoid: it would
+preserve "can you read my travel docs or trips" as family history.
 
 **`switch_msaedccx_fkm1` is the clearest case**: the narrator typed **"hi"**, and
 one ledger row names a turn in it.
@@ -130,7 +144,7 @@ figure exactly. A different number is a finding, not a rounding error.
 
 1. Bank the desktop's semantic-reference repair (20/20 focused, 133/133 bank).
 2. Chris chooses the §1b set and decides items [1218] and [1448].
-3. Decide §4 (recommended: C then B).
+3. Decide §4 — **A or B only; the guard half is already in production** (recommended: B).
 4. Salvage [1482] and [1182] **through the product**.
 5. Execute the narrow ownership repair; verify against §6.
 6. New authoritative Christopher package; clean-root restore; no interaction;
