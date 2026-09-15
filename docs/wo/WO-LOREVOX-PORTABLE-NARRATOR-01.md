@@ -3,11 +3,17 @@
 **Portable Narrator Package, Restore, and Clean Lorevox Cutover**
 
 **Opened:** 2026-09-09
-**Status (2026-09-11):** **Phases 0–4 LANDED** (§31 · §32 · §33 + §33.1 · §34);
-**Phase 5 (operator jobs + UI, §16.1) is CURRENT.** Deletion remains outside this WO:
-Phase 7 is a clean-root cutover and `/mnt/c/hornelore_data` remains preserved (§25). *(This line read "APPROVED IN ARCHITECTURE 2026-09-09 —
-implementation begins with Phase 0 only" until 2026-09-11; that was true for two days and
-then became a standing instruction to redo finished work.)*
+**Status (2026-09-15):** **PHASES 0–7 ARE CLOSED — §37.** Nothing in this work order is
+current work. **Phase 5b** (rich per-domain inspection, §35 bullet *5b*) and **Phase 8**
+(product naming, §17) remain unstarted **and block nothing**; each is its own scope and
+its own decision. *(This line read "**Phases 0–4 LANDED**; **Phase 5 (operator jobs + UI,
+§16.1) is CURRENT**" from 2026-09-11 to 2026-09-15 — four days during which Phases 5a, 6
+and 7 all landed and this line went on naming Phase 5 as the work to do. Before that it
+read "APPROVED IN ARCHITECTURE 2026-09-09 — implementation begins with Phase 0 only",
+true for two days and then a standing instruction to redo finished work. **Twice now this
+one line has aged into a directive to repeat completed work; that is the whole reason §37
+states the closed set explicitly rather than leaving it to be inferred from the phase
+list.**)*
 **Repository reviewed:** `lorevox-hx/hornelore` · `main` ·
 `7d5d040cf8060e9501a6053c77978047dc6b41f9`
 **Drafted** from the 2026-09-09 review (ChatGPT draft, Claude repo-grounded amendments
@@ -1731,3 +1737,67 @@ encoded-TEXT or encoded-JSON references. **Portability is complete for all six s
 packages** and hands off to Multi-Origin Merge/Remap. **The laptop portability lane is
 closed**; Phase 7 curation is a separate decision and is not a prerequisite for
 anything above.
+
+---
+
+## 37. Phase plan closeout — PHASES 0–7 ARE CLOSED (2026-09-15)
+
+**This section exists so nobody has to infer the state of this work order from §17's phase
+list plus fourteen closeout sections.** Twice the status line at the top of this file aged
+into an instruction to redo finished work. The table is the answer; everything below it is
+provenance.
+
+| phase | state | where |
+|---|---|---|
+| 0 · Ownership matrix | ✅ closed 2026-09-10 | §31, `20260910T015024Z` |
+| 1 · Ownership declaration | ✅ closed 2026-09-10 | §31 |
+| 2 · Package v1 exporter | ✅ closed 2026-09-10 | §32 |
+| 3 · Dry-run + Restore v1 | ✅ closed 2026-09-11 | §33, §33.1 |
+| 4 · Round-trip equivalence | ✅ closed 2026-09-11 | §34 |
+| 5a · Operator jobs + Data Center | ✅ accepted live 2026-09-11 | §35, §35.3 |
+| 6 · Real-family portability | ✅ closed both origins 2026-09-11/12, Christopher re-closed 2026-09-14 | §36–§36.5a |
+| 7 · Clean Lorevox data world | ✅ accepted 2026-09-15 | `WO-LOREVOX-CLEAN-DATA-WORLD-01`, `8594289` · `11489e1` |
+| — · Laptop rebuild | ✅ accepted 2026-09-15 | `docs/handoffs/HANDOFF_2026-09-15_LAPTOP-REBUILD-CLOSEOUT.md` |
+| **5b · Rich per-domain inspection** | ⬜ **not started — blocks nothing** | §35 bullet *5b* |
+| **8 · Product naming cutover** | ⬜ **not started — blocks nothing** | §17, §23 |
+
+**The laptop rebuild was not a numbered phase and is recorded here because it is what
+Phase 7 handed off to.** `/mnt/c/hornelore_data` now holds exactly Christopher (524 rows /
+214 files), Kent (43 / 45) and Janice (66 / 21) — 280 payload files — each restored from a
+package exported from that same root hours earlier and each re-exporting `EQUIVALENT`. The
+acceptance contract was **derived from the fresh export's own manifests**, not retyped from
+the historical 524/43/66; that those matched is a coincidence and was not the test. The
+laptop keeps its own root and `DB_NAME=hornelore.sqlite3` — Phase 7's `/mnt/c/lorevox_data`
+is the DESKTOP's root and was deliberately not adopted.
+
+**Two latent product defects surfaced there, and neither was reachable by any test in this
+WO's evidence base** (§20 bounded the test surface deliberately; this is what that boundary
+costs). **Fixed:** `db.py:5746` carried the file's only absolute `from api.services import …`
+among twelve, so `DELETE /api/people/{id}?mode=hard` returned HTTP 500 `No module named 'api'`
+and rolled back — **erasure was impossible through the API and nothing said so.** **Filed,
+not fixed:** `BUG-RESTORE-FK-GATE-TABLE-SCOPED-NOT-ROW-SCOPED-01` — `narrator_package.py:1392`
+verifies references with a table-scoped `PRAGMA foreign_key_check` under a comment promising
+row-scoped behaviour, so pre-existing orphan rows in any table a package also writes refuse
+the restore. The failure was clean (files unlinked, jobs `failed` not `cleanup_required`),
+which is §12's atomicity guarantee proven under a real failure rather than a seam test.
+
+**What is NOT owed.** No merge, no remap, no re-comparison of the desktop/laptop pairs, no
+ownership repair, no curation decision, no fact salvage. Every one of those was either
+discharged or withdrawn in §36.5a and the 2026-09-13 findings, and all of them have been
+resurrected from stale prose at least once. **The desktop narrator copies and the laptop
+preservation copies stay** until the rebuilt root has been in real use; retirement is a
+separate, deliberate step and is not cleanup.
+
+**What remains, in full.** Phase 5b (§35 bullet *5b*) — the rich per-domain inspection the
+Data Center deferred. Phase 8 (§17, §23) — package/UI language becomes Lorevox, **no blind
+repository-wide rename**, compatibility names kept where change adds unrelated risk, and the
+repository/path rename is a later explicit cleanup. Phase 8 now touches Phase 7's runtime
+root contract (`runtime_root.py`, `KNOWN_DB_NAMES`) and both launchers' `DATA_DIR`/`DB_NAME`
+capture, so it needs its own preservation and acceptance pass rather than being folded into
+other work. **Neither blocks the other, and neither blocks the product work that follows.**
+
+**The actual next work is not in this WO.** It is Bio Builder, family tree, relationships,
+dates and places, stories, photos and corrections on the three rebuilt narrators — with
+`BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01` (`1c31e7b`) live and directly in its way: a save
+of a spouse or child section drops `maidenName`, `birthPlace`, `notes` and `relation` that
+are already stored.

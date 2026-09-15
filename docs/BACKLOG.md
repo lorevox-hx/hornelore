@@ -421,6 +421,46 @@ exists; what is missing is the declaration.
 readiness is the obvious one. It is a Portable Narrator repair (a path defect is fixed
 where it is created), not a Merge/Remap change, and it does not gate the merge.
 
+## 4c. `BUG-RESTORE-FK-GATE-TABLE-SCOPED-NOT-ROW-SCOPED-01` — restore judges damage it promised not to
+
+**Recorded 2026-09-15 by the laptop rebuild** (`docs/handoffs/HANDOFF_2026-09-15_LAPTOP-REBUILD-CLOSEOUT.md`).
+**Not latent — it fired, and it blocked every restore into a real root.**
+
+`narrator_package.py:1392-1393` verifies references after inserting a narrator's rows:
+
+```python
+for table in inserted:      # only the tables this job wrote; pre-existing damage is not ours to judge
+    bad += con.execute(f'PRAGMA foreign_key_check("{table}")').fetchall()
+```
+
+The comment states the correct rule. **The pragma is table-scoped, not row-scoped**, so it
+scans every row in the table including ones the job never touched — judging exactly the
+pre-existing damage it disclaims. The loop over `inserted` narrows *which tables* are
+checked and gives no protection at all *within* a table.
+
+**What it cost.** Six orphaned `harness-test-gate7p2-*` rows in `interview_sessions`,
+pointing at `people` rows that no longer existed, refused all three family packages. They
+had survived a full narrator erasure precisely because they belonged to no narrator. Every
+family package writes `interview_sessions`, so nothing could be restored at all until they
+were deleted — in the middle of a rebuild, with the root already empty.
+
+**Suggested fix:** compare the rowids the pragma reports against the rowids this job
+inserted, and fail only on the intersection. The insert loop already knows what it wrote.
+
+**`scripts/clear_orphan_interview_sessions.py` is the operational workaround and says so
+in its own docstring.** It deletes only `interview_sessions` rows orphaned by `person_id`,
+refuses anything not matching `harness-test-*`, refuses FK damage it cannot account for,
+and copies the database first. **Keep it until the gate is fixed, then decide whether it
+still earns its place** — a root carrying *legitimate* orphaned data needs the gate
+corrected, not the data removed, and a workaround that outlives its defect starts looking
+like policy.
+
+**Related, and worth fixing in the same pass:** `scripts/family_root_verify.py` reports
+every restore job that is not `complete` as a problem, with no concept of *superseded*. The
+three jobs that failed on this defect and were then succeeded by three `complete` jobs for
+the same narrators and packages will be flagged on every future run of that root, forever.
+The history is accurate and must not be deleted to quiet the check.
+
 ## 5. Tooling defects — repairs, not archival
 
 All four reproduce at `d0e5294`. Bounded tooling commits, separate from cleanup.
