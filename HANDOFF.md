@@ -10,9 +10,9 @@ rule back. The claim that matters is the one about obligations.)*
 
 ---
 
-> # ▶ CURRENT ACTION — **PHASE 7, THE CLEAN LOREVOX DATA WORLD.**
+> # ▶ CURRENT ACTION — **THE LAPTOP REBUILD. PHASE 7 IS ACCEPTED AND CLOSED.**
 >
-> **Family portability is ACCEPTED (2026-09-14):** the three authoritative **laptop** packages restored sequentially into ONE product-initialised installation and each re-exported `EQUIVALENT`. Merge/Remap is built and hardened but **does not gate Phase 7**. The full measured record is the **NOW block**, headed *"NOW — FAMILY PORTABILITY IS ACCEPTED"*, further down this same block — **that is the authority for what to do next.**
+> **Phase 7 — the clean Lorevox data world — is ACCEPTED (2026-09-15).** `/mnt/c/lorevox_data` is a live, empty, product-initialised Lorevox root and is what `.env` now points at. The full measured record is the **NOW block**, headed *"NOW — PHASE 7 IS ACCEPTED"*, further down this same block — **that is the authority for what to do next.** Family portability was accepted 2026-09-14 and its record is kept below it.
 >
 > *(This heading read "THE TWO-ORIGIN COMPARISON" until 2026-09-14, and "PHASE 5 (operator jobs + UI)" before that — **twice the heading has disagreed with its own body**, the two-truths-in-one-file drift `CLAUDE.md` opens by naming. The rule that keeps being broken: when the NOW block moves, the HEADING moves in the SAME edit.)*
 >
@@ -42,7 +42,7 @@ rule back. The claim that matters is the one about obligations.)*
 >
 > **LAPTOP CHRISTOPHER RE-CLOSED 2026-09-14 — PORTABILITY IS COMPLETE FOR ALL SIX PACKAGES (WO §36.5a).** The reopening was a stronger validator, not a failed proof: 9 `turn_extraction_ledger` rows carried encoded `turnrow:<id>` references to turns package `a2f360689b58` did not contain — structurally valid, semantically incomplete, never a corrupted zip. **The fault was stale derived bookkeeping and only that.** Repair on the authoritative laptop DB: `turn_extraction_ledger` ids **7,8,9,10,11,17,18,19,28** removed and nothing else, one `BEGIN IMMEDIATE` with `rowcount` required to equal 9 and every surviving row fingerprint-compared; originals written verbatim to a recovery artifact **before** the transaction opened. **533 → 524 records, files unchanged at 214**, DB sha256 after `1cd55ec6…`. The successful apply was the 07:20:10 run; a later `--apply` **correctly refused** with 0/9 targets present — the safety check working, not a failure. **New authoritative package `Christopher_Todd_Horne_24560db21dd6.lorevox.zip`** (128,550,504 B), superseding `a2f360689b58`: restored into a brand-new clean root, **narrator never opened**, clean-root preflight **524 records / 214 files / 129,508,043 bytes**, immediately re-exported as `f03759af038a`, **`EQUIVALENT tables=60 rows=524 files=214`** with only the schema fingerprint informational. **Zero unresolved FK, `ColumnRef`, encoded-TEXT or encoded-JSON references.** **Deliberately unchanged:** no ownership materialised, no `trip_turn_links` touched, no session curated, no facts salvaged — `DirectOrExclusiveInbound` carries his 9 sessions and 100 turns exactly as §36.5 proved, so this re-proves the same mechanism rather than a modified one. **Christopher has ZERO directly-owned sessions**, which makes that closure load-bearing for a real family narrator. **The preservation/curation analysis is Phase 7 input and gates nothing** — portability does not ask which conversations deserve to be permanent history. **THE LAPTOP PORTABILITY LANE IS CLOSED.**
 >
-> **NOW — FAMILY PORTABILITY IS ACCEPTED. PHASE 7 IS NEXT. MERGE/REMAP NO LONGER GATES IT (2026-09-14).**
+> **FAMILY PORTABILITY IS ACCEPTED (2026-09-14). MERGE/REMAP NEVER GATED PHASE 7.** *(This was the NOW block until 2026-09-15; Phase 7 is now accepted and its record is the NOW block above. Kept as the measured portability record — there is only ever ONE NOW block in this file.)*
 >
 > **THE POLICY DECISION THAT SIMPLIFIED THIS LANE, made by Chris 2026-09-14:** the three **laptop** packages are the **authoritative portable versions** of Christopher, Kent and Janice. The desktop copies are **superseded development copies** and are **not merge inputs**. There is no combined "family package" — each narrator stays independently portable and travels to whatever Lorevox installation is current.
 >
@@ -60,7 +60,25 @@ rule back. The claim that matters is the one about obligations.)*
 >
 > **DO NOT delete the desktop narrator copies yet.** They stay until the three authoritative packages have been in use long enough to be trusted; retirement is a separate, deliberate step.
 >
-> **NEXT: Phase 7** — the clean Lorevox data world (§17, §27.6–27.7). `/mnt/c/lorevox_family` is a proven three-narrator installation and is the working model for it.
+> ---
+>
+> # NOW — **PHASE 7 IS ACCEPTED (2026-09-15).** `WO-LOREVOX-CLEAN-DATA-WORLD-01` · `8594289` · `11489e1`
+>
+> **`/mnt/c/lorevox_data` is the production root.** `.env` points at it with `DB_NAME=lorevox.sqlite3` — the first root in this project's history to carry the product's own database name. An ordinary `scripts/start_all.sh` with **no shell exports** resolves it and returns `{"people": []}`, `integrity_check ok`, 0 rows.
+>
+> **A — the family lock is gone.** Three clusters, not the one §27.6 described: seeding/protection (incl. the delete override, the identity-phase wrapper and `HORNELORE_TRUST_PRELOAD_AS_TRUTH`), the twelve-name visibility allow-list and the name canonicalizer, and the disabled `#lv80NewBtn` — which had never had a handler bound to it, so un-hiding alone would have shipped a dead control. Duplicate-label disambiguation SURVIVES as universal collision safety (`BUG-NARRATOR-LABEL-COLLISION-01`). **`HORNELORE_OPERATOR_MODE` is PRESERVED**: it is dual-purpose, and the WO-10B resume gate is untouched — only the two Horne consumers went. **The Bug Panel purge was the dangerous find:** it defined "test narrator" as every narrator NOT on a five-name whitelist and soft-deleted them, so on any non-Horne root it deleted the whole installation. Eligibility is now the persisted `people.testing_only` disposition — which `list_people()` did not return until this lane added it, in both branches, normalized to a real bool.
+>
+> **B/C — one runtime-root contract.** `server/code/api/runtime_root.py`, called once from `main.py` after the `.env` load and before the router imports that resolve roots of their own. The audit that forced it: **seven independent resolvers** in `server/code` alone, four silently defaulting to a RELATIVE `"data"` and three refusing outright — so an unset `DATA_DIR` produced a half-working install, database under `./data/db/` while photos, media and staging refused. Two of the four **created the tree at import**, so a typo'd root was not an error but a new installation. Import-time `mkdir` is gone from `db.py`, `api.py`; creation moved to `_connect()` and to `main.py` after the gate. Launchers supply no fallback root and get no second validator; `common.sh` and both launchers capture a caller-exported `DATA_DIR` **and** `DB_NAME` before their own `set -a` `.env` load.
+>
+> **E/F — proven live.** Fresh root boots empty, stays empty through a full UI load, zero Horne template fetches; an ordinary narrator created through the **structured intake** path (`testing_only=false`, Profile Seed reachable); the purge reporting nothing eligible and leaving him standing; mixed-root configurations refused before any durable write, naming the conflicting variable.
+>
+> **D — preservation.** `/mnt/c/hornelore_data` (498,702,679 B, 5,536 files, 109 narrators) copied to **`/mnt/d/hornelore_preservation/20260915`** and verified: identical file counts, identical DB SHA-256 `c9cc03d6…e475b`, silent `rsync --checksum` pass, `integrity_check ok`. **Untouched throughout.**
+>
+> **THREE OTHER ROOTS EXIST AND ARE PRESERVED, NOT DELETED.** `/mnt/c/lorevox_data_pre_phase7_20260915` (the old 343-row Lorevox install that occupied the target path — renamed from Windows, WSL could not); `/home/chris/lorevox_data` (10 rows, unbacked, on the Linux filesystem); `/mnt/c/lorevox_family` (the 3-narrator portability acceptance root). **`~/.bashrc` was exporting `DATA_DIR` twice** — the second winning and pointing at the Linux-home root, which is how an `Ada Pruitt` row landed there on 9 September without anyone choosing it. Both exports are commented out; a fresh shell now reports `<unset>` and the launchers refuse rather than inventing a root.
+>
+> **NEXT — THE LAPTOP REBUILD**, when Chris is physically at the laptop. Fresh-export Christopher, Kent and Janice from the laptop's current state; copy to a USB (**exFAT**) and verify all three by SHA-256; keep a second copy before anything is destroyed; only then erase every narrator through the product's erasure path; verify genuinely empty; restore the three; verify with `scripts/family_root_verify.py --expect`; then actual Bio Builder / family-tree work. **No deletion before the USB verification succeeds** — that is the hard boundary. Christopher's authoritative package is `24560db21dd6`.
+>
+> **OWED, NOT BLOCKING:** `BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01` (`1c31e7b`) — a lossy questionnaire GET that an ordinary Bio Builder save turns into silent data loss; belongs to post-portability Bio Persistence work, not to this lane. **Phase 8 owns product naming**; the `HORNELORE_*` compatibility names stay until then.
 >
 > ---
 >

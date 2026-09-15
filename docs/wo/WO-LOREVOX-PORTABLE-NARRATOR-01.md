@@ -729,7 +729,46 @@ Phase 6: `docs/reports/` or `.runtime/`, never staged. (`docs/reports/` is gitig
 since `a87e865` for exactly this reason.)
 
 **27.6 Phase 7 REQUIRES removal of the family-locked runtime before a clean root can be
-accepted.** `ui/hornelore1.0.html:10083` `_horneloreEnsureNarrators()` iterates
+accepted. DECIDED 2026-09-09. EXECUTED AND ACCEPTED 2026-09-15** (`8594289`, `11489e1`).
+
+> **What this section got wrong, recorded because the shape of the error is the useful
+> part.** It described the lock as ONE cluster — the seeder plus the delete override. It
+> is **three**, plus a dependence in the preload module, and removing only what is
+> described below would have left a root that **cannot create a narrator and would hide
+> any narrator restored into it**:
+>
+> 1. **seeding and protection** — `HORNELORE_NARRATORS`, `_horneloreEnsureNarrators()`,
+>    the `lvxStageDeleteNarrator` refusal, a `lv80SwitchPerson` wrapper forcing
+>    `identityPhase="complete"` for every narrator, and `HORNELORE_TRUST_PRELOAD_AS_TRUTH`
+>    suppressing post-preload extraction;
+> 2. **a visibility allow-list** of twelve Horne spellings deciding which narrators were
+>    real, plus a canonicalizer rewriting a narrator's own name onto a family label —
+>    the cause of `BUG-NARRATOR-LABEL-COLLISION-01`. Duplicate-label disambiguation
+>    SURVIVES as universal collision safety;
+> 3. **`#lv80NewBtn` hidden and disabled.** Un-hiding alone would have shipped a visible
+>    dead control: nothing in the tree had ever bound a handler to it;
+> 4. **`narrator-preload.js`** reading `HORNELORE_NARRATORS` for alt-name matching.
+>
+> Two further findings, neither visible from the line numbers cited below. The Bug Panel
+> purge defined "test narrator" as **every narrator not on a five-name whitelist** and
+> soft-deleted them — on any non-Horne root, a button that deletes the whole
+> installation; eligibility is now the persisted `people.testing_only` disposition, which
+> `list_people()` did not even return until this lane added it. And
+> `HORNELORE_OPERATOR_MODE` is **dual-purpose**: the Horne delete bypass and the WO-10B
+> resume gate shared one flag, so deleting a narrator silently flipped an unrelated
+> operator setting. The flag is PRESERVED; only the two Horne consumers were removed.
+>
+> **Live acceptance, 2026-09-15:** a fresh `/mnt/c/lorevox_data` boots empty and stays
+> empty through a full UI load, zero Horne template fetches, an ordinary narrator created
+> through the structured intake path with `testing_only=false` and Profile Seed reachable,
+> and mixed-root configurations refused before any durable write. The old populated root
+> is preserved at `/mnt/c/lorevox_data_pre_phase7_20260915` (343 rows, `integrity_check
+> ok`); `/mnt/c/hornelore_data` is untouched with a verified copy at
+> `/mnt/d/hornelore_preservation/20260915`.
+
+*(The line numbers below are from `7d5d040` and no longer resolve — the code they cite is
+gone. They are kept as the record of what was found.)* `ui/hornelore1.0.html:10083`
+`_horneloreEnsureNarrators()` iterates
 `HORNELORE_NARRATORS` (`:10073` — Chris, Kent, Janice), fetches
 `templates/<name>.json` and calls `lv80PreloadNarrator(tpl)` for any missing one on
 first boot; `:10136` replaces `lvxStageDeleteNarrator` to refuse their deletion outside
