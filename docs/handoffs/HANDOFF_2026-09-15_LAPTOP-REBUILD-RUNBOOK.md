@@ -112,6 +112,28 @@ sqlite3 -readonly "$DB" "
 All three must be present. **Expect roughly 74 people** — the three family narrators plus
 ~71 development and test narrators. That number matters at step 12.
 
+### Persist the session state NOW
+
+These values are used by every remaining step. A closed terminal must not be able to leave
+a stale or empty path in play at the moment something is deleted.
+
+```bash
+STATE=/mnt/c/lorevox_packages/laptop-rebuild-session.env
+mkdir -p /mnt/c/lorevox_packages
+umask 077
+printf 'ROOT=%q\nDBNAME=%q\nDB=%q\n' "$ROOT" "$DBNAME" "$DB" > "$STATE"
+cat "$STATE"
+```
+
+**Every independent shell block from here on begins with:**
+
+```bash
+source /mnt/c/lorevox_packages/laptop-rebuild-session.env
+```
+
+`RUN` / `OUT` are appended at step 8 and `USBDEST` at step 11, so a block that needs them
+must run after those steps — sourcing alone will not conjure them.
+
 ## 4 · Run the root gate BEFORE touching anything
 
 ```bash
@@ -140,6 +162,7 @@ both the full-root preservation and the only portable copies.
 
 ```bash
 cd /mnt/c/Users/chris/hornelore
+source /mnt/c/lorevox_packages/laptop-rebuild-session.env
 bash scripts/stop_all.sh
 
 PRESERVE=/mnt/<preservation-drive>/hornelore_laptop_preservation/$(date +%Y%m%d)
@@ -155,6 +178,7 @@ sync
 Verify — every line must agree:
 
 ```bash
+source /mnt/c/lorevox_packages/laptop-rebuild-session.env
 echo "SOURCE files: $(find "$ROOT" -type f | wc -l)"
 echo "COPY   files: $(find "$PRESERVE" -type f | wc -l)"
 
@@ -169,11 +193,6 @@ Any disagreement is **HARD STOP 5**.
 
 ## 6 · Clean only actual split-root configuration
 
-```bash
-cd /mnt/c/Users/chris/hornelore
-cp -a .env ".env.pre_laptop_rebuild_$(date +%Y%m%d-%H%M%S)"
-```
-
 - **Keep** `DATA_DIR=/mnt/c/hornelore_data` and `DB_NAME=hornelore.sqlite3`.
 - **Comment out** `UPLOADS_DIR` and `MEDIA_DIR` — both default under `DATA_DIR`
   (`HANDOFF.md:93`). The gate does not catch a split here.
@@ -181,7 +200,32 @@ cp -a .env ".env.pre_laptop_rebuild_$(date +%Y%m%d-%H%M%S)"
 - `HORNELORE_DATA_DIR` / `DB_PATH` are **absent from the laptop `.env`** — nothing to remove.
 - `AUTHORS_DIR` / `KNOWLEDGE_DIR` are not gate inputs; leave them unless the gate names them.
 
-Re-run step 4. Still `problems: []`.
+```bash
+cd /mnt/c/Users/chris/hornelore
+source /mnt/c/lorevox_packages/laptop-rebuild-session.env
+cp -a .env ".env.pre_laptop_rebuild_$(date +%Y%m%d-%H%M%S)"
+
+sed -i -E \
+  -e 's|^UPLOADS_DIR=.*$|# Laptop rebuild: UPLOADS_DIR defaults to DATA_DIR/uploads|' \
+  -e 's|^MEDIA_DIR=.*$|# Laptop rebuild: MEDIA_DIR defaults to DATA_DIR/media|' \
+  .env
+
+grep -nE '^(DATA_DIR|DB_NAME|UPLOADS_DIR|MEDIA_DIR|TTS_HOME|FAISS_PATH)=' .env
+```
+
+`DATA_DIR`, `DB_NAME`, `TTS_HOME` and `FAISS_PATH` must still be present; `UPLOADS_DIR` and
+`MEDIA_DIR` must be gone. **Then re-run the gate and require `problems: []` again** — the
+edit could have introduced a split root, and this is the only check that catches it:
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+(
+  unset DATA_DIR DB_NAME HORNELORE_DATA_DIR DB_PATH UPLOADS_DIR MEDIA_DIR
+  set -a; source .env; set +a
+  PYTHONPATH=server/code .venv/bin/python -c \
+    "from api import runtime_root as r; import json; print(json.dumps(r.describe_root(), indent=2))"
+)
+```
 
 ## 7 · Start and prove the world
 
@@ -205,24 +249,19 @@ since (`HANDOFF.md:99`).
 
 ```bash
 cd /mnt/c/Users/chris/hornelore
+source /mnt/c/lorevox_packages/laptop-rebuild-session.env
+
 RUN="$(date +%Y%m%d-%H%M%S)"
 OUT="/mnt/c/lorevox_packages/laptop-fresh-$RUN"
 mkdir -p "$OUT"
 
-cat > /tmp/laptop-rebuild.env <<EOF
-ROOT=$ROOT
-DBNAME=$DBNAME
-DB=$DB
-RUN=$RUN
-OUT=$OUT
-EOF
-cat /tmp/laptop-rebuild.env
+printf 'RUN=%q\nOUT=%q\n' "$RUN" "$OUT" >> /mnt/c/lorevox_packages/laptop-rebuild-session.env
+cat /mnt/c/lorevox_packages/laptop-rebuild-session.env
 ```
 
-`source /tmp/laptop-rebuild.env` at the top of every later block — these variables span
-many steps and a closed terminal must not be able to leave a stale or empty path in play.
-
 ```bash
+source /mnt/c/lorevox_packages/laptop-rebuild-session.env
+cd /mnt/c/Users/chris/hornelore
 for ID in a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2 \
           4aa0cc2b-1f27-433a-9152-203bb1f69a55 \
           93479171-0b97-4072-bcf0-d44c7f9078ba; do
@@ -235,6 +274,12 @@ done
 ## 9 · Validate, then DERIVE the contract from the manifests
 
 ```bash
+source /mnt/c/lorevox_packages/laptop-rebuild-session.env
+cd /mnt/c/Users/chris/hornelore
+
+N=$(ls -1 "$OUT"/*.lorevox.zip 2>/dev/null | wc -l)
+[ "$N" -eq 3 ] || { echo "STOP: expected 3 packages, found $N"; exit 1; }
+
 for p in "$OUT"/*.lorevox.zip; do
   echo "=== $p"
   PYTHONPATH=server/code .venv/bin/python scripts/narrator_package.py validate "$p" || exit 1
@@ -249,6 +294,7 @@ against `services/narrator_package.py`: `MANIFEST_NAME` line 82, `package_id` 80
 manifest sits at the archive root.
 
 ```bash
+source /mnt/c/lorevox_packages/laptop-rebuild-session.env
 cd /mnt/c/Users/chris/hornelore
 python3 - "$OUT" <<'PY'
 import json, sys, zipfile
@@ -262,14 +308,26 @@ wanted = {
 }
 REFERENCE = {"CHRIS": (524, 214), "KENT": (43, 45), "JANICE": (66, 21)}
 
+pkgs = sorted(out.glob("*.lorevox.zip"))
+if len(pkgs) != 3:
+    raise SystemExit(f"STOP: expected exactly 3 packages in {out}, found {len(pkgs)}: "
+                     f"{[p.name for p in pkgs]}")
+
 found, files_total, bytes_total = {}, 0, 0
-for pkg in sorted(out.glob("*.lorevox.zip")):
+for pkg in pkgs:
     with zipfile.ZipFile(pkg) as z:
         with z.open("lorevox-manifest.json") as f:
             m = json.load(f)
     pid = m["narrator_id"]
+    # An unexpected narrator in this directory is a STOP, never a skip: it means
+    # the export wrote somewhere unintended, or a stale package is present.
     if pid not in wanted:
-        continue
+        raise SystemExit(f"STOP: {pkg.name} carries unexpected narrator {pid}")
+    # Two packages for one narrator must never be silently collapsed — the
+    # second would overwrite the first and the contract would be arbitrary.
+    if pid in found:
+        raise SystemExit(f"STOP: duplicate package for {wanted[pid]} ({pid}): "
+                         f"{found[pid]['package']} and {pkg.name}")
     rows  = sum(int(v) for v in m["record_counts_by_lane"].values())
     files = sum(int(v) for v in m["file_counts_by_lane"].values())
     nbyte = sum(int(v) for v in (m.get("bytes_by_lane") or {}).values())
@@ -282,6 +340,7 @@ for pkg in sorted(out.glob("*.lorevox.zip")):
 missing = set(wanted) - set(found)
 if missing:
     raise SystemExit(f"STOP: missing fresh packages for {sorted(missing)}")
+assert len(found) == 3, f"STOP: {len(found)} narrators resolved, expected 3"
 
 lines = []
 for pid, label in wanted.items():
@@ -316,11 +375,18 @@ Not the portable backup — a second escape hatch, created **before** the USB co
 travels with the packages.
 
 ```bash
-source /tmp/laptop-rebuild.env
+source /mnt/c/lorevox_packages/laptop-rebuild-session.env
 sqlite3 "$DB" ".backup '$OUT/laptop-before-erasure.sqlite3'"
 sqlite3 -readonly "$OUT/laptop-before-erasure.sqlite3" \
   "PRAGMA integrity_check; SELECT COUNT(*) FROM people;"
-sha256sum "$OUT/laptop-before-erasure.sqlite3" | tee "$OUT/laptop-before-erasure.sqlite3.sha256"
+
+# The checksum file must carry a RELATIVE filename. With an absolute path in it,
+# `sha256sum -c` run while standing on the USB would follow the path back to the
+# laptop original and report OK without ever reading the USB copy.
+(
+  cd "$OUT"
+  sha256sum laptop-before-erasure.sqlite3 | tee laptop-before-erasure.sqlite3.sha256
+)
 ```
 
 ## 11 · Copy to exFAT USB and verify FROM the USB
@@ -333,14 +399,23 @@ powershell.exe -NoProfile -Command \
 ```
 
 ```bash
-source /tmp/laptop-rebuild.env
+source /mnt/c/lorevox_packages/laptop-rebuild-session.env
 USBDEST="/mnt/<usb-letter>/Lorevox_Laptop_Fresh_$RUN"
 mkdir -p "$USBDEST"
 cp -av "$OUT/." "$USBDEST/"
 sync
 
-cd "$USBDEST" && sha256sum -c SHA256SUMS.txt     # every line OK
-sha256sum -c laptop-before-erasure.sqlite3.sha256
+printf 'USBDEST=%q\n' "$USBDEST" >> /mnt/c/lorevox_packages/laptop-rebuild-session.env
+cat /mnt/c/lorevox_packages/laptop-rebuild-session.env
+```
+
+Verify **standing on the USB**, so the checksums read USB bytes:
+
+```bash
+source /mnt/c/lorevox_packages/laptop-rebuild-session.env
+cd "$USBDEST"
+sha256sum -c SHA256SUMS.txt                        # every line OK
+sha256sum -c laptop-before-erasure.sqlite3.sha256  # OK
 
 cd /mnt/c/Users/chris/hornelore
 for p in "$USBDEST"/*.lorevox.zip; do
@@ -354,7 +429,7 @@ preservation on a separate device.
 ## 12 · Freeze and CONSCIOUSLY review the erasure list
 
 ```bash
-source /tmp/laptop-rebuild.env
+source /mnt/c/lorevox_packages/laptop-rebuild-session.env
 curl -s 'http://127.0.0.1:8000/api/people?include_deleted=true&limit=1000' \
   > "$OUT/people_before_erasure.json"
 
@@ -387,7 +462,7 @@ PY
 ## 13 · Hard-erase
 
 ```bash
-source /tmp/laptop-rebuild.env
+source /mnt/c/lorevox_packages/laptop-rebuild-session.env
 cd /mnt/c/Users/chris/hornelore
 
 while read -r ID; do
@@ -415,7 +490,7 @@ done < "$OUT/ids_to_erase.txt"
 ## 14 · Prove empty, then prove nothing re-seeds
 
 ```bash
-source /tmp/laptop-rebuild.env
+source /mnt/c/lorevox_packages/laptop-rebuild-session.env
 curl -s 'http://127.0.0.1:8000/api/people?include_deleted=true&limit=1000' | python3 -m json.tool
 
 PYTHONPATH=server/code .venv/bin/python scripts/family_root_verify.py \
@@ -445,7 +520,7 @@ Still empty.
 ```bash
 cd /mnt/c/Users/chris/hornelore
 bash scripts/stop_all.sh
-source /tmp/laptop-rebuild.env
+source /mnt/c/lorevox_packages/laptop-rebuild-session.env
 
 CHRIS_PKG="$(find "$USBDEST" -maxdepth 1 -name 'Christopher*.lorevox.zip' -print -quit)"
 KENT_PKG="$(find "$USBDEST" -maxdepth 1 -name 'Kent*.lorevox.zip' -print -quit)"
@@ -468,7 +543,7 @@ done
 reference (correction 3).
 
 ```bash
-source /tmp/laptop-rebuild.env
+source /mnt/c/lorevox_packages/laptop-rebuild-session.env
 source "$OUT/rebuild-contract.txt"
 
 PYTHONPATH=server/code .venv/bin/python scripts/family_root_verify.py \
@@ -485,7 +560,7 @@ Want `total: 3`, `--expect: 3 named, MATCHES`, `orphaned owners found: 0`,
 ## 17 · Re-export, compare, finish
 
 ```bash
-source /tmp/laptop-rebuild.env
+source /mnt/c/lorevox_packages/laptop-rebuild-session.env
 source "$OUT/rebuild-contract.txt"
 POST="/mnt/c/lorevox_packages/laptop-postrestore-$RUN"
 mkdir -p "$POST"
@@ -503,8 +578,44 @@ for N in Christopher Kent Janice; do
 done
 ```
 
-All three **`EQUIVALENT`**; only the schema fingerprint may be informational. Then confirm
-the payload-file total matches `FILES_TOTAL` from the contract, and start normally:
+All three **`EQUIVALENT`**; only the schema fingerprint may be informational.
+
+Then **execute** the payload comparison — derive the post-restore total from the three new
+manifests and require it to equal `FILES_TOTAL` from the fresh contract. This exits nonzero
+on mismatch and prints both numbers:
+
+```bash
+source /mnt/c/lorevox_packages/laptop-rebuild-session.env
+source "$OUT/rebuild-contract.txt"
+cd /mnt/c/Users/chris/hornelore
+
+python3 - "$POST" "$FILES_TOTAL" <<'PY' || { echo "STOP: payload totals disagree"; exit 1; }
+import json, sys, zipfile
+from pathlib import Path
+
+post, expected = Path(sys.argv[1]), int(sys.argv[2])
+pkgs = sorted(post.glob("*.lorevox.zip"))
+if len(pkgs) != 3:
+    raise SystemExit(f"STOP: expected 3 post-restore packages, found {len(pkgs)}")
+
+total = 0
+for pkg in pkgs:
+    with zipfile.ZipFile(pkg) as z:
+        with z.open("lorevox-manifest.json") as f:
+            m = json.load(f)
+    n = sum(int(v) for v in m["file_counts_by_lane"].values())
+    print(f"{pkg.name}: {n} files")
+    total += n
+
+print(f"\npost-restore FILES_TOTAL = {total}")
+print(f"fresh-export FILES_TOTAL = {expected}")
+if total != expected:
+    raise SystemExit(f"MISMATCH: {total} != {expected}")
+print("payload totals MATCH")
+PY
+```
+
+Then start normally:
 
 ```bash
 cd /mnt/c/Users/chris/hornelore
