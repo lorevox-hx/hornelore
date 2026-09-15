@@ -171,6 +171,8 @@ du -sh "$ROOT"                       # need this much, plus headroom
 df -h "$(dirname "$PRESERVE")"       # confirm it fits
 mkdir -p "$PRESERVE"
 
+printf 'PRESERVE=%q\n' "$PRESERVE" >> /mnt/c/lorevox_packages/laptop-rebuild-session.env
+
 rsync -a --info=progress2 "$ROOT/" "$PRESERVE/"
 sync
 ```
@@ -564,6 +566,8 @@ source /mnt/c/lorevox_packages/laptop-rebuild-session.env
 source "$OUT/rebuild-contract.txt"
 POST="/mnt/c/lorevox_packages/laptop-postrestore-$RUN"
 mkdir -p "$POST"
+
+printf 'POST=%q\n' "$POST" >> /mnt/c/lorevox_packages/laptop-rebuild-session.env
 
 for ID in "$CHRIS_ID" "$KENT_ID" "$JANICE_ID"; do
   PYTHONPATH=server/code .venv/bin/python scripts/narrator_package.py export \
