@@ -76,7 +76,36 @@ rule back. The claim that matters is the one about obligations.)*
 >
 > **THREE OTHER ROOTS EXIST AND ARE PRESERVED, NOT DELETED.** `/mnt/c/lorevox_data_pre_phase7_20260915` (the old 343-row Lorevox install that occupied the target path — renamed from Windows, WSL could not); `/home/chris/lorevox_data` (10 rows, unbacked, on the Linux filesystem); `/mnt/c/lorevox_family` (the 3-narrator portability acceptance root). **`~/.bashrc` was exporting `DATA_DIR` twice** — the second winning and pointing at the Linux-home root, which is how an `Ada Pruitt` row landed there on 9 September without anyone choosing it. Both exports are commented out; a fresh shell now reports `<unset>` and the launchers refuse rather than inventing a root.
 >
-> **NEXT — THE LAPTOP REBUILD**, when Chris is physically at the laptop. Fresh-export Christopher, Kent and Janice from the laptop's current state; copy to a USB (**exFAT**) and verify all three by SHA-256; keep a second copy before anything is destroyed; only then erase every narrator through the product's erasure path; verify genuinely empty; restore the three; verify with `scripts/family_root_verify.py --expect`; then actual Bio Builder / family-tree work. **No deletion before the USB verification succeeds** — that is the hard boundary. Christopher's authoritative package is `24560db21dd6`.
+> ## NEXT — THE LAPTOP REBUILD (read this at the laptop before anything else)
+>
+> **⚠ FIRST: Phase 7 changed startup, and the laptop has not seen it.** After `git pull`, the stack validates its runtime root and **refuses to start** on an ambiguous one. Do this BEFORE `start_all.sh`, or a refusal will look like a broken pull:
+>
+> ```bash
+> cd /mnt/c/Users/chris/hornelore
+> grep -nE '^[[:space:]]*export[[:space:]]+(DATA_DIR|DB_NAME)=' ~/.bashrc || echo "PASS: profile sets no root"
+> grep -nE '^(DATA_DIR|DB_NAME|DB_PATH|UPLOADS_DIR|MEDIA_DIR)=' .env
+> PYTHONPATH=server/code .venv/bin/python -c \
+> "from api import runtime_root as r; import json; print(json.dumps(r.describe_root(), indent=2))"
+> ```
+>
+> Want `problems: []`. What a refusal means: **`HORNELORE_DATA_DIR` disagrees with `DATA_DIR`** — unset one; **`DB_PATH` is set but unread** — remove it from `.env`, the app composes `DATA_DIR/db/DB_NAME`; **two databases in the root** — move the one that is not the installation OUT of `db/` (a zero-byte stray is ignored and will not trip this); **`DB_NAME` selects a file that is not there** — set it to the database that exists rather than letting a second empty one be created beside it. The desktop hit three of these; assume the laptop has its own.
+>
+> **Also check `UPLOADS_DIR` / `MEDIA_DIR`.** If they pin paths under a root that is not `DATA_DIR`, the laptop has a split data world — database in one installation, photos and memoir-export media in another. Comment them out; both default under `DATA_DIR`. The gate does **not** catch this.
+>
+> **`.env.example` now shows `/mnt/c/lorevox_data`** because that is the desktop's clean root. **Do not adopt it on the laptop** — the laptop's `DATA_DIR` is whatever its own installation already uses, and Phase 7 did not move it.
+>
+> **THE REBUILD, in order. The hard boundary is that nothing is deleted before the USB copies verify.**
+>
+> 1. **Fresh-export** Christopher, Kent and Janice from the laptop's current state — `scripts/narrator_package.py`, or the Narrator Data Center on the Operator tab (`HORNELORE_OPERATOR_PORTABLE_NARRATOR=1`). Fresh, not the existing packages: those are stale relative to whatever has been added since.
+> 2. **Copy to USB (exFAT)** and record `sha256sum` for all three, on the USB, after the copy.
+> 3. **Put a second copy somewhere that is not the USB** — the laptop's own disk outside `DATA_DIR`, or an external drive. A USB stick is the most losable object in this plan and between steps 4 and 6 those packages are the only copy of three people's records.
+> 4. **Only now erase.** `DELETE /api/people/{id}?mode=hard` runs the saved erasure plan (`POST /api/people/{id}/retry-erasure` if it reports partial). **Soft delete is not erasure** — it hides the narrator and leaves every byte on disk.
+> 5. **Verify genuinely empty.** `{"people": []}`, and `scripts/family_root_verify.py` for orphaned owners, FK violations and dangling semantic references. Expect a **remainder**: `import_staging`, agent transcripts and the installation-local ledgers are lane-keyed, not narrator-keyed, so erasing narrators does not remove them. Decide whether to keep it rather than assuming zero narrators means an empty installation.
+> 6. **Restore the three from the USB**, individually, through the ordinary path.
+> 7. **Verify exactly those three** — `scripts/family_root_verify.py --expect <uuid>` for each plus `--expect-rows`, then re-export each and compare `EQUIVALENT`. Media is where a package either carries bytes or carries a reference: the desktop acceptance counted **280 payload files** across the three, so a materially different number is a reason to stop rather than continue into Bio Builder work on top of it.
+> 8. **Then the actual work** — Bio Builder, family tree, relationships, dates and places, stories, photos, corrections.
+>
+> **Christopher's authoritative package is `24560db21dd6`**, not `a2f360689b58`, and not anything in `C:\lorevox_two_origin\laptop\` — that directory is on the DESKTOP and holds stale copies. **`BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01` is live and unfixed**: a Bio Builder save of a spouse or child section drops `maidenName`, `birthPlace`, `notes` and `relation` that are already stored. Relevant the moment step 8 starts.
 >
 > **OWED, NOT BLOCKING:** `BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01` (`1c31e7b`) — a lossy questionnaire GET that an ordinary Bio Builder save turns into silent data loss; belongs to post-portability Bio Persistence work, not to this lane. **Phase 8 owns product naming**; the `HORNELORE_*` compatibility names stay until then.
 >
