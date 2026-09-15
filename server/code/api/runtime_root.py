@@ -174,7 +174,19 @@ def coherence_problems() -> List[str]:
     # 3. More than one known database inside the root.
     db_dir = root / "db"
     if db_dir.is_dir():
-        found = sorted(n for n in KNOWN_DB_NAMES if (db_dir / n).is_file())
+        # EMPTY FILES DO NOT COUNT, and this is not a nicety — it is what
+        # stops the gate refusing a perfectly good production root.
+        #
+        # /mnt/c/hornelore_data/db/ holds the live 21 MB hornelore.sqlite3 AND
+        # a zero-byte lorevox.sqlite3 left behind on 2026-04-25. Counting the
+        # stray made the root "ambiguous" and refused the boot. A zero-byte
+        # file is not an installation: it has no schema, no narrators, and
+        # nothing could have been written to it. Ambiguity means two
+        # candidates that could each plausibly BE the installation.
+        found = sorted(
+            n for n in KNOWN_DB_NAMES
+            if (db_dir / n).is_file() and (db_dir / n).stat().st_size > 0
+        )
         if len(found) > 1:
             problems.append(
                 f"{db_dir} contains {len(found)} Lorevox databases "

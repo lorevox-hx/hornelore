@@ -100,14 +100,17 @@ class MixedRootRefusalTests(_EnvCase):
 
     def test_a_coherent_root_passes(self):
         os.environ["DB_NAME"] = "lorevox.sqlite3"
-        (self.root / "db" / "lorevox.sqlite3").write_bytes(b"")
+        (self.root / "db" / "lorevox.sqlite3").write_bytes(b"x" * 4096)
         self.assertEqual(self.rr.coherence_problems(), [])
         self.assertEqual(self.rr.assert_coherent_root(), self.root)
 
     def test_two_databases_in_one_root_refuses(self):
         # The real split: hornelore.sqlite3 (WO-11) beside lorevox.sqlite3.
+        # Both NON-EMPTY on purpose — zero-byte files are exempt (see
+        # test_a_zero_byte_stray_does_not_make_a_root_ambiguous), so writing
+        # b"" here would make this test pass without exercising anything.
         for name in ("lorevox.sqlite3", "hornelore.sqlite3"):
-            (self.root / "db" / name).write_bytes(b"")
+            (self.root / "db" / name).write_bytes(b"x" * 4096)
         problems = self.rr.coherence_problems()
         self.assertTrue(problems)
         joined = " ".join(problems)
@@ -115,6 +118,22 @@ class MixedRootRefusalTests(_EnvCase):
         self.assertIn("lorevox.sqlite3", joined)
         with self.assertRaises(self.rr.RootContractError):
             self.rr.assert_coherent_root()
+
+    def test_a_zero_byte_stray_does_not_make_a_root_ambiguous(self):
+        """Found live 2026-09-15 on the production root.
+
+        /mnt/c/hornelore_data/db/ holds the live 21 MB hornelore.sqlite3 and a
+        zero-byte lorevox.sqlite3 abandoned in April. Counting the stray made
+        the gate refuse the real family installation. A zero-byte file has no
+        schema and no rows — it cannot be the installation anybody meant.
+        """
+        os.environ["DB_NAME"] = "hornelore.sqlite3"
+        (self.root / "db" / "hornelore.sqlite3").write_bytes(b"x" * 4096)
+        (self.root / "db" / "lorevox.sqlite3").write_bytes(b"")
+        self.assertEqual(
+            self.rr.coherence_problems(), [],
+            "a zero-byte stray was counted as a second installation and "
+            "refused a root that is not ambiguous")
 
     def test_db_name_selecting_a_file_that_is_not_there_refuses(self):
         # Starting would create a SECOND empty database beside a populated one.
