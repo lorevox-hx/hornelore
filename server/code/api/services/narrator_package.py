@@ -1083,23 +1083,8 @@ def _dry_run_on_extracted(tmp: Path, manifest: Dict[str, Any], root: Path, db_pa
             elif dest.exists():
                 collisions.append({"kind": "file_exists", "path": rel})
         # ── installation dependencies the package cannot carry (§5-E) ──
-        for table, ids in (manifest.get("installation_dependencies") or {}).items():
-            if table not in present:
-                missing.append({"table": table, "ids": ids, "detail": "table absent in destination"})
-                continue
-            # Phase 5a live acceptance (2026-09-11): the exporter records these ids
-            # from the REFERENCED column (`_check_ref` receives `parent_key`), which
-            # is not always the primary key — bio_facts.field_key → bio_fields.field_key
-            # while bio_fields.id is a UUID. Looking the ids up by primary key refused
-            # every narrator with a questionnaire on every clean installation
-            # ("missing_dependency bio_fields: birth_date, …" against a seeded table).
-            # The destination's own FK graph says which column the ids name.
-            keys = _dependency_key_columns(con, table, present)
-            absent = [i for i in ids if not any(
-                con.execute(f'SELECT 1 FROM "{table}" WHERE "{k}" = ?', (i,)).fetchone() for k in keys)]
-            if absent:
-                missing.append({"table": table, "ids": absent,
-                                "detail": "installation-owned rows this narrator references; create them here first"})
+        missing += missing_installation_dependencies(
+            con, manifest.get("installation_dependencies") or {}, present)
         # ── external-person references are recorded, and reported: they will dangle by design (§13) ──
         for table, deps in (manifest.get("external_person_dependencies") or {}).items():
             for d in deps:
@@ -1127,6 +1112,45 @@ def _dry_run_on_extracted(tmp: Path, manifest: Dict[str, Any], root: Path, db_pa
     ready = not reasons
     return DryRunReport(ready, "RESTORE READY" if ready else "RESTORE REFUSED", zip_path, manifest, reasons,
                         counts, files_by_lane, total_bytes, collisions, unsupported, missing, warnings)
+
+
+def missing_installation_dependencies(con: sqlite3.Connection,
+                                      declared: Dict[str, Any],
+                                      present: Optional[Set[str]] = None,
+                                      ) -> List[Dict[str, Any]]:
+    """Which installation-owned rows a package NEEDS and this destination lacks.
+
+    **ONE definition, two workflows.** Restore's dry run reads it here, and Multi-Origin
+    Merge/Remap reads it here for the UNION of both origins' declared dependencies. The
+    alternative — merge calling restore's dry run and filtering its verdict — would make
+    merge inherit single-package rules (narrator identity, row collisions) that
+    Merge/Remap deliberately supersedes, and would leave two places to change when the
+    lookup rule changes again.
+
+    THE LOOKUP COLUMN IS NOT ALWAYS THE PRIMARY KEY, and that is the whole reason this
+    is careful. Phase 5a live acceptance (2026-09-11): the exporter records these ids
+    from the REFERENCED column (`_check_ref` receives `parent_key`) —
+    `bio_facts.field_key` → `bio_fields.field_key`, while `bio_fields.id` is a UUID
+    minted by the seed loader. Looking them up by primary key refused every narrator
+    with a questionnaire on every clean installation. The destination's own FK graph
+    says which column the ids name.
+    """
+    if present is None:
+        present = _tables(con)
+    missing: List[Dict[str, Any]] = []
+    for table, ids in (declared or {}).items():
+        if table not in present:
+            missing.append({"table": table, "ids": list(ids),
+                            "detail": "table absent in destination"})
+            continue
+        keys = _dependency_key_columns(con, table, present)
+        absent = [i for i in ids if not any(
+            con.execute(f'SELECT 1 FROM "{table}" WHERE "{k}" = ?', (i,)).fetchone() for k in keys)]
+        if absent:
+            missing.append({"table": table, "ids": absent,
+                            "detail": "installation-owned rows this narrator references; "
+                                      "create them here first"})
+    return missing
 
 
 def dry_run_restore(zip_path: Path, *, data_dir: Path, db_path: Path) -> DryRunReport:

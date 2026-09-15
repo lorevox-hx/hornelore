@@ -310,6 +310,10 @@ DB_LANES: Tuple[DbLane, ...] = (
     DbLane("narrator_package_export_jobs", _I("export job records, 0056 — what this installation "
                                               "exported, and where; outlives the narrator"),
            CLASS_INSTALLATION, "no", False),
+    DbLane("narrator_merge_jobs", _I("multi-origin merge job records, 0057 — how a narrator was "
+                                     "ASSEMBLED from two installations must survive the narrator; "
+                                     "separate from 0054, which is a restore ledger by contract"),
+           CLASS_INSTALLATION, "no", False),
 )
 
 # ══════════════════════════════════════════════════════════════════════

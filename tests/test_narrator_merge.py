@@ -60,7 +60,8 @@ def _load_comparator():
 
 
 def _build_package(dest: Path, package_id: str, records: dict, files: dict,
-                   narrator_id: str = NARRATOR) -> Path:
+                   narrator_id: str = NARRATOR, installation_dependencies: dict = None,
+                   path_column_basis: dict = None) -> Path:
     """Build a package exactly the way the exporter does."""
     import bagit
 
@@ -91,6 +92,13 @@ def _build_package(dest: Path, package_id: str, records: dict, files: dict,
         # DERIVED from what was actually written — the fixture must not assert counts
         "record_counts_by_lane": {t: len(r) for t, r in records.items()},
         "file_counts_by_lane": {"payload": len(files)},
+        # Present and empty on purpose: a real export always carries both keys, and the
+        # executor reads `path_column_basis` per origin to rewrite absolute path columns
+        # under the new root. A fixture that omitted them would exercise a shape the
+        # product never produces.
+        "installation_dependencies": dict(installation_dependencies or {}),
+        "path_column_basis": dict(path_column_basis or {}),
+        "source_commit": "",
     }
     (staging / npkg.MANIFEST_NAME).write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")

@@ -439,6 +439,85 @@ V2 decision once the real conflict volume is known.
   manifest before the first byte, one `BEGIN IMMEDIATE` with `defer_foreign_keys`,
   `db_committed` written *inside* the transaction, and hash-gated cleanup below it.
 
+## 5a. Executor preconditions and the V1 conflict policy — decided 2026-09-14
+
+**THE PRODUCT INITIALISES THE ROOT; MERGE/REMAP POPULATES IT.** A hard precondition, not
+a convenience. The canonical sequence is: the product creates a fresh `DATA_DIR` → normal
+migrations / `init_db()` / seed state complete → Merge/Remap verifies that root
+**read-only** → only then may the executor write into it. The executor never creates,
+migrates, seeds or repairs a target, and the dry run may report NOT READY but never fixes
+anything.
+
+Phase 5a is the reason. A never-used clean installation refused every narrator with a
+questionnaire because dependency lookup matched `bio_fields` on its primary key instead of
+the column the narrator's rows reference, and a clean root had no `chat_ws` interview plan
+until somebody had chatted. Both were fixed in ordinary product initialisation. **A merge
+that built its own schema or seeded its own dependencies would be re-deciding what a clean
+Lorevox installation is** — the one definition Phase 7 also depends on. Readiness therefore
+consumes the product's own `dry_run_restore` per source package; the merge blocks on
+`missing_dependencies`, and its own checks answer the merge-specific questions.
+
+Verified before any write: the target is not a source or the live `DATA_DIR` (and the root
+is the exact one supplied — **never an environment or default fallback**); the database
+exists with current migrations; required installation-owned state is present; the planned
+narrator absent; no planned file already on disk. Synthetic tests build their disposable
+target through the real initialisation path, never hand-built SQL.
+
+**A TARGET MAY ALREADY HOLD OTHER NARRATORS — corrected 2026-09-14 on review.** The first
+executor draft refused any target containing a real narrator. That is right for the first
+merge into a fresh root and **makes the family root impossible to build**: Christopher
+lands holding `turns.id = 1..N`, and Kent's independently planned two-origin merge asks
+for the same ids. Refusing the second narrator would mean the consolidated installation
+this whole work order exists to produce could never contain more than one person. Only
+*this* narrator already being present is a refusal.
+
+**Binding is what makes accumulation safe, and it is its own read-only stage:**
+
+    two packages → source merge plan → inspect initialised target
+    → bind around occupied ids → execution plan → apply
+
+The source planner stays pure and target-ignorant (which is what keeps it writer-free and
+reviewable). Binding reads the ids the target already occupies and deterministically
+allocates the lowest free positive integers for the three installation-local families, in
+the plan's own order, then rewrites the complete established closure a second time. **An
+empty target still yields 1..N** — binding changes nothing when there is nothing to avoid.
+A non-integer physical key clashing with a row already in the target is reallocated when
+its closure is established and **refused otherwise**; equal bytes are never proof of
+cross-narrator identity, and nothing is ever overwritten.
+
+**The binding is fingerprinted against the target state it was computed from** — schema,
+migrations, installation dependencies, occupied physical keys for incoming tables, and
+planned-path occupancy — and **deliberately not against the whole installation**, because
+writing the merge job row would otherwise invalidate the merge's own basis. If that basis
+moves between binding and execution, the executor **REFUSES and requires a fresh dry run**
+rather than silently recomputing: the ids about to be written were chosen against a
+specific target, and re-deriving them mid-apply would execute a plan nobody reviewed. The
+job row records the BOUND execution fingerprint, because that is what actually lands.
+
+**V1 REFUSES AND REPORTS. A REFUSAL IS AN ACCEPTANCE RESULT, NOT A FAILED MERGE.** The
+first real Christopher rehearsal is *expected* to prove everything up to the conflict
+boundary — package validity, deterministic remap, the complete reference rewrite, zero
+dangling references, the safe union, file classification, target readiness — and then stop,
+having written nothing, reporting **4 keyed row conflicts plus the `rolling_summary.json`
+divergence**. `index.json` is regenerated and is not a conflict. That outcome is the proof
+V1 works; it is not the completion of the family consolidation, and the two must not be
+confused in any report.
+
+**No automatic resolution is to be added to the executor, now or later.** The refusal
+report is instead shaped so an explicit human adjudication artifact can be bound to it
+**without changing the merge engine**: every conflict is individually addressable, both
+origins' provenance is preserved, and the report names the exact package ids and sha256s
+the decisions would apply to, so an adjudication cannot be replayed against different
+source data. Building that artifact is separate work and is what actually completes
+Christopher and unblocks Phase 7.
+
+**Known boundary, stated rather than half-wired:** `recover_restore_jobs` is restore-only —
+its `db_committed` branch verifies recorded files against *the* package, and a merge job
+names two. An in-process failure is fully handled (the transaction rolls back and the job
+removes only its own files, proven by test); recovery from a process kill is not yet
+available for merge jobs. The job row is already crash-truthful and carries the same
+0054/0055 shape, so that recovery can be added without changing what the executor writes.
+
 ## 6. Acceptance
 
 1. **Synthetic two-origin fixtures first**, containing by construction: identical rows;
