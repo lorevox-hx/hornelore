@@ -636,10 +636,13 @@
       // Phase L: Post-preload candidate extraction —
       // Run the same extraction pipeline that manual section save uses,
       // so preloaded narrators have usable candidates immediately.
-      // Hornelore: skip if preload is treated as baseline truth.
-      if (!window.HORNELORE_TRUST_PRELOAD_AS_TRUTH) {
-        _postPreloadExtractCandidates(pid, qqSections);
-      }
+      //
+      // Phase 7: this was gated on HORNELORE_TRUST_PRELOAD_AS_TRUTH, which the
+      // family-lock block set to true — so extraction was SKIPPED for every
+      // preloaded narrator. That assumption holds for a hand-curated family
+      // template and for nothing else; an arbitrary Lorevox narrator preloaded
+      // from a template is not thereby confirmed truth.
+      _postPreloadExtractCandidates(pid, qqSections);
 
       // Phase Q.1: Build relationship graph from preloaded data
       // Phase Q.2 FIX: clear graph before fullSync to prevent cross-narrator accumulation
@@ -729,11 +732,10 @@
         }
       }
 
-      // Phase L: post-preload candidate extraction
-      // Hornelore: skip if preload is treated as baseline truth.
-      if (!window.HORNELORE_TRUST_PRELOAD_AS_TRUTH) {
-        _postPreloadExtractCandidates(pid, qqSections);
-      }
+      // Phase L: post-preload candidate extraction.
+      // Phase 7: HORNELORE_TRUST_PRELOAD_AS_TRUTH gate removed — see the
+      // companion site in lv80PreloadNarrator above.
+      _postPreloadExtractCandidates(pid, qqSections);
 
       // Phase Q.1: Build relationship graph from preloaded data
       // Phase Q.2 FIX: clear graph before fullSync to prevent cross-narrator accumulation
@@ -783,24 +785,19 @@
       ? state.narratorUi.peopleCache
       : [];
 
-    // Match against display_name, name, AND Hornelore altNames for robustness
-    var hnConfig = window.HORNELORE_NARRATORS || [];
-    var altNames = [];
-    for (var h = 0; h < hnConfig.length; h++) {
-      var hn = hnConfig[h];
-      if (hn.displayName && hn.displayName.toLowerCase() === fullName.toLowerCase()) {
-        altNames = (hn.altNames || []).map(function(n) { return n.toLowerCase(); });
-        break;
-      }
-    }
-
+    // Match an existing narrator by the names the TEMPLATE itself carries.
+    //
+    // Phase 7: this also consulted window.HORNELORE_NARRATORS for "altNames"
+    // — so importing a template called "Kent James Horne" would match an
+    // existing narrator merely named "kent", because a hard-coded table said
+    // those were the same person. For any other narrator the table supplied
+    // nothing, making the behaviour un-reproducible outside the Horne family.
+    // A template's own fullName and preferredName are the universal signal.
     var match = people.find(function(person) {
       var label = ((person.display_name || person.name || "") + "").trim().toLowerCase();
-      if (label === fullName.toLowerCase() || label === preferredName.toLowerCase()) return true;
-      // Check altNames from Hornelore config
-      for (var a = 0; a < altNames.length; a++) {
-        if (label === altNames[a]) return true;
-      }
+      if (!label) return false;
+      if (fullName && label === fullName.toLowerCase()) return true;
+      if (preferredName && label === preferredName.toLowerCase()) return true;
       return false;
     });
 

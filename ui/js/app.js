@@ -55,39 +55,34 @@ function wo9DrainQueuedSystemPrompt() {
 window.wo9SendOrQueueSystemPrompt = wo9SendOrQueueSystemPrompt;
 window.wo9DrainQueuedSystemPrompt = wo9DrainQueuedSystemPrompt;
 
-/* ── Hornelore operator mode flag ───────────────────────────── */
+/* ── Operator mode flag — THE single declaration ──────────────
+ *
+ * UNIVERSAL, despite the compatibility name. This gates generic operator
+ * behaviour for arbitrary Lorevox narrators, principally the WO-10B resume
+ * gate (`ui/hornelore1.0.html` #wo10bResumeGateToggle writes it; `app.js`
+ * reads it before auto-resume). It is NOT a family-protection token.
+ *
+ * Phase 7 (WO-LOREVOX-CLEAN-DATA-WORLD-01) removed its two Horne-specific
+ * consumers — the lvxStageDeleteNarrator override that treated the flag as
+ * permission to delete a protected family narrator, and the operator-panel
+ * bypass that set it to true for exactly that purpose — and deleted the
+ * SECOND declaration that lived inside the family-lock block in
+ * hornelore1.0.html, which re-assigned this to `false` at script-eval time.
+ * Two declarations of one flag is how a setting silently resets.
+ *
+ * The HORNELORE_ name is kept deliberately: renaming it to LOREVOX_ is
+ * product naming, which Phase 8 owns. Phase 7 changes meaning, not names.
+ */
 window.HORNELORE_OPERATOR_MODE = window.HORNELORE_OPERATOR_MODE || false;
 
-/* ── Hornelore: deleted-narrator skip list ──────────────────── */
-function _horneloreGetDeletedLabels() {
-  try {
-    return JSON.parse(localStorage.getItem("hornelore_deleted_labels") || "[]");
-  } catch (_) {
-    return [];
-  }
-}
-
-function _horneloreMarkDeletedNarrator(label) {
-  if (!label) return;
-  try {
-    var arr = _horneloreGetDeletedLabels();
-    if (arr.indexOf(label) < 0) arr.push(label);
-    localStorage.setItem("hornelore_deleted_labels", JSON.stringify(arr));
-  } catch (_) {}
-}
-
-function _horneloreClearDeletedNarrator(label) {
-  if (!label) return;
-  try {
-    var arr = _horneloreGetDeletedLabels().filter(function(x) { return x !== label; });
-    localStorage.setItem("hornelore_deleted_labels", JSON.stringify(arr));
-  } catch (_) {}
-}
-
-// Expose for operator UI
-window._horneloreMarkDeletedNarrator  = _horneloreMarkDeletedNarrator;
-window._horneloreClearDeletedNarrator = _horneloreClearDeletedNarrator;
-window._horneloreGetDeletedLabels     = _horneloreGetDeletedLabels;
+/* Phase 7: the deleted-narrator skip list (_horneloreGetDeletedLabels /
+ * _horneloreMarkDeletedNarrator / _horneloreClearDeletedNarrator, backed by
+ * localStorage["hornelore_deleted_labels"]) was removed here. Its ONLY
+ * behavioural reader was _horneloreEnsureNarrators(), the boot-time Horne
+ * seeder: the list existed so that deleting Kent did not simply re-seed Kent
+ * on the next reload. With the seeder gone the list had no reader, and a
+ * localStorage key nothing consumes is indistinguishable from one that works.
+ */
 
 /** True once the model has completed warmup and can generate. */
 function isLlmReady() { return _llmReady; }
@@ -4485,10 +4480,8 @@ async function lvxDeleteNarratorConfirmed(){
   // Store deleted person_id for undo (backend restore uses original ID)
   state.narratorDelete.deletedPid = pid;
 
-  // Hornelore: remember deleted label so auto-seed does not immediately recreate
-  if (state.narratorDelete && state.narratorDelete.targetLabel) {
-    _horneloreMarkDeletedNarrator(state.narratorDelete.targetLabel);
-  }
+  // Phase 7: the "remember this label so the auto-seeder does not immediately
+  // recreate it" write was removed here along with the seeder itself.
 
   // clear active pointer if needed
   if (state.person_id === pid) {

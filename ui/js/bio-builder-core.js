@@ -1412,25 +1412,39 @@
      on the explicit whitelist.
   ─────────────────────────────────────────────────────────── */
 
-  var _CANONICAL_NARRATOR_NAMES = [
-    "Kent James Horne",
-    "Janice Josephine Horne",
-    "Christopher Todd Horne",
-    "William Alan Shatner",
-    "Dolly Rebecca Parton"
-  ];
+  /* Phase 7 (WO-LOREVOX-CLEAN-DATA-WORLD-01) — _CANONICAL_NARRATOR_NAMES and
+     _isCanonicalNarrator() are GONE, and the purge no longer has a whitelist.
+
+     What they did: the purge defined "test narrator" as EVERY NARRATOR NOT ON
+     A FIVE-NAME LIST (three Hornes and two trainers), then soft-deleted all of
+     them. On the Horne laptop that read as a tidy-up. On any other Lorevox
+     root it is a button that deletes every narrator in the installation,
+     because nobody there is on the list — and a restored narrator whose
+     display name differs by one character from the hard-coded string is not
+     on the list either. The comment above used to call the hard-coding "a
+     deliberate trade" on the grounds that the utility "refuses to delete
+     based on heuristics"; inverting a name whitelist IS a heuristic, and it
+     is the most dangerous kind, because everything unknown falls on the
+     delete side.
+
+     The authority is now people.testing_only — set explicitly at narrator
+     creation, persisted, and not mutable through PersonUpdate. Only narrators
+     whose persisted disposition says testing_only are eligible. Every other
+     narrator is preserved BY DEFINITION, so there is no list to maintain and
+     nothing to fall off. */
+
+  // Eligibility for the bulk purge. Strict `=== true` on purpose: if the
+  // server has not sent the field (an older build, a partial payload), the
+  // answer is NO. Absence must never be read as permission to delete.
+  function _isPurgeEligible(person) {
+    return !!person && person.testing_only === true;
+  }
 
   function _setPurgeStatus(html) {
     try {
       var el = document.getElementById("lv10dBpPurgeTestStatus");
       if (el) el.innerHTML = html;
     } catch (_) {}
-  }
-
-  function _isCanonicalNarrator(person) {
-    if (!person) return false;
-    var name = (person.display_name || person.name || "").trim();
-    return _CANONICAL_NARRATOR_NAMES.indexOf(name) >= 0;
   }
 
   function _wipeNarratorLocalStorage(pid) {
@@ -1486,34 +1500,39 @@
       return false;
     }
 
-    // 2. Partition into canonical (preserve) and tests (purge)
-    var canonical = allNarrators.filter(_isCanonicalNarrator);
-    var tests = allNarrators.filter(function (p) { return !_isCanonicalNarrator(p); });
+    // 2. Select ONLY narrators whose persisted disposition says testing_only.
+    //    This is a selection, not a partition: there is no "everyone else"
+    //    bucket, because everyone else is simply not eligible.
+    var tests = allNarrators.filter(_isPurgeEligible);
 
     if (!tests.length) {
-      _setPurgeStatus('<span style="color:#22c55e;">✓ No test narrators found. ' +
-        canonical.length + ' canonical narrators preserved.</span>');
-      console.log("[bb-purge] no test narrators to purge; canonical preserved:",
-        canonical.map(function (p) { return p.display_name || p.name; }));
+      _setPurgeStatus('<span style="color:#22c55e;">✓ No testing-only narrators found. ' +
+        'Nothing deleted.</span>');
+      console.log("[bb-purge] no testing_only narrators; nothing to purge " +
+        "(" + allNarrators.length + " narrators present, all preserved)");
       try {
-        alert("No test narrators to purge.\n\nCanonical narrators preserved (" +
-          canonical.length + "):\n  • " +
-          canonical.map(function (p) { return p.display_name || p.name; }).join("\n  • "));
+        alert("No testing-only narrators to purge.\n\nNothing was deleted.\n\n" +
+          "Only narrators created with testing_only are eligible. All " +
+          allNarrators.length + " narrator(s) in this root are preserved.");
       } catch (_) {}
       return true;
     }
 
-    // 3. Confirm with operator (full list shown so they can verify)
+    // 3. Confirm with operator. The dialog names every narrator that is about
+    //    to be soft-deleted, with its UUID prefix, so the operator verifies
+    //    the actual victims rather than a count. There is deliberately no
+    //    "will be preserved" list any more: preservation is the default, and
+    //    printing a preserved-list invited the reader to check that the list
+    //    looked right instead of checking that the DELETE list looked right.
     var testNames = tests.map(function (p) {
       return (p.display_name || p.name || "(unnamed)") + " — " + (p.id || "").slice(0, 8);
     });
-    var canonicalNames = canonical.map(function (p) { return p.display_name || p.name; });
 
     var msg =
-      "PURGE " + tests.length + " test narrators?\n\n" +
+      "PURGE " + tests.length + " testing-only narrator(s)?\n\n" +
+      "Eligibility is the persisted testing_only disposition, set at creation.\n" +
+      "Every other narrator in this root is preserved.\n\n" +
       "Will be DELETED (soft-delete + localStorage wipe):\n  • " + testNames.join("\n  • ") + "\n\n" +
-      "Will be PRESERVED (canonical, " + canonical.length + "):\n  • " +
-      (canonicalNames.length ? canonicalNames.join("\n  • ") : "(NONE FOUND — check display_name strings)") + "\n\n" +
       "Photos + memory archive on disk are NOT touched (preserved for restore).\n\n" +
       "This is irreversible from the UI. Continue?";
 
@@ -1541,6 +1560,19 @@
         continue;
       }
 
+      // Re-assert eligibility immediately before anything destructive.
+      // The selection above already did this; asserting again here means a
+      // future edit that widens the selection, or that starts passing this
+      // loop a caller-supplied list, still cannot delete a real narrator.
+      // The check lives next to the delete, not only next to the filter.
+      if (!_isPurgeEligible(narrator)) {
+        console.error("[bb-purge] REFUSED — " + pid.slice(0, 8) +
+          " is not testing_only; the purge loop was handed an ineligible " +
+          "narrator. Nothing was deleted for this row.");
+        failed += 1;
+        continue;
+      }
+
       // Wipe localStorage first (always succeeds)
       var wiped_keys = _wipeNarratorLocalStorage(pid);
       ls_keys_total += wiped_keys.length;
@@ -1563,7 +1595,7 @@
     var summaryIcon = failed ? "⚠" : "✓";
     _setPurgeStatus(
       '<span style="color:' + summaryColor + ';">' + summaryIcon + ' Purged ' +
-      succeeded + '/' + tests.length + ' test narrators (' + ls_keys_total + ' LS keys wiped' +
+      succeeded + '/' + tests.length + ' testing-only narrators (' + ls_keys_total + ' LS keys wiped' +
       (failed ? ', ' + failed + ' backend deletes failed' : '') + ').</span><br>' +
       '<span style="color:#94a3b8;">Refresh the page to see the cleaned narrator list.</span>'
     );
@@ -1574,6 +1606,9 @@
   }
 
   window.lvBbPurgeTestNarrators = lvBbPurgeTestNarrators;
+  // Exposed so the purge-eligibility boundary can be exercised against the
+  // SHIPPED predicate rather than a copy of it in a test file.
+  window._lvBbIsPurgeEligible = _isPurgeEligible;
 
   /* ───────────────────────────────────────────────────────────
      EXPORT MODULE

@@ -2928,8 +2928,14 @@
         <option value="">Loading…</option>
       </select>
 
-      <!-- Hornelore: New narrator disabled — locked to Horne family -->
-      <button id="lv80NewBtn" style="display:none" disabled>+ New</button>
+      <!-- Phase 7: re-enabled. This button carried style="display:none" and
+           `disabled` with the comment "New narrator disabled — locked to Horne
+           family". Removing those two attributes alone would have shipped a
+           VISIBLE DEAD CONTROL: nothing in the tree ever bound a handler to
+           #lv80NewBtn, so the lock had been hiding a button that did nothing.
+           It is wired here to the same entry point the "+ Add Narrator" button
+           in the narrator switcher already uses. -->
+      <button id="lv80NewBtn" onclick="lv80OpenNarratorCreate()">+ New</button>
     </div>
 
     <!-- Lori posture segmented control
@@ -4261,14 +4267,12 @@
         <button class="lv80-settings-btn secondary" onclick="lv80OperatorClearPreloadCandidates()">Clear Preload Candidates</button>
       </div>
 
-      <div class="lv80-settings-section">
-        <h4 class="lv80-settings-section-title">Seeder Skip List</h4>
-        <p class="lv80-settings-desc">
-          Narrators you deleted that the auto-seeder will skip on reload.
-        </p>
-        <pre id="lv80OperatorSkipList" style="font-size:12px; color:#94a3b8; margin:6px 0;"></pre>
-        <button class="lv80-settings-btn secondary" onclick="lv80OperatorClearSkipList()">Clear Skip List</button>
-      </div>
+      <!-- Phase 7: the "Seeder Skip List" section was removed with the
+           auto-seeder it existed to defeat. It listed narrators the operator
+           had deleted so the boot-time Horne seeding would not resurrect them.
+           With no seeder there is nothing to skip, and an operator control
+           that describes machinery the product no longer has is worse than no
+           control at all. -->
 
       <div class="lv80-settings-section">
         <h4 class="lv80-settings-section-title">WO-10B: Resume Control Mode</h4>
@@ -5890,7 +5894,9 @@ async function lv80LoadPeople() {
     } catch {}
   }
 
-  // WO-11B: filter to Hornelore family only before caching
+  // Drop soft-deleted narrators before caching. (This comment said "filter to
+  // Hornelore family only" until Phase 7; the code never did that, and a
+  // half-true comment reads as confirmation of the wrong model.)
   people = _horneloreFilterVisiblePeople(people);
 
   // v8: cache for narrator card UI
@@ -6486,7 +6492,24 @@ function lv80NarratorInitials(name){
   return (parts.slice(0,2).map(p => p[0]?.toUpperCase() || "").join("") || "LV");
 }
 
+// PRESENTATION ONLY. This decides a BADGE. It must never decide a deletion.
+//
+// Phase 7 (WO-LOREVOX-CLEAN-DATA-WORLD-01): the persisted disposition
+// `people.testing_only` now comes first, and it is the only branch here that
+// is authoritative. It is set explicitly at narrator creation, persisted, and
+// deliberately not mutable through PersonUpdate, which is exactly why the
+// server side uses it (person_is_testing_only / list_testing_only_people) as
+// the fail-closed authority for experimental eligibility.
+//
+// Everything below it is heuristic — a name containing "test", a hard-coded
+// list of fictional people, an is_test/role hint. Those are fine for choosing
+// a badge on a historical fixture whose row predates the column. They are NOT
+// safe as a destructive selector: a real narrator can be called "Tess Terry",
+// and a testing-only narrator can be called "Margaret Wilson". Any bulk or
+// destructive path must read testing_only itself and must not call this.
 function lv80NarratorKind(person){
+  // Authoritative, and strict: an ABSENT field must not read as true.
+  if (person?.testing_only === true) return "test";
   const label = String(person?.display_name || person?.name || "").toLowerCase();
   // LV-003 fix: check multiple heuristics, not just hardcoded names
   // 1. Explicit "test" in name
@@ -6589,7 +6612,8 @@ function lv80RenderNarratorCards(){
   list.innerHTML = "";
 
   // WO-11B: Trainers are launcher actions only — no trainer card grouping.
-  // Render only Hornelore family narrators (already filtered by _horneloreFilterVisiblePeople).
+  // Render every narrator in the root (soft-deleted ones are already excluded
+  // by _horneloreFilterVisiblePeople in lv80LoadPeople).
 
   function _renderCard(person, badgeLabel, badgeClass, subtitle) {
     const pid = person.person_id || person.id || person.uuid;
@@ -6614,7 +6638,7 @@ function lv80RenderNarratorCards(){
         </div>
         <div class="lv80-narrator-card-actions">
           <button class="bb-btn-sm" onclick="lv80ConfirmNarratorSwitch('${pid}')">Open</button>
-          ${_horneloreIsCoreNarrator(person) ? '' : `<button class="bb-btn-sm" style="color:#ef4444;border-color:#ef4444;" onclick="lv80StartDeleteNarrator('${pid}','${esc(name)}')">Delete</button>`}
+          <button class="bb-btn-sm" style="color:#ef4444;border-color:#ef4444;" onclick="lv80StartDeleteNarrator('${pid}','${esc(name)}')">Delete</button>
         </div>
       </div>
     `;
@@ -6622,9 +6646,13 @@ function lv80RenderNarratorCards(){
   }
 
   people.forEach(person => {
+    // Phase 7: the badge used to read FAMILY vs TEST off the Horne allow-list,
+    // so every narrator who was not a Horne was labelled TEST in the operator's
+    // own picker. lv80NarratorKind() is the product's generic classifier and was
+    // already being computed here and thrown away.
     const kind = lv80NarratorKind(person);
-    const isCore = _horneloreIsCoreNarrator(person);
-    list.appendChild(_renderCard(person, isCore ? "FAMILY" : "TEST", isCore ? "real" : "test", null));
+    list.appendChild(_renderCard(
+      person, kind === "test" ? "TEST" : "NARRATOR", kind, null));
   });
 
   // Add narrator button — WO-OPERATOR-NEW-NARRATOR-INTAKE-FORM-01
@@ -6637,17 +6665,23 @@ function lv80RenderNarratorCards(){
   addBtn.className = "bb-btn-sm";
   addBtn.style.cssText = "width:100%;margin-top:10px;padding:8px;border:1px dashed rgba(255,255,255,0.2);color:#94a3b8;";
   addBtn.textContent = "+ Add Narrator";
-  addBtn.onclick = () => {
-    try {
-      if (typeof lvOpenNarratorIntake === "function") {
-        lvOpenNarratorIntake();
-        return;
-      }
-    } catch (_) { /* fall through to legacy prompt */ }
-    // Legacy fallback when the intake module hasn't loaded yet
-    lv80NewPerson();
-  };
+  addBtn.onclick = lv80OpenNarratorCreate;
   list.appendChild(addBtn);
+}
+
+// The ONE narrator-creation entry point. Both the switcher's "+ Add Narrator"
+// and the header's #lv80NewBtn call this — the header button was inert and
+// hidden behind the family lock until Phase 7, and giving it a second copy of
+// this body would be two lists of one truth.
+function lv80OpenNarratorCreate() {
+  try {
+    if (typeof lvOpenNarratorIntake === "function") {
+      lvOpenNarratorIntake();
+      return;
+    }
+  } catch (_) { /* fall through to legacy prompt */ }
+  // Legacy fallback when the intake module hasn't loaded yet
+  lv80NewPerson();
 }
 
 // BUG-NARRATOR-SWITCHER-EMPTY-ON-COLD-BOOT-01 (2026-06-15)
@@ -6959,34 +6993,27 @@ function _wo11RestoreNarratorAfterTrainer() {
   }
 }
 
-// WO-11B: Hornelore narrator visibility filter helpers
-function _horneloreAllowedNarratorNames() {
-  return new Set([
-    "christopher todd horne",
-    "christopher horne",
-    "christopher",
-    "chris",
-    "kent james horne",
-    "kent horne",
-    "kent",
-    "janice josephine (zarr) horne",
-    "janice josephine zarr horne",
-    "janice josephine horne",
-    "janice horne",
-    "janice"
-  ]);
-}
-
-// BUG-NARRATOR-LABEL-COLLISION-01 (live, 2026-07-14): the canonicalizer below
-// maps ANY narrator called "christopher" to "Christopher Todd Horne". The DB
-// held TWO distinct people — "Christopher" (e7fdb578) and "Christopher Todd
-// Horne" (a4b2f07a) — and the picker rendered BOTH with the identical label.
-// Two narrators that look the same in the picker is how a memory gets written
-// to the wrong person's life. The same trap is armed for "kent" and "janice".
+// Narrator label helpers — universal, no family allow-list.
 //
-// So: keep the warm family name, but if two people collapse onto ONE label,
-// disambiguate them. Identity beats tidiness — an operator must always be able
-// to tell whose story they are recording.
+// Phase 7 (WO-LOREVOX-CLEAN-DATA-WORLD-01) removed
+// _horneloreAllowedNarratorNames(): a hard-coded set of twelve Horne spellings
+// that decided which narrators counted as real. Nothing decides that now.
+//
+// BUG-NARRATOR-LABEL-COLLISION-01 (live, 2026-07-14) is why the disambiguator
+// below SURVIVES that removal. The canonicalizer used to map ANY narrator
+// called "christopher" onto the label "Christopher Todd Horne"; the DB held
+// TWO distinct people — "Christopher" (e7fdb578) and "Christopher Todd Horne"
+// (a4b2f07a) — and the picker rendered BOTH with the identical label. Two
+// narrators that look the same in the picker is how a memory gets written to
+// the wrong person's life.
+//
+// The canonicalizer is gone with the rest of the family lock, which removes
+// the way that collision was MANUFACTURED. It does not remove the collision:
+// any two narrators may legitimately share a display name, and a restored
+// package can introduce a second "Mary" into a root that already has one.
+// Identity beats tidiness — an operator must always be able to tell whose
+// story they are recording — so the disambiguation stays, now as ordinary
+// duplicate-label safety for arbitrary narrators.
 function _horneloreDisambiguateLabels(people) {
   const out = new Map();               // person_id -> final label
   const byLabel = new Map();           // canonical label -> [person, ...]
@@ -7019,35 +7046,26 @@ function _horneloreDisambiguateLabels(people) {
   return out;
 }
 
+// A narrator's visible label is the name the record carries. Phase 7 removed
+// the three Horne canonicalization branches that rewrote "chris" as
+// "Christopher Todd Horne" — a narrator's own name is not a spelling mistake
+// to be corrected, and rewriting it is what collapsed two people onto one
+// label in BUG-NARRATOR-LABEL-COLLISION-01.
 function _horneloreNormalizeVisibleName(person) {
-  const raw = String(person?.display_name || person?.name || "").toLowerCase().trim();
-  if (["kent", "kent horne", "kent james horne"].includes(raw)) {
-    return "Kent James Horne";
-  }
-  if (["chris", "christopher", "christopher horne", "christopher todd horne"].includes(raw)) {
-    return "Christopher Todd Horne";
-  }
-  if ([
-    "janice",
-    "janice horne",
-    "janice josephine horne",
-    "janice josephine zarr horne",
-    "janice josephine (zarr) horne"
-  ].includes(raw)) {
-    return "Janice Josephine (Zarr) Horne";
-  }
-  return person?.display_name || person?.name || "Unknown";
+  const name = String(person?.display_name || person?.name || "").trim();
+  return name || "Unknown";
 }
 
 function _horneloreFilterVisiblePeople(people) {
-  // Show all narrators — core family + any test narrators created for live testing
+  // Every narrator in the root is visible. The only exclusion is soft-delete,
+  // which is a product state rather than an identity judgement.
+  //
+  // Phase 7 note: this function's WO-11B name says "filter", and it had
+  // already stopped filtering by family before Phase 7 opened — the allow-list
+  // it was built around was applied elsewhere. It is kept as the one place a
+  // future visibility rule would go, and as the boundary
+  // tests/test_narrator_label_collision.py slices the disambiguator against.
   return (Array.isArray(people) ? people : []).filter(p => !p.is_deleted);
-}
-
-function _horneloreIsCoreNarrator(person) {
-  const allowed = _horneloreAllowedNarratorNames();
-  const raw = String(person?.display_name || person?.name || "").toLowerCase().trim();
-  return allowed.has(raw);
 }
 
 async function lv80StartDeleteNarrator(pid, label) {
@@ -10125,114 +10143,38 @@ function _lv80MirrorStatus(active) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   HORNELORE: LOCKED NARRATOR UNIVERSE
-   Only three narrators: Chris, Kent, Janice Horne.
-   Auto-seeds from templates on first boot.
-   Protects identity basics from chat overwrite.
+   WO-LOREVOX-CLEAN-DATA-WORLD-01 (Phase 7) — the family-locked
+   narrator universe that lived here has been REMOVED.
+
+   What was here, and why none of it may come back:
+
+     * HORNELORE_NARRATORS + _horneloreEnsureNarrators() — auto-seeded
+       Chris, Kent and Janice from ui/templates/*-horne.json on every
+       boot, so a fresh Lorevox root could not stay empty;
+     * a lvxStageDeleteNarrator override that REFUSED every deletion
+       unless a flag was set, i.e. family protection dressed as a
+       safety feature;
+     * a lv80SwitchPerson wrapper that forced identityPhase="complete"
+       for every narrator, because the seeded three already had
+       identities — which silently skipped onboarding for narrators
+       who had never been asked;
+     * HORNELORE_TRUST_PRELOAD_AS_TRUTH, which suppressed post-preload
+       candidate extraction on the assumption that a preloaded profile
+       was already true. That holds for a hand-curated family template
+       and for nothing else.
+
+   The three authoritative narrators now arrive by PACKAGE RESTORE
+   (WO-LOREVOX-PORTABLE-NARRATOR-01), not by boot-time seeding. A
+   Lorevox root that has never been restored into is legitimately
+   empty, and ordinary narrator creation is the way out of that state.
+
+   HORNELORE_OPERATOR_MODE is NOT declared here any more, and its
+   absence from this block is deliberate rather than an oversight: the
+   flag has generic consumers (the WO-10B resume gate), so its single
+   declaration lives in ui/js/app.js. This block used to re-declare it
+   `false` at script-eval time — a second authority for one truth,
+   which clobbered app.js's default on every load. See the note there.
 ═══════════════════════════════════════════════════════════════ */
-
-/* ── Hornelore truth mode flags ──────────────────────────────── */
-window.HORNELORE_TRUST_PRELOAD_AS_TRUTH = true;
-window.HORNELORE_OPERATOR_MODE = false;
-
-const HORNELORE_NARRATORS = [
-  { templateFile: "christopher-todd-horne.json", displayName: "Christopher Todd Horne", altNames: ["chris", "christopher", "christopher horne"] },
-  { templateFile: "kent-james-horne.json",       displayName: "Kent James Horne",       altNames: ["kent", "kent horne"] },
-  { templateFile: "janice-josephine-horne.json",  displayName: "Janice Josephine Horne",  altNames: ["janice", "janice horne"] },
-];
-
-/**
- * On first boot, check if the Horne family narrators already exist in the DB.
- * If any are missing, preload them from their template JSON files.
- */
-async function _horneloreEnsureNarrators() {
-  const people = state?.narratorUi?.peopleCache || [];
-  // Build a set of all existing names (lowercase) for matching
-  const existingNames = new Set(people.map(p => (p.display_name || p.name || "").toLowerCase().trim()));
-
-  // Get skip list of deliberately deleted narrators
-  const deletedLabels = (typeof _horneloreGetDeletedLabels === "function")
-    ? _horneloreGetDeletedLabels().map(l => l.toLowerCase())
-    : [];
-
-  let seeded = false;
-  for (const hn of HORNELORE_NARRATORS) {
-    // Check primary displayName AND all altNames (preferred names, short names)
-    const allNames = [hn.displayName.toLowerCase(), ...(hn.altNames || [])];
-    const found = allNames.some(n => existingNames.has(n));
-    if (found) {
-      console.log("[Hornelore] Narrator exists:", hn.displayName, "(matched from:", allNames.find(n => existingNames.has(n)), ")");
-      continue;
-    }
-
-    // Skip if narrator was deliberately deleted by operator
-    const inSkipList = allNames.some(n => deletedLabels.indexOf(n) >= 0);
-    if (inSkipList) {
-      console.log("[Hornelore] Narrator in delete skip list — not re-seeding:", hn.displayName);
-      continue;
-    }
-
-    // Narrator missing — load template and preload
-    console.log("[Hornelore] Seeding narrator:", hn.displayName);
-    try {
-      const resp = await fetch("templates/" + hn.templateFile);
-      if (!resp.ok) throw new Error("Template fetch failed: " + resp.status);
-      const tpl = await resp.json();
-      await lv80PreloadNarrator(tpl);
-      seeded = true;
-    } catch (err) {
-      console.error("[Hornelore] Failed to seed " + hn.displayName + ":", err);
-      if (typeof sysBubble === "function") sysBubble("Could not seed " + hn.displayName + " — check templates.");
-    }
-  }
-
-  if (seeded) {
-    // Refresh narrator list after seeding
-    await lv80LoadPeople();
-    console.log("[Hornelore] Narrator seeding complete — refreshed list.");
-  }
-}
-
-/**
- * HORNELORE: Override delete to prevent removing Horne family narrators.
- * The original lvxStageDeleteNarrator is replaced with a guard.
- */
-const _origStageDelete = window.lvxStageDeleteNarrator;
-window.lvxStageDeleteNarrator = function(pid) {
-  // Allow deletion in operator mode (set by operator panel)
-  if (window.HORNELORE_OPERATOR_MODE) {
-    console.log("[Hornelore] Operator mode — allowing delete for:", pid);
-    window.HORNELORE_OPERATOR_MODE = false; // reset after use
-    if (typeof _origStageDelete === "function") {
-      _origStageDelete(pid);
-    }
-    return;
-  }
-  console.warn("[Hornelore] Narrator deletion is disabled for safety.");
-  if (typeof sysBubble === "function") {
-    sysBubble("Narrator deletion is disabled in Hornelore to protect family data.");
-  }
-};
-
-/**
- * HORNELORE: Protect identity basics from chat extraction overwrite.
- * After each narrator switch, mark basics as protected so the identity
- * state machine skips onboarding for known narrators.
- */
-const _origSwitchPerson = window.lv80SwitchPerson;
-if (typeof _origSwitchPerson === "function") {
-  window.lv80SwitchPerson = async function(pid) {
-    await _origSwitchPerson(pid);
-    // After switch completes, force identity phase to "complete" so the
-    // identity extraction gate never fires for a known Horne narrator.
-    if (state?.session) {
-      state.session.identityPhase = "complete";
-      console.log("[Hornelore] Identity phase set to complete for known narrator:", pid);
-    }
-    // Update operator panel label
-    if (typeof lv80UpdateOperatorDeleteLabel === "function") lv80UpdateOperatorDeleteLabel();
-  };
-}
 
 /* ── 9. INIT + ONLOAD WRAP ───────────────────────────────────── */
 // app.js sets window.onload. We capture it, run it first, then run lv80Init.
@@ -10491,7 +10433,6 @@ async function lv80Init() {
     operatorPopover.addEventListener("toggle", (event) => {
       if (event.newState === "open") {
         if (typeof lv80UpdateOperatorDeleteLabel === "function") lv80UpdateOperatorDeleteLabel();
-        if (typeof lv80UpdateOperatorSkipList === "function") lv80UpdateOperatorSkipList();
         if (typeof lv80UpdateOperatorCandidateCount === "function") lv80UpdateOperatorCandidateCount();
       }
     });
@@ -10534,10 +10475,12 @@ async function lv80Init() {
   }
 
   // 6. Load people into selector
+  //
+  // Phase 7: the Horne-family auto-seed that used to run here is GONE. An
+  // empty selector is a valid state for a fresh Lorevox root — narrators
+  // arrive by package restore or by ordinary creation, never by boot-time
+  // seeding of three hard-coded people.
   await lv80LoadPeople();
-
-  // ── HORNELORE: Auto-seed Horne family narrators if they don't exist yet ──
-  await _horneloreEnsureNarrators();
 
   // 6a. Initialise memoir state and load stored facts for the selected narrator
   _memoirEvaluateState();
@@ -10594,11 +10537,6 @@ function lv80OperatorImportJson() {
       var tpl = JSON.parse(e.target.result);
       if (typeof lv80ImportNarratorTemplate === "function") {
         await lv80ImportNarratorTemplate(tpl);
-        var p = tpl && tpl.personal ? tpl.personal : {};
-        var label = p.preferredName || p.fullName || "";
-        if (typeof _horneloreClearDeletedNarrator === "function" && label) {
-          _horneloreClearDeletedNarrator(label);
-        }
         if (typeof refreshPeople === "function") await refreshPeople();
         if (typeof sysBubble === "function") sysBubble("Narrator JSON imported.");
       }
@@ -10615,23 +10553,22 @@ function lv80OperatorDeleteCurrent() {
     if (typeof sysBubble === "function") sysBubble("No active narrator selected.");
     return;
   }
-  // Temporarily enable operator mode so Hornelore's delete override allows it
-  window.HORNELORE_OPERATOR_MODE = true;
-  // Call the ORIGINAL delete staging function, bypassing Hornelore's override
-  if (typeof _origStageDelete === "function") {
-    _origStageDelete(state.person_id);
-  } else if (typeof lvxStageDeleteNarrator === "function") {
+  // Phase 7: this used to set HORNELORE_OPERATOR_MODE = true so the Horne
+  // delete override would let the deletion through, then call the saved
+  // pre-override function. Both the override and the bypass are gone, so this
+  // is now an ordinary call to the product's own delete staging.
+  //
+  // That coupling was also a live defect worth recording: the same flag is the
+  // WO-10B resume gate. Deleting a narrator switched the resume gate ON, and
+  // the override then reset it to false when it fired — so an operator who had
+  // deliberately enabled the resume gate had it silently turned off by an
+  // unrelated action. One flag, two meanings, and neither knew about the other.
+  if (typeof lvxStageDeleteNarrator === "function") {
     lvxStageDeleteNarrator(state.person_id);
   }
 }
 
-function lv80OperatorClearSkipList() {
-  try {
-    localStorage.removeItem("hornelore_deleted_labels");
-    if (typeof sysBubble === "function") sysBubble("Seeder skip list cleared.");
-    lv80UpdateOperatorSkipList();
-  } catch (_) {}
-}
+/* Phase 7: lv80OperatorClearSkipList() removed with the seeder skip list. */
 
 function lv80OperatorClearPreloadCandidates() {
   if (!state || !state.bioBuilder || !state.bioBuilder.candidates) {
@@ -10682,12 +10619,7 @@ function lv80UpdateOperatorDeleteLabel() {
   el.textContent = label;
 }
 
-function lv80UpdateOperatorSkipList() {
-  var el = document.getElementById("lv80OperatorSkipList");
-  if (!el) return;
-  var arr = (typeof _horneloreGetDeletedLabels === "function") ? _horneloreGetDeletedLabels() : [];
-  el.textContent = arr.length ? arr.join(", ") : "(empty)";
-}
+/* Phase 7: lv80UpdateOperatorSkipList() removed with the seeder skip list. */
 
 /* ── PROJECTION DEBUG PANEL ─────────────────────────────────── */
 
