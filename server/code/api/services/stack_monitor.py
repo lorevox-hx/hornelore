@@ -57,9 +57,20 @@ _API_LOG = _RUNTIME_LOGS / "api.log"
 
 # DATA_DIR for archive-write freshness probes — env-driven so it matches
 # whatever the running stack writes to.
-_DATA_DIR = Path(os.getenv("DATA_DIR", "/mnt/c/hornelore_data"))
-_MEMORY_ARCHIVE = _DATA_DIR / "memory" / "archive"
-_UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", str(_DATA_DIR / "uploads")))
+#
+# Phase 7 (WO-LOREVOX-CLEAN-DATA-WORLD-01): the default was the literal
+# "/mnt/c/hornelore_data", so on any other installation this monitor reported
+# archive freshness for a directory the running stack does not write to — and,
+# if that path happened not to exist, reported a healthy stack as stale. A
+# monitor with a different root from the thing it monitors is worse than no
+# monitor. There is no default now: unset means unknown, and the probes say so
+# rather than measuring the wrong tree.
+_DATA_DIR_RAW = (os.getenv("DATA_DIR") or "").strip()
+_DATA_DIR = Path(_DATA_DIR_RAW).expanduser() if _DATA_DIR_RAW else None
+_MEMORY_ARCHIVE = (_DATA_DIR / "memory" / "archive") if _DATA_DIR else None
+_UPLOADS_RAW = (os.getenv("UPLOADS_DIR") or "").strip()
+_UPLOADS_DIR = (Path(_UPLOADS_RAW).expanduser() if _UPLOADS_RAW
+                else ((_DATA_DIR / "uploads") if _DATA_DIR else None))
 
 # ── Status-color thresholds (operator-tunable; documented for transparency) ─
 # Pre-work review #9: spec said "amber: nearing limit" without numbers.
@@ -226,7 +237,7 @@ def collect_system() -> Dict[str, Any]:
 
     # Disk — probe the partition that DATA_DIR lives on (fall back to /).
     try:
-        target = str(_DATA_DIR) if _DATA_DIR.exists() else "/"
+        target = str(_DATA_DIR) if (_DATA_DIR and _DATA_DIR.exists()) else "/"
         du = psutil.disk_usage(target)
         out["disk_path"] = target
         out["disk_percent"] = round(float(du.percent), 1)
@@ -663,6 +674,11 @@ def _newest_file_age_sec(root: Path, glob: str = "*", max_scan: int = 200) -> Op
 
 def collect_archive() -> Dict[str, Any]:
     """Memory-archive write freshness."""
+    if _MEMORY_ARCHIVE is None:
+        return {"status": "unavailable",
+                "error": "DATA_DIR is not set — this monitor will not guess a "
+                         "root, because reporting freshness for the wrong tree "
+                         "is worse than reporting nothing."}
     if not _MEMORY_ARCHIVE.exists():
         return {"status": "unavailable", "error": f"path missing: {_MEMORY_ARCHIVE}"}
     txt_age = _newest_file_age_sec(_MEMORY_ARCHIVE, "*.txt")
@@ -696,9 +712,11 @@ def collect_archive() -> Dict[str, Any]:
 def collect_capture(person_id: Optional[str] = None) -> Dict[str, Any]:
     """Capture state — backend file probes + UI heartbeat (TTL-gated)."""
     audio_root = _MEMORY_ARCHIVE
-    audio_age = _newest_file_age_sec(audio_root, "*.webm") or _newest_file_age_sec(
-        audio_root, "*.wav"
-    )
+    audio_age = None
+    if audio_root is not None:
+        audio_age = _newest_file_age_sec(audio_root, "*.webm") or _newest_file_age_sec(
+            audio_root, "*.wav"
+        )
 
     audio_block: Dict[str, Any] = {}
     if audio_age is None:

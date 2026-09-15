@@ -45,6 +45,41 @@ if _env_file.exists():
                     _k, _, _v = _line.partition("=")
                     os.environ.setdefault(_k.strip(), _v.strip())
 
+# ── RUNTIME ROOT GATE ────────────────────────────────────────────────────────
+# WO-LOREVOX-CLEAN-DATA-WORLD-01 (Phase 7) Part B.
+#
+# PLACEMENT IS THE WHOLE POINT and it is load-bearing in both directions: this
+# runs AFTER the .env load above (so it sees the operator's configuration) and
+# BEFORE the FastAPI/router imports below (which pull in api.db, api.api and
+# utils.archive_paths, each of which resolves a data root of its own). A gate
+# placed after those imports would be adjudicating a root the imports had
+# already resolved — and, before this lane, already created on disk.
+#
+# There is exactly ONE validator, here. Launchers do not get a second one: two
+# validators is two policies, and the one that disagrees is the one nobody
+# runs.
+from .runtime_root import RootContractError, assert_coherent_root, db_path
+
+try:
+    _ROOT = assert_coherent_root()
+except RootContractError as _root_exc:
+    # Refuse loudly, on stderr as well as the log — a stack that dies during
+    # a 4-minute cold boot is usually read as a hang, and the operator needs
+    # the conflicting variable named where they are already looking.
+    import sys as _sys
+    print("\n" + "=" * 70, file=_sys.stderr)
+    print("LOREVOX REFUSED TO START", file=_sys.stderr)
+    print("=" * 70, file=_sys.stderr)
+    print(str(_root_exc), file=_sys.stderr)
+    print("=" * 70 + "\n", file=_sys.stderr)
+    raise
+
+# The root is created ONCE, here, by the authority — after it has been checked.
+# Nothing else may create it as a side effect of being imported.
+(_ROOT / "db").mkdir(parents=True, exist_ok=True)
+logging.getLogger(__name__).info(
+    "Lorevox runtime root: %s (db: %s)", _ROOT, db_path(_ROOT))
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles

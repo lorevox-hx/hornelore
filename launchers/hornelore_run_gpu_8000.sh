@@ -32,6 +32,21 @@ REPO_DIR=/mnt/c/Users/chris/hornelore
 source "$REPO_DIR/scripts/trace_env.sh"
 hornelore_trace_capture
 
+# ── Data root, captured BEFORE .env ───────────────────────────────────────
+#
+# SAME SHAPE AS THE TRACE-FLAG BUG DIRECTLY ABOVE, and it bit for the same
+# reason: `set -a; source .env` re-exports every key in the file, so a DATA_DIR
+# the CALLER deliberately exported is silently replaced by the one in .env —
+# in the very process that runs uvicorn. An operator pointing a run at a
+# disposable root got a stack serving the production root instead, and the
+# only symptom is that the "empty" root stays empty while real narrator data
+# moves somewhere else.
+#
+# Precedence, stated once: an explicit caller export WINS over .env. .env is
+# the default for an ordinary start, not an override of a deliberate one.
+_DATA_DIR_FROM_CALLER="${DATA_DIR:-}"
+_DB_NAME_FROM_CALLER="${DB_NAME:-}"
+
 # ── Load Hornelore .env (repo root) ───────────────────────────────────────
 if [ -f "$REPO_DIR/.env" ]; then
   set -a
@@ -40,11 +55,33 @@ if [ -f "$REPO_DIR/.env" ]; then
   echo "[launcher] Loaded Hornelore .env"
 fi
 
+if [ -n "$_DATA_DIR_FROM_CALLER" ] && [ "$_DATA_DIR_FROM_CALLER" != "${DATA_DIR:-}" ]; then
+  echo "[launcher] DATA_DIR from caller ($_DATA_DIR_FROM_CALLER) overrides .env (${DATA_DIR:-unset})"
+  DATA_DIR="$_DATA_DIR_FROM_CALLER"
+  export DATA_DIR
+fi
+if [ -n "$_DB_NAME_FROM_CALLER" ] && [ "$_DB_NAME_FROM_CALLER" != "${DB_NAME:-}" ]; then
+  echo "[launcher] DB_NAME from caller ($_DB_NAME_FROM_CALLER) overrides .env (${DB_NAME:-unset})"
+  DB_NAME="$_DB_NAME_FROM_CALLER"
+  export DB_NAME
+fi
+
 hornelore_trace_resolve "$REPO_DIR"
 
 # ── Defaults (only apply if not already set by Hornelore .env) ───────────
 export USE_TTS=${USE_TTS:-0}
-export DATA_DIR=${DATA_DIR:-/mnt/c/hornelore_data}
+# Phase 7 (WO-LOREVOX-CLEAN-DATA-WORLD-01): the compiled fallback
+# `${DATA_DIR:-/mnt/c/hornelore_data}` is gone from both launchers. A launcher
+# that supplies a root is a launcher that can start a second installation by
+# accident — and this one is the second shell, so its default overwrote
+# whatever the caller had exported. .env is the authority; the application
+# validates it once, in server/code/api/runtime_root.py.
+if [ -z "${DATA_DIR:-}" ]; then
+  echo "ERROR: DATA_DIR is not set (checked shell env and .env)." >&2
+  echo "       This launcher will not choose a data root for you." >&2
+  exit 1
+fi
+export DATA_DIR
 # SECURITY-REVIEW-2026-08-12: default bind moved 0.0.0.0 -> 127.0.0.1.
 # The API has no authentication, so a LAN bind exposed every endpoint
 # (including hard person-delete and the chat websocket) to any device on

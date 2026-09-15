@@ -47,8 +47,11 @@ if _USE_TTS:
 router = APIRouter(prefix="/api", tags=["pro-llm"])
 
 # ---------------- Config ----------------
+# Phase 7 (WO-LOREVOX-CLEAN-DATA-WORLD-01): the `DATA_DIR.mkdir(parents=True,
+# exist_ok=True)` that followed this line is removed. Importing a router must
+# not bring a data root into existence — see the note in api/db.py. The root is
+# created once in api/main.py, after api/runtime_root.py has approved it.
 DATA_DIR = pathlib.Path(os.getenv("DATA_DIR", "data"))
-DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # --- PATCHED CONFIG FOR LOCAL LOADING ---
 MODEL_PATH = (os.getenv("MODEL_PATH", "") or "").strip()
@@ -173,8 +176,11 @@ def _extraction_budget_for(*, max_new: int, prompt_tokens: int,
 # session transcript folder exports (optional, still handy)
 MEMO_DIR = DATA_DIR / "memory" / "agents"
 SESSION_FS_DIR = MEMO_DIR / "sessions"
-MEMO_DIR.mkdir(parents=True, exist_ok=True)
-SESSION_FS_DIR.mkdir(parents=True, exist_ok=True)
+# Phase 7: the two import-time mkdir calls here are removed for the reason in
+# api/db.py — an import must not create a data root. _save_chat_memory_fs()
+# already creates its own target directory at write time, and SESSION_FS_DIR
+# has no reader anywhere in server/code, so nothing depended on the eager
+# creation except the creation itself.
 
 # ---------------- Globals ----------------
 _model = None

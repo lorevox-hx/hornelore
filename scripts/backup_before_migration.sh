@@ -39,19 +39,32 @@ fi
 #   DB_NAME  = os.getenv("DB_NAME", "lorevox.sqlite3")
 #   DB_PATH  = DB_DIR / DB_NAME
 #
-# .env may have DB_PATH explicitly (override), DATA_DIR + DB_NAME, or
-# just DATA_DIR (with the compiled DB_NAME default). Walk the same
-# precedence so we always land on the actual live DB.
-DB_PATH=$(grep '^DB_PATH=' .env | head -1 | cut -d= -f2- | tr -d '[:space:]')
-if [ -z "$DB_PATH" ]; then
-  DATA_DIR=$(grep '^DATA_DIR=' .env | head -1 | cut -d= -f2- | tr -d '[:space:]')
-  if [ -z "$DATA_DIR" ]; then
-    echo "ERROR: neither DB_PATH= nor DATA_DIR= found in .env" >&2
-    exit 1
-  fi
-  DB_NAME=$(grep '^DB_NAME=' .env | head -1 | cut -d= -f2- | tr -d '[:space:]')
-  DB_NAME=${DB_NAME:-lorevox.sqlite3}
-  DB_PATH="$DATA_DIR/db/$DB_NAME"
+# Phase 7 (WO-LOREVOX-CLEAN-DATA-WORLD-01): this used to read DB_PATH= from
+# .env FIRST and treat it as an override. That was not a precedence rule, it
+# was a divergence — api/db.py has never read DB_PATH, so this script and the
+# server could resolve different files. .env.example shipped a DB_PATH with no
+# /db/ segment, so an operator following the example got a backup script
+# looking for a database one directory above the one the server opens. A
+# backup tool that can point somewhere the product never writes is worse than
+# no backup tool, because it succeeds.
+#
+# DATA_DIR + DB_NAME, composed exactly as api/db.py:58-63 composes them. That
+# is the only resolution, and it is now stated in one place the server also
+# uses: server/code/api/runtime_root.py:db_path().
+DATA_DIR=$(grep '^DATA_DIR=' .env | head -1 | cut -d= -f2- | tr -d '[:space:]')
+if [ -z "$DATA_DIR" ]; then
+  echo "ERROR: DATA_DIR= not found in .env — it is the runtime root authority" >&2
+  exit 1
+fi
+STRAY=$(grep '^DB_PATH=' .env | head -1 | cut -d= -f2- | tr -d '[:space:]')
+DB_NAME=$(grep '^DB_NAME=' .env | head -1 | cut -d= -f2- | tr -d '[:space:]')
+DB_NAME=${DB_NAME:-lorevox.sqlite3}
+DB_PATH="$DATA_DIR/db/$DB_NAME"
+if [ -n "$STRAY" ] && [ "$STRAY" != "$DB_PATH" ]; then
+  echo "ERROR: .env sets DB_PATH=$STRAY but the product opens $DB_PATH" >&2
+  echo "       DB_PATH is not read by the application. Remove it from .env" >&2
+  echo "       rather than backing up a file the server never writes." >&2
+  exit 1
 fi
 if [ ! -f "$DB_PATH" ]; then
   echo "ERROR: resolved DB_PATH $DB_PATH does not point to an existing file" >&2

@@ -6,6 +6,12 @@ set -e
 
 REPO_DIR=/mnt/c/Users/chris/hornelore
 
+# Phase 7: caller-exported DATA_DIR wins over .env — see the full note in
+# hornelore_run_gpu_8000.sh. `set -a; source .env` would otherwise replace a
+# root the caller chose deliberately, in the process that serves it.
+_DATA_DIR_FROM_CALLER="${DATA_DIR:-}"
+_DB_NAME_FROM_CALLER="${DB_NAME:-}"
+
 # ── Load Hornelore .env (repo root) ───────────────────────────────────────
 if [ -f "$REPO_DIR/.env" ]; then
   set -a
@@ -14,10 +20,27 @@ if [ -f "$REPO_DIR/.env" ]; then
   echo "[launcher] Loaded Hornelore .env"
 fi
 
+if [ -n "$_DATA_DIR_FROM_CALLER" ] && [ "$_DATA_DIR_FROM_CALLER" != "${DATA_DIR:-}" ]; then
+  echo "[launcher] DATA_DIR from caller ($_DATA_DIR_FROM_CALLER) overrides .env (${DATA_DIR:-unset})"
+  DATA_DIR="$_DATA_DIR_FROM_CALLER"
+  export DATA_DIR
+fi
+if [ -n "$_DB_NAME_FROM_CALLER" ] && [ "$_DB_NAME_FROM_CALLER" != "${DB_NAME:-}" ]; then
+  echo "[launcher] DB_NAME from caller ($_DB_NAME_FROM_CALLER) overrides .env (${DB_NAME:-unset})"
+  DB_NAME="$_DB_NAME_FROM_CALLER"
+  export DB_NAME
+fi
+
 # ── Defaults (only apply if not already set by Hornelore .env) ───────────
 export USE_TTS=${USE_TTS:-1}
-export DATA_DIR=${DATA_DIR:-/mnt/c/hornelore_data}
-# SECURITY-REVIEW-2026-08-12: default bind moved 0.0.0.0 -> 127.0.0.1
+# Phase 7: see hornelore_run_gpu_8000.sh — no compiled fallback root.
+if [ -z "${DATA_DIR:-}" ]; then
+  echo "ERROR: DATA_DIR is not set (checked shell env and .env)." >&2
+  echo "       This launcher will not choose a data root for you." >&2
+  exit 1
+fi
+export DATA_DIR
+# SECURITY-REVIEW-2026-08-12: default bind moved 0.0.0.0 ->127.0.0.1
 # (see hornelore_run_gpu_8000.sh for rationale).  Override via HOST in .env.
 export HOST=${HOST:-127.0.0.1}
 export TTS_PORT=${TTS_PORT:-8001}

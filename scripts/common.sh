@@ -22,12 +22,51 @@ mkdir -p "$PID_DIR" "$LOG_DIR"
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/trace_env.sh"
 hornelore_trace_capture
 
+# ── Data root: capture BEFORE .env, for the same reason as the trace flag ──
+#
+# WO-LOREVOX-CLEAN-DATA-WORLD-01 (Phase 7). `.env` is sourced with `set -a`
+# below, so it re-exports every key in the file over whatever the caller
+# exported — and this is the FIRST of the two shells that do that (the second
+# is launchers/hornelore_run_gpu_8000.sh, which has the matching capture).
+#
+# Without this, `DATA_DIR=/mnt/c/somewhere ./scripts/start_all.sh` silently
+# started the stack on the .env root instead. That is worse than the trace-flag
+# version of this bug: the symptom is not an empty trace directory, it is an
+# operator believing they are testing a disposable root while real narrator
+# data is written to the production one — or believing the disposable root is
+# "still empty" when nothing was ever pointed at it.
+#
+# PRECEDENCE, stated once: an explicit caller export WINS over .env. .env is
+# the default for an ordinary start, not an override of a deliberate choice.
+# DB_NAME is captured alongside DATA_DIR because it is part of WHICH
+# INSTALLATION, not a cosmetic setting: <DATA_DIR>/db/<DB_NAME> is the whole
+# address. Protecting only the directory lets a caller point at a clean root
+# and still get .env's database filename inside it — which is exactly how a new
+# Lorevox root would come to hold a file called hornelore.sqlite3.
+_HORNELORE_DATA_DIR_FROM_CALLER="${DATA_DIR:-}"
+_HORNELORE_DB_NAME_FROM_CALLER="${DB_NAME:-}"
+
 # ── Load .env if present ─────────────────────────────────────────
 if [[ -f "$ROOT_DIR/.env" ]]; then
   set -a
   # shellcheck disable=SC1091
   source "$ROOT_DIR/.env"
   set +a
+fi
+
+if [[ -n "$_HORNELORE_DATA_DIR_FROM_CALLER" \
+      && "$_HORNELORE_DATA_DIR_FROM_CALLER" != "${DATA_DIR:-}" ]]; then
+  printf 'DATA_DIR from caller (%s) overrides .env (%s)\n' \
+    "$_HORNELORE_DATA_DIR_FROM_CALLER" "${DATA_DIR:-unset}"
+  DATA_DIR="$_HORNELORE_DATA_DIR_FROM_CALLER"
+  export DATA_DIR
+fi
+if [[ -n "$_HORNELORE_DB_NAME_FROM_CALLER" \
+      && "$_HORNELORE_DB_NAME_FROM_CALLER" != "${DB_NAME:-}" ]]; then
+  printf 'DB_NAME from caller (%s) overrides .env (%s)\n' \
+    "$_HORNELORE_DB_NAME_FROM_CALLER" "${DB_NAME:-unset}"
+  DB_NAME="$_HORNELORE_DB_NAME_FROM_CALLER"
+  export DB_NAME
 fi
 
 hornelore_trace_resolve "$ROOT_DIR"

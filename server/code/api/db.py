@@ -57,8 +57,22 @@ def _sanitise_dob(raw: Optional[str]) -> str:
 # -----------------------------------------------------------------------------
 DATA_DIR = Path(os.getenv("DATA_DIR", "data")).expanduser()
 DB_DIR = DATA_DIR / "db"
-DB_DIR.mkdir(parents=True, exist_ok=True)
 
+# Phase 7 (WO-LOREVOX-CLEAN-DATA-WORLD-01): `DB_DIR.mkdir(parents=True,
+# exist_ok=True)` used to run HERE, at import. Importing this module created a
+# directory tree on disk — so a typo'd, stale or unset DATA_DIR was not an
+# error, it was a new empty installation, brought into existence by an import
+# and looking exactly like a real one. Any tool that imported api.db to read
+# something made one. The creation now happens at the durable boundary in
+# _connect(), and for the server it happens once in api/main.py AFTER the
+# runtime-root gate has approved the root.
+#
+# The lenient "data" default above is deliberately kept for import: refusing at
+# import time would make this module unimportable for offline tooling and for
+# tests that legitimately point DATA_DIR at a temp directory before reloading.
+# The REFUSAL lives in api/runtime_root.py and runs at server startup, which is
+# the only place that can name the conflict while the operator can still act on
+# it. api/runtime_root.py:db_path() states this same composition once.
 DB_NAME = os.getenv("DB_NAME", "lorevox.sqlite3").strip() or "lorevox.sqlite3"
 DB_PATH = DB_DIR / DB_NAME
 
@@ -124,6 +138,9 @@ def _closes_connections_on_error(fn):
 
 
 def _connect() -> sqlite3.Connection:
+    # The durable boundary. sqlite3 creates the FILE but not its parent, so the
+    # directory is ensured here rather than at import — see the note at DB_DIR.
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(str(DB_PATH), check_same_thread=False)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL;")
@@ -2783,7 +2800,8 @@ def list_people(limit: int = 50, offset: int = 0, include_deleted: bool = False)
         rows = con.execute(
             """
             SELECT id,display_name,role,date_of_birth,place_of_birth,created_at,updated_at,
-                   narrator_type,is_deleted,deleted_at,undo_expires_at
+                   narrator_type,is_deleted,deleted_at,undo_expires_at,
+                   COALESCE(testing_only, 0) AS testing_only
             FROM people
             ORDER BY updated_at DESC
             LIMIT ? OFFSET ?;
@@ -2794,7 +2812,8 @@ def list_people(limit: int = 50, offset: int = 0, include_deleted: bool = False)
         rows = con.execute(
             """
             SELECT id,display_name,role,date_of_birth,place_of_birth,created_at,updated_at,
-                   narrator_type
+                   narrator_type,
+                   COALESCE(testing_only, 0) AS testing_only
             FROM people
             WHERE is_deleted = 0
             ORDER BY updated_at DESC
@@ -2803,7 +2822,20 @@ def list_people(limit: int = 50, offset: int = 0, include_deleted: bool = False)
             (int(limit), int(offset)),
         ).fetchall()
     con.close()
-    return [dict(r) for r in rows]
+    out = [dict(r) for r in rows]
+    # Normalized to a real bool for the SAME reason get_person() does it below:
+    # a caller must not be able to treat SQLite's integer 0 as truthy-by-presence.
+    #
+    # Phase 7 (WO-LOREVOX-CLEAN-DATA-WORLD-01): this list did not select
+    # testing_only at all, while get_person() did — so every client that reads
+    # the picker payload saw the field as ABSENT for every narrator. That is
+    # worse than it sounds for anything destructive: `p.testing_only === true`
+    # is false for all of them, and `!p.testing_only` is true for all of them,
+    # so the same missing field reads as "nothing is a test narrator" or
+    # "everything is" depending only on which way the caller phrased it.
+    for person in out:
+        person["testing_only"] = bool(person.get("testing_only"))
+    return out
 
 
 def get_person(person_id: str) -> Optional[Dict[str, Any]]:

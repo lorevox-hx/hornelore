@@ -27,12 +27,20 @@ PORT = 8082
 
 # ── Template resolution ──────────────────────────────────────────────────────
 # Hornelore templates: hornelore_data/templates/ → ui/templates/ fallback
-_data_dir = os.environ.get("HORNELORE_DATA_DIR", os.environ.get("DATA_DIR", ""))
-if _data_dir:
-    DATA_TEMPLATES = Path(_data_dir) / "templates"
-else:
-    _default = Path("/mnt/c/hornelore_data/templates")
-    DATA_TEMPLATES = _default if _default.is_dir() else None
+# Phase 7 (WO-LOREVOX-CLEAN-DATA-WORLD-01): DATA_DIR is the authority, and the
+# compiled "/mnt/c/hornelore_data/templates" fallback is gone.
+#
+# This read used to PREFER HORNELORE_DATA_DIR over DATA_DIR, which made this
+# UI server the one component that could be pointed at a different
+# installation from the API it serves — and then fall back to a hard-coded
+# family root if neither was set, so an unconfigured UI server quietly served
+# the Horne templates. DATA_DIR first; the legacy name is still honoured when
+# DATA_DIR is unset, and server/code/api/runtime_root.py refuses to start the
+# API if the two disagree.
+_data_dir = (os.environ.get("DATA_DIR")
+             or os.environ.get("HORNELORE_DATA_DIR")
+             or "").strip()
+DATA_TEMPLATES = (Path(_data_dir).expanduser() / "templates") if _data_dir else None
 REPO_TEMPLATES = ROOT / "ui" / "templates"
 
 
