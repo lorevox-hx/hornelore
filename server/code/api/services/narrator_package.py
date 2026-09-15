@@ -265,23 +265,68 @@ def _tables(con: sqlite3.Connection) -> Set[str]:
         "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
 
 
+def _pragma_rows(con: sqlite3.Connection, sql: str) -> List[Dict[str, Any]]:
+    """PRAGMA results as dicts, WHATEVER row factory the caller is using.
+
+    Every helper below reads PRAGMA output by column name, and until 2026-09-14 each of
+    them did so by indexing the row directly — which silently required
+    `row_factory = sqlite3.Row`. Restore's dry run sets it; the first real Merge/Remap
+    rehearsal used a default connection and raised `TypeError: tuple indices must be
+    integers` four frames beneath a shared, public helper that advertises a plain
+    `sqlite3.Connection`.
+
+    The fix belongs HERE rather than in any caller: `missing_installation_dependencies`
+    is shared by restore and merge, and a helper beneath it must not demand more than
+    its signature says. `cursor.description` is authoritative for the column names in
+    every shape — tuple, `sqlite3.Row`, or a dict factory — and nothing mutates the
+    caller's connection.
+    """
+    cur = con.execute(sql)
+    names = [d[0] for d in (cur.description or [])]
+    out: List[Dict[str, Any]] = []
+    for r in cur.fetchall():
+        if isinstance(r, sqlite3.Row):
+            out.append({k: r[k] for k in r.keys()})
+        elif isinstance(r, dict):
+            out.append(r)
+        else:
+            out.append(dict(zip(names, r)))
+    return out
+
+
 def _columns(con: sqlite3.Connection, table: str) -> List[str]:
-    return [r["name"] for r in con.execute(f'PRAGMA table_info("{table}")')]
+    return [r["name"] for r in _pragma_rows(con, f'PRAGMA table_info("{table}")')]
 
 
 def _pk_columns(con: sqlite3.Connection, table: str) -> List[str]:
-    rows = [r for r in con.execute(f'PRAGMA table_info("{table}")') if r["pk"]]
+    rows = [r for r in _pragma_rows(con, f'PRAGMA table_info("{table}")') if r["pk"]]
     rows.sort(key=lambda r: r["pk"])
     cols = [r["name"] for r in rows]
     return cols or ["rowid"]
 
 
 def _fks(con: sqlite3.Connection, table: str) -> List[Tuple[str, str, str]]:
-    """(from_column, parent_table, parent_column)"""
-    out = []
-    for r in con.execute(f'PRAGMA foreign_key_list("{table}")'):
-        out.append((r["from"], r["table"], r["to"] or "id"))
-    return out
+    """(from_column, parent_table, parent_column) — INDEPENDENT OF THE ROW FACTORY.
+
+    This indexed `PRAGMA foreign_key_list` rows by name until 2026-09-14, which silently
+    required every caller to have set `row_factory = sqlite3.Row`. Restore's dry run
+    happens to; the first real Christopher merge rehearsal did not, and this raised
+    `TypeError: tuple indices must be integers` from four frames below the call.
+
+    That was a CONTRACT defect, not a caller mistake. `missing_installation_dependencies`
+    is shared by restore and Merge/Remap and advertises that it takes a
+    `sqlite3.Connection`; a helper beneath it must not quietly demand more than the
+    signature says. Setting the row factory in the caller would have hidden the same
+    trap for the next one, and mutating a caller's connection-wide factory from inside a
+    read helper is worse.
+
+    Normalisation lives in `_pragma_rows`, which `_columns` and `_pk_columns` share —
+    they carried the same latent defect, and `_pk_columns` is reachable from this very
+    call path through `_dependency_key_columns`'s fallback. Fixing only the frame that
+    happened to crash would have left the next caller to find the other two.
+    """
+    return [(r.get("from"), r.get("table"), r.get("to") or "id")
+            for r in _pragma_rows(con, f'PRAGMA foreign_key_list("{table}")')]
 
 
 def _dependency_key_columns(con: sqlite3.Connection, parent: str, tables) -> List[str]:

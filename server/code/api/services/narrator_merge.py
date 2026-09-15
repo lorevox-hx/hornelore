@@ -395,12 +395,15 @@ def find_physical_collisions(origins: Sequence[Origin]) -> List[Dict[str, Any]]:
     classifications come out of this, and conflating them was a real defect in the first
     implementation:
 
-      `safe_same_record`   the table has a PROVEN cross-origin logical key, both rows
-                           carry the same logical key, AND their content matches. Only
-                           then is one row the other, and only then may it be
-                           represented once. `people` is the case this exists for.
-      `must_reallocate`    everything else — INCLUDING a shared id whose rows are
-                           BYTE-IDENTICAL in a `NO_SAFE_CROSS_ORIGIN_KEY` table.
+      `safe_same_record`   the table has a PROVEN cross-origin logical key and both rows
+                           carry the SAME logical key. The keyed classification owns the
+                           outcome and no id is reallocated — identical content is
+                           represented once, differing content is a keyed conflict for a
+                           human. `people` is the case this exists for.
+      `must_reallocate`    a shared id that is NOT the same logical record — including a
+                           shared id whose rows are BYTE-IDENTICAL in a
+                           `NO_SAFE_CROSS_ORIGIN_KEY` table, where correspondence was
+                           never established at all.
 
     That last clause is the fix. §1 is explicit that `CONTENT_OVERLAP` does **not** mean
     the two rows are the same record, and a no-safe-key table is one where correspondence
@@ -434,7 +437,19 @@ def find_physical_collisions(origins: Sequence[Origin]) -> List[Dict[str, Any]]:
             if kind == xid.KIND_DECLARED:
                 ka, kb = _key_of(ra, key_cols), _key_of(rb, key_cols)
                 same_record = ka is not None and ka == kb
-                (safe if (same_record and identical) else must).append(pk)
+                # SAME LOGICAL RECORD IS NEVER A PHYSICAL COLLISION, whatever the
+                # content says. The keyed classification owns the outcome: identical ->
+                # represented once; differing -> SAME_LOGICAL_RECORD_DIFFERENT_CONTENT,
+                # refused for a human. Reallocating here would give the merged root TWO
+                # `people` rows for one narrator — exactly what the keyed path prevents.
+                #
+                # Corrected 2026-09-14, found by the first real Christopher rehearsal:
+                # this read `same_record and identical`, so his `people` row (identical
+                # but for `updated_at`) fell into the reallocation path and refused as
+                # a collision in a table with no established closure. A sixth refusal
+                # that was really the fourth one counted twice. The fix is NOT to
+                # declare a closure for `people.id`.
+                (safe if same_record else must).append(pk)
             else:
                 # No defensible cross-origin key: correspondence was never established,
                 # so both rows are preserved and the shared id must be broken.
@@ -659,11 +674,24 @@ def _content_for_compare(row: Dict[str, Any], key_cols: Sequence[str],
     same merged row. A reference difference that survives the remap is a difference in
     what the two rows are evidence OF, and it stays visible.
     """
-    payload = {k: v for k, v in row.items()
-               if k not in key_cols and k not in volatile and not k.startswith("_")
-               and not (k == "id" and "id" not in key_cols)}
+    payload = _comparable(row, key_cols, volatile)
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"),
                                      default=str).encode("utf-8")).hexdigest()
+
+
+def _comparable(row: Dict[str, Any], key_cols: Sequence[str],
+                volatile: Dict[str, str]) -> Dict[str, Any]:
+    """The columns `_content_for_compare` actually hashes — one definition, so the
+    reported differing set cannot disagree with the verdict that produced it."""
+    return {k: v for k, v in row.items()
+            if k not in key_cols and k not in volatile and not k.startswith("_")
+            and not (k == "id" and "id" not in key_cols)}
+
+
+def _differing_columns(a: Dict[str, Any], b: Dict[str, Any], key_cols: Sequence[str],
+                       volatile: Dict[str, str]) -> List[str]:
+    ca, cb = _comparable(a, key_cols, volatile), _comparable(b, key_cols, volatile)
+    return [c for c in set(ca) | set(cb) if ca.get(c) != cb.get(c)]
 
 
 def _key_of(row: Dict[str, Any], cols: Sequence[str]) -> Optional[str]:
@@ -730,10 +758,18 @@ def classify_rows(records_a: Dict[str, List[Dict[str, Any]]],
                 identical.setdefault(table, set()).add(key)
             else:
                 diff += 1
+                # NAME THE COLUMNS. "profiles key=… differs" tells a human nothing they
+                # can decide on, and a caller that wants to know whether a conflict is
+                # only a row-rewrite stamp would otherwise have to guess it from the
+                # table name. Adjudication needs the actual differing set.
+                differing = sorted(_differing_columns(ga[0], gb[0], cols, volatile))
                 refusals.append({
                     "code": R_SAME_KEY_DIFFERENT_CONTENT,
-                    "detail": f"{table} key={key} — {label_a} and {label_b} hold "
-                              f"different content for the same logical record",
+                    "table": table,
+                    "key": key,
+                    "columns": differing,
+                    "detail": f"{table} key={key} — {label_a} and {label_b} differ in "
+                              f"{', '.join(differing) if differing else '(no column)'}",
                 })
         verdicts.append({
             "table": table, "key": list(cols), "same": same, "different": diff,

@@ -585,6 +585,42 @@ class TextPrimaryKeyCollisions(_Fixtures):
         self.assertNotIn("people.id", self.plan.remap)
         self.assertEqual(self.plan.carried_rows["people"], 1)
 
+    def test_the_SAME_logical_record_is_never_a_physical_collision(self):
+        """Found by the first real Christopher rehearsal, 2026-09-14.
+
+        Both packages hold his `people` row under one id, differing only in `updated_at`.
+        The classifier read `same_record and identical`, so a same-record CONTENT
+        difference fell through to the reallocation path and refused as a collision in a
+        table with no established closure — a sixth refusal that was really the fourth
+        one counted twice. Reallocating there would have been worse than the noise: it
+        would have put TWO `people` rows for one narrator into the merged root.
+
+        A shared id that is the same logical record belongs to the keyed path, whatever
+        the content says.
+        """
+        rows_a = {"people": [{"id": NARRATOR, "display_name": "Ada",
+                              "updated_at": "2026-04-29T05:35:22"}]}
+        rows_b = {"people": [{"id": NARRATOR, "display_name": "Ada",
+                              "updated_at": "2026-04-11T23:32:03"}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            a = _build_package(Path(tmp) / "a.lorevox.zip", "1111aaaabbbb", rows_a, {"x": b"x"})
+            b = _build_package(Path(tmp) / "b.lorevox.zip", "2222ccccdddd", rows_b, {"y": b"y"})
+            plan = nm.plan_merge(a, b, label_a="a", label_b="b")
+
+        coll = next(c for c in plan.physical_collisions if c["table"] == "people")
+        self.assertEqual(coll["safe_same_record"], [NARRATOR])
+        self.assertEqual(coll["must_reallocate"], [],
+                         "a same-record content difference was sent to reallocation")
+        self.assertNotIn("people.id", plan.remap)
+
+        codes = [r["code"] for r in plan.refusals]
+        self.assertIn(nm.R_SAME_KEY_DIFFERENT_CONTENT, codes)
+        self.assertNotIn(nm.R_UNKNOWN_COLLISION_CLOSURE, codes,
+                         "the same record was refused twice, once under the wrong code")
+        keyed = next(r for r in plan.refusals if r["code"] == nm.R_SAME_KEY_DIFFERENT_CONTENT)
+        self.assertEqual(keyed["columns"], ["updated_at"],
+                         "the refusal must name the columns an adjudicator has to decide")
+
     def test_a_collision_in_a_table_with_no_established_closure_REFUSES(self):
         """Remapping a row whose children cannot be enumerated would orphan them, so
         the planner refuses instead of guessing. `photos.id` has no established
