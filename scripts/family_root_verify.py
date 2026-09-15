@@ -6,7 +6,10 @@ WO-LOREVOX-PORTABLE-NARRATOR-01 — the family-root acceptance check.
 Answers the questions sequential restore has to survive, against the real destination
 rather than against a restore's own bookkeeping:
 
-  * exactly the expected narrators, by UUID;
+  * the narrators present, by UUID — and with `--expect`, that they are EXACTLY the ones
+    named, failing on a missing or an unexpected extra one. Without `--expect` the tool
+    reports what it finds and asserts nothing about who should be there, which is a
+    weaker claim and is stated as such;
   * per-narrator row ownership and counts, through the SAME ownership declaration the
     exporter uses — not a hand-written WHERE clause that could disagree with it;
   * NO cross-narrator leakage: every row in a directly-owned lane belongs to one of the
@@ -41,6 +44,12 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", required=True)
     ap.add_argument("--db", required=True)
+    ap.add_argument("--expect", action="append", default=[], metavar="UUID",
+                    help="a narrator that MUST be present; repeatable. When given, the "
+                         "set must match exactly — a missing narrator and an unexpected "
+                         "extra one both fail. Omit to report without asserting.")
+    ap.add_argument("--expect-rows", action="append", default=[], metavar="UUID=N",
+                    help="assert a narrator's owned row count; repeatable")
     a = ap.parse_args(argv)
     root, db_path = Path(a.data_dir), Path(a.db)
 
@@ -60,6 +69,17 @@ def main(argv=None) -> int:
                   f"{'  [testing_only]' if p['testing'] else ''}")
         ids = [p["id"] for p in people]
         print(f"  total: {len(ids)}")
+        if a.expect:
+            want, got = set(a.expect), set(ids)
+            for missing in sorted(want - got):
+                problems.append(f"expected narrator {missing} is NOT in this root")
+            for extra in sorted(got - want):
+                problems.append(f"unexpected narrator {extra} is in this root")
+            print(f"  --expect: {len(want)} named, "
+                  f"{'MATCHES' if want == got else 'DOES NOT MATCH'}")
+        else:
+            print("  (no --expect given: reporting who is here, asserting nothing "
+                  "about who should be)")
 
         print("\n── per-narrator ownership, via the declaration ─────────────")
         owned = [t for t in inv.narrator_owned_tables() if t in present]
@@ -81,6 +101,16 @@ def main(argv=None) -> int:
             totals[pid] = n
             per_table[pid] = tables
             print(f"  {pid}  {n} rows across {len(tables)} tables")
+        for spec in a.expect_rows:
+            pid, _, want = spec.partition("=")
+            if not want.isdigit():
+                problems.append(f"--expect-rows {spec!r} is not UUID=N")
+                continue
+            actual = totals.get(pid)
+            if actual != int(want):
+                problems.append(f"{pid} owns {actual} rows, expected {want}")
+            else:
+                print(f"  --expect-rows: {pid} = {want} ✓")
 
         print("\n── cross-narrator leakage ─────────────────────────────────")
         # every row in a DIRECTLY owned lane must belong to one of the narrators here

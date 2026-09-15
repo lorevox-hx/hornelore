@@ -36,10 +36,11 @@ collide. Both prerequisites were discharged before the pause — §3c, §3a and 
 surrogate + path closure hunt in §3d — and **§3 was corrected the same day**: the
 declaration knows all seven `turns.id` reference sites, and the `PRAGMA foreign_key_list`
 walk finds none of them rather than two.
-Owed since the Portable Narrator Phase 4 finding (`WO-LOREVOX-PORTABLE-NARRATOR-01` §34)
-and blocking the Phase 7 one-root cutover. Drafted from the two-origin comparison
-evidence, not from expectation — the measured numbers live in
-`.runtime/two_origin/reports/` (gitignored; real narrator content).
+Opened by the Portable Narrator Phase 4 finding (`WO-LOREVOX-PORTABLE-NARRATOR-01` §34).
+Drafted from the two-origin comparison evidence, not from expectation — the measured
+numbers live in `.runtime/two_origin/reports/` (gitignored; real narrator content).
+*(This line said "and blocking the Phase 7 one-root cutover". It no longer does: see the
+status block above.)*
 
 **One sentence:** given the same narrator packaged independently from two
 installations, produce ONE narrator in a brand-new root without losing a row, without
@@ -49,14 +50,21 @@ duplicating a row, and without silently choosing between two versions of the tru
 
 ## Mission alignment
 
-Christopher's conversations and audio are on the desktop; his entire travel domain is
-on the laptop (§31, §36.5). Neither machine holds him whole. Until these combine, the
-family archive is two half-portraits, and Phase 7's clean installation cannot be built
-without choosing which half to lose. This work order exists so nobody has to choose.
+A narrator's history can develop independently in two installations — the same person,
+two partial records, neither one whole. Where that happens, combining them must not
+require choosing which half to lose. This work order exists so nobody has to choose.
 
 The narrator is the author of their own story. A merge that quietly drops a trip, or
 silently prefers one machine's profile over the other's, edits that story on their
 behalf. **Refusing is always available; guessing is not.**
+
+*(This section read: "Christopher's conversations and audio are on the desktop; his
+entire travel domain is on the laptop (§31, §36.5). Neither machine holds him whole.
+Until these combine, the family archive is two half-portraits, and Phase 7's clean
+installation cannot be built without choosing which half to lose." **That was the
+motivating case and it is now historical.** Chris designated the laptop packages
+authoritative on 2026-09-14, which resolved the Horne family without a merge. The
+capability, and the reasoning above, stand on their own.)*
 
 ## Non-regression requirements
 
@@ -72,10 +80,20 @@ This WO MUST NOT:
 
 ## Scope
 
-**IS:** Christopher, Kent and Janice, each from their desktop package and their laptop
-package, into one new root. Deterministic remap of installation-local surrogate ids
-with a complete reference rewrite. A dry run that writes nothing. Provenance for every
-retained, remapped and refused record.
+**IS:** any one narrator packaged independently from two installations, merged into one
+new root. Deterministic remap of physical ids — integer surrogates and TEXT keys alike —
+with a complete reference rewrite across the established closure. A dry run that writes
+nothing. Provenance for every retained, remapped and refused record.
+
+**IS NOT, ANY LONGER: Christopher, Kent and Janice.** This section read *"Christopher,
+Kent and Janice, each from their desktop package and their laptop package, into one new
+root."* **Superseded 2026-09-14.** The three **laptop** packages are authoritative; the
+desktop copies are superseded development copies and are not merge inputs. All three
+restored sequentially into one installation by ordinary restore and re-exported
+`EQUIVALENT`, because same-origin packages coexist (§34). Their desktop-vs-laptop
+comparisons and the Christopher adjudication packet are **historical engineering
+evidence** — they are what this design was built from, and they are not to be reconciled
+further.
 
 **IS NOT:** Melanie — **explicitly out of scope by Chris's decision 2026-09-12**. The
 desktop holds record `3fc781ae` and the laptop holds `d56900b5`; they are distinct
