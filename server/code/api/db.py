@@ -5743,7 +5743,7 @@ def _derived_closure_spec(table: str):
     exists to prevent, and the parity test cannot catch a rule it does not
     share.
     """
-    from api.services import narrator_data_inventory as _inv
+    from .services import narrator_data_inventory as _inv
     try:
         lane = _inv.lane(table)
     except KeyError:

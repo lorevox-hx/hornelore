@@ -4,8 +4,9 @@
 LAPTOP REBUILD*, corrected against the shipped code on 2026-09-15. Where this file and
 prose disagree, **the code citation wins** — every claim below names the line it came from.
 
-**The hard boundary: nothing is deleted until the preservation copy AND the USB packages
-both verify, on two different physical devices.**
+**The hard boundary: nothing is deleted until the full-root preservation copy AND the three
+packages both verify, and until two independent physical devices each carry a complete
+recovery path (step 5).**
 
 ---
 
@@ -17,11 +18,20 @@ both verify, on two different physical devices.**
 | 2 | `--expect <uuid>` once per narrator | **all three in ONE invocation** | `family_root_verify.py:73` — `want, got = set(a.expect), set(ids)`, exact set comparison. Per-narrator calls report the other two as unexpected extras. |
 | 3 | 524 / 43 / 66 rows, 280 files = acceptance | **sanity references only** | `--expect-rows` is exact equality (`family_root_verify.py:111`). The fresh pre-erasure export sets the contract. |
 | 4 | "five databases in `db/` will trip the Phase 7 gate" | **FALSE — it will not** | `runtime_root.py:78,186-189`: only `KNOWN_DB_NAMES = ("lorevox.sqlite3","hornelore.sqlite3")` participate, zero-byte excluded. `hornelore_evalcopy.sqlite3` and the `backup_*.sqlite3` files are invisible to the gate. **Do not move them.** |
+| 5 | erasure and restore need only the exporter's dependencies | **restore ALSO needs a reference-clean root** | Found by running it, 2026-09-15. Two latent defects sit on the erase/restore path and nothing else in the product reaches them — see step 0 and step 14½. |
 
 Correction 4 was an error made while drafting this runbook, from reading the handoff's
 prose instead of the gate's code. It is recorded rather than quietly dropped because the
 instinct it produced — rearranging the data root before preserving it — was the dangerous
 part, not the wrong fact.
+
+Correction 5 was not a reading error — it was invisible until a real erasure and a real
+restore ran against a real root. **One of the two defects it names was fixed; the second
+was worked around operationally and remains filed.** `db.py:5746` is fixed in tree. The
+restore FK gate (`BUG-RESTORE-FK-GATE-TABLE-SCOPED-NOT-ROW-SCOPED-01`) is **not** — step
+14½ clears the rows that trip it, which is the right action for *those* rows and not a fix
+for the gate. Steps 0 and 14½ exist so the next operator meets both as checks rather than
+as failures.
 
 ---
 
@@ -48,13 +58,21 @@ root. Do not adopt it here.** Do not copy the desktop `.env` onto the laptop.
 3. `describe_root()` reports anything but `problems: []`
 4. Any of the three family UUIDs missing from the live database
 5. Preservation copy fails file count, DB SHA-256, `rsync --checksum` or `integrity_check`
-6. **Only one external device available** — see step 5
-7. A fresh export contracts sharply against the 524 / 43 / 66 reference
-8. Any package fails `validate`
-9. `sha256sum -c` fails on the USB
-10. `ids_to_erase.txt` not read and consciously authorized
-11. HTTP 207 that `erase-retry` does not complete
-12. Restore verification not `MATCHES` / `CLEAN`, or any `compare` not `EQUIVALENT`
+6. **Fewer than two physical devices carry a complete recovery path** — see step 5. *(This
+   read "only one external device available" until 2026-09-15. One external drive is
+   enough; what must be true is two independent devices, not two external ones.)*
+7. `PREFLIGHT CLEAN` does not print — see step 0
+8. A fresh export contracts sharply against the 524 / 43 / 66 reference
+9. Any package fails `validate`
+10. `sha256sum -c` fails on the USB
+11. `ids_to_erase.txt` not read and consciously authorized
+12. HTTP 207 that `erase-retry` does not complete
+13. Restore verification not `MATCHES`, any `--expect-rows` unticked, `foreign_key_check`
+    violations above the count carried in from step 14½, or any `compare` not `EQUIVALENT`.
+    *(This read "not `MATCHES` / `CLEAN`" until 2026-09-15. **`CLEAN` is the wrong gate** on
+    a root with inherited debt: this run finished correct and accepted with three
+    pre-existing problems still listed, so demanding `CLEAN` would have halted a successful
+    rebuild. Compare the verdict against what step 14½ recorded, not against zero.)*
 
 ---
 
@@ -134,6 +152,42 @@ source /mnt/c/lorevox_packages/laptop-rebuild-session.env
 `RUN` / `OUT` are appended at step 8 and `USBDEST` at step 11, so a block that needs them
 must run after those steps — sourcing alone will not conjure them.
 
+### 0 · Dependency preflight — run this BEFORE the erasure, not at step 8
+
+The export at step 8 is the first thing that imports `bagit`, and the 2026-09-15 run found
+it missing from `.venv`. That failure was harmless because it happened before anything was
+destroyed. The same missing import discovered at **step 15** would strand a root with no
+narrators in it and no way to put them back until pip could reach the network. Prove the
+whole toolchain loads while the data is still there.
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+PYTHONPATH=server/code .venv/bin/python - <<'PY'
+import importlib, sys
+fail = []
+for mod in ("bagit", "api.services.narrator_package",
+            "api.services.narrator_data_inventory", "api.services.narrator_merge"):
+    try:
+        importlib.import_module(mod)
+        print(f"  ok      {mod}")
+    except Exception as exc:
+        fail.append(mod)
+        print(f"  MISSING {mod}: {exc.__class__.__name__}: {exc}")
+for script in ("scripts/narrator_package.py", "scripts/family_root_verify.py"):
+    try:
+        compile(open(script).read(), script, "exec")
+        print(f"  ok      {script}")
+    except Exception as exc:
+        fail.append(script)
+        print(f"  BROKEN  {script}: {exc}")
+print("\nPREFLIGHT " + ("FAILED — fix before step 13" if fail else "CLEAN"))
+sys.exit(1 if fail else 0)
+PY
+```
+
+`bagit` is pinned: `pip install 'bagit==1.8.1'`. **`PREFLIGHT CLEAN` is a precondition of
+step 13.** Do not erase anything until it prints.
+
 ## 4 · Run the root gate BEFORE touching anything
 
 ```bash
@@ -156,42 +210,78 @@ Phase 7 preserved the desktop's root this way (`HANDOFF.md:75`). **No equivalent
 laptop's root exists.** Step 13 erases ~71 narrators that have no portable package; this is
 the only thing standing between them and permanent loss.
 
-**The preservation drive and the package USB MUST be different physical devices.** If only
-one external device is available, **stop** — a single lost stick must not be able to take
-both the full-root preservation and the only portable copies.
+**The rule is TWO INDEPENDENT PHYSICAL-DEVICE RECOVERY PATHS, not two external drives.**
+Before step 13 there must be, on **at least two different physical devices**, enough to
+rebuild: (a) a full-root preservation copy, and (b) the three portable packages. The loss
+of any single device must leave a complete recovery path standing.
+
+One external drive satisfies this. What the 2026-09-15 run actually held at the moment of
+erasure:
+
+| device | full-root preservation | packages |
+|---|---|---|
+| laptop `C:` | `/mnt/c/lorevox_preservation/laptop_20260915-103548` | `$OUT`, `$EXTRA` |
+| external `D:` | `/mnt/d/Lorevox_Laptop_Preservation_20260915-103548` | `$USBDEST`, `$USBEXTRA` |
+
+Either device alone rebuilds everything. **What is NOT sufficient** is the laptop's internal
+disk as the second path *when the failure you are insuring against is that disk* — which is
+why the full-root copy goes to the external drive too, and why step 5 runs before step 8
+rather than beside it.
+
+*(This rule read "the preservation drive and the package USB MUST be different physical
+devices — if only one external device is available, **stop**" until 2026-09-15. Chris
+corrected it during execution: "One external drive is enough. I made the safety rule
+stricter than it needed to be." The stricter form was not just unnecessary, it was
+**wrong as written** — it would have halted a run whose recovery position was already
+sound, and it described a layout the run did not and need not produce.)*
 
 ```bash
 cd /mnt/c/Users/chris/hornelore
 source /mnt/c/lorevox_packages/laptop-rebuild-session.env
 bash scripts/stop_all.sh
 
-PRESERVE=/mnt/<preservation-drive>/hornelore_laptop_preservation/$(date +%Y%m%d)
+STAMP=$(date +%Y%m%d-%H%M%S)
+PRESERVE_LOCAL=/mnt/c/lorevox_preservation/laptop_$STAMP/hornelore_data
+PRESERVE_USB=/mnt/<external>/Lorevox_Laptop_Preservation_$STAMP/hornelore_data
 
-du -sh "$ROOT"                       # need this much, plus headroom
-df -h "$(dirname "$PRESERVE")"       # confirm it fits
-mkdir -p "$PRESERVE"
+du -sh "$ROOT"                              # need this much, twice, plus headroom
+df -h /mnt/c "$(dirname "$(dirname "$PRESERVE_USB")")"
+mkdir -p "$PRESERVE_LOCAL" "$PRESERVE_USB"
 
-printf 'PRESERVE=%q\n' "$PRESERVE" >> /mnt/c/lorevox_packages/laptop-rebuild-session.env
+printf 'PRESERVE_LOCAL=%q\nPRESERVE_USB=%q\n' "$PRESERVE_LOCAL" "$PRESERVE_USB" \
+  >> /mnt/c/lorevox_packages/laptop-rebuild-session.env
 
-rsync -a --info=progress2 "$ROOT/" "$PRESERVE/"
+rsync -a --info=progress2 "$ROOT/" "$PRESERVE_LOCAL/"
+rsync -a --info=progress2 "$ROOT/" "$PRESERVE_USB/"
 sync
 ```
+
+**Both copies, not one.** This is what makes the laptop's own disk a real second recovery
+path rather than just the place the original happens to live. Note the external copy is
+the one that survives the laptop dying; the local copy is the one that survives the drive
+being lost. Neither substitutes for the other.
+
+*(On exFAT, `rsync -a` cannot preserve ownership or full timestamp precision and will say
+so. That is expected and is not a failed copy — the verification below is by file count,
+SHA-256 and `integrity_check`, none of which depend on metadata.)*
 
 Verify — every line must agree:
 
 ```bash
 source /mnt/c/lorevox_packages/laptop-rebuild-session.env
 echo "SOURCE files: $(find "$ROOT" -type f | wc -l)"
-echo "COPY   files: $(find "$PRESERVE" -type f | wc -l)"
 
-sha256sum "$DB" "$PRESERVE/db/$DBNAME"          # the two hashes must match
-
-rsync -a --checksum --dry-run --itemize-changes "$ROOT/" "$PRESERVE/"   # must print nothing
-
-sqlite3 -readonly "$PRESERVE/db/$DBNAME" "PRAGMA integrity_check; SELECT COUNT(*) FROM people;"
+for P in "$PRESERVE_LOCAL" "$PRESERVE_USB"; do
+  echo "=== $P"
+  echo "  files: $(find "$P" -type f | wc -l)"
+  sha256sum "$DB" "$P/db/$DBNAME"                              # the two hashes must match
+  rsync -a --checksum --dry-run --itemize-changes "$ROOT/" "$P/"   # must print nothing
+  sqlite3 -readonly "$P/db/$DBNAME" "PRAGMA integrity_check; SELECT COUNT(*) FROM people;"
+done
 ```
 
-Any disagreement is **HARD STOP 5**.
+**Both copies must pass, independently.** Any disagreement in either is **HARD STOP 5** —
+a verified local copy does not license an unverified external one, or the reverse.
 
 ## 6 · Clean only actual split-root configuration
 
@@ -393,7 +483,12 @@ sqlite3 -readonly "$OUT/laptop-before-erasure.sqlite3" \
 
 ## 11 · Copy to exFAT USB and verify FROM the USB
 
-USB must be exFAT (`HANDOFF.md:100`) and **not** the preservation drive from step 5.
+USB must be exFAT (`HANDOFF.md:100`). **It MAY be the same external drive that holds the
+step 5 preservation copy** — the run of 2026-09-15 used `D:` for both, and the second
+recovery path was the laptop's own `C:`, which holds a full-root preservation copy and
+`$OUT`/`$EXTRA`. What matters is the step 5 rule: two independent physical devices each
+carrying a complete recovery path. *(This read "and **not** the preservation drive from
+step 5" until 2026-09-15.)*
 
 ```bash
 powershell.exe -NoProfile -Command \
@@ -425,8 +520,16 @@ for p in "$USBDEST"/*.lorevox.zip; do
 done
 ```
 
-Copies now standing: **(1)** `$OUT` on the laptop disk · **(2)** USB · **(3)** full-root
-preservation on a separate device.
+**Before continuing, state the recovery position out loud and check it against the step 5
+rule.** What stood on 2026-09-15:
+
+| device | full-root preservation | packages |
+|---|---|---|
+| laptop `C:` | `$PRESERVE_LOCAL` | `$OUT`, `$EXTRA` |
+| external `D:` | `$PRESERVE_USB` | `$USBDEST`, `$USBEXTRA` |
+
+Two independent devices, each sufficient on its own. If losing either device would leave
+you unable to rebuild, **do not proceed to step 13.**
 
 ## 12 · Freeze and CONSCIOUSLY review the erasure list
 
@@ -516,6 +619,41 @@ curl -s 'http://127.0.0.1:8000/api/people?include_deleted=true&limit=1000' | pyt
 ```
 
 Still empty.
+
+## 14½ · Clear orphan rows that will refuse every restore
+
+**Do this before step 15.** `narrator_package.py:1392-1393` verifies references with:
+
+```python
+for table in inserted:      # only the tables this job wrote; pre-existing damage is not ours to judge
+    bad += con.execute(f'PRAGMA foreign_key_check("{table}")').fetchall()
+```
+
+The comment states the right rule and the code does not implement it. The pragma is
+**table-scoped, not row-scoped**, so any pre-existing orphan row in a table the package
+also writes fails the job — pre-existing damage judged after all. On 2026-09-15 six
+`harness-test-gate7p2-*` rows in `interview_sessions`, pointing at `people` rows that no
+longer existed, refused all three family packages. They survived the erasure precisely
+because they belonged to no narrator.
+
+A failed restore is clean: `_fail()` calls `_cleanup_files()`, every copied file is
+unlinked, and the job lands on `failed` rather than `cleanup_required`. Nothing is left
+behind. But nothing goes in either, and this repeats forever until the orphans are gone.
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+source /mnt/c/lorevox_packages/laptop-rebuild-session.env
+.venv/bin/python scripts/clear_orphan_interview_sessions.py --db "$DB"
+```
+
+Read-only. It surveys, refuses if any orphaned `person_id` is not test-harness residue,
+and refuses if `foreign_key_check` blames a row it cannot account for. Add `--apply` to
+delete; it copies the database first. **`violations: 0` is a precondition of step 15.**
+
+The gate itself is still wrong and is filed as
+`BUG-RESTORE-FK-GATE-TABLE-SCOPED-NOT-ROW-SCOPED-01`. Deleting real orphan rows is the
+correct action here regardless — they were garbage — but a root with legitimate orphaned
+data would need the gate fixed, not the data removed.
 
 ## 15 · Restore the three from USB
 

@@ -62,7 +62,7 @@ rule back. The claim that matters is the one about obligations.)*
 >
 > ---
 >
-> # NOW — **PHASE 7 IS ACCEPTED (2026-09-15).** `WO-LOREVOX-CLEAN-DATA-WORLD-01` · `8594289` · `11489e1`
+> # **PHASE 7 IS ACCEPTED (2026-09-15).** `WO-LOREVOX-CLEAN-DATA-WORLD-01` · `8594289` · `11489e1` *(This was the NOW block for part of 2026-09-15; the laptop rebuild it handed off to is now accepted and IS the NOW block below. Kept as the measured Phase 7 record — there is only ever ONE NOW block in this file.)*
 >
 > **`/mnt/c/lorevox_data` is the production root.** `.env` points at it with `DB_NAME=lorevox.sqlite3` — the first root in this project's history to carry the product's own database name. An ordinary `scripts/start_all.sh` with **no shell exports** resolves it and returns `{"people": []}`, `integrity_check ok`, 0 rows.
 >
@@ -76,7 +76,39 @@ rule back. The claim that matters is the one about obligations.)*
 >
 > **THREE OTHER ROOTS EXIST AND ARE PRESERVED, NOT DELETED.** `/mnt/c/lorevox_data_pre_phase7_20260915` (the old 343-row Lorevox install that occupied the target path — renamed from Windows, WSL could not); `/home/chris/lorevox_data` (10 rows, unbacked, on the Linux filesystem); `/mnt/c/lorevox_family` (the 3-narrator portability acceptance root). **`~/.bashrc` was exporting `DATA_DIR` twice** — the second winning and pointing at the Linux-home root, which is how an `Ada Pruitt` row landed there on 9 September without anyone choosing it. Both exports are commented out; a fresh shell now reports `<unset>` and the launchers refuse rather than inventing a root.
 >
-> ## NEXT — THE LAPTOP REBUILD (read this at the laptop before anything else)
+> ---
+>
+> # NOW — **THE LAPTOP REBUILD IS ACCEPTED (2026-09-15).** `WO-LOREVOX-PORTABLE-NARRATOR-01` · runbook and closeout in `docs/handoffs/HANDOFF_2026-09-15_LAPTOP-REBUILD-{RUNBOOK,CLOSEOUT}.md`
+>
+> **`/mnt/c/hornelore_data` now holds exactly Christopher, Kent and Janice** — restored from packages exported from that same root hours earlier, each re-exporting to a semantically equivalent package. The laptop keeps its own root and its own `DB_NAME=hornelore.sqlite3`; Phase 7 did not move it and the desktop's `/mnt/c/lorevox_data` was **not** adopted.
+>
+> | narrator | id | rows | files | round-trip |
+> |---|---|---:|---:|---|
+> | Christopher Todd Horne | `a4b2f07a` | 524 / 35 tables | 214 | **EQUIVALENT** `tables=60 rows=524 files=214` |
+> | Kent | `4aa0cc2b` | 43 / 11 | 45 | **EQUIVALENT** `tables=60 rows=43 files=45` |
+> | Janice | `93479171` | 66 / 17 | 21 | **EQUIVALENT** `tables=60 rows=66 files=21` |
+>
+> `family_root_verify.py`: `total: 3`, `--expect: 3 named, MATCHES`, all three `--expect-rows` ticked, **0 FK violations**, three `complete` restore jobs, **280 payload files** reconciling exactly. **The contract was DERIVED from the fresh export's own manifests** (`$OUT/rebuild-contract.txt`), not retyped — that the historical 524/43/66/280 matched is a useful coincidence and was not the test. 74 narrators erased, 0 retried. **Melanie Zollner was packaged before erasure** at Chris's direction (10 rows / 47 files); Del, Marvin Mann and mary were disposable and are gone.
+>
+> **TWO LATENT PRODUCT DEFECTS, both on the erase/restore path, neither reachable by any existing test.** **(1) FIXED — `db.py:5746`** carried the file's only absolute `from api.services import …` among twelve; the server runs as `code.api`, so there is no top-level `api` at runtime and the CLI worked only via `PYTHONPATH`. Hard delete returned **HTTP 500 `No module named 'api'`** and rolled back — erasure was impossible through the API and nothing had ever said so. Now relative. **(2) FILED, NOT FIXED — `BUG-RESTORE-FK-GATE-TABLE-SCOPED-NOT-ROW-SCOPED-01`.** `narrator_package.py:1392-1393` verifies references with `PRAGMA foreign_key_check("<table>")` under the comment *"pre-existing damage is not ours to judge"* — but the pragma is **table-scoped**, so it judges exactly that. Six `harness-test-gate7p2-*` orphan rows in `interview_sessions`, which had survived the erasure because they belonged to no narrator, refused all three family packages. **The failure was clean** — `_fail()` → `_cleanup_files()`, every copied file unlinked, jobs on `failed` not `cleanup_required`; correct rollback proven under a real failure. Cleared by `scripts/clear_orphan_interview_sessions.py`, **a workaround and not the fix**: a root with legitimate orphaned data needs the gate corrected, not the data deleted.
+>
+> **THE ERASURE CREATED NOTHING.** Measured by running the verifier against the pre-erasure preservation copy as well as the live root: orphaned owners **3 → 3 → 1**, FK violations **6 → 6 → 0**, dangling references **6 → 2 → 2**. Everything still reported is inherited debt and the rebuild reduced it. **What remains, recorded and deliberately not chased:** `turn_extraction_ledger.narrator_id = '4e07e36f'` owned by nobody, and `turn_extraction_ledger.turn_key` **1663**/**1665** with no parent `turns` row — survivors of the set repaired 2026-09-14, invisible to SQLite because no migration declares `REFERENCES turns`.
+>
+> **The three `failed` restore jobs STAY in the ledger** (`e3438e70`, `f8ccad86`, `bf113321`). They are true history of the blocked first attempt, and `family_root_verify.py` will flag them forever because its rule is "every restore job `complete`" with no concept of *superseded*. **Do not delete accurate history to turn a check green** — the gap is in the verifier and is a small owed follow-up.
+>
+> **PRESERVATION — do not delete yet.** Full pre-erasure root at `/mnt/c/lorevox_preservation/laptop_20260915-103548/` and `/mnt/d/Lorevox_Laptop_Preservation_20260915-103548/`; authoritative packages and the contract at `/mnt/d/Lorevox_Laptop_Fresh_20260915-105002`; pre-orphan-fix DB copy at `/mnt/c/hornelore_data/db/hornelore.sqlite3.orphanfix-20260915-113135.bak`. The desktop narrator copies also stay. Retirement is a separate, deliberate step.
+>
+> ## NEXT — THE ACTUAL WORK
+>
+> Bio Builder, family tree, relationships, dates and places, stories, photos, corrections — on the three rebuilt narrators.
+>
+> **`BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01` is live and unfixed and is in the way of exactly this** (`1c31e7b`): a Bio Builder save of a spouse or child section drops `maidenName`, `birthPlace`, `notes` and `relation` that are already stored. It is the first thing the next session meets.
+>
+> ---
+>
+> ## SUPERSEDED — THE LAPTOP REBUILD PROCEDURE, EXECUTED 2026-09-15
+>
+> *(Kept because its corrections were proven right by the run, and because the procedure is now the runbook. Do not re-execute from here — `docs/handoffs/HANDOFF_2026-09-15_LAPTOP-REBUILD-RUNBOOK.md` is the authority and carries two steps this list did not have: **step 0**, a dependency preflight that must print `PREFLIGHT CLEAN` before anything is erased — `bagit` was in fact missing from `.venv` and was caught at export, when nothing had been destroyed; the same discovery after erasure would have stranded an empty root — and **step 14½**, the orphan clearance above.)*
 >
 > **⚠ FIRST: Phase 7 changed startup, and the laptop has not seen it.** After `git pull`, the stack validates its runtime root and **refuses to start** on an ambiguous one. Do this BEFORE `start_all.sh`, or a refusal will look like a broken pull:
 >
@@ -105,7 +137,7 @@ rule back. The claim that matters is the one about obligations.)*
 > 7. **Verify exactly those three** — **ONE** `scripts/family_root_verify.py` invocation carrying **all three** `--expect` values and their `--expect-rows`, then re-export each and compare `EQUIVALENT`. Media is where a package either carries bytes or carries a reference; the family acceptance counted **280 payload files** across the three, so a materially different number is a reason to stop rather than continue into Bio Builder work on top of it. *(This read "`--expect <uuid>` for each" until 2026-09-15, which would have **failed a correct restore**: `family_root_verify.py:73` is `want, got = set(a.expect), set(ids)` — an exact set comparison — so running it once per narrator against a three-person root reports the other two as "unexpected narrator … is in this root". All three go in one call.)* *(**The 524 / 43 / 66 rows and 280 files are SANITY REFERENCES, not the acceptance contract.** They came from packages exported 2026-09-12/14; the laptop has been in use since, and step 1 deliberately exports fresh *because* those are stale. `--expect-rows` is exact equality (`family_root_verify.py:111`), so feeding the historical numbers against a fresh export that legitimately grew would fail a successful restore. **The fresh export made immediately before erasure establishes the contract** — derive it from the three manifests, never by retyping from scrollback. A fresh export that *contracts* sharply is a stop-and-investigate before anything is deleted.)*
 > 8. **Then the actual work** — Bio Builder, family tree, relationships, dates and places, stories, photos, corrections.
 >
-> **Christopher's authoritative package is `24560db21dd6`**, not `a2f360689b58`, and not anything in `C:\lorevox_two_origin\laptop\` — that directory is on the DESKTOP and holds stale copies. **`BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01` is live and unfixed**: a Bio Builder save of a spouse or child section drops `maidenName`, `birthPlace`, `notes` and `relation` that are already stored. Relevant the moment step 8 starts.
+> **Christopher's authoritative package is `24560db21dd6`**, not `a2f360689b58`, and not anything in `C:\lorevox_two_origin\laptop\` — that directory is on the DESKTOP and holds stale copies. *(**Superseded 2026-09-15 by the rebuild's own fresh export.** The authoritative Christopher package is now `Christopher_Todd_Horne_57612a182af0.lorevox.zip` in `/mnt/d/Lorevox_Laptop_Fresh_20260915-105002`, with Kent `1c28a189f792` and Janice `5303064e9060` beside it. `24560db21dd6` was exported 2026-09-14 and is a correct package of a state the laptop has moved past — it is evidence, not an input. The row counts happen to be identical; the packages are not.)* **`BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01` is live and unfixed**: a Bio Builder save of a spouse or child section drops `maidenName`, `birthPlace`, `notes` and `relation` that are already stored. Relevant the moment step 8 starts.
 >
 > **OWED, NOT BLOCKING:** `BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01` (`1c31e7b`) — a lossy questionnaire GET that an ordinary Bio Builder save turns into silent data loss; belongs to post-portability Bio Persistence work, not to this lane. **Phase 8 owns product naming**; the `HORNELORE_*` compatibility names stay until then.
 >
