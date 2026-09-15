@@ -1,12 +1,41 @@
 # WO-LOREVOX-MULTI-ORIGIN-MERGE-REMAP-01 — combining one narrator from two installations
 
-**Status: UNBLOCKED AND IN IMPLEMENTATION, 2026-09-14.** Both prerequisites are
-discharged: the laptop Christopher package is re-closed and its replacement comparison is
-complete (§3c, §3a), and the full surrogate + path closure hunt the design owed is done
-(§3d). **§3 corrected the same day** — the declaration knows all seven `turns.id`
-reference sites, and the `PRAGMA foreign_key_list` walk finds none of them rather than
-two. Acceptance (§6) is unchanged and nothing is accepted yet: synthetic fixtures with
-deliberate collisions first, real packages only after.
+**Status: BUILT AND HARDENED. NOT ON THE CRITICAL PATH FOR THE HORNE FAMILY, 2026-09-14.**
+
+**The three narrators this work order was opened for no longer need it.** Chris decided
+2026-09-14 that the **laptop** packages are the authoritative portable versions of
+Christopher, Kent and Janice; the desktop copies are superseded development copies and are
+not merge inputs. All three came from ONE laptop database, so their installation-local
+integer surrogates cannot collide — the *same-origin packages coexist* case of
+`WO-LOREVOX-PORTABLE-NARRATOR-01` §34 — and all three restored sequentially into one fresh
+installation through the ordinary path and re-exported `EQUIVALENT`. That acceptance is
+recorded in `HANDOFF.md` and checklist row 0.
+
+**So §6's acceptance items 4 and 6 — the real-package rehearsal and family acceptance — are
+withdrawn as gates for these three narrators.** The synthetic acceptance (items 1–3, 5)
+stands and is met. **The desktop-vs-laptop comparisons and the Christopher adjudication
+packet in `.runtime/` are historical engineering evidence; do not reconcile those pairs
+further.**
+
+**What is built and proven:** the read-only source planner, the read-only target-binding
+stage, the executor with migration `0057`'s own merge ledger, `recover_merge_jobs`, and the
+semantic reference validator. The real Christopher rehearsal ran and **REFUSED as designed**
+— 5 conflicts, zero target mutation, both packages byte-identical afterwards — which is the
+V1 acceptance result rather than a failure.
+
+**It paid for itself on the way.** The real rehearsal exposed two production defects no
+synthetic fixture had reached: a same-logical-record physical-collision misclassification
+that would have put two `people` rows in one root, and a shared installation-dependency
+helper that silently required `sqlite3.Row` while advertising a plain connection — a defect
+on the **restore** path, which the family acceptance then depended on. Both fixed with
+regression coverage.
+
+**When it is the right tool:** genuinely combining two independently developed histories of
+one narrator, or importing into an installation where installation-local ids actually do
+collide. Both prerequisites were discharged before the pause — §3c, §3a and the full
+surrogate + path closure hunt in §3d — and **§3 was corrected the same day**: the
+declaration knows all seven `turns.id` reference sites, and the `PRAGMA foreign_key_list`
+walk finds none of them rather than two.
 Owed since the Portable Narrator Phase 4 finding (`WO-LOREVOX-PORTABLE-NARRATOR-01` §34)
 and blocking the Phase 7 one-root cutover. Drafted from the two-origin comparison
 evidence, not from expectation — the measured numbers live in
