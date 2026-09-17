@@ -1797,7 +1797,20 @@ capture, so it needs its own preservation and acceptance pass rather than being 
 other work. **Neither blocks the other, and neither blocks the product work that follows.**
 
 **The actual next work is not in this WO.** It is Bio Builder, family tree, relationships,
-dates and places, stories, photos and corrections on the three rebuilt narrators — with
-`BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01` (`1c31e7b`) live and directly in its way: a save
-of a spouse or child section drops `maidenName`, `birthPlace`, `notes` and `relation` that
-are already stored.
+dates and places, stories, photos and corrections on the three rebuilt narrators — **and it
+is BLOCKED.** `BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01` destroyed ten populated values from
+Janice's parents on 2026-09-15, including several hundred words of hand-typed family history,
+through a single ordinary Bio Builder save on this laptop at its default flags. It is now
+scoped as a **data-integrity flaw in the questionnaire persistence contract** —
+`upsert_questionnaire` is a blind whole-document replace with seven callers, five still open,
+one of which replaces a live narrator from a stale template. Evidence and the intended
+contract: that spec's §A–§C. **No questionnaire entry until the persistence boundary is
+repaired.**
+
+*(This sentence said "directly in its way" on 2026-09-15, was corrected hours later to "fires
+only under `READ=1`; the laptop is at the defaults, so entry there is not blocked", and the
+data was lost the same afternoon. **The correction was right about the read path and wrong
+about the write path**, which builds its document from the rendered form rather than from the
+projection. Recorded in full because the reasoning failed in a specific, repeatable way:
+a flag was checked, a conclusion was drawn about a whole subsystem, and the other half of the
+round trip was never opened.)*

@@ -102,7 +102,15 @@ rule back. The claim that matters is the one about obligations.)*
 >
 > Bio Builder, family tree, relationships, dates and places, stories, photos, corrections — on the three rebuilt narrators.
 >
-> **`BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01` is live and unfixed and is in the way of exactly this** (`1c31e7b`): a Bio Builder save of a spouse or child section drops `maidenName`, `birthPlace`, `notes` and `relation` that are already stored. It is the first thing the next session meets.
+> ## ⛔ DO NOT ENTER QUESTIONNAIRE DATA — `BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01` HAS DESTROYED REAL FAMILY HISTORY
+>
+> **2026-09-15 13:18: one Bio Builder save deleted ten populated values from Janice `93479171`** — birth dates, birthplaces, `deceased`, and several hundred hand-typed words of `notableLifeEvents` and `notes` on both her parents. Leaf diff vs a snapshot taken an hour earlier: **LOST 10, CHANGED 0, ADDED 0.** The save added nothing. Recoverable only because that snapshot existed; there was no other copy at full length. **Not yet restored.**
+>
+> **The bug is no longer a UI defect. It is a data-integrity flaw in the questionnaire persistence contract.** `db.upsert_questionnaire` (`db.py:6832`) is a blind whole-document replace keyed on `person_id` — no merge, no revision check, no history — and **seven callers** reach it. Two are repaired; five are open, including **a "JSON Import / Update" control that replaces a live narrator with a stale May template** (all three Horne narrators match their own template by name) and **a conversational save that writes `{}`-plus-one-field when a 3-second read times out.** Full audit, evidence and the intended contract: `docs/wo/BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01_Spec.md` §A–§C.
+>
+> *(This block twice told the next session the wrong thing. It first said the bug was "directly in the way"; then, on 2026-09-15, that it was "**NOT** in the way on the laptop" because the projection runs only under `HORNELORE_QUESTIONNAIRE_BIO_FACTS_READ=1` and the laptop is at `READ=0`. **That second claim was correct about the read path and wrong about the outcome** — it never asked how the WRITE path builds its document, and the answer is: from the rendered form, which in default minimal intake declares six of the eleven stored `parents` fields. The data was lost three hours after that line was written.)*
+>
+> Separately and still true: at `WRITE=0` entered data lands in the blob only, so **Lori will not see it in conversation** until `BIO_FACTS_WRITE=1` is turned on — a separate rollout decision with its own gate (`.env.example:461-464`), and not to be taken while the write path can still delete.
 >
 > ---
 >
@@ -116,9 +124,12 @@ rule back. The claim that matters is the one about obligations.)*
 > cd /mnt/c/Users/chris/hornelore
 > grep -nE '^[[:space:]]*export[[:space:]]+(DATA_DIR|DB_NAME)=' ~/.bashrc || echo "PASS: profile sets no root"
 > grep -nE '^(DATA_DIR|DB_NAME|DB_PATH|UPLOADS_DIR|MEDIA_DIR)=' .env
+> set -a; . ./.env; set +a          # REQUIRED — see below
 > PYTHONPATH=server/code .venv/bin/python -c \
 > "from api import runtime_root as r; import json; print(json.dumps(r.describe_root(), indent=2))"
 > ```
+>
+> **⚠ The `set -a; . ./.env; set +a` line is not optional, and this block was wrong without it from 2026-09-15 until it was added the same day.** `runtime_root.py` reads `os.environ` and **never loads `.env`** — `main.py` does that before calling it. Phase 7 deliberately commented out the `~/.bashrc` exports, so a bare shell has no `DATA_DIR`, and the check reports `DATA_DIR is not set` with `db_name: lorevox.sqlite3` (`runtime_root.py:72`, `DEFAULT_DB_NAME`) **on a perfectly configured laptop**. Run without the `.env` load it is guaranteed to report a problem, which is the worst possible behaviour for a pre-flight check: it invites someone to "fix" a root that is already correct. **It describes the shell you run it in, never the running stack.** To ask what the STACK actually resolved, compare `/api/people` against the database at `DATA_DIR/db/DB_NAME` — if they agree, that is the root being served.
 >
 > Want `problems: []`. What a refusal means: **`HORNELORE_DATA_DIR` disagrees with `DATA_DIR`** — unset one; **`DB_PATH` is set but unread** — remove it from `.env`, the app composes `DATA_DIR/db/DB_NAME`; **two databases in the root** — move the one that is not the installation OUT of `db/` (a zero-byte stray is ignored and will not trip this); **`DB_NAME` selects a file that is not there** — set it to the database that exists rather than letting a second empty one be created beside it. The desktop hit three of these; assume the laptop has its own.
 >
