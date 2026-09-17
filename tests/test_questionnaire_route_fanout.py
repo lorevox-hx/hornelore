@@ -12,6 +12,33 @@ Validates that the env-flag matrix behaves as documented in .env.example:
 
 We exercise the put_questionnaire_route function directly with a
 mocked payload + patched downstream services.
+
+⚠ WHAT THIS FILE CANNOT SEE, AND WHY THAT MATTERED (2026-09-17)
+───────────────────────────────────────────────────────────────
+Every test here MOCKS the legacy writer. It can therefore prove
+
+    "the route called the legacy writer"
+
+and it can never prove
+
+    "the writer preserved the narrator's existing data".
+
+That gap is not hypothetical. On 2026-09-15 an ordinary Bio Builder save
+deleted ten populated values from a real narrator's parents — birth dates,
+birthplaces, and several hundred words of hand-typed family history — and
+this suite stayed green throughout, because the destruction happened
+inside the seam it replaces with a MagicMock.
+
+These seven tests are still correct and still worth having: flag
+composition IS what they are for. But data integrity is tested in
+`tests/test_questionnaire_persistence_integrity.py`, which writes to a
+real temporary SQLite file and reads the result back out of SQLite rather
+than through the API. Do not add integrity assertions here — a test that
+checks the API against the API cannot see this class of defect at all.
+
+The patch target changed from `upsert_questionnaire` to
+`_qp.merge_whole_document` when the route stopped calling the blind
+whole-document replace (WO-QUESTIONNAIRE-PERSISTENCE-INTEGRITY-01).
 """
 from __future__ import annotations
 
@@ -108,7 +135,7 @@ class FanoutFlagOffLegacyOn(unittest.TestCase):
         with patch.dict(os.environ, {
             "HORNELORE_QUESTIONNAIRE_BIO_FACTS_WRITE": "0",
             "HORNELORE_QUESTIONNAIRE_LEGACY_BLOB_WRITE": "1",
-        }), patch("api.routers.questionnaire.upsert_questionnaire", return_value={
+        }), patch("api.routers.questionnaire._qp.merge_whole_document", return_value={
             "person_id": "narrator-test",
             "questionnaire": _DUMMY_BLOB,
             "source": "ui_save", "version": 1, "updated_at": "x",
@@ -136,7 +163,7 @@ class FanoutOnLegacyOn(unittest.TestCase):
         with patch.dict(os.environ, {
             "HORNELORE_QUESTIONNAIRE_BIO_FACTS_WRITE": "1",
             "HORNELORE_QUESTIONNAIRE_LEGACY_BLOB_WRITE": "1",
-        }), patch("api.routers.questionnaire.upsert_questionnaire", return_value={
+        }), patch("api.routers.questionnaire._qp.merge_whole_document", return_value={
             "person_id": "narrator-test",
             "questionnaire": _DUMMY_BLOB,
             "source": "ui_save", "version": 1, "updated_at": "x",
@@ -163,7 +190,7 @@ class FanoutOnLegacyOff(unittest.TestCase):
         with patch.dict(os.environ, {
             "HORNELORE_QUESTIONNAIRE_BIO_FACTS_WRITE": "1",
             "HORNELORE_QUESTIONNAIRE_LEGACY_BLOB_WRITE": "0",
-        }), patch("api.routers.questionnaire.upsert_questionnaire") as mock_upsert, patch(
+        }), patch("api.routers.questionnaire._qp.merge_whole_document") as mock_upsert, patch(
             "api.services.bio_questionnaire_writer.apply_questionnaire_writes",
             return_value={
                 "bio_facts_written": 5, "bio_facts_errors": [],
@@ -188,7 +215,7 @@ class FanoutFailureFallback(unittest.TestCase):
         with patch.dict(os.environ, {
             "HORNELORE_QUESTIONNAIRE_BIO_FACTS_WRITE": "1",
             "HORNELORE_QUESTIONNAIRE_LEGACY_BLOB_WRITE": "1",
-        }), patch("api.routers.questionnaire.upsert_questionnaire", return_value={
+        }), patch("api.routers.questionnaire._qp.merge_whole_document", return_value={
             "person_id": "narrator-test",
             "questionnaire": _DUMMY_BLOB,
             "source": "ui_save", "version": 1, "updated_at": "x",
@@ -219,7 +246,7 @@ class BioFactsErrorsPropagated(unittest.TestCase):
         with patch.dict(os.environ, {
             "HORNELORE_QUESTIONNAIRE_BIO_FACTS_WRITE": "1",
             "HORNELORE_QUESTIONNAIRE_LEGACY_BLOB_WRITE": "1",
-        }), patch("api.routers.questionnaire.upsert_questionnaire", return_value={
+        }), patch("api.routers.questionnaire._qp.merge_whole_document", return_value={
             "person_id": "n", "questionnaire": _DUMMY_BLOB,
             "source": "ui_save", "version": 1, "updated_at": "x",
         }), patch(

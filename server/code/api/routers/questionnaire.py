@@ -8,7 +8,11 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from ..db import get_questionnaire, upsert_questionnaire
+from ..db import get_questionnaire
+# db.upsert_questionnaire is DELIBERATELY NOT IMPORTED HERE. It is the blind
+# whole-document replace this route used to call, it now refuses by default,
+# and an unused import is how it would find its way back into a future edit.
+from ..services import questionnaire_persistence as _qp
 
 router = APIRouter(prefix="/api/bio-builder", tags=["questionnaire"])
 
@@ -25,6 +29,10 @@ class QuestionnaireGetResponse(BaseModel):
     meta: Optional[Dict[str, Any]] = Field(default=None, alias="_meta")
     source: str = "unknown"
     version: int = 1
+    # The write revision the caller should echo back as `base_revision`.
+    # 0 when the narrator has no stored questionnaire, or when the response
+    # came from the bio_facts projection rather than the stored row.
+    revision: int = 0
     updated_at: str
 
     class Config:
@@ -35,10 +43,27 @@ class QuestionnairePutRequest(BaseModel):
     person_id: str
     questionnaire: Dict[str, Any] = Field(default_factory=dict)
     source: str = "ui_save"
+    # SCHEMA version. NOT a revision counter — every client hard-codes this
+    # to 1 / DRAFT_SCHEMA_VERSION, so a stale client sends exactly what a
+    # fresh one sends and it can never carry concurrency. Optimistic
+    # concurrency is `base_revision` / `base_fields` below. (Confusingly,
+    # on interview_projections `version` IS the revision counter. Same name,
+    # opposite meanings, adjacent tables — see 0058.)
     version: int = 1
     # Optional operator identifier for source provenance on the new
     # fan-out writes; falls through to "" when the FE doesn't set it.
     operator_id: str = ""
+
+    # ── optimistic concurrency, both optional during rollout ──────────
+    # `base_revision` is what the caller hydrated. `base_fields` is the
+    # stronger claim: the value it hydrated FOR EACH PATH it is writing. A
+    # global revision proves only that SOMETHING moved, not what, so a
+    # caller that can show its working gets per-path checking and a
+    # disjoint edit rebases on the server in one round trip. A caller that
+    # sends neither is trusted, exactly as today — the rollout does not
+    # break clients that have not been converted yet.
+    base_revision: Optional[int] = None
+    base_fields: Optional[Dict[str, Any]] = None
 
 
 class QuestionnairePutResponse(BaseModel):
@@ -92,6 +117,7 @@ def get_questionnaire_route(
         meta=row.get("_meta"),
         source=row.get("source", "unknown"),
         version=int(row.get("version", 1)),
+        revision=int(row.get("revision") or 0),
         updated_at=row.get("updated_at") or datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
     )
 
@@ -166,15 +192,65 @@ def put_questionnaire_route(payload: QuestionnairePutRequest) -> QuestionnairePu
 
     # Legacy blob write — gated separately so it can retire cleanly
     # post-Phase-7.5. Default ON during rollout for rollback safety.
+    #
+    # WO-QUESTIONNAIRE-PERSISTENCE-INTEGRITY-01 (2026-09-17): this used to
+    # call db.upsert_questionnaire, a blind whole-document replace. It now
+    # goes through questionnaire_persistence.merge_whole_document, which
+    # flattens the incoming document to its populated leaves and applies
+    # them as mutations with NO removals.
+    #
+    # WHAT THAT CHANGES, in one sentence: a key the caller omitted is
+    # untouched instead of deleted. Every existing client keeps working and
+    # none of them can silently destroy a field it does not render — which
+    # is how BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01 deleted ten populated
+    # values, including several hundred words of hand-typed family history,
+    # from a real narrator on 2026-09-15.
+    #
+    # WHAT IT DELIBERATELY BREAKS: removal through this route. A client that
+    # genuinely needs to delete must send `removals`, or call the explicit
+    # replace/reset operations. Until each client is converted, a deletion
+    # will appear not to take effect. That is a visible, recoverable failure
+    # and it is the correct trade against an invisible destructive one.
     legacy_blob_written = False
     saved: Dict[str, Any]
     if _legacy_blob_write_enabled():
-        saved = upsert_questionnaire(
-            person_id=payload.person_id,
-            questionnaire=payload.questionnaire,
-            source=payload.source,
-            version=payload.version,
-        )
+        try:
+            merged = _qp.merge_whole_document(
+                payload.person_id,
+                payload.questionnaire or {},
+                source=payload.source,
+                base_revision=payload.base_revision,
+                base_fields=payload.base_fields,
+                schema_version=payload.version,
+            )
+        except _qp.QuestionnaireConflict as conflict:
+            # A stale client. Refuse rather than rebase: rebasing is safe
+            # when the server touched different paths and silently
+            # destructive when it touched the same one, so the conflict is
+            # surfaced and the caller must not retry blind.
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "stale_questionnaire",
+                    "conflicting_paths": sorted(set(conflict.paths)),
+                    "current_revision": conflict.revision,
+                    "detail": (
+                        "The stored value of at least one path you are writing "
+                        "is not the value you hydrated. Re-read the "
+                        "questionnaire and reapply your edit; do not retry "
+                        "this write unchanged."
+                    ),
+                },
+            )
+        saved = {
+            "person_id":     payload.person_id,
+            "questionnaire": merged["questionnaire"],
+            "source":        payload.source,
+            "version":       payload.version,
+            "updated_at":    merged.get("updated_at")
+                             or datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+        }
+        fanout_summary["revision"] = merged.get("revision")
         legacy_blob_written = True
     else:
         # Canonical-only mode: skip the legacy blob write entirely.

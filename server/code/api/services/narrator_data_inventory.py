@@ -212,6 +212,19 @@ DB_LANES: Tuple[DbLane, ...] = (
 
     # ── structured memory ─────────────────────────────────────────────
     DbLane("bio_builder_questionnaires", _D("person_id"), CLASS_DERIVED, "yes", True),
+    # 0058 — questionnaire revision history.
+    # ERASABLE: erasing a narrator must not leave their biography behind in
+    # a history table, and the prior contents of that biography are exactly
+    # what this holds. NOT PORTABLE: the package already carries the CURRENT
+    # questionnaire, and a narrator restored onto another installation
+    # starts a fresh history there — shipping one installation's recovery
+    # bookkeeping to another would claim a provenance the receiving root
+    # never had. CLASS_INSTALLATION is the class for "owned, must not
+    # travel"; the lane is still Direct-owned so erasure finds it.
+    DbLane("bio_builder_questionnaire_revisions", _D("person_id"),
+           CLASS_INSTALLATION, "no", True,
+           note="local recovery bookkeeping; see 0058 and "
+                "BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01"),
     DbLane("bio_facts", _D("narrator_id"), CLASS_DERIVED, "yes", True),
     DbLane("facts", _D("person_id"), CLASS_DERIVED, "yes", True),
     DbLane("family_truth_notes", _D("person_id"), CLASS_DERIVED, "yes", True),

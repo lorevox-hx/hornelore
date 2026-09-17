@@ -377,3 +377,252 @@ Supersedes the four-step acceptance above, which tested one path.
 6. Read the database directly, never the API. *A test that checks the API
    against the API cannot see this class of defect at all* — which is why it
    survived until a direct SQL read was taken.
+
+---
+
+# §D · The contract already exists in this codebase. Port it; do not design it.
+
+**Added 2026-09-17 after reading `interview_projections`.** §C describes a
+contract as though it needed inventing. It does not. Hornelore solved this exact
+problem once already, in a different lane, and wrote down its reasoning. The
+questionnaire lane should adopt that vocabulary and those semantics rather than
+grow a second, differently-shaped model for the same job.
+
+## D.1 · `merge_projection_fields` — the server side, already built
+
+`server/code/api/db.py:6914-7060`, from `WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01`
+commit 1. Its own docstring states the problem this bug spec exists for:
+
+> **WHY A WHOLE-DOCUMENT PUT COULD NOT BE MADE SAFE BY GUARDING IT.** The
+> browser envelope is not a superset of the server one. The server writes keys
+> the browser has never seen — `projection_writer.apply_correction` rewrites
+> `fields` mid-turn. Replacing the document destroys those keys even when the
+> replacement is fresh, non-empty and authorised. **Only a per-field write can
+> leave a key the writer does not know about intact.**
+
+Signature:
+
+```python
+merge_projection_fields(person_id, mutations=None, removals=None,
+                        source=..., base_version=None, base_fields=None,
+                        pending_suggestions=None, extra_keys=None)
+```
+
+| requirement §C asks for | how the projection lane already meets it |
+|---|---|
+| mutation envelope, absence = untouched | `mutations`; *"`pending_suggestions` replaces that array when supplied and leaves it untouched when omitted — the same 'absent means leave alone' rule the field mutations follow"* |
+| deletion explicit, never `null`-as-delete | `removals: List[str]`, a separate parameter |
+| stale writes refused | returns `conflict: True` + `conflicting_paths`, rolls back, **changes nothing**, and the caller *"must NOT retry"* |
+| safe compare-and-write | `BEGIN IMMEDIATE` **before** the SELECT, with the reasoning recorded: without it *"two concurrent requests could both pass the per-path comparison before either wrote"* |
+| server-authored keys survive | *"Any server-authored key not named above is carried through untouched — that is the whole point of this function"* |
+| "empty" defined rather than inferred | `projection_envelope_is_empty()` (`db.py:6898`), which excludes `syncLog` because *"a payload that carries nothing but its own audit trail is still empty"* |
+
+**Concurrency is PER PATH, and that was a deliberate rejection of the simpler
+design.** From the same docstring, recording a supervisor review of 2026-08-17:
+
+> **WHY A GLOBAL VERSION IS NOT ENOUGH EITHER.** `base_version` proves only that
+> SOMETHING changed, not WHAT. Rebasing a dirty path onto a newer record and
+> retrying is safe when the server touched *different* paths and silently
+> destructive when it touched the *same* one — the conflict is delayed, not
+> resolved.
+
+And, for a caller that cannot show its working:
+
+> `base_fields=None` means the caller cannot demonstrate what it was editing
+> from. A version mismatch is then treated as contesting EVERY path, because
+> **unprovable is not the same as safe.**
+
+## D.2 · `hydrated` — the browser side, already built
+
+`ui/js/projection-sync.js`. The sync state carries `hydrated`, `baseVersion`,
+`dirty`, a per-path `base` map, and a held `conflicts` list. The comment on
+`hydrated` describes the questionnaire lane's defect precisely:
+
+> **WRITES ARE BLOCKED WHILE false**, which is what stops a localStorage draft
+> silently repopulating a server that merely failed to answer. A confirmed-empty
+> server is `hydrated=true` and is allowed to stay empty.
+
+That sentence draws the distinction §D.3 shows the questionnaire lane does not
+make: **a server that answered "empty" is not the same as a server that did not
+answer.** On `dirty`: *"Only these are sent — the write is field-level, so
+server-authored keys we have never seen survive it."*
+
+## D.3 · FOURTH MECHANISM — localStorage can become authority
+
+Distinct from §A (a narrower form replacing a wider record) and §B (a primitive
+that permits replacement). This one needs no bug in either: it is the ordinary
+load path.
+
+`_restoreQuestionnaire(pid)` (`bio-builder-core.js:293-331`) calls
+`_restoreQuestionnaireFromBackend(pid)` **fire-and-forget, not awaited**, then
+synchronously reads `localStorage` and returns it. `bb.questionnaire` is
+therefore the local draft for the whole in-flight window, and three paths leave
+it there permanently:
+
+1. **The fetch fails.** `.catch` (`:405-407`) logs and does nothing else. The
+   local copy remains in memory; the next save PUTs it over the database.
+2. **The server answers "empty".** The guard at `:377` is
+   `Object.keys(q).length > 0`, so an empty response is ignored and the local
+   draft survives. The comment calls this *"backend authority rule."* It is the
+   inverse: **local wins whenever the server says empty** — exactly the case
+   `projection-sync.js` singles out as needing the opposite treatment.
+3. **A PUT fails.** `_persistDrafts` (`:145-155`) fires the PUT with `.catch()`
+   and then writes `localStorage` **unconditionally**. A failed write leaves
+   content on disk the database never received, which becomes "truth" on the
+   next load.
+
+**It survives a full database rebuild.** The key is
+`lorevox_qq_draft_<person_id>` and narrator ids are preserved verbatim through
+export and restore (§17's identity guarantee). The laptop's database was erased
+and rebuilt on 2026-09-15; any draft in that browser profile predates the
+rebuild and would still hydrate first.
+
+**Operational consequence, before any restore:** capture the drafts, restore the
+database, clear the stale drafts, and only then open the UI. Restoring first and
+opening the Bio Builder can put the damaged version straight back.
+
+**The rule this establishes, and it is absolute:**
+
+> **localStorage is a draft and a cache. It is never authority.** It may recover
+> unsaved work. It may never become narrator truth because the authoritative
+> server failed to answer.
+
+## D.4 · The `version` trap
+
+| table | what `version` means |
+|---|---|
+| `interview_projections` | **the revision counter** — `next_version = stored_version + 1` |
+| `bio_builder_questionnaires` | **the schema version** — every client hard-codes `1` or `DRAFT_SCHEMA_VERSION` |
+
+Same column name, opposite meanings, adjacent tables. Porting the projection
+code without renaming would produce a concurrency check that **looks correct and
+verifies nothing**, because a stale client sends the same value a fresh one
+does. The questionnaire's schema version must be renamed or separated before any
+revision semantics are attached to that word.
+
+## D.5 · What the projection lane does NOT have
+
+**History.** No archive table, no prior-revision recovery. Per-path concurrency
+prevents a bad write; it cannot undo one. That is the one layer genuinely new to
+this work, it is the reason Janice's loss was recoverable only by luck, and it
+should be applied to **both** lanes rather than only the questionnaire.
+
+## D.6 · Recommendations withdrawn
+
+- **Mine (§C, earlier draft):** "refuse a write that drops more than a small
+  number of populated leaves." A threshold cannot separate a legitimate
+  forty-field edit from one deleted `notableLifeEvents`. Withdrawn in favour of
+  the invariant.
+- **The independent review's, withdrawn by its own author 2026-09-17:** a new
+  single integer `revision` as the primary concurrency mechanism, and a fresh
+  bespoke mutation envelope. Both are superseded by D.1 — this codebase already
+  chose `base_version` + `base_fields` *and recorded why the simpler design is
+  insufficient*. A second envelope shape for the same job is how one system
+  acquires two mental models.
+
+## D.7 · The boundary with Lori's read path — one flag connects them
+
+Recorded here because the two lanes interlock at exactly one place, and the
+persistence work gates the other.
+
+**`bio_facts` is empty for all three family narrators, and always has been.**
+Measured 2026-09-17 against the live root and the pre-erasure preservation copy:
+Janice, Kent and Christopher each have **0 rows** in both. The 74-narrator
+pre-erasure database held **495** rows, overwhelmingly `operator_entered`, all
+belonging to development and test narrators. **Nothing was lost in the rebuild** —
+`bio_facts` is properly declared portable (`narrator_data_inventory.py:215`,
+`CLASS_DERIVED`); it was simply never populated for the family.
+
+`profiles.profile_json` for all three carries exactly `basics`, `kinship`,
+`pets`. The questionnaire writer's `profile_patch` has never run for them.
+
+So everything Hornelore holds about these three lives in the
+`bio_builder_questionnaires` blob and in `graph_persons` — **not in the layer a
+truth/authority model would read.**
+
+The bridge is `HORNELORE_QUESTIONNAIRE_BIO_FACTS_WRITE`. At `0` — today's
+setting — questionnaire content never reaches `bio_facts` or `profile_json`.
+Turning it on is what makes operator-entered biography available to a canonical
+read path.
+
+> **HARD INTERLOCK: `BIO_FACTS_WRITE` must not be set to 1 while the write path
+> can still delete.** The fan-out would propagate a reduced document into the
+> truth layer as well as the blob, converting a recoverable single-store loss
+> into a multi-store one. The persistence repair is a precondition of the
+> read-path work, not a parallel track.
+
+Note also that **`bio_questionnaire_view` disqualifies itself as a source for
+Lori**: it builds nine sections and silently omits grandparents, marriage,
+familyTraditions, pets, technology, earlyMemories, laterYears, hobbies and
+additionalNotes. It is a UI projection, and a lossy one.
+
+---
+
+# §E · What the 2026-09-17 port did, and what is still exposed
+
+**Janice is restored.** Ten values back, verified by reading SQLite directly:
+9,114 bytes, 16 sections, `integrity_check ok`. The damaged row is preserved in
+`lorevox_packages/safety-capture-20260917-140942/` and in
+`hornelore.sqlite3.pre-qq-restore-20260917-142517.bak`. Kent and Christopher were
+captured at the same time; they had never been snapshotted before.
+
+**The browser held the damaged copy independently of the database.** A
+7,046-byte `lorevox_qq_draft_93479171…` at origin `http://localhost:8082`, leaf
+sets identical to the damaged row, missing the same ten values. Had the database
+been restored and the UI opened, it would have gone straight back. Captured to
+`safety-capture-.../browser_localstorage_localhost8082.json` and cleared. This is
+§D.3 demonstrated rather than argued.
+
+*(Origin matters: `127.0.0.1:8082` and `localhost:8082` are separate stores. The
+first capture read the wrong one and showed no drafts at all.)*
+
+## Landed
+
+| | |
+|---|---|
+| `0058_questionnaire_revisions.sql` | `revision` column (NOT `version` — §D.4) and the history table, with `changed_paths` / `removed_paths` / `previous_values` so *"which write removed `parents[0].notableLifeEvents`?"* is a query |
+| `services/questionnaire_persistence.py` | `merge_questionnaire`, `merge_whole_document`, `replace_questionnaire`, `reset_questionnaire`, `read_for_edit` — the `merge_projection_fields` contract, per-path concurrency, `BEGIN IMMEDIATE`, archive inside the same transaction |
+| `routers/questionnaire.py` | PUT routed through `merge_whole_document`; conflict → **409** with `conflicting_paths`; `base_revision`/`base_fields` accepted and optional; `revision` returned on GET |
+| `db.upsert_questionnaire` | **refused by default.** Raises unless `allow_destructive_replace=True`. The door is shut, not labelled |
+| `narrator_data_inventory` | the history lane declared — erasable, not portable |
+| `test_questionnaire_persistence_integrity.py` | 16 tests, real temporary SQLite, read back through SQLite |
+| `test_questionnaire_route_fanout.py` | patch target moved; docstring now states what it cannot see and why that mattered |
+
+**The key property, in one line:** `merge_whole_document` flattens an incoming
+document to its populated leaves and applies them as mutations with **no
+removals**, so a key the caller omitted is untouched rather than deleted — which
+makes every existing whole-document PUT non-destructive **with no client change
+at all**.
+
+The regression test is the real shape: a six-field minimal-intake `parents` form
+saved over an eleven-field stored record, asserting all ten values survive.
+
+## Still exposed — not fixed by this port
+
+1. **Positional array identity.** `parents[0].x` is by position. Insert, remove
+   or reorder and indices shift. Needs stable per-entry ids
+   (`parents/<entry-id>/x`) plus a data migration, deliberately not bundled with
+   the loss fix. Recorded in the service docstring.
+2. **The client half.** `_getQuestionnaireBlob` still turns a failure into `{}`;
+   `_restoreQuestionnaire` still hydrates localStorage synchronously ahead of the
+   server; `_persistDrafts` still writes localStorage after a fire-and-forget PUT.
+   The server can no longer be *destroyed* by these, but the browser can still
+   show and submit a stale view. Needs the `hydrated` state machine and drafts
+   stored as `{base_revision, mutations, removals}` rather than as a replacement
+   document.
+3. **The template import** still replaces a live narrator from a stale template,
+   and writes `/api/person/{id}/profile` wholesale first. **Neutralise before the
+   UI is opened on any of the three.**
+4. **Resets** still PUT `{}` through the ordinary route rather than calling
+   `reset_questionnaire`.
+5. **The adversarial matrix** — the acceptance this bug actually deserves: one
+   rich synthetic narrator attacked through every writer (stale draft, timeout,
+   confirmed-empty, concurrent same-path and different-path, template import,
+   `_saveBBAnswer`, identity rescue, narrator switch, explicit delete, explicit
+   reset), reading SQLite after each, then mutation-testing the guards by
+   reintroducing whole-document assignment, dropping `BEGIN IMMEDIATE`, treating
+   failed reads as empty, and ignoring `base_fields`. Every mutation must break
+   the suite.
+
+**`HORNELORE_QUESTIONNAIRE_BIO_FACTS_WRITE` stays at 0** until at least 2 and 3
+are closed (§D.7).

@@ -6716,6 +6716,14 @@ def _ensure_phase_g_tables(con: sqlite3.Connection, cur: sqlite3.Cursor) -> None
             person_id TEXT PRIMARY KEY,
             questionnaire_json TEXT NOT NULL DEFAULT '{}',
             source TEXT NOT NULL DEFAULT 'unknown',
+            -- SCHEMA version, NOT a write revision: every client hard-codes
+            -- this to 1 / DRAFT_SCHEMA_VERSION. Optimistic concurrency uses
+            -- the `revision` column, which 0058 adds by ALTER TABLE and
+            -- which is DELIBERATELY ABSENT here — the same division 0006
+            -- uses for story_candidates.language. Adding it to this block
+            -- as well would make 0058's ALTER fail with "duplicate column
+            -- name" on every fresh root, since the runner executes after
+            -- this legacy block.
             version INTEGER NOT NULL DEFAULT 1,
             updated_at TEXT NOT NULL,
             FOREIGN KEY(person_id) REFERENCES people(id) ON DELETE CASCADE
@@ -6806,7 +6814,7 @@ def get_questionnaire(person_id: str) -> Dict[str, Any]:
     con = _connect()
     try:
         row = con.execute(
-            "SELECT questionnaire_json, source, version, updated_at "
+            "SELECT questionnaire_json, source, version, revision, updated_at "
             "FROM bio_builder_questionnaires WHERE person_id = ?",
             (person_id,),
         ).fetchone()
@@ -6816,6 +6824,7 @@ def get_questionnaire(person_id: str) -> Dict[str, Any]:
                 "questionnaire": {},
                 "source": "empty",
                 "version": 0,
+                "revision": 0,
                 "updated_at": "",
             }
         return {
@@ -6823,6 +6832,9 @@ def get_questionnaire(person_id: str) -> Dict[str, Any]:
             "questionnaire": json.loads(row["questionnaire_json"] or "{}"),
             "source": row["source"],
             "version": row["version"],
+            # 0058. The write revision, for optimistic concurrency on PUT.
+            # Distinct from `version`, which is the SCHEMA version here.
+            "revision": row["revision"] if "revision" in row.keys() else 0,
             "updated_at": row["updated_at"],
         }
     finally:
@@ -6834,8 +6846,45 @@ def upsert_questionnaire(
     questionnaire: Dict[str, Any],
     source: str = "ui",
     version: int = 1,
+    *,
+    allow_destructive_replace: bool = False,
 ) -> Dict[str, Any]:
-    """Save canonical questionnaire state to backend DB."""
+    """DEPRECATED AND REFUSED BY DEFAULT — blind whole-document replace.
+
+    ⛔ DO NOT CALL THIS FROM NEW CODE. Use
+    `services.questionnaire_persistence`:
+
+        merge_questionnaire()      ordinary update; cannot delete
+        merge_whole_document()     a whole document, applied as mutations
+        replace_questionnaire()    explicit replacement, archives first
+        reset_questionnaire()      explicit emptying, archives first
+
+    WHY IT IS REFUSED RATHER THAN MERELY DOCUMENTED. This function means
+    "replace everything we know about this narrator with whatever JSON the
+    caller happens to hold". Seven callers used it believing it meant "save
+    the change I just made", and on 2026-09-15 one ordinary Bio Builder
+    save therefore deleted ten populated values from a real narrator's
+    parents, including several hundred words of hand-typed family history.
+    A comment saying "be careful" would not have prevented that, and would
+    not prevent the next feature from reaching for the convenient function.
+    So the door is shut rather than labelled.
+
+    `allow_destructive_replace=True` exists for disaster recovery and for
+    tests that are deliberately exercising the old behaviour. It writes NO
+    history and performs NO concurrency check, so anything that is not a
+    one-off recovery should be using `replace_questionnaire` instead, which
+    does both.
+    """
+    if not allow_destructive_replace:
+        raise RuntimeError(
+            "db.upsert_questionnaire is a blind whole-document replace and is "
+            "refused by default (BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01). "
+            "Use services.questionnaire_persistence.merge_questionnaire for an "
+            "ordinary update, merge_whole_document to send a whole document "
+            "safely, or replace_questionnaire/reset_questionnaire for a "
+            "deliberate destructive write. Pass allow_destructive_replace=True "
+            "only for disaster recovery."
+        )
     now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
     q_json = json.dumps(questionnaire, ensure_ascii=False)
     con = _connect()
