@@ -414,7 +414,25 @@ def _write(
             for _p, parts in sorted(parsed_rem, key=lambda x: (-len(x[1]), x[0]), reverse=False):
                 _unset(nxt, parts)
 
-        if row is not None and nxt == stored and schema_version is None:
+        # A WRITE THAT CHANGES NOTHING IS NOT A WRITE.
+        #
+        # This read `schema_version is None` until 2026-09-17, which meant the
+        # early return never fired from the PUT route: merge_whole_document
+        # always forwards a schema_version, because the route forwards
+        # payload.version, and every client hard-codes that to 1. Found by
+        # watching the first real Bio Builder save land — it changed nothing,
+        # removed nothing, and still burned a revision and wrote a history row.
+        #
+        # That matters beyond tidiness. History exists to answer "which write
+        # changed this field?", and a log where most entries changed nothing
+        # makes that question harder to answer, not easier. Revision numbers
+        # inflating on every idle save would also make a stale-client check
+        # fire on clients that are not actually stale.
+        #
+        # An unchanged schema_version is not a change either, so compare it
+        # rather than merely noting it was supplied.
+        schema_unchanged = (schema_version is None or int(schema_version) == stored_schema)
+        if row is not None and nxt == stored and schema_unchanged:
             con.rollback()
             return {"person_id": person_id, "questionnaire": stored,
                     "revision": stored_rev, "write_applied": False,

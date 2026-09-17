@@ -326,6 +326,35 @@ class QuestionnairePersistenceIntegrity(unittest.TestCase):
 
     # ── the read path a caller must use ───────────────────────────────
 
+    def test_a_whole_document_resave_that_changes_nothing_is_not_a_write(self):
+        """Found by watching the first real Bio Builder save land, 2026-09-17.
+
+        The route always forwards payload.version as schema_version, so the
+        no-op guard's `schema_version is None` test never fired from the PUT
+        path: an idle save burned a revision and wrote a history row that
+        recorded changing nothing. History exists to answer 'which write
+        changed this field?', and a log of no-ops makes that harder."""
+        r0 = self._revision()
+        h0 = len(self._history())
+        # exactly what the route sends: the same document back, version=1
+        res = self.qp.merge_whole_document(
+            NARRATOR, self._stored(), source="ui_save", schema_version=1)
+        self.assertFalse(res["write_applied"], "an unchanged document was written anyway")
+        self.assertEqual(r0, self._revision(), "a no-op save advanced the revision")
+        self.assertEqual(h0, len(self._history()), "a no-op save wrote a history row")
+
+    def test_a_real_change_still_writes_and_records_what_changed(self):
+        """The companion: suppressing no-ops must not suppress real writes."""
+        r0 = self._revision()
+        res = self.qp.merge_whole_document(
+            NARRATOR, {"personal": {"preferredName": "Jan"}},
+            source="ui_save", schema_version=1)
+        self.assertTrue(res["write_applied"])
+        self.assertEqual(r0 + 1, self._revision())
+        self.assertEqual("Jan", self._stored()["personal"]["preferredName"])
+        hist = self._history()[-1]
+        self.assertIn("personal.preferredName", json.loads(hist["changed_paths"]))
+
     def test_read_for_edit_returns_the_stored_document_not_a_projection(self):
         """A caller hydrating from bio_questionnaire_view would receive nine
         sections and, writing back what it received, delete seven."""
