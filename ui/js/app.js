@@ -3816,6 +3816,16 @@ async function loadPerson(pid){
   const gen=++_loadGeneration;
   const _prevPersonId = state.person_id;
   state.person_id=pid;
+  // RESET HYDRATION BEFORE ANYTHING ELSE. Until the GET below succeeds for
+  // THIS narrator we know nothing about them, and saveProfile() must refuse.
+  //
+  // Without this line the flag survives a narrator switch: hydrate A from the
+  // server, switch to B whose GET then fails, and the stale "server" would let
+  // B's CACHED profile be written back — the defect this variable exists to
+  // stop, arriving one level up through the switch instead of the read.
+  // projection-sync.js resets its own `hydrated` on switch for the same
+  // reason, alongside a generation counter, and this is that reset.
+  profileHydration="unhydrated";
   // ── PROFILE SEED AUTHORITY: RESET FIRST, THEN HYDRATE ──────────────
   //
   // WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 3, Commit B.
@@ -3904,23 +3914,46 @@ async function loadPerson(pid){
     // narrator's questionnaire and then autosaved under the new pid.
     state.profile.person_id = pid;
     profileSaved=true;
+    // The server answered. This is the ONLY state that may write back —
+    // and it counts even when the answer is an empty profile, because
+    // "the server says there is nothing" is an answer. See state.js.
+    profileHydration="server";
     // Cache for offline fallback
     try{ localStorage.setItem("lorevox_offline_profile_"+pid,JSON.stringify(state.profile)); }catch{}
   }catch{
     // Guard: bail if superseded
     if(gen!==_loadGeneration) return;
-    // Offline fallback — read from localStorage cache
+    // ── THE READ FAILED. THE CACHE MAY PAINT THE SCREEN AND NOTHING MORE.
+    //
+    // BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01, browser-authority block.
+    // This branch used to set profileSaved = true after loading the
+    // cache, which was wrong twice over: nothing had been saved, and the
+    // cached copy then became eligible for saveProfile() to PUT back over
+    // whatever the database actually held. A three-second timeout could
+    // therefore overwrite a narrator's kinship — their parents, siblings,
+    // spouse and children — with a browser copy of unknown age.
+    //
+    // profileHydration stays out of "server", and saveProfile() refuses
+    // on that basis. The operator still sees their narrator; they simply
+    // cannot write until we know what we would be writing over.
     try{
       const cached=localStorage.getItem("lorevox_offline_profile_"+pid);
       if(cached){
         state.profile=normalizeProfile(JSON.parse(cached));
         state.profile.person_id = pid;  // BUG-FE-HYDRATION-CROSS-NARRATOR-LEAK-01
-        profileSaved=true;
+        profileHydration="cache";
+        // NOT saved. Nothing was confirmed by anyone.
+        profileSaved=false;
+        console.warn("[profile] server unreachable — showing the cached copy for "
+          + pid.slice(0,8) + ". Writes are refused until a read succeeds.");
       }
-      else{ state.profile={basics:{},kinship:[],pets:[],person_id:pid}; profileSaved=false; }
+      else{
+        state.profile={basics:{},kinship:[],pets:[],person_id:pid};
+        profileHydration="unhydrated"; profileSaved=false;
+      }
     }catch{
       state.profile={basics:{},kinship:[],pets:[],person_id:pid};
-      profileSaved=false;
+      profileHydration="unhydrated"; profileSaved=false;
     }
   }
   // Load persisted section progress
@@ -4600,6 +4633,31 @@ function normalizeProfile(p){
 }
 async function saveProfile(){
   if(!state.person_id){ sysBubble("Select or create a person first."); return; }
+
+  // ── FAIL CLOSED: never write what we could not first read. ──────────
+  //
+  // BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01, browser-authority block.
+  // This PUT sends basics/kinship/pets from state.profile, and
+  // update_profile_json merges only at the TOP level, so each of those
+  // three is replaced whole. If state.profile came from the localStorage
+  // cache after a failed GET, this call replaces a narrator's kinship —
+  // their parents, siblings, spouse and children — with a browser copy of
+  // unknown age. On 2026-09-15 the same shape of write, one lane over,
+  // destroyed ten values of hand-typed family history.
+  //
+  // The refusal is deliberately not silent and the operator's edit is
+  // deliberately not discarded: it stays in state.profile, so reloading
+  // once the server is back and saving again does the right thing.
+  if(profileHydration!=="server"){
+    console.warn("[profile] REFUSED to save: hydration="+profileHydration+
+      " — the server was never successfully read for "+state.person_id.slice(0,8));
+    sysBubble(profileHydration==="cache"
+      ? "Not saved — Hornelore could not reach the server, so what you are looking at is a cached copy. Your changes are still here. Reload once the server is back, then save."
+      : "Not saved — this narrator's profile has not loaded yet. Wait for it to load, then save.");
+    updateProfileStatus();
+    return;
+  }
+
   scrapeProfileForm();
   try{
     const r=await fetch(API.PROFILE(state.person_id),{method:"PUT",headers:ctype(),

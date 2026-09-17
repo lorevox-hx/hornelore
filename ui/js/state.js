@@ -477,6 +477,39 @@ let obitModalAction = null; // 'profile' | 'lori' — pending action after confi
 /* ── Profile state ── */
 let profileSaved  = false;
 
+/* ── Profile HYDRATION state ──────────────────────────────────────────
+   BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01, browser-authority block.
+
+   THE RULE, which this variable exists to make enforceable:
+
+     A cache may help the UI display something while authority is
+     unavailable. It must never acquire authority merely because the
+     authoritative read failed.
+
+   Before this, loadPerson's catch read lorevox_offline_profile_<pid>
+   into state.profile and set profileSaved = true. saveProfile() then
+   PUT basics/kinship/pets from it — so a profile GET that merely timed
+   out could send a stale browser copy back over the database. That is
+   the Janice mechanism one lane across: `kinship` is where a narrator's
+   parents, siblings, spouse and children live.
+
+   Three states, and the distinction between the last two is the whole
+   point — "the server says this narrator has no profile" and "I do not
+   know what the server has" must never look alike:
+
+     "server"      a GET succeeded. The ONLY state that may write back.
+                   A confirmed-EMPTY server counts: empty is an answer.
+     "cache"       the GET failed and localStorage painted the screen.
+                   Display only. Writes refused.
+     "unhydrated"  no successful read and no cache. Writes refused.
+
+   Ported from projection-sync.js's `hydrated`, which has had this since
+   WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01: "WRITES ARE BLOCKED WHILE
+   false, which is what stops a localStorage draft silently repopulating
+   a server that merely failed to answer." The profile lane simply never
+   got it. */
+let profileHydration = "unhydrated";   // "unhydrated" | "cache" | "server"
+
 /* ── v6.1 Track A — Safety state ── */
 let softenedMode      = false;  // post-disclosure softened interview mode
 let softenedUntilTurn = 0;      // expires after this turn index
