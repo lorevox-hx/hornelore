@@ -4235,16 +4235,34 @@
         </p>
       </div>
 
-      <div class="lv80-settings-section">
-        <h4 class="lv80-settings-section-title">JSON Import / Update</h4>
-        <p class="lv80-settings-desc">
-          Import a narrator JSON file. If the narrator exists, update them. If not, create them.
-        </p>
-        <input id="lv80OperatorJsonFile" type="file" accept=".json,application/json">
-        <div style="margin-top:10px">
-          <button class="lv80-settings-btn" onclick="lv80OperatorImportJson()">Import / Update JSON</button>
-        </div>
-      </div>
+      <!-- REMOVED 2026-09-17 — "JSON Import / Update".
+           BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01, browser-authority block.
+
+           The control said "If the narrator exists, update them." It did not
+           update. `lv80ImportNarratorTemplate` matched a template to a LIVE
+           narrator by the template's own fullName/preferredName and then
+           replaced state.profile.basics / .kinship / .pets wholesale from a
+           four-month-old file, poisoned lorevox_offline_profile_<pid> with the
+           same content, and PUT the template's questionnaire. All three Horne
+           narrators matched their own stale template by name.
+
+           Not repaired, REMOVED: it was a testing/preload mechanism and both
+           halves are superseded — the Test Narrator Lab creates test
+           narrators, and narrator package restore brings a narrator's data in
+           with BagIt integrity, a dry run, refusals and crash recovery. There
+           is no remaining use for a path that replaces a live narrator from a
+           JSON file, and making one safe would be engineering for no user.
+
+           Phase 7 removed the boot-time seeding of these same templates and
+           wrote at length about why it must not return (see the block further
+           down this file). This button was the last piece of that mechanism,
+           doing on demand what Phase 7 removed as automatic.
+
+           The three real-family templates are archived unmodified, with
+           SHA-256s and an inventory of the material found nowhere in the live
+           database, OUTSIDE this repository — they are private biography and a
+           web-served directory is the wrong place for them. Path is recorded
+           in the bug spec. -->
 
       <div class="lv80-settings-section">
         <h4 class="lv80-settings-section-title">Narrator Delete</h4>
@@ -5613,7 +5631,10 @@
      Loads after bio-builder modules because it reads the same questionnaire
      endpoint but doesn't depend on the Bio Builder runtime. -->
 <script src="js/operator-intake.js?v=2026-06-16"></script>
-<script src="js/narrator-preload.js"></script>
+<!-- js/narrator-preload.js REMOVED 2026-09-17 with the JSON Import / Update
+     control it existed to serve. Its profile PUT had been going to
+     /api/person/{pid}/profile, a route that does not exist on this server,
+     failing silently into a catch for however long. -->
 <script src="js/wo13-review.js"></script>
 <script src="js/bio-review.js"></script>
 <script src="js/shadow-review.js"></script>
@@ -10523,30 +10544,10 @@ async function lv80Init() {
 
 /* ── OPERATOR FUNCTIONS ─────────────────────────────────────── */
 
-function lv80OperatorImportJson() {
-  var input = document.getElementById("lv80OperatorJsonFile");
-  var file = input && input.files && input.files[0];
-  if (!file) {
-    if (typeof sysBubble === "function") sysBubble("Choose a JSON file first.");
-    return;
-  }
-
-  var reader = new FileReader();
-  reader.onload = async function(e) {
-    try {
-      var tpl = JSON.parse(e.target.result);
-      if (typeof lv80ImportNarratorTemplate === "function") {
-        await lv80ImportNarratorTemplate(tpl);
-        if (typeof refreshPeople === "function") await refreshPeople();
-        if (typeof sysBubble === "function") sysBubble("Narrator JSON imported.");
-      }
-    } catch (err) {
-      console.error("[hornelore] JSON import failed", err);
-      if (typeof sysBubble === "function") sysBubble("Invalid JSON file.");
-    }
-  };
-  reader.readAsText(file);
-}
+/* lv80OperatorImportJson() REMOVED 2026-09-17 — the settings card it served
+   is gone; see the comment where that card was. Its last act was to hand a
+   parsed JSON template to lv80ImportNarratorTemplate, which replaced a live
+   narrator's profile from it. narrator-preload.js went with it. */
 
 function lv80OperatorDeleteCurrent() {
   if (!state || !state.person_id) {

@@ -45,6 +45,19 @@ def _code_lines(path: Path):
     finds its own tombstone and passes forever. The explanations are worth more
     than the convenience of a simpler search.
     """
+    # A FILE THAT NO LONGER EXISTS TRIVIALLY CONTAINS NOTHING.
+    #
+    # `ui/js/narrator-preload.js` was removed on 2026-09-17 along with the
+    # "JSON Import / Update" control it served
+    # (BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01, browser-authority block), and
+    # without this every `_refute` naming it would ERROR on FileNotFoundError
+    # rather than pass. Deletion is the STRONGEST form of "this token is not in
+    # that file", so returning no lines is the correct answer and not a
+    # weakening: the assertions that referenced it still run against every file
+    # that does exist, and re-creating the file would put it back under
+    # inspection automatically.
+    if not path.exists():
+        return []
     out, in_block = [], False
     for raw in path.read_text(encoding="utf-8").splitlines():
         line = raw

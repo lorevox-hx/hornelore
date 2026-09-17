@@ -1,7 +1,7 @@
 {
   "_template": "Lorevox 8.0 Narrator Preload Template",
   "_version": 1,
-  "_instructions": "Fill in fields below. Repeatable sections (parents, grandparents, siblings, children, pets) are arrays — add as many entries as needed. Leave empty strings for unknown fields. Load via: lv80PreloadNarrator(template) or lv80PreloadFromFile(file)",
+  "_instructions": "Fill in fields below. Repeatable sections (parents, grandparents, siblings, children, pets) are arrays — add as many entries as needed. Leave empty strings for unknown fields. — RETIRED 2026-09-17. The loader this describes (lv80PreloadNarrator / lv80PreloadFromFile, ui/js/narrator-preload.js) was REMOVED with the JSON Import / Update control — see BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01. This file is a synthetic shape reference only; nothing loads it. To create a test narrator use the Test Narrator Lab; to bring a real narrator in, restore a narrator package.",
   "_trainer": true,
   "_trainerStyle": "storyteller",
   "_trainerTitle": "Rich, flowing stories",
