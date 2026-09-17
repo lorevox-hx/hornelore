@@ -75,11 +75,47 @@
      WO-INTAKE-IDENTITY-01 — minimal intake gate + legacy helpers
   ─────────────────────────────────────────────────────────── */
 
+  /* THE BIO BUILDER IS AN OPERATOR SURFACE AND NOW DEFAULTS TO THE FULL
+     RECORD. Changed 2026-09-17.
+
+     Two different jobs were sharing one default:
+
+       NARRATOR INTAKE, conversational — a person answering Lori should not
+         meet a sixteen-section form to begin. That is what MINIMAL_SECTIONS
+         is for, and session-loop.js reads MINIMAL_SECTIONS **by name**
+         (:1056), so it is unaffected by this function. Narrator-facing
+         intake stays minimal and this change cannot touch it.
+
+       OPERATOR BIO BUILDER — an operator deliberately building someone's
+         biography needs to see and edit the complete record. Defaulting to
+         minimal showed three sections of sixteen, so grandparents,
+         marriage, pets, traditions, early memories, education, later years,
+         hobbies, technology and additional notes were invisible — present
+         in the database, absent from the screen.
+
+     `SECTIONS` below is consumed only by the Bio Builder questionnaire tab.
+     operator-intake.js declares its own list. So flipping this default
+     changes the operator console and nothing else, which is why it can be a
+     default rather than a context sniff — there is no reliable "am I
+     operator-facing" signal here, and inventing one would be a worse
+     mechanism than naming what this list is actually for.
+
+     THIS IS ALSO A DATA-SAFETY CHANGE, not only a convenience. A form that
+     renders six of eleven stored fields is how ten values of hand-typed
+     family history were destroyed on 2026-09-15
+     (BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01). The server-side merge now
+     makes that unable to DELETE anything, but a section the operator cannot
+     see is still a section they cannot correct, and they were editing a
+     record whose true extent was hidden from them.
+
+     Both overrides survive, and minimal is still one setting away:
+       window.HORNELORE_INTAKE_MINIMAL = true
+       localStorage["hornelore.intake.minimal"] = "1"  */
   function intakeMinimalEnabled() {
     try {
       // Precedence: window var (build/server bootstrap)
       // > localStorage (per-browser override)
-      // > default(true)
+      // > default(FALSE — the full record; see above)
       if (typeof window !== "undefined" && window.HORNELORE_INTAKE_MINIMAL != null) {
         return !!window.HORNELORE_INTAKE_MINIMAL;
       }
@@ -87,7 +123,7 @@
       if (ls === "1") return true;
       if (ls === "0") return false;
     } catch (e) {}
-    return true;
+    return false;
   }
 
   function getSectionData(questionnaire, id) {
