@@ -79,6 +79,15 @@ class QuestionnairePutResponse(BaseModel):
     bio_facts_errors: List[Dict[str, str]] = Field(default_factory=list)
     profile_error: Optional[str] = None
     legacy_blob_written: bool = True
+    # The write revision after this PUT. Echo it back as `base_revision`.
+    revision: int = 0
+    # Paths where this caller sent an empty value over something stored.
+    # NOT acted on — an omitted or blank value means "untouched", which is
+    # what stops a six-field form deleting five stored ones. Reported so
+    # the UI can ask "you cleared X — delete it?" and then send a real
+    # `removals`, instead of the operator seeing "Saved" while the old
+    # value quietly survives.
+    ignored_blank_paths: List[str] = Field(default_factory=list)
 
 
 def _fanout_writes_enabled() -> bool:
@@ -250,7 +259,8 @@ def put_questionnaire_route(payload: QuestionnairePutRequest) -> QuestionnairePu
             "updated_at":    merged.get("updated_at")
                              or datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
         }
-        fanout_summary["revision"] = merged.get("revision")
+        fanout_summary["revision"] = merged.get("revision") or 0
+        fanout_summary["ignored_blank_paths"] = list(merged.get("ignored_blank_paths") or [])
         legacy_blob_written = True
     else:
         # Canonical-only mode: skip the legacy blob write entirely.
@@ -274,4 +284,6 @@ def put_questionnaire_route(payload: QuestionnairePutRequest) -> QuestionnairePu
         bio_facts_errors=fanout_summary["bio_facts_errors"],
         profile_error=fanout_summary["profile_error"],
         legacy_blob_written=legacy_blob_written,
+        revision=int(fanout_summary.get("revision") or 0),
+        ignored_blank_paths=list(fanout_summary.get("ignored_blank_paths") or []),
     )

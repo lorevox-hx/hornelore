@@ -311,6 +311,21 @@ def _archive(con: sqlite3.Connection, person_id: str, row: sqlite3.Row,
     )
 
 
+def _flatten_all(doc: Any, prefix: str = "") -> Dict[str, Any]:
+    """Like flatten_document but KEEPS empty leaves. Used only to notice that
+    a caller sent a blank where something is stored — never to write."""
+    out: Dict[str, Any] = {}
+    if isinstance(doc, Mapping):
+        for k, v in doc.items():
+            out.update(_flatten_all(v, f"{prefix}.{k}" if prefix else str(k)))
+    elif isinstance(doc, list):
+        for i, v in enumerate(doc):
+            out.update(_flatten_all(v, f"{prefix}[{i}]"))
+    else:
+        out[prefix] = doc
+    return out
+
+
 def _write(
     person_id: str,
     *,
@@ -322,6 +337,7 @@ def _write(
     base_revision: Optional[int] = None,
     base_fields: Optional[Mapping[str, Any]] = None,
     schema_version: Optional[int] = None,
+    blank_report_document: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     mutations = dict(mutations or {})
     removals = list(removals or [])
@@ -349,6 +365,27 @@ def _write(
         stored_rev = int(row["revision"] or 0) if row else 0
         stored_schema = int(row["version"] or 1) if row else 1
         stored_leaves = flatten_document(stored)
+
+        # ── intentional blanks, reported but NOT acted on ──────────────
+        #
+        # `flatten_document` drops "" / None / [] / {}, so a caller that
+        # sends a whole document cannot blank a stored field — its empty
+        # value means "untouched". That is the right default (it is what
+        # stops a six-field form deleting five stored ones) and it has a
+        # cost: an operator who clears a box and saves gets "Saved" and
+        # the old value survives. Silent deletion traded for silent
+        # NON-deletion, which is safer and still lies to them.
+        #
+        # So the blank is detected here and returned as `ignored_blank_paths`.
+        # The write is unchanged; the caller now has what it needs to say
+        # "you cleared Josie's occupation — delete it?" and to send a real
+        # `removals` when the answer is yes. Reporting cannot delete
+        # anything, which is why it can land before the UI is converted.
+        ignored_blank_paths: List[str] = []
+        if blank_report_document is not None:
+            for p, v in _flatten_all(blank_report_document).items():
+                if v in (None, "", [], {}) and p in stored_leaves:
+                    ignored_blank_paths.append(p)
 
         # ── per-path concurrency ──────────────────────────────────────
         touched = [p for p, _, _ in parsed_mut] + [p for p, _ in parsed_rem]
@@ -381,7 +418,8 @@ def _write(
             con.rollback()
             return {"person_id": person_id, "questionnaire": stored,
                     "revision": stored_rev, "write_applied": False,
-                    "conflict": False, "conflicting_paths": []}
+                    "conflict": False, "conflicting_paths": [],
+                    "ignored_blank_paths": sorted(ignored_blank_paths)}
 
         if row is not None:
             if replacement is not None:
@@ -421,7 +459,7 @@ def _write(
         return {"person_id": person_id, "questionnaire": nxt, "revision": next_rev,
                 "schema_version": next_schema, "updated_at": now,
                 "write_applied": True, "conflict": False, "conflicting_paths": [],
-                "write_kind": write_kind}
+                "write_kind": write_kind, "ignored_blank_paths": sorted(ignored_blank_paths)}
     except QuestionnaireConflict:
         raise
     except Exception:
@@ -466,6 +504,11 @@ def merge_whole_document(
     makes every existing whole-document PUT non-destructive WITHOUT any
     client change. That is the minimum safe subset.
 
+    It reports, in `ignored_blank_paths`, every path where the caller sent an
+    empty value over something stored. It does not act on them. That turns
+    "the operator cleared a field and nothing happened, silently" into
+    something the UI can ask about.
+
     What it deliberately cannot do: express a deletion. A client that
     genuinely needs to remove an entry must call `merge_questionnaire` with
     `removals`, or `replace_questionnaire` if it truly owns the whole
@@ -476,7 +519,8 @@ def merge_whole_document(
     return _write(person_id, source=source, write_kind=WRITE_LEGACY,
                   mutations=flatten_document(document),
                   base_revision=base_revision, base_fields=base_fields,
-                  schema_version=schema_version)
+                  schema_version=schema_version,
+                  blank_report_document=document)
 
 
 def replace_questionnaire(

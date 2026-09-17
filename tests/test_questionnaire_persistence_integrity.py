@@ -354,6 +354,60 @@ class QuestionnairePersistenceIntegrity(unittest.TestCase):
         self.assertIn("gifted musician",
                       json.loads(row["previous_values"])["parents[0].notableLifeEvents"])
 
+    def test_an_intentional_blank_is_reported_even_though_it_is_not_applied(self):
+        """Clearing a field must not silently do nothing. The write is
+        unchanged; the caller is told, so it can ask and then send a real
+        removal."""
+        res = self.qp.merge_whole_document(
+            NARRATOR, {"parents": [{"occupation": ""}, {}]}, source="form")
+        self.assertIn("parents[0].occupation", res["ignored_blank_paths"])
+        self.assertEqual("Housewife", self._stored()["parents"][0]["occupation"])
+
+    def test_a_blank_over_nothing_stored_is_not_reported(self):
+        """Every empty box on a form would otherwise be noise."""
+        res = self.qp.merge_whole_document(
+            NARRATOR, {"laterYears": {"retirement": ""}}, source="form")
+        self.assertEqual([], res["ignored_blank_paths"])
+
+    def test_the_two_sides_of_clearing_a_field(self):
+        """The contract in one test, both halves side by side.
+
+        A legacy whole-document client sending "" over a populated value
+        must NOT delete it, and must be told so — otherwise it can
+        truthfully report the operation as fully saved when it was not.
+        An explicit removal must actually remove it AND leave the
+        forensic record. Same field, same suite, opposite outcomes."""
+        # ── side one: a blank from a whole-document client ────────────
+        res = self.qp.merge_whole_document(
+            NARRATOR, {"parents": [{"notableLifeEvents": ""}, {}]}, source="legacy_form")
+        self.assertIn("parents[0].notableLifeEvents", res["ignored_blank_paths"])
+        self.assertIn("gifted musician",
+                      self._stored()["parents"][0]["notableLifeEvents"])
+
+        # ── side two: an explicit removal of the very same path ───────
+        res2 = self.qp.merge_questionnaire(
+            NARRATOR, removals=["parents[0].notableLifeEvents"],
+            source="operator_meant_it")
+        self.assertEqual([], res2["ignored_blank_paths"])
+        self.assertNotIn("notableLifeEvents", self._stored()["parents"][0])
+
+        # ...and the removal is recoverable from history, by path.
+        con = sqlite3.connect(self.db_path)
+        con.row_factory = sqlite3.Row
+        row = con.execute(
+            "SELECT superseded_by_source, removed_paths, previous_values "
+            "FROM bio_builder_questionnaire_revisions "
+            "WHERE person_id=? AND removed_paths LIKE ? ORDER BY revision DESC LIMIT 1",
+            (NARRATOR, "%parents[0].notableLifeEvents%")).fetchone()
+        con.close()
+        self.assertEqual("operator_meant_it", row["superseded_by_source"])
+        self.assertIn("gifted musician",
+                      json.loads(row["previous_values"])["parents[0].notableLifeEvents"])
+
+        # Everything else on that parent is untouched by either half.
+        self.assertTrue(self._stored()["parents"][0]["notes"])
+        self.assertEqual("1914-10-22", self._stored()["parents"][0]["birthDate"])
+
     def test_an_unsafe_whole_document_replace_is_refused_at_the_db_primitive(self):
         """The old primitive must not remain conveniently callable."""
         from api import db as _dbmod

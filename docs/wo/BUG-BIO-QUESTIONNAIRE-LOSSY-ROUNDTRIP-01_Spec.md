@@ -594,6 +594,31 @@ removals**, so a key the caller omitted is untouched rather than deleted — whi
 makes every existing whole-document PUT non-destructive **with no client change
 at all**.
 
+### The cost of that default, made observable
+
+Because `flatten_document` drops `""` / `None` / `[]` / `{}`, a legacy
+whole-document client **cannot clear a populated field** — its blank means
+*untouched*. That is the right default: it is precisely what stops a six-field
+form deleting five stored ones. But left alone it trades silent deletion for a
+silent lie — the operator empties a box, sees "Saved", and the old value
+survives.
+
+So the blank is **detected and reported, never acted on**. `merge_whole_document`
+returns `ignored_blank_paths`, and the PUT response carries it beside the new
+`revision`, so no client can truthfully report the operation as fully saved when
+it was not. The UI can then ask *"you cleared Josie's occupation — delete it?"*
+and send a real `removals`.
+
+Pinned from both sides in one test, same field, opposite outcomes: a legacy PUT
+of `""` preserves the value and reports the path; an explicit `removals` actually
+removes it and lands in history with `previous_values` intact. Blanks over
+*unpopulated* fields are not reported — otherwise every empty box on a
+sixteen-section form would be noise.
+
+**The invariant is unchanged: only an explicit removal can delete stored
+narrator information.** What changed is that the temporary limitation is now
+visible and testable rather than silent.
+
 The regression test is the real shape: a six-field minimal-intake `parents` form
 saved over an eleven-field stored record, asserting all ten values survive.
 
