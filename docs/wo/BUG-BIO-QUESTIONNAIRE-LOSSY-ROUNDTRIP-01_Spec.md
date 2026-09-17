@@ -671,6 +671,34 @@ two origins can genuinely present the same AUTOINCREMENT id for different
 revisions of different documents. `identity_change_log` needs no such entry only
 because it keys on a TEXT id.
 
+## ✅ ACCEPTED — the server-side block, 2026-09-17
+
+**`181 passed, 1 warning, 23 subtests passed — 438.23s`**, `.venv`, WSL, seven
+suites together:
+
+```
+test_questionnaire_persistence_integrity   test_questionnaire_route_fanout
+test_narrator_package_export               test_narrator_package_restore
+test_narrator_merge                        test_narrator_data_inventory_parity
+test_narrator_erasure
+```
+
+The single warning is `bagit`/`pkg_resources` deprecation, not a Hornelore
+failure.
+
+**This is the known-good boundary to return to if the client work breaks
+something.** It is a stronger result than the 178 bar set before the portability
+correction, because the corrected tree exercises the now-portable history lane
+through export, restore and merge rather than only through the parity scan.
+
+What is jointly demonstrated, in one run: preservation semantics · route
+fan-out across all four flag combinations · package export · package restore ·
+merge and id remapping · ownership-declaration parity · narrator erasure.
+
+**Accepted:** the questionnaire persistence contract and revision-history
+portability. **Not accepted, and not claimed:** anything in the browser. See
+below.
+
 ## Still exposed — not fixed by this port
 
 1. **Positional array identity.** `parents[0].x` is by position. Insert, remove
