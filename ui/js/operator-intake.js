@@ -506,11 +506,23 @@
     if (!section) return;
     var secEl = container.querySelector('[data-oi-section="' + sectionId + '"]');
     if (!secEl) return;
+    // BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01, second mechanism (2026-09-17).
+    // This built `var entry = {}` per row and assigned the result over the
+    // stored array, so any stored field this tab's arrayItemFields does not
+    // declare was deleted by saving. This tab declares FEWER fields than the
+    // Bio Builder does for every array section it shares — spouses here carry
+    // five, the writer's own allowlist accepts fourteen — so a save from this
+    // tab silently reduced whatever the other surface had stored.
+    // Start from the stored entry; let the rendered inputs overwrite only
+    // themselves. Same repair as bio-builder-questionnaire.js's _saveSection.
     if (section.array) {
       var rows = secEl.querySelectorAll(".oi-array-row");
+      var prevArr = _state.questionnaire[section.array];
+      if (!Array.isArray(prevArr)) prevArr = [];
       var newArr = [];
-      rows.forEach(function (row) {
-        var entry = {};
+      rows.forEach(function (row, idx) {
+        var prev = prevArr[idx];
+        var entry = (prev && typeof prev === "object") ? Object.assign({}, prev) : {};
         var inputs = row.querySelectorAll('[data-oi-array-field]');
         inputs.forEach(function (i) {
           entry[i.getAttribute("data-oi-array-field")] = i.value || "";

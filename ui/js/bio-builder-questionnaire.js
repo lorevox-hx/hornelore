@@ -1304,12 +1304,38 @@
     }
 
     // Phase 1.3: Step 1 — read DOM values; Step 2 — write into canonical bb.questionnaire
+    // BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01, second mechanism (2026-09-17).
+    //
+    // These two branches used to build `var obj = {}` and fill it ONLY from
+    // section.fields, then assign that over the stored entry. Any stored field
+    // the rendered form does not declare was therefore DELETED by the act of
+    // saving — the spec's own invariant ("a surface that rebuilds an object
+    // from a rendered view and writes it back inherits the read path's
+    // omissions as deletions"), reached without the bio_questionnaire_view
+    // projection being involved at all.
+    //
+    // It fired on real family data. MINIMAL_SECTIONS.parents declares six
+    // fields; FULL_SECTIONS.parents declares eleven. With minimal intake on
+    // (the default), one save of Janice's parents section destroyed ten stored
+    // values across her two parents — birthDate, birthPlace, deceased,
+    // notableLifeEvents and notes, including several hundred words of family
+    // history that had been typed in by hand. Recovered from a snapshot taken
+    // an hour earlier; there was no other copy at full length.
+    //
+    // The fix: start from what is already stored and let the rendered fields
+    // overwrite only themselves. A form can only edit what it shows.
+    //
+    // `getSectionData` rather than a bare property read, because
+    // _migrateRemovedSectionsToLegacy moves six section ids into
+    // `_legacyRemovedSections` and deletes the originals. Reading the bare
+    // property for one of those returned nothing, so `existing` collapsed to a
+    // single empty entry and a save would have written ONE row over however
+    // many the operator could actually see.
     if (section.repeatable) {
-      var existing = Array.isArray(bb.questionnaire[sectionId])
-        ? bb.questionnaire[sectionId]
-        : (bb.questionnaire[sectionId] ? [bb.questionnaire[sectionId]] : [{}]);
-      bb.questionnaire[sectionId] = existing.map(function (_, idx) {
-        var obj = {};
+      var stored = getSectionData(bb.questionnaire, sectionId);
+      var existing = Array.isArray(stored) ? stored : (stored ? [stored] : [{}]);
+      bb.questionnaire[sectionId] = existing.map(function (prev, idx) {
+        var obj = (prev && typeof prev === "object") ? Object.assign({}, prev) : {};
         section.fields.forEach(function (f) {
           var el = _el("bbQ_" + idx + "_" + f.id);
           if (el) obj[f.id] = el.value || "";
@@ -1317,7 +1343,9 @@
         return obj;
       });
     } else {
-      var obj = {};
+      var storedObj = getSectionData(bb.questionnaire, sectionId);
+      var obj = (storedObj && typeof storedObj === "object" && !Array.isArray(storedObj))
+        ? Object.assign({}, storedObj) : {};
       section.fields.forEach(function (f) {
         var el = _el("bbQ_" + f.id);
         if (el) obj[f.id] = el.value || "";
