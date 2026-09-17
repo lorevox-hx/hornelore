@@ -76,6 +76,53 @@
   ─────────────────────────────────────────────────────────── */
 
   var DRAFT_SCHEMA_VERSION = 1;
+
+  /* ── QUESTIONNAIRE HYDRATION ────────────────────────────────────────
+     BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01, browser-authority block.
+
+       A cache may help the UI display something while authority is
+       unavailable. It must never acquire authority merely because the
+       authoritative read failed.
+
+     `_restoreQuestionnaire` starts the backend fetch WITHOUT awaiting it
+     and then returns the localStorage draft, so `bb.questionnaire` is the
+     browser's copy for the whole in-flight window — and three paths left
+     it there permanently: a failed fetch (the `.catch` only logged), an
+     empty server response (ignored by a `Object.keys(q).length > 0`
+     guard), and a failed PUT (localStorage was written regardless). A
+     save then sent that copy to the server.
+
+     The server can no longer be DESTROYED by this — merge_whole_document
+     adds and modifies but cannot delete — but the browser could still
+     show and submit a stale view, and on 2026-09-15 the browser held a
+     damaged 7,046-byte draft that would have gone straight back over the
+     repaired database the moment the UI opened.
+
+     Four states. The difference between the last two is the entire point:
+
+       "unhydrated"  no successful read. Writes refused.
+       "cache"       the GET failed; localStorage is painting the screen.
+                     Display only. Writes refused.
+       "server"      a GET succeeded. The ONLY state that may write.
+                     A confirmed-EMPTY server counts — empty is an answer.
+       "conflict"    the server confirmed EMPTY while a local draft holds
+                     content. Writes refused until resolved deliberately.
+                     This is not paranoia: Janice's draft outlived a full
+                     database erasure and restore, because the key is
+                     `lorevox_qq_draft_<pid>` and narrator ids survive
+                     export/restore verbatim. Auto-adopting it would have
+                     resurrected erased data as a "save".
+
+     Ported from projection-sync.js's `hydrated`, which has had this since
+     WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01. */
+  var _qqHydration = "unhydrated";
+  function _qqHydrationState() { return _qqHydration; }
+  function _setQqHydration(s, why) {
+    if (_qqHydration === s) return;
+    _qqHydration = s;
+    console.log("[bb-core] questionnaire hydration -> " + s + (why ? " (" + why + ")" : ""));
+  }
+
   var _LS_FT_PREFIX    = "lorevox_ft_draft_";
   var _LS_LT_PREFIX    = "lorevox_lt_draft_";
   var _LS_QQ_PREFIX    = "lorevox_qq_draft_";
@@ -142,7 +189,27 @@
           }
           return false;
         })();
-        if (qq && Object.keys(qq).length > 0 && hasAnyValue) {
+        if (qq && Object.keys(qq).length > 0 && hasAnyValue && _qqHydration !== "server") {
+          // ── FAIL CLOSED: never write what we could not first read. ────
+          //
+          // BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01, browser-authority
+          // block. Without this gate, a questionnaire that reached memory
+          // from localStorage — because the backend GET failed, answered
+          // empty, or simply had not come back yet — was PUT to the server
+          // as though it were the operator's intent.
+          //
+          // The draft is still written to localStorage below so nothing
+          // the operator typed is lost; it just does not travel until we
+          // know what it would be travelling over.
+          console.warn("[bb-core] REFUSED questionnaire PUT: hydration=" + _qqHydration +
+            " for pid=" + pid.slice(0, 8) + " — the server was never successfully read" +
+            (_qqHydration === "conflict"
+              ? ". The server reports this narrator's questionnaire EMPTY while a local draft holds content; that must be resolved deliberately, not by saving."
+              : ". Reload once the server is reachable, then save."));
+          try {
+            localStorage.setItem(_LS_QQ_PREFIX + pid, JSON.stringify({ v: DRAFT_SCHEMA_VERSION, d: qq }));
+          } catch (e) {}
+        } else if (qq && Object.keys(qq).length > 0 && hasAnyValue) {
           // Backend canonical save (fire-and-forget, non-blocking)
           try {
             fetch(API.BB_QQ_PUT, {
@@ -292,6 +359,12 @@
   ─────────────────────────────────────────────────────────── */
   function _restoreQuestionnaire(pid) {
     var bb = _bb(); if (!bb) return {};
+    // Until the backend answers for THIS narrator we know nothing about
+    // them. Reset first: without it the state survives a narrator switch,
+    // and a "server" left over from the previous narrator would authorise
+    // writing THIS one's cached draft — the same defect arriving through
+    // the switch instead of the read.
+    _setQqHydration("unhydrated", "restore started for " + String(pid).slice(0, 8));
     if (!pid) { bb.questionnaire = {}; return bb.questionnaire; }
 
     // Phase G: Try backend first (async, fire-and-forget for sync callers)
@@ -315,6 +388,10 @@
         }
         if (d && typeof d === "object") {
           bb.questionnaire = d;
+          // PAINTING THE SCREEN, NOT ACQUIRING AUTHORITY. The backend fetch
+          // started above is still in flight; until it answers this copy may
+          // be displayed and may not be saved.
+          _setQqHydration("cache", "localStorage draft shown while the server is asked");
           _qqDebugSnapshot("restore_ls", pid, bb);
           return bb.questionnaire;
         }
@@ -372,14 +449,46 @@
             "(requested=" + stampedPid.slice(0, 8) + " response=" + (j.person_id || "").slice(0, 8) + ")");
           return;
         }
-        if (!j.questionnaire) return;
-        var q = j.questionnaire;
+        // THE SERVER ANSWERED. That is true even when the answer is "this
+        // narrator has no questionnaire" — `get_questionnaire` returns an
+        // empty document rather than failing, and "the server says there is
+        // nothing" must never be confused with "I could not ask".
+        var q = (j && j.questionnaire) || {};
+        var serverEmpty = !(typeof q === "object" && Object.keys(q).length > 0);
+        if (serverEmpty) {
+          var localHas = (function () {
+            try {
+              var cur = bb.questionnaire;
+              return !!(cur && typeof cur === "object" && _hasAnyValue(cur));
+            } catch (e) { return false; }
+          })();
+          if (localHas) {
+            // The dangerous case, and the reason this state exists. On
+            // 2026-09-15 a draft outlived a full database erasure and
+            // restore: the key is lorevox_qq_draft_<pid> and narrator ids
+            // survive export/restore verbatim. Adopting it would resurrect
+            // erased data under the name of an ordinary save, so writes are
+            // refused until somebody decides on purpose.
+            _setQqHydration("conflict",
+              "server reports EMPTY while a local draft holds content");
+            console.warn("[bb-core] questionnaire CONFLICT for " + stampedPid.slice(0, 8) +
+              ": the server has no questionnaire for this narrator, but this browser " +
+              "holds a draft with content. Saving is refused. The draft is still in " +
+              "localStorage under " + _LS_QQ_PREFIX + stampedPid + " if it is wanted.");
+          } else {
+            _setQqHydration("server", "server confirms this narrator has no questionnaire");
+          }
+          return;
+        }
         if (typeof q === "object" && Object.keys(q).length > 0) {
           // Unwrap { v, d } envelope if present — backend stores { v:1, d:{sections} }
           // but bb.questionnaire expects flat sections { personal:{}, parents:[], ... }
           var sections = (q.d && typeof q.d === "object" && !Array.isArray(q.d)) ? q.d : q;
           // Only overwrite if backend has data (backend authority rule)
           bb.questionnaire = sections;
+          // The server answered with content and we have adopted it. This is
+          // the only state in which a save may travel.
+          _setQqHydration("server", "adopted the server document");
           // WO-BIO-QUESTIONNAIRE-BIO-FACTS-MIGRATE-01 Phase 2 — capture
           // the per-field {status, source} metadata so the renderer can
           // surface status badges + a filled-skip counter. Legacy blob
@@ -1655,6 +1764,11 @@
     _showInlineConfirm:       _showInlineConfirm,
     _emptyStateHtml:          _emptyStateHtml,
     _hasAnyValue:             _hasAnyValue,
+    // BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01, browser-authority block.
+    // Exposed so an operator can ask, from the console, why a save was
+    // refused: "unhydrated" / "cache" = the server was never read;
+    // "conflict" = the server says empty while this browser holds a draft.
+    _qqHydrationState:        _qqHydrationState,
 
     // View state (shared mutable object — submodules read/write directly)
     _viewState:               _viewState
