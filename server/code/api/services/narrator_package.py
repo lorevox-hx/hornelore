@@ -310,8 +310,15 @@ def _fks(con: sqlite3.Connection, table: str) -> List[Tuple[str, str, str]]:
 
     This indexed `PRAGMA foreign_key_list` rows by name until 2026-09-14, which silently
     required every caller to have set `row_factory = sqlite3.Row`. Restore's dry run
-    happens to; the first real Christopher merge rehearsal did not, and this raised
-    `TypeError: tuple indices must be integers` from four frames below the call.
+    happens to; the first merge rehearsal against a real narrator did not, and this
+    raised `TypeError: tuple indices must be integers` from four frames below the call.
+
+    (That sentence named the narrator until 2026-09-17. It should not have:
+    `test_exporter_source_names_no_table_and_no_narrator` forbids narrator identity
+    anywhere in this module's source, and it had been red since the comment landed
+    because nobody ran that suite in between. A real family member's name in product
+    source on a public repository is precisely what the test exists to stop, and a
+    comment is still source.)
 
     That was a CONTRACT defect, not a caller mistake. `missing_installation_dependencies`
     is shared by restore and Merge/Remap and advertises that it takes a

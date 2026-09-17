@@ -212,19 +212,41 @@ DB_LANES: Tuple[DbLane, ...] = (
 
     # ── structured memory ─────────────────────────────────────────────
     DbLane("bio_builder_questionnaires", _D("person_id"), CLASS_DERIVED, "yes", True),
-    # 0058 — questionnaire revision history.
-    # ERASABLE: erasing a narrator must not leave their biography behind in
-    # a history table, and the prior contents of that biography are exactly
-    # what this holds. NOT PORTABLE: the package already carries the CURRENT
-    # questionnaire, and a narrator restored onto another installation
-    # starts a fresh history there — shipping one installation's recovery
-    # bookkeeping to another would claim a provenance the receiving root
-    # never had. CLASS_INSTALLATION is the class for "owned, must not
-    # travel"; the lane is still Direct-owned so erasure finds it.
+    # 0058 — questionnaire revision history. AUTHORITATIVE and PORTABLE, by
+    # the precedent three lines above: `identity_change_log` is the same
+    # shape — a Direct-owned audit of changes to the narrator's own record,
+    # carrying field_path, old_value, new_value and source — and this project
+    # already decided that travels.
+    #
+    # *(Declared CLASS_INSTALLATION / portable="no" for a few hours on
+    # 2026-09-17, on the reasoning that "revision 7 was superseded by ui_save
+    # at 14:02" is a fact about a machine rather than about the narrator.
+    # Two things were wrong with that. It made this the ONLY Direct-owned
+    # non-portable lane in the declaration, inventing a combination the model
+    # had no other instance of; and it would mean a narrator can be carried
+    # to a new installation complete except for the recovery trail that
+    # exists to protect exactly this table — portability silently
+    # downgrading safety. Raised on review, and the inventory had already
+    # answered it.)*
+    #
+    #   Direct(person_id) — erasure must reach it. The prior contents of a
+    #     narrator's biography are still their biography; erasing them must
+    #     not leave those behind.
+    #   portable="yes"    — the protection travels with the thing it
+    #     protects, or a moved narrator loses every prior revision of their
+    #     own record.
+    #   CLASS_AUTHORITATIVE — for the same reason `identity_change_log` is:
+    #     it is the ONLY copy of what a write replaced. Not CLASS_DERIVED,
+    #     which would imply it can be rebuilt; nothing can rebuild it.
+    #
+    # Its INTEGER surrogate is registered in narrator_merge.REMAP_TARGETS
+    # with an established-and-empty closure. `identity_change_log` needs no
+    # such entry only because it keys on a TEXT id.
     DbLane("bio_builder_questionnaire_revisions", _D("person_id"),
-           CLASS_INSTALLATION, "no", True,
-           note="local recovery bookkeeping; see 0058 and "
-                "BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01"),
+           CLASS_AUTHORITATIVE, "yes", True,
+           note="prior questionnaire revisions with changed/removed paths and "
+                "previous values; the only copy of what a write replaced. "
+                "See 0058 and BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01 §D.5"),
     DbLane("bio_facts", _D("narrator_id"), CLASS_DERIVED, "yes", True),
     DbLane("facts", _D("person_id"), CLASS_DERIVED, "yes", True),
     DbLane("family_truth_notes", _D("person_id"), CLASS_DERIVED, "yes", True),

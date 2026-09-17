@@ -622,6 +622,55 @@ visible and testable rather than silent.
 The regression test is the real shape: a six-field minimal-intake `parents` form
 saved over an eleven-field stored record, asserting all ten values survive.
 
+## The WSL gate: two failures, one inherited and one introduced
+
+Seven suites, `.venv`, 2026-09-17: **176 passed, 2 failed.** They are not the same
+kind of thing and the record should not say "two tests failed".
+
+**INHERITED — `test_narrator_package_export::…::test_exporter_source_names_no_table_and_no_narrator`.**
+Not caused by this work. The test forbids narrator identity anywhere in
+`narrator_package.py`'s source, and a comment added by **`d46b730`** reads *"the
+first real Christopher merge rehearsal did not"*. It has been red since that
+commit, which means **the seven-suite gate has not been continuously green since
+`d46b730`** and nobody ran it in between. Fixed by rewriting the comment without
+the name, not by weakening the test: a real family member's name in product
+source on a public repository is precisely what it exists to stop, and a comment
+is still source.
+
+**INTRODUCED — `test_narrator_merge::ClosureIntegrity::test_remap_targets_cover_every_narrator_owned_integer_surrogate`.**
+Genuinely this commit's. `bio_builder_questionnaire_revisions` is narrator-owned
+with an `INTEGER PRIMARY KEY` and was absent from `REMAP_TARGETS`. The test did
+exactly its job.
+
+### And it surfaced a classification error worth more than the failure
+
+Chasing it showed the new lane was the **only `Direct`-owned, `portable="no"`
+lane in the entire declaration** — a combination the model had no other instance
+of. That is a symptom, not a style problem, and the fix was not to register the
+table and move on.
+
+The inventory had already decided this case. **`identity_change_log`** is the
+same shape — `Direct(person_id)`, an audit of changes to the narrator's own
+record, carrying `field_path`, `old_value`, `new_value`, `source` — and is
+declared **`CLASS_AUTHORITATIVE`, `portable="yes"`, erasable**. Questionnaire
+history is that table's twin for the questionnaire, and it had been classified
+the opposite way.
+
+The reasoning that produced the error was that *"revision 7 was superseded by
+`ui_save` at 14:02"* is a fact about a machine rather than about the narrator.
+Two things were wrong with it. It invented an unprecedented combination; and it
+would mean **a narrator can be carried to a new installation complete except for
+the recovery trail that exists to protect this exact table** — portability
+silently downgrading safety. The prior contents of a narrator's biography are
+still their biography.
+
+Now: `CLASS_AUTHORITATIVE`, `portable="yes"`, erasable, `Direct(person_id)`,
+registered in `REMAP_TARGETS` with an established-and-empty closure. The remap
+entry is **load-bearing rather than precautionary** now that the lane travels:
+two origins can genuinely present the same AUTOINCREMENT id for different
+revisions of different documents. `identity_change_log` needs no such entry only
+because it keys on a TEXT id.
+
 ## Still exposed — not fixed by this port
 
 1. **Positional array identity.** `parents[0].x` is by position. Insert, remove

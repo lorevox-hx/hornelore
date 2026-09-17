@@ -114,6 +114,16 @@ REMAP_TARGETS: Tuple[str, ...] = (
     "turns.id",
     "turn_extraction_ledger.id",
     "turn_extraction_results.id",
+    # 0058, added 2026-09-17. Narrator-owned (Direct, person_id) with an INTEGER
+    # PRIMARY KEY, so it belongs here by the same rule as the three above —
+    # `test_remap_targets_cover_every_narrator_owned_integer_surrogate` caught its
+    # absence, which is what that test is for.
+    #
+    # It is portable and AUTOINCREMENT, so two origins genuinely can present the
+    # same id for different revisions of different documents. This entry is load
+    # bearing rather than precautionary. Its sibling `identity_change_log` needs
+    # no entry only because it keys on a TEXT id.
+    "bio_builder_questionnaire_revisions.id",
 )
 
 #: Real SQL foreign keys into a remappable parent. Named here because SQLite declares
@@ -146,6 +156,12 @@ CLOSURE_ESTABLISHED: Dict[str, str] = {
     "graph_persons.id":
         "db.py:7421-7423: graph_relationships.from_person_id and .to_person_id, both "
         "real table-level FOREIGN KEY clauses ON DELETE CASCADE",
+    "bio_builder_questionnaire_revisions.id":
+        "0058: ZERO references — the table is append-only history with no children. "
+        "Measured 2026-09-17 across migrations, db.py, routers, services, scripts, "
+        "tests and ui/js at the moment the table was introduced, not inferred from "
+        "an absence of FKs. Established-and-empty, the same state as "
+        "turn_extraction_results.id, which is a finding rather than an absence",
 }
 
 # ── file policy from spec §3b, decided from code rather than filenames ─
