@@ -361,6 +361,11 @@ async function run() {
 
     const marks = [];
     const syncs = [];
+    const candidatesBefore = () => {
+      const bb = h.core._bb() || {};
+      return JSON.stringify(bb.candidates || bb.questionnaireCandidates || []);
+    };
+    const candBefore = candidatesBefore();
     h.window.LorevoxProjectionMap = {
       buildRepeatablePath: (s, i, f) => s + "[" + i + "]." + f,
     };
@@ -381,6 +386,15 @@ async function run() {
     check("the family graph was not resynced",
       syncs.length === 0,
       "a relative must not appear in the graph because of a failed save");
+
+    /* Candidate extraction is the third downstream effect, and the one with
+       the longest reach: a candidate that later reads as established
+       biography is how an unsaved answer becomes an apparent fact that Lori
+       would then state with confidence. */
+    check("no candidates were extracted from the refused write",
+      candidatesBefore() === candBefore,
+      "a suggestion derived from answers the database rejected can later be " +
+      "promoted into biography nobody ever saved");
 
     // And the same save, succeeding, must still do the work.
     h.save("parents");
@@ -497,6 +511,60 @@ async function run() {
       b !== null && /NOT SAVED/.test(b.text) && /different narrator/i.test(b.text),
       b ? ("banner said: " + b.text) :
       "a silent refusal leaves a form that looks saved — the original defect");
+  }
+
+  /* ═══ 8c. REMOVAL — CURRENT BEHAVIOUR, PINNED ═════════════════════════
+     WO-BIO-QUESTIONNAIRE-DELETE-ENTRY-01.
+
+     A family member cannot be removed. There is no Remove control, and
+     clearing every field is a silent no-op because merge_whole_document
+     applies populated leaves as mutations with NO removals.
+
+     That merge behaviour is deliberate and must not be "fixed": omission-as-
+     deletion is exactly what destroyed ten of Janice's values on 2026-09-15.
+     The gap is that no EXPLICIT removal path was built alongside it.
+
+     These assertions pin what happens today so the gap is visible in a test
+     run rather than only in a document, and so that when removal is built
+     the change shows up here rather than passing unnoticed. They are not an
+     endorsement — read the work order. */
+  {
+    scenario("8c. clearing an entry does not remove it (known gap, pinned)");
+    const h = createHarness().setNarrator(PID);
+    h.restore(PID);
+    await h.settle();
+
+    h.render("parents");
+    fillEntry(h, 0, MOTHER);
+    h.save("parents");
+    await h.settle();
+    h.addEntry("parents");
+    await h.settle();
+    h.render("parents");
+    fillEntry(h, 1, FATHER);
+    h.save("parents");
+    await h.settle();
+
+    check("two parents are stored", parentsOf(h.server.stored(PID)).length === 2);
+
+    h.render("parents");
+    for (const f of Object.keys(FATHER)) {
+      const el = h.window.document.getElementById("bbQ_1_" + f);
+      if (el) el.value = "";
+    }
+    h.save("parents");
+    await h.settle();
+
+    const after = parentsOf(h.server.stored(PID));
+    check("clearing every field leaves the entry fully intact",
+      after.length === 2 && after[1].firstName === "Bertil",
+      "if this now fails, removal behaviour changed — check it was built " +
+      "deliberately (WO-BIO-QUESTIONNAIRE-DELETE-ENTRY-01) and not by " +
+      "re-enabling omission-as-deletion, which would reopen the 2026-09-15 " +
+      "data loss for every other field");
+
+    check("the first parent is untouched by the attempt",
+      after[0] && after[0].firstName === "Ingrid ");
   }
 
   /* ═══ 8b. NO SELECT MAY ANSWER ITSELF ══════════════════════════════════
