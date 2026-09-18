@@ -196,9 +196,30 @@
   ═══════════════════════════════════════════════════════════════════════ */
 
   /* Bookkeeping the program writes for itself. Not operator content, and
-     never the basis for deciding a person has unsaved work. */
-  function _isBookkeepingKey(k) {
-    return typeof k === "string" && k.charAt(0) === "_";
+     never the basis for deciding a person has unsaved work.
+
+     BUG-BIO-QUESTIONNAIRE-LEGACY-SECTIONS-INVISIBLE-01 (2026-09-18) — the
+     first version of this skipped EVERY underscore-prefixed key. But
+     _migrateRemovedSectionsToLegacy moves six real sections — grandparents,
+     auntsUncles, childhoodPlaces, schools, trips, memoryNotes — under
+     `_legacyRemovedSections`, on every restore and every save. A narrator
+     whose only entered content was grandparents was therefore classified as
+     holding NO operator content the moment the migration ran, and the
+     blank-PUT guard in _persistDrafts refused to save them. A family's
+     grandparents, treated as a version stamp.
+
+     Demonstrated in the harness: _hasOperatorContent({_legacyRemovedSections:
+     {grandparents:[{firstName:"Ervin"}]}}) returned false.
+
+     The rule is now about VALUES, not key names: a `_`-prefixed key holding
+     a scalar is bookkeeping (`_legacyMigrationVersion`, `_version`,
+     `_capturedAt`). A `_`-prefixed key holding an object or array is a
+     container and is descended into, with the same rule applied inside. That
+     handles `_legacyRemovedSections` without naming it, so the next migration
+     that invents a container does not reopen this. */
+  function _isBookkeepingKey(k, v) {
+    if (typeof k !== "string" || k.charAt(0) !== "_") return false;
+    return v === null || v === undefined || typeof v !== "object";
   }
 
   /* Deep: does this document hold a value a person actually entered?
@@ -219,7 +240,7 @@
     if (typeof doc === "object") {
       var keys = Object.keys(doc);
       for (var j = 0; j < keys.length; j++) {
-        if (_isBookkeepingKey(keys[j])) continue;
+        if (_isBookkeepingKey(keys[j], doc[keys[j]])) continue;
         if (_hasOperatorContent(doc[keys[j]])) return true;
       }
       return false;

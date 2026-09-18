@@ -178,9 +178,34 @@ if (C) {
     has({ facts: { siblings: 0 } }) === true && has({ facts: { living: false } }) === true,
     "a numeric answer of 0 is an answer");
 
-  check("bookkeeping keys are identified by a leading underscore",
-    C._isBookkeepingKey("_legacyMigrationVersion") === true &&
-    C._isBookkeepingKey("personal") === false);
+  check("bookkeeping keys are identified by a leading underscore AND a scalar value",
+    C._isBookkeepingKey("_legacyMigrationVersion", "WO-INTAKE-IDENTITY-01") === true &&
+    C._isBookkeepingKey("personal", {}) === false);
+
+  /* BUG-BIO-QUESTIONNAIRE-LEGACY-SECTIONS-INVISIBLE-01.
+     _migrateRemovedSectionsToLegacy moves grandparents, auntsUncles,
+     childhoodPlaces, schools, trips and memoryNotes under
+     `_legacyRemovedSections` on every restore and save. The first bookkeeping
+     rule skipped every `_`-prefixed key, so a narrator whose only content was
+     grandparents was classified as EMPTY the moment the migration ran, and
+     _persistDrafts refused to save them. A family's grandparents, treated as
+     a version stamp. */
+  check("real sections under _legacyRemovedSections ARE content",
+    has({ _legacyRemovedSections: {
+            _version: "WO-INTAKE-IDENTITY-01", _capturedAt: "2026-09-18T00:00:00Z",
+            grandparents: [{ firstName: "Ervin", lastName: "Horne" }] },
+          _legacyMigrationVersion: "WO-INTAKE-IDENTITY-01" }) === true,
+    "the blank-PUT guard would refuse to save a narrator whose grandparents " +
+    "were the only thing entered");
+
+  check("a `_` container holding only bookkeeping scalars is still not content",
+    has({ _legacyRemovedSections: { _version: "x", _capturedAt: "y" } }) === false);
+
+  check("a `_` container is descended into, not named",
+    C._isBookkeepingKey("_anyFutureContainer", { grandparents: [] }) === false &&
+    C._isBookkeepingKey("_anyFutureStamp", "v2") === true,
+    "the rule is about the VALUE's shape, so the next migration that invents " +
+    "a container does not reopen this");
 }
 
 /* ── the conflict branch asks the DEEP function ───────────────────────── */
