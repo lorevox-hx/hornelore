@@ -1072,10 +1072,38 @@ def _label_item(x: Any) -> str:
 #
 #  pendingSuggestions is deliberately NOT in this table. An unreviewed
 #  candidate is not a fact at any tier, so it has no tier to be given.
+#
+#  TIERS 2 AND 3 HAVE NO PRODUCER TODAY, and saying so is the point.
+#
+#  The first version of this table mapped source "correction" to
+#  document_sourced. That was wrong, and wrong in the direction that matters:
+#  apply_correction has exactly one caller (chat_ws.py:5093, the correction
+#  turn-mode) and its input is a MODEL'S PARSE of something the narrator said
+#  in conversation — "we only had two children, not three". No document is
+#  involved at any point, and grepping the projection layer finds no writer
+#  that produces a documentary value at all.
+#
+#  So the provenance system would have taken a model inference and stamped it
+#  document_sourced, which is the precise distinction the repair exists to
+#  create. A vocabulary that invents authority is worse than no vocabulary.
+#
+#  What the code can ACTUALLY distinguish today is three things:
+#    a person typed it into a form        -> operator_entered
+#    a machine parsed it from speech      -> model_inferred
+#    it was copied from another store     -> seeded
+#
+#  narrator_stated (the narrator's own assertion, unmediated) and
+#  document_sourced (evidence from a document) are real categories and stay
+#  defined, because they are what a future writer should claim. Nothing maps
+#  to them, so nothing can claim them by accident. A genuinely documentary
+#  correction path must introduce its own source string rather than reuse
+#  "correction", which now means only "a model's reading of a correction".
 _PROJECTION_TIERS: Dict[str, "tuple[int, str]"] = {
     "human_edit":         (1, "operator_entered"),
-    "interview":          (2, "narrator_stated"),
-    "correction":         (3, "document_sourced"),
+    # (2, "narrator_stated")  — reserved, no producer
+    # (3, "document_sourced") — reserved, no producer
+    "interview":          (4, "model_inferred"),
+    "correction":         (4, "model_inferred"),
     "backend_extract":    (4, "model_inferred"),
     "backend_correction": (4, "model_inferred"),
     "projection":         (4, "model_inferred"),
@@ -1084,10 +1112,28 @@ _PROJECTION_TIERS: Dict[str, "tuple[int, str]"] = {
     "profile_seed":       (5, "seeded"),
 }
 _PROJECTION_TIER_UNKNOWN = (4, "model_inferred")
+_PROJECTION_TIER_OPERATOR = (1, "operator_entered")
 
 
 def _projection_provenance(entry: Dict[str, Any]) -> Dict[str, Any]:
-    """Provenance for one projection field, preserved across the read boundary.
+    """What a projection field CLAIMS about its own origin.
+
+    Read this name carefully: it reports an ASSERTION, not an established
+    fact about who typed something. Every gate that protects provenance lives
+    in ui/js/projection-sync.js — the trusted-source allowlist (:323-325), the
+    lock check (:212-215), the confidence gate (:256-266). The server stores
+    field objects opaquely (db.py:7074) and validates nothing; `mutations` is
+    typed Dict[str, Any] (routers/projection.py:74). Any client may claim
+    source "human_edit" on any path.
+
+    That is tolerable while every writer is our own UI and the stakes are a
+    prompt bucket. It is NOT a sufficient basis for "Lori may state this as an
+    established fact about a living person". Server-assigned provenance —
+    stamped from the route that received the write rather than taken from the
+    payload — is WO-BIOGRAPHY-CONFIRMATION-MODEL-01, step 2.
+
+    Until then, a consumer deciding whether to assert something to a narrator
+    should treat tier 1 as "claimed by a client to be operator-entered".
 
     Everything but `value` used to be discarded here, so nothing downstream
     could distinguish an operator's typing from a model's guess. An unknown
@@ -1099,11 +1145,22 @@ def _projection_provenance(entry: Dict[str, Any]) -> Dict[str, Any]:
     src = entry.get("source")
     src = src.strip() if isinstance(src, str) else ""
     rank, tier = _PROJECTION_TIERS.get(src, _PROJECTION_TIER_UNKNOWN)
-    # `locked` is set by the browser only for human_edit (projection-sync.js:286).
-    # Honour it as corroboration, never as a promotion on its own.
+
+    # LOCKED MEANS A PERSON CLAIMED THIS FIELD, whatever wrote it last.
+    #
+    # This used to promote only when `source` was empty, which contradicted
+    # WO-BIOGRAPHY-READ-CONTRACT-01 ("human_edit OR locked") and was reachable:
+    # projection_writer preserves `locked` while stamping source "correction",
+    # so a correction that restates a value the operator already typed produced
+    # locked=True + source="correction" — classified model_inferred, silently
+    # demoting an operator's claim to the tier of a machine's guess.
+    #
+    # A later writer only got to touch a locked field by not conflicting with
+    # it. The claim stands. And `locked` is exactly as client-asserted as
+    # source == "human_edit" is, so honouring both equally adds no new trust.
     locked = bool(entry.get("locked"))
-    if locked and rank > 1 and src == "":
-        rank, tier = _PROJECTION_TIERS["human_edit"]
+    if locked:
+        rank, tier = _PROJECTION_TIER_OPERATOR
     return {
         "source": src or "unknown",
         "tier": tier,

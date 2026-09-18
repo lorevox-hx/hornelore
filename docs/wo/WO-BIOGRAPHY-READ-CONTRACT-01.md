@@ -74,22 +74,36 @@ resolved for a consumer.
 
 ### Tier order, highest authority first
 
-    1. OPERATOR ENTERED     source == "human_edit", or locked == true
+    1. OPERATOR ENTERED     source == "human_edit", OR locked == true
                             Someone deliberately typed this into Bio Builder.
-                            The questionnaire is the record of what they
-                            entered and remains authoritative for that claim.
+                            `locked` counts on its own and is STICKY: a later
+                            writer only got to touch a locked field by not
+                            conflicting with it, so the claim stands even
+                            though the last `source` names that writer. It is
+                            exactly as client-asserted as source ==
+                            "human_edit" is, so honouring both adds no new
+                            trust.
 
-    2. NARRATOR STATED      source == "interview"
-                            The narrator said it in conversation.
+    2. NARRATOR STATED      RESERVED. No producer today.
+                            The narrator's own assertion, unmediated. Every
+                            "the narrator said it" path in the codebase is a
+                            MACHINE PARSE of speech, so nothing may claim this
+                            tier yet.
 
-    3. DOCUMENT SOURCED     source == "correction" arising from evidence,
-                            and bio_facts status == "document_sourced"
+    3. DOCUMENT SOURCED     RESERVED. No producer today.
+                            Evidence from a document. Nothing in the
+                            projection layer produces one; `document_authority`
+                            writes bio_facts, not projections.
 
-    4. MODEL INFERRED       source in {"backend_extract", "projection",
-                            "backend_correction"}
+    4. MODEL INFERRED       interview, backend_extract, backend_correction,
+                            projection, correction
+                            A machine's reading. `correction` belongs here:
+                            apply_correction has one caller (chat_ws.py:5093,
+                            the correction turn-mode) and its input is a
+                            model's parse of something said in conversation.
+                            No document is involved.
 
-    5. SEEDED / HYDRATED    source in {"preload", "profile_hydrate",
-                            "profile_seed"}
+    5. SEEDED / HYDRATED    preload, profile_hydrate, profile_seed
                             Derived from another store; never authority over
                             its own source.
 
@@ -97,6 +111,22 @@ resolved for a consumer.
     any tier. It must never resolve as a value. It may be OFFERED to a
     consumer that knows it is a suggestion; it may not be flattened into the
     fact namespace.
+
+### Why two tiers are deliberately empty
+
+The first version of this contract mapped `correction` to document_sourced,
+and the implementation then classified a model's parse of a conversational
+correction as documentary evidence. That is the exact distinction this whole
+repair exists to create, inverted.
+
+What the code can actually distinguish today is three things: a person typed
+it, a machine parsed it, or it was copied from another store. Tiers 2 and 3
+stay DEFINED because they are what a future writer should claim, and stay
+EMPTY so nothing claims them by accident.
+
+A genuinely documentary correction path must introduce its own source string.
+It must not reuse "correction", which now means only "a model's reading of a
+correction".
 
 ### Resolution
 

@@ -72,12 +72,26 @@ class ProvenanceTierTests(unittest.TestCase):
         self.assertEqual(p["tier_rank"], 1)
         self.assertTrue(p["locked"])
 
-    def test_narrator_statement_outranks_a_model_guess(self):
-        said = self.pc._projection_provenance(_field("Superior", "interview"))
-        guessed = self.pc._projection_provenance(_field("Duluth", "backend_extract"))
-        self.assertLess(said["tier_rank"], guessed["tier_rank"])
-        self.assertEqual(said["tier"], "narrator_stated")
-        self.assertEqual(guessed["tier"], "model_inferred")
+    def test_a_typed_answer_outranks_any_machine_reading(self):
+        """The one distinction the code can actually make.
+
+        This test used to assert that `interview` outranked `backend_extract`
+        — narrator_stated above model_inferred. That was an invented
+        distinction: `interview` is the BROWSER'S heuristic parse of speech
+        (interview.js:1116) and `backend_extract` is the SERVER'S model parse
+        of the same speech (interview.js:1631). Neither is the narrator
+        asserting anything unmediated. Ranking one above the other implied a
+        confidence the code cannot support.
+
+        What remains true, and is the whole point: a person typing into a form
+        outranks every machine reading of a conversation."""
+        typed = self.pc._projection_provenance(_field("Superior", "human_edit", locked=True))
+        for machine_src in ("interview", "backend_extract", "backend_correction",
+                            "correction", "projection"):
+            with self.subTest(source=machine_src):
+                parsed = self.pc._projection_provenance(_field("Duluth", machine_src))
+                self.assertLess(typed["tier_rank"], parsed["tier_rank"])
+                self.assertEqual(parsed["tier"], "model_inferred")
 
     def test_an_unknown_source_is_not_trusted(self):
         """`source` is client-asserted; the server stores it opaquely
@@ -90,6 +104,53 @@ class ProvenanceTierTests(unittest.TestCase):
         p = self.pc._projection_provenance(_field("Superior", "profile_hydrate"))
         self.assertEqual(p["tier"], "seeded")
         self.assertEqual(p["tier_rank"], 5)
+
+    def test_locked_is_operator_tier_whatever_wrote_it_last(self):
+        """THE CONTRACT/CODE DISAGREEMENT, found in review 2026-09-18.
+
+        The contract says `human_edit OR locked` is tier 1; the code promoted
+        only when `source` was empty. And this exact shape is produced by
+        projection_writer: a correction restating a value the operator already
+        typed falls through the defer guard to the apply branch, which
+        preserves `locked` and stamps source "correction".
+
+        Classifying that as model_inferred silently demotes an operator's
+        claim to the tier of a machine's guess."""
+        p = self.pc._projection_provenance(
+            _field("Superior, Wisconsin", "correction", locked=True))
+        self.assertEqual(p["tier"], "operator_entered")
+        self.assertEqual(p["tier_rank"], 1)
+        self.assertEqual(p["source"], "correction",
+                         "the last writer is still reported; only the tier is stickier")
+
+    def test_locked_survives_every_source_string(self):
+        for src in ("correction", "backend_extract", "interview",
+                    "profile_hydrate", "something_invented", ""):
+            with self.subTest(source=src):
+                p = self.pc._projection_provenance(_field("x", src, locked=True))
+                self.assertEqual(p["tier_rank"], 1,
+                                 f"locked demoted by source={src!r}")
+
+    def test_a_model_parsed_correction_is_NOT_document_sourced(self):
+        """`apply_correction` has one caller — chat_ws.py:5093, the correction
+        turn-mode — and its input is a model's parse of something said in
+        conversation. No document is involved at any point.
+
+        The first tier table mapped "correction" to document_sourced, so the
+        provenance system would have stamped a model inference as documentary
+        evidence. That is the distinction this whole repair exists to create,
+        inverted."""
+        p = self.pc._projection_provenance(_field("Duluth", "correction"))
+        self.assertEqual(p["tier"], "model_inferred")
+        self.assertNotEqual(p["tier"], "document_sourced")
+
+    def test_no_source_can_claim_the_reserved_tiers(self):
+        """narrator_stated and document_sourced stay DEFINED because they are
+        what a future writer should claim, and EMPTY so nothing claims them by
+        accident. If a producer is added, it must be added deliberately here."""
+        claimed = {tier for _rank, tier in self.pc._PROJECTION_TIERS.values()}
+        self.assertNotIn("document_sourced", claimed)
+        self.assertNotIn("narrator_stated", claimed)
 
 
 class SuggestionIsNotAFactTests(unittest.TestCase):
