@@ -1326,6 +1326,56 @@
      and _renderActiveTab).  They receive callbacks for re-rendering.
   ─────────────────────────────────────────────────────────── */
 
+  /* ── Save result banner ──────────────────────────────────────────────
+     BUG-BIO-QUESTIONNAIRE-SILENT-SAVE-FAILURE-01.
+
+     Deliberately asymmetric. Success is a quiet, self-dismissing line;
+     failure is loud, stays on screen until the next save, and always says
+     where the work currently lives. The operator is entering a parent's
+     biography from memory and from paper — the cost of a missed failure is
+     retyping an afternoon, or never noticing at all. */
+  function _reportSaveOutcome(section, pid) {
+    var label = (section && section.label) || "section";
+    var core = window.LorevoxBioBuilderCore;
+    if (!core || typeof core._qqSaveOutcome !== "function") return;
+    core._qqSaveOutcome().then(function (res) {
+      res = res || { ok: false, outcome: "unknown", message: "Save outcome unknown." };
+      var el = document.getElementById("bbSaveStatus");
+      if (!el) {
+        el = document.createElement("div");
+        el.id = "bbSaveStatus";
+        el.setAttribute("role", "status");
+        el.setAttribute("aria-live", "polite");
+        el.style.cssText =
+          "position:fixed;left:50%;transform:translateX(-50%);bottom:24px;z-index:99999;" +
+          "max-width:min(680px,92vw);padding:12px 16px;border-radius:8px;" +
+          "font:14px/1.45 system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.28);";
+        document.body.appendChild(el);
+      }
+      if (res.ok) {
+        el.style.background = "#123d1d";
+        el.style.color = "#d8f5e0";
+        el.style.border = "1px solid #2f7d4a";
+        el.textContent = label + " saved. " + (res.message || "");
+        el.hidden = false;
+        clearTimeout(el._t);
+        el._t = setTimeout(function () { el.hidden = true; }, 4000);
+      } else {
+        // Failure does not time out. A banner that disappears is a banner
+        // that can be missed, and being missed is the entire defect.
+        el.style.background = "#4a1113";
+        el.style.color = "#ffd9dc";
+        el.style.border = "1px solid #a3272d";
+        el.textContent = "NOT SAVED — " + label + ". " + (res.message || "") +
+          " Your answers are still in this browser and will reappear if you reload.";
+        el.hidden = false;
+        clearTimeout(el._t);
+        console.error("[bb-qq] save failed for " + String(pid).slice(0, 8) +
+          " outcome=" + res.outcome, res);
+      }
+    });
+  }
+
   function _saveSection(sectionId, closeCallback) {
     var section = SECTIONS.find(function (s) { return s.id === sectionId; });
     if (!section) return;
@@ -1391,7 +1441,20 @@
 
     // Phase 1.3: Step 3 — persist narrator-scoped state to localStorage AFTER in-memory update
     var pid = _currentPersonId();
-    if (pid) _persistDrafts(pid);
+    if (pid) {
+      _persistDrafts(pid);
+      // BUG-BIO-QUESTIONNAIRE-SILENT-SAVE-FAILURE-01.
+      //
+      // This line used to be the whole of "saving". _persistDrafts returned
+      // nothing, the PUT was fire-and-forget, and the function carried on to
+      // re-render — so a refusal, a 409 and a dead server all looked exactly
+      // like success. On 2026-09-17 a live narrator's six typed values stayed
+      // in localStorage while the form showed them saved, and the only trace
+      // was a console warning nobody was watching.
+      //
+      // Nothing may tell the operator this was saved until the server says so.
+      _reportSaveOutcome(section, pid);
+    }
 
     // Phase 2.5: debug snapshot after save
     _qqDebugSnapshot("save_section:" + sectionId, pid, bb);

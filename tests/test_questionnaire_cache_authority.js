@@ -119,34 +119,78 @@ check("empty server + local content raises conflict rather than adopting",
 check("adopting the server document sets server",
   /bb\.questionnaire\s*=\s*sections;[\s\S]{0,300}?_setQqHydration\("server"/.test(beBlock));
 
-/* ── the writer is gated ────────────────────────────────────────────── */
-const persistIdx = CODE.indexOf("function _persistDrafts(pid)");
-const persistBlock = CODE.slice(persistIdx, persistIdx + 5000);
-const gateIdx = persistBlock.search(/_qqHydration\s*!==\s*["']server["']/);
-const putIdx = persistBlock.indexOf("API.BB_QQ_PUT");
+/* ── the writer is gated ──────────────────────────────────────────────
 
-check("_persistDrafts refuses the PUT unless hydration is server",
-  gateIdx !== -1);
+   BUG-BIO-QUESTIONNAIRE-SILENT-SAVE-FAILURE-01 moved the gate. It used to
+   live inline in _persistDrafts, where the decision was made SYNCHRONOUSLY
+   against a hydration state that the GET _saveSection had just started had
+   not yet settled — so the first save on any new narrator was refused by a
+   race. The gate now lives in _persistQuestionnaire, after awaiting the
+   settle, and returns an outcome the UI is required to show.
+
+   These three checks previously sliced 5000 characters from the front of
+   _persistDrafts and searched the window. That is proximity slicing, which
+   has produced false failures three times in this work; brace-match the
+   functions instead and ask each one the question that belongs to it. The
+   REQUIREMENT is unchanged: never transmit what we could not first read,
+   and never discard the operator's typing when refusing. */
+function fnBody(src, decl) {
+  const i = src.indexOf(decl);
+  if (i === -1) return "";
+  let depth = 0, started = false;
+  for (let j = i; j < src.length; j++) {
+    if (src[j] === "{") { depth++; started = true; }
+    else if (src[j] === "}") { depth--; if (started && depth === 0) return src.slice(i, j + 1); }
+  }
+  return "";
+}
+
+const persistBlock = fnBody(CODE, "function _persistDrafts(pid)");
+const putBlock     = fnBody(CODE, "function _persistQuestionnaire(pid, qq)");
+const gateIdx = putBlock.search(/state\s*!==\s*["']server["']/);
+const putIdx  = putBlock.indexOf("API.BB_QQ_PUT");
+
+check("the save path refuses the PUT unless hydration is server",
+  gateIdx !== -1,
+  "the fail-closed rule must survive the move out of _persistDrafts");
 
 check("the refusal is checked BEFORE the PUT is reached",
   gateIdx !== -1 && putIdx !== -1 && gateIdx < putIdx);
 
+check("the gate reads a SETTLED hydration state, not a racing one",
+  /_qqHydrationSettled\(pid\)\.then\(function \(state\)/.test(putBlock),
+  "reading _qqHydration synchronously refused every first save on a new " +
+  "narrator, because _saveSection restores immediately beforehand");
+
 check("a refused save still keeps the draft in localStorage",
-  /_qqHydration\s*!==\s*["']server["'][\s\S]{0,1400}?localStorage\.setItem\(_LS_QQ_PREFIX/.test(persistBlock),
-  "refusing to transmit must not also discard what the operator typed");
+  /_writeQqDraft\(pid, qq\)/.test(persistBlock) &&
+  persistBlock.indexOf("_writeQqDraft(pid, qq)") < persistBlock.indexOf("_persistQuestionnaire("),
+  "refusing to transmit must not also discard what the operator typed — the " +
+  "draft is now written BEFORE the PUT is attempted, so every failure path " +
+  "keeps it");
 
 /* ── MUTATIONS THAT MUST BREAK THIS SUITE ───────────────────────────────
    Verified 2026-09-17 against mutated copies via LV_BBCORE_JS:
 
-     1. the _persistDrafts gate disabled            -> 4 checks fail
      2. the cache path claiming "server"            -> 3 checks fail
      3. the default changed to "server"             -> 2 checks fail
      4. "conflict" downgraded to "server"           -> 2 checks fail
      5. the reset-on-switch removed                 -> 2 checks fail
      6. the empty-server branch bypassed            -> 4 checks fail
 
-   If a future edit makes any of these pass, this suite has stopped testing
-   the thing it is named after. */
+   Mutation 1 was "the _persistDrafts gate disabled -> 4 checks fail". The
+   gate moved to _persistQuestionnaire in
+   BUG-BIO-QUESTIONNAIRE-SILENT-SAVE-FAILURE-01, so it was re-run against the
+   new location and re-counted rather than left as a stale prediction:
+
+     1a. the hydration gate disabled (if (false))    -> 2 checks fail
+     1b. the draft no longer written before the PUT  -> 1 check  fails
+     1c. the gate reading a racing state instead of
+         the settled one                             -> 1 check  fails
+
+   Counts are those observed by the run that verified them. If a future edit
+   makes any of these pass, this suite has stopped testing the thing it is
+   named after. */
 
 console.log(failures === 0
   ? "\n  all checks passed\n"

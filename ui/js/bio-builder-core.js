@@ -129,6 +129,255 @@
   var _LS_QC_PREFIX    = "lorevox_qc_draft_";
   var _LS_DRAFT_INDEX  = "lorevox_draft_pids";
 
+  /* ═══════════════════════════════════════════════════════════════════════
+     BUG-BIO-QUESTIONNAIRE-NEW-NARRATOR-SAVE-LOCK-01  (2026-09-17)
+
+     WHAT WENT WRONG
+
+       Every narrator with no server questionnaire was locked out of saving,
+       permanently, from the moment the form loaded. Observed live on a
+       disposable narrator: hydration reached "server" correctly at 16:40:16,
+       then moved to "conflict" at 16:40:18 — four minutes before the operator
+       typed anything. Six typed values lived only in localStorage while the
+       UI gave no sign anything was wrong.
+
+     WHY
+
+       The conflict branch asked _hasAnyValue(bb.questionnaire). That helper
+       is SHALLOW:
+
+           Object.keys(obj).some(k => obj[k] && String(obj[k]).trim() !== "")
+
+       For a document shaped { personal: {...} } the value is an object, and
+       String({}) === "[object Object]" — a non-empty string. So ANY section
+       key counted as operator content:
+
+           {}                                  -> false
+           { personal: {} }                    -> TRUE
+           { personal: { fullName: "" } }      -> TRUE
+
+       Hydration itself creates that shape. So "the server says empty while
+       this browser holds a draft with content" was true for every new
+       narrator before a single keystroke.
+
+     THE FIX HERE
+
+       _hasOperatorContent — a DEEP check that means what the conflict branch
+       always intended: is there a value a person typed? Blank strings are not
+       content, and neither is bookkeeping. `_legacyMigrationVersion` and
+       `_legacyRemovedSections` are written by the identity migration; they
+       are the program talking to itself, and counting them as the operator's
+       work is how a housekeeping marker came to veto a save.
+
+     WHAT IS DELIBERATELY NOT WEAKENED
+
+       The conflict guard exists for a real event: on 2026-09-15 a draft
+       outlived a full database erasure and restore, because the key is
+       lorevox_qq_draft_<pid> and narrator ids survive export verbatim.
+       Adopting that draft would have resurrected erased data disguised as an
+       ordinary save. That draft held REAL ANSWERS, so it still trips the
+       guard after this change, and still requires a deliberate decision. An
+       old draft is never promoted to authoritative on its own.
+
+       A draft-provenance scheme was drafted here and removed. It would have
+       distinguished never-persisted typing from previously-server-backed
+       data, which sounds appealing but solves a problem this bug does not
+       have: once the first save lands, the server is no longer empty and the
+       branch cannot fire. The narrower fix is the correct one.
+
+     THE SECOND, INDEPENDENT DEFECT — see _persistQuestionnaire below
+
+       Fixing detection alone does NOT make the first save land. _saveSection
+       calls _restoreQuestionnaire, which resets hydration to "unhydrated" and
+       starts the GET WITHOUT awaiting it; _persistDrafts then runs
+       synchronously, reads a state the in-flight GET has not yet settled, and
+       refuses. Re-restoring on save is legitimate — it is how save guarantees
+       fresh canonical state — but it must be awaited, not raced.
+  ═══════════════════════════════════════════════════════════════════════ */
+
+  /* Bookkeeping the program writes for itself. Not operator content, and
+     never the basis for deciding a person has unsaved work. */
+  function _isBookkeepingKey(k) {
+    return typeof k === "string" && k.charAt(0) === "_";
+  }
+
+  /* Deep: does this document hold a value a person actually entered?
+
+     Distinct from _hasAnyValue below, which is a shallow truthiness helper
+     used elsewhere for other purposes and left alone on purpose. The conflict
+     and blank-PUT decisions are about human work, so they ask this. */
+  function _hasOperatorContent(doc) {
+    if (doc === null || doc === undefined) return false;
+    if (typeof doc === "string") return doc.trim() !== "";
+    if (typeof doc === "number" || typeof doc === "boolean") return true;
+    if (Array.isArray(doc)) {
+      for (var i = 0; i < doc.length; i++) {
+        if (_hasOperatorContent(doc[i])) return true;
+      }
+      return false;
+    }
+    if (typeof doc === "object") {
+      var keys = Object.keys(doc);
+      for (var j = 0; j < keys.length; j++) {
+        if (_isBookkeepingKey(keys[j])) continue;
+        if (_hasOperatorContent(doc[keys[j]])) return true;
+      }
+      return false;
+    }
+    return false;
+  }
+
+  /* The draft is written on EVERY path, including every failure path. Losing
+     the operator's typing is the one outcome worse than refusing to save it. */
+  function _writeQqDraft(pid, doc) {
+    try {
+      localStorage.setItem(_LS_QQ_PREFIX + pid,
+        JSON.stringify({ v: DRAFT_SCHEMA_VERSION, d: doc }));
+      return true;
+    } catch (e) { return false; }
+  }
+
+  /* ── Hydration settle ────────────────────────────────────────────────
+     _restoreQuestionnaireFromBackend resolves this for the pid it answered
+     for. A save awaits it so it reads a settled state instead of racing the
+     GET it just started. Never rejects: a failed GET settles as "cache", and
+     the caller's job is to refuse the write, not to crash. */
+  var _qqSettle = Object.create(null);
+
+  function _qqHydrationSettled(pid) {
+    if (!pid) return Promise.resolve(_qqHydration);
+    if (!_qqSettle[pid]) {
+      _qqSettle[pid] = { promise: null, resolve: null };
+      _qqSettle[pid].promise = new Promise(function (res) { _qqSettle[pid].resolve = res; });
+    }
+    return _qqSettle[pid].promise;
+  }
+
+  function _qqMarkSettled(pid, state) {
+    if (!pid) return;
+    if (!_qqSettle[pid]) {
+      _qqSettle[pid] = { promise: Promise.resolve(state), resolve: null };
+      return;
+    }
+    if (_qqSettle[pid].resolve) {
+      _qqSettle[pid].resolve(state);
+      _qqSettle[pid].resolve = null;
+    }
+  }
+
+  /* A new restore for a pid opens a fresh settle gate, so a save started
+     after it waits for THAT read rather than an older resolved one. */
+  function _qqResetSettle(pid) {
+    if (!pid) return;
+    _qqSettle[pid] = { promise: null, resolve: null };
+    _qqSettle[pid].promise = new Promise(function (res) { _qqSettle[pid].resolve = res; });
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     BUG-BIO-QUESTIONNAIRE-SILENT-SAVE-FAILURE-01  (2026-09-17)
+
+     The questionnaire PUT was fire-and-forget:
+
+         fetch(API.BB_QQ_PUT, {...}).catch(e => console.warn(...));
+
+     Nothing was returned to the caller in the success path, the refusal path,
+     or the HTTP-error path. _saveSection therefore could not tell a confirmed
+     write from a refusal, a dead server, or a 409 from the merge layer — so it
+     re-rendered and the operator read silence as success. Six typed values sat
+     in localStorage for sixteen minutes while the UI showed a saved form.
+
+     A save that cannot fail visibly is not a save. This returns a promise of
+     an outcome, and the caller is expected to show it:
+
+       saved        the server accepted the bytes and echoed a revision
+       refused      hydration is not "server" — we will not write what we
+                    could not first read
+       conflict     409 from the merge layer; someone else changed these
+                    paths
+       http_error   the server answered, and said no
+       network      the server could not be reached at all
+       blocked      pid / active-narrator mismatch; never cross-write
+       blank        nothing in the document to save
+
+     Only "saved" may be reported to a person as saved.
+  ═══════════════════════════════════════════════════════════════════════ */
+
+  var _qqLastOutcome = null;
+
+  function _persistQuestionnaire(pid, qq) {
+    // Wait for the read to settle before deciding. _saveSection calls
+    // _restoreQuestionnaire immediately before this, which resets hydration
+    // to "unhydrated" and starts a GET; reading the state synchronously here
+    // raced that GET and refused every first save on a new narrator.
+    return _qqHydrationSettled(pid).then(function (state) {
+      if (state !== "server") {
+        var why = (state === "conflict")
+          ? "This browser holds unsaved answers for a narrator the server says has no questionnaire. That has to be resolved deliberately — saving would decide it silently."
+          : "The server could not be read, so it is not safe to write over it. Check the connection and reload, then save again.";
+        console.warn("[bb-core] REFUSED questionnaire PUT: hydration=" + state +
+          " for pid=" + pid.slice(0, 8) + " — " + why);
+        return {
+          ok: false, outcome: "refused", saved: false, hydration: state,
+          message: "Not saved. " + why
+        };
+      }
+      return fetch(API.BB_QQ_PUT, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          person_id: pid, questionnaire: qq,
+          source: "ui_save", version: DRAFT_SCHEMA_VERSION
+        })
+      }).then(function (r) {
+        return r.text().then(function (body) {
+          var j = null;
+          try { j = JSON.parse(body); } catch (e) {}
+          if (r.status === 409) {
+            var paths = (j && j.conflicting_paths) || [];
+            return {
+              ok: false, outcome: "conflict", saved: false, status: 409,
+              conflicting_paths: paths,
+              message: "Not saved — the server has newer answers for " +
+                (paths.length ? paths.length + " field(s)" : "this narrator") +
+                ". Reload to see them before saving again."
+            };
+          }
+          if (!r.ok) {
+            return {
+              ok: false, outcome: "http_error", saved: false, status: r.status,
+              message: "Not saved — the server refused the write (HTTP " + r.status + ")."
+            };
+          }
+          // Confirmed. This is the ONLY branch that may say saved.
+          return {
+            ok: true, outcome: "saved", saved: true, status: r.status,
+            revision: j && j.revision,
+            ignored_blank_paths: (j && j.ignored_blank_paths) || [],
+            message: "Saved" + (j && j.revision !== undefined ? " (revision " + j.revision + ")" : "") + "."
+          };
+        });
+      }).catch(function (e) {
+        console.warn("[bb-core] Backend QQ persist failed", e);
+        return {
+          ok: false, outcome: "network", saved: false,
+          message: "Not saved — could not reach the server. Your answers are kept in this browser; try again once it is back."
+        };
+      });
+    });
+  }
+
+  /* The last questionnaire save's outcome, as a promise. _persistDrafts has
+     around twenty callers across five modules, most of which persist family
+     tree or life threads and have no interest in the questionnaire; changing
+     its signature would touch all of them. Callers that DO care — the save
+     buttons — read this. */
+  function _qqSaveOutcome() {
+    return _qqLastOutcome || Promise.resolve({
+      ok: false, outcome: "none", saved: false,
+      message: "No questionnaire save has been attempted."
+    });
+  }
+
   function _persistDrafts(pid) {
     if (!pid) return;
     var bb = _bb(); if (!bb) return;
@@ -145,6 +394,10 @@
         console.warn("[bb-drift] _persistDrafts BLOCKED: pid=" + (pid || "").slice(0, 8) +
           " !== bb.personId=" + ((bb.personId || "").slice(0, 8) || "null") +
           " — refusing to persist to avoid cross-narrator contamination");
+        _qqLastOutcome = Promise.resolve({
+          ok: false, outcome: "blocked", saved: false,
+          message: "Not saved — the active narrator changed while saving. Reopen this narrator and save again."
+        });
       } else {
         var qq = bb.questionnaire;
         // BUG-FE-HYDRATION-CROSS-NARRATOR-LEAK-01 (2026-06-16):
@@ -156,74 +409,26 @@
         // the VALUES are empty, so the legacy "Object.keys(qq).length"
         // guard wouldn't catch this. Walk the values and refuse the
         // PUT when there's nothing but blanks.
-        var hasAnyValue = (function () {
-          if (!qq || typeof qq !== "object") return false;
-          var sections = Object.keys(qq);
-          for (var i = 0; i < sections.length; i++) {
-            var sec = qq[sections[i]];
-            if (!sec) continue;
-            if (typeof sec === "string" && sec.trim() !== "") return true;
-            if (typeof sec === "number") return true;
-            if (Array.isArray(sec)) {
-              for (var j = 0; j < sec.length; j++) {
-                var entry = sec[j];
-                if (entry && typeof entry === "object") {
-                  var keys = Object.keys(entry);
-                  for (var k = 0; k < keys.length; k++) {
-                    var v = entry[keys[k]];
-                    if (v && (typeof v !== "string" || v.trim() !== "")) return true;
-                  }
-                } else if (entry && (typeof entry !== "string" || entry.trim() !== "")) {
-                  return true;
-                }
-              }
-              continue;
-            }
-            if (typeof sec === "object") {
-              var keys2 = Object.keys(sec);
-              for (var k2 = 0; k2 < keys2.length; k2++) {
-                var v2 = sec[keys2[k2]];
-                if (v2 && (typeof v2 !== "string" || v2.trim() !== "")) return true;
-              }
-            }
-          }
-          return false;
-        })();
-        if (qq && Object.keys(qq).length > 0 && hasAnyValue && _qqHydration !== "server") {
-          // ── FAIL CLOSED: never write what we could not first read. ────
-          //
-          // BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01, browser-authority
-          // block. Without this gate, a questionnaire that reached memory
-          // from localStorage — because the backend GET failed, answered
-          // empty, or simply had not come back yet — was PUT to the server
-          // as though it were the operator's intent.
-          //
-          // The draft is still written to localStorage below so nothing
-          // the operator typed is lost; it just does not travel until we
-          // know what it would be travelling over.
-          console.warn("[bb-core] REFUSED questionnaire PUT: hydration=" + _qqHydration +
-            " for pid=" + pid.slice(0, 8) + " — the server was never successfully read" +
-            (_qqHydration === "conflict"
-              ? ". The server reports this narrator's questionnaire EMPTY while a local draft holds content; that must be resolved deliberately, not by saving."
-              : ". Reload once the server is reachable, then save."));
-          try {
-            localStorage.setItem(_LS_QQ_PREFIX + pid, JSON.stringify({ v: DRAFT_SCHEMA_VERSION, d: qq }));
-          } catch (e) {}
-        } else if (qq && Object.keys(qq).length > 0 && hasAnyValue) {
-          // Backend canonical save (fire-and-forget, non-blocking)
-          try {
-            fetch(API.BB_QQ_PUT, {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ person_id: pid, questionnaire: qq, source: "ui_save", version: DRAFT_SCHEMA_VERSION })
-            }).catch(function(e) { console.warn("[bb-core] Backend QQ persist failed", e); });
-          } catch (e) {}
-          // Transient localStorage fallback
-          localStorage.setItem(_LS_QQ_PREFIX + pid, JSON.stringify({ v: DRAFT_SCHEMA_VERSION, d: qq }));
+        // Was a 30-line inline copy of this walk, which had drifted from the
+        // one the conflict branch used — two "is there anything here" answers
+        // that could disagree about the same document. One function now, and
+        // it ignores bookkeeping keys, so the identity migration's markers no
+        // longer read as a reason to PUT (or to refuse one).
+        var hasAnyValue = _hasOperatorContent(qq);
+        // The draft is written FIRST, on every path. Whatever the server
+        // does next, the operator's typing survives a refresh.
+        if (qq && Object.keys(qq).length > 0) _writeQqDraft(pid, qq);
+
+        if (qq && Object.keys(qq).length > 0 && hasAnyValue) {
+          _qqLastOutcome = _persistQuestionnaire(pid, qq);
         } else if (qq && Object.keys(qq).length > 0) {
           console.warn("[bb-drift] _persistDrafts SKIPPED PUT: questionnaire " +
             "has keys but every field is empty — refusing to clobber " +
             "canonical truth with blanks (pid=" + pid.slice(0, 8) + ")");
+          _qqLastOutcome = Promise.resolve({
+            ok: false, outcome: "blank", saved: false,
+            message: "Nothing to save — every field in this questionnaire is empty."
+          });
         }
       }
       // Phase M: persist Quick Capture inbox
@@ -365,6 +570,10 @@
     // writing THIS one's cached draft — the same defect arriving through
     // the switch instead of the read.
     _setQqHydration("unhydrated", "restore started for " + String(pid).slice(0, 8));
+    // Open a FRESH settle gate for this read. A save started after this
+    // restore must wait for THIS answer, not be released by a stale one
+    // resolved by an earlier restore of the same narrator.
+    _qqResetSettle(pid);
     if (!pid) { bb.questionnaire = {}; return bb.questionnaire; }
 
     // Phase G: Try backend first (async, fire-and-forget for sync callers)
@@ -421,19 +630,29 @@
      If any guard fails, log [bb-drift] and discard the response.
   ─────────────────────────────────────────────────────────── */
   function _restoreQuestionnaireFromBackend(pid) {
-    if (!pid || typeof API === "undefined" || !API.BB_QQ_GET) return;
+    if (!pid || typeof API === "undefined" || !API.BB_QQ_GET) {
+      // Nothing will ever answer for this pid, so anything awaiting the gate
+      // must be released rather than left hanging. It settles as the CURRENT
+      // state, which is not "server", so a waiting save still refuses.
+      _qqMarkSettled(pid, _qqHydration);
+      return;
+    }
     var stampedGen = _narratorSwitchGen;
     var stampedPid = pid;
     fetch(API.BB_QQ_GET(pid))
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (j) {
-        if (!j) return;
-        var bb = _bb(); if (!bb) return;
+        // EVERY exit below settles the gate. A save that awaits hydration and
+        // is never released would hang with the operator's work unsaved and
+        // no message — which is the failure this whole repair exists to end.
+        if (!j) { _qqMarkSettled(stampedPid, _qqHydration); return; }
+        var bb = _bb(); if (!bb) { _qqMarkSettled(stampedPid, _qqHydration); return; }
         // Guard A: switch generation
         if (_narratorSwitchGen !== stampedGen) {
           console.warn("[bb-drift] backend QQ response DISCARDED: narrator switch happened during fetch " +
             "(stampedGen=" + stampedGen + " currentGen=" + _narratorSwitchGen + " stampedPid=" +
             stampedPid.slice(0, 8) + ")");
+          _qqMarkSettled(stampedPid, _qqHydration);
           return;
         }
         // Guard B: in-memory pid
@@ -441,12 +660,14 @@
           console.warn("[bb-drift] backend QQ response DISCARDED: bb.personId moved during fetch " +
             "(stampedPid=" + stampedPid.slice(0, 8) + " bb.personId=" +
             ((bb.personId || "").slice(0, 8) || "null") + ")");
+          _qqMarkSettled(stampedPid, _qqHydration);
           return;
         }
         // Guard C: backend echoed person_id matches request
         if (j.person_id && j.person_id !== stampedPid) {
           console.warn("[bb-drift] backend QQ response DISCARDED: response.person_id mismatch " +
             "(requested=" + stampedPid.slice(0, 8) + " response=" + (j.person_id || "").slice(0, 8) + ")");
+          _qqMarkSettled(stampedPid, _qqHydration);
           return;
         }
         // THE SERVER ANSWERED. That is true even when the answer is "this
@@ -459,7 +680,21 @@
           var localHas = (function () {
             try {
               var cur = bb.questionnaire;
-              return !!(cur && typeof cur === "object" && _hasAnyValue(cur));
+              // BUG-BIO-QUESTIONNAIRE-NEW-NARRATOR-SAVE-LOCK-01.
+              //
+              // This asked _hasAnyValue, which is shallow: it stringifies
+              // each top-level value, and String({}) is "[object Object]" —
+              // a non-empty string. So { personal: {} } counted as content,
+              // and hydration CREATES that shape. Every narrator without a
+              // server questionnaire was therefore declared to be holding an
+              // unsaved draft before a key was pressed, and locked out of
+              // saving for the life of the page.
+              //
+              // _hasOperatorContent walks to the leaves and ignores the
+              // bookkeeping the migration writes for itself. The question
+              // this branch needs answered has always been "did a person
+              // type something here", and now that is the question it asks.
+              return !!(cur && typeof cur === "object" && _hasOperatorContent(cur));
             } catch (e) { return false; }
           })();
           if (localHas) {
@@ -470,13 +705,15 @@
             // erased data under the name of an ordinary save, so writes are
             // refused until somebody decides on purpose.
             _setQqHydration("conflict",
-              "server reports EMPTY while a local draft holds content");
+              "server reports EMPTY while a local draft holds real answers");
+            _qqMarkSettled(stampedPid, "conflict");
             console.warn("[bb-core] questionnaire CONFLICT for " + stampedPid.slice(0, 8) +
               ": the server has no questionnaire for this narrator, but this browser " +
               "holds a draft with content. Saving is refused. The draft is still in " +
               "localStorage under " + _LS_QQ_PREFIX + stampedPid + " if it is wanted.");
           } else {
             _setQqHydration("server", "server confirms this narrator has no questionnaire");
+            _qqMarkSettled(stampedPid, "server");
           }
           return;
         }
@@ -489,6 +726,7 @@
           // The server answered with content and we have adopted it. This is
           // the only state in which a save may travel.
           _setQqHydration("server", "adopted the server document");
+          _qqMarkSettled(stampedPid, "server");
           // WO-BIO-QUESTIONNAIRE-BIO-FACTS-MIGRATE-01 Phase 2 — capture
           // the per-field {status, source} metadata so the renderer can
           // surface status badges + a filled-skip counter. Legacy blob
@@ -510,9 +748,15 @@
           // mirror write so it only warns on real persistence drift.
           _qqDebugSnapshot("restore_backend", stampedPid, bb);
         }
+        // Any shape that reached here without an explicit settle above.
+        _qqMarkSettled(stampedPid, _qqHydration);
       })
       .catch(function (e) {
         console.warn("[bb-core] Backend QQ restore failed (using localStorage fallback)", e);
+        // The GET failed. Hydration stays "cache" or "unhydrated" — either
+        // way not "server" — so a waiting save will refuse and SAY SO.
+        // Releasing the gate is what turns a hang into a message.
+        _qqMarkSettled(stampedPid, _qqHydration);
       });
   }
 
@@ -1769,6 +2013,16 @@
     // refused: "unhydrated" / "cache" = the server was never read;
     // "conflict" = the server says empty while this browser holds a draft.
     _qqHydrationState:        _qqHydrationState,
+    _qqHydrationSettled:      _qqHydrationSettled,
+
+    // BUG-BIO-QUESTIONNAIRE-SILENT-SAVE-FAILURE-01 — a save button must be
+    // able to find out what actually happened.
+    _qqSaveOutcome:           _qqSaveOutcome,
+
+    // BUG-BIO-QUESTIONNAIRE-NEW-NARRATOR-SAVE-LOCK-01 — deep content test.
+    // Exported so the regression suite can drive it directly with the exact
+    // documents that locked a live narrator out of saving.
+    _hasOperatorContent:      _hasOperatorContent,
 
     // View state (shared mutable object — submodules read/write directly)
     _viewState:               _viewState
