@@ -242,35 +242,114 @@
      for. A save awaits it so it reads a settled state instead of racing the
      GET it just started. Never rejects: a failed GET settles as "cache", and
      the caller's job is to refuse the write, not to crash. */
+  /* Each gate carries the TOKEN of the read that opened it.
+
+     BUG-BIO-QUESTIONNAIRE-STALE-SETTLE-01 (2026-09-18) — this settled by
+     narrator id alone. Restores overlap routinely: _sectionFillCount calls
+     the canonical restore during render, and _saveSection calls it again
+     immediately before saving. With two GETs in flight for one narrator, the
+     FIRST response released the SECOND read's gate, and a save waiting on the
+     newer read proceeded on the older answer. Worst case it reads "server"
+     from a response that predates an erasure.
+
+     A response may now only settle the gate it belongs to. A late response
+     from a superseded read is ignored, exactly as its document already is by
+     guards A/B/C. */
   var _qqSettle = Object.create(null);
+  var _qqReadToken = 0;
+
+  function _qqOpenGate(pid) {
+    var token = ++_qqReadToken;
+    var gate = { token: token, promise: null, resolve: null };
+    gate.promise = new Promise(function (res) { gate.resolve = res; });
+    _qqSettle[pid] = gate;
+    return token;
+  }
 
   function _qqHydrationSettled(pid) {
     if (!pid) return Promise.resolve(_qqHydration);
-    if (!_qqSettle[pid]) {
-      _qqSettle[pid] = { promise: null, resolve: null };
-      _qqSettle[pid].promise = new Promise(function (res) { _qqSettle[pid].resolve = res; });
-    }
+    if (!_qqSettle[pid]) _qqOpenGate(pid);
     return _qqSettle[pid].promise;
   }
 
-  function _qqMarkSettled(pid, state) {
+  function _qqMarkSettled(pid, state, token) {
     if (!pid) return;
-    if (!_qqSettle[pid]) {
-      _qqSettle[pid] = { promise: Promise.resolve(state), resolve: null };
+    var gate = _qqSettle[pid];
+    if (!gate) {
+      _qqSettle[pid] = { token: token || 0, promise: Promise.resolve(state), resolve: null };
       return;
     }
-    if (_qqSettle[pid].resolve) {
-      _qqSettle[pid].resolve(state);
-      _qqSettle[pid].resolve = null;
+    // A superseded read must not release a newer read's gate.
+    if (token !== undefined && gate.token !== token) {
+      console.warn("[bb-drift] stale settle IGNORED for " + String(pid).slice(0, 8) +
+        " (response token=" + token + " current gate=" + gate.token + ")");
+      return;
+    }
+    if (gate.resolve) {
+      gate.resolve(state);
+      gate.resolve = null;
     }
   }
 
+  /* ── Which empty server are we looking at? ────────────────────────────
+     BUG-BIO-QUESTIONNAIRE-FIRST-SAVE-IMPOSSIBLE-01 (2026-09-18)
+
+     With detection fixed, the guard still made the first save on a fresh
+     narrator logically impossible:
+
+         to save you must have typed something
+         typed content + empty server = conflict
+         conflict = refuse
+
+     _saveSection re-restores before saving. The GET truthfully answers
+     "this narrator has no questionnaire", the operator's new typing is in
+     memory, and the branch fires. Observed live on ZZ WALKTHROUGH: a correct
+     red banner, and a save that could never succeed no matter how many times
+     it was attempted.
+
+     The erasure case and this one differ in a fact we already hold. On
+     2026-09-15 the page LOADED holding a draft of real answers and only then
+     learned the server was empty — the content predates the knowledge, so it
+     might be resurrected data. Here we confirmed the server was empty FIRST,
+     with nothing in memory, and the content arrived afterwards by hand. Work
+     typed after a confirmed-empty read cannot be a resurrection of anything.
+
+     So: remember, per narrator and only for this page session, that we have
+     already seen this narrator's questionnaire confirmed empty while holding
+     nothing. A later empty answer for that narrator is then the same empty we
+     already accepted, not a new discovery that should veto the operator's
+     afternoon.
+
+     Deliberately session-scoped and in memory. It is not written to
+     localStorage, so it cannot itself outlive an erasure — which is the
+     property that made the draft dangerous in the first place. A page reload
+     between typing and saving clears it, and that genuinely ambiguous case
+     goes back to conflict, where it belongs. */
+  var _qqServerConfirmedEmpty = Object.create(null);
+
+  /* ── Uncommitted operator edits ───────────────────────────────────────
+     BUG-BIO-QUESTIONNAIRE-GET-CLOBBERS-EDITS-01.
+
+     Set when a form commits typed values into bb.questionnaire; cleared when
+     a save is CONFIRMED by the server. While set, an arriving server document
+     is not allowed to replace what is in memory.
+
+     Distinct from "there is content in memory", which a localStorage draft
+     also satisfies — and a stale draft must NOT be allowed to override a
+     newer server document. This flag means specifically: a person typed this,
+     here, since the last confirmed save. */
+  var _qqDirty = Object.create(null);
+
+  function _markQuestionnaireEdited(pid) {
+    if (pid) _qqDirty[pid] = true;
+  }
+
   /* A new restore for a pid opens a fresh settle gate, so a save started
-     after it waits for THAT read rather than an older resolved one. */
+     after it waits for THAT read rather than an older resolved one. Returns
+     the token the read must quote when it settles. */
   function _qqResetSettle(pid) {
-    if (!pid) return;
-    _qqSettle[pid] = { promise: null, resolve: null };
-    _qqSettle[pid].promise = new Promise(function (res) { _qqSettle[pid].resolve = res; });
+    if (!pid) return 0;
+    return _qqOpenGate(pid);
   }
 
   /* ═══════════════════════════════════════════════════════════════════════
@@ -304,7 +383,10 @@
 
   var _qqLastOutcome = null;
 
-  function _persistQuestionnaire(pid, qq) {
+  function _persistQuestionnaire(pid, qq, ticket) {
+    // Every outcome is stamped with the operation it belongs to, so a
+    // caller can refuse an answer about somebody else's save.
+    var _stamp = function (o) { o.pid = pid; o.ticket = ticket; return o; };
     // Wait for the read to settle before deciding. _saveSection calls
     // _restoreQuestionnaire immediately before this, which resets hydration
     // to "unhydrated" and starts a GET; reading the state synchronously here
@@ -316,10 +398,10 @@
           : "The server could not be read, so it is not safe to write over it. Check the connection and reload, then save again.";
         console.warn("[bb-core] REFUSED questionnaire PUT: hydration=" + state +
           " for pid=" + pid.slice(0, 8) + " — " + why);
-        return {
+        return _stamp({
           ok: false, outcome: "refused", saved: false, hydration: state,
           message: "Not saved. " + why
-        };
+        });
       }
       return fetch(API.BB_QQ_PUT, {
         method: "PUT",
@@ -334,47 +416,105 @@
           try { j = JSON.parse(body); } catch (e) {}
           if (r.status === 409) {
             var paths = (j && j.conflicting_paths) || [];
-            return {
+            return _stamp({
               ok: false, outcome: "conflict", saved: false, status: 409,
               conflicting_paths: paths,
               message: "Not saved — the server has newer answers for " +
                 (paths.length ? paths.length + " field(s)" : "this narrator") +
                 ". Reload to see them before saving again."
-            };
+            });
           }
           if (!r.ok) {
-            return {
+            return _stamp({
               ok: false, outcome: "http_error", saved: false, status: r.status,
               message: "Not saved — the server refused the write (HTTP " + r.status + ")."
-            };
+            });
           }
           // Confirmed. This is the ONLY branch that may say saved.
-          return {
-            ok: true, outcome: "saved", saved: true, status: r.status,
+          //
+          // Both flags are cleared HERE and nowhere else on the success path,
+          // because a confirmed write is the only event that makes either
+          // premise false: the edits are no longer uncommitted, and the
+          // server is no longer empty. Clearing them on an attempt rather
+          // than on a confirmation would discard the protection at exactly
+          // the moment a failed save needs it.
+          delete _qqDirty[pid];
+          delete _qqServerConfirmedEmpty[pid];
+          // The server distinguishes a write from a no-op — merge_whole_document
+          // returns write_applied:false when the incoming document is identical
+          // to the stored one, and deliberately does not burn a revision or an
+          // audit row on it. The UI was discarding that and reporting both
+          // cases as "Saved", so an operator could not tell whether their edit
+          // had actually gone in or whether the form had simply resubmitted
+          // what was already there. Say which happened.
+          var applied = !(j && j.write_applied === false);
+          return _stamp({
+            ok: true, saved: true, status: r.status,
+            outcome: applied ? "saved" : "nochange",
+            write_applied: applied,
             revision: j && j.revision,
             ignored_blank_paths: (j && j.ignored_blank_paths) || [],
-            message: "Saved" + (j && j.revision !== undefined ? " (revision " + j.revision + ")" : "") + "."
-          };
+            message: applied
+              ? ("Saved" + (j && j.revision !== undefined ? " (revision " + j.revision + ")" : "") + ".")
+              : ("No changes to save — this section already matches what is stored" +
+                 (j && j.revision !== undefined ? " (revision " + j.revision + ")" : "") + ".")
+          });
         });
       }).catch(function (e) {
         console.warn("[bb-core] Backend QQ persist failed", e);
-        return {
+        return _stamp({
           ok: false, outcome: "network", saved: false,
           message: "Not saved — could not reach the server. Your answers are kept in this browser; try again once it is back."
-        };
+        });
       });
     });
   }
 
-  /* The last questionnaire save's outcome, as a promise. _persistDrafts has
-     around twenty callers across five modules, most of which persist family
-     tree or life threads and have no interest in the questionnaire; changing
-     its signature would touch all of them. Callers that DO care — the save
-     buttons — read this. */
+  /* The last questionnaire save's outcome, as a promise.
+
+     _persistDrafts has around twenty callers across five modules, most of
+     which persist family tree or life threads and have no interest in the
+     questionnaire; changing its signature would touch all of them. Callers
+     that DO care — the save buttons — read this.
+
+     THE HAZARD, and why the ticket below exists. This is ONE shared slot. Two
+     overlapping saves and the second overwrites the first's outcome, so a
+     banner can report a result belonging to a different save. Raised in
+     review 2026-09-18; not observed in Chrome, but it is a real property of
+     the code and the comment above was a justification for convenience, not
+     an argument that it is safe.
+
+     Mitigated here rather than left to luck: every outcome now carries the
+     pid and a monotonic ticket, and `_qqSaveOutcomeFor(pid, ticket)` refuses
+     to hand back an outcome that does not belong to the operation asking.
+     A caller that asks for its own ticket cannot be told about someone
+     else's save. */
+  var _qqSaveTicket = 0;
+
   function _qqSaveOutcome() {
     return _qqLastOutcome || Promise.resolve({
       ok: false, outcome: "none", saved: false,
       message: "No questionnaire save has been attempted."
+    });
+  }
+
+  /* Ask about YOUR save, not the most recent one.
+
+     Returns the outcome only if the slot still holds the operation identified
+     by `ticket` for `pid`. If a newer save has replaced it, this reports
+     "superseded" rather than another operation's verdict — the caller then
+     says nothing rather than something confidently wrong about work it did
+     not do. */
+  function _qqSaveOutcomeFor(pid, ticket) {
+    return _qqSaveOutcome().then(function (res) {
+      if (!res || res.ticket === undefined) return res;
+      if (res.ticket !== ticket || (pid && res.pid && res.pid !== pid)) {
+        return {
+          ok: false, outcome: "superseded", saved: false, ticket: ticket,
+          message: "This save was overtaken by a newer one; its result is not known."
+        };
+      }
+      return res;
     });
   }
 
@@ -395,6 +535,7 @@
           " !== bb.personId=" + ((bb.personId || "").slice(0, 8) || "null") +
           " — refusing to persist to avoid cross-narrator contamination");
         _qqLastOutcome = Promise.resolve({
+          pid: pid, ticket: ++_qqSaveTicket,
           ok: false, outcome: "blocked", saved: false,
           message: "Not saved — the active narrator changed while saving. Reopen this narrator and save again."
         });
@@ -420,12 +561,13 @@
         if (qq && Object.keys(qq).length > 0) _writeQqDraft(pid, qq);
 
         if (qq && Object.keys(qq).length > 0 && hasAnyValue) {
-          _qqLastOutcome = _persistQuestionnaire(pid, qq);
+          _qqLastOutcome = _persistQuestionnaire(pid, qq, ++_qqSaveTicket);
         } else if (qq && Object.keys(qq).length > 0) {
           console.warn("[bb-drift] _persistDrafts SKIPPED PUT: questionnaire " +
             "has keys but every field is empty — refusing to clobber " +
             "canonical truth with blanks (pid=" + pid.slice(0, 8) + ")");
           _qqLastOutcome = Promise.resolve({
+            pid: pid, ticket: ++_qqSaveTicket,
             ok: false, outcome: "blank", saved: false,
             message: "Nothing to save — every field in this questionnaire is empty."
           });
@@ -573,13 +715,13 @@
     // Open a FRESH settle gate for this read. A save started after this
     // restore must wait for THIS answer, not be released by a stale one
     // resolved by an earlier restore of the same narrator.
-    _qqResetSettle(pid);
+    var _readToken = _qqResetSettle(pid);
     if (!pid) { bb.questionnaire = {}; return bb.questionnaire; }
 
     // Phase G: Try backend first (async, fire-and-forget for sync callers)
     // The backend load is async so we start it and also load localStorage
     // as immediate fallback. When backend responds it overwrites if non-empty.
-    _restoreQuestionnaireFromBackend(pid);
+    _restoreQuestionnaireFromBackend(pid, _readToken);
 
     // Immediate: read transient localStorage draft
     try {
@@ -629,12 +771,12 @@
        (c) the backend response's person_id field equals the requested pid.
      If any guard fails, log [bb-drift] and discard the response.
   ─────────────────────────────────────────────────────────── */
-  function _restoreQuestionnaireFromBackend(pid) {
+  function _restoreQuestionnaireFromBackend(pid, readToken) {
     if (!pid || typeof API === "undefined" || !API.BB_QQ_GET) {
       // Nothing will ever answer for this pid, so anything awaiting the gate
       // must be released rather than left hanging. It settles as the CURRENT
       // state, which is not "server", so a waiting save still refuses.
-      _qqMarkSettled(pid, _qqHydration);
+      _qqMarkSettled(pid, _qqHydration, readToken);
       return;
     }
     var stampedGen = _narratorSwitchGen;
@@ -645,14 +787,14 @@
         // EVERY exit below settles the gate. A save that awaits hydration and
         // is never released would hang with the operator's work unsaved and
         // no message — which is the failure this whole repair exists to end.
-        if (!j) { _qqMarkSettled(stampedPid, _qqHydration); return; }
-        var bb = _bb(); if (!bb) { _qqMarkSettled(stampedPid, _qqHydration); return; }
+        if (!j) { _qqMarkSettled(stampedPid, _qqHydration, readToken); return; }
+        var bb = _bb(); if (!bb) { _qqMarkSettled(stampedPid, _qqHydration, readToken); return; }
         // Guard A: switch generation
         if (_narratorSwitchGen !== stampedGen) {
           console.warn("[bb-drift] backend QQ response DISCARDED: narrator switch happened during fetch " +
             "(stampedGen=" + stampedGen + " currentGen=" + _narratorSwitchGen + " stampedPid=" +
             stampedPid.slice(0, 8) + ")");
-          _qqMarkSettled(stampedPid, _qqHydration);
+          _qqMarkSettled(stampedPid, _qqHydration, readToken);
           return;
         }
         // Guard B: in-memory pid
@@ -660,14 +802,14 @@
           console.warn("[bb-drift] backend QQ response DISCARDED: bb.personId moved during fetch " +
             "(stampedPid=" + stampedPid.slice(0, 8) + " bb.personId=" +
             ((bb.personId || "").slice(0, 8) || "null") + ")");
-          _qqMarkSettled(stampedPid, _qqHydration);
+          _qqMarkSettled(stampedPid, _qqHydration, readToken);
           return;
         }
         // Guard C: backend echoed person_id matches request
         if (j.person_id && j.person_id !== stampedPid) {
           console.warn("[bb-drift] backend QQ response DISCARDED: response.person_id mismatch " +
             "(requested=" + stampedPid.slice(0, 8) + " response=" + (j.person_id || "").slice(0, 8) + ")");
-          _qqMarkSettled(stampedPid, _qqHydration);
+          _qqMarkSettled(stampedPid, _qqHydration, readToken);
           return;
         }
         // THE SERVER ANSWERED. That is true even when the answer is "this
@@ -697,23 +839,39 @@
               return !!(cur && typeof cur === "object" && _hasOperatorContent(cur));
             } catch (e) { return false; }
           })();
-          if (localHas) {
+          if (localHas && _qqServerConfirmedEmpty[stampedPid]) {
+            // We already established, earlier in THIS page session and while
+            // holding nothing, that this narrator has no questionnaire. The
+            // content in memory therefore arrived after that read — it was
+            // typed, not resurrected. Same empty server, already accepted.
+            _setQqHydration("server",
+              "server still reports empty; the content in memory was typed after we confirmed that");
+            _qqMarkSettled(stampedPid, "server", readToken);
+          } else if (localHas) {
             // The dangerous case, and the reason this state exists. On
             // 2026-09-15 a draft outlived a full database erasure and
             // restore: the key is lorevox_qq_draft_<pid> and narrator ids
             // survive export/restore verbatim. Adopting it would resurrect
             // erased data under the name of an ordinary save, so writes are
             // refused until somebody decides on purpose.
+            //
+            // Reached when the page arrived ALREADY holding this content —
+            // the content predates our knowledge of the server, so it cannot
+            // be vouched for.
             _setQqHydration("conflict",
               "server reports EMPTY while a local draft holds real answers");
-            _qqMarkSettled(stampedPid, "conflict");
+            _qqMarkSettled(stampedPid, "conflict", readToken);
             console.warn("[bb-core] questionnaire CONFLICT for " + stampedPid.slice(0, 8) +
               ": the server has no questionnaire for this narrator, but this browser " +
               "holds a draft with content. Saving is refused. The draft is still in " +
               "localStorage under " + _LS_QQ_PREFIX + stampedPid + " if it is wanted.");
           } else {
             _setQqHydration("server", "server confirms this narrator has no questionnaire");
-            _qqMarkSettled(stampedPid, "server");
+            // Confirmed empty while holding NOTHING. Anything typed from here
+            // on is this operator's own work, and a later empty answer for
+            // this narrator must not be read as a fresh discovery.
+            _qqServerConfirmedEmpty[stampedPid] = true;
+            _qqMarkSettled(stampedPid, "server", readToken);
           }
           return;
         }
@@ -721,12 +879,44 @@
           // Unwrap { v, d } envelope if present — backend stores { v:1, d:{sections} }
           // but bb.questionnaire expects flat sections { personal:{}, parents:[], ... }
           var sections = (q.d && typeof q.d === "object" && !Array.isArray(q.d)) ? q.d : q;
-          // Only overwrite if backend has data (backend authority rule)
-          bb.questionnaire = sections;
+
+          // The server has a questionnaire, so an earlier "confirmed empty"
+          // for this narrator is now false and must not keep authorising
+          // anything. Left set, it would vouch for a localStorage draft after
+          // a server-side erasure — the 2026-09-15 case, re-opened by a stale
+          // flag. Clear it the moment the premise stops holding.
+          delete _qqServerConfirmedEmpty[stampedPid];
+
+          // BUG-BIO-QUESTIONNAIRE-GET-CLOBBERS-EDITS-01 (2026-09-18)
+          //
+          // This was an unconditional `bb.questionnaire = sections`. Every
+          // restore that found a server document replaced whatever was in
+          // memory — including edits the operator had typed while the GET was
+          // in flight. _saveSection restores immediately before saving, so
+          // the window is not theoretical: type, save, and the GET could land
+          // between the two and quietly drop the edit.
+          //
+          // It matters most for records that ALREADY have a server document,
+          // which is every real narrator. The new-narrator case never reached
+          // this branch, which is why two days of testing on an empty record
+          // never showed it.
+          //
+          // When the operator has uncommitted edits we keep THEIR document and
+          // still record a successful read. Nothing is lost server-side by
+          // doing so: merge_whole_document applies an incoming document as
+          // mutations with no removals, so sections absent from the operator's
+          // copy are left standing rather than deleted.
+          if (_qqDirty[stampedPid] && _hasOperatorContent(bb.questionnaire)) {
+            console.warn("[bb-core] server document NOT adopted for " +
+              stampedPid.slice(0, 8) + ": this browser holds unsaved edits. " +
+              "Keeping them; the save will merge against canonical server-side.");
+          } else {
+            bb.questionnaire = sections;
+          }
           // The server answered with content and we have adopted it. This is
           // the only state in which a save may travel.
           _setQqHydration("server", "adopted the server document");
-          _qqMarkSettled(stampedPid, "server");
+          _qqMarkSettled(stampedPid, "server", readToken);
           // WO-BIO-QUESTIONNAIRE-BIO-FACTS-MIGRATE-01 Phase 2 — capture
           // the per-field {status, source} metadata so the renderer can
           // surface status badges + a filled-skip counter. Legacy blob
@@ -749,14 +939,14 @@
           _qqDebugSnapshot("restore_backend", stampedPid, bb);
         }
         // Any shape that reached here without an explicit settle above.
-        _qqMarkSettled(stampedPid, _qqHydration);
+        _qqMarkSettled(stampedPid, _qqHydration, readToken);
       })
       .catch(function (e) {
         console.warn("[bb-core] Backend QQ restore failed (using localStorage fallback)", e);
         // The GET failed. Hydration stays "cache" or "unhydrated" — either
         // way not "server" — so a waiting save will refuse and SAY SO.
         // Releasing the gate is what turns a hang into a message.
-        _qqMarkSettled(stampedPid, _qqHydration);
+        _qqMarkSettled(stampedPid, _qqHydration, readToken);
       });
   }
 
@@ -2018,11 +2208,18 @@
     // BUG-BIO-QUESTIONNAIRE-SILENT-SAVE-FAILURE-01 — a save button must be
     // able to find out what actually happened.
     _qqSaveOutcome:           _qqSaveOutcome,
+    _qqSaveOutcomeFor:        _qqSaveOutcomeFor,
+    _qqCurrentSaveTicket:     function () { return _qqSaveTicket; },
 
     // BUG-BIO-QUESTIONNAIRE-NEW-NARRATOR-SAVE-LOCK-01 — deep content test.
     // Exported so the regression suite can drive it directly with the exact
     // documents that locked a live narrator out of saving.
     _hasOperatorContent:      _hasOperatorContent,
+
+    // BUG-BIO-QUESTIONNAIRE-GET-CLOBBERS-EDITS-01 — a form declares that it
+    // has just committed typed values, so an arriving server document does
+    // not replace them.
+    _markQuestionnaireEdited:  _markQuestionnaireEdited,
 
     // View state (shared mutable object — submodules read/write directly)
     _viewState:               _viewState

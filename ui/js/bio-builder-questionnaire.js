@@ -1336,9 +1336,41 @@
      retyping an afternoon, or never noticing at all. */
   function _reportSaveOutcome(section, pid) {
     var label = (section && section.label) || "section";
-    var core = window.LorevoxBioBuilderCore;
-    if (!core || typeof core._qqSaveOutcome !== "function") return;
-    core._qqSaveOutcome().then(function (res) {
+    // `_core` — window.LorevoxBioBuilderModules.core — resolved at the top of
+    // this module, the same handle every other function here uses.
+    //
+    // This first read window.LorevoxBioBuilderCore, which does not exist. The
+    // guard below then returned silently, so the banner never rendered and a
+    // failed save was invisible AGAIN — the precise defect this function was
+    // added to end, reintroduced by the fix for it. Found only because the
+    // operator tried the namespace by hand in the console.
+    //
+    // Hence the loud branch: a reporting channel that fails quietly is worse
+    // than none, because it reads as "nothing went wrong".
+    if (!_core || typeof _core._qqSaveOutcome !== "function") {
+      console.error("[bb-qq] SAVE OUTCOME UNAVAILABLE — cannot confirm whether " +
+        label + " reached the server. Treat this save as unconfirmed.");
+      try { window.alert("Could not confirm whether \"" + label + "\" saved. " +
+        "Check the narrator before entering more."); } catch (e) {}
+      return;
+    }
+    // Ask about THIS save. _qqLastOutcome is a single shared slot, so with two
+    // overlapping saves the second replaces the first and a plain read would
+    // report a verdict belonging to a different operation — raised in review
+    // 2026-09-18. The ticket was taken by _persistDrafts a moment ago; if a
+    // newer save has since claimed the slot we are told "superseded" and say
+    // nothing, rather than something confident about work we did not do.
+    var _ticket = (typeof _core._qqCurrentSaveTicket === "function")
+      ? _core._qqCurrentSaveTicket() : undefined;
+    var _ask = (typeof _core._qqSaveOutcomeFor === "function")
+      ? _core._qqSaveOutcomeFor(pid, _ticket)
+      : _core._qqSaveOutcome();
+    _ask.then(function (res) {
+      if (res && res.outcome === "superseded") {
+        console.warn("[bb-qq] save outcome superseded for " + String(pid).slice(0, 8) +
+          " — a newer save claimed the slot; not reporting a result for this one.");
+        return;
+      }
       res = res || { ok: false, outcome: "unknown", message: "Save outcome unknown." };
       var el = document.getElementById("bbSaveStatus");
       if (!el) {
@@ -1353,21 +1385,46 @@
         document.body.appendChild(el);
       }
       if (res.ok) {
-        el.style.background = "#123d1d";
-        el.style.color = "#d8f5e0";
-        el.style.border = "1px solid #2f7d4a";
-        el.textContent = label + " saved. " + (res.message || "");
+        // A no-op is a success, but it is NOT the same event as a write, and
+        // an operator entering a biography needs to tell them apart — "did my
+        // edit go in, or did I just resubmit what was already there?". Green
+        // for a write, neutral for a no-op, and the revision number in both
+        // so it can be read off the screen rather than remembered.
+        var wrote = res.outcome !== "nochange";
+        el.style.background = wrote ? "#123d1d" : "#1e2633";
+        el.style.color      = wrote ? "#d8f5e0" : "#c9d4e4";
+        el.style.border     = "1px solid " + (wrote ? "#2f7d4a" : "#3d4d66");
+        el.textContent = wrote
+          ? (label + " saved. " + (res.message || ""))
+          : (label + " — " + (res.message || "no changes."));
         el.hidden = false;
         clearTimeout(el._t);
-        el._t = setTimeout(function () { el.hidden = true; }, 4000);
+        // Eight seconds, not four. The operator reported missing the
+        // confirmation entirely: "i did not get a chance to see the banner it
+        // was too quickly gone". A confirmation nobody reads confirms nothing.
+        el._t = setTimeout(function () { el.hidden = true; }, 8000);
       } else {
         // Failure does not time out. A banner that disappears is a banner
         // that can be missed, and being missed is the entire defect.
         el.style.background = "#4a1113";
         el.style.color = "#ffd9dc";
         el.style.border = "1px solid #a3272d";
+        // Wording matters here and was wrong once already.
+        //
+        // This said the answers "are still in this browser and will reappear
+        // if you reload". On 2026-09-17 a refused save left six typed values
+        // in localStorage; the machine was shut down overnight and they were
+        // gone by morning. localStorage is not durable storage — Chrome
+        // flushes it lazily, and a clear-on-exit setting discards it outright.
+        //
+        // Telling an operator their unsaved work is safe, when the only copy
+        // is in a browser that has not promised to keep it, is how somebody
+        // closes the laptop on an afternoon of a parent's history. Say what
+        // is true: it is held here for now, and it is not backed up.
         el.textContent = "NOT SAVED — " + label + ". " + (res.message || "") +
-          " Your answers are still in this browser and will reappear if you reload.";
+          " Your answers are held in this browser only and are NOT backed up — " +
+          "do not close the browser or shut down until this saves. For anything " +
+          "long, keep a copy outside Lorevox until it does.";
         el.hidden = false;
         clearTimeout(el._t);
         console.error("[bb-qq] save failed for " + String(pid).slice(0, 8) +
@@ -1420,14 +1477,44 @@
     if (section.repeatable) {
       var stored = getSectionData(bb.questionnaire, sectionId);
       var existing = Array.isArray(stored) ? stored : (stored ? [stored] : [{}]);
-      bb.questionnaire[sectionId] = existing.map(function (prev, idx) {
+
+      // BUG-BIO-QUESTIONNAIRE-SECOND-ENTRY-DROPPED-01 (2026-09-18)
+      //
+      // This mapped over `existing` — the STORED entries — and read the DOM
+      // by index. So the save could only ever see as many entries as storage
+      // already held. Enter a mother, save, add a father, save: the father's
+      // fields are on screen, filled, and `existing.length === 1`, so index 1
+      // is never visited. The entry is not rejected or reported; it is simply
+      // never looked at.
+      //
+      // Found live on ZZ WALKTHROUGH 20260917 — "why is the dad missing i did
+      // mom and then dad and then save parents only one is there".
+      //
+      // A form can only edit what it shows. It must also SAVE what it shows.
+      // Count the entries actually rendered and iterate those; storage is the
+      // base to merge onto, not the limit of what may be read.
+      var rendered = 0;
+      if (section.fields.length) {
+        var probe = section.fields[0].id;
+        while (_el("bbQ_" + rendered + "_" + probe)) rendered++;
+      }
+      var count = Math.max(existing.length, rendered);
+
+      var out = [];
+      for (var i = 0; i < count; i++) {
+        var prev = existing[i];
         var obj = (prev && typeof prev === "object") ? Object.assign({}, prev) : {};
-        section.fields.forEach(function (f) {
-          var el = _el("bbQ_" + idx + "_" + f.id);
-          if (el) obj[f.id] = el.value || "";
-        });
-        return obj;
-      });
+        /* eslint-disable no-loop-func */
+        (function (idx, target) {
+          section.fields.forEach(function (f) {
+            var el = _el("bbQ_" + idx + "_" + f.id);
+            if (el) target[f.id] = el.value || "";
+          });
+        })(i, obj);
+        /* eslint-enable no-loop-func */
+        out.push(obj);
+      }
+      bb.questionnaire[sectionId] = out;
     } else {
       var storedObj = getSectionData(bb.questionnaire, sectionId);
       var obj = (storedObj && typeof storedObj === "object" && !Array.isArray(storedObj))
@@ -1442,6 +1529,16 @@
     // Phase 1.3: Step 3 — persist narrator-scoped state to localStorage AFTER in-memory update
     var pid = _currentPersonId();
     if (pid) {
+      // BUG-BIO-QUESTIONNAIRE-GET-CLOBBERS-EDITS-01.
+      //
+      // The DOM values have just been committed into bb.questionnaire above.
+      // Say so, before anything async can start: a server GET landing from
+      // here on must not replace this document with canonical and drop what
+      // was typed. Records that already HAVE a server questionnaire — which
+      // is every real narrator — take that branch on every restore.
+      if (_core && typeof _core._markQuestionnaireEdited === "function") {
+        _core._markQuestionnaireEdited(pid);
+      }
       _persistDrafts(pid);
       // BUG-BIO-QUESTIONNAIRE-SILENT-SAVE-FAILURE-01.
       //
@@ -1513,17 +1610,38 @@
     }
 
     // Phase 2.2 Step 2: commit current DOM edits into canonical state
+    //
+    // BUG-BIO-QUESTIONNAIRE-SECOND-ENTRY-DROPPED-01: same shape as the save
+    // path — iterating the stored array means a rendered entry beyond its
+    // length is never read. Adding a third parent after two are stored would
+    // have dropped whatever was typed into the second while the button was
+    // clicked. Count what is on screen.
     if (section) {
       var entries = bb.questionnaire[sectionId];
-      entries.forEach(function (_, idx) {
-        section.fields.forEach(function (f) {
-          var el = _el("bbQ_" + idx + "_" + f.id);
-          if (el) {
-            if (!entries[idx]) entries[idx] = {};
-            entries[idx][f.id] = el.value || "";
-          }
-        });
-      });
+      var renderedN = 0;
+      if (section.fields.length) {
+        var probeId = section.fields[0].id;
+        while (_el("bbQ_" + renderedN + "_" + probeId)) renderedN++;
+      }
+      var total = Math.max(entries.length, renderedN);
+      for (var ei = 0; ei < total; ei++) {
+        if (!entries[ei]) entries[ei] = {};
+        /* eslint-disable no-loop-func */
+        (function (idx) {
+          section.fields.forEach(function (f) {
+            var el = _el("bbQ_" + idx + "_" + f.id);
+            if (el) entries[idx][f.id] = el.value || "";
+          });
+        })(ei);
+        /* eslint-enable no-loop-func */
+      }
+      // Declare the edits BEFORE the async GET started by the restore above
+      // can land. Without this, _qqDirty is false — the last successful save
+      // cleared it — and the adopt branch replaces this document with the
+      // server's, discarding a half-typed entry while it is still on screen.
+      if (pid && _core && typeof _core._markQuestionnaireEdited === "function") {
+        _core._markQuestionnaireEdited(pid);
+      }
     }
 
     // Phase 2.2 Step 3: persist canonical state (with committed DOM edits)

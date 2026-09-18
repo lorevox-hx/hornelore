@@ -72,12 +72,23 @@ check("the state is readable from outside the module",
   /_qqHydrationState/.test(CODE),
   "an operator must be able to ask why a save was refused");
 
-/* ── reset on narrator switch ───────────────────────────────────────── */
-const restoreIdx = CODE.indexOf("function _restoreQuestionnaire(pid)");
-check("_restoreQuestionnaire exists", restoreIdx !== -1);
-const restoreBlock = CODE.slice(restoreIdx, restoreIdx + 1800);
+/* ── reset on narrator switch ─────────────────────────────────────────
+
+   These used FIXED CHARACTER WINDOWS — slice(idx, idx + 1800), + 5200,
+   + 2000 — and a literal "_restoreQuestionnaireFromBackend(pid)" that stopped
+   matching when the function took a second parameter. Adding comments and a
+   token argument pushed the code these assertions look for outside their
+   windows, and five checks failed against CORRECT behaviour.
+
+   The block above this one already recorded that a fixed window had lied
+   once, and then chose a different fixed window. That is the whole lesson
+   missed: the problem is not the size, it is measuring source by distance.
+   Brace-match, everywhere, and match signatures by name only. */
+check("_restoreQuestionnaire exists",
+  CODE.indexOf("function _restoreQuestionnaire(pid)") !== -1);
+const restoreBlock = fnBody(CODE, "function _restoreQuestionnaire(");
 const resetIdx = restoreBlock.indexOf('_setQqHydration("unhydrated"');
-const backendCallIdx = restoreBlock.indexOf("_restoreQuestionnaireFromBackend(pid)");
+const backendCallIdx = restoreBlock.search(/_restoreQuestionnaireFromBackend\(/);
 check("hydration resets BEFORE the backend call",
   resetIdx !== -1 && backendCallIdx !== -1 && resetIdx < backendCallIdx,
   "otherwise the flag survives a narrator switch and authorises the NEXT " +
@@ -92,18 +103,10 @@ check("the localStorage path never claims server",
   "reading a draft is not hearing from the server");
 
 /* ── the backend response drives server / conflict ──────────────────── */
-const beIdx = CODE.indexOf("function _restoreQuestionnaireFromBackend(pid)");
-const beBlock = CODE.slice(beIdx, beIdx + 5200);
+const beBlock = fnBody(CODE, "function _restoreQuestionnaireFromBackend(");
+const emptyBlock = fnBody(beBlock, "if (serverEmpty) {");
 
-/* The empty-server branch, taken as a whole rather than by proximity — the
-   conflict arm carries a long console.warn, and an earlier version of this
-   assertion used a fixed character window that the warning pushed the `else`
-   out of. It failed against correct code, which is the worse kind of test
-   failure: it invites someone to "fix" working behaviour. */
-const emptyIdx = beBlock.indexOf("if (serverEmpty) {");
-const emptyBlock = emptyIdx === -1 ? "" : beBlock.slice(emptyIdx, emptyIdx + 2000);
-
-check("the empty-server branch exists and is explicit", emptyIdx !== -1,
+check("the empty-server branch exists and is explicit", emptyBlock !== "",
   "'the server says this narrator has nothing' needs its own branch — " +
   "falling through would make it indistinguishable from a failed read");
 
@@ -117,7 +120,18 @@ check("empty server + local content raises conflict rather than adopting",
   "a draft can outlive an erasure; adopting it would resurrect erased data");
 
 check("adopting the server document sets server",
-  /bb\.questionnaire\s*=\s*sections;[\s\S]{0,300}?_setQqHydration\("server"/.test(beBlock));
+  /bb\.questionnaire = sections;/.test(beBlock) &&
+  /_setQqHydration\("server", "adopted the server document"\)/.test(beBlock),
+  "the adopt path must record that it heard from the server");
+
+/* The adopt is now conditional — BUG-BIO-QUESTIONNAIRE-GET-CLOBBERS-EDITS-01.
+   An unconditional assignment replaced whatever was in memory, including
+   edits typed while the GET was in flight. This check exists so nobody
+   restores the unconditional form to make the assertion above simpler. */
+check("adopting does NOT clobber uncommitted operator edits",
+  /_qqDirty\[stampedPid\] && _hasOperatorContent\(bb\.questionnaire\)/.test(beBlock),
+  "every real narrator already has a server document, so this branch runs on " +
+  "every restore of a record that matters");
 
 /* ── the writer is gated ──────────────────────────────────────────────
 
@@ -145,8 +159,15 @@ function fnBody(src, decl) {
   return "";
 }
 
-const persistBlock = fnBody(CODE, "function _persistDrafts(pid)");
-const putBlock     = fnBody(CODE, "function _persistQuestionnaire(pid, qq)");
+/* Match declarations by NAME, never by full signature.
+
+   These named the whole parameter list. `_persistQuestionnaire(pid, qq)`
+   gained a `ticket` argument and three checks failed against correct code —
+   the same lesson as the fixed character windows above, one level up: any
+   assertion that depends on source staying textually still will eventually
+   report a failure that is not there. */
+const persistBlock = fnBody(CODE, "function _persistDrafts(");
+const putBlock     = fnBody(CODE, "function _persistQuestionnaire(");
 const gateIdx = putBlock.search(/state\s*!==\s*["']server["']/);
 const putIdx  = putBlock.indexOf("API.BB_QQ_PUT");
 
