@@ -42,6 +42,66 @@ built on it would speak with confidence about something nobody ever saved.
 **Repair:** a confirmed server save is the boundary. Everything that writes
 derived or authoritative state waits behind it; only rendering may run early.
 
+## 1b. Found by the harness on its first run — both fixed, both regressed
+
+**A server read overwrote the operator's DRAFT.** The dirty guard correctly
+declined to replace the in-memory document, but the localStorage mirror
+beneath it ran unconditionally. Memory held the typed value; the draft held
+the server's older copy. Worst on the path that matters most: when a save
+FAILS the operator is relying on the draft, and this was rewriting it
+underneath them. A reload then produced the overnight loss of 2026-09-17 all
+over again, with no error, because the save had already reported its failure
+honestly and the loss happened afterwards.
+(BUG-BIO-QUESTIONNAIRE-DRAFT-CLOBBERED-BY-GET-01)
+
+**A stale form cross-wrote another narrator.** `_saveSection` harvests the DOM
+by id; the cross-narrator guard compares the pid ARGUMENT with `bb.personId`,
+and after a switch those agree. Nothing checked that the rendered form
+belonged to the current narrator. The harness stored narrator A's mother under
+narrator B's id. The live app re-renders on switch, which is why this has not
+been seen — a timing accident, not a guarantee, and the cost of being wrong is
+one family's history filed under another's name. The form now carries the
+narrator it was rendered for and the save refuses, visibly, rather than
+merging afterwards.
+(BUG-BIO-QUESTIONNAIRE-STALE-FORM-CROSS-WRITE-01)
+
+## 1c. Open finding — the phantom family member
+
+Clicking "+ Add another parent" and saving stores an entry. `deceased` is a
+select defaulting to `"No"`, which is a populated leaf, so the record gains a
+parent whose only recorded fact is that they are not dead. It will render in
+the family tree.
+
+Not fixed here, because it wants a decision rather than a patch: what makes a
+repeatable entry real? A defaulted select is not an answer, but neither is a
+blanket "ignore defaults" rule — `deceased: "No"` IS meaningful when somebody
+chose it. Probable answer: an entry is real when at least one field the
+operator actually touched is non-empty, which needs the form to distinguish
+touched from defaulted.
+
+Covered by an assertion in test_bio_builder_save_sequences.js labelled as a
+known finding, so a change in the behaviour shows up as a test change rather
+than passing unnoticed.
+
+## 1d. Why `rendered > stored` is believed closed, and why the test stays
+
+`_renderSectionDetail` renders from memory, so rendered always equals memory.
+The only thing that shrank memory below the form was the adopt branch in
+`_restoreQuestionnaireFromBackend`, and `_qqDirty` now blocks it. On that
+reading the DIRTY fix closes the original data-loss path and the COUNT fix is
+defence in depth.
+
+Stated as a hypothesis, not a proof: it holds for the render / restore / add /
+save paths as they stand today, and has not been checked against every caller
+of `_persistDrafts` across the five modules that use it.
+
+So the count invariant keeps its own test, deliberately white-box and
+labelled as such — it constructs the mismatch rather than reaching it through
+the UI. Verified to fail when the count fix alone is reverted, with the dirty
+fix intact. If any future change re-opens a path that replaces memory
+mid-edit, that assertion is what stops an entry being dropped silently a
+second time.
+
 ## 2. Verify per section: two entries, not one
 
 Every repeatable section needs a two-entry round trip through the real form

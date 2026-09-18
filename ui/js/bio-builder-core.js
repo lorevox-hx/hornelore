@@ -927,10 +927,34 @@
           bb.questionnaire_source = j.source || "legacy_blob";
           console.log("[bb-core] ✅ Questionnaire restored from backend for " + stampedPid.slice(0, 8)
             + " (source=" + bb.questionnaire_source + ")");
-          // Update transient localStorage to match backend (wrap in { v, d } for localStorage format)
-          try {
-            localStorage.setItem(_LS_QQ_PREFIX + stampedPid, JSON.stringify({ v: DRAFT_SCHEMA_VERSION, d: sections }));
-          } catch (e) {}
+          // Update transient localStorage to match backend.
+          //
+          // BUG-BIO-QUESTIONNAIRE-DRAFT-CLOBBERED-BY-GET-01 (2026-09-18) —
+          // found by the behavioural harness, not by review or by hand.
+          //
+          // This mirror ran UNCONDITIONALLY, outside the dirty guard above.
+          // So a restore that correctly declined to replace the in-memory
+          // document still replaced the operator's DRAFT with the server's
+          // older copy. Memory held the typed value; localStorage held the
+          // stale one. The next reload restored the stale one, and the edit
+          // was gone — with no error, because the save had already reported
+          // its failure honestly and the loss happened afterwards.
+          //
+          // Worst on the path that matters most: a save that FAILS leaves the
+          // operator relying on the draft, and this is what was quietly
+          // rewriting it underneath them.
+          //
+          // Mirror the server copy only when we are not holding edits it
+          // would destroy. The draft belongs to the operator until a save is
+          // confirmed.
+          if (_qqDirty[stampedPid] && _hasOperatorContent(bb.questionnaire)) {
+            console.warn("[bb-core] draft mirror SKIPPED for " + stampedPid.slice(0, 8) +
+              ": this browser holds unsaved edits and the draft is the only copy of them.");
+          } else {
+            try {
+              localStorage.setItem(_LS_QQ_PREFIX + stampedPid, JSON.stringify({ v: DRAFT_SCHEMA_VERSION, d: sections }));
+            } catch (e) {}
+          }
           // BUG-BIO-BUILDER-FALSE-DRIFT-WARNING-01 (2026-07-07): the
           // snapshot used to run BEFORE the setItem above, so mem/disk
           // key comparison fired KEY MISMATCH on every backend restore

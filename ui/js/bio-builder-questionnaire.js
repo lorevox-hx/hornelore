@@ -1230,8 +1230,22 @@
       fieldsHtml = section.fields.map(function (f) { return _fieldHtml(f, "bbQ_" + f.id, q[f.id] || "", section.id); }).join("");
     }
 
+    /* BUG-BIO-QUESTIONNAIRE-STALE-FORM-CROSS-WRITE-01 (2026-09-18) \u2014
+       found by the behavioural harness.
+
+       Stamp the narrator this form was rendered for. _saveSection reads the
+       DOM; the cross-narrator guard in _persistDrafts compares the pid
+       ARGUMENT against bb.personId, and after a switch those agree \u2014 so a
+       save driven from a form still showing the PREVIOUS narrator wrote that
+       narrator's visible answers into the new one's record. Reproduced in the
+       harness: narrator A's mother was stored under narrator B's id.
+
+       The live app re-renders on switch, which is why this has not been seen.
+       That is a timing accident, not a guarantee, and the cost of being wrong
+       is one family's history appearing in another's record. */
     container.innerHTML =
-      '<div class="bb-section-nav"><button class="bb-ghost-btn bb-back-btn" onclick="window.LorevoxBioBuilder._closeSection()">\u2190 Back to Sections</button></div>'
+      '<input type="hidden" id="bbQ__renderedFor" value="' + _esc(pid || "") + '">'
+      + '<div class="bb-section-nav"><button class="bb-ghost-btn bb-back-btn" onclick="window.LorevoxBioBuilder._closeSection()">\u2190 Back to Sections</button></div>'
       + '<div class="bb-section-title">' + section.icon + " " + _esc(section.label) + '</div>'
       + '<p class="bb-hint-text">' + _esc(section.hint) + '</p>'
       + '<div class="bb-fields-list">' + fieldsHtml + '</div>'
@@ -1433,6 +1447,35 @@
     });
   }
 
+  /* A refusal the operator can see. BUG-BIO-QUESTIONNAIRE-STALE-FORM-CROSS-
+     WRITE-01: silently declining would be its own defect — the form would sit
+     there looking saved, which is the failure this whole repair exists to
+     end. Reuses the banner element so the message cannot be missed. */
+  function _reportStaleForm(section, renderedFor, activePid) {
+    var label = (section && section.label) || "section";
+    var el = document.getElementById("bbSaveStatus");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "bbSaveStatus";
+      el.setAttribute("role", "status");
+      el.setAttribute("aria-live", "polite");
+      el.style.cssText =
+        "position:fixed;left:50%;transform:translateX(-50%);bottom:24px;z-index:99999;" +
+        "max-width:min(680px,92vw);padding:12px 16px;border-radius:8px;" +
+        "font:14px/1.45 system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.28);";
+      document.body.appendChild(el);
+    }
+    el.style.background = "#4a1113";
+    el.style.color = "#ffd9dc";
+    el.style.border = "1px solid #a3272d";
+    el.textContent = "NOT SAVED — " + label + ". This form was opened for a " +
+      "different narrator than the one now active, so saving it would file " +
+      "one person's answers under another's name. Reopen the section for the " +
+      "current narrator. Nothing was written.";
+    el.hidden = false;
+    clearTimeout(el._t);
+  }
+
   function _saveSection(sectionId, closeCallback) {
     var section = SECTIONS.find(function (s) { return s.id === sectionId; });
     if (!section) return;
@@ -1441,6 +1484,24 @@
     // WO-INTAKE-IDENTITY-01: restore before migrate — symmetric with _addRepeatEntry
     // Covers code paths that invoke save without a prior render pass.
     var pid = _currentPersonId();
+
+    /* BUG-BIO-QUESTIONNAIRE-STALE-FORM-CROSS-WRITE-01.
+       Refuse to harvest a form that was rendered for a different narrator.
+       Everything below reads the DOM by id and writes it under `pid`; if the
+       narrator changed after this form was drawn, those values belong to
+       somebody else. The existing guard cannot catch it — it compares the pid
+       argument with bb.personId, and after a switch both are the NEW narrator.
+       Absent stamp means a legacy or programmatic call site, which is allowed
+       through rather than broken. */
+    var _stamp = _el("bbQ__renderedFor");
+    if (_stamp && pid && _stamp.value && _stamp.value !== pid) {
+      console.error("[bb-qq] SAVE REFUSED: this form was rendered for narrator " +
+        _stamp.value.slice(0, 8) + " but the active narrator is " + pid.slice(0, 8) +
+        ". Reopen the section for the current narrator before saving.");
+      _reportStaleForm(section, _stamp.value, pid);
+      return;
+    }
+
     if (pid) _restoreQuestionnaire(pid);
     if (bb && bb.questionnaire) {
       _migrateRemovedSectionsToLegacy(bb.questionnaire);
