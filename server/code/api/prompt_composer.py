@@ -1062,6 +1062,58 @@ def _label_item(x: Any) -> str:
     return str(x).strip()
 
 
+#  BUG-LORI-SUGGESTION-READS-AS-FACT-01 — the tier order from
+#  docs/wo/WO-BIOGRAPHY-READ-CONTRACT-01.md, as data.
+#
+#  Lower number = higher authority. A projection field carries `source` and
+#  `locked`; this turns those into the vocabulary the rest of the system can
+#  reason about, so a consumer can say "the operator typed this" rather than
+#  only "here is a string".
+#
+#  pendingSuggestions is deliberately NOT in this table. An unreviewed
+#  candidate is not a fact at any tier, so it has no tier to be given.
+_PROJECTION_TIERS: Dict[str, "tuple[int, str]"] = {
+    "human_edit":         (1, "operator_entered"),
+    "interview":          (2, "narrator_stated"),
+    "correction":         (3, "document_sourced"),
+    "backend_extract":    (4, "model_inferred"),
+    "backend_correction": (4, "model_inferred"),
+    "projection":         (4, "model_inferred"),
+    "preload":            (5, "seeded"),
+    "profile_hydrate":    (5, "seeded"),
+    "profile_seed":       (5, "seeded"),
+}
+_PROJECTION_TIER_UNKNOWN = (4, "model_inferred")
+
+
+def _projection_provenance(entry: Dict[str, Any]) -> Dict[str, Any]:
+    """Provenance for one projection field, preserved across the read boundary.
+
+    Everything but `value` used to be discarded here, so nothing downstream
+    could distinguish an operator's typing from a model's guess. An unknown
+    source resolves to model_inferred rather than to a trusted tier: the
+    `source` string is client-asserted and the server does not validate it
+    (db.py:7074 stores the field object opaquely), so an unrecognised value
+    is not evidence of authority.
+    """
+    src = entry.get("source")
+    src = src.strip() if isinstance(src, str) else ""
+    rank, tier = _PROJECTION_TIERS.get(src, _PROJECTION_TIER_UNKNOWN)
+    # `locked` is set by the browser only for human_edit (projection-sync.js:286).
+    # Honour it as corroboration, never as a promotion on its own.
+    locked = bool(entry.get("locked"))
+    if locked and rank > 1 and src == "":
+        rank, tier = _PROJECTION_TIERS["human_edit"]
+    return {
+        "source": src or "unknown",
+        "tier": tier,
+        "tier_rank": rank,
+        "locked": locked,
+        "confidence": entry.get("confidence"),
+        "ts": entry.get("ts") or entry.get("applied_at"),
+    }
+
+
 def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
     """Assemble the 9-bucket profile_seed dict from a narrator's profile_json.
 
@@ -1122,13 +1174,46 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
     # was effectively invisible to memory_echo.
     #
     # Bridge rule:
+    # Tier names and order: docs/wo/WO-BIOGRAPHY-READ-CONTRACT-01.md
     #   - canonical (profile_json) wins when present
     #   - provisional (projection_json fields + pendingSuggestions) fills
     #     empty buckets
     #   - both empty → bucket omitted (existing behavior preserved)
     #
     # No schema changes. No write-path changes. One read source added.
+    # ── BUG-LORI-SUGGESTION-READS-AS-FACT-01 (2026-09-18) ──────────────────
+    #
+    # This block used to merge `pendingSuggestions` into `provisional`
+    # alongside committed fields:
+    #
+    #     for fp, entry in proj_fields:   provisional[fp] = v.strip()
+    #     for sug in proj_suggestions:    provisional.setdefault(fp, v.strip())
+    #
+    # pendingSuggestions is the queue for UNTRUSTED writes to protected
+    # identity paths. projection-sync.js:238-247 deliberately diverts a
+    # model-inferred value there INSTEAD of writing it to the record, because
+    # nobody has confirmed it. The whole mechanism exists to keep a guess out
+    # of the biography until a person looks at it.
+    #
+    # Flattening the queue into the same dict as operator-typed values undid
+    # that at the last step. A model's unconfirmed guess about a narrator's
+    # birthplace reached the prompt indistinguishable from something the
+    # operator typed, and Lori would then state it back to the narrator as
+    # something she knew about them. The old comment acknowledged the
+    # suggestions were "awaiting operator review" and merged them regardless.
+    #
+    # A suggestion is not a fact at any tier. It may be OFFERED to a consumer
+    # that knows what it is; it may not resolve as a value.
+    # See docs/wo/WO-BIOGRAPHY-READ-CONTRACT-01.md.
+    #
+    # Provenance also used to die here: only entry["value"] was read, so
+    # source / locked / confidence never left the database and nothing
+    # downstream could tell operator-entered from model-inferred. The tier is
+    # now carried alongside, in a parallel map, so the ~10 existing
+    # `provisional.get(path)` call sites keep working unchanged.
     provisional: Dict[str, str] = {}
+    provisional_meta: Dict[str, Dict[str, Any]] = {}
+    suggested: Dict[str, str] = {}
     try:
         from .db import get_projection
         proj_blob = get_projection(person_id) or {}
@@ -1136,10 +1221,8 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
         proj_fields = proj_data.get("fields") or {}
         proj_suggestions = proj_data.get("pendingSuggestions") or []
 
-        # Flat lookup keyed by fieldPath → value. Fields take priority
-        # over suggestions for the same path (a field has been written
-        # to projection.fields by a trusted source while a suggestion
-        # is awaiting operator review; the field is more committed).
+        # COMMITTED FIELDS ONLY. One entry per path, so there is nothing to
+        # resolve between here — the tier is recorded, not adjudicated.
         if isinstance(proj_fields, dict):
             for fp, entry in proj_fields.items():
                 if not isinstance(entry, dict):
@@ -1147,22 +1230,29 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
                 v = entry.get("value")
                 if isinstance(v, str) and v.strip():
                     provisional[fp] = v.strip()
+                    provisional_meta[fp] = _projection_provenance(entry)
+
+        # SUGGESTIONS, kept apart. Not merged, not a fallback, not consulted
+        # by any of the bucket resolutions below. Carried so that a future
+        # consumer which can render "the model thinks X, nobody has confirmed
+        # it" has something to render; dropping them here would only move the
+        # problem to a place where they get silently re-added.
         if isinstance(proj_suggestions, list):
             for sug in proj_suggestions:
                 if not isinstance(sug, dict):
                     continue
                 fp = sug.get("fieldPath")
                 v = sug.get("value")
-                if not (isinstance(fp, str) and isinstance(v, str) and v.strip()):
-                    continue
-                # setdefault → suggestion only fills if field didn't already.
-                provisional.setdefault(fp, v.strip())
+                if isinstance(fp, str) and isinstance(v, str) and v.strip():
+                    suggested[fp] = v.strip()
     except Exception as exc:
         logger.warning(
             "[memory-echo][profile-seed] projection read failed for %s: %s",
             person_id, exc,
         )
         provisional = {}
+        provisional_meta = {}
+        suggested = {}
 
     # ── BUG-LORI-IDENTITY-CROSS-SESSION-NOT-PERSISTED-01 (2026-05-07) ──
     # Tertiary fallback to the `people` table (display_name + date_of_birth +

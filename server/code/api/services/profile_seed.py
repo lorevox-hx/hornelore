@@ -562,11 +562,24 @@ def _load_profile_root(con: sqlite3.Connection, person_id: str) -> Mapping[str, 
 
 def _load_projection_values(con: sqlite3.Connection,
                             person_id: str) -> Dict[str, Any]:
-    """Flatten `projection.fields` + `pendingSuggestions` to path -> value.
+    """Flatten committed `projection.fields` to path -> value.
 
     Unlike `_build_profile_seed`, values are kept at their real type.
     A projected `False` or `0` arrives here intact, which is the point.
-    Committed `fields` win over `pendingSuggestions` for the same path.
+
+    BUG-LORI-SUGGESTION-READS-AS-FACT-01 (2026-09-18): this also folded
+    `pendingSuggestions` in behind a `setdefault`, which is the same defect
+    the prompt composer had, in a second reader that nobody was looking at.
+
+    pendingSuggestions holds UNTRUSTED writes to protected identity paths —
+    projection-sync.js:238-247 diverts a model-inferred value there instead
+    of writing it to the record, precisely so that a guess does not become
+    biography before somebody confirms it. Reading it back as a value undid
+    that, and this reader feeds topic-answered decisions: an unreviewed guess
+    could mark a subject as already covered and stop Lori ever asking.
+
+    Committed fields only. A suggestion is not a fact at any tier; see
+    docs/wo/WO-BIOGRAPHY-READ-CONTRACT-01.md.
     """
     out: Dict[str, Any] = {}
     # NO `except sqlite3.Error` HERE — see STORAGE FAULTS ARE NOT ABSENCE.
@@ -589,14 +602,6 @@ def _load_projection_values(con: sqlite3.Connection,
             if isinstance(entry, Mapping) and "value" in entry:
                 out[str(path)] = entry["value"]
 
-    suggestions = proj.get("pendingSuggestions")
-    if isinstance(suggestions, (list, tuple)):
-        for sug in suggestions:
-            if not isinstance(sug, Mapping):
-                continue
-            path = sug.get("fieldPath")
-            if isinstance(path, str) and "value" in sug:
-                out.setdefault(path, sug["value"])
     return out
 
 

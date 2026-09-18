@@ -99,6 +99,13 @@ def apply_correction(
         "retracted": [],
         "skipped": [],
         "errors": [],
+        # BUG-PROJECTION-CORRECTION-OVERRIDES-OPERATOR-01: corrections aimed
+        # at operator-entered fields are not applied. They are queued as
+        # pendingSuggestions and listed here, so a caller can tell "the model
+        # proposed a change and it is waiting for a person" apart from both
+        # "applied" and "skipped". Declared up front rather than via
+        # setdefault so every caller sees the key whether or not it fired.
+        "deferred": [],
     }
     if not person_id:
         summary["errors"].append("missing_person_id")
@@ -157,12 +164,97 @@ def apply_correction(
                 "reason": "empty_value",
             })
             continue
+        # ── BUG-PROJECTION-CORRECTION-OVERRIDES-OPERATOR-01 (2026-09-18) ──
+        #
+        # This assigned a fresh dict unconditionally. Two defects in one line.
+        #
+        # (a) IT OVERRODE THE OPERATOR. A model-detected correction landing on
+        #     a path the operator had typed replaced it silently. `locked` is
+        #     set true for human_edit (projection-sync.js:286) and the browser
+        #     refuses lower-authority writes to a locked field
+        #     (projection-sync.js:212-215) — but that gate lives only in the
+        #     browser, and this is the server. An operator who entered their
+        #     mother's birthplace from a document could have it changed by a
+        #     model's reading of a sentence in conversation, with no record
+        #     that it happened.
+        #
+        # (b) IT ERASED THE AUDIT TRAIL. The replacement carried no `history`
+        #     and no `locked`, so the last-10 correction history
+        #     (projection-sync.js:268-278) was destroyed by exactly the writer
+        #     whose changes most need tracing, and the field silently lost its
+        #     operator-authority flag on the way through.
+        #
+        # What happens now when a model corrects a locked field: it does NOT
+        # apply. It is queued as a pendingSuggestion — the mechanism that
+        # already exists for untrusted writes to protected paths
+        # (projection-sync.js:238-247), with storage, an accept/dismiss UI
+        # (acceptSuggestion / dismissSuggestion, :588-639) and a review
+        # surface. The model may propose; the operator decides.
+        #
+        # See docs/wo/WO-BIOGRAPHY-READ-CONTRACT-01.md for the tier order.
+        prev = fields.get(canonical) if isinstance(fields.get(canonical), dict) else None
+        prev_locked = bool(prev.get("locked")) if prev else False
+        prev_source = (prev.get("source") or "") if prev else ""
+        operator_owned = prev_locked or prev_source == "human_edit"
+
+        if operator_owned and prev.get("value") != v_str:
+            # Propose, do not impose. One suggestion per path, newest wins,
+            # mirroring the browser's queue semantics (projection-sync.js:564).
+            pending = [
+                s for s in pending
+                if not (isinstance(s, dict) and s.get("fieldPath") == canonical)
+            ]
+            pending.append({
+                "fieldPath": canonical,
+                "value": v_str,
+                "confidence": 0.8,
+                "turnId": source_turn_id,
+                "ts": now,
+                "supersedes": prev.get("value"),
+                "reason": "correction_to_operator_entered_field",
+            })
+            summary["deferred"].append({
+                "field_path": canonical,
+                "value": v_str,
+                "current_value": prev.get("value"),
+                "reason": "operator_entered_field_not_overwritten",
+            })
+            logger.info(
+                "[projection-writer] correction DEFERRED for %s: %s is "
+                "operator-entered (locked=%s). Queued for review instead of "
+                "overwriting %r with %r.",
+                (person_id or "")[:8], canonical, prev_locked,
+                prev.get("value"), v_str,
+            )
+            continue
+
+        # Applying. Carry the previous entry's history forward and append the
+        # value being replaced, so a correction is traceable rather than a
+        # silent substitution. Capped at 10 to match the browser writer.
+        history = list(prev.get("history") or []) if prev else []
+        if prev and prev.get("value") not in (None, "", v_str):
+            history.append({
+                "value": prev.get("value"),
+                "source": prev.get("source"),
+                "turnId": prev.get("turnId") or prev.get("turn_id"),
+                "confidence": prev.get("confidence"),
+                "ts": prev.get("ts") or prev.get("applied_at"),
+            })
         fields[canonical] = {
             "value": v_str,
             "source": "correction",
             "confidence": "high",
             "turn_id": source_turn_id,
             "applied_at": now,
+            # Both spellings. The browser's gates read `turnId`/`ts`
+            # (projection-sync.js:281-289) and this writer's original keys
+            # were turn_id/applied_at, so a corrected field was invisible to
+            # every client-side check. Write both rather than migrate a shape
+            # that already has two variants in production data.
+            "turnId": source_turn_id,
+            "ts": now,
+            "locked": prev_locked,
+            "history": history[-10:],
         }
         summary["applied"].append({
             "field_path": canonical,
@@ -247,10 +339,17 @@ def apply_correction(
     proj["pendingSuggestions"] = pending
     proj["last_correction_at"] = now
 
-    if not summary["applied"] and not summary["retracted"]:
+    if not summary["applied"] and not summary["retracted"] and not summary.get("deferred"):
         # Parser returned only control sentinels with no effect —
         # nothing to persist. Still success-shaped so caller doesn't
         # treat this as an error.
+        #
+        # BUG-PROJECTION-CORRECTION-OVERRIDES-OPERATOR-01: `deferred` had to
+        # join this condition. A correction aimed ONLY at operator-entered
+        # fields applies nothing and retracts nothing — it just queues
+        # suggestions — so without this the early return dropped the queue on
+        # the floor and the model's proposal was lost silently. The whole
+        # point of deferring is that somebody gets to see the proposal later.
         return summary
 
     try:
