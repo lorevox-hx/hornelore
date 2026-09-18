@@ -433,8 +433,41 @@ const report = fnBody(QQ, "function _reportSaveOutcome(");
 check("_reportSaveOutcome exists", !!report);
 
 check("the save path calls it",
-  /_reportSaveOutcome\(section, pid\)/.test(fnBody(QQ, "function _saveSection(")),
+  /_reportSaveOutcome\(section, pid/.test(fnBody(QQ, "function _saveSection(")),
   "a save that cannot fail visibly is not a save");
+
+/* WO-BIO-BUILDER-SAVE-INTEGRITY-AUDIT-01 section 1. Candidate extraction,
+   markHumanEdit and the family-graph sync ran immediately after
+   _persistDrafts without awaiting it, so a refused write still produced
+   derived state — candidates and human-edit marks standing on answers the
+   database never accepted. That is how an unsaved answer becomes an apparent
+   established fact, and it is the direct path from this defect to Lori. */
+/* Assert the STRUCTURE, not the presence of two strings.
+
+   The first version required `_afterConfirmedSave(...)` somewhere in
+   _saveSection and the gate somewhere in the reporter. Splitting the call
+   into two statements — reporter, then downstream, ungated — left both
+   strings in place and the check passed against a mutant that ran derived
+   work on a failed save. Require the downstream call to be INSIDE the
+   reporter's callback, which is the thing that actually gates it. */
+check("derived state waits for a confirmed save",
+  /function _afterConfirmedSave\(/.test(QQ) &&
+  /_reportSaveOutcome\(\s*section,\s*pid,\s*function onConfirmed\(\)\s*\{\s*_afterConfirmedSave\(/
+    .test(fnBody(QQ, "function _saveSection(")) &&
+  /res\.ok && typeof onConfirmed === "function"/.test(report),
+  "nothing that writes derived or authoritative state may run before the " +
+  "server has accepted the answers it is derived from — and it must be " +
+  "gated BY the outcome, not merely called after it");
+
+check("the confirmation gate wraps the downstream work, not the reverse",
+  (() => {
+    const after = fnBody(QQ, "function _afterConfirmedSave(");
+    return /_extractQuestionnaireCandidates\(sectionId\)/.test(after) &&
+           /markHumanEdit/.test(after) &&
+           /fullSync\(\)/.test(after);
+  })(),
+  "all three effects must live behind the boundary; leaving one outside " +
+  "means a failed save still produces that one");
 
 check("success is shown only when the outcome says ok",
   /if \(res\.ok\)/.test(report),

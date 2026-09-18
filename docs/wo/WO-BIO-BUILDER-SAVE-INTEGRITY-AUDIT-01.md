@@ -65,23 +65,67 @@ narrator it was rendered for and the save refuses, visibly, rather than
 merging afterwards.
 (BUG-BIO-QUESTIONNAIRE-STALE-FORM-CROSS-WRITE-01)
 
-## 1c. Open finding — the phantom family member
+## 1c. CLOSED — a UI default became a biographical assertion
 
-Clicking "+ Add another parent" and saving stores an entry. `deceased` is a
-select defaulting to `"No"`, which is a populated leaf, so the record gains a
-parent whose only recorded fact is that they are not dead. It will render in
-the family tree.
+BUG-BIO-QUESTIONNAIRE-DEFAULT-AS-ASSERTION-01. Two selects had no empty
+option, so they were answered the moment the form was drawn:
 
-Not fixed here, because it wants a decision rather than a patch: what makes a
-repeatable entry real? A defaulted select is not an answer, but neither is a
-blanket "ignore defaults" rule — `deceased: "No"` IS meaningful when somebody
-chose it. Probable answer: an entry is real when at least one field the
-operator actually touched is non-empty, which needs the form to distinguish
-touched from defaulted.
+| field | default | what it asserted |
+|---|---|---|
+| `parents.deceased` | `"No"` | a blank entry became a stored parent, recorded as living |
+| `grandparents.side` | `"Paternal"` | a real grandparent was filed on the father's side |
 
-Covered by an assertion in test_bio_builder_save_sequences.js labelled as a
-known finding, so a change in the behaviour shows up as a test change rather
-than passing unnoticed.
+The second is the worse one, and it shows why filtering out blank entries
+would not have been enough: a grandparent with a correctly typed name still
+acquires a wrong relationship. That is not a blank waiting to be filled — it
+is a wrong answer that reads like a given one, and it propagates into the
+family tree.
+
+Both now offer an empty first option. An operator who deliberately chooses
+"No" or "Paternal" is still recorded; what changed is that silence is no
+longer mistaken for an answer. The suite enumerates every select from the
+shipping SECTIONS rather than checking these two by name, so a select added
+later cannot reintroduce the class unnoticed.
+
+**Already-stored values are NOT migrated.** `deceased: "No"` from a
+deliberate choice and from the old default are the identical string; nothing
+in the record distinguishes them. Clearing them would destroy real answers to
+remove imaginary ones. `lorevox_packages/audit_default_assertions.py` reports
+which stored values match either old default, with names and enough context
+for someone who knows the family to judge. It writes nothing.
+
+## 1e. CLOSED — derived state ran before the server confirmed anything
+
+Candidate extraction, `markHumanEdit` and the family-graph sync ran
+immediately after `_persistDrafts`, without awaiting it. A refused or failed
+PUT left candidates extracted from answers the database never accepted,
+projection fields marked human-edited on the strength of a write that did not
+happen, and a graph showing a relative who is not stored.
+
+The marks are the dangerous part, and they are the direct link to Lori: a
+candidate that later reads as established biography is how an unsaved answer
+becomes an apparent fact, and a narrator built on it would speak with
+confidence about something nobody ever saved.
+
+All three now run in `_afterConfirmedSave`, behind a confirmed outcome. A
+no-op counts as confirmed — the stored document is exactly what they would be
+derived from. `closeCallback` still runs immediately: it renders and does not
+write, and the failure banner does not auto-dismiss, so a closed form does not
+hide a failed save.
+
+## 1f. Open finding — the phantom family member
+
+RESOLVED by 1c, and worth recording how. The first instinct was a rule about
+what makes an entry "real" — count the touched fields, ignore defaults. That
+would have been a filter bolted on top of the symptom.
+
+The actual defect was upstream: a select with no empty option is answered
+before anyone looks at it. Once "unanswered" is expressible, a blank entry
+has no populated leaves, contributes nothing to the flattened document, and
+is not stored — without any rule about what counts as real, and without
+discarding `deceased: "No"` when somebody means it.
+
+A regression asserts that a blank added entry is not stored.
 
 ## 1d. Why `rendered > stored` is believed closed, and why the test stays
 
@@ -108,10 +152,14 @@ Every repeatable section needs a two-entry round trip through the real form
 and the real database, not a source assertion:
 
   - parents, grandparents, siblings, children, spouse/partner
-  - marriages / unions, traditions, pets
-  - and the remaining repeatable sections — enumerate them from the
-    declarations rather than guessing; the review that raised this counted
-    ten and could name eight
+  - marriage, familyTraditions, pets
+
+  EIGHT, not ten — enumerated from the shipping SECTIONS. The earlier count
+  in this work order was a guess and was wrong. test_bio_builder_save_sequences.js
+  reads the list at run time rather than restating it, so a section added
+  later is covered without anyone remembering to add it here.
+
+  DONE: all eight pass a two-entry round trip.
 
 Each: enter one, save, add a second, save, reopen, save unchanged. Assert
 values and revision, not exit codes.

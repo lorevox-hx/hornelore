@@ -153,19 +153,14 @@ async function run() {
     h.save("parents");               // a no-op save: the blank contributes nothing
     await h.settle();                // ...and a confirmed save clears dirty
 
-    /* FINDING, 2026-09-18, from this harness: the blank entry IS stored.
-       `deceased` is a select defaulting to "No", which is a populated leaf,
-       so adding an entry and saving files a parent whose only recorded fact
-       is that they are not dead. In a biography that is a phantom family
-       member, and it will render in the family tree. Recorded in
-       WO-BIO-BUILDER-SAVE-INTEGRITY-AUDIT-01 rather than fixed here — it
-       wants a decision about what makes an entry real, not a quick patch. */
-    check("the blank entry is stored — phantom family member (known finding)",
-      parentsOf(h.server.stored(PID)).length === 2 &&
-      parentsOf(h.server.stored(PID))[1].deceased === "No" &&
-      !parentsOf(h.server.stored(PID))[1].firstName,
-      "if this now passes differently the phantom-entry behaviour changed — " +
-      "update WO-BIO-BUILDER-SAVE-INTEGRITY-AUDIT-01 rather than the assertion");
+    /* BUG-BIO-QUESTIONNAIRE-DEFAULT-AS-ASSERTION-01, now fixed.
+       `deceased` defaulted to "No" — a populated leaf — so adding an entry
+       and saving filed a parent whose only recorded fact was that they were
+       alive. A phantom family member, rendered by the family tree. */
+    check("a blank added entry is NOT stored as a family member",
+      parentsOf(h.server.stored(PID)).length === 1,
+      "stored " + parentsOf(h.server.stored(PID)).length + " — an untouched " +
+      "select must not make a person exist");
 
     h.render("parents");
     check("the form still shows two entries",
@@ -350,6 +345,53 @@ async function run() {
       parentsOf(h.server.stored(PID))[0].occupation === "schoolteacher");
   }
 
+  /* ═══ 4b. A FAILED SAVE MUST PRODUCE NO DOWNSTREAM FACTS ═══════════════
+     WO-BIO-BUILDER-SAVE-INTEGRITY-AUDIT-01, section 1. Candidate extraction,
+     markHumanEdit and the family-graph sync used to run immediately after
+     _persistDrafts without awaiting it. A refused write therefore left
+     candidates, human-edit marks and graph nodes derived from answers the
+     database never accepted — which is how an unsaved answer becomes an
+     apparent established fact, and how a narrator ends up speaking with
+     confidence about something nobody saved. */
+  {
+    scenario("4b. a rejected write marks nothing downstream");
+    const h = createHarness().setNarrator(PID);
+    h.restore(PID);
+    await h.settle();
+
+    const marks = [];
+    const syncs = [];
+    h.window.LorevoxProjectionMap = {
+      buildRepeatablePath: (s, i, f) => s + "[" + i + "]." + f,
+    };
+    h.window.LorevoxProjectionSync = {
+      markHumanEdit: (p, v) => marks.push(p + "=" + v),
+    };
+    h.window.LorevoxBioBuilderModules.graph = { fullSync: () => syncs.push(1) };
+
+    h.render("parents");
+    fillEntry(h, 0, MOTHER);
+    h.failNextPut(500);
+    h.save("parents");
+    await h.settle();
+
+    check("nothing was marked human-edited",
+      marks.length === 0,
+      "marked " + marks.length + " field(s) from a write the server refused");
+    check("the family graph was not resynced",
+      syncs.length === 0,
+      "a relative must not appear in the graph because of a failed save");
+
+    // And the same save, succeeding, must still do the work.
+    h.save("parents");
+    await h.settle();
+
+    check("a confirmed save DOES mark its fields",
+      marks.length > 0,
+      "the boundary must gate the work, not delete it");
+    check("a confirmed save DOES resync the graph", syncs.length > 0);
+  }
+
   /* ═══ 5. A NETWORK FAILURE IS REPORTED AS ONE ══════════════════════════ */
   {
     scenario("5. the server cannot be reached");
@@ -455,6 +497,92 @@ async function run() {
       b !== null && /NOT SAVED/.test(b.text) && /different narrator/i.test(b.text),
       b ? ("banner said: " + b.text) :
       "a silent refusal leaves a form that looks saved — the original defect");
+  }
+
+  /* ═══ 8b. NO SELECT MAY ANSWER ITSELF ══════════════════════════════════
+     BUG-BIO-QUESTIONNAIRE-DEFAULT-AS-ASSERTION-01.
+
+     A select whose option list has no empty first entry is answered the
+     moment it is drawn. `parents.deceased` defaulted to "No" and
+     `grandparents.side` to "Paternal" — so an untouched form asserted that a
+     parent was alive and that every grandparent was on the father's side.
+     Both are populated leaves, both persist, both render in the family tree,
+     and neither was ever said by anyone.
+
+     Enumerated from the shipping SECTIONS rather than listed here, so a
+     select added later cannot reintroduce the class unnoticed. An operator
+     deliberately choosing "No" is still recorded; what changes is that
+     silence is no longer mistaken for an answer. */
+  {
+    scenario("8b. no select's untouched default is a stored assertion");
+    const h = createHarness();
+    const offenders = [];
+    for (const s of h.qq.SECTIONS) {
+      for (const f of (s.fields || [])) {
+        if (f.type === "select" && Array.isArray(f.options) && f.options[0] !== "") {
+          offenders.push(s.id + "." + f.id + " defaults to " + JSON.stringify(f.options[0]));
+        }
+      }
+    }
+    check("every select offers an unanswered state",
+      offenders.length === 0,
+      offenders.join("; ") + " — a default the interface DISPLAYS must not " +
+      "become a fact the record HOLDS");
+  }
+
+  /* ═══ 9. EVERY REPEATABLE SECTION, NOT JUST PARENTS ════════════════════
+     The sections do not each have a save path — they share one. That is why
+     the missing father was never a Parents bug: the mechanism served every
+     repeatable section, and Parents is simply where somebody happened to
+     enter two people.
+
+     So the repair is shared and the TEST must not be. The list is read from
+     the shipping SECTIONS rather than written here, because a list written
+     here would not grow when a section is added — and "it works for Parents"
+     is exactly the reasoning that let this ship. */
+  {
+    const h0 = createHarness();
+    const repeatables = h0.qq.SECTIONS.filter((s) => s.repeatable);
+    scenario(`9. two entries in each of the ${repeatables.length} repeatable sections`);
+
+    check("there is more than one repeatable section to cover",
+      repeatables.length > 1,
+      "if this drops to one, the enumeration has broken, not the form");
+
+    for (const section of repeatables) {
+      const h = createHarness().setNarrator(PID);
+      h.restore(PID);
+      await h.settle();
+
+      const textFields = section.fields.filter((f) => f.type === "text" || f.type === "textarea");
+      if (textFields.length < 1) {
+        check(`${section.id}: has a free-text field to test with`, false,
+          "cannot drive this section without one; needs a bespoke case");
+        continue;
+      }
+      const probe = textFields[0].id;
+
+      h.render(section.id);
+      h.typeEntry(0, probe, "FIRST-" + section.id);
+      h.save(section.id);
+      await h.settle();
+
+      h.addEntry(section.id);
+      await h.settle();
+      h.render(section.id);
+      h.typeEntry(1, probe, "SECOND-" + section.id);
+      h.save(section.id);
+      await h.settle();
+
+      const stored = (h.server.stored(PID) || {})[section.id] || [];
+      const values = (Array.isArray(stored) ? stored : [stored]).map((e) => e && e[probe]);
+
+      check(`${section.id}: both entries stored (${probe})`,
+        values.indexOf("FIRST-" + section.id) !== -1 &&
+        values.indexOf("SECOND-" + section.id) !== -1,
+        "stored " + JSON.stringify(values) + " — a second entry in this " +
+        "section is discarded, the same defect the operator hit in Parents");
+    }
   }
 
   console.log(failures === 0

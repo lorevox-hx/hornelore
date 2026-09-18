@@ -383,7 +383,25 @@
         { id: "birthDate",         label: "Birth Date",                    type: "text",     placeholder: "Enter birth date", helperText: "Use YYYY-MM-DD when known.", inputHelper: "normalizeDob" },
         { id: "birthPlace",        label: "Birth Place",                   type: "text",     inputHelper: "normalizePlace" },
         { id: "occupation",        label: "Occupation",                    type: "text" },
-        { id: "deceased",          label: "Deceased",                      type: "select",   options: ["No","Yes"] },
+        /* BUG-BIO-QUESTIONNAIRE-DEFAULT-AS-ASSERTION-01 (2026-09-18) —
+           found by the behavioural harness.
+
+           This was ["No","Yes"]. A select with no empty option is answered
+           the moment it is drawn: an untouched entry carried deceased:"No",
+           which is a populated leaf, so clicking "+ Add another parent" and
+           saving filed a parent whose only recorded fact was that they were
+           alive. A phantom family member, and one the family tree renders.
+
+           A default the interface DISPLAYS must not become a biographical
+           assertion the record HOLDS. The empty option makes "unanswered"
+           expressible, while an operator who deliberately chooses No is
+           still recorded — which is the distinction that matters, because
+           "not dead" is real information when somebody states it.
+
+           Grandparents already had the empty option. The inconsistency was
+           noted in WO-BIO-QUESTIONNAIRE-DEATH-DATE-01 as probably accidental;
+           it was, and this is which way it should have gone. */
+        { id: "deceased",          label: "Deceased",                      type: "select",   options: ["","No","Yes"] },
         { id: "notableLifeEvents", label: "Notable Life Events / Stories", type: "textarea" },
         { id: "notes",             label: "Additional Notes",              type: "textarea" }
       ]
@@ -393,7 +411,17 @@
       hint: "Ancestry, cultural background, memorable stories",
       repeatable: true, repeatLabel: "grandparent",
       fields: [
-        { id: "side",                label: "Side",                type: "select",   options: ["Paternal","Maternal","Paternal-maternal","Paternal-paternal","Maternal-maternal","Maternal-paternal","Unknown"] },
+        /* BUG-BIO-QUESTIONNAIRE-DEFAULT-AS-ASSERTION-01. Same defect, worse
+           consequence: an untouched entry filed every grandparent as
+           Paternal. A maternal grandmother recorded on the father's side is
+           not a blank to be filled in later — it is a wrong answer that
+           looks like a given one, and it propagates into the family tree.
+
+           "Unknown" already existed in the list but was never the default,
+           so it could only be reached by choosing it. The empty option is
+           what makes "nobody has said yet" distinct from "somebody said
+           unknown"; both are worth keeping. */
+        { id: "side",                label: "Side",                type: "select",   options: ["","Paternal","Maternal","Paternal-maternal","Paternal-paternal","Maternal-maternal","Maternal-paternal","Unknown"] },
         { id: "firstName",           label: "First Name",          type: "text" },
         { id: "middleName",          label: "Middle Name",         type: "text" },
         { id: "lastName",            label: "Last Name",           type: "text" },
@@ -1348,7 +1376,7 @@
      where the work currently lives. The operator is entering a parent's
      biography from memory and from paper — the cost of a missed failure is
      retyping an afternoon, or never noticing at all. */
-  function _reportSaveOutcome(section, pid) {
+  function _reportSaveOutcome(section, pid, onConfirmed) {
     var label = (section && section.label) || "section";
     // `_core` — window.LorevoxBioBuilderModules.core — resolved at the top of
     // this module, the same handle every other function here uses.
@@ -1397,6 +1425,15 @@
           "max-width:min(680px,92vw);padding:12px 16px;border-radius:8px;" +
           "font:14px/1.45 system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.28);";
         document.body.appendChild(el);
+      }
+      if (res.ok && typeof onConfirmed === "function") {
+        // The server accepted these answers — or confirmed it already holds
+        // them. Either way the stored document now matches what derived
+        // state would be built from, so it is safe to build it. This runs
+        // BEFORE the banner so that a throw in downstream work cannot leave
+        // the operator with no result shown at all.
+        try { onConfirmed(); }
+        catch (e) { console.error("[bb-qq] downstream work after a confirmed save threw:", e); }
       }
       if (res.ok) {
         // A no-op is a success, but it is NOT the same event as a write, and
@@ -1611,11 +1648,42 @@
       // was a console warning nobody was watching.
       //
       // Nothing may tell the operator this was saved until the server says so.
-      _reportSaveOutcome(section, pid);
+      _reportSaveOutcome(section, pid, function onConfirmed() {
+        _afterConfirmedSave(section, sectionId, pid);
+      });
     }
 
     // Phase 2.5: debug snapshot after save
     _qqDebugSnapshot("save_section:" + sectionId, pid, bb);
+
+    // Phase 1.3: Step 4 — rerender/update badges from canonical state.
+    // Rendering only; it reads canonical state and paints. Everything that
+    // WRITES derived or authoritative state now waits for confirmation, in
+    // _afterConfirmedSave below.
+    if (closeCallback) closeCallback();
+  }
+
+  /* ── Derived state, only after the server has accepted the answers ────
+     WO-BIO-BUILDER-SAVE-INTEGRITY-AUDIT-01, section 1.
+
+     These three used to run immediately after _persistDrafts, without
+     awaiting it. A refused or failed PUT therefore left:
+
+       - candidates extracted from answers the database never accepted
+       - projection fields marked human-edited on the strength of a write
+         that did not happen
+       - a family graph showing a relative who is not stored
+
+     The marks are the dangerous part. A candidate that later reads as
+     established biography is how an unsaved answer becomes an apparent fact,
+     and a narrator built on it would speak with confidence about something
+     nobody ever saved. That is the failure mode this whole repair exists to
+     prevent, arriving one layer downstream.
+
+     A confirmed server save is the boundary. A no-op counts as confirmed:
+     the stored document is exactly what these would be derived from. */
+  function _afterConfirmedSave(section, sectionId, pid) {
+    var bb = _bb(); if (!bb) return;
 
     _extractQuestionnaireCandidates(sectionId);
 
@@ -1648,9 +1716,6 @@
     if (graphMod && typeof graphMod.fullSync === "function") {
       graphMod.fullSync();
     }
-
-    // Phase 1.3: Step 4 — rerender/update badges from canonical state (via closeCallback)
-    if (closeCallback) closeCallback();
   }
 
   function _addRepeatEntry(sectionId, renderCallback) {
