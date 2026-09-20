@@ -158,6 +158,12 @@ function createHarness(options) {
   const ORIGIN = "http://localhost:8000";
   win.API = {
     BB_QQ_PUT: ORIGIN + "/api/bio-builder/questionnaire",
+    // WO-03A. The dedicated human-entry route. The double must offer it,
+    // because the property under test is WHICH ENDPOINT a given writer
+    // reaches — a harness that only knows one endpoint cannot tell an
+    // operator entry from one of Lori's writers, which is the entire
+    // distinction the work order exists to establish.
+    BB_QQ_ANSWER: ORIGIN + "/api/bio-builder/questionnaire/answer",
     BB_QQ_GET: (pid) => ORIGIN + "/api/bio-builder/questionnaire?person_id=" + pid,
   };
 
@@ -173,9 +179,16 @@ function createHarness(options) {
     const u = String(url);
     const method = (init && init.method) || "GET";
 
-    if (method === "PUT") {
+    // A write is a PUT to the legacy route or a POST to the entry route.
+    // Both are recorded in `server.puts`, so every existing sequence keeps
+    // working, and each record carries the endpoint and method it arrived
+    // on so a test can assert that a given writer did NOT take the
+    // human-entry route. Enforcement is a test, not a promise.
+    if (method === "PUT" || method === "POST") {
       let payload = null;
       try { payload = JSON.parse(init.body); } catch (e) { payload = { _unparseable: init.body }; }
+      payload._endpoint = u.indexOf("/questionnaire/answer") >= 0 ? "answer" : "legacy";
+      payload._method = method;
       server.puts.push(payload);
 
       const status = server.nextPutStatus;

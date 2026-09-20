@@ -1002,6 +1002,71 @@ async function run() {
     }
   }
 
+  /* ── WO-03A — the route a write takes IS its authority ────────────
+     The design says "no Lori-derived writer reaches the operator-entry
+     route" and adds: enforcement is a test, not a promise. This is that
+     test. The harness records the endpoint and method of every write, so
+     the claim is checked against what the browser actually sent rather
+     than against a comment. */
+
+  {
+    scenario("12. the form's own save goes to the human-entry route");
+    const h = createHarness().setNarrator(PID);
+    h.restore(PID); await h.settle();
+    h.render("parents"); fillEntry(h, 0, MOTHER);
+    h.save("parents"); await h.settle();
+    const w = h.server.puts[h.server.puts.length - 1];
+    check("it is a POST to the answer endpoint",
+      w._endpoint === "answer" && w._method === "POST");
+    check("and it names the section it saved, so the server can scope the claim",
+      Array.isArray(w.sections) && w.sections.length === 1 &&
+      w.sections[0] === "parents",
+      "an unscoped entry stamps the operator's authority on every path that " +
+      "moved in the same whole-document request");
+  }
+
+  {
+    scenario("12b. '+ Add another' is human entry too");
+    /* Not decoration. The no-op rule means a save that changes nothing
+       writes no provenance — so if this path used the silent route, an
+       operator who filled in the mother and clicked "+ Add another"
+       before Save would leave her answers unclassified forever. */
+    const h = createHarness().setNarrator(PID);
+    h.restore(PID); await h.settle();
+    h.render("parents"); fillEntry(h, 0, MOTHER);
+    h.addEntry("parents"); await h.settle();
+    const writes = h.server.puts.filter((p) => p._method === "POST");
+    check("the add path reaches the answer endpoint",
+      writes.length > 0 && writes.every((w) => w._endpoint === "answer"));
+    check("scoped to the section being edited",
+      writes.every((w) => Array.isArray(w.sections) &&
+                          w.sections.length === 1 && w.sections[0] === "parents"));
+  }
+
+  {
+    scenario("12c. a non-form writer stays on the silent route");
+    /* The narrator-switch persist is the stand-in for the ~20 callers that
+       funnel through _persistDrafts without a section — among them
+       _syncIdentityToBB and _syncPrefillIfBlank, which are Lori writing.
+       If any of them reached the entry route, the model would acquire the
+       authority of the person at the keyboard. That is the exact error
+       revision 1 of the design proposed and review caught. */
+    const h = createHarness().setNarrator(PID);
+    h.restore(PID); await h.settle();
+    h.render("parents"); fillEntry(h, 0, MOTHER);
+    // Save once so the in-memory document has content — the DOM alone is
+    // not enough, and _persistDrafts refuses to PUT a document of blanks.
+    h.save("parents"); await h.settle();
+    h.core._persistDrafts(PID);          // no entry hint — the default
+    await h.settle();
+    const w = h.server.puts[h.server.puts.length - 1];
+    check("it is a PUT to the legacy endpoint",
+      w._endpoint === "legacy" && w._method === "PUT");
+    check("and it declares no sections, so the server classifies nothing",
+      w.sections === undefined,
+      "a writer that could name its own sections could claim its own authority");
+  }
+
   console.log(failures === 0
     ? `\n  all sequences passed\n`
     : `\n  ${failures} FAILED\n`);

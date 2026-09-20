@@ -247,6 +247,25 @@ DB_LANES: Tuple[DbLane, ...] = (
            note="prior questionnaire revisions with changed/removed paths and "
                 "previous values; the only copy of what a write replaced. "
                 "See 0058 and BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01 §D.5"),
+    # WO-03A. AUTHORITATIVE for the same reason the revisions table is:
+    # nothing can rebuild it. Where an answer came from is not derivable
+    # from the answer — that is the entire defect this table closes — so a
+    # lost row cannot be recomputed from the questionnaire, only guessed
+    # at, and guessing is what it exists to stop.
+    #
+    # PORTABLE, unlike the revisions table beside it. Revisions are local
+    # recovery bookkeeping and a restored narrator can start a fresh
+    # history. Provenance is not bookkeeping about the biography, it is
+    # part of what the biography MEANS: a narrator restored onto another
+    # installation without it would arrive as a hundred unattributed
+    # assertions, testimony and inference indistinguishable, which is the
+    # state this work order exists to end.
+    DbLane("bio_builder_answer_provenance", _D("person_id"),
+           CLASS_AUTHORITATIVE, "yes", True,
+           note="who entered or said each questionnaire answer, and whether a "
+                "cited chat turn verified. Keyed on WO-02 _entryId so a reorder "
+                "cannot re-point it. Absence means unknown and is never "
+                "backfilled. See 0059"),
     DbLane("bio_facts", _D("narrator_id"), CLASS_DERIVED, "yes", True),
     DbLane("facts", _D("person_id"), CLASS_DERIVED, "yes", True),
     DbLane("family_truth_notes", _D("person_id"), CLASS_DERIVED, "yes", True),

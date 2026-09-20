@@ -89,10 +89,27 @@ class BuildProfileSeedProvisionalTests(unittest.TestCase):
 
     # ── Provisional-only: projection fills empty profile ─────────────
 
-    def test_provisional_pending_suggestions_fill_empty_profile(self):
-        """The Mary case: profile_json is empty, but pendingSuggestions
-        from chat-extracted candidates have her identity. The bridge
-        must surface those values."""
+    def test_pending_suggestions_do_not_fill_the_seed_buckets(self):
+        """THE CONTRACT CHANGED, and this test changed with it.
+
+        It used to assert the opposite — that pendingSuggestions fill
+        `preferred_name`, `full_name`, `childhood_home` and the age
+        derivation. That was the read-bridge's original design (the
+        "Mary case"), and it was wrong in a way that took a live trace to
+        see: a chat-extracted CANDIDATE, which nobody has confirmed,
+        became a value every downstream bucket treats as established
+        biography. Lori would then state it back as fact.
+
+        Measured live 2026-09-20: Christopher carries 15 pending
+        suggestions and Kent 14, including `education.schooling` =
+        "induction physical and testing in Fargo" — a machine's reading
+        of a sentence, not something either man said about his schooling.
+
+        So suggestions now stay in their own map and fill nothing. The
+        one consumer entitled to see them is the confirmation hint, which
+        asks whether they are right rather than asserting them, and it
+        reads them BY NAME from `seed["suggested"]`.
+        """
         with patch("api.db.get_profile") as mp, \
              patch("api.db.get_projection") as gp:
             mp.return_value = self._make_profile_blob({})
@@ -110,11 +127,22 @@ class BuildProfileSeedProvisionalTests(unittest.TestCase):
             )
             seed = _build_profile_seed(self.PID)
 
-        self.assertEqual(seed.get("preferred_name"), "Mary")
-        self.assertEqual(seed.get("full_name"), "Mary Holts")
-        self.assertEqual(seed.get("childhood_home"), "Minot, North Dakota")
-        # life_stage from 1940-02-29: 2026 - 1940 = 86 → "senior elder"
-        self.assertEqual(seed.get("life_stage"), "senior elder")
+        # Nothing unconfirmed reaches a bucket.
+        self.assertIsNone(seed.get("preferred_name"))
+        self.assertIsNone(seed.get("full_name"))
+        self.assertIsNone(seed.get("childhood_home"))
+        # Including the derivations. An age computed from an unconfirmed
+        # birth date is an unconfirmed age wearing an arithmetic result's
+        # clothes, and it reads as far more solid than its input.
+        self.assertIsNone(seed.get("life_stage"))
+        self.assertIsNone(seed.get("age_years"))
+
+        # They are carried, not discarded — dropping them would only move
+        # the problem somewhere they get silently re-added.
+        self.assertEqual(seed["suggested"]["personal.preferredName"], "Mary")
+        self.assertEqual(seed["suggested"]["personal.fullName"], "Mary Holts")
+        self.assertEqual(seed["suggested"]["personal.placeOfBirth"],
+                         "Minot, North Dakota")
 
     def test_provisional_fields_fill_empty_profile(self):
         """Same as pendingSuggestions but data lives in projection.fields
@@ -175,9 +203,16 @@ class BuildProfileSeedProvisionalTests(unittest.TestCase):
 
     # ── Gap-filling: canonical has some, provisional fills rest ─────
 
-    def test_partial_canonical_provisional_fills_gaps(self):
-        """Canonical profile has fullName but no DOB/POB — provisional
-        fills the missing ones. Mixed sources merge cleanly."""
+    def test_canonical_stands_and_suggestions_do_not_fill_its_gaps(self):
+        """A gap is not an invitation.
+
+        This also used to assert the opposite. The appeal of gap-filling
+        is obvious — the bucket is empty and something is available — but
+        "empty" and "we have a guess" are different states, and the seed
+        has no way to mark the second once it has written it into the
+        first. An empty bucket makes Lori ask. A filled one makes her
+        assert. Asking is the recoverable error.
+        """
         with patch("api.db.get_profile") as mp, \
              patch("api.db.get_projection") as gp:
             mp.return_value = self._make_profile_blob({
@@ -193,9 +228,13 @@ class BuildProfileSeedProvisionalTests(unittest.TestCase):
             )
             seed = _build_profile_seed(self.PID)
 
+        # The canonical value is unaffected — this change narrows what
+        # suggestions can do, and touches nothing that was confirmed.
         self.assertEqual(seed.get("full_name"), "Mary Holts")
-        self.assertEqual(seed.get("childhood_home"), "Minot, North Dakota")
-        self.assertEqual(seed.get("life_stage"), "senior elder")
+        self.assertIsNone(seed.get("childhood_home"))
+        self.assertIsNone(seed.get("life_stage"))
+        self.assertEqual(seed["suggested"]["personal.placeOfBirth"],
+                         "Minot, North Dakota")
 
     # ── Fields take priority over pendingSuggestions ─────────────────
 
@@ -263,7 +302,53 @@ class BuildProfileSeedProvisionalTests(unittest.TestCase):
             seed = _build_profile_seed(self.PID)
         self.assertNotIn("full_name", seed)
         self.assertNotIn("childhood_home", seed)
-        self.assertEqual(seed.get("life_stage"), "senior elder")
+        # No bucket, and no age derived from an unconfirmed birth date.
+        self.assertIsNone(seed.get("life_stage"))
+        # A blank suggestion is not carried either: it is not a value
+        # anyone could be asked to confirm.
+        self.assertNotIn("personal.fullName", seed.get("suggested") or {})
+        self.assertNotIn("personal.placeOfBirth", seed.get("suggested") or {})
+        self.assertEqual((seed.get("suggested") or {}).get("personal.dateOfBirth"),
+                         "1940-02-29")
+
+    # ── WO-03A B6 — the confirmation hint gets its input back ────────
+
+    def test_suggestions_are_returned_for_the_confirmation_hint(self):
+        """The repair this work order owed.
+
+        `suggested` was built and never returned — collected, then
+        dropped on the floor. That was my own defect, introduced when I
+        stopped merging suggestions into `provisional`. Removing the
+        merge was right; leaving the map unreturned took away the input
+        of the one consumer that legitimately needs it, so Lori went back
+        to asking cold about things the narrator had already told her.
+        """
+        with patch("api.db.get_profile") as mp, \
+             patch("api.db.get_projection") as gp:
+            mp.return_value = self._make_profile_blob({})
+            gp.return_value = self._make_projection_blob(
+                pending=[{"fieldPath": "personal.placeOfBirth",
+                          "value": "Minot, North Dakota"}],
+            )
+            seed = _build_profile_seed(self.PID)
+
+        self.assertIn("suggested", seed)
+        self.assertEqual(seed["suggested"]["personal.placeOfBirth"],
+                         "Minot, North Dakota")
+        # Under its own key, so a consumer has to ask for it by name and
+        # no bucket resolution can acquire one by accident.
+        self.assertIsNone(seed.get("childhood_home"))
+
+    def test_no_suggestions_means_no_key_rather_than_an_empty_one(self):
+        """An empty map would read as "we looked and there are none",
+        which is a claim. Absence is the honest shape."""
+        with patch("api.db.get_profile") as mp, \
+             patch("api.db.get_projection") as gp:
+            mp.return_value = self._make_profile_blob(
+                {"personal": {"fullName": "Mary Holts"}})
+            gp.return_value = self._make_projection_blob(pending=[])
+            seed = _build_profile_seed(self.PID)
+        self.assertNotIn("suggested", seed)
 
     # ── No person_id returns empty dict (existing behavior) ──────────
 

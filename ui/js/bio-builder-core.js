@@ -404,10 +404,27 @@
 
   var _qqLastOutcome = null;
 
-  function _persistQuestionnaire(pid, qq, ticket) {
+  /* `entry` is WO-03A's human-entry hint: {sections: [...], operatorId: ""}.
+     Undefined for every caller except _saveSection, and undefined means the
+     shared PUT, which writes NO provenance.
+
+     WHY THE HINT ONLY EVER SELECTS AN ENDPOINT, and never names an origin.
+     ~20 callers funnel through here with the literal source "ui_save",
+     and two of them are Lori's own writers — _syncIdentityToBB
+     (app.js:6072, 6113, 6208, 6237, 6294) and _syncPrefillIfBlank
+     (projection-sync.js:407-435). If the client could say what kind of
+     write this was, those two would be saying it, and the model would
+     have acquired the authority of the person at the keyboard. That was
+     proposed in revision 1 of the design and caught in review.
+
+     So the client's only power is to route itself to the narrower
+     endpoint, and the server decides what that endpoint means. Claiming
+     LOWER authority is safe to believe; claiming HIGHER is not. */
+  function _persistQuestionnaire(pid, qq, ticket, entry) {
     // Every outcome is stamped with the operation it belongs to, so a
     // caller can refuse an answer about somebody else's save.
     var _stamp = function (o) { o.pid = pid; o.ticket = ticket; return o; };
+    var _useEntry = !!(entry && entry.sections && entry.sections.length);
     // Wait for the read to settle before deciding. _saveSection calls
     // _restoreQuestionnaire immediately before this, which resets hydration
     // to "unhydrated" and starts a GET; reading the state synchronously here
@@ -424,13 +441,18 @@
           message: "Not saved. " + why
         });
       }
-      return fetch(API.BB_QQ_PUT, {
-        method: "PUT",
+      var _body = {
+        person_id: pid, questionnaire: qq,
+        source: "ui_save", version: DRAFT_SCHEMA_VERSION
+      };
+      if (_useEntry) {
+        _body.sections = entry.sections;
+        _body.operator_id = entry.operatorId || "";
+      }
+      return fetch(_useEntry ? API.BB_QQ_ANSWER : API.BB_QQ_PUT, {
+        method: _useEntry ? "POST" : "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          person_id: pid, questionnaire: qq,
-          source: "ui_save", version: DRAFT_SCHEMA_VERSION
-        })
+        body: JSON.stringify(_body)
       }).then(function (r) {
         return r.text().then(function (body) {
           var j = null;
@@ -539,7 +561,12 @@
     });
   }
 
-  function _persistDrafts(pid) {
+  /* `entry` is optional and passed by _saveSection alone. Adding a second
+     parameter rather than changing the signature keeps the other ~20
+     callers — family tree, life threads, narrator switch — working
+     unchanged and, more to the point, keeps them OUT of the human-entry
+     route by default. Opting in has to be deliberate. */
+  function _persistDrafts(pid, entry) {
     if (!pid) return;
     var bb = _bb(); if (!bb) return;
     try {
@@ -582,7 +609,7 @@
         if (qq && Object.keys(qq).length > 0) _writeQqDraft(pid, qq);
 
         if (qq && Object.keys(qq).length > 0 && hasAnyValue) {
-          _qqLastOutcome = _persistQuestionnaire(pid, qq, ++_qqSaveTicket);
+          _qqLastOutcome = _persistQuestionnaire(pid, qq, ++_qqSaveTicket, entry);
         } else if (qq && Object.keys(qq).length > 0) {
           console.warn("[bb-drift] _persistDrafts SKIPPED PUT: questionnaire " +
             "has keys but every field is empty — refusing to clobber " +

@@ -282,7 +282,8 @@ def _archive(con: sqlite3.Connection, person_id: str, row: sqlite3.Row,
              superseded_by_source: str, write_kind: str, now: str,
              changed_paths: Optional[Sequence[str]] = None,
              removed_paths: Optional[Sequence[str]] = None,
-             previous_values: Optional[Mapping[str, Any]] = None) -> None:
+             previous_values: Optional[Mapping[str, Any]] = None,
+             previous_provenance: Optional[Mapping[str, Any]] = None) -> None:
     """Record the document as it stands BEFORE the write that replaces it.
 
     Inside the caller's transaction on purpose: the archive and the write it
@@ -300,14 +301,18 @@ def _archive(con: sqlite3.Connection, person_id: str, row: sqlite3.Row,
         "INSERT INTO bio_builder_questionnaire_revisions "
         "(person_id, revision, questionnaire_json, source, schema_version, "
         " content_updated_at, superseded_at, superseded_by_source, write_kind, "
-        " changed_paths, removed_paths, previous_values) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " changed_paths, removed_paths, previous_values, previous_provenance) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (person_id, int(row["revision"] or 0), row["questionnaire_json"] or "{}",
          row["source"] or "unknown", int(row["version"] or 1),
          row["updated_at"] or "", now, superseded_by_source or "unknown", write_kind,
          json.dumps(sorted(changed_paths)) if changed_paths is not None else None,
          json.dumps(sorted(removed_paths)) if removed_paths is not None else None,
-         json.dumps(previous_values, ensure_ascii=False) if previous_values is not None else None),
+         json.dumps(previous_values, ensure_ascii=False) if previous_values is not None else None,
+         # 0059. '{}' rather than NULL when nothing was superseded, so the
+         # column means "we looked and there was none" rather than "nobody
+         # ever looked" — the same distinction turn_evidence draws.
+         json.dumps(previous_provenance or {}, ensure_ascii=False)),
     )
 
 
@@ -338,7 +343,17 @@ def _write(
     base_fields: Optional[Mapping[str, Any]] = None,
     schema_version: Optional[int] = None,
     blank_report_document: Optional[Mapping[str, Any]] = None,
+    provenance: Optional[Any] = None,
 ) -> Dict[str, Any]:
+    """`provenance` is an `answer_provenance.AnswerOrigin` or None.
+
+    None is the norm and means NO PROVENANCE ROW IS WRITTEN. The shared
+    PUT has ~20 callers including two of Lori's own writers, and stamping
+    that route with the operator's authority is the exact error WO-03
+    exists to remove. Only a dedicated entry route constructs an origin,
+    and it constructs it from the endpoint that was called rather than
+    from anything the client asserted about itself.
+    """
     mutations = dict(mutations or {})
     removals = list(removals or [])
     now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
@@ -439,6 +454,50 @@ def _write(
                     "conflict": False, "conflicting_paths": [],
                     "ignored_blank_paths": sorted(ignored_blank_paths)}
 
+        next_rev = stored_rev + 1
+
+        # ── provenance, in this transaction ───────────────────────────
+        #
+        # After the no-op return above, so an unchanged save never
+        # restamps an answer as freshly entered — the same reasoning that
+        # keeps it from burning a revision. Before `_archive`, because the
+        # archive row carries the provenance this write supersedes and the
+        # two must describe the same moment.
+        #
+        # Provenance that can outlive the value it describes is worse than
+        # none: it is a confident statement about something that is not
+        # there. Hence inside the transaction, never in the router after.
+        prov_superseded: Dict[str, Any] = {}
+        if provenance is not None and replacement is None:
+            from .answer_provenance import record_provenance as _record_prov
+            next_leaves_for_prov = flatten_document(nxt)
+            prov_changed = sorted(
+                {p for p, _, _ in parsed_mut
+                 if stored_leaves.get(p) != next_leaves_for_prov.get(p)}
+            )
+            _keys, prov_superseded = _record_prov(
+                con, person_id, nxt, prov_changed, provenance,
+                now=now, revision=next_rev,
+            )
+
+        # A DELETED ANSWER TAKES ITS PROVENANCE WITH IT. Resolved against
+        # the STORED document, because the entry is gone from `nxt` and an
+        # id cannot be looked up in a document that no longer contains it.
+        if parsed_rem:
+            from .answer_provenance import identify_path as _ident_prov
+            next_leaves_for_del = flatten_document(nxt)
+            for _p in stored_leaves:
+                if _p in next_leaves_for_del:
+                    continue
+                _ident = _ident_prov(stored, _p)
+                if _ident is None:
+                    continue
+                con.execute(
+                    "DELETE FROM bio_builder_answer_provenance "
+                    "WHERE person_id=? AND section=? AND entry_id=? AND field=?",
+                    (person_id, _ident[0], _ident[1], _ident[2]),
+                )
+
         if row is not None:
             if replacement is not None:
                 # "all of it" — the prior document above is the answer.
@@ -456,10 +515,10 @@ def _write(
                          removed_paths=gone_paths,
                          previous_values={p: stored_leaves[p]
                                           for p in set(touched_paths) | set(gone_paths)
-                                          if p in stored_leaves})
+                                          if p in stored_leaves},
+                         previous_provenance=prov_superseded)
 
         payload = json.dumps(nxt, ensure_ascii=False)
-        next_rev = stored_rev + 1
         next_schema = stored_schema if schema_version is None else int(schema_version)
         con.execute(
             "INSERT INTO bio_builder_questionnaires "
@@ -498,11 +557,13 @@ def merge_questionnaire(
     source: str = "questionnaire_merge",
     base_revision: Optional[int] = None,
     base_fields: Optional[Mapping[str, Any]] = None,
+    provenance: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Ordinary update. Cannot delete anything `removals` does not name."""
     return _write(person_id, source=source, write_kind=WRITE_MERGE,
                   mutations=mutations, removals=removals,
-                  base_revision=base_revision, base_fields=base_fields)
+                  base_revision=base_revision, base_fields=base_fields,
+                  provenance=provenance)
 
 
 def merge_whole_document(
@@ -513,6 +574,7 @@ def merge_whole_document(
     base_revision: Optional[int] = None,
     base_fields: Optional[Mapping[str, Any]] = None,
     schema_version: Optional[int] = None,
+    provenance: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Compatibility path for callers that still send a whole document.
 
@@ -538,7 +600,8 @@ def merge_whole_document(
                   mutations=flatten_document(document),
                   base_revision=base_revision, base_fields=base_fields,
                   schema_version=schema_version,
-                  blank_report_document=document)
+                  blank_report_document=document,
+                  provenance=provenance)
 
 
 def replace_questionnaire(

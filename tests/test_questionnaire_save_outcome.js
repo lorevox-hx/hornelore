@@ -289,7 +289,13 @@ check("the save path declares its edits BEFORE persisting",
   (() => {
     const b = fnBody(QQ, "function _saveSection(");
     const iMark = b.indexOf("_markQuestionnaireEdited(pid)");
-    const iPersist = b.indexOf("_persistDrafts(pid)");
+    // Match the CALL, not its argument list. WO-03A added a second
+    // argument (the human-entry hint) and this check failed against
+    // correct code — the ordering property it guards was untouched. The
+    // repeated lesson from WO-02: assert on structure, never on an exact
+    // line, or the test breaks every time the code legitimately changes
+    // and teaches nothing when it does.
+    const iPersist = b.search(/_persistDrafts\(pid[,)]/);
     return iMark !== -1 && iPersist !== -1 && iMark < iPersist;
   })(),
   "declaring after the async work has started leaves the window open");
@@ -557,7 +563,10 @@ const reportCode = report
 
 check("every save outcome is stamped with the operation it belongs to",
   /var _stamp = function \(o\) \{ o\.pid = pid; o\.ticket = ticket; return o; \};/.test(CORE) &&
-  /_persistQuestionnaire\(pid, qq, \+\+_qqSaveTicket\)/.test(CORE),
+  // Trailing arguments are allowed: WO-03A passes the entry hint fourth.
+  // The property is that a ticket is minted and handed to the persist
+  // call, which is what the outcome is stamped with.
+  /_persistQuestionnaire\(pid, qq, \+\+_qqSaveTicket[,)]/.test(CORE),
   "an unstamped outcome cannot be matched to the save that asked");
 
 check("a superseded outcome is refused, not reported",

@@ -173,6 +173,35 @@ class SuggestionIsNotAFactTests(unittest.TestCase):
             from code.api import db as _db
             _db.get_projection = self._real_get_projection
 
+    # The next three assert on BUCKETS, not on the serialized seed.
+    #
+    # They used to search `json.dumps(seed)` for the suggested string, which
+    # was a fine proxy while the seed carried no suggestions at all. WO-03A
+    # B6 changed that: `suggested` is now returned under its own key, because
+    # the confirmation hint — whose entire job is to ask "I have this
+    # provisionally, is it right?" — is the one consumer for which an
+    # unconfirmed value is the correct input, and it had been left with
+    # nothing to read.
+    #
+    # A whole-blob search would now fail on the quarantine itself, which
+    # would mean weakening the test to go green. So the assertion moved to
+    # the property that actually matters and never changed: **a suggestion
+    # must not occupy a bucket**, because buckets are what Lori is told she
+    # knows. `test_the_render_allowlist_excludes_suggestions` below is the
+    # other half — it checks that the quarantine holds at the point where
+    # the seed becomes prompt text.
+
+    # The nine keys the composer renders into the prompt (prompt_composer
+    # `_seed_label_keys`), plus the two name buckets read by
+    # compose_memory_echo. Nothing else in the seed becomes something Lori
+    # is told she knows.
+    _BUCKETS = ("preferred_name", "full_name", "childhood_home",
+                "parents_work", "heritage", "education", "military",
+                "career", "partner", "children", "life_stage", "age_years")
+
+    def _bucket_blob(self, seed):
+        return json.dumps({k: seed.get(k) for k in self._BUCKETS})
+
     def test_a_pending_suggestion_does_not_reach_the_seed(self):
         """THE DEFECT. A model guessed the narrator's birthplace. Nobody
         confirmed it. It must not arrive as something Lori knows."""
@@ -182,9 +211,29 @@ class SuggestionIsNotAFactTests(unittest.TestCase):
                           "value": "Duluth, Minnesota", "confidence": 0.7}],
         )
         seed = self.pc._build_profile_seed(PID)
-        blob = json.dumps(seed)
-        self.assertNotIn("Duluth", blob,
-                         "an unreviewed model suggestion reached the profile seed")
+        self.assertNotIn("Duluth", self._bucket_blob(seed),
+                         "an unreviewed model suggestion reached a profile seed bucket")
+        # Quarantined, not discarded — and reachable only by name.
+        self.assertEqual(seed["suggested"]["personal.placeOfBirth"],
+                         "Duluth, Minnesota")
+
+    def test_the_render_allowlist_excludes_suggestions(self):
+        """The other half of the quarantine, checked where it matters.
+
+        `suggested` living in the seed is only safe because the composer
+        renders the seed through a fixed list of bucket keys rather than
+        dumping the dict. If that list ever grew a `suggested` entry, every
+        unconfirmed guess would be printed into the prompt as something on
+        record — so the list is asserted here rather than trusted.
+        """
+        import inspect
+        src = inspect.getsource(self.pc)
+        start = src.index("_seed_label_keys = [")
+        allowlist = src[start:src.index("]", start)]
+        self.assertIn("childhood_home", allowlist, "the allowlist moved; fix this test")
+        self.assertNotIn("suggested", allowlist,
+                         "an unconfirmed suggestion would be rendered into the "
+                         "prompt as an established fact")
 
     def test_a_committed_operator_field_still_reaches_the_seed(self):
         """The fix must not silence real answers."""
@@ -203,7 +252,8 @@ class SuggestionIsNotAFactTests(unittest.TestCase):
             suggestions=[{"fieldPath": "personal.fullName", "value": "Ingeborg Falk"}],
         )
         seed = self.pc._build_profile_seed(PID)
-        self.assertNotIn("Ingeborg", json.dumps(seed))
+        self.assertNotIn("Ingeborg", self._bucket_blob(seed))
+        self.assertEqual(seed["suggested"]["personal.fullName"], "Ingeborg Falk")
 
 
 class TopicAnsweredTests(unittest.TestCase):

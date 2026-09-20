@@ -143,8 +143,39 @@ def get_questionnaire_route(
 
 @router.put("/questionnaire", response_model=QuestionnairePutResponse)
 def put_questionnaire_route(payload: QuestionnairePutRequest) -> QuestionnairePutResponse:
+    """The shared legacy PUT. **Writes no provenance, deliberately.**
+
+    ~20 callers across five modules funnel through `_persistQuestionnaire`
+    with the literal `source: "ui_save"`, and two of them are Lori's own
+    writers — `_syncIdentityToBB` (app.js:6072, 6113, 6208, 6237, 6294)
+    and `_syncPrefillIfBlank` (projection-sync.js:407-435). Classifying
+    this route as human entry would hand the model the authority of the
+    person sitting at the keyboard, which is the precise failure WO-03
+    exists to remove. It was proposed in revision 1 of the design and
+    caught in review.
+
+    Those callers move to the propose operation in WO-03B. Until then no
+    row is written for them and they read as `unknown`, which is the
+    honest record rather than a gap.
+    """
     if not payload.person_id.strip():
         raise HTTPException(status_code=400, detail="person_id is required")
+    return _persist(payload, provenance=None)
+
+
+def _persist(
+    payload: QuestionnairePutRequest,
+    *,
+    provenance: Optional[Any],
+) -> QuestionnairePutResponse:
+    """The write body, shared by the PUT and the two entry routes.
+
+    `provenance` is an `AnswerOrigin` or None, and it is the ONLY
+    difference between them. It is built by the route from the endpoint
+    that was called, never parsed out of the request — see
+    answer_provenance for why a client-declared operation would recreate
+    the trust problem this work order is closing.
+    """
 
     # Code-review issue #3 guard (2026-06-16): refuse the no-write
     # configuration. If both flags are off the questionnaire would be
@@ -241,6 +272,7 @@ def put_questionnaire_route(payload: QuestionnairePutRequest) -> QuestionnairePu
                 base_revision=payload.base_revision,
                 base_fields=payload.base_fields,
                 schema_version=payload.version,
+                provenance=provenance,
             )
         except _qp.QuestionnaireConflict as conflict:
             # A stale client. Refuse rather than rebase: rebasing is safe
@@ -277,6 +309,23 @@ def put_questionnaire_route(payload: QuestionnairePutRequest) -> QuestionnairePu
         legacy_blob_written = True
     else:
         # Canonical-only mode: skip the legacy blob write entirely.
+        #
+        # An entry route CANNOT run here. Provenance is written inside the
+        # questionnaire write transaction, so with that write skipped there
+        # is nowhere to record it — and a route whose entire purpose is to
+        # establish who said something, silently not recording it, is worse
+        # than the route not existing. Fail loudly, as the both-flags-off
+        # guard above does.
+        if provenance is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Answer-entry routes require "
+                    "HORNELORE_QUESTIONNAIRE_LEGACY_BLOB_WRITE=1. Provenance "
+                    "commits inside the questionnaire write transaction and "
+                    "cannot be recorded when that write is skipped."
+                ),
+            )
         # The response still echoes the payload + a now-ISO timestamp
         # so the FE's optimistic UI keeps working.
         saved = {
@@ -301,3 +350,152 @@ def put_questionnaire_route(payload: QuestionnairePutRequest) -> QuestionnairePu
         ignored_blank_paths=list(fanout_summary.get("ignored_blank_paths") or []),
         write_applied=bool(fanout_summary.get("write_applied", True)),
     )
+
+
+# ── the entry routes ─────────────────────────────────────────────────
+#
+# TWO ENDPOINTS RATHER THAN ONE ENDPOINT WITH AN `operation` FIELD.
+#
+# A client-declared operation would recreate the exact trust problem
+# WO-03 is closing: whichever module posts the body decides its own
+# authority, and the module we most need not to trust is the one that
+# composes text. Separating the endpoints makes the classification a
+# fact about WHICH ROUTE WAS CALLED — something the server observes —
+# instead of a claim the server has to take on faith.
+#
+# The asymmetry that makes this sound: a caller claiming LOWER authority
+# is safe to believe, because nothing gains by falsely calling itself a
+# machine. A caller claiming HIGHER authority is not. So the human-entry
+# cases get dedicated routes and everything else keeps the silent PUT.
+
+
+class AnswerEntryRequest(QuestionnairePutRequest):
+    """An operator typed this into the Bio Builder form.
+
+    `sections` is what the form actually saved. Provenance is stamped
+    ONLY for changed paths within those sections: the form sends the
+    whole document, so a path that moved elsewhere in the same request
+    moved for some other reason — a draft mirror, a prefill, an identity
+    sync — and attributing it to the operator would credit them with
+    something they did not do.
+    """
+
+    sections: List[str] = Field(default_factory=list)
+
+
+class NarratorAnswerRequest(QuestionnairePutRequest):
+    """The narrator said this, in chat.
+
+    `source_turn_id` is a CLAIM. It is checked against the turn record
+    before anything is written, and the verdict — not the claim — is what
+    gets stored.
+    """
+
+    sections: List[str] = Field(default_factory=list)
+    source_turn_id: str = ""
+    # The narrator's own words, before any normalisation. Stored as given
+    # so a consumer can see whether the answer in the document is what
+    # they said or a tidied rendering of it.
+    original_text: str = ""
+
+
+class AnswerEntryResponse(QuestionnairePutResponse):
+    # Only 'verified' may be read as evidence. 'unverified' means a turn
+    # was cited and did not check out — the answer was still saved, and
+    # the citation is retained precisely so it can be investigated.
+    turn_evidence: str = "absent"
+
+
+@router.post("/questionnaire/answer", response_model=AnswerEntryResponse)
+def post_operator_answer_route(payload: AnswerEntryRequest) -> AnswerEntryResponse:
+    """A person entered this directly. Exactly one caller: `_saveSection`.
+
+    Enforcement that no Lori-derived writer reaches this route is a test,
+    not a promise — the harness's server double records which endpoint
+    each write hit and the suite fails if any of them lands here.
+    """
+    from ..services.answer_provenance import AnswerOrigin, ORIGIN_OPERATOR
+
+    if not payload.person_id.strip():
+        raise HTTPException(status_code=400, detail="person_id is required")
+
+    origin = AnswerOrigin(
+        ORIGIN_OPERATOR,
+        actor_id=payload.operator_id or "",
+        # None means "every path this write touches". The form always
+        # names its section; an empty list would silently classify
+        # nothing, which fails quietly, so it is refused instead.
+        sections=payload.sections or None,
+    )
+    if not payload.sections:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "sections is required: this route stamps provenance only "
+                "for the section the form saved, and an unscoped entry "
+                "would attribute unrelated changes in the same document "
+                "to the operator."
+            ),
+        )
+    out = _persist(payload, provenance=origin)
+    return AnswerEntryResponse(**out.model_dump(), turn_evidence="absent")
+
+
+@router.post("/questionnaire/narrator-answer", response_model=AnswerEntryResponse)
+def post_narrator_answer_route(payload: NarratorAnswerRequest) -> AnswerEntryResponse:
+    """The narrator said this. Verified against the turn record first.
+
+    THE ANSWER IS SAVED WHETHER OR NOT VERIFICATION PASSES. A bookkeeping
+    failure must not discard what the narrator said — that would be the
+    system deleting testimony because it could not file the receipt. What
+    a failure changes is the CLAIM, not the answer: `turn_evidence`
+    records `unverified`, the cited id is kept so the failure can be
+    investigated, and no consumer may read it as support.
+
+    Coverage is thin and this route does not pretend otherwise. 1,468 of
+    1,487 existing turns have no resolvable owner, so a citation to one
+    of them returns `unverified`. `memory_archive_turns`, which the first
+    revision of the design verified against, has never held a single row.
+    """
+    from .. import db as _db
+    from ..services.answer_provenance import (
+        AnswerOrigin, ORIGIN_NARRATOR, verify_turn, EVIDENCE_ABSENT,
+    )
+
+    if not payload.person_id.strip():
+        raise HTTPException(status_code=400, detail="person_id is required")
+    if not payload.sections:
+        raise HTTPException(
+            status_code=400, detail="sections is required",
+        )
+
+    # Verified BEFORE the write, on its own connection, so a verification
+    # that errors cannot roll back the narrator's answer. The verdict is
+    # settled once here and carried; nothing downstream re-decides it,
+    # because a second opinion on evidence is how an unverified claim
+    # becomes a verified one by accident.
+    con = _db._connect()
+    try:
+        evidence = verify_turn(con, payload.person_id, payload.source_turn_id)
+    finally:
+        con.close()
+
+    origin = AnswerOrigin(
+        ORIGIN_NARRATOR,
+        actor_id=payload.person_id,
+        # The CLAIMED id, kept in every state where one was given.
+        # Nulling it on failure would erase the difference between "no
+        # citation" and "a citation that did not check out", and the
+        # second is the one worth investigating.
+        source_turn_id=(payload.source_turn_id or None),
+        turn_evidence=evidence,
+        original_text=(payload.original_text or None),
+        sections=payload.sections,
+    )
+    if evidence != EVIDENCE_ABSENT and not payload.source_turn_id.strip():
+        # Unreachable by construction; asserted because the alternative is
+        # a verified claim with nothing behind it.
+        raise HTTPException(status_code=500, detail="evidence without a citation")
+
+    out = _persist(payload, provenance=origin)
+    return AnswerEntryResponse(**out.model_dump(), turn_evidence=evidence)

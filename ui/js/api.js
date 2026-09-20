@@ -66,6 +66,14 @@ const API = {
   // Phase G — Storage Authority
   BB_QQ_GET:        (id) => `${ORIGIN}/api/bio-builder/questionnaire?person_id=${encodeURIComponent(id)}`,
   BB_QQ_PUT:        ORIGIN + "/api/bio-builder/questionnaire",
+  // WO-03A. The dedicated human-entry route. It is a SEPARATE endpoint
+  // rather than a flag on the PUT because the classification has to be a
+  // fact the server observes — which route was called — and not a claim
+  // the client makes about itself. A client that could declare
+  // "operator_direct" is a client that could lie, and the module we most
+  // need not to trust is the one that composes text. Exactly one caller:
+  // _saveSection.
+  BB_QQ_ANSWER:     ORIGIN + "/api/bio-builder/questionnaire/answer",
   IV_PROJ_GET:      (id) => `${ORIGIN}/api/interview/projection?person_id=${encodeURIComponent(id)}`,
   // Whole-document REPLACEMENT. Reserved for wholesale intent (deep
   // reset, restore) — see WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01.

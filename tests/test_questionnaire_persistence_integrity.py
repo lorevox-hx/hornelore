@@ -58,6 +58,7 @@ CREATE TABLE bio_builder_questionnaire_revisions (
     changed_paths TEXT,
     removed_paths TEXT,
     previous_values TEXT,
+    previous_provenance TEXT NOT NULL DEFAULT '{}',
     FOREIGN KEY(person_id) REFERENCES people(id) ON DELETE CASCADE
 );
 """

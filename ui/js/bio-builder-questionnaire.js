@@ -1721,7 +1721,16 @@
       if (_core && typeof _core._markQuestionnaireEdited === "function") {
         _core._markQuestionnaireEdited(pid);
       }
-      _persistDrafts(pid);
+      /* WO-03A — this save goes to the human-entry route, and names the
+         section it actually saved.
+
+         The section list is the important half. This form sends the WHOLE
+         document on every save, so without a scope the operator's
+         authority would be stamped on every path that happened to move in
+         the same request — a draft mirror, a prefill, an identity sync —
+         crediting them with answers they never gave. The server stamps
+         only changed paths within the sections named here. */
+      _persistDrafts(pid, { sections: [sectionId] });
       // BUG-BIO-QUESTIONNAIRE-SILENT-SAVE-FAILURE-01.
       //
       // This line used to be the whole of "saving". _persistDrafts returned
@@ -1866,14 +1875,32 @@
       }
     }
 
+    /* WO-03A — "+ Add another" is human entry too, and had to be.
+       ────────────────────────────────────────────────────────────
+       The design said the operator route would have exactly one caller.
+       Tracing the no-op rule showed that leaving this one out opens a
+       hole rather than closing one:
+
+         the operator fills in the mother
+         clicks "+ Add another parent"  -> this persists her answers
+         clicks Save                    -> nothing CHANGED, so it is a
+                                           no-op, and a no-op writes no
+                                           provenance
+
+       The mother's answers would then stay unclassified forever, having
+       been entered by a person at a keyboard through the Bio Builder
+       form. The scope rule still applies — one named section — so this
+       claims no more than the save below it would have. */
+    var _entry = { sections: [sectionId] };
+
     // Phase 2.2 Step 3: persist canonical state (with committed DOM edits)
-    if (pid) _persistDrafts(pid);
+    if (pid) _persistDrafts(pid, _entry);
 
     // Phase 2.2 Step 4: append empty repeatable entry to canonical state
     bb.questionnaire[sectionId].push({});
 
     // Phase 2.2 Step 5: persist again (with new entry)
-    if (pid) _persistDrafts(pid);
+    if (pid) _persistDrafts(pid, _entry);
 
     // Phase 2.5: debug snapshot after add
     _qqDebugSnapshot("add_repeat:" + sectionId, pid, bb);

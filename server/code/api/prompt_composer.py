@@ -1687,6 +1687,29 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
         elif _ovl_norm in ("default", "none", ""):
             seed["narrator_voice_overlay"] = "default"
 
+    # ── WO-03A B6 — the suggestions reach their ONE legitimate consumer ──
+    #
+    # `suggested` has been built since the tier work and never returned, so
+    # it was collected and dropped on the floor. That was my own defect,
+    # introduced when I stopped merging `pendingSuggestions` into
+    # `provisional`.
+    #
+    # Removing that merge was right: an unconfirmed suggestion must not
+    # silently become a value every bucket resolution treats as fact. But
+    # the confirmation hint is the one consumer for which a suggestion is
+    # EXACTLY the right input — its entire purpose is to say "I have this
+    # provisionally, is it right?", which is a question only an
+    # unconfirmed value can prompt. Removing the merge took away its
+    # input, so it stopped firing and Lori went back to asking cold about
+    # things the narrator had already said.
+    #
+    # Returned under its own key rather than folded into any bucket. A
+    # consumer has to ask for suggestions BY NAME, which means no bucket
+    # resolution can acquire one by accident — the property the merge
+    # removal was protecting — and the hint can have what it needs.
+    if suggested:
+        seed["suggested"] = dict(suggested)
+
     return seed
 
 
@@ -5135,6 +5158,31 @@ def _compose_prompt_assembly(
         _seed_childhood_home = (_profile_seed.get("childhood_home") or "").strip() if _profile_seed else ""
         _seed_preferred_name = (_profile_seed.get("preferred_name") or "").strip() if _profile_seed else ""
         _seed_full_name = (_profile_seed.get("full_name") or "").strip() if _profile_seed else ""
+
+        # WO-03A B6. Unconfirmed suggestions, read BY NAME and used ONLY by
+        # the confirmation hints below.
+        #
+        # This is the one place in the composer where an unconfirmed value
+        # is the correct input, because the hint's whole job is to ask
+        # whether it is right. Everywhere else a suggestion must stay out
+        # of the buckets — which is why it arrives in its own map rather
+        # than merged into `provisional`, and why these three reads are
+        # local to this block.
+        _seed_suggested = _profile_seed.get("suggested") if _profile_seed else None
+        if not isinstance(_seed_suggested, dict):
+            _seed_suggested = {}
+
+        def _suggested(*paths: str) -> str:
+            for p in paths:
+                v = _seed_suggested.get(p)
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+            return ""
+
+        _sugg_pob = _suggested("personal.placeOfBirth", "personal.place_of_birth",
+                               "basics.placeOfBirth", "basics.pob")
+        _sugg_name = _suggested("personal.preferredName", "personal.preferred_name",
+                                "personal.fullName", "basics.preferredName")
         # NOTE (2026-05-06): The previous BUG-LORI-LATE-AGE-RECALL-01 v10
         # patch defined a `_seed_age_years` here and consumed it later
         # in the directive block. The v11 rollback removed the consumer
@@ -5180,8 +5228,18 @@ def _compose_prompt_assembly(
             # follow-through — provisional truth persists; Lori uses
             # it instead of treating the narrator as if they never
             # said it.
+            # A CONFIRMED value first, an unconfirmed suggestion second.
+            #
+            # The order is the whole point. When something is on record the
+            # hint confirms THAT; only when nothing is does it fall back to
+            # what Lori believes but nobody has agreed to. A suggestion can
+            # therefore never displace a confirmed answer — it can only
+            # occupy a space that was empty, and even then it is offered as
+            # a question rather than stated as a fact.
             _confirm_hint = ""
-            if _phase in ("askBirthplace", "resolving") and _known_childhood_home:
+            _pob_hint = _known_childhood_home or _sugg_pob
+            if _phase in ("askBirthplace", "resolving") and _pob_hint:
+                _known_childhood_home = _pob_hint
                 _confirm_hint = (
                     f"\nALREADY ON RECORD (provisional): place of birth = '{_known_childhood_home}'.\n"
                     "REFRAME RULE: Do NOT ask 'where were you born' from scratch. "
@@ -5189,8 +5247,9 @@ def _compose_prompt_assembly(
                     f"'I have {_known_childhood_home} on record as your earliest place — does that still feel right?' "
                     "If they correct it, accept the correction warmly. If they confirm it, move on."
                 )
-            elif _phase == "askName" and (_seed_preferred_name or _seed_full_name):
-                _name_hint = _seed_preferred_name or _seed_full_name
+            elif _phase == "askName" and (_seed_preferred_name or _seed_full_name
+                                          or _sugg_name):
+                _name_hint = _seed_preferred_name or _seed_full_name or _sugg_name
                 _confirm_hint = (
                     f"\nALREADY ON RECORD (provisional): name = '{_name_hint}'.\n"
                     "REFRAME RULE: Do NOT ask for their name from scratch. "

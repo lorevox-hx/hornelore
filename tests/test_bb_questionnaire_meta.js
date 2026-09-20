@@ -36,10 +36,18 @@ const SRC = fs.readFileSync(
 // and ends just before `var FULL_SECTIONS = [`.
 function _sliceHelpers(src) {
   const startMarker = '/* ── WO-BIO-QUESTIONNAIRE-BIO-FACTS-MIGRATE-01 Phase 2';
-  const endMarker = 'var FULL_SECTIONS = [';
+  // WO-01 renamed FULL_SECTIONS to SECTIONS when the second, minimal
+  // questionnaire was removed. This test had been throwing ever since —
+  // it went dark at exactly the moment the file it guards changed most,
+  // which is the standing hazard of slicing source by literal marker.
+  // Both spellings are accepted so the rename cannot silence it again,
+  // and the throw below stays loud so a future one cannot either.
   const start = src.indexOf(startMarker);
-  const end = src.indexOf(endMarker);
-  if (start < 0 || end < 0 || end <= start) {
+  const end = [ 'var SECTIONS = [', 'var FULL_SECTIONS = [' ]
+    .map((m) => src.indexOf(m))
+    .filter((i) => i > start)
+    .sort((a, b) => a - b)[0];
+  if (start < 0 || end === undefined) {
     throw new Error(
       'Could not slice Phase 2 helper block — markers missing. ' +
       'Did the file get rewritten? Update markers in the test.'
