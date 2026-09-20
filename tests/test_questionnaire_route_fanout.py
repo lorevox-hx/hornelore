@@ -155,6 +155,59 @@ class FanoutFlagOffLegacyOn(unittest.TestCase):
         self.assertTrue(resp.legacy_blob_written)
 
 
+class NoOpIsReportedAsNoOp(unittest.TestCase):
+    """BUG-QUESTIONNAIRE-NOOP-REPORTED-AS-WRITE-01 (2026-09-20).
+
+    merge_whole_document has returned `write_applied: False` for an unchanged
+    document since 6b0a877 ("a save that changes nothing is not a write").
+    The router dropped it: QuestionnairePutResponse had no such field. So the
+    browser's no-op detection, `j.write_applied === false`, could never fire
+    against the real server, and an unchanged save rendered as green
+    "Saved (revision N)".
+
+    Found on the WO-01 live test — the operator saved Personal Information
+    untouched, saw green, and the revision counter had not moved. The
+    behavioural harness had passed because its server double returned the
+    field the real route did not.
+    """
+
+    def _put(self, writer_result):
+        from api.routers import questionnaire as qroute
+        with patch.dict(os.environ, {
+            "HORNELORE_QUESTIONNAIRE_BIO_FACTS_WRITE": "0",
+            "HORNELORE_QUESTIONNAIRE_LEGACY_BLOB_WRITE": "1",
+        }), patch("api.routers.questionnaire._qp.merge_whole_document",
+                  return_value=writer_result):
+            return qroute.put_questionnaire_route(_fresh_payload())
+
+    def test_an_unchanged_save_says_so(self):
+        resp = self._put({
+            "person_id": "narrator-test", "questionnaire": _DUMMY_BLOB,
+            "source": "ui_save", "version": 1, "updated_at": "x",
+            "revision": 5, "write_applied": False, "ignored_blank_paths": [],
+        })
+        self.assertFalse(resp.write_applied,
+                         "the writer said nothing changed; the route told the browser it had")
+        self.assertEqual(resp.revision, 5)
+
+    def test_a_real_write_says_so(self):
+        resp = self._put({
+            "person_id": "narrator-test", "questionnaire": _DUMMY_BLOB,
+            "source": "ui_save", "version": 1, "updated_at": "x",
+            "revision": 6, "write_applied": True, "ignored_blank_paths": [],
+        })
+        self.assertTrue(resp.write_applied)
+
+    def test_a_writer_that_does_not_say_defaults_to_write(self):
+        """Absence of the flag must not be read as a no-op — an older writer
+        result that omits it is a write, and the banner should say saved."""
+        resp = self._put({
+            "person_id": "narrator-test", "questionnaire": _DUMMY_BLOB,
+            "source": "ui_save", "version": 1, "updated_at": "x",
+        })
+        self.assertTrue(resp.write_applied)
+
+
 class FanoutOnLegacyOn(unittest.TestCase):
     """Dual-write — both paths fire."""
 

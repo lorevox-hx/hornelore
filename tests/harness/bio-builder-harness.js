@@ -187,6 +187,15 @@ function createHarness(options) {
         return Promise.resolve(makeResponse(status, body));
       }
       const res = server.applyMerge(payload.person_id, payload.questionnaire || {});
+      // FIDELITY NOTE (2026-09-20). This double returned `write_applied` from
+      // the start. The real route did NOT until BUG-QUESTIONNAIRE-NOOP-
+      // REPORTED-AS-WRITE-01 — QuestionnairePutResponse had no such field
+      // and the router dropped the writer's verdict. Sequence 3 ("an
+      // unchanged save says no changes") passed here and was wrong live:
+      // the operator saw green on a no-op. A double that is more honest than
+      // the server it stands in for hides exactly the defect it is meant to
+      // catch. When the response contract changes, change THIS first and
+      // watch the sequence fail, then fix the server.
       return Promise.resolve(makeResponse(200, {
         ok: true, person_id: payload.person_id,
         revision: res.revision, write_applied: res.write_applied,
