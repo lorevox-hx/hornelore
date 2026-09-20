@@ -96,6 +96,44 @@
      section the operator cannot see is a section they cannot correct, and
      on 2026-09-15 that is how ten hand-typed values were destroyed. */
 
+  /* ── WO-02: stable entry ids ─────────────────────────────────────────
+     Every hop in this system identified a repeatable entry by its array
+     index and nothing else — render, collect, transport, flatten, merge and
+     the revision history alike. `questionnaire_persistence.py:75-100` names
+     that limitation and defers the fix; this is the fix, for the identity
+     half of it.
+
+     The id lives INSIDE the entry, not in the path. The server's path
+     grammar admits only integers between brackets, so an id-keyed path space
+     would mean rewriting the split/get/set/unset machinery and leaving every
+     `changed_paths` row already written unresolvable. In-band gives the
+     identity without the migration.
+
+     WHAT THIS DOES AND DOES NOT DO. Entries become identifiable, so a save
+     can apply an edit to the person it was made against rather than to
+     whoever occupies that position now. Paths do NOT become stable: the
+     flattened path space and the revision history are still positional, and
+     a reorder still renames every path after it. Nor does this close the
+     two-tab race — the server's per-path concurrency check (`base_fields`)
+     exists and no UI client sends it. Both remain recorded gaps. */
+  var ENTRY_ID_KEY = "_entryId";
+
+  /* Does this entry hold an answer, as opposed to only bookkeeping?
+     Reuses the core's rule so there is one definition of "real content"
+     rather than a second that can drift from it. */
+  function _hasEntryContent(entry) {
+    if (!entry || typeof entry !== "object") return false;
+    var core = window.LorevoxBioBuilderModules && window.LorevoxBioBuilderModules.core;
+    if (core && typeof core._hasOperatorContent === "function") {
+      return core._hasOperatorContent(entry);
+    }
+    return Object.keys(entry).some(function (k) {
+      if (k.charAt(0) === "_") return false;
+      var v = entry[k];
+      return v !== null && v !== undefined && String(v).trim() !== "";
+    });
+  }
+
   /* One location per section. WO-01, 2026-09-19.
 
      This used to fall back to `questionnaire._legacyRemovedSections[id]`
@@ -1137,7 +1175,16 @@
     if (section.repeatable) {
       var entries = Array.isArray(existing) ? existing : (existing ? [existing] : [{}]);
       fieldsHtml = entries.map(function (entry, idx) {
-        return '<div class="bb-repeat-entry">'
+        /* WO-02 — carry the entry's id into the form.
+           The save matches on this, not on position. Rendering it is what
+           makes that possible: without it the collect path has nothing but
+           the index, which is the whole problem. A hidden input rather than
+           a data attribute only because the collect path reads the DOM
+           through `_el(id)` and this keeps it to one mechanism.
+           Empty for an entry that has none yet — one is minted on save. */
+        var eid = (entry && entry[ENTRY_ID_KEY]) || "";
+        return '<div class="bb-repeat-entry" data-lv-entry-id="' + _esc(eid) + '">'
+          + '<input type="hidden" id="bbQ_' + idx + '__entryId" value="' + _esc(eid) + '">'
           + '<div class="bb-repeat-label">' + _esc(section.repeatLabel || "entry") + " " + (idx + 1) + '</div>'
           + section.fields.map(function (f) { return _fieldHtml(f, "bbQ_" + idx + "_" + f.id, entry[f.id] || "", section.id); }).join("")
           + '</div>';
@@ -1326,6 +1373,14 @@
         try { onConfirmed(); }
         catch (e) { console.error("[bb-qq] downstream work after a confirmed save threw:", e); }
       }
+      if (res.ok && _pendingIdCollisions.length) {
+        /* The save succeeded and every answer was kept — but two entries
+           share one identity, which means a later correction cannot be aimed
+           at one of them. That outranks "saved" as the thing to say. */
+        _reportEntryIdCollision(section, _pendingIdCollisions);
+        _pendingIdCollisions = [];
+        return;
+      }
       if (res.ok) {
         // A no-op is a success, but it is NOT the same event as a write, and
         // an operator entering a biography needs to tell them apart — "did my
@@ -1400,6 +1455,37 @@
       "different narrator than the one now active, so saving it would file " +
       "one person's answers under another's name. Reopen the section for the " +
       "current narrator. Nothing was written.";
+    el.hidden = false;
+    clearTimeout(el._t);
+  }
+
+  /* A duplicated entry id, shown to the operator and not dismissed.
+     WO-02. The save succeeded and both people kept their answers — but two
+     entries share one identity, so a later correction cannot be aimed at one
+     of them reliably. That is worth interrupting for. */
+  var _pendingIdCollisions = [];
+
+  function _reportEntryIdCollision(section, ids) {
+    var label = (section && section.label) || "section";
+    var el = document.getElementById("bbSaveStatus");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "bbSaveStatus";
+      el.setAttribute("role", "status");
+      el.setAttribute("aria-live", "polite");
+      el.style.cssText =
+        "position:fixed;left:50%;transform:translateX(-50%);bottom:24px;z-index:99999;" +
+        "max-width:min(680px,92vw);padding:12px 16px;border-radius:8px;" +
+        "font:14px/1.45 system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.28);";
+      document.body.appendChild(el);
+    }
+    el.style.background = "#4a3a11";
+    el.style.color = "#ffeccc";
+    el.style.border = "1px solid #a3782b";
+    el.textContent = "Saved, but " + label + " has two entries sharing one " +
+      "identity (" + ids.join(", ") + "). Every answer was kept and nothing was " +
+      "merged — but until one of them is given a separate identity, a later " +
+      "correction cannot be aimed at just one of these people.";
     el.hidden = false;
     clearTimeout(el._t);
   }
@@ -1484,9 +1570,82 @@
       }
       var count = Math.max(existing.length, rendered);
 
+      /* ── WO-02: match the rendered entry to the stored one by ID ────────
+         This used `existing[i]` — the stored entry at the same ordinal. That
+         is safe only while the DOM and storage agree about order, which they
+         do the instant after a render and not necessarily a moment later. If
+         the stored array changes underneath an open form — another tab, a
+         restore, any future reorder control — then index 1 on screen and
+         index 1 in storage are two different people, and the save writes one
+         person's answers onto the other.
+
+         An id carried in the entry does not fix that by existing. It fixes it
+         by being what the merge matches on. So: find the stored entry whose
+         id equals the one this rendered entry carries, and merge onto THAT,
+         wherever it now sits.
+
+         Entries with no id fall back to the ordinal — that is every entry
+         written before this work order, and the fallback is what lets them
+         keep their values while gaining an id below. */
+      /* A DUPLICATED ID IS AN INTEGRITY ERROR, NOT A PUZZLE TO SOLVE.
+
+         An earlier version healed it: the first row kept the id, the second
+         was minted a fresh one. That is the system deciding, unprompted, that
+         one of two real people is now somebody else. If a correction had
+         already been made against that id, it would silently attach to
+         whichever row happened to be first.
+
+         So: an id that appears more than once — among the rendered rows or
+         among the stored entries — is UNUSABLE for matching. Those rows fall
+         back to their ordinal, which is what the operator is looking at, both
+         entries keep every answer they have, neither id is changed, and the
+         collision is reported. Resolving it is a person's decision. */
+      var seen = Object.create(null), ambiguous = Object.create(null);
+      function _noteId(id) {
+        if (!id) return;
+        if (seen[id]) ambiguous[id] = true;
+        seen[id] = true;
+      }
+      for (var e = 0; e < existing.length; e++) {
+        var ex = existing[e];
+        if (ex && typeof ex === "object") _noteId(ex[ENTRY_ID_KEY]);
+      }
+      /* One detector, over the stored entries. A second pass over the
+         rendered rows was written here and removed: the form is rendered
+         FROM these same entries, so a duplicate on screen is always a
+         duplicate in memory, and the extra pass could not see anything the
+         first missed. It did, however, keep a mutation of the real detector
+         from failing anything — two checks of the same fact, one of them
+         invisible. */
+
+      var byId = Object.create(null);
+      for (var e2 = 0; e2 < existing.length; e2++) {
+        var ex2 = existing[e2];
+        if (ex2 && typeof ex2 === "object" && ex2[ENTRY_ID_KEY] && !ambiguous[ex2[ENTRY_ID_KEY]]) {
+          byId[ex2[ENTRY_ID_KEY]] = ex2;
+        }
+      }
+      var claimed = Object.create(null);
+      var collisions = Object.keys(ambiguous);
+
       var out = [];
       for (var i = 0; i < count; i++) {
-        var prev = existing[i];
+        var idEl = _el("bbQ_" + i + "__entryId");
+        var domId = idEl ? (idEl.value || "") : "";
+        var prev = null;
+        if (domId && ambiguous[domId]) {
+          /* Unusable id. Fall back to the ordinal — what the operator is
+             looking at — which also carries the stored entry's own id
+             forward untouched. The first version let this fall through to
+             no match at all, so BOTH entries were minted fresh ids: the
+             renaming this guard exists to prevent, caused by the guard. */
+          prev = existing[i];
+        } else if (domId && byId[domId] && !claimed[domId]) {
+          prev = byId[domId];
+          claimed[domId] = true;
+        } else if (!domId) {
+          prev = existing[i];
+        }
         var obj = (prev && typeof prev === "object") ? Object.assign({}, prev) : {};
         /* eslint-disable no-loop-func */
         (function (idx, target) {
@@ -1496,9 +1655,48 @@
           });
         })(i, obj);
         /* eslint-enable no-loop-func */
+
+        /* WO-02 decisions B and C, in one line.
+
+           MINT ONLY HERE — in the save path, never on render and never on
+           open. Viewing a family record must not write to it.
+
+           AND ONLY FOR AN ENTRY THAT HOLDS AN ANSWER. flatten_document does
+           not skip bookkeeping keys, so an id is a populated leaf: giving one
+           to a blank row would make the server store a person whose single
+           recorded fact is an identifier — BUG-BIO-QUESTIONNAIRE-DEFAULT-AS-
+           ASSERTION-01 arriving by a new road. Withholding the id is the
+           whole guard. A contentless entry stays `{}`, flattens to nothing,
+           and is not stored.
+
+           The blank row is deliberately KEPT in memory so it keeps its place
+           on screen — the operator clicked "add another" and expects the row
+           to still be there. The first version of this dropped it and the
+           row disappeared from under them.
+
+           An entry that already has an id keeps it, unchanged, for life. */
+        if (!obj[ENTRY_ID_KEY] && _hasEntryContent(obj)) {
+          obj[ENTRY_ID_KEY] = "e_" + _uid();
+        }
+
         out.push(obj);
       }
       bb.questionnaire[sectionId] = out;
+
+      /* Report the collision. The save still happens — both people keep
+         their answers, which is the priority — but nobody is told the
+         record is ambiguous unless we say so, and an ambiguous id means a
+         later correction cannot be aimed reliably. */
+      if (collisions.length) {
+        console.error("[bb-qq] DUPLICATE ENTRY IDS in " + sectionId + ": " +
+          collisions.join(", ") + ". Both entries were preserved and matched " +
+          "by position for this save. Neither id was changed and no entries " +
+          "were merged — resolving which person owns the id is a decision for " +
+          "a person, not this code.");
+        _pendingIdCollisions = collisions;
+      } else {
+        _pendingIdCollisions = [];
+      }
     } else {
       var storedObj = getSectionData(bb.questionnaire, sectionId);
       var obj = (storedObj && typeof storedObj === "object" && !Array.isArray(storedObj))
@@ -1633,15 +1831,30 @@
         while (_el("bbQ_" + renderedN + "_" + probeId)) renderedN++;
       }
       var total = Math.max(entries.length, renderedN);
+
+      /* WO-02 — match by id here too, not by ordinal. This path commits the
+         operator's in-progress typing before appending a blank entry, so it
+         writes DOM values onto stored entries exactly as the save does, and
+         carries exactly the same risk of putting one person's answers on
+         another if the stored order moved under the open form. Same rule:
+         id first, ordinal only for an entry that has none yet. */
+      var idIndex = Object.create(null);
+      for (var q = 0; q < entries.length; q++) {
+        var en = entries[q];
+        if (en && typeof en === "object" && en[ENTRY_ID_KEY]) idIndex[en[ENTRY_ID_KEY]] = q;
+      }
       for (var ei = 0; ei < total; ei++) {
-        if (!entries[ei]) entries[ei] = {};
+        var idNode = _el("bbQ_" + ei + "__entryId");
+        var domEid = idNode ? (idNode.value || "") : "";
+        var target = (domEid && idIndex[domEid] !== undefined) ? idIndex[domEid] : ei;
+        if (!entries[target]) entries[target] = {};
         /* eslint-disable no-loop-func */
-        (function (idx) {
+        (function (idx, slot) {
           section.fields.forEach(function (f) {
             var el = _el("bbQ_" + idx + "_" + f.id);
-            if (el) entries[idx][f.id] = el.value || "";
+            if (el) entries[slot][f.id] = el.value || "";
           });
-        })(ei);
+        })(ei, target);
         /* eslint-enable no-loop-func */
       }
       // Declare the edits BEFORE the async GET started by the restore above

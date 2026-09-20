@@ -722,6 +722,286 @@ async function run() {
       (h.server.stored(OTHER) || {}).parents === undefined);
   }
 
+  /* ═══ 11. WO-02 — STABLE ENTRY IDS ════════════════════════════════════
+     Enables: a correction can be applied to the person it was made against.
+     That is the foundation provenance (WO-03) and deletion (WO-04) stand on,
+     and the reason a later correction can reach Lori attached to the right
+     relative rather than to whoever now occupies index 1. */
+  {
+    scenario("11. an id is minted on save, only for an entry with an answer");
+    const h = createHarness().setNarrator(PID);
+    h.restore(PID); await h.settle();
+
+    h.render("parents");
+    fillEntry(h, 0, MOTHER);
+    h.save("parents"); await h.settle();
+
+    const p0 = parentsOf(h.server.stored(PID))[0];
+    check("a saved entry carries an id", !!(p0 && p0._entryId), JSON.stringify(p0 && Object.keys(p0)));
+    check("the id is not the index", p0 && !/^\d+$/.test(String(p0._entryId)));
+
+    const firstId = p0._entryId;
+    h.render("parents");
+    h.typeEntry(0, "occupation", "headmistress");
+    h.save("parents"); await h.settle();
+    check("the id is NOT regenerated on a later save",
+      parentsOf(h.server.stored(PID))[0]._entryId === firstId,
+      "an id that changes every save identifies nothing");
+    check("the edit landed", parentsOf(h.server.stored(PID))[0].occupation === "headmistress");
+
+    h.addEntry("parents"); await h.settle();
+    h.render("parents");
+    h.save("parents"); await h.settle();
+    const after = parentsOf(h.server.stored(PID));
+    check("a blank added entry gets NO id and is not stored as a person",
+      after.length === 1,
+      "stored " + after.length + " — an id alone must not make a person exist");
+    check("the blank row is still on the form", h.entryCount() === 2,
+      "the operator clicked add; the row must not vanish from under them");
+  }
+
+  {
+    scenario("11b. THE REORDER TEST — a correction reaches the person it was made against");
+    const h = createHarness().setNarrator(PID);
+    h.restore(PID); await h.settle();
+
+    h.render("parents"); fillEntry(h, 0, MOTHER); h.save("parents"); await h.settle();
+    h.addEntry("parents"); await h.settle();
+    h.render("parents"); fillEntry(h, 1, FATHER); h.save("parents"); await h.settle();
+
+    let stored = parentsOf(h.server.stored(PID));
+    check("both parents stored with distinct ids",
+      stored.length === 2 && stored[0]._entryId && stored[1]._entryId &&
+      stored[0]._entryId !== stored[1]._entryId);
+    const ingridId = stored[0]._entryId, bertilId = stored[1]._entryId;
+
+    // The form is open, showing Ingrid at 0 and Bertil at 1.
+    h.render("parents");
+    check("the form carries each entry's id",
+      h.valueOf("bbQ_0__entryId") === ingridId && h.valueOf("bbQ_1__entryId") === bertilId);
+
+    /* Now the stored order changes underneath the open form — another tab, a
+       restore, any future reorder control. The DOM still shows Ingrid first;
+       storage now holds Bertil first. Before WO-02 the save merged DOM index
+       0 onto stored index 0, and Ingrid's correction would have been written
+       onto Bertil. */
+    const mem = h.memory();
+    mem.parents = [mem.parents[1], mem.parents[0]];
+    h.setDraft(PID, JSON.parse(JSON.stringify(mem)));
+    h.server.docs[PID].doc.parents = [h.server.docs[PID].doc.parents[1], h.server.docs[PID].doc.parents[0]];
+
+    // The operator corrects the entry they are looking at — Ingrid's, at index 0.
+    h.typeEntry(0, "occupation", "headmistress");
+    h.save("parents"); await h.settle();
+
+    stored = parentsOf(h.server.stored(PID));
+    const ingrid = stored.find((p) => p._entryId === ingridId);
+    const bertil = stored.find((p) => p._entryId === bertilId);
+
+    check("both people still exist after the reorder", !!ingrid && !!bertil,
+      "ids: " + JSON.stringify(stored.map((p) => p._entryId)));
+    check("the correction reached INGRID — the person it was made against",
+      ingrid && ingrid.occupation === "headmistress",
+      "Ingrid.occupation = " + (ingrid && ingrid.occupation));
+    check("BERTIL was not touched by a correction meant for someone else",
+      bertil && bertil.occupation === FATHER.occupation,
+      "Bertil.occupation = " + (bertil && bertil.occupation) +
+      " — this is the failure the ids exist to prevent");
+    check("neither person's other answers were disturbed",
+      ingrid && ingrid.firstName === "Ingrid " && bertil && bertil.firstName === "Bertil");
+  }
+
+  {
+    /* The save is not the only path that commits DOM values onto stored
+       entries — _addRepeatEntry does it too, before appending a blank row,
+       so the operator's in-progress typing is not lost when they click "add
+       another". It carries the identical risk and needs the identical proof.
+       Without this, reverting _addRepeatEntry to ordinal matching broke
+       nothing in the suite: the reorder test above only exercises save. */
+    scenario("11b-add. the same, when the operator clicks 'add another' mid-edit");
+    const h = createHarness().setNarrator(PID);
+    h.restore(PID); await h.settle();
+    h.render("parents"); fillEntry(h, 0, MOTHER); h.save("parents"); await h.settle();
+    h.addEntry("parents"); await h.settle();
+    h.render("parents"); fillEntry(h, 1, FATHER); h.save("parents"); await h.settle();
+
+    let stored = parentsOf(h.server.stored(PID));
+    const ingridId = stored[0]._entryId, bertilId = stored[1]._entryId;
+
+    h.render("parents");
+    // Typing, not yet saved.
+    h.typeEntry(0, "occupation", "headmistress");
+
+    // Storage reorders underneath the open form.
+    const doc = h.server.docs[PID].doc;
+    doc.parents = [doc.parents[1], doc.parents[0]];
+    h.setDraft(PID, JSON.parse(JSON.stringify(doc)));
+
+    // The operator clicks "add another" — which commits what they typed.
+    h.addEntry("parents"); await h.settle();
+
+    /* Inspect MEMORY here, before saving. A save afterwards is itself
+       id-aware and re-reads the same DOM, so it would repair whatever the
+       add path got wrong — which is exactly why the first version of this
+       check could not fail. The defect has to be caught where it happens. */
+    const mem = parentsOf(h.memory());
+    const ingrid = mem.find((p) => p && p._entryId === ingridId);
+    const bertil = mem.find((p) => p && p._entryId === bertilId);
+    check("the in-progress edit reached Ingrid",
+      ingrid && ingrid.occupation === "headmistress",
+      "Ingrid.occupation = " + (ingrid && ingrid.occupation));
+    check("Bertil's occupation is untouched by it",
+      bertil && bertil.occupation === FATHER.occupation,
+      "Bertil.occupation = " + (bertil && bertil.occupation) +
+      " — the add path wrote one person's typing onto another");
+    check("Bertil's name was not overwritten either",
+      bertil && bertil.firstName === "Bertil",
+      "the commit loop writes EVERY field from the DOM row, not just the edited one");
+  }
+
+  {
+    scenario("11c. a pre-WO-02 entry keeps its answers and gains one id");
+    const h = createHarness().setNarrator(PID);
+    // A document written before this work order: no ids anywhere.
+    h.server.seed(PID, { parents: [
+      { relation: "Mother", firstName: "Ingrid ", occupation: "schoolteacher" },
+      { relation: "Father", firstName: "Bertil", occupation: "ore dock foreman" },
+    ] }, 3);
+    h.setNarrator(PID);
+    h.restore(PID); await h.settle();
+    h.render("parents");
+
+    check("the legacy entries render", h.entryCount() === 2);
+    check("the form shows no id for them",
+      h.valueOf("bbQ_0__entryId") === "" && h.valueOf("bbQ_1__entryId") === "");
+
+    h.save("parents"); await h.settle();
+    const stored = parentsOf(h.server.stored(PID));
+
+    check("each legacy entry gained exactly one id",
+      stored.length === 2 && stored[0]._entryId && stored[1]._entryId &&
+      stored[0]._entryId !== stored[1]._entryId);
+    check("every existing answer is unchanged",
+      stored[0].firstName === "Ingrid " && stored[0].occupation === "schoolteacher" &&
+      stored[1].firstName === "Bertil" && stored[1].occupation === "ore dock foreman");
+    check("order is preserved",
+      stored[0].relation === "Mother" && stored[1].relation === "Father",
+      "order carries meaning in bio_questionnaire_writer's first-father-wins");
+
+    const ids = stored.map((p) => p._entryId);
+    h.render("parents");
+    h.save("parents"); await h.settle();
+    check("a second save does not re-mint",
+      JSON.stringify(parentsOf(h.server.stored(PID)).map((p) => p._entryId)) === JSON.stringify(ids));
+  }
+
+  {
+    /* CONSTRUCTED, not reached through the UI — labelled as such.
+
+       Nothing in the current code produces two entries with the same id, so
+       this state is built directly.
+
+       The first version of this scenario asserted that the second row did
+       not inherit a stored-only field from the first. That passed with the
+       guard AND without it — every field in a section is rendered and read
+       back, so `prev` contributes nothing the DOM does not already carry.
+       An assertion that cannot fail is not a test, and running it both ways
+       is what exposed that.
+
+       A second version HEALED the collision — first row keeps the id, second
+       is minted a fresh one. Review rejected that, correctly: it is the
+       system deciding on its own initiative that one of two real people is
+       now somebody else, and if a correction had already been made against
+       that id it would silently attach to whichever row came first.
+
+       What it does now: an id appearing twice is unusable for matching.
+       Those rows fall back to their ordinal — what the operator is looking
+       at — both entries keep every answer, NEITHER id is changed, nothing is
+       merged, and the collision is reported for a person to resolve. */
+    scenario("11c-dup. a duplicated id is preserved and reported, never guessed (constructed)");
+    const h = createHarness().setNarrator(PID);
+    h.server.seed(PID, { parents: [
+      { _entryId: "e_dup", relation: "Mother", firstName: "Ingrid " },
+      { _entryId: "e_dup", relation: "Father", firstName: "Bertil" },
+    ] }, 3);
+    h.setNarrator(PID);
+    h.restore(PID); await h.settle();
+    h.render("parents");
+
+    check("both rows render and both carry the duplicated id",
+      h.entryCount() === 2 &&
+      h.valueOf("bbQ_0__entryId") === "e_dup" && h.valueOf("bbQ_1__entryId") === "e_dup");
+
+    // Distinguish the two people by a field only one of them has, so the
+    // assertions below are about the STORED result and not about the DOM
+    // echoing back what it was given.
+    h.typeEntry(0, "occupation", "schoolteacher");
+    h.save("parents"); await h.settle();
+    const stored = parentsOf(h.server.stored(PID));
+
+    check("two entries remain — neither row collapsed into the other",
+      stored.length === 2, "stored " + stored.length);
+    check("BOTH ids are unchanged — neither person was renamed by the system",
+      stored[0] && stored[1] &&
+      stored[0]._entryId === "e_dup" && stored[1]._entryId === "e_dup",
+      "ids: " + JSON.stringify(stored.map((p) => p && p._entryId)) +
+      " — reassigning one is the system deciding who somebody is");
+    check("each person kept their own answers",
+      stored[0] && stored[0].firstName === "Ingrid " &&
+      stored[1] && stored[1].firstName === "Bertil");
+    check("the edit landed on the row it was typed into, and only there",
+      stored[0] && stored[0].occupation === "schoolteacher" &&
+      stored[1] && !stored[1].occupation,
+      "Bertil.occupation = " + (stored[1] && stored[1].occupation));
+    check("the collision is reported to the operator, not swallowed",
+      (() => {
+        const b = h.banner();
+        return b !== null && /sharing one identity/i.test(b.text) && /e_dup/.test(b.text);
+      })(),
+      "an ambiguous record that says nothing is how a correction reaches the " +
+      "wrong person later");
+  }
+
+  {
+    scenario("11d. ids survive a narrator switch and a reload");
+    const OTHER = "a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2";
+    const h = createHarness().setNarrator(PID);
+    h.restore(PID); await h.settle();
+    h.render("parents"); fillEntry(h, 0, MOTHER); h.save("parents"); await h.settle();
+    const id0 = parentsOf(h.server.stored(PID))[0]._entryId;
+
+    h.setNarrator(OTHER); h.restore(OTHER); await h.settle();
+    h.setNarrator(PID); h.restore(PID); await h.settle();
+    h.render("parents");
+    check("the id is the same after switching away and back",
+      h.valueOf("bbQ_0__entryId") === id0);
+
+    // A fresh harness against the same server row = a reload in a new browser.
+    const h2 = createHarness().setNarrator(PID);
+    h2.server.seed(PID, h.server.stored(PID), 9);
+    h2.setNarrator(PID); h2.restore(PID); await h2.settle();
+    h2.render("parents");
+    check("and the same after a reload in a different browser",
+      h2.valueOf("bbQ_0__entryId") === id0);
+  }
+
+  {
+    scenario("11e. every repeatable section mints ids");
+    const h0 = createHarness();
+    for (const section of h0.qq.SECTIONS.filter((s) => s.repeatable)) {
+      const h = createHarness().setNarrator(PID);
+      h.restore(PID); await h.settle();
+      const probe = (section.fields.find((f) => f.type === "text" || f.type === "textarea") || {}).id;
+      if (!probe) { check(`${section.id}: has a text field`, false); continue; }
+      h.render(section.id);
+      h.typeEntry(0, probe, "X-" + section.id);
+      h.save(section.id); await h.settle();
+      const arr = (h.server.stored(PID) || {})[section.id] || [];
+      check(`${section.id}: entry carries an id`,
+        Array.isArray(arr) && arr[0] && !!arr[0]._entryId);
+    }
+  }
+
   console.log(failures === 0
     ? `\n  all sequences passed\n`
     : `\n  ${failures} FAILED\n`);
