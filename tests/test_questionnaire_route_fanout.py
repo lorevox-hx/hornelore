@@ -208,6 +208,49 @@ class NoOpIsReportedAsNoOp(unittest.TestCase):
         self.assertTrue(resp.write_applied)
 
 
+class HarnessDoubleMayNotOutrunTheRoute(unittest.TestCase):
+    """The behavioural harness's server double must not promise a response
+    field the real route does not send.
+
+    BUG-QUESTIONNAIRE-NOOP-REPORTED-AS-WRITE-01 was hidden by exactly that:
+    the double returned `write_applied` from the day it was written, the real
+    route did not, and sequence 3 ("an unchanged save says no changes")
+    passed against a server that did not exist. A comment in the double now
+    records this. A comment cannot fail. This can.
+
+    Cross-language, deliberately mechanical: read the keys the double puts in
+    its 200 PUT body, and require each to be a declared field on
+    QuestionnairePutResponse.
+    """
+
+    def test_every_key_the_double_returns_is_a_real_response_field(self):
+        import re
+        from api.routers.questionnaire import QuestionnairePutResponse
+        harness = (Path(__file__).resolve().parent / "harness" / "bio-builder-harness.js").read_text(encoding="utf8")
+        # the success body: makeResponse(200, { ok: true, person_id: ..., revision: ..., write_applied: ... })
+        m = re.search(r"applyMerge\([^)]*\);[\s\S]*?makeResponse\(200,\s*\{([\s\S]*?)\}\)\)", harness)
+        self.assertIsNotNone(m, "could not find the double's successful PUT response body")
+        keys = set(re.findall(r"(\w+)\s*:", m.group(1)))
+        keys.discard("ok")
+        # Annotations are what declare a field, with or without a default and
+        # with or without real pydantic. `person_id: str` has no default, so
+        # dir() alone missed it and this check failed against correct code.
+        declared = set()
+        for klass in QuestionnairePutResponse.__mro__:
+            declared |= set(getattr(klass, "__annotations__", {}) or {})
+        if hasattr(QuestionnairePutResponse, "model_fields"):
+            declared |= set(QuestionnairePutResponse.model_fields)
+        missing = sorted(keys - declared)
+        self.assertEqual(missing, [],
+                         f"the harness double returns {missing} but the real route does not "
+                         "declare them — the double is lying about the server")
+
+    def test_write_applied_is_declared_by_the_route(self):
+        from api.routers.questionnaire import QuestionnairePutResponse
+        self.assertTrue(hasattr(QuestionnairePutResponse, "write_applied") or
+                        "write_applied" in getattr(QuestionnairePutResponse, "model_fields", {}))
+
+
 class FanoutOnLegacyOn(unittest.TestCase):
     """Dual-write — both paths fire."""
 
