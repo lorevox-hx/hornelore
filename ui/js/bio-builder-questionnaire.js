@@ -75,100 +75,50 @@
      WO-INTAKE-IDENTITY-01 — minimal intake gate + legacy helpers
   ─────────────────────────────────────────────────────────── */
 
-  /* THE BIO BUILDER IS AN OPERATOR SURFACE AND NOW DEFAULTS TO THE FULL
-     RECORD. Changed 2026-09-17.
+  /* ONE QUESTIONNAIRE. WO-01, 2026-09-19.
 
-     Two different jobs were sharing one default:
+     There used to be two definitions of this form — a sixteen-section one
+     and a three-section one — selected at load time by a flag reader that
+     consulted a window variable and a localStorage key. The three-section
+     form was an initial development arrangement from WO-INTAKE-IDENTITY-01,
+     not a product requirement, and it came with a migration that moved six
+     real sections under `_legacyRemovedSections` on every restore and save.
+     That migration produced duplicate copies of a section on the server
+     (AUDIT-QUESTIONNAIRE-INTEGRITY-AND-CONFIRMATION-01, C1) and, for one
+     day, made a narrator whose only content was grandparents look empty (C2).
 
-       NARRATOR INTAKE, conversational — a person answering Lori should not
-         meet a sixteen-section form to begin. That is what MINIMAL_SECTIONS
-         is for, and session-loop.js reads MINIMAL_SECTIONS **by name**
-         (:1056), so it is unaffected by this function. Narrator-facing
-         intake stays minimal and this change cannot touch it.
+     The narrator-facing chat walk in session-loop.js never read the
+     three-section list at runtime — it tried a window global that was never
+     set and used its own hardcoded six-field list. So retiring the minimal
+     form changes the operator console and nothing else.
 
-       OPERATOR BIO BUILDER — an operator deliberately building someone's
-         biography needs to see and edit the complete record. Defaulting to
-         minimal showed three sections of sixteen, so grandparents,
-         marriage, pets, traditions, early memories, education, later years,
-         hobbies, technology and additional notes were invisible — present
-         in the database, absent from the screen.
+     There is now one definition, SECTIONS, and it is the full record. A
+     section the operator cannot see is a section they cannot correct, and
+     on 2026-09-15 that is how ten hand-typed values were destroyed. */
 
-     `SECTIONS` below is consumed only by the Bio Builder questionnaire tab.
-     operator-intake.js declares its own list. So flipping this default
-     changes the operator console and nothing else, which is why it can be a
-     default rather than a context sniff — there is no reliable "am I
-     operator-facing" signal here, and inventing one would be a worse
-     mechanism than naming what this list is actually for.
+  /* One location per section. WO-01, 2026-09-19.
 
-     THIS IS ALSO A DATA-SAFETY CHANGE, not only a convenience. A form that
-     renders six of eleven stored fields is how ten values of hand-typed
-     family history were destroyed on 2026-09-15
-     (BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01). The server-side merge now
-     makes that unable to DELETE anything, but a section the operator cannot
-     see is still a section they cannot correct, and they were editing a
-     record whose true extent was hidden from them.
+     This used to fall back to `questionnaire._legacyRemovedSections[id]`
+     when the top-level key was absent, because a migration — now removed —
+     moved six sections there on every restore and save. Both the migration
+     and the fallback are gone, together, as one change.
 
-     Both overrides survive, and minimal is still one setting away:
-       window.HORNELORE_INTAKE_MINIMAL = true
-       localStorage["hornelore.intake.minimal"] = "1"  */
-  function intakeMinimalEnabled() {
-    try {
-      // Precedence: window var (build/server bootstrap)
-      // > localStorage (per-browser override)
-      // > default(FALSE — the full record; see above)
-      if (typeof window !== "undefined" && window.HORNELORE_INTAKE_MINIMAL != null) {
-        return !!window.HORNELORE_INTAKE_MINIMAL;
-      }
-      var ls = localStorage.getItem("hornelore.intake.minimal");
-      if (ls === "1") return true;
-      if (ls === "0") return false;
-    } catch (e) {}
-    return false;
-  }
+     Why no fallback is kept "just in case": the read-only divergence probe
+     run on 2026-09-18 against the live database found the six sections at
+     the top level only, for every narrator — zero legacy-only, zero
+     duplicated, zero conflicting — and the one browser draft in existence
+     held no legacy sections either. A compatibility read guarding nothing is
+     not caution; it is a second path for a value to live at, which is the
+     defect that was being cleaned up. Any `_legacyRemovedSections` key that
+     still exists on a server document is inert: nothing writes to it and
+     nothing reads it, and WO-03B's explicit removal can drop it when that
+     lands.
 
+     If a legacy-only section is ever found, the answer is the probe and the
+     baseline backups in lorevox_packages/, not a resurrected fallback. */
   function getSectionData(questionnaire, id) {
     if (!questionnaire) return null;
-    if (questionnaire[id] != null) return questionnaire[id];
-    if (questionnaire._legacyRemovedSections &&
-        questionnaire._legacyRemovedSections[id] != null) {
-      return questionnaire._legacyRemovedSections[id];
-    }
-    return null;
-  }
-
-  function _migrateRemovedSectionsToLegacy(questionnaire) {
-    if (!questionnaire || typeof questionnaire !== "object") return questionnaire;
-
-    var removedIds = ["grandparents", "auntsUncles", "childhoodPlaces", "schools", "trips", "memoryNotes"];
-    var migrationVersion = "WO-INTAKE-IDENTITY-01";
-
-    if (!questionnaire._legacyRemovedSections) {
-      questionnaire._legacyRemovedSections = {
-        _version: migrationVersion,
-        _capturedAt: new Date().toISOString()
-      };
-    } else {
-      if (!questionnaire._legacyRemovedSections._version) {
-        questionnaire._legacyRemovedSections._version = migrationVersion;
-      }
-      if (!questionnaire._legacyRemovedSections._capturedAt) {
-        questionnaire._legacyRemovedSections._capturedAt = new Date().toISOString();
-      }
-    }
-
-    removedIds.forEach(function (id) {
-      if (questionnaire[id] == null) return;
-      try {
-        questionnaire._legacyRemovedSections[id] = questionnaire[id];
-        delete questionnaire[id];
-      } catch (e) {
-        console.warn("[intake-migration] failed to migrate " + id, e);
-        try { delete questionnaire._legacyRemovedSections[id]; } catch (_) {}
-      }
-    });
-
-    questionnaire._legacyMigrationVersion = migrationVersion;
-    return questionnaire;
+    return questionnaire[id] != null ? questionnaire[id] : null;
   }
 
   /* Phase Q+: Unified relationship type options for spouse/partner section */
@@ -356,7 +306,7 @@
       + known + ' already known' + openLabel + '</span>';
   }
 
-  var FULL_SECTIONS = [
+  var SECTIONS = [
     {
       id: "personal", label: "Personal Information", icon: "\u{1F464}",
       hint: "Full name, preferred name, birth date, birth place",
@@ -583,55 +533,6 @@
     }
   ];
 
-  var MINIMAL_SECTIONS = [
-    {
-      id: "personal",
-      label: "Personal Information",
-      icon: "\u{1F464}",
-      hint: "Core identity fields captured before Lori begins",
-      fields: [
-        { id: "fullName",      label: "Full Name",      type: "text",   placeholder: "Enter full name" },
-        { id: "preferredName", label: "Preferred Name", type: "text",   placeholder: "Enter preferred name" },
-        { id: "birthOrder",    label: "Birth Order",    type: "select", options: BIRTH_ORDER_OPTIONS },
-        { id: "dateOfBirth",   label: "Date of Birth",  type: "text",   placeholder: "Enter date of birth", helperText: "Use YYYY-MM-DD when known.", inputHelper: "normalizeDob" },
-        { id: "timeOfBirth",   label: "Time of Birth",  type: "text",   placeholder: "Enter time of birth", helperText: "Optional if known.", inputHelper: "normalizeTime" },
-        { id: "placeOfBirth",  label: "Place of Birth", type: "text",   placeholder: "Enter place of birth", helperText: "City, state, country when known.", inputHelper: "normalizePlace" }
-      ]
-    },
-    {
-      id: "parents",
-      label: "Parents",
-      icon: "\u{1F331}",
-      hint: "Minimal first-degree family anchors",
-      repeatable: true,
-      repeatLabel: "parent",
-      fields: [
-        { id: "relation",   label: "Relation",    type: "select", options: RELATION_OPTIONS },
-        { id: "firstName",  label: "First Name",  type: "text" },
-        { id: "middleName", label: "Middle Name", type: "text" },
-        { id: "lastName",   label: "Last Name",   type: "text" },
-        { id: "maidenName", label: "Maiden Name", type: "text" },
-        { id: "occupation", label: "Occupation",  type: "text" }
-      ]
-    },
-    {
-      id: "siblings",
-      label: "Siblings",
-      icon: "\u{1F46B}",
-      hint: "Names and relation order only",
-      repeatable: true,
-      repeatLabel: "sibling",
-      fields: [
-        { id: "relation",   label: "Relation",    type: "select", options: SIBLING_RELATION_OPTIONS },
-        { id: "firstName",  label: "First Name",  type: "text" },
-        { id: "middleName", label: "Middle Name", type: "text" },
-        { id: "lastName",   label: "Last Name",   type: "text" },
-        { id: "birthOrder", label: "Birth Order", type: "select", options: BIRTH_ORDER_OPTIONS }
-      ]
-    }
-  ];
-
-  var SECTIONS = intakeMinimalEnabled() ? MINIMAL_SECTIONS : FULL_SECTIONS;
 
   /* ───────────────────────────────────────────────────────────
      NORMALIZATION HELPERS
@@ -1191,9 +1092,6 @@
     if (bb && (!bb.questionnaire || Object.keys(bb.questionnaire).length === 0)) {
       _restoreQuestionnaire(pid);
     }
-    if (bb && bb.questionnaire) {
-      _migrateRemovedSectionsToLegacy(bb.questionnaire);
-    }
     _qqDebugSnapshot("tab_render", pid);
     if (activeSection) { _renderSectionDetail(container, activeSection, renderActiveTab); return; }
 
@@ -1219,12 +1117,8 @@
     }).join("");
 
     container.innerHTML =
-      '<div class="bb-section-title">' + (intakeMinimalEnabled() ? 'Identity Intake' : 'Questionnaire Sections') + '</div>'
-      + '<p class="bb-hint-text">'
-      + (intakeMinimalEnabled()
-          ? 'Start with identity basics. This quick intake gives Lori your name, birth details, and immediate family before conversation begins.'
-          : 'Fill in any section to capture biographical material. Answers become candidate items you can review.')
-      + '</p>'
+      '<div class="bb-section-title">Questionnaire Sections</div>'
+      + '<p class="bb-hint-text">Fill in any section to capture biographical material. Answers become candidate items you can review.</p>'
       + '<div class="bb-section-grid">' + sectionCards + '</div>';
   }
 
@@ -1236,9 +1130,6 @@
     var pid = _currentPersonId();
     if (pid && (!bb.questionnaire || Object.keys(bb.questionnaire).length === 0)) {
       _restoreQuestionnaire(pid);
-    }
-    if (bb && bb.questionnaire) {
-      _migrateRemovedSectionsToLegacy(bb.questionnaire);
     }
     var existing = getSectionData(bb.questionnaire, section.id);
     var fieldsHtml;
@@ -1540,9 +1431,6 @@
     }
 
     if (pid) _restoreQuestionnaire(pid);
-    if (bb && bb.questionnaire) {
-      _migrateRemovedSectionsToLegacy(bb.questionnaire);
-    }
 
     // Phase 1.3: Step 1 — read DOM values; Step 2 — write into canonical bb.questionnaire
     // BUG-BIO-QUESTIONNAIRE-LOSSY-ROUNDTRIP-01, second mechanism (2026-09-17).
@@ -1555,9 +1443,9 @@
     // omissions as deletions"), reached without the bio_questionnaire_view
     // projection being involved at all.
     //
-    // It fired on real family data. MINIMAL_SECTIONS.parents declares six
-    // fields; FULL_SECTIONS.parents declares eleven. With minimal intake on
-    // (the default), one save of Janice's parents section destroyed ten stored
+    // It fired on real family data. The since-retired three-section form's
+    // parents section declared six fields; the full form declares eleven.
+    // With that form as the default, one save of Janice's parents section destroyed ten stored
     // values across her two parents — birthDate, birthPlace, deceased,
     // notableLifeEvents and notes, including several hundred words of family
     // history that had been typed in by hand. Recovered from a snapshot taken
@@ -1566,12 +1454,10 @@
     // The fix: start from what is already stored and let the rendered fields
     // overwrite only themselves. A form can only edit what it shows.
     //
-    // `getSectionData` rather than a bare property read, because
-    // _migrateRemovedSectionsToLegacy moves six section ids into
-    // `_legacyRemovedSections` and deletes the originals. Reading the bare
-    // property for one of those returned nothing, so `existing` collapsed to a
-    // single empty entry and a save would have written ONE row over however
-    // many the operator could actually see.
+    // `getSectionData` is the one read path for a section. It once carried a
+    // fallback to a legacy container that a since-removed migration wrote to;
+    // that container and its migration are gone (WO-01). Keeping the single
+    // accessor means the next storage change happens in one place.
     if (section.repeatable) {
       var stored = getSectionData(bb.questionnaire, sectionId);
       var existing = Array.isArray(stored) ? stored : (stored ? [stored] : [{}]);
@@ -1726,9 +1612,6 @@
     // Phase 2.2 Step 1: restore canonical questionnaire state
     if (pid) _restoreQuestionnaire(pid);
 
-    if (bb && bb.questionnaire) {
-      _migrateRemovedSectionsToLegacy(bb.questionnaire);
-    }
 
     // Phase 2.3: guard — ensure repeatable array exists
     if (!Array.isArray(bb.questionnaire[sectionId])) {
@@ -1793,8 +1676,6 @@
   window.LorevoxBioBuilderModules.questionnaire = {
     // Section definitions
     SECTIONS:                      SECTIONS,
-    FULL_SECTIONS:                 FULL_SECTIONS,
-    MINIMAL_SECTIONS:              MINIMAL_SECTIONS,
 
     // Rendering
     _renderQuestionnaireTab:       _renderQuestionnaireTab,
@@ -1818,9 +1699,7 @@
     _onNormalizeBlur:              _onNormalizeBlur,
 
     // WO-INTAKE-IDENTITY-01 helpers
-    intakeMinimalEnabled:          intakeMinimalEnabled,
     getSectionData:                getSectionData,
-    _migrateRemovedSectionsToLegacy: _migrateRemovedSectionsToLegacy,
 
     // Hydration
     _hydrateQuestionnaireFromProfile: _hydrateQuestionnaireFromProfile,

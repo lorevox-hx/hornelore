@@ -10,7 +10,7 @@
       Lori always has a next step, defined by the operator's sessionStyle."
 
    Style behavior summary (Phase 1):
-     questionnaire_first → walk Bio Builder MINIMAL_SECTIONS personal
+     questionnaire_first → walk the Bio Builder personal-section
                            fields one at a time (preferredName, birthOrder,
                            timeOfBirth — the three not already captured by
                            identity intake), save each answer via PUT to
@@ -25,8 +25,8 @@
 
    Hard rules:
      - No new backend route — uses existing /api/bio-builder/questionnaire
-     - No new questionnaire schema — reads bio-builder-questionnaire.js
-       MINIMAL_SECTIONS at runtime
+     - No new questionnaire schema — uses a fixed personal-field list that
+       mirrors bio-builder-questionnaire.js SECTIONS
      - Reuses existing identity state machine — handoff happens when
        _advanceIdentityPhase flips identityPhase → "complete"
      - Kawa / Chronology stay PASSIVE — read only, no mutation
@@ -160,7 +160,7 @@
   window.lvSessionLoopOnTurn = lvSessionLoopOnTurn;
 
   /* ── Style: questionnaire_first ────────────────────────────────
-     Walk MINIMAL_SECTIONS personal fields one at a time.  Identity
+     Walk the personal-section fields one at a time.  Identity
      intake already captured fullName + dateOfBirth + placeOfBirth, so
      the walk asks the remaining personal fields (preferredName,
      birthOrder, timeOfBirth) and then hits the deferred parents
@@ -517,7 +517,7 @@
   }
 
   /* ── Style: clear_direct ───────────────────────────────────────
-     Same MINIMAL_SECTIONS walk as questionnaire_first, but the tier-2
+     Same personal-field walk as questionnaire_first, but the tier-2
      directive (set in runtime71 by buildRuntime71's session_style_directive
      field) tells Lori to keep prompts short.  In Phase 1 we route the
      walk identically; the directive lands via the runtime payload path. */
@@ -1053,12 +1053,11 @@
   function _findNextEmptyPersonalField(blob, askedKeys) {
     // Phase 1 walks ONLY the personal section's non-repeatable fields.
     // Repeatable sections (parents/siblings) deferred to Phase 2.
-    const SECTIONS = (typeof window.MINIMAL_SECTIONS !== "undefined")
-      ? window.MINIMAL_SECTIONS
-      : null;
-    // bio-builder-questionnaire.js doesn't expose MINIMAL_SECTIONS on
-    // window; it's an inner var.  Hardcode the personal-section field
-    // order here (mirrors bio-builder-questionnaire.js:425-430).
+    // WO-01 (2026-09-19): this used to probe window.MINIMAL_SECTIONS first,
+    // which was never set — the three-section questionnaire was an inner
+    // variable and has since been retired entirely. The hardcoded list below
+    // is, and always was, what actually ran. Order mirrors the personal
+    // section of bio-builder-questionnaire.js SECTIONS.
     const personalFields = [
       { id: "fullName",      label: "full name" },
       { id: "preferredName", label: "preferred name" },

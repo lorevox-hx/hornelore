@@ -653,6 +653,75 @@ async function run() {
     }
   }
 
+  /* ═══ 10. WO-01 — ONE QUESTIONNAIRE, ONE HOME PER ANSWER ═══════════════
+     The three-section form, its flag, and the migration that moved six
+     sections under `_legacyRemovedSections` on every restore and save are
+     gone. These are the work order's acceptance criteria, run against the
+     shipping code rather than read from it. */
+  {
+    scenario("10. WO-01: every section renders, and no save emits a legacy key");
+    const h = createHarness().setNarrator(PID);
+    h.restore(PID);
+    await h.settle();
+
+    check("SECTIONS has sixteen entries and no second definition",
+      h.qq.SECTIONS.length === 16 && h.qq.FULL_SECTIONS === undefined && h.qq.MINIMAL_SECTIONS === undefined,
+      "found " + h.qq.SECTIONS.length);
+
+    let rendered = 0;
+    for (const s of h.qq.SECTIONS) {
+      h.render(s.id);
+      if (h.fields().length > 0) rendered++;
+    }
+    check("all sixteen sections render editable fields", rendered === 16, rendered + " rendered");
+
+    // Save something in one of the six formerly-migrated sections, then in
+    // an unrelated one. Before WO-01 the second save carried grandparents
+    // under the legacy key and the server kept both copies.
+    h.render("grandparents");
+    h.typeEntry(0, "firstName", "Ervin"); h.typeEntry(0, "lastName", "Horne");
+    h.save("grandparents"); await h.settle();
+    h.render("personal");
+    h.type("bbQ_fullName", "Kent Horne");
+    h.save("personal"); await h.settle();
+
+    const legacyPuts = h.server.puts.filter((p) =>
+      p.questionnaire && (p.questionnaire._legacyRemovedSections !== undefined ||
+                          p.questionnaire._legacyMigrationVersion !== undefined));
+    check("no PUT carried _legacyRemovedSections or _legacyMigrationVersion",
+      legacyPuts.length === 0, legacyPuts.length + " of " + h.server.puts.length + " did");
+
+    const stored = h.server.stored(PID) || {};
+    check("grandparents live at the top level only",
+      Array.isArray(stored.grandparents) && stored.grandparents[0].firstName === "Ervin" &&
+      stored._legacyRemovedSections === undefined,
+      JSON.stringify(Object.keys(stored)));
+
+    check("the migration function is not exported",
+      h.qq._migrateRemovedSectionsToLegacy === undefined);
+  }
+
+  {
+    scenario("10b. WO-01: a two-entry section survives a narrator switch and return");
+    const OTHER = "a4b2f07a-7bd2-4b1a-9cf5-a1629c4098a2";
+    const h = createHarness().setNarrator(PID);
+    h.restore(PID); await h.settle();
+    h.render("parents"); fillEntry(h, 0, MOTHER); h.save("parents"); await h.settle();
+    h.addEntry("parents"); await h.settle(); h.render("parents"); fillEntry(h, 1, FATHER);
+    h.save("parents"); await h.settle();
+
+    h.setNarrator(OTHER); h.restore(OTHER); await h.settle();
+    h.setNarrator(PID);   h.restore(PID);   await h.settle();
+    h.render("parents");
+
+    check("both parents are still on the form after switching away and back",
+      h.entryCount() === 2 && h.valueOf("bbQ_1_firstName") === "Bertil",
+      "entries=" + h.entryCount());
+    check("both are still stored", parentsOf(h.server.stored(PID)).length === 2);
+    check("nothing leaked into the other narrator",
+      (h.server.stored(OTHER) || {}).parents === undefined);
+  }
+
   console.log(failures === 0
     ? `\n  all sequences passed\n`
     : `\n  ${failures} FAILED\n`);

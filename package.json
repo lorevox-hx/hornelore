@@ -18,7 +18,7 @@
     "test:q3:headed": "playwright test tests/e2e/timeline-integrity.spec.ts tests/e2e/focus-canvas-behavior.spec.ts tests/e2e/projection-integrity.spec.ts --headed",
     "test:bb": "node tests/test_bio_builder_save_sequences.js",
     "test:bb:verbose": "LV_HARNESS_VERBOSE=1 node tests/test_bio_builder_save_sequences.js",
-    "test:bb:contract": "node tests/test_questionnaire_save_outcome.js && node tests/test_questionnaire_cache_authority.js && node tests/test_profile_cache_authority.js && node tests/test_operator_questionnaire_scope.js"
+    "test:bb:contract": "node tests/test_questionnaire_save_outcome.js && node tests/test_questionnaire_cache_authority.js && node tests/test_profile_cache_authority.js && node tests/test_single_questionnaire.js"
   },
   "devDependencies": {
     "@playwright/test": "1.58.2",

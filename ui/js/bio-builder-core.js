@@ -1129,7 +1129,7 @@
      Called from app.js identity onboarding handlers (askName / askDob /
      askBirthplace) whenever the canonical identity captures land in
      state.profile.basics.  Mirrors the captures into
-     bb.questionnaire.personal under the canonical MINIMAL_SECTIONS
+     bb.questionnaire.personal under the canonical questionnaire
      schema (camelCase: fullName / preferredName / dateOfBirth /
      placeOfBirth) so that Bio Builder reflects what Lori already knows
      instead of asking again.  Persists via the canonical _persistDrafts
