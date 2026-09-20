@@ -7115,6 +7115,148 @@ def merge_projection_fields(
         con.close()
 
 
+def append_projection_suggestion(
+    person_id: str,
+    suggestion: Dict[str, Any],
+    *,
+    source: str = "projection_suggest",
+) -> Dict[str, Any]:
+    """Append ONE proposal to the narrator's queue. Server-owned.
+
+    WO-03B Step 0, condition C1.
+
+    WHY THIS EXISTS RATHER THAN A CLIENT SENDING THE ARRAY
+    ------------------------------------------------------
+    Until now the only way a suggestion reached the server was for a
+    client to send the WHOLE `pendingSuggestions` array, which the
+    writer then replaced wholesale. Two consequences, both measured:
+
+      * the ordinary client write path (`_sendMutations`,
+        projection-sync.js:796) does not send that array at all, so
+        nothing the browser queued has reached the server since the
+        field-level PATCH landed on 2026-08-17. The 29 rows on the live
+        database are fossils from the previous architecture, newest
+        2026-08-12.
+
+      * whoever CAN replace the array owns the queue. An acceptance
+        checked against a client-owned queue verifies against whatever
+        that client last wrote, so a caller could file a proposal and
+        accept it in two calls — the same trust shape WO-03A removed
+        from the questionnaire write.
+
+    So the server appends, and the client cannot replace. Replacement
+    survives only on the deliberate reset path.
+
+    Being precise about what this buys, consistent with WO-03A: there is
+    no authentication on this route, so it is not a boundary against a
+    hostile client. It is a boundary against the ACCIDENTAL case — a
+    stale client, a race, a resubmission — and it makes a later "accept"
+    denote a real prior proposal rather than an arbitrary write wearing
+    an acceptance's provenance.
+
+    DUPLICATE HANDLING (condition C2). The browser's `_syncSuggestOnly`
+    removes any earlier suggestion for the same path before pushing, so
+    the newest silently wins and a person never learns the model
+    proposed something else first. That is a defect, not a rule to
+    preserve:
+
+      * same destination AND same value  -> not queued again. `repeats`
+        is incremented on the existing row and `last_seen_at` moves, so
+        "Lori keeps insisting on this" stays visible instead of being
+        flattened into one row with a fresh timestamp.
+      * same destination, DIFFERENT value -> BOTH stay outstanding. Two
+        different claims about one field is exactly what a person should
+        be shown; discarding one is the current behaviour and the bug.
+
+    The caller supplies `suggestion_id` and `ts`; this function does not
+    mint them, so the identifier a caller was handed is the identifier
+    that gets stored.
+    """
+    init_db()
+    now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+    con = _connect()
+    try:
+        # Same BEGIN IMMEDIATE reasoning as merge_projection_fields: the
+        # read has to hold the write lock, or two concurrent proposals
+        # both read the queue without each other and the second append
+        # writes an array that never contained the first.
+        con.execute("BEGIN IMMEDIATE")
+        row = con.execute(
+            "SELECT projection_json, source, version, updated_at "
+            "FROM interview_projections WHERE person_id = ?",
+            (person_id,),
+        ).fetchone()
+        stored: Dict[str, Any] = json.loads(row["projection_json"] or "{}") if row else {}
+        stored_version = int(row["version"] or 0) if row else 0
+        pending = list(stored.get("pendingSuggestions") or [])
+
+        dest = str(suggestion.get("fieldPath") or "")
+        val = suggestion.get("value")
+
+        for existing in pending:
+            if not isinstance(existing, dict):
+                continue
+            if existing.get("fieldPath") == dest and existing.get("value") == val:
+                existing["repeats"] = int(existing.get("repeats") or 1) + 1
+                existing["last_seen_at"] = now
+                merged = dict(stored)
+                merged["pendingSuggestions"] = pending
+                next_version = stored_version + 1
+                con.execute(
+                    """INSERT INTO interview_projections
+                           (person_id, projection_json, source, version, updated_at)
+                       VALUES (?, ?, ?, ?, ?)
+                       ON CONFLICT(person_id) DO UPDATE SET
+                           projection_json = excluded.projection_json,
+                           source = excluded.source,
+                           version = excluded.version,
+                           updated_at = excluded.updated_at""",
+                    (person_id, json.dumps(merged, ensure_ascii=False), source,
+                     next_version, now),
+                )
+                con.commit()
+                return {
+                    "person_id": person_id, "version": next_version,
+                    "updated_at": now, "appended": False, "duplicate": True,
+                    "suggestion_id": existing.get("suggestion_id"),
+                    "repeats": existing["repeats"],
+                    "pending_count": len(pending),
+                }
+
+        pending.append(dict(suggestion))
+        merged = dict(stored)
+        merged["pendingSuggestions"] = pending
+        merged.setdefault("fields", stored.get("fields") or {})
+        next_version = stored_version + 1
+        con.execute(
+            """INSERT INTO interview_projections
+                   (person_id, projection_json, source, version, updated_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(person_id) DO UPDATE SET
+                   projection_json = excluded.projection_json,
+                   source = excluded.source,
+                   version = excluded.version,
+                   updated_at = excluded.updated_at""",
+            (person_id, json.dumps(merged, ensure_ascii=False), source,
+             next_version, now),
+        )
+        con.commit()
+        return {
+            "person_id": person_id, "version": next_version,
+            "updated_at": now, "appended": True, "duplicate": False,
+            "suggestion_id": suggestion.get("suggestion_id"),
+            "repeats": 1, "pending_count": len(pending),
+        }
+    except Exception:
+        try:
+            con.execute("ROLLBACK")
+        except Exception:
+            pass
+        raise
+    finally:
+        con.close()
+
+
 def upsert_projection(
     person_id: str,
     projection: Dict[str, Any],

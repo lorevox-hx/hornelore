@@ -1185,6 +1185,11 @@
     }
     .bb-tabs {
       display: flex;
+      /* WO-03B: the ninth tab (Suggestions) overflowed the row, and the
+         overflow scrolled the WHOLE popover sideways, leaving the card
+         half off-screen. Wrap instead — a second row of tabs is
+         ordinary; a horizontally-scrolled panel is a trap. */
+      flex-wrap: wrap;
       gap: 0;
       border-bottom: none;
     }
@@ -4195,6 +4200,11 @@
         <button id="bbTabConflicts" class="bb-tab" data-tab="conflicts"
                 onclick="window.LorevoxBioBuilder._switchTab('conflicts')"
                 role="tab" aria-selected="false">Conflicts</button>
+        <!-- WO-03B: the review surface for Lori's proposals. Did not exist;
+             suggestions were queued to nothing anyone could see. -->
+        <button id="bbTabSuggestions" class="bb-tab" data-tab="suggestions"
+                onclick="window.LorevoxBioBuilder._switchTab('suggestions')"
+                role="tab" aria-selected="false">Suggestions</button>
       </div>
     </div>
 
@@ -5638,6 +5648,9 @@
 <script src="js/wo13-review.js"></script>
 <script src="js/bio-review.js"></script>
 <script src="js/shadow-review.js"></script>
+<!-- WO-03B review surface. Looked up lazily by bio-builder.js at render
+     time (like shadow-review), so it loads after it. -->
+<script src="js/suggestion-review.js"></script>
 <script src="js/conflict-console.js"></script>
 <script src="js/bio-promotion-adapters.js"></script>
 <script src="js/bio-phase-f.js"></script>

@@ -555,23 +555,60 @@
     }
   }
 
-  /* ── suggest_only: queue suggestion for user review ── */
+  /* ── suggest_only: queue a proposal for review ──────────────────────
+     WO-03B Step 0. THIS NOW REACHES THE SERVER.
+
+     WHAT WAS WRONG. This function pushed into `proj.pendingSuggestions`
+     — browser memory — and that was the end of it. The ordinary persist
+     path (`_sendMutations`) sends mutations, removals and the
+     concurrency fields, and has never sent `pendingSuggestions`. So
+     nothing queued here reached the server after the field-level PATCH
+     landed on 2026-08-17, and the next projection load destroyed it
+     outright (`proj.pendingSuggestions = serverPending`, :952).
+
+     The cost was not theoretical. Every protected-identity capture that
+     `projectValue` blocks is routed here (:243) — the gate's entire
+     output. It was being written to memory and discarded, while the
+     value it was meant to withhold reached the questionnaire by a
+     different route.
+
+     Measured on the live database 2026-09-20: 29 suggestions, all in the
+     pre-cutover client shape, newest 2026-08-12. Nothing since.
+
+     WHY THE SERVER APPENDS RATHER THAN RECEIVING THE ARRAY. Whoever can
+     replace the array owns the queue, and a later acceptance "verified
+     against the stored queue" would be verified against whatever this
+     client last wrote. Same trust shape WO-03A removed from the
+     questionnaire write, same answer: one append endpoint, server-minted
+     id, server clock, server-checked turn citation.
+
+     THE LOCAL PUSH IS A MIRROR, NOT THE RECORD. It keeps the current
+     session responsive; the server's copy is authoritative and replaces
+     it on the next load. The de-dupe below is deliberately NOT the old
+     "drop the previous suggestion for this path" rule — two different
+     values proposed for one field are two claims a person should see,
+     and silently keeping only the newest is the defect, not the design.
+     The server decides this for real; this mirror only avoids showing
+     an obvious repeat twice before the next load. */
   function _syncSuggestOnly(fieldPath, value, confidence) {
     var proj = _proj();
     if (!proj) return;
 
-    // Remove any existing suggestion for this path
-    proj.pendingSuggestions = (proj.pendingSuggestions || []).filter(function (s) {
-      return s.fieldPath !== fieldPath;
-    });
+    var turnId = (proj.fields && proj.fields[fieldPath])
+      ? proj.fields[fieldPath].turnId : null;
 
-    proj.pendingSuggestions.push({
-      fieldPath:  fieldPath,
-      value:      value,
-      confidence: confidence,
-      turnId:     proj.fields[fieldPath] ? proj.fields[fieldPath].turnId : null,
-      ts:         Date.now()
-    });
+    proj.pendingSuggestions = proj.pendingSuggestions || [];
+    var dup = false;
+    for (var i = 0; i < proj.pendingSuggestions.length; i++) {
+      var s = proj.pendingSuggestions[i];
+      if (s && s.fieldPath === fieldPath && s.value === value) { dup = true; break; }
+    }
+    if (!dup) {
+      proj.pendingSuggestions.push({
+        fieldPath: fieldPath, value: value, confidence: confidence,
+        turnId: turnId, ts: Date.now(), _unsent: true
+      });
+    }
 
     _logSync(fieldPath, "suggestion_queued", "", value, {
       source: "interview",
@@ -579,51 +616,79 @@
       resultBucket: "suggestion",
       confidence: confidence
     });
+
+    // Durable half. Fire-and-forget by design: a proposal is not an
+    // answer, so a failed queue write must never block the turn. It is
+    // logged loudly rather than silently, because "the suggestion did
+    // not persist" is exactly the failure that went unnoticed for a
+    // month.
+    var pid = (proj && proj.personId) || _sync.pid;
+    if (!pid) return;
+    if (typeof API === "undefined" || !API.IV_PROJ_SUGGEST) return;
+    try {
+      fetch(API.IV_PROJ_SUGGEST, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          person_id: pid,
+          fieldPath: fieldPath,
+          value: value,
+          confidence: confidence || 0,
+          // A CLAIM. The server checks it against this narrator's turns
+          // and stores its own verdict; nothing here may assert one.
+          turnId: turnId || "",
+          origin: "extraction",
+          source: "projection_sync"
+        })
+      }).then(function (r) {
+        if (!r.ok) {
+          console.warn("[projection-sync] suggestion NOT queued server-side (HTTP " +
+            r.status + ") for " + fieldPath + " — it will not survive this session");
+          return;
+        }
+        return r.json().then(function (j) {
+          if (j && j.duplicate) {
+            console.info("[projection-sync] already proposed (x" + j.repeats + "): " + fieldPath);
+          }
+        });
+      }).catch(function (e) {
+        console.warn("[projection-sync] suggestion queue write failed for " +
+          fieldPath + " — it will not survive this session:", e);
+      });
+    } catch (e) {
+      console.warn("[projection-sync] suggestion queue write threw:", e);
+    }
   }
 
   /* ───────────────────────────────────────────────────────────
-     ACCEPT SUGGESTION — User approves a pending suggestion
+     ACCEPT SUGGESTION — RETIRED. WO-03B, 2026-09-20.
   ─────────────────────────────────────────────────────────── */
 
+  /* This function had zero callers and two defects, and is kept only
+     so that any future caller fails loudly rather than reviving them.
+
+     THE LAUNDERING. It set `proj.fields[fieldPath].source = "human_edit"`
+     and `locked = true` on a value the model proposed. That rewrote
+     Lori's suggestion as something a person typed — the precise failure
+     WO-03 exists to end, and the reason `origin` is permanent in 0059.
+
+     THE REPEATABLE-ENTRY BUG. It handled only the non-repeatable branch
+     and ignored `parsed.index`, so accepting `parents[0].occupation`
+     wrote to the wrong shape.
+
+     Acceptance is now a server operation on a proposal identified by
+     its server-minted id: POST /api/interview/projection/suggestion/
+     {id}/accept. The server resolves the destination (refusing to guess
+     an entry), checks for a conflict, and commits the answer, its
+     provenance — origin='ai_suggested', confirmed_via='acceptance',
+     never operator_direct — the queue and the review record in ONE
+     transaction. The review surface (suggestion-review.js) is the only
+     caller. */
   function acceptSuggestion(fieldPath) {
-    var proj = _proj();
-    if (!proj) return false;
-
-    var suggestion = null;
-    var idx = -1;
-    for (var i = 0; i < (proj.pendingSuggestions || []).length; i++) {
-      if (proj.pendingSuggestions[i].fieldPath === fieldPath) {
-        suggestion = proj.pendingSuggestions[i];
-        idx = i;
-        break;
-      }
-    }
-    if (!suggestion) return false;
-
-    // Remove from pending
-    proj.pendingSuggestions.splice(idx, 1);
-
-    // Write directly to BB questionnaire (user accepted = authoritative)
-    var parsed = _map.parsePath(fieldPath);
-    if (!parsed) return false;
-
-    var bb = _bb();
-    if (bb && bb.questionnaire) {
-      if (!bb.questionnaire[parsed.section]) bb.questionnaire[parsed.section] = {};
-      bb.questionnaire[parsed.section][parsed.field] = suggestion.value;
-      _logSync(fieldPath, "suggestion_accepted", "", suggestion.value);
-      _triggerBBPersist();
-    }
-
-    // Mark the projection field as human-accepted (locked)
-    if (proj.fields[fieldPath]) {
-      proj.fields[fieldPath].locked = true;
-      proj.fields[fieldPath].source = "human_edit";
-      proj.fields[fieldPath].ts = Date.now();
-    }
-
-    _debouncedPersist();
-    return true;
+    console.error("[projection-sync] acceptSuggestion(" + JSON.stringify(fieldPath) +
+      ") is retired — it disguised a model proposal as a human edit. Use the " +
+      "Suggestions tab, which accepts through the server by suggestion_id.");
+    return false;
   }
 
   /**

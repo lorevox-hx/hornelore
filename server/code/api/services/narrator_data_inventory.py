@@ -266,6 +266,20 @@ DB_LANES: Tuple[DbLane, ...] = (
                 "cited chat turn verified. Keyed on WO-02 _entryId so a reorder "
                 "cannot re-point it. Absence means unknown and is never "
                 "backfilled. See 0059"),
+    # WO-03B. What a person decided about each of Lori's proposals.
+    # AUTHORITATIVE because a refusal cannot be recomputed from anything
+    # — the proposal is gone from the queue and the value is not in the
+    # biography, so this row is the only evidence it was ever considered.
+    # PORTABLE: a narrator restored elsewhere without their declines
+    # would be re-asked everything they had already refused.
+    # NOT a source of facts: a declined value says nothing about what is
+    # true, only that this proposal was turned down.
+    DbLane("suggestion_reviews", _D("person_id"),
+           CLASS_AUTHORITATIVE, "yes", True,
+           note="accept/decline verdicts on queued AI suggestions, with the "
+                "proposal's own evidence verdict retained. A declined value is "
+                "not re-proposed; an accepted one lands in the questionnaire as "
+                "ai_suggested, never operator_direct. See 0060"),
     DbLane("bio_facts", _D("narrator_id"), CLASS_DERIVED, "yes", True),
     DbLane("facts", _D("person_id"), CLASS_DERIVED, "yes", True),
     DbLane("family_truth_notes", _D("person_id"), CLASS_DERIVED, "yes", True),

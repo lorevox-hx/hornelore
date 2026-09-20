@@ -86,13 +86,58 @@ the field-level PATCH** ("Supervisor review 2026-08-17",
 envelopes, so its suggestions persisted. After it, the client writes
 field-level and `pendingSuggestions` is simply never sent.
 
-So the 29 are fossils from the previous write architecture. **Every
-suggestion generated in the last 38 days — including every blocked
-protected-identity capture — was written to browser memory and
-discarded.** The gate does not merely queue to an unbuilt surface; it
-queues to nothing durable at all.
+So the 29 are fossils from the previous write architecture, and the
+queue has received nothing since. The gate does not merely queue to an
+unbuilt surface; it queues to nothing durable.
 
 Nobody noticed because nothing has ever read the queue.
+
+### ⚠ A correction to an earlier claim in this document
+
+An earlier revision said "every suggestion generated in the last 38 days
+was written to browser memory and discarded… already gone and cannot be
+recovered". Review flagged that as overstated — the suggestions not
+being durably *queued* does not mean their source information is lost.
+
+That was right, and checking it showed the claim was wrong twice over.
+
+**The source records survive, server-side.** `turn_extraction_results`
+stores the extraction `items` verbatim, including the very field that
+decides whether something becomes a suggestion:
+
+    2026-08-09  [{"fieldPath": "personal.notes",
+                  "value": "spent a lot of time with grandparents",
+                  "writeMode": "suggest_only", "confidence": ...}]
+
+So a suggestion is RECONSTRUCTIBLE from a server table for any turn
+whose extraction succeeded. The per-browser localStorage mirror
+(`projection-sync.js:876`) may also still hold them on the machine that
+generated them.
+
+**And there was almost nothing to lose.** The ledger shows the last
+successful extraction was **2026-08-12**. Every run since — four of
+them — returned `outcome=noop, items=0`. So the 38-day window did not
+generate suggestions that the broken persistence then dropped; it
+generated no items at all.
+
+Correct statement: **suggestions are not durably queued**, the
+persistence gap is real and is what Step 0 fixes, and no claim is made
+about lost source information.
+
+### An observation, deliberately NOT a claim and NOT in scope
+
+`turn_extraction_ledger` holds 30 rows against 1,487 turns, and nothing
+has been extracted since 2026-08-12. Two of the four intervening noops
+were today, on ZZ WALKTHROUGH's "hello" and "what can you tell me about
+me" — turns that contain no extractable fact, so a noop there is
+correct.
+
+That is not enough to say the extraction pipeline is broken, and I am
+not saying it. It is enough to say it has produced nothing for 39 days
+and has only ever run 30 times, which is worth a look on its own. It
+does not belong in WO-03B: a review surface over a correctly-empty queue
+is still the right thing to build, and conflating "the queue does not
+persist" with "the producer is quiet" would hide one behind the other.
 
 ### Consequence for the plan: a step 0
 
@@ -118,9 +163,129 @@ APPENDS one suggestion**, rather than a client that replaces the array.
 The server then owns the queue, and an acceptance checked against it
 means something.
 
-Proposed: `POST /api/interview/projection/suggestion`, appending a
-single entry with a server-assigned `suggestion_id` and server `ts`.
-The existing array-replacing PATCH field stays for the reset path only.
+## The four implementation conditions ⚠ attached to Step 0
+
+Ruled 2026-09-20. Each tightened the design; the first and third
+replaced weaker mechanisms I had proposed.
+
+### C1 — the server owns queue mutations completely
+
+A dedicated append endpoint is not enough while the array-replacing
+PATCH stays open to ordinary callers: whoever can replace the array owns
+the queue, and the append endpoint becomes advisory.
+
+    POST /api/interview/projection/suggestion     append one
+    POST .../suggestion/{id}/accept               resolve one
+    POST .../suggestion/{id}/decline              resolve one
+
+`ProjectionPatchRequest.pendingSuggestions` (`projection.py:78`) stops
+being an ordinary write. Ordinary PATCH may neither replace nor clear
+the queue; replacement survives only on the deliberate reset path
+(`PUT … replace=true` + `base_version`, the `bb_deep_reset` caller at
+`bio-builder-core.js:1699-1717`).
+
+This is a breaking change for any caller that relied on the PATCH field.
+Today there is exactly one class of them — and in fact none, since
+`_sendMutations` never sends it. The field has no live client.
+
+A server-assigned `suggestion_id` identifies the proposal through
+review, acceptance and decline.
+
+### C2 — identity and evidence fixed at creation
+
+Stored as separate fields, not packed into one blob: `suggestion_id`,
+`person_id`, destination, proposed value, origin, and any source-turn
+reference.
+
+**A client-supplied turn id is a CLAIM.** It is checked with WO-03A's
+`verify_turn` at the moment of proposal — the same join through
+`sessions.person_id`, the same `role='user'` and system-directive
+clauses — and the three-state verdict is stored on the proposal. A
+proposal citing an unverifiable turn is still queued; it simply does not
+carry verified evidence into review. Nothing downstream re-decides it.
+
+That matters because the accept path writes provenance, and a proposal
+whose citation was never checked must not be able to produce a verified
+`narrator_direct` claim by being accepted.
+
+**Duplicate and concurrent proposals for the same field.** Today
+`_syncSuggestOnly` (`projection-sync.js:564-566`) filters out the prior
+suggestion for that path before pushing — newest silently wins, and a
+person never learns the model proposed something else first.
+
+Ruled behaviour:
+
+  * byte-identical to an outstanding proposal → not queued again; the
+    repeat is counted on the existing row, so "Lori keeps insisting"
+    stays visible rather than being flattened to one row with a new
+    timestamp
+  * different value, same destination → BOTH stay outstanding. Two
+    different claims about one field is exactly the case a person
+    should see, and silently discarding one is the current defect
+  * a destination already declined with the same canonical value → not
+    queued (C4 governs the key)
+
+### C3 — accept and decline by `suggestion_id`
+
+Replaces my earlier proposal of "echo the value and compare it
+server-side", which was weaker: it let the request assert the pairing it
+was supposed to be checked against.
+
+The server loads that exact outstanding proposal, resolves its
+destination against the CURRENT questionnaire, and commits the answer,
+its provenance and the queue state in ONE transaction — the same
+`_write` transaction WO-03A already uses, so provenance cannot outlive
+or precede the value.
+
+**Staleness is a reviewable conflict, never an overwrite.** If the
+destination now holds a different value than when the proposal was made,
+accepting would silently discard a newer answer — possibly one a person
+typed. The response is a 409 carrying both values, and the person
+decides. This reuses the per-path `base_fields` machinery in
+`questionnaire_persistence`, which already expresses exactly this.
+
+An accepted proposal records `origin='ai_suggested'`,
+`proposed_by='lori'`, `confirmed_via='acceptance'`. **It never becomes
+`operator_direct`.** An operator who wants a different value is not
+accepting — that is an ordinary entry through the WO-03A route, and it
+correctly records a human entry.
+
+### C4 — the missing `_entryId` case, resolved rather than papered over
+
+My earlier fallback — decline against `entry_id=''` plus the dotted
+indexed path — was rejected, correctly. After an insertion or reorder
+`parents[1]` is a different person, so a suppression keyed that way
+would silence a proposal about the wrong relative. That is the precise
+failure WO-02 existed to end, reintroduced through the back door.
+
+Minting an entry id at proposal time is worse: it is the model creating
+a family member nobody has agreed exists.
+
+**Ruled: an unresolved repeatable destination is resolved AT REVIEW.**
+The proposal is queued carrying its dotted path and marked
+`destination_unresolved`. The review surface asks the person which entry
+it belongs to — or offers a new one — and the accept endpoint refuses a
+proposal that still has no `entry_id`. There is no silent fallback and
+no section-wide suppression.
+
+Declining an unresolved proposal records the decline against that
+proposal, and suppresses only future proposals that are ALSO unresolved
+with the same `(section, field, canonical value)`. It does not suppress
+the same value proposed for a named entry, because those are different
+claims about different people.
+
+Live scope: **0 of the 29 existing suggestions target a repeatable
+section or an indexed path.** They are all flat — `education.*`,
+`residence.*`, `personal.*`, `family.marriageDate`. So this is a guard
+against what the extractor can produce, not a fix for a present
+condition, and it is built before suppression rather than after.
+
+---
+
+Endpoint shape, incorporating all four:
+`POST /api/interview/projection/suggestion` appends one entry with a
+server-assigned `suggestion_id`, a server `ts`, and a `turn_evidence`
+verdict from `verify_turn`.
 
 Being precise about what this buys, consistent with WO-03A: there is no
 authentication on any of these routes, so this is not a boundary against
@@ -234,6 +399,11 @@ CREATE TABLE IF NOT EXISTS declined_suggestions (
   field         TEXT NOT NULL,
   value_hash    TEXT NOT NULL,              -- sha256 of the canonical form
 
+  -- C3/C4: a decline acts on an identifiable proposal, never on a
+  -- client's assertion that something was offered.
+  suggestion_id TEXT,
+  destination_unresolved INTEGER NOT NULL DEFAULT 0,
+
   -- REQUIREMENT 4b: "retain enough information to explain what was
   -- declined without depending solely on an opaque hash." The hash
   -- answers "is this the same proposal again"; it cannot answer "what
@@ -292,14 +462,16 @@ may read it that way. Stated here because a `declined_suggestions` row
 is exactly the kind of record a later feature would be tempted to mine
 for negative facts.
 
-Also to decide during implementation, flagged not assumed: a decline is
-scoped to a questionnaire answer `(section, entry_id, field)`, but a
-suggestion arrives as a dotted `fieldPath`. `identify_path` resolves one
-to the other only against a document — and for an indexed path with no
-stored entry yet, there is no `entry_id` to key on. Proposal: such a
-suggestion declines against `entry_id=''` and the dotted path, which
-suppresses re-proposal at the section level. Narrower than ideal and
-honest about it.
+The unresolved-`_entryId` case is settled by C4 above, not here: such a
+proposal is resolved at review, and a decline of an unresolved proposal
+suppresses only other unresolved proposals with the same
+`(section, field, canonical value)`. The `entry_id=''` + dotted-path
+fallback proposed in the first draft is withdrawn — it would have
+suppressed a proposal about the wrong relative after a reorder.
+
+The decline row therefore carries `suggestion_id` as well, so a decline
+always points at an identifiable proposal rather than at a destination
+reconstructed from a client's assertion.
 
 ## The original options, retained for the record
 
@@ -379,5 +551,11 @@ at all. So the prerequisite is not "move the queue to the server". It is
 "**make the queue receive anything**", which is step 0 above.
 
 The 29 existing suggestions are reviewable as soon as a surface exists.
-Anything generated since 2026-08-17 is already gone and cannot be
-recovered — it was never persisted anywhere but a browser.
+
+An earlier draft ended this section by saying anything generated since
+2026-08-17 was gone and unrecoverable. That is withdrawn — it
+contradicts the corrected findings above. `turn_extraction_results`
+retains the source items server-side, and the four extraction runs since
+that date produced no items anyway. The supported conclusion is narrower
+and is the one Step 0 acts on: **the queue is not being durably
+updated.**

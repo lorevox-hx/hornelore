@@ -344,8 +344,26 @@ def _write(
     schema_version: Optional[int] = None,
     blank_report_document: Optional[Mapping[str, Any]] = None,
     provenance: Optional[Any] = None,
+    also_in_transaction: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """`provenance` is an `answer_provenance.AnswerOrigin` or None.
+
+    `also_in_transaction` is an optional callable `(con) -> None` run on
+    THIS connection, inside THIS transaction, after the questionnaire row
+    is written and before COMMIT. WO-03B accept uses it to remove the
+    accepted proposal from `interview_projections` and record the review
+    verdict, so the answer, its provenance, the queue and the review
+    record commit together or not at all.
+
+    Without this, accept would be two transactions on two tables, and a
+    failure between them would leave either a value with no record of
+    where it came from, or a proposal marked accepted whose value never
+    landed. Either is a confident statement about something that is not
+    there. If the callable raises, the whole write rolls back — including
+    the questionnaire — and the caller sees the exception.
+
+    It is NOT invoked on the no-op return: nothing was written, so there
+    is nothing for it to be atomic with.
 
     None is the norm and means NO PROVENANCE ROW IS WRITTEN. The shared
     PUT has ~20 callers including two of Lori's own writers, and stamping
@@ -532,6 +550,8 @@ def _write(
             "  updated_at = excluded.updated_at",
             (person_id, payload, source, next_schema, next_rev, now),
         )
+        if also_in_transaction is not None:
+            also_in_transaction(con)
         con.execute("COMMIT")
         return {"person_id": person_id, "questionnaire": nxt, "revision": next_rev,
                 "schema_version": next_schema, "updated_at": now,
@@ -558,12 +578,14 @@ def merge_questionnaire(
     base_revision: Optional[int] = None,
     base_fields: Optional[Mapping[str, Any]] = None,
     provenance: Optional[Any] = None,
+    also_in_transaction: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Ordinary update. Cannot delete anything `removals` does not name."""
     return _write(person_id, source=source, write_kind=WRITE_MERGE,
                   mutations=mutations, removals=removals,
                   base_revision=base_revision, base_fields=base_fields,
-                  provenance=provenance)
+                  provenance=provenance,
+                  also_in_transaction=also_in_transaction)
 
 
 def merge_whole_document(

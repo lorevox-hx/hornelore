@@ -360,7 +360,7 @@
   }
 
   function _renderTabs() {
-    ["bbTabCapture","bbTabQuestionnaire","bbTabSources","bbTabCandidates","bbTabFamilyTree","bbTabLifeThreads","bbTabShadowReview","bbTabConflicts"].forEach(function (tid) {
+    ["bbTabCapture","bbTabQuestionnaire","bbTabSources","bbTabCandidates","bbTabFamilyTree","bbTabLifeThreads","bbTabShadowReview","bbTabConflicts","bbTabSuggestions"].forEach(function (tid) {
       var el = _el(tid); if (!el) return;
       el.classList.toggle("bb-tab-active", el.dataset.tab === _activeTab);
     });
@@ -397,6 +397,33 @@
     else if (_activeTab === "lifeThreads")   _renderLifeThreadsTab(content, pid);
     else if (_activeTab === "shadowReview") _renderShadowReviewTab(content, pid);
     else if (_activeTab === "conflicts")    _renderConflictsTab(content, pid);
+    else if (_activeTab === "suggestions")  _renderSuggestionsTab(content, pid);
+  }
+
+  /* WO-03B — the review surface for Lori's proposals. Same lazy-global
+     pattern as Shadow Review: suggestion-review.js loads after this file
+     and is looked up at render time. The pid is passed in rather than
+     re-derived, so the panel reviews the narrator this tab was painted
+     for — the BUG-220A guard above has already refused a stale scope. */
+  function _renderSuggestionsTab(container, pid) {
+    if (!pid) {
+      container.innerHTML = _emptyStateHtml(
+        "No narrator selected",
+        "Choose a narrator from the dropdown above to review Lori's suggestions.",
+        []
+      );
+      return;
+    }
+    container.innerHTML = '<div id="suggestionReviewRoot"></div>';
+    if (window.HorneloreSuggestionReview && window.HorneloreSuggestionReview.init) {
+      window.HorneloreSuggestionReview.init("suggestionReviewRoot", pid);
+    } else {
+      container.innerHTML = _emptyStateHtml(
+        "Review surface not loaded",
+        "suggestion-review.js did not load. Suggestions are still queued on the server.",
+        []
+      );
+    }
   }
 
   function _renderShadowReviewTab(container, pid) {

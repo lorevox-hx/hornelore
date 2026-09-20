@@ -82,6 +82,16 @@ const API = {
   // path: it leaves server-authored keys the browser has never seen
   // intact, which a whole-document PUT cannot do.
   IV_PROJ_PATCH:    ORIGIN + "/api/interview/projection",
+  // WO-03B Step 0. The ONLY way a new proposal reaches the queue. A
+  // separate endpoint rather than a field on the PATCH because whoever
+  // can replace the array owns it — and an acceptance checked against a
+  // client-owned queue verifies nothing. The server mints the id, sets
+  // the timestamp, and checks the turn citation.
+  IV_PROJ_SUGGEST:  ORIGIN + "/api/interview/projection/suggestion",
+  // WO-03B review. Both act on a proposal by the id the server minted,
+  // never on a path and value the client asserts were offered.
+  IV_PROJ_SUGGEST_ACCEPT:  (id) => ORIGIN + "/api/interview/projection/suggestion/" + encodeURIComponent(id) + "/accept",
+  IV_PROJ_SUGGEST_DECLINE: (id) => ORIGIN + "/api/interview/projection/suggestion/" + encodeURIComponent(id) + "/decline",
   NARRATOR_STATE:   (id) => `${ORIGIN}/api/narrator/state-snapshot?person_id=${encodeURIComponent(id)}`,
   // WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 commit 3 — there is NO
   // separate narrator-chronology endpoint. /api/chronology-accordion
