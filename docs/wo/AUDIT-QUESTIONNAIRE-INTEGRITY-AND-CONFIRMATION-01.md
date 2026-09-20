@@ -93,11 +93,25 @@ the questionnaire and PUTs it as `"ui_save"`. Same values, same turn, gated
 in one lane and not the other. Five call sites (`app.js:6072, 6113, 6208,
 6237, 6294`).
 
-**B2 · SOURCE-CONFIRMED GAP — `_syncPrefillIfBlank` writes model values as
-typed ones.** `projection-sync.js:407-435`: a `source:"interview"` or
-`"backend_extract"` value on any non-protected `prefill_if_blank` path is
-written into `bb.questionnaire` and persisted as `"ui_save"`. Callers:
-`interview.js:1116, 1126, 1161, 1631`.
+**B2 · DEMONSTRATED DEFECT (2026-09-20, read-only trace of live rows) —
+machine extractions are committed directly as facts, and Lori reads them.**
+On non-protected paths a `backend_extract` / `interview` value is written
+straight into `interview_projections.fields` — no queue, no review. Seen in
+real data: Kent's committed `education.schooling` is "induction physical and
+testing in Fargo" and `education.earlyCareer` is "production photographer
+for the Brigade", both `source: backend_extract`, both read into Lori's
+profile seed as established biography. Christopher's education and career
+buckets are the same shape. The suggestion queue only guards protected
+identity paths; everywhere else the direct write IS the leak, and it is the
+larger one. (`projection-sync.js:407-435`; callers `interview.js:1116, 1126,
+1161, 1631`.) The questionnaire-side twin, `_syncPrefillIfBlank`, persists
+the same values as `"ui_save"`.
+
+  Evidence is reproducible: `lorevox_packages/suggestion_leak_trace.py`,
+  read-only, prints per narrator what the pre-fix reader would have admitted,
+  what the current reader admits, and each committed value with its source.
+  Until its output has been reviewed this stands as a Claude-reported
+  finding.
 
 **B3 · SOURCE-CONFIRMED GAP — acceptance leaves no record, and has no
 caller.** `acceptSuggestion` (`projection-sync.js:588-627`) deletes the
@@ -109,8 +123,33 @@ locked:true` (`:619-623`) with no history entry, and logs
 entry point.
 
 **B4 · DEMONSTRATED DEFECT, FIXED (`6639364`) — unreviewed suggestions
-reached Lori as facts.** Two readers flattened `pendingSuggestions` into the
-committed namespace. Closed at the read boundary in both.
+could reach Lori as facts.** Two readers flattened `pendingSuggestions` into
+the committed namespace. Closed at the read boundary in both.
+
+  Correction after tracing the real rows (2026-09-20): for Christopher (15
+  suggestions) and Kent (14) this had NOT actually fired — every consulted
+  path already held a committed field, so the `setdefault` never admitted a
+  suggestion. "kind of scared" never became Christopher's name in a prompt;
+  a committed `personal.fullName` shadowed it throughout. The fix changed
+  nothing Lori says about the family today. Do not describe it as having.
+
+  All 29 suggestions are intact, returned by `GET /api/interview/projection`,
+  and surfaced by NO review UI: `app.js` loads and clears the array,
+  `bio-builder-core.js` filters it on reset, `acceptSuggestion` has no
+  caller. Retained, not reviewable. That control is WO-02B.
+
+**B6 · REGRESSION OF MINE, specific repair owed (WO-02).** `prompt_composer.py:
+5174-5186` records a deliberate May design: when a pending suggestion exists
+for the field Lori is about to ask about, she should CONFIRM ("already on
+record, provisionally: X — is that right?") rather than ask cold. The
+6639364 fix removed suggestions from `provisional` and built a separate
+`suggested` map — but never returned it in the seed, so `_known_childhood_home`
+(`:5153`) lost its provisional input. No effect on Christopher or Kent, whose
+birthplaces are committed. Repair: return `suggested` in the seed; have the
+confirm-hint read from it, labelled provisional, never as fact. Test with a
+synthetic narrator holding a pending suggestion and NO committed answer at
+that path. The suggestion may be offered for confirmation; it must not be
+presented as established.
 
 **B5 · DEMONSTRATED DEFECT, FIXED (`6639364`) — a correction could overwrite
 an operator's value and erase its history.** Now deferred to the suggestion
@@ -229,7 +268,18 @@ Lori stops seeing after `6639364`. Needs the stack.
 
 Grouped by cause. Symptoms in the same group are fixed by the same change.
 
-**R1 · Origin the server can vouch for.**  (A2, A4, B1, B2, B3, B4-adjacent)
+**R1 · Origin the server can vouch for — for the questionnaire AND for
+projection writes.**  (A2, A4, B1, B2, B3, B4-adjacent, B6)
+
+Expanded 2026-09-20 after the live trace: machine extraction currently
+writes straight into `interview_projections.fields` on non-protected paths
+and Lori reads it as fact (B2). Separating operations at the questionnaire
+endpoint alone would leave that path open. R1 must trace and separate five
+things wherever they write: machine extraction, narrator-direct statements,
+operator entry, proposals, explicit acceptance — and the pending-suggestion
+review control (accept / dismiss, with an acceptance record) belongs here.
+The "confirm rather than ask cold" hint (B6) is restored here on the explicit
+`suggested` channel.
 Stamp origin from the ROUTE, not the payload: the Bio Builder save path, the
 chat correction path, the session-loop answer path, the intake path. That is
 knowable without authentication. Add a per-field provenance sidecar keyed by
@@ -273,10 +323,12 @@ explicit reviewed flag the owner can set. No bulk relabel in either
 direction.
   Depends on: R1's sidecar existing.
 
-**Order:** R1 and R2 in parallel (no dependency between them), R4's E2 half
-alongside (independent). Then R3 and R6. Then R4's E1 half — the bridge —
-which is the first moment Bertil's occupation can reach Lori honestly. R5
-whenever.
+**Order, revised 2026-09-19/20 and agreed:** WO-01 (done, `31d229d`) →
+stable entry ids (R2b) BEFORE any provenance, so the provenance sidecar is
+keyed correctly from its first row rather than by position → R1, expanded
+above → R3 removal → R6 third state → R4's E1 half, the bridge, last. R4's
+E2 half (the path registry) and R5 (durable conflicts) are independent and
+can slot in wherever.
 
 **What this does NOT include, by design:** authentication. The rule says
 "who entered or approved". Without a signed-in actor the system can say
