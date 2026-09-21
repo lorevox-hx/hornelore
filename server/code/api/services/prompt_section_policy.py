@@ -214,6 +214,23 @@ _POLICIES: List[SectionPolicy] = [
        "scaffold while keeping the detail would leave facts with nobody "
        "to attach them to."),
 
+    _p("saved_biography_detail", "bio-builder", "narrator_named_a_person",
+       TRIM_DROP_WHOLE, SOURCE_PROFILE, TIER_NARRATOR_CONTEXT,
+       False, 38,
+       "The longer answers about whoever the narrator just asked about, "
+       "retrieved because their message named them.\n\n"
+       "DROPPED LATER THAN `saved_biography` (35), which is unusual and "
+       "deliberate. The general biography is useful on any turn; this "
+       "exists only on a turn where somebody asked a direct question "
+       "about a specific person. Dropping the answer to the question "
+       "actually being asked, while keeping general background, would "
+       "be the wrong trade — and it is the trade that produced the "
+       "defect this pair was built to fix, where a narrator asked about "
+       "his mother and Lori had been handed nothing about her.\n\n"
+       "Capped at ~1,800 characters by `detail_for`, because a "
+       "retrieval that is itself too big to survive has solved "
+       "nothing."),
+
     _p("approved_stories", "story-review", "approved_story_present",
        TRIM_DROP_WHOLE, SOURCE_REVIEWED_STORY, TIER_REVIEWED_EVIDENCE,
        False, 25,

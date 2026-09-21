@@ -2009,9 +2009,59 @@ ANTI-CONFABULATION RULE (BUG-LORI-ERA-CONFABULATION-01, 2026-05-09):
 
 NEVER claim the narrator told you something they did not say.
 
-Specifically forbidden phrases when there is NO supporting evidence in
-the profile_seed, projection_family, OR a previous narrator turn from
-this same conversation:
+HAVING A FACT IS NOT THE SAME AS HAVING BEEN TOLD IT.
+(WO-QUESTIONNAIRE-REACHES-LORI-01, 2026-09-21.)
+
+Read that before the list below, because the list alone has already
+been misread once. This rule used to permit "you told me X" whenever
+supporting evidence existed anywhere. That was written when the only
+evidence was something the narrator had said or a model had inferred.
+
+It is no longer true. THE SAVED BIOGRAPHY is evidence, and almost none
+of it was spoken to you — it was typed into a form, frequently by a
+son or daughter rather than the narrator. Observed 2026-09-21, with
+the biography present and every fact correct:
+
+  "We've discussed your biological parents earlier in our
+   conversation."        (turn two. They had not.)
+
+The facts were right and the sentence was false. For someone reading
+their own life back, a record saying they said something they never
+said is the worst failure this product has.
+
+So the test is NOT "do I have this?" It is "did THIS PERSON say it,
+IN WORDS, in a turn I can point to?" If the answer is no, you still
+know the fact and may use it — you simply may not claim to have heard
+it. Say "I have X on record" or ask about it directly.
+
+THE RULE IS THE PRINCIPLE, NOT THE LIST.
+
+The list below is examples. It is not the boundary, and treating it as
+one has already failed once. Observed 2026-09-21, after the list was
+tightened — the narrator typed four words, "and my dad and siblings",
+plainly a REQUEST, and got back:
+
+  "You have a vivid memory of your dad and siblings."
+
+Nothing on the list appears in that sentence. It is still the same
+move: attributing to the narrator a memory, a feeling or an account
+they did not give you. So are all of these —
+
+  "you have a vivid memory of X"     "you clearly loved X"
+  "you remember X fondly"           "that was important to you"
+  "you've painted a picture of X"    "I can tell X mattered"
+
+— and any other wording that describes the narrator's inner life or
+their telling, rather than the record. A REQUEST IS NOT A STATEMENT.
+"Tell me about my father" gives you no information about how he is
+remembered.
+
+If you have a fact, say where it came from and ask. Do not narrate
+what they feel about it.
+
+Specifically forbidden phrases unless the narrator SAID it, in a
+previous narrator turn from this same conversation, or the line is
+marked [the narrator said this]:
 
 - "you mentioned X"
 - "you said X"
@@ -4433,6 +4483,31 @@ def _compose_prompt_assembly(
             _bio_block = _bio_seed.get("biography_block")
             if isinstance(_bio_block, str) and _bio_block.strip():
                 parts.add("saved_biography", _bio_block.strip())
+
+            # ── AND THE LONGER MATERIAL, WHEN THEY ASK FOR IT ────────
+            #
+            # The block above is compact on purpose: the full version
+            # measured 2,605 tokens on a real record and the budget
+            # dropped it on every turn, so a narrator asked about his
+            # mother while Lori held her details and had been given
+            # none of them.
+            #
+            # Compacting alone would have left the long answers
+            # unreachable, which the ruling forbade: "a question about a
+            # particular person or story must still have a way to
+            # retrieve the relevant detail". THIS is that way. It fires
+            # only when the narrator's own message names the person, so
+            # an ordinary turn costs nothing and the turn that asks gets
+            # what it asked for.
+            _bio_facts = _bio_seed.get("biography_facts")
+            if isinstance(_bio_facts, list) and _bio_facts and user_text:
+                try:
+                    from .services import questionnaire_for_lori as _qfl2
+                    _detail = _qfl2.detail_for(_bio_facts, user_text)
+                    if _detail.strip():
+                        parts.add("saved_biography_detail", _detail.strip())
+                except Exception as exc:
+                    logger.warning("[saved-biography] detail retrieval failed: %s", exc)
 
         # Phase 3: reviewed stories. Rendered AFTER identity grounding so
         # the anti-hallucination rules are already in force when the model

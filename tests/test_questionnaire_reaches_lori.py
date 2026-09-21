@@ -133,10 +133,11 @@ class ProvenanceSurvivesTheHop(_Case):
                    [("parents", "e-father", "occupation", "operator_direct"),
                     ("parents", "e-father", "birthPlace", "ai_suggested")])
         block = self._seed(syn.ALDA).get("biography_block") or ""
-        self.assertIn("Lori proposed this", block)
-        # And the operator's own entry is NOT marked — the default needs
-        # no label, or the label stops carrying signal.
-        self.assertNotIn("ore dock foreman  [", block)
+        # MIXED origins on one person must name WHICH field, or an
+        # operator-typed occupation gets labelled machine-proposed.
+        self.assertIn("Lori proposed, agreed: birthPlace", block)
+        self.assertNotIn("[Lori proposed this; a person agreed]", block,
+                         "a mixed-origin entry must not be blanket-labelled")
 
     def test_a_narrator_statement_is_marked_differently(self):
         self._save(syn.ALDA, BERTIL,
@@ -162,11 +163,12 @@ class FactsAreNotRecollections(_Case):
         self.block = self._seed(syn.ALDA).get("biography_block") or ""
 
     def test_it_forbids_narrating_a_fact_as_the_narrators_memory(self):
-        self.assertIn("NEVER narrate one of these as the narrator's own memory",
+        self.assertIn("NEVER say or imply the narrator told you any of it",
                       self.block)
 
     def test_it_permits_asking_about_them(self):
         self.assertIn("You may ASK ABOUT them", self.block)
+        self.assertIn("knowing a fact is not having heard the story", self.block)
 
     def test_it_says_a_fact_about_a_parent_is_not_a_fact_about_the_narrator(self):
         self.assertIn("A fact about a parent is not a fact about the narrator",
@@ -367,6 +369,264 @@ class TheWiringIsReal(unittest.TestCase):
         self.assertNotIn("update_profile_json", src.split('"""', 2)[2],
                          "the destructive top-level merge must stay off this path")
 
+
+
+class TheBlockMustSURVIVETheBudget(_Case):
+    """"would survive" is not a test result.
+
+    The first compact version measured 1,533 tokens standalone and left
+    62 tokens of headroom in the real prompt — which is another way of
+    spelling "dropped again next week". These run the REAL budget
+    function with the section sizes from the turn that actually failed
+    (api.log, 2026-09-21 06:04:37):
+
+        saved_biography:DROP:2605   directives_interview:keep:3918
+        tokens=5766 limit=8192 dropped_sections=5
+    """
+
+    # Every section from that turn except the biography, at its real size.
+    LOGGED = [("system_head", 1631), ("ui_context", 72), ("identity_facts", 35),
+              ("identity_grounding", 138), ("approved_stories", 159),
+              ("english_first", 107), ("directives_interview", 3918),
+              ("memory_context", 233)]
+
+    def _budget(self, bio, detail=""):
+        from api.services.prompt_budget import fit_chat_messages_with_sections
+        from api.prompt_composer import _PromptAssembly, _Section
+        from api.services.prompt_section_policy import policy_for
+
+        def mk(name, text):
+            pol = policy_for(name)
+            return _Section(name=name, text=text, required=pol.required,
+                            drop_order=pol.drop_order)
+
+        secs = [mk(n, "x" * (t * 4)) for n, t in self.LOGGED]
+        secs.insert(4, mk("saved_biography", bio))
+        if detail:
+            secs.insert(5, mk("saved_biography_detail", detail))
+        count = lambda m: sum(len(x.get("content") or "") // 4 for x in m)
+        msgs = [{"role": "system", "content": _PromptAssembly.join(secs)},
+                {"role": "user", "content": "what can you tell me about my mom"}]
+        out = fit_chat_messages_with_sections(
+            msgs, limit=8192, count_tokens=count, sections=secs,
+            render_sections=_PromptAssembly.join)
+        # `out.fits` IS NOT THE QUESTION, and prompt_budget.py says so
+        # in its own comment: "a consumer that reads the boolean cannot
+        # tell a turn where everything fitted from one where her
+        # identity sections were dropped". It reports True after
+        # shedding. Three tests here asserted it and would have passed
+        # with the biography thrown away. The question is whether the
+        # section SURVIVED.
+        kept = {s.name for s in (out.sections or []) if s.kept}
+        if not out.sections:
+            kept = {s.name for s in secs}       # nothing was shed at all
+        return kept, count(msgs), out
+
+    def test_the_old_full_block_IS_dropped(self):
+        """The control, and it earned its place: it is what showed that
+        `out.fits` was the wrong assertion."""
+        kept, total, out = self._budget("x" * (2605 * 4))
+        self.assertNotIn("saved_biography", kept,
+                         f"2,605 tokens survived in {total} — the budget moved")
+        self.assertEqual(out.reason, "trimmed_sections")
+
+    def test_the_compact_block_is_KEPT(self):
+        self._save(syn.ALDA, BERTIL,
+                   [("parents", "e-father", "occupation", "operator_direct")])
+        bio = self._seed(syn.ALDA).get("biography_block") or ""
+        kept, total, _out = self._budget(bio)
+        self.assertIn("saved_biography", kept,
+                      f"the compact biography was dropped ({total} tokens)")
+
+    def test_it_survives_WITH_the_retrieved_detail_too(self):
+        """The expensive turn: general biography AND a person's stories.
+
+        BERTIL has no story fields, so it cannot exercise this — an
+        earlier version used it, `detail_for` correctly returned nothing,
+        the section was never added, and the failure looked like a budget
+        problem. A fixture that carries stories is the point.
+        """
+        self._save(syn.ALDA, {"parents": [
+            {"_entryId": "e-f", "relation": "Father", "firstName": "Bertil",
+             "occupation": "ore dock foreman",
+             "notableLifeEvents": "Worked the ore docks through two strikes and "
+                                  "kept the union card in his wallet until he died."},
+            {"_entryId": "e-m", "relation": "Mother", "firstName": "Sigrid",
+             "occupation": "schoolteacher",
+             "notableLifeEvents": "Taught at Marrow Bay for thirty years."}]},
+                   [("parents", "e-f", "occupation", "operator_direct")])
+        facts = self._facts(syn.ALDA)
+        bio = qfl.render_for_prompt(facts)
+        detail = qfl.detail_for(facts, "tell me about my father")
+        self.assertTrue(detail, "the fixture must actually produce a retrieval")
+        kept, total, _out = self._budget(bio, detail)
+        self.assertIn("saved_biography", kept, f"biography dropped ({total} tokens)")
+        self.assertIn("saved_biography_detail", kept,
+                      "the answer to the question actually asked was dropped")
+
+    def test_there_is_real_headroom_not_a_few_tokens(self):
+        """62 tokens of slack is not a margin. One longer question, one
+        extra history turn, and it is gone."""
+        self._save(syn.ALDA, BERTIL)
+        _kept, total, _o = self._budget(self._seed(syn.ALDA).get("biography_block") or "")
+        self.assertGreater(8192 - total, 300,
+                           f"only {8192 - total} tokens of headroom")
+
+
+class TheLongStoriesStayReachable(_Case):
+    """"Do not discard the longer stories from storage or make them
+    permanently inaccessible to Lori."
+    """
+
+    RICH = {
+        "parents": [{
+            "_entryId": "e-m", "relation": "Mother", "firstName": "Sigrid",
+            "occupation": "schoolteacher",
+            "notableLifeEvents": "Taught at the Marrow Bay school for thirty "
+                                 "years and kept every class photograph.",
+        }, {
+            "_entryId": "e-f", "relation": "Father", "firstName": "Bertil",
+            "occupation": "ore dock foreman",
+            "notableLifeEvents": "Worked the ore docks through two strikes.",
+        }],
+    }
+
+    def test_stories_are_not_in_the_default_block(self):
+        self._save(syn.ALDA, self.RICH)
+        block = self._seed(syn.ALDA).get("biography_block") or ""
+        self.assertNotIn("thirty years", block, "a long story rode along anyway")
+        self.assertIn("schoolteacher", block, "but the facts must be there")
+
+    def test_but_the_block_SAYS_they_exist(self):
+        """Otherwise Lori asks for something already on record."""
+        self._save(syn.ALDA, self.RICH)
+        block = self._seed(syn.ALDA).get("biography_block") or ""
+        self.assertIn("LONGER MATERIAL ON RECORD", block)
+        self.assertIn("Mother Sigrid", block)
+
+    def test_asking_about_mom_retrieves_her_story(self):
+        self._save(syn.ALDA, self.RICH)
+        d = qfl.detail_for(self._facts(syn.ALDA), "what can you tell me about my mom")
+        self.assertIn("thirty years", d)
+        self.assertNotIn("two strikes", d, "that is the father's, and unasked for")
+
+    def test_asking_by_name_works_too(self):
+        self._save(syn.ALDA, self.RICH)
+        d = qfl.detail_for(self._facts(syn.ALDA), "tell me about Bertil")
+        self.assertIn("two strikes", d)
+
+    def test_a_turn_that_names_nobody_retrieves_nothing(self):
+        """What keeps the default prompt small."""
+        self._save(syn.ALDA, self.RICH)
+        self.assertEqual(
+            qfl.detail_for(self._facts(syn.ALDA), "what should we talk about"), "")
+
+    def test_the_retrieval_carries_the_same_rule(self):
+        self._save(syn.ALDA, self.RICH)
+        d = qfl.detail_for(self._facts(syn.ALDA), "about my mom")
+        self.assertIn("you did not HEAR it", d)
+        self.assertIn("Do not say they told you", d)
+
+    def test_nothing_was_deleted_from_storage(self):
+        self._save(syn.ALDA, self.RICH)
+        c = sqlite3.connect(self.db)
+        stored = c.execute("SELECT questionnaire_json FROM bio_builder_questionnaires "
+                           "WHERE person_id=?", (syn.ALDA,)).fetchone()[0]
+        c.close()
+        self.assertIn("thirty years", stored)
+
+
+class EntriesWithoutAnEntryIdStayDistinct(_Case):
+    """17 of 17 entries in a real record carry no `_entryId`.
+
+    Grouping on the id alone merged a mother and a father into one
+    person — "Kent James Horne (nee Zarr)", her maiden name on him.
+    """
+
+    NO_IDS = {"parents": [
+        {"relation": "Mother", "firstName": "Janice", "maidenName": "Zarr",
+         "occupation": "Homemaker"},
+        {"relation": "Father", "firstName": "Kent", "occupation": "Construction"},
+    ]}
+
+    def test_two_parents_render_as_two_people(self):
+        self._save(syn.ALDA, self.NO_IDS)
+        block = self._seed(syn.ALDA).get("biography_block") or ""
+        self.assertIn("Mother", block)
+        self.assertIn("Father", block)
+        self.assertEqual(block.count("Homemaker"), 1)
+
+    def test_the_maiden_name_stays_on_the_right_person(self):
+        self._save(syn.ALDA, self.NO_IDS)
+        block = self._seed(syn.ALDA).get("biography_block") or ""
+        for line in block.splitlines():
+            if "Kent" in line:
+                self.assertNotIn("Zarr", line,
+                                 "the mother's maiden name landed on the father")
+            if "Janice" in line:
+                self.assertIn("Zarr", line)
+
+
+# ── A GUARD, BECAUSE I MADE THIS MISTAKE TWICE ──────────────────────
+#
+# Both times I appended test classes AFTER `unittest.main()`. Python
+# defines them, `main()` has already run, and they are never collected.
+# The suite reports OK and asserts nothing. It cost eight dead tests in
+# test_suggestion_identity.py on 2026-09-20 and five more here today.
+#
+# A count is the cheapest thing that notices.
+class TheSuiteIsActuallyRunning(unittest.TestCase):
+
+    def test_every_class_in_this_file_is_collected(self):
+        import re
+        src = Path(__file__).read_text(encoding="utf-8")
+        declared = set(re.findall(r"^class (\w+)\(", src, re.M))
+        loaded = {c.__name__ for c in globals().values()
+                  if isinstance(c, type) and issubclass(c, unittest.TestCase)}
+        missing = declared - loaded
+        self.assertEqual(missing, set(),
+                         f"declared but never collected: {sorted(missing)} — "
+                         "almost certainly defined after unittest.main()")
+
+    def test_the_main_block_is_the_last_thing_in_the_file(self):
+        src = Path(__file__).read_text(encoding="utf-8").rstrip()
+        self.assertTrue(src.endswith("unittest.main(verbosity=2)"),
+                        "something was appended after unittest.main()")
+
+class TheAntiConfabulationRuleIsAPrincipleNotABlocklist(unittest.TestCase):
+    """Observed live on 2026-09-21, AFTER the list was tightened.
+
+    Chris typed four words — "and my dad and siblings", plainly a
+    request — and Lori replied "You have a vivid memory of your dad and
+    siblings." Nothing on the forbidden list appears in that sentence.
+    A blocklist of phrases cannot hold a rule about meaning.
+    """
+
+    def setUp(self):
+        self.src = (REPO / "server" / "code" / "api" / "prompt_composer.py").read_text(
+            encoding="utf-8")
+
+    def test_the_rule_says_it_is_the_principle_not_the_list(self):
+        self.assertIn("THE RULE IS THE PRINCIPLE, NOT THE LIST", self.src)
+
+    def test_the_observed_evasion_is_quoted_verbatim(self):
+        """Keep the real sentence. A paraphrase drifts; this one was
+        said to a person about his own father."""
+        self.assertIn("You have a vivid memory of your dad and siblings", self.src)
+
+    def test_a_request_is_not_a_statement(self):
+        self.assertIn("A REQUEST IS NOT A STATEMENT", self.src)
+
+    def test_it_names_the_class_not_only_the_instance(self):
+        for phrase in ("you clearly loved", "you remember X fondly",
+                       "that was important to you"):
+            self.assertIn(phrase, self.src,
+                          "the rule must generalise past the one observed case")
+
+    def test_having_a_fact_is_still_distinguished_from_being_told_it(self):
+        """The earlier repair must survive this one."""
+        self.assertIn("HAVING A FACT IS NOT THE SAME AS HAVING BEEN TOLD IT",
+                      self.src)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
