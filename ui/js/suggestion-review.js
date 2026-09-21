@@ -50,8 +50,20 @@
   var _choice = {};        // suggestion_id -> chosen entry_id for unresolved ones
   var _conflict = {};      // suggestion_id -> {stored, proposed, path} after a 409
 
-  var REPEATABLE = { parents: 1, grandparents: 1, siblings: 1, children: 1,
-                     spouse: 1, marriage: 1, familyTraditions: 1, pets: 1 };
+  /* DERIVED, not copied. This was a hand-kept duplicate of the server's
+     REPEATABLE_SECTIONS, and a duplicate that drifts costs the operator
+     the entry picker: the card offers a plain Accept, the server answers
+     422 "choose an entry", and there is no control to do it with.
+     Reading `repeatable` off the SECTIONS the form renders cannot drift
+     from what the form renders. */
+  function _isRepeatableSection(id) {
+    var q = window.LorevoxBioBuilderModules && window.LorevoxBioBuilderModules.questionnaire;
+    var secs = (q && q.SECTIONS) || [];
+    for (var i = 0; i < secs.length; i++) {
+      if (secs[i].id === id) return !!secs[i].repeatable;
+    }
+    return false;
+  }
 
   function _esc(s) {
     return String(s == null ? "" : s).replace(/[<>&"']/g, function (c) {
@@ -113,7 +125,7 @@
   function _split(fieldPath) {
     var parts = String(fieldPath || "").split(".");
     var head = parts[0].split("[")[0];
-    return { section: head, field: parts.slice(1).join("."), repeatable: !!REPEATABLE[head] };
+    return { section: head, field: parts.slice(1).join("."), repeatable: _isRepeatableSection(head) };
   }
 
   /* Entries the person can attach an unresolved proposal to, read from
@@ -126,8 +138,21 @@
     var out = [];
     arr.forEach(function (e) {
       if (!e || typeof e !== "object" || !e._entryId) return;
-      var label = [e.relation, e.firstName, e.lastName, e.name, e.side, e.description]
+      /* WO-04. These were all person-shaped — relation, firstName,
+         lastName, name, side, description — so every military posting,
+         home and trip rendered as "(unnamed entry)" and the operator
+         could not tell which one they were attaching a suggestion to.
+         That is the difference between choosing a destination and
+         guessing at one.
+
+         Ordered most-identifying first, and a date is appended when
+         there is one, because two postings to the same place are told
+         apart by when. */
+      var label = [e.relation, e.firstName, e.lastName, e.name, e.side,
+                   e.branch, e.unit, e.place, e.destination, e.description]
         .filter(function (x) { return x && String(x).trim(); }).join(" · ");
+      var when = e.serviceStart || e.periodStart || e.year || e.birthDate || "";
+      if (label && when) label += " (" + String(when).trim() + ")";
       out.push({ id: e._entryId, label: label || "(unnamed entry)" });
     });
     return out;

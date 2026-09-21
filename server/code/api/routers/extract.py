@@ -204,7 +204,19 @@ EXTRACTABLE_FIELDS = {
     "personal.birthOrder":     {"label": "Birth order (first child, second, etc.)", "writeMode": "prefill_if_blank"},
     # ── LOOP-01 R2 wide — narrative-catch slots ──────────────────────────────
     "personal.nameStory":      {"label": "Story behind the narrator's name (who picked it, religious/family origin, why)", "writeMode": "suggest_only"},
-    "personal.notes":          {"label": "General personal color (personality, identity context, miscellaneous)", "writeMode": "suggest_only"},
+    # `personal.notes` RETIRED — WO-04 decision 4.
+    #
+    # A miscellaneous bucket with no home in the form invites the
+    # extractor to file anything it cannot classify, and on 2026-09-20 an
+    # accepted proposal at this path became a value nobody could see or
+    # correct (BUG-SUGGESTION-ACCEPTED-INTO-AN-INVISIBLE-FIELD-01). The
+    # answer is not a catch-all field — that is where information goes to
+    # be unfindable — it is to make the extractor choose a real
+    # destination. "Spent a lot of time with grandparents" belongs with
+    # grandparents.
+    #
+    # ZZ's historical accepted value at this path is PRESERVED, along with
+    # its provenance row. Nothing rewrites it.
 
     # Early memories (suggest_only)
     "earlyMemories.firstMemory":       {"label": "Earliest childhood memory", "writeMode": "suggest_only"},
@@ -273,8 +285,12 @@ EXTRACTABLE_FIELDS = {
     "family.spouse.notes":            {"label": "Spouse / partner personality or color beyond marriage facts", "writeMode": "suggest_only"},
 
     # ── WO-EX-SCHEMA-01 — Marriage event ──────────────────────────────────────
-    "family.marriageDate":            {"label": "Date of marriage", "writeMode": "prefill_if_blank"},
-    "family.marriagePlace":           {"label": "Place of marriage", "writeMode": "prefill_if_blank"},
+    # WO-04: re-pointed to the questionnaire's own repeatable `marriage`
+    # section. This was a pure naming mismatch — the form has had
+    # `marriage.marriageDate` all along and the extractor called it
+    # `family.marriageDate`, so a real fact had nowhere to land.
+    "marriage.marriageDate":          {"label": "Date of marriage (leave absent if unknown — never guess)", "writeMode": "prefill_if_blank", "repeatable": "marriage"},
+    "marriage.marriagePlace":         {"label": "Where the marriage took place", "writeMode": "prefill_if_blank", "repeatable": "marriage"},
     "family.marriageNotes":           {"label": "Marriage context / how we met", "writeMode": "suggest_only"},
 
     # ── WO-EX-SCHEMA-01 — Prior partners (repeatable) ────────────────────────
@@ -297,11 +313,16 @@ EXTRACTABLE_FIELDS = {
     "family.grandchildren.relation":  {"label": "Grandchild relation (via which child)", "writeMode": "candidate_only", "repeatable": "grandchildren"},
     "family.grandchildren.notes":     {"label": "Grandchild personality or notable trait", "writeMode": "candidate_only", "repeatable": "grandchildren"},
 
-    # ── WO-EX-SCHEMA-01 — Residence (repeatable) ─────────────────────────────
-    "residence.place":                {"label": "City / town / address lived in", "writeMode": "candidate_only", "repeatable": "residences"},
-    "residence.region":               {"label": "State / country of residence", "writeMode": "candidate_only", "repeatable": "residences"},
-    "residence.period":               {"label": "Years at this residence (e.g., 1962-1964)", "writeMode": "candidate_only", "repeatable": "residences"},
-    "residence.notes":                {"label": "Residence notes (home type, memory)", "writeMode": "candidate_only", "repeatable": "residences"},
+    # ── Residence (repeatable) — WO-04 aligned to the questionnaire ──────────
+    # Was `repeatable: "residences"` (plural), which matched no section and
+    # so could never group correctly. Was also one free-text `period`, which
+    # is precisely where "temporal context implies short stay, exact dates
+    # unknown" landed; two date fields, and an unknown date stays BLANK.
+    "residence.place":                {"label": "City / town / address lived in", "writeMode": "candidate_only", "repeatable": "residence"},
+    "residence.periodStart":          {"label": "Year moved in (leave absent if unknown — never guess)", "writeMode": "candidate_only", "repeatable": "residence"},
+    "residence.periodEnd":            {"label": "Year moved out (leave absent if unknown — never guess)", "writeMode": "candidate_only", "repeatable": "residence"},
+    "residence.homeType":             {"label": "Type of home (house, farm, apartment, base housing)", "writeMode": "candidate_only", "repeatable": "residence"},
+    "residence.memories":             {"label": "Memories of this home", "writeMode": "candidate_only", "repeatable": "residence"},
 
     # ── WO-SCHEMA-02 Priority 1 — Grandparents (repeatable) ─────────────────
     "grandparents.side":              {"label": "Grandparent side (maternal/paternal)", "writeMode": "candidate_only", "repeatable": "grandparents"},
@@ -326,19 +347,32 @@ EXTRACTABLE_FIELDS = {
     "greatGrandparents.ancestry":     {"label": "Great-grandparent ancestry or ethnic background", "writeMode": "candidate_only", "repeatable": "greatGrandparents"},
     "greatGrandparents.memorableStories": {"label": "Memorable stories about great-grandparent (Civil War, immigration, name origin, etc.)", "writeMode": "suggest_only", "repeatable": "greatGrandparents"},
 
-    # ── WO-SCHEMA-02 Priority 2 — Military ──────────────────────────────────
-    "military.branch":                {"label": "Military branch (Army, Navy, etc.)", "writeMode": "suggest_only"},
-    "military.yearsOfService":        {"label": "Years of military service (e.g., 1965-1968)", "writeMode": "suggest_only"},
-    "military.rank":                  {"label": "Highest military rank attained", "writeMode": "suggest_only"},
-    "military.deploymentLocation":    {"label": "Military deployment location", "writeMode": "suggest_only", "repeatable": "military"},
-    "military.significantEvent":      {"label": "Significant military event or experience", "writeMode": "suggest_only", "repeatable": "military"},
-    "military.notes":                 {"label": "Service color (camaraderie, daily life, transition out, post-service)", "writeMode": "suggest_only"},
+    # ── Military (repeatable) — WO-04 aligned to the questionnaire ──────────
+    # Was half-repeatable: branch/rank/yearsOfService flat while
+    # deploymentLocation/significantEvent were repeatable, so one posting's
+    # fields sorted into two buckets. A life has more than one posting.
+    #
+    # `yearsOfService` is gone: it collected "in Germany" (a place) and is
+    # replaced by two date fields. `unit` is new — Kent's "32nd Artillery
+    # Brigade" was arriving as a COMMUNITY ORGANISATION for want of a field
+    # that is what it is.
+    "military.branch":                {"label": "Branch of service (Army, Navy, RAF…) — NOT a base, unit or weapon system", "writeMode": "suggest_only", "repeatable": "military"},
+    "military.unit":                  {"label": "Unit or formation (e.g. 32nd Artillery Brigade)", "writeMode": "suggest_only", "repeatable": "military"},
+    "military.rank":                  {"label": "Rank held — a rank only, not a duty or a training course", "writeMode": "suggest_only", "repeatable": "military"},
+    "military.serviceStart":          {"label": "Year this posting began (leave absent if unknown — never guess)", "writeMode": "suggest_only", "repeatable": "military"},
+    "military.serviceEnd":            {"label": "Year this posting ended (leave absent if unknown — never guess)", "writeMode": "suggest_only", "repeatable": "military"},
+    "military.location":              {"label": "Where stationed", "writeMode": "suggest_only", "repeatable": "military"},
+    "military.role":                  {"label": "Duties or role (e.g. document courier)", "writeMode": "suggest_only", "repeatable": "military"},
+    "military.notableEvents":         {"label": "Notable events or experiences during service", "writeMode": "suggest_only", "repeatable": "military"},
+    "military.notes":                 {"label": "Service color (camaraderie, daily life, transition out, post-service)", "writeMode": "suggest_only", "repeatable": "military"},
 
-    # ── WO-SCHEMA-02 Priority 3 — Faith & Values ────────────────────────────
-    "faith.denomination":             {"label": "Faith denomination (Catholic, Lutheran, etc.)", "writeMode": "suggest_only"},
-    "faith.role":                     {"label": "Role in faith community (choir, deacon, etc.)", "writeMode": "suggest_only"},
-    "faith.significantMoment":        {"label": "Significant faith moment or turning point", "writeMode": "suggest_only"},
-    "faith.values":                   {"label": "Core values or beliefs", "writeMode": "suggest_only"},
+    # ── Faith & Beliefs (flat, optional) — WO-04 ────────────────────────────
+    # A denomination is proposed ONLY from an explicit statement. Never
+    # inferred from a church name, a wedding venue, a holiday or a funeral.
+    "faith.denomination":             {"label": "Denomination or tradition — ONLY if the narrator states it outright; never infer from a venue or holiday", "writeMode": "suggest_only"},
+    "faith.raisedIn":                 {"label": "What they were raised in — only if stated outright", "writeMode": "suggest_only"},
+    "faith.communityRole":            {"label": "Role in a faith community (choir, deacon, usher)", "writeMode": "suggest_only"},
+    "faith.significantMoments":       {"label": "Significant moments of faith or belief", "writeMode": "suggest_only"},
     "faith.notes":                    {"label": "Faith / spiritual color (parish, traditions, family religion, lapses, returns)", "writeMode": "suggest_only"},
 
     # ── WO-SCHEMA-02 Priority 4 — Health ────────────────────────────────────
@@ -361,11 +395,15 @@ EXTRACTABLE_FIELDS = {
     "pets.species":                   {"label": "Pet species (dog, cat, horse, etc.)", "writeMode": "candidate_only", "repeatable": "pets"},
     "pets.notes":                     {"label": "Pet notes (personality, story, meaning)", "writeMode": "suggest_only", "repeatable": "pets"},
 
-    # ── WO-SCHEMA-02 Priority 7 — Travel ────────────────────────────────────
-    "travel.destination":             {"label": "Travel destination", "writeMode": "suggest_only", "repeatable": "travel"},
-    "travel.purpose":                 {"label": "Purpose of travel (vacation, work, family, military)", "writeMode": "suggest_only", "repeatable": "travel"},
-    "travel.significantTrip":         {"label": "Most significant or memorable trip", "writeMode": "suggest_only"},
-    "travel.notes":                   {"label": "Travel color (companions, memorable moments, return impressions)", "writeMode": "suggest_only", "repeatable": "travel"},
+    # ── Travel (repeatable) — WO-04 aligned to the questionnaire ───────────
+    # `purpose` is now a CLOSED list, because "ate our first Germany meal"
+    # was arriving as a purpose. What happened on a trip has its own field.
+    "travel.destination":             {"label": "Where the trip went", "writeMode": "suggest_only", "repeatable": "travel"},
+    "travel.year":                    {"label": "Year of the trip (leave absent if unknown — never guess)", "writeMode": "suggest_only", "repeatable": "travel"},
+    "travel.purpose":                 {"label": "Why the trip happened — one of: Vacation, Work, Family, Military, Pilgrimage, Study, Other. NOT an event during the trip", "writeMode": "suggest_only", "repeatable": "travel"},
+    "travel.companions":             {"label": "Who went along", "writeMode": "suggest_only", "repeatable": "travel"},
+    "travel.whatHappened":            {"label": "What happened on the trip", "writeMode": "suggest_only", "repeatable": "travel"},
+    "travel.notes":                   {"label": "Travel color (memorable moments, return impressions)", "writeMode": "suggest_only", "repeatable": "travel"},
 
     # ── LOOP-01 R3 — Schema gap fills from api.log audit ────────────────────
     # Added after the R2 api.log audit revealed 325 REJECTs across 218 unique
@@ -4441,6 +4479,51 @@ def _is_llm_commentary(value: str) -> bool:
     return bool(_LLM_COMMENTARY_PATTERNS.search(value))
 
 
+# WO-04 requirement 7. Date-shaped destinations, by suffix rather than
+# by an enumerated list, so a new date field added to the questionnaire
+# is covered the day it appears instead of the day someone remembers.
+_DATE_FIELD_SUFFIXES = (
+    "date", "dateofbirth", "birthdate", "deathdate", "year",
+    "servicestart", "serviceend", "periodstart", "periodend",
+    "marriagedate", "adoptiondate", "yearsofservice", "period",
+)
+
+# Phrases that are the model reporting its own state rather than a fact
+# about the narrator. Measured against the live queue, where these
+# produced `family.marriageDate = "temporal context implies recent past,
+# exact dates unknown"` and `residence.period = "mostly"`.
+_UNCERTAINTY_MARKERS = re.compile(
+    r"\b(unknown|unclear|unspecified|not\s+(?:stated|specified|given|provided)|"
+    r"implies?|implied|inferred|approximate(?:ly)?|context\s+suggests?|"
+    r"temporal\s+context|exact\s+dates?|cannot\s+determine|no\s+date)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_date_field(base_path: str) -> bool:
+    leaf = (base_path or "").rsplit(".", 1)[-1].lower()
+    return any(leaf.endswith(s) for s in _DATE_FIELD_SUFFIXES)
+
+
+def _reads_as_uncertainty(value: str) -> bool:
+    """True when a date field's value is the model hedging.
+
+    Deliberately narrow: it fires only on the markers above, and only in
+    a date field. "Mostly" in a memories field is a fine answer; in a
+    date field it is not a date. A legitimate date never contains the
+    word "unknown", so the false-positive risk is small and the failure
+    is recoverable — a dropped proposal is visible in the logs and can be
+    re-asked, while a stored one becomes a family record.
+    """
+    if not value or not isinstance(value, str):
+        return False
+    if _UNCERTAINTY_MARKERS.search(value):
+        return True
+    # A date field whose value carries no digit at all is not a date:
+    # "in Germany", "mostly", "recently".
+    return not any(ch.isdigit() for ch in value)
+
+
 def _validate_item(item: Any) -> Optional[dict]:
     """Validate and normalize a single extraction item."""
     if not isinstance(item, dict):
@@ -4953,6 +5036,28 @@ def _validate_item(item: Any) -> Optional[dict]:
     # name. This guard runs after fieldPath validation+aliasing so it
     # only sees finalized items, and never invents a narrator fact —
     # it only drops a string that's clearly LLM commentary.
+    # WO-04 requirement 7 — MODEL UNCERTAINTY IN A DATE FIELD.
+    #
+    # The design assumed `inputHelper: "normalizeDob"` would keep these
+    # out. MEASURED 2026-09-20: it does not. Both `normalizeDobInput` and
+    # `normalizeDateSafe` normalise the formats they recognise and return
+    # the input UNCHANGED otherwise — they reject nothing. So
+    #
+    #     "temporal context implies recent past, exact dates unknown"
+    #
+    # passes through a date field untouched, which is how it reached
+    # Kent's `family.marriageDate` and Christopher's `residence.period`.
+    #
+    # A field helper is a convenience, not a validator. The rejection has
+    # to happen here, where the value can still be refused. An unknown
+    # date is BLANK; the model saying so in prose is not an answer.
+    if _is_date_field(base_path) and _reads_as_uncertainty(val):
+        logger.info(
+            "[extract][UNCERTAINTY-DROP] %s is a date field and the value is "
+            "the model describing what it does not know: %r",
+            base_path, val[:90])
+        return None
+
     if _is_llm_commentary(val):
         logger.info(
             "[extract][COMMENTARY-DROP] fieldPath=%s value=%r",

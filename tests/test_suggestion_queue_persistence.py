@@ -395,7 +395,7 @@ class RepeatableDestinations(_Base):
         for section in _REPEATABLE_SECTIONS:
             self.assertIn('id: "' + section + '"', qq,
                           f"{section} is not a real questionnaire section")
-        self.assertEqual(len(_REPEATABLE_SECTIONS), 8)
+        self.assertEqual(len(_REPEATABLE_SECTIONS), 11)
 
 
 if __name__ == "__main__":

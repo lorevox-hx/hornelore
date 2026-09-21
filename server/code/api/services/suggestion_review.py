@@ -29,7 +29,8 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 from .. import db as _db
 from . import questionnaire_persistence as _qp
 from .answer_provenance import (
-    AnswerOrigin, ORIGIN_SUGGESTED, EVIDENCE_ABSENT, ENTRY_ID_KEY,
+    AnswerOrigin, ORIGIN_SUGGESTED, ORIGIN_OPERATOR, EVIDENCE_ABSENT,
+    ENTRY_ID_KEY,
 )
 
 __all__ = [
@@ -43,6 +44,9 @@ __all__ = [
 REPEATABLE_SECTIONS = frozenset({
     "parents", "grandparents", "siblings", "children", "spouse",
     "marriage", "familyTraditions", "pets",
+    # WO-04. A life has more than one posting, more than one home and
+    # more than one trip; each needs its own dates and its own memories.
+    "military", "residence", "travel",
 })
 
 NEW_ENTRY = "__new__"
@@ -99,6 +103,24 @@ class SuggestionNotFound(Exception):
 
 class SuggestionUnresolved(Exception):
     """A repeatable destination with no entry chosen. Resolve at review."""
+
+
+def SuggestionFlagged_unchanged(blocker):
+    """A correction identical to the proposal is not a correction.
+
+    Re-raises the original block with a message that names the specific
+    evasion, rather than letting `corrected_value == proposed` satisfy
+    the requirement by technicality.
+    """
+    from .suggestion_flags import SuggestionFlagged
+    return SuggestionFlagged(
+        blocker.reason,
+        "The corrected value is the same as what was proposed, so nothing "
+        "was corrected. " + blocker.detail,
+        proposed_value=blocker.proposed_value,
+        source_note=blocker.source_note,
+        field_path=blocker.field_path,
+    )
 
 
 class DestinationUndefined(Exception):
@@ -170,27 +192,37 @@ def _write_queue_without(con: sqlite3.Connection, person_id: str,
 
 
 def _insert_review(con: sqlite3.Connection, person_id: str, s: Mapping[str, Any],
-                   verdict: str, entry_id: str, now: str, reviewed_by: str) -> None:
+                   verdict: str, entry_id: str, now: str, reviewed_by: str,
+                   corrected_value: Optional[Any] = None,
+                   correction_reason: str = "") -> None:
     section, field, unresolved = split_destination(str(s.get("fieldPath") or ""))
     con.execute(
         "INSERT INTO suggestion_reviews "
         "(person_id, section, entry_id, field, value_hash, verdict, "
         " suggestion_id, field_path, proposed_value, proposed_at, "
         " source_turn_id, turn_evidence, repeats, destination_unresolved, "
-        " reviewed_at, reviewed_by) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+        " reviewed_at, reviewed_by, corrected_value, correction_reason) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
         "ON CONFLICT(person_id, section, entry_id, field, value_hash) DO UPDATE SET "
         "  verdict=excluded.verdict, suggestion_id=excluded.suggestion_id, "
         "  proposed_at=excluded.proposed_at, source_turn_id=excluded.source_turn_id, "
         "  turn_evidence=excluded.turn_evidence, repeats=excluded.repeats, "
         "  destination_unresolved=excluded.destination_unresolved, "
-        "  reviewed_at=excluded.reviewed_at, reviewed_by=excluded.reviewed_by",
+        "  reviewed_at=excluded.reviewed_at, reviewed_by=excluded.reviewed_by, "
+        "  corrected_value=excluded.corrected_value, "
+        "  correction_reason=excluded.correction_reason",
         (person_id, section, entry_id, field, value_hash(s.get("value")), verdict,
          s.get("suggestion_id"), str(s.get("fieldPath") or ""),
          "" if s.get("value") is None else str(s.get("value")),
          s.get("ts"), s.get("source_turn_id"),
          s.get("turn_evidence") or EVIDENCE_ABSENT, int(s.get("repeats") or 1),
-         1 if (unresolved and not entry_id) else 0, now, reviewed_by or ""),
+         1 if (unresolved and not entry_id) else 0, now, reviewed_by or "",
+         # The ORIGINAL proposal stays in `proposed_value` above; this is
+         # what the person put in its place. Losing the original would
+         # erase the fact that a machine proposed something else and a
+         # person fixed it.
+         (None if corrected_value is None else str(corrected_value)),
+         correction_reason or None),
     )
 
 
@@ -263,7 +295,9 @@ def _resolve_path(stored_doc: Mapping[str, Any], section: str, field: str,
 
 
 def accept(person_id: str, suggestion_id: str, *, entry_id: Optional[str] = None,
-           reviewed_by: str = "", source: str = "suggestion_accept") -> Dict[str, Any]:
+           reviewed_by: str = "", source: str = "suggestion_accept",
+           corrected_value: Optional[Any] = None,
+           correction_reason: str = "") -> Dict[str, Any]:
     """Write the proposed value as an accepted AI suggestion. One transaction
     across the questionnaire, its provenance, the queue and the review record.
 
@@ -327,7 +361,39 @@ def accept(person_id: str, suggestion_id: str, *, entry_id: Optional[str] = None
             + " in the questionnaire, but this proposal is shaped the other way.")
 
     path, prov_entry_id, new_id_path = _resolve_path(stored_doc, section, field, unresolved, entry_id)
-    proposed = s.get("value")
+
+    # ── a flagged proposal cannot be accepted UNCHANGED ──────────────
+    #
+    # WO-04 requirement 3. A confirmation dialog is not enough: for
+    # `military.branch = "Nike Ajax Nike Hercules missile site"` the
+    # person has to either correct the value or send it somewhere that
+    # fits. Clicking through a warning must not convert a known type
+    # mismatch into a biographical fact.
+    #
+    # `corrected_value` is what makes an accept legitimate here. Supply
+    # it and the answer written is YOURS — the original proposal is
+    # preserved on the review record beside it, so the pair reads "Lori
+    # proposed A, a person entered B, and here is why A was flagged".
+    #
+    # Checked before the write and AGAIN inside the transaction, for the
+    # same reason the destination check is: a flag can be recorded
+    # between the two moments.
+    from . import suggestion_flags as _flags
+    corrected = corrected_value is not None and str(corrected_value).strip() != ""
+    con = _db._connect()
+    try:
+        blocker = _flags.requires_correction(con, person_id, s)
+    finally:
+        con.close()
+    if blocker is not None and not corrected:
+        raise blocker
+    # A "correction" that changes nothing is a confirmation wearing a
+    # correction's clothes.
+    if blocker is not None and corrected and \
+            canonical_value(corrected_value) == canonical_value(s.get("value")):
+        raise SuggestionFlagged_unchanged(blocker)
+
+    proposed = corrected_value if corrected else s.get("value")
 
     # Staleness / conflict, TWICE, on purpose.
     #
@@ -341,14 +407,37 @@ def accept(person_id: str, suggestion_id: str, *, entry_id: Optional[str] = None
     if current not in (None, "") and current != proposed:
         raise SuggestionConflict(path, current, proposed)
 
-    origin = AnswerOrigin(
-        ORIGIN_SUGGESTED,
-        actor_id=reviewed_by or "",
-        proposed_by="lori",
-        confirmed_via="acceptance",
-        confirmed_at=now,
-        sections=[section],
-    )
+    # WHO AUTHORED THE VALUE THAT LANDS.
+    #
+    # An ordinary acceptance is Lori's value with a person's agreement:
+    # ai_suggested / confirmed_via='acceptance'. Permanent, per 0059 —
+    # "Lori proposed it and a person agreed" is a weaker fact than "a
+    # person said it", and rewriting it would launder the first into the
+    # second.
+    #
+    # A CORRECTED acceptance is different in kind. The person rejected
+    # Lori's value and typed their own, so the answer is theirs:
+    # operator_direct, with `proposed_by='lori'` recording that Lori
+    # prompted it and NO `confirmed_via`, because nothing of Lori's was
+    # confirmed. This matches what the ordinary form already does when
+    # someone edits an accepted value by hand (observed on the ZZ
+    # walkthrough: origin flipped to operator_direct, correctly).
+    if corrected:
+        origin = AnswerOrigin(
+            ORIGIN_OPERATOR,
+            actor_id=reviewed_by or "",
+            proposed_by="lori",
+            sections=[section],
+        )
+    else:
+        origin = AnswerOrigin(
+            ORIGIN_SUGGESTED,
+            actor_id=reviewed_by or "",
+            proposed_by="lori",
+            confirmed_via="acceptance",
+            confirmed_at=now,
+            sections=[section],
+        )
 
     mutations: Dict[str, Any] = {path: proposed}
     base_fields: Dict[str, Any] = {path: current}
@@ -365,6 +454,23 @@ def accept(person_id: str, suggestion_id: str, *, entry_id: Optional[str] = None
     schema_at_decision = _qs.schema_fingerprint()
 
     def _also(con2: sqlite3.Connection) -> None:
+        # THE FLAG CHECK, INSIDE THE TRANSACTION.
+        #
+        # Not a duplicate of the pre-check above: a flag can be recorded
+        # between that read and this write — by the classifier, or by
+        # another operator reviewing the same queue. Raising here rolls
+        # back the questionnaire, its provenance, the queue rewrite and
+        # the review record together, so a flagged value cannot land
+        # through a race.
+        #
+        # This is the layer the UI cannot bypass. Hiding the Accept
+        # button is presentation; this is the write.
+        _blocker2 = _flags.requires_correction(con2, person_id, s)
+        if _blocker2 is not None and not corrected:
+            raise _blocker2
+        if _blocker2 is not None:
+            _flags.mark_disposed(con2, person_id, s, "corrected")
+
         # SECOND VALIDATION, INSIDE THE TRANSACTION.
         #
         # Not belt-and-braces: `load_schema` re-reads on mtime change, so
@@ -380,7 +486,9 @@ def accept(person_id: str, suggestion_id: str, *, entry_id: Optional[str] = None
                     "The questionnaire changed while this was being accepted, "
                     f"and '{section}.{field}' is no longer a field. Nothing "
                     "was written; review the suggestion again.")
-        _insert_review(con2, person_id, s, "accepted", prov_entry_id, now, reviewed_by)
+        _insert_review(con2, person_id, s, "accepted", prov_entry_id, now, reviewed_by,
+                       corrected_value=(corrected_value if corrected else None),
+                       correction_reason=correction_reason)
         _write_queue_without(con2, person_id, suggestion_id, source, now)
 
     try:

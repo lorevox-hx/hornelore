@@ -280,6 +280,25 @@ DB_LANES: Tuple[DbLane, ...] = (
                 "proposal's own evidence verdict retained. A declined value is "
                 "not re-proposed; an accepted one lands in the questionnaire as "
                 "ai_suggested, never operator_direct. See 0060"),
+    # WO-04. AUTHORITATIVE for the same reason as the two lanes above:
+    # nothing can recompute it. A flag records that a proposal was set
+    # aside for review and why — a judgement made once, about a value
+    # that may never enter the biography at all.
+    #
+    # PORTABLE: a narrator restored elsewhere without their flags would
+    # have every questionable proposal become one click from their
+    # record again, which is precisely the risk WO-04 exists to close.
+    #
+    # NOT a source of facts. `queued_before_home` states a fact about
+    # TIMING and asserts nothing about content; the other three record
+    # why a person should look, never what they should conclude.
+    DbLane("suggestion_flags", _D("person_id"),
+           CLASS_AUTHORITATIVE, "yes", True,
+           note="suggestions that may not be accepted unchanged, with the "
+                "reason. Enforced server-side inside the accept transaction, "
+                "not by the UI hiding a button. Identity is suggestion_id "
+                "where one exists, canonical tuple for pre-2026-09-20 rows. "
+                "See 0061"),
     DbLane("bio_facts", _D("narrator_id"), CLASS_DERIVED, "yes", True),
     DbLane("facts", _D("person_id"), CLASS_DERIVED, "yes", True),
     DbLane("family_truth_notes", _D("person_id"), CLASS_DERIVED, "yes", True),

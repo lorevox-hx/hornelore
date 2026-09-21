@@ -77,13 +77,16 @@ _JS_PATH = os.path.normpath(os.path.join(
 # Invariants. If the questionnaire legitimately grows a section these
 # move — deliberately, in the same commit — and the test that mirrors
 # them fails until they do.
-_EXPECT_SECTIONS = 16
-_EXPECT_REPEATABLE = 8
+_EXPECT_SECTIONS = 20
+_EXPECT_REPEATABLE = 11
 # Measured, not guessed. The first draft of this constant said 100 and
 # the parser was right — 91 — which is the failure mode these invariants
 # are meant to catch working in the awkward direction. An invariant
 # asserted from memory is a bug with a confident tone.
-_EXPECT_FIELDS = 91
+# WO-04 added military (9), residence (5), travel (6), faith (5),
+# education.gradeLevel and marriage.marriagePlace: 91 + 27 = 118.
+# Re-measured from the file, not incremented from memory.
+_EXPECT_FIELDS = 118
 # A sample that a partial or misaligned parse would not produce. Every
 # one of these was read out of the file, not recalled.
 _EXPECT_PRESENT: Tuple[Tuple[str, str], ...] = (
@@ -95,13 +98,31 @@ _EXPECT_PRESENT: Tuple[Tuple[str, str], ...] = (
     ("grandparents", "side"),
     ("education", "schooling"),
     ("additionalNotes", "messagesForFutureGenerations"),
+    # WO-04's four new sections, sampled so a parse that silently
+    # dropped one is caught.
+    ("military", "branch"),
+    ("military", "serviceStart"),
+    ("residence", "place"),
+    ("travel", "whatHappened"),
+    ("faith", "denomination"),
+    ("marriage", "marriagePlace"),
+    ("education", "gradeLevel"),
 )
 # Known NOT to exist. Guards the opposite failure: a parser so loose it
 # accepts anything would pass the presence checks above.
 _EXPECT_ABSENT: Tuple[Tuple[str, str], ...] = (
+    # `personal.notes` stays absent deliberately — WO-04 decision 4
+    # retires it as an extraction destination rather than creating a
+    # catch-all field, which is where information goes to be unfindable.
+    # ZZ's historical accepted value at that path is preserved; nothing
+    # rewrites it.
     ("personal", "notes"),
-    ("residence", "place"),
-    ("military", "branch"),
+    # `residence.place` and `military.branch` WERE here and are now
+    # real fields (WO-04). Replaced with paths that remain undefined, so
+    # the guard against a too-loose parser still has teeth.
+    ("military", "servicePeriod"),      # superseded by serviceStart/End
+    ("residence", "period"),            # superseded by periodStart/End
+    ("community", "organization"),      # no community section
 )
 
 

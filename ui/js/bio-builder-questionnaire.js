@@ -477,6 +477,11 @@
       fields: [
         { id: "spouseReference",  label: "Spouse / Partner Name", type: "text",    placeholder: "Who is this marriage/union with?" },
         { id: "marriageDate",     label: "Date",                  type: "text",    placeholder: "Exact or approximate", inputHelper: "normalizeDateSafe" },
+        /* WO-04. "Cathedral of the Holy Spirit" was arriving with
+           nowhere to go but `weddingDetails`, which would have merged a
+           place into a prose paragraph. A place deserves a field that
+           is what it is. */
+        { id: "marriagePlace",    label: "Where",                 type: "text",    inputHelper: "normalizePlace" },
         { id: "proposalStory",    label: "Proposal Story",        type: "textarea" },
         { id: "weddingDetails",   label: "Wedding / Union Details", type: "textarea" }
       ]
@@ -503,6 +508,85 @@
         { id: "notes",        label: "Notes / Memories", type: "textarea" }
       ]
     },
+    /* ── WO-04: four destinations that did not exist ──────────────────
+       Military service, the homes someone lived in, the trips they took
+       and what they believed are ordinary parts of a life, and the form
+       could not record any of them. Kent served in Germany and there
+       was nowhere in his biography to say so.
+
+       DATES ARE TWO FIELDS, NOT A PERIOD. A single free-text "period"
+       is exactly where "temporal context implies short stay, exact
+       dates unknown" lands — the model's own hedging stored as an
+       answer. Two date fields cannot hold that sentence comfortably,
+       and an unknown date stays BLANK.
+
+       ⚠ MEASURED, NOT ASSUMED: `normalizeDob` and `normalizeDateSafe`
+       do NOT reject anything. They normalise formats they recognise and
+       return the input unchanged otherwise — verified 2026-09-20
+       against the real values. So the helper here is a convenience, and
+       the rejection of model-uncertainty happens at the extraction
+       boundary. Do not read `inputHelper` as a validator. */
+    {
+      id: "military", label: "Military Service", icon: "\u{1F396}",
+      hint: "Postings, units, ranks, where you served and what happened there",
+      repeatable: true, repeatLabel: "posting",
+      fields: [
+        /* Free text, not a select. A select would have refused "Nike
+           Ajax Nike Hercules missile site" at the form, which is
+           tempting — but this is a family archive and not every
+           family's service was in one country's five branches. The
+           refusal belongs at extraction, not in the form. */
+        { id: "branch",        label: "Branch of Service",  type: "text",     placeholder: "Army, Navy, Royal Air Force…" },
+        { id: "unit",          label: "Unit",               type: "text",     placeholder: "e.g. 32nd Artillery Brigade" },
+        { id: "rank",          label: "Rank",               type: "text",     helperText: "Rank held during this posting." },
+        { id: "serviceStart",  label: "Started",            type: "text",     placeholder: "YYYY-MM-DD or year", helperText: "Leave blank if unknown — do not guess.", inputHelper: "normalizeDob" },
+        { id: "serviceEnd",    label: "Ended",              type: "text",     placeholder: "YYYY-MM-DD or year", helperText: "Leave blank if unknown.", inputHelper: "normalizeDob" },
+        { id: "location",      label: "Where Stationed",    type: "text",     inputHelper: "normalizePlace" },
+        { id: "role",          label: "Duties / Role",      type: "text",     placeholder: "e.g. document courier" },
+        { id: "notableEvents", label: "Notable Events",     type: "textarea" },
+        { id: "notes",         label: "Additional Notes",   type: "textarea" }
+      ]
+    },
+    {
+      id: "residence", label: "Places Lived", icon: "\u{1F3E1}",
+      hint: "The homes and towns of a life, and what each one was like",
+      repeatable: true, repeatLabel: "home",
+      fields: [
+        { id: "place",       label: "Place",                type: "text",     placeholder: "City, town or address", inputHelper: "normalizePlace" },
+        { id: "periodStart", label: "Moved In",             type: "text",     placeholder: "YYYY-MM-DD or year", helperText: "Leave blank if unknown.", inputHelper: "normalizeDob" },
+        { id: "periodEnd",   label: "Moved Out",            type: "text",     placeholder: "YYYY-MM-DD or year", helperText: "Leave blank if unknown.", inputHelper: "normalizeDob" },
+        { id: "homeType",    label: "Type of Home",         type: "text",     placeholder: "house, farm, apartment, base housing…" },
+        { id: "memories",    label: "Memories of This Home", type: "textarea" }
+      ]
+    },
+    {
+      id: "travel", label: "Travel", icon: "\u{2708}",
+      hint: "Trips taken — where, why, who with, and what happened",
+      repeatable: true, repeatLabel: "trip",
+      fields: [
+        { id: "destination",   label: "Destination",     type: "text",     inputHelper: "normalizePlace" },
+        { id: "year",          label: "When",            type: "text",     placeholder: "Year or date", helperText: "Leave blank if unknown.", inputHelper: "normalizeDateSafe" },
+        /* A closed list because "ate our first Germany meal" is not a
+           purpose. What happened on the trip has its own field below,
+           so the distinction the extractor keeps collapsing is held
+           open by the form itself. */
+        { id: "purpose",       label: "Purpose",         type: "select",   options: ["", "Vacation", "Work", "Family", "Military", "Pilgrimage", "Study", "Other"] },
+        { id: "companions",    label: "Who Went",        type: "text" },
+        { id: "whatHappened",  label: "What Happened",   type: "textarea" },
+        { id: "notes",         label: "Additional Notes", type: "textarea" }
+      ]
+    },
+    {
+      id: "faith", label: "Faith & Beliefs", icon: "\u{1F54A}",
+      hint: "Entirely optional — leave any of this blank if you would rather not say",
+      fields: [
+        { id: "denomination",       label: "Denomination or Tradition", type: "text",     helperText: "Optional. Only what you choose to record — nothing is inferred." },
+        { id: "raisedIn",           label: "Raised In",                 type: "text",     helperText: "Optional." },
+        { id: "communityRole",      label: "Role in a Faith Community", type: "text",     placeholder: "choir, deacon, usher…" },
+        { id: "significantMoments", label: "Significant Moments",       type: "textarea" },
+        { id: "notes",              label: "Additional Notes",          type: "textarea" }
+      ]
+    },
     {
       id: "health", label: "Health & Wellness", icon: "\u{1FA7A}",
       hint: "Health milestones, lifestyle changes, wellness reflections",
@@ -513,8 +597,13 @@
       ]
     },
     {
-      id: "technology", label: "Technology & Beliefs", icon: "\u{1F4F1}",
-      hint: "Tech experiences, gadgets, cultural practices, beliefs",
+      /* WO-04: the label was "Technology & Beliefs". Beliefs now have
+         their own section, and two homes for one subject is how an
+         answer ends up in neither. The field IDS AND STORED DATA ARE
+         UNCHANGED — `culturalPractices` keeps its name and every
+         narrator's value; only the heading a person reads is different. */
+      id: "technology", label: "Technology", icon: "\u{1F4F1}",
+      hint: "Tech experiences, gadgets, cultural practices",
       fields: [
         { id: "firstTechExperience", label: "First Tech Experience",  type: "textarea" },
         { id: "favoriteGadgets",     label: "Favorite Gadgets",       type: "textarea" },
@@ -535,6 +624,12 @@
       hint: "Schooling, higher education, career, community involvement",
       fields: [
         { id: "schooling",             label: "Schooling",              type: "textarea" },
+        /* WO-04, correction 1. A grade level and a schooling history
+           are different kinds of information, so "6th grade" gets its
+           own labelled field rather than being folded into the prose.
+           The existing queued suggestion is NOT rewritten to this path
+           — it stays where it is until a person reviews it. */
+        { id: "gradeLevel",            label: "Highest Grade Completed", type: "text",    placeholder: "e.g. 8th grade, high school diploma" },
         { id: "higherEducation",       label: "Higher Education",       type: "textarea" },
         { id: "earlyCareer",           label: "Early Career",           type: "textarea" },
         { id: "careerProgression",     label: "Career Progression",     type: "textarea" },

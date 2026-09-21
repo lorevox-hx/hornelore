@@ -357,6 +357,36 @@ def _apply_military(
     errors: Optional[List[Dict[str, str]]] = None,
     profile_patch: Dict[str, Any],
 ) -> None:
+    # ⚠ WO-04 — THIS APPLIER IS FOR THE OPERATOR INTAKE SHAPE, NOT THE
+    # QUESTIONNAIRE'S `military` SECTION.
+    #
+    # The Bio Builder questionnaire's `military` is now a REPEATABLE
+    # section: a LIST of postings, each with its own branch, unit, rank,
+    # dates and events. This function takes a Mapping and returns
+    # silently on anything else, so if it were ever handed that list it
+    # would write nothing, raise nothing, and report nothing — a silent
+    # no-op on a narrator's service record.
+    #
+    # It cannot be reached today: the fan-out flag
+    # (HORNELORE_QUESTIONNAIRE_BIO_FACTS_WRITE) is 0 and no narrator has
+    # a `military` key. The guard below makes the failure LOUD instead
+    # of silent for the day that flag is flipped, which is the whole
+    # reason this was not left alone.
+    #
+    # Writing an array-aware applier is the fan-out work's job, not
+    # WO-04's: it needs a per-posting bio_facts shape that does not
+    # exist yet, and inventing one here would be designing that feature
+    # by accident.
+    if isinstance(section, list):
+        msg = ("bio_questionnaire_writer._apply_military received a LIST "
+               "(the WO-04 repeatable military section). This applier only "
+               "understands the flat operator-intake shape and would silently "
+               "discard every posting. Refusing rather than dropping a "
+               "narrator's service record.")
+        logger.error(msg)
+        if errors is not None:
+            errors.append({"stage": "_apply_military", "error": msg})
+        return
     if not isinstance(section, Mapping):
         return
 
@@ -438,8 +468,34 @@ def _apply_faith(
     personal_block: Dict[str, Any],
 ) -> None:
     """Faith block mirrors into profile_json.personal (matches the
-    intake orchestrator) AND writes scalar bio_facts."""
+    intake orchestrator) AND writes scalar bio_facts.
+
+    ⚠ WO-04 — THIS IS THE OPERATOR-INTAKE VOCABULARY, NOT THE
+    QUESTIONNAIRE'S.
+
+    It reads `religionRaised` / `currentFaith` / `ethnicityHeritage` /
+    `languagesAtHome`. The questionnaire's new `faith` section uses
+    `denomination` / `raisedIn` / `communityRole` / `significantMoments`
+    / `notes`. Both are Mappings, so nothing here would raise — it would
+    simply find none of its keys and write nothing, silently dropping a
+    narrator's answers about their faith.
+
+    Unreachable today (fan-out flag is 0), and made loud rather than
+    left silent for the day it is flipped. Translating the two
+    vocabularies is the fan-out work's job.
+    """
     if not isinstance(section, Mapping):
+        return
+    if any(k in section for k in ("denomination", "raisedIn", "communityRole",
+                                  "significantMoments")):
+        msg = ("bio_questionnaire_writer._apply_faith received the WO-04 "
+               "questionnaire `faith` shape (denomination/raisedIn/...), but "
+               "understands only the operator-intake shape "
+               "(religionRaised/currentFaith/...). It would write nothing. "
+               "Refusing rather than silently dropping the answers.")
+        logger.error(msg)
+        if errors is not None:
+            errors.append({"stage": "_apply_faith", "error": msg})
         return
     _faith_map = (
         ("religionRaised",    "faithRaised",     "religion_raised"),

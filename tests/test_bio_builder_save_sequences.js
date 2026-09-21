@@ -664,8 +664,8 @@ async function run() {
     h.restore(PID);
     await h.settle();
 
-    check("SECTIONS has sixteen entries and no second definition",
-      h.qq.SECTIONS.length === 16 && h.qq.FULL_SECTIONS === undefined && h.qq.MINIMAL_SECTIONS === undefined,
+    check("SECTIONS has twenty entries and no second definition",
+      h.qq.SECTIONS.length === 20 && h.qq.FULL_SECTIONS === undefined && h.qq.MINIMAL_SECTIONS === undefined,
       "found " + h.qq.SECTIONS.length);
 
     let rendered = 0;
@@ -673,7 +673,7 @@ async function run() {
       h.render(s.id);
       if (h.fields().length > 0) rendered++;
     }
-    check("all sixteen sections render editable fields", rendered === 16, rendered + " rendered");
+    check("all twenty sections render editable fields", rendered === 20, rendered + " rendered");
 
     // Save something in one of the six formerly-migrated sections, then in
     // an unrelated one. Before WO-01 the second save carried grandparents

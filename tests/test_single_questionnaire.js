@@ -56,7 +56,7 @@ check("SECTIONS is the only section definition",
   /var\s+SECTIONS\s*=\s*\[/.test(QQ) && !/FULL_SECTIONS|MINIMAL_SECTIONS/.test(QQ),
   "two definitions selected by a flag is the arrangement WO-01 removed");
 
-check("it is the full record (16 sections)", countSections(QQ) === 16, "found " + countSections(QQ));
+check("it is the full record (20 sections)", countSections(QQ) === 20, "found " + countSections(QQ));
 
 check("the minimal-mode flag reader is gone",
   !/intakeMinimalEnabled|HORNELORE_INTAKE_MINIMAL|hornelore\.intake\.minimal/.test(QQ),

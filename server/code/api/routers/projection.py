@@ -410,6 +410,12 @@ def _destination_undefined(field_path: str) -> bool:
 
 class ReviewRequest(BaseModel):
     person_id: str
+    # WO-04 requirement 3. A flagged proposal cannot be accepted by
+    # confirming a warning: the person supplies the value they actually
+    # want, or picks a different destination. The original proposal is
+    # preserved on the review record either way.
+    corrected_value: Optional[Any] = None
+    correction_reason: str = ""
     # For a proposal aimed at a repeatable section: the `_entryId` the
     # person chose, or "__new__" to add one. Refused if absent for an
     # unresolved destination — an ordinal is never inferred.
@@ -448,13 +454,16 @@ def accept_suggestion_route(suggestion_id: str, payload: ReviewRequest) -> Revie
     chosen. The ordinal is never guessed.
     """
     from ..services import suggestion_review as sr
+    from ..services import suggestion_flags as _flags_mod
 
     if not payload.person_id.strip():
         raise HTTPException(status_code=400, detail="person_id is required")
     try:
         res = sr.accept(payload.person_id, suggestion_id,
                         entry_id=(payload.entry_id or None),
-                        reviewed_by=payload.reviewed_by)
+                        reviewed_by=payload.reviewed_by,
+                        corrected_value=payload.corrected_value,
+                        correction_reason=payload.correction_reason)
     except sr.SuggestionNotFound as e:
         raise HTTPException(status_code=404, detail={
             "error": "suggestion_not_found", "detail": str(e)})
@@ -473,6 +482,22 @@ def accept_suggestion_route(suggestion_id: str, payload: ReviewRequest) -> Revie
             "error": "destination_undefined",
             "section": e.section, "field": e.field,
             "detail": e.detail,
+        })
+    except _flags_mod.SuggestionFlagged as e:
+        # 422, not 409: the request is not in conflict with the record,
+        # it is incomplete. The person must correct the value or choose
+        # a different destination. Nothing was written — the check runs
+        # before the write AND inside the transaction.
+        raise HTTPException(status_code=422, detail={
+            "error": "suggestion_flagged",
+            "reason": e.reason,
+            "detail": e.detail,
+            "proposed_value": e.proposed_value,
+            "source_note": e.source_note,
+            "field_path": e.field_path,
+            "remedy": "Send `corrected_value` with the value you want, or "
+                      "accept it at a different destination. Confirming the "
+                      "warning alone is not enough.",
         })
     except sr.SuggestionConflict as e:
         raise HTTPException(status_code=409, detail={

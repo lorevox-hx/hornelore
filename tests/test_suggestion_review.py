@@ -100,6 +100,12 @@ class _Base(unittest.TestCase):
         con.executescript(SCHEMA)
         con.executescript(_ddl("0059_answer_provenance.sql", "bio_builder_answer_provenance"))
         con.executescript(_ddl("0060_suggestion_reviews.sql", "suggestion_reviews"))
+        # WO-04 (0061): the correction columns and the flags table. The
+        # accept path reads both, so a suite without them tests a shape
+        # that no longer ships.
+        con.executescript("ALTER TABLE suggestion_reviews ADD COLUMN corrected_value TEXT;")
+        con.executescript("ALTER TABLE suggestion_reviews ADD COLUMN correction_reason TEXT;")
+        con.executescript(_ddl("0061_suggestion_flags.sql", "suggestion_flags"))
         for pid, name in ((NARRATOR, "Janice"), (OTHER, "Kent")):
             con.execute("INSERT INTO people (id, display_name) VALUES (?,?)", (pid, name))
         con.commit()
@@ -616,9 +622,12 @@ class DestinationMustBeRenderable(_Base):
         self.assertEqual(self._queue(), before_q, "still queued for resolution")
 
     def test_an_undefined_section_cannot_be_accepted(self):
-        """`military.*` and `residence.*` are real extractor output and
-        are not questionnaire sections at all."""
-        for path in ("military.branch", "residence.place", "travel.purpose"):
+        """WO-04 gave military/residence/travel real homes, so these are
+        no longer the examples. `community.*` and `greatGrandparents.*`
+        are still real extractor output with no section — they are on
+        the pinned drift list in test_extractor_vocabulary."""
+        for path in ("community.organization", "greatGrandparents.side",
+                     "health.majorCondition"):
             sid = self._propose(path, "x").suggestion_id
             status, detail = self._http(self._accept, sid)
             self.assertEqual(status, 422, path)
@@ -824,11 +833,14 @@ class SchemaParsing(unittest.TestCase):
     every destination check is wrong — so it validates itself."""
 
     def test_the_schema_matches_the_questionnaire(self):
+        """WO-04 added military (9), residence (5), travel (6), faith (5),
+        education.gradeLevel and marriage.marriagePlace: 16→20 sections,
+        8→11 repeatable, 91→118 fields. Re-measured from the file."""
         from api.services import questionnaire_schema as qs
         s = qs.load_schema(force=True)
-        self.assertEqual(len(s), 16)
-        self.assertEqual(sum(1 for v in s.values() if v["repeatable"]), 8)
-        self.assertEqual(sum(len(v["fields"]) for v in s.values()), 91)
+        self.assertEqual(len(s), 20)
+        self.assertEqual(sum(1 for v in s.values() if v["repeatable"]), 11)
+        self.assertEqual(sum(len(v["fields"]) for v in s.values()), 118)
 
     def test_it_agrees_with_the_repeatable_list_used_elsewhere(self):
         from api.services import questionnaire_schema as qs
@@ -840,8 +852,12 @@ class SchemaParsing(unittest.TestCase):
         for sec, fld in (("personal", "timeOfBirth"), ("personal", "placeOfBirth"),
                          ("parents", "occupation"), ("education", "schooling")):
             self.assertTrue(qs.is_defined(sec, fld), f"{sec}.{fld}")
-        for sec, fld in (("personal", "notes"), ("military", "branch"),
-                         ("residence", "place"), ("education", "gradeLevel")):
+        # WO-04 gave military.branch, residence.place and
+        # education.gradeLevel real homes. `personal.notes` stays absent
+        # deliberately — decision 4 retired it rather than creating a
+        # catch-all field.
+        for sec, fld in (("personal", "notes"), ("military", "servicePeriod"),
+                         ("residence", "period"), ("community", "organization")):
             self.assertFalse(qs.is_defined(sec, fld), f"{sec}.{fld}")
 
     def test_a_broken_parse_raises_rather_than_returning_a_partial(self):
