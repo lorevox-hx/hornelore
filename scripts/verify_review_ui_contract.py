@@ -1,6 +1,6 @@
 """The round trip: real refusal -> real UI -> real request -> real server.
 
-ON A COPY. The live database is opened read-only, copied, never written.
+ON SYNTHETIC NARRATORS. No family record is read or written.
 
 WHY
 ---
@@ -17,8 +17,8 @@ about whether the shipping page can produce those arguments.
 
 So this closes the loop, in four moves:
 
-  1. Call the REAL `accept_suggestion_route` against real legacy
-     suggestions and capture the 422 bodies it actually raises.
+  1. Call the REAL `accept_suggestion_route` against legacy-SHAPED
+     proposals and capture the 422 bodies it actually raises.
   2. Replay those exact bodies into the REAL
      `ui/js/suggestion-review.js`, in jsdom, and click the controls a
      person would click.
@@ -73,11 +73,12 @@ def main() -> int:
         print(f"{R}No database at {DB}{X}")
         return 1
     work = Path(tempfile.mkdtemp(prefix="uicontract_"))
-    tmp = work / "copy.sqlite3"
-    shutil.copy2(src, tmp)
-    for sfx in ("-wal", "-shm"):
-        if Path(str(src) + sfx).exists():
-            shutil.copy2(str(src) + sfx, str(tmp) + sfx)
+    # SYNTHETIC NARRATORS. This script accepts and corrects, so it must
+    # not use a family's record as its input — see the note in
+    # `verify_legacy_review_flow.py` and the harness itself.
+    sys.path.insert(0, str(REPO / "tests" / "harness"))
+    import synthetic_narrator as syn
+    tmp = syn.build(work)
 
     from fastapi_stub import install as _install_stub
     _install_stub()
@@ -110,8 +111,8 @@ def main() -> int:
                 return p
         raise SystemExit(f"{R}no {name} {path} in the plan{X}")
 
-    ack_row = pick("Christopher", "education.gradeLevel")   # acknowledge tier, empty dest
-    fix_row = pick("Kent", "military.branch")               # correct tier, repeatable
+    ack_row = pick("Alda", "education.gradeLevel")   # acknowledge tier, empty dest
+    fix_row = pick("Alda", "military.branch")        # correct tier, repeatable
 
     pid = ack_row["pid"]
     assert fix_row["pid"] != pid or True   # different narrators; the UI is per-narrator
@@ -149,7 +150,7 @@ def main() -> int:
         "replies": [{"status": 422, "json": {"detail": d1}},
                     {"status": 200, "json": {"revision": 2, "accept_mode": "acknowledged_legacy"}}],
         "scenarios": [{
-            "name": "ACKNOWLEDGE  Christopher  education.gradeLevel",
+            "name": "ACKNOWLEDGE  Alda  education.gradeLevel",
             "suggestion_id": ack_row["adds"]["suggestion_id"],
             "tier": "acknowledge",
             "needs_entry": False,
@@ -173,7 +174,7 @@ def main() -> int:
         "replies": [{"status": 422, "json": {"detail": d2}},
                     {"status": 200, "json": {"revision": 2, "accept_mode": "corrected"}}],
         "scenarios": [{
-            "name": "CORRECT      Kent  military.branch",
+            "name": "CORRECT      Alda  military.branch",
             "suggestion_id": fix_row["adds"]["suggestion_id"],
             "tier": "correct",
             "needs_entry": True,
@@ -254,8 +255,11 @@ def main() -> int:
 
     live = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
     n = live.execute("SELECT COUNT(*) FROM suggestion_reviews").fetchone()[0]
+    nf = live.execute("SELECT COUNT(*) FROM suggestion_flags").fetchone()[0]
     live.close()
-    check(n == 12, f"the live database is untouched ({n} reviews)")
+    check(nf == 0, f"the live database has no seeded flags ({nf})")
+    print(f"      live reviews on file: {n} — this run neither read nor "
+          f"wrote a family record")
 
     shutil.rmtree(work, ignore_errors=True)
     print()

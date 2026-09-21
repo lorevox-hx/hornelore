@@ -169,7 +169,8 @@ def _plan(con):
             pass
 
     proposed = {}
-    for r in con.execute("""SELECT p.id pid, p.display_name n, ip.projection_json j
+    for r in con.execute("""SELECT p.id pid, p.display_name n, ip.projection_json j,
+                                   ip.version v
                             FROM interview_projections ip
                             JOIN people p ON p.id = ip.person_id
                             ORDER BY p.display_name"""):
@@ -191,8 +192,35 @@ def _plan(con):
             if "destination_unresolved" not in s and sec in REPEATABLE_SECTIONS:
                 adds["destination_unresolved"] = True
             plan.append({"pid": r["pid"], "name": r["n"].split()[0], "index": i,
+                         # The version the plan was computed against. Checked
+                         # under the lock before anything is written.
+                         "version": int(r["v"] or 0),
                          "entry": s, "adds": adds})
     return plan
+
+
+def snapshot(src: Path, dest: Path) -> None:
+    """A CONSISTENT copy, via SQLite's online backup API.
+
+    `shutil.copy2` of the database plus its -wal and -shm was what this
+    used, and an outside review was right about it:
+
+        Those files can change between copies.
+
+    The stack is running. Three separate file copies of a live WAL
+    database can capture a torn state — a main file from one moment and
+    a WAL from another — and a rehearsal against a torn copy proves
+    nothing about the real thing. `Connection.backup()` holds a read
+    transaction for the duration and produces a single consistent file,
+    with no -wal to copy at all.
+    """
+    src_con = sqlite3.connect(f"file:{src}?mode=ro", uri=True)
+    dst_con = sqlite3.connect(dest)
+    try:
+        src_con.backup(dst_con)
+    finally:
+        dst_con.close()
+        src_con.close()
 
 
 def _apply(con, plan, source: str) -> None:
@@ -215,16 +243,43 @@ def _apply(con, plan, source: str) -> None:
                 "WHERE person_id=?", (pid,)).fetchone()
             env = json.loads(row["projection_json"] or "{}") or {}
             pending = env.get("pendingSuggestions") or []
+            # THE WHOLE ENTRY, AND THE VERSION. Not a sample of it.
+            #
+            # This compared id, fieldPath and ts only. Outside review:
+            #
+            #     A value or turn citation changed between planning and
+            #     application could therefore receive metadata calculated
+            #     for the earlier entry. The later verification could
+            #     detect a mismatch after the transaction has committed.
+            #
+            # Correct, and the consequence is specific: `turn_evidence`
+            # and `destination_unresolved` are computed from the entry
+            # seen at PLAN time. If the value moved, those are answers to
+            # a question about a different proposal, and the id — derived
+            # from the value — would no longer match its own row.
+            #
+            # So the version is checked first (cheap, catches any change
+            # at all) and then every key of every planned entry. Either
+            # mismatch aborts the whole transaction before any write.
+            if int(row["version"]) != items[0]["version"]:
+                raise RuntimeError(
+                    f"projection for {pid} moved from version "
+                    f"{items[0]['version']} to {row['version']} between the "
+                    f"plan and the lock — nothing written")
             for p in items:
-                s = pending[p["index"]]
-                # Re-check under the lock: the queue may have moved
-                # between the plan and here.
-                if not isinstance(s, dict) or s.get("suggestion_id") \
-                        or s.get("fieldPath") != p["entry"].get("fieldPath") \
-                        or s.get("ts") != p["entry"].get("ts"):
+                if p["index"] >= len(pending):
                     raise RuntimeError(
-                        f"queue changed under the lock at index {p['index']} "
-                        f"for {pid} — nothing written")
+                        f"queue for {pid} shrank below index {p['index']} "
+                        f"— nothing written")
+                s = pending[p["index"]]
+                if not isinstance(s, dict) or s.get("suggestion_id"):
+                    raise RuntimeError(
+                        f"entry {p['index']} for {pid} is no longer an "
+                        f"un-identified proposal — nothing written")
+                if json.dumps(s, sort_keys=True) != json.dumps(p["entry"], sort_keys=True):
+                    raise RuntimeError(
+                        f"entry {p['index']} for {pid} changed between the plan "
+                        f"and the lock — nothing written")
                 for k, v in p["adds"].items():
                     s[k] = v
             env["pendingSuggestions"] = pending
@@ -369,10 +424,7 @@ def _verify_on_copy(args) -> int:
         print(f"{R}  No database at {DB}{X}")
         return 1
     tmp = Path(tempfile.mkdtemp(prefix="idbackfill_")) / "copy.sqlite3"
-    shutil.copy2(src, tmp)
-    for sfx in ("-wal", "-shm"):
-        if Path(str(src) + sfx).exists():
-            shutil.copy2(str(src) + sfx, str(tmp) + sfx)
+    snapshot(src, tmp)
 
     print(f"\n{'='*74}\n  REHEARSAL — on a copy, at {tmp}\n{'='*74}\n")
     con = sqlite3.connect(tmp)

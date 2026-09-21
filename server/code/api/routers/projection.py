@@ -276,8 +276,6 @@ def append_suggestion_route(payload: SuggestionAppendRequest) -> SuggestionAppen
     questionnaire. A proposal is not an answer. Acceptance is a separate,
     transactional operation (WO-03B step 2) and is not built yet.
     """
-    import uuid
-
     from ..db import append_projection_suggestion
     from ..services.answer_provenance import verify_turn
 
@@ -314,40 +312,43 @@ def append_suggestion_route(payload: SuggestionAppendRequest) -> SuggestionAppen
     finally:
         con.close()
 
-    sid = "sg_" + uuid.uuid4().hex[:16]
-    entry: Dict[str, Any] = {
-        "suggestion_id": sid,
-        "fieldPath": payload.fieldPath,
-        "value": payload.value,
-        "confidence": float(payload.confidence or 0.0),
-        "origin": payload.origin or "extraction",
-        # The CLAIMED turn, kept whatever the verdict — the WO-03A rule:
-        # nulling it would erase the difference between "no citation" and
-        # "a citation that did not check out".
-        "source_turn_id": payload.turnId or None,
-        "turn_evidence": evidence,
-        "ts": now,
-        "repeats": 1,
-        # WO-03B — can the form render an answer here at all?
-        #
-        # Recorded so the review surface can keep it OUT of the
-        # actionable queue and say why, rather than offering an Accept
-        # that would store the value where nobody can see it. This flag
-        # is a statement about NOW; acceptance re-checks, because the
-        # schema can change while a proposal waits.
-        #
-        # Measured live 2026-09-20: 20 of 30 queued suggestions fail this
-        # — `extract.py`'s EXTRACTABLE_FIELDS has drifted from the
-        # questionnaire and proposes `military.*`, `residence.*`,
-        # `travel.*` paths the form never defines.
-        "destination_undefined": _destination_undefined(payload.fieldPath),
-        # C4 — a proposal aimed at a repeatable section cannot name an
-        # entry that does not exist yet, and MUST NOT fall back to an
-        # ordinal: after an insertion or reorder that names a different
-        # relative. Flagged here, resolved by a person at review, and
-        # the accept path will refuse a proposal still carrying this.
-        "destination_unresolved": _is_unresolved_destination(payload.fieldPath),
-    }
+    # ONE CONSTRUCTOR, shared with `projection_writer`.
+    #
+    # This route used to build the entry inline while the correction
+    # writer called its own helper. The fields happened to line up, so
+    # nothing was broken — but two implementations of "what a queue entry
+    # is" drift, and the drift stays invisible until a row reaches a
+    # consumer needing a key one of them forgot. That is how the thirty
+    # ID-less fossils happened, and the previous commit message claimed
+    # this was already centralised when it was not.
+    #
+    # What `build` decides, per its own docstring: the minted id, the
+    # MEASURED turn verdict, whether the questionnaire defines the
+    # destination (and so whether the form could ever render an answer
+    # there), and whether a repeatable section needs a person to pick an
+    # entry. Measured live 2026-09-20: 20 of 30 queued suggestions fail
+    # the destination check, because `extract.py` has drifted from the
+    # questionnaire.
+    from ..services.suggestion_entry import build as _build_entry
+
+    entry: Dict[str, Any] = _build_entry(
+        payload.fieldPath, payload.value, now,
+        person_id=payload.person_id,
+        source_turn_id=payload.turnId or None,
+        confidence=payload.confidence,
+        origin=payload.origin or "extraction",
+    )
+    sid = entry["suggestion_id"]
+    # The route already verified the turn on its own connection above, as
+    # part of deciding the response. Both calls run the same check and
+    # must agree; if they ever did not, the entry would carry one verdict
+    # and the caller would be told another.
+    if entry.get("turn_evidence") != evidence:
+        logger.error(
+            "turn verdict disagreed between route (%s) and entry builder (%s) "
+            "for %s — recording the builder's, which is what is stored",
+            evidence, entry.get("turn_evidence"), payload.person_id[:8])
+        evidence = entry["turn_evidence"]
 
     res = append_projection_suggestion(payload.person_id, entry, source=payload.source)
     if entry["destination_undefined"]:
@@ -521,8 +522,10 @@ def accept_suggestion_route(suggestion_id: str, payload: ReviewRequest) -> Revie
                 "`corrected_value` to change it first. Neither asserts the "
                 "value is wrong."
                 if _ack else
-                "Send `corrected_value` with the value you want, or accept "
-                "it at a different destination. Confirming the warning "
+                "Send `corrected_value` with the value you want. There is "
+                "no re-home operation: to file this somewhere else, decline "
+                "it and enter the value in that section through the ordinary "
+                "form, which records it as YOUR entry. Confirming the warning "
                 "alone is not enough, and `acknowledge_legacy` does not "
                 "satisfy this."),
         })
@@ -594,14 +597,35 @@ def put_projection_route(payload: ProjectionPutRequest, response: Response) -> P
             removals=[],
             source=payload.source,
             base_version=payload.base_version,
-            # STRICTLY NON-ERASING. ProjectionEnvelope defaults
-            # pendingSuggestions to [], so a merge cannot tell "I sent an
-            # empty list" from "I omitted it" -- and guessing wrong erases
-            # the operator's queue. Only a non-empty list is treated as
-            # mentioned. Clearing the queue is PATCH's job: its field is
-            # Optional, so it CAN tell the two apart.
-            pending_suggestions=(envelope.get("pendingSuggestions") or None),
+            # THE QUEUE IS SERVER-OWNED, AND THIS ROUTE NO LONGER WRITES
+            # IT AT ALL.
+            #
+            # This used to forward a non-empty client array, which
+            # `merge_projection_fields` then used to REPLACE the stored
+            # queue. The comment here called that "strictly non-erasing",
+            # and it was — for the empty case only. A non-empty stale
+            # array erased the whole queue, ids and all. An outside
+            # review found it 2026-09-20:
+            #
+            #     That can discard backfilled IDs or introduce ID-less
+            #     entries again. It contradicts the code's stated
+            #     server-owned queue rule.
+            #
+            # PATCH has hard-coded `pending_suggestions=None` since
+            # WO-03B step 0 for exactly this reason; PUT was the hole
+            # left in the same rule. Both now report the omission rather
+            # than performing it silently.
+            pending_suggestions=None,
         )
+        if envelope.get("pendingSuggestions"):
+            logger.info(
+                "put_projection_route: ignored a pendingSuggestions array from "
+                "%s (%d entries) — the queue is server-owned; use POST "
+                "/api/interview/projection/suggestion",
+                payload.source, len(envelope.get("pendingSuggestions") or []),
+            )
+            saved = dict(saved)
+            saved["suggestions_ignored"] = True
         if saved.get("conflict"):
             response.status_code = 409
         return _as_response(saved)

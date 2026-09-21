@@ -251,7 +251,9 @@ def _structural(suggestion: Mapping[str, Any],
             "queued_before_home",
             f"This was proposed before the questionnaire had a '{section}' "
             "section, so nobody ever chose this destination for it. Check the "
-            "value belongs here, or send it somewhere else, before accepting.",
+            "value belongs here before accepting. If it belongs somewhere "
+            "else, decline it and enter it yourself in the right section — "
+            "there is no one-click way to move it.",
             proposed_value=suggestion.get("value"),
             field_path=path,
             requirement=REQUIRE_CORRECT,
@@ -295,13 +297,16 @@ def requires_review(con: sqlite3.Connection, person_id: str,
                 "Check it belongs here before accepting.",
             "value_not_a_field":
                 f"The proposed value does not look like a '{field}'. "
-                "Correct it, or send it to a destination that fits.",
+                "Correct it here, or decline it and enter it yourself where "
+                "it belongs.",
             "model_uncertainty":
                 "This value is the model describing its own uncertainty rather "
                 "than an answer. Enter what is actually known, or decline it.",
             "misclassified_section":
                 f"This looks like the right kind of fact in the wrong place — "
-                f"'{section}' may not be where it belongs.",
+                f"'{section}' may not be where it belongs. Decline it and "
+                f"enter it in the right section; accepting here would file it "
+                f"under '{section}' permanently.",
         }.get(row["reason"], "This proposal was flagged for review.")
         req = _stronger(req, SuggestionFlagged(
             row["reason"], detail,

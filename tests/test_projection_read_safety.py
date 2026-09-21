@@ -348,7 +348,24 @@ class CorrectionMayNotOverruleOperatorTests(unittest.TestCase):
         _summary, captured = self._run_correction(
             stored, {"identity.place_of_birth": "Duluth, Minnesota"})
 
-        pending = captured.get("pending_suggestions")
+        # THE MECHANISM CHANGED; THE PROPERTY DID NOT.
+        #
+        # This used to read `captured["pending_suggestions"]` — the whole
+        # array, read before the write and sent back wholesale. That is
+        # the stale-array defect an outside review found on 2026-09-20:
+        # a suggestion accepted or declined between the read and the
+        # write was undone by it.
+        #
+        # The writer now sends `pending_mutator`, a function applied to
+        # the queue as it stands INSIDE the write transaction. So the
+        # test calls it the way the database will, with the stored queue,
+        # and asserts on what comes out. Same guarantee, checked at the
+        # point where it is now made.
+        mutator = captured.get("pending_mutator")
+        self.assertIsNotNone(mutator, "no queue change was sent at all")
+        self.assertIsNone(captured.get("pending_suggestions"),
+                          "a whole stale array was sent as well as the mutator")
+        pending = mutator([])
         self.assertIsNotNone(pending, "nothing was persisted for review")
         paths = [s.get("fieldPath") for s in pending]
         self.assertIn("personal.placeOfBirth", paths)

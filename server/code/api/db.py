@@ -6969,6 +6969,13 @@ def merge_projection_fields(
     base_fields: Optional[Dict[str, Any]] = None,
     pending_suggestions: Optional[List[Any]] = None,
     extra_keys: Optional[Dict[str, Any]] = None,
+    # Called under BEGIN IMMEDIATE with the queue as it stands in THIS
+    # transaction; returns the new array. The safe way to change the
+    # queue — see the call site for why a stale array is not.
+    pending_mutator: Optional[Any] = None,
+    # The queue the caller READ, for the legacy whole-array path. A
+    # mismatch is a conflict, not an overwrite.
+    base_pending: Optional[List[Any]] = None,
 ) -> Dict[str, Any]:
     """Apply FIELD-LEVEL changes with PER-PATH optimistic concurrency.
 
@@ -7056,7 +7063,8 @@ def merge_projection_fields(
                 "conflicting_paths": sorted(set(contested)),
             }
 
-        if not mutations and not removals and pending_suggestions is None and not extra_keys:
+        if not mutations and not removals and pending_suggestions is None \
+                and pending_mutator is None and not extra_keys:
             con.rollback()
             return {
                 "person_id": person_id,
@@ -7076,10 +7084,61 @@ def merge_projection_fields(
         for path in removals:
             fields.pop(str(path), None)
         merged["fields"] = fields
-        if pending_suggestions is not None:
+        # ── THE QUEUE IS NEVER WRITTEN FROM A STALE ARRAY ────────────
+        #
+        # `pending_suggestions` used to replace the stored queue with an
+        # array the caller had read at some earlier moment. Outside
+        # review, 2026-09-20:
+        #
+        #     It reads the queue, changes its local copy, then submits
+        #     the entire array for replacement. The database merge checks
+        #     conflicts on field paths, not on the queue itself. If a
+        #     suggestion is accepted, declined, or appended between that
+        #     read and write, the older array can overwrite the newer
+        #     queue state.
+        #
+        # Correct, and it is the same defect class as everything else in
+        # this work order: a whole-document write that cannot tell what
+        # changed underneath it. Giving every entry an id does not help
+        # — a stale array erases the ids along with the entries, and an
+        # accepted suggestion comes back from the dead.
+        #
+        # `pending_mutator` is the replacement. It is called HERE, under
+        # BEGIN IMMEDIATE, with the array as it stands in this
+        # transaction, and returns the new one. The caller's edit is
+        # therefore applied to current state rather than to a snapshot.
+        # Same shape as `also_in_transaction` in merge_questionnaire,
+        # which exists for this exact reason.
+        current_pending = list(stored.get("pendingSuggestions") or [])
+        if pending_mutator is not None:
+            merged["pendingSuggestions"] = list(pending_mutator(current_pending))
+        elif pending_suggestions is not None:
+            # RETAINED FOR THE RESET PATH ONLY, and it must prove it read
+            # what is actually here. `base_pending` is the array the
+            # caller saw; if the stored one has moved since, the write is
+            # contested rather than applied.
+            if base_pending is not None and \
+                    json.dumps(base_pending, sort_keys=True) != \
+                    json.dumps(current_pending, sort_keys=True):
+                con.rollback()
+                return {
+                    "person_id": person_id,
+                    "projection": stored,
+                    "source": row["source"] if row else "empty",
+                    "version": stored_version,
+                    "updated_at": (row["updated_at"] if row else "") or "",
+                    "write_applied": False,
+                    "conflict": True,
+                    "conflicting_paths": ["pendingSuggestions"],
+                }
+            if base_pending is None:
+                logger.warning(
+                    "merge_projection_fields: whole-queue write for %s with no "
+                    "base_pending — cannot prove it is not stale. Prefer "
+                    "pending_mutator.", (person_id or "")[:8])
             merged["pendingSuggestions"] = list(pending_suggestions)
         else:
-            merged.setdefault("pendingSuggestions", stored.get("pendingSuggestions") or [])
+            merged["pendingSuggestions"] = current_pending
         # Envelope-level keys the caller owns (e.g. last_correction_at).
         # Named explicitly rather than swept in, so a merge still cannot
         # carry a whole document by accident.

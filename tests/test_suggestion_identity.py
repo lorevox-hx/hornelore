@@ -511,16 +511,279 @@ class NoProducerCanMakeAnIdlessEntry(_DbCase):
                               "must not read as legacy — it was checked today")
                 self.assertIn("turn_evidence", e)
 
-    def test_the_route_and_the_writer_agree_on_the_id_shape(self):
-        """Both are `sg_` + 16 hex. A two-class identity invites code
-        that branches on which kind it is looking at."""
-        src = (REPO / "server" / "code" / "api" / "routers" / "projection.py").read_text(
-            encoding="utf-8")
-        self.assertIn('sid = "sg_" + uuid.uuid4().hex[:16]', src)
+    def test_every_producer_uses_the_one_shape(self):
+        """`sg_` + 16 hex, from one place. A two-class identity invites
+        code that branches on which kind it is looking at.
+
+        This used to assert the route contained the literal
+        `sid = "sg_" + uuid.uuid4().hex[:16]`. That line is gone because
+        the route now calls the shared builder — which is the point.
+        `OneConstructionSite` below asserts the stronger property: no
+        second module mints one at all."""
+        from api.services import suggestion_entry as se
         from api.services import projection_writer as pw
+        self.assertRegex(se.mint_id(), r"^sg_[0-9a-f]{16}$")
         e = pw._server_owned_suggestion("a.b", "v", "t")
         self.assertRegex(e["suggestion_id"], r"^sg_[0-9a-f]{16}$")
 
+
+
+class AStaleWriterCannotUndoTheQueue(_DbCase):
+    """The concurrency defect an outside review found, 2026-09-20.
+
+        It reads the queue, changes its local copy, then submits the
+        entire array for replacement. The database merge checks conflicts
+        on field paths, not on the queue itself. If a suggestion is
+        accepted, declined, or appended between that read and write, the
+        older array can overwrite the newer queue state.
+
+    Giving every entry an id does not help: a stale array erases the ids
+    along with the entries, and an accepted suggestion comes back from
+    the dead. These drive the real interleaving.
+    """
+
+    def _seed_projection(self, entries, fields=None):
+        c = self._con()
+        c.execute("INSERT OR REPLACE INTO interview_projections"
+                  "(person_id,projection_json,source,version,updated_at) VALUES (?,?,?,?,?)",
+                  (PID, json.dumps({"fields": fields or {}, "pendingSuggestions": entries}),
+                   "seed", 1, "t"))
+        c.commit(); c.close()
+
+    def _operator_locked(self, path, value):
+        return {path: {"value": value, "locked": True, "source": "human_edit"}}
+
+    def test_an_append_between_read_and_write_survives(self):
+        """A correction turn is in flight. Lori queues something else
+        meanwhile. The correction must not erase it."""
+        from api.services import projection_writer as pw
+        from api import db as _db
+
+        existing = dict(_fossil("a.b", "already here"), suggestion_id="sg_existing")
+        self._seed_projection([existing],
+                              self._operator_locked("personal.placeOfBirth", "Williston"))
+
+        real_merge = _db.merge_projection_fields
+        landed = {"done": False}
+
+        def _interleave(person_id, **kw):
+            # Between the writer's read and its write: a new proposal
+            # arrives through the append route's own path.
+            if not landed["done"]:
+                landed["done"] = True
+                c = self._con()
+                env = json.loads(c.execute(
+                    "SELECT projection_json FROM interview_projections WHERE person_id=?",
+                    (PID,)).fetchone()[0])
+                env["pendingSuggestions"].append(
+                    dict(_fossil("c.d", "arrived mid-flight"), suggestion_id="sg_midflight"))
+                c.execute("UPDATE interview_projections SET projection_json=?, version=2 "
+                          "WHERE person_id=?", (json.dumps(env), PID))
+                c.commit(); c.close()
+            return real_merge(person_id, **kw)
+
+        _db.merge_projection_fields = _interleave
+        try:
+            pw.apply_correction(PID, {"identity.place_of_birth": "Bismarck"},
+                                source_turn_id="turn-9")
+        finally:
+            _db.merge_projection_fields = real_merge
+
+        ids = [s.get("suggestion_id") for s in self._queue(PID)]
+        self.assertIn("sg_midflight", ids,
+                      "the proposal that arrived mid-flight was erased by a stale array")
+        self.assertIn("sg_existing", ids, "the pre-existing proposal survived")
+        self.assertEqual(len(ids), 3, "and the correction's own proposal was added")
+
+    def test_an_accept_between_read_and_write_is_not_resurrected(self):
+        """The worst case. A person accepts a suggestion; the in-flight
+        correction writes back an array that still contains it, and it
+        reappears in the queue after having been dealt with."""
+        from api.services import projection_writer as pw
+        from api import db as _db
+
+        doomed = dict(_fossil("a.b", "accepted meanwhile"), suggestion_id="sg_doomed")
+        self._seed_projection([doomed],
+                              self._operator_locked("personal.placeOfBirth", "Williston"))
+
+        real_merge = _db.merge_projection_fields
+        once = {"done": False}
+
+        def _interleave(person_id, **kw):
+            if not once["done"]:
+                once["done"] = True
+                c = self._con()
+                env = json.loads(c.execute(
+                    "SELECT projection_json FROM interview_projections WHERE person_id=?",
+                    (PID,)).fetchone()[0])
+                env["pendingSuggestions"] = [
+                    s for s in env["pendingSuggestions"]
+                    if s.get("suggestion_id") != "sg_doomed"]
+                c.execute("UPDATE interview_projections SET projection_json=?, version=2 "
+                          "WHERE person_id=?", (json.dumps(env), PID))
+                c.commit(); c.close()
+            return real_merge(person_id, **kw)
+
+        _db.merge_projection_fields = _interleave
+        try:
+            pw.apply_correction(PID, {"identity.place_of_birth": "Bismarck"},
+                                source_turn_id="turn-9")
+        finally:
+            _db.merge_projection_fields = real_merge
+
+        ids = [s.get("suggestion_id") for s in self._queue(PID)]
+        self.assertNotIn("sg_doomed", ids,
+                         "a suggestion dealt with mid-flight came back from the dead")
+
+    def test_the_correction_still_lands(self):
+        """The repair must not make the writer a no-op."""
+        from api.services import projection_writer as pw
+        self._seed_projection([], self._operator_locked("personal.placeOfBirth", "Williston"))
+        pw.apply_correction(PID, {"identity.place_of_birth": "Bismarck"},
+                            source_turn_id="turn-9")
+        q = self._queue(PID)
+        self.assertEqual(len(q), 1)
+        self.assertEqual(q[0]["fieldPath"], "personal.placeOfBirth")
+        self.assertEqual(q[0]["value"], "Bismarck")
+        self.assertRegex(q[0]["suggestion_id"], r"^sg_[0-9a-f]{16}$")
+
+
+class ThePutRouteCannotWriteTheQueue(_DbCase):
+    """`merge_projection_fields`'s queue parameter, and the route that
+    used to feed it a client array."""
+
+    def test_a_whole_array_write_without_a_base_is_still_possible_but_warned(self):
+        """Not removed outright — the reset path needs it. But a caller
+        that cannot prove it read current state is logged."""
+        from api import db as _db
+        c = self._con()
+        c.execute("INSERT OR REPLACE INTO interview_projections"
+                  "(person_id,projection_json,source,version,updated_at) VALUES (?,?,?,?,?)",
+                  (PID, json.dumps({"fields": {}, "pendingSuggestions": [
+                      dict(_fossil("a.b", "v"), suggestion_id="sg_a")]}), "seed", 1, "t"))
+        c.commit(); c.close()
+        with self.assertLogs("api.db", level="WARNING") as cm:
+            _db.merge_projection_fields(PID, mutations={"x.y": {"value": "1"}},
+                                        pending_suggestions=[])
+        self.assertTrue(any("base_pending" in m for m in cm.output))
+
+    def test_a_stale_base_pending_is_a_conflict_not_an_overwrite(self):
+        from api import db as _db
+        stale = [dict(_fossil("a.b", "v"), suggestion_id="sg_a")]
+        current = stale + [dict(_fossil("c.d", "v2"), suggestion_id="sg_b")]
+        c = self._con()
+        c.execute("INSERT OR REPLACE INTO interview_projections"
+                  "(person_id,projection_json,source,version,updated_at) VALUES (?,?,?,?,?)",
+                  (PID, json.dumps({"fields": {}, "pendingSuggestions": current}),
+                   "seed", 1, "t"))
+        c.commit(); c.close()
+        out = _db.merge_projection_fields(
+            PID, mutations={"x.y": {"value": "1"}},
+            pending_suggestions=[], base_pending=stale)
+        self.assertTrue(out.get("conflict"))
+        self.assertEqual(out.get("conflicting_paths"), ["pendingSuggestions"])
+        self.assertEqual(len(self._queue(PID)), 2, "nothing was erased")
+
+    def test_the_mutator_sees_current_state_not_a_snapshot(self):
+        from api import db as _db
+        c = self._con()
+        c.execute("INSERT OR REPLACE INTO interview_projections"
+                  "(person_id,projection_json,source,version,updated_at) VALUES (?,?,?,?,?)",
+                  (PID, json.dumps({"fields": {}, "pendingSuggestions": [
+                      dict(_fossil("a.b", "v"), suggestion_id="sg_a")]}), "seed", 1, "t"))
+        c.commit(); c.close()
+        seen = {}
+
+        def _mut(current):
+            seen["ids"] = [s.get("suggestion_id") for s in current]
+            return current + [dict(_fossil("c.d", "v2"), suggestion_id="sg_new")]
+
+        _db.merge_projection_fields(PID, mutations={"x.y": {"value": "1"}},
+                                    pending_mutator=_mut)
+        self.assertEqual(seen["ids"], ["sg_a"], "the mutator was handed stored state")
+        self.assertEqual([s["suggestion_id"] for s in self._queue(PID)], ["sg_a", "sg_new"])
+
+
+    def test_the_projection_moving_between_plan_and_lock_aborts(self):
+        """The under-lock recheck, isolated.
+
+        `turn_evidence` and `destination_unresolved` are computed from
+        the entry as it looked at PLAN time, and the id is derived from
+        its value. If the queue moves in between, those are answers
+        about a different proposal. An outside review found the recheck
+        compared only id, fieldPath and ts; this drives the case it
+        missed.
+        """
+        self._seed(PID, [_fossil("a.b", "v1")])
+        c = self._con()
+        plan = bf._plan(c)
+        c.close()
+        self.assertEqual(len(plan), 1)
+
+        # Somebody writes the projection between the plan and the apply.
+        c = self._con()
+        c.execute("UPDATE interview_projections SET version=99 WHERE person_id=?", (PID,))
+        c.commit(); c.close()
+
+        c = self._con()
+        with self.assertRaises(RuntimeError) as cm:
+            bf._apply(c, plan, "test")
+        c.close()
+        self.assertIn("version", str(cm.exception))
+        self.assertNotIn("suggestion_id", self._queue(PID)[0],
+                         "nothing was written after the abort")
+
+    def test_a_value_changing_between_plan_and_lock_aborts(self):
+        """Same recheck, the case the narrow comparison let through:
+        same index, same path, same ts — different VALUE."""
+        self._seed(PID, [_fossil("a.b", "v1")])
+        c = self._con()
+        plan = bf._plan(c)
+        c.close()
+
+        c = self._con()
+        env = json.loads(c.execute(
+            "SELECT projection_json FROM interview_projections WHERE person_id=?",
+            (PID,)).fetchone()[0])
+        env["pendingSuggestions"][0]["value"] = "v2 — edited since"
+        c.execute("UPDATE interview_projections SET projection_json=? WHERE person_id=?",
+                  (json.dumps(env), PID))
+        c.commit(); c.close()
+
+        c = self._con()
+        with self.assertRaises(RuntimeError) as cm:
+            bf._apply(c, plan, "test")
+        c.close()
+        self.assertIn("changed", str(cm.exception))
+        q = self._queue(PID)
+        self.assertNotIn("suggestion_id", q[0], "nothing was written after the abort")
+        self.assertEqual(q[0]["value"], "v2 — edited since", "and the newer value stands")
+
+
+class OneConstructionSite(_DbCase):
+    """The claim the previous commit message made and the code did not
+    support. Asserted rather than reworded."""
+
+    def test_only_suggestion_entry_mints_an_id(self):
+        import re as _re
+        hits = []
+        for f in (REPO / "server" / "code").rglob("*.py"):
+            if f.name == "suggestion_entry.py":
+                continue
+            src = f.read_text(encoding="utf-8")
+            if _re.search(r'"sg_"\s*\+\s*uuid', src):
+                hits.append(str(f.relative_to(REPO)))
+        self.assertEqual(hits, [],
+                         "a second place mints suggestion ids; route both through "
+                         "suggestion_entry.build so they cannot drift")
+
+    def test_the_route_and_the_writer_use_the_same_builder(self):
+        route = (REPO / "server" / "code" / "api" / "routers" / "projection.py").read_text(
+            encoding="utf-8")
+        writer = (REPO / "server" / "code" / "api" / "services" /
+                  "projection_writer.py").read_text(encoding="utf-8")
+        self.assertIn("suggestion_entry", route)
+        self.assertIn("suggestion_entry", writer)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -5239,24 +5239,55 @@ def _compose_prompt_assembly(
             _confirm_hint = ""
             _pob_hint = _known_childhood_home or _sugg_pob
             if _phase in ("askBirthplace", "resolving") and _pob_hint:
+                _from_record = bool(_known_childhood_home)
                 _known_childhood_home = _pob_hint
-                _confirm_hint = (
-                    f"\nALREADY ON RECORD (provisional): place of birth = '{_known_childhood_home}'.\n"
-                    "REFRAME RULE: Do NOT ask 'where were you born' from scratch. "
-                    "Instead, gently confirm the value by name. Example: "
-                    f"'I have {_known_childhood_home} on record as your earliest place — does that still feel right?' "
-                    "If they correct it, accept the correction warmly. If they confirm it, move on."
-                )
+                if _from_record:
+                    _confirm_hint = (
+                        f"\nALREADY ON RECORD (provisional): place of birth = '{_known_childhood_home}'.\n"
+                        "REFRAME RULE: Do NOT ask 'where were you born' from scratch. "
+                        "Instead, gently confirm the value by name. Example: "
+                        f"'I have {_known_childhood_home} on record as your earliest place — does that still feel right?' "
+                        "If they correct it, accept the correction warmly. If they confirm it, move on."
+                    )
+                else:
+                    # Same distinction as the name hint below: this value
+                    # is Lori's reading, not the record's.
+                    _confirm_hint = (
+                        f"\nNOT ON RECORD — LORI'S OWN READING, UNCONFIRMED: "
+                        f"place of birth might be '{_known_childhood_home}'.\n"
+                        "REFRAME RULE: Do NOT say 'I have X on record'. Ask as your own "
+                        "uncertain impression. Example: "
+                        f"'I thought I heard {_known_childhood_home} — is that where you were born?' "
+                        "If they correct it, accept the correction warmly. If they confirm it, move on."
+                    )
             elif _phase == "askName" and (_seed_preferred_name or _seed_full_name
                                           or _sugg_name):
                 _name_hint = _seed_preferred_name or _seed_full_name or _sugg_name
-                _confirm_hint = (
-                    f"\nALREADY ON RECORD (provisional): name = '{_name_hint}'.\n"
-                    "REFRAME RULE: Do NOT ask for their name from scratch. "
-                    "Instead, gently confirm. Example: "
-                    f"'I have {_name_hint} on record — is that the name you'd like me to use?' "
-                    "If they correct it, accept warmly. If they confirm, move on."
-                )
+                # WHOSE CLAIM IS THIS? The hint must not say "on record"
+                # about something only Lori believes. A confirmed answer
+                # is on record; a queued suggestion is Lori's reading of
+                # a conversation, and telling the narrator it is "on
+                # record" is the same laundering the write path refuses
+                # — done in prose instead of in a column.
+                _from_record = bool(_seed_preferred_name or _seed_full_name)
+                if _from_record:
+                    _confirm_hint = (
+                        f"\nALREADY ON RECORD (provisional): name = '{_name_hint}'.\n"
+                        "REFRAME RULE: Do NOT ask for their name from scratch. "
+                        "Instead, gently confirm. Example: "
+                        f"'I have {_name_hint} on record — is that the name you'd like me to use?' "
+                        "If they correct it, accept warmly. If they confirm, move on."
+                    )
+                else:
+                    _confirm_hint = (
+                        f"\nNOT ON RECORD — LORI'S OWN READING, UNCONFIRMED: "
+                        f"name might be '{_name_hint}'.\n"
+                        "REFRAME RULE: Do NOT state this as something on record, and do "
+                        "NOT say 'I have X on record'. Ask as your own uncertain "
+                        "impression. Example: "
+                        f"'I might have misheard — did you say your name was {_name_hint}?' "
+                        "If they correct it, accept warmly. If they confirm, move on."
+                    )
 
             directive_lines.append(
                 f"IDENTITY MODE: Lori is gently gathering who the narrator is. Still needed: {_still_needed}.{_confirm_hint}\n"

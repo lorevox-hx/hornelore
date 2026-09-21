@@ -1,22 +1,22 @@
-"""Drive REAL legacy suggestions through the REAL review service.
+"""Drive legacy-SHAPED suggestions through the REAL review service.
 
-ON A COPY. The live database is opened read-only, copied, and never
-written.
+ON SYNTHETIC NARRATORS. No family record is read or written.
 
 WHY A SEPARATE HARNESS
 ----------------------
-`tests/test_suggestion_flags.py` proves the guard against constructed
-rows. That is the right shape for a unit test and the wrong evidence for
-this question. What has to be shown here is that CHRISTOPHER'S AND
-KENT'S OWN queued proposals — the fossils, with their real values, their
-real unresolvable turn citations and their real destinations — can be
-found by id, are refused when accepted bare, and can be completed by the
-act each one actually requires.
+`tests/test_suggestion_flags.py` proves the guard against rows built
+inline in the test. This drives the whole pipeline instead — the
+backfill assigns the ids, `sr.accept` and `sr.decline` do the work, and
+the questionnaire, provenance, review record and queue are all read back
+afterwards.
 
-The earlier report claimed the thirty were protected at the acceptance
-boundary. That claim was measured against rows whose ids I had invented
-for the measurement. This runs against the ids the backfill actually
-assigns.
+An earlier version ran against Christopher's and Kent's own queued
+proposals on a snapshot. Nothing reached the real file, but this script
+ACCEPTS, CORRECTS and DECLINES, and the readiness directive is about
+what the fixtures are, not only where the bytes land. The shapes those
+rows contributed — legacy, no id, unresolvable citation, new-section vs
+pre-existing destination, occupied vs empty — are reproduced in
+`tests/harness/synthetic_narrator.py` with invented values.
 
     python3 scripts/verify_legacy_review_flow.py
 """
@@ -58,13 +58,31 @@ def main() -> int:
     if not src.exists():
         print(f"{R}No database at {DB}{X}")
         return 1
-    tmp = Path(tempfile.mkdtemp(prefix="flowverify_")) / "copy.sqlite3"
-    shutil.copy2(src, tmp)
-    for sfx in ("-wal", "-shm"):
-        if Path(str(src) + sfx).exists():
-            shutil.copy2(str(src) + sfx, str(tmp) + sfx)
+    # SYNTHETIC NARRATORS, not a copy of the family's records.
+    #
+    # This script ACCEPTS, CORRECTS and DECLINES — destructive
+    # operations. It used to do that to Christopher's and Kent's own
+    # queued proposals on a snapshot. Nothing reached the real file, but
+    # the readiness directive is about what the fixtures ARE:
+    #
+    #     Do not use Janice's or Kent's actual records as experimental
+    #     fixtures.
+    #
+    # What made those rows useful was never whose they were. It was
+    # their SHAPE — legacy, no id, unresolvable turn citation, some at
+    # sections WO-04 created, some at destinations that existed all
+    # along, one at a field already holding a better answer. All of that
+    # is constructed in `tests/harness/synthetic_narrator.py`, measured
+    # from the live queue and reproduced with invented values.
+    #
+    # The real queue is still INSPECTED, read-only, at the end, so a
+    # divergence between the synthetic shapes and the real ones is
+    # reported rather than assumed away.
+    sys.path.insert(0, str(REPO / "tests" / "harness"))
+    import synthetic_narrator as syn
+    tmp = syn.build()
 
-    print(f"\n{'='*74}\n  LEGACY REVIEW FLOW — real suggestions, on a copy\n{'='*74}")
+    print(f"\n{'='*74}\n  LEGACY REVIEW FLOW — synthetic narrators, real service\n{'='*74}")
     print(f"  {tmp}\n")
 
     from api import db as _db
@@ -134,10 +152,10 @@ def main() -> int:
     # before either tier is reached. Nine of the nineteen are like that.
     # Case 4 covers it deliberately; this case needs an empty
     # destination to exercise the acknowledge path at all.
-    p = pick("Christopher", "education.gradeLevel")
+    p = pick("Alda", "education.gradeLevel")
     pid, sid = p["pid"], p["adds"]["suggestion_id"]
     val = p["entry"]["value"]
-    print(f"  CASE 1  Christopher  education.gradeLevel = {val!r}")
+    print(f"  CASE 1  Alda  education.gradeLevel = {val!r}")
     print(f"          {sid}   (legacy, destination existed all along)\n")
 
     c = _connect()
@@ -180,10 +198,10 @@ def main() -> int:
     check(all(s.get("suggestion_id") != sid for s in queue(pid)), "and only that one")
 
     # ══ CASE 2 — a CORRECT row, repeatable section, Kent's missile site
-    p = pick("Kent", "military.branch")
+    p = pick("Alda", "military.branch")
     pid2, sid2 = p["pid"], p["adds"]["suggestion_id"]
     val2 = p["entry"]["value"]
-    print(f"\n  CASE 2  Kent  military.branch = {val2!r}")
+    print(f"\n  CASE 2  Alda  military.branch = {val2!r}")
     print(f"          {sid2}   (legacy, section created by WO-04)\n")
 
     check(p["adds"].get("destination_unresolved") is True,
@@ -231,9 +249,9 @@ def main() -> int:
     check(len(queue(pid2)) == before_queue2 - 1, "removed from the queue")
 
     # ══ CASE 3 — decline, which must stay easy
-    p = pick("Kent", "military.rank")
+    p = pick("Alda", "faith.denomination")
     pid3, sid3 = p["pid"], p["adds"]["suggestion_id"]
-    print(f"\n  CASE 3  Kent  military.rank  (decline)\n")
+    print(f"\n  CASE 3  Alda  faith.denomination  (decline)\n")
     n3 = len(queue(pid3))
     q3 = q(pid3)
     sr.decline(pid3, sid3, reviewed_by="chris")
@@ -254,11 +272,11 @@ def main() -> int:
     #
     # `personal.fullName` is the emblem: the queue proposes "kind of
     # scared" and the record already says "Christopher Todd Horne".
-    p = pick("Christopher", "personal.fullName")
+    p = pick("Alda", "education.schooling")
     pid4, sid4 = p["pid"], p["adds"]["suggestion_id"]
     val4 = p["entry"]["value"]
-    print(f"\n  CASE 4  Christopher  personal.fullName = {val4!r}")
-    print(f"          the record already holds a real name\n")
+    print(f"\n  CASE 4  Alda  education.schooling = {val4!r}")
+    print(f"          the record already holds a fuller answer\n")
 
     q4, n4 = q(pid4), len(queue(pid4))
     for kw in ({}, {"acknowledge_legacy": True}):
@@ -266,35 +284,60 @@ def main() -> int:
             sr.accept(pid4, sid4, **kw)
             check(False, f"refused with {kw or 'nothing'}", "IT WAS ACCEPTED")
         except sr.SuggestionConflict as e:
-            check(str(e.stored) == q4.get("personal.fullName"),
+            check(str(e.stored) == q4.get("education.schooling"),
                   f"refused as a conflict, naming the stored value "
                   f"({str(e.stored)[:30]!r})")
         except flags.SuggestionFlagged:
             check(True, f"refused by the review tier with {kw or 'nothing'}")
-    check(q(pid4) == q4, "the real name is untouched by every attempt")
+    check(q(pid4) == q4, "the existing answer is untouched by every attempt")
     check(len(queue(pid4)) == n4, "and the proposal is still queued, not silently dropped")
 
-    # ══ the untouched promise
-    print(f"\n  UNTOUCHED\n")
+    # ══ BRENNIG — one narrator's decisions never touch another's
+    print(f"\n  ISOLATION\n")
     c = _connect()
-    others = c.execute(
-        "SELECT COUNT(*) FROM suggestion_reviews WHERE person_id NOT IN (?,?,?)",
-        (pid, pid2, pid3)).fetchone()[0]
+    other = c.execute(
+        "SELECT questionnaire_json FROM bio_builder_questionnaires WHERE person_id=?",
+        (syn.BRENNIG,)).fetchone()
+    other_reviews = c.execute(
+        "SELECT COUNT(*) FROM suggestion_reviews WHERE person_id=?",
+        (syn.BRENNIG,)).fetchone()[0]
     c.close()
-    check(others == 12, f"the 12 pre-existing ZZ review records are intact ({others})")
+    other_doc = _qp.flatten_document(json.loads(other["questionnaire_json"] or "{}"))
+    check(other_doc.get("education.schooling") == "Taught at home by an aunt",
+          "the second narrator's answer at the SAME path is unchanged",
+          other_doc.get("education.schooling"))
+    check(other_reviews == 0,
+          f"and no review record was written against them ({other_reviews})")
+
+    # ══ THE LIVE DATABASE — read-only, and only to report drift
+    #
+    # The synthetic shapes were measured from the real queue. If the real
+    # queue changes shape, the fixtures stop representing it and this
+    # says so rather than letting a green run imply otherwise.
+    print(f"\n  LIVE DATABASE — inspected, never written\n")
     live = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
-    n_live = live.execute("SELECT COUNT(*) FROM suggestion_reviews").fetchone()[0]
-    nf_live = live.execute("SELECT COUNT(*) FROM suggestion_flags").fetchone()[0]
+    live.row_factory = sqlite3.Row
+    n_rev = live.execute("SELECT COUNT(*) FROM suggestion_reviews").fetchone()[0]
+    n_flag = live.execute("SELECT COUNT(*) FROM suggestion_flags").fetchone()[0]
+    legacy = 0
+    for r in live.execute("SELECT projection_json FROM interview_projections"):
+        for s in (json.loads(r[0] or "{}") or {}).get("pendingSuggestions") or []:
+            if isinstance(s, dict) and "destination_undefined" not in s:
+                legacy += 1
     live.close()
-    check(n_live == 12, f"the LIVE database still has 12 reviews ({n_live}) — not touched")
-    check(nf_live == 0, f"the LIVE database still has 0 flags ({nf_live}) — not touched")
+    check(n_flag == 0, f"no flags have been seeded ({n_flag})")
+    check(legacy == 30,
+          f"still 30 legacy proposals, so the synthetic shapes still "
+          f"represent them ({legacy})")
+    print(f"      reviews on file: {n_rev}   (unchanged by this run — "
+          f"nothing here writes to it)")
 
     shutil.rmtree(tmp.parent, ignore_errors=True)
     print()
     if _fail:
         print(f"  {R}{_fail} checks failed.{X}\n")
         return 1
-    print(f"  {G}Every check passed. The copy was discarded.{X}\n")
+    print(f"  {G}Every check passed. The synthetic database was discarded.{X}\n")
     return 0
 
 

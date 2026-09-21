@@ -28,7 +28,14 @@ FLAGS = "server/code/api/services/suggestion_flags.py"
 REVIEW = "server/code/api/services/suggestion_review.py"
 IDENT = "scripts/backfill_suggestion_ids.py"
 
-SUITES = ("tests/test_suggestion_flags.py", "tests/test_suggestion_identity.py")
+ENTRY = "server/code/api/services/suggestion_entry.py"
+DBMOD = "server/code/api/db.py"
+WRITER = "server/code/api/services/projection_writer.py"
+
+SUITES = ("tests/test_suggestion_flags.py",
+          "tests/test_suggestion_identity.py",
+          "tests/test_suggestion_queue_persistence.py",
+          "tests/test_projection_read_safety.py")
 
 MUTATIONS = [
     ("the acknowledge tier is removed entirely",
@@ -100,20 +107,49 @@ MUTATIONS = [
      '                continue',
      '            if not isinstance(s, dict):\n                continue'),
 
-    # ── the second producer ──────────────────────────────────────────
+    # ── the shared constructor ───────────────────────────────────────
     # Mutates the constructor itself rather than swapping in a stand-in.
     # An earlier version needed a `_legacy_shape` helper in the shipping
     # module to mutate INTO — test scaffolding living in production
     # source, which is its own defect.
-    ("the correction path goes back to queuing without an id",
-     "server/code/api/services/projection_writer.py",
-     '        "suggestion_id": "sg_" + uuid.uuid4().hex[:16],\n',
+    ("no producer mints an id at all",
+     ENTRY,
+     '        "suggestion_id": mint_id(),\n',
      ''),
 
-    ("the writer claims a destination is fine when the schema is unreadable",
-     "server/code/api/services/projection_writer.py",
-     '        entry["destination_undefined"] = True\n    return entry',
-     '        entry["destination_undefined"] = False\n    return entry'),
+    ("the constructor claims a destination is fine when the schema is unreadable",
+     ENTRY,
+     '        entry["destination_undefined"] = True\n        # Unknown',
+     '        entry["destination_undefined"] = False\n        # Unknown'),
+
+    ("an indexed path stops being marked unresolved",
+     ENTRY,
+     '    section = head.split("[")[0]',
+     '    section = head'),
+
+    # ── the queue-replacement paths (outside review, 2026-09-20) ─────
+    ("the correction writer goes back to sending a stale whole array",
+     WRITER,
+     "            pending_mutator=(_replay if (_queue_edits or _retract_tokens) else None),",
+     "            pending_suggestions=(pending if _pending_changed else None),"),
+
+    ("the mutator is handed the caller's snapshot instead of stored state",
+     DBMOD,
+     '            merged["pendingSuggestions"] = list(pending_mutator(current_pending))',
+     '            merged["pendingSuggestions"] = list(pending_mutator(\n'
+     '                list(pending_suggestions or [])))'),
+
+    ("a stale base_pending is accepted instead of contested",
+     DBMOD,
+     "            if base_pending is not None and \\\n"
+     "                    json.dumps(base_pending, sort_keys=True) != \\\n"
+     "                    json.dumps(current_pending, sort_keys=True):",
+     "            if False:"),
+
+    ("the backfill stops checking the projection version under the lock",
+     IDENT,
+     '            if int(row["version"]) != items[0]["version"]:',
+     "            if False:"),
 
     ("collisions are skipped instead of refusing the operation",
      IDENT,
@@ -158,8 +194,23 @@ def main() -> int:
         return 1
     print(f"\n  baseline: {G}{ran}, all pass{X}\n")
 
+    # Chunking. The whole matrix is ~7 minutes and some runners cap a
+    # single invocation well below that, so a run that cannot finish
+    # reports nothing at all — which reads exactly like a run that found
+    # nothing. `--slice 0:5` runs a window; the caller is responsible
+    # for covering the range.
+    lo, hi = 0, len(MUTATIONS)
+    for a in sys.argv[1:]:
+        if a.startswith("--slice"):
+            spec = a.split("=", 1)[1] if "=" in a else sys.argv[sys.argv.index(a) + 1]
+            lo, hi = (int(x) if x else d for x, d in
+                      zip(spec.split(":"), (0, len(MUTATIONS))))
+    window = list(enumerate(MUTATIONS, 1))[lo:hi]
+    if (lo, hi) != (0, len(MUTATIONS)):
+        print(f"  running mutations {lo}..{hi} of {len(MUTATIONS)}\n")
+
     survivors = 0
-    for i, (name, rel, old, new) in enumerate(MUTATIONS, 1):
+    for i, (name, rel, old, new) in window:
         tree = base / f"m{i}"
         shutil.copytree(src, tree)
         f = tree / rel
@@ -191,6 +242,11 @@ def main() -> int:
                 print(f"          {l.split('(')[0].strip()}")
 
     print()
+    if (lo, hi) != (0, len(MUTATIONS)):
+        print(f"  window {lo}..{hi}: {len(window) - survivors}/{len(window)} caught"
+              + (f", {R}{survivors} SURVIVED{X}" if survivors else "") + "\n")
+        shutil.rmtree(base, ignore_errors=True)
+        return 1 if survivors else 0
     if survivors:
         print(f"  {R}{survivors} of {len(MUTATIONS)} survived.{X}\n")
     else:

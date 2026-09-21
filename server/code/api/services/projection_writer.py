@@ -71,77 +71,11 @@ _PARSER_TO_PROJECTION: Dict[str, str] = {
 }
 
 
-def _server_owned_suggestion(field_path: str, value: str, now: str, *,
-                             person_id: Optional[str] = None,
-                             source_turn_id: Optional[str] = None,
-                             confidence: float = 0.8,
-                             **extra: Any) -> Dict[str, Any]:
-    """A queue entry with the four facts the server owns.
-
-    The append route (`routers/projection.py`) establishes these at
-    proposal time and the comment there says they are "DECIDED HERE AND
-    NEVER RE-DECIDED". This is the second producer, and it has to decide
-    the same things or it makes rows the review surface cannot handle:
-
-      suggestion_id           minted; without it the proposal can never
-                              be accepted or declined, only accumulate
-      turn_evidence           the MEASURED verdict on the cited turn
-      destination_undefined   whether the questionnaire has this field.
-                              Its PRESENCE is also what marks a proposal
-                              as non-legacy, which is correct — this one
-                              was checked by today's code
-      destination_unresolved  a repeatable section needs a person to
-                              choose an entry
-
-    FAIL-CLOSED ON AN UNREADABLE SCHEMA. If the questionnaire cannot be
-    parsed we cannot claim the destination is valid, so we say it is
-    undefined. Acceptance then refuses until someone looks. Claiming
-    `False` — "checked, and fine" — on the strength of an exception
-    would be the one answer that is definitely wrong.
-    """
-    import uuid
-
-    entry: Dict[str, Any] = {
-        "suggestion_id": "sg_" + uuid.uuid4().hex[:16],
-        "fieldPath": field_path,
-        "value": value,
-        "confidence": float(confidence),
-        "turnId": source_turn_id,
-        "source_turn_id": source_turn_id,
-        "ts": now,
-        "repeats": 1,
-    }
-    entry.update({k: v for k, v in extra.items() if v is not None})
-
-    # The turn citation is a claim; verify it with the same join the
-    # append route uses rather than asserting evidence we never checked.
-    entry["turn_evidence"] = "absent"
-    if source_turn_id and person_id:
-        try:
-            from .. import db as _db
-            from .answer_provenance import verify_turn
-            _c = _db._connect()
-            try:
-                entry["turn_evidence"] = verify_turn(_c, person_id, source_turn_id)
-            finally:
-                _c.close()
-        except Exception:
-            logger.warning("[projection-writer] could not verify turn %r; "
-                           "recording the citation as unverified", source_turn_id)
-            entry["turn_evidence"] = "unverified"
-
-    section, _, rest = str(field_path or "").partition(".")
-    field = rest.split(".")[-1] if rest else ""
-    try:
-        from . import questionnaire_schema as _qs
-        entry["destination_undefined"] = not _qs.is_defined(section, field)
-        if _qs.is_repeatable(section):
-            entry["destination_unresolved"] = True
-    except Exception:
-        logger.warning("[projection-writer] questionnaire schema unreadable; "
-                       "queuing %s as destination_undefined", field_path)
-        entry["destination_undefined"] = True
-    return entry
+# The single constructor lives in `suggestion_entry`, so the append
+# route and this writer cannot drift. It used to live here and the route
+# built its own dict inline — the commit message claimed otherwise and
+# an outside review caught it.
+from .suggestion_entry import build as _server_owned_suggestion  # noqa: E402
 
 
 def apply_correction(
@@ -205,6 +139,12 @@ def apply_correction(
     proj = existing_blob.get("projection") if isinstance(existing_blob.get("projection"), dict) else {}
     fields = proj.get("fields") if isinstance(proj.get("fields"), dict) else {}
     pending = proj.get("pendingSuggestions") if isinstance(proj.get("pendingSuggestions"), list) else []
+    # Queue changes are recorded as INTENTS and replayed under the write
+    # lock against the queue as it actually stands — see `_replay` below.
+    # `pending` is only a snapshot for deciding WHAT to do, never the
+    # array that gets written.
+    _queue_edits: List[Any] = []          # (canonical_path, new_entry)
+    _retract_tokens: List[str] = []       # values to scrub, case-insensitive
 
     # WO-LOREVOX-NARRATOR-STORY-INTEGRATION-01 (2026-08-17).
     # Snapshot the fields and the suggestion queue BEFORE this correction
@@ -298,28 +238,26 @@ def apply_correction(
             # does. What it does NOT change is the protection above: an
             # operator-entered value is still never overwritten, and this
             # is still only reached because it refused to overwrite one.
-            dropped = [s.get("suggestion_id") for s in pending
-                       if isinstance(s, dict) and s.get("fieldPath") == canonical]
-            pending = [
-                s for s in pending
-                if not (isinstance(s, dict) and s.get("fieldPath") == canonical)
-            ]
-            if dropped:
-                # Newest-wins is the existing semantics and is left alone,
-                # but it must not be silent: a superseded proposal may
-                # already carry a flag, a decline history or an id a
-                # person has seen.
-                logger.info(
-                    "[projection-writer] superseded %d queued proposal(s) at "
-                    "%s for %s: %s", len(dropped), canonical,
-                    (person_id or "")[:8], dropped)
-            pending.append(_server_owned_suggestion(
+            # RECORDED AS AN INTENT, NOT APPLIED HERE.
+            #
+            # `pending` at this point is a snapshot read before the lock.
+            # Editing it and sending the result is what let a concurrent
+            # accept or decline be undone. The edit is recorded as a
+            # (path, entry) pair and replayed by `_replay` inside the
+            # write transaction, against the queue as it actually stands.
+            #
+            # Newest-wins per path is the existing semantics and is left
+            # alone — but it is logged at replay time, when the ids being
+            # superseded are the real ones, because a superseded proposal
+            # may carry a flag, a decline history or an id a person has
+            # already seen.
+            _queue_edits.append((canonical, _server_owned_suggestion(
                 canonical, v_str, now,
                 person_id=person_id, source_turn_id=source_turn_id,
                 confidence=0.8,
                 supersedes=prev.get("value"),
                 reason="correction_to_operator_entered_field",
-            ))
+            )))
             summary["deferred"].append({
                 "field_path": canonical,
                 "value": v_str,
@@ -401,6 +339,12 @@ def apply_correction(
                 # summary["retracted"] for the operator surface.
                 continue
             scrubbed_pending.append(sug)
+        # The SUMMARY is computed from the snapshot, because the operator
+        # surface needs to say what was retracted. The WRITE is not: the
+        # tokens are replayed under the lock, so a suggestion queued
+        # after this read is scrubbed too, and one accepted after this
+        # read is not resurrected to be scrubbed.
+        _retract_tokens.extend(retracted_tokens)
         pending = scrubbed_pending
 
         # Also scrub fields that match the retracted tokens, EXCEPT
@@ -483,13 +427,54 @@ def apply_correction(
         _pending_changed = pending != _pending_before
         _base = {k: _fields_before.get(k) for k in list(_mutations) + _removals}
 
+        # ── THE QUEUE EDIT IS REPLAYED UNDER THE LOCK ────────────────
+        #
+        # This used to send `pending` — the array read at the top of this
+        # function, mutated locally. Outside review, 2026-09-20:
+        #
+        #     If a suggestion is accepted, declined, or appended between
+        #     that read and write, the older array can overwrite the
+        #     newer queue state.
+        #
+        # True, and `base_fields` never protected against it: it compares
+        # FIELD paths, and the queue is not a field. An operator
+        # accepting a suggestion while a correction turn was in flight
+        # would have had it silently resurrected.
+        #
+        # So the edit is expressed as a FUNCTION of the current queue and
+        # replayed inside `merge_projection_fields`'s BEGIN IMMEDIATE,
+        # against whatever is actually there. `_queue_edits` is built
+        # above as (canonical_path, new_entry) pairs; entries queued
+        # meanwhile at OTHER paths survive, and an entry accepted
+        # meanwhile at this path is simply gone and stays gone.
+        def _replay(current):
+            out = list(current)
+            if _retract_tokens:
+                out = [s for s in out
+                       if not (isinstance(s, dict)
+                               and isinstance(s.get("value"), str)
+                               and any(tok.lower() in s["value"].lower()
+                                       for tok in _retract_tokens))]
+            for _canon, _new in _queue_edits:
+                gone = [s for s in out
+                        if isinstance(s, dict) and s.get("fieldPath") == _canon]
+                if gone:
+                    logger.info(
+                        "[projection-writer] superseded %d queued proposal(s) at "
+                        "%s for %s: %s", len(gone), _canon, (person_id or "")[:8],
+                        [s.get("suggestion_id") for s in gone])
+                out = [s for s in out
+                       if not (isinstance(s, dict) and s.get("fieldPath") == _canon)]
+                out.append(_new)
+            return out
+
         _result = _db.merge_projection_fields(
             person_id,
             mutations=_mutations,
             removals=_removals,
             source="correction",
             base_fields=_base,
-            pending_suggestions=(pending if _pending_changed else None),
+            pending_mutator=(_replay if (_queue_edits or _retract_tokens) else None),
             extra_keys={"last_correction_at": now},
         )
         if _result.get("conflict"):

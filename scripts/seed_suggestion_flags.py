@@ -194,11 +194,13 @@ def _verify_idempotent(args) -> int:
         return 1
 
     tmp = Path(tempfile.mkdtemp(prefix="flagverify_")) / "copy.sqlite3"
-    shutil.copy2(src, tmp)
-    for suffix in ("-wal", "-shm"):
-        side = Path(str(src) + suffix)
-        if side.exists():
-            shutil.copy2(side, str(tmp) + suffix)
+    # CONSISTENT snapshot via SQLite's online backup API. Copying the
+    # database and its -wal separately can capture a torn state while the
+    # stack is running, and a rehearsal against a torn copy proves
+    # nothing. See `backfill_suggestion_ids.snapshot`.
+    sys.path.insert(0, str(REPO / "scripts"))
+    from backfill_suggestion_ids import snapshot
+    snapshot(src, tmp)
 
     print(f"\n{'='*74}\n  IDEMPOTENCY CHECK — on a copy, at {tmp}\n{'='*74}\n")
 
