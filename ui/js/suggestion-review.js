@@ -49,6 +49,8 @@
   var _busy = {};          // suggestion_id -> true while a request is in flight
   var _choice = {};        // suggestion_id -> chosen entry_id for unresolved ones
   var _conflict = {};      // suggestion_id -> {stored, proposed, path} after a 409
+  var _refusal = {};       // suggestion_id -> the server's 422 detail, shown on the card
+  var _fixval = {};        // suggestion_id -> what the person is typing as a correction
 
   /* DERIVED, not copied. This was a hand-kept duplicate of the server's
      REPEATABLE_SECTIONS, and a duplicate that drifts costs the operator
@@ -333,12 +335,76 @@
            'Decline to keep what is on record, or change it yourself under ' + _esc(L.section) + '.</div>';
     }
 
+    // ── the server refused, and said why ────────────────────────────
+    //
+    // Two tiers, two different claims, and the wording must not merge
+    // them. "This is old and unread" is not "this is wrong", and an
+    // unconfirmed citation is not evidence the fact is false — it means
+    // the conversation could not be authenticated, which is a statement
+    // about the record, not about the narrator.
+    var refusal = _refusal[sid];
+    if (refusal) {
+      var ack = refusal.requirement === "acknowledge";
+      h += '<div class="bb-candidate-note" data-refusal="' + _esc(sid) + '" ' +
+           'style="margin-top:8px;border-left:3px solid ' +
+           (ack ? "#5b7fa3" : "#a3782b") + ';padding-left:8px">';
+      h += '<strong>' + (ack ? 'Not accepted yet — nobody has read this one.'
+                             : 'Not accepted — this value needs changing first.') + '</strong><br>';
+      h += '<span style="opacity:.9">' + _esc(refusal.detail || "") + '</span>';
+      if (refusal.source_note) {
+        h += '<div class="bb-hint-text" style="margin-top:4px">' +
+             _esc(refusal.source_note) + '</div>';
+      }
+      h += '<div class="bb-hint-text" style="margin-top:4px;opacity:.7">' +
+           'Server reason: <code>' + _esc(refusal.reason || "") + '</code></div>';
+
+      if (ack) {
+        h += '<div style="margin-top:8px">';
+        h += '<button class="bb-btn-sm bb-btn-primary" data-ack="' + _esc(sid) + '"' +
+             (busy ? " disabled" : "") + '>I have read it — accept as proposed</button> ';
+        h += '<button class="bb-btn-sm bb-ghost-btn" data-fixmode="' + _esc(sid) + '"' +
+             (busy ? " disabled" : "") + '>Change the value instead</button>';
+        h += '<div class="bb-hint-text" style="margin-top:4px">Accepting records that ' +
+             '<em>Lori proposed it and you agreed</em>. It does not record that the ' +
+             'narrator said it.</div>';
+        h += '</div>';
+      }
+      if (!ack || _fixval[sid] !== undefined) {
+        // The correction input. There is deliberately no "accept
+        // anyway" — the server would refuse it, and offering it would
+        // teach the habit.
+        h += '<div style="margin-top:8px">';
+        h += '<input type="text" data-fixval="' + _esc(sid) + '" style="width:100%" ' +
+             'value="' + _esc(_fixval[sid] === undefined ? "" : _fixval[sid]) + '"' +
+             (busy ? " disabled" : "") + '>';
+        h += '<div style="margin-top:6px">';
+        h += '<button class="bb-btn-sm bb-btn-primary" data-fix="' + _esc(sid) + '"' +
+             (busy ? " disabled" : "") + '>Save this as my value</button> ';
+        h += '<button class="bb-btn-sm bb-ghost-btn" data-decline="' + _esc(sid) + '"' +
+             (busy ? " disabled" : "") + '>Decline instead</button>';
+        h += '</div>';
+        h += '<div class="bb-hint-text" style="margin-top:4px">Saving records this as ' +
+             '<em>your</em> entry, with Lori\'s original kept beside it. Leaving it ' +
+             'unchanged will be refused — that is not a correction.</div>';
+        h += '</div>';
+      }
+      h += '</div>';
+    }
+
     h += '</div>';  // body
 
     h += '<div class="bb-candidate-actions">';
     if (legacy) {
-      h += '<span class="bb-hint-text">Queued before proposals had ids; review and decline are ' +
-           'available once it is re-proposed with one.</span>';
+      // Defensive only. Both producers mint an id now and the fossils
+      // have been given one, so this should be unreachable — but an
+      // entry that somehow has none must say something true rather than
+      // render an Accept that cannot work.
+      h += '<span class="bb-hint-text">This proposal has no identity on the server, ' +
+           'so it cannot be accepted or declined yet. Report it rather than retrying.</span>';
+    } else if (refusal) {
+      // The controls are in the refusal block above; a second Accept
+      // here would just produce the same 422.
+      h += '<span class="bb-hint-text">Answer the question above to continue.</span>';
     } else if (undef) {
       // No Accept at all — not a disabled one. A greyed button invites
       // the question "why can't I?"; its absence plus the explanation
@@ -423,11 +489,12 @@
     return _load(_pid).then(function (q) { _queue = q; _render(); });
   }
 
-  function _accept(sid) {
+  function _accept(sid, extra) {
     var s = _queue.filter(function (x) { return x.suggestion_id === sid; })[0];
     if (!s) return;
     _busy[sid] = true; _render();
     var body = { person_id: _pid, entry_id: _choice[sid] || "", reviewed_by: "" };
+    if (extra) { for (var k in extra) { if (extra.hasOwnProperty(k)) body[k] = extra[k]; } }
     fetch(API.IV_PROJ_SUGGEST_ACCEPT(sid), {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
@@ -450,6 +517,35 @@
             _reload();   // re-read: the server knows more than this page did
             return;
           }
+
+          // ── the two review tiers ──────────────────────────────────
+          //
+          // The refusal is put ON THE CARD, not into a modal. A
+          // `window.prompt` was the first attempt and it was wrong in a
+          // way that matters here: it throws away the server's reason,
+          // shows one line of text, and cannot be read back. This card
+          // shows exactly what the server said and offers the act it
+          // asked for.
+          //
+          // This surface OFFERS the act. It does not decide whether one
+          // is needed and it cannot skip one — the server refuses again
+          // inside the write transaction whatever this page sends. If
+          // this whole branch were deleted the protection would still
+          // hold; the proposal would simply become un-acceptable here,
+          // which is the right way round for a guard to fail.
+          if (dd.error === "legacy_review_required" || dd.error === "suggestion_flagged") {
+            _refusal[sid] = dd;
+            if (dd.requirement === "correct" && _fixval[sid] === undefined) {
+              // Pre-fill with what Lori proposed, so the person edits
+              // rather than retypes. The server refuses it unchanged.
+              _fixval[sid] = (dd.proposed_value !== undefined && dd.proposed_value !== null)
+                ? String(dd.proposed_value)
+                : String(s.value === undefined || s.value === null ? "" : s.value);
+            }
+            _render();
+            return;
+          }
+
           _say("Choose which entry this belongs to before accepting.", "warn");
           _render();
           return;
@@ -460,9 +556,18 @@
           return;
         }
         var d2 = _split(s.fieldPath);
-        _say("Accepted as Lori's suggestion → " + d2.section + "." + d2.field +
+        // The message names WHOSE value landed, because that is what the
+        // provenance row will say and the two must not disagree.
+        var mode = (j && j.accept_mode) || "direct";
+        var how = mode === "corrected"
+          ? "Saved your corrected value → "
+          : mode === "acknowledged_legacy"
+            ? "Reviewed and accepted as proposed → "
+            : "Accepted as Lori's suggestion → ";
+        _say(how + d2.section + "." + d2.field +
              (j && j.revision !== undefined ? " (revision " + j.revision + ")" : "") + ".", "ok");
         delete _choice[sid]; delete _conflict[sid];
+        delete _refusal[sid]; delete _fixval[sid];
         _refreshQuestionnaire();
         _reload();
       });
@@ -500,13 +605,54 @@
     if (!t || !t.getAttribute) return;
     var a = t.getAttribute("data-accept");
     var d = t.getAttribute("data-decline");
+    var ack = t.getAttribute("data-ack");
+    var fix = t.getAttribute("data-fix");
+    var fixmode = t.getAttribute("data-fixmode");
     if (a) { ev.preventDefault(); _accept(a); }
     else if (d) { ev.preventDefault(); _decline(d); }
+    else if (ack) {
+      // The acknowledge tier, and ONLY that tier. The server checks
+      // again — a flagged value refuses this and says so.
+      ev.preventDefault();
+      _accept(ack, { acknowledge_legacy: true });
+    } else if (fix) {
+      ev.preventDefault();
+      var v = _fixval[fix];
+      if (v === undefined || String(v).trim() === "") {
+        _say("Enter the value you want stored, or decline it.", "warn");
+        return;
+      }
+      _accept(fix, {
+        corrected_value: v,
+        correction_reason: (_refusal[fix] && _refusal[fix].reason) || ""
+      });
+    } else if (fixmode) {
+      // An acknowledge-tier card where the person would rather change
+      // the value. A correction satisfies the weaker requirement too.
+      ev.preventDefault();
+      var r = _refusal[fixmode];
+      if (_fixval[fixmode] === undefined) {
+        _fixval[fixmode] = (r && r.proposed_value !== undefined && r.proposed_value !== null)
+          ? String(r.proposed_value) : "";
+      }
+      _render();
+    }
+  }
+
+  function _onInput(ev) {
+    var t = ev.target;
+    if (!t || !t.getAttribute) return;
+    var sid = t.getAttribute("data-fixval");
+    if (!sid) return;
+    // Held in state, not read off the DOM at submit time — a re-render
+    // between typing and clicking would otherwise lose what they wrote.
+    _fixval[sid] = t.value;
   }
 
   function _onChange(ev) {
     var t = ev.target;
     if (!t || !t.getAttribute) return;
+    if (t.getAttribute("data-fixval")) { _onInput(ev); return; }
     var sid = t.getAttribute("data-choose");
     if (!sid) return;
     _choice[sid] = t.value || "";
@@ -520,6 +666,7 @@
     if (!_root) return;
     _pid = pid || null;
     _queue = []; _busy = {}; _choice = {}; _conflict = {};
+    _refusal = {}; _fixval = {};
     if (!_pid) {
       _root.innerHTML = '<div class="bb-empty-state">No narrator selected.</div>';
       return;
@@ -528,6 +675,7 @@
     _root.removeEventListener("change", _onChange);
     _root.addEventListener("click", _onClick);
     _root.addEventListener("change", _onChange);
+    _root.addEventListener("input", _onInput);
     _root.innerHTML = '<div class="bb-hint-text">Loading suggestions…</div>';
     _reload();
   }
