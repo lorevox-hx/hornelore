@@ -1181,9 +1181,13 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
 
     Bucket priority per WO-LORI-SESSION-AWARENESS-01 Phase 1b directive:
       1. profile_json (template/profile, canonical) — implemented here
-      2. Bio Builder questionnaire state — folded into profile_json by
-         the questionnaire endpoint already; if it lands separately later,
-         add a second source here
+      2. Bio Builder questionnaire state — READ DIRECTLY, at the end of
+         this function, via `services.questionnaire_for_lori`. It is NOT
+         folded into profile_json; the note here said it was, and that
+         was true only at HORNELORE_QUESTIONNAIRE_BIO_FACTS_WRITE=1,
+         which has never been on. WO-QUESTIONNAIRE-REACHES-LORI-01
+         called this out as "the kind of note that persuades a future
+         reader not to check", and it had persuaded several.
       3. promoted truth — already merged into profile_json by promotion path
       4. session transcript — only structured (not free-form memoir text)
 
@@ -1709,6 +1713,70 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
     # removal was protecting — and the hint can have what it needs.
     if suggested:
         seed["suggested"] = dict(suggested)
+
+    # ── THE SAVED BIOGRAPHY ──────────────────────────────────────────
+    #
+    # WO-QUESTIONNAIRE-REACHES-LORI-01. Until now this function read
+    # `profiles.profile_json`, `interview_projections`, the `people` row
+    # and the runtime payload — and never `bio_builder_questionnaires`.
+    # An operator could save a parent's occupation, see it stored,
+    # versioned and audited, and Lori would not know it.
+    #
+    # READ, not copied. Nothing is written to `profile_json`, so
+    # `db.update_profile_json`'s top-level `merged.update(...)` — which
+    # would replace a whole `parents` array with a partial one — is not
+    # on this path at all. See `questionnaire_for_lori` for why the
+    # fan-out was not the answer.
+    #
+    # The questionnaire WINS on conflict with `profile_json`: it is the
+    # surface a person deliberately filled in, and the only one carrying
+    # per-answer provenance. `seed` keys already set above are left
+    # alone, and the biography is returned under its own key, so nothing
+    # here can silently displace a bucket another consumer relies on.
+    try:
+        from .services import questionnaire_for_lori as _qfl
+        _facts = _qfl.load_facts(person_id)
+        if _facts:
+            # WHAT ELSE ALREADY CLAIMS THESE FACTS.
+            #
+            # The buckets above were built from `profile_json` and
+            # `interview_projections`. Where one of them disagrees with
+            # the biography, BOTH are shown with their origins and Lori
+            # is told to ask — the ruling was explicit that conflict is
+            # decided "using provenance and confirmation status, not
+            # store location alone", and that neither value may be
+            # silently replaced.
+            #
+            # `provisional_meta` carries the per-path tier the
+            # projection asserted, so a narrator's own statement can
+            # outrank a form entry about them. Absent that, `unknown`.
+            _meta = provisional_meta if isinstance(provisional_meta, dict) else {}
+
+            def _origin_of(path: str) -> str:
+                m = _meta.get(path) or {}
+                tier = (m.get("tier_name") or m.get("tier") or "") if isinstance(m, dict) else ""
+                return {
+                    "operator_entered": "operator_direct",
+                    "narrator_stated": "narrator_direct",
+                }.get(str(tier), "unknown")
+
+            _competing = {}
+            for _qpath, _bucket in (("personal.placeOfBirth", "childhood_home"),
+                                    ("personal.preferredName", "preferred_name"),
+                                    ("personal.fullName", "full_name")):
+                _v = seed.get(_bucket)
+                if isinstance(_v, str) and _v.strip():
+                    _competing[_qpath] = (_v.strip(), _origin_of(_qpath))
+
+            seed["biography_facts"] = _facts
+            seed["biography_conflicts"] = _qfl.find_conflicts(_facts, _competing)
+            seed["biography_block"] = _qfl.render_for_prompt(
+                _facts, competing=_competing)
+    except Exception as exc:
+        # Never raises into the chat path. A narrator with no biography
+        # is the ordinary case, not an error.
+        logger.warning("[profile-seed] biography read failed for %s: %s",
+                       person_id, exc)
 
     return seed
 
@@ -3042,8 +3110,9 @@ def compose_memory_echo(
     - New read path into Peek-at-Memoir scaffold + the structured memoir
       sections (so children, spouse, education, places all appear from
       the canonical 7-section memoir spine when populated).
-    - Full Bio Builder questionnaire enrichment of runtime71 (the data
-      exists at /api/bio-builder/questionnaire but isn't threaded today).
+    - [DONE, WO-QUESTIONNAIRE-REACHES-LORI-01] Bio Builder questionnaire
+      enrichment. The saved biography now reaches the prompt as
+      seed["biography_block"], read at compose time with provenance.
     - 4-source priority: profile / promoted truth / session transcript /
       Peek-at-Memoir scaffold.
 
@@ -4341,6 +4410,29 @@ def _compose_prompt_assembly(
         # sees them first and treats them as ground truth.
         parts.add("identity_facts", _known_identity_facts_block(runtime71))
         parts.add("identity_grounding", _identity_grounding_rules_block(runtime71))
+
+        # ── THE SAVED BIOGRAPHY ──────────────────────────────────────
+        #
+        # WO-QUESTIONNAIRE-REACHES-LORI-01: the thing an operator types
+        # into Bio Builder never reached this prompt at all. It does now.
+        #
+        # PLACED HERE, immediately after identity grounding, for the
+        # reason the comment above gives about approved stories: the
+        # anti-hallucination rules are already in force when the model
+        # reads the facts. A biography arriving before them would be a
+        # large block of true statements with nothing yet saying how
+        # they may be used.
+        #
+        # The block carries its own usage rule — Lori may ask about
+        # these, may not narrate them as the narrator's memory — because
+        # "facts are not recollections" is a property of the injection
+        # point, not of the data. See `questionnaire_for_lori.
+        # render_for_prompt`.
+        _bio_seed = runtime71.get("profile_seed")
+        if isinstance(_bio_seed, dict):
+            _bio_block = _bio_seed.get("biography_block")
+            if isinstance(_bio_block, str) and _bio_block.strip():
+                parts.add("saved_biography", _bio_block.strip())
 
         # Phase 3: reviewed stories. Rendered AFTER identity grounding so
         # the anti-hallucination rules are already in force when the model

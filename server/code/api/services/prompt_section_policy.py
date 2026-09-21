@@ -183,6 +183,37 @@ _POLICIES: List[SectionPolicy] = [
        "The anti-hallucination rules governing those facts. Dropping one "
        "without the other would be the worst of both."),
 
+    _p("saved_biography", "bio-builder", "questionnaire_present",
+       TRIM_DROP_WHOLE, SOURCE_PROFILE, TIER_NARRATOR_CONTEXT,
+       False, 35,
+       "WO-QUESTIONNAIRE-REACHES-LORI-01. The biography an operator typed "
+       "into Bio Builder, read at compose time with per-answer provenance. "
+       "Until this existed the questionnaire reached nothing: a parent's "
+       "occupation could be saved, versioned and audited, and Lori would "
+       "not know it.\n\n"
+       "DROP ORDER 35 — below ui_context (30), above pinned_facts (40).\n\n"
+       "A PREVIOUS VERSION OF THIS NOTE WAS WRONG, and the error is worth "
+       "keeping because it is the kind that sounds principled. It argued "
+       "for a late drop on the grounds that this section 'does not rebuild "
+       "itself next turn — somebody sat down and typed it, and if it is "
+       "cut the only way it returns is by asking them to type it again'. "
+       "That is false. Dropping a section does not delete anything: "
+       "`questionnaire_for_lori` re-reads the stored questionnaire on the "
+       "NEXT composition, and the biography returns by itself. Nobody "
+       "retypes anything.\n\n"
+       "The real question is narrower and only about this turn: does Lori "
+       "have enough to answer well right now. Dropped, she knows less for "
+       "one response and is no more likely to invent, because the "
+       "anti-hallucination rules above her are required and survive. So "
+       "35 is a judgement about usefulness per token on a crowded turn — "
+       "above static discipline material, below the identity scaffold the "
+       "rest of the prompt's references resolve against.\n\n"
+       "Below ui_context on purpose. PROFILE_JSON carries the identity "
+       "scaffold the rest of the prompt's name and place references "
+       "resolve against; this is additional knowledge. Losing the "
+       "scaffold while keeping the detail would leave facts with nobody "
+       "to attach them to."),
+
     _p("approved_stories", "story-review", "approved_story_present",
        TRIM_DROP_WHOLE, SOURCE_REVIEWED_STORY, TIER_REVIEWED_EVIDENCE,
        False, 25,
