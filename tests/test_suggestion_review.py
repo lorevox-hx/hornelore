@@ -105,6 +105,7 @@ class _Base(unittest.TestCase):
         # that no longer ships.
         con.executescript("ALTER TABLE suggestion_reviews ADD COLUMN corrected_value TEXT;")
         con.executescript("ALTER TABLE suggestion_reviews ADD COLUMN correction_reason TEXT;")
+        con.executescript("ALTER TABLE suggestion_reviews ADD COLUMN accept_mode TEXT;")  # 0062
         con.executescript(_ddl("0061_suggestion_flags.sql", "suggestion_flags"))
         for pid, name in ((NARRATOR, "Janice"), (OTHER, "Kent")):
             con.execute("INSERT INTO people (id, display_name) VALUES (?,?)", (pid, name))

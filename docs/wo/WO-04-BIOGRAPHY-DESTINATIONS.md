@@ -460,3 +460,221 @@ Tests that break on a new section: `test_bio_builder_save_sequences.js`
 :47, :59; `test_suggestion_review.py` :828-844, :870; 
 `test_suggestion_queue_persistence.py` :392; `test_bb_questionnaire_meta.js`
 :36 (do not move the `SECTIONS` declaration or the Phase-2 banner).
+
+---
+
+## ADDENDUM — the guard widened to all thirty (2026-09-20)
+
+The version of this work order shipped in `dee7c58` argued for a narrow
+structural guard and wrote the argument into the code:
+
+> This is deliberately NARROW. It refuses only legacy rows aimed at the
+> new sections, so `education.schooling`, which was always acceptable,
+> stays acceptable. Widening it to all legacy rows would be a
+> regression dressed as caution.
+
+That was wrong, and classifying the queue is what proved it. Eleven of
+the thirty queued proposals target destinations that existed all along,
+so the narrow guard never saw them — and among those eleven:
+
+    personal.fullName = "kind of scared"
+
+one click from becoming Christopher's name in the Memoir, the Timeline
+and the Life Map. The destination being old was not a reason it was
+safe. It was the reason nothing was watching.
+
+### What changed
+
+`requires_correction` became `requires_review`, and a requirement now
+carries a LEVEL:
+
+| | applies to | satisfied by |
+|---|---|---|
+| **CORRECT** | a recorded flag, or a legacy row aimed at a section WO-04 created | `corrected_value` — a different value, canonically compared |
+| **ACKNOWLEDGE** | every other legacy row | `acknowledge_legacy`, or a correction |
+
+Both tiers are evaluated and the STRONGER applies. A flagged proposal
+at a pre-existing destination is CORRECT, not ACKNOWLEDGE. Returning on
+the first requirement found would have let a recorded doubt be cleared
+by a checkbox; `_stronger` is what stops that, and mutation 3 is what
+holds `_stronger` up.
+
+The widening is MONOTONE. Nothing that was refused before is easier to
+accept now. Seventeen proposals that had no requirement at all have one.
+
+### Why "old" and "wrong" had to stay apart
+
+`education.schooling = "high school"` is a good answer. Demanding a
+correction for it would make a person retype a right answer to prove
+they had read it — caution that damages the record it is protecting.
+The ruling was explicit:
+
+> An old suggestion should require explicit review; a questionable
+> value should additionally require correction or re-homing where
+> appropriate.
+
+So the refusal carries two different error names —
+`legacy_review_required` and `suggestion_flagged` — and the first
+asserts nothing about the value.
+
+`legacy_unreviewed` is DERIVED, never recorded. It is not in `REASONS`
+and 0061's CHECK would reject it. A stored row could go stale against
+the queue, or be deleted; a rule derived from the proposal's own shape
+cannot. This is also why the seed script writes nothing for the eight
+rows it lists as "already protected".
+
+### The thirty, accounted for
+
+    17  flags to record      5 timing facts, 12 opinions (--apply)
+     8  covered structurally no row needed
+     5  no such field        refused outright by DestinationUndefined
+    ──
+    30  legacy       + 1 modern (the ZZ probe) = 31 queued
+
+The dry run now prints this arithmetic and fails loudly if a row falls
+into no group. A script that silently drops rows is how the eleven went
+unnoticed the first time.
+
+### Two things the mutation run found
+
+**The in-transaction tier check I first wrote was unreachable.** The
+preceding condition already covered it. Both mutations aimed at the
+tiers survived, because each layer masked the other: breaking the
+pre-check left 35 tests green, since the transaction opened, the write
+was attempted, and the in-transaction check rolled it back. Right
+answer, wrong path — and a path that takes the write lock to refuse.
+`test_a_correction_requirement_is_refused_WITHOUT_opening_a_transaction`
+asserts the shape of the refusal, not only its status.
+
+**`flagged_at` moved on every re-run.** The idempotency check was
+passing only because it listed the columns it compared and this was not
+among them. A flag raised in September looked raised today after any
+re-run. `flagged_at` and `flagged_by` are now FIRST-flagged; the check
+does `SELECT *`.
+
+### Still open
+
+The eleven at pre-existing destinations are protected, not resolved.
+Three want a decision no script should make:
+
+    personal.fullName      = "kind of scared"          flagged, CORRECT
+    personal.preferredName = "Christopher Todd Horne"  flagged, arguable
+    education.schooling    = "induction physical..."   flagged, CORRECT
+
+They are in the seed script's review set and nothing has been applied.
+
+Boundary B (`_group_repeatable_items` grouping by `.firstName`) and the
+REST chat session-ownership defect at `api.py:799-800` are unchanged.
+
+---
+
+## ADDENDUM 2 — identity, and the producer that was still running (2026-09-20)
+
+The widened guard was verified against thirty legacy suggestions and
+reported as protecting all of them. The measurement was wrong in a way
+the report did not notice: twenty-nine of the thirty have **no
+`suggestion_id`**, and `find_suggestion` matches on
+
+    s.get("suggestion_id") == suggestion_id
+
+so they were never reaching the guard at all. They were protected by
+being unaddressable. The first boundary test I ran said `refused` for
+all thirty and I read that as the guard working; it was `SuggestionNotFound`
+twenty-nine times. Only after assigning ids did the tiers actually fire.
+
+That also means they could not be DECLINED. Thirty proposals, including
+`personal.fullName = "kind of scared"`, could only accumulate.
+
+### Why they have no id
+
+`sg_` + uuid is minted in one place, `append_suggestion_route`, which is
+WO-03B and landed the same day. Everything older was written by the
+client, which PUT the whole array; identity was not part of the shape.
+Janice's single proposal is NOT among the twenty-nine — hers has an id
+and is legacy by provenance only.
+
+### The second producer
+
+`projection_writer.apply_correction` was still appending seven keys and
+no id, every time a model correction was deferred off an operator-owned
+field. A one-time backfill would have repaired the fossils and this
+would have made new ones the same afternoon. Found by an outside review
+of the committed source, not by me.
+
+Both producers now go through one constructor that establishes the four
+facts the server owns: minted id, measured `turn_evidence`, checked
+`destination_undefined`, and `destination_unresolved` for a repeatable
+section. `test_both_producers_mint_an_id` states the property once so a
+third producer added later fails there rather than quietly rebuilding
+the problem.
+
+The protection that path exists for is unchanged and is asserted FIRST
+in its suite: an operator-entered value is still never overwritten.
+
+### Identity
+
+    sg_ + sha256(person_id | index | fieldPath | value | ts)[:16]
+
+The index is in the hash because `_write_queue_without` removes EVERY
+entry matching an id — two proposals sharing one means a single decline
+silently deletes both. There are no duplicates in the live queue today;
+identity must not depend on that staying true.
+
+### Three things that would have broken the surface
+
+  1. Writing `destination_undefined` would have deleted the legacy guard
+     from all thirty, since `_is_unchecked_legacy` keys on its absence.
+     Never written; asserted afterwards.
+  2. Leaving `turn_evidence` absent would have flipped the badge from
+     "older suggestion" to "No conversation was cited" — false, all 29
+     cite one. It is now the measured `verify_turn` verdict: all 29
+     `unverified`, which reads "could not confirm source". An unverified
+     citation is not evidence the fact is false.
+  3. Omitting `destination_unresolved` would have removed the entry
+     picker for the twelve repeatable-section rows, leaving a 422 with
+     no control to answer it.
+
+### The review surface, and why the service test was not enough
+
+The committed UI sends `person_id`, `entry_id`, `reviewed_by` and
+nothing else. Giving a flagged suggestion an id makes its Accept button
+work and the server then requires a `corrected_value` the page cannot
+produce. My first fix used `window.prompt`, which throws the server's
+reason away.
+
+The refusal is now rendered on the card — the server's own `detail`,
+`source_note` and literal `reason`. Acknowledge cards offer "I have read
+it"; flagged cards offer a pre-filled correction input and no
+acknowledge button at all.
+
+`verify_review_ui_contract.py` closes the loop:
+
+    real server refusal -> real suggestion-review.js in jsdom
+      -> real request body -> real server
+
+It found that `ReviewResponse` had no `accept_mode` field, so the route
+dropped what the service returned and the page would have said "Accepted
+as Lori's suggestion" to someone who had just typed their own value.
+
+### Script, not migration
+
+Migrations here apply through `init_db()` on nearly every DB call —
+which is how 0061 and 0062 applied themselves without a restart. Fine
+for a column. For an operation that rewrites three narrators' queues it
+means the change lands before anyone has read the plan. Schema stays in
+migrations; data operations stay deliberate.
+
+### Also found
+
+Nine of the nineteen legacy proposals at defined destinations aim at
+fields that ALREADY HOLD a better answer, and ruling C3's conflict
+refusal catches all nine before either tier is consulted. Among them:
+Janice's `personal.dateOfBirth` proposes `1939-08-30` where the record
+holds `1939-09-30` — one digit, her birthday.
+
+`_insert_review` could replace a known `suggestion_id` with NULL on
+conflict. Now `COALESCE(excluded.suggestion_id, …)`.
+
+### State
+
+Nothing applied. 31 queued, 12 reviews (all ZZ), 0 flags.

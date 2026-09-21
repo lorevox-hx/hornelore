@@ -1,0 +1,41 @@
+-- 0062 — how an acceptance was arrived at.
+--
+-- WO-04, legacy guard widened. One column.
+--
+-- ── WHY ─────────────────────────────────────────────────────────────
+--
+-- The legacy guard now covers ALL pending suggestions, not only those
+-- aimed at sections WO-04 created. `personal.fullName = "kind of
+-- scared"` is the case that forced it: that destination existed all
+-- along, so the original narrow guard did not touch it, and it sat one
+-- click from becoming Christopher's name.
+--
+-- But "old" and "wrong" are different claims, and the protection has to
+-- keep them apart:
+--
+--   an OLD proposal        requires explicit review — a person says
+--                          they have looked at it. The value may be
+--                          perfectly good; `education.schooling =
+--                          "high school"` needs no correcting.
+--
+--   a QUESTIONABLE value   additionally requires a correction or a
+--                          different destination. Acknowledging it is
+--                          not enough.
+--
+-- Without this column the record cannot tell those apart afterwards. An
+-- accepted row with no `corrected_value` would look identical whether
+-- it was an ordinary acceptance, or an old proposal a person read and
+-- deliberately let stand. The second is a different and more
+-- deliberate act, and a family archive should be able to say which
+-- happened.
+--
+--   direct             an ordinary acceptance, nothing was flagged
+--   acknowledged_legacy an old proposal, read and accepted as proposed
+--   corrected          the person supplied a different value
+--
+-- NULL on every row written before this column existed, which is the
+-- truthful answer for them: nobody recorded the mode, so it is unknown
+-- rather than assumed to be `direct`.
+
+ALTER TABLE suggestion_reviews
+    ADD COLUMN accept_mode TEXT;

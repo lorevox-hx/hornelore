@@ -85,6 +85,7 @@ class _Base(unittest.TestCase):
                                "CREATE TABLE IF NOT EXISTS suggestion_reviews"))
         con.executescript("ALTER TABLE suggestion_reviews ADD COLUMN corrected_value TEXT;")
         con.executescript("ALTER TABLE suggestion_reviews ADD COLUMN correction_reason TEXT;")
+        con.executescript("ALTER TABLE suggestion_reviews ADD COLUMN accept_mode TEXT;")  # 0062
         con.executescript(_ddl("0061_suggestion_flags.sql",
                                "CREATE TABLE IF NOT EXISTS suggestion_flags",
                                ["ALTER TABLE"]))
@@ -264,17 +265,142 @@ class LegacyRowsAimedAtNewSections(_Base):
             self.assertEqual(status, 422, path)
             self.assertEqual(detail["reason"], "queued_before_home", path)
 
-    def test_a_legacy_row_NOT_aimed_at_a_new_section_is_unaffected(self):
-        """The guard is narrow on purpose. `education.schooling` was
-        always acceptable; blocking it would be a regression dressed as
-        caution."""
+    def test_a_legacy_row_at_an_OLD_destination_needs_acknowledgement_not_correction(self):
+        """The widening, and the line it must not cross.
+
+        `education.schooling = "Bismarck High School"` is a perfectly
+        good answer. It is also old and unread, which is how
+        `personal.fullName = "kind of scared"` got within one click of
+        becoming Christopher's name. So it is refused — but at the
+        ACKNOWLEDGE level, and the refusal says nothing about the value.
+
+        Demanding a correction here would be caution that damages the
+        record: it would make a person retype a right answer to prove
+        they had read it.
+        """
         self._stub_schema(None)
         self._seed_queue([self._legacy("education.schooling",
                                        "Bismarck High School", sid="sg_school")])
-        status, out = self._http(self._accept, "sg_school")
+
+        status, detail = self._http(self._accept, "sg_school")
+        self.assertEqual(status, 422)
+        self.assertEqual(detail["error"], "legacy_review_required",
+                         "a different error name from a flagged value")
+        self.assertEqual(detail["requirement"], "acknowledge")
+        self.assertEqual(detail["reason"], "legacy_unreviewed")
+        self.assertEqual(self._doc(), ({}, 0), "nothing written")
+        self.assertEqual(len(self._queue()), 1, "still queued")
+
+        status, out = self._http(self._accept, "sg_school", acknowledge_legacy=True)
         self.assertEqual(status, 200)
         doc, _ = self._doc()
-        self.assertEqual(doc["education"]["schooling"], "Bismarck High School")
+        self.assertEqual(doc["education"]["schooling"], "Bismarck High School",
+                         "the ORIGINAL value, unchanged by having been reviewed")
+
+    def test_the_eleven_at_pre_existing_destinations_are_all_covered(self):
+        """The rows the narrow guard missed, by their real paths."""
+        self._stub_schema(None)
+        for path, val in (("personal.fullName", "kind of scared"),
+                          ("personal.preferredName", "Christopher Todd Horne"),
+                          ("education.schooling", "induction physical in Fargo"),
+                          ("education.earlyCareer", "something"),
+                          ("earlyMemories.significantEvent", "a reassignment")):
+            sid = "sg_" + path.replace(".", "_")
+            self._seed_queue([self._legacy(path, val, sid=sid)])
+            status, detail = self._http(self._accept, sid, **self._entry_kw(path))
+            self.assertEqual(status, 422, f"{path} must not accept in one click")
+            self.assertEqual(detail["requirement"], "acknowledge", path)
+            self.assertEqual(self._doc(), ({}, 0), path)
+
+    def test_acknowledging_does_NOT_satisfy_a_correction_requirement(self):
+        """The distinction the whole two-tier design exists for.
+
+        If a checkbox could clear `military.branch = "Nike Ajax Nike
+        Hercules missile site"`, widening the guard would have weakened
+        it — more rows refused, each refused less.
+        """
+        self._stub_schema(None)
+        self._seed_queue([self._legacy("military.branch", "Nike Ajax missile site",
+                                       sid="sg_ack_evade")])
+        status, detail = self._http(self._accept, "sg_ack_evade",
+                                    entry_id="__new__", acknowledge_legacy=True)
+        self.assertEqual(status, 422)
+        self.assertEqual(detail["error"], "suggestion_flagged")
+        self.assertEqual(detail["requirement"], "correct")
+        self.assertEqual(detail["reason"], "queued_before_home")
+        self.assertEqual(self._doc(), ({}, 0))
+
+    def test_a_recorded_flag_outranks_the_acknowledge_tier(self):
+        """`personal.fullName = "kind of scared"` once the classifier has
+        run. Old AND doubted: the doubt wins, and a checkbox will not do.
+
+        Evaluating the structural tier first and returning early would
+        have failed this — which is why the two are compared rather than
+        ordered.
+        """
+        from api.services import suggestion_flags as f
+        self._stub_schema(None)
+        e = self._legacy("personal.fullName", "kind of scared", sid="sg_name")
+        self._seed_queue([e])
+        c = self._con()
+        c.execute("BEGIN")
+        f.record_flag(c, NARRATOR, e, "value_not_a_field",
+                      source_note="An emotional state captured as a legal name.")
+        c.commit(); c.close()
+
+        status, detail = self._http(self._accept, "sg_name", acknowledge_legacy=True)
+        self.assertEqual(status, 422)
+        self.assertEqual(detail["requirement"], "correct")
+        self.assertEqual(detail["reason"], "value_not_a_field")
+        self.assertEqual(self._doc(), ({}, 0))
+
+        status, _ = self._http(self._accept, "sg_name",
+                               corrected_value="Christopher Todd Horne")
+        self.assertEqual(status, 200)
+        doc, _ = self._doc()
+        self.assertEqual(doc["personal"]["fullName"], "Christopher Todd Horne")
+
+    def test_resubmitting_the_same_value_acknowledges_rather_than_refusing(self):
+        """Where a CORRECTION was required, an identical `corrected_value`
+        is an evasion and is refused. Where an ACKNOWLEDGEMENT would have
+        done, it is the acknowledgement spelled the long way — a person
+        who reads a right answer and retypes it has done more than asked,
+        not less. It is recorded as what it was."""
+        self._stub_schema(None)
+        self._seed_queue([self._legacy("education.schooling", "Bismarck High",
+                                       sid="sg_same")])
+        status, out = self._http(self._accept, "sg_same",
+                                 corrected_value="Bismarck High")
+        self.assertEqual(status, 200)
+        self.assertEqual(self._reviews()[0]["accept_mode"], "acknowledged_legacy")
+        self.assertIsNone(self._reviews()[0]["corrected_value"],
+                          "nothing was corrected, so nothing is recorded as a correction")
+
+    def test_an_acknowledged_acceptance_stays_lori_s_value(self):
+        """Provenance must not launder either way. The person agreed to
+        Lori's value unchanged, so it is still `ai_suggested` with a
+        confirmation — not an operator entry, which would claim a person
+        said it."""
+        self._stub_schema(None)
+        self._seed_queue([self._legacy("education.schooling", "Bismarck High",
+                                       sid="sg_prov")])
+        self._http(self._accept, "sg_prov", acknowledge_legacy=True)
+        row = self._prov("education", "schooling")
+        self.assertEqual(row["origin"], "ai_suggested")
+        self.assertEqual(row["confirmed_via"], "acceptance")
+        self.assertEqual(self._reviews()[0]["accept_mode"], "acknowledged_legacy")
+
+    def test_a_modern_row_at_an_old_destination_is_still_one_click(self):
+        """The widening is bounded by PROVENANCE, not by age. A proposal
+        made through the current route carries `destination_undefined`
+        and was checked when it was queued, so it stays ordinary however
+        long it sits."""
+        self._stub_schema(None)
+        self._seed_queue([self._modern("education.schooling", "Bismarck High",
+                                       sid="sg_modern_old")])
+        status, _ = self._http(self._accept, "sg_modern_old")
+        self.assertEqual(status, 200)
+        self.assertEqual(self._reviews()[0]["accept_mode"], "direct")
 
     def test_a_modern_row_aimed_at_a_new_section_is_unaffected(self):
         """A proposal queued AFTER the section exists had its destination
@@ -470,22 +596,105 @@ class EnforcedServerSide(_Base):
         e = self._modern("education.gradeLevel", "v", sid="sg_race")
         self._seed_queue([e])
 
-        real = f.requires_correction
+        real = f.requires_review
         calls = {"n": 0}
 
         def _clean_then_flagged(con, pid, s):
             calls["n"] += 1
             if calls["n"] <= 1:
                 return None                      # pre-check sees nothing
-            return f.SuggestionFlagged("value_not_a_field", "flagged mid-flight")
+            return f.SuggestionFlagged("value_not_a_field", "flagged mid-flight",
+                                       requirement=f.REQUIRE_CORRECT)
 
-        f.requires_correction = _clean_then_flagged
+        f.requires_review = _clean_then_flagged
         try:
             with self.assertRaises(f.SuggestionFlagged):
                 sr.accept(NARRATOR, "sg_race")
         finally:
-            f.requires_correction = real
+            f.requires_review = real
 
+        self.assertGreater(calls["n"], 1, "the in-transaction check must have run")
+        self.assertEqual(self._doc(), ({}, 0), "questionnaire rolled back")
+        self.assertEqual(self._reviews(), [], "review record rolled back")
+        self.assertEqual(len(self._queue()), 1, "queue rewrite rolled back")
+
+    def test_a_correction_requirement_is_refused_WITHOUT_opening_a_transaction(self):
+        """Isolates the PRE-check from the in-transaction one.
+
+        Both layers refuse, so a bug in either is invisible from the
+        outcome alone — the first mutation run proved that: breaking the
+        pre-check left all 35 tests green, because the transaction
+        opened, the write was attempted and the in-transaction check
+        rolled it all back. Right answer, wrong path.
+
+        That matters beyond tidiness. The in-transaction check runs
+        under BEGIN IMMEDIATE, which takes the database's write lock. A
+        refusal that reaches it is a refusal that blocked every other
+        writer to get there.
+
+        So this asserts the SHAPE of the refusal, not just its status:
+        `merge_questionnaire` must never be entered.
+        """
+        from api.services import suggestion_review as sr
+        from api.services import questionnaire_persistence as qp
+        from api.services import suggestion_flags as f
+        self._stub_schema(None)
+        self._seed_queue([self._legacy("military.branch", "Nike Ajax missile site",
+                                       sid="sg_noopen")])
+
+        entered = {"n": 0}
+        real = qp.merge_questionnaire
+
+        def _spy(*a, **kw):
+            entered["n"] += 1
+            return real(*a, **kw)
+
+        sr._qp.merge_questionnaire = _spy
+        try:
+            with self.assertRaises(f.SuggestionFlagged):
+                sr.accept(NARRATOR, "sg_noopen", entry_id="__new__",
+                          acknowledge_legacy=True)
+        finally:
+            sr._qp.merge_questionnaire = real
+
+        self.assertEqual(entered["n"], 0,
+                         "a checkbox against a CORRECT requirement must be "
+                         "refused before the write lock is taken")
+
+    def test_an_acknowledgement_does_not_survive_a_flag_recorded_mid_flight(self):
+        """The in-transaction tier check, not just the presence check.
+
+        A person ticked "I have read this" against a legacy row. Between
+        that click and the locked write, a classifier recorded a doubt
+        about the value. They agreed to read something old; they did not
+        agree to a value someone has since questioned — so the
+        acknowledgement must not carry it through.
+        """
+        from api.services import suggestion_review as sr
+        from api.services import suggestion_flags as f
+        self._stub_schema(None)
+        e = self._legacy("education.schooling", "v", sid="sg_ack_race")
+        self._seed_queue([e])
+
+        real = f.requires_review
+        calls = {"n": 0}
+
+        def _ack_then_correct(con, pid, s):
+            calls["n"] += 1
+            if calls["n"] <= 1:
+                return f.SuggestionFlagged(f.LEGACY_UNREVIEWED, "old",
+                                           requirement=f.REQUIRE_ACKNOWLEDGE)
+            return f.SuggestionFlagged("value_not_a_field", "doubted mid-flight",
+                                       requirement=f.REQUIRE_CORRECT)
+
+        f.requires_review = _ack_then_correct
+        try:
+            with self.assertRaises(f.SuggestionFlagged) as cm:
+                sr.accept(NARRATOR, "sg_ack_race", acknowledge_legacy=True)
+        finally:
+            f.requires_review = real
+
+        self.assertEqual(cm.exception.requirement, "correct")
         self.assertGreater(calls["n"], 1, "the in-transaction check must have run")
         self.assertEqual(self._doc(), ({}, 0), "questionnaire rolled back")
         self.assertEqual(self._reviews(), [], "review record rolled back")
@@ -526,6 +735,149 @@ class GuardScope(unittest.TestCase):
         for s in SECTIONS_ADDED_BY_WO04:
             self.assertNotIn(f'id: "{s}"', js[:js.index("var SECTIONS = [")],
                              "a section must not be declared before SECTIONS")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 6. Recording flags is idempotent, and writes nowhere else
+# ═══════════════════════════════════════════════════════════════════════
+
+class RecordingIsIdempotent(_Base):
+    """The seed script may be run twice — by a person unsure whether the
+    first run took, or by a scheduled job. Twice must mean once."""
+
+    def _rows(self):
+        c = self._con()
+        r = [dict(x) for x in c.execute(
+            "SELECT * FROM suggestion_flags ORDER BY section, field, value_hash")]
+        c.close()
+        return r
+
+    def test_running_twice_records_the_same_flags_not_duplicates(self):
+        from api.services import suggestion_flags as f
+        e = self._legacy("military.rank", "assigned to go up", sid="sg_idem")
+        for _ in range(3):
+            c = self._con()
+            c.execute("BEGIN")
+            f.record_flag(c, NARRATOR, e, "value_not_a_field", source_note="a note")
+            c.commit(); c.close()
+        rows = self._rows()
+        self.assertEqual(len(rows), 1, "one proposal, one flag, however many runs")
+        self.assertEqual(rows[0]["reason"], "value_not_a_field")
+        self.assertEqual(rows[0]["source_note"], "a note")
+        self.assertIsNone(rows[0]["disposition"])
+
+    def test_a_re_run_does_not_make_an_old_flag_look_new(self):
+        """`flagged_at` is FIRST-flagged, not last-recorded.
+
+        Found by the idempotency check: it was passing only because it
+        listed the columns it compared and `flagged_at` was not among
+        them. A flag raised in September looked raised today after any
+        re-run, which would have made the record lie about when someone
+        first doubted a value.
+        """
+        from api.services import suggestion_flags as f
+        e = self._legacy("military.rank", "assigned to go up", sid="sg_when")
+        c = self._con(); c.execute("BEGIN")
+        f.record_flag(c, NARRATOR, e, "value_not_a_field", flagged_by="alice")
+        c.commit(); c.close()
+        first = self._rows()[0]
+
+        c = self._con(); c.execute("BEGIN")
+        f.record_flag(c, NARRATOR, e, "model_uncertainty", flagged_by="bob")
+        c.commit(); c.close()
+        second = self._rows()[0]
+
+        self.assertEqual(second["flagged_at"], first["flagged_at"],
+                         "when it was first flagged does not change")
+        self.assertEqual(second["flagged_by"], "alice",
+                         "who first flagged it does not change")
+        self.assertEqual(second["reason"], "model_uncertainty",
+                         "but a re-classification DOES update the reason")
+
+    def test_a_second_run_does_not_revive_a_disposed_flag(self):
+        """A person corrected this. Re-running the classifier must not
+        put the requirement back and make them do it again."""
+        from api.services import suggestion_flags as f
+        e = self._legacy("military.rank", "assigned to go up", sid="sg_rev")
+        c = self._con(); c.execute("BEGIN")
+        f.record_flag(c, NARRATOR, e, "value_not_a_field")
+        f.mark_disposed(c, NARRATOR, e, "corrected")
+        c.commit(); c.close()
+
+        c = self._con(); c.execute("BEGIN")
+        f.record_flag(c, NARRATOR, e, "value_not_a_field")
+        c.commit(); c.close()
+
+        rows = self._rows()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["disposition"], "corrected",
+                         "the disposition survives a re-run")
+        c = self._con()
+        self.assertIsNone(f.flag_for(c, NARRATOR, e), "and it still does not block")
+        c.close()
+
+    def test_a_suggestion_id_learned_later_is_filled_in_never_erased(self):
+        from api.services import suggestion_flags as f
+        anon = self._legacy("military.rank", "same value", sid=None)
+        withid = self._legacy("military.rank", "same value", sid="sg_learned")
+        c = self._con(); c.execute("BEGIN")
+        f.record_flag(c, NARRATOR, anon, "value_not_a_field")
+        f.record_flag(c, NARRATOR, withid, "value_not_a_field")
+        f.record_flag(c, NARRATOR, anon, "value_not_a_field")
+        c.commit(); c.close()
+        rows = self._rows()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["suggestion_id"], "sg_learned",
+                         "learned on run 2, not erased by run 3")
+
+    def test_recording_a_flag_rewrites_no_suggestion_and_no_answer(self):
+        """The guarantee the reviewer asked to see demonstrated."""
+        from api.services import suggestion_flags as f
+        e = self._legacy("military.rank", "assigned to go up", sid="sg_norewrite")
+        self._seed_queue([e])
+        before_queue = json.dumps(self._queue(), sort_keys=True)
+        before_doc = self._doc()
+
+        c = self._con(); c.execute("BEGIN")
+        f.record_flag(c, NARRATOR, e, "value_not_a_field")
+        c.commit(); c.close()
+
+        self.assertEqual(json.dumps(self._queue(), sort_keys=True), before_queue,
+                         "the suggestion is byte-identical")
+        self.assertEqual(self._doc(), before_doc, "no answer was written")
+        self.assertEqual(self._reviews(), [], "no review record was created")
+
+
+class ReasonVocabulary(_Base):
+
+    def test_the_module_and_the_database_agree_on_what_is_recordable(self):
+        """A reason this module accepts and 0061's CHECK rejects would
+        fail at the INSERT, halfway through a classifier run."""
+        from api.services import suggestion_flags as f
+        e = self._legacy("military.rank", "v", sid="sg_voc")
+        for reason in f.REASONS:
+            c = self._con(); c.execute("BEGIN")
+            try:
+                f.record_flag(c, NARRATOR, dict(e, value=f"v-{reason}"), reason)
+                c.commit()
+            finally:
+                c.close()
+
+    def test_legacy_unreviewed_is_derived_and_cannot_be_recorded(self):
+        """It is a statement about the proposal's shape, not a row. If it
+        could be written, it could also go stale against the queue and
+        be deleted — and the eleven would be exposed again."""
+        from api.services import suggestion_flags as f
+        self.assertNotIn(f.LEGACY_UNREVIEWED, f.REASONS)
+        c = self._con()
+        with self.assertRaises(ValueError):
+            f.record_flag(c, NARRATOR, self._legacy("personal.fullName", "x"),
+                          f.LEGACY_UNREVIEWED)
+        c.close()
+
+    def test_the_two_levels_are_ordered_strongest_last(self):
+        from api.services import suggestion_flags as f
+        self.assertEqual(f._STRENGTH, (f.REQUIRE_ACKNOWLEDGE, f.REQUIRE_CORRECT))
 
 
 if __name__ == "__main__":

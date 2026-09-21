@@ -111,6 +111,11 @@ def SuggestionFlagged_unchanged(blocker):
     Re-raises the original block with a message that names the specific
     evasion, rather than letting `corrected_value == proposed` satisfy
     the requirement by technicality.
+
+    Raised only where a CORRECTION was required. Where an
+    acknowledgement would have done, resubmitting the same value is not
+    an evasion — it is the acknowledgement, spelled the long way — and
+    the accept path treats it as one.
     """
     from .suggestion_flags import SuggestionFlagged
     return SuggestionFlagged(
@@ -120,6 +125,7 @@ def SuggestionFlagged_unchanged(blocker):
         proposed_value=blocker.proposed_value,
         source_note=blocker.source_note,
         field_path=blocker.field_path,
+        requirement=blocker.requirement,
     )
 
 
@@ -194,23 +200,36 @@ def _write_queue_without(con: sqlite3.Connection, person_id: str,
 def _insert_review(con: sqlite3.Connection, person_id: str, s: Mapping[str, Any],
                    verdict: str, entry_id: str, now: str, reviewed_by: str,
                    corrected_value: Optional[Any] = None,
-                   correction_reason: str = "") -> None:
+                   correction_reason: str = "",
+                   accept_mode: Optional[str] = None) -> None:
     section, field, unresolved = split_destination(str(s.get("fieldPath") or ""))
     con.execute(
         "INSERT INTO suggestion_reviews "
         "(person_id, section, entry_id, field, value_hash, verdict, "
         " suggestion_id, field_path, proposed_value, proposed_at, "
         " source_turn_id, turn_evidence, repeats, destination_unresolved, "
-        " reviewed_at, reviewed_by, corrected_value, correction_reason) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+        " reviewed_at, reviewed_by, corrected_value, correction_reason, "
+        " accept_mode) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
         "ON CONFLICT(person_id, section, entry_id, field, value_hash) DO UPDATE SET "
-        "  verdict=excluded.verdict, suggestion_id=excluded.suggestion_id, "
+        "  verdict=excluded.verdict, "
+        # PREFER the newer id, but never replace a known one with NULL.
+        # The row's key is the canonical tuple, so a second proposal of
+        # the same value at the same destination lands here — and the
+        # newest review is what the row should name. But
+        # `projection_writer` still appends entries with no id at all
+        # (:207-215), so `excluded.suggestion_id` can be NULL, and a
+        # bare `=excluded` would erase the identity of the proposal that
+        # was actually reviewed. 0061 got this right with COALESCE on
+        # the flags side; this is the same asymmetry, fixed.
+        "  suggestion_id=COALESCE(excluded.suggestion_id, suggestion_reviews.suggestion_id), "
         "  proposed_at=excluded.proposed_at, source_turn_id=excluded.source_turn_id, "
         "  turn_evidence=excluded.turn_evidence, repeats=excluded.repeats, "
         "  destination_unresolved=excluded.destination_unresolved, "
         "  reviewed_at=excluded.reviewed_at, reviewed_by=excluded.reviewed_by, "
         "  corrected_value=excluded.corrected_value, "
-        "  correction_reason=excluded.correction_reason",
+        "  correction_reason=excluded.correction_reason, "
+        "  accept_mode=excluded.accept_mode",
         (person_id, section, entry_id, field, value_hash(s.get("value")), verdict,
          s.get("suggestion_id"), str(s.get("fieldPath") or ""),
          "" if s.get("value") is None else str(s.get("value")),
@@ -222,7 +241,11 @@ def _insert_review(con: sqlite3.Connection, person_id: str, s: Mapping[str, Any]
          # erase the fact that a machine proposed something else and a
          # person fixed it.
          (None if corrected_value is None else str(corrected_value)),
-         correction_reason or None),
+         correction_reason or None,
+         # HOW the acceptance was arrived at — 0062. NULL on a decline,
+         # and on every row written before the column existed, which is
+         # the truthful answer for them.
+         accept_mode),
     )
 
 
@@ -297,7 +320,8 @@ def _resolve_path(stored_doc: Mapping[str, Any], section: str, field: str,
 def accept(person_id: str, suggestion_id: str, *, entry_id: Optional[str] = None,
            reviewed_by: str = "", source: str = "suggestion_accept",
            corrected_value: Optional[Any] = None,
-           correction_reason: str = "") -> Dict[str, Any]:
+           correction_reason: str = "",
+           acknowledge_legacy: bool = False) -> Dict[str, Any]:
     """Write the proposed value as an accepted AI suggestion. One transaction
     across the questionnaire, its provenance, the queue and the review record.
 
@@ -362,36 +386,64 @@ def accept(person_id: str, suggestion_id: str, *, entry_id: Optional[str] = None
 
     path, prov_entry_id, new_id_path = _resolve_path(stored_doc, section, field, unresolved, entry_id)
 
-    # ── a flagged proposal cannot be accepted UNCHANGED ──────────────
+    # ── a proposal that needs a deliberate act cannot be accepted by
+    #    an ordinary click ────────────────────────────────────────────
     #
-    # WO-04 requirement 3. A confirmation dialog is not enough: for
-    # `military.branch = "Nike Ajax Nike Hercules missile site"` the
-    # person has to either correct the value or send it somewhere that
-    # fits. Clicking through a warning must not convert a known type
-    # mismatch into a biographical fact.
+    # WO-04 requirement 3, widened. Two levels, because "this is old"
+    # and "this value looks wrong" are different claims:
     #
-    # `corrected_value` is what makes an accept legitimate here. Supply
-    # it and the answer written is YOURS — the original proposal is
-    # preserved on the review record beside it, so the pair reads "Lori
-    # proposed A, a person entered B, and here is why A was flagged".
+    #   CORRECT      `military.branch = "Nike Ajax Nike Hercules missile
+    #                site"`. A confirmation dialog is not enough — the
+    #                person supplies the value they want, or sends it to
+    #                a destination that fits. Clicking through a warning
+    #                must not convert a known mismatch into a
+    #                biographical fact.
     #
-    # Checked before the write and AGAIN inside the transaction, for the
-    # same reason the destination check is: a flag can be recorded
-    # between the two moments.
+    #   ACKNOWLEDGE  `education.schooling = "high school"`, and the ten
+    #                other legacy rows at destinations that existed all
+    #                along. The value may be perfectly good, so
+    #                demanding a rewrite would be caution that damages
+    #                the record. What is demanded is that a person say
+    #                they read it: `acknowledge_legacy`. A correction
+    #                also satisfies it — a stronger act than the one
+    #                asked for.
+    #
+    # `acknowledge_legacy` must never satisfy a CORRECT requirement.
+    # That is the whole distinction, and it is enforced here and again
+    # inside the transaction — a requirement can appear between the two
+    # moments, when a classifier runs or another operator reviews the
+    # same queue.
     from . import suggestion_flags as _flags
     corrected = corrected_value is not None and str(corrected_value).strip() != ""
     con = _db._connect()
     try:
-        blocker = _flags.requires_correction(con, person_id, s)
+        blocker = _flags.requires_review(con, person_id, s)
     finally:
         con.close()
-    if blocker is not None and not corrected:
-        raise blocker
-    # A "correction" that changes nothing is a confirmation wearing a
-    # correction's clothes.
-    if blocker is not None and corrected and \
-            canonical_value(corrected_value) == canonical_value(s.get("value")):
-        raise SuggestionFlagged_unchanged(blocker)
+    if blocker is not None:
+        _satisfied = corrected or (
+            blocker.requirement == _flags.REQUIRE_ACKNOWLEDGE and acknowledge_legacy)
+        if not _satisfied:
+            raise blocker
+        # A "correction" that changes nothing is a confirmation wearing
+        # a correction's clothes — where a correction was what was
+        # required. Where an acknowledgement would have done, the same
+        # value coming back IS the acknowledgement, so it stands, and is
+        # recorded as one rather than as a correction of nothing.
+        if corrected and canonical_value(corrected_value) == canonical_value(s.get("value")):
+            if blocker.requirement == _flags.REQUIRE_CORRECT:
+                raise SuggestionFlagged_unchanged(blocker)
+            corrected = False
+            acknowledge_legacy = True
+
+    # How this acceptance was arrived at, for migration 0062. Derived
+    # once, here, so the record and the write agree about what happened.
+    if corrected:
+        accept_mode = "corrected"
+    elif blocker is not None:
+        accept_mode = "acknowledged_legacy"
+    else:
+        accept_mode = "direct"
 
     proposed = corrected_value if corrected else s.get("value")
 
@@ -465,11 +517,30 @@ def accept(person_id: str, suggestion_id: str, *, entry_id: Optional[str] = None
         #
         # This is the layer the UI cannot bypass. Hiding the Accept
         # button is presentation; this is the write.
-        _blocker2 = _flags.requires_correction(con2, person_id, s)
-        if _blocker2 is not None and not corrected:
-            raise _blocker2
+        _blocker2 = _flags.requires_review(con2, person_id, s)
         if _blocker2 is not None:
-            _flags.mark_disposed(con2, person_id, s, "corrected")
+            # `and acknowledge_legacy` is qualified by the TIER on
+            # purpose, and the qualification is the whole point: an
+            # acknowledgement collected before this write satisfies only
+            # the acknowledge tier. If a correction requirement was
+            # recorded in between — by the classifier, or by another
+            # operator reviewing the same queue — a checkbox ticked
+            # before it existed does not clear it. The person agreed to
+            # read something old; they did not agree to a value someone
+            # has since doubted.
+            #
+            # Mutation-checked: dropping the tier test here passes every
+            # test that goes through the pre-check, and fails only the
+            # one where the requirement appears mid-flight. That test is
+            # the only thing holding this line up.
+            if not (corrected or (_blocker2.requirement == _flags.REQUIRE_ACKNOWLEDGE
+                                  and acknowledge_legacy)):
+                raise _blocker2
+            if corrected:
+                # No-op when the requirement was structural — there is
+                # no row to dispose, and that is correct: a structural
+                # tier is not cleared by acting once.
+                _flags.mark_disposed(con2, person_id, s, "corrected")
 
         # SECOND VALIDATION, INSIDE THE TRANSACTION.
         #
@@ -488,7 +559,8 @@ def accept(person_id: str, suggestion_id: str, *, entry_id: Optional[str] = None
                     "was written; review the suggestion again.")
         _insert_review(con2, person_id, s, "accepted", prov_entry_id, now, reviewed_by,
                        corrected_value=(corrected_value if corrected else None),
-                       correction_reason=correction_reason)
+                       correction_reason=correction_reason,
+                       accept_mode=accept_mode)
         _write_queue_without(con2, person_id, suggestion_id, source, now)
 
     try:
@@ -511,6 +583,7 @@ def accept(person_id: str, suggestion_id: str, *, entry_id: Optional[str] = None
     res["suggestion_id"] = suggestion_id
     res["path"] = path
     res["verdict"] = "accepted"
+    res["accept_mode"] = accept_mode
     res["entry_id"] = prov_entry_id
     return res
 

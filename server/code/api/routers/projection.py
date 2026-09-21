@@ -416,6 +416,13 @@ class ReviewRequest(BaseModel):
     # preserved on the review record either way.
     corrected_value: Optional[Any] = None
     correction_reason: str = ""
+    # For a LEGACY proposal at a destination that already existed: the
+    # caller states that a person has read it and accepts it as it
+    # stands. Satisfies the acknowledge tier and NOTHING ELSE — a
+    # flagged value, or a proposal queued before its section existed,
+    # still needs `corrected_value`. Sending this on an unflagged
+    # proposal changes nothing.
+    acknowledge_legacy: bool = False
     # For a proposal aimed at a repeatable section: the `_entryId` the
     # person chose, or "__new__" to add one. Refused if absent for an
     # unresolved destination — an ordinal is never inferred.
@@ -434,6 +441,12 @@ class ReviewResponse(BaseModel):
     entry_id: str = ""
     revision: int = 0
     write_applied: bool = False
+    # HOW the acceptance was arrived at: direct / acknowledged_legacy /
+    # corrected. The service has always returned it; the response model
+    # dropped it, so the page could not tell a person which act had just
+    # completed and said "Accepted as Lori's suggestion" even when they
+    # had typed their own value. Empty on a decline.
+    accept_mode: str = ""
 
 
 @router.post("/projection/suggestion/{suggestion_id}/accept", response_model=ReviewResponse)
@@ -463,7 +476,8 @@ def accept_suggestion_route(suggestion_id: str, payload: ReviewRequest) -> Revie
                         entry_id=(payload.entry_id or None),
                         reviewed_by=payload.reviewed_by,
                         corrected_value=payload.corrected_value,
-                        correction_reason=payload.correction_reason)
+                        correction_reason=payload.correction_reason,
+                        acknowledge_legacy=bool(payload.acknowledge_legacy))
     except sr.SuggestionNotFound as e:
         raise HTTPException(status_code=404, detail={
             "error": "suggestion_not_found", "detail": str(e)})
@@ -485,19 +499,32 @@ def accept_suggestion_route(suggestion_id: str, payload: ReviewRequest) -> Revie
         })
     except _flags_mod.SuggestionFlagged as e:
         # 422, not 409: the request is not in conflict with the record,
-        # it is incomplete. The person must correct the value or choose
-        # a different destination. Nothing was written — the check runs
-        # before the write AND inside the transaction.
+        # it is incomplete. Nothing was written — the check runs before
+        # the write AND inside the transaction.
+        #
+        # TWO ERROR NAMES, because the two requirements are different
+        # claims and a surface that showed one message for both would
+        # be telling a person that thirty old proposals are wrong.
+        # `legacy_review_required` asserts nothing about the value.
+        _ack = e.requirement == _flags_mod.REQUIRE_ACKNOWLEDGE
         raise HTTPException(status_code=422, detail={
-            "error": "suggestion_flagged",
+            "error": "legacy_review_required" if _ack else "suggestion_flagged",
+            "requirement": e.requirement,
             "reason": e.reason,
             "detail": e.detail,
             "proposed_value": e.proposed_value,
             "source_note": e.source_note,
             "field_path": e.field_path,
-            "remedy": "Send `corrected_value` with the value you want, or "
-                      "accept it at a different destination. Confirming the "
-                      "warning alone is not enough.",
+            "remedy": (
+                "This proposal is old and unreviewed. Send "
+                "`acknowledge_legacy: true` to accept it as it stands, or "
+                "`corrected_value` to change it first. Neither asserts the "
+                "value is wrong."
+                if _ack else
+                "Send `corrected_value` with the value you want, or accept "
+                "it at a different destination. Confirming the warning "
+                "alone is not enough, and `acknowledge_legacy` does not "
+                "satisfy this."),
         })
     except sr.SuggestionConflict as e:
         raise HTTPException(status_code=409, detail={
@@ -513,6 +540,7 @@ def accept_suggestion_route(suggestion_id: str, payload: ReviewRequest) -> Revie
         entry_id=res.get("entry_id") or "",
         revision=int(res.get("revision") or 0),
         write_applied=bool(res.get("write_applied")),
+        accept_mode=res.get("accept_mode") or "",
     )
 
 

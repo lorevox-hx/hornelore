@@ -71,6 +71,79 @@ _PARSER_TO_PROJECTION: Dict[str, str] = {
 }
 
 
+def _server_owned_suggestion(field_path: str, value: str, now: str, *,
+                             person_id: Optional[str] = None,
+                             source_turn_id: Optional[str] = None,
+                             confidence: float = 0.8,
+                             **extra: Any) -> Dict[str, Any]:
+    """A queue entry with the four facts the server owns.
+
+    The append route (`routers/projection.py`) establishes these at
+    proposal time and the comment there says they are "DECIDED HERE AND
+    NEVER RE-DECIDED". This is the second producer, and it has to decide
+    the same things or it makes rows the review surface cannot handle:
+
+      suggestion_id           minted; without it the proposal can never
+                              be accepted or declined, only accumulate
+      turn_evidence           the MEASURED verdict on the cited turn
+      destination_undefined   whether the questionnaire has this field.
+                              Its PRESENCE is also what marks a proposal
+                              as non-legacy, which is correct — this one
+                              was checked by today's code
+      destination_unresolved  a repeatable section needs a person to
+                              choose an entry
+
+    FAIL-CLOSED ON AN UNREADABLE SCHEMA. If the questionnaire cannot be
+    parsed we cannot claim the destination is valid, so we say it is
+    undefined. Acceptance then refuses until someone looks. Claiming
+    `False` — "checked, and fine" — on the strength of an exception
+    would be the one answer that is definitely wrong.
+    """
+    import uuid
+
+    entry: Dict[str, Any] = {
+        "suggestion_id": "sg_" + uuid.uuid4().hex[:16],
+        "fieldPath": field_path,
+        "value": value,
+        "confidence": float(confidence),
+        "turnId": source_turn_id,
+        "source_turn_id": source_turn_id,
+        "ts": now,
+        "repeats": 1,
+    }
+    entry.update({k: v for k, v in extra.items() if v is not None})
+
+    # The turn citation is a claim; verify it with the same join the
+    # append route uses rather than asserting evidence we never checked.
+    entry["turn_evidence"] = "absent"
+    if source_turn_id and person_id:
+        try:
+            from .. import db as _db
+            from .answer_provenance import verify_turn
+            _c = _db._connect()
+            try:
+                entry["turn_evidence"] = verify_turn(_c, person_id, source_turn_id)
+            finally:
+                _c.close()
+        except Exception:
+            logger.warning("[projection-writer] could not verify turn %r; "
+                           "recording the citation as unverified", source_turn_id)
+            entry["turn_evidence"] = "unverified"
+
+    section, _, rest = str(field_path or "").partition(".")
+    field = rest.split(".")[-1] if rest else ""
+    try:
+        from . import questionnaire_schema as _qs
+        entry["destination_undefined"] = not _qs.is_defined(section, field)
+        if _qs.is_repeatable(section):
+            entry["destination_unresolved"] = True
+    except Exception:
+        logger.warning("[projection-writer] questionnaire schema unreadable; "
+                       "queuing %s as destination_undefined", field_path)
+        entry["destination_undefined"] = True
+    return entry
+
+
 def apply_correction(
     person_id: str,
     parsed: Dict[str, Any],
@@ -200,19 +273,53 @@ def apply_correction(
         if operator_owned and prev.get("value") != v_str:
             # Propose, do not impose. One suggestion per path, newest wins,
             # mirroring the browser's queue semantics (projection-sync.js:564).
+            #
+            # ── THE SECOND PRODUCER (2026-09-20) ────────────────────────
+            #
+            # This block used to append seven keys and no `suggestion_id`.
+            # That made it a live source of the exact problem the identity
+            # backfill exists to repair: `find_suggestion` matches on
+            #
+            #     s.get("suggestion_id") == suggestion_id
+            #
+            # so an entry without one can never be accepted OR declined.
+            # Every correction deferred here became permanently stuck in
+            # the queue. A one-time backfill would have repaired the
+            # thirty fossils and this would have started making new ones
+            # the same afternoon.
+            #
+            # It also carried no `destination_undefined`, so
+            # `_is_unchecked_legacy` read it as pre-cutover — a proposal
+            # created today, labelled as predating the route that checks
+            # destinations. The legacy tier is about PROVENANCE, and the
+            # provenance of this one is known exactly.
+            #
+            # So it now establishes the same four facts the append route
+            # does. What it does NOT change is the protection above: an
+            # operator-entered value is still never overwritten, and this
+            # is still only reached because it refused to overwrite one.
+            dropped = [s.get("suggestion_id") for s in pending
+                       if isinstance(s, dict) and s.get("fieldPath") == canonical]
             pending = [
                 s for s in pending
                 if not (isinstance(s, dict) and s.get("fieldPath") == canonical)
             ]
-            pending.append({
-                "fieldPath": canonical,
-                "value": v_str,
-                "confidence": 0.8,
-                "turnId": source_turn_id,
-                "ts": now,
-                "supersedes": prev.get("value"),
-                "reason": "correction_to_operator_entered_field",
-            })
+            if dropped:
+                # Newest-wins is the existing semantics and is left alone,
+                # but it must not be silent: a superseded proposal may
+                # already carry a flag, a decline history or an id a
+                # person has seen.
+                logger.info(
+                    "[projection-writer] superseded %d queued proposal(s) at "
+                    "%s for %s: %s", len(dropped), canonical,
+                    (person_id or "")[:8], dropped)
+            pending.append(_server_owned_suggestion(
+                canonical, v_str, now,
+                person_id=person_id, source_turn_id=source_turn_id,
+                confidence=0.8,
+                supersedes=prev.get("value"),
+                reason="correction_to_operator_entered_field",
+            ))
             summary["deferred"].append({
                 "field_path": canonical,
                 "value": v_str,
