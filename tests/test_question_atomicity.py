@@ -325,6 +325,46 @@ class AnswerPreservationTests(unittest.TestCase):
             "you, and what drew you to that role?")
         self.assertEqual(out, "What drew you to that role?")
 
+    def test_an_ordinary_predicate_with_no_name_or_date_survives(self):
+        """The hole the first repair left, found by review 2026-09-21.
+
+        `_carries_information` asked "is this informative?" and answered
+        with positive signals — a second sentence, a digit, a proper
+        noun, its own question. So it protected NAMED facts and deleted
+        ordinary ones. Every fixture above happens to carry a name or a
+        date, which is exactly why the suite passed.
+
+        These are the commonest shape a biography answer takes.
+        """
+        for text, must_survive in (
+            ("Your mother was a teacher, or would you like to tell me "
+             "more?", "teacher"),
+            ("He was a foreman, or shall we stay with what is there?",
+             "foreman"),
+            ("She worked as a teacher, or would you like to tell me "
+             "more?", "teacher"),
+            ("They lived by the river, and what do you remember about "
+             "it?", "river"),
+        ):
+            with self.subTest(text=text[:40]):
+                out, _ = enforce_question_atomicity(text)
+                self.assertIn(must_survive, out)
+
+    def test_the_default_is_to_keep(self):
+        """A clause the rule does not recognise is preserved.
+
+        The asymmetry is the design: a false positive costs one surplus
+        sentence; a false negative deletes an answer and leaves a
+        grammatical question where nothing downstream can see the loss.
+        """
+        from server.code.api.services.question_atomicity import (
+            _carries_information)
+        for unrecognised in ("the mill shut that winter",
+                             "we walked there every Sunday",
+                             "bread and dripping"):
+            with self.subTest(clause=unrecognised):
+                self.assertTrue(_carries_information(unrecognised))
+
     def test_carries_information_separates_the_two(self):
         from server.code.api.services.question_atomicity import (
             _carries_information)

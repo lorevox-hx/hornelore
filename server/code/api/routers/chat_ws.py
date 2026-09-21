@@ -65,6 +65,33 @@ def _budget_evidence(budget) -> Dict[str, Any]:
         "dropped_turns": budget.dropped_turns,
         "kept_sections": list(getattr(budget, "kept_sections", None) or []),
         "dropped_sections": list(getattr(budget, "dropped_sections", None) or []),
+        # ── PER-SECTION COST, ON EVERY TURN ─────────────────────────
+        #
+        # Added 2026-09-21. The two lists above carry NAMES only, so a
+        # trace could say which sections survived and never what they
+        # cost. "saved_biography: keep" and "saved_biography: keep, 969
+        # tokens of a 1,943-token narrator share" are different facts,
+        # and only the second one answers whether a growing biography
+        # still fits.
+        #
+        # `SectionPlan` already measures this — `tokens` is a real
+        # post-template count taken by difference, never a builder-side
+        # estimate (Lean Lori Phase 0 established estimates are wrong by
+        # a wide margin). This reads it; it does not compute one.
+        #
+        # OBSERVATION ONLY: a list comprehension over an already-decided
+        # outcome. No section is added, removed or re-ordered by this.
+        "sections": [
+            {
+                "name": s.name,
+                "kept": bool(s.kept),
+                "tokens": int(s.tokens),
+                "required": bool(s.required),
+                "drop_order": int(s.drop_order),
+                "owner": s.owner,
+            }
+            for s in (getattr(budget, "sections", None) or [])
+        ],
     }
 
 
@@ -311,6 +338,17 @@ except Exception:  # pragma: no cover - defensive
         def close(*a, **k): return None
         @staticmethod
         def require(*a, **k): return None
+        # `bind_turn_key` shipped with Block C and was never added here,
+        # so `test_the_stub_covers_every_method_the_router_calls` has
+        # been failing. The real one returns bool; the stub must too.
+        #
+        # The consequence of the gap is the shape this repository keeps
+        # paying for: on an import failure the router would call a method
+        # the fallback does not have, the AttributeError would be
+        # swallowed by the surrounding try, and the turn would produce no
+        # trace — indistinguishable from tracing being off.
+        @staticmethod
+        def bind_turn_key(*a, **k): return False
         # ── ADDED WITH THEIR CALL SITES, 2026-09-06 ──────────────────
         #
         # `enabled()` and `terminal()` are called by the §9 measurement
@@ -707,6 +745,22 @@ async def _finalize_deterministic_turn(
     # prompt-budget failure, not a refusal, and not a fallback — the
     # route answered by design.
     try:
+        # ── THE QUESTION, NOT ONLY THE ANSWER ───────────────────────
+        #
+        # `narrator_input` was noted on the generation path and NOT
+        # here, so a deterministic route recorded the delivered text
+        # beside an empty question. Measured 2026-09-21, rich-record
+        # capture: the narrator asked "what did I tell you earlier
+        # about the brass band?", `route_memory_echo` (authority 24)
+        # answered it, and the paired transcript showed a reply with
+        # nothing to compare it against. The finding had to come out
+        # of a log instead of the instrument built to show it.
+        #
+        # A deterministic turn is a turn. It is the one kind where the
+        # model wrote nothing, which makes knowing what was ASKED more
+        # important rather than less: without it, "Lori answered badly"
+        # and "a route answered instead of Lori" are indistinguishable.
+        _rt.note("narrator_input", user_text or "")
         _rt.note("effective_turn_mode", turn_mode)
         _rt.note("deterministic_route", True)
         _rt.note("generation_attempted", False)
@@ -5602,18 +5656,38 @@ async def ws_chat(ws: WebSocket):
             await _ws_send(ws, {"type": "done", "final_text": "",
                                 "blocked": "prompt_too_large"})
             return
-        if _budget.dropped_turns or _budget.dropped_sections:
-            # INFO, not WARNING: dropping old conversation is the budget
-            # working as designed. The WARNING is reserved for the
-            # refusal above, which is the condition that needs someone.
-            #
-            # Phase 4 correction, 2026-08-18: this tested `dropped_turns`
-            # alone, so a SECTION-only reduction -- an over-budget turn
-            # with no history to shed -- succeeded in total silence and
-            # the section telemetry never reached the operator log. The
-            # one case the new machinery exists to handle was the one
-            # case that reported nothing.
-            logger.info("[chat_ws][prompt-budget] %s", _budget.as_log_fields())
+        # INFO, not WARNING: dropping old conversation is the budget
+        # working as designed. The WARNING is reserved for the refusal
+        # above, which is the condition that needs someone.
+        #
+        # Phase 4 correction, 2026-08-18: this tested `dropped_turns`
+        # alone, so a SECTION-only reduction -- an over-budget turn with
+        # no history to shed -- succeeded in total silence and the
+        # section telemetry never reached the operator log. The one case
+        # the new machinery exists to handle was the one case that
+        # reported nothing.
+        #
+        # ── AND THE CONDITION ITSELF WAS THE NEXT VERSION OF THAT BUG ──
+        #
+        # Unconditional since 2026-09-21. `if dropped_turns or
+        # dropped_sections` still meant a turn that FITTED recorded no
+        # section accounting at all, so "what did this prompt actually
+        # contain, and what did it cost" was answerable only for turns
+        # that had already lost something.
+        #
+        # That is the wrong half. A turn at 7,541 of 8,192 with every
+        # section kept is precisely the measurement that tells you how
+        # much room a growing biography still has -- and it was the one
+        # the log threw away. Measured on the ZZ captures: five turns
+        # fitted, five produced no section line, and the comparison
+        # against a full record could not be made from the log.
+        #
+        # OBSERVATION ONLY. `as_log_fields` reads the outcome and
+        # returns a string; nothing downstream composes from it, and the
+        # delivered response is not touched. `reason=` distinguishes
+        # `fits` from `trimmed` and `trimmed_sections`, so the extra
+        # lines are not noise -- they are the denominator.
+        logger.info("[chat_ws][prompt-budget] %s", _budget.as_log_fields())
         msgs = _budget.messages
 
         # ── Phase 4: prior-Lori trip scope, decided by the BUDGET ───────
@@ -6587,6 +6661,62 @@ async def ws_chat(ws: WebSocket):
                 comm_control_dict = _cc_result.to_dict()
                 atomicity_failures = list(_cc_result.atomicity_failures)
                 reflection_failures = list(_cc_result.reflection_failures)
+
+                # ── REQUIREMENT L — one trace stage PER AUTHORITY ────
+                #
+                # Nine authorities (33, 34, 35, 37, 38, 39, 40, 41, 42)
+                # share this service and used to share one `comm_control`
+                # stage, so a trace could only say "comm_control fired".
+                # Phase 6 asks which intervention changed the response;
+                # that stage cannot answer it. Walt turn 5 had word
+                # truncation, reflection shaping, stub repair and the
+                # chain-anchor opener all firing on one turn.
+                #
+                # Each emits `cc_<id>_<name>` carrying selected,
+                # eligible, fired, result and before/after.
+                #
+                # ── AND IT MUST NOT BE INSIDE `if changed` ───────────
+                #
+                # It was, until 2026-09-21, which quietly undid the
+                # reason it exists. `lori_response_trace.stage()` says:
+                #
+                #     `fired=False` still records the stage — a layer
+                #     that ran and declined to change anything is
+                #     evidence, and its absence from the trace would be
+                #     indistinguishable from the layer not existing.
+                #
+                # Gating the emit on the COMBINED result meant a turn
+                # nothing mutated recorded no authorities at all. The
+                # paired transcript could say the delivered text equals
+                # the generated text — true — while showing an empty
+                # authority table, which reads as "no guard ran" and is
+                # not the same claim. Measured on the ZZ captures: every
+                # unchanged turn had zero rows, and so did a turn changed
+                # by `era_fragment_repair`, because THAT is not
+                # comm_control.
+                #
+                # A validator that ran and passed is exactly the finding
+                # this instrument was built to show. Observation is now
+                # unconditional; execution is untouched, and `final_text`
+                # is not read here, so moving it cannot alter delivery.
+                for _ar in getattr(_cc_result, "authority_records", []):
+                    try:
+                        _rt.stage(
+                            f"cc_{_ar['id']:02d}_{_ar['name']}",
+                            fired=bool(_ar.get("fired")),
+                            before=_ar.get("before"),
+                            after=_ar.get("after"),
+                            reason={
+                                "authority_id": _ar.get("id"),
+                                "selected": _ar.get("selected"),
+                                "eligible": _ar.get("eligible"),
+                                "result": _ar.get("result", ""),
+                            },
+                            trace_id=_rt_id,
+                        )
+                    except Exception:
+                        pass
+
                 if _cc_result.changed:
                     logger.warning(
                         "[chat_ws][comm_control] changed=True conv=%s "
@@ -6600,43 +6730,22 @@ async def ws_chat(ws: WebSocket):
                         _cc_result.word_count,
                     )
                     final_text = _cc_result.final_text
-                    # ── REQUIREMENT L — one trace stage PER AUTHORITY ──
-                    #
-                    # Nine authorities (33, 34, 35, 37, 38, 39, 40, 41,
-                    # 42) share this service and used to share one
-                    # `comm_control` stage, so a trace could only say
-                    # "comm_control fired". Phase 6 asks which
-                    # intervention changed the response; that stage
-                    # cannot answer it. Walt turn 5 had word truncation,
-                    # reflection shaping, stub repair and the chain-anchor
-                    # opener all firing on one turn.
-                    #
-                    # Each now emits `cc_<id>_<name>` carrying selected,
-                    # eligible, fired, result and before/after. The
-                    # parent `comm_control` stage stays for readability
-                    # and for the existing consumers of its reason dict.
-                    for _ar in getattr(_cc_result, "authority_records", []):
-                        try:
-                            _rt.stage(
-                                f"cc_{_ar['id']:02d}_{_ar['name']}",
-                                fired=bool(_ar.get("fired")),
-                                before=_ar.get("before"),
-                                after=_ar.get("after"),
-                                reason={
-                                    "authority_id": _ar.get("id"),
-                                    "selected": _ar.get("selected"),
-                                    "eligible": _ar.get("eligible"),
-                                    "result": _ar.get("result", ""),
-                                },
-                                trace_id=_rt_id,
-                            )
-                        except Exception:
-                            pass
-                    _rt_ck("comm_control", {
-                        "failures": list(_cc_result.failures or []),
-                        "atomicity": list(_cc_result.atomicity_failures or []),
-                        "reflection": list(_cc_result.reflection_failures or []),
-                    })
+
+                # The parent `comm_control` span, recorded on EVERY turn
+                # for the same reason as the per-authority rows above.
+                # It stays for readability and for the existing consumers
+                # of its reason dict.
+                #
+                # This call, unlike the loop, MUST sit after the possible
+                # `final_text` assignment: `_rt_ck` derives `fired` by
+                # comparing the running text to this stage's output, so
+                # running it earlier would record every changed turn as
+                # unchanged — replacing one false negative with another.
+                _rt_ck("comm_control", {
+                    "failures": list(_cc_result.failures or []),
+                    "atomicity": list(_cc_result.atomicity_failures or []),
+                    "reflection": list(_cc_result.reflection_failures or []),
+                })
                 # WO-LORI-REFLECTION-02 — emit a dedicated reflection-
                 # shape log line whenever the shaper rewrote the turn.
                 # Easier to grep than parsing the comm_control failures

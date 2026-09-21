@@ -363,29 +363,72 @@ _PRE_PIVOT_QUESTION_RX = re.compile(
 _PROPER_NOUN_RX = re.compile(r"(?<![.!?]\s)(?<!^)\b([A-Z][a-z]{2,})\b")
 
 
+# ── THE SHAPE OF AN EXPENDABLE OPENER ───────────────────────────────
+#
+# These are the clauses Case B was written for: Lori speculating about
+# how the narrator felt, before asking her question. Deleting one is a
+# gain. Every stem here is either a golfball fixture or a phrase the
+# prompt's own FORBIDDEN ECHO FORMS list already names.
+_EMPATHIC_OPENER_RX = re.compile(
+    r"^\s*(?:"
+    r"i\s+can\s+imagine|i\s+imagine|i\s+can\s+see\s+(?:how|that|why)|"
+    r"i\s+bet|i'?m\s+sure|"
+    r"that\s+(?:sounds|seems|must\s+have|would\s+have|looks)|"
+    r"it\s+(?:sounds|seems|must\s+have|would\s+have)|"
+    r"this\s+(?:sounds|seems)|"
+    r"how\s+(?:wonderful|lovely|difficult|hard|interesting)|"
+    r"what\s+a\s+\w+\s+(?:time|thing|experience|story)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
 def _carries_information(pre_pivot: str) -> bool:
     """Would discarding this clause lose something the narrator wanted?
 
-    An empathic opener has none of these. An answer has at least one.
+    ── THE DEFAULT IS "YES", AND THAT IS THE WHOLE DESIGN ──────────
+    The first version asked the opposite question — is this clause
+    informative? — and answered it with positive signals: a second
+    sentence, a digit, a proper noun, a question of its own. It
+    therefore protected NAMED facts and deleted ordinary ones:
+
+        "Your mother was a teacher, or would you like to tell me more?"
+            -> "Would you like to tell me more?"
+        "He was a foreman, or shall we stay with what is there?"
+            -> "Shall we stay with what is there?"
+
+    Both are the commonest shape a biography answer takes, and every
+    fixture in the suite happened to contain a name or a date, so it
+    passed and told me nothing.
+
+    The asymmetry decides it. A false positive here costs one sentence
+    of Lori's prose surviving a turn it might not have needed to. A
+    false negative deletes an answer, leaves a grammatical question
+    behind, and nothing downstream can see that anything went missing.
+    So the clause is KEPT unless it is recognisably an opener, rather
+    than kept only when it can be proven informative.
     """
     s = (pre_pivot or "").strip()
     if not s:
         return False
-    # More than one sentence: not a single opener.
+
+    # Positive signals still short-circuit. A clause carrying a name, a
+    # date or its own question is informative even if it opens with a
+    # pleasantry — "I can imagine 1951 was hard" is not expendable.
     if len([p for p in re.split(r"[.!?]+\s+", s) if p.strip()]) > 1:
         return True
-    # A digit — a date, an age, a count.
     if any(ch.isdigit() for ch in s):
         return True
-    # A named thing, not merely the sentence's first word or "I".
     for m in _PROPER_NOUN_RX.finditer(s):
         if m.group(1) != "I":
             return True
-    # Lori already asked something here. The post-pivot is then the
-    # SECOND question, and the second question is what atomicity is for.
     if _PRE_PIVOT_QUESTION_RX.search(s):
         return True
-    return False
+
+    # Otherwise: expendable ONLY if it reads as one of the known
+    # openers. Anything else — including a plain factual predicate with
+    # no name and no date — is preserved.
+    return not _EMPATHIC_OPENER_RX.match(s)
 
 
 def _attempt_truncation(text: str) -> str:

@@ -63,6 +63,38 @@ INTERROGATIVE_RX = re.compile(
 
 PREFIX = "Can you tell me about "
 
+#: Sentence boundaries, for the multi-sentence check below.
+_SENTENCE_SPLIT_RX = re.compile(r"(?<=[.!?])\s+")
+
+
+def _is_single_fragment(stripped: str) -> bool:
+    """One sentence, not a reply that already says something.
+
+    ── THE DEFECT THIS CLOSES, MEASURED 2026-09-21 ─────────────────
+
+    Every test above inspects only the START of the whole string, so a
+    reply made of two sentences was read as one dangling fragment:
+
+        generated: "Your mom. What do you remember about her?"
+        delivered: "Can you tell me about your mom. What do you
+                    remember about her?"
+
+    The first sentence is a statement opener; the second is already a
+    well-formed question. There was no fragment to repair, and the
+    repair converted a statement into a second request — on a turn
+    where the narrator had asked HER a question.
+
+    The registry already recorded this shape as known harm for
+    authority 44 — "Walt turn 2: prepended 'Can you tell me about' to a
+    reply that already read as a statement" — without it being narrowed.
+
+    The rule 44 exists for is a SINGLE noun-phrase fragment ending in a
+    question mark: "The conversations you had together back then?"
+    That is one sentence, and stays repaired. A reply carrying a second
+    sentence is not that, whatever its first three words look like.
+    """
+    return len([p for p in _SENTENCE_SPLIT_RX.split(stripped) if p.strip()]) == 1
+
 
 def era_fragment_repair(final_text: Optional[str], *,
                         selected: bool) -> Tuple[str, bool, str]:
@@ -87,6 +119,7 @@ def era_fragment_repair(final_text: Optional[str], *,
     stripped = text.strip()
     if not (stripped
             and stripped.endswith("?")
+            and _is_single_fragment(stripped)
             and OPENER_RX.match(stripped)
             and not MAIN_VERB_RX.match(stripped)
             and not INTERROGATIVE_RX.match(stripped)):

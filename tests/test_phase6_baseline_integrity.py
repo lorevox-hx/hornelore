@@ -52,21 +52,45 @@ except Exception as exc:                                    # pragma: no cover
 TURN_10 = "The seventies - that's a good starting point. What month and day were you born, then?"
 
 #: Shapes the detector is meant to catch (registry id 44 "purpose").
+#: Each is ONE noun-phrase fragment ending in a question mark.
 FRAGMENTS = [
     "The conversations you had together back then?",
     "The reflections that came as you looked back on your life?",
     "Your favorite memory from that time?",
     "Those Sunday drives up to the pond?",
-    TURN_10,
 ]
 
 #: Shapes it must leave alone.
+#:
+#: TURN_10 MOVED HERE 2026-09-21, and the move is the point rather than
+#: bookkeeping. It is two sentences — a complete statement, then a
+#: complete question — and 44 read it as a dangling fragment because
+#: every test it applies inspects only the first three words of the
+#: whole string. Repairing it produces exactly the harm the registry
+#: already records against this authority:
+#:
+#:     Walt turn 2: prepended "Can you tell me about" to a reply that
+#:     already read as a statement.
+#:
+#: Measured again on the ZZ capture the same day: "Your mom. What do
+#: you remember about her?" was delivered as "Can you tell me about
+#: your mom. What do you remember about her?" — a statement turned into
+#: a second request, on a turn where the narrator had asked HER a
+#: question.
+#:
+#: It stays in this file because the counterfactual property it was
+#: added for — OFF must never empty a reply — is asserted over
+#: FRAGMENTS + NOT_FRAGMENTS, so nothing is lost by listing it on the
+#: correct side.
 NOT_FRAGMENTS = [
     "That was a special time, wasn't it?",
     "The book is on the table?",
     "What was your mother like?",
     "Tell me about the quarry.",
     "I can imagine that was quite a route.",
+    TURN_10,
+    # The ZZ capture, 2026-09-21.
+    "Your mom. What do you remember about her?",
 ]
 
 

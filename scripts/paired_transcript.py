@@ -128,6 +128,27 @@ NOT_CAPTURED = "NOT CAPTURED"
 NEVER_GENERATED = "NEVER GENERATED"
 
 
+def _stage_to_authority() -> Dict[str, Any]:
+    """`trace_stage` -> Intervention, for stages outside comm_control.
+
+    The renderer named `cc_<id>_<name>` rows by authority and printed
+    everything else as a bare stage label. So `profile_seed_delivery`
+    — which discarded Lori's answer on five of twelve turns in the
+    2026-09-21 rich capture — appeared as a stage name, and a reader
+    had to already know it was authority 54 to look up its policy,
+    its known harm or its switch.
+
+    The registry carries `trace_stage` on each intervention precisely
+    so this mapping does not have to be maintained twice.
+    """
+    try:
+        from api.services import lori_guard_registry as reg
+        return {i.trace_stage: i for i in reg.all_interventions()
+                if getattr(i, "trace_stage", "")}
+    except Exception:
+        return {}
+
+
 def _registry() -> Dict[int, Any]:
     """id -> Intervention, for display name, class and canonical default.
 
@@ -233,6 +254,52 @@ def other_stages(rec: Dict[str, Any]) -> List[Dict[str, Any]]:
     return out
 
 
+def budget_lines(rec: Dict[str, Any]) -> List[str]:
+    """What this turn's prompt cost, and what it had to give up.
+
+    A kept section is not evidence that the answer was available. It is
+    evidence that the SECTION was. These lines exist so a poor answer
+    can be attributed to a missing fact, a dropped section, a bad
+    selection or a post-generation guard — the four causes — instead of
+    to whichever one is easiest to assume.
+
+    `reason` is the field to read, not `fits`: `fits=True` covers a turn
+    where nothing was shed, one where old conversation went, and one
+    where Lori's own sections went to make room.
+    """
+    b = (rec.get("context") or {}).get("prompt_budget")
+    if not isinstance(b, dict):
+        return []
+    out: List[str] = []
+    tokens, limit = b.get("tokens"), b.get("limit")
+    head = "  PROMPT   %s / %s tokens" % (tokens, limit)
+    if isinstance(tokens, int) and isinstance(limit, int):
+        head += "   headroom %d" % (limit - tokens)
+    head += "   reason=%s" % (b.get("reason") or "?")
+    out.append(head)
+    out.append("           conversation turns kept %s, shed %s"
+               % (b.get("kept_turns"), b.get("dropped_turns")))
+
+    secs = b.get("sections") or []
+    if not secs:
+        out.append("           per-section accounting NOT RECORDED for this "
+                   "turn (trace predates it)")
+        out.append("")
+        return out
+
+    total = sum(int(s.get("tokens") or 0) for s in secs)
+    kept = sum(int(s.get("tokens") or 0) for s in secs if s.get("kept"))
+    out.append("           sections offered %d tokens, kept %d" % (total, kept))
+    for s in sorted(secs, key=lambda x: -int(x.get("tokens") or 0)):
+        out.append("             %-26s %-5s %6d  %s" % (
+            str(s.get("name"))[:26],
+            "keep" if s.get("kept") else "DROP",
+            int(s.get("tokens") or 0),
+            "#" * max(1, int(s.get("tokens") or 0) // 90)))
+    out.append("")
+    return out
+
+
 def _fmt(text: str, indent: str = "      ", width: int = 74) -> str:
     text = (text or "").strip()
     if not text:
@@ -292,6 +359,8 @@ def render(records: List[Dict[str, Any]], registry: Dict[int, Any],
         add("  NARRATOR")
         add(_fmt(_narrator_input(rec)))
         add("")
+        for line in budget_lines(rec):
+            add(line)
 
         if outcome == NEVER_GENERATED:
             add(f"  TERMINAL OUTCOME : {rec.get('terminal_outcome')}")
@@ -358,9 +427,20 @@ def render(records: List[Dict[str, Any]], registry: Dict[int, Any],
             add(_fmt(r["after"], indent="        "))
             add("")
 
+        _by_stage = _stage_to_authority()
         for st in other_stages(rec):
-            add("  ── stage %s CHANGED THE TEXT   %+d words"
-                % (st.get("stage"), st.get("words_delta") or 0))
+            name = str(st.get("stage") or "")
+            meta = _by_stage.get(name)
+            if meta is not None:
+                add("  ── #%s %s (%s) CHANGED THE TEXT   %+d words"
+                    % (meta.id, name, meta.cls, st.get("words_delta") or 0))
+                if getattr(meta, "known_harm", ""):
+                    add("     registry known harm: %s"
+                        % meta.known_harm.split(".")[0][:150])
+            else:
+                add("  ── stage %s CHANGED THE TEXT   %+d words   "
+                    "(no registered authority)"
+                    % (name, st.get("words_delta") or 0))
             add("     reason: %s" % json.dumps(st.get("reason")))
             add("     before:")
             add(_fmt(st.get("before") or "", indent="        "))

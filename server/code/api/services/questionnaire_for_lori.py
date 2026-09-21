@@ -556,7 +556,23 @@ def detail_for(facts: List[Dict[str, Any]], user_text: str,
 
     # Relationship words the narrator is likely to use, mapped to what
     # the questionnaire calls them. "mom" is not a value in any field.
-    RELATION_WORDS = {
+    # ── PLURALS. "siblings" IS NOT "sibling". ───────────────────────
+    #
+    # This map was singular-only, and the consequence was the live
+    # failure that went unexplained for two sessions:
+    #
+    #   narrator : "and my dad and siblings"
+    #   matched  : dad -> father.     siblings -> NOTHING.
+    #   delivered: an answer about the father, and no mention of them.
+    #
+    # Twice, in two separate captures, read as "she chose not to address
+    # the siblings". She was never given them. A narrator saying
+    # "brothers and sisters" retrieved nothing at all, because both are
+    # plural too.
+    #
+    # Generated rather than listed, so the next word added cannot ship
+    # with only one of its forms.
+    _BASE = {
         "mom": "mother", "mum": "mother", "mother": "mother", "ma": "mother",
         "dad": "father", "father": "father", "pa": "father",
         "grandma": "grandmother", "grandmother": "grandmother",
@@ -565,25 +581,93 @@ def detail_for(facts: List[Dict[str, Any]], user_text: str,
         "brother": "brother", "sister": "sister", "sibling": "sibling",
         "wife": "spouse", "husband": "spouse", "spouse": "spouse",
         "son": "son", "daughter": "daughter", "child": "child",
-        "parents": "parent", "grandparents": "grandparent",
+        "parent": "parent", "grandparent": "grandparent",
     }
-    wanted = {v for k, v in RELATION_WORDS.items() if f" {k} " in text}
+    RELATION_WORDS = dict(_BASE)
+    for _k, _v in _BASE.items():
+        RELATION_WORDS.setdefault(_k + "s", _v)
+        if _k.endswith("y"):
+            RELATION_WORDS.setdefault(_k[:-1] + "ies", _v)
+    RELATION_WORDS.setdefault("children", "child")
+    RELATION_WORDS.setdefault("kids", "child")
+    RELATION_WORDS.setdefault("folks", "parent")
 
-    hits: List[Dict[str, Any]] = []
-    for f in stories:
+    wanted = {v for k, v in RELATION_WORDS.items() if f" {k} " in text}
+    # "siblings" and "brothers and sisters" mean the same shelf.
+    if {"sibling", "brother", "sister"} & wanted:
+        wanted |= {"sibling", "brother", "sister"}
+    if "parent" in wanted:
+        wanted |= {"mother", "father"}
+
+    def _matches(f) -> Optional[str]:
+        """The SUBJECT this fact belongs to, or None. One subject per
+        fact, so a multi-part question can be shown to cover each."""
         label = (f.get("entry_label") or "").lower()
         section = f["section"].lower()
-        # A name the narrator typed, e.g. "Janice" or "Peter".
-        named = any(len(w) > 2 and f" {w} " in text
-                    for w in _norm(label).split())
-        related = any(rel in label or rel in section
-                      or (rel in ("parent", "grandparent") and section.startswith(rel))
-                      for rel in wanted)
-        if named or related:
-            hits.append(f)
+        for w in _norm(label).split():
+            if len(w) > 2 and f" {w} " in text:
+                return f.get("entry_label") or section
+        for rel in wanted:
+            if rel in label or rel in section or section.startswith(rel):
+                return f.get("entry_label") or section
+        return None
 
-    if not hits:
+    # ── GROUPED BY SUBJECT, NOT A FLAT LIST ─────────────────────────
+    #
+    # "dad and siblings" is a request about TWO things. A flat list
+    # filled in fact order spends the whole character budget on
+    # whichever came first — here the father, whose entry is long — and
+    # the second subject is silently absent. Round-robin instead, so
+    # every subject the narrator named gets shown before any subject
+    # gets a second field.
+    by_subject: Dict[str, List[Dict[str, Any]]] = {}
+    for f in stories:
+        subj = _matches(f)
+        if subj:
+            by_subject.setdefault(subj, []).append(f)
+
+    if not by_subject:
         return ""
+
+    # ── THE FIELD THEY ASKED FOR GOES FIRST ─────────────────────────
+    #
+    # Asked for his mother's NOTABLE LIFE EVENTS, Lori returned her
+    # occupation. The events were on record and in a field the cap never
+    # reached. Naming a field is a strong signal and it was not read at
+    # all.
+    _FIELD_CUES = {
+        "notableLifeEvents": ("notable life event", "life event",
+                              "notable event", "what happened to",
+                              "what did she do", "what did he do"),
+        "memorableStories": ("story", "stories", "anecdote"),
+        "memorableStory": ("story", "stories", "anecdote"),
+        "notableEvents": ("notable event", "life event", "service",
+                          "what happened"),
+        "firstMemory": ("first memory", "earliest memory"),
+        "traditions": ("tradition", "custom"),
+        "culturalBackground": ("culture", "cultural", "background"),
+        "notes": (),
+    }
+    asked_fields = {fld for fld, cues in _FIELD_CUES.items()
+                    if any(c in text for c in cues)}
+    for subj in by_subject:
+        by_subject[subj].sort(
+            key=lambda f: (0 if f["field"] in asked_fields else 1,
+                           -len(f["value"] or "")))
+
+    hits: List[Dict[str, Any]] = []
+    order = list(by_subject)
+    rank = 0
+    while True:
+        added = False
+        for subj in order:
+            bucket = by_subject[subj]
+            if rank < len(bucket):
+                hits.append(bucket[rank])
+                added = True
+        if not added:
+            break
+        rank += 1
 
     # ANSWER-FIRST, AND THE PROMPT SAYS ONLY THAT.
     #
