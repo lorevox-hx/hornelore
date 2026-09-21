@@ -4524,6 +4524,51 @@ def _reads_as_uncertainty(value: str) -> bool:
     return not any(ch.isdigit() for ch in value)
 
 
+# ── A RELATIONSHIP WORD IS NOT A NAME ───────────────────────────────
+#
+# Observed live 2026-09-21. Chris typed four words —
+#
+#     "and my dad and siblings"
+#
+# — and extraction proposed BOTH of these as candidates:
+#
+#     parents.relation = "Father"      (defensible)
+#     parents.lastName = "Siblings"    (not a surname)
+#
+# `candidate_only` kept it out of his record and the review guard would
+# have refused it, so nothing was damaged. But a name field holding a
+# kinship word is decidable without a person, in the same way a date
+# field holding "exact dates unknown" was, and the same argument
+# applies: a candidate that cannot be right should not cost somebody a
+# review decision.
+#
+# Deliberately narrow. Only NAME-shaped fields, only these words, and
+# only as the WHOLE value — a real surname Sibling or Mother is not
+# hypothetical, and "Mary Mother Jones" keeps its middle name.
+_NAME_FIELD_SUFFIXES = ("firstname", "lastname", "middlename", "maidenname",
+                        "preferredname", "fullname", "name")
+
+_KINSHIP_WORDS = frozenset({
+    "sibling", "siblings", "brother", "brothers", "sister", "sisters",
+    "parent", "parents", "mother", "father", "mom", "mum", "dad",
+    "grandparent", "grandparents", "grandmother", "grandfather",
+    "grandma", "grandpa", "child", "children", "son", "sons",
+    "daughter", "daughters", "spouse", "wife", "husband", "cousin",
+    "cousins", "aunt", "uncle", "niece", "nephew", "stepmother",
+    "stepfather", "stepbrother", "stepsister", "family", "relatives",
+})
+
+
+def _is_name_field(base_path: str) -> bool:
+    leaf = (base_path or "").rsplit(".", 1)[-1].lower()
+    return any(leaf.endswith(s) for s in _NAME_FIELD_SUFFIXES)
+
+
+def _reads_as_kinship_word(value: str) -> bool:
+    """True when a NAME field's whole value is a relationship word."""
+    return " ".join(str(value or "").lower().split()).strip(".,;:!?") in _KINSHIP_WORDS
+
+
 def _validate_item(item: Any) -> Optional[dict]:
     """Validate and normalize a single extraction item."""
     if not isinstance(item, dict):
@@ -5051,6 +5096,12 @@ def _validate_item(item: Any) -> Optional[dict]:
     # A field helper is a convenience, not a validator. The rejection has
     # to happen here, where the value can still be refused. An unknown
     # date is BLANK; the model saying so in prose is not an answer.
+    if _is_name_field(base_path) and _reads_as_kinship_word(val):
+        logger.info(
+            "[extract][KINSHIP-DROP] %s is a name field and the value is a "
+            "relationship word, not a name: %r", base_path, val[:60])
+        return None
+
     if _is_date_field(base_path) and _reads_as_uncertainty(val):
         logger.info(
             "[extract][UNCERTAINTY-DROP] %s is a date field and the value is "
@@ -5555,9 +5606,28 @@ def _apply_field_value_sanity(items: List[dict]) -> List[dict]:
         almost always a place-fragment leak ('Stanley, ND' → lastName=ND)
       - any *.firstName field whose value is a pronoun, article, possessive,
         relation-word, or stopword is a token-split artifact ('and', 'mom')
+      - any NAME field whose whole value is a kinship word ('Siblings')
 
     Applied on both LLM and rules paths. Tactical — real fix is the claims
     layer (WO-CLAIMS-01).
+
+    ── WHY THE KINSHIP RULE MOVED HERE ─────────────────────────────────
+    It was added to `_validate_item` first, which the LLM path calls and
+    the RULES FALLBACK DOES NOT. So it sat one function away from the
+    turn that motivated it and never ran. Live, 2026-09-21:
+
+        [extract] LLM extraction returned no items, falling back to rules
+        [extract][WO-EX-01D] dropping parents.firstName='and' (stopword)
+        [extract][R4-H] normalise parents.lastName: 'siblings' → 'Siblings'
+
+    Two lines apart: the sanity filter catching one fragment from the
+    same sentence while the kinship guard, in the other function, caught
+    nothing. "Siblings" reached the review panel as a proposed surname
+    for Chris's father.
+
+    This function is the one both paths call — its own first line has
+    said so since WO-EX-01D — so the rule belongs in it. A guard on a
+    path the failure does not take is not a guard.
     """
     out = []
     for it in items:
@@ -5584,6 +5654,21 @@ def _apply_field_value_sanity(items: List[dict]) -> List[dict]:
                 logger.info(
                     "[extract][WO-EX-01D] dropping %s=%r (stopword / relation / pronoun)",
                     fp, raw,
+                )
+            except Exception:
+                pass
+            continue
+
+        # A name field is for a NAME. "Siblings" is a relationship, and
+        # nobody's surname is the word for how they are related to you.
+        # Deliberately whole-value only: "Mother-Smith" is somebody's
+        # actual name and survives, as does `parents.relation='Father'`,
+        # which is not a name field at all.
+        if _is_name_field(fp) and _reads_as_kinship_word(raw):
+            try:
+                logger.info(
+                    "[extract][WO-EX-01D] dropping %s=%r (kinship word in a "
+                    "name field)", fp, raw,
                 )
             except Exception:
                 pass

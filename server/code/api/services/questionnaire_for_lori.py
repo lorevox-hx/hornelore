@@ -499,7 +499,7 @@ def render_for_prompt(facts: List[Dict[str, Any]], *, limit: int = 120,
 
 
 def detail_for(facts: List[Dict[str, Any]], user_text: str,
-               *, max_chars: int = 1800) -> str:
+               *, max_chars: int = 1800, recent_text: str = "") -> str:
     """The longer answers about whoever the narrator just asked about.
 
     The default block carries facts and signposts the stories. This is
@@ -524,7 +524,35 @@ def detail_for(facts: List[Dict[str, Any]], user_text: str,
     if not stories or not (user_text or "").strip():
         return ""
 
-    text = " " + " ".join(str(user_text).lower().split()) + " "
+    # PUNCTUATION AND PRONOUNS, both learned the hard way.
+    #
+    # Measured against the real transcript, 2026-09-21:
+    #
+    #   "What can you tell me about my mom?"            -> NOTHING
+    #   "can you tell me about her notable life events"  -> NOTHING
+    #
+    # The first because the token is "mom?" and the match was on " mom ";
+    # I had verified with "…about my mom" — a string I typed myself,
+    # without the punctuation a person actually uses. The second because
+    # "her" is a pronoun and the matcher only knew nouns.
+    #
+    # A follow-up question is the NORMAL shape of this conversation. Ask
+    # about your mother, then ask "what about her school years" — if
+    # that retrieves nothing, the feature only works for people who
+    # repeat the noun every time.
+    def _norm(s: str) -> str:
+        out = []
+        for ch in str(s or "").lower():
+            out.append(ch if (ch.isalnum() or ch.isspace()) else " ")
+        return " " + " ".join("".join(out).split()) + " "
+
+    text = _norm(user_text)
+    # Pronouns carry the subject forward from what was just said. The
+    # caller supplies the preceding turns; without them a pronoun simply
+    # matches nothing, which is the old behaviour rather than a guess.
+    if any(f" {p} " in text for p in ("her", "hers", "him", "his", "they",
+                                      "them", "their", "she", "he")):
+        text = text + _norm(recent_text)
 
     # Relationship words the narrator is likely to use, mapped to what
     # the questionnaire calls them. "mom" is not a value in any field.
@@ -547,7 +575,7 @@ def detail_for(facts: List[Dict[str, Any]], user_text: str,
         section = f["section"].lower()
         # A name the narrator typed, e.g. "Janice" or "Peter".
         named = any(len(w) > 2 and f" {w} " in text
-                    for w in label.replace("·", " ").split())
+                    for w in _norm(label).split())
         related = any(rel in label or rel in section
                       or (rel in ("parent", "grandparent") and section.startswith(rel))
                       for rel in wanted)
@@ -557,12 +585,29 @@ def detail_for(facts: List[Dict[str, Any]], user_text: str,
     if not hits:
         return ""
 
+    # ANSWER-FIRST, AND THE PROMPT SAYS ONLY THAT.
+    #
+    # This block used to instruct: "do not read it back as a speech —
+    # use it to ask a better question". She obeyed it exactly. Asked for
+    # his mother's notable life events, with the material in front of
+    # her, she replied "What comes to mind when you think about your
+    # mom's experiences?" A person who asks what is in their own
+    # biography and gets interviewed instead has been refused.
+    #
+    # The explanation lives HERE, in a comment, and not in the prompt.
+    # An earlier fix quoted the old instruction inside the block so a
+    # future reader would understand — which put the exact sentence
+    # "use it to ask a better question" back in front of the model as
+    # text it could follow. A prompt is not a changelog.
     out: List[str] = [
         "WHAT IS ON RECORD ABOUT THE PERSON THEY JUST ASKED ABOUT",
-        "  Retrieved because their message named them. Same rule as the "
-        "biography above: you KNOW this, you did not HEAR it. Do not say "
-        "they told you, and do not read it back as a speech — use it to ask "
-        "a better question.",
+        "  THEY ASKED. ANSWER THEM from what follows, before you ask "
+        "anything back. Give them the substance, not a prompt to supply "
+        "it themselves.",
+        "  Say where it came from — 'your biography has…' — and never "
+        "imply they told you: you KNOW this, you did not HEAR it. Once "
+        "you have answered, you may ask about the part that is not "
+        "written down.",
     ]
     used = 0
     for f in hits:

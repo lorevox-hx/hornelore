@@ -681,9 +681,28 @@ class SectionClassificationTest(unittest.TestCase):
     # `test_every_section_is_classified_one_way_or_the_other` failed on it.
     # Registering a new section here is not bookkeeping -- it is the step
     # that forces the drop decision to be made deliberately.
+    # `saved_biography` (35) and `saved_biography_detail` (38) joined on
+    # 2026-09-21 (WO-QUESTIONNAIRE-REACHES-LORI-01). Both droppable, and
+    # the order is the opposite of the intuition:
+    #
+    # The biography is re-read from storage on the next composition, so
+    # dropping it costs this turn and nothing after it. That puts it
+    # BELOW every section whose loss is cumulative. It sits above
+    # `ui_context` and `pinned_facts` only because a narrator asking
+    # about their mother and being asked back is a visible failure.
+    #
+    # `saved_biography_detail` is the retrieval for the person the
+    # narrator just named, and it is dropped LAST of the two on purpose:
+    # it answers the question actually asked, so under pressure it is
+    # worth more than the standing summary it accompanies.
+    #
+    # This inventory caught both of them missing — they were registered
+    # in the policy and in neither set here, and the classification test
+    # failed until this entry existed. That is the inventory working.
     DROPPABLE = {"memory_context": 5, "factual_chain": 10,
                  "english_first": 20, "approved_stories": 25,
-                 "ui_context": 30, "pinned_facts": 40}
+                 "ui_context": 30, "saved_biography": 35,
+                 "saved_biography_detail": 38, "pinned_facts": 40}
 
     def test_lori_can_never_lose_her_identity_or_her_discipline(self):
         for name in self.REQUIRED:

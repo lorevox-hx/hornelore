@@ -311,6 +311,83 @@ def _find_first_pivot(text: str) -> int:
     return earliest
 
 
+# ── Does the pre-pivot clause carry information? ────────────────────
+#
+# BUG-LORI-ATOMICITY-DISCARDS-THE-ANSWER-01 (2026-09-21).
+#
+# Case B below assumes the clause before the pivot is Lori editorialising,
+# so deleting it is a gain. That is true of the clause it was built for —
+# "I can imagine that must have been a thrilling experience for you" — and
+# catastrophic when the same position holds her ANSWER.
+#
+# Measured live, ZZ synthetic narrator, canonical production config,
+# 2026-09-21. Narrator turn: "and my dad".
+#
+#   generated: 45 words — two named facts about his father, a check that
+#              she had understood, and one question
+#   delivered: 4 words — the tail of that question, alone
+#
+# The generated text is NOT reproduced here. It had picked up details
+# belonging to a real family member from a prompt example, and quoting
+# it in a tracked file would be one more copy of exactly the material
+# this repository is removing. The paired transcript under .runtime/
+# holds the turn; .runtime/ is gitignored.
+#
+# 45 words to four, and the four that survived are the ones carrying no
+# information. The grammar guard accepted it because it ends in '?', and
+# the 3-word floor did not fire because it is four words long. Nothing
+# downstream could tell that an answer had been deleted.
+#
+# The registry already recorded this mechanism as a known harm of this
+# authority — "Walt turn 4: removed the clause naming his father, leaving
+# the delivered question 'How did you see him at that time?' with no
+# referent for 'him'" — without connecting it to answer loss.
+#
+# WHY NOT "ONLY PROTECT ANSWERS TO DIRECT QUESTIONS". That was the first
+# proposal and it is too narrow: Lori volunteers relevant facts while
+# interviewing, and those are worth exactly as much as a fact she was
+# asked for. The test is whether the clause carries information, not what
+# prompted it.
+#
+# FOUR SIGNALS, ANY ONE OF THEM. Deliberately coarse and deliberately
+# biased towards keeping text: the cost of a false positive here is one
+# sentence of Lori's prose surviving a turn, and the cost of a false
+# negative is a deleted answer nobody can see was deleted.
+_PRE_PIVOT_QUESTION_RX = re.compile(
+    r"(?:^|[.!?]\s+)"
+    r"\b(?:what|when|where|who|why|how|which|did|do|does|were|was|is|are|"
+    r"can|could|would|will|tell|share)\b",
+    re.IGNORECASE,
+)
+
+_PROPER_NOUN_RX = re.compile(r"(?<![.!?]\s)(?<!^)\b([A-Z][a-z]{2,})\b")
+
+
+def _carries_information(pre_pivot: str) -> bool:
+    """Would discarding this clause lose something the narrator wanted?
+
+    An empathic opener has none of these. An answer has at least one.
+    """
+    s = (pre_pivot or "").strip()
+    if not s:
+        return False
+    # More than one sentence: not a single opener.
+    if len([p for p in re.split(r"[.!?]+\s+", s) if p.strip()]) > 1:
+        return True
+    # A digit — a date, an age, a count.
+    if any(ch.isdigit() for ch in s):
+        return True
+    # A named thing, not merely the sentence's first word or "I".
+    for m in _PROPER_NOUN_RX.finditer(s):
+        if m.group(1) != "I":
+            return True
+    # Lori already asked something here. The post-pivot is then the
+    # SECOND question, and the second question is what atomicity is for.
+    if _PRE_PIVOT_QUESTION_RX.search(s):
+        return True
+    return False
+
+
 def _attempt_truncation(text: str) -> str:
     """Truncate at the first pivot.
 
@@ -366,7 +443,33 @@ def _attempt_truncation(text: str) -> str:
             head += "."
         return head
 
-    # Case B: pre-pivot is a statement → keep post-pivot
+    # ── Case B, now gated on whether the pre-pivot says anything ────
+    #
+    # See `_carries_information`. Three outcomes, and two of them keep
+    # text that the old single branch deleted:
+    #
+    #   B1  informative AND already contains a question
+    #       -> keep the pre-pivot, drop the post-pivot. Atomicity is
+    #          satisfied by removing the SECOND question; the answer and
+    #          the first question both survive.
+    #
+    #   B2  informative, no question of its own
+    #       -> the text already asks exactly one question. There is no
+    #          cut that improves it, so LEAVE IT ALONE. Length and
+    #          reflection are other authorities' lanes; deleting a fact
+    #          here would be this rule doing their job badly.
+    #
+    #   B3  not informative (an empathic opener)
+    #       -> unchanged behaviour: keep the post-pivot. This is the
+    #          clause Case B was written for, and golfball turn 04 still
+    #          pins it.
+    if _carries_information(pre_pivot):
+        if _PRE_PIVOT_QUESTION_RX.search(pre_pivot):
+            head = pre_pivot.rstrip(".,;: ")
+            return head if head.endswith("?") else head + "?"
+        return text
+
+    # Case B3: pre-pivot is an uninformative opener → keep post-pivot
     lower = text.lower()
     post: str = ""
     for tok in _PIVOT_TOKENS:

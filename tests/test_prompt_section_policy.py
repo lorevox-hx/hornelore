@@ -71,6 +71,18 @@ _POST_ITEM_1_ADDITIONS = {
     # never trimmed: the walk asks one question per turn, and a dropped
     # section would mean Lori silently stops asking mid-onboarding.
     "profile_seed_onboarding": (True, 0),
+    # WO-QUESTIONNAIRE-REACHES-LORI-01, 2026-09-21. The saved
+    # questionnaire, read where the prompt is built rather than copied
+    # into a fifth store. Both droppable: the biography is re-read from
+    # storage next composition, so losing it costs one turn and nothing
+    # cumulative — unlike memory_context, which cannot be rebuilt.
+    #
+    # `saved_biography_detail` drops AFTER the summary it accompanies
+    # (38 > 35) because it holds the retrieval for the person the
+    # narrator just named. Under pressure, the answer to the question
+    # actually asked outranks the standing summary.
+    "saved_biography":        (False, 35),
+    "saved_biography_detail": (False, 38),
 }
 
 

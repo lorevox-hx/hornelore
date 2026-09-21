@@ -10,7 +10,9 @@ Three test classes:
 """
 from __future__ import annotations
 
+import sys
 import unittest
+from pathlib import Path
 
 from server.code.api.services.question_atomicity import (
     classify_atomicity,
@@ -240,6 +242,138 @@ class GolfballRegressionTests(unittest.TestCase):
         self.assertIn("or_speculation", failures)
         self.assertTrue(out.endswith("?"))
         self.assertNotIn(", or", out)
+
+
+class AnswerPreservationTests(unittest.TestCase):
+    """BUG-LORI-ATOMICITY-DISCARDS-THE-ANSWER-01.
+
+    Case B used to delete the clause before the pivot unconditionally.
+    When that clause was Lori's ANSWER, the narrator received the
+    pleasantry and lost the facts — and nothing downstream could see it,
+    because the survivor was a grammatical question of legal length.
+
+    THE SHAPES ARE LIVE, THE CONTENT IS NOT. The turns were captured
+    from the ZZ synthetic narrator on 2026-09-21 under the canonical
+    production configuration, via the shipped response trace: a 45-word
+    reply naming two facts about a father, delivered as four words.
+
+    The fixtures below reproduce the SHAPE with invented people and
+    places. The real generated text had picked up a living family
+    member's details from a prompt example, and a test file is a tracked
+    file — copying it here would be one more copy of the material this
+    repository is in the middle of removing. What made those turns
+    useful as fixtures was never whose life they described; it was that
+    a factual statement sat in front of the pivot.
+
+    The original real-record failure — an operator's own session, about
+    his mother — cannot be reproduced at all: tracing was off that day
+    and the generated text is not in the trace. Nothing here claims to
+    be that turn.
+    """
+
+    ZZ_DAD = ("Your dad. We've touched on his years at the Marrow Bay "
+              "boatyard and the winter you spent at your aunt's. I want "
+              "to make sure I understand correctly. Can you tell me a bit "
+              "more about your dad and what you remember about him?")
+
+    ZZ_MOM_EVENTS = ("Your mom's notable life events... What stands out to "
+                     "you about her life, or what would you like to share "
+                     "about her experiences?")
+
+    MOTHER_BIOGRAPHY = (
+        "That came from your biography, not from anything you told me in "
+        "our conversations. Your record lists your mother as Alda "
+        "Quillfeather, born in Marrow Bay. Would you like to share "
+        "something new about her, or shall we stay with what is there?")
+
+    def test_the_live_dad_turn_keeps_its_facts(self):
+        out, failures = enforce_question_atomicity(self.ZZ_DAD)
+        self.assertIn("request_plus_inquiry", failures)
+        self.assertIn("Marrow Bay boatyard", out)
+        self.assertIn("your aunt's", out)
+        self.assertNotEqual(out.strip(), "You remember about him?")
+
+    def test_the_live_dad_turn_still_asks_only_one_question(self):
+        """The rule's actual job is still done."""
+        out, _ = enforce_question_atomicity(self.ZZ_DAD)
+        self.assertEqual(out.count("?"), 1)
+
+    def test_an_answer_plus_its_own_question_drops_only_the_second(self):
+        out, failures = enforce_question_atomicity(self.ZZ_MOM_EVENTS)
+        self.assertIn("or_speculation", failures)
+        self.assertIn("notable life events", out)
+        self.assertIn("What stands out to you", out)
+        self.assertNotIn("or what would you like", out)
+        self.assertEqual(out.count("?"), 1)
+
+    def test_the_mother_biography_answer_survives(self):
+        """Names, places and provenance all reach the narrator."""
+        out, _ = enforce_question_atomicity(self.MOTHER_BIOGRAPHY)
+        for fragment in ("Alda Quillfeather", "Marrow Bay", "your biography"):
+            self.assertIn(fragment, out)
+        self.assertEqual(out.count("?"), 1)
+
+    def test_an_empathic_opener_is_still_discarded(self):
+        """The clause Case B was BUILT for keeps its old treatment.
+
+        This is the boundary of the repair. Widening it to 'never drop a
+        pre-pivot clause' would have been easier and would have undone
+        WO-LORI-QUESTION-ATOMICITY-01.
+        """
+        out, _ = enforce_question_atomicity(
+            "I can imagine that must have been a thrilling experience for "
+            "you, and what drew you to that role?")
+        self.assertEqual(out, "What drew you to that role?")
+
+    def test_carries_information_separates_the_two(self):
+        from server.code.api.services.question_atomicity import (
+            _carries_information)
+        self.assertFalse(_carries_information(
+            "I can imagine that was thrilling"))
+        self.assertFalse(_carries_information("that sounds lovely"))
+        self.assertTrue(_carries_information(
+            "Your record lists her as born in Spokane"))      # proper noun
+        self.assertTrue(_carries_information(
+            "she was born in 1939"))                          # digit
+        self.assertTrue(_carries_information(
+            "Your mom. What stands out to you"))              # own question
+        self.assertTrue(_carries_information(
+            "Your dad. He worked there."))                    # two sentences
+
+
+class CollectionGuardTests(unittest.TestCase):
+    """Nothing in this file may sit after `unittest.main()`.
+
+    Twenty-three tests have been lost to that mistake in this repository
+    across two separate files. The suite reported a number and meant it;
+    the number was simply smaller than the file.
+    """
+
+    def test_every_test_class_is_collected(self):
+        import inspect
+        mod = sys.modules[__name__]
+        defined = {n for n, o in inspect.getmembers(mod, inspect.isclass)
+                   if issubclass(o, unittest.TestCase)
+                   and o.__module__ == __name__}
+        loaded = unittest.defaultTestLoader.loadTestsFromModule(mod)
+        seen = set()
+
+        def walk(suite):
+            for t in suite:
+                if isinstance(t, unittest.TestSuite):
+                    walk(t)
+                else:
+                    seen.add(type(t).__name__)
+        walk(loaded)
+        self.assertEqual(defined - seen, set(),
+                         "test classes defined but never collected")
+
+    def test_nothing_follows_unittest_main(self):
+        src = Path(__file__).read_text(encoding="utf-8")
+        idx = src.rindex("unittest.main(")
+        tail = src[idx:]
+        self.assertNotIn("\nclass ", tail)
+        self.assertNotIn("\n    def test_", tail)
 
 
 if __name__ == "__main__":

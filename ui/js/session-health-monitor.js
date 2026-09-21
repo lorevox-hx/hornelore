@@ -263,10 +263,32 @@ window.lvSessionHealthMonitor = (function () {
       }
     }
     if ((stats.narrator_writes + stats.lori_writes) === 0) {
+      // ── IT SAYS WHAT IT MEASURES NOW ─────────────────────────────
+      //
+      // This read "No transcript turns yet", which is a claim about
+      // the RECORD. It is not what the number counts.
+      //
+      // `_stats` lives in archive-writer.js and is initialised at page
+      // load — `const _stats = { narrator_writes: 0, ... }`. It counts
+      // turns THIS TAB has written since it loaded, and nothing else.
+      //
+      // Observed 2026-09-21: an operator log reported "No transcript
+      // turns yet" for a session whose exported archive contained the
+      // full exchange. The page had been hard-reloaded mid-session, so
+      // the counter was zero and the transcript was not. A health
+      // report that says the record is empty when it is full is worse
+      // than no report, because it invites someone to go looking for
+      // lost data that was never lost.
+      //
+      // The honest statement is about the tab. Reading the real
+      // transcript would need a fetch this monitor does not currently
+      // make; until it does, it must not speak for the archive.
       return {
         status: "AMBER",
-        reason: "No transcript turns yet",
-        detail: "talk in the narrator session to start the transcript",
+        reason: "No turns written by this page yet",
+        detail: "counts writes since this tab loaded — a reload resets it "
+                + "and does NOT mean the transcript is empty. Check the "
+                + "session export for what is actually on record.",
       };
     }
     return { status: "GREEN", reason: null };

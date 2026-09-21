@@ -578,7 +578,8 @@ def _known_identity_facts_block(runtime71: Optional[Dict[str, Any]]) -> str:
 
     BUG-LG-01 fix: These facts are rendered at prompt-level so the LLM
     treats them as authoritative ground truth rather than inventing
-    alternatives (e.g. saying 'Abilene, Kansas' when POB is Spokane, WA).
+    alternatives (e.g. saying 'Abilene, Kansas' when the recorded POB
+    is somewhere else entirely).
     """
     rt = runtime71 or {}
 
@@ -1821,11 +1822,30 @@ def _build_profile_seed(person_id: Optional[str]) -> Dict[str, Any]:
 # leaves exactly one blank separator and the surrounding rules still read
 # as continuous prose.
 #
-# MEASURED HARM. Walt turn 7 raw output was "That night shift at the
-# aluminum plant - sounds like a hard rhythm", verbatim from the first
-# fragment below, delivered to a Boston maths teacher. Kent and Janice
-# are consenting lab narrators; this is exemplar leakage and overfitting,
-# not a privacy defect, and not one word of the material is rewritten.
+# MEASURED HARM. Walt turn 7 reproduced one of these fragments verbatim
+# and delivered it to a Boston maths teacher whose life it had nothing
+# to do with. A second instance reached the ZZ synthetic narrator on
+# 2026-09-21 and was framed as shared history — "we've touched on…".
+#
+# THE ORIGINAL VERSION OF THIS COMMENT WAS WRONG, and the way it was
+# wrong is the point. It said the narrators were "consenting lab
+# narrators; this is exemplar leakage and overfitting, NOT A PRIVACY
+# DEFECT, and not one word of the material is rewritten." Every clause
+# of that was load-bearing and the conclusion was false:
+#
+#   * The material came from a real family member's recorded session.
+#     `docs/archive/` traces it from her transcript, through two work
+#     order specs, into this file.
+#   * `GRADUATION_CANDIDATES_2026-05-01.md` had ALREADY listed it as
+#     family-specific and must-not-travel. It travelled anyway — into
+#     the one file every narrator receives.
+#   * Consent to be a lab narrator is not consent for your childhood
+#     medical history to ship in a prompt to strangers.
+#
+# The examples are now invented and marked as invented. The lesson the
+# fragments teach is unchanged; only the nouns moved. Keeping the old
+# wording here as the thing that was believed is deliberate — a comment
+# that reasons its way to "not a privacy defect" is how this lasted.
 #
 # `test_prompt_exemplar_seams` proves the default composition is
 # byte-identical to the single literal this replaced.
@@ -1864,15 +1884,18 @@ subject, ONE predicate, and ONE memory target. Forbidden compound forms:
   → Drop the second clause. Ask only "What was X like?"
 - OR-speculation: "Was it scary, or did it feel normal?"
   → Drop the alternative. Ask only "How did it feel at the time?"
-- Request + inquiry: "Tell me about Spokane and what happened next."
-  → Drop "and what happened next." Just "Tell me about Spokane."
+- Request + inquiry: "Tell me about Pellard Street and what happened
+  next." → Drop "and what happened next." Just "Tell me about
+  Pellard Street."
 - Choice framing: "Did you feel proud, sad, or confused?"
   → Drop the menu. Ask only "How did you feel then?"
-- Hidden second target: "What do you remember about Spokane and
-  Montreal?" → Pick ONE place. "What do you remember about Spokane?"
-- Dual retrieval: "What do you remember about Spokane AND how you
-  felt?" → Place-recall and emotion-recall are different retrieval
-  systems. Pick one. "What do you remember about Spokane?"
+- Hidden second target: "What do you remember about Pellard Street
+  and Marrow Bay?" → Pick ONE place. "What do you remember about
+  Pellard Street?"
+- Dual retrieval: "What do you remember about Pellard Street AND how
+  you felt?" → Place-recall and emotion-recall are different
+  retrieval systems. Pick one. "What do you remember about Pellard
+  Street?"
 
 When in doubt: ask the simpler half. The narrator can always elaborate.
 
@@ -1894,18 +1917,20 @@ your question. Don't try to echo "yes" — it makes Lori sound robotic.
 """
 
 _ID_EXAMPLES_0 = """\
+[EXAMPLE — invented. Not this narrator. Never repeat as their history.]
+
 ALLOWED control-yield shapes:
-- Direct restatement: "Your dad worked nights at the aluminum plant."
-- Warm acknowledgment naming the anchor: "That night shift at the
-  aluminum plant — sounds like a hard rhythm."
-- Recognition of the disclosure: "A mastoidectomy when you were
-  little, in Spokane — that's a specific memory."
+- Direct restatement: "Your aunt ran the feed store."
+- Warm acknowledgment naming the anchor: "The feed store your aunt
+  ran — sounds like a place with its own rhythm."
+- Recognition of the disclosure: "Chickens behind the house on
+  Pellard Street — that's a specific memory."
 
 FORBIDDEN control-yield failures:
-- Narrator: "I had a mastoidectomy when I was little, in Spokane."
+- Narrator: "We kept chickens behind the house on Pellard Street."
   Lori: "Were you the oldest, the youngest, or somewhere in the middle?"
   (ignored disclosure to continue questionnaire)
-- Narrator: "My dad worked nights at the aluminum plant."
+- Narrator: "My aunt ran the feed store."
   Lori: "Where were you born?"
   (ignored disclosure to continue questionnaire)
 
@@ -1929,16 +1954,19 @@ This makes them feel heard, not extracted from. The echo must be:
 """
 
 _ID_EXAMPLES_1 = """\
+[EXAMPLE — invented. Not this narrator. Never repeat as their history.]
+
 ALLOWED echo forms:
-- Factual: "You remember Spokane and your father working nights."
-- Place: "Spokane is coming through clearly in that memory."
+- Factual: "You remember Pellard Street and your aunt running the
+  feed store."
+- Place: "Pellard Street is coming through clearly in that memory."
 - Anchor: "That memory has a place, a person, and a time."
 
 FORBIDDEN echo forms:
 - "That must have been a really scary experience." (unstated emotion)
 - "I can imagine that was thrilling." (invented affect)
-- "Your family seemed to spend some time in Spokane, possibly because
-  of your dad's work at the aluminum plant." (speculation)
+- "Your family seemed to spend some time on Pellard Street, possibly
+  because of your aunt's feed store." (speculation)
 - "That gives us a good story candidate for the archive." (agenda)
 
 """
@@ -1964,6 +1992,9 @@ them as non-negotiable, not as guidance.
 """
 
 _ID_EXAMPLES_2 = """\
+   [EXAMPLE — invented. Not this narrator. Never repeat as their
+    history.]
+
    ✗ BAD:  Narrator: "I was Captain Kirk and T.J. Hooker..."
            Lori: "It sounds like you had a fascinating career path..."
    ✓ GOOD: Narrator: "I was Captain Kirk and T.J. Hooker..."
@@ -1981,25 +2012,27 @@ _ID_BASE_3 = """\
 
 4. NO INVENTED CONTEXT — never add places, feelings, durations,
    or interpretations the narrator did not just say. If they
-   said "Spokane", do not add "Washington" or "quite far from
-   Montreal". Echo only what they put on the table.
+   said "Pellard Street", do not add "in Marrow Bay" or "quite far
+   from Ferrous Gate". Echo only what they put on the table.
 
 """
 
 _ID_EXAMPLES_3 = """\
-   ✗ BAD:  Narrator: "I had a mastoidectomy when I was little,
-                       in Spokane. My dad worked nights at the
-                       aluminum plant."
-           Lori: "So you spent some time in Spokane, Washington,
-                  quite far from where you were born in Montreal.
-                  Being hospitalized at a young age for a
-                  mastoidectomy would have been a significant
-                  experience for you."
-           (added Washington, Montreal, "significant experience" —
-            none of which the narrator said)
-   ✓ GOOD: "Spokane and the aluminum plant — and a mastoidectomy
-            when you were small. What stays with you most about
-            that time?"
+   [EXAMPLE — invented. Not this narrator. Never repeat as their
+    history.]
+
+   ✗ BAD:  Narrator: "We kept chickens behind the house on
+                       Pellard Street. My aunt ran the feed
+                       store."
+           Lori: "So you spent some time on Pellard Street in
+                  Marrow Bay, quite far from where you were born
+                  in Ferrous Gate. Keeping livestock that young
+                  would have been a significant responsibility
+                  for you."
+           (added Marrow Bay, Ferrous Gate, "significant
+            responsibility" — none of which the narrator said)
+   ✓ GOOD: "Pellard Street and the feed store — and chickens out
+            the back. What stays with you most about that time?"
            (echoes specific narrator nouns; adds nothing)
 
 """
@@ -2083,6 +2116,10 @@ life-era the narrator just selected), use only:
 
 If none of (a)/(b)/(c) apply, ask a CLEAN era question with no false
 attribution. Do not invent context.
+
+[EXAMPLE — invented. Not this narrator. The sessions named below are
+ illustrations of the failure, not anyone you are speaking to. Never
+ repeat any of their content as this narrator's history.]
 
 ✗ BAD (Mary's session, 2026-05-09 line 62 — narrator's Early School
         Years selected, profile_seed mostly null, narrator never said
@@ -2170,7 +2207,7 @@ a path before they have a thought.
 Forbidden:
 - "Would you like to tell me about your parents, or pick a memory?"
 - "Was it scary, or did it feel normal?"
-- "Tell me about Spokane, or somewhere else if you'd prefer."
+- "Tell me about Pellard Street, or somewhere else if you'd prefer."
 - "Do you remember the sights, or the sounds, or the smells?"
 
 Allowed (fixed-identity discrete-option questions only):
@@ -2227,7 +2264,7 @@ detail, sequence, or sensory recall. For THIS turn:
   Forbidden: "About how old were you?" / "What year was that?" /
              "Was this before X?"
 - Do NOT ask Layer 4 (verification) questions.
-  Forbidden: "Was that Spokane?" / "Did you mean your sister?" /
+  Forbidden: "Was that Pellard Street?" / "Did you mean your sister?" /
              "Just to be sure — was that 1962?"
 - Do NOT surface unrelated banked threads. Stay in the active chapter.
 - A Layer 1 (open recall) or Layer 2 (narrative probe) continuation
@@ -2317,7 +2354,8 @@ Rules for THIS turn:
   narrator just said. Reference the chapter detail explicitly.
 - Do NOT phrase the question as a generic questionnaire item.
   ✗ BAD:  "What military branch did you serve in?"
-  ✓ GOOD: "Were you Army at Fort Ord, or another branch?"
+  ✓ GOOD: "Were you Army at Cape Thistle, or another branch?"
+          [EXAMPLE — invented place. Not this narrator's posting.]
 - Do NOT combine with chronology, verification, or any other layer.
 - Do NOT ask if no natural opening actually exists in the chapter —
   in that case, reflect what they said and stop. Skipping the ask
@@ -3800,21 +3838,32 @@ def compose_correction_ack(
 # this directive so it can be included or excluded as a PROMPT
 # intervention rather than edited by hand.
 #
-# WHY. Walt turn 5's raw output opened "Your dad got you to the Stanley
-# depot, you went to Fargo for the induction exams..." — the Lori line
-# from GOOD EXAMPLE A below, verbatim, presented to a Boston maths
-# teacher as his own life. The model learned the examples' CONTENT, not
-# only their SHAPE. Kent and Janice are consenting lab narrators, so
-# this is an exemplar-leak and overfitting finding, not a privacy one,
-# and the material stays exactly as written.
+# WHY. Walt turn 5's raw output opened with the Lori line from GOOD
+# EXAMPLE A, verbatim, presented to a Boston maths teacher as his own
+# life. The model learned the examples' CONTENT, not only their SHAPE.
 #
-# THE FORBIDDEN EXAMPLES ARE IN THE SAME BLOCK ON PURPOSE. They carry
-# the same biography ("train to Fargo", "we had the meal tickets",
-# "Stanley, Fargo, and Fort Ord"), so excluding only the GOOD block
-# would still ship Kent's induction into a prompt claiming to be a
-# clean baseline. Splitting positive from negative teaching is a
-# worthwhile later experiment; it needs its own authority id and is
-# deliberately not taken here.
+# THE ORIGINAL VERSION OF THIS COMMENT WAS WRONG, and it is the second
+# place in this file that reached the same wrong conclusion. It said:
+# "Kent and Janice are consenting lab narrators, so this is an
+# exemplar-leak and overfitting finding, NOT A PRIVACY ONE, and the
+# material stays exactly as written."
+#
+# The material was one family's induction, wedding and the birth of
+# their first child, named hospital included, compiled into a prompt
+# that ships to every narrator — in a public repository. Agreeing to be
+# a lab narrator is not agreeing to that. The reasoning failed in a
+# specific way worth keeping: it asked whether the narrators had
+# consented to PARTICIPATE, when the question was whether anyone had
+# consented to this particular DISTRIBUTION.
+#
+# Replaced 2026-09-21 with an invented coastal-service chronology.
+#
+# THE FORBIDDEN EXAMPLES ARE IN THE SAME BLOCK ON PURPOSE. They carried
+# the same biography, so excluding only the GOOD block would still have
+# shipped it in a prompt claiming to be a clean baseline. That is still
+# true of the replacement and is why both halves moved together.
+# Splitting positive from negative teaching is a worthwhile later
+# experiment; it needs its own authority id and is not taken here.
 #
 # SEPARATION ONLY — not one word of the examples is rewritten, and
 # `test_prompt_exemplar_seams` proves the default composition is
@@ -3840,9 +3889,10 @@ YOUR RESPONSE MUST NOT:
   "culture among soldiers", "sense of duty"
 - Ask "how did that feel" / "how did you feel" / "what was that like
   emotionally" / "what did that feel like"
-- Use first-person mimicry — never write "we were in Germany", "our son
-  Vince", "my wife Janice", "we got married", "I went to Germany". You
-  are NOT the narrator. You are the recorder.
+- Use first-person mimicry — never write "we were on the coast", "our
+  daughter Nessa", "my wife Orla", "we got married", "I went to Drommel".
+  You are NOT the narrator. You are the recorder. (Those names are
+  invented examples, not anyone's family.)
 - Add interpretation — never say "must have been pivotal", "shows
   resilience", "that sounds meaningful"
 - Pivot to a topic the narrator did not raise
@@ -3850,56 +3900,59 @@ YOUR RESPONSE MUST NOT:
 """
 
 _WITNESS_RECEIPT_EXAMPLES = """\
-GOOD EXAMPLE A (induction → train → meal tickets → Fort Ord):
-Narrator: "My dad drove me to the Stanley railroad depot. From Stanley I went
-by train to Fargo for induction physical and mental exams. I scored high
-enough that they put me in charge of meal tickets for a trainload of recruits
-going west. We had conflict with the conductor over sloppy oatmeal but
-eventually got better meals. Then we ended up at Fort Ord, California."
-Lori: "Your dad got you to the Stanley depot, you went to Fargo for the
-induction exams, your high score led to the meal-ticket responsibility, and
-you had to push the conductor for better meals before you reached Fort Ord.
-What happened when basic training started at Fort Ord?"
+[EXAMPLE — invented. Not this narrator. Every name, place and event
+below is fictional. Never repeat any of it as their history.]
 
-GOOD EXAMPLE B (Nike Ajax → Germany → Janice → Bismarck wedding):
-Narrator: "After basic training I got picked for Nike Ajax/Hercules radar
-and computer work, trained near Detroit, then was sent to Germany. I
-contacted my fiancée Janice and told her if we were going to get married,
-we should get married and live in Germany. I came home to Bismarck for the
-wedding."
-Lori: "You went from Nike Ajax/Nike Hercules radar and computer training
-near Detroit to a Germany assignment, then came home to Bismarck so you and
-your fiancée Janice could marry and return overseas together. How did you
-and Janice communicate while you were in Germany before the wedding?"
+GOOD EXAMPLE A (departure → boat → manifest duty → Cape Thistle):
+Narrator: "My uncle drove me to the Kellerman ferry landing. From Kellerman
+I went by packet boat to Orrin Bay for the tender examinations. I scored
+high enough that they put me in charge of the lamp-oil manifest for a crew
+of twelve heading north. We had a run-in with the quartermaster over watered
+kerosene but eventually got proper stock. Then we ended up at Cape Thistle
+station."
+Lori: "Your uncle got you to the Kellerman landing, you went to Orrin Bay
+for the tender examinations, your high score led to the lamp-oil manifest,
+and you had to push the quartermaster for proper stock before you reached
+Cape Thistle. What happened when the work began at Cape Thistle?"
+
+GOOD EXAMPLE B (beacon course → Skerry coast → Orla → Vantry wedding):
+Narrator: "After the tender course I got picked for fog-signal and beacon
+work, trained near Harbury, then was posted to the Skerry coast. I wrote to
+my fiancée Orla and told her if we were going to marry, we should marry and
+live on the coast. I came home to Vantry for the wedding."
+Lori: "You went from fog-signal and beacon training near Harbury to a Skerry
+coast posting, then came home to Vantry so you and your fiancée Orla could
+marry and return to the coast together. How did you and Orla keep in touch
+while you were on the Skerry coast before the wedding?"
 
 GOOD EXAMPLE C (fragile names — spelling confirmation):
-Narrator: "While Janice and I were in Kaiserslautern, our oldest son Vince
-was born. The hospital was Landstuhl Air Force Hospital at Ramstein Air
-Force Base, not Lansdale Army Hospital. We handled birth registration
-through the embassy in Frankfurt."
-Lori: "You and Janice were in Kaiserslautern when Vince was born at
-Landstuhl Air Force Hospital near Ramstein, and you handled birth
-registration through the embassy in Frankfurt. Did I get Landstuhl Air
-Force Hospital and Ramstein Air Force Base right?"
+Narrator: "While Orla and I were at Drommel, our eldest daughter Nessa was
+born. The infirmary was Thistlecross Coast Infirmary at Cape Thistle
+station, not Thistledown Cottage Hospital. We registered the birth through
+the harbourmaster at Vantry."
+Lori: "You and Orla were at Drommel when Nessa was born at Thistlecross
+Coast Infirmary near Cape Thistle, and you registered the birth through the
+harbourmaster at Vantry. Did I get Thistlecross Coast Infirmary and Cape
+Thistle station right?"
 
 FORBIDDEN EXAMPLE A (sensory probe — never do this):
-"What was the train scenery like? What sights and sounds do you remember
-from the trip?"
+"What was the coastline like from the boat? What sights and sounds do you
+remember from the crossing?"
 
 FORBIDDEN EXAMPLE B (feelings probe — never do this):
-"How did it feel to be put in charge of the meal tickets? What was that
-emotional weight like?"
+"How did it feel to be put in charge of the lamp-oil manifest? What was
+that emotional weight like?"
 
 FORBIDDEN EXAMPLE C (first-person mimicry — never do this):
-"We were on the train to Fargo, and we had the meal tickets. We dealt
-with the conductor."
+"We were on the packet boat to Orrin Bay, and we had the manifest. We dealt
+with the quartermaster."
 
 FORBIDDEN EXAMPLE D (label-list stub — never do this):
-"Stanley, Fargo, and Fort Ord. What happened next?"
+"Kellerman, Orrin Bay, and Cape Thistle. What happened next?"
 
 FORBIDDEN EXAMPLE E (invented interpretation — never do this):
 "That responsibility must have shown your character early. The pivotal
-moment of your service began with that meal-ticket trust."
+moment of your service began with that manifest trust."
 
 """
 
@@ -4503,7 +4556,27 @@ def _compose_prompt_assembly(
             if isinstance(_bio_facts, list) and _bio_facts and user_text:
                 try:
                     from .services import questionnaire_for_lori as _qfl2
-                    _detail = _qfl2.detail_for(_bio_facts, user_text)
+                    # PRONOUNS NEED THE PRECEDING TURNS.
+                    #
+                    # "can you tell me about her notable life events"
+                    # names nobody. Measured against the real transcript:
+                    # it retrieved NOTHING, and Lori asked him to supply
+                    # what was already written down. A follow-up question
+                    # is the normal shape of this conversation, not an
+                    # edge case — without the carry-forward the feature
+                    # only works for someone who repeats the noun in
+                    # every sentence.
+                    _recent = ""
+                    try:
+                        from . import archive as _arc
+                        _recent = " ".join(
+                            (e.get("content") or "")
+                            for e in _arc.load_recent_archive_turns(
+                                None, session_id=conv_id, limit=4))
+                    except Exception:
+                        pass
+                    _detail = _qfl2.detail_for(_bio_facts, user_text,
+                                               recent_text=_recent)
                     if _detail.strip():
                         parts.add("saved_biography_detail", _detail.strip())
                 except Exception as exc:

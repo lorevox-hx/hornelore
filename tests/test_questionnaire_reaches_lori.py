@@ -525,7 +525,7 @@ class TheLongStoriesStayReachable(_Case):
         self._save(syn.ALDA, self.RICH)
         d = qfl.detail_for(self._facts(syn.ALDA), "about my mom")
         self.assertIn("you did not HEAR it", d)
-        self.assertIn("Do not say they told you", d)
+        self.assertIn("never imply they told you", d)
 
     def test_nothing_was_deleted_from_storage(self):
         self._save(syn.ALDA, self.RICH)
@@ -627,6 +627,125 @@ class TheAntiConfabulationRuleIsAPrincipleNotABlocklist(unittest.TestCase):
         """The earlier repair must survive this one."""
         self.assertIn("HAVING A FACT IS NOT THE SAME AS HAVING BEEN TOLD IT",
                       self.src)
+
+class TheRealQuestionsFromTheLiveSESSION(_Case):
+    """The four things Chris actually typed on 2026-09-21, verbatim.
+
+    Two of them retrieved NOTHING, and I had reported the session as
+    "the acceptance passed". The strings I verified with were ones I
+    typed myself — "what can you tell me about my mom", no question
+    mark — and the punctuation was the difference.
+
+    These are copied from transcript_switch_mub86.txt. Do not tidy them.
+    """
+
+    RICH = {"parents": [
+        {"_entryId": "e-m", "relation": "Mother", "firstName": "Janice",
+         "lastName": "Horne", "maidenName": "Zarr", "occupation": "Homemaker",
+         "notableLifeEvents": "Born in Spokane while her father worked at an "
+                              "aluminium factory; advanced reader as a child."},
+        {"_entryId": "e-f", "relation": "Father", "firstName": "Kent",
+         "lastName": "Horne", "occupation": "Construction and trades",
+         "notableLifeEvents": "Served at a missile site in Germany."}]}
+
+    def setUp(self):
+        super().setUp()
+        self._save(syn.ALDA, self.RICH,
+                   [("parents", "e-m", "occupation", "operator_direct")])
+        self.facts = self._facts(syn.ALDA)
+
+    def test_a_question_mark_does_not_defeat_retrieval(self):
+        """THE ONE THAT FAILED. 'my mom?' was the token, ' mom ' was the
+        match."""
+        d = qfl.detail_for(self.facts, "What can you tell me about my mom?")
+        self.assertTrue(d, "a trailing question mark lost the retrieval")
+        self.assertIn("aluminium factory", d)
+
+    def test_a_pronoun_follow_up_retrieves(self):
+        """THE OTHER ONE. 'her notable life events' names nobody, and he
+        was asked to supply what was already written down."""
+        prior = ("What can you tell me about my mom? "
+                 "Can you tell me about your mom, Janice Josephine Horne.")
+        d = qfl.detail_for(self.facts, "can you tell me about her notable life events",
+                           recent_text=prior)
+        self.assertTrue(d, "a follow-up question retrieved nothing")
+        self.assertIn("aluminium factory", d)
+
+    def test_a_pronoun_with_NO_prior_context_still_retrieves_nothing(self):
+        """The carry-forward must not become a guess."""
+        self.assertEqual(
+            qfl.detail_for(self.facts, "tell me about her", recent_text=""), "")
+
+    def test_dad_and_siblings_retrieves(self):
+        d = qfl.detail_for(self.facts, "and my dad and siblings")
+        self.assertIn("missile site", d)
+
+    def test_the_block_tells_her_to_ANSWER_not_interview(self):
+        """She was asked for his mother's life events with the material
+        in front of her and replied 'What comes to mind when you think
+        about your mom's experiences?' — because the block told her not
+        to read it back and to ask instead. She obeyed."""
+        d = qfl.detail_for(self.facts, "What can you tell me about my mom?")
+        self.assertIn("THEY ASKED. ANSWER THEM", d)
+        # The old instruction must not appear even as an explanation —
+        # a prompt is not a changelog, and a quoted instruction is still
+        # an instruction to the model reading it.
+        self.assertNotIn("use it to ask a better question", d)
+        self.assertNotIn("do not read it back", d)
+
+    def test_it_still_forbids_claiming_they_said_it(self):
+        d = qfl.detail_for(self.facts, "What can you tell me about my mom?")
+        self.assertIn("you did not HEAR it", d)
+
+
+class ARelationshipWordIsNotAName(unittest.TestCase):
+    """'and my dad and siblings' proposed `parents.lastName = "Siblings"`."""
+
+    def setUp(self):
+        from api.routers import extract as e
+        self.e = e
+
+    def _drops(self, path, val):
+        return self.e._is_name_field(path) and self.e._reads_as_kinship_word(val)
+
+    def test_the_observed_candidate_is_dropped(self):
+        self.assertTrue(self._drops("parents.lastName", "Siblings"))
+
+    def test_a_real_surname_survives(self):
+        self.assertFalse(self._drops("parents.lastName", "Horne"))
+
+    def test_relation_fields_are_untouched(self):
+        """`parents.relation = "Father"` is the correct use of the word."""
+        self.assertFalse(self._drops("parents.relation", "Father"))
+
+    def test_prose_fields_are_untouched(self):
+        self.assertFalse(self._drops("parents.notes", "my siblings were loud"))
+
+    def test_a_kinship_word_INSIDE_a_name_survives(self):
+        """Narrow on purpose. Someone really is called Mother-Smith."""
+        self.assertFalse(self._drops("parents.lastName", "Mother-Smith"))
+
+
+class TheHealthGateSaysWhatItMeasures(unittest.TestCase):
+    """An operator log reported "No transcript turns yet" for a session
+    whose export held the whole exchange."""
+
+    def setUp(self):
+        self.src = (REPO / "ui" / "js" / "session-health-monitor.js").read_text(
+            encoding="utf-8")
+
+    def test_it_no_longer_claims_the_record_is_empty(self):
+        """The old wording survives in the comment explaining why it
+        was wrong. What must not survive is it being REPORTED."""
+        import re
+        reported = re.findall(r'reason:\s*"([^"]+)"', self.src)
+        self.assertNotIn("No transcript turns yet", reported)
+
+    def test_it_names_the_tab_instead(self):
+        self.assertIn("No turns written by this page yet", self.src)
+
+    def test_it_warns_that_a_reload_resets_the_counter(self):
+        self.assertIn("a reload resets it", self.src)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
