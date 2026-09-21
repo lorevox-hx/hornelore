@@ -3,8 +3,11 @@
 Written for whoever picks this up on the desktop. It assumes nothing
 about what the laptop session remembers.
 
-No family details appear in this document. It is tracked and the
-repository is public.
+This is a development deployment. Tenant zero is the operator's own
+family, by convenience, and the repository holding that is not the
+privacy model. The privacy model is the portable narrator package: a
+narrator's story lives in their own record, travels as their own bag,
+and goes with them.
 
 ---
 
@@ -60,7 +63,7 @@ work.
 |---|---|
 | `#33 cc_question_atomicity` deleted answers | same-input regression; 45 tests |
 | the rules-fallback kinship guard | live log: `'siblings'` dropped before normalisation |
-| a real family's details in 12 prompt constants | private denylist regression; assembled-prompt sweep across 5 modes |
+| one narrator's material reachable in 12 shared prompt constants | denylist regression; assembled-prompt sweep across 5 modes |
 | retrieval: plurals, multi-subject, field priority | 20 tests on a rich fictional record |
 | authority observation on unchanged turns | 12 tests |
 
@@ -202,13 +205,12 @@ PYTHONPATH=server/code python3 -m unittest tests.<module>
   implementation.
 - Keep `HORNELORE_QUESTIONNAIRE_BIO_FACTS_WRITE=0`.
 - `.runtime/` and `.env` are gitignored and must stay so.
-  `.runtime/privacy/family_phrases.txt` holds real family strings used
-  by the privacy regression; it must never be committed. When it is
-  absent the suite prints `[UNVERIFIED]` and the committed
-  fictional-fixture checks still run.
-- The repository is **public**. Nothing family-identifying goes into
-  tracked files — including code comments, test fixtures and commit
-  messages.
+- **The invariant is not "keep names out of the repository."** It is:
+  *no narrator's material may be reachable by Lori for a different
+  narrator.* A narrator's own record, their own prompt, their own bag.
+  The 2026-09-21 defect was one narrator's life reaching a different
+  narrator through SHARED example data — a correctness and dignity
+  failure that would have been exactly as wrong in a private repo.
 
 ---
 
@@ -254,18 +256,38 @@ Do not disable guards wholesale.
 ## 7. Two things the desktop will not have
 
 **`.runtime/privacy/family_phrases.txt`** is gitignored, so it does not
-travel. Without it, `tests/test_prompt_has_no_family_material.py`
-prints `[UNVERIFIED]` and skips the known-phrase assertions — the
-committed fictional-fixture and assembled-prompt checks still run, but
-the real-phrase sweep does not. Recreate it on the desktop: one phrase
-per line, `#` for comments, the strings that must never appear in a
-narrator-facing prompt. It exists because the obvious check — compare
-against proper nouns in the `people` table — scores the 2026-09-21
-exposure CLEAN, since the most identifying phrase is in no database row
-at all.
+travel. Without it `tests/test_prompt_has_no_family_material.py` prints
+`[UNVERIFIED]` and skips the known-phrase assertions; the committed
+fictional-fixture and assembled-prompt checks still run.
+
+**It is in the wrong place, and the test is the wrong shape.** Both were
+built on the assumption that the point was keeping names out of a public
+repository. It is not. This is a development deployment, the list is
+development data, and it should simply live in the repo — which also
+deletes the `[UNVERIFIED]` branch and the skip logic.
+
+The deeper correction is what the test asserts. A hand-maintained list
+catches only what someone remembered to add. The invariant is
+checkable directly:
+
+    no narrator's material may be reachable by Lori for a DIFFERENT
+    narrator
+
+so the primary assertion should be that no *stored* narrator's
+distinctive content appears in any shared prompt constant, for any
+narrator on the machine — the `people`-table check currently demoted to
+assertion four. The phrase list stays only as a supplement for
+historical material no longer in any record, which is the one case the
+database check cannot see.
+
+Better still, the real test is a RUNTIME one: an assembled prompt for
+narrator A should contain A's material and nothing from B's record.
+That is assertable on the captured prompt, and it is what would have
+caught the 2026-09-21 defect on the day it shipped rather than five
+months later.
 
 **The two proposals awaiting review** are on the laptop at
-`Desktop\Horne-privacy-review\`, with the three paired transcripts they
-refer to. About 53 KB. They are deliberately outside the repository
-because they quote the text that was being removed. Copy them across if
-the reviews are still open.
+`Desktop\Horne-privacy-review\`, with the three paired transcripts
+they refer to. About 53 KB, outside the repository because they quote
+text that was being removed. Copy them across if the reviews are still
+open.
