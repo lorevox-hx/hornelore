@@ -248,10 +248,35 @@
       years_working: _val('lvIntakeWorkYears') || null,
     };
 
-    // Military
-    var milServed = (
-      (document.querySelector('input[name="lvIntakeMilServed"]:checked') || {}).value
-    ) === 'yes';
+    /* Military — THREE STATES: yes, no, and nobody said.
+       WO-BIO-VIEW-SAFETY-01 (2026-09-21).
+
+       This read `(checked || {}).value === 'yes'`, which collapses "no
+       radio selected" into `false` — so an untouched form asserted that
+       the narrator did not serve. The markup compounded it by
+       pre-selecting No. Either half alone defeats a fix to the other,
+       which is why both move together.
+
+       The server is already correct and has been since
+       WO-LORI-PROFILE-SEED-REACHABILITY-01 Phase 1: `people.py:836` keys
+       on `mil is not None`, writes military_served="no" for an explicit
+       No, and writes NOTHING for an absent section — with the comment
+       "an untouched form is not an answer and pretending otherwise would
+       be the mirror-image defect." The form was doing the pretending.
+
+       Why this matters more than it looks: an explicit No is believed.
+       profile_seed.py reads military.served as a boolean in both
+       directions with negative_meaningful=True, so a recorded "no"
+       retires the topic and Lori stops asking. A default-No on someone
+       who served silences that question permanently, and the narrator is
+       never asked about their own service again. */
+    var _milChecked = document.querySelector('input[name="lvIntakeMilServed"]:checked');
+    var _milAnswer = _milChecked ? _milChecked.value : null;   // 'yes' | 'no' | null
+    if (_milAnswer === null) {
+      // Unanswered. Send no section at all; the server writes nothing.
+      base.military = null;
+    } else {
+    var milServed = _milAnswer === 'yes';
     base.military = {
       served: milServed,
       branch: milServed ? (_val('lvIntakeMilBranch') || null) : null,
@@ -263,6 +288,7 @@
       decorations: milServed ? (_val('lvIntakeMilDecor') || null) : null,
       experience_notes: milServed ? (_val('lvIntakeMilNotes') || null) : null,
     };
+    }
 
     // Faith and heritage
     base.faith = {

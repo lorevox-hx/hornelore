@@ -5272,11 +5272,23 @@
         <summary class="lv-intake-section-title">Military service</summary>
         <div class="lv-intake-row">
           <label>Did the narrator serve in the military?</label>
+          <!-- WO-BIO-VIEW-SAFETY-01 (2026-09-21): "No" was `checked` here,
+               so an untouched form recorded "did not serve" as an answer.
+               An explicit No is believed and retires the topic — Lori then
+               never asks about service again — so a default No silences
+               the question for someone who may well have served. Nothing
+               is pre-selected now; narrator-intake.js sends no military
+               section at all when neither is chosen, and people.py:836
+               already writes nothing for an absent section. -->
           <div class="lv-intake-pronoun-radios">
             <label><input type="radio" name="lvIntakeMilServed" value="yes"
                           onchange="(function(){var s=document.getElementById('lvIntakeMilDetails'); if(s){s.style.display='block';}})();"> Yes</label>
-            <label><input type="radio" name="lvIntakeMilServed" value="no" checked
+            <label><input type="radio" name="lvIntakeMilServed" value="no"
                           onchange="(function(){var s=document.getElementById('lvIntakeMilDetails'); if(s){s.style.display='none';}})();"> No</label>
+          </div>
+          <div class="lv-intake-hint" style="font-size:12px;opacity:.75;margin-top:2px;">
+            Leave both unselected if you do not know — that is recorded as
+            unanswered, not as &ldquo;did not serve&rdquo;.
           </div>
         </div>
         <div id="lvIntakeMilDetails" style="display:none;">
