@@ -202,6 +202,11 @@
     loading: false,
     dirtySections: {},  // sectionId → true
     lastSaveAt: null,
+    /* WO-BIO-VIEW-SAFETY-01 (2026-09-21). Monotonic, bumped by every
+       refresh and every narrator switch. An in-flight questionnaire fetch
+       carries the value it started under and discards itself if the number
+       has moved by the time it resolves. See refresh(). */
+    refreshGen: 0,
   };
 
   // ── Helpers ──────────────────────────────────────────────────────
@@ -456,6 +461,27 @@
   }
 
   function _attachHandlers(container) {
+    /* BIND ONCE PER CONTAINER. WO-BIO-VIEW-SAFETY-01 (2026-09-21).
+
+       These two handlers are DELEGATED — they sit on the container, not on
+       the fields. `_renderAll` replaces `container.innerHTML`, which
+       destroys the children and leaves the container itself, and its
+       listeners, untouched. So every render added another input handler and
+       another click handler to the same element, and none was ever removed.
+
+       The consequence is not a slow leak, it is duplicated writes: after N
+       renders one click on Save ran the save handler N times, i.e. N PUTs
+       for one deliberate action. Renders are cheap and frequent — every
+       refresh, every save, every array add or remove calls _renderAll — so
+       N grows through ordinary use.
+
+       A flag on the element rather than a module variable, because the
+       container can be replaced wholesale by the shell; a fresh element
+       arrives without the flag and correctly gets its own handlers, while
+       the same element is never bound twice. */
+    if (container.__oiHandlersBound) return;
+    container.__oiHandlersBound = true;
+
     // Mark section dirty on any field change
     container.addEventListener("input", function (ev) {
       var t = ev.target;
@@ -625,8 +651,33 @@
     _state.personId = pid;
     _state.loading = true;
     _renderAll(container);
+    /* WO-BIO-VIEW-SAFETY-01 (2026-09-21): claim this refresh before the
+       await, and refuse to apply its result if anything has moved since.
+
+       The response was previously assigned to shared _state the moment it
+       arrived, with no check that it still belonged to the narrator on
+       screen. onNarratorSwitch() calls refresh() again, so switching from A
+       to B leaves A's request in flight; if A's response lands second it
+       overwrites B's questionnaire, B's meta and B's source. The form then
+       shows A's answers under B's name, and a Save from that screen writes
+       one family's history into another's record.
+
+       The generation check is the correctness guarantee. Cancelling the
+       request would be a useful optimisation but is not sufficient on its
+       own — a response already in flight can complete regardless, and an
+       abort says nothing about what the server did. Checking at the point
+       of USE is what cannot be raced. */
+    var _myGen = ++_state.refreshGen;
+    var _myPid = pid;
     try {
       var j = await _fetchQuestionnaire(pid);
+      if (_myGen !== _state.refreshGen || _state.personId !== _myPid) {
+        console.warn("[operator-intake] DISCARDING a late questionnaire response for " +
+          String(_myPid).slice(0, 8) + " — the active narrator is now " +
+          String(_state.personId || "none").slice(0, 8) +
+          ". Applying it would paint one narrator's answers into another's form.");
+        return;
+      }
       _state.questionnaire = j.questionnaire || {};
       _state.meta = j._meta || {};
       _state.source = j.source || "unknown";
@@ -635,6 +686,7 @@
       _renderAll(container);
     } catch (e) {
       console.error("[operator-intake] refresh failed:", e);
+      if (_myGen !== _state.refreshGen || _state.personId !== _myPid) return;
       _state.loading = false;
       container.innerHTML =
         '<div class="oi-error">Failed to load intake data: ' +
@@ -643,6 +695,11 @@
   }
 
   function onNarratorSwitch(newPid) {
+    /* Bump FIRST. Any questionnaire fetch already in flight for the
+       outgoing narrator is stamped with the old generation and will
+       discard itself when it resolves, rather than landing on the incoming
+       narrator's screen. WO-BIO-VIEW-SAFETY-01. */
+    _state.refreshGen += 1;
     _state.questionnaire = {};
     _state.meta = {};
     _state.source = null;
