@@ -1311,6 +1311,121 @@
       + '<p class="bb-hint-text">' + _esc(section.hint) + '</p>'
       + '<div class="bb-fields-list">' + fieldsHtml + '</div>'
       + '<div class="bb-section-footer"><button class="bb-btn-primary" onclick="window.LorevoxBioBuilder._saveSection(\'' + section.id + '\')">Save ' + _esc(section.label) + '</button></div>';
+
+    /* WO-BIO-VIEW-SAFETY-01 — WHAT THE PERSON ACTUALLY TYPED.
+       Snapshot every field's value AS RENDERED, so a later save can tell
+       a field the operator touched from one that merely sat on the form.
+
+       Why this is needed even though the server now reports changed_paths:
+       `changed_paths` answers "what did this document change", which is
+       not "what did this person type". An identity synchroniser fills a
+       blank field in bb.questionnaire, the operator then saves a DIFFERENT
+       field in the same section, and the server honestly reports BOTH as
+       changed. Marking both human_edit would relock the door this work
+       order is opening — narrower than marking the whole section, but the
+       same defect. Human authority is claimed only where the two agree.
+
+       A DOM snapshot rather than input listeners, deliberately: the
+       accumulating-listener defect in Operator Intake is on this same
+       repair list, and adding more listeners to solve a listener problem
+       invites it here. This also fails in the safe direction — anything
+       that re-renders resets the baseline, so a programmatically written
+       value becomes part of the baseline and is NOT attributed to a
+       person. Under-attribution is recoverable; a false lock is not. */
+    _renderedFieldValues = {};
+    try {
+      var _inputs = container.querySelectorAll("input, select, textarea");
+      for (var _i = 0; _i < _inputs.length; _i++) {
+        var _n = _inputs[_i];
+        if (_n.id) _renderedFieldValues[_n.id] = _n.value == null ? "" : String(_n.value);
+      }
+    } catch (e) {
+      // No snapshot means no proof of intent, and no proof of intent means
+      // no attribution. Leaving it empty is the safe failure.
+      console.warn("[bb-qq] could not snapshot rendered field values:", e);
+      _renderedFieldValues = {};
+    }
+  }
+
+  /* Field values as they were last rendered, keyed by DOM id. Compared at
+     save time to establish which fields a person actually changed. Reset on
+     every render — see the note above. */
+  var _renderedFieldValues = {};
+
+  /* A NOTE ON WHAT IS DELIBERATELY *NOT* HERE.
+     A per-section "edited since the last confirmed save" set was added on
+     2026-09-21 and removed the same day. The reasoning for it was that
+     _saveSection re-renders when a save FAILS, resetting the baseline, so a
+     retry would attribute nothing and an operator's authorship would be
+     lost to a 500.
+
+     That was a hypothesis, and it was wrong. Measured by deleting the set
+     and re-running tests/test_bio_builder_save_sequences.js case 4b, which
+     is precisely a retry after a refused write with no typing in between:
+     attribution still lands. The re-render on the save path does not go
+     through the function that takes the snapshot, so the typed-vs-rendered
+     diff survives a retry unaided.
+
+     Recorded rather than silently dropped, because the real cause of that
+     test failing was a stale harness double returning no `changed_paths` —
+     and a plausible fix for the wrong cause is how unjustified machinery
+     gets left in a codebase forever. */
+
+  /* True when this DOM id's current value differs from what was rendered
+     into it, i.e. a person changed it on this screen. An id absent from the
+     snapshot returns false: unknown is not evidence of a human edit. */
+  /* Adopt a field's CURRENT value as its baseline.
+
+     Called by any code that writes into a rendered field on the software's
+     own initiative, so that write does not read as a person's edit. The
+     one caller today is _tryAutoZodiac; anything added later that sets a
+     `bbQ_*` value without a person typing it MUST call this, or it will
+     be credited to the operator and the field will be locked against
+     future correction. */
+  function _rebaseRenderedValue(domId) {
+    var el = _el(domId);
+    if (!el) return;
+    _renderedFieldValues[domId] = el.value == null ? "" : String(el.value);
+  }
+
+  function _operatorTouched(domId) {
+    if (!Object.prototype.hasOwnProperty.call(_renderedFieldValues, domId)) return false;
+    var el = _el(domId);
+    if (!el) return false;
+    var now = el.value == null ? "" : String(el.value);
+    return now !== _renderedFieldValues[domId];
+  }
+
+  /* The document paths a person changed on this screen, in the server's own
+     path shape (`personal.fullName`, `parents[0].firstName`).
+
+     MUST be called synchronously during _saveSection, while the DOM still
+     holds the edit. _saveSection re-renders from canonical state before the
+     server's confirmation arrives, and a re-render resets the snapshot — so
+     collecting this in the async callback would find every field untouched
+     and attribute nothing at all. */
+  function _collectOperatorTouchedPaths(section, sectionId, bb) {
+    var out = {};
+    try {
+      if (section.repeatable) {
+        var entries = (bb.questionnaire && bb.questionnaire[sectionId]) || [];
+        entries.forEach(function (entry, idx) {
+          section.fields.forEach(function (f) {
+            if (_operatorTouched("bbQ_" + idx + "_" + f.id)) {
+              out[sectionId + "[" + idx + "]." + f.id] = true;
+            }
+          });
+        });
+      } else {
+        section.fields.forEach(function (f) {
+          if (_operatorTouched("bbQ_" + f.id)) out[sectionId + "." + f.id] = true;
+        });
+      }
+    } catch (e) {
+      console.warn("[bb-qq] could not collect operator-touched paths:", e);
+      return {};
+    }
+    return out;
   }
 
   function _fieldHtml(field, domId, value, sectionId) {
@@ -1392,7 +1507,31 @@
     if (!zodiacEl) return;
     if (zodiacEl.value) return;
     var sign = deriveZodiacFromDob(isoDob);
-    if (sign) zodiacEl.value = sign;
+    if (sign) {
+      zodiacEl.value = sign;
+      /* THE MACHINE WROTE THIS, SO THE MACHINE OWNS IT.
+         WO-BIO-VIEW-SAFETY-01 (2026-09-21), added on review.
+
+         `_operatorTouched` asks whether a field's value differs from what
+         was rendered into it. That establishes the value changed ON
+         SCREEN — not that a PERSON changed it. This function is the
+         counter-example, and the only one in the tree: blurring the date
+         of birth derives a zodiac sign and writes it into the form. Left
+         unrebased, typing a birth date would mark the zodiac as a human
+         edit and lock it, on the exact field that is already wrong for a
+         real narrator (Janice 93479171 carries `zodiacSign: Libra` for an
+         August birthday, derived from a date that has since been
+         corrected).
+
+         Rebasing rather than blacklisting the field keeps the operator's
+         own authority intact: if they go on to pick a different sign by
+         hand, it differs from this new baseline and is attributed to them,
+         which is correct. A blacklist would have silently refused to
+         record their deliberate correction. Same principle as a re-render
+         resetting the baseline — whatever the software put there is the
+         starting point, not the person's answer. */
+      _rebaseRenderedValue("bbQ_zodiacSign");
+    }
   }
 
   /* ───────────────────────────────────────────────────────────
@@ -1465,7 +1604,9 @@
         // state would be built from, so it is safe to build it. This runs
         // BEFORE the banner so that a throw in downstream work cannot leave
         // the operator with no result shown at all.
-        try { onConfirmed(); }
+        // `res` is handed on so downstream work can act on WHAT the server
+        // changed, not merely THAT it accepted. WO-BIO-VIEW-SAFETY-01.
+        try { onConfirmed(res); }
         catch (e) { console.error("[bb-qq] downstream work after a confirmed save threw:", e); }
       }
       if (res.ok && _pendingIdCollisions.length) {
@@ -1825,6 +1966,10 @@
          the same request — a draft mirror, a prefill, an identity sync —
          crediting them with answers they never gave. The server stamps
          only changed paths within the sections named here. */
+      /* Captured HERE, synchronously, while the DOM still holds the edit.
+         The re-render below resets the snapshot; the server's confirmation
+         arrives after it. WO-BIO-VIEW-SAFETY-01. */
+      var _touchedPaths = _collectOperatorTouchedPaths(section, sectionId, bb);
       _persistDrafts(pid, { sections: [sectionId] });
       // BUG-BIO-QUESTIONNAIRE-SILENT-SAVE-FAILURE-01.
       //
@@ -1836,8 +1981,8 @@
       // was a console warning nobody was watching.
       //
       // Nothing may tell the operator this was saved until the server says so.
-      _reportSaveOutcome(section, pid, function onConfirmed() {
-        _afterConfirmedSave(section, sectionId, pid);
+      _reportSaveOutcome(section, pid, function onConfirmed(res) {
+        _afterConfirmedSave(section, sectionId, pid, res, _touchedPaths);
       });
     }
 
@@ -1870,21 +2015,134 @@
 
      A confirmed server save is the boundary. A no-op counts as confirmed:
      the stored document is exactly what these would be derived from. */
-  function _afterConfirmedSave(section, sectionId, pid) {
+  function _afterConfirmedSave(section, sectionId, pid, res, touchedPaths) {
     var bb = _bb(); if (!bb) return;
+
+    /* LATE CONFIRMATIONS MUST NOT ACT ON WHOEVER IS ON SCREEN NOW.
+       WO-BIO-VIEW-SAFETY-01.
+
+       This runs when the server answers, which may be after the operator
+       has switched narrators. Everything below reads CURRENT state via
+       _bb(): it would extract candidates from, mark projection fields on,
+       and rebuild the family graph of the narrator now loaded, on the
+       authority of a save belonging to a different one. _persistQuestionnaire
+       stamps outcomes with pid and ticket, but nothing downstream re-checked
+       it. Source-level risk, not an observed incident — closed rather than
+       argued about, because the cost of being wrong is one family's history
+       recorded against another's name. */
+    if (pid && bb.personId && bb.personId !== pid) {
+      console.warn("[bb-qq] late save confirmation DISCARDED: it belongs to " +
+        String(pid).slice(0, 8) + " but " + String(bb.personId).slice(0, 8) +
+        " is now loaded. No candidates, attribution or graph sync for this save.");
+      return;
+    }
+
+    /* A NO-OP IS NOT A CHANGE, AND MUST NOT DRIVE DERIVED WRITES.
+       merge_whole_document returns write_applied:false when the stored
+       document already matched, and deliberately burns neither a revision
+       nor an audit row. Downstream did not honour that: candidate
+       extraction, projection marking and graph fullSync all ran anyway.
+       Measured 2026-09-21 — an identical-content projection write whose
+       updated_at moved regardless (21:33:04, three seconds after a narrator
+       switch). Derived state is rebuilt only when something actually
+       changed. */
+    var _noop = !!(res && (res.write_applied === false ||
+                           res.outcome === "nochange" ||
+                           res.outcome === "draft_only"));
+    if (_noop) {
+      console.log("[bb-qq] save was a no-op for " + sectionId +
+        " — skipping candidate extraction, attribution and graph sync");
+      return;
+    }
 
     _extractQuestionnaireCandidates(sectionId);
 
-    // v8: mark saved fields as human-edited in projection layer
-    if (window.LorevoxProjectionSync && window.LorevoxProjectionMap) {
+    /* HUMAN AUTHORSHIP IS CLAIMED ONLY FOR WHAT THE PERSON CHANGED.
+       WO-BIO-VIEW-SAFETY-01 (2026-09-21).
+
+       This block used to walk EVERY populated field in the saved section
+       and call markHumanEdit on each. markHumanEdit sets
+       source="human_edit", confidence 1.0 and locked=true, and
+       projection-sync.js:212 refuses any later write to a locked field
+       from any source that is not itself a human edit. So a value that
+       merely happened to be on the form when Save was pressed became a
+       value the narrator can never correct by speaking.
+
+       Measured on a real narrator: Janice 93479171 carries ten such
+       marks on her parents — relation, firstName, lastName, maidenName,
+       middleName, occupation — written on 2026-09-15 within a TWO
+       MILLISECOND window across two different people. Nobody types ten
+       fields about two people in two milliseconds; that spread is this
+       loop's signature, not a person's.
+
+       The server has always scoped provenance to changed paths (see the
+       WO-03A note at the _persistDrafts call site). It now returns that
+       same list, so the projection layer narrows identically instead of
+       re-broadening what the server deliberately scoped.
+
+       `changed_paths` absent means an older server, i.e. UNKNOWN — and
+       unknown attributes NOTHING. Silence is recoverable; a false lock
+       is not, because only another human edit can lift it. This is also
+       why no attempt is made to guess from a local diff: the browser's
+       copy is exactly the thing that proved untrustworthy. */
+    /* A CHANGED FIELD IS NOT NECESSARILY AN EDITED FIELD.
+       Raised on review 2026-09-21, and correct: `changed_paths` answers
+       what this document changed, not what this person typed. An identity
+       synchroniser fills a blank field in bb.questionnaire, the operator
+       saves a DIFFERENT field in the same section, and the server honestly
+       reports both. Attributing both would relock the door this work order
+       opens — narrower than marking the whole section, the same defect.
+
+       Human authority therefore needs BOTH witnesses to agree:
+         the server  — this path's stored value actually changed
+         the screen  — a person altered this field's value by hand
+       Either alone is insufficient. The server cannot see intent; the
+       browser cannot see the stored document. Their intersection can. */
+    var changed = res && res.changed_paths;
+    if (changed && changed.length && touchedPaths) {
+      var _before = changed.length;
+      changed = changed.filter(function (p) {
+        return Object.prototype.hasOwnProperty.call(touchedPaths, p);
+      });
+      if (changed.length !== _before) {
+        console.log("[bb-qq] attribution narrowed by operator intent: " +
+          _before + " server-changed path(s) -> " + changed.length +
+          " the operator actually edited");
+      }
+    } else if (changed && changed.length) {
+      // No intent record for this save (it did not come through the form
+      // path). Unknown intent attributes nothing.
+      console.log("[bb-qq] no operator-intent record for this save — " +
+        "attributing nothing, though the server reported " + changed.length +
+        " changed path(s)");
+      changed = [];
+    }
+    if (!changed || !changed.length) {
+      if (window.LorevoxProjectionSync && window.LorevoxProjectionMap) {
+        console.log("[bb-qq] no human-edit attribution for " + sectionId +
+          " — server reported " +
+          (changed ? "no changed paths (a no-op save)" :
+                     "no changed_paths field (server predates WO-BIO-VIEW-SAFETY-01)"));
+      }
+    } else if (window.LorevoxProjectionSync && window.LorevoxProjectionMap) {
+      var _changed = {};
+      changed.forEach(function (p) { _changed[p] = true; });
+      var _marked = 0;
       if (section.repeatable) {
         var entries = bb.questionnaire[sectionId] || [];
         entries.forEach(function (entry, idx) {
           section.fields.forEach(function (f) {
             var val = entry[f.id];
-            if (val && String(val).trim() !== "") {
-              var path = window.LorevoxProjectionMap.buildRepeatablePath(sectionId, idx, f.id);
+            if (!val || String(val).trim() === "") return;
+            var path = window.LorevoxProjectionMap.buildRepeatablePath(sectionId, idx, f.id);
+            // The server names paths in the questionnaire document's own
+            // shape (`parents[0].firstName`), which is the shape
+            // buildRepeatablePath produces. Match on it, and fall back to
+            // the raw document path so a mapper change cannot silently
+            // turn this into "attribute everything" again.
+            if (_changed[path] || _changed[sectionId + "[" + idx + "]." + f.id]) {
               window.LorevoxProjectionSync.markHumanEdit(path, val);
+              _marked++;
             }
           });
         });
@@ -1892,12 +2150,19 @@
         var data = bb.questionnaire[sectionId] || {};
         section.fields.forEach(function (f) {
           var val = data[f.id];
-          if (val && String(val).trim() !== "") {
-            window.LorevoxProjectionSync.markHumanEdit(sectionId + "." + f.id, val);
+          if (!val || String(val).trim() === "") return;
+          var p2 = sectionId + "." + f.id;
+          if (_changed[p2]) {
+            window.LorevoxProjectionSync.markHumanEdit(p2, val);
+            _marked++;
           }
         });
       }
+      console.log("[bb-qq] human-edit attribution for " + sectionId + ": " +
+        _marked + " field(s) marked, from " + changed.length +
+        " server-reported changed path(s)");
     }
+
 
     // Phase Q.1: Sync graph from questionnaire after save
     var graphMod = window.LorevoxBioBuilderModules && window.LorevoxBioBuilderModules.graph;

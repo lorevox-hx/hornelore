@@ -127,16 +127,25 @@ function makeServer() {
     const rec = docs[pid];
     const before = JSON.stringify(rec.doc);
     const next = JSON.parse(before);
+    const flatBefore = leaves(rec.doc, "", {});
     const flat = leaves(incoming, "", {});
     Object.keys(flat).forEach((p) => setPath(next, p, flat[p]));
+    /* `changed_paths` — the paths whose STORED value actually moved, which
+       is not the same as the paths the client sent. Mirrors the real
+       service: a mutation whose value already matched is not a change.
+       WO-BIO-VIEW-SAFETY-01 (2026-09-21) — see the fidelity note on the
+       PUT response below. */
+    const changed = Object.keys(flat)
+      .filter((p) => JSON.stringify(flatBefore[p]) !== JSON.stringify(flat[p]))
+      .sort();
     const after = JSON.stringify(next);
     if (after === before) {
-      return { write_applied: false, revision: rec.revision };
+      return { write_applied: false, revision: rec.revision, changed_paths: [] };
     }
     rec.doc = next;
     rec.revision += 1;
     rec.history.push({ revision: rec.revision, changed: Object.keys(flat).length });
-    return { write_applied: true, revision: rec.revision };
+    return { write_applied: true, revision: rec.revision, changed_paths: changed };
   };
 
   return srv;
@@ -209,9 +218,19 @@ function createHarness(options) {
       // the server it stands in for hides exactly the defect it is meant to
       // catch. When the response contract changes, change THIS first and
       // watch the sequence fail, then fix the server.
+      //
+      // 2026-09-21, WO-BIO-VIEW-SAFETY-01: `changed_paths` added, and in
+      // the wrong order — the server was changed first and this double was
+      // left behind, so sequence 4b failed with "a confirmed save DOES mark
+      // its fields". The failure was correct: the client attributes human
+      // authorship only to paths the server names, and a double that names
+      // none makes a working implementation look broken. The note above
+      // said which way round to do it; recorded here because the advice
+      // needed following, not merely reading.
       return Promise.resolve(makeResponse(200, {
         ok: true, person_id: payload.person_id,
         revision: res.revision, write_applied: res.write_applied,
+        changed_paths: res.changed_paths || [],
       }));
     }
 

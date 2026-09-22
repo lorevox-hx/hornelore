@@ -481,9 +481,20 @@ check("the save path calls it",
    strings in place and the check passed against a mutant that ran derived
    work on a failed save. Require the downstream call to be INSIDE the
    reporter's callback, which is the thing that actually gates it. */
+/* The callback's ARITY is not the property under test.
+   This required `function onConfirmed()` with empty parens until
+   2026-09-21, when WO-BIO-VIEW-SAFETY-01 began passing the server's
+   outcome through — `onConfirmed(res)` — so downstream work could act on
+   WHAT changed rather than only THAT the save was accepted. The regex
+   failed on the parameter and not on the structure, which would have
+   pushed a correct change into looking like a regression.
+
+   The structural requirement is unchanged and still exact: the downstream
+   call must sit INSIDE the reporter's callback, because that is the thing
+   that gates it. Only the parameter list is allowed to vary. */
 check("derived state waits for a confirmed save",
   /function _afterConfirmedSave\(/.test(QQ) &&
-  /_reportSaveOutcome\(\s*section,\s*pid,\s*function onConfirmed\(\)\s*\{\s*_afterConfirmedSave\(/
+  /_reportSaveOutcome\(\s*section,\s*pid,\s*function onConfirmed\([^)]*\)\s*\{\s*_afterConfirmedSave\(/
     .test(fnBody(QQ, "function _saveSection(")) &&
   /res\.ok && typeof onConfirmed === "function"/.test(report),
   "nothing that writes derived or authoritative state may run before the " +

@@ -497,6 +497,11 @@
             write_applied: applied,
             revision: j && j.revision,
             ignored_blank_paths: (j && j.ignored_blank_paths) || [],
+            // WO-BIO-VIEW-SAFETY-01: the paths the server actually changed.
+            // `_afterConfirmedSave` attributes human authorship to these and
+            // to nothing else. Absent (an older server) means "unknown", and
+            // the caller must attribute nothing rather than everything.
+            changed_paths: (j && j.changed_paths) || null,
             message: applied
               ? ("Saved" + (j && j.revision !== undefined ? " (revision " + j.revision + ")" : "") + ".")
               : ("No changes to save — this section already matches what is stored" +
@@ -565,10 +570,41 @@
      parameter rather than changing the signature keeps the other ~20
      callers — family tree, life threads, narrator switch — working
      unchanged and, more to the point, keeps them OUT of the human-entry
-     route by default. Opting in has to be deliberate. */
-  function _persistDrafts(pid, entry) {
+     route by default. Opting in has to be deliberate.
+
+     `opts.navigationOnly` — WO-BIO-VIEW-SAFETY-01 (2026-09-21).
+     NAVIGATION IS NOT AUTHORITY TO WRITE.
+
+     Measured on 2026-09-21: opening a narrator and switching away wrote
+     that narrator's questionnaire with no operator save. Janice
+     93479171's record was written at 15:30:03.594; the session switch
+     was logged at 15:30:03.905, 311ms later. It changed
+     personal.fullName from "Janice Josephine Horne" to "Janice",
+     because under HORNELORE_QUESTIONNAIRE_BIO_FACTS_READ=1 the
+     hydrating GET returns a three-leaf projection of the record rather
+     than the record, and leaving the screen committed that projection.
+     The other 97 values survived only because the server-side
+     merge_whole_document (WO-QUESTIONNAIRE-PERSISTENCE-INTEGRITY-01)
+     performs no implicit removals. That is a backstop, not a licence.
+
+     This function does FIVE things and only ONE of them is the backend
+     PUT. `navigationOnly` suppresses that one. Family Tree, Life
+     Threads, the questionnaire draft and Quick Capture all still write
+     to localStorage, so a switch still loses nothing the operator
+     typed — it loses only the claim that the browser's current render
+     is the authoritative record.
+
+     The default is NOT inverted. ~20 callers funnel through here and
+     some are legitimate saves — _saveSection's deliberate Save, and a
+     genuine identity capture when a narrator states their own name.
+     Flipping the default would silence those too. The two navigation
+     call sites opt IN to suppression instead, which keeps the blast
+     radius at exactly the paths measured to be writing without being
+     asked. */
+  function _persistDrafts(pid, entry, opts) {
     if (!pid) return;
     var bb = _bb(); if (!bb) return;
+    var navigationOnly = !!(opts && opts.navigationOnly);
     try {
       var ft = bb.familyTreeDraftsByPerson && bb.familyTreeDraftsByPerson[pid];
       var lt = bb.lifeThreadsDraftsByPerson && bb.lifeThreadsDraftsByPerson[pid];
@@ -608,7 +644,19 @@
         // does next, the operator's typing survives a refresh.
         if (qq && Object.keys(qq).length > 0) _writeQqDraft(pid, qq);
 
-        if (qq && Object.keys(qq).length > 0 && hasAnyValue) {
+        if (navigationOnly && qq && Object.keys(qq).length > 0) {
+          // The draft above already preserved this document locally.
+          // Navigating away is not an instruction to overwrite the
+          // server's copy with whatever this screen happens to hold.
+          console.log("[bb-core] navigation persist: local draft written, " +
+            "backend PUT suppressed for pid=" + pid.slice(0, 8) +
+            " (WO-BIO-VIEW-SAFETY-01 — navigation is not authority to write)");
+          _qqLastOutcome = Promise.resolve({
+            pid: pid, ticket: ++_qqSaveTicket,
+            ok: true, outcome: "draft_only", saved: false,
+            message: "Kept locally. Navigation does not save to the server."
+          });
+        } else if (qq && Object.keys(qq).length > 0 && hasAnyValue) {
           _qqLastOutcome = _persistQuestionnaire(pid, qq, ++_qqSaveTicket, entry);
         } else if (qq && Object.keys(qq).length > 0) {
           console.warn("[bb-drift] _persistDrafts SKIPPED PUT: questionnaire " +
@@ -1105,7 +1153,9 @@
         try { localStorage.setItem(_LS_QC_PREFIX + outgoingPid, JSON.stringify({ v: DRAFT_SCHEMA_VERSION, d: bb.quickItems })); } catch (e) {}
       }
       if (bb.questionnaire && Object.keys(bb.questionnaire).length > 0) {
-        _persistDrafts(outgoingPid);
+        // WO-BIO-VIEW-SAFETY-01: draft only. This path runs on every
+        // narrator switch, including with the Bio Builder popover shut.
+        _persistDrafts(outgoingPid, undefined, { navigationOnly: true });
       }
     }
 
@@ -1228,7 +1278,8 @@
           try { localStorage.setItem(_LS_QC_PREFIX + outgoingPid, JSON.stringify({ v: DRAFT_SCHEMA_VERSION, d: bb.quickItems })); } catch (e) {}
         }
         if (bb.questionnaire && Object.keys(bb.questionnaire).length > 0) {
-          _persistDrafts(outgoingPid);
+          // WO-BIO-VIEW-SAFETY-01: draft only — see _persistDrafts.
+          _persistDrafts(outgoingPid, undefined, { navigationOnly: true });
         }
       }
       bb.personId      = newId;
