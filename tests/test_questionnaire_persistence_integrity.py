@@ -356,6 +356,90 @@ class QuestionnairePersistenceIntegrity(unittest.TestCase):
         hist = self._history()[-1]
         self.assertIn("personal.preferredName", json.loads(hist["changed_paths"]))
 
+    # ── WO-BIO-VIEW-SAFETY-01 (2026-09-21) ────────────────────────────
+    #
+    # The three cases below exist because the test above passes against a
+    # service that RECORDS the changed paths and never RETURNS them — which
+    # is exactly what shipped. It asserts on the history row, so the router
+    # dropping the value from its response was invisible here.
+    #
+    # That omission had a cost. Without the list the browser could not tell
+    # an edited field from one that merely sat on the form, so every
+    # populated field in a saved section was marked human_edit and locked
+    # against future correction. Measured on a real narrator: ten such marks
+    # written inside a two-millisecond window.
+    #
+    # Assert the RETURN VALUE, which is the half a consumer can act on.
+
+    def test_changed_paths_is_returned_not_merely_archived(self):
+        """The caller needs to know WHICH paths changed, not only that
+        something did. Archiving it is not the same as returning it."""
+        res = self.qp.merge_whole_document(
+            NARRATOR, {"personal": {"preferredName": "Jan"}},
+            source="ui_save", schema_version=1)
+        self.assertIn("changed_paths", res,
+                      "merge_whole_document computed the changed paths and did not "
+                      "return them; a consumer cannot narrow attribution to what "
+                      "actually changed")
+        self.assertEqual(["personal.preferredName"], res["changed_paths"])
+
+    def test_a_no_op_returns_no_changed_paths(self):
+        """A save that changes nothing must claim nothing. Downstream work
+        keys off this to skip derived writes entirely."""
+        stored = self._stored()
+        res = self.qp.merge_whole_document(NARRATOR, stored,
+                                           source="ui_save", schema_version=1)
+        self.assertFalse(res["write_applied"])
+        self.assertEqual([], res["changed_paths"])
+
+    def test_the_first_save_for_a_narrator_does_not_raise(self):
+        """A narrator with no questionnaire row at all.
+
+        `touched_paths` was computed inside the archive branch, which only
+        runs when a prior row exists. Returning it from there raised
+        NameError on the FIRST SAVE OF EVERY NEW NARRATOR — the one path
+        no existing test covered, because every other test in this suite
+        starts from a populated fixture. Caught by execution before it
+        shipped; pinned here so it cannot come back."""
+        fresh = "11111111-2222-3333-4444-555555555555"
+        con = sqlite3.connect(self.db_path)
+        con.execute("INSERT INTO people (id, display_name) VALUES (?,?)",
+                    (fresh, "Brand New"))
+        con.commit()
+        con.close()
+
+        res = self.qp.merge_whole_document(
+            fresh, {"personal": {"fullName": "Brand New", "dateOfBirth": "1950-01-02"}},
+            source="ui_save", schema_version=1)
+
+        self.assertTrue(res["write_applied"])
+        self.assertEqual(["personal.dateOfBirth", "personal.fullName"],
+                         sorted(res["changed_paths"]))
+
+    def test_a_thin_projection_flushed_over_a_full_record_removes_nothing(self):
+        """The 2026-09-21 incident, as opposed to the 09-15 one.
+
+        Under HORNELORE_QUESTIONNAIRE_BIO_FACTS_READ=1 the hydrating GET
+        returns a three-leaf projection of the record rather than the
+        record. Leaving the screen committed that projection. Ninety-seven
+        values survived only because this function performs no implicit
+        removals — a backstop that must stay a backstop."""
+        before = _leaves(self._stored())
+        self.assertGreater(len(before), 20, "fixture must be rich enough to lose something")
+
+        thin = {"personal": {"fullName": "Janice",
+                             "dateOfBirth": "1939-08-30"}}
+        res = self.qp.merge_whole_document(NARRATOR, thin, source="ui_save",
+                                           schema_version=1)
+        after = _leaves(self._stored())
+
+        lost = sorted(k for k in before if k not in after)
+        self.assertEqual([], lost, f"a thin projection deleted stored values: {lost}")
+        self.assertEqual(len(before), len(after))
+        for p in res["changed_paths"]:
+            self.assertTrue(p.startswith("personal."),
+                            f"only the projection's own paths may change; {p} did too")
+
     def test_read_for_edit_returns_the_stored_document_not_a_projection(self):
         """A caller hydrating from bio_questionnaire_view would receive nine
         sections and, writing back what it received, delete seven."""

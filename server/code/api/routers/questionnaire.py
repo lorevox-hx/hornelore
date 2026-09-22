@@ -88,6 +88,14 @@ class QuestionnairePutResponse(BaseModel):
     # `removals`, instead of the operator seeing "Saved" while the old
     # value quietly survives.
     ignored_blank_paths: List[str] = Field(default_factory=list)
+    # The paths this PUT actually changed. WO-BIO-VIEW-SAFETY-01
+    # (2026-09-21). merge_whole_document has always computed this and
+    # written it into the revision row; the router dropped it, so the
+    # browser had no way to tell an edited field from one that merely
+    # happened to be on the form. The projection layer then marked every
+    # populated field in the saved section as a human edit and locked it.
+    # Returned so attribution can be as narrow as the write was.
+    changed_paths: List[str] = Field(default_factory=list)
     # BUG-QUESTIONNAIRE-NOOP-REPORTED-AS-WRITE-01 (2026-09-20). Whether this
     # PUT changed the stored document. merge_whole_document has computed this
     # since 6b0a877 ("a save that changes nothing is not a write") and the
@@ -303,6 +311,7 @@ def _persist(
         }
         fanout_summary["revision"] = merged.get("revision") or 0
         fanout_summary["ignored_blank_paths"] = list(merged.get("ignored_blank_paths") or [])
+        fanout_summary["changed_paths"] = list(merged.get("changed_paths") or [])
         # Carry the writer's own verdict through. Default True only when the
         # writer did not say — never as a way of calling a no-op a write.
         fanout_summary["write_applied"] = bool(merged.get("write_applied", True))
@@ -348,6 +357,7 @@ def _persist(
         legacy_blob_written=legacy_blob_written,
         revision=int(fanout_summary.get("revision") or 0),
         ignored_blank_paths=list(fanout_summary.get("ignored_blank_paths") or []),
+        changed_paths=list(fanout_summary.get("changed_paths") or []),
         write_applied=bool(fanout_summary.get("write_applied", True)),
     )
 

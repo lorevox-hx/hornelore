@@ -470,6 +470,7 @@ def _write(
             return {"person_id": person_id, "questionnaire": stored,
                     "revision": stored_rev, "write_applied": False,
                     "conflict": False, "conflicting_paths": [],
+                    "changed_paths": [],
                     "ignored_blank_paths": sorted(ignored_blank_paths)}
 
         next_rev = stored_rev + 1
@@ -516,15 +517,31 @@ def _write(
                     (person_id, _ident[0], _ident[1], _ident[2]),
                 )
 
+        # Computed HERE, unconditionally, because it is now part of the
+        # return value and not only of the archive row.
+        #
+        # The archive branches below do not all assign it: a `replacement`
+        # is "all of it" and archives the prior document whole, and a
+        # first-ever save has no `row` to archive at all. Computing it
+        # inside those branches — as it was — left it undefined on both
+        # paths, so reading it at the return would raise NameError on the
+        # FIRST SAVE OF EVERY NEW NARRATOR. Found before it shipped, by
+        # reading the block that guards the assignment rather than the
+        # line that makes it.
+        #
+        # With no prior row `stored_leaves` is empty, so every mutation
+        # carrying a value compares unequal and is correctly reported as
+        # changed.
+        next_leaves = flatten_document(nxt)
+        touched_paths = sorted(
+            {p for p, _, _ in parsed_mut if stored_leaves.get(p) != next_leaves.get(p)}
+        )
+
         if row is not None:
             if replacement is not None:
                 # "all of it" — the prior document above is the answer.
                 _archive(con, person_id, row, source, write_kind, now)
             else:
-                next_leaves = flatten_document(nxt)
-                touched_paths = sorted(
-                    {p for p, _, _ in parsed_mut if stored_leaves.get(p) != next_leaves.get(p)}
-                )
                 gone_paths = sorted(
                     {p for p in stored_leaves if p not in next_leaves}
                 )
@@ -553,10 +570,33 @@ def _write(
         if also_in_transaction is not None:
             also_in_transaction(con)
         con.execute("COMMIT")
+        # `changed_paths` is RETURNED, not merely recorded.
+        #
+        # WO-BIO-VIEW-SAFETY-01 (2026-09-21). This value has been computed
+        # here all along and written into the revision row, and the router
+        # dropped it — the same shape as
+        # BUG-QUESTIONNAIRE-NOOP-REPORTED-AS-WRITE-01 (2026-09-20), where
+        # `write_applied` was computed and dropped and the browser's no-op
+        # detection therefore could never fire against the real server.
+        #
+        # What the omission cost this time: the client could not tell which
+        # fields a save actually changed, so bio-builder-questionnaire.js
+        # `_afterConfirmedSave` marked EVERY populated field in the saved
+        # section as `human_edit` with `locked: true`. Measured on Janice
+        # 93479171: ten such marks on her parents, all ten written inside a
+        # 2ms window on 2026-09-15 — a loop, not a person. A locked field
+        # refuses every later correction that is not itself a human edit
+        # (projection-sync.js:212), so a falsely locked value is one the
+        # narrator can no longer correct by speaking.
+        #
+        # The server already narrows provenance to changed paths. Returning
+        # the same list lets the projection layer narrow identically,
+        # instead of the browser re-broadening what the server scoped.
         return {"person_id": person_id, "questionnaire": nxt, "revision": next_rev,
                 "schema_version": next_schema, "updated_at": now,
                 "write_applied": True, "conflict": False, "conflicting_paths": [],
-                "write_kind": write_kind, "ignored_blank_paths": sorted(ignored_blank_paths)}
+                "write_kind": write_kind, "changed_paths": sorted(touched_paths),
+                "ignored_blank_paths": sorted(ignored_blank_paths)}
     except QuestionnaireConflict:
         raise
     except Exception:
