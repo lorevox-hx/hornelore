@@ -154,7 +154,7 @@ def legacy_ledger():
 GENERATOR_VERSION = "behaviour-seeds/2"
 DECISIONS_MD = os.path.join(ROOT, "docs", "wo", "WO-HORNELORE-INTEGRATED-LIFE-RECORD-01_DECISIONS.md")
 EXPECTED_DECISIONS = ["D1a", "D1b", "D1c", "D1d", "D1e", "D1f",
-                      "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "D10"]
+                      "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "D10", "D11"]
 
 
 def _sha256(path):
@@ -167,7 +167,10 @@ def _sha256(path):
 
 
 def _strip_md(s):
-    return re.sub(r"[*`_]", "", s).strip()
+    # `*` and backticks only. Stripping `_` as well mangled identifiers in the
+    # recorded refinements (`person.death.reported_age` -> `reportedage`);
+    # the decisions table uses `*` for emphasis, never `_`.
+    return re.sub(r"[*`]", "", s).strip()
 
 
 def _expand_ids(text):

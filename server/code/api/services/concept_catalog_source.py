@@ -150,7 +150,10 @@ CONCEPT_BY_PATH = {
     "military.notableEvents": "story.service",
     "greatGrandparents.militaryBranch": "event.service.branch",  # D1e G49
     "greatGrandparents.militaryUnit": "event.service.unit",      # D1e G51
-    "greatGrandparents.militaryEvent": "story.service",          # D1e G50
+    # NOT story.service: the field is "military event / deployment / dates" and
+    # extract.py:5054-5061 routes yearsOfService, deploymentLocation and rank
+    # into it. It describes the occurrence itself (D1e as confirmed, D7).
+    "greatGrandparents.militaryEvent": "event.service.occurrence",  # D1e G50
     "residence.place": "event.residence.place",
     "residence.periodStart": "event.residence.period",
     "residence.periodEnd": "event.residence.period",
@@ -175,17 +178,23 @@ CONCEPT_BY_PATH = {
     "travel.purpose": "trip.purpose",
     "travel.companions": "trip.companions",
     "travel.whatHappened": "trip.story",
-    # Notes buckets no decision has retired: kept as they are today (form and
-    # extraction), under one honest concept, pending Chris (RECONCILIATIONS).
-    "parents.notes": "note.about_subject",
-    "faith.notes": "note.about_subject",
-    "military.notes": "note.about_subject",
-    "pets.notes": "note.about_subject",
-    "travel.notes": "note.about_subject",
+    # D11: operator-authored narrative/context in the form, routed to the lane
+    # it belongs to — and retired from structured extraction (EXTRACTION_RETIRED).
+    "parents.notes": "story.about_person",
+    "faith.notes": "story.faith",
+    "military.notes": "story.service",
+    "pets.notes": "story.about_animal",
+    "travel.notes": "trip.story",
 }
 
-NOTE_PATHS_UNDECIDED = ("parents.notes", "faith.notes", "military.notes",
-                        "pets.notes", "travel.notes")
+# ── retired from STRUCTURED EXTRACTION only (D1f: separate properties) ────
+# The path stays bound and questionnaire-editable; the extractor stops being
+# offered it (Batch A3 removes it from EXTRACTABLE_FIELDS). Existing values
+# migrate. Distinct from RETIRED below, which retires the path outright.
+EXTRACTION_RETIRED = {
+    "parents.notes": "D11", "faith.notes": "D11", "military.notes": "D11",
+    "pets.notes": "D11", "travel.notes": "D11",
+}
 
 # ── retired — no concept, and the extractor stops looking (Batch A3) ──────
 # Each carries the decision that retired it. A retired path is a BINDING with
@@ -197,9 +206,8 @@ RETIRED = {
     "health.notes": "D1d", "hobbies.notes": "D1d",
     # D1f Q12: the one form-only notes bucket
     "siblings.notes": "D1f",
-    # NOT here, deliberately: parents/faith/military/pets/travel `.notes`. They
-    # live in BOTH the form and the extractor and no decision retired them —
-    # see NOTE_PATHS_UNDECIDED and RECONCILIATIONS.
+    # NOT here: parents/faith/military/pets/travel `.notes`. D11 retires them
+    # from extraction only; they stay in the form — see EXTRACTION_RETIRED.
     # D1e: logistics, not a life; a derived age; a notes bucket
     "community.meetingDay": "D1e", "community.meetingLocation": "D1e",
     "community.memberCount": "D1e", "community.successor": "D1e",
@@ -469,7 +477,8 @@ CONCEPTS = {
     "trip.purpose": ("Trip purpose", "text", "one"),
     "trip.companions": ("Trip companions", "person_ref", "many"),
     "trip.story": ("Trip story", "story", "many"),
-    "note.about_subject": ("Free-text note (undecided bucket)", "text", "many"),
+    "story.about_animal": ("Story about an animal", "story", "many"),
+    "event.service.occurrence": ("A period of service, as described", "text", "many"),
 }
 
 # Concepts the questionnaire shows but that are COMPUTED, never stored (D1f).
@@ -518,17 +527,17 @@ RECONCILIATIONS = [
                "narrator's own service uses the same concepts, so a great-grandparent's "
                "Navy service and the narrator's are one concept about two people. The "
                "D1e intent — about THAT person, source and uncertainty kept — holds.",
-        "status": "needs_confirmation",
+        "status": "confirmed: D1e refinement, 2026-09-22",
     },
     {
-        "decision": "none yet (D1d's argument, wider)",
+        "decision": "D11",
         "decided_wording": "D1d retired seven EXTRACTION-ONLY notes paths; D1f retired siblings.notes",
-        "catalog_uses": "note.about_subject for parents/faith/military/pets/travel .notes — "
-                        "kept exactly as today, in the form and the extractor",
+        "catalog_uses": "parents/faith/military/pets/travel .notes bound to their story/trip "
+                        "lane, questionnaire-editable, retired from structured extraction",
         "why": "These five live in BOTH the form and the extractor. D1d's argument "
                "(a bucket invites the extractor to file anything it cannot classify) "
                "applies, but no decision covered them, and retiring undecided paths is "
                "the silent promotion the decision record exists to prevent.",
-        "status": "needs_decision",
+        "status": "decided: D11, 2026-09-22",
     },
 ]

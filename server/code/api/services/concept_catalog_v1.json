@@ -768,6 +768,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q09"
     ],
@@ -789,6 +790,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -812,6 +814,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "B01",
      "Q02"
@@ -836,6 +839,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "B03",
      "Q02"
@@ -859,6 +863,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "A01"
     ],
@@ -882,6 +887,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "A02"
     ],
@@ -904,6 +910,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q02"
     ],
@@ -927,6 +934,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q01"
     ],
@@ -947,6 +955,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "A03"
     ],
@@ -969,6 +978,7 @@
     ],
     "disposition": "retired",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G45"
     ],
@@ -988,6 +998,7 @@
     ],
     "disposition": "retired",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G46"
     ],
@@ -1007,6 +1018,7 @@
     ],
     "disposition": "retired",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G47"
     ],
@@ -1026,6 +1038,7 @@
     ],
     "disposition": "retired",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G63"
     ],
@@ -1045,6 +1058,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G53"
     ],
@@ -1067,6 +1081,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G56"
     ],
@@ -1089,6 +1104,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G01"
     ],
@@ -1112,6 +1128,7 @@
     ],
     "disposition": "retired",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G58"
     ],
@@ -1131,6 +1148,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G60"
     ],
@@ -1151,6 +1169,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G34"
     ],
@@ -1176,6 +1195,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q01"
     ],
@@ -1200,6 +1220,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -1223,6 +1244,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -1244,6 +1266,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -1264,6 +1287,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q08"
     ],
@@ -1285,6 +1309,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -1303,6 +1328,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -1320,6 +1346,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -1340,6 +1367,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q08"
     ],
@@ -1361,6 +1389,7 @@
     ],
     "disposition": "retired",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G63"
     ],
@@ -1380,6 +1409,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G55"
     ],
@@ -1398,6 +1428,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -1418,6 +1449,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G59"
     ],
@@ -1436,6 +1468,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -1455,6 +1488,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -1468,10 +1502,15 @@
    {
     "alias_of": null,
     "browser_write_mode": "suggest_only",
-    "concept_id": "note.about_subject",
-    "decision_ids": [],
+    "concept_id": "story.faith",
+    "decision_ids": [
+     "D11"
+    ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [
+     "D11"
+    ],
     "groups": [],
     "in": [
      "extraction",
@@ -1479,7 +1518,7 @@
     ],
     "path": "faith.notes",
     "same_fact_as": [
-     "military.notes"
+     "faith.significantMoments"
     ],
     "section": "faith",
     "subject": "narrator"
@@ -1491,6 +1530,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -1508,13 +1548,16 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
      "questionnaire"
     ],
     "path": "faith.significantMoments",
-    "same_fact_as": [],
+    "same_fact_as": [
+     "faith.notes"
+    ],
     "section": "faith",
     "subject": "narrator"
    },
@@ -1527,6 +1570,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G06"
     ],
@@ -1548,6 +1592,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "B01",
      "G02"
@@ -1571,6 +1616,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "A01"
     ],
@@ -1594,6 +1640,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "A02"
     ],
@@ -1616,6 +1663,7 @@
     ],
     "disposition": "retired",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G62"
     ],
@@ -1636,6 +1684,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "B03",
      "G07"
@@ -1659,6 +1708,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G23"
     ],
@@ -1679,6 +1729,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "A03"
     ],
@@ -1702,6 +1753,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G20"
     ],
@@ -1722,6 +1774,7 @@
     ],
     "disposition": "retired",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G61"
     ],
@@ -1742,6 +1795,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G29"
     ],
@@ -1762,6 +1816,7 @@
     ],
     "disposition": "retired",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G44"
     ],
@@ -1782,6 +1837,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G21"
     ],
@@ -1803,6 +1859,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G18"
     ],
@@ -1824,6 +1881,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G54"
     ],
@@ -1845,6 +1903,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G30"
     ],
@@ -1865,6 +1924,7 @@
     ],
     "disposition": "retired",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G35"
     ],
@@ -1885,6 +1945,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "B02",
      "G05"
@@ -1908,6 +1969,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G16"
     ],
@@ -1928,6 +1990,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "A04"
     ],
@@ -1952,6 +2015,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "A05"
     ],
@@ -1974,6 +2038,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "A06"
     ],
@@ -1996,6 +2061,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "A07"
     ],
@@ -2020,6 +2086,7 @@
     ],
     "disposition": "retired",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G64"
     ],
@@ -2039,6 +2106,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "A08"
     ],
@@ -2062,6 +2130,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "B04",
      "G10"
@@ -2085,6 +2154,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G26"
     ],
@@ -2105,6 +2175,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G31"
     ],
@@ -2127,6 +2198,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q01"
     ],
@@ -2150,6 +2222,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q01"
     ],
@@ -2171,6 +2244,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -2190,6 +2264,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -2207,6 +2282,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -2226,6 +2302,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G37"
     ],
@@ -2247,6 +2324,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q11"
     ],
@@ -2269,6 +2347,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G11"
     ],
@@ -2287,6 +2366,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -2306,6 +2386,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -2323,6 +2404,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -2343,6 +2425,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "B05",
      "Q01"
@@ -2367,6 +2450,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "B05",
      "G32"
@@ -2390,6 +2474,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q02"
     ],
@@ -2412,6 +2497,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G27"
     ],
@@ -2430,6 +2516,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -2449,6 +2536,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G36"
     ],
@@ -2469,6 +2557,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G03"
     ],
@@ -2489,6 +2578,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G08"
     ],
@@ -2509,6 +2599,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G22"
     ],
@@ -2529,6 +2620,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G19"
     ],
@@ -2549,6 +2641,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G17"
     ],
@@ -2569,6 +2662,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G33"
     ],
@@ -2589,6 +2683,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G49"
     ],
@@ -2603,12 +2698,13 @@
    {
     "alias_of": null,
     "browser_write_mode": "suggest_only",
-    "concept_id": "story.service",
+    "concept_id": "event.service.occurrence",
     "decision_ids": [
      "D1e"
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G50"
     ],
@@ -2629,6 +2725,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G51"
     ],
@@ -2649,6 +2746,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G57"
     ],
@@ -2670,6 +2768,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G38"
     ],
@@ -2696,6 +2795,7 @@
     ],
     "disposition": "retired",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G39"
     ],
@@ -2716,6 +2816,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q05"
     ],
@@ -2743,6 +2844,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G42"
     ],
@@ -2770,6 +2872,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q05"
     ],
@@ -2796,6 +2899,7 @@
     ],
     "disposition": "retired",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G43"
     ],
@@ -2816,6 +2920,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G48"
     ],
@@ -2842,6 +2947,7 @@
     ],
     "disposition": "retired",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G63"
     ],
@@ -2862,6 +2968,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q05"
     ],
@@ -2886,6 +2993,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -2908,6 +3016,7 @@
     ],
     "disposition": "retired",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G63"
     ],
@@ -2925,6 +3034,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -2947,6 +3057,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q04"
     ],
@@ -2968,6 +3079,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q01"
     ],
@@ -2994,6 +3106,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q09"
     ],
@@ -3017,6 +3130,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G40"
     ],
@@ -3037,6 +3151,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G34"
     ],
@@ -3055,6 +3170,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3073,6 +3189,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3093,6 +3210,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G01"
     ],
@@ -3114,6 +3232,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3131,6 +3250,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3150,6 +3270,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q03"
     ],
@@ -3172,6 +3293,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q03"
     ],
@@ -3192,6 +3314,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q03"
     ],
@@ -3212,6 +3335,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3229,6 +3353,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3246,23 +3371,31 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
      "questionnaire"
     ],
     "path": "military.notableEvents",
-    "same_fact_as": [],
+    "same_fact_as": [
+     "military.notes"
+    ],
     "section": "military",
     "subject": "narrator"
    },
    {
     "alias_of": null,
     "browser_write_mode": "suggest_only",
-    "concept_id": "note.about_subject",
-    "decision_ids": [],
+    "concept_id": "story.service",
+    "decision_ids": [
+     "D11"
+    ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [
+     "D11"
+    ],
     "groups": [],
     "in": [
      "extraction",
@@ -3270,7 +3403,7 @@
     ],
     "path": "military.notes",
     "same_fact_as": [
-     "faith.notes"
+     "military.notableEvents"
     ],
     "section": "military",
     "subject": "narrator"
@@ -3282,6 +3415,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3299,6 +3433,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3316,6 +3451,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3335,6 +3471,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3354,6 +3491,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3373,6 +3511,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G14"
     ],
@@ -3391,6 +3530,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3408,6 +3548,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3427,6 +3568,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G12"
     ],
@@ -3447,6 +3589,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q10"
     ],
@@ -3467,6 +3610,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G15"
     ],
@@ -3487,6 +3631,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G41"
     ],
@@ -3505,6 +3650,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3524,6 +3670,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3541,6 +3688,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3558,6 +3706,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3577,30 +3726,40 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
      "questionnaire"
     ],
     "path": "parents.notableLifeEvents",
-    "same_fact_as": [],
+    "same_fact_as": [
+     "parents.notes"
+    ],
     "section": "parents",
     "subject": "parent"
    },
    {
     "alias_of": null,
     "browser_write_mode": "candidate_only",
-    "concept_id": "note.about_subject",
-    "decision_ids": [],
+    "concept_id": "story.about_person",
+    "decision_ids": [
+     "D11"
+    ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [
+     "D11"
+    ],
     "groups": [],
     "in": [
      "extraction",
      "questionnaire"
     ],
     "path": "parents.notes",
-    "same_fact_as": [],
+    "same_fact_as": [
+     "parents.notableLifeEvents"
+    ],
     "section": "parents",
     "subject": "parent"
    },
@@ -3611,6 +3770,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3630,6 +3790,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G13"
     ],
@@ -3650,6 +3811,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G24"
     ],
@@ -3668,6 +3830,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3685,6 +3848,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3703,6 +3867,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3721,6 +3886,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3741,6 +3907,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G52"
     ],
@@ -3759,6 +3926,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3777,6 +3945,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3797,6 +3966,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q07"
     ],
@@ -3818,6 +3988,7 @@
     ],
     "disposition": "derived",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q07"
     ],
@@ -3839,6 +4010,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q06"
     ],
@@ -3859,6 +4031,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q06"
     ],
@@ -3879,6 +4052,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q06"
     ],
@@ -3897,6 +4071,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3910,10 +4085,15 @@
    {
     "alias_of": null,
     "browser_write_mode": "suggest_only",
-    "concept_id": "note.about_subject",
-    "decision_ids": [],
+    "concept_id": "story.about_animal",
+    "decision_ids": [
+     "D11"
+    ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [
+     "D11"
+    ],
     "groups": [],
     "in": [
      "extraction",
@@ -3931,6 +4111,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3948,6 +4129,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3965,6 +4147,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -3982,6 +4165,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -4001,6 +4185,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -4020,6 +4205,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -4039,6 +4225,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G04"
     ],
@@ -4057,6 +4244,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -4076,6 +4264,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G09"
     ],
@@ -4094,6 +4283,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -4113,6 +4303,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -4132,6 +4323,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q02"
     ],
@@ -4152,6 +4344,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q01"
     ],
@@ -4175,6 +4368,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q02"
     ],
@@ -4197,6 +4391,7 @@
     ],
     "disposition": "retired",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q12"
     ],
@@ -4216,6 +4411,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G28"
     ],
@@ -4236,6 +4432,7 @@
     ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [
      "G25"
     ],
@@ -4254,6 +4451,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -4273,6 +4471,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q01"
     ],
@@ -4294,6 +4493,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -4317,6 +4517,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "B02",
      "Q02"
@@ -4341,6 +4542,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "B04",
      "Q02"
@@ -4364,6 +4566,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q10"
     ],
@@ -4384,6 +4587,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "A04"
     ],
@@ -4408,6 +4612,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "A05"
     ],
@@ -4430,6 +4635,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "A06"
     ],
@@ -4452,6 +4658,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "A07"
     ],
@@ -4476,6 +4683,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q01"
     ],
@@ -4496,6 +4704,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "A08"
     ],
@@ -4518,6 +4727,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q03"
     ],
@@ -4540,6 +4750,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q04"
     ],
@@ -4563,6 +4774,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q04"
     ],
@@ -4585,6 +4797,7 @@
     ],
     "disposition": "bind",
     "extraction_member": false,
+    "extraction_retired_by": [],
     "groups": [
      "Q04"
     ],
@@ -4608,6 +4821,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -4625,6 +4839,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -4638,17 +4853,24 @@
    {
     "alias_of": null,
     "browser_write_mode": "suggest_only",
-    "concept_id": "note.about_subject",
-    "decision_ids": [],
+    "concept_id": "trip.story",
+    "decision_ids": [
+     "D11"
+    ],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [
+     "D11"
+    ],
     "groups": [],
     "in": [
      "extraction",
      "questionnaire"
     ],
     "path": "travel.notes",
-    "same_fact_as": [],
+    "same_fact_as": [
+     "travel.whatHappened"
+    ],
     "section": "travel",
     "subject": "trip"
    },
@@ -4659,6 +4881,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -4676,13 +4899,16 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
      "questionnaire"
     ],
     "path": "travel.whatHappened",
-    "same_fact_as": [],
+    "same_fact_as": [
+     "travel.notes"
+    ],
     "section": "travel",
     "subject": "trip"
    },
@@ -4693,6 +4919,7 @@
     "decision_ids": [],
     "disposition": "bind",
     "extraction_member": true,
+    "extraction_retired_by": [],
     "groups": [],
     "in": [
      "extraction",
@@ -6481,6 +6708,51 @@
   },
   {
    "cardinality": "many",
+   "concept_id": "event.service.occurrence",
+   "decision_ids": [
+    "D1e"
+   ],
+   "extraction": {
+    "eligible": true,
+    "scope": [
+     "greatGrandparents"
+    ],
+    "write_mode": "per_binding"
+   },
+   "label": "A period of service, as described",
+   "lori": {
+    "askable": "responsive_only",
+    "askable_by_subject": {},
+    "prompt_role": {
+     "narrator": "retrieved",
+     "other": "retrieved"
+    },
+    "retrievable": true
+   },
+   "memoir": {
+    "route": "operator_use_only"
+   },
+   "narrative_value": "unassessed",
+   "provenance": {
+    "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
+    "lori.prompt_role": "default: retrieved",
+    "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
+    "narrative_value": "unassessed: no asking key binds this concept",
+    "questionnaire": "measured: questionnaire_schema.load_schema"
+   },
+   "questionnaire": "not_offered",
+   "special_projection": null,
+   "storage": {
+    "db_lane": "pending — Batch B tables",
+    "entity": "event",
+    "owner": "life_record"
+   },
+   "subject_kind": "event",
+   "value_type": "text"
+  },
+  {
+   "cardinality": "many",
    "concept_id": "event.service.period",
    "decision_ids": [],
    "extraction": {
@@ -6975,53 +7247,6 @@
    },
    "subject_kind": "event",
    "value_type": "occurrence"
-  },
-  {
-   "cardinality": "many",
-   "concept_id": "note.about_subject",
-   "decision_ids": [],
-   "extraction": {
-    "eligible": true,
-    "scope": [
-     "faith",
-     "military",
-     "parents",
-     "pets",
-     "travel"
-    ],
-    "write_mode": "per_binding"
-   },
-   "label": "Free-text note (undecided bucket)",
-   "lori": {
-    "askable": "responsive_only",
-    "askable_by_subject": {},
-    "prompt_role": {
-     "narrator": "retrieved",
-     "other": "retrieved"
-    },
-    "retrievable": true
-   },
-   "memoir": {
-    "route": "operator_use_only"
-   },
-   "narrative_value": "unassessed",
-   "provenance": {
-    "extraction": "measured: EXTRACTABLE_FIELDS sections",
-    "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
-    "lori.prompt_role": "default: retrieved",
-    "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
-    "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
-   },
-   "questionnaire": "editable",
-   "special_projection": null,
-   "storage": {
-    "db_lane": "pending — Batch B tables",
-    "entity": "note",
-    "owner": "life_record"
-   },
-   "subject_kind": "note",
-   "value_type": "text"
   },
   {
    "cardinality": "one",
@@ -8425,8 +8650,52 @@
   },
   {
    "cardinality": "many",
+   "concept_id": "story.about_animal",
+   "decision_ids": [
+    "D11"
+   ],
+   "extraction": {
+    "eligible": false,
+    "scope": [],
+    "write_mode": "per_binding"
+   },
+   "label": "Story about an animal",
+   "lori": {
+    "askable": "responsive_only",
+    "askable_by_subject": {},
+    "prompt_role": {
+     "narrator": "retrieved",
+     "other": "retrieved"
+    },
+    "retrievable": true
+   },
+   "memoir": {
+    "route": "from_record_origin"
+   },
+   "narrative_value": "unassessed",
+   "provenance": {
+    "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
+    "lori.prompt_role": "default: retrieved",
+    "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
+    "narrative_value": "unassessed: no asking key binds this concept",
+    "questionnaire": "measured: questionnaire_schema.load_schema"
+   },
+   "questionnaire": "editable",
+   "special_projection": null,
+   "storage": {
+    "db_lane": "pending — Batch B tables",
+    "entity": "story",
+    "owner": "life_record"
+   },
+   "subject_kind": "story",
+   "value_type": "story"
+  },
+  {
+   "cardinality": "many",
    "concept_id": "story.about_person",
    "decision_ids": [
+    "D11",
     "D1a",
     "D1c",
     "D1f"
@@ -8521,7 +8790,9 @@
   {
    "cardinality": "many",
    "concept_id": "story.faith",
-   "decision_ids": [],
+   "decision_ids": [
+    "D11"
+   ],
    "extraction": {
     "eligible": true,
     "scope": [
@@ -8975,12 +9246,11 @@
    "cardinality": "many",
    "concept_id": "story.service",
    "decision_ids": [
-    "D1e"
+    "D11"
    ],
    "extraction": {
     "eligible": true,
     "scope": [
-     "greatGrandparents",
      "military"
     ],
     "write_mode": "per_binding"
@@ -9282,7 +9552,9 @@
   {
    "cardinality": "many",
    "concept_id": "trip.story",
-   "decision_ids": [],
+   "decision_ids": [
+    "D11"
+   ],
    "extraction": {
     "eligible": true,
     "scope": [
@@ -9370,7 +9642,7 @@
  ],
  "counts": {
   "asking_keys": 84,
-  "concepts": 83,
+  "concepts": 84,
   "paths": 195,
   "paths_retired": 16,
   "profile_seed_evidence": 69,
@@ -9387,6 +9659,10 @@
   ]
  },
  "decisions_used": {
+  "D11": {
+   "refinement": "Retire parents.notes, faith.notes, military.notes, pets.notes, travel.notes from structured extraction. Existing values are migration-preserved. There is no generic note.about_subject extractor destination — that would recreate the bucket D1d removed. The fields may stay questionnaire-editable as narrative/context, routed to the matching lane: parents → story about that person, faith → story of faith, military → story of service, pets → story about that animal, travel → the trip-notes lane. (Recorded from the reviewer recommendation Chris forwarded on 2026-09-22.)",
+   "state": "approved"
+  },
   "D1a": {
    "refinement": null,
    "state": "approved"
@@ -9396,7 +9672,7 @@
    "state": "approved"
   },
   "D1c": {
-   "refinement": "An age at death stated by a source is a reported assertion; an age derived from birth and death dates is calculated and never stored. G14 is person.death.reportedage, attached to the death occurrence, not a generic person.death.age. If a reported age and a computed age disagree, that is a discrepancy for the operator to see, not something to resolve silently. (Applied: buildconceptcatalog.py CONCEPTOF; appendix regenerated.)",
+   "refinement": "An age at death stated by a source is a reported assertion; an age derived from birth and death dates is calculated and never stored. G14 is person.death.reported_age, attached to the death occurrence, not a generic person.death.age. If a reported age and a computed age disagree, that is a discrepancy for the operator to see, not something to resolve silently. (Applied: build_concept_catalog.py CONCEPT_OF; appendix regenerated.)",
    "state": "approved"
   },
   "D1d": {
@@ -9404,7 +9680,7 @@
    "state": "approved"
   },
   "D1e": {
-   "refinement": null,
+   "refinement": "Confirmed later the same day: service is modelled as event.service. occurrences with the great-grandparent as participant/subject (D7), not as permanent person.service. attributes. greatGrandparents.militaryEvent is not narrative — its label is \"military event / deployment / dates\" and extract.py:5054-5061 routes years of service, deployment location and rank into it — so it binds to the occurrence (event.service.occurrence), not story.service.",
    "state": "approved"
   },
   "D1f": {
@@ -9421,24 +9697,24 @@
   }
  },
  "fingerprints": {
-  "decisions_sha256": "84d4b8c53e750ecfd33b21adb8449dfe6564d776e9534012cb55b9c2c02b95c8",
+  "decisions_sha256": "a6af58ccd7f992a00a5d1bc462233f1ef4f46e9ba4966602700cb05b14264f44",
   "measured_vocabularies_sha256": "8d74393ef14d25b91013408edc779f05b14bd5f2b2b336fe916448b23c103ae1",
   "questionnaire_schema": "questionnaire_schema.load_schema [7b974b9c2f23]",
-  "semantic_source_sha256": "3029bf31e90483ee2b6102f999e8c466c40ebb608654fccdb675a2c1bcf3541a"
+  "semantic_source_sha256": "1c87d3d9984e60198b635bafadd01a556cc83e5d0195aa3bf5ef94aa5da9ded3"
  },
  "reconciliations": [
   {
    "catalog_uses": "event.service.* with that person as participant",
    "decided_wording": "great-grandparent service as `person.service.*` about that person",
    "decision": "D1e",
-   "status": "needs_confirmation",
+   "status": "confirmed: D1e refinement, 2026-09-22",
    "why": "D7 (decided the same day) made occurrences canonical, and WO-LIFE-RECORD-01 §3.5 lists `service` as an occurrence type. The narrator's own service uses the same concepts, so a great-grandparent's Navy service and the narrator's are one concept about two people. The D1e intent — about THAT person, source and uncertainty kept — holds."
   },
   {
-   "catalog_uses": "note.about_subject for parents/faith/military/pets/travel .notes — kept exactly as today, in the form and the extractor",
+   "catalog_uses": "parents/faith/military/pets/travel .notes bound to their story/trip lane, questionnaire-editable, retired from structured extraction",
    "decided_wording": "D1d retired seven EXTRACTION-ONLY notes paths; D1f retired siblings.notes",
-   "decision": "none yet (D1d's argument, wider)",
-   "status": "needs_decision",
+   "decision": "D11",
+   "status": "decided: D11, 2026-09-22",
    "why": "These five live in BOTH the form and the extractor. D1d's argument (a bucket invites the extractor to file anything it cannot classify) applies, but no decision covered them, and retiring undecided paths is the silent promotion the decision record exists to prevent."
   }
  ],

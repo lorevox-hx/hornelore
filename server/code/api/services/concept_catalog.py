@@ -98,6 +98,11 @@ def validate(cat: Dict[str, Any]) -> List[str]:
         seen.add(path)
         if r.get("disposition") not in DISPOSITIONS:
             p.append(f"path `{path}`: disposition={r.get('disposition')!r}")
+        xr = r.get("extraction_retired_by")
+        if not isinstance(xr, list):
+            p.append(f"path `{path}`: does not state `extraction_retired_by`")
+        elif xr and r.get("disposition") != "bind":
+            p.append(f"path `{path}`: retired from extraction but not a live binding")
         if r.get("disposition") == "retired":
             if r.get("concept_id") is not None:
                 p.append(f"path `{path}`: retired but names a concept")
@@ -155,6 +160,12 @@ class Catalog:
         r = self.binding(path)
         return bool(r and r["disposition"] == "retired")
 
+    def is_extraction_retired(self, path: str) -> bool:
+        """Bound and questionnaire-editable, but no longer offered to the
+        extractor (D11). Not the same as `is_retired`."""
+        r = self.binding(path)
+        return bool(r and r["extraction_retired_by"])
+
     def asking_binding(self, key: str) -> Optional[Dict[str, Any]]:
         return self._asking.get(key)
 
@@ -169,7 +180,8 @@ class Catalog:
         eligible AND scoped to this section. The basis of Batch A4."""
         out = []
         for r in self._paths.values():
-            if not r["extraction_member"] or r["disposition"] == "retired":
+            if (not r["extraction_member"] or r["disposition"] == "retired"
+                    or r["extraction_retired_by"]):
                 continue
             c = self._concepts.get(r["concept_id"])
             if c and c["extraction"]["eligible"] and section in c["extraction"]["scope"] \

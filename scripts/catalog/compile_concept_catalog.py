@@ -166,6 +166,16 @@ def compile_catalog():
     for p in list(src.RETIRED) + list(src.CONCEPT_BY_PATH):
         if p not in vocab_of:
             problems.append(f"source names `{p}`, which no vocabulary contains")
+    for p, d in src.EXTRACTION_RETIRED.items():
+        # Retired from extraction ONLY: the path must still be a form field and
+        # must not also be retired outright, or the two tables disagree.
+        if p in src.RETIRED:
+            problems.append(f"`{p}` is in both RETIRED and EXTRACTION_RETIRED")
+        elif "questionnaire" not in vocab_of.get(p, ()):
+            problems.append(f"EXTRACTION_RETIRED `{p}` is not a questionnaire field — "
+                            "retire the path outright instead")
+        if not d:
+            problems.append(f"EXTRACTION_RETIRED `{p}` names no decision")
     for k in src.ASKING_KEY_BINDINGS:
         if k not in asking:
             problems.append(f"ASKING_KEY_BINDINGS names `{k}`, not a bio_schema key")
@@ -194,6 +204,12 @@ def compile_catalog():
                        decision_ids=sorted({d for g in row["groups"]
                                             for d in group_decision.get(g, ())}))
         row["extraction_member"] = "extraction" in row["in"]
+        # D11-style: bound and editable, but no longer offered to the extractor.
+        row["extraction_retired_by"] = ([src.EXTRACTION_RETIRED[p]]
+                                        if p in src.EXTRACTION_RETIRED else [])
+        if row["extraction_retired_by"]:
+            row["decision_ids"] = sorted(set(row["decision_ids"])
+                                         | set(row["extraction_retired_by"]))
         row["browser_write_mode"] = (_browser_write_mode(p, pm, repeatable)
                                      if row["extraction_member"] else None)
         path_rows.append(row)
@@ -289,7 +305,9 @@ def compile_catalog():
         prows = [r for r in path_rows if r["concept_id"] == cid]
         arows = [r for r in asking_rows if r["concept_id"] == cid]
         in_form = any("questionnaire" in r["in"] for r in prows)
-        x_rows = [r for r in prows if r["extraction_member"]]
+        # Eligibility comes only from paths still offered to the extractor.
+        x_rows = [r for r in prows
+                  if r["extraction_member"] and not r["extraction_retired_by"]]
         added = cid in src.EXTRACTION_ADDED
         added_dec, added_scope = src.EXTRACTION_ADDED.get(cid, (None, ()))
         nv = max((a["narrative_value"] for a in arows if a["narrative_value"]),

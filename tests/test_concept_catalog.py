@@ -184,6 +184,18 @@ class LoaderRefuses(unittest.TestCase):
             m["bindings"]["paths"].append(copy.deepcopy(m["bindings"]["paths"][0]))
         self.assertTrue(any("bound twice" in p for p in self._mutant(f)))
 
+    def test_extraction_retirement_on_a_dead_path_is_refused(self):
+        def f(m):
+            r = next(r for r in m["bindings"]["paths"] if r["disposition"] == "retired")
+            r["extraction_retired_by"] = ["D11"]
+        self.assertTrue(any("not a live binding" in p for p in self._mutant(f)))
+
+    def test_extraction_retired_by_must_be_stated(self):
+        def f(m):
+            m["bindings"]["paths"][0].pop("extraction_retired_by")
+        self.assertTrue(any("does not state `extraction_retired_by`" in p
+                            for p in self._mutant(f)))
+
     def test_loading_a_bad_catalog_raises(self):
         bad = copy.deepcopy(RAW)
         bad["concepts"][0].pop("lori")
@@ -230,6 +242,23 @@ class CompilerRefuses(unittest.TestCase):
         with self.assertRaises(COMPILER.CompileRefused):
             self._compile_with(mutate_source=f)
 
+    def test_extraction_retired_and_retired_outright_conflict_refuses(self):
+        def f(src):
+            src.RETIRED = dict(src.RETIRED, **{"parents.notes": "D1d"})
+        with self.assertRaises(COMPILER.CompileRefused) as cm:
+            self._compile_with(mutate_source=f)
+        self.assertTrue(any("both RETIRED and EXTRACTION_RETIRED" in p
+                            for p in cm.exception.args[0]))
+
+    def test_extraction_retiring_a_non_form_path_refuses(self):
+        # An extraction-only path has nowhere left to live: retire it outright.
+        def f(src):
+            src.EXTRACTION_RETIRED = dict(src.EXTRACTION_RETIRED,
+                                          **{"greatGrandparents.militaryEvent": "D11"})
+        with self.assertRaises(COMPILER.CompileRefused) as cm:
+            self._compile_with(mutate_source=f)
+        self.assertTrue(any("not a questionnaire field" in p for p in cm.exception.args[0]))
+
     def test_an_alias_between_different_facts_refuses(self):
         real = COMPILER._appendix_alias_pairs
 
@@ -272,11 +301,37 @@ class DecidedSemantics(unittest.TestCase):
         self.assertEqual(CAT.concept_for_path("parents.ageAtDeath"), "person.death.reported_age")
         self.assertIsNone(CAT.concept("person.death.age"), "a stored derived age exists")
 
-    def test_D1d_notes_retired_and_undecided_notes_are_not(self):
+    def test_D1d_notes_retired_outright(self):
         for p in ("family.children.notes", "health.notes", "hobbies.notes"):
             self.assertTrue(CAT.is_retired(p), p)
-        for p in ("parents.notes", "faith.notes", "travel.notes"):
-            self.assertFalse(CAT.is_retired(p), f"{p} was retired without a decision")
+
+    def test_D11_notes_leave_extraction_but_stay_in_the_form(self):
+        # Two separate properties (D1f): the path is still a live, editable
+        # binding in its narrative lane, and the extractor is no longer offered it.
+        lanes = {"parents.notes": "story.about_person", "faith.notes": "story.faith",
+                 "military.notes": "story.service", "pets.notes": "story.about_animal",
+                 "travel.notes": "trip.story"}
+        for p, concept in lanes.items():
+            self.assertFalse(CAT.is_retired(p), p)
+            self.assertTrue(CAT.is_extraction_retired(p), p)
+            self.assertEqual(CAT.concept_for_path(p), concept)
+            self.assertIn("questionnaire", CAT.binding(p)["in"])
+            self.assertEqual(CAT.binding(p)["extraction_retired_by"], ["D11"])
+            self.assertNotIn(p, CAT.extraction_paths_for_scope(p.split(".")[0]), p)
+        # No generic bucket survives as an extractor destination.
+        self.assertIsNone(CAT.concept("note.about_subject"))
+        # A concept reachable ONLY through a retired-from-extraction path is not eligible.
+        self.assertFalse(CAT.concept("story.about_animal")["extraction"]["eligible"])
+
+    def test_D1e_great_grandparent_service_is_an_occurrence(self):
+        for p in ("greatGrandparents.militaryBranch", "greatGrandparents.militaryUnit",
+                  "greatGrandparents.militaryEvent"):
+            self.assertTrue(CAT.concept_for_path(p).startswith("event.service."), p)
+        # "military event / deployment / dates" is the occurrence, not a story.
+        self.assertEqual(CAT.concept_for_path("greatGrandparents.militaryEvent"),
+                         "event.service.occurrence")
+        self.assertEqual(CAT.binding("greatGrandparents.militaryEvent")["subject"],
+                         "great_grandparent")
 
     def test_D3_no_clinical_extraction(self):
         for p in ("health.majorCondition", "health.currentMedications"):

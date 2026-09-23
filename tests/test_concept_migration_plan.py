@@ -91,10 +91,12 @@ class MigrationPlan(unittest.TestCase):
         self.assertEqual(r["value"], "a note an operator typed")
         self.assertEqual(r["decision_ids"], ["D1f"])
 
-    def test_an_undecided_notes_bucket_is_mapped_not_retired(self):
+    def test_a_D11_notes_value_migrates_into_its_story_lane(self):
+        # D11 retires the path from EXTRACTION only; an operator's existing
+        # note is kept and lands in the narrative lane, not discarded.
         r = _rows(self.q, "parents.notes")[0]
         self.assertEqual(r["disposition"], "mapped")
-        self.assertEqual(r["concept_id"], "note.about_subject")
+        self.assertEqual(r["concept_id"], "story.about_person")
 
     def test_derived_zodiac_is_not_migrated_as_truth(self):
         r = _rows(self.q, "personal.zodiacSign")[0]
