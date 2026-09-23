@@ -70,11 +70,8 @@ MUTATIONS = [
      '            "parents.schooling":                  "parents.education",\n'
      '            "family.relative":                    "parents.notableLifeEvents",',
      "rejected_not_rewritten|RelativeCatchAlls"),
-    (EXTRACT, "D1c revert undone: ageAtDeath exempt from the short-value drop",
-     '    "placeOfBirth", "placeOfDeath", "state", "country", "city", "location",\n',
-     '    "placeOfBirth", "placeOfDeath", "state", "country", "city", "location",\n'
-     '    "ageAtDeath",\n',
-     "narrator_age_leak|AgeAtDeath"),
+    # D1c's mutation moved to scripts/eval/mutate_b3_binding.py when B3(e)
+    # reintroduced `ageAtDeath` behind the binding guard.
     # ── B2 repair: hedged or conflicting dates go to review ──────────────
     # The seam mutation is caught only by the ProductionBoundary class, which
     # needs real pydantic: run this gate in .venv, or it SURVIVES by skip.

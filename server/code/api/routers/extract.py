@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import re
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from fastapi import APIRouter, HTTPException
@@ -5764,12 +5765,14 @@ _SHORT_VALUE_EXEMPT_SUFFIXES = frozenset({
     "rank", "role", "status", "species", "type", "yearEnlisted", "yearDischarged",
     "yearStarted", "yearEnded", "startYear", "endYear",
     "placeOfBirth", "placeOfDeath", "state", "country", "city", "location",
-    # NOT `ageAtDeath`. D1c exempted it (A3) so a STATED age at death would
-    # survive; B2 and B2r showed every value it admitted was the narrator's
-    # own age -- "Dad died December 23rd, 1967. I was twenty-eight." ->
-    # parents.ageAtDeath="28", 3 writes, 0 correct. Reverted 2026-09-23
-    # pending A4 subject binding: reintroduce only when the age is bound to
-    # the deceased person, not merely present in the same sentence.
+    # `ageAtDeath` (D1c) -- REINTRODUCED in B3(e). The B2 revert stood
+    # because every admitted value was the narrator's own age ("Dad died
+    # December 23rd, 1967. I was twenty-eight." -> 28). It passes this
+    # short-value stage again ONLY because `_apply_age_at_death_guard` at the
+    # finalization seam now binds it: located, the same person, death
+    # wording; a first-person age is rejected. Remove that guard and this
+    # line must go with it.
+    "ageAtDeath",
 })
 
 
@@ -6684,6 +6687,14 @@ def _apply_write_time_normalisation(items: List[dict]) -> List[dict]:
             )
             nd = dict(it)
             nd["value"] = new_val
+            # B3(b) EVIDENCE SPAN. A normalized date ("1991-10-04") no longer
+            # appears in the answer, so the grouper could not locate it and
+            # fell back to output order -- case_070 put Gretchen's birth date
+            # on Cole. Keep what was said. `normalized_from` already means
+            # exactly this ("set ONLY when the canonical value differs from
+            # what was said", ExtractedItem) and already crosses into the item.
+            if suffix in _DATE_FIELD_SUFFIXES and not nd.get("normalized_from"):
+                nd["normalized_from"] = raw
             out.append(nd)
         else:
             out.append(it)
@@ -7582,6 +7593,31 @@ def _extract_via_rules(
 
 # ── Repeatable field grouping ────────────────────────────────────────────────
 
+def _spoken_date_position(answer_lower: str, item: dict) -> int:
+    """Where in the answer a (normalized) date value was said, or -1.
+
+    Tries, in order: the text as the model gave it (`normalized_from`), each
+    four-digit year in it or in the value, then the elided form ("'94").
+    First match wins; -1 keeps the grouper's output-order fallback.
+    """
+    spoken = str(item.get("normalized_from") or "")
+    value = str(item.get("value") or "")
+    if spoken:
+        pos = answer_lower.find(spoken.lower())
+        if pos >= 0:
+            return pos
+    years = re.findall(r"(?<!\d)(\d{4})(?!\d)", spoken + " " + value)
+    for y in years:
+        pos = answer_lower.find(y)
+        if pos >= 0:
+            return pos
+    for y in years:
+        m = re.search(r"['\u2019]" + y[2:] + r"(?!\d)", answer_lower)
+        if m:
+            return m.start()
+    return -1
+
+
 def _group_repeatable_items(items: List[dict], answer: str = "") -> List[dict]:
     """Group repeatable fields by entity, using position-aware assignment.
 
@@ -7664,6 +7700,11 @@ def _group_repeatable_items(items: List[dict], answer: str = "") -> List[dict]:
                 val_pos = answer_lower.find(str(_loc).lower()) if _loc else -1
             else:
                 val_pos = answer_lower.find(item["value"].lower())
+                # B3(b): a DATE that cannot be found as written is traced to
+                # what was said. Only where the old lookup already failed --
+                # every value that could be located is located as before.
+                if val_pos < 0 and _is_uncertainty_guarded_date_field(item["fieldPath"]):
+                    val_pos = _spoken_date_position(answer_lower, item)
 
             if val_pos >= 0 and ordered_names:
                 # Find the name whose position is closest-before (or at) this value
@@ -9862,6 +9903,452 @@ def _apply_date_uncertainty_guard(items, *, answer: str, clarifications=None):
     return [it for it in items if id(it) not in reasons_by_id], entries, kept
 
 
+# ── SUBJECT BINDING (B3 / A4, 2026-09-23) ─────────────────────────────────
+#
+# Invariant (Chris): every extracted fact must identify the person it
+# describes before it can become executable; a field path in the right broad
+# section is not enough.
+#
+# B3 scope, deliberately narrow: birth and death DATE and PLACE fields, for
+# the narrator and for relatives. (Names are bound by the kinship guard;
+# marriage dates belong to two people and are left alone.)
+#
+# ONE mechanism, no case-specific pattern:
+#   1. locate the value in the answer (dates through what was said -- B3(b));
+#   2. find the GOVERNING MENTION of a person: nearest before the value in
+#      its sentence, else nearest after it in that sentence, else nearest in
+#      the previous sentence ("That was 1914.");
+#   3. resolve that mention to a role: "I" -> narrator; "my/our <kin noun>"
+#      and bare "Dad"/"Mom" -> that role; "his/her/their (own) <parent noun>"
+#      -> ONE generation above its antecedent; an extracted first name -> its
+#      item's role;
+#   4. a resolved role different from the field's role -> held for review as
+#      `wrong_subject`. Never re-homed (Chris, B3 decision 1). Unresolved ->
+#      unchanged; the existing guards keep their jobs.
+_BOUND_LEAVES = ("dateOfBirth", "birthDate", "deathDate", "dateOfDeath",
+                 "placeOfBirth", "birthPlace", "placeOfDeath", "deathPlace")
+
+_KIN_NOUN_ROLE = (
+    (r"great[- ]?grand\s?(?:mother|father|parents?|ma|pa)", "greatGrandparents"),
+    (r"grand\s?(?:mother|father|parents?)|grandma|grandpa|granny|nana", "grandparents"),
+    (r"father|mother|dad|daddy|mom|mama|mommy|parents", "parents"),
+    (r"brothers?|sisters?|siblings?", "siblings"),
+    (r"sons?|daughters?|kids?|children|child|boys?|girls?", "family.children"),
+    (r"wife|husband|spouse", "family.spouse"),
+)
+_GENERATION_UP = {"narrator": "parents", "parents": "grandparents",
+                  "grandparents": "greatGrandparents"}
+_PARENT_NOUN_RX = re.compile(r"^(?:father|mother|dad|daddy|mom|mama|mommy|parents)$", re.I)
+
+_KIN_PHRASE_RX = re.compile(
+    r"\b(my|our|his|her|their)\s+(?:own\s+|[a-z]+\s+)?("
+    + "|".join(p for p, _ in _KIN_NOUN_ROLE) + r")\b", re.I)
+_BARE_PARENT_RX = re.compile(r"(?<![A-Za-z]\s)\b(Dad|Mom|Daddy|Mama|Mother|Father)\b")
+_FIRST_PERSON_RX = re.compile(r"\bI(?:'m|'ve|'d)?\b")
+_SENTENCE_RX = re.compile(r"[^.!?]+[.!?]?")
+
+
+def _kin_noun_role(noun: str):
+    for pat, role in _KIN_NOUN_ROLE:
+        if re.fullmatch(pat, noun, re.I):
+            return role
+    return None
+
+
+def _bound_role_of(field_path: str):
+    """The role a field claims its fact is about, or None if out of scope."""
+    leaf = (field_path or "").rsplit(".", 1)[-1]
+    if leaf not in _BOUND_LEAVES:
+        return None
+    if field_path.startswith("personal."):
+        return "narrator"
+    return _kinship_role_of(field_path)
+
+
+_POSSESSIVE_KIN_RX = re.compile(
+    r"['\u2019]s\s+(?:own\s+)?(" + "|".join(p for p, _ in _KIN_NOUN_ROLE) + r")\b", re.I)
+
+
+def _person_mentions(answer: str, name_roles: Dict[str, str]):
+    """[(start, role_or_None)] for every person mention, in answer order.
+
+    Three kinds of evidence, and the narrator's own wording outranks the
+    model's: a name directly after a kin phrase ("his own father George")
+    takes the PHRASE's role, not the role of whatever item the model filed
+    that name under.
+    """
+    raw = []   # (start, end, kind, det, x)
+    for m in _FIRST_PERSON_RX.finditer(answer):
+        raw.append((m.start(), m.end(), "I", None, None))
+    for m in _KIN_PHRASE_RX.finditer(answer):
+        raw.append((m.start(), m.end(), "kin", m.group(1).lower(), m.group(2)))
+    for m in _POSSESSIVE_KIN_RX.finditer(answer):        # "my mom's dad"
+        raw.append((m.start(), m.end(), "kin", "'s", m.group(1)))
+    for m in _BARE_PARENT_RX.finditer(answer):
+        raw.append((m.start(), m.end(), "kin", "my", m.group(1)))
+    kin_ends = [e for s_, e, k, _, _ in raw if k == "kin"]
+    for name, role in name_roles.items():
+        for m in re.finditer(r"\b" + re.escape(name) + r"\b", answer):
+            # covered by an adjacent kin phrase: only spaces/commas between
+            if any(0 <= m.start() - e <= 3 and not answer[e:m.start()].strip(" ,")
+                   for e in kin_ends):
+                continue
+            raw.append((m.start(), m.end(), "name", None, role))
+    raw.sort(key=lambda r: r[0])
+    out = []
+    for start, _end, kind, det, x in raw:
+        if kind == "I":
+            out.append((start, "narrator", "I"))
+        elif kind == "name":
+            out.append((start, x, answer[start:_end]))
+        elif det in ("my", "our"):
+            out.append((start, _kin_noun_role(x), x.lower()))
+        else:   # his / her / their / 's: ONE generation up, parent nouns only
+            ante = next((r for _s, r, _t in reversed(out) if r and r != "narrator"), None)
+            if det == "'s":
+                # "my mom's dad": the antecedent is the mention just before it
+                ante = out[-1][1] if out else None
+            out.append((start, _GENERATION_UP.get(ante)
+                        if (ante and _PARENT_NOUN_RX.match(x)) else None, x.lower()))
+    return out
+
+
+def _governing_mention(answer: str, pos: int, mentions):
+    """(role, token) of the mention governing position `pos`, or None."""
+    sents = [(m.start(), m.end()) for m in _SENTENCE_RX.finditer(answer)]
+    idx = next((i for i, (a, b) in enumerate(sents) if a <= pos < b), None)
+    if idx is None:
+        return None
+    a, b = sents[idx]
+    before = [(r, t) for s_, r, t in mentions if a <= s_ < pos]
+    after = [(r, t) for s_, r, t in mentions if pos < s_ < b]
+    if before:
+        return before[-1]
+    if after:
+        return after[0]
+    if idx > 0:
+        pa, pb = sents[idx - 1]
+        prev = [(r, t) for s_, r, t in mentions if pa <= s_ < pb]
+        if prev:
+            return prev[-1]
+    return None
+
+
+def _governing_role(answer: str, pos: int, mentions):
+    g = _governing_mention(answer, pos, mentions)
+    return g[0] if g else None
+
+
+_MONTHS = ("january", "february", "march", "april", "may", "june", "july",
+           "august", "september", "october", "november", "december")
+
+
+def _value_positions(answer: str, it) -> List[int]:
+    """Every position the value was said at, or [].
+
+    A DATE is located by ANY part the narrator said: the text as given, each
+    year, the elided year ("'94"), and month + day ("December 1st"). "She
+    lived another eighteen years, until 1985. Died December 1st that year."
+    -- the year and the death are in different sentences, and both are the
+    date. Other values: every occurrence of the text.
+    """
+    low = answer.lower()
+    val = str(getattr(it, "value", "") or "").strip()
+    if (getattr(it, "fieldPath", "") or "").endswith(".ageAtDeath") and val.isdigit():
+        # "28" is usually SAID as "twenty-eight".
+        hits = set()
+        for text in (val, _number_words(int(val))):
+            if text:
+                hits.update(m.start() for m in re.finditer(
+                    r"(?<![\w-])" + re.escape(text) + r"(?![\w-])", low))
+        return sorted(hits)
+    if not _is_uncertainty_guarded_date_field(getattr(it, "fieldPath", "") or ""):
+        return [m.start() for m in re.finditer(re.escape(val.lower()), low)] if val else []
+    spoken = str(getattr(it, "normalized_from", "") or "")
+    hits = set()
+    for text in (val, spoken):
+        if text:
+            hits.update(m.start() for m in re.finditer(re.escape(text.lower()), low))
+    years = re.findall(r"(?<!\d)(\d{4})(?!\d)", spoken + " " + val)
+    for y in years:
+        hits.update(m.start() for m in re.finditer(r"(?<!\d)" + y + r"(?!\d)", low))
+        hits.update(m.start() for m in re.finditer(r"['\u2019]" + y[2:] + r"(?!\d)", low))
+    iso = re.match(r"^\d{4}-(\d{2})-(\d{2})$", val)
+    if iso and 1 <= int(iso.group(1)) <= 12:
+        month, day = _MONTHS[int(iso.group(1)) - 1], str(int(iso.group(2)))
+        hits.update(m.start() for m in re.finditer(
+            month + r"\s+" + day + r"(?:st|nd|rd|th)?(?!\d)", low))
+    return sorted(hits)
+
+
+def _value_position(answer: str, it) -> int:
+    fp = getattr(it, "fieldPath", "") or ""
+    low = answer.lower()
+    val = str(getattr(it, "value", "") or "")
+    pos = low.find(val.lower()) if val else -1
+    if pos < 0 and _is_uncertainty_guarded_date_field(fp):
+        pos = _spoken_date_position(low, {"value": val,
+                                          "normalized_from": getattr(it, "normalized_from", None)})
+    return pos
+
+
+def _apply_subject_binding_guard(items, *, answer: str, clarifications=None):
+    """Hold birth/death dates and places whose sentence is about someone else.
+    Returns ``(surviving_items, review_entries, clarifications)``."""
+    if not items or not answer:
+        return items, [], list(clarifications or [])
+    name_roles: Dict[str, Optional[str]] = {}
+    for it in items:
+        fp = getattr(it, "fieldPath", "") or ""
+        if fp.endswith(".firstName") and str(getattr(it, "value", "")).strip():
+            nm = str(it.value).strip()
+            role = _kinship_role_of(fp)
+            # a name claimed by two roles is no evidence for either
+            name_roles[nm] = role if name_roles.get(nm, role) == role else None
+    mentions = _person_mentions(answer, {n: r for n, r in name_roles.items() if r})
+
+    held, entries = set(), []
+    for it in items:
+        claimed = _bound_role_of(getattr(it, "fieldPath", ""))
+        if not claimed:
+            continue
+        positions = _value_positions(answer, it)
+        if not positions:
+            continue
+        roles = [_governing_role(answer, p, mentions) for p in positions]
+        # SAID ONCE IS SAID: any occurrence governed by the claimed person
+        # supports the fact ("Mom was born in Spokane, and I was born in
+        # Spokane too"). Held only when an occurrence is resolved to someone
+        # else and none to the claimed person.
+        if claimed in roles:
+            continue
+        said = next((r for r in roles if r), None)
+        if not said:
+            continue
+        held.add(id(it))
+        reasons = ["wrong_subject"] + [r for r in (getattr(it, "confirmation_reasons", None) or [])
+                                       if r != "wrong_subject"]
+        entry = {
+            "kind": "wrong_subject",
+            "value": it.value,
+            "label": f"{it.fieldPath.rsplit('.', 1)[-1]} — said about someone else",
+            "proposed_fieldPath": it.fieldPath,
+            # A PROPOSAL only; nothing is written to that person (decision 1).
+            "resolved_subject_role": said,
+            "proposed_items": [{"fieldPath": it.fieldPath, "value": it.value,
+                                "confidence": it.confidence}],
+            "repeatableGroup": getattr(it, "repeatableGroup", None),
+            "not_applied": True,
+        }
+        _sync_confirmation_reasons(entry, reasons)
+        entries.append(entry)
+        logger.info("[extract][subject-binding] HELD %s=%r claimed=%s said=%s — not executable",
+                    it.fieldPath, it.value, claimed, said)
+    if not held:
+        return items, [], list(clarifications or [])
+    gone = {(it.fieldPath, str(it.value)) for it in items if id(it) in held}
+    kept = [c for c in (clarifications or [])
+            if (c.get("fieldPath", ""), str(c.get("value", ""))) not in gone]
+    return [it for it in items if id(it) not in held], entries, kept
+
+
+# ── PREDICATE BINDING (B3(d), approved narrowly 2026-09-23) ─────────────
+#
+# A birth or death date/place of a NON-NARRATOR person must come from a
+# sentence that talks about a birth or a death. B2 case_102:
+# "Ross, where my grandmother's people homesteaded" -> grandparents.birthPlace
+# = Ross. The subject cue matches (grandmother); the EVENT does not.
+#
+# The value's own sentence is searched. The previous sentence counts only
+# when the value's sentence merely points back ("That was 1914.", "It was in
+# 1967.") -- otherwise "Stanley, where I was born." would lend its "born" to
+# the next sentence about somewhere else. Located span, no wording -> held as
+# `predicate_unstated` (preserved, not dropped). Unlocated -> unchanged.
+# The narrator's own fields are OUT of scope (decision 2).
+_BIRTH_WORDING_RX = re.compile(
+    r"\b(?:born|birth|birthday|delivered|came\s+along|arrived)\b", re.I)
+_DEATH_WORDING_RX = re.compile(
+    r"\b(?:died|dies|dead|death|passed(?:\s+away|\s+on)?|lost|killed|buried|"
+    r"funeral|widow(?:ed)?)\b", re.I)
+_POINTS_BACK_RX = re.compile(r"^\s*(?:that|it|this)\s+(?:was|were|would\s+have\s+been)\b", re.I)
+
+
+def _predicate_of(field_path: str):
+    leaf = (field_path or "").rsplit(".", 1)[-1]
+    if leaf in ("dateOfBirth", "birthDate", "placeOfBirth", "birthPlace"):
+        return _BIRTH_WORDING_RX
+    if leaf in ("deathDate", "dateOfDeath", "placeOfDeath", "deathPlace"):
+        return _DEATH_WORDING_RX
+    return None
+
+
+def _predicate_stated(answer: str, pos: int, rx) -> bool:
+    sents = [(m.start(), m.end()) for m in _SENTENCE_RX.finditer(answer)]
+    idx = next((i for i, (a, b) in enumerate(sents) if a <= pos < b), None)
+    if idx is None:
+        return True                       # cannot tell -> not this guard's call
+    a, b = sents[idx]
+    if rx.search(answer[a:b]):
+        return True
+    if idx > 0 and _POINTS_BACK_RX.match(answer[a:b]):
+        pa, pb = sents[idx - 1]
+        return bool(rx.search(answer[pa:pb]))
+    return False
+
+
+def _apply_predicate_binding_guard(items, *, answer: str, clarifications=None):
+    """Hold a relative's birth/death date or place whose sentence says nothing
+    about a birth or death. Returns ``(items, review_entries, clarifications)``."""
+    if not items or not answer:
+        return items, [], list(clarifications or [])
+    held, entries = set(), []
+    for it in items:
+        fp = getattr(it, "fieldPath", "") or ""
+        rx = _predicate_of(fp)
+        if rx is None or _bound_role_of(fp) in (None, "narrator"):
+            continue
+        positions = _value_positions(answer, it)
+        if not positions:
+            continue
+        if any(_predicate_stated(answer, p, rx) for p in positions):
+            continue
+        held.add(id(it))
+        reasons = ["predicate_unstated"] + [r for r in (getattr(it, "confirmation_reasons", None) or [])
+                                            if r != "predicate_unstated"]
+        entry = {
+            "kind": "predicate_unstated",
+            "value": it.value,
+            "label": f"{fp.rsplit('.', 1)[-1]} — not said as a "
+                     f"{'birth' if rx is _BIRTH_WORDING_RX else 'death'}",
+            "proposed_fieldPath": fp,
+            "proposed_items": [{"fieldPath": fp, "value": it.value,
+                                "confidence": it.confidence}],
+            "repeatableGroup": getattr(it, "repeatableGroup", None),
+            "not_applied": True,
+        }
+        _sync_confirmation_reasons(entry, reasons)
+        entries.append(entry)
+        logger.info("[extract][predicate-binding] HELD %s=%r — no %s wording in its sentence",
+                    fp, it.value, "birth" if rx is _BIRTH_WORDING_RX else "death")
+    if not held:
+        return items, [], list(clarifications or [])
+    gone = {(it.fieldPath, str(it.value)) for it in items if id(it) in held}
+    kept = [c for c in (clarifications or [])
+            if (c.get("fieldPath", ""), str(c.get("value", ""))) not in gone]
+    return [it for it in items if id(it) not in held], entries, kept
+
+
+
+_ONES = ("zero one two three four five six seven eight nine ten eleven twelve "
+         "thirteen fourteen fifteen sixteen seventeen eighteen nineteen").split()
+_TENS = "_ _ twenty thirty forty fifty sixty seventy eighty ninety".split()
+
+
+def _number_words(n: int) -> str:
+    """0..119 as spoken ("twenty-eight", "one hundred and two"), else ""."""
+    if n < 0 or n > 119:
+        return ""
+    if n < 20:
+        return _ONES[n]
+    if n < 100:
+        return _TENS[n // 10] + ("" if n % 10 == 0 else "-" + _ONES[n % 10])
+    rest = n - 100
+    return "one hundred" + ("" if rest == 0 else " and " + _number_words(rest))
+
+
+# ── AGE AT DEATH, REINTRODUCED UNDER BINDING (B3(e), decision 3) ────────
+#
+# D1c was reverted in B2 because every admitted `ageAtDeath` was the
+# narrator's own age ("Dad died December 23rd, 1967. I was twenty-eight.").
+# It returns ONLY when all three hold for some occurrence of the value:
+#   1. the value is located in the answer (digits or words);
+#   2. its governing mention is the SAME PERSON the item is grouped with --
+#      the claimed role, and when the mention is a name, that group's own
+#      first name; when it is a parent noun and the group states a relation,
+#      the same one (dad/father ~ father, mom/mother ~ mother);
+#   3. that sentence carries death wording.
+# A first-person occurrence is always REJECTED (dropped, logged). Anything
+# else unmet is HELD as `age_unbound` -- preserved, not executable.
+_PARENT_NOUN_RELATION = {"father": "father", "dad": "father", "daddy": "father",
+                         "mother": "mother", "mom": "mother", "mama": "mother",
+                         "mommy": "mother"}
+
+
+def _apply_age_at_death_guard(items, *, answer: str, clarifications=None):
+    if not items:
+        return items, [], list(clarifications or [])
+    ages = [it for it in items
+            if (getattr(it, "fieldPath", "") or "").endswith(".ageAtDeath")]
+    if not ages:
+        return items, [], list(clarifications or [])
+    name_roles = {}
+    for it in items:
+        fp = getattr(it, "fieldPath", "") or ""
+        if fp.endswith(".firstName") and str(getattr(it, "value", "")).strip():
+            nm, role = str(it.value).strip(), _kinship_role_of(fp)
+            name_roles[nm] = role if name_roles.get(nm, role) == role else None
+    mentions = _person_mentions(answer or "", {n: r for n, r in name_roles.items() if r})
+
+    def _group_attr(grp, leaf):
+        return next((str(i.value).strip().lower() for i in items
+                     if getattr(i, "repeatableGroup", None) == grp
+                     and (getattr(i, "fieldPath", "") or "").endswith("." + leaf)), None)
+
+    dropped, held, entries = set(), set(), []
+    for it in ages:
+        claimed = _kinship_role_of(it.fieldPath)
+        grp = getattr(it, "repeatableGroup", None)
+        own_name = _group_attr(grp, "firstName")
+        own_rel = _group_attr(grp, "relation")
+        positions = _value_positions(answer or "", it)
+        governed = [(p, _governing_mention(answer, p, mentions)) for p in positions]
+        if any(g and g[0] == "narrator" for _p, g in governed):
+            dropped.add(id(it))
+            logger.info("[extract][age-at-death] REJECTED %s=%r — a first-person age",
+                        it.fieldPath, it.value)
+            continue
+        ok = False
+        for p, g in governed:
+            if not g or g[0] != claimed:
+                continue
+            role_, tok = g
+            if tok and tok[:1].isupper() and tok not in ("Dad", "Mom", "Daddy", "Mama", "Mother", "Father"):
+                if own_name is None or tok.strip().lower() != own_name:
+                    continue                        # a different named person
+            rel = _PARENT_NOUN_RELATION.get((tok or "").lower())
+            if rel and own_rel and own_rel != rel:
+                continue                            # "Dad" is not the mother
+            if _predicate_stated(answer, p, _DEATH_WORDING_RX):
+                ok = True
+                break
+        if ok:
+            continue
+        held.add(id(it))
+        entry = {
+            "kind": "age_unbound",
+            "value": it.value,
+            "label": "age at death — not bound to the person who died",
+            "proposed_fieldPath": it.fieldPath,
+            "proposed_items": [{"fieldPath": it.fieldPath, "value": it.value,
+                                "confidence": it.confidence}],
+            "repeatableGroup": grp,
+            "not_applied": True,
+        }
+        _sync_confirmation_reasons(entry, ["age_unbound"] + [
+            r for r in (getattr(it, "confirmation_reasons", None) or []) if r != "age_unbound"])
+        entries.append(entry)
+        logger.info("[extract][age-at-death] HELD %s=%r — not bound to the deceased",
+                    it.fieldPath, it.value)
+    gone_ids = dropped | held
+    if not gone_ids:
+        return items, [], list(clarifications or [])
+    gone = {(it.fieldPath, str(it.value)) for it in items if id(it) in gone_ids}
+    kept = [c for c in (clarifications or [])
+            if (c.get("fieldPath", ""), str(c.get("value", ""))) not in gone]
+    return [it for it in items if id(it) not in gone_ids], entries, kept
+
+
+
 def _sync_confirmation_reasons(target, reasons):
     """Copy a whole ordered reason set onto an item or an envelope entry.
 
@@ -10105,11 +10592,23 @@ def _finalize_extracted_items(items, req, *, answer: str, path: str):
 
     final_items, _kin_entries, clarifications = _apply_kinship_binding_guard(
         final_items, req, answer=answer, clarifications=clarifications)
+    # B3: a birth/death date or place said about someone else is held.
+    # BEFORE the date guard, so a conflict is judged among correctly bound
+    # values only (case_068: George's 1914 no longer conflicts with Ervin's 1967).
+    final_items, _bind_entries, clarifications = _apply_subject_binding_guard(
+        final_items, answer=answer, clarifications=clarifications)
+    # B3(d): a relative's birth/death fact needs birth/death wording.
+    final_items, _pred_entries, clarifications = _apply_predicate_binding_guard(
+        final_items, answer=answer, clarifications=clarifications)
+    # B3(e): an age at death executes only when bound to the deceased.
+    final_items, _age_entries, clarifications = _apply_age_at_death_guard(
+        final_items, answer=answer, clarifications=clarifications)
     # B2 repair: a hedged or conflicting date is held for review, not executed.
     final_items, _date_entries, clarifications = _apply_date_uncertainty_guard(
         final_items, answer=answer, clarifications=clarifications)
 
-    return (final_items, list(_kin_entries) + list(_date_entries)
+    return (final_items, list(_kin_entries) + list(_bind_entries)
+            + list(_pred_entries) + list(_age_entries) + list(_date_entries)
             + list(clarifications))
 
 
@@ -10245,6 +10744,51 @@ def extract_fields(req: ExtractFieldsRequest) -> ExtractFieldsResponse:
     return run_http_extraction(req)
 
 
+# ── ARMED EVALUATION TRACE (B3, 2026-09-23) ─────────────────────────────
+#
+# `api.log` keeps only the first 500 characters of the model's raw output
+# (`[extract-parse] Raw LLM output`), which made 46 of 114 B2r calls
+# impossible to replay. Chris decided (B3 decision 4) NOT to widen the
+# ordinary log -- a privacy and log-bloat regression bought for test
+# convenience -- and to capture full output only when an evaluation arms it.
+#
+# HORNELORE_EXTRACT_EVAL_TRACE: off by default. When truthy, every LLM
+# extraction call appends ONE JSON line to
+# <repo>/.runtime/eval_traces/extract-<UTC date>.jsonl (gitignored, local).
+# The line carries the section, target, a hash of the answer (for aligning
+# a call with its case, without storing the answer) and the full raw output.
+# Nothing is written to api.log, and a trace failure never touches the turn.
+_EVAL_TRACE_DIR = Path(__file__).resolve().parents[4] / ".runtime" / "eval_traces"
+
+
+def _eval_trace_enabled() -> bool:
+    return os.getenv("HORNELORE_EXTRACT_EVAL_TRACE", "0").strip().lower() in (
+        "1", "true", "yes", "on")
+
+
+def _write_eval_trace(req, answer: str, raw_output) -> None:
+    if not _eval_trace_enabled():
+        return
+    try:
+        import hashlib as _hl
+        from datetime import datetime as _dt, timezone as _tz
+        now = _dt.now(_tz.utc)
+        _EVAL_TRACE_DIR.mkdir(parents=True, exist_ok=True)
+        rec = {
+            "ts": now.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+            "section": getattr(req, "current_section", None),
+            "target": getattr(req, "current_target_path", None),
+            "answer_sha12": _hl.sha256((answer or "").encode("utf-8")).hexdigest()[:12],
+            "raw_len": len(raw_output or ""),
+            "raw": raw_output or "",
+        }
+        with open(_EVAL_TRACE_DIR / f"extract-{now:%Y%m%d}.jsonl", "a",
+                  encoding="utf-8") as fh:
+            fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:                    # a trace must never break a turn
+        logger.debug("[extract][eval-trace] write failed", exc_info=True)
+
+
 def run_field_extraction(
     req: ExtractFieldsRequest,
     *,
@@ -10309,6 +10853,7 @@ def run_field_extraction(
         current_section=req.current_section,
         current_target=req.current_target_path,
     )
+    _write_eval_trace(req, answer, raw_output)
 
     # WO-EX-SILENT-OUTPUT-01 Phase 1: four-stage silent-output instrumentation.
     # Goal — when accepted==0 we need to attribute the cause to exactly one of:
@@ -11123,6 +11668,9 @@ def extract_diag(probe: int = 0):
             "HORNELORE_EXTRACTION_MAX_EXAMPLES": os.getenv("HORNELORE_EXTRACTION_MAX_EXAMPLES", "8"),
             "HORNELORE_EXTRACTION_RESERVE_TOKENS": os.getenv("HORNELORE_EXTRACTION_RESERVE_TOKENS", "512"),
             "extractable_field_count": len(EXTRACTABLE_FIELDS),
+            # Armed or not -- a boolean only; the trace's content never
+            # leaves the local file.
+            "HORNELORE_EXTRACT_EVAL_TRACE": _eval_trace_enabled(),
         },
         "llm_available": llm_available,
         "llm_error": llm_error,

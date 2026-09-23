@@ -266,17 +266,26 @@ class RelativeCatchAllsRemoved(unittest.TestCase):
         self.assertEqual(r["fieldPath"], "parents.education")
 
 
-class ShortAgeAtDeathStillDropped(unittest.TestCase):
-    """D1c exemption REVERTED (2026-09-23, B2r evidence).
+class AgeAtDeathIsBoundBeforeItExecutes(unittest.TestCase):
+    """D1c: reverted in B2 (every admitted value was the narrator's age),
+    reintroduced in B3(e) ONLY behind `_apply_age_at_death_guard`.
 
-    Every `ageAtDeath` it admitted in B2/B2r was the narrator's own age:
-    "Dad died December 23rd, 1967. I was twenty-eight." -> "28". Until A4 binds
-    an age to the deceased person, the short-value drop stays in force.
+    The short-value stage admits "28" again; the binding guard at the
+    finalization seam is what decides. See tests/test_extract_subject_binding.py.
     """
 
-    def test_narrator_age_leak_28_is_rejected_again(self):
+    def test_the_short_value_stage_admits_a_stated_age(self):
         out = X._apply_claims_value_shape([_item("parents.ageAtDeath", "28")])
-        self.assertEqual(out, [])
+        self.assertEqual([i["value"] for i in out], ["28"])
+
+    def test_the_narrator_age_leak_28_is_still_rejected(self):
+        import types
+        it = types.SimpleNamespace(fieldPath="parents.ageAtDeath", value="28", confidence=0.9,
+                                   repeatableGroup="parents_0", confirmation_reasons=[],
+                                   normalized_from=None)
+        out, entries, _ = X._apply_age_at_death_guard(
+            [it], answer="Dad died December 23rd, 1967. I was twenty-eight.", clarifications=[])
+        self.assertEqual((out, entries), ([], []), "a first-person age is rejected outright")
 
     def test_the_short_value_guard_still_applies_elsewhere(self):
         out = X._apply_claims_value_shape([_item("parents.notableLifeEvents", "ok")])
