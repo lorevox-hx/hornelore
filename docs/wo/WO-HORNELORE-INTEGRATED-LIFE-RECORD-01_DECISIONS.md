@@ -12,7 +12,7 @@ answer governs.**
 | **D1b** | approve | — |
 | **D1c** | approve | **An age at death stated by a source is a reported assertion; an age derived from birth and death dates is calculated and never stored.** `G14` is `person.death.reported_age`, attached to the death occurrence, not a generic `person.death.age`. If a reported age and a computed age disagree, that is a discrepancy for the operator to see, not something to resolve silently. *(Applied: `build_concept_catalog.py` `CONCEPT_OF`; appendix regenerated.)* |
 | **D1d** | approve | — |
-| **D1e** | approve | — |
+| **D1e** | approve | **Confirmed later the same day:** service is modelled as `event.service.*` occurrences with the great-grandparent as participant/subject (D7), not as permanent `person.service.*` attributes. `greatGrandparents.militaryEvent` is **not** narrative — its label is *"military event / deployment / dates"* and `extract.py:5054-5061` routes years of service, deployment location and rank into it — so it binds to the occurrence (`event.service.occurrence`), not `story.service`. |
 | **D1f** | approve as the **current structured-extraction disposition** | **Batch A requirement:** questionnaire availability, structured-extraction eligibility, Lori asking/retrieval eligibility and narrative value are **separate catalog properties**. The permanent product is not made narrower because the current extractor sends every field on every call; Batch A adds **context/relevance-scoped extraction**, so catalog breadth is not tied to prompt size. The "operator-only for now — would cost prompt on every turn" reasoning in D1f below is **withdrawn** as a basis for judging value. *(Applied: catalog spec §3 entry format and §5.)* |
 | **D2** | (a) | **Grandchildren and prior partners are ordinary people plus relationships, shown within the appropriate eleven-topic UI. No relationship-specific canonical schema is created to give them "sections".** The consequence line in D2 below saying Batch C "adds two people-bearing sections" is superseded. |
 | **D3** | (a) | — |
@@ -23,6 +23,7 @@ answer governs.**
 | **D8** | (a) | shared SQLite; narrator isolation enforced in the writer and data model; no 30-call-site routing migration |
 | **D9** | (a) | graph becomes a derived projection of the life record; server-side version protection while the current PUT exists |
 | **D10** | approve | explicit Remove with recoverability, route support, and the full field-level eleven-topic questionnaire |
+| **D11** | approve | **Retire `parents.notes`, `faith.notes`, `military.notes`, `pets.notes`, `travel.notes` from structured extraction.** Existing values are migration-preserved. There is no generic `note.about_subject` extractor destination — that would recreate the bucket D1d removed. The fields may stay questionnaire-editable as narrative/context, routed to the matching lane: parents → story about that person, faith → story of faith, military → story of service, pets → story about that animal, travel → the trip-notes lane. *(Recorded from the reviewer recommendation Chris forwarded on 2026-09-22.)* |
 
 **Additional catalog invariant, recorded:** a concept may be askable or
 retrievable by Lori **without** being automatically extractable from every

@@ -657,12 +657,16 @@ the committed file differs from a fresh compile.
 load: every concept must *state* all four D1f properties, none defaulted,
 enums must be valid, bindings must resolve, and no path may be bound twice.
 
-**Contents:**
-- 83 concepts.
-- 195 legacy paths (16 retired, each with its decision).
+**Contents** (after D11, 2026-09-22; re-derive with
+`python3 scripts/catalog/compile_concept_catalog.py`, never copy forward):
+- 84 concepts.
+- 195 legacy paths: 16 retired outright, 5 retired from extraction only (D11),
+  each with its decision.
 - 84 asking keys.
 - 69 Profile Seed evidence rows.
-- 30 profile_json keys.
+- **29** profile_json keys. *(This said 30. The file had 29; the reviewer
+  counted the JSON and caught it — a hand-carried count, the exact failure
+  this work exists to remove.)*
 - 13 decided aliases, recorded path by path.
 
 **The build gate:** the compile refuses if any decision it depends on is not
@@ -670,13 +674,14 @@ enums must be valid, bindings must resolve, and no path may be bound twice.
 different facts.
 
 **Tests:**
-- `tests/test_concept_catalog.py`: **32 tests, 0 skipped.** Coverage is
+- `tests/test_concept_catalog.py`: **38 tests, 0 skipped** (32 at A1; +6 for D11 and D1e). Coverage is
   checked against the real producers imported independently; the drift test,
   the loader refusals, the compiler refusals and the decided semantics each
   name their decision.
 - `tests/test_concept_migration_plan.py`: 12 tests.
-- `scripts/catalog/mutate_concept_catalog.py`: **17 mutations, all caught**
-  (13 by a failing test, 2 by the compile refusing, and 2 by both). The first
+- `scripts/catalog/mutate_concept_catalog.py`: **25 mutations, all caught**
+  (17 at A1; +8 for the D11 extraction-retirement rules and the D1e occurrence
+  binding). The first
   version of the "property may not default" test **survived** its mutation: it
   accepted any message that mentioned the property's name, so the value checks
   hid the absence. It now asserts the specific message.
@@ -717,13 +722,15 @@ tested data.
 | finding | where | owner |
 |---|---|---|
 | Profile Seed reads **9 projection paths** that no producing vocabulary contains (`personal.ethnicity`, `military.yearsOfService`, `family.siblingCount`, …), so that evidence can never be satisfied through those paths | catalog `counts` | Batch D |
-| **Five notes buckets** (`parents/faith/military/pets/travel.notes`) live in both the form and the extractor. D1d's argument applies, but **no decision covers them**; kept as they are under `note.about_subject` | catalog `reconciliations` | **Chris — new decision** |
-| D1e named great-grandparent service `person.service.*`; the catalog uses `event.service.*` because D7 made occurrences canonical | catalog `reconciliations` | **Chris — confirm** |
+| ~~Five notes buckets kept under a generic `note.about_subject`~~ **DECIDED D11:** retired from structured extraction, still questionnaire-editable, bound to their lane (`story.about_person`, `story.faith`, `story.service`, new `story.about_animal`, `trip.story`); values migrate. `note.about_subject` no longer exists. New catalog property `extraction_retired_by`, separate from outright retirement. **A3 removes the five from `EXTRACTABLE_FIELDS`** | catalog | A3 |
+| ~~D1e: `person.service.*` vs `event.service.*`~~ **CONFIRMED** (D1e refinement): `event.service.*`, the great-grandparent as participant. `greatGrandparents.militaryEvent` re-checked and is **not** narrative — label *"military event / deployment / dates"*; `extract.py:5054-5061` routes years of service, deployment location and rank into it — so it binds to new `event.service.occurrence`, not `story.service`. It packs several attributes in one value; Batch B splits it | catalog | Batch B |
+| **Subject-identity defect, for A3:** `_ANCESTOR_MIL_DUP_MAP` (`extract.py:7071-7075`, LOOP-01 R4 Patch J) copies a great-grandparent's `militaryBranch` into the narrator's own `military.branch`, and `militaryUnit`/`militaryEvent` into `military.significantEvent`, "so scorer/consumer code that indexes military service at the root can match". That files an ancestor's service as the narrator's — the fact identity (narrator, **subject**, concept) is broken to satisfy a scorer. `military.significantEvent` is also in no vocabulary. Removing it will likely move eval cases that were scored on the dup; those flips are scorer drift, not regressions | `extract.py:7063-7106` | A3 — eval-gated |
 | profile_json spells one fact up to three ways (`dob/dateOfBirth`, `pob/placeOfBirth/place_of_birth`, `fullname/fullName/full_name`) | catalog `profile_json` bindings | Batch B |
 | Phase G identity protection reads `profile.get("basics")` from the whole database row, so it is always `{}`; `preferredName`/`birthOrder` are never protected | `db.py:7438-7452` | **filed, not Batch A** |
 | `test_extract_schema_coverage` (April) expects `family.marriageDate` and `residence.period`, which WO-04 removed and `test_extractor_vocabulary` (September) asserts are gone. **6 failures before and after this batch; not caused by it** | tests | A3 |
 | `questionnaire_schema.py:312` leaves a file handle open | the shipped loader | trivial, noted |
 | The eval runs against the empty working root; field scores remain comparable, but historical `r5*` runs are not, so the comparison is **`r6-batchA-base`** | checkpoint | Chris |
+| **`r6-batchA-base` (34/114) is VOID as a baseline.** 0% parse, 100% rules fallback: the server ran with `HORNELORE_EXTRACTION_BOUNDED` off (`server_effective_flags` in the report; `r5k-guard-v2` had it on), so every call took the composed path and hit `413 PROMPT_TOO_LARGE` at ~10,000 tokens against 8,192. It measured the rules fallback, which A3/A4 do not touch. Re-run with the flag on as **`r6-batchA-base2`**; BACKLOG §2.6 corrected | checkpoint | Chris |
 
 ## 6. Explicit statement
 

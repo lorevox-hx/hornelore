@@ -239,10 +239,20 @@ Full evidence: `docs/handoffs/HANDOFF_2026-09-09_PHASE6_C-BLOCK-AND-LEAN-QUALITY
   `prompt_tokens` ≈ 9,830 against 8,192, ten of ten on Ada under Lean and on Chris's own
   turn under Defaults (`api.log`, 2026-09-09 16:20 and 16:57–17:01 local). Rules fallback
   kept 3 items in 10 turns; story capture declined 10 of 10. Independent of the Guard Lab.
-  **Lead:** earlier successful extractions in the same log carry `era=earliest_years
-  pass=pass1`; the failing ones carry `era=? pass=?`. Undated regression. **The window is
-  locked; the prompt must shrink** — in whichever lane it runs. Every retention number
-  from the 2026-09-09 runs is quarantined.
+  ~~**Lead:** earlier successful extractions in the same log carry `era=earliest_years
+  pass=pass1`; the failing ones carry `era=? pass=?`. Undated regression.~~ **Lead
+  REFUTED, cause MEASURED 2026-09-22** (`verified_by_read`): baseline `r6-batchA-base`
+  cases carry `era=earliest_years pass=pass1` and still overflow (9,992–10,207 tokens,
+  `api.log` 2026-09-22 23:27). The difference is the server flag, not the era.
+  `r5k-guard-v2` (92% parse) records `server_effective_flags.HORNELORE_EXTRACTION_BOUNDED
+  = True`; `r6-batchA-base` (0% parse, 100% rules fallback) records `False`. With the flag
+  off, `extract.py:2030` takes the legacy composed path, which wraps the extraction
+  prompt in Lori's persona via `chat()` and overflows every call. The bounded path
+  (`extract.py:2026`, Phase 5) is the in-tree fix; the flag **defaults OFF**
+  (`extract.py:1628`) and is set in no `.env` or script, so every stack start without it
+  in the environment silently reverts extraction to rules. **Open decision (Tier 5):**
+  flip the default, or pin it in `.env`. Every retention number from the 2026-09-09 runs
+  is quarantined.
 * **Session health is false-green on extraction failure.** `104 PASS · 3 AMBER · 0 RED`
   while ten consecutive extractions failed. Same class as the replay instrument's original
   zeroed report: "nothing was measured" rendered as "nothing was wrong".
