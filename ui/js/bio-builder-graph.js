@@ -124,10 +124,149 @@
      GRAPH PERSON OPERATIONS
   ─────────────────────────────────────────────────────────── */
 
+  /* ── IDENTITY RESOLUTION ───────────────────────────────────────────
+     WO-BIO-VIEW-SAFETY-01 (2026-09-21).
+
+     A PERSON'S NAME CAN CHANGE. THEIR IDENTITY MUST NOT CHANGE WITH IT.
+
+     `_stablePersonId` hashes the narrator id and the NAME, so correcting a
+     spelling minted a different id. While the sync still cleared and
+     rebuilt, that was invisible: the old record was deleted and a new one
+     created. Now that a routine sync deletes nothing, the same correction
+     left the misspelling standing and added a second person. Measured on a
+     fictional narrator: "Sigrid Lindquist" corrected to "Sigrid Lindqvist"
+     produced BOTH.
+
+     The questionnaire already mints a stable per-entry id (`_entryId`,
+     WO-02) that survives edits, reorders and reloads. That is the identity
+     to resolve through. Three rules, and EXISTING GRAPH IDS ARE PRESERVED
+     throughout — a record keeps the id it has, gaining the entry id as a
+     resolution key in `meta`. Relationship ids are built from person ids
+     (`_stableRelId`), so preserving person ids keeps every relationship
+     intact without touching the relationship code.
+
+       1. The entry id is already on a record  -> update THAT record.
+          A later rename updates the same person.
+       2. The entry id is new, and the name still resolves to an existing
+          unclaimed record -> ADOPT it: update in place, keep its id, write
+          the entry id onto it.
+       3. Otherwise -> create a new record, carrying the entry id.
+
+     Rule 2 is deliberately narrow. It adopts only an UNAMBIGUOUS match:
+     a record not already claimed by a different entry in this same sync.
+     Two entries sharing a name therefore do not fight over one record.
+
+     WHAT THIS DOES NOT DO, on purpose. A legacy entry with no stored entry
+     id that is RENAMED in the same save cannot be matched — the entry id
+     is new and the name lookup uses the new name. Both records are then
+     kept and flagged for reconciliation. Guessing by position is the one
+     thing not attempted: this codebase already has a reorder test proving
+     position is not identity. */
+
+  /* Ids claimed during the current sync pass, so rule 2 cannot adopt a
+     record another entry has already taken. Null outside a sync. */
+  var _syncClaimedIds = null;
+
+  function _resolvePersonId(g, opts, name) {
+    // Rule 1 — this entry already owns a record.
+    if (opts.entryId) {
+      var ids = Object.keys(g.persons);
+      for (var i = 0; i < ids.length; i++) {
+        var p = g.persons[ids[i]];
+        if (p && p.meta && p.meta.entryId === opts.entryId) return ids[i];
+      }
+    }
+
+    var nameId = _stablePersonId(opts.narratorId, name);
+
+    // No entry id: legacy behaviour, unchanged.
+    if (!opts.entryId) return nameId;
+
+    var candidate    = g.persons[nameId];
+    var claimed      = !!(_syncClaimedIds && _syncClaimedIds[nameId]);
+    var heldByAnother = !!(candidate && candidate.meta && candidate.meta.entryId &&
+                           candidate.meta.entryId !== opts.entryId);
+
+    // Rule 2 — adopt an UNAMBIGUOUS match, or take a free id.
+    if (!claimed && !heldByAnother) {
+      if (candidate) {
+        console.log("[bb-graph] adopting existing record " + nameId.slice(0, 18) +
+          " for entry " + String(opts.entryId).slice(0, 12) +
+          " — id and relationships preserved");
+      }
+      return nameId;
+    }
+
+    /* Rule 3 — the name-derived id belongs to somebody else, so this entry
+       gets one of its own.
+
+       Falling through to `nameId` here was a defect, caught by the
+       same-name case: two entries with distinct entry ids and one shared
+       name both resolved to the same id, and the second silently
+       overwrote the first. Two grandmothers called Sigrid Lindqvist became
+       one person.
+
+       Derived from the name AND the entry id so it is deterministic across
+       syncs; rule 1 finds it by entry id from then on. */
+    return _stablePersonId(opts.narratorId, name + "\u001f" + opts.entryId);
+  }
+
+  /* EXPLICIT REMOVAL — the half of the trade in syncFromQuestionnaire that
+     was owed. A routine sync never deletes; an operator's deliberate removal
+     of an entry does, and it must STAY removed: not re-added by a later sync
+     from a stale browser draft that still carries the entry. So a removal
+     leaves a tombstone keyed by entry id, and upsertPerson refuses to
+     resurrect a tombstoned entry within this graph's lifetime.
+
+     The tombstone lives in memory and in the persisted graph (the person is
+     gone from the PUT, so a later graph GET cannot bring them back). It does
+     NOT reach the questionnaire document on the server: the PUT route has
+     no `removals` field yet (questionnaire.py:42-66), although
+     merge_whole_document already accepts one. Until that field and a UI
+     control land (Batch C), a page reload re-hydrates the entry from the
+     questionnaire and the graph will show it again. Stated so nobody reads
+     this as "delete works end to end". */
+  /* Yes / No / not said. A questionnaire field that is ABSENT is not "No":
+     mapping it to `false` marked every relative with an unanswered deceased
+     field as explicitly living, and then a restore merge could not tell an
+     operator's deliberate "No" from nobody having said anything. Returns
+     true, false, or undefined — and undefined means "leave it alone". */
+  function _triState(v) {
+    if (v === true) return true;
+    if (v === false) return false;
+    var t = String(v === undefined || v === null ? "" : v).trim().toLowerCase();
+    if (t === "yes" || t === "true") return true;
+    if (t === "no" || t === "false") return false;
+    return undefined;
+  }
+
+  function _tombstones(g) {
+    if (!g._removedEntryIds) g._removedEntryIds = {};
+    return g._removedEntryIds;
+  }
+
   function upsertPerson(opts) {
     var g = _ensureGraph(); if (!g) return null;
+    if (opts.entryId && _tombstones(g)[opts.entryId]) {
+      /* Detached, not stored, and recognisable — callers dereference `.id`
+         unconditionally, so null here would throw mid-sync. */
+      return { id: "tombstoned:" + opts.entryId, _tombstoned: true,
+               displayName: "", meta: { entryId: opts.entryId } };
+    }
     var name = [opts.firstName, opts.middleName, opts.lastName].filter(Boolean).join(" ");
-    var id = opts.id || _stablePersonId(opts.narratorId, name);
+    var id = opts.id || _resolvePersonId(g, opts, name);
+    if (_syncClaimedIds) _syncClaimedIds[id] = true;
+    /* Record WHICH FIELDS this write actually supplied, not just that the
+       record was touched. A pending restore must not overwrite them — and
+       must still fill every field this write did not supply. A boolean is
+       supplied when it is defined, so an explicit false (a deliberate "No")
+       counts; an empty string is not a value. */
+    var _t = _touchedSinceRestore[id] || (_touchedSinceRestore[id] = {});
+    Object.keys(opts).forEach(function (k) {
+      var v = opts[k];
+      if (k === "id" || k === "entryId" || k === "narratorId") return;
+      if (typeof v === "boolean" || (v !== undefined && v !== null && v !== "")) _t[k] = true;
+    });
 
     var existing = g.persons[id] || {};
     g.persons[id] = {
@@ -146,13 +285,24 @@
       source:       opts.source      || existing.source       || "manual",
       provenance:   opts.provenance  || existing.provenance   || "",
       confidence:   opts.confidence !== undefined ? opts.confidence : (existing.confidence || 1.0),
-      meta:         opts.meta        || existing.meta         || {}
+      /* meta carries the entry id, which is the resolution key. Merged
+         rather than replaced: an adopted legacy record keeps whatever meta
+         it had and GAINS the entry id, and a record that already has one
+         never loses it to a caller that forgot to pass it. */
+      meta:         (function () {
+        var m = Object.assign({}, existing.meta || {}, opts.meta || {});
+        if (opts.entryId) m.entryId = opts.entryId;
+        else if (existing.meta && existing.meta.entryId) m.entryId = existing.meta.entryId;
+        return m;
+      })()
     };
     return g.persons[id];
   }
 
   function removePerson(personId) {
     var g = _ensureGraph(); if (!g) return;
+    var p = g.persons[personId];
+    if (p && p.meta && p.meta.entryId) _tombstones(g)[p.meta.entryId] = true;
     delete g.persons[personId];
     // Remove any edges referencing this person
     Object.keys(g.relationships).forEach(function (rid) {
@@ -161,6 +311,22 @@
         delete g.relationships[rid];
       }
     });
+  }
+
+  /* The operator removed a questionnaire ENTRY; find the person it resolved
+     to and remove them, edges and all. Returns the graph id removed, or null
+     when nothing carried that entry id (already gone, or never synced). The
+     tombstone is written either way, so a stale draft cannot bring the entry
+     back on the next sync. */
+  function removeByEntryId(entryId) {
+    var g = _ensureGraph(); if (!g || !entryId) return null;
+    _tombstones(g)[entryId] = true;
+    var hit = Object.keys(g.persons).find(function (id) {
+      var m = g.persons[id].meta;
+      return m && m.entryId === entryId;
+    });
+    if (hit) removePerson(hit);
+    return hit || null;
   }
 
   function findPersonByName(name) {
@@ -219,7 +385,19 @@
 
   function upsertRelationship(opts) {
     var g = _ensureGraph(); if (!g) return null;
+    /* An edge to a tombstoned entry would be an edge to nobody — and it
+       would carry the removed person's id back into the PUT. */
+    if (String(opts.fromPersonId).indexOf("tombstoned:") === 0 ||
+        String(opts.toPersonId).indexOf("tombstoned:") === 0) {
+      return null;
+    }
     var id = opts.id || _stableRelId(opts.fromPersonId, opts.toPersonId, opts.relationshipType);
+    var _tr = _touchedSinceRestore[id] || (_touchedSinceRestore[id] = {});
+    Object.keys(opts).forEach(function (k) {
+      var v = opts[k];
+      if (k === "id" || k === "narratorId") return;
+      if (typeof v === "boolean" || (v !== undefined && v !== null && v !== "")) _tr[k] = true;
+    });
 
     // Phase Q.2: Block impossible lineage cycles
     if (_wouldCreateCycle(g, opts.fromPersonId, opts.toPersonId, opts.relationshipType)) {
@@ -275,8 +453,44 @@
     var pid = bb.personId; if (!pid) return;
     var g = _ensureGraph();
 
-    // Clear previous questionnaire-sourced records
-    _clearBySource(g, "questionnaire");
+    /* One claim set per sync pass, so identity adoption cannot hand the
+       same existing record to two different entries. See _resolvePersonId. */
+    _syncClaimedIds = {};
+
+    /* NOTHING IS CLEARED HERE. A ROUTINE SYNC DOES NOT DELETE PEOPLE.
+       WO-BIO-VIEW-SAFETY-01 (2026-09-21).
+
+       This line used to be `_clearBySource(g, "questionnaire")`, which
+       removed every questionnaire-sourced person and relationship before
+       rebuilding from whatever document was in memory. Anything the
+       document did not mention was therefore deleted and not recreated,
+       and `persistToBackend()` sent that as a full replacement.
+
+       Measured: under HORNELORE_QUESTIONNAIRE_BIO_FACTS_READ=1 the
+       hydrating GET returns a three-leaf projection, so one deliberate
+       save put four of a real narrator's grandparents one step from
+       deletion, with four relationships.
+
+       AND THE FIRST FIX FOR IT WAS ALSO WRONG. It cleared only sections
+       the document could rebuild — which still deleted a father when the
+       document carried the mother alone, because both are
+       `questionnaire:parents`. Section granularity against person-level
+       records is the same omission-as-deletion defect at a smaller radius.
+       An entry id with no name counted as content too. Caught on review,
+       reproduced, and removed rather than patched again.
+
+       The rule that actually holds is the one `merge_whole_document`
+       already enforces a layer down: an omitted record is UNTOUCHED, not
+       deleted. So this is now a pure upsert, which is what
+       `syncFromProfile` has always been — `_clearBySource` never had a
+       second caller, so the questionnaire lane was the only one deleting.
+
+       THE TRADE, STATED. Removing a relative from the questionnaire no
+       longer removes them from the graph; a stale node survives until an
+       explicit removal. `removePerson` and `deleteRelationship` already
+       exist for that, and an explicit questionnaire-driven removal
+       operation is owed. A visible stale record is recoverable. A silently
+       deleted grandparent is not, and nobody would know to look. */
 
     // 1. Create narrator person node
     var narratorName = "";
@@ -311,9 +525,10 @@
           birthDate: p.birthDate || "",
           birthPlace: p.birthPlace || "",
           occupation: p.occupation || "",
-          deceased: p.deceased === "Yes" || p.deceased === true,
+          deceased: _triState(p.deceased),
           source: "questionnaire",
-          provenance: "questionnaire:parents"
+          provenance: "questionnaire:parents",
+          entryId: p._entryId || ""
         });
         var subtype = _RELATION_TO_SUBTYPE[p.relation] || "biological";
         upsertRelationship({
@@ -343,7 +558,8 @@
           birthDate: gp.birthDate || "",
           birthPlace: gp.birthPlace || "",
           source: "questionnaire",
-          provenance: "questionnaire:grandparents"
+          provenance: "questionnaire:grandparents",
+          entryId: gp._entryId || ""
         });
         upsertRelationship({
           narratorId: pid,
@@ -371,7 +587,8 @@
           lastName: s.lastName || "",
           maidenName: s.maidenName || "",
           source: "questionnaire",
-          provenance: "questionnaire:siblings"
+          provenance: "questionnaire:siblings",
+          entryId: s._entryId || ""
         });
         var subtype = _RELATION_TO_SUBTYPE[s.relation] || "biological";
         upsertRelationship({
@@ -400,7 +617,8 @@
           birthDate: c.birthDate || "",
           birthPlace: c.birthPlace || "",
           source: "questionnaire",
-          provenance: "questionnaire:children"
+          provenance: "questionnaire:children",
+          entryId: c._entryId || ""
         });
         upsertRelationship({
           narratorId: pid,
@@ -437,9 +655,10 @@
           birthDate: sp.birthDate || "",
           birthPlace: sp.birthPlace || "",
           occupation: sp.occupation || "",
-          deceased: sp.deceased === "Yes" || sp.deceased === true,
+          deceased: _triState(sp.deceased),
           source: "questionnaire",
-          provenance: "questionnaire:spouse"
+          provenance: "questionnaire:spouse",
+          entryId: sp._entryId || ""
         });
         upsertRelationship({
           narratorId: pid,
@@ -480,21 +699,31 @@
 
     var personCount = Object.keys(g.persons).length;
     var relCount = Object.keys(g.relationships).length;
+    _syncClaimedIds = null;
     console.log("[bb-graph] Synced from questionnaire: " + personCount + " persons, " + relCount + " relationships");
 
     return g;
   }
 
   /** Clear all graph records from a specific source */
-  function _clearBySource(g, source) {
-    Object.keys(g.relationships).forEach(function (id) {
-      if (g.relationships[id].source === source) delete g.relationships[id];
-    });
-    Object.keys(g.persons).forEach(function (id) {
-      // Don't remove narrator node on re-sync
-      if (g.persons[id].source === source && !g.persons[id].isNarrator) delete g.persons[id];
-    });
-  }
+  /* `_clearBySource` IS GONE, AND SO IS ITS REPLACEMENT.
+     WO-BIO-VIEW-SAFETY-01 (2026-09-21).
+
+     It removed every graph record of a given source so a sync could
+     rebuild them. Its only caller was the questionnaire sync, which is
+     now a pure upsert — see the note in syncFromQuestionnaire. A
+     section-scoped variant was written as the fix, reviewed, reproduced
+     as still-destructive (a document carrying only the mother deleted the
+     father, both being `questionnaire:parents`), and deleted.
+
+     Not kept as a helper for a future explicit-removal operation. A
+     function whose whole job is to delete a narrator's relatives in bulk,
+     sitting unused next to a sync that used to call it, is an invitation
+     to wire it back up. Explicit removal has `removePerson` and
+     `deleteRelationship`, which act on one named record at a time — and
+     a questionnaire-driven removal operation, when it is built, should be
+     written deliberately against a validated instruction rather than
+     inherited from here. */
 
   /* ───────────────────────────────────────────────────────────
      PROFILE KINSHIP → GRAPH SYNC
@@ -573,7 +802,7 @@
         birthDate: k.birthDate || "",
         birthPlace: k.pob || "",
         occupation: k.occupation || "",
-        deceased: !!k.deceased,
+        deceased: _triState(k.deceased),
         source: "profile",
         provenance: "profile:kinship"
       });
@@ -626,9 +855,87 @@
      full replace (PUT) and restored on narrator switch.
   ─────────────────────────────────────────────────────────── */
 
+  /* THE RESTORE/PERSIST RACE. The server PUT is a full replacement scoped
+     only by narrator (db.py:7958-7959) with no version check. fullSync()
+     never waited for restoreFromBackend(), so a save that fired while the
+     hydrating GET was still in flight PUT whatever happened to be in memory
+     — usually just what the current card produced — and the server replaced
+     the stored graph with it. The generation counter stops narrator A's
+     data landing on narrator B; it did nothing for this.
+
+     So: while a restore for THIS narrator and THIS generation is pending,
+     the PUT waits for it. If the generation moves while waiting (a switch),
+     the PUT is dropped, because it would be for a narrator who is no longer
+     loaded. When nothing is pending the PUT goes synchronously, as before —
+     the test harness and deriveStoredGraph read it immediately, and nothing
+     about the no-race case should change. */
+  var _restoreInFlight = null;    // { gen, pid, promise, outcome } or null
+  var _restoreFailedFor = null;   // narrator whose LAST restore did not hydrate
+  var _touchedSinceRestore = {};  // ids written locally since the restore began
+
+  /* THREE MORE HOLES IN THE SAME BOUNDARY, found on external review of the
+     first version of this gate (2026-09-22), each reproduced against the
+     exported functions before being fixed:
+
+       1. The restore OVERWROTE an edit made while it was pending. Operator
+          types a new occupation, the GET returns the old one, the handler
+          did `g.persons[id] = serverRecord`, the queued PUT sent OLD.
+          → a record written locally since the restore began keeps its
+            non-empty local fields; the server fills what is empty.
+       2. A FAILED restore (503) still released the queued PUT, which sent
+          the partial in-memory graph as a full replacement — the original
+          data-loss mechanism, back through a different door.
+          → the queued PUT runs only if the restore hydrated; and a graph
+            whose last restore failed refuses to persist at all, queued or
+            not, until a restore succeeds.
+       3. A narrator change WITHOUT the switch hook (generation unmoved)
+          sent narrator B's in-memory graph to narrator A's endpoint.
+          → the queued PUT re-checks the ACTIVE NARRATOR ID, not only the
+            generation, and _putGraph checks it again at the moment of
+            sending. */
+
   function persistToBackend() {
     var bb = _bb(); if (!bb) return;
     var pid = bb.personId; if (!pid) return;
+
+    if (_restoreInFlight && _restoreInFlight.pid === pid &&
+        _restoreInFlight.gen === _graphRestoreGen) {
+      var myGen = _graphRestoreGen;
+      var inflight = _restoreInFlight;
+      return inflight.promise.then(function () {
+        var now = _bb();
+        if (myGen !== _graphRestoreGen || !now || now.personId !== pid) {
+          console.warn("[bb-graph] DROPPING a persist queued behind a restore: the " +
+            "active narrator is no longer " + String(pid).slice(0, 8) +
+            ", so the queued graph is not theirs.");
+          return;
+        }
+        if (inflight.outcome !== "ok") {
+          console.warn("[bb-graph] DROPPING a persist queued behind a restore that " +
+            inflight.outcome + ": sending the in-memory graph now would replace " +
+            "the stored family with a partial one.");
+          return;
+        }
+        return _putGraph(pid);
+      });
+    }
+    if (_restoreFailedFor === pid) {
+      console.warn("[bb-graph] REFUSING to persist for " + String(pid).slice(0, 8) +
+        ": the graph never hydrated (last restore failed), and the server PUT " +
+        "is a full replacement. Nothing was sent.");
+      return Promise.resolve();
+    }
+    return _putGraph(pid);
+  }
+
+  function _putGraph(pid) {
+    var bbNow = _bb();
+    if (!bbNow || bbNow.personId !== pid) {
+      console.warn("[bb-graph] REFUSING to send " + String(pid).slice(0, 8) +
+        "'s PUT: the active narrator is " +
+        String((bbNow && bbNow.personId) || "none").slice(0, 8) + ".");
+      return Promise.resolve();
+    }
     var g = _ensureGraph();
 
     // Convert in-memory maps to arrays for API
@@ -671,7 +978,7 @@
       };
     });
 
-    fetch(API.GRAPH_PUT(pid), {
+    return fetch(API.GRAPH_PUT(pid), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ persons: persons, relationships: relationships })
@@ -685,20 +992,79 @@
     });
   }
 
+  /* Monotonic, bumped by every restore and every narrator switch. An
+     in-flight graph GET carries the value it started under and discards
+     itself if the number has moved. WO-BIO-VIEW-SAFETY-01 (2026-09-21). */
+  var _graphRestoreGen = 0;
+
   function restoreFromBackend(pid) {
     if (!pid || typeof API === "undefined" || !API.GRAPH_GET) return;
     var bb = _bb(); if (!bb) return;
 
-    return fetch(API.GRAPH_GET(pid))
-      .then(function (r) { return r.ok ? r.json() : null; })
+    /* A LATE GRAPH RESPONSE MUST NOT LAND ON ANOTHER NARRATOR.
+       WO-BIO-VIEW-SAFETY-01, raised on review of the Operator Intake fix:
+       the same defect lived here untouched.
+
+       The handler below writes `g.persons[p.id] = …` into whatever graph
+       is in memory when the response arrives, with no recheck of who is
+       loaded. onNarratorSwitch resets bb.graph and starts this fetch, so
+       switching A → B leaves A's request in flight; if it resolves after
+       the switch, A's relatives are inserted into B's graph — and the next
+       fullSync() would persist that mixed graph under B's id.
+
+       Checked at the point of USE, like Operator Intake's refresh():
+       cancelling the request cannot guarantee this, because a response
+       already in flight completes regardless. */
+    var _myGen = ++_graphRestoreGen;
+    var _myPid = pid;
+    _touchedSinceRestore = {};
+    var inflight = { gen: _myGen, pid: _myPid, promise: null, outcome: "pending" };
+
+    /* A record the operator wrote while this GET was pending keeps what
+       they wrote. The server's copy is older by definition — it predates
+       the edit — so it fills only what is locally empty. */
+    function _mergeUnderLocal(serverRecord, local, fields) {
+      /* Field-by-field, by WHAT WAS WRITTEN — not by what the value looks
+         like. The first version kept a local value only if it was not "",
+         null, undefined or false, so an operator's deliberate "No" to
+         deceased (false) lost to an older server `true`. Now every field the
+         local write actually supplied wins, false included; every field it
+         did not supply comes from the server. (External review, 2026-09-22.) */
+      if (!local || !fields) return serverRecord;
+      var out = Object.assign({}, serverRecord);
+      Object.keys(fields).forEach(function (k) {
+        if (k === "meta") return;
+        if (Object.prototype.hasOwnProperty.call(local, k)) out[k] = local[k];
+      });
+      out.meta = Object.assign({}, serverRecord.meta || {}, local.meta || {});
+      return out;
+    }
+
+    var _p = fetch(API.GRAPH_GET(pid))
+      .then(function (r) {
+        if (!r.ok) { inflight.outcome = "failed (HTTP " + r.status + ")"; return null; }
+        return r.json();
+      })
       .then(function (j) {
-        if (!j) return;
+        if (!j) { if (inflight.outcome === "pending") inflight.outcome = "returned nothing"; return; }
+        var _bbNow = _bb();
+        if (_myGen !== _graphRestoreGen ||
+            (_bbNow && _bbNow.personId && _bbNow.personId !== _myPid)) {
+          inflight.outcome = "was discarded as stale";
+          console.warn("[bb-graph] DISCARDING a late graph response for " +
+            String(_myPid).slice(0, 8) + " — the active narrator is now " +
+            String((_bbNow && _bbNow.personId) || "none").slice(0, 8) +
+            ". Merging it would put one narrator's relatives in another's graph.");
+          return;
+        }
         var g = _ensureGraph();
 
         // Restore persons
         if (j.persons && Array.isArray(j.persons)) {
           j.persons.forEach(function (p) {
-            g.persons[p.id] = {
+            var local = _touchedSinceRestore[p.id] ? g.persons[p.id] : null;
+            var localFields = _touchedSinceRestore[p.id] || null;
+            g.persons[p.id] = _mergeUnderLocal({
               id:           p.id,
               narratorId:   p.narrator_id || pid,
               displayName:  p.display_name || "",
@@ -715,14 +1081,16 @@
               provenance:   p.provenance || "",
               confidence:   p.confidence || 1.0,
               meta:         p.meta || {}
-            };
+            }, local, localFields);
           });
         }
 
         // Restore relationships
         if (j.relationships && Array.isArray(j.relationships)) {
           j.relationships.forEach(function (r) {
-            g.relationships[r.id] = {
+            var localR = _touchedSinceRestore[r.id] ? g.relationships[r.id] : null;
+            var localRFields = _touchedSinceRestore[r.id] || null;
+            g.relationships[r.id] = _mergeUnderLocal({
               id:               r.id,
               narratorId:       r.narrator_id || pid,
               fromPersonId:     r.from_person_id || "",
@@ -738,9 +1106,12 @@
               startDate:        r.start_date || "",
               endDate:          r.end_date || "",
               meta:             r.meta || {}
-            };
+            }, localR, localRFields);
           });
         }
+
+        inflight.outcome = "ok";
+        if (_restoreFailedFor === _myPid) _restoreFailedFor = null;
 
         var pc = Object.keys(g.persons).length;
         var rc = Object.keys(g.relationships).length;
@@ -749,8 +1120,23 @@
         }
       })
       .catch(function (e) {
+        inflight.outcome = "threw (" + (e && e.message ? e.message : String(e)) + ")";
         console.warn("[bb-graph] Backend graph restore failed", e);
+      })
+      .then(function () {
+        /* Settled — success, discard or failure alike — so a persist queued
+           behind this restore is released in every case (and decides for
+           itself from `outcome`). A failed hydration is remembered for this
+           narrator so no later persist sends a partial full-replacement. */
+        if (inflight.outcome !== "ok" && inflight.outcome !== "was discarded as stale") {
+          _restoreFailedFor = _myPid;
+        }
+        if (_restoreInFlight && _restoreInFlight.gen === _myGen) _restoreInFlight = null;
       });
+
+    inflight.promise = _p;
+    _restoreInFlight = inflight;
+    return _p;
   }
 
   /* ───────────────────────────────────────────────────────────
@@ -846,13 +1232,22 @@
      Orchestrates a complete sync: questionnaire + profile → graph → backend
   ─────────────────────────────────────────────────────────── */
 
-  function fullSync() {
+  /* `opts.removedEntryIds` — entry ids the operator deliberately removed
+     this save. Applied AFTER the syncs, so a removal is never undone by the
+     same pass that carries it, and BEFORE the persist, so the PUT is the
+     first thing to reflect it. Returns the persist promise so a caller that
+     cares can wait for the write; the questionnaire's caller today does not. */
+  function fullSync(opts) {
     var bb = _bb(); if (!bb || !bb.personId) return;
     _ensureGraph();
     syncFromQuestionnaire();
     syncFromProfile();
-    persistToBackend();
+    if (opts && Array.isArray(opts.removedEntryIds)) {
+      opts.removedEntryIds.forEach(removeByEntryId);
+    }
+    var p = persistToBackend();
     console.log("[bb-graph] Full sync complete for " + bb.personId.slice(0, 8));
+    return p;
   }
 
   /* ───────────────────────────────────────────────────────────
@@ -862,6 +1257,10 @@
 
   function onNarratorSwitch(bb) {
     if (!bb || !bb.personId) return;
+    /* Bump FIRST, so any graph GET already in flight for the outgoing
+       narrator is stamped stale and discards itself rather than merging
+       into the incoming narrator's graph. WO-BIO-VIEW-SAFETY-01. */
+    _graphRestoreGen += 1;
     // Clear graph for new narrator
     bb.graph = { persons: {}, relationships: {} };
     // Restore from backend (async, overwrites when data arrives)
@@ -912,6 +1311,7 @@
     // Person CRUD
     upsertPerson:           upsertPerson,
     removePerson:           removePerson,
+    removeByEntryId:        removeByEntryId,
     findPersonByName:       findPersonByName,
 
     // Relationship CRUD
