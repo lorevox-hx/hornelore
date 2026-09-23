@@ -160,12 +160,21 @@ def compile_catalog():
     for name, vocab in (("questionnaire", q), ("extraction", x), ("projection_map", pm)):
         for p in vocab:
             vocab_of.setdefault(_base(p), set()).add(name)
-    all_paths = sorted(vocab_of)
+    # A RETIRED path stays in the catalog after its producer drops it (A3,
+    # 2026-09-23): stored values may still sit at it (A5 keeps them), and
+    # the decision that retired it must stay findable. It keeps a row with
+    # `in: []` — present in no vocabulary, which is what retired means.
+    all_paths = sorted(set(vocab_of) | set(src.RETIRED))
 
     # ── typo guards on the source ────────────────────────────────────────
-    for p in list(src.RETIRED) + list(src.CONCEPT_BY_PATH):
+    for p in src.CONCEPT_BY_PATH:
         if p not in vocab_of:
             problems.append(f"source names `{p}`, which no vocabulary contains")
+    for p in src.RETIRED:
+        # Once gone from every vocabulary, the only thing that proves a
+        # retired path is not a typo is the decision record that named it.
+        if p not in vocab_of and p not in groups_of:
+            problems.append(f"RETIRED `{p}` is in no vocabulary and no decision group — a typo?")
     for p, d in src.EXTRACTION_RETIRED.items():
         # Retired from extraction ONLY: the path must still be a form field and
         # must not also be retired outright, or the two tables disagree.
@@ -176,6 +185,13 @@ def compile_catalog():
                             "retire the path outright instead")
         if not d:
             problems.append(f"EXTRACTION_RETIRED `{p}` names no decision")
+    # A3 (2026-09-23) EXECUTED these retirements in the producer. A retired
+    # path the extractor still offers is a retirement that did not happen --
+    # the catalog would call it ineligible while extract.py kept teaching it.
+    for p, d in list(src.RETIRED.items()) + list(src.EXTRACTION_RETIRED.items()):
+        if "extraction" in vocab_of.get(p, ()):
+            problems.append(f"`{p}` is retired from extraction ({d}) but "
+                            "EXTRACTABLE_FIELDS still offers it")
     for k in src.ASKING_KEY_BINDINGS:
         if k not in asking:
             problems.append(f"ASKING_KEY_BINDINGS names `{k}`, not a bio_schema key")
@@ -188,7 +204,7 @@ def compile_catalog():
     for p in all_paths:
         section, field = _split(p)
         subject = src.SUBJECT_BY_SECTION.get(section)
-        row = {"path": p, "in": sorted(vocab_of[p]), "section": section,
+        row = {"path": p, "in": sorted(vocab_of.get(p, ())), "section": section,
                "subject": subject, "groups": sorted(groups_of.get(p, []))}
         if p in src.RETIRED:
             row.update(disposition="retired", concept_id=None,
@@ -217,6 +233,12 @@ def compile_catalog():
     # decided aliases (D1a/D1b): the extractor's spelling → the form's field.
     # Refused unless both sides really are the same fact about the same person.
     by_path = {r["path"]: r for r in path_rows}
+    for ext, (form, dec) in getattr(src, "ALIASES_ADDED", {}).items():
+        if ext in alias_pairs:
+            problems.append(f"ALIASES_ADDED `{ext}` is already an appendix alias")
+        alias_pairs[ext] = (form, dec)
+        if ext in by_path:
+            by_path[ext]["decision_ids"] = sorted(set(by_path[ext]["decision_ids"]) | {dec})
     for ext, (form, gid) in sorted(alias_pairs.items()):
         e, f = by_path.get(ext), by_path.get(form)
         if e is None or f is None:

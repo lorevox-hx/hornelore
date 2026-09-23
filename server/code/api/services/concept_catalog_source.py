@@ -494,6 +494,18 @@ EXTRACTION_ADDED = {
     # adds the missing PATHS in Batch A3, not a new concept.
 }
 
+# Decided aliases that arrive with a path a LATER decision added, so the
+# generated appendix (a frozen record of the D1 decision state) cannot list
+# them. Same rule as the appendix pairs: one recorded pair, never a guess
+# from a shared concept, and the compile refuses unless both sides are the
+# same fact about the same person.
+#   extractor path: (form path, decision)
+ALIASES_ADDED = {
+    # D1f Q02 made children.middleName extractable; the extractor's children
+    # lane is spelled family.children.* (A3, 2026-09-23).
+    "family.children.middleName": ("children.middleName", "D1f"),
+}
+
 # The narrator's own identity is rendered on every turn today, in the
 # TRIM_NEVER `identity_facts` section (prompt_composer.py:576-602: name,
 # date of birth, place of birth). For anyone else, name, relationship and

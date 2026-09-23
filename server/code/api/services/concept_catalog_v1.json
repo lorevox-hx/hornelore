@@ -873,7 +873,8 @@
     "path": "children.firstName",
     "same_fact_as": [
      "children.middleName",
-     "family.children.firstName"
+     "family.children.firstName",
+     "family.children.middleName"
     ],
     "section": "children",
     "subject": "child"
@@ -920,7 +921,8 @@
     "path": "children.middleName",
     "same_fact_as": [
      "children.firstName",
-     "family.children.firstName"
+     "family.children.firstName",
+     "family.children.middleName"
     ],
     "section": "children",
     "subject": "child"
@@ -971,80 +973,72 @@
    },
    {
     "alias_of": null,
-    "browser_write_mode": "suggest_only",
+    "browser_write_mode": null,
     "concept_id": null,
     "decision_ids": [
      "D1e"
     ],
     "disposition": "retired",
-    "extraction_member": true,
+    "extraction_member": false,
     "extraction_retired_by": [],
     "groups": [
      "G45"
     ],
-    "in": [
-     "extraction"
-    ],
+    "in": [],
     "path": "community.meetingDay",
     "section": "community",
     "subject": "narrator"
    },
    {
     "alias_of": null,
-    "browser_write_mode": "suggest_only",
+    "browser_write_mode": null,
     "concept_id": null,
     "decision_ids": [
      "D1e"
     ],
     "disposition": "retired",
-    "extraction_member": true,
+    "extraction_member": false,
     "extraction_retired_by": [],
     "groups": [
      "G46"
     ],
-    "in": [
-     "extraction"
-    ],
+    "in": [],
     "path": "community.meetingLocation",
     "section": "community",
     "subject": "narrator"
    },
    {
     "alias_of": null,
-    "browser_write_mode": "suggest_only",
+    "browser_write_mode": null,
     "concept_id": null,
     "decision_ids": [
      "D1e"
     ],
     "disposition": "retired",
-    "extraction_member": true,
+    "extraction_member": false,
     "extraction_retired_by": [],
     "groups": [
      "G47"
     ],
-    "in": [
-     "extraction"
-    ],
+    "in": [],
     "path": "community.memberCount",
     "section": "community",
     "subject": "narrator"
    },
    {
     "alias_of": null,
-    "browser_write_mode": "suggest_only",
+    "browser_write_mode": null,
     "concept_id": null,
     "decision_ids": [
      "D1d"
     ],
     "disposition": "retired",
-    "extraction_member": true,
+    "extraction_member": false,
     "extraction_retired_by": [],
     "groups": [
      "G63"
     ],
-    "in": [
-     "extraction"
-    ],
+    "in": [],
     "path": "community.notes",
     "section": "community",
     "subject": "narrator"
@@ -1121,20 +1115,18 @@
    },
    {
     "alias_of": null,
-    "browser_write_mode": "suggest_only",
+    "browser_write_mode": null,
     "concept_id": null,
     "decision_ids": [
      "D1e"
     ],
     "disposition": "retired",
-    "extraction_member": true,
+    "extraction_member": false,
     "extraction_retired_by": [],
     "groups": [
      "G58"
     ],
-    "in": [
-     "extraction"
-    ],
+    "in": [],
     "path": "community.successor",
     "section": "community",
     "subject": "narrator"
@@ -1382,20 +1374,18 @@
    },
    {
     "alias_of": null,
-    "browser_write_mode": "suggest_only",
+    "browser_write_mode": null,
     "concept_id": null,
     "decision_ids": [
      "D1d"
     ],
     "disposition": "retired",
-    "extraction_member": true,
+    "extraction_member": false,
     "extraction_retired_by": [],
     "groups": [
      "G63"
     ],
-    "in": [
-     "extraction"
-    ],
+    "in": [],
     "path": "education.notes",
     "section": "education",
     "subject": "narrator"
@@ -1501,19 +1491,18 @@
    },
    {
     "alias_of": null,
-    "browser_write_mode": "suggest_only",
+    "browser_write_mode": null,
     "concept_id": "story.faith",
     "decision_ids": [
      "D11"
     ],
     "disposition": "bind",
-    "extraction_member": true,
+    "extraction_member": false,
     "extraction_retired_by": [
      "D11"
     ],
     "groups": [],
     "in": [
-     "extraction",
      "questionnaire"
     ],
     "path": "faith.notes",
@@ -1626,7 +1615,8 @@
     "path": "family.children.firstName",
     "same_fact_as": [
      "children.firstName",
-     "children.middleName"
+     "children.middleName",
+     "family.children.middleName"
     ],
     "section": "family.children",
     "subject": "child"
@@ -1655,21 +1645,42 @@
     "subject": "child"
    },
    {
-    "alias_of": null,
+    "alias_of": "children.middleName",
     "browser_write_mode": "suggest_only",
+    "concept_id": "person.name.given",
+    "decision_ids": [
+     "D1f"
+    ],
+    "disposition": "bind",
+    "extraction_member": true,
+    "extraction_retired_by": [],
+    "groups": [],
+    "in": [
+     "extraction"
+    ],
+    "path": "family.children.middleName",
+    "same_fact_as": [
+     "children.firstName",
+     "children.middleName",
+     "family.children.firstName"
+    ],
+    "section": "family.children",
+    "subject": "child"
+   },
+   {
+    "alias_of": null,
+    "browser_write_mode": null,
     "concept_id": null,
     "decision_ids": [
      "D1d"
     ],
     "disposition": "retired",
-    "extraction_member": true,
+    "extraction_member": false,
     "extraction_retired_by": [],
     "groups": [
      "G62"
     ],
-    "in": [
-     "extraction"
-    ],
+    "in": [],
     "path": "family.children.notes",
     "section": "family.children",
     "subject": "child"
@@ -1767,20 +1778,18 @@
    },
    {
     "alias_of": null,
-    "browser_write_mode": "suggest_only",
+    "browser_write_mode": null,
     "concept_id": null,
     "decision_ids": [
      "D1d"
     ],
     "disposition": "retired",
-    "extraction_member": true,
+    "extraction_member": false,
     "extraction_retired_by": [],
     "groups": [
      "G61"
     ],
-    "in": [
-     "extraction"
-    ],
+    "in": [],
     "path": "family.grandchildren.notes",
     "section": "family.grandchildren",
     "subject": "grandchild"
@@ -1809,20 +1818,18 @@
    },
    {
     "alias_of": null,
-    "browser_write_mode": "suggest_only",
+    "browser_write_mode": null,
     "concept_id": null,
     "decision_ids": [
      "D1e"
     ],
     "disposition": "retired",
-    "extraction_member": true,
+    "extraction_member": false,
     "extraction_retired_by": [],
     "groups": [
      "G44"
     ],
-    "in": [
-     "extraction"
-    ],
+    "in": [],
     "path": "family.marriageNotes",
     "section": "family",
     "subject": "biography"
@@ -1917,20 +1924,18 @@
    },
    {
     "alias_of": null,
-    "browser_write_mode": "suggest_only",
+    "browser_write_mode": null,
     "concept_id": null,
     "decision_ids": [
      "D1e"
     ],
     "disposition": "retired",
-    "extraction_member": true,
+    "extraction_member": false,
     "extraction_retired_by": [],
     "groups": [
      "G35"
     ],
-    "in": [
-     "extraction"
-    ],
+    "in": [],
     "path": "family.spouse.ageAtMarriage",
     "section": "family.spouse",
     "subject": "spouse"
@@ -2079,20 +2084,18 @@
    },
    {
     "alias_of": null,
-    "browser_write_mode": "suggest_only",
+    "browser_write_mode": null,
     "concept_id": null,
     "decision_ids": [
      "D1d"
     ],
     "disposition": "retired",
-    "extraction_member": true,
+    "extraction_member": false,
     "extraction_retired_by": [],
     "groups": [
      "G64"
     ],
-    "in": [
-     "extraction"
-    ],
+    "in": [],
     "path": "family.spouse.notes",
     "section": "family.spouse",
     "subject": "spouse"
@@ -2467,18 +2470,19 @@
    },
    {
     "alias_of": null,
-    "browser_write_mode": null,
+    "browser_write_mode": "candidate_only",
     "concept_id": "person.name.given",
     "decision_ids": [
      "D1f"
     ],
     "disposition": "bind",
-    "extraction_member": false,
+    "extraction_member": true,
     "extraction_retired_by": [],
     "groups": [
      "Q02"
     ],
     "in": [
+     "extraction",
      "questionnaire"
     ],
     "path": "grandparents.middleName",
@@ -2788,20 +2792,18 @@
    },
    {
     "alias_of": null,
-    "browser_write_mode": "suggest_only",
+    "browser_write_mode": null,
     "concept_id": null,
     "decision_ids": [
      "D3"
     ],
     "disposition": "retired",
-    "extraction_member": true,
+    "extraction_member": false,
     "extraction_retired_by": [],
     "groups": [
      "G39"
     ],
-    "in": [
-     "extraction"
-    ],
+    "in": [],
     "path": "health.currentMedications",
     "section": "health",
     "subject": "narrator"
@@ -2892,20 +2894,18 @@
    },
    {
     "alias_of": null,
-    "browser_write_mode": "suggest_only",
+    "browser_write_mode": null,
     "concept_id": null,
     "decision_ids": [
      "D3"
     ],
     "disposition": "retired",
-    "extraction_member": true,
+    "extraction_member": false,
     "extraction_retired_by": [],
     "groups": [
      "G43"
     ],
-    "in": [
-     "extraction"
-    ],
+    "in": [],
     "path": "health.majorCondition",
     "section": "health",
     "subject": "narrator"
@@ -2940,20 +2940,18 @@
    },
    {
     "alias_of": null,
-    "browser_write_mode": "suggest_only",
+    "browser_write_mode": null,
     "concept_id": null,
     "decision_ids": [
      "D1d"
     ],
     "disposition": "retired",
-    "extraction_member": true,
+    "extraction_member": false,
     "extraction_retired_by": [],
     "groups": [
      "G63"
     ],
-    "in": [
-     "extraction"
-    ],
+    "in": [],
     "path": "health.notes",
     "section": "health",
     "subject": "narrator"
@@ -3009,20 +3007,18 @@
    },
    {
     "alias_of": null,
-    "browser_write_mode": "suggest_only",
+    "browser_write_mode": null,
     "concept_id": null,
     "decision_ids": [
      "D1d"
     ],
     "disposition": "retired",
-    "extraction_member": true,
+    "extraction_member": false,
     "extraction_retired_by": [],
     "groups": [
      "G63"
     ],
-    "in": [
-     "extraction"
-    ],
+    "in": [],
     "path": "hobbies.notes",
     "section": "hobbies",
     "subject": "narrator"
@@ -3386,19 +3382,18 @@
    },
    {
     "alias_of": null,
-    "browser_write_mode": "suggest_only",
+    "browser_write_mode": null,
     "concept_id": "story.service",
     "decision_ids": [
      "D11"
     ],
     "disposition": "bind",
-    "extraction_member": true,
+    "extraction_member": false,
     "extraction_retired_by": [
      "D11"
     ],
     "groups": [],
     "in": [
-     "extraction",
      "questionnaire"
     ],
     "path": "military.notes",
@@ -3741,19 +3736,18 @@
    },
    {
     "alias_of": null,
-    "browser_write_mode": "candidate_only",
+    "browser_write_mode": null,
     "concept_id": "story.about_person",
     "decision_ids": [
      "D11"
     ],
     "disposition": "bind",
-    "extraction_member": true,
+    "extraction_member": false,
     "extraction_retired_by": [
      "D11"
     ],
     "groups": [],
     "in": [
-     "extraction",
      "questionnaire"
     ],
     "path": "parents.notes",
@@ -4024,18 +4018,19 @@
    },
    {
     "alias_of": null,
-    "browser_write_mode": null,
+    "browser_write_mode": "suggest_only",
     "concept_id": "animal.birth.date",
     "decision_ids": [
      "D1f"
     ],
     "disposition": "bind",
-    "extraction_member": false,
+    "extraction_member": true,
     "extraction_retired_by": [],
     "groups": [
      "Q06"
     ],
     "in": [
+     "extraction",
      "questionnaire"
     ],
     "path": "pets.birthDate",
@@ -4084,19 +4079,18 @@
    },
    {
     "alias_of": null,
-    "browser_write_mode": "suggest_only",
+    "browser_write_mode": null,
     "concept_id": "story.about_animal",
     "decision_ids": [
      "D11"
     ],
     "disposition": "bind",
-    "extraction_member": true,
+    "extraction_member": false,
     "extraction_retired_by": [
      "D11"
     ],
     "groups": [],
     "in": [
-     "extraction",
      "questionnaire"
     ],
     "path": "pets.notes",
@@ -4316,18 +4310,19 @@
    },
    {
     "alias_of": null,
-    "browser_write_mode": null,
+    "browser_write_mode": "candidate_only",
     "concept_id": "person.name.birth_family",
     "decision_ids": [
      "D1f"
     ],
     "disposition": "bind",
-    "extraction_member": false,
+    "extraction_member": true,
     "extraction_retired_by": [],
     "groups": [
      "Q02"
     ],
     "in": [
+     "extraction",
      "questionnaire"
     ],
     "path": "siblings.maidenName",
@@ -4361,18 +4356,19 @@
    },
    {
     "alias_of": null,
-    "browser_write_mode": null,
+    "browser_write_mode": "candidate_only",
     "concept_id": "person.name.given",
     "decision_ids": [
      "D1f"
     ],
     "disposition": "bind",
-    "extraction_member": false,
+    "extraction_member": true,
     "extraction_retired_by": [],
     "groups": [
      "Q02"
     ],
     "in": [
+     "extraction",
      "questionnaire"
     ],
     "path": "siblings.middleName",
@@ -4852,19 +4848,18 @@
    },
    {
     "alias_of": null,
-    "browser_write_mode": "suggest_only",
+    "browser_write_mode": null,
     "concept_id": "trip.story",
     "decision_ids": [
      "D11"
     ],
     "disposition": "bind",
-    "extraction_member": true,
+    "extraction_member": false,
     "extraction_retired_by": [
      "D11"
     ],
     "groups": [],
     "in": [
-     "extraction",
      "questionnaire"
     ],
     "path": "travel.notes",
@@ -5781,8 +5776,10 @@
     "D1f"
    ],
    "extraction": {
-    "eligible": false,
-    "scope": [],
+    "eligible": true,
+    "scope": [
+     "pets"
+    ],
     "write_mode": "per_binding"
    },
    "label": "Animal's birth date",
@@ -8021,7 +8018,8 @@
      "family.spouse",
      "grandparents",
      "greatGrandparents",
-     "parents"
+     "parents",
+     "siblings"
     ],
     "write_mode": "per_binding"
    },
@@ -9643,7 +9641,7 @@
  "counts": {
   "asking_keys": 84,
   "concepts": 84,
-  "paths": 195,
+  "paths": 196,
   "paths_retired": 16,
   "profile_seed_evidence": 69,
   "profile_seed_projection_paths_in_no_producing_vocabulary": [
@@ -9698,9 +9696,9 @@
  },
  "fingerprints": {
   "decisions_sha256": "9e302bad10861ca2398ffbb4e73b9744ad61f27285a29980d5bb924057b54556",
-  "measured_vocabularies_sha256": "8d74393ef14d25b91013408edc779f05b14bd5f2b2b336fe916448b23c103ae1",
+  "measured_vocabularies_sha256": "381dd1eebae6ecaaa41d40d319ba442d4ce069e5ccdfb36146ad59270eca7efc",
   "questionnaire_schema": "questionnaire_schema.load_schema [7b974b9c2f23]",
-  "semantic_source_sha256": "1c87d3d9984e60198b635bafadd01a556cc83e5d0195aa3bf5ef94aa5da9ded3"
+  "semantic_source_sha256": "327881cd096b1ccce4c704873374ef687db9d20755dadc7fa85799d3a26d04bb"
  },
  "reconciliations": [
   {

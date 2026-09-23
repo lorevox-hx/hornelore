@@ -242,12 +242,16 @@ class BoundedPromptFitsTest(unittest.TestCase):
     def _build(self, answer, section="parents", target="parents.firstName"):
         return E._build_extraction_prompt_bounded(answer, section, target)
 
-    def test_the_complete_140_field_catalog_survives_compaction(self):
+    def test_the_complete_field_catalog_survives_compaction(self):
         cat = E._extraction_field_catalog()
         missing = [p for p in E.EXTRACTABLE_FIELDS if f'"{p}"=' not in cat]
         self.assertEqual(missing, [],
                          "the adopted catalog must carry every path")
-        self.assertEqual(len(E.EXTRACTABLE_FIELDS), 140)
+        # 131 after A3 (2026-09-23): 20 retired from extraction, 5 added.
+        # This said 140 while the vocabulary was already 146 -- it failed at
+        # fcc845c before A3 touched anything. The pin is kept because a
+        # silent vocabulary change should fail here, not pass.
+        self.assertEqual(len(E.EXTRACTABLE_FIELDS), 131)
 
     def test_compaction_is_not_filtering(self):
         # Chris's constraint: current_section may reorder emphasis, never

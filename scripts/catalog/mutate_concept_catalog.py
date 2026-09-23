@@ -28,6 +28,7 @@ LOADER = "server/code/api/services/concept_catalog.py"
 COMPILER = "scripts/catalog/compile_concept_catalog.py"
 SOURCE = "server/code/api/services/concept_catalog_source.py"
 PLANNER = "server/code/api/services/concept_migration_plan.py"
+EXTRACTOR = "server/code/api/routers/extract.py"
 CATALOG_TESTS = "tests.test_concept_catalog"
 PLAN_TESTS = "tests.test_concept_migration_plan"
 
@@ -49,7 +50,13 @@ MUTATIONS = [
      'problems.append(f"UNBOUND path `{p}` (field `{field}`)")', 'pass', "unbound_field", False),
     (COMPILER, "compiler forgets its typo guard",
      'problems.append(f"source names `{p}`, which no vocabulary contains")', 'pass',
-     "nonexistent_path", False),
+     "concept_binding_of_a_nonexistent_path", False),
+    (COMPILER, "compiler forgets the RETIRED typo guard",
+     'problems.append(f"RETIRED `{p}` is in no vocabulary and no decision group — a typo?")',
+     'pass', "retirement_of_a_nonexistent_path", False),
+    (COMPILER, "compiler lets the extractor keep offering a retired path",
+     'if "extraction" in vocab_of.get(p, ()):', 'if False:',
+     "still_offered_to_the_extractor", False),
     (SOURCE, "age at death becomes a death date",
      '"ageAtDeath": "person.death.reported_age",', '"ageAtDeath": "person.death.date",',
      "COMPILE REFUSED|age_at_death", True),
@@ -63,14 +70,25 @@ MUTATIONS = [
      '"greatGrandparents.militaryEvent": "story.service",',
      "COMPILE REFUSED|great_grandparent_service", True),
     (LOADER, "extraction scope offers extraction-retired paths",
-     '\n                    or r["extraction_retired_by"]):', '):', "D11_notes", False),
+     '\n                    or r["extraction_retired_by"]):', '):', "D11_notes|even_if_a_member", False),
     (LOADER, "loader stops requiring extraction_retired_by",
      'if not isinstance(xr, list):', 'if False:', "extraction_retired_by_must", False),
     (LOADER, "loader lets a dead path be retired from extraction",
      'elif xr and r.get("disposition") != "bind":', 'elif False:', "dead_path", False),
-    (COMPILER, "compiler derives eligibility from retired-from-extraction paths",
-     'if r["extraction_member"] and not r["extraction_retired_by"]]',
-     'if r["extraction_member"]]', "D11_notes|no_drift", True),
+    # Was "compiler derives eligibility from retired-from-extraction paths"
+    # (drop `and not r["extraction_retired_by"]`). A3 removed the D11 paths
+    # from EXTRACTABLE_FIELDS, so extraction_member is already False for them
+    # and that mutation became EQUIVALENT -- it survived because nothing it
+    # could change was left, not because a check was inert. The live rule is
+    # now producer agreement, and this mutation proves it can refuse.
+    (EXTRACTOR, "extractor offers a D11-retired path again",
+     '    "pets.birthDate":',
+     '    "pets.notes": {"label": "x", "writeMode": "suggest_only", "repeatable": "pets"},\n    "pets.birthDate":',
+     "COMPILE REFUSED", True),
+    (EXTRACTOR, "extractor offers a D1d-retired path again",
+     '    "pets.birthDate":',
+     '    "health.notes": {"label": "x", "writeMode": "suggest_only"},\n    "pets.birthDate":',
+     "COMPILE REFUSED", True),
     (COMPILER, "compiler drops the RETIRED/EXTRACTION_RETIRED conflict guard",
      'if p in src.RETIRED:\n            problems.append(f"`{p}` is in both',
      'if False:\n            problems.append(f"`{p}` is in both', "retired_outright_conflict", False),

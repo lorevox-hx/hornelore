@@ -50,48 +50,44 @@ from api.services.suggestion_review import split_destination  # noqa: E402
 # ── the pinned exception set ─────────────────────────────────────────
 #
 # Measured 2026-09-20, AFTER WO-04 gave military, residence, travel,
-# faith, marriage.marriagePlace and education.gradeLevel real homes.
-# These 77 remain. Each is a real drift with a real disposition owed;
-# none may be accepted into a biography, because the destination guard
-# in `suggestion_review.accept` refuses an undefined destination
-# regardless of this list. This set governs the TEST, not the runtime.
+# faith, marriage.marriagePlace and education.gradeLevel real homes: 77.
+#
+# SHRUNK 2026-09-23 (A2 + A3) to 49, by the two routes this test allows:
+#   * 13 gained a destination — the catalog's decided aliases (D1a/D1b),
+#     which `split_destination` now translates: family.children.* and
+#     family.spouse.* to the form's children.* / spouse.*, and
+#     grandparents.memorableStory to memorableStories;
+#   * 15 left EXTRACTABLE_FIELDS — retired from extraction by D1d, D1e
+#     and D3 (the *.notes buckets, community logistics, ageAtMarriage,
+#     health.majorCondition and currentMedications).
+#
+# Each that remains is a real drift with a real disposition owed; none
+# may be accepted into a biography, because the destination guard in
+# `suggestion_review.accept` refuses an undefined destination regardless
+# of this list. This set governs the TEST, not the runtime.
 #
 # THIS SET MAY SHRINK. IT MAY NOT GROW.
 KNOWN_DRIFT_PINNED = frozenset({
     # No `community` section. `community.organization` collected Kent's
     # military unit; WO-04 gave that `military.unit` instead.
-    "community.meetingDay", "community.meetingLocation", "community.memberCount",
-    "community.notes", "community.organization", "community.role",
-    "community.significantEvent", "community.successor", "community.yearsActive",
+    "community.organization", "community.role",
+    "community.significantEvent", "community.yearsActive",
     # No `cultural` section.
     "cultural.touchstoneMemory",
     # education extras the form does not have.
-    "education.notes", "education.readingAbility", "education.training",
-    # `family.children.*` duplicates the form's `children.*` under a
-    # different prefix AND different field names (dateOfBirth vs
-    # birthDate, notes vs narrative). A rename, not a new destination.
-    "family.children.birthOrder", "family.children.dateOfBirth",
-    "family.children.firstName", "family.children.lastName",
-    "family.children.notes", "family.children.placeOfBirth",
-    "family.children.preferredName", "family.children.relation",
+    "education.readingAbility", "education.training",
+    # family.children extras with no form field under any spelling.
+    "family.children.birthOrder", "family.children.preferredName",
     # No `grandchildren` or `priorPartners` sections.
-    "family.grandchildren.firstName", "family.grandchildren.notes",
-    "family.grandchildren.relation",
+    "family.grandchildren.firstName", "family.grandchildren.relation",
     "family.priorPartners.firstName", "family.priorPartners.lastName",
     "family.priorPartners.period", "family.priorPartners.relation",
-    # `marriage.notes` would be the home for this.
-    "family.marriageNotes",
-    # `family.spouse.*` duplicates the form's `spouse.*`, same rename
-    # problem as children.
-    "family.spouse.ageAtMarriage", "family.spouse.dateOfBirth",
-    "family.spouse.education", "family.spouse.firstName",
-    "family.spouse.lastName", "family.spouse.maidenName",
-    "family.spouse.middleName", "family.spouse.notes",
-    "family.spouse.occupation", "family.spouse.placeOfBirth",
-    "family.spouse.preferredName", "family.spouse.relation",
+    # family.spouse extras with no form field under any spelling.
+    "family.spouse.education", "family.spouse.preferredName",
+    "family.spouse.relation",
     # grandparent / parent / sibling extras the form does not have.
     "grandparents.childCount", "grandparents.deathDate",
-    "grandparents.memorableStory", "grandparents.occupation",
+    "grandparents.occupation",
     "parents.ageAtDeath", "parents.deathDate", "parents.education",
     "parents.ethnicBackground", "parents.placeOfDeath", "parents.preferredName",
     "siblings.birthDate", "siblings.birthPlace", "siblings.occupation",
@@ -104,11 +100,9 @@ KNOWN_DRIFT_PINNED = frozenset({
     "greatGrandparents.militaryEvent", "greatGrandparents.militaryUnit",
     "greatGrandparents.side",
     # health field names differ from the form's three.
-    "health.cognitiveChange", "health.currentMedications",
-    "health.lifestyleChange", "health.majorCondition", "health.milestone",
-    "health.notes",
-    # hobbies / laterYears extras.
-    "hobbies.notes", "laterYears.dailyRoutine", "laterYears.desiredStory",
+    "health.cognitiveChange", "health.lifestyleChange", "health.milestone",
+    # laterYears extras.
+    "laterYears.dailyRoutine", "laterYears.desiredStory",
     "laterYears.significantEvent",
     # personal extras.
     "personal.nameStory",

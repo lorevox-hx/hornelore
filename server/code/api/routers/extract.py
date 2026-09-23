@@ -227,7 +227,6 @@ EXTRACTABLE_FIELDS = {
     "education.higherEducation":     {"label": "College or higher education", "writeMode": "suggest_only"},
     "education.earlyCareer":         {"label": "First job or early career", "writeMode": "suggest_only"},
     "education.careerProgression":   {"label": "Career progression and major changes", "writeMode": "suggest_only"},
-    "education.notes":               {"label": "Education / career color (school affiliation, geography, mentors, anecdotes)", "writeMode": "suggest_only", "repeatable": "education"},
 
     # Later years (suggest_only)
     "laterYears.retirement":               {"label": "Retirement experience", "writeMode": "suggest_only"},
@@ -242,7 +241,6 @@ EXTRACTABLE_FIELDS = {
     # Hobbies (suggest_only)
     "hobbies.hobbies":              {"label": "Hobbies and interests", "writeMode": "suggest_only"},
     "hobbies.personalChallenges":   {"label": "Personal challenges or hardships", "writeMode": "suggest_only"},
-    "hobbies.notes":                {"label": "Hobby color / leisure narrative (how it started, meaning, context)", "writeMode": "suggest_only", "repeatable": "hobbies"},
 
     # Additional notes (suggest_only)
     "additionalNotes.unfinishedDreams":           {"label": "Unfinished dreams or goals", "writeMode": "suggest_only"},
@@ -256,13 +254,15 @@ EXTRACTABLE_FIELDS = {
     "parents.birthDate":         {"label": "Parent birth date", "writeMode": "candidate_only", "repeatable": "parents"},
     "parents.birthPlace":        {"label": "Parent birthplace", "writeMode": "candidate_only", "repeatable": "parents"},
     "parents.occupation":        {"label": "Parent occupation", "writeMode": "candidate_only", "repeatable": "parents"},
-    "parents.notes":             {"label": "Parent notes (nicknames, personality, color)", "writeMode": "candidate_only", "repeatable": "parents"},
     "parents.notableLifeEvents": {"label": "Notable life events of parent", "writeMode": "candidate_only", "repeatable": "parents"},
 
     # Repeatable: siblings (candidate_only)
     "siblings.relation":              {"label": "Sibling relationship (brother/sister)", "writeMode": "candidate_only", "repeatable": "siblings"},
     "siblings.firstName":             {"label": "Sibling first name", "writeMode": "candidate_only", "repeatable": "siblings"},
     "siblings.lastName":              {"label": "Sibling last name", "writeMode": "candidate_only", "repeatable": "siblings"},
+    # D1f (2026-09-22): form fields extraction could never fill.
+    "siblings.middleName":            {"label": "Sibling middle name(s)", "writeMode": "candidate_only", "repeatable": "siblings"},
+    "siblings.maidenName":            {"label": "Sibling maiden name", "writeMode": "candidate_only", "repeatable": "siblings"},
     "siblings.birthOrder":            {"label": "Sibling birth order (older/younger)", "writeMode": "candidate_only", "repeatable": "siblings"},
     "siblings.uniqueCharacteristics": {"label": "Sibling unique characteristics", "writeMode": "candidate_only", "repeatable": "siblings"},
 
@@ -273,16 +273,17 @@ EXTRACTABLE_FIELDS = {
     "family.children.dateOfBirth":    {"label": "Child date of birth", "writeMode": "candidate_only", "repeatable": "children"},
     "family.children.placeOfBirth":   {"label": "Child place of birth", "writeMode": "candidate_only", "repeatable": "children"},
     "family.children.preferredName":  {"label": "Child nickname", "writeMode": "candidate_only", "repeatable": "children"},
+    # D1f (2026-09-22): the form has had children.middleName all along; this
+    # is the extractor-side spelling, translated by the catalog alias.
+    "family.children.middleName":     {"label": "Child middle name(s)", "writeMode": "candidate_only", "repeatable": "children"},
     "family.children.birthOrder":     {"label": "Child birth order (oldest, youngest, etc.)", "writeMode": "candidate_only", "repeatable": "children"},
-    "family.children.notes":          {"label": "Child color (personality, nickname origin, anecdote)", "writeMode": "suggest_only", "repeatable": "children"},
 
     # ── WO-EX-SCHEMA-01 — Spouse / partner ────────────────────────────────────
-    "family.spouse.firstName":        {"label": "Spouse / partner first name", "writeMode": "prefill_if_blank"},
-    "family.spouse.lastName":         {"label": "Spouse / partner last name", "writeMode": "prefill_if_blank"},
-    "family.spouse.maidenName":       {"label": "Spouse / partner maiden name", "writeMode": "prefill_if_blank"},
-    "family.spouse.dateOfBirth":      {"label": "Spouse / partner DOB", "writeMode": "prefill_if_blank"},
-    "family.spouse.placeOfBirth":     {"label": "Spouse / partner place of birth", "writeMode": "prefill_if_blank"},
-    "family.spouse.notes":            {"label": "Spouse / partner personality or color beyond marriage facts", "writeMode": "suggest_only"},
+    "family.spouse.firstName":        {"label": "Spouse / partner first name", "writeMode": "prefill_if_blank", "repeatable": "spouse"},
+    "family.spouse.lastName":         {"label": "Spouse / partner last name", "writeMode": "prefill_if_blank", "repeatable": "spouse"},
+    "family.spouse.maidenName":       {"label": "Spouse / partner maiden name", "writeMode": "prefill_if_blank", "repeatable": "spouse"},
+    "family.spouse.dateOfBirth":      {"label": "Spouse / partner DOB", "writeMode": "prefill_if_blank", "repeatable": "spouse"},
+    "family.spouse.placeOfBirth":     {"label": "Spouse / partner place of birth", "writeMode": "prefill_if_blank", "repeatable": "spouse"},
 
     # ── WO-EX-SCHEMA-01 — Marriage event ──────────────────────────────────────
     # WO-04: re-pointed to the questionnaire's own repeatable `marriage`
@@ -291,7 +292,6 @@ EXTRACTABLE_FIELDS = {
     # `family.marriageDate`, so a real fact had nowhere to land.
     "marriage.marriageDate":          {"label": "Date of marriage (leave absent if unknown — never guess)", "writeMode": "prefill_if_blank", "repeatable": "marriage"},
     "marriage.marriagePlace":         {"label": "Where the marriage took place", "writeMode": "prefill_if_blank", "repeatable": "marriage"},
-    "family.marriageNotes":           {"label": "Marriage context / how we met", "writeMode": "suggest_only"},
 
     # ── WO-EX-SCHEMA-01 — Prior partners (repeatable) ────────────────────────
     "family.priorPartners.firstName": {"label": "Previous partner first name", "writeMode": "candidate_only", "repeatable": "priorPartners"},
@@ -311,7 +311,6 @@ EXTRACTABLE_FIELDS = {
     # ── WO-EX-SCHEMA-01 — Grandchildren (repeatable) ─────────────────────────
     "family.grandchildren.firstName": {"label": "Grandchild first name", "writeMode": "candidate_only", "repeatable": "grandchildren"},
     "family.grandchildren.relation":  {"label": "Grandchild relation (via which child)", "writeMode": "candidate_only", "repeatable": "grandchildren"},
-    "family.grandchildren.notes":     {"label": "Grandchild personality or notable trait", "writeMode": "candidate_only", "repeatable": "grandchildren"},
 
     # ── Residence (repeatable) — WO-04 aligned to the questionnaire ──────────
     # Was `repeatable: "residences"` (plural), which matched no section and
@@ -329,6 +328,7 @@ EXTRACTABLE_FIELDS = {
     "grandparents.firstName":         {"label": "Grandparent first name", "writeMode": "candidate_only", "repeatable": "grandparents"},
     "grandparents.lastName":          {"label": "Grandparent last name", "writeMode": "candidate_only", "repeatable": "grandparents"},
     "grandparents.maidenName":        {"label": "Grandparent maiden name", "writeMode": "candidate_only", "repeatable": "grandparents"},
+    "grandparents.middleName":        {"label": "Grandparent middle name(s)", "writeMode": "candidate_only", "repeatable": "grandparents"},  # D1f
     "grandparents.birthPlace":        {"label": "Grandparent birthplace", "writeMode": "candidate_only", "repeatable": "grandparents"},
     "grandparents.ancestry":          {"label": "Grandparent ancestry or ethnic background", "writeMode": "candidate_only", "repeatable": "grandparents"},
     "grandparents.memorableStory":    {"label": "Memorable story about grandparent", "writeMode": "suggest_only", "repeatable": "grandparents"},
@@ -364,7 +364,6 @@ EXTRACTABLE_FIELDS = {
     "military.location":              {"label": "Where stationed", "writeMode": "suggest_only", "repeatable": "military"},
     "military.role":                  {"label": "Duties or role (e.g. document courier)", "writeMode": "suggest_only", "repeatable": "military"},
     "military.notableEvents":         {"label": "Notable events or experiences during service", "writeMode": "suggest_only", "repeatable": "military"},
-    "military.notes":                 {"label": "Service color (camaraderie, daily life, transition out, post-service)", "writeMode": "suggest_only", "repeatable": "military"},
 
     # ── Faith & Beliefs (flat, optional) — WO-04 ────────────────────────────
     # A denomination is proposed ONLY from an explicit statement. Never
@@ -373,27 +372,24 @@ EXTRACTABLE_FIELDS = {
     "faith.raisedIn":                 {"label": "What they were raised in — only if stated outright", "writeMode": "suggest_only"},
     "faith.communityRole":            {"label": "Role in a faith community (choir, deacon, usher)", "writeMode": "suggest_only"},
     "faith.significantMoments":       {"label": "Significant moments of faith or belief", "writeMode": "suggest_only"},
-    "faith.notes":                    {"label": "Faith / spiritual color (parish, traditions, family religion, lapses, returns)", "writeMode": "suggest_only"},
 
     # ── WO-SCHEMA-02 Priority 4 — Health ────────────────────────────────────
-    "health.majorCondition":          {"label": "Major health condition or diagnosis", "writeMode": "suggest_only", "repeatable": "health"},
     "health.milestone":               {"label": "Health milestone (surgery, recovery, etc.)", "writeMode": "suggest_only"},
     "health.lifestyleChange":         {"label": "Significant lifestyle change for health", "writeMode": "suggest_only"},
-    "health.currentMedications":      {"label": "Current medications or treatments", "writeMode": "suggest_only"},
     "health.cognitiveChange":         {"label": "Self-reported memory or cognitive change", "writeMode": "suggest_only"},
-    "health.notes":                   {"label": "Health narrative color (caregiving, family history, attitudes, adaptations)", "writeMode": "suggest_only"},
 
     # ── WO-SCHEMA-02 Priority 5 — Community & Civic Life ────────────────────
     "community.organization":         {"label": "Community organization or group", "writeMode": "suggest_only", "repeatable": "community"},
     "community.role":                 {"label": "Role in community organization", "writeMode": "suggest_only", "repeatable": "community"},
     "community.yearsActive":          {"label": "Years active in community role", "writeMode": "suggest_only", "repeatable": "community"},
     "community.significantEvent":     {"label": "Significant community event or contribution", "writeMode": "suggest_only"},
-    "community.notes":                {"label": "Community / civic color (people met, meaningful projects, context)", "writeMode": "suggest_only", "repeatable": "community"},
 
     # ── WO-SCHEMA-02 Priority 6 — Pets ──────────────────────────────────────
     "pets.name":                      {"label": "Pet name", "writeMode": "candidate_only", "repeatable": "pets"},
     "pets.species":                   {"label": "Pet species (dog, cat, horse, etc.)", "writeMode": "candidate_only", "repeatable": "pets"},
-    "pets.notes":                     {"label": "Pet notes (personality, story, meaning)", "writeMode": "suggest_only", "repeatable": "pets"},
+    # D13 (2026-09-23): an approximate value stays approximate ("around 1964");
+    # a birth date is never computed from an age.
+    "pets.birthDate":                 {"label": "Pet birth date or year, as stated (approximate is fine; never computed from an age)", "writeMode": "candidate_only", "repeatable": "pets"},
 
     # ── Travel (repeatable) — WO-04 aligned to the questionnaire ───────────
     # `purpose` is now a CLOSED list, because "ate our first Germany meal"
@@ -403,7 +399,6 @@ EXTRACTABLE_FIELDS = {
     "travel.purpose":                 {"label": "Why the trip happened — one of: Vacation, Work, Family, Military, Pilgrimage, Study, Other. NOT an event during the trip", "writeMode": "suggest_only", "repeatable": "travel"},
     "travel.companions":             {"label": "Who went along", "writeMode": "suggest_only", "repeatable": "travel"},
     "travel.whatHappened":            {"label": "What happened on the trip", "writeMode": "suggest_only", "repeatable": "travel"},
-    "travel.notes":                   {"label": "Travel color (memorable moments, return impressions)", "writeMode": "suggest_only", "repeatable": "travel"},
 
     # ── LOOP-01 R3 — Schema gap fills from api.log audit ────────────────────
     # Added after the R2 api.log audit revealed 325 REJECTs across 218 unique
@@ -433,12 +428,11 @@ EXTRACTABLE_FIELDS = {
 
     # family.spouse.* extensions — relation, middle name, nickname, age at
     # marriage, occupation, education (the dominant R2 spouse-cluster rejects)
-    "family.spouse.relation":       {"label": "Spouse relation type (wife, husband, partner)", "writeMode": "prefill_if_blank"},
-    "family.spouse.middleName":     {"label": "Spouse middle name(s)", "writeMode": "prefill_if_blank"},
-    "family.spouse.preferredName":  {"label": "Spouse nickname / preferred name", "writeMode": "prefill_if_blank"},
-    "family.spouse.ageAtMarriage":  {"label": "Spouse age at marriage", "writeMode": "prefill_if_blank"},
-    "family.spouse.occupation":     {"label": "Spouse occupation", "writeMode": "prefill_if_blank"},
-    "family.spouse.education":      {"label": "Spouse education (schooling, college)", "writeMode": "suggest_only"},
+    "family.spouse.relation":       {"label": "Spouse relation type (wife, husband, partner)", "writeMode": "prefill_if_blank", "repeatable": "spouse"},
+    "family.spouse.middleName":     {"label": "Spouse middle name(s)", "writeMode": "prefill_if_blank", "repeatable": "spouse"},
+    "family.spouse.preferredName":  {"label": "Spouse nickname / preferred name", "writeMode": "prefill_if_blank", "repeatable": "spouse"},
+    "family.spouse.occupation":     {"label": "Spouse occupation", "writeMode": "prefill_if_blank", "repeatable": "spouse"},
+    "family.spouse.education":      {"label": "Spouse education (schooling, college)", "writeMode": "suggest_only", "repeatable": "spouse"},
 
     # greatGrandparents.military* — ancestor-scoped military so the narrator-
     # scoped negation-guard (which strips military.* on "I never served")
@@ -448,10 +442,6 @@ EXTRACTABLE_FIELDS = {
     "greatGrandparents.militaryEvent":  {"label": "Great-grandparent military event / deployment / dates", "writeMode": "suggest_only", "repeatable": "greatGrandparents"},
 
     # community.* dense-interview extensions
-    "community.meetingDay":       {"label": "Day/frequency community group meets", "writeMode": "suggest_only", "repeatable": "community"},
-    "community.meetingLocation":  {"label": "Where community group meets", "writeMode": "suggest_only", "repeatable": "community"},
-    "community.memberCount":      {"label": "Number of members in community group", "writeMode": "suggest_only", "repeatable": "community"},
-    "community.successor":        {"label": "Person who took over community role", "writeMode": "suggest_only", "repeatable": "community"},
 
     # education.* dense-interview extensions
     "education.gradeLevel":       {"label": "Grade level achieved (e.g., 8th grade, high school diploma)", "writeMode": "suggest_only"},
@@ -500,8 +490,10 @@ FRAGILE_FIELD_EXACT = frozenset([
     "family.spouse.lastName",
     "family.spouse.dateOfBirth",
     "family.spouse.placeOfBirth",
-    "family.marriageDate",
-    "family.marriagePlace",
+    # WO-04 moved these to the repeatable `marriage` section; D12 redirects
+    # the old spelling, so the fragile set names the canonical path.
+    "marriage.marriageDate",
+    "marriage.marriagePlace",
 ])
 
 # Any fieldPath that *starts with* one of these prefixes is fragile.
@@ -711,7 +703,7 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
         f"{compact_catalog}\n"
         "\n"
         "ROUTING DISTINCTIONS — common mistakes to avoid:\n"
-        "• Pets vs hobbies: Animals the narrator owned (dogs, cats, horses) → pets.name / pets.species / pets.notes. "
+        "• Pets vs hobbies: Animals the narrator owned (dogs, cats, horses) → pets.name / pets.species. "
         "NOT hobbies.hobbies. \"We had a Golden Retriever named Ivan\" → pets.*, not hobbies.*\n"
         "• Siblings vs children: Brothers and sisters the narrator grew up with → siblings.*. "
         "NOT family.children.* (which is for the narrator's own kids). "
@@ -766,8 +758,8 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
         "\n"
         "Example — narrator says: \"Gretchen was a surprise — I was almost 40 when she came along.\"\n"
         "Output:\n"
-        "[{\"fieldPath\":\"family.children.firstName\",\"value\":\"Gretchen\",\"confidence\":0.9},"
-        "{\"fieldPath\":\"family.children.notes\",\"value\":\"surprise child; narrator was almost 40\",\"confidence\":0.8}]\n"
+        "[{\"fieldPath\":\"family.children.firstName\",\"value\":\"Gretchen\",\"confidence\":0.9}]\n"
+        "(The story around a name is kept by the story lane, not a notes field.)\n"
         "\n"
         "Example — narrator says: \"My closest friend all through school was Harold Schmitt. "
         "He was the one who got me interested in carpentry — he and my Uncle Pete were the two people who shaped me most.\"\n"
@@ -790,22 +782,22 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
         "Example — narrator says: \"I married my wife Dorothy in 1958 in Fargo.\"\n"
         "Output:\n"
         "[{\"fieldPath\":\"family.spouse.firstName\",\"value\":\"Dorothy\",\"confidence\":0.9},"
-        "{\"fieldPath\":\"family.marriageDate\",\"value\":\"1958\",\"confidence\":0.9},"
-        "{\"fieldPath\":\"family.marriagePlace\",\"value\":\"Fargo\",\"confidence\":0.9}]\n"
+        "{\"fieldPath\":\"marriage.marriageDate\",\"value\":\"1958\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"marriage.marriagePlace\",\"value\":\"Fargo\",\"confidence\":0.9}]\n"
         "\n"
         "Example — narrator says: \"We were married at St. Mary's Catholic Church in Williston on June 4th, 1960.\"\n"
         "Output:\n"
-        "[{\"fieldPath\":\"family.marriageDate\",\"value\":\"June 4, 1960\",\"confidence\":0.9},"
-        "{\"fieldPath\":\"family.marriagePlace\",\"value\":\"St. Mary's Catholic Church, Williston\",\"confidence\":0.9}]\n"
+        "[{\"fieldPath\":\"marriage.marriageDate\",\"value\":\"June 4, 1960\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"marriage.marriagePlace\",\"value\":\"St. Mary's Catholic Church, Williston\",\"confidence\":0.9}]\n"
         "\n"
         "Example — narrator says: \"Our wedding was a small one at the courthouse in Minot.\"\n"
         "Output:\n"
-        "[{\"fieldPath\":\"family.marriagePlace\",\"value\":\"courthouse, Minot\",\"confidence\":0.85}]\n"
+        "[{\"fieldPath\":\"marriage.marriagePlace\",\"value\":\"courthouse, Minot\",\"confidence\":0.85}]\n"
         "\n"
         "Example — narrator says: \"We lived in West Fargo from 1962 to 1964, then moved to Bismarck.\"\n"
         "Output:\n"
         "[{\"fieldPath\":\"residence.place\",\"value\":\"West Fargo\",\"confidence\":0.9},"
-        "{\"fieldPath\":\"residence.period\",\"value\":\"1962-1964\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"residence.periodStart\",\"value\":\"1962\",\"confidence\":0.9},{\"fieldPath\":\"residence.periodEnd\",\"value\":\"1964\",\"confidence\":0.9},"
         "{\"fieldPath\":\"residence.place\",\"value\":\"Bismarck\",\"confidence\":0.9}]\n"
         "\n"
         "Example — narrator says: \"My grandmother on my mother's side came from Russia. Her name was Anna Petrova.\"\n"
@@ -840,20 +832,20 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
         "Example — narrator says: \"I served in the Army from 1965 to 1968. I was stationed in Germany and made Sergeant.\"\n"
         "Output:\n"
         "[{\"fieldPath\":\"military.branch\",\"value\":\"Army\",\"confidence\":0.9},"
-        "{\"fieldPath\":\"military.yearsOfService\",\"value\":\"1965-1968\",\"confidence\":0.9},"
-        "{\"fieldPath\":\"military.deploymentLocation\",\"value\":\"Germany\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"military.serviceStart\",\"value\":\"1965\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"military.serviceEnd\",\"value\":\"1968\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"military.location\",\"value\":\"Germany\",\"confidence\":0.9},"
         "{\"fieldPath\":\"military.rank\",\"value\":\"Sergeant\",\"confidence\":0.9}]\n"
         "\n"
         "Example — narrator says: \"We were Catholic, and I sang in the church choir for thirty years. My faith got me through the hard times.\"\n"
         "Output:\n"
         "[{\"fieldPath\":\"faith.denomination\",\"value\":\"Catholic\",\"confidence\":0.9},"
-        "{\"fieldPath\":\"faith.role\",\"value\":\"church choir for thirty years\",\"confidence\":0.9},"
-        "{\"fieldPath\":\"faith.values\",\"value\":\"faith got me through the hard times\",\"confidence\":0.7}]\n"
+        "{\"fieldPath\":\"faith.communityRole\",\"value\":\"church choir for thirty years\",\"confidence\":0.9},"
+        "{\"fieldPath\":\"faith.significantMoments\",\"value\":\"faith got me through the hard times\",\"confidence\":0.7}]\n"
         "\n"
         "Example — narrator says: \"I had a heart attack in 2005 and had to change everything about how I ate.\"\n"
         "Output:\n"
-        "[{\"fieldPath\":\"health.majorCondition\",\"value\":\"heart attack\",\"confidence\":0.9},"
-        "{\"fieldPath\":\"health.milestone\",\"value\":\"heart attack in 2005\",\"confidence\":0.9},"
+        "[{\"fieldPath\":\"health.milestone\",\"value\":\"heart attack in 2005\",\"confidence\":0.9},"
         "{\"fieldPath\":\"health.lifestyleChange\",\"value\":\"changed everything about how I ate\",\"confidence\":0.8}]\n"
         "\n"
         "Example — narrator says: \"I volunteered with the Lions Club for twenty years and was president twice.\"\n"
@@ -865,20 +857,18 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
         "Example — narrator says: \"We always had dogs. Our first was a collie named Laddie.\"\n"
         "Output:\n"
         "[{\"fieldPath\":\"pets.species\",\"value\":\"dog\",\"confidence\":0.9},"
-        "{\"fieldPath\":\"pets.name\",\"value\":\"Laddie\",\"confidence\":0.9},"
-        "{\"fieldPath\":\"pets.notes\",\"value\":\"collie, first family dog\",\"confidence\":0.8}]\n"
+        "{\"fieldPath\":\"pets.name\",\"value\":\"Laddie\",\"confidence\":0.9}]\n"
         "\n"
         "Example — narrator says: \"I had a dog named Ivan when I was little.\"\n"
         "Output:\n"
         "[{\"fieldPath\":\"pets.name\",\"value\":\"Ivan\",\"confidence\":0.9},"
         "{\"fieldPath\":\"pets.species\",\"value\":\"dog\",\"confidence\":0.9}]\n"
-        "(Do NOT write `pets.notes=\"dog named Ivan\"` — name and species go on their own fields.)\n"
+        "(Name and species go on their own fields; there is no pets notes field.)\n"
         "\n"
         "Example — narrator says: \"Our cat Whiskers lived to be sixteen.\"\n"
         "Output:\n"
         "[{\"fieldPath\":\"pets.name\",\"value\":\"Whiskers\",\"confidence\":0.9},"
-        "{\"fieldPath\":\"pets.species\",\"value\":\"cat\",\"confidence\":0.9},"
-        "{\"fieldPath\":\"pets.notes\",\"value\":\"lived to be sixteen\",\"confidence\":0.8}]\n"
+        "{\"fieldPath\":\"pets.species\",\"value\":\"cat\",\"confidence\":0.9}]\n"
         "\n"
         "Example — narrator says: \"We took a trip to Europe in 1985. It was our anniversary.\"\n"
         "Output:\n"
@@ -906,16 +896,14 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
         "Example — narrator says: \"I take blood pressure medicine every morning, and something for arthritis "
         "when my hands flare up.\"\n"
         "Output:\n"
-        "[{\"fieldPath\":\"health.currentMedications\",\"value\":\"blood pressure medicine daily, arthritis medication as needed\",\"confidence\":0.9},"
-        "{\"fieldPath\":\"health.majorCondition\",\"value\":\"high blood pressure\",\"confidence\":0.8},"
-        "{\"fieldPath\":\"health.majorCondition\",\"value\":\"arthritis\",\"confidence\":0.8}]\n"
-        "Medications → health.currentMedications. The conditions those medications treat → health.majorCondition. Both valid.\n"
+        "[]\n"
+        "Medications and diagnoses are NOT extracted into any field (decision D3). They stay in the conversation, in the narrator's own words.\n"
         "\n"
         "Example — narrator says: \"Names take longer than they used to, but the old stories are still there. "
         "It's the little daily things that slip first.\"\n"
         "Output:\n"
         "[{\"fieldPath\":\"health.cognitiveChange\",\"value\":\"names are slower to recall, small daily details slip first, but long-term memories remain\",\"confidence\":0.8}]\n"
-        "Self-reported memory change → health.cognitiveChange. Do NOT write health.majorCondition — this is normal aging, not a diagnosis.\n"
+        "Self-reported memory change → health.cognitiveChange, in the narrator's words. Never a diagnosis.\n"
         "\n"
         "Example — narrator says: \"Everything takes longer now, and younger people assume older means helpless. "
         "That gets under my skin.\"\n"
@@ -929,7 +917,7 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
         "Output:\n"
         "[{\"fieldPath\":\"laterYears.significantEvent\",\"value\":\"family atmosphere shifted when uncle was drafted during the Vietnam era\",\"confidence\":0.85},"
         "{\"fieldPath\":\"education.schooling\",\"value\":\"high school\",\"confidence\":0.8},"
-        "{\"fieldPath\":\"residence.region\",\"value\":\"Montana\",\"confidence\":0.8}]\n"
+        "{\"fieldPath\":\"residence.place\",\"value\":\"rural Montana\",\"confidence\":0.8}]\n"
         "\n"
         "Example — narrator says: \"First time was at the office in the early nineties. They wheeled a desktop "
         "onto my desk and I spent weeks feeling like the new hire half my age was teaching me.\"\n"
@@ -977,22 +965,15 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
         "notes/nameStory/story field for that entity, and/or enrich the canonical record's value.\n"
         "Canonical narrative-catch slots by section:\n"
         "  • personal.nameStory — naming origin: \"Mom wanted Todd because the priest said Christopher was a saint\"\n"
-        "  • personal.notes — general narrator color (identity, personality, misc)\n"
-        "  • parents.notes / parents.notableLifeEvents — parent color beyond structured fields\n"
+        "  • parents.notableLifeEvents — parent life events beyond structured fields\n"
         "  • grandparents.memorableStory — grandparent color\n"
         "  • greatGrandparents.memorableStories — great-grandparent color\n"
         "  • siblings.uniqueCharacteristics — sibling color\n"
-        "  • family.children.notes — child personality, nickname origins, anecdotes\n"
-        "  • family.spouse.notes — spouse personality beyond marriage facts (family.marriageNotes is for the marriage event)\n"
-        "  • education.notes — school color: religious affiliation, geography, mentors\n"
-        "  • faith.notes — parish, traditions, family religion, lapses\n"
-        "  • hobbies.notes — hobby origins and meaning\n"
-        "  • military.notes — service color (camaraderie, transition, post-service)\n"
-        "  • health.notes — health narrative color (caregiving, family history, adaptations)\n"
-        "  • travel.notes — trip color (companions, memorable moments)\n"
-        "  • community.notes — civic color (people met, projects)\n"
-        "  • pets.notes — pet personality and story\n"
-        "  • residence.notes — residence color\n"
+        "  • residence.memories — memories of a home\n"
+        "  • travel.whatHappened — what happened on a trip\n"
+        "  • military.notableEvents — events during the narrator's own service\n"
+        "  • faith.significantMoments — moments of faith\n"
+        "There are NO catch-all notes fields. Colour that fits none of these is kept by the story lane, not extraction.\n"
         "Examples:\n"
         "• \"My name is Christopher Todd Horne — Mom wanted the Todd name because the priest said Christopher was a saint.\" "
         "→ ONE personal.fullName='Christopher Todd Horne' + ONE personal.middleName='Todd' + ONE "
@@ -1000,9 +981,9 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
         "a priest record, or duplicate name records.\n"
         "• \"Grandma Lizzie. Her real name was Elizabeth\" → ONE grandparents.firstName='Elizabeth' (not also 'Lizzie').\n"
         "• \"Josephine Eugenia Susanna Schaaf — everyone called her Josie\" → ONE parents.firstName='Josephine', "
-        "ONE parents.middleName='Eugenia, Susanna'. Josie folds into parents.notes or parents.preferredName.\n"
-        "• \"Mount Marty — a Catholic school in Yankton, run by the Benedictines\" → ONE education.schooling='Mount Marty' + "
-        "ONE education.notes='Catholic school in Yankton run by the Benedictines'. Do NOT emit a second schooling record.\n"
+        "ONE parents.middleName='Eugenia, Susanna', ONE parents.preferredName='Josie'.\n"
+        "• \"Mount Marty — a Catholic school in Yankton, run by the Benedictines\" → ONE "
+        "education.schooling='Mount Marty, a Catholic school in Yankton run by the Benedictines'. Do NOT emit a second schooling record.\n"
         "• \"The family name was originally Schong, possibly Le Shong, became Shong in America\" → ONE "
         "grandparents.maidenName='Shong' (post-immigration canonical form) + grandparents.memorableStory capturing the spelling history. "
         "Do NOT emit additional grandparent records for Schong or Le Shong.\n"
@@ -1012,8 +993,8 @@ def _build_extraction_prompt(answer: str, current_section: Optional[str], curren
         "- Animals the narrator owned or cared for → pets.* (NOT hobbies.hobbies)\n"
         "- Places narrator traveled to and returned from → travel.* (NOT residence.*)\n"
         "- Places narrator lived for an extended period → residence.* (can ALSO be travel.* if it was a relocation)\n"
-        "- Family member's military service → military.* fields with a note that this is family history, "
-        "but do NOT extract military.branch or military.rank for the NARRATOR unless they personally served"
+        "- Family member's military service → THAT person's fields (greatGrandparents.militaryBranch / militaryUnit / militaryEvent). "
+        "NEVER the narrator's military.* — those are for service the narrator personally did"
     )
 
     # WO-EX-NARRATIVE-FIELD-01 Phase 2: append narrative-catchment few-shots
@@ -1075,7 +1056,7 @@ _PROMPTSHRINK_PREAMBLE = (
 
 _PROMPTSHRINK_ROUTING_DISTINCTIONS = (
     "\nROUTING DISTINCTIONS — common mistakes to avoid:\n"
-    "• Pets vs hobbies: Animals the narrator owned (dogs, cats, horses) → pets.name / pets.species / pets.notes. "
+    "• Pets vs hobbies: Animals the narrator owned (dogs, cats, horses) → pets.name / pets.species. "
     "NOT hobbies.hobbies. \"We had a Golden Retriever named Ivan\" → pets.*, not hobbies.*\n"
     "• Siblings vs children: Brothers and sisters the narrator grew up with → siblings.*. "
     "NOT family.children.* (which is for the narrator's own kids). "
@@ -1111,22 +1092,15 @@ _PROMPTSHRINK_SAME_ENTITY_RULE = (
     "notes/nameStory/story field for that entity, and/or enrich the canonical record's value.\n"
     "Canonical narrative-catch slots by section:\n"
     "  • personal.nameStory — naming origin: \"Mom wanted Todd because the priest said Christopher was a saint\"\n"
-    "  • personal.notes — general narrator color (identity, personality, misc)\n"
-    "  • parents.notes / parents.notableLifeEvents — parent color beyond structured fields\n"
+    "  • parents.notableLifeEvents — parent life events beyond structured fields\n"
     "  • grandparents.memorableStory — grandparent color\n"
     "  • greatGrandparents.memorableStories — great-grandparent color\n"
     "  • siblings.uniqueCharacteristics — sibling color\n"
-    "  • family.children.notes — child personality, nickname origins, anecdotes\n"
-    "  • family.spouse.notes — spouse personality beyond marriage facts (family.marriageNotes is for the marriage event)\n"
-    "  • education.notes — school color: religious affiliation, geography, mentors\n"
-    "  • faith.notes — parish, traditions, family religion, lapses\n"
-    "  • hobbies.notes — hobby origins and meaning\n"
-    "  • military.notes — service color (camaraderie, transition, post-service)\n"
-    "  • health.notes — health narrative color (caregiving, family history, adaptations)\n"
-    "  • travel.notes — trip color (companions, memorable moments)\n"
-    "  • community.notes — civic color (people met, projects)\n"
-    "  • pets.notes — pet personality and story\n"
-    "  • residence.notes — residence color\n"
+    "  • residence.memories — memories of a home\n"
+    "  • travel.whatHappened — what happened on a trip\n"
+    "  • military.notableEvents — events during the narrator's own service\n"
+    "  • faith.significantMoments — moments of faith\n"
+    "There are NO catch-all notes fields. Colour that fits none of these is kept by the story lane, not extraction.\n"
     "Examples:\n"
     "• \"My name is Christopher Todd Horne — Mom wanted the Todd name because the priest said Christopher was a saint.\" "
     "→ ONE personal.fullName='Christopher Todd Horne' + ONE personal.middleName='Todd' + ONE "
@@ -1134,9 +1108,9 @@ _PROMPTSHRINK_SAME_ENTITY_RULE = (
     "a priest record, or duplicate name records.\n"
     "• \"Grandma Lizzie. Her real name was Elizabeth\" → ONE grandparents.firstName='Elizabeth' (not also 'Lizzie').\n"
     "• \"Josephine Eugenia Susanna Schaaf — everyone called her Josie\" → ONE parents.firstName='Josephine', "
-    "ONE parents.middleName='Eugenia, Susanna'. Josie folds into parents.notes or parents.preferredName.\n"
-    "• \"Mount Marty — a Catholic school in Yankton, run by the Benedictines\" → ONE education.schooling='Mount Marty' + "
-    "ONE education.notes='Catholic school in Yankton run by the Benedictines'. Do NOT emit a second schooling record.\n"
+    "ONE parents.middleName='Eugenia, Susanna', ONE parents.preferredName='Josie'.\n"
+    "• \"Mount Marty — a Catholic school in Yankton, run by the Benedictines\" → ONE "
+    "education.schooling='Mount Marty, a Catholic school in Yankton run by the Benedictines'. Do NOT emit a second schooling record.\n"
     "• \"The family name was originally Schong, possibly Le Shong, became Shong in America\" → ONE "
     "grandparents.maidenName='Shong' (post-immigration canonical form) + grandparents.memorableStory capturing the spelling history. "
     "Do NOT emit additional grandparent records for Schong or Le Shong.\n"
@@ -1148,8 +1122,8 @@ _PROMPTSHRINK_FIELD_ROUTING_RULES = (
     "- Animals the narrator owned or cared for → pets.* (NOT hobbies.hobbies)\n"
     "- Places narrator traveled to and returned from → travel.* (NOT residence.*)\n"
     "- Places narrator lived for an extended period → residence.* (can ALSO be travel.* if it was a relocation)\n"
-    "- Family member's military service → military.* fields with a note that this is family history, "
-    "but do NOT extract military.branch or military.rank for the NARRATOR unless they personally served"
+    "- Family member's military service → THAT person's fields (greatGrandparents.militaryBranch / militaryUnit / militaryEvent). "
+    "NEVER the narrator's military.* — those are for service the narrator personally did"
 )
 
 # Each entry: (topic_tags, example_block). Tag "universal" = always included.
@@ -1206,8 +1180,8 @@ _PROMPTSHRINK_FEW_SHOTS: list[tuple[tuple[str, ...], str]] = [
     (("children", "family"),
      "Example — narrator says: \"Gretchen was a surprise — I was almost 40 when she came along.\"\n"
      "Output:\n"
-     "[{\"fieldPath\":\"family.children.firstName\",\"value\":\"Gretchen\",\"confidence\":0.9},"
-     "{\"fieldPath\":\"family.children.notes\",\"value\":\"surprise child; narrator was almost 40\",\"confidence\":0.8}]\n"),
+     "[{\"fieldPath\":\"family.children.firstName\",\"value\":\"Gretchen\",\"confidence\":0.9}]\n"
+     "(The story around a name is kept by the story lane, not a notes field.)\n"),
     (("children", "family"),
      "Example — narrator says: \"My oldest son Vince was born in Germany in 1960, and my daughter Sarah was born in Bismarck in 1962.\"\n"
      "Output:\n"
@@ -1234,24 +1208,24 @@ _PROMPTSHRINK_FEW_SHOTS: list[tuple[tuple[str, ...], str]] = [
      "Example — narrator says: \"I married my wife Dorothy in 1958 in Fargo.\"\n"
      "Output:\n"
      "[{\"fieldPath\":\"family.spouse.firstName\",\"value\":\"Dorothy\",\"confidence\":0.9},"
-     "{\"fieldPath\":\"family.marriageDate\",\"value\":\"1958\",\"confidence\":0.9},"
-     "{\"fieldPath\":\"family.marriagePlace\",\"value\":\"Fargo\",\"confidence\":0.9}]\n"),
+     "{\"fieldPath\":\"marriage.marriageDate\",\"value\":\"1958\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"marriage.marriagePlace\",\"value\":\"Fargo\",\"confidence\":0.9}]\n"),
     (("marriage", "family"),
      "Example — narrator says: \"We were married at St. Mary's Catholic Church in Williston on June 4th, 1960.\"\n"
      "Output:\n"
-     "[{\"fieldPath\":\"family.marriageDate\",\"value\":\"June 4, 1960\",\"confidence\":0.9},"
-     "{\"fieldPath\":\"family.marriagePlace\",\"value\":\"St. Mary's Catholic Church, Williston\",\"confidence\":0.9}]\n"),
+     "[{\"fieldPath\":\"marriage.marriageDate\",\"value\":\"June 4, 1960\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"marriage.marriagePlace\",\"value\":\"St. Mary's Catholic Church, Williston\",\"confidence\":0.9}]\n"),
     (("marriage", "family"),
      "Example — narrator says: \"Our wedding was a small one at the courthouse in Minot.\"\n"
      "Output:\n"
-     "[{\"fieldPath\":\"family.marriagePlace\",\"value\":\"courthouse, Minot\",\"confidence\":0.85}]\n"),
+     "[{\"fieldPath\":\"marriage.marriagePlace\",\"value\":\"courthouse, Minot\",\"confidence\":0.85}]\n"),
 
     # Residence
     (("residence",),
      "Example — narrator says: \"We lived in West Fargo from 1962 to 1964, then moved to Bismarck.\"\n"
      "Output:\n"
      "[{\"fieldPath\":\"residence.place\",\"value\":\"West Fargo\",\"confidence\":0.9},"
-     "{\"fieldPath\":\"residence.period\",\"value\":\"1962-1964\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"residence.periodStart\",\"value\":\"1962\",\"confidence\":0.9},{\"fieldPath\":\"residence.periodEnd\",\"value\":\"1964\",\"confidence\":0.9},"
      "{\"fieldPath\":\"residence.place\",\"value\":\"Bismarck\",\"confidence\":0.9}]\n"),
 
     # Grandparents
@@ -1292,8 +1266,9 @@ _PROMPTSHRINK_FEW_SHOTS: list[tuple[tuple[str, ...], str]] = [
      "Example — narrator says: \"I served in the Army from 1965 to 1968. I was stationed in Germany and made Sergeant.\"\n"
      "Output:\n"
      "[{\"fieldPath\":\"military.branch\",\"value\":\"Army\",\"confidence\":0.9},"
-     "{\"fieldPath\":\"military.yearsOfService\",\"value\":\"1965-1968\",\"confidence\":0.9},"
-     "{\"fieldPath\":\"military.deploymentLocation\",\"value\":\"Germany\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"military.serviceStart\",\"value\":\"1965\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"military.serviceEnd\",\"value\":\"1968\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"military.location\",\"value\":\"Germany\",\"confidence\":0.9},"
      "{\"fieldPath\":\"military.rank\",\"value\":\"Sergeant\",\"confidence\":0.9}]\n"),
 
     # Faith
@@ -1301,15 +1276,14 @@ _PROMPTSHRINK_FEW_SHOTS: list[tuple[tuple[str, ...], str]] = [
      "Example — narrator says: \"We were Catholic, and I sang in the church choir for thirty years. My faith got me through the hard times.\"\n"
      "Output:\n"
      "[{\"fieldPath\":\"faith.denomination\",\"value\":\"Catholic\",\"confidence\":0.9},"
-     "{\"fieldPath\":\"faith.role\",\"value\":\"church choir for thirty years\",\"confidence\":0.9},"
-     "{\"fieldPath\":\"faith.values\",\"value\":\"faith got me through the hard times\",\"confidence\":0.7}]\n"),
+     "{\"fieldPath\":\"faith.communityRole\",\"value\":\"church choir for thirty years\",\"confidence\":0.9},"
+     "{\"fieldPath\":\"faith.significantMoments\",\"value\":\"faith got me through the hard times\",\"confidence\":0.7}]\n"),
 
     # Health
     (("health",),
      "Example — narrator says: \"I had a heart attack in 2005 and had to change everything about how I ate.\"\n"
      "Output:\n"
-     "[{\"fieldPath\":\"health.majorCondition\",\"value\":\"heart attack\",\"confidence\":0.9},"
-     "{\"fieldPath\":\"health.milestone\",\"value\":\"heart attack in 2005\",\"confidence\":0.9},"
+     "[{\"fieldPath\":\"health.milestone\",\"value\":\"heart attack in 2005\",\"confidence\":0.9},"
      "{\"fieldPath\":\"health.lifestyleChange\",\"value\":\"changed everything about how I ate\",\"confidence\":0.8}]\n"),
 
     # Community
@@ -1325,21 +1299,19 @@ _PROMPTSHRINK_FEW_SHOTS: list[tuple[tuple[str, ...], str]] = [
      "Example — narrator says: \"We always had dogs. Our first was a collie named Laddie.\"\n"
      "Output:\n"
      "[{\"fieldPath\":\"pets.species\",\"value\":\"dog\",\"confidence\":0.9},"
-     "{\"fieldPath\":\"pets.name\",\"value\":\"Laddie\",\"confidence\":0.9},"
-     "{\"fieldPath\":\"pets.notes\",\"value\":\"collie, first family dog\",\"confidence\":0.8}]\n"),
+     "{\"fieldPath\":\"pets.name\",\"value\":\"Laddie\",\"confidence\":0.9}]\n"),
     # Pets Ivan — universal anti-pattern anchor
     (("pets", "universal"),
      "Example — narrator says: \"I had a dog named Ivan when I was little.\"\n"
      "Output:\n"
      "[{\"fieldPath\":\"pets.name\",\"value\":\"Ivan\",\"confidence\":0.9},"
      "{\"fieldPath\":\"pets.species\",\"value\":\"dog\",\"confidence\":0.9}]\n"
-     "(Do NOT write `pets.notes=\"dog named Ivan\"` — name and species go on their own fields.)\n"),
+     "(Name and species go on their own fields; there is no pets notes field.)\n"),
     (("pets",),
      "Example — narrator says: \"Our cat Whiskers lived to be sixteen.\"\n"
      "Output:\n"
      "[{\"fieldPath\":\"pets.name\",\"value\":\"Whiskers\",\"confidence\":0.9},"
-     "{\"fieldPath\":\"pets.species\",\"value\":\"cat\",\"confidence\":0.9},"
-     "{\"fieldPath\":\"pets.notes\",\"value\":\"lived to be sixteen\",\"confidence\":0.8}]\n"),
+     "{\"fieldPath\":\"pets.species\",\"value\":\"cat\",\"confidence\":0.9}]\n"),
 
     # Travel
     (("travel",),
@@ -1369,16 +1341,14 @@ _PROMPTSHRINK_FEW_SHOTS: list[tuple[tuple[str, ...], str]] = [
      "Example — narrator says: \"I take blood pressure medicine every morning, and something for arthritis "
      "when my hands flare up.\"\n"
      "Output:\n"
-     "[{\"fieldPath\":\"health.currentMedications\",\"value\":\"blood pressure medicine daily, arthritis medication as needed\",\"confidence\":0.9},"
-     "{\"fieldPath\":\"health.majorCondition\",\"value\":\"high blood pressure\",\"confidence\":0.8},"
-     "{\"fieldPath\":\"health.majorCondition\",\"value\":\"arthritis\",\"confidence\":0.8}]\n"
-     "Medications → health.currentMedications. The conditions those medications treat → health.majorCondition. Both valid.\n"),
+     "[]\n"
+     "Medications and diagnoses are NOT extracted into any field (decision D3). They stay in the conversation, in the narrator's own words.\n"),
     (("health",),
      "Example — narrator says: \"Names take longer than they used to, but the old stories are still there. "
      "It's the little daily things that slip first.\"\n"
      "Output:\n"
      "[{\"fieldPath\":\"health.cognitiveChange\",\"value\":\"names are slower to recall, small daily details slip first, but long-term memories remain\",\"confidence\":0.8}]\n"
-     "Self-reported memory change → health.cognitiveChange. Do NOT write health.majorCondition — this is normal aging, not a diagnosis.\n"),
+     "Self-reported memory change → health.cognitiveChange, in the narrator's words. Never a diagnosis.\n"),
     (("hobbies", "health"),
      "Example — narrator says: \"Everything takes longer now, and younger people assume older means helpless. "
      "That gets under my skin.\"\n"
@@ -1392,7 +1362,7 @@ _PROMPTSHRINK_FEW_SHOTS: list[tuple[tuple[str, ...], str]] = [
      "Output:\n"
      "[{\"fieldPath\":\"laterYears.significantEvent\",\"value\":\"family atmosphere shifted when uncle was drafted during the Vietnam era\",\"confidence\":0.85},"
      "{\"fieldPath\":\"education.schooling\",\"value\":\"high school\",\"confidence\":0.8},"
-     "{\"fieldPath\":\"residence.region\",\"value\":\"Montana\",\"confidence\":0.8}]\n"),
+     "{\"fieldPath\":\"residence.place\",\"value\":\"rural Montana\",\"confidence\":0.8}]\n"),
     (("generational", "hobbies"),
      "Example — narrator says: \"First time was at the office in the early nineties. They wheeled a desktop "
      "onto my desk and I spent weeks feeling like the new hire half my age was teaching me.\"\n"
@@ -1775,8 +1745,7 @@ _NARRATIVE_FIELD_FEWSHOTS = (
     "• \"Mom went to Capitol Business College for two years in Bismarck.\" → "
     "parents.notableLifeEvents='attended Capitol Business College for two years in Bismarck'. "
     "Do NOT emit parents.education or parents.schooling — neither exists in the schema.\n"
-    "• \"Everyone called her Josie.\" → parents.notes='called Josie'. "
-    "Do NOT emit parents.preferredName or parents.nickname — fold nicknames into parents.notes.\n"
+    "• \"Everyone called her Josie.\" → parents.preferredName='Josie'.\n"
     "• \"Grandma was fifty years old when she had my mother.\" → "
     "grandparents.memorableStory='was fifty years old when she had the narrator's mother'. "
     "Do NOT emit parents.parent.ageAtNarratorBirth, parents.parent.firstName, or grandparents.age.\n"
@@ -1785,13 +1754,11 @@ _NARRATIVE_FIELD_FEWSHOTS = (
     "Use the plural .memorableStories (not .memorableStory) for great-grandparents.\n"
     "• \"My brother Vincent was the quiet one who always had his nose in a book.\" → "
     "siblings.firstName='Vincent' + siblings.uniqueCharacteristics='quiet; always reading books'. "
-    "Do NOT emit siblings.memories or siblings.notes — uniqueCharacteristics is the prose slot for sibling color.\n"
+    "Do NOT emit siblings.memories or siblings.notes — uniqueCharacteristics is the slot for sibling color.\n"
     "• \"My wife Melanie loves teaching; she taught me that you can find joy anywhere.\" → "
-    "family.spouse.firstName='Melanie' + family.spouse.notes='loves teaching; taught the narrator to find joy anywhere'. "
-    "Do NOT emit spouse.narrative, family.spouse.narrative, or family.spouse.personality.\n"
+    "family.spouse.firstName='Melanie'. The rest is a story about her, kept by the story lane — there is no spouse notes field.\n"
     "• \"We got married at the courthouse in Bismarck with just my brother as witness.\" → "
-    "family.marriagePlace='Bismarck' + family.marriageNotes='at the courthouse with the narrator's brother as only witness'. "
-    "Wedding-event prose → family.marriageNotes. Spouse-personality prose → family.spouse.notes.\n"
+    "marriage.marriagePlace='courthouse, Bismarck'. The rest of the wedding story is kept by the story lane.\n"
     "\n"
     "CRITICAL — SCALAR CO-EMISSION RULE: narrative catchment NEVER replaces scalar extraction. "
     "When an answer contains BOTH a scalar fact (explicit name, date, species, place, occupation) AND surrounding prose, "
@@ -1799,10 +1766,10 @@ _NARRATIVE_FIELD_FEWSHOTS = (
     "Never drop a narrator scalar just because the answer also mentions another entity.\n"
     "• \"We had a Golden Retriever named Ivan. He was the family dog when I was growing up.\" → "
     "pets.name='Ivan' + pets.species='dog'. "
-    "Do NOT consolidate into pets.notes='Golden Retriever named Ivan' — the name and species are explicit scalars.\n"
+    "The name and species are explicit scalars; each goes on its own field.\n"
     "• \"I married Janice Josephine Zarr on October 10th, 1959. I was nineteen and she was twenty.\" → "
-    "family.spouse.firstName='Janice' + family.spouse.middleName='Josephine' + family.spouse.lastName='Zarr' + family.marriageDate='1959-10-10'. "
-    "Do NOT drop family.marriageDate. Do NOT invent family.spouse.dateOfBirth from age cues like 'she was twenty' — ages are inferences, not scalars.\n"
+    "family.spouse.firstName='Janice' + family.spouse.middleName='Josephine' + family.spouse.lastName='Zarr' + marriage.marriageDate='1959-10-10'. "
+    "Do NOT drop marriage.marriageDate. Do NOT invent family.spouse.dateOfBirth from age cues like 'she was twenty' — ages are inferences, not scalars.\n"
     "• \"I was born in Spokane, Washington, on August 30th, 1939. My dad Pete worked at an aluminum factory there.\" → "
     "personal.dateOfBirth='1939-08-30' + personal.placeOfBirth='Spokane, Washington' + parents.firstName='Pete' + parents.occupation='aluminum factory worker'. "
     "Narrator birth scalars MUST emit even when the answer also mentions parent context. Parent context adds fields, it never replaces narrator scalars.\n"
@@ -3886,7 +3853,8 @@ _SPANTAG_OVERNEST_PREFIXES: tuple = (
     "pets.pet.",
     "education.school.",
     "education.career.",
-    "marriage.",  # marriage.X → use family.marriageDate / family.marriagePlace canonical
+    # "marriage." removed (A3): since WO-04, marriage.marriageDate /
+    # marriage.marriagePlace ARE the canonical paths, so this rejected them.
 )
 
 # Invented namespace prefixes — narrator-family-surname or narrator-relation
@@ -3913,7 +3881,7 @@ _SPANTAG_INVENTED_ROOTS: set = {
     "birthplaces",
     "locations",
     "ancestors",  # case_065 etc. — semantic remap to greatGrandparents is BINDING-02
-    "marriage",   # NOT a root — marriage.X handled by alias to family.marriageDate
+    # "marriage" removed (A3): it is a real section since WO-04.
     "work",       # NOT a root — work.X aliased to occupation in _FIELD_ALIASES; reject if alias doesn't match
 }
 
@@ -4413,7 +4381,7 @@ def _parse_llm_json(raw: str) -> List[dict]:
         else:
             logger.info("[extract-parse] Item %d REJECTED: %s", i, json.dumps(x, default=str)[:300])
     logger.info("[extract-parse] %d/%d items passed validation", len(valid), len(arr))
-    return valid
+    return _fold_redirected_duplicates(valid)
 
 
 # BUG-EX-LLM-COMMENTARY-AS-VALUE-01 (2026-05-05): pattern set for
@@ -4569,6 +4537,58 @@ def _reads_as_kinship_word(value: str) -> bool:
     return " ".join(str(value or "").lower().split()).strip(".,;:!?") in _KINSHIP_WORDS
 
 
+# ── SAME-FACT REDIRECTS (A3, decisions D12 and D13) ──────────────────
+#
+# A retired spelling of the SAME fact about the SAME person, mapped to
+# its canonical path. Not an alias guess: each pair is a recorded
+# decision. The model kept emitting `family.marriageDate` after WO-04
+# moved the field (8 rejects in r6-batchA-base2, 9 in b1-768), so real
+# marriage dates were being thrown away.
+#
+#   D12  family.marriageDate  → marriage.marriageDate
+#   D12  family.marriagePlace → marriage.marriagePlace
+#   D13  pets.dateOfBirth     → pets.birthDate   (approximate stays approximate)
+#
+# A redirected item and an identical canonical item in one response are
+# ONE fact: `_fold_redirected_duplicates` keeps the canonical one.
+# Provenance of the emitted spelling is the `REDIRECT` log line; the
+# response model has no field for it and none is added here.
+_SAME_FACT_REDIRECTS = {
+    "family.marriageDate": "marriage.marriageDate",
+    "family.marriagePlace": "marriage.marriagePlace",
+    "pets.dateOfBirth": "pets.birthDate",
+}
+
+
+def _fold_redirected_duplicates(items: List[dict]) -> List[dict]:
+    """Drop a redirected item when the same path already holds the same
+    value; strip the private marker from everything else.
+
+    Only REDIRECTED items are ever dropped. Two canonical items with the
+    same value are left alone — that is not this function's decision."""
+    seen = set()
+    for it in items:
+        if "_redirected_from" not in it:
+            seen.add((it["fieldPath"], _norm_fact_value(it["value"])))
+    out = []
+    for it in items:
+        src = it.pop("_redirected_from", None)
+        key = (it["fieldPath"], _norm_fact_value(it["value"]))
+        if src is not None:
+            if key in seen:
+                logger.info("[extract-parse] REDIRECT-FOLD: %s=%r (emitted as %s) duplicates "
+                            "the canonical item — one fact kept", it["fieldPath"],
+                            str(it["value"])[:60], src)
+                continue
+            seen.add(key)
+        out.append(it)
+    return out
+
+
+def _norm_fact_value(v: Any) -> str:
+    return " ".join(str(v or "").split()).strip(" .,;:").casefold()
+
+
 def _validate_item(item: Any) -> Optional[dict]:
     """Validate and normalize a single extraction item."""
     if not isinstance(item, dict):
@@ -4591,6 +4611,7 @@ def _validate_item(item: Any) -> Optional[dict]:
     # Validate fieldPath exists in our schema
     # For repeatable fields, strip any index: "parents[0].firstName" → "parents.firstName"
     base_path = re.sub(r'\[\d+\]', '', fp)
+    redirected_from = None
     if base_path not in EXTRACTABLE_FIELDS:
         # P1: Try common LLM field path variants before rejecting
         # LLMs often output "firstName" instead of "parents.firstName", or
@@ -4667,8 +4688,8 @@ def _validate_item(item: Any) -> Optional[dict]:
             "spouseName": "family.spouse.firstName", "spouse_name": "family.spouse.firstName",
             "wifeName": "family.spouse.firstName", "husbandName": "family.spouse.firstName",
             "wife": "family.spouse.firstName", "husband": "family.spouse.firstName",
-            "marriageDate": "family.marriageDate", "marriage_date": "family.marriageDate",
-            "marriagePlace": "family.marriagePlace", "marriage_place": "family.marriagePlace",
+            "marriageDate": "marriage.marriageDate", "marriage_date": "marriage.marriageDate",
+            "marriagePlace": "marriage.marriagePlace", "marriage_place": "marriage.marriagePlace",
             "grandchildren.firstName": "family.grandchildren.firstName",
             "grandchildName": "family.grandchildren.firstName",
             "residence": "residence.place", "lived": "residence.place",
@@ -4711,19 +4732,12 @@ def _validate_item(item: Any) -> Optional[dict]:
             "civic.entryAge": "laterYears.significantEvent",
             "civic.service": "laterYears.significantEvent",
             "civic.role": "laterYears.significantEvent",
-            # parents.sibling.* → parents.notableLifeEvents (lossy stopgap)
-            "parents.sibling.firstName": "parents.notableLifeEvents",
-            "parents.sibling.middleNames": "parents.notableLifeEvents",
-            "parents.sibling.lastName": "parents.notableLifeEvents",
-            "parents.sibling.relation": "parents.notableLifeEvents",
-            "parents.sibling.birthLocation": "parents.notableLifeEvents",
-            # parents.siblings.* (plural) — LLM uses both singular and plural
-            "parents.siblings.firstName": "parents.notableLifeEvents",
-            "parents.siblings.middleName": "parents.notableLifeEvents",
-            "parents.siblings.lastName": "parents.notableLifeEvents",
-            "parents.siblings.relation": "parents.notableLifeEvents",
-            "parents.siblings.birthPlace": "parents.notableLifeEvents",
-            "parents.siblings.birthOrder": "parents.notableLifeEvents",
+            # parents.sibling(s).* — an AUNT OR UNCLE — used to be aliased into
+            # parents.notableLifeEvents, which stored a relative's NAME as a
+            # parent's life event ("Verene", 9 times in r6-batchA-base2).
+            # REMOVED (A3, 2026-09-23). An aunt is a person plus a relationship
+            # (D2); until Batch B can hold one, the item is rejected and logged,
+            # never rewritten into someone else's story.
             # parents.parentAttitude → parents.notableLifeEvents
             "parents.parentAttitude": "parents.notableLifeEvents",
             # family.siblings.dateOfBirth has no schema target — route to significantEvent
@@ -4738,7 +4752,9 @@ def _validate_item(item: Any) -> Optional[dict]:
             "parents.personality":                "parents.notes",
             "parents.memorableStory":             "parents.notableLifeEvents",
             "parents.education":                  "parents.notableLifeEvents",
-            "parents.schooling":                  "parents.notableLifeEvents",
+            # A parent's schooling is that parent's education — the subject is
+            # right, so this is retargeted to the real field, not a story bucket.
+            "parents.schooling":                  "parents.education",
             "parents.boardingSchoolExperience":   "parents.notableLifeEvents",
             "parents.workExperience":             "parents.notableLifeEvents",
             "parents.careerHistory":              "parents.notableLifeEvents",
@@ -5039,12 +5055,13 @@ def _validate_item(item: Any) -> Optional[dict]:
             "community.influentialPerson":  "community.notes",
             "community.values":             "faith.values",
 
-            # family.member.* — generic "relative" catch-alls
-            "family.member":              "parents.notableLifeEvents",
+            # family.member.* — generic "relative" catch-alls. The bare
+            # `family.member` → parents.notableLifeEvents alias is REMOVED (A3):
+            # an unnamed relative is not a parent's life event.
             "family.member.name":         "parents.firstName",
             "family.member.relationship": "parents.relation",
             "family.member.dateOfBirth":  "parents.birthDate",
-            "family.relative":            "parents.notableLifeEvents",
+            # `family.relative` → parents.notableLifeEvents REMOVED (A3), same reason.
 
             # Ancestor-scoped military — route parents.parents.military.*
             # (LLM's instinct for "my great-great-grandfather's service") onto
@@ -5060,9 +5077,17 @@ def _validate_item(item: Any) -> Optional[dict]:
             "greatGrandparents.military.yearsOfService":    "greatGrandparents.militaryEvent",
             "greatGrandparents.military.deploymentLocation":"greatGrandparents.militaryEvent",
         }
-        alias = _FIELD_ALIASES.get(base_path) or _FIELD_ALIASES.get(fp)
+        if base_path in _SAME_FACT_REDIRECTS:
+            # D12/D13: the SAME fact under its retired spelling. Logged as a
+            # redirect, not an alias guess, and remembered so the parser can
+            # fold a redirected item into an identical canonical one.
+            alias = _SAME_FACT_REDIRECTS[base_path]
+            redirected_from = base_path
+        else:
+            alias = _FIELD_ALIASES.get(base_path) or _FIELD_ALIASES.get(fp)
         if alias and alias in EXTRACTABLE_FIELDS:
-            logger.info("[extract-validate] ALIAS: %r → %r", base_path, alias)
+            logger.info("[extract-validate] %s: %r → %r",
+                        "REDIRECT" if redirected_from else "ALIAS", base_path, alias)
             base_path = alias
         else:
             logger.info("[extract-validate] REJECT: fieldPath %r (base=%r) not in EXTRACTABLE_FIELDS", fp, base_path)
@@ -5121,11 +5146,14 @@ def _validate_item(item: Any) -> Optional[dict]:
         conf = 0.8
     conf = max(0.1, min(1.0, float(conf)))
 
-    return {
+    out = {
         "fieldPath": base_path,
         "value": val,
         "confidence": round(conf, 2)
     }
+    if redirected_from:
+        out["_redirected_from"] = redirected_from
+    return out
 
 
 # ── Rules-based extraction (fallback) ───────────────────────────────────────
@@ -5736,6 +5764,9 @@ _SHORT_VALUE_EXEMPT_SUFFIXES = frozenset({
     "rank", "role", "status", "species", "type", "yearEnlisted", "yearDischarged",
     "yearStarted", "yearEnded", "startYear", "endYear",
     "placeOfBirth", "placeOfDeath", "state", "country", "city", "location",
+    # D1c: an age at death someone STATED is a reported number ("28"), not
+    # narrative text — it was being dropped as "too short" (A3).
+    "ageAtDeath",
 })
 
 
@@ -5805,13 +5836,12 @@ _NARRATIVE_VALUE_MAX_CHARS = 500
 # clean attribution when we diff r5d vs r5c.
 _NARRATIVE_CATCHMENT_PATHS = frozenset({
     "parents.notableLifeEvents",
-    "parents.notes",
     "grandparents.memorableStory",
     "grandparents.memorableStories",
     "greatGrandparents.memorableStories",
-    "family.spouse.notes",
-    "family.marriageNotes",
     "siblings.uniqueCharacteristics",
+    # parents.notes, family.spouse.notes, family.marriageNotes removed (A3):
+    # retired from extraction by D11 / D1d / D1e.
 })
 _NARRATIVE_CATCHMENT_MAX_CHARS = 2000
 
@@ -6819,26 +6849,9 @@ _STORY_PRIORITY_CUES = re.compile(
 )
 
 # Path mapping: (source_prefix, target_prefix) for each rerouter
-# LOOP-01 R4 Patch C — pets.notes splitter.
-# Matches compact descriptors like "collie named Laddie", "Ivan, our family dog",
-# "a cat named Whiskers", "dog called Rex". Captures name + species so the
-# rerouter can split one pets.notes item into pets.name + pets.species.
-_PETS_NOTES_SPLIT = re.compile(
-    r"^\s*(?:a |an |our |my |the )?"
-    r"(?:(?P<species1>dog|cat|horse|bird|parrot|rabbit|hamster|guinea pig|gerbil|"
-    r"fish|turtle|tortoise|snake|lizard|ferret|chicken|duck|goat|pig|cow|pony)"
-    r"\s+(?:named|called|we called)\s+(?P<name1>[A-Z][a-zA-Z'\-]+)"
-    r"|(?P<name2>[A-Z][a-zA-Z'\-]+),?\s+(?:our |my |the )?"
-    r"(?P<species2>dog|cat|horse|bird|parrot|rabbit|hamster|guinea pig|gerbil|"
-    r"fish|turtle|tortoise|snake|lizard|ferret|chicken|duck|goat|pig|cow|pony)"
-    r")\s*$",
-    re.IGNORECASE,
-)
-
-_PETS_REMAP = {
-    "hobbies.hobbies": "pets.notes",  # generic hobby → pet notes
-    "hobbies.personalChallenges": "pets.notes",
-}
+# `_PETS_NOTES_SPLIT` (LOOP-01 R4 Patch C) REMOVED with its splitter (A3).
+# `_PETS_REMAP` (hobbies.* → pets.notes) REMOVED (A3): pets.notes is retired
+# from extraction by D11, so the reroute could only ever be reverted.
 _SIBLINGS_REMAP = {
     "family.children.relation": "siblings.relation",
     "family.children.firstName": "siblings.firstName",
@@ -6873,7 +6886,6 @@ def _apply_semantic_rerouter(
 
     answer_lower = answer.lower()
     rerouted = []
-    pets_splits = []  # LOOP-01 R4 Patch C — items emitted from pets.notes splits
 
     # LOOP-01 R4 Patch D — collect narrator-first-person birth-order values
     # once per answer so per-item reroute decisions are cheap.
@@ -6887,45 +6899,13 @@ def _apply_semantic_rerouter(
         combined_text = answer_lower + " " + val.lower()
         original_fp = fp
 
-        # ── 1. Pets rerouter: hobbies.* → pets.* ────────────────────────
-        if fp in _PETS_REMAP:
-            if _section_matches(current_section, _SECTION_PETS) and _PET_CUES.search(combined_text):
-                # Try to extract pet name and species from value
-                new_fp = _PETS_REMAP[fp]
-                logger.info("[extract][rerouter] pets: %s → %s (val=%r)", fp, new_fp, val[:60])
-                it["fieldPath"] = new_fp
-
-        # ── 1b. LOOP-01 R4 Patch C — pets.notes splitter ────────────────
-        # If pets.notes looks like "dog named Ivan" / "Ivan, our family dog",
-        # split into pets.name + pets.species. Keep the original pets.notes
-        # only if it also carries extra colour beyond the name+species match.
-        elif fp == "pets.notes":
-            m = _PETS_NOTES_SPLIT.match(val.strip())
-            if m:
-                name = m.group("name1") or m.group("name2")
-                species = (m.group("species1") or m.group("species2") or "").lower()
-                if name and species:
-                    conf = it.get("confidence", 0.8)
-                    pets_splits.append({
-                        "fieldPath": "pets.name",
-                        "value": name,
-                        "confidence": conf,
-                    })
-                    pets_splits.append({
-                        "fieldPath": "pets.species",
-                        "value": species,
-                        "confidence": conf,
-                    })
-                    logger.info(
-                        "[extract][rerouter] R4-C pets.notes split → pets.name=%r, pets.species=%r",
-                        name, species,
-                    )
-                    # Drop the original pets.notes since the content is now
-                    # fully captured by name+species (it was just the descriptor).
-                    continue
+        # ── 1 / 1b. Pets rerouter and pets.notes splitter REMOVED (A3) ──
+        # Both wrote to or read from pets.notes, which D11 retired from
+        # extraction; a pets.notes item is now rejected at validation, so
+        # neither branch could run.
 
         # ── 2. Siblings rerouter: family.children.* → siblings.* ────────
-        elif fp in _SIBLINGS_REMAP:
+        if fp in _SIBLINGS_REMAP:
             if _section_matches(current_section, _SECTION_SIBLINGS) and _SIBLING_CUES.search(combined_text):
                 new_fp = _SIBLINGS_REMAP[fp]
                 logger.info("[extract][rerouter] siblings: %s → %s (val=%r)", fp, new_fp, val[:60])
@@ -7014,22 +6994,6 @@ def _apply_semantic_rerouter(
 
         rerouted.append(it)
 
-    # ── 6c. LOOP-01 R4 Patch C — merge pets.notes splits ────────────────
-    # Only add pets.name/pets.species rows we don't already have (don't
-    # double-up with what the LLM emitted directly).
-    if pets_splits:
-        existing_pets = {
-            (it.get("fieldPath", ""), str(it.get("value", "")).strip().lower())
-            for it in rerouted
-            if it.get("fieldPath", "").startswith("pets.")
-        }
-        for sp in pets_splits:
-            key = (sp["fieldPath"], str(sp["value"]).strip().lower())
-            if key in existing_pets:
-                continue
-            rerouted.append(sp)
-            existing_pets.add(key)
-
     # ── 6b. LOOP-01 R4 Patch I — parents.deathDate dup-emit ─────────────
     # parents.deathDate is narrow; truth sometimes expects the death fact in
     # parents.notableLifeEvents as prose. Dup-emit the year/date into
@@ -7060,47 +7024,15 @@ def _apply_semantic_rerouter(
             )
     rerouted.extend(deathdate_dupes)
 
-    # ── 6a. LOOP-01 R4 Patch J — ancestor-military dup-emit ──────────────
-    # When greatGrandparents.militaryBranch/Unit/Event lands (via direct LLM
-    # emission or via alias) AND the value is in ancestor context, ALSO emit
-    # the root military.* field so scorer/consumer code that indexes military
-    # service at the root can match. Patch 4's ancestor-context check on
-    # _apply_negation_guard preserves root military.* values when the narrator
-    # denied their own service; the ancestor's facts survive the guard.
-    # Dup-emit (don't remove) so the ancestor-scoped record remains intact.
-    _ANCESTOR_MIL_DUP_MAP = {
-        "greatGrandparents.militaryBranch": "military.branch",
-        "greatGrandparents.militaryUnit":   "military.significantEvent",
-        "greatGrandparents.militaryEvent":  "military.significantEvent",
-    }
-    ancestor_mil_dupes = []
-    existing_root_mil = {
-        (it.get("fieldPath", ""), it.get("value", ""))
-        for it in rerouted
-        if it.get("fieldPath", "").startswith("military.")
-    }
-    for it in rerouted:
-        fp = it.get("fieldPath", "")
-        if fp in _ANCESTOR_MIL_DUP_MAP:
-            val = it.get("value", "")
-            if not val:
-                continue
-            if not _is_ancestor_context_near(answer, val):
-                continue
-            new_fp = _ANCESTOR_MIL_DUP_MAP[fp]
-            if (new_fp, val) in existing_root_mil:
-                continue
-            ancestor_mil_dupes.append({
-                "fieldPath": new_fp,
-                "value": val,
-                "confidence": it.get("confidence", 0.8),
-            })
-            existing_root_mil.add((new_fp, val))
-            logger.info(
-                "[extract][rerouter] R4-J ancestor-mil-dup: %s → +%s (val=%r)",
-                fp, new_fp, val[:60],
-            )
-    rerouted.extend(ancestor_mil_dupes)
+    # ── 6a. LOOP-01 R4 Patch J — ancestor-military dup-emit: REMOVED (A3) ──
+    # It copied a great-grandparent's militaryBranch into the NARRATOR's
+    # military.branch, and militaryUnit / militaryEvent into
+    # military.significantEvent (a path no vocabulary defines), "so
+    # scorer/consumer code that indexes military service at the root can
+    # match". That files an ancestor's war as the narrator's own — and in
+    # r6-batchA-base2 it did so three times AFTER the narrator said he never
+    # served. The ancestor's facts stay on greatGrandparents.*; nothing
+    # replaces this with another duplicate.
 
     # ── 6. Touchstone duplicate: laterYears.significantEvent → ADD cultural.touchstoneMemory ─
     # WO-QB-GENERATIONAL-01B: when the answer mentions a known historical event

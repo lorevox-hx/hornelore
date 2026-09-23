@@ -85,17 +85,22 @@ class TestSchemaFieldFamilies(unittest.TestCase):
         ]
         for fp in expected:
             self.assertIn(fp, EXTRACTABLE_FIELDS, f"Missing: {fp}")
-            # Spouse fields are NOT repeatable
-            self.assertNotIn("repeatable", EXTRACTABLE_FIELDS[fp])
+            # RECONCILED 2026-09-23 (A2). This asserted spouse fields were NOT
+            # repeatable. The form's spouse section IS repeatable, and once the
+            # decided aliases made family.spouse.* resolve to spouse.*, the
+            # vocabulary guard (test_extractor_vocabulary) required the marker.
+            self.assertEqual(EXTRACTABLE_FIELDS[fp]["repeatable"], "spouse")
 
     def test_marriage_fields_exist(self):
-        expected = [
-            "family.marriageDate",
-            "family.marriagePlace",
-            "family.marriageNotes",
-        ]
-        for fp in expected:
+        # RECONCILED 2026-09-23. WO-04 moved the marriage facts to the form's
+        # repeatable `marriage` section; D1e retired family.marriageNotes.
+        # The old spellings must be GONE from the vocabulary (D12 redirects
+        # them at validation instead — see TestNewFieldValidation).
+        for fp in ("marriage.marriageDate", "marriage.marriagePlace"):
             self.assertIn(fp, EXTRACTABLE_FIELDS, f"Missing: {fp}")
+            self.assertEqual(EXTRACTABLE_FIELDS[fp]["repeatable"], "marriage")
+        for gone in ("family.marriageDate", "family.marriagePlace", "family.marriageNotes"):
+            self.assertNotIn(gone, EXTRACTABLE_FIELDS, gone)
 
     def test_prior_partners_fields_exist(self):
         expected = [
@@ -111,22 +116,29 @@ class TestSchemaFieldFamilies(unittest.TestCase):
         expected = [
             "family.grandchildren.firstName",
             "family.grandchildren.relation",
-            "family.grandchildren.notes",
         ]
+        # RECONCILED 2026-09-23: family.grandchildren.notes retired (D1d).
+        self.assertNotIn("family.grandchildren.notes", EXTRACTABLE_FIELDS)
         for fp in expected:
             self.assertIn(fp, EXTRACTABLE_FIELDS, f"Missing: {fp}")
             self.assertEqual(EXTRACTABLE_FIELDS[fp]["repeatable"], "grandchildren")
 
     def test_residence_fields_exist(self):
+        # RECONCILED 2026-09-23 to WO-04: `repeatable: "residences"` (plural)
+        # matched no section, and the free-text `period` / `region` were
+        # replaced by two date fields; an unknown date stays blank.
         expected = [
             "residence.place",
-            "residence.region",
-            "residence.period",
-            "residence.notes",
+            "residence.periodStart",
+            "residence.periodEnd",
+            "residence.homeType",
+            "residence.memories",
         ]
         for fp in expected:
             self.assertIn(fp, EXTRACTABLE_FIELDS, f"Missing: {fp}")
-            self.assertEqual(EXTRACTABLE_FIELDS[fp]["repeatable"], "residences")
+            self.assertEqual(EXTRACTABLE_FIELDS[fp]["repeatable"], "residence")
+        for gone in ("residence.period", "residence.region", "residence.notes"):
+            self.assertNotIn(gone, EXTRACTABLE_FIELDS, gone)
 
     def test_later_years_significant_event_exists(self):
         self.assertIn("laterYears.significantEvent", EXTRACTABLE_FIELDS)
@@ -160,9 +172,11 @@ class TestNewFieldValidation(unittest.TestCase):
         self.assertEqual(result["fieldPath"], "family.spouse.firstName")
 
     def test_marriage_date_validates(self):
+        # RECONCILED 2026-09-23 (D12): the retired spelling is the same fact,
+        # redirected to the canonical path — accepted, not rejected.
         result = _validate_item(self._make_item("family.marriageDate", "1958"))
         self.assertIsNotNone(result)
-        self.assertEqual(result["fieldPath"], "family.marriageDate")
+        self.assertEqual(result["fieldPath"], "marriage.marriageDate")
 
     def test_marriage_place_validates(self):
         result = _validate_item(self._make_item("family.marriagePlace", "Fargo"))
@@ -173,9 +187,11 @@ class TestNewFieldValidation(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result["fieldPath"], "residence.place")
 
-    def test_residence_period_validates(self):
-        result = _validate_item(self._make_item("residence.period", "1962-1964"))
-        self.assertIsNotNone(result)
+    def test_residence_period_is_retired(self):
+        # RECONCILED 2026-09-23 to WO-04: `residence.period` collected
+        # "mostly" and "temporal context implies short stay"; it is gone,
+        # and nothing silently re-homes it.
+        self.assertIsNone(_validate_item(self._make_item("residence.period", "1962-1964")))
 
     def test_grandchild_validates(self):
         result = _validate_item(self._make_item("family.grandchildren.firstName", "Emma"))
@@ -220,7 +236,8 @@ class TestNewFieldAliases(unittest.TestCase):
     def test_marriage_date_alias(self):
         result = _validate_item(self._make_item("marriage_date", "1958"))
         self.assertIsNotNone(result)
-        self.assertEqual(result["fieldPath"], "family.marriageDate")
+        # RECONCILED 2026-09-23: the bare alias follows WO-04's canonical path.
+        self.assertEqual(result["fieldPath"], "marriage.marriageDate")
 
     def test_residence_bare_alias(self):
         result = _validate_item(self._make_item("residence", "Bismarck"))

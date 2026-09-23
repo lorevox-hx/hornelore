@@ -78,6 +78,18 @@ def value_hash(v: Any) -> str:
     return hashlib.sha256(canonical_value(v).encode("utf-8")).hexdigest()
 
 
+def _decided_alias(field_path: str) -> str:
+    """The form path a decided alias stands for, else the path unchanged.
+
+    Indices are dropped only when a translation happens: an ordinal never
+    resolved a repeatable entry (ruling C4), and the aliased path is the
+    form's own, index-free spelling."""
+    from . import concept_catalog as _cc
+    base = re.sub(r"\[\d*\]", "", field_path)
+    target = _cc.load().alias_target(base)
+    return target or field_path
+
+
 def split_destination(field_path: str) -> Tuple[str, str, bool]:
     """'personal.placeOfBirth'   -> ('personal', 'placeOfBirth', False)
        'parents.occupation'      -> ('parents',  'occupation',   True)
@@ -86,7 +98,15 @@ def split_destination(field_path: str) -> Tuple[str, str, bool]:
     The third value is "unresolved": a repeatable section with no
     person-chosen entry. An ordinal in the path is NOT a resolution —
     after an insertion or reorder it names a different relative — so it
-    is stripped rather than honoured (ruling C4)."""
+    is stripped rather than honoured (ruling C4).
+
+    DECIDED ALIASES (A2, D1a/D1b/D1f). The extractor spells some facts
+    differently from the form — `family.children.dateOfBirth` is the form's
+    `children.birthDate`. The concept catalog records each such pair path by
+    path, and ONLY those pairs are translated here, before the split, so
+    acceptance, decline, the review key and suppression all see the same
+    destination. A path that merely shares a concept is never translated."""
+    field_path = _decided_alias(field_path or "")
     parts = (field_path or "").split(".", 1)
     head = parts[0]
     section = head.split("[")[0]

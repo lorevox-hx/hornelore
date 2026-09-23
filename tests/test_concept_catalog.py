@@ -239,8 +239,32 @@ class CompilerRefuses(unittest.TestCase):
     def test_a_retirement_of_a_nonexistent_path_refuses(self):
         def f(src):
             src.RETIRED = dict(src.RETIRED, **{"parents.notez": "D1d"})
-        with self.assertRaises(COMPILER.CompileRefused):
+        with self.assertRaises(COMPILER.CompileRefused) as cm:
             self._compile_with(mutate_source=f)
+        # A3: a RETIRED path may sit in no vocabulary once its producer
+        # drops it, so its own guard is the decision record, not a vocabulary.
+        self.assertTrue(any("no vocabulary and no decision group" in p
+                            for p in cm.exception.args[0]))
+
+    def test_a_concept_binding_of_a_nonexistent_path_refuses(self):
+        # Split from the test above in A3: each typo guard needs a test of its own.
+        def f(src):
+            src.CONCEPT_BY_PATH = dict(src.CONCEPT_BY_PATH,
+                                       **{"parents.notez": "story.about_person"})
+        with self.assertRaises(COMPILER.CompileRefused) as cm:
+            self._compile_with(mutate_source=f)
+        self.assertTrue(any("which no vocabulary contains" in p
+                            for p in cm.exception.args[0]))
+
+    def test_a_retired_path_still_offered_to_the_extractor_refuses(self):
+        # A3 executed the retirements in extract.py. A retired path the
+        # extractor still offers is a retirement that did not happen.
+        def f(src):
+            src.RETIRED = dict(src.RETIRED, **{"parents.firstName": "D1d"})
+        with self.assertRaises(COMPILER.CompileRefused) as cm:
+            self._compile_with(mutate_source=f)
+        self.assertTrue(any("EXTRACTABLE_FIELDS still offers it" in p
+                            for p in cm.exception.args[0]))
 
     def test_extraction_retired_and_retired_outright_conflict_refuses(self):
         def f(src):
@@ -323,6 +347,22 @@ class DecidedSemantics(unittest.TestCase):
         # A concept reachable ONLY through a retired-from-extraction path is not eligible.
         self.assertFalse(CAT.concept("story.about_animal")["extraction"]["eligible"])
 
+    def test_the_loader_does_not_offer_an_extraction_retired_path_even_if_a_member(self):
+        # Defence in depth. Since A3 the compiler refuses a D11 path that is
+        # still an extraction member, so the shipped catalog never has one and
+        # the loader's own check cannot be exercised through it. Feed the
+        # loader the inconsistent row directly.
+        import copy
+        raw = copy.deepcopy(RAW)
+        for r in raw["bindings"]["paths"]:
+            if r["path"] == "parents.notes":
+                r["extraction_member"] = True
+        for c in raw["concepts"]:
+            if c["concept_id"] == "story.about_person":
+                c["extraction"]["eligible"] = True
+                c["extraction"]["scope"] = sorted(set(c["extraction"]["scope"]) | {"parents"})
+        self.assertNotIn("parents.notes", cc.Catalog(raw).extraction_paths_for_scope("parents"))
+
     def test_D1e_great_grandparent_service_is_an_occurrence(self):
         for p in ("greatGrandparents.militaryBranch", "greatGrandparents.militaryUnit",
                   "greatGrandparents.militaryEvent"):
@@ -377,8 +417,12 @@ class DecidedSemantics(unittest.TestCase):
 
     def test_D1a_D1b_decided_aliases_are_recorded_path_by_path(self):
         aliases = {r["path"]: r["alias_of"] for r in RAW["bindings"]["paths"] if r["alias_of"]}
-        self.assertEqual(len(aliases), 13, aliases)
+        # 13 from the D1a/D1b appendix + 1 that D1f added with a new extractor
+        # path in A3 (`ALIASES_ADDED`, concept_catalog_source.py).
+        self.assertEqual(len(aliases), 14, aliases)
         self.assertEqual(aliases["family.children.dateOfBirth"], "children.birthDate")
+        self.assertEqual(aliases["family.children.middleName"], "children.middleName")
+        self.assertIn("D1f", CAT.binding("family.children.middleName")["decision_ids"])
         self.assertEqual(aliases["grandparents.memorableStory"], "grandparents.memorableStories")
         for ext, form in aliases.items():
             self.assertEqual((CAT.binding(ext)["concept_id"], CAT.binding(ext)["subject"]),
