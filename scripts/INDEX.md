@@ -392,3 +392,21 @@ Sorted by path. `scripts/archive/` is included and is **not** to be read as a de
 | `scripts/wo02_acceptance.py` | 2026-08 | 6 | referenced — classify | `docs/archive/handoffs/HANDOFF_2026-07-31_TRIP-NARRATOR-BRIDGE.md` |
 | `scripts/wo_narrator_bridge_acceptance.py` | 2026-08 | 6 | referenced — classify | `docs/architecture/LEAN-LORI-RUNTIME-SPEC-FINAL-R3-2026-08-04.md` |
 <!-- END GENERATED INVENTORY -->
+
+---
+
+## 8. Added after the `d0e5294` baseline — not part of the measured inventory
+
+*Hand-listed, dated, and **not** a liveness claim (§0). The generated
+inventory above is re-derived by the hygiene lane, not edited; these rows sit
+outside it so that re-derivation does not overwrite them and so they are not
+mistaken for measurement.*
+
+| script | added | purpose | owning work order |
+|---|---|---|---|
+| `scripts/design/validate_life_record_design.py` | 2026-09-22 | design coherence validator for the life record (19 rules · 12 situations · 20 refusals · 11 contracts) | `WO-LIFE-RECORD-01` |
+| `scripts/design/mutate_life_record_checks.py` | 2026-09-22 | mutation gate for the design validator | `WO-LIFE-RECORD-01` |
+| `scripts/design/build_concept_catalog.py` | 2026-09-22 | measures the four field vocabularies; `--json` ledger, `--markdown` decision appendix | `WO-HORNELORE-INTEGRATED-LIFE-RECORD-01` |
+| `scripts/design/export_behaviour_seeds.py` | 2026-09-22 | exports asking rules, Profile Seed topics, prompt tiers, inventory lanes, extraction fields and Chris's decisions as measured seeds | `WO-HORNELORE-INTEGRATED-LIFE-RECORD-01` |
+| `scripts/catalog/compile_concept_catalog.py` | 2026-09-22 | **compiles the concept catalog** (`server/code/api/services/concept_catalog_v1.json`); `--check` compares with the committed file | `WO-HORNELORE-INTEGRATED-LIFE-RECORD-01` Batch A1 |
+| `scripts/catalog/mutate_concept_catalog.py` | 2026-09-22 | mutation gate for the catalog loader, compiler, semantic source and migration plan (17 mutations) | `WO-HORNELORE-INTEGRATED-LIFE-RECORD-01` Batch A1/A5 |

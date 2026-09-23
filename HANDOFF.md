@@ -10,7 +10,7 @@ rule back. The claim that matters is the one about obligations.)*
 
 ---
 
-> # ▶ CURRENT ACTION — **INTEGRATED LIFE RECORD: D1–D10 DECIDED (2026-09-22). BATCH A UNBLOCKED, NOT STARTED.**
+> # ▶ CURRENT ACTION — **INTEGRATED LIFE RECORD: BATCH A1 + A5 LANDED; A2–A4 WAIT FOR THE BASELINE EVAL (2026-09-22)**
 >
 > The NOW block is directly below this heading. **It is the authority for what to do next.**
 >
@@ -29,7 +29,8 @@ rule back. The claim that matters is the one about obligations.)*
 > | **Repair A** (`bio-builder-graph.js`) | **landed**, 46 checks, reviewed externally against the diff. A routine sync never deletes; explicit removal with tombstones; a save cannot outrun or outlive its restore; explicit No survives a restore |
 > | **owed from Repair A** | server-side version check on the graph PUT (Batch B / D9) · durable *unknown* life status (Batch B) · questionnaire Remove control + `removals` route field (Batch C / D10) |
 > | **decisions** | **D1–D10 decided by Chris 2026-09-22**, with refinements to D1c, D1f, D2 and D5, recorded at the top of the decisions file. That record governs where it refines the packet |
-> | **next** | **Batch A** (concept catalog), with a gate for review. Unblocked; **not started**. Chris is also building a Version 2 blueprint database with ChatGPT, informed by the review of Version 1 |
+> | **Batch A** | **A1 concept catalog + A5 migration plan landed** (checkpoint §5B): 83 concepts, every producer key bound, compiled and fail-closed; 44 tests, 17 mutations caught. **A2 built and held**; it lands with A3 as one extractor batch |
+> | **next** | **Chris runs the baseline eval** with the stack up and warm: `./scripts/archive/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000 --output docs/reports/master_loop01_r6-batchA-base.json` (CLAUDE.md's standard eval command; it runs against the empty working root and writes nothing to it). Then A2+A3 (retirements, alias delivery, spouse repeatable marker) → eval; then A4 (relevance-scoped extraction) → eval. Two open items for Chris: the five undecided notes buckets, and confirming `event.service.*` for D1e |
 > | **product code for the new life record** | **not started** |
 >
 > **The `⛔ DO NOT ENTER QUESTIONNAIRE DATA` banner further down is SUPERSEDED.** `WO-QUESTIONNAIRE-PERSISTENCE-INTEGRITY-01` (2026-09-17) made `merge_whole_document` the only questionnaire writer: no implicit removals, optimistic concurrency, prior document archived (`questionnaire_persistence.py:559`). `db.upsert_questionnaire` now refuses unless forced (`db.py:6882`). **Not re-verified here:** whether each of the five callers that banner lists was converted. Treat that as `unverified`, not closed.

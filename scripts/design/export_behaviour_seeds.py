@@ -32,6 +32,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, os.path.join(ROOT, "server", "code"))
 
 
+def _read_text(path):
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
 def _plain(v):
     """JSON-safe: tuples to lists, dataclasses to dicts, anything else to str."""
     if dc.is_dataclass(v):
@@ -97,8 +102,7 @@ def inventory():
 
 
 def extraction_fields():
-    src = open(os.path.join(ROOT, "server", "code", "api", "routers", "extract.py"),
-               encoding="utf-8").read()
+    src = _read_text(os.path.join(ROOT, "server", "code", "api", "routers", "extract.py"))
     i = src.index("EXTRACTABLE_FIELDS = {")
     j = src.index("{", i)
     depth = 0
@@ -140,7 +144,7 @@ def legacy_ledger():
     out = os.path.join("/tmp", "catalog_recon_for_seeds.json")
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "design", "build_concept_catalog.py"),
                     "--json", out], check=True, capture_output=True)
-    d = json.load(open(out, encoding="utf-8"))
+    d = json.loads(_read_text(out))
     return {"symbol": "scripts/design/build_concept_catalog.py --json",
             "labels": d.get("labels"),
             "per_path_ledger": d["measured"]["per_path_ledger"],
@@ -188,7 +192,7 @@ def decisions():
     this project exists to end that. The markdown table is the authority; this
     parses it and FAILS CLOSED if any expected decision is missing, rather
     than exporting a partial set a generator would treat as complete."""
-    src = open(DECISIONS_MD, encoding="utf-8").read()
+    src = _read_text(DECISIONS_MD)
     m = re.search(r"## ✅ DECIDED — Chris, (\d{4}-\d{2}-\d{2})(.*?)\n---\n", src, re.S)
     if not m:
         raise ValueError("no '## ✅ DECIDED' block — decisions are not recorded yet")
@@ -238,14 +242,14 @@ def _git_head():
     """HEAD commit read from .git files — no git process, so no index.lock."""
     g = os.path.join(ROOT, ".git")
     try:
-        head = open(os.path.join(g, "HEAD"), encoding="utf-8").read().strip()
+        head = _read_text(os.path.join(g, "HEAD")).strip()
         if not head.startswith("ref:"):
             return {"commit": head, "ref": None}
         ref = head.split(" ", 1)[1]
         p = os.path.join(g, ref)
         if os.path.exists(p):
-            return {"commit": open(p, encoding="utf-8").read().strip(), "ref": ref}
-        for line in open(os.path.join(g, "packed-refs"), encoding="utf-8"):
+            return {"commit": _read_text(p).strip(), "ref": ref}
+        for line in _read_text(os.path.join(g, "packed-refs")).splitlines():
             if line.strip().endswith(" " + ref):
                 return {"commit": line.split()[0], "ref": ref}
     except OSError:

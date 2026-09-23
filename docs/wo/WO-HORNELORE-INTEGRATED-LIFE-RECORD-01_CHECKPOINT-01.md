@@ -636,6 +636,95 @@ git add scripts/design/validate_life_record_design.py scripts/design/mutate_life
 git commit -m "design: close the six review defects; checkpoint 1 with the narrator cleanup" -m "Conflict is a property of propositions, not list length; date assertions classified by location; birthEventRef must be a birth event whose subject is that person; ages reuse life_spine.validator.compute_age; the span is open as shipped and the design adds death-date truncation only; a narrator's spoken correction is captured, never authored; biography.json is a derived view. Decision-sheet counts now derived (three hand-count errors found). 19 rules, 12 situations, 20 refusals, 11 contracts; 31 mutations caught. Checkpoint records the authorized working-root cleanup: three hard deletes, zero people remain."
 ```
 
+## 5B. Batch A — A1 and A5 landed; A2–A4 held for the baseline eval (2026-09-22)
+
+### A1 — the concept catalog
+
+**One authority, compiled.** Human judgements live in
+`server/code/api/services/concept_catalog_source.py` as small tables:
+
+- whose fact each section holds (`SUBJECT_BY_SECTION`);
+- what each field means (`CONCEPT_BY_FIELD`, with per-path overrides);
+- which asking key and Profile Seed path read which concept;
+- what was retired, and by which decision.
+
+`scripts/catalog/compile_concept_catalog.py` compiles those tables, together
+with the measured vocabularies and Chris's recorded decisions, into
+`concept_catalog_v1.json`. The compile is deterministic, and a test fails if
+the committed file differs from a fresh compile.
+
+**Loader:** `concept_catalog.py`, standard library only. It is fail-closed on
+load: every concept must *state* all four D1f properties, none defaulted,
+enums must be valid, bindings must resolve, and no path may be bound twice.
+
+**Contents:**
+- 83 concepts.
+- 195 legacy paths (16 retired, each with its decision).
+- 84 asking keys.
+- 69 Profile Seed evidence rows.
+- 30 profile_json keys.
+- 13 decided aliases, recorded path by path.
+
+**The build gate:** the compile refuses if any decision it depends on is not
+`approved`, if any producer key is unbound, or if a decided alias joins two
+different facts.
+
+**Tests:**
+- `tests/test_concept_catalog.py`: **32 tests, 0 skipped.** Coverage is
+  checked against the real producers imported independently; the drift test,
+  the loader refusals, the compiler refusals and the decided semantics each
+  name their decision.
+- `tests/test_concept_migration_plan.py`: 12 tests.
+- `scripts/catalog/mutate_concept_catalog.py`: **17 mutations, all caught**
+  (13 by a failing test, 2 by the compile refusing, and 2 by both). The first
+  version of the "property may not default" test **survived** its mutation: it
+  accepted any message that mentioned the property's name, so the value checks
+  hid the absence. It now asserts the specific message.
+
+### A5 — the migration plan
+
+`concept_migration_plan.py` accounts for every leaf of a legacy questionnaire
+document or profile_json **exactly once** as one of:
+
+- `mapped`;
+- `derived_not_migrated` (zodiac);
+- `retired_value_kept`: **retiring a field is not permission to lose what
+  someone typed into it**;
+- `unmapped_value_kept`;
+- `empty`;
+- `bookkeeping`.
+
+The invariant `rows == leaves` is tested and mutated. A blank `deceased`
+stays empty; it never becomes "living". The fixture's shape is read from the
+shipped schema.
+
+### A2 — built, then deliberately held
+
+Translating the 13 decided aliases in `suggestion_review.split_destination`
+works, and makes every destination decision (acceptance, decline, the review
+key, suppression) agree. But once those paths became defined, the existing
+`test_extractor_vocabulary` guard examined them and found `family.spouse.*` has
+no `"repeatable": "spouse"` marker, although the form's spouse section is
+repeatable. That marker drives `_repeatableGroup` (`extract.py:7671`), which
+changes extraction output. Fixing it is therefore an extractor change, and it
+must follow the baseline. **The translation was reverted, and
+`suggestion_review.py` is unchanged.** A2 lands together with A3 as one
+extractor batch. The alias pairs themselves stay in the catalog as inert,
+tested data.
+
+### Measured findings, recorded for the batches that own them
+
+| finding | where | owner |
+|---|---|---|
+| Profile Seed reads **9 projection paths** that no producing vocabulary contains (`personal.ethnicity`, `military.yearsOfService`, `family.siblingCount`, …), so that evidence can never be satisfied through those paths | catalog `counts` | Batch D |
+| **Five notes buckets** (`parents/faith/military/pets/travel.notes`) live in both the form and the extractor. D1d's argument applies, but **no decision covers them**; kept as they are under `note.about_subject` | catalog `reconciliations` | **Chris — new decision** |
+| D1e named great-grandparent service `person.service.*`; the catalog uses `event.service.*` because D7 made occurrences canonical | catalog `reconciliations` | **Chris — confirm** |
+| profile_json spells one fact up to three ways (`dob/dateOfBirth`, `pob/placeOfBirth/place_of_birth`, `fullname/fullName/full_name`) | catalog `profile_json` bindings | Batch B |
+| Phase G identity protection reads `profile.get("basics")` from the whole database row, so it is always `{}`; `preferredName`/`birthOrder` are never protected | `db.py:7438-7452` | **filed, not Batch A** |
+| `test_extract_schema_coverage` (April) expects `family.marriageDate` and `residence.period`, which WO-04 removed and `test_extractor_vocabulary` (September) asserts are gone. **6 failures before and after this batch; not caused by it** | tests | A3 |
+| `questionnaire_schema.py:312` leaves a file handle open | the shipped loader | trivial, noted |
+| The eval runs against the empty working root; field scores remain comparable, but historical `r5*` runs are not, so the comparison is **`r6-batchA-base`** | checkpoint | Chris |
+
 ## 6. Explicit statement
 
 During this checkpoint: **no live data was changed by Claude** (every
