@@ -154,7 +154,7 @@ def legacy_ledger():
 GENERATOR_VERSION = "behaviour-seeds/2"
 DECISIONS_MD = os.path.join(ROOT, "docs", "wo", "WO-HORNELORE-INTEGRATED-LIFE-RECORD-01_DECISIONS.md")
 EXPECTED_DECISIONS = ["D1a", "D1b", "D1c", "D1d", "D1e", "D1f",
-                      "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "D10", "D11"]
+                      "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "D10", "D11", "D12", "D13"]
 
 
 def _sha256(path):
