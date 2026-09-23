@@ -266,12 +266,17 @@ class RelativeCatchAllsRemoved(unittest.TestCase):
         self.assertEqual(r["fieldPath"], "parents.education")
 
 
-class StatedAgeAtDeathSurvives(unittest.TestCase):
-    """D1c — a stated age at death is a reported number, not short narrative."""
+class ShortAgeAtDeathStillDropped(unittest.TestCase):
+    """D1c exemption REVERTED (2026-09-23, B2r evidence).
 
-    def test_two_digit_age_is_kept(self):
+    Every `ageAtDeath` it admitted in B2/B2r was the narrator's own age:
+    "Dad died December 23rd, 1967. I was twenty-eight." -> "28". Until A4 binds
+    an age to the deceased person, the short-value drop stays in force.
+    """
+
+    def test_narrator_age_leak_28_is_rejected_again(self):
         out = X._apply_claims_value_shape([_item("parents.ageAtDeath", "28")])
-        self.assertEqual([i["value"] for i in out], ["28"])
+        self.assertEqual(out, [])
 
     def test_the_short_value_guard_still_applies_elsewhere(self):
         out = X._apply_claims_value_shape([_item("parents.notableLifeEvents", "ok")])

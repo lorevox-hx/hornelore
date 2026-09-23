@@ -5764,9 +5764,12 @@ _SHORT_VALUE_EXEMPT_SUFFIXES = frozenset({
     "rank", "role", "status", "species", "type", "yearEnlisted", "yearDischarged",
     "yearStarted", "yearEnded", "startYear", "endYear",
     "placeOfBirth", "placeOfDeath", "state", "country", "city", "location",
-    # D1c: an age at death someone STATED is a reported number ("28"), not
-    # narrative text — it was being dropped as "too short" (A3).
-    "ageAtDeath",
+    # NOT `ageAtDeath`. D1c exempted it (A3) so a STATED age at death would
+    # survive; B2 and B2r showed every value it admitted was the narrator's
+    # own age -- "Dad died December 23rd, 1967. I was twenty-eight." ->
+    # parents.ageAtDeath="28", 3 writes, 0 correct. Reverted 2026-09-23
+    # pending A4 subject binding: reintroduce only when the age is bound to
+    # the deceased person, not merely present in the same sentence.
 })
 
 
