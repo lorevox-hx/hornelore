@@ -87,11 +87,6 @@ MUTATIONS = [
      '({"text": today, "value": today, "precision": "day"}, "today_computed")',
      "DOB anchors the life span"),
 
-    ("store the present-day endpoint instead of computing it",
-     'end, kind = {"text": today, "value": today, "precision": "day"}, "today_computed"',
-     'end, kind = {"text": "2026-09-22", "value": "2026-09-22", '
-     '"precision": "day"}, "today_computed"',
-     "DOB anchors the life span"),
 
     ("default a missing DOB so the scaffold always resolves",
      'return {"start": start, "end": end, "end_kind": kind,\n'
@@ -101,31 +96,39 @@ MUTATIONS = [
      '            "available": True,',
      "DOB anchors the life span"),
 
-    ("let any person's birth event anchor the narrator's span",
-     'start = accepted_date(_event(bio, nar.get("birthEventRef")))',
-     'start = accepted_date(_event(bio, nar.get("birthEventRef"))) or next(\n'
-     '        (accepted_date(e) for e in bio.get("events", []) if e["type"] == "birth"), None)',
-     "DOB anchors the life span"),
 
-    ("subtract birth years and call it an age (the 2026-09-22 defect)",
-     'if (wm, wd) < (bm, bd):          # birthday not yet reached that year\n'
-     '            span -= 1',
-     'pass',
+    ("subtract birth years instead of calling the shipped compute_age",
+     'years = compute_age(date(by, bm, bd), wy, wm, wd)',
+     'years = wy - by',
      "uncertainty propagates"),
 
-    ("report a coarse date's age as exact rather than a two-value answer",
-     'return {"years": span, "exact": False, "low": span - 1, "high": span,\n'
-     '            "render": f"{span - 1} or {span}"}',
-     'return {"years": span, "exact": True, "render": str(span)}',
+    ("report a coarse date's age as one number rather than a pair",
+     '"render": f"{lo} or {hi}" if lo != hi else str(hi)}',
+     '"render": str(hi)}',
      "uncertainty propagates"),
 
     ("treat an approximate birth as precise",
-     'if approximate:\n'
-     '        return {"years": span, "exact": False, "low": span - 1, "high": span,\n'
-     '                "render": f"about {span}"}',
-     'if approximate:\n'
-     '        return {"years": span, "exact": True, "render": str(span)}',
+     'return {"years": hi, "exact": False, "low": lo, "high": hi,\n'
+     '                "render": f"about {hi}"}',
+     'return {"years": hi, "exact": True, "render": str(hi)}',
      "uncertainty propagates"),
+
+    ("give a living narrator's span a computed end the product does not have",
+     'end, kind = None, "open"                 # the shipped behaviour, kept',
+     'end, kind = {"text": today, "value": today, "precision": "day"}, "today_computed"',
+     "DOB anchors the life span"),
+
+    ("follow a birth pointer to any event type",
+     'if ev.get("type") != expected_type:\n'
+     '        return None, f"ref_is_{ev.get(\'type\')}_not_{expected_type}"',
+     'pass',
+     "DOB anchors the life span"),
+
+    ("follow a birth pointer to another person's birth",
+     'if person_id not in subjects:\n'
+     '        return None, "subject_is_someone_else"',
+     'pass',
+     "DOB anchors the life span"),
 
     ("decide DOB acceptance by status name instead of a recorded decision",
      'accepted_id = event.get("acceptedAssertionId")\n'
@@ -158,6 +161,17 @@ MUTATIONS = [
 # (description, find, replace, the RULE that must notice) — model rules are
 # exercised through their MUST_FAIL fixtures, so these mutate the rule itself.
 RULE_MUTATIONS = [
+    ("conflict ignores context, so successive jobs become a dispute",
+     'ctx = assertion.get("context") or assertion.get("period") or assertion.get("when")\n'
+     '    return (list_key, json.dumps(ctx, sort_keys=True) if ctx else None)',
+     'return (list_key, None)',
+     "11 · two jobs in sequence"),
+
+    ("the conflict rule reverts to demanding every member be `conflicted`",
+     'if not (adjudicated or linked):',
+     'if not all(a.get("status") == "conflicted" for a in live):',
+     "12 · an accepted DOB beside a retained alternative"),
+
     ("the zero-count rule reverts to its 2026-09-22 defect",
      'if rc.get("derivedFrom"):\n'
      '            bad.append(f"reportedCounts.{concept}: derived from "\n'
@@ -172,11 +186,11 @@ RULE_MUTATIONS = [
 # Both were live defects on 2026-09-22, found by external review.
 LAXNESS_MUTATIONS = [
     ("the provenance rule reverts to skipping value-without-source",
-     'if is_assertion(node) and "source" not in node:\n'
+     'if is_assertion(node, parent_key) and "source" not in node:\n'
      '                bad.append(f"{path}: a value with no provenance")\n'
-     '            elif is_assertion(node) and "status" not in node:\n'
+     '            elif is_assertion(node, parent_key) and "status" not in node:\n'
      '                bad.append(f"{path}: an assertion with no status")\n'
-     '            elif is_assertion(node) and not node.get("recordedAt"):\n'
+     '            elif is_assertion(node, parent_key) and not node.get("recordedAt"):\n'
      '                # Provenance is who said it AND when. Without the when, a\n'
      '                # later correction cannot be ordered against it.\n'
      '                bad.append(f"{path}: an assertion with no recordedAt")',
@@ -190,6 +204,29 @@ LAXNESS_MUTATIONS = [
      '                               ("animalRefs", {a["id"] for a in b.get("animals", [])})):',
      'for kind, universe in (("peopleRefs", ids),):',
      "a story pointing at an event that does not exist"),
+
+    # The first version of this mutation removed only the id guard and
+    # SURVIVED — because `is not None` below defends the same hole a second
+    # way. That is fine for the product and useless as a mutation. This one
+    # reproduces the original bug exactly: None decision ∈ {None id}.
+    ("a missing id counts as adjudicated (None in {None})",
+     'if any(not a.get("id") for a in live):\n'
+     '                        # Without ids nothing can be linked or accepted — and a\n'
+     '                        # None id must not read as "matches the None decision".\n'
+     '                        bad.append(f"{path}: competing accounts without ids "\n'
+     '                                   "cannot be linked or adjudicated")\n'
+     '                        continue\n'
+     '                    ids = {a.get("id") for a in live}\n'
+     '                    adjudicated = accepted is not None and accepted in ids',
+     'ids = {a.get("id") for a in live}\n'
+     '                    adjudicated = accepted in ids',
+     "competing claims silently reduced to one"),
+
+    ("a date assertion is classified by shape again, not by location",
+     'if parent_key == "dateAssertions":\n'
+     '            return True',
+     'pass',
+     "a date assertion with no provenance, hiding among dates"),
 
     ("recordedAt stops being required on an assertion",
      'bad.append(f"{path}: an assertion with no recordedAt")',

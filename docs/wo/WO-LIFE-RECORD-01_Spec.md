@@ -136,12 +136,33 @@ Consequences, each with an executable check:
 - **The role is not a second field.** There is no `narrator_dob`. The
   narrator's DOB is the same concept as their sibling's, with one extra
   projection: *when subject == narrator, supplies `life_span.start`*.
-- **The endpoint is computed, never written.** A living narrator's span ends
-  at `today()` at render time. Writing `2026-09-22` into the biography makes
-  it wrong tomorrow.
-- **Deceased with a known date** ends there. **Deceased with an unknown
-  date** ends nowhere — the span is not falsely extended to today, which is
-  the death-awareness defect in its temporal form.
+- **The shipped span has NO end, and this design keeps it that way for a
+  living narrator.** *(Corrected 2026-09-22 against the code — checkpoint
+  §3.3b. This bullet said the endpoint was "computed at render". It is not:
+  `later_years` is `ageEnd: null` (`lv-eras.js:95`), `chronology_accordion.py`
+  never calls `date.today()`, and "Today" is a separate bucket that
+  birth-year arithmetic never produces (`:136-152`). The design was
+  describing a feature the product does not have.)* So: a living narrator's
+  span is **open** — decision **D5** in the checkpoint — and nothing is ever
+  written as an endpoint.
+- **What this design ADDS is truncation at a known death date, and only
+  that.** Today `dateOfDeath` is an anchor and truncates nothing
+  (`chronology_accordion.py:564`, `:591`, `:604`). **Deceased with a known
+  date** will end there. **Deceased with an unknown date** ends nowhere and
+  is *marked* — the span is not falsely extended, which is the
+  death-awareness defect in its temporal form.
+- **Where the scaffold reads DOB from is `profile_json`, not the
+  questionnaire.** `chronology_accordion.py:1022` reads `basics["dob"]`; the
+  questionnaire's `personal.dateOfBirth` is only a Lane B anchor (`:599-605`)
+  and never enters the span. The two can disagree today and the eras follow
+  the profile. Under this design the scaffold reads the **accepted birth
+  assertion** through `birthEventRef`, and `profile_json` becomes a
+  projection of it — one source, not two.
+- **Age arithmetic is the shipped `life_spine.validator.compute_age`**
+  (`validator.py:110-130`, month/day comparison), not a new function — the
+  product already has a correct one and a deliberately year-only one
+  (`age_arithmetic.py:141`). The design adds a third only to bound a coarse
+  date honestly, by calling the same function at the year's two extremes.
 - **No DOB, no spine.** A missing birth date yields an unavailable scaffold,
   never a default.
 - **Uncertainty propagates, it does not stop at storage.** *"Around 1945"*
@@ -345,11 +366,22 @@ So the life record never holds a second copy of anything the narrator said.
 Curation — what a story is about, what it is called, where it belongs — is
 editable; **the recording is not**.
 
-**Correcting a captured story creates a new authored story that supersedes
-the curation. It never rewrites the recording.** If the narrator says a name
-wrong and later corrects it, both tellings survive, because two tellings are
-two things they said (§3.6). The correction carries `supersedes` and is what
-Lori reads; the original remains, and nothing text-dedupes them.
+**A correction never rewrites the recording — and who is correcting decides
+what the correction is.** *(Corrected 2026-09-22. This said a correction
+"creates a new authored story", which would relabel the most important kind
+of correction there is.)*
+
+| who corrects | what it is | origin |
+|---|---|---|
+| **the narrator, aloud** — *"no, it was 1940"* | a **new captured telling**, with its own candidate | `captured` |
+| **an operator, editing curation** — title, refs, placement | a change to the curation record; **the words are untouched** | not a story at all |
+| **an operator, writing an editorial note** | a new story in the operator's words | `authored` |
+
+If the narrator says a name wrong and later corrects it, both tellings
+survive, because two tellings are two things they said (§3.6). The later one
+carries `supersedes` and is what Lori reads first; the original remains, and
+nothing text-dedupes them. **A narrator's spoken correction is never marked
+operator-authored.**
 
 A story whose `kind` is `captured` with no resolving candidate is refused, as
 is one that is `captured` and carries its own `body`.
@@ -526,9 +558,16 @@ implicit removals. A stale `baseRevision` alone is not a conflict.
 
 ### 3.11 The portable package
 
-`biography.json` + `stories/` + `media/` (relative paths only) + manifest.
-BagIt with SHA-256, zipped as `.lorevox.zip`, records serialized as one JSONL
-file per table — the shipped format, unchanged.
+**The shipped package format is unchanged and remains the authority:** BagIt
+with SHA-256, zipped as `.lorevox.zip`, records serialized as **one JSONL
+file per table**, selected by `DbLane`. *(Clarified 2026-09-22 — this section
+named a `biography.json` beside "the shipped format, unchanged", which cannot
+both be primary.)* `biography.json` is a **derived, additional export view**:
+the resolved life record assembled from those JSONL tables for a reader that
+is not Hornelore. **The importer never reads it.** Restore and merge consume
+the per-table JSONL exactly as today; a package with a stale or absent
+`biography.json` restores identically. Its presence and version are declared
+in the manifest so a consumer can tell which schema produced it.
 
 **RESTORE AND MIGRATE ARE DIFFERENT OPERATIONS, and revision 3 conflated
 them.** This section said *"ids package-scoped; import maps them through a

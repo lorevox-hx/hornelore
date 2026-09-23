@@ -152,15 +152,23 @@ promise from the one this product makes.
 Extraction can never fill these. The mirror decision: **extractable, or
 operator-only by design?** Many are legitimately operator-only.
 
+*(Counts corrected 2026-09-22 — they are now derived by
+`build_concept_catalog.py` (`QUESTIONNAIRE-ONLY FIELDS BY PURPOSE`), not
+hand-counted. The hand count was wrong three times in one table: "10" for a
+group of eight, and two groups of three that are four. A `spouse.middleName?`
+with a question mark shipped in the first version, which was me not being
+sure and writing it anyway. Groupings — which field serves which purpose —
+remain proposals; the totals are measurement.)*
+
 | purpose | fields | proposed |
 |---|---|---|
-| **Names and vitals of relatives** (10) — `siblings.middleName/maidenName`, `children.middleName/birthDate/birthPlace`, `spouse.middleName?/birthDate/birthPlace`, `grandparents.middleName` | operator territory, but the narrator says these aloud constantly | **make extractable** — §1a shows four already are, under another spelling |
+| **Names and vitals of relatives** (8) — `siblings.middleName/maidenName`, `children.middleName/birthDate/birthPlace`, `spouse.birthDate/birthPlace`, `grandparents.middleName` | operator territory, but the narrator says these aloud constantly | **make extractable** — §1a shows four already are, under another spelling |
 | **Life status** (2) — `parents.deceased`, `spouse.deceased` | the death gap from the other side: a box nothing can corroborate | **make extractable** as `person.life_status` |
 | **Stories in field clothing** (9) — `siblings.memories/sharedExperiences`, `children.narrative`, `spouse.narrative`, `grandparents.memorableStories`, `familyTraditions.description/occasion`, `earlyMemories.favoriteToy`, `hobbies.worldEvents` | these are stories, and the form is asking for them as fields | **route to the story model** (§3.6) rather than making them extractable fields |
 | **Legacy messages** (2) — `additionalNotes.messagesForFutureGenerations`, `laterYears.adviceForFutureGenerations` | the most precious content in the record | **stories, `kind: message`**. Never a text field |
-| **Marriage detail** (3) — `marriage.proposalStory/weddingDetails/spouseReference` | two stories and a reference | **story ×2 + a person reference** |
+| **Marriage detail** (4) — `marriage.proposalStory/weddingDetails/spouseReference`, `spouse.relationshipType` | two stories, a reference, and a relationship kind | **story ×2 + a person reference + `relationship.kind`** |
 | **Health** (3) — `healthMilestones`, `lifestyleChanges`, `wellnessTips` | same split as §3d | **reflections, operator-only** |
-| **Technology & culture** (3) — `firstTechExperience`, `favoriteGadgets`, `culturalPractices` | period texture, good asking material | **make extractable**, low narrative value |
+| **Technology & culture** (4) — `firstTechExperience`, `favoriteGadgets`, `culturalPractices`, `hobbies.travel` | period texture, good asking material; `hobbies.travel` is a view into the trip domain (§2.3 of the WO) | **make extractable**, low narrative value; `hobbies.travel` binds to trips, not to a text field |
 | **Education** (2) — `mentorship`, `communityInvolvement` | one is a relationship, one duplicates §3a | **mentor → relationship; communityInvolvement → activity** |
 | **Pets** (3) — `breed`, `birthDate`, `adoptionDate` | animals are entities (§3.4) | **define on the animal**, operator-only |
 | **Derived / stale** (2) — `personal.zodiacSign`, `personal.timeOfBirth` | `zodiacSign` is **derived from the DOB and is the field that went stale on Janice** — hers still says Virgo against a corrected birth date | **derive `zodiacSign`, never store it**; `timeOfBirth` operator-only |

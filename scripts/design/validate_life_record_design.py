@@ -144,6 +144,41 @@ def rule_life_status_valid_and_not_inferred(b):
     return bad
 
 
+def anchor_event(bio, person_id, ref, expected_type):
+    """§2A — a birth/death pointer resolves ONLY to an event of the right
+    type whose subject is THIS person. Returns (event, reason)."""
+    if not ref:
+        return None, "no_ref"
+    ev = next((e for e in bio.get("events", []) if e["id"] == ref), None)
+    if ev is None:
+        return None, "ref_does_not_resolve"
+    if ev.get("type") != expected_type:
+        return None, f"ref_is_{ev.get('type')}_not_{expected_type}"
+    subjects = [p["person"] for p in ev.get("participants", []) if p.get("role") == "subject"]
+    if person_id not in subjects:
+        return None, "subject_is_someone_else"
+    if len(subjects) != 1:
+        return None, "ambiguous_subject"
+    return ev, "ok"
+
+
+def rule_birth_death_refs_are_the_persons_own(b):
+    """DEFECT FIXED 2026-09-22. `birthEventRef` was followed wherever it
+    pointed: a UNION event belonging to a DIFFERENT person anchored the
+    narrator's whole life span at 1965. The pointer is the anchor for every
+    age in the record, so it is checked for type and subject, not existence."""
+    bad = []
+    for p in b["people"]:
+        for key, typ in (("birthEventRef", "birth"), ("deathEventRef", "death")):
+            ref = p.get(key)
+            if ref is None:
+                continue
+            _, why = anchor_event(b, p["id"], ref, typ)
+            if why != "ok":
+                bad.append(f"person {p['id']}: {key}={ref!r} refused — {why}")
+    return bad
+
+
 def rule_no_duplicate_birth_death_storage(b):
     """§3.8 — dates live on the event. A person must not also carry one."""
     bad = []
@@ -159,22 +194,32 @@ def rule_assertions_well_formed(b):
     """§3.9 — a value and its provenance cannot be separated."""
     bad = []
 
-    def is_assertion(node):
-        """A date carries `value` too, so `value` alone cannot mean assertion.
-        A date is recognised by its own shape and excluded."""
+    def is_assertion(node, parent_key):
+        """What makes a dict an assertion is WHERE it lives, not only its
+        shape. A plain date is `{text, value, precision}` under `date`; a
+        DATE ASSERTION has the same three keys plus provenance and lives in
+        a `dateAssertions` list.
+
+        DEFECT FIXED 2026-09-22 (second pass): the earlier shape test
+        excluded anything with `text`/`precision`, so a date assertion
+        MISSING its provenance looked like a plain date and escaped the very
+        rule meant to catch it. Location closes that hole: inside
+        `dateAssertions` everything is an assertion and must prove itself."""
+        if parent_key == "dateAssertions":
+            return True
         return "value" in node and not ("precision" in node or "text" in node)
 
-    def check(node, path):
+    def check(node, path, parent_key=None):
         if isinstance(node, dict):
             # DEFECT FIXED 2026-09-22: this branch required BOTH value and
             # source, so a value with NO provenance was skipped entirely —
             # the rule whose whole purpose is that a value and its provenance
             # cannot be separated was blind to them being separated.
-            if is_assertion(node) and "source" not in node:
+            if is_assertion(node, parent_key) and "source" not in node:
                 bad.append(f"{path}: a value with no provenance")
-            elif is_assertion(node) and "status" not in node:
+            elif is_assertion(node, parent_key) and "status" not in node:
                 bad.append(f"{path}: an assertion with no status")
-            elif is_assertion(node) and not node.get("recordedAt"):
+            elif is_assertion(node, parent_key) and not node.get("recordedAt"):
                 # Provenance is who said it AND when. Without the when, a
                 # later correction cannot be ordered against it.
                 bad.append(f"{path}: an assertion with no recordedAt")
@@ -189,33 +234,80 @@ def rule_assertions_well_formed(b):
                 if st == "conflicted" and not node.get("conflictWith"):
                     bad.append(f"{path}: conflicted but no conflictWith link")
             for k, v in node.items():
-                check(v, f"{path}.{k}")
+                check(v, f"{path}.{k}", k)
         elif isinstance(node, list):
             for i, v in enumerate(node):
-                check(v, f"{path}[{i}]")
+                check(v, f"{path}[{i}]", parent_key)
 
     check(b, "")
     return bad
 
 
+def proposition_key(list_key, assertion):
+    """The identity of ONE proposition: what concept, about what, in what
+    context. Two assertions COMPETE only when they share this key and differ
+    in value. Two occupations with different periods are two facts, not a
+    dispute; two birth dates for one event are one fact with two accounts."""
+    ctx = assertion.get("context") or assertion.get("period") or assertion.get("when")
+    return (list_key, json.dumps(ctx, sort_keys=True) if ctx else None)
+
+
 def rule_competing_claims_kept_and_linked(b):
-    """§2.4 / §3.9 — competing claims are retained and LINKED. The automatic
-    write policy may decline to write; it may never pick a winner."""
+    """§2.4 / §3.9 — competing accounts of ONE proposition are retained and
+    are either LINKED to each other or ADJUDICATED by an explicit recorded
+    decision. The automatic write policy may decline to write; it may never
+    pick a winner.
+
+    DEFECT FIXED 2026-09-22. This rule read "a list of length > 1 whose
+    members are assertions" as a dispute and demanded every member be
+    `conflicted`. That is inference from SHAPE — the same error as the
+    zero-count rule — and it produced two failures at once: it rejected the
+    DOB contract's own fixture (an accepted `operator_entered` beside a
+    `conflicted` alternative is a legitimate, adjudicated state), and it
+    would call two successive jobs a contradiction. Conflict is a fact about
+    PROPOSITIONS, so the proposition is what is compared."""
     bad = []
 
-    def check(node, path):
-        if isinstance(node, list) and len(node) > 1 and all(
-                isinstance(x, dict) and "value" in x and "source" in x for x in node):
-            if not all(x.get("status") == "conflicted" for x in node):
-                bad.append(f"{path}: competing assertions not all marked conflicted")
-            elif not all(x.get("conflictWith") for x in node):
-                bad.append(f"{path}: conflicted assertions are not linked")
+    def check(node, path, parent=None, key=None):
+        if isinstance(node, list):
+            assertions = [x for x in node if isinstance(x, dict) and "value" in x
+                          and ("source" in x or "status" in x)]
+            if len(assertions) > 1:
+                groups = {}
+                for a in assertions:
+                    groups.setdefault(proposition_key(key, a), []).append(a)
+                accepted = None
+                if isinstance(parent, dict):
+                    accepted = (parent.get("acceptedAssertionId") if key == "dateAssertions"
+                                else parent.get(f"{key}AcceptedId"))
+                for pk, grp in groups.items():
+                    live = [a for a in grp if a.get("status") not in ("rejected", "superseded")]
+                    values = {json.dumps(a.get("value"), sort_keys=True) for a in live}
+                    if len(live) < 2 or len(values) < 2:
+                        continue                       # no competition here
+                    if any(not a.get("id") for a in live):
+                        # Without ids nothing can be linked or accepted — and a
+                        # None id must not read as "matches the None decision".
+                        bad.append(f"{path}: competing accounts without ids "
+                                   "cannot be linked or adjudicated")
+                        continue
+                    ids = {a.get("id") for a in live}
+                    adjudicated = accepted is not None and accepted in ids
+                    linked = all(a.get("conflictWith") in ids and
+                                 a.get("conflictWith") != a.get("id") for a in live)
+                    if not (adjudicated or linked):
+                        bad.append(f"{path}: {len(live)} live accounts of one proposition, "
+                                   "neither linked to each other nor adjudicated by a "
+                                   "recorded acceptance")
+                    if adjudicated and any(a.get("status") == "rejected" for a in grp
+                                           if a.get("id") == accepted):
+                        bad.append(f"{path}: the accepted assertion is rejected")
+            for i, v in enumerate(node):
+                check(v, f"{path}[{i}]", node, key)
+            return
         if isinstance(node, dict):
             for k, v in node.items():
-                check(v, f"{path}.{k}")
-        elif isinstance(node, list):
-            for i, v in enumerate(node):
-                check(v, f"{path}[{i}]")
+                check(v, f"{path}.{k}", node, k)
 
     check(b, "")
     return bad
@@ -394,6 +486,7 @@ RULES = [
     ("event participants resolve", rule_event_participants_resolve),
     ("life status valid, never inferred", rule_life_status_valid_and_not_inferred),
     ("birth/death dates stored once", rule_no_duplicate_birth_death_storage),
+    ("birth/death refs are the person's own", rule_birth_death_refs_are_the_persons_own),
     ("assertions well formed", rule_assertions_well_formed),
     ("competing claims kept and linked", rule_competing_claims_kept_and_linked),
     ("stated counts not overwritten", rule_stated_counts_not_overwritten),
@@ -619,8 +712,81 @@ CASES["10 · a correction supersedes; both tellings survive"] = {
     "relationships": [], "events": [], "places": [], "animals": [],
 }
 
+CASES["11 · two jobs in sequence are two facts, not a dispute"] = {
+    # The case the OLD conflict rule would have rejected: a list of two
+    # assertions is not a contradiction when they are about different
+    # propositions. The period is the context that tells them apart.
+    "narrator_person_id": "P1",
+    "people": [{"id": "P1", "names": [{"fullText": "Nadia Feld"}],
+                "occupations": [
+                    A("Midwife", period={"start": "1961", "end": "1975"}),
+                    A("Nurse", period={"start": "1975", "end": "1998"}),
+                ]}],
+    "relationships": [], "events": [], "stories": [], "places": [], "animals": [],
+}
+
+CASES["12 · an accepted DOB beside a retained alternative"] = {
+    # The DOB contract's own state, now also a first-class model case.
+    "narrator_person_id": "P1",
+    "people": [{"id": "P1", "names": [{"fullText": "Janet Reyes"}],
+                "birthEventRef": "B17", "lifeStatus": A("explicitly_living")}],
+    "events": [{"id": "B17", "type": "birth",
+                "participants": [{"person": "P1", "role": "subject"}],
+                "acceptedAssertionId": "A1",
+                "dateAssertions": [
+                    dict(D("August 30, 1939", "1939-08-30"), status="operator_entered",
+                         source="operator", id="A1", conflictWith="A2",
+                         recordedAt="2026-09-22"),
+                    dict(D("1938", "1938", "year"), status="conflicted",
+                         source="extracted", id="A2", conflictWith="A1",
+                         recordedAt="2026-09-22"),
+                ]}],
+    "relationships": [], "stories": [], "places": [], "animals": [],
+}
+
 # ── cases that MUST be refused ───────────────────────────────────────
 MUST_FAIL = {}
+
+MUST_FAIL["a birth pointer aimed at someone else's wedding"] = ({
+    "narrator_person_id": "P1",
+    "people": [{"id": "P1", "names": [{"fullText": "Ada Roche"}], "birthEventRef": "E9"},
+               {"id": "P2", "names": [{"fullText": "Cormac Roche"}]}],
+    "events": [{"id": "E9", "type": "union", "date": D("1965", "1965", "year"),
+                "participants": [{"person": "P2", "role": "spouse"}]}],
+    "relationships": [], "stories": [], "places": [], "animals": [],
+}, "birth/death refs are the person's own")
+
+MUST_FAIL["a birth pointer aimed at another person's birth"] = ({
+    "narrator_person_id": "P1",
+    "people": [{"id": "P1", "names": [{"fullText": "Ada Roche"}], "birthEventRef": "B2"},
+               {"id": "P2", "names": [{"fullText": "Cormac Roche"}]}],
+    "events": [{"id": "B2", "type": "birth", "date": D("1910", "1910", "year"),
+                "participants": [{"person": "P2", "role": "subject"}]}],
+    "relationships": [], "stories": [], "places": [], "animals": [],
+}, "birth/death refs are the person's own")
+
+MUST_FAIL["two accounts of one fact, unlinked and undecided"] = ({
+    "narrator_person_id": "P1",
+    "people": [{"id": "P1", "names": [{"fullText": "Ada Roche"}]}],
+    "events": [{"id": "B1", "type": "birth",
+                "participants": [{"person": "P1", "role": "subject"}],
+                "dateAssertions": [
+                    dict(D("1939-08-30", "1939-08-30"), status="operator_entered",
+                         source="operator", id="A1", recordedAt="2026-09-22"),
+                    dict(D("1938", "1938", "year"), status="needs_verify",
+                         source="extracted", id="A2", recordedAt="2026-09-22"),
+                ]}],
+    "relationships": [], "stories": [], "places": [], "animals": [],
+}, "competing claims kept and linked")
+
+MUST_FAIL["a date assertion with no provenance, hiding among dates"] = ({
+    "narrator_person_id": "P1",
+    "people": [{"id": "P1", "names": [{"fullText": "Ada Roche"}]}],
+    "events": [{"id": "B1", "type": "birth",
+                "participants": [{"person": "P1", "role": "subject"}],
+                "dateAssertions": [dict(D("1939", "1939", "year"), id="A1")]}],
+    "relationships": [], "stories": [], "places": [], "animals": [],
+}, "assertions well formed")
 
 MUST_FAIL["a captured story holding its own copy of the words"] = ({
     "narrator_person_id": "P1",
@@ -1090,40 +1256,74 @@ def accepted_date(event):
     return live[0] if len(live) == 1 else None
 
 
-def resolve_life_span(bio, today):
+def resolve_life_span(bio, today=None):
     """§2A reference implementation — the DOB-anchored scaffold Hornelore
-    already has. Nothing here is stored; it is resolved at render."""
+    already has. Nothing here is stored; it is resolved at render.
+
+    CORRECTED 2026-09-22 against the shipped engine (checkpoint §3.3b): the
+    product's span has NO end — `later_years` is open-ended and
+    `chronology_accordion.py` never calls `date.today()`. So a living
+    narrator's end is `open`, matching what ships; this design ADDS
+    truncation at a KNOWN death date and nothing else. `today` is accepted
+    for callers that want a display boundary, but it is never the span's end.
+
+    Anchors go through `anchor_event`, so a pointer to a union, to another
+    person's birth, or to an ambiguous event yields NO scaffold — with the
+    reason — rather than a wrong one."""
     nar = _person(bio, bio["narrator_person_id"])
-    start = accepted_date(_event(bio, nar.get("birthEventRef")))
+    birth_ev, why = anchor_event(bio, nar["id"], nar.get("birthEventRef"), "birth")
+    start = accepted_date(birth_ev) if birth_ev else None
     status = (nar.get("lifeStatus") or {}).get("value", "unknown")
 
     if status == "deceased":
-        death = accepted_date(_event(bio, nar.get("deathEventRef")))
+        death_ev, dwhy = anchor_event(bio, nar["id"], nar.get("deathEventRef"), "death")
+        death = accepted_date(death_ev) if death_ev else None
         end, kind = (death, "death_date") if death else (None, "deceased_date_unknown")
     elif status == "explicitly_living":
-        end, kind = {"text": today, "value": today, "precision": "day"}, "today_computed"
+        end, kind = None, "open"                 # the shipped behaviour, kept
     else:
         end, kind = None, "life_status_unknown"
 
     return {"start": start, "end": end, "end_kind": kind,
             "available": start is not None,
+            "anchor": why,
             "precision": (start or {}).get("precision")}
 
 
+def _shipped_compute_age():
+    """The product already has correct calendar arithmetic —
+    `life_spine/validator.py:110` — and `age_arithmetic.py` deliberately
+    does not. This design REUSES the correct one rather than adding a third
+    implementation (checkpoint §3.3c)."""
+    import os
+    here = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    for root in (os.environ.get("HORNELORE_ROOT"), here, os.getcwd()):
+        if root and os.path.isdir(os.path.join(root, "server", "code", "api")):
+            p = os.path.join(root, "server", "code")
+            if p not in sys.path:
+                sys.path.insert(0, p)
+            break
+    from api.life_spine.validator import compute_age
+    return compute_age
+
+
 def age_at(birth, when):
-    """Uncertainty PROPAGATES, and the arithmetic is calendar arithmetic.
+    """Uncertainty PROPAGATES, and the arithmetic is the SHIPPED arithmetic.
 
-    DEFECT FIXED 2026-09-22. This subtracted birth years and called the
-    result exact: born 1939-08-30, asked about 1971-06-12, it answered 32.
-    She was 31 — her birthday had not come round yet. The contract check
-    asserted 32, so the wrong answer was written in twice, as behaviour and
-    as expectation. DOB anchors every age in the record, so an off-by-one
-    here is not a display nicety.
+    DEFECT FIXED 2026-09-22, twice. First: this subtracted birth years and
+    called the result exact — 32 where she was 31 — and the contract asserted
+    32, so the wrong answer was written in as behaviour and as expectation.
+    Second: the fix was a third age implementation in a codebase that already
+    had a correct one. Now `life_spine.validator.compute_age` does the
+    arithmetic; this function only decides how much of it is honest to say.
 
-    When month and day are not both known on both sides, the true age is one
-    of two values and the answer says so rather than picking one."""
+    The shipped function picks a July-1 midpoint for a year-only event. That
+    is a CHOICE, and for a coarse date the honest answer is a pair. So the
+    bounds come from the same function at Jan 1 and Dec 31."""
     if not birth or not when or not birth.get("value") or not when.get("value"):
         return None
+    compute_age = _shipped_compute_age()
+    from datetime import date
 
     def parts(d):
         s = str(d["value"]).strip("~?")
@@ -1133,22 +1333,25 @@ def age_at(birth, when):
 
     by, bm, bd = parts(birth)
     wy, wm, wd = parts(when)
-    span = wy - by
     vague = {"approximate", "uncertain"}
     approximate = (birth.get("precision") in vague or when.get("precision") in vague)
     complete = None not in (bm, bd, wm, wd)
 
     if complete and not approximate:
-        if (wm, wd) < (bm, bd):          # birthday not yet reached that year
-            span -= 1
-        return {"years": span, "exact": True, "render": str(span)}
+        years = compute_age(date(by, bm, bd), wy, wm, wd)
+        return {"years": years, "exact": True, "render": str(years)}
 
+    # Coarse on either side: bound it with the SAME arithmetic at the two
+    # extremes of what is known, rather than choosing a midpoint.
+    dob = date(by, bm or 7, bd or 1)
+    lo = compute_age(dob if (bm and bd) else date(by, 12, 31), wy, wm or 1, wd or 1)
+    hi = compute_age(dob if (bm and bd) else date(by, 1, 1), wy, wm or 12, wd or 31)
+    lo, hi = min(lo, hi), max(lo, hi)
     if approximate:
-        return {"years": span, "exact": False, "low": span - 1, "high": span,
-                "render": f"about {span}"}
-    # dates are firm but coarse: the answer is genuinely one of two
-    return {"years": span, "exact": False, "low": span - 1, "high": span,
-            "render": f"{span - 1} or {span}"}
+        return {"years": hi, "exact": False, "low": lo, "high": hi,
+                "render": f"about {hi}"}
+    return {"years": hi, "exact": False, "low": lo, "high": hi,
+            "render": f"{lo} or {hi}" if lo != hi else str(hi)}
 
 
 def contract_dob_anchors_the_life_span():
@@ -1175,8 +1378,28 @@ def contract_dob_anchors_the_life_span():
                                 "lifeStatus": A("explicitly_living")}, [birth]), TODAY)
     if not ls["available"] or ls["start"]["value"] != "1939-08-30":
         bad.append("the narrator's DOB did not anchor the scaffold")
-    if ls["end_kind"] != "today_computed":
-        bad.append("a living narrator's endpoint is not the computed present")
+    if ls["end_kind"] != "open" or ls["end"] is not None:
+        bad.append("a living narrator's span was given an end — the shipped "
+                   "scaffold is open-ended (checkpoint §3.3b)")
+
+    # a pointer to a UNION event — the case that anchored a life at 1965
+    union = {"id": "E9", "type": "union", "date": D("1965", "1965", "year"),
+             "participants": [{"person": "P1", "role": "spouse"}]}
+    ls = resolve_life_span(bio({"birthEventRef": "E9",
+                                "lifeStatus": A("explicitly_living")}, [union]), TODAY)
+    if ls["available"]:
+        bad.append("a union event anchored the life span")
+    if not ls["anchor"].startswith("ref_is_union"):
+        bad.append(f"the refusal did not say why: {ls['anchor']}")
+
+    # a pointer to SOMEONE ELSE's birth
+    other = {"id": "B99", "type": "birth", "date": D("1910", "1910", "year"),
+             "participants": [{"person": "P2", "role": "subject"}]}
+    ls = resolve_life_span(bio({"birthEventRef": "B99",
+                                "lifeStatus": A("explicitly_living")}, [other],
+                               [{"id": "P2", "names": [{"fullText": "Peter Zarr"}]}]), TODAY)
+    if ls["available"] or ls["anchor"] != "subject_is_someone_else":
+        bad.append("another person's birth anchored the narrator's span")
 
     # a RELATIVE's DOB anchors nothing
     rel_birth = {"id": "B18", "type": "birth", "date": D("1910", "1910", "year"),
@@ -1218,14 +1441,14 @@ def contract_dob_anchors_the_life_span():
     if ls["end_kind"] != "deceased_date_unknown":
         bad.append("the unknown-death-date case is not distinguished")
 
-    # the scaffold is RESOLVED, never stored — tomorrow's value differs
+    # the scaffold is RESOLVED, never stored
     b = bio({"birthEventRef": "B17", "lifeStatus": A("explicitly_living")}, [birth])
     if "life_span" in b:
         bad.append("the scaffold was persisted into the biography")
-    if resolve_life_span(b, "2026-09-23")["end"]["value"] == \
-            resolve_life_span(b, TODAY)["end"]["value"]:
-        bad.append("the present-day endpoint did not move with the date "
-                   "— it is a stored fact, not a view calculation")
+    # and the biography that anchors correctly also passes the FULL model
+    # rules — the resolver is not tested in isolation from them
+    if run(b):
+        bad.append(f"the anchoring fixture fails the model rules: {run(b)}")
     return bad
 
 
@@ -1249,7 +1472,18 @@ def contract_dob_conflicts_and_corrections():
          "events": [birth], "relationships": [], "stories": [],
          "places": [], "animals": []}
 
-    # TWO live assertions and NOBODY has decided → unresolved, never a guess
+    def model_ok(stage):
+        """DEFECT FIXED 2026-09-22: this fixture was only ever fed to the
+        resolver. Run through the full model rules it was REJECTED, because
+        the conflict rule read list length as dispute. Every stage below now
+        goes through `run()` as well."""
+        v = run(b)
+        if v:
+            bad.append(f"[{stage}] the DOB fixture fails the model rules: {v}")
+
+    # TWO live assertions, mutually linked, NOBODY has decided → the model
+    # accepts the state (they are linked) but the scaffold stays unresolved
+    model_ok("linked, undecided")
     ls = resolve_life_span(b, TODAY)
     if ls["available"]:
         bad.append("the scaffold picked a DOB with no recorded acceptance "
@@ -1257,6 +1491,7 @@ def contract_dob_conflicts_and_corrections():
                    "account is accepted")
 
     birth["acceptedAssertionId"] = "A1"               # a human decides
+    model_ok("accepted A1")
     ls = resolve_life_span(b, TODAY)
     if not ls["available"] or ls["start"]["value"] != "1939-08-30":
         bad.append("the scaffold did not use the accepted assertion")
@@ -1267,6 +1502,7 @@ def contract_dob_conflicts_and_corrections():
     # to the extracted one: the scaffold must follow the decision, not the
     # more authoritative-sounding status.
     birth["acceptedAssertionId"] = "A2"
+    model_ok("accepted A2")
     if resolve_life_span(b, TODAY)["start"]["value"] != "1938":
         bad.append("the scaffold overrode a recorded decision because the "
                    "other assertion's STATUS looked more authoritative")
@@ -1278,6 +1514,7 @@ def contract_dob_conflicts_and_corrections():
         dict(D("August 30, 1940", "1940-08-30"), status="narrator_corrected",
              source="narrator_stated", id="A3", recordedAt="2026-09-23"))
     birth["acceptedAssertionId"] = "A3"
+    model_ok("corrected, accepted A3")
     ls = resolve_life_span(b, TODAY)
     if ls["start"]["value"] != "1940-08-30":
         bad.append("a narrator correction did not move the scaffold")
@@ -1288,6 +1525,14 @@ def contract_dob_conflicts_and_corrections():
     birth["acceptedAssertionId"] = "A1"
     if resolve_life_span(b, TODAY)["available"]:
         bad.append("a superseded assertion was accepted")
+
+    # a date assertion with NO provenance inside dateAssertions is caught —
+    # the location-aware fix, on the fixture that used to escape
+    birth["acceptedAssertionId"] = "A3"
+    birth["dateAssertions"].append(dict(D("1941", "1941", "year"), id="A4"))
+    if not any("no provenance" in v for _, v in run(b)):
+        bad.append("a date assertion without provenance escaped the model rules")
+    birth["dateAssertions"].pop()
     return bad
 
 

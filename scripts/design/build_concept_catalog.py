@@ -328,27 +328,110 @@ def main():
   questionnaire section at all — so the question is whether those people
   should exist in the record, before any field of theirs is discussed.""")
 
+
+    # ── the 41 questionnaire-only fields, grouped mechanically ────────────
+    # The decision sheet's §4 counts were hand-written and one was wrong
+    # ("(10)" for a group of eight). The counts now come from here.
+    PURPOSE_OF_LEAF = {
+        "middlename": "names and vitals of relatives", "maidenname": "names and vitals of relatives",
+        "birthdate": "names and vitals of relatives", "birthplace": "names and vitals of relatives",
+        "deceased": "life status",
+        "memories": "stories in field clothing", "sharedexperiences": "stories in field clothing",
+        "narrative": "stories in field clothing", "memorablestories": "stories in field clothing",
+        "description": "stories in field clothing", "occasion": "stories in field clothing",
+        "favoritetoy": "stories in field clothing", "worldevents": "stories in field clothing",
+        "messagesforfuturegenerations": "legacy messages", "adviceforfuturegenerations": "legacy messages",
+        "proposalstory": "marriage detail", "weddingdetails": "marriage detail", "spousereference": "marriage detail",
+        "healthmilestones": "health", "lifestylechanges": "health", "wellnesstips": "health",
+        "firsttechexperience": "technology & culture", "favoritegadgets": "technology & culture",
+        "culturalpractices": "technology & culture",
+        "mentorship": "education", "communityinvolvement": "education",
+        "breed": "pets", "adoptiondate": "pets",
+        "zodiacsign": "derived / stale", "timeofbirth": "derived / stale",
+        "culturalbackground": "heritage", "notes": "notes", "relationshiptype": "marriage detail",
+        "travel": "technology & culture",
+    }
+    q_only_groups = {}
+    for pth in unreachable:
+        sec, lf = pth.split(".", 1)
+        purpose = PURPOSE_OF_LEAF.get(lf.lower())
+        if lf.lower() == "birthdate" and sec == "pets":
+            purpose = "pets"
+        q_only_groups.setdefault(purpose or f"UNGROUPED:{lf}", []).append(pth)
+
+    print("\nQUESTIONNAIRE-ONLY FIELDS BY PURPOSE — derived, not hand-counted\n" + "─" * 70)
+    for purpose, paths in sorted(q_only_groups.items(), key=lambda kv: -len(kv[1])):
+        print(f"  {len(paths):>3}  {purpose:<32} {', '.join(paths[:4])}"
+              + (f" +{len(paths)-4}" if len(paths) > 4 else ""))
+    print(f"  {sum(len(v) for v in q_only_groups.values()):>3}  total  "
+          f"(must equal {len(unreachable)})")
+
     if args.json:
+        # One row per path across all four vocabularies, each row saying which
+        # of its fields are MEASURED and which are PROPOSED. This is the ledger
+        # the decision sheet's counts and groupings must be derived from.
+        ledger = []
+        xe_all = vocabs.get("extraction", {}).get("entries", {})
+        for pth in sorted(q | x | p):
+            row = {"path": pth,
+                   "measured": {
+                       "in_questionnaire": pth in q,
+                       "in_extraction": pth in x,
+                       "in_projection_map": pth in p,
+                       "extraction_write_mode": xe_all.get(pth, {}).get("writeMode"),
+                       "status": ("exact" if base(pth) in exact else
+                                  "aliasable" if pth in aliasable else
+                                  "homeless" if pth in set(homeless) else
+                                  "questionnaire_only" if base(pth) in set(unreachable) else
+                                  "other"),
+                   }}
+            if pth in set(homeless):
+                head = pth.split(".", 1)[0]
+                if head == "family" and pth.count(".") >= 2:
+                    head = pth.split(".")[1]
+                row["proposal"] = {"subject": SUBJECT_OF.get(head, f"?{head}"),
+                                   "concept": CONCEPT_OF.get(leaf(pth)),
+                                   "alias_of": norm(pth) if pth in aliasable else None}
+            elif base(pth) in set(unreachable):
+                sec, lf = pth.split(".", 1)
+                row["proposal"] = {"purpose": PURPOSE_OF_LEAF.get(lf.lower())}
+            ledger.append(row)
+
         with open(args.json, "w", encoding="utf-8") as fh:
             json.dump({
                 "generated_from": {n: v["symbol"] for n, v in vocabs.items()},
-                "vocabularies": {n: v["entries"] for n, v in vocabs.items()},
-                "undeliverable_extraction_targets": undeliverable,
-                "writemode_disagreements": clash,
-                "aliases_required": {v: norm(v) for v in sorted(aliasable)},
-                "unreachable_questionnaire_fields": unreachable,
-                "semantic_reconciliation": [
-                    {"concept": c, "subject": s, "paths": sorted(ps),
-                     "disposition": "RETIRE" if c == "RETIRED"
-                     else ("NEEDS_CONCEPT" if c.startswith("UNMAPPED") else "define")}
-                    for (c, s), ps in sorted(groups.items())
-                ],
+                "labels": {"measured": "reproducible from the shipped sources; names its symbol",
+                           "proposal": "one author's semantic judgement; reviewable, reversible"},
+                "measured": {
+                    "vocabularies": {n: v["entries"] for n, v in vocabs.items()},
+                    "undeliverable_extraction_targets": undeliverable,
+                    "writemode_disagreements": clash,
+                    "unreachable_questionnaire_fields": unreachable,
+                    "per_path_ledger": ledger,
+                },
+                "proposal": {
+                    "aliases_required": {v: norm(v) for v in sorted(aliasable)},
+                    "semantic_reconciliation": [
+                        {"concept": c, "subject": s_, "paths": sorted(ps),
+                         "disposition": "RETIRE" if c == "RETIRED"
+                         else ("NEEDS_CONCEPT" if c.startswith("UNMAPPED") else "define")}
+                        for (c, s_), ps in sorted(groups.items())
+                    ],
+                    "questionnaire_only_by_purpose": {k: sorted(v) for k, v in q_only_groups.items()},
+                },
             }, fh, indent=2, sort_keys=True)
-        print(f"\n  wrote {args.json}")
+        print(f"\n  wrote {args.json}  ({len(ledger)} ledger rows)")
 
     print("\n" + "─" * 70)
-    print("  This is measurement, not a proposal. Every count above names the")
-    print("  symbol it came from; none is quoted from a document.\n")
+    print("  TWO KINDS OF OUTPUT ABOVE, AND THEY ARE NOT THE SAME KIND OF TRUE.")
+    print("  MEASUREMENT — the vocabulary sizes, the exact/alias/homeless split, the")
+    print("    write-mode agreement, the asking counts, the per-path ledger. Each")
+    print("    names the symbol it came from and is reproducible from source.")
+    print("  PROPOSAL — SUBJECT_OF, CONCEPT_OF, PURPOSE_OF_LEAF and every disposition")
+    print("    (define / alias / RETIRE). These are one author's semantic judgements,")
+    print("    written into this script so they are reviewable and reversible. They")
+    print("    are labelled `proposal` in the JSON. Approving them is a product")
+    print("    decision, not a consequence of running this.\n")
     return 1 if errors else 0
 
 
