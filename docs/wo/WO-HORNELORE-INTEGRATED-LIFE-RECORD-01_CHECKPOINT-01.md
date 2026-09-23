@@ -1108,6 +1108,77 @@ The five extra cap exhaustions are spent on junk: lists of empty-value fields (0
 - 3 production-boundary tests through `run_field_extraction`. Only the network call is replaced; the model's raw text goes through the shipped `_parse_llm_json`, so the D12 redirect is on the tested path. They need real pydantic and **skip in the sandbox**.
 - **Mutations:** 7 added to `scripts/eval/mutate_a3_vocabulary.py`. In the sandbox 6 are caught; the seam mutation survives only by that skip and must be caught in `.venv`.
 
+### `r6-batchA-b2r-a3` — B2 repeat after the date repair, read 2026-09-23
+
+**Run identity** `[verified_by_read: report header]`: `8e60fad`, **clean**, scorer `318df0d2ff1f`, bank v1 `b487e54cd84d`. Cap 128 / compound 768, 131 fields, prompt `b2a`, **byte-identical to B2**. `api.log` from line 283,936; 115 calls, 114/114 aligned.
+
+**Aggregates.** v1 59/114, contract 35/30. **v2 66/114, contract 40/35, mnw 0; must recall .6263 → .6368.** executed_correct 106 → 108, missing 63 → 61, wrong_executable 18 → 18, preserved_for_review 9 → 9.
+
+**1. The repair works** `[verified_by_execution: api.log HELD lines + report review_entries]`. It held 6 values; all 6 are correct holds.
+- **case_061:** `marriage.marriageDate` 1956 and 1957 held, reasons `conflicting_values` + `narrator_uncertain`. Executable dates: 0; review entries: 2. **The blocker is closed.**
+- **case_070:** Gretchen's and Cole's birth dates held (`conflicting_values`, both on `children_3`). The runner counts them `preserved_for_review`. The cost is the one predicted: v2 pass → fail (1.0 → .533). The remaining problem is grouping after R4-H normalization, which puts two children's dates on one child. That is **A4 entity binding** and was already filed; the repair is behaving as designed.
+- **case_068 (new in this run):** the model put grandfather George's 1914 death and father Ervin's 1967 death on one parent. Both held (`conflicting_values`). In B2 this turn had **executed** `parents.deathDate="before 1914"`, George's death on Ervin, so this is a wrong write prevented. Subject binding, A4 class.
+- **Self-approximate dates still execute:** case_042 `pets.birthDate="around 1964"` executable, unconverted, score 1.0.
+- **No systematic date loss:** date-shaped executable items went 41 → 34. That is the 6 holds above, plus case_068's `before 1914`, which the model did not re-emit.
+- **No review explosion:** review entries 132 → 150. +6 are `uncertain_date`; the other +12 are `meaning_disposition` on two model-variant turns (068 +11, 019 +2). The guard adds no entries of other kinds.
+
+**2. Noise band** `[verified_by_execution: the reports' final executable items, all 114 cases]`
+
+| | final executable items changed | v2 flips | cases with score change |
+|---|---|---|---|
+| **B2 → B2r (same prompt)** | **12/114**, at least 3 of them the repair's own holds (061, 068, 070) | +1 −1 (065 up = model; 070 down = repair) | 4 |
+| B1 → B2 (prompt changed) | **58/114** | +6 −6 | 24 |
+
+*Corrected before commit.* A first version of this table compared the raw text in `api.log` and reported 103/114 byte-identical against 26/114. **The log truncates raw output at 500 characters** (46 calls in every window), so for those calls only a prefix was compared. The final executable items above are complete, apart from the report's 100-character value cap. The conclusion is unchanged.
+
+**The A3 prompt movement is NOT decoding noise.** Every one of the 12 B1 → B2 flips **held** in B2r; none reversed. The four prompt-induced gains (012, 037, 042, 078) and six losses (006, 033, 034, 063, 085, 107) are reproducible effects of the rewritten few-shots and vocabulary text. The code-path gains (004, 072 via D12) are also stable. The net is still 0 on v2.
+
+**Earlier B2 forensics that read raw text.** The salvage classes used the logged length and error position, which are complete, so they stand. The "77/114 content changed" and "pretty-printed 29 → 51" figures were computed on truncated text. Read them as directional; they are superseded by the table above.
+
+**3. A3-created wrong write, found in this reading** `[verified_by_execution: every ageAtDeath item, B1/B2/B2r]`. **D1c** exempted `ageAtDeath` from the short-value drop so a *stated* age at death would survive. Every `ageAtDeath` written since is **the same false fact:**
+- case_015, B2 and B2r: *"Dad died December 23rd, 1967. **I was twenty-eight.**"* → `parents.ageAtDeath="28"`. That is the narrator's age, not the father's.
+- case_068, B2r: the same sentence, the same false `28`.
+- B1 wrote **none**; the short-value drop removed them, by accident.
+
+That makes **3 writes, all wrong, 0 correct**. The scorer cannot see it: case_015 scores 1.0 in all three runs, because the bank has no `must_not_write` on `parents.ageAtDeath`. This is the D12 pattern again (a change removed an accidental protection), and the error itself is **subject binding**: a first-person age attached to a parent.
+
+### D1c reverted, verified by replay — and the B2 closeout (2026-09-23)
+
+**D1c attempted to admit stated age-at-death values. B2 and B2r showed every value it admitted was the narrator's own age leaking onto a parent, so the exemption is reverted pending A4 subject binding.**
+- The evidence: 3 writes, 0 correct. *"Dad died December 23rd, 1967. **I was twenty-eight.**"* → `parents.ageAtDeath="28"` (case_015 in B2 and B2r; case_068 in B2r).
+- The revert removes `ageAtDeath` from `_SHORT_VALUE_EXEMPT_SUFFIXES`, so the short-value drop applies again. The comment at the definition records why.
+- The test is now `ShortAgeAtDeathStillDropped`: `"28"` is rejected. The mutation "D1c revert undone" is caught.
+- No prompt, bank, scorer, cap or A4 change.
+
+**Carried to A4 as a requirement, not as a defect.** `ageAtDeath` may be reintroduced only when the age is **bound to the deceased person**, not merely present in the same sentence.
+
+**Replay** `[verified_by_execution: B2r raw model outputs from api.log through the shipped run_field_extraction; only the network call replaced]`
+- **Replayable calls:** 65 of 114. Excluded are the 46 whose logged output is truncated at 500 characters, and the salvaged ones.
+- **Fidelity:** with the exemption restored, the replay reproduces the stored B2r executable items for 63 of 65. The 2 misses (002, 053) are sibling names that the live run's database profile lookup contributed. They are identical with and without the revert.
+- **Revert vs no revert, across all 65:** exactly one difference. **case_015 loses `parents.ageAtDeath="28"`.** Nothing else changes.
+- **Truncated calls, by construction.** The revert's only reader is `_apply_claims_value_shape` (`extract.py:6329`), and it affects only a `…ageAtDeath` value shorter than 3 characters.
+  - **case_068's** stored `parents.ageAtDeath="28"` is dropped by that function; this is the same assertion as the test.
+  - Removing a non-name, non-date member cannot change a group's subject (kinship guard), a date slot (date guard) or grouping.
+  - **case_070** has no such item, so its path is untouched.
+- **Invariants kept:**
+  - case_061's two holds: replayed, still held.
+  - case_070's and case_068's holds: untouched by construction.
+  - case_042 `pets.birthDate="around 1964"`: replayed, still executes as stated.
+
+**B2 ACCEPTED — A2+A3 complete, date regression repaired, D1c reverted, noise band measured.**
+- On the decided (v2) bank: 66/114, contract 40/35, must_not_write 0. B1 is also 66, so the net score movement is zero.
+- **What is underneath:**
+  - D12's code path is net positive (004, 072).
+  - The prompt rewrites have a reproducible, non-noise effect: four gains, six losses.
+  - Two false-write paths that A3 opened were found in the logs, where the scorer could not see them, and were closed: uncertain dates now go to review; the age-at-death exemption is reverted.
+- **Carried to B3/A4:**
+  - entity grouping after R4-H normalization (070);
+  - wrong-subject deaths and birthplaces (068, 102);
+  - grandparent vs great-grandparent binding (065, 033/034);
+  - grandparents emitted as `parents.*` (031);
+  - the `ageAtDeath` reintroduction condition above.
+- **Carried as filed, not scheduled:** the shadowed `_DATE_FIELD_SUFFIXES`; the stale test stub in `test_extraction_prompt_budget`; the `kids`/"Child" test; `fastapi_stub.install()` checking `sys.modules` rather than whether the package is installed; `api.log` truncating raw output at 500 characters.
+
 ## 6. Explicit statement
 
 During this checkpoint: **no live data was changed by Claude** (every
