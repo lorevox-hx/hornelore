@@ -773,10 +773,16 @@ bank will still expect `family.marriageDate`.
    bank movement and extractor movement are separated (same discipline as BACKLOG §6a).
 
 **Output/parse metrics (B0)** `[verified_by_read: api.log from 23:40]`: 115 extraction calls (114 cases
-+ 1 diag probe) · direct parse 96 · **salvaged 19** (18 at `max_new=384`, raw 1,100–1,503 chars;
-1 at `max_new=128`, the negated-military empty-value list) · rules fallback 13 · not-in-vocab rejects
-**143** · turnscope drops 45 · kinship quarantines 36 · subject-filter strips 2. Two of the salvages
-also carried a `# comment` inside the JSON, which fails parse independently of length.
++ 1 runner warmup probe, `run_question_bank_extraction_eval.py:395`) · direct parse 96 · **salvaged 19** ·
+rules fallback 13 · not-in-vocab rejects **143** · turnscope drops 45 · kinship quarantines 36 ·
+subject-filter strips 2.
+
+*Salvage cause, corrected 2026-09-23 after B1 (this line said "18 at `max_new=384`"):* a salvage is a
+**cap truncation** only when the parse error sits at the end of the output. By that test B0 has
+**14 truncated at 384** + **1 at 128** (the negated-military empty-value list) + **1 premature stop**
+(`germany_years`, which ends at exactly 1,100 chars in **both** B0 and B1 — the model stopped there itself; the cap
+did not) + **3 internally malformed** (`# comment` inside the JSON: parenthood ×2 and marriage_children, errors at
+char 395/395/628 of 1,271–1,473). Classes are defined in the B1 section below.
 
 **Measurement series, agreed 2026-09-23 (Chris + reviewer):**
 - **B0** = this run (bounded, compound cap 384).
@@ -786,6 +792,116 @@ also carried a `# comment` inside the JSON, which fails parse independently of l
 - **B2** = A2/A3 (after the case-bank migration and B0 re-score).
 - **B3** = A4 relevance-scoped catalog. 768 fixes output capacity; A4 fixes input choice. Each is
   measured on its own.
+
+### `r6-batchA-b1-768` — B1, the output cap alone, read 2026-09-23
+
+**Run identity** `[verified_by_read: report header]`: `b39e971`, **clean**, scorer `318df0d2ff1f`, case bank
+`b487e54cd84d`, `MAX_NEW_TOKENS_EXTRACT_COMPOUND=768`, everything else as B0. Log window `api.log` from
+line 272,722. Prompt unchanged: same 146 paths, catalog 9,116 chars, same few-shot counts per call;
+compound budget 6,912 (was 7,296); zero `PROMPT_TOO_LARGE`.
+
+| | B0 (384) | **B1 (768)** |
+|---|---|---|
+| pass | 62/114 | **63/114** |
+| v3 / v2 | 37/72 · 32/72 | 37/72 · 32/72 |
+| must_not_write | 0 | 0 |
+| must_extract recall | 63.3% | 63.8% |
+| may_extract bonus | 27.1% | 28.6% |
+| should_ignore leak · wrong_executable | 11.8% · 23 | 11.8% · 23 |
+| average score | .713 | .718 |
+| correct executions · missing | 116 · 52 | 117 · 51 |
+| stubborn pack `truncation_starved` | 3/7 | 3/7 |
+| direct parse / salvaged | 96 / 19 | **105 / 10** |
+| salvage (a) probable output exhaustion, compound cap | 14 | **3** |
+| salvage (a) probable output exhaustion, 128 cap | 1 | 1 (same negated-military list) |
+| salvage (b) premature incomplete — stops mid-JSON well below the cap | 1 | 2 |
+| salvage (c) internally malformed — invalid syntax before the end | 3 | 4 |
+| report `truncation_rate` | 0.0% | 0.0% — **structural, see below** |
+| rules fallback | 13 | 13 |
+| items extracted | 393 | 422 |
+| not-in-vocab rejects | 143 | **179** |
+| turnscope drops · kinship quarantines | 45 · 36 | 55 · 44 |
+| `family.marriageDate` rejects | 8 | 9 |
+| case time, mean · max · total | 20.3 s · 54 s · 38.6 min | **22.2 s · 99 s · 42.3 min** |
+
+**Reading** `[verified_by_execution: case_results diff and raw-output diff, both runs]`:
+
+**B1 result:** raising the compound output ceiling from 384 to 768 reduced probable cap-exhaustion events from
+14 to 3, but produced **no demonstrable score improvement**; the observed +1 case is consistent with ordinary
+run-to-run model variation. Contract performance and safety metrics were unchanged. Keep 768 fixed through
+B2/B3 to reduce output-cap confounding; **production token policy remains undecided.** Output allowance is not
+the principal remaining problem.
+
+**Salvage classes** `[verified_by_execution: parse-error position vs output length, each salvaged call, both
+windows — B0 from 23:41:09, B1 from line 272,722]`. The parser calls all of these `salvage_truncated`; that is a
+recovery mechanism, not a diagnosis.
+- **(a) probable output exhaustion** — parse error at the last character, output length near the cap
+  (B0 1,178–1,503 chars at 384; B1 2,447 / 2,846 / 2,909 chars at 768). *Probable*, because token counts are not
+  logged; B1's 2,447-char case is pretty-printed over 110 lines, which is token-dense.
+- **(b) premature incomplete** — ends mid-JSON far below the cap. `germany_years` stops at exactly 1,100 chars in
+  **both** runs (so the 384 cap never caused it); B1 `siblings` stops at 1,061 chars under a 768 cap.
+- **(c) internally malformed** — a Python-style `# comment` inside the JSON: parenthood ×2 (char 395), marriage_children
+  (char 628), and in B1 family_life (char 402 of 2,040). More tokens cannot repair these.
+
+**The report's `truncation_rate: 0.0%` is structural, not measured** `[verified_by_read:
+run_question_bank_extraction_eval.py:1910-1912]`: it counts "truncat" in the per-case method tag, and the extractor
+never emits one, so it reads 0.0 whatever happens. Likewise `truncation_starved` is a historical label for the
+**VRAM-guard** long tail (`:113`), not for the output cap — so 3/7 → 3/7 is consistent with, not proof against, the
+cap reading above. Salvage class must be counted from `api.log` until a scorer change surfaces it.
+
+**115 calls = 114 cases + the runner's warmup probe** `[verified_by_read: run_question_bank_extraction_eval.py:395-420]`:
+the probe POSTs to the same `/api/extract-fields` with `"My name is Janice."`, `personal_identity`,
+`personal.firstName` — the first call in each log window (B1 07:38:09).
+
+1. **768 does what it says.** Probable cap exhaustion falls from 14 to 3.
+2. **It buys no score.** The only case that changed is `case_073` (0.50 → 1.00), and that is **run-to-run
+   noise, not the cap**: its two outputs diverge at character 68, far below the old cap. Across all 115
+   calls, **11 outputs diverge from B0 inside the text both runs could have produced** — including a
+   `health_and_body` call whose cap (128) did not change. Decoding here is not deterministic
+   (`temp=0.01, top_p=0.90`), so **±1–2 cases is inside the noise band** for every later comparison.
+3. **The extra room went to material that is then thrown away.** +29 items, but +36 not-in-vocab rejects,
+   +10 turnscope drops, +8 quarantines, recall +0.5 pt. It is more output, not more correct output — the
+   verbosity the reviewer asked us to watch for.
+4. **It costs time.** Mean case +10%, total run +3.7 min, worst case 54 s → 99 s (`case_039`, one of the three
+   calls that still hit 768). Extraction shares the GPU with Lori, so a 99 s extraction is a delay she can feel.
+5. **The losses are not capacity.** They are the retired paths (marriage date now 9 rejects), wrong-branch
+   output and malformed JSON. That is A3 and A4, not the cap.
+
+**Decided 2026-09-23 — 768 is an evaluation-control setting, not a production decision.**
+`MAX_NEW_TOKENS_EXTRACT_COMPOUND=768` stays **fixed through B2 and B3**. Not because it performs better — it has
+not been shown to — but because it removes most probable cap exhaustion (14 → 3), so an improvement B2/B3 makes
+to a schema path, alias, relevance rule or subject binding cannot be hidden by later facts being cut off. The
+validators contained the extra output (+29 items; wrong_executable 23 → 23, leak 11.8% → 11.8%, must-not-write 0),
+so 768 is a safe temporary ceiling. **No 1024 run. The 128 single-field cap is not raised** — its one exhaustion
+in either run is the negated-military list of empty fields, every item rejected, no fact lost.
+
+Sequence: **B0** = 384 baseline · **B1** = 768, cap exhaustion down, no demonstrated score gain · **B2, B3** = stay
+at 768 · **after B3**, a separate measured step on responsiveness: 128/384 plus evidence-triggered retry against a
+fixed 768, scored on accuracy **and** latency (extraction shares the GPU with Lori). Do not quote B1's
+`truncation_rate` (dead instrumentation, see above) or the `truncation_starved` pack as evidence about the output
+cap.
+
+**Future design, recorded not scheduled — adaptive retry** (reviewer): make the normal call at the base cap;
+retry once with a larger allowance **only** when the parser establishes class (a) — otherwise-valid JSON cut off
+at the end. Never retry class (b) or (c). This replaces the length-of-answer routing idea discussed earlier, which
+is another heuristic that can guess wrong, and may eventually replace a permanent 768 for compound calls.
+
+**Carried forward from the reviewer (2026-09-23):**
+- **Report rules fallbacks by reason**, not as one parse rate: parse failure · every item rejected on a
+  retired path (the uncertain marriage date) · guard stripped everything (denial, refusal, wrong subject) ·
+  model returned nothing. Only the first and last count against the model.
+- **Subject binding — an A4 invariant, not one test.** Near-controlled evidence in B0: `father_identity`
+  emits `parents.birthPlace = Stanley` **and** `personal.birthPlace = Stanley` — the narrator write is
+  rejected only because that spelling is not a legal path; `mother_identity` emits `parents.birthPlace = spokane`
+  **and** `personal.placeOfBirth = Spokane` — a legal path, so the false narrator fact survives. **A valid concept
+  on the wrong subject is still false data.** Invariant: *when the active question or grounded clause is about
+  another person, narrator-owned paths must not receive that person's value merely because those paths exist in
+  the schema.* Test family: mother, father, spouse and child birthplace, and birth/death dates for the same
+  subjects.
+- **Keep A3 comparable.** The case-bank migration is versioned and the old bank + scorer stay runnable; A3
+  reports the score under both the historical and the canonical path names.
+- **Noise band.** Before B2 and B3 are read, repeat B-baseline at least once more (or run B2 twice) so a
+  1–2 case delta can be told apart from decoding noise.
 
 ### A2–A4 scope, settled 2026-09-23 from `r6-batchA-base2` (`api.log`, 23:40–00:03)
 
