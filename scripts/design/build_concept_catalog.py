@@ -122,11 +122,88 @@ def vocab_questionnaire():
     return out, f"questionnaire_schema.load_schema [{qs.schema_fingerprint()[:12]}]"
 
 
+# ── the decision appendix ────────────────────────────────────────────────
+
+def _write_markdown(path, vocabs, exact, aliasable, norm, homeless, unreachable,
+                    groups, q_only_groups, both_ends):
+    """One generated document with EVERY path, each carrying a group id the
+    decision packet cites. Nothing in it is typed by hand: re-running this
+    script regenerates it, and a hand edit would be overwritten — which is
+    the point. Measured columns and proposed columns are labelled apart."""
+    xe = vocabs.get("extraction", {}).get("entries", {})
+    sym = {n: v["symbol"] for n, v in vocabs.items()}
+    L = []
+    w = L.append
+    w("# Concept decision appendix — GENERATED, do not edit by hand\n")
+    w("Produced by `scripts/design/build_concept_catalog.py --markdown`. "
+      "Regenerate rather than edit:\n")
+    w("```bash\ncd /mnt/c/Users/chris/hornelore\n"
+      "PYTHONPYCACHEPREFIX=/tmp/pyc python3 scripts/design/build_concept_catalog.py \\\n"
+      "  --markdown docs/specs/CONCEPT-DECISION-APPENDIX.md\n```\n")
+    w("**Sources (measured):** " + " · ".join(f"`{v}`" for v in sym.values()) + "\n")
+    w("**Two kinds of column.** *Measured* columns come from the shipped sources "
+      "and are reproducible. *Proposed* columns (`concept`, `subject`, "
+      "`disposition`, `purpose`) are one author's semantic judgement, written "
+      "into the script so they can be reviewed and reversed. Approving them is "
+      "a product decision.\n")
+
+    total_home = len(homeless)
+    w("## Totals (measured)\n")
+    w("| | count |\n|---|---:|")
+    for name, v in vocabs.items():
+        w(f"| {name} vocabulary | {len(v['entries'])} |")
+    w(f"| extraction targets that hit a form field exactly | {len(exact)} |")
+    w(f"| reachable only through a prefix alias | {len(aliasable)} |")
+    w(f"| extraction targets with no destination | {total_home} |")
+    w(f"| form fields extraction can never fill | {len(unreachable)} |")
+    w(f"| of which broken at BOTH ends | {sum(len(v[1]) for v in both_ends.values())} |\n")
+
+    w("## B — broken at both ends (same fact, two spellings, reaching neither)\n")
+    w("| id | concept | subject | extractor looks for | form offers |\n|---|---|---|---|---|")
+    for i, ((c, s_), (hp, fp)) in enumerate(both_ends.items(), 1):
+        w(f"| B{i:02d} | `{c}` | {s_} | {', '.join('`'+p+'`' for p in hp)} | "
+          f"{', '.join('`'+p+'`' for p in fp)} |")
+    w("")
+
+    w("## A — prefix aliases (same fact, one path has an extra `family.`)\n")
+    w("| id | extractor path | form path | extractor writeMode *(measured)* |\n|---|---|---|---|")
+    for i, pth in enumerate(sorted(aliasable), 1):
+        w(f"| A{i:02d} | `{pth}` | `{norm(pth)}` | {xe.get(pth, {}).get('writeMode') or '—'} |")
+    w("")
+
+    disp = lambda c: ("RETIRE" if c == "RETIRED" else
+                      "NEEDS_CONCEPT" if c.startswith("UNMAPPED") else "define")
+    ordered = sorted(groups.items(), key=lambda kv: (
+        {"define": 0, "NEEDS_CONCEPT": 1, "RETIRE": 2}[disp(kv[0][0])], kv[0][0], kv[0][1]))
+    w("## G — extraction targets with no destination, grouped by concept + subject\n")
+    w(f"{len(ordered)} groups covering {total_home} paths. `?subject` means the "
+      "section is not a questionnaire section at all.\n")
+    w("| id | disposition *(proposed)* | concept *(proposed)* | subject *(proposed)* "
+      "| original paths *(measured)* | extractor writeMode *(measured)* |")
+    w("|---|---|---|---|---|---|")
+    for i, ((c, s_), ps) in enumerate(ordered, 1):
+        modes = sorted({xe.get(p_, {}).get("writeMode") or "—" for p_ in ps})
+        w(f"| G{i:02d} | {disp(c)} | `{c.replace('UNMAPPED:', '?') }` | {s_} | "
+          f"{', '.join('`'+p_+'`' for p_ in sorted(ps))} | {', '.join(modes)} |")
+    w("")
+
+    w("## Q — form fields extraction can never fill, grouped by purpose\n")
+    w("| id | purpose *(proposed)* | count | fields *(measured)* |\n|---|---|---:|---|")
+    for i, (pur, ps) in enumerate(sorted(q_only_groups.items(), key=lambda kv: (-len(kv[1]), kv[0])), 1):
+        w(f"| Q{i:02d} | {pur} | {len(ps)} | {', '.join('`'+p_+'`' for p_ in sorted(ps))} |")
+    w(f"| | **total** | **{sum(len(v) for v in q_only_groups.values())}** | "
+      f"must equal {len(unreachable)} |\n")
+
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(L) + "\n")
+
+
 # ── reconciliation ───────────────────────────────────────────────────────
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--json", help="write the full reconciliation here")
+    ap.add_argument("--markdown", help="write the per-path decision appendix here")
     args = ap.parse_args()
 
     vocabs, errors = {}, []
@@ -365,6 +442,40 @@ def main():
               + (f" +{len(paths)-4}" if len(paths) > 4 else ""))
     print(f"  {sum(len(v) for v in q_only_groups.values()):>3}  total  "
           f"(must equal {len(unreachable)})")
+
+    # ── broken at BOTH ends: the extractor looks for it, the form offers it,
+    #    and they never meet because the leaf is spelled differently. Found by
+    #    hand once; computed here so the decision packet can cite it. ───────
+    def subj_concept(pth):
+        head = pth.split(".", 1)[0]
+        if head == "family" and pth.count(".") >= 2:
+            head = pth.split(".")[1]
+        return (CONCEPT_OF.get(leaf(pth)), SUBJECT_OF.get(head, f"?{head}"))
+
+    home_by = {}
+    for pth in homeless:
+        k = subj_concept(pth)
+        if k[0] and k[0] not in ("RETIRED",):
+            home_by.setdefault(k, []).append(pth)
+    form_by = {}
+    for pth in unreachable:
+        k = subj_concept(pth)
+        if k[0]:
+            form_by.setdefault(k, []).append(pth)
+    both_ends = {k: (sorted(home_by[k]), sorted(form_by[k]))
+                 for k in sorted(set(home_by) & set(form_by))}
+
+    print("\nBROKEN AT BOTH ENDS — wanted by extraction and by the form, reaching neither\n"
+          + "─" * 70)
+    for (c, s_), (hp, fp) in both_ends.items():
+        print(f"  {c:<22} {s_:<10} extractor {', '.join(hp):<34} form {', '.join(fp)}")
+    print(f"  {len(both_ends)} concept(s): {sum(len(v[0]) for v in both_ends.values())} "
+          f"extraction path(s) + {sum(len(v[1]) for v in both_ends.values())} form field(s)")
+
+    if args.markdown:
+        _write_markdown(args.markdown, vocabs, exact, aliasable, norm, homeless,
+                        unreachable, groups, q_only_groups, both_ends)
+        print(f"\n  wrote {args.markdown}")
 
     if args.json:
         # One row per path across all four vocabularies, each row saying which

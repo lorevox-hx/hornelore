@@ -10,15 +10,32 @@ rule back. The claim that matters is the one about obligations.)*
 
 ---
 
-> # ▶ CURRENT ACTION — **THE LAPTOP REBUILD. PHASE 7 IS ACCEPTED AND CLOSED.**
+> # ▶ CURRENT ACTION — **INTEGRATED LIFE RECORD: DECISIONS D1–D6 OWED BY CHRIS (2026-09-22)**
 >
-> **Phase 7 — the clean Lorevox data world — is ACCEPTED (2026-09-15).** `/mnt/c/lorevox_data` is a live, empty, product-initialised Lorevox root and is what `.env` now points at. The full measured record is the **NOW block**, headed *"NOW — PHASE 7 IS ACCEPTED"*, further down this same block — **that is the authority for what to do next.** Family portability was accepted 2026-09-14 and its record is kept below it.
+> The NOW block is directly below this heading. **It is the authority for what to do next.**
 >
-> *(This heading read "THE TWO-ORIGIN COMPARISON" until 2026-09-14, and "PHASE 5 (operator jobs + UI)" before that — **twice the heading has disagreed with its own body**, the two-truths-in-one-file drift `CLAUDE.md` opens by naming. The rule that keeps being broken: when the NOW block moves, the HEADING moves in the SAME edit.)*
+> *(This heading read "THE LAPTOP REBUILD. PHASE 7 IS ACCEPTED AND CLOSED" until 2026-09-22, "THE TWO-ORIGIN COMPARISON" until 2026-09-14, and "PHASE 5 (operator jobs + UI)" before that. **Twice the heading has disagreed with its own body**, the two-truths-in-one-file drift `CLAUDE.md` opens by naming. The rule that keeps being broken: when the NOW block moves, the HEADING moves in the SAME edit. This edit moves both.)*
 >
 > ---
 >
-> **EVERYTHING FROM HERE TO THE NOW BLOCK IS SUPERSEDED HISTORY — Portable Narrator Phases 0–6 and the two-origin work, kept as the record of how the packages were proven. None of it is current work, and nothing is to be restarted from it.**
+> # NOW — **INTEGRATED LIFE RECORD. Design pushed, Repair A landed, decisions owed.** `WO-HORNELORE-INTEGRATED-LIFE-RECORD-01`
+>
+> **Read in this order:** the work order **`docs/wo/WO-HORNELORE-INTEGRATED-LIFE-RECORD-01_Spec.md`** (revision 2, which authorised the §0A cleanup) → **`docs/wo/WO-HORNELORE-INTEGRATED-LIFE-RECORD-01_CHECKPOINT-01.md`** (current state, code map, Repair A record) → **`docs/wo/WO-HORNELORE-INTEGRATED-LIFE-RECORD-01_DECISIONS.md`** (what Chris decides next) → `docs/wo/WO-LIFE-RECORD-01_Spec.md` (the design).
+>
+> | | state (2026-09-22) |
+> |---|---|
+> | **working root** `/mnt/c/lorevox_data` | **cleared by Chris's authorisation**: three narrators hard-deleted through the product's own route, **0 people**, browser drafts cleared (checkpoint §1.1a). Development uses **fictional narrators only** from here. The three family packages and `hornelore_data` are untouched and are **not** to be re-imported by default |
+> | **design** | pushed. `WO-LIFE-RECORD-01`, concept catalog spec, decision sheet, generated appendix, validator (19 rules · 12 situations · 20 refusals · 11 contracts), mutation gate (31 caught) |
+> | **Repair A** (`bio-builder-graph.js`) | **landed**, 46 checks, reviewed externally against the diff. A routine sync never deletes; explicit removal with tombstones; a save cannot outrun or outlive its restore; explicit No survives a restore |
+> | **owed from Repair A** | server-side version check on the graph PUT (Batch B / D9) · durable *unknown* life status (Batch B) · questionnaire Remove control + `removals` route field (Batch C / D10) |
+> | **next** | **Chris answers D1–D6** (reply form at the end of the decisions file). Then Batch A (concept catalog), with a gate for review |
+> | **product code for the new life record** | **not started**, and not to start before D1–D6 |
+>
+> **The `⛔ DO NOT ENTER QUESTIONNAIRE DATA` banner further down is SUPERSEDED.** `WO-QUESTIONNAIRE-PERSISTENCE-INTEGRITY-01` (2026-09-17) made `merge_whole_document` the only questionnaire writer: no implicit removals, optimistic concurrency, prior document archived (`questionnaire_persistence.py:559`). `db.upsert_questionnaire` now refuses unless forced (`db.py:6882`). **Not re-verified here:** whether each of the five callers that banner lists was converted. Treat that as `unverified`, not closed.
+>
+> ---
+>
+> **EVERYTHING BELOW THIS POINT IS SUPERSEDED HISTORY.** It covers Portable Narrator Phases 0–7, the two-origin work and the laptop rebuild, kept as the record of how the packages were proven. None of it is current work, and nothing is to be restarted from it.
 >
 > **Phases 2–4 landed: exporter (§32, corrected on review), dry-run + Restore v1 with crash-truthful recovery (§33, §33.1), semantic round-trip (§34). Last full combined acceptance under `.venv`: 66/66 — restore 18 · round-trip 9 · export 24 · parity 15. Post-review focused additions: restore 19/19, round-trip 10/10 (not rerun as a combined bank; do not call it 68).** **Phase 0 landed** (`20260910T015024Z`, 0 unexplained lanes) and **Phase 1 landed 2026-09-10** — ownership declaration `narrator_data_inventory.py`, three erasure repairs in `db.py::_PARENT_OWNED_CHILDREN`, gap suite 4/4 + parity 15/15 under `.venv`; closeout in the WO §31. **Phase 2 is governed by WO §30 — generic travel domain + referential-integrity invariant; no narrator-specific export logic.** Both machines audited 2026-09-10: travel lives on the laptop, conversations/bio facts/audio on the desktop; neither is "the copy" (§31 data-location finding).
 >
@@ -78,7 +95,7 @@ rule back. The claim that matters is the one about obligations.)*
 >
 > ---
 >
-> # NOW — **THE LAPTOP REBUILD IS ACCEPTED (2026-09-15).** `WO-LOREVOX-PORTABLE-NARRATOR-01` · runbook and closeout in `docs/handoffs/HANDOFF_2026-09-15_LAPTOP-REBUILD-{RUNBOOK,CLOSEOUT}.md`
+> # **THE LAPTOP REBUILD IS ACCEPTED (2026-09-15).** *(This was the NOW block until 2026-09-22; kept as the measured record. There is only ever ONE NOW block, and it is at the top.)* `WO-LOREVOX-PORTABLE-NARRATOR-01` · runbook and closeout in `docs/handoffs/HANDOFF_2026-09-15_LAPTOP-REBUILD-{RUNBOOK,CLOSEOUT}.md`
 >
 > **`/mnt/c/hornelore_data` now holds exactly Christopher, Kent and Janice** — restored from packages exported from that same root hours earlier, each re-exporting to a semantically equivalent package. The laptop keeps its own root and its own `DB_NAME=hornelore.sqlite3`; Phase 7 did not move it and the desktop's `/mnt/c/lorevox_data` was **not** adopted.
 >

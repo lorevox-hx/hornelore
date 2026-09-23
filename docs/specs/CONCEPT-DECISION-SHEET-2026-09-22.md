@@ -17,7 +17,14 @@ decision, not a correction.
 
 ## 1. Free wins — no product decision needed
 
-### 1a. Wanted at both ends, reaching neither (4)
+### 1a. Wanted at both ends, reaching neither (5 — see appendix `B01`–`B05`)
+
+*(Superseded as a count, 2026-09-22. The generated appendix
+[`CONCEPT-DECISION-APPENDIX.md`](CONCEPT-DECISION-APPENDIX.md) finds a
+**fifth**: the extractor looks for `grandparents.memorableStory` and the form
+offers `grandparents.memorableStories` — singular against plural. The hand
+search below found four. The decision packet cites the appendix, not this
+table.)*
 
 **The extractor is told to look for these and the form offers a home for
 them, and they never meet, because one says `dateOfBirth` and the other says
