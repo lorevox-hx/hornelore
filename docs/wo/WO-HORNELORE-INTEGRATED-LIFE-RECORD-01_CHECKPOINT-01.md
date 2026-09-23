@@ -1179,16 +1179,70 @@ That makes **3 writes, all wrong, 0 correct**. The scorer cannot see it: case_01
   - the `ageAtDeath` reintroduction condition above.
 - **Carried as filed, not scheduled:** the shadowed `_DATE_FIELD_SUFFIXES`; the stale test stub in `test_extraction_prompt_budget`; the `kids`/"Child" test; `fastapi_stub.install()` checking `sys.modules` rather than whether the package is installed; `api.log` truncating raw output at 500 characters.
 
+### B3 / A4 — subject binding: design, before code (2026-09-23)
+
+**Scope note.** In the pre-build batch plan (`A2–A4 scope`, above), "A4" meant **relevance-scoped extraction**: prompt scoping through `extraction_paths_for_scope`. Since B1, Chris has directed A4 to be **subject binding**. This design is subject binding. Relevance scoping is a prompt change; B2 showed prompt changes move about 58 of 114 outputs. It is **not** in B3, and whether it returns as its own batch is Chris's call.
+
+**Invariant.** *Every extracted fact must identify the person or entity it describes before it can become executable. A fact about a parent, grandparent, great-grandparent, child, spouse, animal or the narrator is not accepted merely because its field path belongs to the right broad section.*
+
+**One mechanism, three parts, all reusing machinery that already ships. No case-specific patterns.**
+
+1. **Evidence span: where in the answer did this value come from?**
+   - Each item carries the text it was extracted from, **as spoken, before normalization**, through the grouper's existing `_locate_value` hook (`extract.py:7655-7663`).
+   - Today R4-H (`_apply_write_time_normalisation`, `:6657`) rewrites "October 4, 1991" → "1991-10-04" without setting it. The grouper then cannot find the value, and it falls through to the last child. That is **case_070**.
+2. **Span subject: whom does that clause describe?**
+   - This is resolved with the kinship guard's existing parts: sentence-clamped `_name_windows`, `_ROLE_LOCAL_LANGUAGE`, and `relationship_interpreter`.
+   - Added: **first person** ("I was twenty-eight") → the narrator.
+   - Added: **one level of possessive chaining** relative to the turn's subject: "*his own father* George" said of a parent → a grandparent; "*her father* John Michael" said of a grandmother → a great-grandparent.
+3. **Decision, at the finalization seam, beside the kinship and date guards.**
+   - Span subject matches the item's role → executable, as today.
+   - Span subject resolves to a **different** role → **not executable**. The item goes to review as `wrong_subject`, proposing the resolved role's path.
+   - Span unlocatable, or subject unresolved → **unchanged**. The existing guards (turnscope, kinship, subject filter) keep their jobs.
+   - Nothing that ships today becomes executable because of B3 unless the evidence says so. The one deliberate exception is the D1c reintroduction below.
+
+**Regression set.** Values come from the real B2/B2r model output. The binding is produced by shipped code and asserted at `run_field_extraction`.
+
+| Case | Today | Under B3 | Which part |
+|---|---|---|---|
+| 070 | Gretchen's DOB grouped onto Cole; both held as conflicting | each date on its own child, executable | 1 |
+| 068 | George's 1914 death on father Ervin (B2 executed it; B2r held it only because it conflicted) | 1914 → `wrong_subject` (grandparent); Ervin's 1967 executable | 2, 3 |
+| 015 / 068 `ageAtDeath` | "I was twenty-eight" → `parents.ageAtDeath=28` (now dropped by the D1c revert) | narrator span → `wrong_subject` | 2, 3 |
+| 065 | great-grandfather emitted as a grandparent; kinship guard quarantines `relationship_unstated` | still not executable; review proposes `greatGrandparents` | 2 |
+| 031 | grandparents emitted as `parents.*`; turnscope **drops** them silently | see decision 1 | 2 |
+| 102 | `grandparents.birthPlace=Ross` from "where my grandmother's people **homesteaded**" | **not a subject error**: the subject cue matches; the *predicate* is wrong (homestead ≠ birth) | see decision 2 |
+| 033 / 034 | "Civil War" in `militaryBranch`, the event in `memorableStories` | **not a subject error**: right person, wrong attribute; a reproducible prompt effect (B2) | out of B3 |
+
+**Decisions for Chris before code**
+1. **Wrong subject: hold for review, or re-home?** Recommended: **hold** in B3. Re-homing writes a fact into another person's record on the model's say-so. Revisit when Batch B has real person records.
+2. **102: add a predicate check in B3?** A birth or death field would require a birth or death cue in its span. Recommended: **yes**. It is the same span machinery, and "fact binding = subject + predicate" is the honest statement of the invariant.
+3. **D1c reintroduction in B3:** `ageAtDeath` becomes admissible again **only** when its span's subject is the deceased person. Recommended: **yes**, as the batch's last step, with a mutation proving the narrator-age case stays rejected.
+4. **Measurement.** `api.log` truncates raw model output at 500 characters (46 of 114 calls), which blocked a full replay in B2. Raising that log limit is logging only, not product behaviour. Recommended: **yes**, in B3's first commit, so B3's own replay is complete.
+
+**Acceptance.**
+- A live run at 768, compared with **B2r**. The noise band is 12/114 final outputs with an identical prompt; B3 changes no prompt.
+- The standard block: pass, v2/v3, mnw, named flips, scorer-drift audit.
+- New counts: `wrong_subject` holds, and every executable birth, death or age value traced to its span subject.
+- Tests plus mutations for each part. No regex written for a named case.
+
 ## 6. Explicit statement
 
-During this checkpoint: **no live data was changed by Claude** (every
-database access from the sandbox was `mode=ro`; the §0A deletions were run by
-Chris through the product's route); **no git command was executed** (HEAD was
-read from `.git/HEAD` and the ref file; no lock was taken); **no life-record
-product-code migration was begun**. Product code touched: **only**
-`ui/js/bio-builder-graph.js` and its test, under the authorized Batch R.
-Nothing under `server/`.
+*(Corrected 2026-09-23 at B3 start. This section was written for the Repair A
+checkpoint and was not updated as the same living document took in Batches A1–A3
+and B0–B2. Its original claims — "Product code touched: only
+`ui/js/bio-builder-graph.js`… Nothing under `server/`" and an open request for the
+Repair A graph diff — were true when written and are wrong now. Read the per-batch
+sections above for what each batch touched.)*
 
-One outstanding request to Chris: the read-only `git diff` into
-`.runtime/repairA-graph.diff`, so §4 can be closed on the bytes rather than
-on the author's memory.
+**Through Repair A / Batch R:** no live data was changed by Claude (every sandbox
+database access was `mode=ro`; the §0A deletions were run by Chris through the
+product's route), and no life-record product-code migration was begun. Product
+code touched then: `ui/js/bio-builder-graph.js` and its test only. The Repair A
+graph-diff request is **closed** — Repair A landed and was reviewed (§5A).
+
+**Since then, server product code HAS changed**, each under an authorized batch:
+A1/A5 (concept catalog + migration plan, `server/code/api/services/`), A2
+(`suggestion_review.py`), A3 and the B2 repairs (`server/code/api/routers/extract.py`:
+vocabulary, redirects, retirements, the date-uncertainty guard, the D1c revert).
+Commits through `7bc681b` are Chris's; agents ran read-only git only (`log`,
+`status`, `show`, with `--no-optional-locks` after one stray lock on 2026-09-23,
+removed by Chris).
