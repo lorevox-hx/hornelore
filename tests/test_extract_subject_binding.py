@@ -258,6 +258,34 @@ class B3eAgeAtDeath(unittest.TestCase):
         self.assertEqual([e["kind"] for e in entries], ["age_unbound"])
 
 
+CASE_065 = _BANK["case_065"]["narratorReply"]
+# case_065 as the B3 live run executed it (report `raw_items`, dc20d53).
+CASE_065_ITEMS = [_i("grandparents.maidenName", "Shong"), _i("grandparents.firstName", "Elizabeth"),
+                  _i("grandparents.birthPlace", "near Nancy, Lorraine, France"),
+                  _i("grandparents.ancestry", "French")]
+
+
+class B3FinalPlaceLocation(unittest.TestCase):
+    """B3 final repair: a place is located by its words, then bound as usual."""
+
+    def test_case_065_great_grandfathers_birthplace_is_not_the_grandmothers(self):
+        # "Her father John Michael Shong was born near Nancy in Lorraine, France"
+        items = [_obj("grandparents.firstName", "Elizabeth"),
+                 _obj("grandparents.birthPlace", "near Nancy, Lorraine, France")]
+        out, entries, _ = X._apply_subject_binding_guard(items, answer=CASE_065, clarifications=[])
+        self.assertEqual([(e["value"], e["resolved_subject_role"], e["reasons"]) for e in entries],
+                         [("near Nancy, Lorraine, France", "greatGrandparents", ["wrong_subject"])])
+
+    def test_a_correctly_attributed_birthplace_still_passes(self):
+        items = [_obj("parents.birthPlace", "near Minot, North Dakota")]
+        out, entries, _ = X._apply_subject_binding_guard(
+            items, answer="My mother was born near Minot in North Dakota.", clarifications=[])
+        self.assertEqual(([i.value for i in out], entries), (["near Minot, North Dakota"], []))
+
+    def test_words_must_share_one_sentence(self):
+        self.assertEqual(X._place_word_positions("I love Nancy. Lorraine is far.", "Nancy, Lorraine"), [])
+
+
 @unittest.skipUnless(_REAL_STACK, "production boundary needs real pydantic — run in .venv")
 class ProductionBoundary(unittest.TestCase):
     """What run_field_extraction RETURNS. Only the network call is replaced."""
@@ -325,6 +353,16 @@ class ProductionBoundary(unittest.TestCase):
             "parental_care", "parents.deathDate")
         self.assertIn(("parents.ageAtDeath", "64"),
                       [(i.fieldPath, i.value) for i in resp.items])
+
+
+    def test_case_065_replayed_birthplace_is_held_as_wrong_subject(self):
+        resp = self._run(CASE_065, CASE_065_ITEMS, "family_origins", "grandparents.ancestry")
+        self.assertNotIn("grandparents.birthPlace", [i.fieldPath for i in resp.items])
+        held = [c for c in resp.clarification_required if c.get("kind") == "wrong_subject"]
+        self.assertEqual([(c["value"], c["resolved_subject_role"]) for c in held],
+                         [("near Nancy, Lorraine, France", "greatGrandparents")])
+        self.assertIn(("grandparents.firstName", "Elizabeth"),
+                      [(i.fieldPath, i.value) for i in resp.items], "the grandmother herself stays")
 
 
 if __name__ == "__main__":

@@ -10039,6 +10039,29 @@ def _governing_role(answer: str, pos: int, mentions):
     return g[0] if g else None
 
 
+# B3 final repair (case_065): a PLACE is located by its words when the
+# model's punctuation differs from the narrator's -- "near Nancy, Lorraine,
+# France" was said as "near Nancy in Lorraine, France". Every content word of
+# the value must appear in ONE sentence; the position is where the first of
+# them is said there. Nothing else about binding changes.
+_PLACE_LEAVES = ("placeOfBirth", "birthPlace", "placeOfDeath", "deathPlace")
+_PLACE_FILLER = {"near", "in", "the", "of", "and", "at", "on", "outside", "around", "by"}
+
+
+def _place_word_positions(answer: str, value: str) -> List[int]:
+    words = [w.lower() for w in re.findall(r"[A-Za-z][A-Za-z'.-]*", value)
+             if w.lower() not in _PLACE_FILLER]
+    if not words:
+        return []
+    hits = []
+    for m in _SENTENCE_RX.finditer(answer):
+        sent = m.group(0).lower()
+        found = [re.search(r"(?<![a-z])" + re.escape(w) + r"(?![a-z])", sent) for w in words]
+        if all(found):
+            hits.append(m.start() + min(f.start() for f in found))
+    return hits
+
+
 _MONTHS = ("january", "february", "march", "april", "may", "june", "july",
            "august", "september", "october", "november", "december")
 
@@ -10063,7 +10086,10 @@ def _value_positions(answer: str, it) -> List[int]:
                     r"(?<![\w-])" + re.escape(text) + r"(?![\w-])", low))
         return sorted(hits)
     if not _is_uncertainty_guarded_date_field(getattr(it, "fieldPath", "") or ""):
-        return [m.start() for m in re.finditer(re.escape(val.lower()), low)] if val else []
+        hits = [m.start() for m in re.finditer(re.escape(val.lower()), low)] if val else []
+        if not hits and val and (getattr(it, "fieldPath", "") or "").rsplit(".", 1)[-1] in _PLACE_LEAVES:
+            hits = _place_word_positions(answer, val)
+        return hits
     spoken = str(getattr(it, "normalized_from", "") or "")
     hits = set()
     for text in (val, spoken):
