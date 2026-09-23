@@ -1010,6 +1010,104 @@ EXTRACTABLE_FIELDS went from **146 to 131** paths. Recompiled catalog: 84 concep
 - `personal.middleName`/`relationships.closeFriends` taught but not fields (pre-existing);
 - **A4 subject binding**.
 
+### `r6-batchA-b2-a3` — B2, A2 + complete A3, read 2026-09-23
+
+**Run identity** `[verified_by_read: report header]`: `bb21631`, **clean**. Scorer `318df0d2ff1f`; bank v1 `b487e54cd84d`. Settings as B1: bounded on, narrative on, cap 128 / compound 768. **131** extractable fields. `api.log` from line 279,702; 115 calls = 114 cases + warmup. Each call was aligned to its case by `section == subTopic`, 114/114 in both windows.
+
+**Aggregates.** v1 = historical paths; v2 = decided paths. The v2 figures come from `scripts/eval/rescore_stored_outputs.py`, rescoring the same stored items.
+
+| | B1 v1 | B2 v1 | B1 v2 | **B2 v2** |
+|---|---|---|---|---|
+| pass | 63* | 59 | 66 | **66** |
+| v3 / v2 contract | 37 · 32 | 35 · 30 | 40 · 35 | **40 · 35** |
+| must recall | .638 | .582 | .647 | .626 |
+| must_not_write | 0 | 0 | 0 | 0 |
+
+*B1 live 63; its rescore gives 62 because of the 100-character `raw_items` cap on case_073.
+
+**Verdict: no net score change on the decided bank.** Underneath the equal total are two different effects.
+
+1. **Deterministic A3 code paths, net positive.** D12's `REDIRECT` turns the model's habitual `family.marriageDate` into a scored hit on the same model output. It flips **case_004** and **case_072** to pass and lifts **case_064** from 0 to 0.5. Nothing else in the A3 code paths moved a score.
+2. **The prompt changes perturbed the model's output, net negative.** **77 of 114 outputs changed item content**, against 11 of 115 in B0→B1, where only the cap changed. Pretty-printed output went from 29 to 51, with total characters flat (75.1k vs 74.3k). Of the resulting flips, four went up (012, 037, 042, 078) and six went down (006, 033, 034, 063, 085, 107). With no repeat run, this cannot yet be told apart from decoding noise.
+
+**Every case that changed on v2, attributed** `[verified_by_execution: raw output + validate/turnscope/guard lines per call]`:
+
+| Case | v2 move | Cause |
+|---|---|---|
+| 004 | F→T | **D12**: same output both runs; B1 rejected `family.marriageDate`, B2 redirected it |
+| 072 | F→T | **D12** redirect (hit `marriage.marriageDate`) |
+| 064 | .00→.50 | **D12** redirect. The spouse group was quarantined in both runs; A2-spouse changed only its label |
+| 012 | F→T | Prompt/D12: the model now emits `marriage.marriageDate` directly; in B1 it emitted no date. B2 also carries a DERIVED spouse DOB `approximately 1939-11` (pre-existing value-grounding rule, noted) |
+| 042 | F→T | Model wording: species `Golden Retriever` vs `dog`. D13 `pets.birthDate` was captured but is unscored; D11 removed `pets.notes` |
+| 037 | F→T | Model wording on `lifestyleChange`. D3 now rejects `health.majorCondition` (unscored on v2) |
+| 078 | F→T | Model wording on `higherEducation` |
+| 006 | T→F | Model routed the job to `community.*` instead of `education.*`. No A3 path involved |
+| 033 | T→F | Model put "Civil War" in `militaryBranch` and dates in `militaryEvent`. The AncMil *code* removal does not score on v2; the rewritten AncMil *prompt rule* is the only A3 change on this turn. Plausible, unproven |
+| 034 | T→F | Model put the event in `memorableStories`. Same note as 033 |
+| 063 | T→F | Model terse: 2 items, schooling lost |
+| 085 | T→F | Model spelled occupation `parents.profession` (invalid); in B1 it used `parents.workplace` (aliased). D11 now rejects `deliverer→parents.notes` (unscored) |
+| 107 | T→F | Model omitted `parents.birthPlace`. No A3 path involved |
+| 031 | .50→.00 | Model sent both grandparents to `parents.*`; turnscope dropped them; the nameless `side` was quarantined |
+| 065 | .53→.00 | Model bound the **great-grandfather** as a grandparent; the kinship guard correctly quarantined him. **A4 class.** Also cap class (a) |
+| 047, 066, 073, 077, 089 | score only | Model variation. On 066, **CatchAll** now rejects `parents.sibling.*` instead of aliasing it into `notableLifeEvents`, which B1 then quarantined anyway |
+| 079 | .53→.43 | **D1f** captured `siblings.middleName` Edward/Richard (in B1 "Richard" was a quarantined firstName). The score fell on a should_ignore write of the narrator's own, true birthplace |
+| 088 | 1.0→.70 (pass) | **D11**: with no notes bucket, the model writes `pets.name`/`species`/`residence.place`, which this follow-up marks should_ignore. v2 pass is hollow (0/0) |
+| 091 | .90→.80 (pass) | **D12** redirect writes `marriage.marriageDate="October 10th"` (no year) on a should_ignore turn |
+| 102 | 1.0→.70 (pass) | Model: B1 was a zero-item fallback; B2 is a 30× repetition loop to the cap, writing `grandparents.birthPlace=Ross` (**A4 class**) |
+
+**The requested aggregates, decomposed.**
+- **should_ignore leak 8→15 of 68** (11.8%→22.1%). 6 of the +7 come from two cases: 088 +3 (D11 consequence) and 102 +3 (repetition loop). The rest: 066, 079 and 082 +1 each; 078 and 089 −1 each.
+- **missing 51→63, +12.** The runner computes it against the **v1** bank.
+  - +5 are v1 expectations of retired behaviour: 033 and 034 expect the narrator `military.significantEvent` duplicate; 037 expects `health.majorCondition`; 046 and 088 expect `pets.notes`.
+  - +10 are model output changes: 024, 031 ×2, 047, 063, 065, 073, 085, 087, 107.
+  - −3 is case_080, which moved from missing to preserved-for-review.
+- **wrong_executable 23→18.**
+  - Only two wrong writes became correct: 037 and 042, both model wording, neither an A3 code path.
+  - Five wrong writes became missing: 024, 031, 087 (model) and **046, 088 (D11: no notes-bucket write, by design)**.
+  - Two new wrong writes: 006 and 075.
+  - So the genuine A3 reduction is **2 notes-bucket writes prevented**; nothing moved from wrong to right.
+- **executed_correct 117→106**, preserved_for_review 5→9.
+
+**Parse and fallback, forensic** (from `api.log`; the report's `truncation_rate` is structurally 0 and ignored).
+
+| | B1 | B2 |
+|---|---|---|
+| direct / salvaged | 104 / 10 | 101 / 13 |
+| (a) probable cap exhaustion @768 | 3 (039, 068, 081) | **8** (065, 068, 077, 080, 081, 084, 087, 102) |
+| (a) @128 | 1 (055) | 1 (055) |
+| (b) premature stop | 2 (079, 103) | 2 (044, 103) |
+| (c) malformed | 4 (013, 030, 070 `#`, 072) | 2 (023 `//` comment, 070) |
+| fallback: guards removed all | 4 (008, 018, 038, 080) | 3 (008, 018, 100) |
+| fallback: every item rejected | 7 (055, 056, 061, 074, 100, 101, 102) | 2 (055, 101) |
+| fallback: model returned nothing | 2 (096, 097) | 4 (038, 056, 096, 097) |
+
+The five extra cap exhaustions are spent on junk: lists of empty-value fields (077, 080), invented paths (065, 087) and a 30× repetition loop (102). **More tokens would not recover a fact from any of them.** "Every item rejected" fell 7→2 partly because the retired marriage spelling now redirects (061), which is the blocker below.
+
+**BLOCKER — A3-created, found by log reading; the scorer cannot see it.** case_061: *"I think it was 1956, maybe 1957. I'm not sure of the exact year anymore."* In B1, `family.marriageDate` 1956 and 1957 were rejected, but only by accident, because the spelling was invalid. In B2 the D12 redirect **executes both as `marriage.marriageDate`**: `executable_count=2`, review 0. The bank has no `must_not_write` on that date, so the score is unchanged.
+- Fixing the duplicate `_DATE_FIELD_SUFFIXES` alone would **not** catch it, because `_reads_as_uncertainty` reads the *value* and 1956/1957 are clean years. The hedge is in the narrator's sentence, and no live mechanism holds a date the narrator hedged. SPANTAG's `uncertainty_cue` is off.
+- Across B2, date values whose sentence the narrator hedged: B1 **0**, B2 **3**. 061 ×2 (D12) and 042 `pets.birthDate="around 1964"` (D13). The D13 one keeps its hedge in the value, as D13 allows. The 061 ones lose it and contradict each other.
+
+**Not caused by A2/A3, carried to A4:** case_065 (great-grandfather bound as grandparent), case_102 (`grandparents.birthPlace=Ross`), case_031 (grandparents emitted as `parents.*`).
+
+### B2 repair — hedged or conflicting dates are held for review (approved 2026-09-23)
+
+**Scope as approved.** No prompt change, no A4 change, the 128/768 caps unchanged, the scorer and both banks untouched, and `_DATE_FIELD_SUFFIXES` **not** revived.
+
+**What landed:** `_apply_date_uncertainty_guard` in `extract.py`, called in `_finalize_extracted_items` right after the kinship guard. It uses the same seam, the same `(items, entries, clarifications)` shape and the same `not_applied` review-entry form (kind `uncertain_date`).
+- **`conflicting_values`:** two different values for one date field of **one entity** (fieldPath + repeatableGroup) in one turn. Both are held.
+- **`narrator_uncertain`:** the sentence the value came from carries a hedge ("I think", "maybe", "not sure", "probably", "or so", and similar). "I think about" does not count.
+- **Exempt:** a value carrying its own approximation ("around 1964") executes as stated.
+- The guard has its own date-leaf list, deliberately separate from the shadowed constant.
+
+**Replay on stored outputs, measured before any live run.** Built with the shipped `_group_repeatable_items` plus the guard: **B1 holds 0 values; B2 holds 4.**
+- **case_061:** 1956 and 1957, for both reasons. This is the blocker.
+- **case_070:** two different children's birth dates that grouping had put on **one** child (`children_3`, Cole). R4-H normalizes the dates *before* grouping, so "1991-10-04" cannot be found in "October 4, 1991" and falls through to the last child. **In B2, Gretchen's birth date was executed on Cole's record.** Holding it is correct under the approved rule. It is also a **predictable score cost**: the scorer matches by path and cannot see which person a value is on. The grouping-after-normalization defect is entity binding and belongs to **A4**; it is filed here and not fixed.
+
+**Tests:** `tests/test_extract_date_uncertainty_guard.py`.
+- 11 helper tests: held for review, stays executable, and envelope hygiene.
+- 3 production-boundary tests through `run_field_extraction`. Only the network call is replaced; the model's raw text goes through the shipped `_parse_llm_json`, so the D12 redirect is on the tested path. They need real pydantic and **skip in the sandbox**.
+- **Mutations:** 7 added to `scripts/eval/mutate_a3_vocabulary.py`. In the sandbox 6 are caught; the seam mutation survives only by that skip and must be caught in `.venv`.
+
 ## 6. Explicit statement
 
 During this checkpoint: **no live data was changed by Claude** (every
