@@ -122,10 +122,18 @@ one.
 > anchor for the life-span scaffold. `person.birth.date` is one semantic
 > concept applicable to any person; UI sections and legacy paths bind
 > subjects to that concept. The narrator's instance carries the additional
-> role of supplying the life-span start. The current date supplies the
-> dynamic endpoint for a living narrator; a known death date supplies it for
-> a deceased one. Approximate or missing dates remain approximate or
-> missing. No date is invented to make the scaffold work.**
+> role of supplying the life-span start. **A living narrator's span stays
+> open. A known death date ends it. A deceased narrator with no known death
+> date is marked deceased and given no invented endpoint.** Approximate or
+> missing dates remain approximate or missing. No date is invented to make
+> the scaffold work.**
+>
+> *(D5(a), decided 2026-09-22. This contract said "the current date supplies
+> the dynamic endpoint for a living narrator" until then. That described a
+> feature the product does not have (checkpoint §3.3b), and the bullets
+> below had already been corrected while the contract above them had not.
+> The same rule now appears in the integrated work order §1.3, the
+> decisions file and the validator's `resolve_life_span`.)*
 
 Consequences, each with an executable check:
 

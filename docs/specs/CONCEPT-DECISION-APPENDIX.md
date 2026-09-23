@@ -65,10 +65,10 @@ PYTHONPYCACHEPREFIX=/tmp/pyc python3 scripts/design/build_concept_catalog.py \
 | G08 | define | `person.birth.place` | great-grandparent | `greatGrandparents.birthPlace` | candidate_only |
 | G09 | define | `person.birth.place` | sibling | `siblings.birthPlace` | candidate_only |
 | G10 | define | `person.birth.place` | spouse | `family.spouse.placeOfBirth` | prefill_if_blank |
-| G11 | define | `person.death.age` | parent | `parents.ageAtDeath` | candidate_only |
-| G12 | define | `person.death.date` | grandparent | `grandparents.deathDate` | candidate_only |
-| G13 | define | `person.death.date` | parent | `parents.deathDate` | candidate_only |
-| G14 | define | `person.death.place` | parent | `parents.placeOfDeath` | candidate_only |
+| G11 | define | `person.death.date` | grandparent | `grandparents.deathDate` | candidate_only |
+| G12 | define | `person.death.date` | parent | `parents.deathDate` | candidate_only |
+| G13 | define | `person.death.place` | parent | `parents.placeOfDeath` | candidate_only |
+| G14 | define | `person.death.reported_age` | parent | `parents.ageAtDeath` | candidate_only |
 | G15 | define | `person.education` | parent | `parents.education` | suggest_only |
 | G16 | define | `person.education` | spouse | `family.spouse.education` | suggest_only |
 | G17 | define | `person.name.birth_family` | great-grandparent | `greatGrandparents.maidenName` | candidate_only |

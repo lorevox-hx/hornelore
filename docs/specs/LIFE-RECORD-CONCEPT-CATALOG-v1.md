@@ -198,8 +198,21 @@ concept:
     asking_anchors:   ["when I was born", ...]   # [] DEACTIVATES Tier 3
     tier3_eligible:   derived, never hand-set
 
+  # ── FOUR INDEPENDENT PROPERTIES (D1f, decided 2026-09-22) ─────────────
+  # None of these implies another. A concept may be askable by Lori and not
+  # extracted from every turn; editable in the questionnaire and never
+  # proactively asked about; extracted and never rendered.
+  questionnaire:   editable | derived_readonly | not_offered
   extraction:
-    write_mode:  prefill_if_blank | suggest_only | never
+    eligible:      true | false        # may the extractor propose it at all
+    scope:         [section/topic ids] # WHEN it is offered to the extractor —
+                                       # never "all fields, every call"
+    write_mode:    candidate_only | suggest_only | never
+  lori:
+    askable:       proactive | responsive_only | never
+    retrievable:   true | false        # may be fetched when relevant
+  narrative_value: high | medium | low  # a property of the life, NOT of the
+                                        # extractor's prompt budget
 
   bindings:                                 # how the concept is REACHED (§2)
     - context: legacy_path
@@ -270,6 +283,28 @@ mismatch. The catalog adds:
 4. every concept states a memoir attribution;
 5. `tier3_eligible` matches its derivation;
 6. counts match the declared totals.
+
+**Breadth is not paid for on every turn (D1f, decided 2026-09-22).** Today
+`_build_extraction_prompt` sends all 146 extraction fields on every call
+(`extract.py:697-702`), although its own comment says *"only fields relevant
+to the current section"*. That coupled the catalog's size to the prompt
+budget: every concept added cost roughly 62 characters on every turn, inside
+the locked 8,192-token window. **The catalog does not accept that coupling.**
+Extraction is offered the concepts whose `extraction.scope` matches the
+current context, so a broad catalog costs budget only where it is relevant.
+**No concept may be judged low-value, or made operator-only, because of what
+the current extractor's prompt costs.** Narrative value is a property of the
+life, not of an implementation.
+
+**The four properties are independent.** It is valid for a concept to be:
+
+- askable or retrievable by Lori, and **not** automatically extracted;
+- editable in the questionnaire, and **never** proactively asked about;
+- extracted, and **not** rendered into the prompt unless mentioned.
+
+The loader enforces this by requiring **each of the four to be stated
+explicitly on every entry**: none has a default, and none is filled in from
+another. An entry that omits one fails to load.
 
 **A new concept requires a catalog entry first.** Adding a path to
 `EXTRACTABLE_FIELDS` without one fails the build. That single rule is what

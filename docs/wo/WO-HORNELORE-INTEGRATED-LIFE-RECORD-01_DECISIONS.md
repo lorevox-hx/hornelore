@@ -1,5 +1,38 @@
 # Integrated life record — decision packet 1
 
+## ✅ DECIDED — Chris, 2026-09-22
+
+This section is the record. The packet below it is kept as the question
+that was answered, and **where the answer refines a recommendation, the
+answer governs.**
+
+| | decision | refinement recorded |
+|---|---|---|
+| **D1a** | approve | — |
+| **D1b** | approve | — |
+| **D1c** | approve | **An age at death stated by a source is a reported assertion; an age derived from birth and death dates is calculated and never stored.** `G14` is `person.death.reported_age`, attached to the death occurrence, not a generic `person.death.age`. If a reported age and a computed age disagree, that is a discrepancy for the operator to see, not something to resolve silently. *(Applied: `build_concept_catalog.py` `CONCEPT_OF`; appendix regenerated.)* |
+| **D1d** | approve | — |
+| **D1e** | approve | — |
+| **D1f** | approve as the **current structured-extraction disposition** | **Batch A requirement:** questionnaire availability, structured-extraction eligibility, Lori asking/retrieval eligibility and narrative value are **separate catalog properties**. The permanent product is not made narrower because the current extractor sends every field on every call; Batch A adds **context/relevance-scoped extraction**, so catalog breadth is not tied to prompt size. The "operator-only for now — would cost prompt on every turn" reasoning in D1f below is **withdrawn** as a basis for judging value. *(Applied: catalog spec §3 entry format and §5.)* |
+| **D2** | (a) | **Grandchildren and prior partners are ordinary people plus relationships, shown within the appropriate eleven-topic UI. No relationship-specific canonical schema is created to give them "sections".** The consequence line in D2 below saying Batch C "adds two people-bearing sections" is superseded. |
+| **D3** | (a) | — |
+| **D4** | (a) | — |
+| **D5** | (a) | **One rule in every governing document and the validator: a living narrator's span stays open; a known death date ends it; a deceased narrator with an unknown date gets no invented endpoint.** *(Applied: integrated WO §1.3 and the DOB contract in `WO-LIFE-RECORD-01` §2A, both of which still said "computed at render". Validator `resolve_life_span` and the checkpoint already matched.)* |
+| **D6** | (a) | — |
+| **D7** | (a) | canonical occurrences and periods, **beneath**, not replacing, the DOB and seven-era scaffold |
+| **D8** | (a) | shared SQLite; narrator isolation enforced in the writer and data model; no 30-call-site routing migration |
+| **D9** | (a) | graph becomes a derived projection of the life record; server-side version protection while the current PUT exists |
+| **D10** | approve | explicit Remove with recoverability, route support, and the full field-level eleven-topic questionnaire |
+
+**Additional catalog invariant, recorded:** a concept may be askable or
+retrievable by Lori **without** being automatically extractable from every
+turn, and may be editable in the questionnaire **without** being something
+Lori should proactively ask about.
+
+**Status:** Batch A is unblocked by these decisions. It has **not** started.
+
+---
+
 **2026-09-22 · for Chris to decide.** Nothing below is implemented, and
 approving it implements nothing: each decision unblocks a batch, and the
 batch does the work. Every recommendation says what it **changes** — in

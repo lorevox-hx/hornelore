@@ -10,7 +10,7 @@ rule back. The claim that matters is the one about obligations.)*
 
 ---
 
-> # ▶ CURRENT ACTION — **INTEGRATED LIFE RECORD: DECISIONS D1–D6 OWED BY CHRIS (2026-09-22)**
+> # ▶ CURRENT ACTION — **INTEGRATED LIFE RECORD: D1–D10 DECIDED (2026-09-22). BATCH A UNBLOCKED, NOT STARTED.**
 >
 > The NOW block is directly below this heading. **It is the authority for what to do next.**
 >
@@ -18,7 +18,7 @@ rule back. The claim that matters is the one about obligations.)*
 >
 > ---
 >
-> # NOW — **INTEGRATED LIFE RECORD. Design pushed, Repair A landed, decisions owed.** `WO-HORNELORE-INTEGRATED-LIFE-RECORD-01`
+> # NOW — **INTEGRATED LIFE RECORD. Design pushed, Repair A landed, D1–D10 decided.** `WO-HORNELORE-INTEGRATED-LIFE-RECORD-01`
 >
 > **Read in this order:** the work order **`docs/wo/WO-HORNELORE-INTEGRATED-LIFE-RECORD-01_Spec.md`** (revision 2, which authorised the §0A cleanup) → **`docs/wo/WO-HORNELORE-INTEGRATED-LIFE-RECORD-01_CHECKPOINT-01.md`** (current state, code map, Repair A record) → **`docs/wo/WO-HORNELORE-INTEGRATED-LIFE-RECORD-01_DECISIONS.md`** (what Chris decides next) → `docs/wo/WO-LIFE-RECORD-01_Spec.md` (the design).
 >
@@ -28,8 +28,9 @@ rule back. The claim that matters is the one about obligations.)*
 > | **design** | pushed. `WO-LIFE-RECORD-01`, concept catalog spec, decision sheet, generated appendix, validator (19 rules · 12 situations · 20 refusals · 11 contracts), mutation gate (31 caught) |
 > | **Repair A** (`bio-builder-graph.js`) | **landed**, 46 checks, reviewed externally against the diff. A routine sync never deletes; explicit removal with tombstones; a save cannot outrun or outlive its restore; explicit No survives a restore |
 > | **owed from Repair A** | server-side version check on the graph PUT (Batch B / D9) · durable *unknown* life status (Batch B) · questionnaire Remove control + `removals` route field (Batch C / D10) |
-> | **next** | **Chris answers D1–D6** (reply form at the end of the decisions file). Then Batch A (concept catalog), with a gate for review |
-> | **product code for the new life record** | **not started**, and not to start before D1–D6 |
+> | **decisions** | **D1–D10 decided by Chris 2026-09-22**, with refinements to D1c, D1f, D2 and D5, recorded at the top of the decisions file. That record governs where it refines the packet |
+> | **next** | **Batch A** (concept catalog), with a gate for review. Unblocked; **not started**. Chris is also building a Version 2 blueprint database with ChatGPT, informed by the review of Version 1 |
+> | **product code for the new life record** | **not started** |
 >
 > **The `⛔ DO NOT ENTER QUESTIONNAIRE DATA` banner further down is SUPERSEDED.** `WO-QUESTIONNAIRE-PERSISTENCE-INTEGRITY-01` (2026-09-17) made `merge_whole_document` the only questionnaire writer: no implicit removals, optimistic concurrency, prior document archived (`questionnaire_persistence.py:559`). `db.upsert_questionnaire` now refuses unless forced (`db.py:6882`). **Not re-verified here:** whether each of the five callers that banner lists was converted. Treat that as `unverified`, not closed.
 >

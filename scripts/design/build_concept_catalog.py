@@ -343,7 +343,12 @@ def main():
         "birthyear": "person.birth.date", "yearofbirth": "person.birth.date",
         "placeofbirth": "person.birth.place", "birthplace": "person.birth.place",
         "deathdate": "person.death.date", "dateofdeath": "person.death.date",
-        "placeofdeath": "person.death.place", "ageatdeath": "person.death.age",
+        "placeofdeath": "person.death.place",
+        # D1c (2026-09-22): an age at death someone STATED is a sourced
+        # assertion on the death occurrence. An age computed from birth and
+        # death dates is derived and never stored — a second stored truth
+        # beside the dates is the redundancy this redesign removes.
+        "ageatdeath": "person.death.reported_age",
         "deceased": "person.life_status",
         "firstname": "person.name.given", "middlename": "person.name.given",
         "lastname": "person.name.family", "maidenname": "person.name.birth_family",
