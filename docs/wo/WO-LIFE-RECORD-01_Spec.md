@@ -10,6 +10,14 @@ rule for required facts (§9.1) · and the acceptance scope for memoir
 attribution (§9.2). The concept catalog is specified in full at
 [`docs/specs/LIFE-RECORD-CONCEPT-CATALOG-v1.md`](../specs/LIFE-RECORD-CONCEPT-CATALOG-v1.md).
 
+**It also corrects a framing error both earlier revisions carried.** They
+treated the event model as the source of Hornelore's chronology. **Hornelore
+already has a chronological spine — the narrator's DOB anchors a life-span
+scaffold and the seven eras are built forward from it.** §2A replaces the
+"event spine" with four temporal layers and a DOB contract; the open question
+in §12 is reframed accordingly. Three validator defects found by external
+review are fixed and now carry mutations (§10).
+
 Supersedes `WO-BIOGRAPHICAL-MODEL-01_Spec.md` (a migration plan) and
 `WO-LIFE-RECORD-MODEL-01_Spec.md` (a model without a questionnaire), and
 merges the independent parallel proposal of the same date.
@@ -73,6 +81,140 @@ Stated first so no superseded claim survives into implementation.
 
 ## 2. The contract — the actual hard problem
 
+### 2A The temporal architecture — Hornelore already has a spine
+
+**Revision 3 corrects a framing error that ran through both earlier
+revisions.** They treated the event model as though it had to *provide*
+Hornelore's chronology. It does not. **The narrator's date of birth already
+anchors a life-span scaffold, and the seven-era framework is built forward
+from it** — the repository review found that without DOB there is no spine at
+all. Replacing that with an "event spine" would displace something the
+product already does well, and would tempt every part of a life into becoming
+an event.
+
+So there is no event spine in this design. There are **four temporal layers**,
+and the occurrence model is the second, not the first.
+
+| layer | what it is | who owns it |
+|---|---|---|
+| **1 · life-span scaffold** | DOB → endpoint. The existing framework | resolved at render, never stored |
+| **2 · occurrences and periods** | weddings, moves, deaths; residences, jobs, service | the life record (§3.5) |
+| **3 · reviewed chronology / Life Map** | what an operator confirmed belongs where | `story_projection`, unchanged |
+| **4 · stories and meaning** | memories, reflections, lessons | `story_candidates` + curation (§2.6) |
+
+Layer 2 never competes with layer 1, but it is **not contained by it**.
+*(Corrected 2026-09-22 — this said layer 2 lives "inside" layer 1, which is
+wrong and would have been built.)* **A parent's birth, a grandparent's war
+service and family history all precede the narrator's own birth, and they
+belong in the biography.** What layer 1 anchors is *the narrator's* life
+span, not the bounds of what may be recorded. An occurrence whose subject is
+someone else may fall anywhere; an occurrence is placed on the narrator's
+scaffold only when it belongs to the narrator's life, and even then only by
+promotion.
+
+Layer 3 is reached only by promotion (§2.5). Layer 4 may reference any of the
+others, several, or none — and referring to a fact never turns a story into
+one.
+
+#### The DOB contract
+
+> **The narrator's accepted birth-date assertion is the structural start
+> anchor for the life-span scaffold. `person.birth.date` is one semantic
+> concept applicable to any person; UI sections and legacy paths bind
+> subjects to that concept. The narrator's instance carries the additional
+> role of supplying the life-span start. The current date supplies the
+> dynamic endpoint for a living narrator; a known death date supplies it for
+> a deceased one. Approximate or missing dates remain approximate or
+> missing. No date is invented to make the scaffold work.**
+
+Consequences, each with an executable check:
+
+- **A pointer, not a copy.** `person.birthEventRef` names the canonical birth
+  occurrence; the date lives on the occurrence (§3.8). The resolver walks
+  `narrator_person_id → birthEventRef → date` rather than searching events.
+  A parent, child or sibling uses the identical structure.
+- **The role is not a second field.** There is no `narrator_dob`. The
+  narrator's DOB is the same concept as their sibling's, with one extra
+  projection: *when subject == narrator, supplies `life_span.start`*.
+- **The endpoint is computed, never written.** A living narrator's span ends
+  at `today()` at render time. Writing `2026-09-22` into the biography makes
+  it wrong tomorrow.
+- **Deceased with a known date** ends there. **Deceased with an unknown
+  date** ends nowhere — the span is not falsely extended to today, which is
+  the death-awareness defect in its temporal form.
+- **No DOB, no spine.** A missing birth date yields an unavailable scaffold,
+  never a default.
+- **Uncertainty propagates, it does not stop at storage.** *"Around 1945"*
+  stays `1945~`. An age derived from an approximate birth renders as
+  *"about 20"*, never *"20 years, 3 months"*.
+- **Conflicting DOBs are one concept with disagreeing assertions** — never
+  two people and never two fields. The scaffold reads the assertion named by
+  an **explicit, recorded acceptance decision** (`acceptedAssertionId`), and
+  the competing one is retained. **It must never infer acceptance from a
+  status name.** `operator_entered` and `narrator_corrected` describe how a
+  value arrived and which write policy admitted it; neither says whose
+  account was accepted, and ordering by them would let an operator's typo
+  outrank the narrator correcting it. **Two live assertions and no recorded
+  decision means the scaffold is UNRESOLVED** — which is reported, not
+  guessed around.
+- **Ages are calendar arithmetic, not year subtraction.** Born 30 August
+  1939, on 12 June 1971 she is **31**, not 32. Where month and day are not
+  known on both sides the honest answer is *"31 or 32"*.
+- **Calendar chronology is not narrative placement.** Knowing the DOB tells
+  you the narrator was 32 in 1971. It does not tell you which chapter of
+  their life they think 1971 belongs to. An era is still never derived — now
+  explicitly not from an age either.
+
+### 2B Where the data physically lives — open, and measured
+
+**SQLite stays.** Nothing found argues otherwise: the person–relationship–
+event model is ordinary relational work, foreign keys enforce the references
+this design depends on, and a document store would not resolve a single one
+of the measured problems — competing authorities, 146-against-118 field
+drift, undelivered suggestions. **Those are contract problems, and an engine
+cannot have an opinion about them.** MongoDB appears nowhere in this
+repository and this is not a reason to introduce it.
+
+**What is genuinely open is one database or one per narrator**, and the
+record needs correcting before that is decided:
+
+- **No per-narrator-database decision exists in this repository.** No
+  `docs/decisions/` entry, no work order, no design note.
+- **Today there is one shared database.** `db.py:77` computes a single
+  module-level `DB_PATH = DATA_DIR / "db" / "lorevox.sqlite3"`; `_connect()`
+  opens that one file; all narrators are rows in it.
+
+So adopting per-narrator databases would be **a new and large migration**,
+not the preservation of an earlier choice. Measured cost:
+
+| | |
+|---:|---|
+| **30** | `sqlite3.connect` call sites outside `db.py` — `trips.py` ×2, `import_repository`, `import_provenance`, `narrator_merge_apply` ×5, the package exporter, the inspector |
+| **79** | `DbLane` entries whose ownership model is *a discriminator column* (`person_id` / `narrator_id`) on rows in one database |
+| **1** | import-time constant that would have to become request-scoped routing |
+
+**And one finding that is an architectural conflict rather than a cost.**
+`narrator_data_inventory.py:339` declares `media_archive_items` as
+`CLASS_SHARED_ROW`: *"rows WITH person_id are the narrator's; rows without
+are shared/family or unassigned — reported, never packaged."* **A photograph
+of Kent and Janice together belongs to no single narrator.** Under one
+database per narrator it has no home — and in a family memoir system shared
+media is the normal case, not an edge case. Per-narrator databases need an
+answer for shared rows before anything else; "put it in both" creates two
+authorities over one photograph, which is the failure this whole redesign is
+about.
+
+**What per-narrator isolation would genuinely buy** is real and should not be
+dismissed: every cross-narrator defect fixed this month — the switch-flush
+write, the graph id collision, the projection written on switch — is the
+class that physical isolation makes impossible rather than merely forbidden.
+That is a serious argument. It is also an argument for a **routing and
+scoping contract**, which can be had without splitting the file.
+
+**Deferred, explicitly, and not quietly promoted.** The life-record work does
+not depend on the answer: it needs correct `DbLane` registration and a
+narrator-scoped write path, both of which are required either way.
+
 ### 2.1 Every store classified
 
 Not eight equivalent truths. Four different *kinds* of thing, and collapsing
@@ -97,8 +239,11 @@ verbatim words. Everything else is a projection, a ledger, or a catalog.
 
 ### 2.2 One concept catalog, checked by producers *and* consumers
 
-The measured failure: extraction holds **141** paths, the questionnaire
-**118**, and `suggestion_review.py:144` records the result — *"20 of 30
+The measured failure: extraction holds **146** paths *(this said 141 until
+2026-09-22 — the catalog's script counts 146 two independent ways, and a
+number quoted from one document into another is how this repository keeps
+getting them wrong)*, the questionnaire **118**, and `suggestion_review.py:144`
+records the result — *"20 of 30
 queued suggestions point at undefined destinations… because `extract.py`'s
 `EXTRACTABLE_FIELDS` has drifted from the questionnaire."* Components grew
 their own lists of what may be recorded. **That is how this system became a
@@ -259,6 +404,7 @@ biography
 person
   id · names[] (§4) · preferredNameRef
   lifeStatus   deceased | explicitly_living | unknown   ← on the person
+  birthEventRef?  deathEventRef?    ← POINTERS, not dates (§2A, §3.8)
   occupations[] · attributes[] · storyRefs[]
 ```
 
@@ -327,9 +473,14 @@ their relationships.
 
 Date and place live on the **Event**. `lifeStatus` lives on the **Person**,
 because a status is not an occurrence: "explicitly living" has no event,
-"deceased, date unknown" has no date. `person.birth` / `person.death` are
-derived accessors. A death event implies deceased; nothing infers the
-reverse.
+"deceased, date unknown" has no date.
+
+The person carries `birthEventRef` and `deathEventRef` — **pointers, not
+dates**. That is not a second copy; it is what lets the life-span resolver
+reach the narrator's DOB in two hops instead of scanning every event, and it
+gives every other person the identical structure. `person.birth` /
+`person.death` remain derived accessors. A death event implies deceased;
+nothing infers the reverse.
 
 ### 3.9 Assertion
 
@@ -376,7 +527,27 @@ implicit removals. A stale `baseRevision` alone is not a conflict.
 ### 3.11 The portable package
 
 `biography.json` + `stories/` + `media/` (relative paths only) + manifest.
-Ids package-scoped; import maps them through a reviewable ledger.
+BagIt with SHA-256, zipped as `.lorevox.zip`, records serialized as one JSONL
+file per table — the shipped format, unchanged.
+
+**RESTORE AND MIGRATE ARE DIFFERENT OPERATIONS, and revision 3 conflated
+them.** This section said *"ids package-scoped; import maps them through a
+reviewable ledger"*, which silently redefined an operation the product
+already has. `narrator_package.py:7` states its meaning:
+
+> *"RESTORE has one meaning: restore this narrator AS this narrator — every
+> id verbatim, nothing overwritten, nothing merged, nothing remapped."*
+
+| | what it does | ids |
+|---|---|---|
+| **restore** | puts a narrator back as themselves | **verbatim**, never remapped |
+| **merge** | folds one narrator's package into an existing record | already a separate path with its own rules |
+| **migrate** (new) | brings an older package into the redesigned schema | mapped through a reviewable ledger (§11) |
+
+The ledger in §11 belongs to **migrate only**. Restore keeps its meaning
+exactly, and the redesign may not quietly widen it — a family's restore path
+is the last line of defence, and an operation that sometimes remaps ids is
+not the operation they were promised.
 
 **Every new table needs a `DbLane` entry in `narrator_data_inventory.py` or
 it silently fails to export or erase.** A gate in the design validator, not
@@ -535,7 +706,15 @@ automatic writer this section declines to build.
   produce correct context; death is never raised unprompted.
 - A known parent occupation closes *parents' work*; a name alone does not.
 - An event reaches the Life Map only through promotion; no era from a year;
-  unplaced never becomes Today.
+  **no era from an age either**; unplaced never becomes Today.
+- **The narrator's DOB anchors the span and a relative's does not.** A living
+  narrator's endpoint moves with the date and is never stored; a deceased
+  narrator with no known death date gets **no endpoint at all**; a missing
+  DOB yields no scaffold rather than a default; an approximate DOB stays
+  approximate and derived ages render as *"about N"*.
+- A conflicting DOB is **one concept with two assertions** — the scaffold
+  reads the accepted one and the other survives; a correction supersedes and
+  moves the scaffold.
 - **A captured story is never edited and never copied**; a correction
   supersedes the curation and both tellings survive.
 - **A place correction changes every reader and no trip's own words**; a
@@ -552,6 +731,8 @@ automatic writer this section declines to build.
 
 ## 11. Import
 
+**This section is MIGRATE, not restore (§3.11).** Restore keeps ids verbatim.
+
 1. Validate the packages; identify which are real people.
 2. **Show the delta, don't ask for a choice.** The packages are older than
    the live record; produce the exact difference first.
@@ -567,9 +748,21 @@ automatic writer this section declines to build.
 
 ## 12. Open decisions
 
-1. **Is the event spine worth its cost**, given it must still pass the
-   promotion gate to reach the Life Map? It buys cross-entity questions and
-   one chronology; it adds a layer.
+1. **The occurrence layer's scope.** *(Reframed in revision 3 — the previous
+   question, "is the event spine worth its cost", was built on the error
+   §2A corrects.)* Hornelore already has a DOB-anchored life-span spine;
+   preserve it. The decision is whether canonical typed occurrences and
+   periods should provide the temporal relationship layer **beneath** that
+   scaffold, or whether that layer should initially be a **derived
+   projection** over the existing domain records. Either way it must never
+   become a competing life-span timeline or bypass Life Map promotion.
+
+   | option | effect |
+   |---|---|
+   | scaffold + section-specific records (today) | keeps the timeline, keeps the drift: `parents.birthDate`, `children.dateOfBirth`, jobs, homes and trips stay separate representations |
+   | replace the scaffold with a universal event spine | **rejected** — displaces what works and makes everything an event |
+   | **scaffold + canonical occurrences/periods** | the recommendation: one representation of what happened, stories independent, promotion separate |
+   | scaffold + derived occurrence index only | lower-change migration path; does not by itself remove the multiple representations that caused the drift |
 2. **Does the eleven-topic form read like something you'd fill in?**
 3. **Sensitive attributes** — heritage and faith are ordinary for a memoir;
    health and orientation need a deliberate decision.
@@ -579,5 +772,23 @@ automatic writer this section declines to build.
    absence is what produced the present drift. Specification:
    [`LIFE-RECORD-CONCEPT-CATALOG-v1.md`](../specs/LIFE-RECORD-CONCEPT-CATALOG-v1.md).
 
-**Still genuinely open, and needing Chris rather than more design:** 1, 2, 3
-and 4 above. None blocks the catalog.
+6. **One database or one per narrator** — §2B, with the measured cost and the
+   shared-row conflict. SQLite either way. Does not block this work.
+
+7. **Packages are checksummed, not encrypted.** BagIt's SHA-256 proves a bag
+   has not changed; it protects **integrity, not confidentiality**. A
+   `.lorevox.zip` holds a family's recordings, transcripts and biography in
+   the clear, and this design says nothing about encryption at rest or in
+   transit, nor about who may open one. That is a gap in the current product,
+   not something this redesign introduces — but the redesign should not
+   inherit it silently.
+
+8. **Browser-only drafts cannot be exported by a server-side exporter.** The
+   questionnaire writes drafts to `localStorage`, and this session's own
+   repair work turned on exactly that boundary. An export that silently
+   omits unsaved operator work is a package that looks complete and is not.
+   Either drafts reach the server before an export is considered valid, or
+   the manifest must declare them as knowingly excluded.
+
+**Still genuinely open, and needing Chris rather than more design:** 1, 2, 3,
+4, 6 and 7. None blocks the catalog.
