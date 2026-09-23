@@ -803,3 +803,25 @@ defect · session close-out mechanics: push, restart, smoke test, venv re-verifi
 (Review §12.2) · root clutter and control-document size, owned by this work order's own
 Steps 3–5 (Review §6) · the published-PII history purge, owned by
 `WO-PRIVACY-CANON-EXTRACTION-01` (Review §1 C1).
+
+## 10. Carried from the Phase 1 close — 2026-09-23 (none blocking the roadmap)
+
+Recorded at B3 acceptance, by Chris's rule: *anything that does not close the current roadmap
+requirement goes here unless it is a genuine blocker.* Evidence for each is in
+`docs/wo/WO-HORNELORE-INTEGRATED-LIFE-RECORD-01_CHECKPOINT-01.md` (B2 / B3 sections).
+
+- **case_031.** Grandparents emitted as `parents.*` are dropped by turnscope before binding. They are **not written**, but not preserved for review either.
+- **case_033 / 034.** Right great-grandfather, wrong military attribute (`militaryBranch="Civil War"`). A reproducible prompt effect from A3, not subject binding.
+- **case_082 / 102.** The model writes several **narrator** birthplaces: every town lived in (082), and "North Dakota" (102). The B3 predicate check covers relatives only (decision 2). Extending it to the narrator's own birth and death fields is a decision for Chris.
+- **case_034.** `greatGrandparents.birthPlace="unknown"` executes. Junk values of that shape are not refused (see also the shadowed `_DATE_FIELD_SUFFIXES`).
+- **Evaluation and logging.**
+  - **Trace arming:** the supported mechanism is `.runtime/eval/current_eval_dir`, and `stop_all.sh` disarms it. Setting `HORNELORE_EXTRACT_EVAL_TRACE` in `.env` did not reach the server in the B3 run. Document one supported arming path; this is tooling, not a product defect.
+  - `api.log` truncates raw output at 500 characters. That is intended (B3 decision 4); the trace is the full-output path.
+  - The runner's `truncation_rate` is structurally 0 (dead instrumentation).
+  - `datetime.utcnow()` deprecation warnings in the runner.
+- **Relevance-scoped prompting** (the original "A4"). Returns only if later measurement shows it is needed.
+- **Tests.**
+  - `test_extract_claims_validators::test_normalizes_relation_kids_to_child` has expected `"Child"` since `ea8638d`.
+  - A stale stub in `test_extraction_prompt_budget`.
+  - `fastapi_stub.install()` checks `sys.modules`, not whether the package is installed.
+- **Pre-existing, filed in B2.** The shadowed `_DATE_FIELD_SUFFIXES` leaves the WO-04 req-7 date guard dead.

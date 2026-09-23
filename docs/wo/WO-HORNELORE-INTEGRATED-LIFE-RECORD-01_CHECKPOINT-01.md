@@ -1304,6 +1304,60 @@ All five parts sit at the finalization seam, in this order: kinship guard → **
 - **case_065.** Still quarantined by the kinship guard; no great-grandparent proposal is added.
 - **case_033 and case_034.** Right person, wrong attribute: a prompt effect, out of scope.
 
+### `r6-batchA-b3-binding` — B3 live gate, read 2026-09-23
+
+**Run.** `dc20d53`, **clean**, 131 fields, prompt `b2a`, cap 128 / compound 768. `api.log` from line 288,055; 115 calls, all aligned to their cases.
+- **The trace did NOT run:** `HORNELORE_EXTRACT_EVAL_TRACE=False` on the server, and there is no trace directory; the running server had not loaded the setting. **Not needed:** every targeted question below was answerable from the report plus `api.log`.
+- **v2:** 67/114 (B2r 66), contract 40/35, must recall .6421 (B2r .6368), **mnw 0**.
+- **Preservation accounting:** executed_correct 108 → 109, wrong_executable 18 → 18, missing 61 → 61.
+- **Guard actions in the live log: 15.** That is exactly the set the stored-output replay predicted.
+
+**The Phase 1 exit questions**
+1. **070 — yes.** Gretchen `1991-10-04` and Cole `2002-04-10` execute on their own children. Amelia's elided "'94" is held by pre-existing value-grounding. The four non-birth "birthplaces" (Austin, New Mexico, Colorado, Hawaii) are held as `predicate_unstated`. The case flips to **pass** (the only v2 flip).
+2. **068 — yes.**
+   - George's `parents.deathDate=1914` is held as `wrong_subject`, resolved to grandparents.
+   - Ervin's `1967-12-23` now **executes**; in B2r it had been held as a conflict.
+   - William McRaith's `1918` stays quarantined by the kinship guard.
+   - The narrator's "28" is **rejected**.
+3. **065 — NO. A known wrong-subject write is NOT prevented.**
+   - `grandparents.birthPlace="near Nancy, Lorraine, France"` executes on grandmother Elizabeth. It is the **great-grandfather's** birthplace: "*Her father* John Michael Shong was born near Nancy *in* Lorraine, France".
+   - It is **not new**: the same write executed in B2r.
+   - B3 missed it because a place value is located **verbatim only**. The model's "Nancy, Lorraine" does not match the narrator's "Nancy in Lorraine", so the value is unlocated, and unlocated means unchanged by design.
+4. **102 — yes.** `grandparents.birthPlace=Ross` ("homesteaded") is held as `predicate_unstated`. The narrator's own `placeOfBirth="North Dakota"` still executes; that is out of scope under decision 2.
+5. **031 — unchanged, as designed and documented.** Turnscope still drops the grandparents' names emitted as `parents.*`. They are not executable, but not preserved either.
+6. **033 / 034 — not subject binding.** The right great-grandfather, but the wrong attribute (`militaryBranch="Civil War"`). 034 also executes `greatGrandparents.birthPlace="unknown"` ×2, a junk value that exists before B3 and is unlocated. No narrator military leak.
+7. **ageAtDeath — half is proven live.**
+   - The narrator's "I was twenty-eight" is **rejected** in 015 and 068, and no `ageAtDeath` executes anywhere.
+   - **No bank case produced a genuine deceased-person age in this run**, so the accepting path is proven only by the production-boundary test ("My father Walter died at 64", `.venv`), not by live data.
+8. **New true-fact loss or silent false write caused by B3 — none found.**
+   - Every B2r → B3 difference was accounted for.
+   - **B3's own actions:** 015, 044, 054, 068, 070, 071, 082, 102. Each removes a false value, or binds a true one.
+   - **Everything else:** 013 (name split), 019, 065 (`grandparents.side` ×2), 076, 081, 085, 098. These happen **before** B3's code runs. The item counts are already lower at the `[extract][summary]` accepted line, and all B3 guards run later, at finalization. So they are model variation, inside the 12/114 noise band.
+   - No v2 pass → fail flips.
+
+### B3 final repair — case_065 — and the Phase 1 close (2026-09-23)
+
+**Why one more repair.** case_065 was a named B3 target and still executed a wrong-person fact in the live gate: the great-grandfather's birthplace written onto grandmother Elizabeth. The cause was one mechanism. A **place** was located verbatim only, and the model's "near Nancy, Lorraine, France" does not match the narrator's "near Nancy *in* Lorraine, France".
+
+**The fix, bounded as Chris set it.**
+- A birth or death place that is not found verbatim is located by its content words, all in **one** sentence (`_place_word_positions`).
+- Everything after that is the existing binding: "*Her father* … was born near Nancy" → one generation above grandmother Elizabeth → `greatGrandparents` ≠ `grandparents` → `wrong_subject`.
+- No special case for 065. No prompt, bank, scorer or cap change, and no live rerun. Nothing else was touched: 031, 033/034, 082 and 102 went to `docs/BACKLOG.md` §10.
+
+**Evidence.**
+- **Replay across the stored outputs of B1, B2, B2r and B3:** the only new hold anywhere is case_065's birthplace, in B2r and B3. Every other binding and predicate hold is unchanged.
+- **Production replay of the B3 live output for 065** (`raw_items`, `dc20d53`) through `run_field_extraction`:
+  - the birthplace is held as `wrong_subject`, resolved to `greatGrandparents`;
+  - Elizabeth herself still executes.
+- **A correctly attributed birthplace still passes:** "My mother was born near Minot in North Dakota".
+- **Sandbox:** 81 tests, 10 skipped (production classes, previewed passing).
+- **The new mutation "places located verbatim only" is caught.** The B3 gate is now 20 mutations; `.venv` confirmation is below.
+
+**B3 ACCEPTED — PHASE 1 CLOSED** (subject to the `.venv` confirmation of this repair, then committed).
+- Subject and event binding holds for every named target: 070, 068, 102, 015/068 age, 061 (B2), and now 065.
+- No true fact was lost to B3, no new silent false write, the prompt is byte-identical, and mnw is 0. v2 is 67/114.
+- The next roadmap step is **Phase 2 / Batch B — the canonical integrated Life Record and its one writer**, then Batch C, the actual Questionnaire V2 in Hornelore.
+
 ## 6. Explicit statement
 
 *(Corrected 2026-09-23 at B3 start. This section was written for the Repair A
