@@ -18,9 +18,10 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 NEED_DIRS = ["server/code/api", "server/code/db"]
 NEED_FILES = ["ui/js/bio-builder-questionnaire.js", "tests/fastapi_stub.py", "tests/test_extract_a3_vocabulary.py",
-              "tests/test_extract_schema_coverage.py", "tests/test_suggestion_review.py"]
+              "tests/test_extract_schema_coverage.py", "tests/test_suggestion_review.py",
+              "tests/test_extract_date_uncertainty_guard.py"]
 SUITES = ["tests.test_extract_a3_vocabulary", "tests.test_extract_schema_coverage",
-          "tests.test_suggestion_review"]
+          "tests.test_suggestion_review", "tests.test_extract_date_uncertainty_guard"]
 EXTRACT = "server/code/api/routers/extract.py"
 REVIEW = "server/code/api/services/suggestion_review.py"
 
@@ -71,6 +72,33 @@ MUTATIONS = [
      "rejected_not_rewritten|RelativeCatchAlls"),
     (EXTRACT, "D1c stated ageAtDeath dropped as too short again",
      '    "ageAtDeath",\n})', '})', "age_at_death|AgeAtDeath"),
+    # ── B2 repair: hedged or conflicting dates go to review ──────────────
+    # The seam mutation is caught only by the ProductionBoundary class, which
+    # needs real pydantic: run this gate in .venv, or it SURVIVES by skip.
+    (EXTRACT, "B2 date-uncertainty guard not called at the seam",
+     '    final_items, _date_entries, clarifications = _apply_date_uncertainty_guard(\n'
+     '        final_items, answer=answer, clarifications=clarifications)',
+     '    _date_entries = []', "ProductionBoundary|case_061_as_the_model"),
+    (EXTRACT, "B2 conflicting values not detected",
+     'if len({_norm_fact_value(m.value) for m in members}) > 1:',
+     'if len({_norm_fact_value(m.value) for m in members}) > 99:',
+     "conflict|case_061"),
+    (EXTRACT, "B2 conflict ignores the entity (fieldPath only)",
+     'slot = (it.fieldPath, getattr(it, "repeatableGroup", None))',
+     'slot = (it.fieldPath, None)', "different_entities"),
+    (EXTRACT, "B2 narrator hedge ignored",
+     'if any(_NARRATOR_HEDGE_RX.search(s)', 'if False and any(_NARRATOR_HEDGE_RX.search(s)',
+     "hedged_date|normalized_date|case_061"),
+    (EXTRACT, "B2 'around 1964' no longer true as stated",
+     '            continue                      # "around 1964" is true as stated',
+     '            pass', "own_approximation|around_1964"),
+    (EXTRACT, "B2 'I think about' read as doubt",
+     'r"\\b(?:i\\s+think(?!\\s+(?:about|of)\\b)|', 'r"\\b(?:i\\s+think|',
+     "thinking_about"),
+    (EXTRACT, "B2 held date dropped instead of preserved",
+     '        entries.append(entry)\n        logger.info(\n            "[extract][date-uncertainty]',
+     '        logger.info(\n            "[extract][date-uncertainty]',
+     "case_061|hedged_date|conflict"),
 ]
 
 

@@ -9715,6 +9715,150 @@ def _apply_kinship_binding_guard(items, req, *, answer: str, clarifications=None
     return ([i for i in items if id(i) not in quarantined], entries, kept)
 
 
+# ── A DATE THE NARRATOR WAS NOT SURE OF IS NOT A FACT YET (B2, 2026-09-23) ──
+#
+# Found by the B2 gate, case_061: "I think it was 1956, maybe 1957. I'm not
+# sure of the exact year anymore." Before A3 the model's `family.marriageDate`
+# was rejected -- by ACCIDENT, the spelling was invalid. D12 redirects that
+# spelling to `marriage.marriageDate`, and both 1956 and 1957 became
+# executable. Nothing else caught them: the value-level uncertainty check
+# (`_reads_as_uncertainty`) reads the VALUE, and "1956" is a clean year. The
+# hedge is in the narrator's sentence.
+#
+# Two rules, both routing to the existing review path (preserved, not
+# dropped -- provisional truth persists, final truth waits for the operator):
+#   1. conflicting_values -- one turn gives two different values for the same
+#      date field of the same entity (fieldPath + repeatableGroup). Neither is
+#      authoritative. Different groups are different people (two children's
+#      birth dates) and are not a conflict.
+#   2. narrator_uncertain -- the sentence the value came from carries a hedge.
+#      EXCEPT when the value carries its own approximation ("around 1964"):
+#      it is then true as stated and stays executable.
+#
+# DELIBERATELY its own suffix list. `_DATE_FIELD_SUFFIXES` is defined twice
+# in this module and the later definition shadows the earlier; reviving that
+# is a separate, filed defect and is NOT part of this repair.
+_UNCERTAIN_DATE_LEAF_SUFFIXES = (
+    "date", "dateofbirth", "birthdate", "deathdate", "year",
+    "servicestart", "serviceend", "periodstart", "periodend",
+)
+
+# Narrator hedges. "I think about/of" is reflection, not doubt.
+_NARRATOR_HEDGE_RX = re.compile(
+    r"\b(?:i\s+think(?!\s+(?:about|of)\b)|i\s+believe|i\s+guess|maybe|"
+    r"not\s+(?:sure|certain)|probably|or\s+so|might\s+have\s+been|"
+    r"could\s+have\s+been|if\s+i\s+remember\s+(?:right|correctly)|"
+    r"i\s+don'?t\s+(?:remember|recall|know)\s+exactly|couldn'?t\s+tell\s+you|"
+    r"can'?t\s+remember|something\s+like)\b",
+    re.IGNORECASE,
+)
+
+# Approximation carried by the value itself -- true as stated.
+_SELF_APPROXIMATE_VALUE_RX = re.compile(
+    r"(?:\b(?:around|about|approx(?:imately)?|circa|ca\.|c\.|roughly|"
+    r"sometime|early|mid|late|before|after|or\s+so|maybe|probably)\b|[~?])",
+    re.IGNORECASE,
+)
+
+
+def _is_uncertainty_guarded_date_field(field_path: str) -> bool:
+    leaf = (field_path or "").rsplit(".", 1)[-1].lower()
+    return any(leaf.endswith(s) for s in _UNCERTAIN_DATE_LEAF_SUFFIXES)
+
+
+def _source_sentences(answer: str, value: Any) -> List[str]:
+    """The narrator sentences a date value came from.
+
+    Located by its four-digit years (a normalized '1959-10-10' still finds
+    'October 10, 1959'), else by the value text itself ('October 10th').
+    Empty when the value cannot be located -- then this guard has nothing to
+    say; whether it was spoken at all is value-grounding's job.
+    """
+    text = str(value or "").strip()
+    if not answer or not text:
+        return []
+    sentences = [s for s in re.split(r"(?<=[.!?])\s+|\n+", answer) if s.strip()]
+    years = re.findall(r"(?<!\d)(\d{4})(?!\d)", text)
+    if years:
+        return [s for s in sentences if any(y in s for y in years)]
+    low = text.lower()
+    return [s for s in sentences if low in s.lower()]
+
+
+def _apply_date_uncertainty_guard(items, *, answer: str, clarifications=None):
+    """Route hedged or conflicting date values to review. Returns
+    ``(surviving_items, review_entries, clarifications)`` -- the kinship
+    guard's shape, so the seam composes them the same way."""
+    if not items:
+        return items, [], list(clarifications or [])
+
+    dated = [it for it in items
+             if _is_uncertainty_guarded_date_field(getattr(it, "fieldPath", ""))
+             and str(getattr(it, "value", "") or "").strip()]
+    if not dated:
+        return items, [], list(clarifications or [])
+
+    reasons_by_id: Dict[int, List[str]] = {}
+
+    # Rule 1: conflicting values for one date field of one entity.
+    by_slot: Dict[tuple, List[Any]] = {}
+    for it in dated:
+        slot = (it.fieldPath, getattr(it, "repeatableGroup", None))
+        by_slot.setdefault(slot, []).append(it)
+    for members in by_slot.values():
+        if len({_norm_fact_value(m.value) for m in members}) > 1:
+            for m in members:
+                reasons_by_id.setdefault(id(m), []).append("conflicting_values")
+
+    # Rule 2: the narrator hedged the sentence the value came from.
+    for it in dated:
+        if _SELF_APPROXIMATE_VALUE_RX.search(str(it.value)):
+            continue                      # "around 1964" is true as stated
+        if any(_NARRATOR_HEDGE_RX.search(s)
+               for s in _source_sentences(answer, it.value)):
+            reasons_by_id.setdefault(id(it), []).append("narrator_uncertain")
+
+    if not reasons_by_id:
+        return items, [], list(clarifications or [])
+
+    entries = []
+    for it in items:
+        rs = reasons_by_id.get(id(it))
+        if not rs:
+            continue
+        reasons = list(rs)
+        for r_ in (getattr(it, "confirmation_reasons", None) or []):
+            if r_ not in reasons:
+                reasons.append(r_)
+        g_status, g_detail = _value_grounding(it.fieldPath, it.value, answer)
+        proposed = {"fieldPath": it.fieldPath, "value": it.value,
+                    "confidence": it.confidence, "grounding": g_status}
+        if g_detail:
+            proposed["grounding_detail"] = g_detail
+        entry = {
+            "kind": "uncertain_date",
+            "value": it.value,
+            "label": (f"{it.fieldPath.rsplit('.', 1)[-1]} — more than one "
+                      f"date was given" if "conflicting_values" in rs else
+                      f"{it.fieldPath.rsplit('.', 1)[-1]} — the narrator "
+                      f"was not sure"),
+            "proposed_fieldPath": it.fieldPath,
+            "proposed_items": [proposed],
+            "repeatableGroup": getattr(it, "repeatableGroup", None),
+            "not_applied": True,
+        }
+        _sync_confirmation_reasons(entry, reasons)
+        entries.append(entry)
+        logger.info(
+            "[extract][date-uncertainty] HELD %s=%r reasons=%s — not executable",
+            it.fieldPath, it.value, ",".join(entry["reasons"]))
+
+    gone = {(it.fieldPath, str(it.value)) for it in items if id(it) in reasons_by_id}
+    kept = [c for c in (clarifications or [])
+            if (c.get("fieldPath", ""), str(c.get("value", ""))) not in gone]
+    return [it for it in items if id(it) not in reasons_by_id], entries, kept
+
+
 def _sync_confirmation_reasons(target, reasons):
     """Copy a whole ordered reason set onto an item or an envelope entry.
 
@@ -9958,8 +10102,12 @@ def _finalize_extracted_items(items, req, *, answer: str, path: str):
 
     final_items, _kin_entries, clarifications = _apply_kinship_binding_guard(
         final_items, req, answer=answer, clarifications=clarifications)
+    # B2 repair: a hedged or conflicting date is held for review, not executed.
+    final_items, _date_entries, clarifications = _apply_date_uncertainty_guard(
+        final_items, answer=answer, clarifications=clarifications)
 
-    return final_items, list(_kin_entries) + list(clarifications)
+    return (final_items, list(_kin_entries) + list(_date_entries)
+            + list(clarifications))
 
 
 def _apply_transcript_safety_layer(
