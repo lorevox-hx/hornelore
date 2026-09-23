@@ -69,7 +69,11 @@ half of what the extractor is instructed to look for has nowhere to go.**
 ### The structural finding
 
 **The 195 dotted paths and the 84 asking keys share exactly zero keys.**
-Not a few — none. Because they are not two spellings of one vocabulary:
+
+**That zero is a comparison of NAMES, not of meanings, and reading it as zero
+conceptual overlap would be exactly backwards** — conceptually the overlap is
+large. The two vocabularies score zero because they encode different
+dimensions into the same string:
 
 > **An asking key names a concept without a subject. A dotted path encodes
 > subject *and* concept in one flat string — with a different leaf spelling
@@ -88,9 +92,63 @@ birth_date  ~  family.children.dateOfBirth
 The flat path space multiplies one concept by every relation and then spells
 it inconsistently — `dateOfBirth` here, `birthDate` there.
 
+Conceptually these are not four kinds of date. They are:
+
+```
+Narrator P1  → birth date        Sibling P3   → birth date
+Parent   P2  → birth date        Child   P4   → birth date
+```
+
+The subject changes; the concept does not. And the section an operator
+happens to type it into is a **UI fact**, not a semantic one.
+
 **This is the measured case for the entity model.** A person has a birth
 date; the subject is a reference, not a path prefix. The flat paths become
-**addresses into the catalog — aliases — not concepts in their own right.**
+**addresses into the catalog — bindings — not concepts in their own right.**
+
+### Therefore the catalog has two levels
+
+A single flat list of concepts would reproduce the problem under new names —
+`narrator.dob`, `mother.dob`, `child.dob`. Instead:
+
+**Semantic concepts** — subject-neutral, few:
+
+```
+person.birth.date · person.birth.place · person.name · person.life_status
+person.occupation · relationship.kind · event.date · …
+```
+
+**Interaction bindings** — many, and where the mess is absorbed:
+
+```
+UI        narrator card  → person.birth.date on narrator_person_id
+          parent card    → person.birth.date on the parent's person_id
+legacy    personal.dateOfBirth  → narrator          + person.birth.date
+          parents.birthDate     → referenced parent + person.birth.date
+          siblings.birthDate    → referenced sibling+ person.birth.date
+          children.dateOfBirth  → referenced child  + person.birth.date
+asking    birth_date            → subject: narrator + person.birth.date
+```
+
+One concept, five bindings, no duplication — and the narrator's binding is
+the one that additionally supplies `life_span.start`
+([`WO-LIFE-RECORD-01`](../wo/WO-LIFE-RECORD-01_Spec.md) §2A).
+
+### What this does to `bio_facts`
+
+Keeping `bio_facts` as the flat asking index works **only as a compatibility
+projection**. A flat `field_key` cannot identify a fact once arbitrary people
+exist: four relatives with birth dates are four facts, and `birth_date` names
+one row. The real identity is a triple:
+
+```
+(narrator_id, subject_person_id, concept_id)
+```
+
+So: **storage asks what the fact is and who it is about; asking policy asks
+whether Lori should raise it now.** Those are different questions and must
+stop sharing one string. Whether Stage 8 may ever ask about a *sibling's*
+birth date is an asking-policy decision, not a storage one.
 
 ### The death defect, in a fourth place
 
@@ -121,6 +179,10 @@ concept:
   label:         "Date of birth"
 
   subject_kind:  person | place | event | relationship | story | animal | biography
+
+  special_projection:                       # a ROLE of the fact, not a copy
+    when: subject == narrator
+    supplies: life_span.start               # §2A — no `narrator_dob` field
   value_type:    date | text | name | number | enum | boolean_3 | reference | list
   enum_values:   [...]                      # iff enum
   cardinality:   one | many
@@ -138,7 +200,17 @@ concept:
 
   extraction:
     write_mode:  prefill_if_blank | suggest_only | never
-    aliases:     ["personal.dateOfBirth"]
+
+  bindings:                                 # how the concept is REACHED (§2)
+    - context: legacy_path
+      path:    personal.dateOfBirth
+      subject: narrator
+    - context: legacy_path
+      path:    parents.birthDate
+      subject: referenced_parent
+    - context: asking
+      key:     birth_date
+      subject: narrator
 
   profile_seed:  predicate name, or null
   lori:
