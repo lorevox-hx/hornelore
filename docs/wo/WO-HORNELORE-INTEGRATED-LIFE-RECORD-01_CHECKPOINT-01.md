@@ -717,6 +717,112 @@ must follow the baseline. **The translation was reverted, and
 extractor batch. The alias pairs themselves stay in the catalog as inert,
 tested data.
 
+### `r6-batchA-base2` — the valid pre-A2 baseline (B0), read 2026-09-23
+
+**Run identity** `[verified_by_read: master_loop01_r6-batchA-base2.json run_metadata]`: `d446c3f`, **dirty**,
+scorer `318df0d2ff1f`, case bank `b487e54cd84d`, `HORNELORE_EXTRACTION_BOUNDED=True`,
+`MAX_NEW_TOKENS_EXTRACT_COMPOUND=384`, 146 extractable paths. Zero `PROMPT_TOO_LARGE` after the 23:40
+restart (the 55 the whole-log grep counted are all from the void run, last one 23:28:22).
+
+| | `r5k-guard-v2` (`5afead5`, clean) | **`r6-batchA-base2`** |
+|---|---|---|
+| pass | 71/114 | **62/114** |
+| v3 / v2 | 44/72 · 39/72 | **37/72 · 32/72** |
+| must_not_write | 0 | **0** |
+| must_extract recall | 0.679 | 0.633 |
+| should_ignore leak | 0.176 | 0.118 |
+| extractable paths | 140 | 146 |
+
+**Same scorer and same case bank, so this delta IS comparable** — unlike the r5h/r5j/r5k comparisons
+CLAUDE.md warns about. 11 lost, 2 gained (`case_075`, `case_107`).
+
+**Cause of the drop `[verified_by_execution: raw_items diff, both reports]`:** the lost cases' r5k
+outputs contain paths that are no longer in `EXTRACTABLE_FIELDS`. WO-04 renamed/retired them
+**without (a) updating the extractor prompt, (b) adding compatibility redirects, or (c) migrating
+the case bank.**
+
+| Retired path | Lost cases | Still taught by the prompt? |
+|---|---|---|
+| `family.marriageDate` | 004, 012, 023, 072, 076 | **yes** — few-shots `extract.py:793-799`, `:1237-1242`; rule `:1804-1805` ("Do NOT drop family.marriageDate") |
+| `faith.values` | 036 | **yes** — few-shots `:851`, `:1305` |
+| `personal.notes` | 041 | **yes** — guidance `:980`, `:1114` |
+| `residence.period` | 050 | no |
+
+The other four losses are output drift, not rejects: 007 (value changed), 069 (full-sentence values),
+114 (model emitted `personal.birthPlace`), 072 also lost `birthOrder`.
+
+**The case bank still scores the retired paths** `[verified_by_execution]`: must_extract/may_extract
+entries on paths absent from `EXTRACTABLE_FIELDS` — `family.marriageDate` 9 (7 must_extract),
+`military.significantEvent` 2, `faith.values` 2, `residence.period` 2, `personal.culture` 2,
+`military.yearsOfService` 1, `military.deploymentLocation` 1, `faith.significantMoment` 1,
+`family.marriagePlace` 1, `travel.significantTrip` 1. **The scorer matches paths exactly**
+(`fp in extracted_map`, `run_question_bank_extraction_eval.py:~960`; no alias table), so **the D12
+redirect alone will NOT recover these cases** — the extractor will emit `marriage.marriageDate` and the
+bank will still expect `family.marriageDate`.
+
+**Worse, the bank encodes the subject-identity defect:** `case_033` expects
+`military.significantEvent` / `military.yearsOfService` / `military.deploymentLocation` for a
+**great-grandfather's** Civil War service — i.e. it rewards `_ANCESTOR_MIL_DUP_MAP`. Removing that map
+(A3) will drop `case_033` against the current bank. That drop is correct; the expectation is wrong.
+
+**Consequence for A3 — the change set must contain four things together, or the eval cannot be read:**
+1. prompt: every few-shot and rule text moved to canonical paths (no retired path taught);
+2. compatibility redirects per D12/D13;
+3. **case-bank migration** of the retired truth paths, as its own commit, bumping `case_bank_version`;
+4. **re-score the stored `r6-batchA-base2` outputs under the migrated bank** before running A3 live, so
+   bank movement and extractor movement are separated (same discipline as BACKLOG §6a).
+
+**Output/parse metrics (B0)** `[verified_by_read: api.log from 23:40]`: 115 extraction calls (114 cases
++ 1 diag probe) · direct parse 96 · **salvaged 19** (18 at `max_new=384`, raw 1,100–1,503 chars;
+1 at `max_new=128`, the negated-military empty-value list) · rules fallback 13 · not-in-vocab rejects
+**143** · turnscope drops 45 · kinship quarantines 36 · subject-filter strips 2. Two of the salvages
+also carried a `# comment` inside the JSON, which fails parse independently of length.
+
+**Measurement series, agreed 2026-09-23 (Chris + reviewer):**
+- **B0** = this run (bounded, compound cap 384).
+- **B1** = B0 with **only** `MAX_NEW_TOKENS_EXTRACT_COMPOUND=768` — no code change. Compare direct-parse,
+  salvage count, rules fallback, recall, rejects, wrong-subject drops, generated tokens, latency, and
+  whether output grows *more verbose* rather than more correct.
+- **B2** = A2/A3 (after the case-bank migration and B0 re-score).
+- **B3** = A4 relevance-scoped catalog. 768 fixes output capacity; A4 fixes input choice. Each is
+  measured on its own.
+
+### A2–A4 scope, settled 2026-09-23 from `r6-batchA-base2` (`api.log`, 23:40–00:03)
+
+Recorded before the build so the eval's findings are not lost. Evidence lines are in the findings table below.
+
+**A3 — do**
+- Redirect `family.marriageDate` → `marriage.marriageDate` and `family.marriagePlace` → `marriage.marriagePlace` (D12). Tests: legacy accepted and normalised; canonical unchanged; both in one response yield one fact. Keep the emitted path in provenance where that mechanism exists.
+- Add the D1f paths the model is already emitting and losing: `family.children.middleName` (11 rejects), `siblings.middleName` (2), plus the rest of the D1f list.
+- Retire D11/D1d/D1e/D3 paths from `EXTRACTABLE_FIELDS` **and** from every place that still names them: the `hobbies.* → pets.notes` rerouter (`extract.py:6839-6840`), and `_NARRATIVE_CATCHMENT_PATHS` (`:5806-5815`: `parents.notes`, `family.spouse.notes`, `family.marriageNotes`).
+- Remove the ancestor-military copy into the narrator's `military.*` (`_ANCESTOR_MIL_DUP_MAP`, `:7071-7075`).
+- **Remove the catch-all aliases that file people and facts into a story bucket** (`:4715-4719` `parents.sibling.* → parents.notableLifeEvents`, 9 hits this run, names like "Verene" stored as a parent's life event; `:4741` `parents.schooling → parents.notableLifeEvents`; `:5047` `family.relative → parents.notableLifeEvents`). An aunt/uncle is a person + relationship (D2); until Batch B can hold one, the value is logged as a disposition, not rewritten into narrative. Expect score movement on cases the old aliases were satisfying — scorer drift, reported per flip.
+- Fix `parents.ageAtDeath` being dropped as "too short for narrative field" — D1c made it `person.death.reported_age`, a reported number.
+- Reconcile `test_extract_schema_coverage` against WO-04; do not rewrite it green.
+
+**A3 — evaluate, do not assume**
+- `pets.dateOfBirth` → `pets.birthDate` (1 reject, "around 1964", approximate value kept as spoken). **Blocker:** `pets.birthDate` is a form field only; `animal.birth.date` is not extraction-eligible. Making it eligible is a D1f scope change — needs Chris's yes, not just an alias.
+
+**A3 — do not**
+- Rescue `narrator.ageAtMarriage` / `family.spouse.ageAtMarriage` — derived, never stored (D1c/D1e).
+- Add `weather.description` or other model-invented one-offs.
+- Collapse great-grandparent `serviceStart` / `serviceEnd` / `location` into `greatGrandparents.militaryEvent` — D7 needs a structured occurrence/period/place; Batch B.
+- Alias every date-like education field: `education.graduationDate = 1981` is a real date, `education.periodEnd = "retirement"` is not. Education occurrences are Batch B.
+- Add nested schemas (`grandparents.father.*`, `grandparents.mother.*`, `parents.sibling.*`). The rejection clusters (one family-origins answer lost 14 of 16 items) are the evidence for ordinary person + relationship records (D2), not for more hierarchy.
+
+**Batch B/C — recorded**
+- Relation words carrying other facts: `family.children.relation = "boy"` / `"youngest"` are dropped by the allowlist and the child group is then quarantined `relationship_unstated`. In the canonical model the parent–child edge states "child"; sex wording and birth order are their own attributes.
+- Grandparent/great-grandparent relation words have no destination (grandmother ×6, grandfather ×5, great-grandfather ×3).
+
+**A4 acceptance — measured against `r6-batchA-base2`, not just recall and prompt size**
+- pass count, v2/v3, must-not-write, named flips, scorer-drift audit (standard block);
+- prompt tokens per call (baseline 5,020–5,649);
+- **direct-parse rate and salvage/truncation count** (baseline: 10 direct-parse failures in 74 calls, all salvaged);
+- rejected-path count (baseline 78 not-in-vocabulary, 51 distinct);
+- wrong-subject routing (turnscope drops, subject-filter strips, kinship quarantines).
+
+**Output truncation — a flag, not the model (`verified_by_read`).** Dense answers stop near 1,433 characters because `.env` sets `MAX_NEW_TOKENS_EXTRACT_COMPOUND=384`, overriding the code default of 768 (`extract.py:2044`) that LOOP-01 R3 raised for exactly this truncation. The prompt has room: 5,649 + 768 + 512 reserve = 6,929 of 8,192. Raising it is a Tier 5 flag change — Chris's call, and it must be measured on its own, not folded into A4.
+
 ### Measured findings, recorded for the batches that own them
 
 | finding | where | owner |
@@ -725,6 +831,8 @@ tested data.
 | ~~Five notes buckets kept under a generic `note.about_subject`~~ **DECIDED D11:** retired from structured extraction, still questionnaire-editable, bound to their lane (`story.about_person`, `story.faith`, `story.service`, new `story.about_animal`, `trip.story`); values migrate. `note.about_subject` no longer exists. New catalog property `extraction_retired_by`, separate from outright retirement. **A3 removes the five from `EXTRACTABLE_FIELDS`** | catalog | A3 |
 | ~~D1e: `person.service.*` vs `event.service.*`~~ **CONFIRMED** (D1e refinement): `event.service.*`, the great-grandparent as participant. `greatGrandparents.militaryEvent` re-checked and is **not** narrative — label *"military event / deployment / dates"*; `extract.py:5054-5061` routes years of service, deployment location and rank into it — so it binds to new `event.service.occurrence`, not `story.service`. It packs several attributes in one value; Batch B splits it | catalog | Batch B |
 | **Subject-identity defect, for A3:** `_ANCESTOR_MIL_DUP_MAP` (`extract.py:7071-7075`, LOOP-01 R4 Patch J) copies a great-grandparent's `militaryBranch` into the narrator's own `military.branch`, and `militaryUnit`/`militaryEvent` into `military.significantEvent`, "so scorer/consumer code that indexes military service at the root can match". That files an ancestor's service as the narrator's — the fact identity (narrator, **subject**, concept) is broken to satisfy a scorer. `military.significantEvent` is also in no vocabulary. Removing it will likely move eval cases that were scored on the dup; those flips are scorer drift, not regressions | `extract.py:7063-7106` | A3 — eval-gated |
+| **Observed live in `r6-batchA-base2`, `api.log` 2026-09-22 23:41–23:54** (`verified_by_execution`): (1) the ancestor dup-emit above **survives the narrator's own denial** — at 23:50:15 the negation guard strips `military.branch/rank/yearsOfService/deploymentLocation`, but `military.significantEvent` (`"Civil War"`, `"Company G of the 28th Infantry"`) is not in the stripped set, so a narrator who said he never served is left holding his great-grandfather's war. (2) The model keeps emitting **`family.marriageDate`** (rejected 3× — 23:41:58, 23:45:34); WO-04 moved the field to `marriage.marriageDate` (`extract.py:290-292`) but no alias carries the old spelling, so real marriage dates are dropped. Same fact, same subject — **approved as D12 (2026-09-23)** with three required tests; `family.marriagePlace` deliberately excluded until evidence shows it is emitted. (3) **`family.children.middleName` (×7) and `siblings.middleName` (×2) are rejected** — exactly the D1f form paths A3 adds. (4) A rerouter **writes into `pets.notes`** (`extract.py:6839-6840`, `hobbies.hobbies → pets.notes`), and the model emits `pets.notes`/`parents.notes` directly; D11's A3 removal must retarget or remove that rerouter, not just the field. Budget: every call 5,020–5,609 tokens of a 7,296–7,552 budget, catalog 9,116 chars — A4's relevance scoping has room to take | `api.log` | A3 / A4 |
+| **More from the same run, 23:57–00:03** (`verified_by_execution`): (5) **A3 scope for D11/D1d/D1e is wider than the field list.** `_NARRATIVE_CATCHMENT_PATHS` (`extract.py:5806-5815`) keeps `parents.notes` (live at 23:47:08 and 23:50:40) and still names `family.spouse.notes` and `family.marriageNotes`, which D1d/D1e already retired. A3 prunes all three there too. (6) The ancestor-military copy fired again at 00:02:55 in `military_family`, again after a narrator denial — three occurrences in one run. (7) **Candidate aliases the model keeps emitting — NOT approved, listed for Chris:** `greatGrandparents.military.serviceStart/serviceEnd/location` (rejected at 23:49:48 and 00:02:55; the existing alias map already routes `…military.yearsOfService` and `…deploymentLocation` to `militaryEvent`, `extract.py:5060-5061`, but not these); `grandparents.ethnicBackground` and `greatGrandparents.ethnicBackground` → `…ancestry` (23:48:40, 00:02:55); `pets.dateOfBirth` → `pets.birthDate` (23:52:24). (8) The model sometimes writes a `# comment` inside its JSON (23:44:06, 23:48:14); the salvage parser recovers it — not this batch. (9) Denial turns (`negated_military`, `negated_health`) correctly produce nothing, but are logged `method=rules-fallback`, so they count against the parse-success rate: a correct empty answer reads as a failure in that metric | `api.log` | A3 / Chris / scorer |
 | profile_json spells one fact up to three ways (`dob/dateOfBirth`, `pob/placeOfBirth/place_of_birth`, `fullname/fullName/full_name`) | catalog `profile_json` bindings | Batch B |
 | Phase G identity protection reads `profile.get("basics")` from the whole database row, so it is always `{}`; `preferredName`/`birthOrder` are never protected | `db.py:7438-7452` | **filed, not Batch A** |
 | `test_extract_schema_coverage` (April) expects `family.marriageDate` and `residence.period`, which WO-04 removed and `test_extractor_vocabulary` (September) asserts are gone. **6 failures before and after this batch; not caused by it** | tests | A3 |
