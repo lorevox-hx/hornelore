@@ -1251,6 +1251,59 @@ Then one live run with the trace armed, compared with B2r.
 - New counts: `wrong_subject` holds, and every executable birth, death or age value traced to its span subject.
 - Tests plus mutations for each part. No regex written for a named case.
 
+### B3 — built (2026-09-23), before the live run
+
+All five parts sit at the finalization seam, in this order: kinship guard → **subject binding** → **predicate** → **age at death** → date uncertainty. Binding comes first so that the date guard judges a conflict only among correctly bound values.
+- **The prompt is byte-identical to B2r**: one sha256 over the bounded prompt for all 114 bank cases, HEAD versus the working tree, `937ddf04f99923da` both.
+- One code commit. The design said one commit per part, but all five parts are interleaved in `extract.py`, and staging is by path.
+
+**The five parts**
+- **(a) Armed trace.**
+  - `HORNELORE_EXTRACT_EVAL_TRACE` is off by default. When on, it appends one JSON line per call to `.runtime/eval_traces/extract-<date>.jsonl`, carrying the section, target, a hash of the answer (not the answer), and the full raw output.
+  - `api.log` is unchanged; a test asserts it keeps its 500-character prefix while the trace is armed.
+  - The runner header reports the flag as a boolean only.
+- **(b) Evidence span.**
+  - R4-H records what was said in `normalized_from`, which already means exactly that.
+  - The grouper traces a date it cannot find to the spoken text, then its year, then an elided year ("'94"). This happens **only where the old lookup already failed**.
+- **(c) Span subject.**
+  - Mentions: "I", "my/our <kin>", bare "Dad"/"Mom", and names the model extracted.
+  - One generation up for "his/her/their (own)" and for **"X's"** ("my mom's dad").
+  - A name directly after a kin phrase takes the **phrase's** role; the narrator's words outrank the model's filing.
+  - **Said once is said:** any occurrence governed by the claimed person supports the fact.
+  - A mismatch is held as `wrong_subject`, carrying the resolved role as a proposal only. Never re-homed.
+- **(d) Predicate.**
+  - Scope: relatives' birth and death dates and places only.
+  - The value's own sentence must carry birth or death wording. The previous sentence counts only when this one points back ("That was 1914.").
+  - A date is located by **any** part said: year, elided year, or month and day.
+  - A located value without the wording is held as `predicate_unstated`.
+- **(e) Age at death.**
+  - The D1c exemption is restored **behind** `_apply_age_at_death_guard`.
+  - Three conditions: the value is located (digits or words, "twenty-eight"); it is the same person as the group (by name, and a parent noun agrees with the group's relation); and the sentence carries death wording.
+  - A first-person age is **rejected**; anything else unmet is held as `age_unbound`.
+
+**Measured on the stored outputs of B1, B2 and B2r before any live run.** These are the executable items, re-run through the new guards; it is a replay only, as the model output is unchanged.
+- **`wrong_subject`: 2–3 holds per run.**
+  - case_068 `parents.deathDate=1914`, George's death, held (B1, B2). In B2r it was already held by the conflict rule.
+  - case_044 child born in "North Dakota" (actually Germany) and case_082 narrator born in "Dodge" (actually Spokane). Both are **false values held through an indirect reason**, recorded as such.
+  - **False holds of true facts: 0.** A first draft held case_112 ("Mom was born in spokane, and I was born in Spokane too") and case_073 ("my mom's dad… born at home"). The said-once and possessive rules fixed both before anything was committed.
+- **`predicate_unstated`: 8 per run, all false birthplaces.**
+  - B2 and B2r: "Dad was *from* Stanley", "my mother *grew up* near Williston" (054); where Gretchen lives now and where Amelia worked (070); "*came from* Lorraine" (071); "where my grandmother's people *homesteaded*" (102).
+  - B1 adds college in Bismarck (075), towns the family *moved* through (086), and "His family *came from* Ukraine" (031).
+  - **False holds of true facts: 0.** One draft held case_090 ("until 1985. Died December 1st that year."); locating a date by month and day fixed it.
+- **`ageAtDeath`:** case_015 and case_068's "28" (the narrator's own) are rejected. A bound "Dad died… at seventy-two" executes.
+
+**Verification in the sandbox.** Interpreter `/usr/bin/python3`, fastapi and pydantic stubbed.
+- Unit tests: 77 run, 9 skipped (the production classes). All nine production tests pass when run directly against the stubs.
+- B3 gate (`scripts/eval/mutate_b3_binding.py`): **15 of 19 caught.** The four survivors are the four seam mutations; the production classes that catch them skip without real pydantic, so they must go red in `.venv`.
+- The A3 gate's D1c mutation moved into the B3 gate.
+- The repo-local default DB `data/db/lorevox.sqlite3` (gitignored, not narrator data) was opened by the previews' `init_db`. **No rows were written**: verified read-only, 0 people and none of the test IDs in any table.
+
+**Not solved by B3, recorded here instead of stretched to fit:**
+- **case_082.** The model wrote **six** narrator birthplaces (every town she lived in), and all executed in B2 and B2r. B3 holds one. The rest need a predicate check on the **narrator's** own birth fields, which decision 2 excluded. **Needs Chris.**
+- **case_031.** Grandparents emitted as `parents.*` are still **dropped silently by turnscope**, earlier in the pipeline. They are not executable, but not preserved either.
+- **case_065.** Still quarantined by the kinship guard; no great-grandparent proposal is added.
+- **case_033 and case_034.** Right person, wrong attribute: a prompt effect, out of scope.
+
 ## 6. Explicit statement
 
 *(Corrected 2026-09-23 at B3 start. This section was written for the Repair A
