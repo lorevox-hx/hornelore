@@ -1218,6 +1218,33 @@ That makes **3 writes, all wrong, 0 correct**. The scorer cannot see it: case_01
 3. **D1c reintroduction in B3:** `ageAtDeath` becomes admissible again **only** when its span's subject is the deceased person. Recommended: **yes**, as the batch's last step, with a mutation proving the narrator-age case stays rejected.
 4. **Measurement.** `api.log` truncates raw model output at 500 characters (46 of 114 calls), which blocked a full replay in B2. Raising that log limit is logging only, not product behaviour. Recommended: **yes**, in B3's first commit, so B3's own replay is complete.
 
+**Decisions, Chris, 2026-09-23** (the wording is tightened as he required; the agent's reading is written out so that it can be corrected):
+1. **Wrong subject → held for review, never re-homed.**
+   - No B3 code writes a fact into any other person's record.
+   - A review entry may *name* the resolved role as a proposal; that is all.
+2. **Predicate check: approved narrowly.**
+   - Only birth and death **date and place** fields of non-narrator people.
+   - It acts only when the value's span is located. A located span with no birth or death wording → held for review (`predicate_unstated`), not dropped.
+   - No other field is touched.
+3. **`ageAtDeath` returns only under all three conditions:**
+   - the span is located;
+   - its subject resolves to the same person the item is grouped with;
+   - the span carries death wording.
+   - A first-person span is always rejected. This is B3's last commit, with its own mutation.
+4. **CHANGED: no permanent expansion of `api.log`.**
+   - Full model output is captured only in an **armed evaluation trace**: off by default, written to its own file under `.runtime/`, never to `api.log`.
+   - The ordinary log keeps its 500-character prefix. Avoiding a privacy and log-bloat regression outranks test convenience.
+5. **Relevance-scoped prompting stays out of B3.** B3 establishes subject and event binding **under the same prompt**. Relevance scoping returns only if measurement later shows it is needed.
+
+**Build order.** One commit per part, each with tests and mutations:
+- (a) the armed trace, as a Tier 5 flag;
+- (b) evidence span — R4-H sets `_locate_value`;
+- (c) span subject and the `wrong_subject` hold;
+- (d) the predicate check;
+- (e) `ageAtDeath` reintroduction.
+
+Then one live run with the trace armed, compared with B2r.
+
 **Acceptance.**
 - A live run at 768, compared with **B2r**. The noise band is 12/114 final outputs with an identical prompt; B3 changes no prompt.
 - The standard block: pass, v2/v3, mnw, named flips, scorer-drift audit.
