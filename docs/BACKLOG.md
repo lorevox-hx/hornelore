@@ -825,3 +825,8 @@ requirement goes here unless it is a genuine blocker.* Evidence for each is in
   - A stale stub in `test_extraction_prompt_budget`.
   - `fastapi_stub.install()` checks `sys.modules`, not whether the package is installed.
 - **Pre-existing, filed in B2.** The shadowed `_DATE_FIELD_SUFFIXES` leaves the WO-04 req-7 date guard dead.
+
+## 11. Carried from the Batch B close — 2026-09-23 (none blocking the roadmap)
+
+- **`bagit.py` imports `pkg_resources`**, which setuptools deprecates (removal "as early as 2025-11-30"). It warns on every package test run under `.venv` (Python 3.12). This is dependency maintenance: pin `setuptools<81` or move to a bagit release without it. **Do not divert into it** until an upgrade actually breaks the package lane.
+- **`graph_revisions` survives `scripts/wipe_narrator_identity.py`**, which wipes the graph tables but not the revision row. This is harmless: the revision only keeps counting. Include it if that script is ever revisited.

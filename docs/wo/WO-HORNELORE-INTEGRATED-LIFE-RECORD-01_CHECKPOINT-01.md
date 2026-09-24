@@ -1481,7 +1481,7 @@ Every table gets a `DbLane` entry in `narrator_data_inventory.py` **in this batc
 - **Batch C** switches the UI to the record's writer and removes the UI's graph writes. From then on the graph is **only** a projection.
 - No replacement shadow store is created in the meantime.
 
-## Batch B — built (2026-09-23), awaiting `.venv` verification
+## Batch B — built and CLOSED (2026-09-23). Phase 2 CLOSED
 
 *(The plan above said "21 rules". The validator has **19** — corrected in place.)*
 
@@ -1512,6 +1512,68 @@ Every table gets a `DbLane` entry in `narrator_data_inventory.py` **in this batc
 - Batch C moves the questionnaire onto the writer, and the UI's graph writes retire.
 
 **Pre-existing, unchanged:** the two `test_narrator_merge` composite-key failures (migrations 0059–0061) reproduce at HEAD. `0064` briefly joined them only because its **comment** read "primary key (the …"; the comment was reworded.
+
+### Batch B closeout — `.venv` verification, run by Chris 2026-09-23
+
+| gate | result (`.venv`, Python 3.12, WSL) |
+|---|---|
+| Life Record writer + graph + inventory parity + erasure + person-delete integrity + concept migration plan | **170 tests OK — no skips.** The two FastAPI route tests ran |
+| writer / graph mutation gate (`mutate_life_record_writer.py`) | baseline 53 tests, 0 red · **every mutation caught** (29 required, 4 `info`) |
+| design validator + its mutation gate | DESIGN COHERENT · **every mutation caught** |
+| Bio Builder graph harness (node) | **52/52** |
+| Portable Narrator preservation — export · restore · roundtrip · encoded references | **76 tests OK** (1137 s). The two `trips.jsonl sha256 validation failed` lines are the suite's deliberate tamper tests refusing, as designed |
+
+**Batch B is closed, and with it Phase 2.** There is one trustworthy canonical Life Record and one authoritative writer; the graph is its version-guarded projection, and the new `lr_*` lanes left export, restore, roundtrip and encoded references intact.
+- **Carried, non-blocking:** `docs/BACKLOG.md` §11 (the `bagit` → `pkg_resources` deprecation, and `graph_revisions` against the wipe script).
+- **Stack boundary:** the stack was down at close. The next start is the first Phase 3 product session, with no prior server state carried over.
+
+## Batch C — review of Chris's brief against the tree (prepared 2026-09-23, before code)
+
+**The brief stands as written. The Life Record design is not reopened.** This section records what the tree already provides, the one real gap, and the defaults taken, so C-1 starts without a discovery pass.
+
+**Already in place** (each claim was read from the code):
+- **Every value the eleven topics need has a catalog concept** (`concept_catalog_v1.json`, 85 concepts), including:
+  - military service, heritage, languages, faith raised and current, interests;
+  - education, work, retirement, service and activity occurrences;
+  - reported counts;
+  - the `story.*` kinds: memory, lesson, message, tradition, home, reflection, `life_today.routine`, and so on;
+  - `trip.view`, a `trip_ref` owned by the trip domain.
+- **Names and pronouns:** `lr_names` carries kind, `use` and period, and the writer defaults former names to `historical_only`. Pronouns are a `person.pronouns` assertion (`many`), so optional history is simply more than one assertion.
+- **Dates:** the writer stores `{text, value, precision}` and never normalizes `text`. "around 1945" round-trips.
+- **Concurrency:** per-path `expectedPrevious`. The editor sends the value it hydrated as `expectedPrevious`, so a stale same-path edit is a 409 naming the path and its current value, and disjoint edits both save.
+- **Provenance:** `recordedBy` is the writer's `actor`, and `assertedBy` and `source` are required per assertion. **Default taken:** operator-typed facts go in as `source=operator`, `assertedBy=operator`. They are marked narrator-asserted only when the operator explicitly chooses "the narrator told me" (or a family member or a document) on the card. Nothing is silently labelled a narrator memory.
+- **Stories:** `lr_stories` (authored, or captured by reference to `story_candidates`). The paragraph questions write stories, never a notes fact.
+- **Harnesses:**
+  - `tests/harness/bio-builder-harness.js` (jsdom plus the unmodified UI JS, with a fake server) is the pattern for the DOM harness that observes the real outgoing `PATCH`.
+  - Playwright specs in `tests/e2e/` cover C-7, run **inside WSL** against Chris's stack (a sandboxed agent browser cannot reach it — `CLAUDE.md`).
+
+**THE ONE REAL GAP — recoverable Remove (D10).** The brief says "recoverable removal/tombstone/history semantics as designed". **The Life Record has no such design.** What Batch B does today:
+- `remove` hard-deletes an entity row, and is recoverable only by reading `lr_revisions` (`writer.py` `_entity`, `remove`).
+- Removing a person is refused while any assertion about them remains, and assertions can never be deleted — so **a person can't be removed at all once facts exist**.
+- **What C-6 needs:** a removal *state*, not a DELETE.
+  - An entity carries `removed_at` / `removed_by`, set through the writer with `expectedPrevious`, so a stale draft cannot quietly undo or redo it.
+  - The assembly omits removed entities by default and can show them for recovery.
+  - The graph projection drops them.
+  - The writer refuses edits to a removed entity as a conflict, which is what stops resurrection by a stale draft or a late GET.
+  - Hard deletion stays reserved for narrator erasure.
+- **This extends the record's lifecycle; it does not change the model.** It is migration `0065` plus writer paths. **Taken as the C-6 design unless Chris objects.** Assertions already have `rejected` and `superseded` and need nothing new.
+
+**Small items, with the defaults taken:**
+1. **The tri-state is not wide enough.** `person.military_service` is `boolean_3` (yes / no / unanswered), and the brief asks for Yes / No / Unknown / Prefer not to answer.
+   - Values become `yes | no | unknown | declined`, and blank means no assertion at all.
+   - The writer gains a catalog value check for enum concepts: fail closed, so an HTML control cannot invent a value.
+   - Life status is already `deceased | explicitly_living | unknown`.
+2. **The catalog marks some V2 fields `not_offered`** (military service, the reported counts). Batch C flips them to `editable` in `concept_catalog_source.py` and recompiles; the catalog is data, not the record design.
+3. **Topic 10 (Life today) has only `story.life_today.routine`.** Living situation, caregiving, technology, projects and goals go in as `story.*`, or as new `story.life_today.*` kinds added to the catalog. No new fact tables.
+4. **Topic 2's name:** the spec says "Family of origin and caregivers" (`WO-LIFE-RECORD-01` §8.2); the brief says "Family and caregivers". **The brief wins.**
+
+**The legacy questionnaire:**
+- Twenty sections in `bio-builder-questionnaire.js` (2,313 lines), saved as a whole document through `PUT /api/bio-builder/questionnaire` → `merge_whole_document`, with `fullSync` → graph PUT.
+- **Default taken:** V2 takes over the Bio Builder's Questionnaire tab. The legacy tab becomes a **read-only "Earlier answers"** view with no Save. No second authority survives, and the old save path is no longer reachable from the UI.
+- Legacy leaves are **retained as legacy**; nothing is deleted. `concept_migration_plan.plan()` names every leaf's disposition, so what is not yet in the record is visible rather than silently dropped.
+- The working root holds 0 people, so there is no live data to migrate now. A migration *writer* for the family packages belongs to Phase 7 preparation, not Batch C.
+
+**Build order: C-1 → C-7 exactly as in the brief.** The only additions are migration `0065` (removal state) and the enum value check, both landing with C-6 and C-4 respectively. There is no micro-approval between chunks, and non-blocking UI issues go to `docs/BACKLOG.md`.
 
 ## 6. Explicit statement
 
