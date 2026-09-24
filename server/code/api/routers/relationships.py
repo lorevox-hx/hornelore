@@ -2,8 +2,12 @@ from __future__ import annotations
 
 """Relationships Router — LoreVox Phase Q.1 (Relationship Graph Layer)
 
-Canonical relationship graph API.  Every narrator has a graph of person-nodes
-and relationship-edges that serves as the truth model for family/partner data.
+Relationship graph API. The graph is a PROJECTION of the Life Record
+(services/life_record/graph_projection.py), not a truth model: rows written by
+the projection are refused here, and a full PUT needs the revision it read
+(Batch B-4). Until Batch C-3 the earlier Family Tree draft still reads it.
+(This docstring called it the "canonical" graph and "the truth model" until
+Batch C-2b, 2026-09-24.)
 
 Endpoints:
 - GET    /api/graph/{narrator_id}                — full graph (persons + relationships)

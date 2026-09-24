@@ -3,9 +3,11 @@
    Hornelore 1.0
 
    Third lane of the Authority Workspace.
-   Displays conflicts between corrections and existing questionnaire
-   truth. Questionnaire always wins by default — "Keep Current" is
-   the pre-selected default action.
+   Displays conflicts between corrections and what is already on record.
+   What is on record stays by default — "Keep Current" is the
+   pre-selected default action. (Batch C-2b: the earlier "questionnaire
+   is truth" framing is retired; the Life Record is the one authority,
+   and Replace / Merge are held — see life-record-authority.js.)
 
    Layout: 3-column
      LEFT   — conflict list with severity badges
@@ -13,9 +15,9 @@
      RIGHT  — resolution log + stats
 
    Resolution actions:
-     Keep Current  — questionnaire truth stays (DEFAULT)
-     Replace       — overwrite with proposed (human_edit authority)
-     Merge         — manual merge value entered by reviewer
+     Keep Current  — what is on record stays (DEFAULT)
+     Replace       — HELD in C-2b (wrote the earlier system)
+     Merge         — HELD in C-2b (wrote the earlier system)
      Ambiguous     — flag for follow-up interview
      Follow-up     — keep current + schedule follow-up question
 
@@ -35,7 +37,7 @@
   ─────────────────────────────────────────────────────────── */
 
   var RESOLUTIONS = [
-    { key: "keep",      label: "Keep Current",  cls: "cc-res-keep",      desc: "Questionnaire truth stays" },
+    { key: "keep",      label: "Keep Current",  cls: "cc-res-keep",      desc: "What is on record stays" },
     { key: "replace",   label: "Replace",        cls: "cc-res-replace",   desc: "Overwrite with proposed value" },
     { key: "merge",     label: "Merge",          cls: "cc-res-merge",     desc: "Enter merged value" },
     { key: "ambiguous", label: "Ambiguous",      cls: "cc-res-ambiguous", desc: "Flag — needs more info" },
@@ -100,7 +102,7 @@
     var cc = _cc();
     if (!conflicts.length) {
       return '<div class="cc-empty">No conflicts detected.<br>'
-        + '<span class="cc-empty-sub">All corrections are consistent with questionnaire truth.</span></div>';
+        + '<span class="cc-empty-sub">All corrections agree with what is on record.</span></div>';
     }
 
     var html = '<div class="cc-list-header">Conflicts (' + conflicts.length + ')</div>';
@@ -142,7 +144,7 @@
       + '<div class="cc-compare-box cc-compare-current">'
       +   '<div class="cc-compare-box-label">Current (Questionnaire)</div>'
       +   '<div class="cc-compare-box-value">' + _esc(conflict.existingValue || "—") + '</div>'
-      +   '<div class="cc-compare-box-source">Source: Questionnaire (approved truth)</div>'
+      +   '<div class="cc-compare-box-source">Source: earlier questionnaire answers</div>'
       + '</div>'
       + '<div class="cc-compare-vs">VS</div>'
       + '<div class="cc-compare-box cc-compare-proposed">'
@@ -186,11 +188,11 @@
         + '</div>';
     }
 
-    // Default callout: questionnaire always wins
+    // Default callout: what is on record stays
     if (!resolution || resolution.action === "keep") {
       html += '<div class="cc-default-notice">'
-        + '🛡️ Default: <strong>Questionnaire always wins.</strong> '
-        + 'The current value will be preserved unless you explicitly choose Replace or Merge.'
+        + '🛡️ Default: <strong>what is on record stays.</strong> '
+        + 'Replace and Merge are paused; make changes in Bio Builder → Questionnaire.'
         + '</div>';
     }
 
@@ -280,6 +282,11 @@
     }
 
     var html = '<div class="cc-panel">'
+      + '<div class="lv-authority-note" data-authority-note="conflicts" style="margin:0 0 8px;padding:6px 10px;border-left:3px solid #d97706;background:rgba(217,119,6,.12);font-size:.9em">'
+      +   '<strong>Replace and Merge are paused.</strong> They wrote to the earlier biography system, which is being retired. '
+      +   'Make the change in Bio Builder → Questionnaire, which writes the Life Record. Keep, Ambiguous and Follow-up still record your review.'
+      +   (cc.heldMessage ? '<br><em>' + _esc(cc.heldMessage) + '</em>' : '')
+      + '</div>'
       + '<div class="cc-header">'
       +   '<span class="cc-header-title">⚠️ Conflict Console</span>'
       +   '<span class="cc-header-count">'
@@ -367,6 +374,7 @@
     if (!resKeys.length) return;
 
     var committed = 0;
+    var heldIds = [];   // Batch C-2b: held actions leave their conflict OPEN
     var ps = global.LorevoxProjectionSync;
     var sr = global.HorneloreShadowReview;
 
@@ -375,6 +383,19 @@
       var resolution = cc.resolutions[conflictId];
       var conflict = conflicts.find(function (c) { return c.id === conflictId; });
       if (!conflict) continue;
+
+      // Batch C-2b: Replace and Merge wrote biography into the EARLIER
+      // system (projection + old questionnaire). Held until D-3 routes them
+      // to the Life Record — see life-record-authority.js. The conflict
+      // stays open; Keep / Ambiguous / Follow-up only record review state.
+      if (resolution.action === "replace" || resolution.action === "merge") {
+        var _auth = global.LorevoxAuthority;
+        if (!_auth || _auth.legacyWritesHeld()) {
+          if (_auth) _auth.held("conflicts " + resolution.action + " " + conflict.fieldPath);
+          heldIds.push(conflictId);
+          continue;
+        }
+      }
 
       try {
         switch (resolution.action) {
@@ -406,7 +427,7 @@
                   conflict.proposedValue,
                   conflict.sourceType,
                   "conflict_replace",
-                  "Questionnaire truth overridden by reviewer"
+                  "Recorded value overridden by reviewer"
                 );
               }
             }
@@ -456,8 +477,10 @@
     }
 
     // Track committed and clear
-    cc.committed = cc.committed.concat(resKeys);
+    cc.committed = cc.committed.concat(resKeys.filter(function (k) { return heldIds.indexOf(k) === -1; }));
     cc.resolutions = {};
+    cc.heldMessage = heldIds.length && global.LorevoxAuthority
+      ? heldIds.length + " not applied. " + global.LorevoxAuthority.MESSAGE : null;
     console.log("[conflict-console] Committed " + committed + "/" + resKeys.length + " conflict resolutions");
 
     render();

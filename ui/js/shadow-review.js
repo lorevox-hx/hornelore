@@ -741,6 +741,11 @@
       +   '<h2 class="sr-title">Shadow Review</h2>'
       +   '<p class="sr-subtitle">Review sources and resolve claims. Each decision is yours — nothing is promoted automatically.</p>'
       + '</div>'
+      + '<div class="lv-authority-note" data-authority-note="shadow-review" style="margin:0 0 8px;padding:6px 10px;border-left:3px solid #d97706;background:rgba(217,119,6,.12);font-size:.9em">'
+      +   '<strong>Correct is paused.</strong> Corrections wrote to the earlier biography system, which is being retired. '
+      +   'Make corrections in Bio Builder → Questionnaire, which writes the Life Record. Approve, Source Only and Reject still record your review.'
+      +   (sr.heldMessage ? '<br><em>' + _esc(sr.heldMessage) + '</em>' : '')
+      + '</div>'
       + '<div class="sr-body">'
       +   '<div class="sr-left">' + _renderSourceList(sources) + '</div>'
       +   '<div class="sr-center">' + _renderCenterPane(activeSource) + '</div>'
@@ -895,6 +900,7 @@
 
     var committed = 0;
     var blocked = 0;
+    var heldIds = [];   // Batch C-2b: held corrections leave their claim OPEN
 
     for (var i = 0; i < keys.length; i++) {
       var claimId = keys[i];
@@ -920,11 +926,11 @@
             corr.note
           );
 
-          // Conflict gate: check if correction conflicts with questionnaire truth
+          // Conflict gate: check if correction conflicts with what is on record
           if (fieldPath) {
             var conflict = _detectConflict(fieldPath, corr.value);
             if (conflict.conflicting) {
-              // Questionnaire always wins — block the write, create conflict entry
+              // What is on record stays — block the write, create a conflict entry
               sr.conflicts.push({
                 id: "conflict:" + Date.now() + ":" + claimId,
                 claimId: claimId,
@@ -945,7 +951,15 @@
               continue; // skip the write — will show in conflict console
             }
 
-            // No conflict: write via projection-sync with human_edit authority
+            // Batch C-2b: this wrote biography into the EARLIER system
+            // (projection + old questionnaire). Held until D-3 routes it to
+            // the Life Record — see life-record-authority.js.
+            var _auth = global.LorevoxAuthority;
+            if (!_auth || _auth.legacyWritesHeld()) {
+              if (_auth) _auth.held("shadow-review correct " + fieldPath);
+              heldIds.push(claimId);
+              continue;
+            }
             var ps = global.LorevoxProjectionSync;
             if (ps && ps.projectValue) {
               ps.projectValue(fieldPath, corr.value, { source: "human_edit" });
@@ -1033,9 +1047,11 @@
     }
 
     // Track committed and clear resolutions
-    sr.committed = sr.committed.concat(keys);
+    sr.committed = sr.committed.concat(keys.filter(function (k) { return heldIds.indexOf(k) === -1; }));
     sr.resolutions = {};
     sr.corrections = {};
+    sr.heldMessage = heldIds.length && global.LorevoxAuthority
+      ? heldIds.length + " correction(s) not applied. " + global.LorevoxAuthority.MESSAGE : null;
     console.log("[shadow-review] Committed " + committed + "/" + keys.length
       + " resolutions (" + blocked + " blocked by conflicts)");
 

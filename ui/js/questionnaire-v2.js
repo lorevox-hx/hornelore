@@ -83,6 +83,13 @@
         if (myGen !== _gen || !S || S.pid !== pid) return;     // stale: not this narrator, not this request
         S.view = model().fromRecord(record);
         S.baseRevision = S.view.revision;
+        // Batch C-2b: tell the Bio Builder header which record/revision is
+        // on screen (a notification, not a write).
+        try {
+          var me = S.view.people[S.view.narratorPersonId];
+          root.dispatchEvent(new root.CustomEvent("lorevox:life-record-shown", { detail: {
+            pid: pid, revision: S.view.revision, name: me && me.names[0] ? me.names[0].fullText : null } }));
+        } catch (_) {}
         S.status = "ready";
         if (!keepMessage) S.message = null;
         var d = readDraft(pid);

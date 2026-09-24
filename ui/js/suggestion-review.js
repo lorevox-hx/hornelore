@@ -325,14 +325,14 @@
       h += 'On record: <strong>' + _esc(conflict.stored) + '</strong><br>';
       h += 'Lori proposed: <strong>' + _esc(conflict.proposed) + '</strong><br>';
       h += '<span style="opacity:.85">Accepting would replace what is on record, so it was refused. ' +
-           'Decline to keep the record, or enter the value yourself under ' +
-           _esc(L.section) + ' — that records it as your entry.</span>';
+           'Decline to keep the record, or enter the value yourself in Bio Builder → Questionnaire ' +
+           '— that records it in the Life Record as your entry.</span>';
       h += '</div>';
     } else if (differs && !unresolved) {
       // Tell them BEFORE they click: this Accept will be refused.
       h += '<div class="bb-hint-text" style="margin-top:6px;color:#ffeccc">' +
            'The record already holds a different value, so Accept will be refused. ' +
-           'Decline to keep what is on record, or change it yourself under ' + _esc(L.section) + '.</div>';
+           'Decline to keep what is on record, or change it yourself in Bio Builder → Questionnaire.</div>';
     }
 
     // ── the server refused, and said why ────────────────────────────
@@ -413,9 +413,10 @@
       h += '<button class="bb-btn-sm bb-ghost-btn" data-decline="' + _esc(sid) + '"' +
            (busy ? " disabled" : "") + '>Decline</button>';
     } else {
-      var canAccept = !busy && !conflict && (!unresolved || !!chosen);
-      h += '<button class="bb-btn-sm bb-btn-primary" data-accept="' + _esc(sid) + '"' +
-           (canAccept ? "" : " disabled") + '>' + (busy ? "…" : "Accept") + '</button> ';
+      // Batch C-2b: no Accept while it would write the earlier system —
+      // absent, not greyed (same reasoning as the `undef` branch above).
+      h += '<span class="bb-hint-text" data-accept-held="' + _esc(sid) + '">Accepting is paused: it wrote to ' +
+           'the earlier biography system. If this is right, enter it in <strong>Bio Builder → Questionnaire</strong>. </span>';
       h += '<button class="bb-btn-sm bb-ghost-btn" data-decline="' + _esc(sid) + '"' +
            (busy ? " disabled" : "") + '>Decline</button>';
     }
@@ -490,6 +491,15 @@
   }
 
   function _accept(sid, extra) {
+    // Batch C-2b: Accept (and "Save this as my value", which comes through
+    // here) merged the value into the EARLIER questionnaire + projection.
+    // Held until D-3 routes Lori's proposals into the Life Record — see
+    // life-record-authority.js. Every accept path passes through here.
+    var _auth = window.LorevoxAuthority;
+    if (!_auth || _auth.legacyWritesHeld()) {
+      if (_auth) _auth.held("suggestion accept " + sid);
+      return;
+    }
     var s = _queue.filter(function (x) { return x.suggestion_id === sid; })[0];
     if (!s) return;
     _busy[sid] = true; _render();

@@ -14,7 +14,7 @@
      POST   /api/transcript/rolling-summary/clean?person_id=...
 
    The five-status review vocabulary is:
-     approve         — confirmed truth, safe to promote
+     approve         — approved in review (a status only; Promote is paused, Batch C-2b)
      approve_q       — approved with a follow-up question
      needs_verify    — maybe true, needs more evidence (default for rules_fallback)
      source_only     — recorded as "the narrator said X" but never promoted
@@ -45,8 +45,8 @@
 
   const WO13_STATUS_HELP = Object.freeze({
     needs_verify: "Maybe true — we don't have enough to promote yet.",
-    approve:      "Confirmed. Safe to promote into the family-truth layer.",
-    approve_q:    "Confirmed, but we want to circle back and ask a follow-up.",
+    approve:      "Approved in review. This records a decision only — promoting it is paused while biography moves to the Life Record.",
+    approve_q:    "Approved in review, with a follow-up question to ask. A decision only; nothing is promoted.",
     source_only:  "Record that the narrator said this, but never promote it. "
                  +"Identity fields (fullName, DOB, POB, preferredName, birthOrder) "
                  +"can only ever land here from the rules_fallback extractor.",
@@ -261,6 +261,14 @@
 
   async function wo13PromoteApproved(personId){
     if(!personId) return { ok: false };
+    // Batch C-2b: promotion wrote family-truth "promoted" rows — a separate
+    // truth store that memoir, chronology and profile read. Held until D-0/
+    // D-3 converge family-truth onto the Life Record (life-record-authority.js).
+    const _auth = global.LorevoxAuthority;
+    if(!_auth || _auth.legacyWritesHeld()){
+      if(_auth) _auth.held("wo13 promote " + personId);
+      return { ok: false, held: true };
+    }
     try{
       const res = await global.fetch(global.API.FT_PROMOTE, {
         method: "POST",
@@ -385,7 +393,8 @@
     const bulk = global.document.getElementById(WO13_IDS.bulkBtn);
     const promote = global.document.getElementById(WO13_IDS.promoteBtn);
     if(bulk) bulk.disabled = false;
-    if(promote) promote.disabled = false;
+    // Batch C-2b: Promote stays disabled while legacy writes are held.
+    if(promote) promote.disabled = !!(!global.LorevoxAuthority || global.LorevoxAuthority.legacyWritesHeld());
 
     const filter = _wo13State.filter || "all";
     const visible = _wo13State.rows

@@ -2,9 +2,11 @@
    bio-builder-graph.js — Phase Q.1: Relationship Graph Layer
    Lorevox 9.0
 
-   The canonical relationship graph that sits UNDER the questionnaire
-   and family tree.  The questionnaire is an input/editor surface;
-   this graph is the truth model.
+   The relationship graph behind the Family view. Since Batch B it is a
+   PROJECTION of the Life Record (services/life_record/graph_projection.py),
+   version-guarded on the server; it is NOT a truth model. The Life Record
+   is the one authority. (This header said "this graph is the truth
+   model" until Batch C-2b, 2026-09-24.)
 
    Owns:
      - In-memory graph state: bb.graph = { persons: {}, relationships: {} }
@@ -444,7 +446,8 @@
   /* ───────────────────────────────────────────────────────────
      QUESTIONNAIRE → GRAPH SYNC
      Reads questionnaire sections and writes graph records.
-     This is the canonical mapping from editor surface → truth model.
+     The earlier questionnaire → graph mapping (legacy; the Life Record
+     projection is the authoritative source of graph rows since Batch B).
   ─────────────────────────────────────────────────────────── */
 
   function syncFromQuestionnaire() {

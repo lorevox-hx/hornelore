@@ -306,7 +306,27 @@
   ─────────────────────────────────────────────────────────── */
 
   var _activeSection      = null; // questionnaire section id currently open
-  var _activeTab          = "capture";
+  var _activeTab          = "questionnaire";   // Batch C-2b: the current record opens first
+  var _reviewSection      = "candidates";      // which section of the one Review area
+
+  /* Batch C-2b (2026-09-24): Bio Builder is FIVE areas —
+       Questionnaire · Sources & Notes · Review · Family · ⋯ Legacy
+     The old tab names still arrive from buttons and other modules; each maps
+     to where that work now lives. Life Threads is retired from navigation
+     (its drafts still feed Life Map's theme count — the one runtime reader
+     that keeps its code alive). */
+  var _TAB_ALIASES = {
+    capture: ["sourcesNotes"], sources: ["sourcesNotes"],
+    candidates: ["review", "candidates"], suggestions: ["review", "suggestions"],
+    shadowReview: ["review", "shadowReview"], conflicts: ["review", "conflicts"],
+    earlierAnswers: ["legacy"], lifeThreads: ["questionnaire"],
+  };
+  var _REVIEW_SECTIONS = [
+    { id: "candidates",   label: "From sources & notes" },
+    { id: "suggestions",  label: "From Lori" },
+    { id: "shadowReview", label: "Source claims" },
+    { id: "conflicts",    label: "Conflicts" },
+  ];
   // _activeSourceCardId — now managed inside bio-builder-sources.js (Phase 3 module split)
 
   // v6: Graph mode state — FT view mode now in bio-builder-family-tree.js
@@ -342,27 +362,59 @@
     _renderActiveTab();
   }
 
+  /* Batch C-2b: the header names the narrator FROM THE LIFE RECORD, with
+     its revision — the operator can see whose record, and which version,
+     every area is bound to (BUG-220A's purpose). Never an internal id: a
+     narrator whose name is not yet in the record says so in words. One
+     read (GET, cached per narrator and revision), never a write. */
+  var _headerCache = {};   // pid -> {name, revision}
+  function _lifeRecordHeader(pid) {
+    var qv2 = window.LorevoxQuestionnaireV2;
+    var s = qv2 && qv2._state && qv2._state();
+    if (s && s.pid === pid && s.view) {
+      var me = s.view.people[s.view.narratorPersonId];
+      _headerCache[pid] = { name: me && me.names[0] ? me.names[0].fullText : null, revision: s.view.revision };
+    }
+    if (_headerCache[pid]) return _headerCache[pid];
+    _headerCache[pid] = { name: null, revision: null, loading: true };
+    var url = (typeof API !== "undefined" && API.LIFE_RECORD) ? API.LIFE_RECORD(pid) : null;
+    if (url) {
+      fetch(url, { method: "GET" }).then(function (r) { return r.ok ? r.json() : null; }).then(function (rec) {
+        if (!rec) return;
+        var me = (rec.people || []).filter(function (p) { return p.id === rec.narrator_person_id; })[0];
+        var nm = me && me.names && me.names.length
+          ? ((me.names.filter(function (n) { return n.id === me.preferredNameRef; })[0] || me.names[0]).fullText) : null;
+        _headerCache[pid] = { name: nm, revision: rec.revision };
+        if (_currentPersonId() === pid) _renderHeader();
+      }).catch(function () {});
+    }
+    return _headerCache[pid];
+  }
+
+  window.addEventListener("lorevox:life-record-shown", function (ev) {
+    var d = ev && ev.detail; if (!d || !d.pid) return;
+    _headerCache[d.pid] = { name: d.name, revision: d.revision };
+    if (_currentPersonId() === d.pid) _renderHeader();
+  });
+
   function _renderHeader() {
     var subtitle = _el("bbSubtitle"); if (!subtitle) return;
     var pid  = _currentPersonId();
-    var name = _currentPersonName();
     if (!pid) {
       subtitle.textContent = "No narrator selected — choose one above to begin";
-    } else if (name) {
-      // BUG-220A: render narrator name prominently so operator can verify
-      // which narrator the popover is bound to before trusting any data.
-      subtitle.textContent = "Capturing biography for " + name;
-    } else {
-      // Fail-loud: if PID is set but profile name didn't load, show the
-      // pid prefix so it's obvious WHICH narrator we think we're on.
-      subtitle.textContent = "Capturing biography for narrator " + pid.slice(0, 8);
+      return;
     }
+    var h = _lifeRecordHeader(pid);
+    // Life Record only: no fallback to the earlier profile's name or to an id.
+    var name = h.name || (h.loading ? "Reading the Life Record…" : "Name not yet in the Life Record");
+    subtitle.textContent = name + (h.revision != null ? " · Life Record revision " + h.revision : "");
   }
 
   function _renderTabs() {
-    ["bbTabCapture","bbTabQuestionnaire","bbTabEarlierAnswers","bbTabSources","bbTabCandidates","bbTabFamilyTree","bbTabLifeThreads","bbTabShadowReview","bbTabConflicts","bbTabSuggestions"].forEach(function (tid) {
+    ["bbTabQuestionnaire","bbTabSourcesNotes","bbTabReview","bbTabFamilyTree","bbTabLegacy"].forEach(function (tid) {
       var el = _el(tid); if (!el) return;
       el.classList.toggle("bb-tab-active", el.dataset.tab === _activeTab);
+      el.setAttribute("aria-selected", String(el.dataset.tab === _activeTab));
     });
   }
 
@@ -389,20 +441,92 @@
         '</div>';
       return;
     }
-    if      (_activeTab === "capture")       _renderCaptureTab(content, pid);
     // Batch C: the Questionnaire tab IS Questionnaire V2, an editor of the
-    // Life Record. The earlier 20-section editor is no longer reachable from
-    // the UI; its answers are shown read-only under "Earlier answers", so
-    // there is exactly one editable authority.
-    else if (_activeTab === "questionnaire")  _renderQuestionnaireV2(content, pid);
-    else if (_activeTab === "earlierAnswers") _renderEarlierAnswers(content, pid);
-    else if (_activeTab === "sources")       _renderSourcesTab(content, pid);
-    else if (_activeTab === "candidates")    _renderCandidatesTab(content, pid);
-    else if (_activeTab === "familyTree")    _renderFamilyTreeTab(content, pid);
-    else if (_activeTab === "lifeThreads")   _renderLifeThreadsTab(content, pid);
-    else if (_activeTab === "shadowReview") _renderShadowReviewTab(content, pid);
-    else if (_activeTab === "conflicts")    _renderConflictsTab(content, pid);
-    else if (_activeTab === "suggestions")  _renderSuggestionsTab(content, pid);
+    // Life Record — the ONE editable authority. Every other area says what
+    // it is: DRAFT, REVIEW, or READ ONLY · LEGACY (Batch C-2b).
+    if      (_activeTab === "questionnaire") _renderQuestionnaireV2(content, pid);
+    else if (_activeTab === "sourcesNotes")  _renderSourcesNotes(content, pid);
+    else if (_activeTab === "review")        _renderReview(content, pid);
+    else if (_activeTab === "familyTree")    _renderFamily(content, pid);
+    else if (_activeTab === "legacy")        _renderLegacy(content, pid);
+    else                                     _renderQuestionnaireV2(content, pid);
+  }
+
+  /* ── Batch C-2b: the status of each area, visible to the operator ── */
+  var _STATUS = {
+    draft:  { label: "DRAFT · NOT IN THE LIFE RECORD", color: "#d97706" },
+    review: { label: "REVIEW",                         color: "#6366f1" },
+    legacy: { label: "READ ONLY · LEGACY",             color: "#64748b" },
+  };
+  function _statusBanner(kind, text) {
+    var s = _STATUS[kind];
+    return '<div class="bb-status-banner" data-bb-status="' + kind + '" style="margin:0 0 10px;padding:6px 10px;' +
+      'border-left:3px solid ' + s.color + ';background:rgba(148,163,184,.08);font-size:.88em">' +
+      '<strong style="color:' + s.color + ';letter-spacing:.04em">' + s.label + '</strong> — ' + text + '</div>';
+  }
+  function _area(container, kind, text) {
+    container.innerHTML = _statusBanner(kind, text);
+    var body = document.createElement("div");
+    container.appendChild(body);
+    return body;
+  }
+
+  function _renderSourcesNotes(container, pid) {
+    var body = _area(container, "draft",
+      "Notes and documents staged here are not part of the Life Record. Quick notes are kept in this browser only; " +
+      "documents and their detected items last only until the page reloads. Enter what belongs in the record in Questionnaire.");
+    var notes = document.createElement("div"), sources = document.createElement("div");
+    sources.style.marginTop = "18px";
+    body.appendChild(notes); body.appendChild(sources);
+    _renderCaptureTab(notes, pid);
+    _renderSourcesTab(sources, pid);
+  }
+
+  function _renderReview(container, pid) {
+    var body = _area(container, "review",
+      "Everything waiting for a human decision, in one place. Declining and rejecting are recorded; actions that would " +
+      "write to the earlier biography system are paused — confirmed facts go in Questionnaire.");
+    var nav = document.createElement("div");
+    nav.className = "bb-review-nav";
+    nav.setAttribute("role", "tablist");
+    nav.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px";
+    _REVIEW_SECTIONS.forEach(function (sec) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "bb-ghost-btn" + (sec.id === _reviewSection ? " bb-tab-active" : "");
+      b.setAttribute("data-review-section", sec.id);
+      b.setAttribute("aria-selected", String(sec.id === _reviewSection));
+      b.textContent = sec.label;
+      b.addEventListener("click", function () { _reviewSection = sec.id; _renderActiveTab(); });
+      nav.appendChild(b);
+    });
+    body.appendChild(nav);
+    var pane = document.createElement("div");
+    body.appendChild(pane);
+    if      (_reviewSection === "suggestions")  _renderSuggestionsTab(pane, pid);
+    else if (_reviewSection === "shadowReview") _renderShadowReviewTab(pane, pid);
+    else if (_reviewSection === "conflicts")    _renderConflictsTab(pane, pid);
+    else                                        _renderCandidatesTab(pane, pid);
+  }
+
+  function _renderFamily(container, pid) {
+    var body = _area(container, "draft",
+      "This family tree is a working draft kept in this browser. It does not change the Life Record. " +
+      "Enter family members in Questionnaire; from the next update this view will be drawn from the Life Record itself.");
+    _renderFamilyTreeTab(body, pid);
+  }
+
+  function _renderLegacy(container, pid) {
+    var body = _area(container, "legacy",
+      "Answers preserved from the earlier questionnaire, for reference. Nothing here changes the Life Record; " +
+      "to add or change information, use Questionnaire.");
+    var h = document.createElement("div");
+    h.className = "bb-section-title";
+    h.textContent = "Earlier Questionnaire Answers";
+    body.appendChild(h);
+    var pane = document.createElement("div");
+    body.appendChild(pane);
+    _renderEarlierAnswers(pane, pid);
   }
 
   /* Batch C — looked up at render time (questionnaire-v2.js loads before
@@ -514,25 +638,25 @@
           }).join("")
         + '</div>';
     } else {
-      itemsHtml = '<p class="bb-hint-text">Facts and notes you add here will appear as candidate items you can review.</p>';
+      itemsHtml = '<p class="bb-hint-text">Facts and notes you stage here appear under Review → From sources &amp; notes.</p>';
     }
     container.innerHTML =
-      '<div class="bb-section-title">Quick Capture</div>'
+      '<div class="bb-section-title">Quick notes</div>'
+      + '<p class="bb-hint-text">Kept in this browser only. Staged notes are not part of the Life Record.</p>'
       + '<div class="bb-quick-entry">'
       +   '<div class="bb-entry-row">'
       +     '<input id="bbFactInput" class="bb-input" type="text" placeholder="Add a quick fact about the narrator" />'
-      +     '<button class="bb-btn-sm" onclick="window.LorevoxBioBuilder._addFact()">Add Fact</button>'
+      +     '<button class="bb-btn-sm" onclick="window.LorevoxBioBuilder._addFact()">Stage fact</button>'
       +   '</div>'
       +   '<textarea id="bbNoteInput" class="bb-textarea" placeholder="Paste text, type notes, or add anything biographical — no structure required…" rows="4"></textarea>'
       +   '<div class="bb-entry-row bb-entry-row--end">'
-      +     '<button class="bb-btn-sm" onclick="window.LorevoxBioBuilder._addNote()">Save Note</button>'
+      +     '<button class="bb-btn-sm" onclick="window.LorevoxBioBuilder._addNote()">Stage note</button>'
       +   '</div>'
       + '</div>'
       + '<div class="bb-section-title bb-section-title--mt">Recent Items</div>'
       + itemsHtml
       + '<div class="bb-quick-links">'
       +   '<button class="bb-ghost-btn" onclick="window.LorevoxBioBuilder._switchTab(\'questionnaire\')">📋 Open Questionnaire</button>'
-      +   '<button class="bb-ghost-btn" onclick="window.LorevoxBioBuilder._switchTab(\'sources\')">📁 Add Documents</button>'
       + '</div>';
     // Dynamically set placeholder using current narrator profile
     var factInput = _el("bbFactInput");
@@ -662,6 +786,12 @@
   ─────────────────────────────────────────────────────────── */
 
   function _switchTab(tab) {
+    var alias = _TAB_ALIASES[tab];
+    if (alias) {
+      if (tab === "lifeThreads") console.warn("[bio-builder] Life Threads is retired from navigation (Batch C-2b)");
+      tab = alias[0];
+      if (alias[1]) _reviewSection = alias[1];
+    }
     _activeTab          = tab;
     _activeSection      = null;
     _srcClearSourceReviewState();
@@ -832,10 +962,10 @@
   NS._addNote            = _addNote;
 
   // Questionnaire
-  NS._openSection        = _openSection;
-  NS._closeSection       = _closeSection;
-  NS._addRepeatEntry     = _addRepeatEntry;
-  NS._saveSection        = _saveSection;
+  // Batch C-2b: the EARLIER questionnaire editor's handlers (open/close a
+  // section, add an entry, Save a section) are no longer exported. Its markup
+  // is never rendered (the Questionnaire tab is V2), and without these names
+  // even a stray copy of that markup could not save into the old store.
 
   // Phase D: source inbox + extraction
   NS._handleFiles        = _handleFiles;

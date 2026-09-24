@@ -273,7 +273,7 @@
     var co = _bucketCounts();
     return '<div class="bio-review-stats">'
       + '<span class="bio-stat-chip">Pending <span class="bio-stat-count">' + _totalPending()  + '</span></span>'
-      + '<span class="bio-stat-chip">Approved <span class="bio-stat-count">' + _totalApproved() + '</span></span>'
+      + '<span class="bio-stat-chip">Marked approved <span class="bio-stat-count">' + _totalApproved() + '</span></span>'
       + '<span class="bio-stat-chip">People <span class="bio-stat-count">'    + (co.people    || 0) + '</span></span>'
       + '<span class="bio-stat-chip">Memories <span class="bio-stat-count">'  + (co.memories  || 0) + '</span></span>'
       + '<span class="bio-stat-chip">Events <span class="bio-stat-count">'    + (co.events    || 0) + '</span></span>'
@@ -416,7 +416,7 @@
       /* provenance */
       + '<div class="bio-detail-block">'
       +   '<h4 class="bio-detail-block-title">Provenance</h4>'
-      +   '<div class="bio-provenance-box">Unapproved staged candidate — not yet part of structured biography data.</div>'
+      +   '<div class="bio-provenance-box">Staged in this browser session only — not saved, and not part of the Life Record.</div>'
       +   '<div class="bio-provenance-row">'
       +     '<span class="bio-provenance-chip">type: ' + _esc(c.sourceType || "source_inbox") + '</span>'
       +     '<span class="bio-provenance-chip">id: '   + _esc(c.sourceId   || c.source || "—") + '</span>'
@@ -428,7 +428,7 @@
           ? '<div class="bio-detail-block">'
           +   '<h4 class="bio-detail-block-title">Possible Duplicate</h4>'
           +   '<div class="bio-merge-box">' + _esc(dup) + '</div>'
-          +   '<div class="bio-possible-duplicate">Use Merge to combine with the existing record.</div>'
+          +   '<div class="bio-possible-duplicate">“Mark merge” notes the overlap for review (session only); nothing is combined in the Life Record.</div>'
           + '</div>'
           : "")
       /* v6: FT/LT cross-reference indicator with fuzzy confidence */
@@ -464,10 +464,10 @@
       /* action footer */
       + '<div class="bio-review-actions">'
       +   '<button class="bio-btn secondary" id="bioSaveEditsBtn">Save Edits</button>'
-      +   '<button class="bio-btn primary"   id="bioApproveBtn">✓ Approve</button>'
-      +   '<button class="bio-btn warn"      id="bioMergeBtn">⇄ Merge</button>'
+      +   '<button class="bio-btn primary"   id="bioApproveBtn" title="Marks this item as looked-at-and-right for this session. It does not enter the Life Record.">✓ Mark approved</button>'
+      +   '<button class="bio-btn warn"      id="bioMergeBtn">⇄ Mark merge</button>'
       +   '<button class="bio-btn danger"    id="bioRejectBtn">✕ Reject</button>'
-      +   '<span class="bio-review-helper">Approval is the only path into structured biography data.</span>'
+      +   '<span class="bio-review-helper">Session-only marks — nothing here is saved to the Life Record.</span>'
       + '</div>';
   }
 
@@ -477,8 +477,8 @@
     return '<div class="bio-review-root">'
       + '<div class="bio-review-header">'
       +   '<div class="bio-review-title-wrap">'
-      +     '<h2 class="bio-review-title">Review &amp; Promote</h2>'
-      +     '<p class="bio-review-subtitle">Review staged candidates, refine them, then explicitly approve what should enter structured biography data.</p>'
+      +     '<h2 class="bio-review-title">From sources &amp; notes</h2>'
+      +     '<p class="bio-review-subtitle">Review what was staged from notes and documents. Marks made here last only for this browser session and do NOT enter the Life Record — enter confirmed facts in Questionnaire.</p>'
       +   '</div>'
       +   _renderStats()
       + '</div>'

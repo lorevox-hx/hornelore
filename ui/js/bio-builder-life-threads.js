@@ -31,7 +31,8 @@
   var _esc               = _core._esc;
   var _currentPersonId   = _core._currentPersonId;
   var _currentPersonName = _core._currentPersonName;
-  var _persistDrafts     = _core._persistDrafts;
+  // Batch C-2b: local only (see core _persistGraphDraftsLocal).
+  var _persistDrafts     = _core._persistGraphDraftsLocal;
   var _showInlineConfirm = _core._showInlineConfirm;
   var _emptyStateHtml    = _core._emptyStateHtml;
 

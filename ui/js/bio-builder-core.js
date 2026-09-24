@@ -47,7 +47,7 @@
         personId:      null,
         quickItems:    [],   // [{id, text, type, ts}]  type: "fact"|"note"
         questionnaire: {},   // {sectionId: data}
-        graph: { persons: {}, relationships: {} },  // Phase Q.1: canonical relationship graph
+        graph: { persons: {}, relationships: {} },  // Phase Q.1 relationship graph (a Life Record projection since Batch B)
         sourceCards:   [],   // [{id, filename, fileSize, sourceType, ts, status,
                              //   extractedText, pastedText, detectedItems,
                              //   addedCandidateIds}]
@@ -601,6 +601,23 @@
      call sites opt IN to suppression instead, which keeps the blast
      radius at exactly the paths measured to be writing without being
      asked. */
+  /* Batch C-2b: the Family Tree and Life Threads drafts, LOCALLY ONLY.
+     Their edits used to call _persistDrafts, which also sends the whole
+     EARLIER questionnaire to the server — a Family Tree click could write
+     the old biography store. These drafts are browser-local by design
+     (DRAFT · NOT LIFE RECORD); nothing here touches the network or the
+     old questionnaire draft. */
+  function _persistGraphDraftsLocal(pid) {
+    if (!pid) return;
+    var bb = _bb(); if (!bb || bb.personId !== pid) return;
+    try {
+      var ft = bb.familyTreeDraftsByPerson && bb.familyTreeDraftsByPerson[pid];
+      var lt = bb.lifeThreadsDraftsByPerson && bb.lifeThreadsDraftsByPerson[pid];
+      if (ft) localStorage.setItem(_LS_FT_PREFIX + pid, JSON.stringify({ v: DRAFT_SCHEMA_VERSION, d: ft }));
+      if (lt) localStorage.setItem(_LS_LT_PREFIX + pid, JSON.stringify({ v: DRAFT_SCHEMA_VERSION, d: lt }));
+    } catch (e) { /* a full or blocked store loses only the local draft */ }
+  }
+
   function _persistDrafts(pid, entry, opts) {
     if (!pid) return;
     var bb = _bb(); if (!bb) return;
@@ -642,13 +659,17 @@
         var hasAnyValue = _hasOperatorContent(qq);
         // The draft is written FIRST, on every path. Whatever the server
         // does next, the operator's typing survives a refresh.
-        if (qq && Object.keys(qq).length > 0) _writeQqDraft(pid, qq);
+        // Batch C-2b EXCEPTION: not on navigation. The earlier questionnaire
+        // has no editor any more, so a narrator switch was MANUFACTURING an
+        // old-questionnaire draft for narrators who never used it (seen live,
+        // 2026-09-24). Existing drafts are left exactly as they are.
+        if (!navigationOnly && qq && Object.keys(qq).length > 0) _writeQqDraft(pid, qq);
 
         if (navigationOnly && qq && Object.keys(qq).length > 0) {
           // The draft above already preserved this document locally.
           // Navigating away is not an instruction to overwrite the
           // server's copy with whatever this screen happens to hold.
-          console.log("[bb-core] navigation persist: local draft written, " +
+          console.log("[bb-core] navigation persist: no server write, no old-questionnaire draft " +
             "backend PUT suppressed for pid=" + pid.slice(0, 8) +
             " (WO-BIO-VIEW-SAFETY-01 — navigation is not authority to write)");
           _qqLastOutcome = Promise.resolve({
@@ -1043,14 +1064,13 @@
           // Mirror the server copy only when we are not holding edits it
           // would destroy. The draft belongs to the operator until a save is
           // confirmed.
-          if (_qqDirty[stampedPid] && _hasOperatorContent(bb.questionnaire)) {
-            console.warn("[bb-core] draft mirror SKIPPED for " + stampedPid.slice(0, 8) +
-              ": this browser holds unsaved edits and the draft is the only copy of them.");
-          } else {
-            try {
-              localStorage.setItem(_LS_QQ_PREFIX + stampedPid, JSON.stringify({ v: DRAFT_SCHEMA_VERSION, d: sections }));
-            } catch (e) {}
-          }
+          //
+          // Batch C-2b (2026-09-24): the mirror is GONE. Opening or switching
+          // to a narrator must not create or refresh an earlier-questionnaire
+          // draft — the Life Record is the biography, and the old editor that
+          // this paint cache served is retired. Existing keys are left alone
+          // (not deleted); the server copy above is still read into memory
+          // for the consumers D-0 has yet to move.
           // BUG-BIO-BUILDER-FALSE-DRIFT-WARNING-01 (2026-07-07): the
           // snapshot used to run BEFORE the setItem above, so mem/disk
           // key comparison fired KEY MISMATCH on every backend restore
@@ -2299,6 +2319,7 @@
     _LS_QC_PREFIX:            _LS_QC_PREFIX,
     _LS_DRAFT_INDEX:          _LS_DRAFT_INDEX,
     _persistDrafts:           _persistDrafts,
+    _persistGraphDraftsLocal: _persistGraphDraftsLocal,
     _syncIdentityToBB:        _syncIdentityToBB,
     _loadDrafts:              _loadDrafts,
     _clearDrafts:             _clearDrafts,

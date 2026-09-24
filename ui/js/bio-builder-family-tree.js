@@ -34,7 +34,9 @@
   var _esc                = _core._esc;
   var _currentPersonId    = _core._currentPersonId;
   var _currentPersonName  = _core._currentPersonName;
-  var _persistDrafts      = _core._persistDrafts;
+  // Batch C-2b: Family Tree drafts are LOCAL ONLY — never the old
+  // questionnaire PUT that _core._persistDrafts sends (see core).
+  var _persistDrafts      = _core._persistGraphDraftsLocal;
   var _showInlineConfirm  = _core._showInlineConfirm;
   var _emptyStateHtml     = _core._emptyStateHtml;
 
@@ -875,9 +877,9 @@
   }
 
   /* ── Phase Q.1: Seed from Relationship Graph ────────────────
-     The primary seeding function.  Reads the canonical graph
-     (persons + relationships) and creates FT nodes/edges.
-     This is the preferred path — graph is the truth model.
+     Reads the relationship graph (persons + relationships) and creates
+     FT draft nodes/edges. The graph is a PROJECTION of the Life Record, not
+     a truth model; Family becomes a derived view in C-3.
   ─────────────────────────────────────────────────────────── */
   function _ftSeedFromGraph() {
     var pid = _currentPersonId(); if (!pid) return;

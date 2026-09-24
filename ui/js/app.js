@@ -243,9 +243,22 @@ window.getSessionStyle = getSessionStyle;
  * (NOT currentMode — those are different abstractions) and mirrors the
  * choice to localStorage so it survives reload.
  */
+/* Batch C-2b: questionnaire_first is retired on the live path. It is kept
+   for testing behind the existing explicit opt-in (lv_qf_live_ownership=1);
+   without it the style can be neither selected nor restored. */
+function _lvQfLegacyOptIn() {
+  try { return localStorage.getItem("lv_qf_live_ownership") === "1"; } catch (_) { return false; }
+}
+
 function lvSetSessionStyle(value) {
   if (!LV_VALID_SESSION_STYLES.includes(value)) {
     console.warn("[lv-shell] ignored invalid session style:", value);
+    return;
+  }
+  if (value === "questionnaire_first" && !_lvQfLegacyOptIn()) {
+    console.warn("[lv-shell] questionnaire_first is retired — not selected (testing opt-in required)");
+    const cur = (state.session && state.session.sessionStyle) || "oral_history";
+    document.querySelectorAll('input[name="lvSessionStyle"]').forEach(r => { r.checked = (r.value === cur); });
     return;
   }
   if (!state.session) state.session = {};
@@ -301,11 +314,21 @@ window.lvSetSessionStyle = lvSetSessionStyle;
 function _lvHydrateSessionStyle() {
   let saved = null;
   try { saved = localStorage.getItem(LV_SESSION_STYLE_KEY); } catch (_) {}
-  const value = (saved && LV_VALID_SESSION_STYLES.includes(saved)) ? saved : "oral_history";
+  let value = (saved && LV_VALID_SESSION_STYLES.includes(saved)) ? saved : "oral_history";
+  // Batch C-2b: questionnaire_first is RETIRED on the live path
+  // (WO-QUESTIONNAIRE-FIRST-RETIRE-LIVE-01). A value saved before then must
+  // not present itself as the current style: without the explicit legacy
+  // opt-in it loads as the documented default. Browser storage is left as
+  // it is — the setting is historical, not deleted.
+  const optIn = _lvQfLegacyOptIn();
+  if (value === "questionnaire_first" && !optIn) value = "oral_history";
   if (!state.session) state.session = {};
   state.session.sessionStyle = value;
   const radios = document.querySelectorAll('input[name="lvSessionStyle"]');
-  radios.forEach(r => { r.checked = (r.value === value); });
+  radios.forEach(r => {
+    r.checked = (r.value === value);
+    if (r.value === "questionnaire_first") r.disabled = !optIn;   // shown as retired, not selectable
+  });
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -936,7 +959,9 @@ async function _lvMediaPreflightOnce() {
 ═══════════════════════════════════════════════════════════════ */
 
 const LV_NARRATOR_SESSION_STYLE_LABELS = {
-  questionnaire_first: "Questionnaire first",
+  // Retired on the live path; reachable only with the explicit legacy
+  // opt-in or by picking it for a test session (Batch C-2b).
+  questionnaire_first: "Questionnaire first (retired)",
   clear_direct:        "Clear & direct",
   warm_storytelling:   "Warm storytelling",
   // memory_exercise dropped 2026-04-25 — kept as legacy fallback label
@@ -4385,7 +4410,8 @@ async function lvxSwitchNarratorSafe(pid){
         const bb = state.bioBuilder;
         if (bb) {
           bb.questionnaire = snap.questionnaire;
-          try { localStorage.setItem("lorevox_qq_draft_" + pid, JSON.stringify({ v: 1, d: snap.questionnaire })); } catch(_){}
+          // Batch C-2b: no localStorage mirror — loading a narrator must not
+          // create or refresh an earlier-questionnaire draft.
         }
       }
       // Backend projection overwrites in-memory if non-empty

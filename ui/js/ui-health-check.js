@@ -1084,7 +1084,7 @@ window.lvUiHealthCheck = (function () {
     if (pill) {
       const txt = (pill.textContent || "").trim();
       const expectedLabels = {
-        questionnaire_first: "Questionnaire first",
+        questionnaire_first: "Questionnaire first (retired)",
         clear_direct:        "Clear & direct",
         warm_storytelling:   "Warm storytelling",
         // memory_exercise dropped 2026-04-25 — kept here as legacy

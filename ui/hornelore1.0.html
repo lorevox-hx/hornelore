@@ -3046,7 +3046,11 @@
             class="lv-shell-tab lv-shell-tab-active" aria-selected="true"
             aria-controls="lvOperatorTab"
             onclick="lvShellShowTab('operator')">Operator</button>
-    <button type="button" id="lvShellTabIntake" role="tab" data-tab="intake"
+    <!-- Batch C-2b: Operator Intake removed from navigation. It showed the
+         EARLIER questionnaire's values (read-only since C-2); the one legacy
+         location is now Bio Builder → ⋯ Legacy → Earlier Questionnaire
+         Answers. The panel and module stay in the tree, unreachable. -->
+    <button type="button" id="lvShellTabIntake" role="tab" data-tab="intake" hidden
             class="lv-shell-tab" aria-selected="false"
             aria-controls="lvIntakeTab"
             onclick="lvShellShowTab('intake')">Intake</button>
@@ -3289,10 +3293,10 @@
                a separate system in app.js _wsPosture handling. -->
           <label class="lv-session-style-card"
                  title="Structured biographical questions in sequence. Best for narrators who want a clear scaffold and find open-ended conversation tiring.">
-            <input type="radio" name="lvSessionStyle" value="questionnaire_first"
+            <input type="radio" name="lvSessionStyle" value="questionnaire_first" disabled
                    onchange="lvSetSessionStyle(this.value)">
-            <strong>Questionnaire First</strong>
-            <span>Start with the basics, step by step.</span>
+            <strong>Questionnaire First — retired</strong>
+            <span>Retired — cannot be selected. Kept for testing only. Structured facts are entered in Bio Builder → Questionnaire.</span>
           </label>
           <label class="lv-session-style-card"
                  title="Short answers, one fact at a time. Best when the narrator prefers concise back-and-forth over open chapters.">
@@ -4049,7 +4053,7 @@
     <div class="wo13-header">
       <div class="wo13-title">
         🗂 Review Queue
-        <span class="wo13-subtitle">Shadow → Proposal → <em>Review</em> → Promoted Truth</span>
+        <span class="wo13-subtitle">Shadow → Proposal → <em>Review</em> (promotion paused)</span>
       </div>
       <div class="wo13-header-actions">
         <button class="wo13-help-btn" type="button"
@@ -4075,9 +4079,11 @@
               title="Reject every row currently visible in this tab">
         Bulk dismiss visible
       </button>
-      <button id="wo13PromoteBtn" class="wo13-ctrl-btn wo13-ctrl-promote" type="button"
-              title="Promote all rows whose status is 'approve'">
-        Promote approved
+      <!-- Batch C-2b: Promote wrote family-truth "promoted" rows, a separate
+           truth store. Held (life-record-authority.js); disabled here too. -->
+      <button id="wo13PromoteBtn" class="wo13-ctrl-btn wo13-ctrl-promote" type="button" disabled
+              title="Paused: promotion wrote to the earlier biography system. Enter confirmed facts in Bio Builder → Questionnaire.">
+        Promote approved (paused)
       </button>
       <button id="wo13ReviewRefreshBtn" class="wo13-ctrl-btn" type="button"
               onclick="if(typeof wo13ReloadReviewQueue==='function') wo13ReloadReviewQueue()">
@@ -4105,16 +4111,15 @@
       <p><strong>Four layers.</strong> Nothing a narrator says goes directly into
       their bio. It first lands as a raw <em>Shadow Note</em>, then the rules_fallback
       extractor builds <em>Proposal</em> rows from it. Proposals live in this drawer
-      until a human reviewer promotes, rejects, or source-only-records them. Only
-      approved rows become <em>Promoted Truth</em>.</p>
+      until a human reviewer promotes, rejects, or source-only-records them. Approving records a review decision only: promotion into the earlier
+      family-truth layer is <strong>paused</strong> while biography moves to the Life Record.</p>
 
       <p><strong>Five statuses.</strong></p>
       <ul>
         <li><code>needs_verify</code> — maybe true. The default for everything the
         rules_fallback extractor produces.</li>
-        <li><code>approve</code> — confirmed. Safe to promote.</li>
-        <li><code>approve_q</code> — confirmed, but you want to come back with a
-        follow-up question.</li>
+        <li><code>approve</code> — approved in review (a decision only; nothing is promoted).</li>
+        <li><code>approve_q</code> — approved in review, with a follow-up question to ask.</li>
         <li><code>source_only</code> — record that the narrator said this, but
         never propagate it anywhere else. The only status allowed for the
         five protected identity fields.</li>
@@ -4155,8 +4160,11 @@
                        ↓
                      Derived Views (Life Map, Timeline, Peek at Memoir)
 
-       Truth rule: Bio Builder writes only to state.bioBuilder.
-       It never writes to state.archive, state.facts, or state.timeline.
+       Batch C-2b (2026-09-24): the ONE editable authority for biography is
+       Questionnaire, which writes the Life Record through its writer. The
+       other areas are DRAFT (Sources & Notes, Family), REVIEW, or READ ONLY
+       · LEGACY — each says so on screen. (This comment once read "Bio
+       Builder writes only to state.bioBuilder", which had stopped being true.)
   ──────────────────────────────────────────────────────────────-->
   <div id="bioBuilderPopover" popover="auto">
 
@@ -4164,52 +4172,28 @@
     <div class="bb-header">
       <h3>🧩 Bio Builder</h3>
       <span id="bbSubtitle">Choose a narrator to begin</span>
-      <!-- BUG-228: Operator-accessible Reset Identity link.
-           Same handler as the Bug Panel button but always visible
-           inside the BB popover so it's reachable during normal flow
-           without diving into devtools. -->
-      <button id="bbResetIdentityBtn"
-              type="button"
-              title="Wipe this narrator's identity fields and re-fire identity onboarding. Memory archive, parents/siblings sections, other narrators preserved."
-              onclick="window.lvBbResetIdentityForCurrentNarrator && window.lvBbResetIdentityForCurrentNarrator()"
-              style="font-size:11px;padding:.25rem .5rem;border:1px solid #7f1d1d;background:transparent;color:#f87171;border-radius:4px;cursor:pointer;">
-        ⟲ Reset Identity
-      </button>
+      <!-- Batch C-2b: Reset Identity REMOVED from Bio Builder. It cleared the
+           earlier stores but not the Life Record — a partial reset, which the
+           no-partial-resets principle forbids. Corrections are made in
+           Questionnaire, with history kept. -->
       <div class="bb-tabs" role="tablist">
-        <button id="bbTabCapture"       class="bb-tab bb-tab-active" data-tab="capture"
-                onclick="window.LorevoxBioBuilder._switchTab('capture')"
-                role="tab" aria-selected="true">Quick Capture</button>
-        <button id="bbTabQuestionnaire" class="bb-tab" data-tab="questionnaire"
+        <!-- Batch C-2b: five areas. The old tab names still route here via
+             bio-builder.js _TAB_ALIASES; Life Threads is retired. -->
+        <button id="bbTabQuestionnaire" class="bb-tab bb-tab-active" data-tab="questionnaire"
                 onclick="window.LorevoxBioBuilder._switchTab('questionnaire')"
-                role="tab" aria-selected="false">Questionnaire</button>
-        <!-- Batch C: the earlier questionnaire, READ-ONLY. Questionnaire V2
-             (the tab above) is the only editor; it writes the Life Record. -->
-        <button id="bbTabEarlierAnswers" class="bb-tab" data-tab="earlierAnswers"
-                onclick="window.LorevoxBioBuilder._switchTab('earlierAnswers')"
-                role="tab" aria-selected="false">Earlier answers</button>
-        <button id="bbTabSources"       class="bb-tab" data-tab="sources"
-                onclick="window.LorevoxBioBuilder._switchTab('sources')"
-                role="tab" aria-selected="false">Source Inbox</button>
-        <button id="bbTabCandidates"    class="bb-tab" data-tab="candidates"
-                onclick="window.LorevoxBioBuilder._switchTab('candidates')"
-                role="tab" aria-selected="false">Candidates</button>
-        <button id="bbTabFamilyTree"   class="bb-tab" data-tab="familyTree"
+                role="tab" aria-selected="true">Questionnaire</button>
+        <button id="bbTabSourcesNotes" class="bb-tab" data-tab="sourcesNotes"
+                onclick="window.LorevoxBioBuilder._switchTab('sourcesNotes')"
+                role="tab" aria-selected="false">Sources &amp; Notes</button>
+        <button id="bbTabReview" class="bb-tab" data-tab="review"
+                onclick="window.LorevoxBioBuilder._switchTab('review')"
+                role="tab" aria-selected="false">Review</button>
+        <button id="bbTabFamilyTree" class="bb-tab" data-tab="familyTree"
                 onclick="window.LorevoxBioBuilder._switchTab('familyTree')"
-                role="tab" aria-selected="false">Family Tree</button>
-        <button id="bbTabLifeThreads"  class="bb-tab" data-tab="lifeThreads"
-                onclick="window.LorevoxBioBuilder._switchTab('lifeThreads')"
-                role="tab" aria-selected="false">Life Threads</button>
-        <button id="bbTabShadowReview" class="bb-tab" data-tab="shadowReview"
-                onclick="window.LorevoxBioBuilder._switchTab('shadowReview')"
-                role="tab" aria-selected="false">Shadow Review</button>
-        <button id="bbTabConflicts" class="bb-tab" data-tab="conflicts"
-                onclick="window.LorevoxBioBuilder._switchTab('conflicts')"
-                role="tab" aria-selected="false">Conflicts</button>
-        <!-- WO-03B: the review surface for Lori's proposals. Did not exist;
-             suggestions were queued to nothing anyone could see. -->
-        <button id="bbTabSuggestions" class="bb-tab" data-tab="suggestions"
-                onclick="window.LorevoxBioBuilder._switchTab('suggestions')"
-                role="tab" aria-selected="false">Suggestions</button>
+                role="tab" aria-selected="false">Family</button>
+        <button id="bbTabLegacy" class="bb-tab" data-tab="legacy"
+                onclick="window.LorevoxBioBuilder._switchTab('legacy')"
+                role="tab" aria-selected="false">⋯ Legacy</button>
       </div>
     </div>
 
@@ -4666,9 +4650,9 @@
 
       <!-- Reset Identity for Current Narrator -->
       <div style="margin-top:12px;">
-        <div style="font-size:12px;font-weight:600;color:#f87171;margin-bottom:2px;">⟲ Reset Identity for Current Narrator (BUG-228)</div>
+        <div style="font-size:12px;font-weight:600;color:#f87171;margin-bottom:2px;">⟲ Reset legacy identity fields (developer tool, BUG-228)</div>
         <p style="font-size:11px;color:#94a3b8;margin:0 0 6px 0;">
-          Wipes bb.questionnaire.personal + state.profile.basics identity fields,
+          <strong style="color:#fbbf24">Earlier system only — the Life Record is NOT reset.</strong> Wipes bb.questionnaire.personal + state.profile.basics identity fields,
           PATCHes backend person row to null DOB + place, re-fires identity
           onboarding. Memory archive, other BB sections, other narrators
           untouched. person_id stays the same. Use when polluted data carried
@@ -4677,7 +4661,7 @@
         <div class="lv10d-bp-actions">
           <button class="lv10d-bp-action-btn" style="background:#7f1d1d;color:#fff;"
                   onclick="window.lvBbResetIdentityForCurrentNarrator && window.lvBbResetIdentityForCurrentNarrator()">
-            Reset Identity for Current Narrator
+            Reset legacy identity fields
           </button>
         </div>
         <div id="lv10dBpResetIdentityStatus" style="font-size:11px;color:#94a3b8;margin-top:4px;">—</div>
@@ -4888,7 +4872,7 @@
     <div class="lv10d-bp-section">
       <div class="lv10d-bp-section-title">Bio Builder (Dev Reset)</div>
       <p style="font-size:11px;color:#94a3b8;margin:0 0 6px 0;">
-        Safety valve. Clears questionnaire + candidates + drafts ONLY for the active narrator.
+        <strong style="color:#fbbf24">Earlier system only — the Life Record is NOT reset.</strong> Safety valve. Clears the earlier questionnaire + candidates + drafts ONLY for the active narrator.
         Other narrators untouched. Cannot be undone.
       </p>
       <div class="lv10d-bp-actions">
@@ -4901,7 +4885,7 @@
     <div class="lv10d-bp-section">
       <div class="lv10d-bp-section-title">Deep Reset (Projection + Family)</div>
       <p style="font-size:11px;color:#94a3b8;margin:0 0 6px 0;">
-        Bigger scope than Reset BB. Also wipes projection layer (the dirty
+        <strong style="color:#fbbf24">Earlier system only — the Life Record is NOT reset.</strong> Bigger scope than Reset BB. Also wipes projection layer (the dirty
         parents/family roster feeding runtime71), state.profile.kinship,
         state.profile.pets, and backend projection blob. Identity (name/DOB/place),
         memory archive (transcripts + audio), and other narrators untouched.
@@ -5396,6 +5380,7 @@
 <script src="js/bio-builder-life-threads.js"></script>
 <!-- Batch C: Questionnaire V2 — an editor of the Life Record. The model is
      pure; the shell is looked up by bio-builder.js at render time. -->
+<script src="js/life-record-authority.js"></script>
 <script src="js/questionnaire-v2-model.js"></script>
 <script src="js/questionnaire-v2.js"></script>
 <script src="js/bio-builder.js"></script>
