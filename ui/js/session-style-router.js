@@ -71,7 +71,15 @@
 
     switch (style) {
       case "questionnaire_first":
-        return _enterQuestionnaireFirst(personId);
+        // RETIRED on the live path (WO-QUESTIONNAIRE-FIRST-RETIRE-LIVE-01).
+        // session-loop.js already redirected QF chat turns; this entry
+        // still started the identity walk when a narrator OPENED, which is
+        // how a stale stored style steered a cold start (C-2 live smoke,
+        // 2026-09-24). Same opt-in as session-loop.js.
+        if (_qfLegacyLiveOwnership()) return _enterQuestionnaireFirst(personId);
+        console.log("[QF-RETIRE] questionnaire_first on narrator open → no walk " +
+          "(set localStorage.lv_qf_live_ownership=1 for the legacy walk)");
+        return;
       case "clear_direct":
       case "companion":
         // Tier-2 directives only — byte-stable with warm_storytelling
@@ -94,6 +102,10 @@
     }
   }
   window.lvSessionStyleEnter = lvSessionStyleEnter;
+
+  function _qfLegacyLiveOwnership() {
+    try { return localStorage.getItem("lv_qf_live_ownership") === "1"; } catch (_) { return false; }
+  }
 
   /* ── Questionnaire-first lane ──────────────────────────────────
      Two segments:

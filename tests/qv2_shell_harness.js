@@ -16,26 +16,40 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { execFileSync } = require("child_process");
+const { spawn } = require("child_process");
 const { JSDOM } = require("jsdom");
 
 const ROOT = path.resolve(__dirname, "..");
 const SRC = ["ui/js/api.js", "ui/js/questionnaire-v2-model.js", "ui/js/questionnaire-v2.js"]
   .map((f) => fs.readFileSync(path.join(ROOT, f), "utf8"));
 const DB = process.env.QV2_DB, PY = process.env.QV2_PY, A = process.env.QV2_A, B = process.env.QV2_B;
+const FRESH = process.env.QV2_FRESH;   // a narrator with a people row and NO Life Record at all
 
 const checks = [], facts = {};
 const check = (name, ok, why) => checks.push({ name, ok: !!ok, why: ok ? "" : String(why) });
 const tick = (ms) => new Promise((r) => setTimeout(r, ms || 0));
 
-function bridge(method, pid, body) {
-  const args = [path.join(ROOT, "tests", "qv2_bridge.py"), DB, method, pid];
-  if (body !== undefined) {
-    const f = path.join(os.tmpdir(), "qv2-body-" + process.pid + "-" + Date.now() + ".json");
-    fs.writeFileSync(f, body);
-    args.push(f);
+/* ONE Python process for the whole run (see tests/qv2_bridge.py). */
+const BR = spawn(PY, [path.join(ROOT, "tests", "qv2_bridge.py"), DB, "--serve"], { stdio: ["pipe", "pipe", "inherit"] });
+const waiting = new Map();
+let nextId = 0, buf = "";
+BR.stdout.on("data", (d) => {
+  buf += d.toString();
+  let i;
+  while ((i = buf.indexOf("\n")) >= 0) {
+    const line = buf.slice(0, i); buf = buf.slice(i + 1);
+    if (!line.trim()) continue;
+    const msg = JSON.parse(line);
+    const w = waiting.get(msg.id); waiting.delete(msg.id);
+    if (w) w(msg);
   }
-  return JSON.parse(execFileSync(PY, args, { encoding: "utf8" }));
+});
+function bridge(method, pid, body) {
+  const id = ++nextId;
+  return new Promise((res) => {
+    waiting.set(id, res);
+    BR.stdin.write(JSON.stringify({ id, method, pid, body }) + "\n");
+  });
 }
 
 /* One browser "tab": its own window, storage, request log and module state. */
@@ -61,9 +75,9 @@ function openTab(sharedStorage) {
     const method = (opts && opts.method) || "GET";
     log.push({ method, url: String(url), body: opts && opts.body ? JSON.parse(opts.body) : null });
     const m = String(url).match(/\/api\/life-record\/([^/?]+)$/);
-    const respond = () => {
+    const respond = async () => {
       let status = 404, body = { detail: "not served by the harness" };
-      if (m) ({ status, body } = bridge(method, decodeURIComponent(m[1]), opts && opts.body));
+      if (m) ({ status, body } = await bridge(method, decodeURIComponent(m[1]), opts && opts.body));
       else if (String(url).indexOf("/api/bio-builder/questionnaire") !== -1 && method === "GET") {
         status = 200; body = { questionnaire: { personal: { fullName: "Ines Okafor", placeOfBirth: "Lagos" },
                                                   siblings: [{ firstName: "Chidi" }] } };
@@ -73,7 +87,7 @@ function openTab(sharedStorage) {
     if (tab.hold && tab.hold(method, String(url))) {
       return new Promise((res) => held.push({ url: String(url), go: () => res(respond()) }));
     }
-    return Promise.resolve(respond());
+    return respond();
   };
   SRC.forEach((s) => w.eval(s));
   tab.V2 = w.LorevoxQuestionnaireV2;
@@ -81,7 +95,12 @@ function openTab(sharedStorage) {
 }
 const $ = (t, sel) => t.c.querySelector(sel);
 const $$ = (t, sel) => Array.from(t.c.querySelectorAll(sel));
-async function settle() { for (let i = 0; i < 20; i++) await tick(5); }
+/* Quiet = no bridge reply outstanding for 10 consecutive ticks (bounded at
+   ~20 s, so a hang fails a check instead of hanging the suite). */
+async function settle() {
+  let quiet = 0;
+  for (let i = 0; i < 4000 && quiet < 10; i++) { await tick(5); quiet = waiting.size ? 0 : quiet + 1; }
+}
 function edit(t, value) {
   const inp = $(t, '[data-qv2-answer$=":person.birth.order"]');
   inp.value = value;
@@ -231,6 +250,39 @@ const header = (t) => ($(t, ".qv2-head strong") || {}).textContent;
       JSON.stringify(patch && patch.body));
   }
 
+  /* 10 — no narrator selected: the shape is there, nothing is live */
+  {
+    const t = openTab();
+    t.V2.render(t.c, null); await settle();
+    const tabs = $$(t, "[data-qv2-topic]");
+    check("no narrator: all eleven topics are visible, disabled, with a create/select prompt",
+      tabs.length === 11 && tabs.every((b) => b.disabled) && $(t, '[data-qv2-state="no-narrator"]') &&
+      /Create or select a narrator/.test(t.c.textContent), t.c.textContent.slice(0, 200));
+    check("no narrator: no request, no storage", t.log.length === 0 && t.storageWrites === 0,
+      t.log.length + " requests");
+  }
+
+  /* 11 — THE LIVE-SMOKE CASE: a narrator with NO Life Record (revision 0,
+          no people). Not pre-seeded: the first write must be possible. */
+  {
+    const t = openTab();
+    t.V2.render(t.c, FRESH); await settle();
+    const inp = $(t, '[data-qv2-answer$=":person.birth.order"]');
+    check("a brand-new narrator: the narrator topic is editable before anything exists",
+      inp && $(t, "[data-qv2-new-narrator]") && t.V2._state().baseRevision === 0,
+      $(t, ".qv2").textContent.slice(0, 300));
+    check("...and no internal id is shown as a name",
+      header(t) === "(name not yet in the Life Record)" && header(t).indexOf(FRESH) === -1, header(t));
+    edit(t, "first of two");
+    click(t, '[data-qv2-action="save"]'); await settle();
+    const patch = t.log.find((r) => r.method === "PATCH");
+    check("the first Save is one `add` about the narrator, and the record now exists",
+      patch && patch.body.changes.length === 1 && patch.body.changes[0].op === "add" &&
+      patch.body.changes[0].value.subjectId === FRESH && t.V2._state().baseRevision === 1 &&
+      $(t, '[data-qv2-answer$=":person.birth.order"]').value === "first of two" && !$(t, "[data-qv2-new-narrator]"),
+      JSON.stringify(patch && patch.body) + " rev=" + t.V2._state().baseRevision);
+  }
+
   /* 9 — Earlier answers: read-only, nothing that can write */
   {
     const t = openTab();
@@ -243,4 +295,5 @@ const header = (t) => ($(t, ".qv2-head strong") || {}).textContent;
   }
 
   process.stdout.write(JSON.stringify({ checks, facts }));
-})().catch((e) => { process.stdout.write(JSON.stringify({ checks, facts, error: String(e && e.stack || e) })); });
+})().catch((e) => { process.stdout.write(JSON.stringify({ checks, facts, error: String(e && e.stack || e) })); })
+  .finally(() => BR.stdin.end());

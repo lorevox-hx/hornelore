@@ -366,11 +366,20 @@
     // optional sections in one shot. Empty sections (e.g. military.served
     // = false, children = []) are still sent so the server applies its
     // own "skip if empty" rules per section.
-    const payload = Object.assign({}, v, {
+    // Batch C (2026-09-24): identity + consent ONLY. The biography
+    // sections are gone from the form; nothing here may seed profile_json
+    // or bio_facts with a second copy of the biography. Identity is also
+    // written to the Life Record by the server at creation.
+    const payload = {
+      full_legal_name: v.full_legal_name, preferred_name: v.preferred_name,
+      date_of_birth: v.date_of_birth, place_of_birth: v.place_of_birth,
+      current_residence: v.current_residence, pronouns: v.pronouns,
       pronouns_other: v.pronouns === 'other' ? v.pronouns_other : '',
+      consent_recording_agreement: v.consent_recording_agreement,
+      consent_disclosure_reviewed: v.consent_disclosure_reviewed,
       consent_checked_by_operator: '',
       testing_only: false,
-    });
+    };
 
     let pid = null;
     try {
@@ -417,12 +426,12 @@
     } catch (_) { /* ignore */ }
 
     if (opts && opts.target === 'bio_builder') {
-      // Phase 1 doesn't have a dedicated Bio Builder landing flow yet;
-      // make the new narrator active and let the operator navigate to
-      // the bio editor section via the Bug Panel surface.
+      // "Save and continue to Bio Builder" now does what it says: the new
+      // narrator becomes active and Questionnaire V2 opens for them.
       if (typeof lv80ConfirmNarratorSwitch === 'function') {
         lv80ConfirmNarratorSwitch(pid);
       }
+      _openQuestionnaireFor(pid);
       return;
     }
 
@@ -432,43 +441,54 @@
     }
   }
 
-  // ── Skip — testing only ──────────────────────────────────────────
+  // ── Fictional narrator (development) ─────────────────────────────
   //
-  // The legacy zero-field create path preserved for stress-test
-  // narrators (Walter, Jake). Uses prompt() for the name and POSTs
-  // with testing_only=true so the consent gate is bypassed
-  // server-side.
+  // A name and nothing else — no browser prompt(), which blocked the page
+  // and could not be driven by any harness. POSTs testing_only=true (the
+  // consent gate is for real people). The server writes the name to the
+  // Life Record at creation, and Questionnaire V2 opens for the narrator.
 
-  async function lvNarratorIntakeSkipTesting() {
-    const name = (window.prompt('New test narrator name:') || '').trim();
-    if (!name) return;
+  async function lvNarratorIntakeCreateFictional() {
+    const name = _val('lvIntakeFictionalName');
+    if (!name) { _showErrors(['Give the fictional narrator a name.']); return; }
+    _showErrors([]);
     try {
       const resp = await fetch(ENDPOINT_PEOPLE, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          display_name: name,
-          role: '',
-          narrator_type: 'live',
-          testing_only: true,
-        }),
+        body: JSON.stringify({ display_name: name, role: '', narrator_type: 'live', testing_only: true }),
       });
-      if (!resp.ok) {
-        window.alert('Failed to create test narrator: ' + resp.status);
-        return;
-      }
+      if (!resp.ok) { _showErrors(['Could not create the narrator (HTTP ' + resp.status + ').']); return; }
       const data = await resp.json();
       const pid = data.person_id || (data.person && data.person.id);
+      if (!pid) { _showErrors(['The server returned no narrator id.']); return; }
       lvCloseNarratorIntake();
       try { if (window.FacialConsent && window.FacialConsent.revokeStored) window.FacialConsent.revokeStored(); } catch (_) {}
       if (typeof refreshPeople === 'function') await refreshPeople();
       if (typeof lv80RenderNarratorCards === 'function') lv80RenderNarratorCards();
-      if (pid && typeof lv80ConfirmNarratorSwitch === 'function') {
-        lv80ConfirmNarratorSwitch(pid);
-      }
+      if (typeof lv80ConfirmNarratorSwitch === 'function') lv80ConfirmNarratorSwitch(pid);
+      _openQuestionnaireFor(pid);
     } catch (e) {
-      window.alert('Network error creating test narrator: ' + (e.message || e));
+      _showErrors(['Network error: ' + (e.message || e)]);
     }
+  }
+  // Kept as a name for any old caller; it no longer uses prompt().
+  const lvNarratorIntakeSkipTesting = lvNarratorIntakeCreateFictional;
+
+  // Open Bio Builder on the Questionnaire tab for `pid`, once the narrator
+  // switch has settled (Bio Builder refuses to paint a stale scope).
+  function _openQuestionnaireFor(pid) {
+    let tries = 0;
+    (function attempt() {
+      const bb = (typeof state !== 'undefined' && state.bioBuilder) || null;
+      const ready = typeof state !== 'undefined' && state.person_id === pid && (!bb || !bb.personId || bb.personId === pid);
+      if (!ready && tries++ < 40) { setTimeout(attempt, 150); return; }
+      const pop = document.getElementById('bioBuilderPopover');
+      try { if (pop && !pop.matches(':popover-open')) pop.showPopover(); } catch (_) {}
+      if (window.LorevoxBioBuilder && window.LorevoxBioBuilder._switchTab) {
+        window.LorevoxBioBuilder._switchTab('questionnaire');
+      }
+    })();
   }
 
   // ── Modal open / close ───────────────────────────────────────────
@@ -477,8 +497,7 @@
     const modal = $(MODAL_ID);
     if (!modal) {
       // Fall back to the legacy prompt if the modal mount is missing
-      console.warn('[narrator-intake] modal not mounted; using skip path');
-      lvNarratorIntakeSkipTesting();
+      console.warn('[narrator-intake] modal not mounted');
       return;
     }
     _resetForm();
@@ -499,7 +518,7 @@
     _showErrors([]);
     const inputs = [
       F.fullName, F.preferredName, F.dob, F.pob,
-      F.currentResidence, F.pronounsOther,
+      F.currentResidence, F.pronounsOther, 'lvIntakeFictionalName',
       // Phase 2C optional-section inputs
       'lvIntakeFatherName', 'lvIntakeFatherDob',
       'lvIntakeMotherName', 'lvIntakeMotherMaiden', 'lvIntakeMotherDob',
@@ -576,6 +595,7 @@
   window.lvCloseNarratorIntake = lvCloseNarratorIntake;
   window.lvNarratorIntakeSubmit = lvNarratorIntakeSubmit;
   window.lvNarratorIntakeSkipTesting = lvNarratorIntakeSkipTesting;
+  window.lvNarratorIntakeCreateFictional = lvNarratorIntakeCreateFictional;
 
   document.addEventListener('DOMContentLoaded', _wire);
 })();

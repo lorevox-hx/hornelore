@@ -174,6 +174,30 @@
       };
     });
 
+    // A brand-new narrator has no Life Record yet (revision 0, no people):
+    // GET writes nothing, by design, and the writer creates the narrator's
+    // own person on the FIRST write. So the narrator must be editable
+    // before they exist in the record, or that first write can never be
+    // made (C-2 live smoke, 2026-09-24). This is a VIEW of an empty person
+    // under the narrator's own id — nothing is stored by building it.
+    if (nid && !people[nid]) {
+      var none = function (c) { return answerOf(c, [], undefined); };
+      people[nid] = {
+        id: nid, isNarrator: true, names: [], preferredNameId: null, pronouns: [],
+        lifeStatus: none("person.life_status"),
+        birth: { eventId: null, date: null, placeId: null, placeLabel: null, time: none("person.birth.time") },
+        death: { eventId: null, date: null, placeId: null, placeLabel: null, reportedAge: none("person.death.reported_age") },
+        birthOrder: none("person.birth.order"), occupation: none("person.occupation"),
+        education: none("person.education"), militaryService: none("person.military_service"),
+        reportedCounts: { siblings: none("person.reported_count.siblings"),
+                          children: none("person.reported_count.children"),
+                          grandchildren: none("person.reported_count.grandchildren") },
+        heritage: [], languages: [], faithRaised: none("person.faith.raised"),
+        faithCurrent: none("person.faith.current"), interests: [], stories: [],
+        notYetInRecord: true,
+      };
+    }
+
     // relationships, and each one's meaning relative to the narrator
     var relationships = (record.relationships || []).filter(visible).map(function (r) {
       return {

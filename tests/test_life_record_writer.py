@@ -179,6 +179,11 @@ class Dates(_Db):
         span = R.resolve_life_span(rec)
         self.assertEqual((span["available"], span["precision"]), (True, "approximate"))
 
+    def test_a_year_with_no_normalised_value_is_kept_not_a_crash(self):
+        self.ok(self.birth("e-b", NORA, "sometime in 1939", None, "year", "a-dob"))
+        self.assertEqual(self.rec()["events"][0]["date"],
+                         {"text": "sometime in 1939", "value": None, "precision": "year"})
+
     def test_no_dob_no_fabricated_scaffold(self):
         self.ok([self.name(NORA, "n1", "Nora Whitfield")])
         self.assertFalse(R.resolve_life_span(self.rec())["available"])

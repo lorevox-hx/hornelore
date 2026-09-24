@@ -106,7 +106,18 @@
   function render(container, pid) {
     _container = container;
     if (!pid) {
-      container.innerHTML = '<div class="qv2-empty">Choose a narrator to open their questionnaire.</div>';
+      // The questionnaire's SHAPE is visible before any narrator exists, so
+      // it never looks as if it failed to load. Nothing here is live.
+      S = null;
+      ensureCss();
+      container.innerHTML = '<div class="qv2 qv2-no-narrator" data-qv2-state="no-narrator">' +
+        '<div class="qv2-head"><strong>Questionnaire</strong> <span class="qv2-rev">No narrator selected</span></div>' +
+        '<div class="qv2-msg qv2-info" data-qv2-msg="info">Create or select a narrator to begin. ' +
+        'The questionnaire edits that narrator\'s Life Record.</div>' +
+        '<nav class="qv2-nav" role="tablist">' + model().TOPICS.map(function (t) {
+          return '<button type="button" role="tab" disabled data-qv2-topic="' + t.id + '">' +
+            t.n + ". " + esc(t.title) + "</button>"; }).join("") + "</nav>" +
+        '<section class="qv2-topic"><p class="qv2-blank">No narrator selected.</p></section></div>';
       return;
     }
     if (!S || S.pid !== pid) {
@@ -229,8 +240,8 @@
   }
   function personName(pid) {
     var p = S.view.people[pid];
-    if (!p) return pid;
-    return (p.names[0] && p.names[0].fullText) || "(no name recorded)";
+    if (!p || !p.names[0]) return "(name not yet in the Life Record)";   // never an internal id
+    return p.names[0].fullText;
   }
   function list(items) {
     return items.length ? "<ul>" + items.map(function (x) { return "<li>" + x + "</li>"; }).join("") + "</ul>"
@@ -271,7 +282,9 @@
     switch (t) {
       case "narrator":
         if (!N) return '<p class="qv2-blank">Nothing recorded yet.</p>';
-        return "<h4>Names</h4>" + list(N.names.map(function (n) {
+        return (N.notYetInRecord ? '<p class="qv2-new" data-qv2-new-narrator>This narrator has nothing in the ' +
+                 "Life Record yet. The first Save creates their record.</p>" : "") +
+          "<h4>Names</h4>" + list(N.names.map(function (n) {
                  return esc(n.fullText) + " <small>(" + esc(n.kind || "current") + ")</small>"; })) +
           "<h4>Pronouns</h4>" + list(N.pronouns.map(function (p) { return esc(p.value); })) +
           "<h4>Birth</h4><p>" + answerText(N.birth.date) +
@@ -323,6 +336,7 @@
     ".qv2-topic h3{margin:.2rem 0 .6rem}.qv2-topic h4{margin:.8rem 0 .3rem;color:#94a3b8;font-size:.8rem;text-transform:uppercase}",
     ".qv2-field{display:block;margin:.6rem 0}.qv2-field input{margin-left:.5rem;padding:.25rem .4rem;min-width:16rem;background:#0f172a;color:#e2e8f0;border:1px solid #475569;border-radius:4px}",
     ".qv2-field input.qv2-dirty{border-color:#fbbf24}.qv2-blank{color:#64748b;font-style:italic}",
+    ".qv2-new{color:#93c5fd}.qv2-nav button[disabled]{opacity:.45;cursor:default}",
     ".qv2-legacy-table th{text-align:left;color:#94a3b8;padding-right:1rem;font-weight:normal}",
   ].join("");
   function ensureCss() {

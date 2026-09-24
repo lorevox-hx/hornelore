@@ -458,7 +458,9 @@ def rule_dates_keep_original_text(b):
     def check(node, path):
         if isinstance(node, dict):
             if "precision" in node and "text" in node:
-                if node["precision"] == "year" and node.get("value", "").count("-") > 0:
+                # `or ""`: a year said with no normalised value (value None)
+                # is legitimate, and used to crash here (found 2026-09-24).
+                if node["precision"] == "year" and str(node.get("value") or "").count("-") > 0:
                     bad.append(f"{path}: year precision but a fuller value was stored")
                 if node.get("text") and node.get("value") and \
                         node["precision"] in ("approximate", "uncertain") and \

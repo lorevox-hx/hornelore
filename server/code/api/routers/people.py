@@ -102,6 +102,20 @@ class PersonUpdate(BaseModel):
     )
 
 
+def _establish_in_life_record(person_id: str, **identity) -> dict:
+    """Batch C-2R2: a new narrator exists in the Life Record from creation,
+    written through the one writer. A failure here is REPORTED in the
+    response, never swallowed — but it does not undo the people row: the
+    narrator still exists, and Questionnaire V2 can make the first write."""
+    try:
+        from ..services.life_record.identity import establish_narrator
+        r = establish_narrator(person_id, **identity)
+    except Exception as exc:  # pragma: no cover - surfaced, not hidden
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    return {"ok": bool(r.get("ok")), "revision": r.get("revision"),
+            **({} if r.get("ok") else {"refused": r.get("refused") or r.get("conflict")})}
+
+
 @router.post("", summary="Create a new person")
 def api_create_person(payload: PersonCreate):
     """
@@ -210,12 +224,18 @@ def api_create_person(payload: PersonCreate):
                     "error": str(exc),
                 })
 
+    life_record = _establish_in_life_record(
+        person_id, full_name=payload.display_name,
+        pronouns=_pronoun_label(pron, payload.pronouns_other or "") if pron else None,
+        birth_date=payload.date_of_birth, birth_place=payload.place_of_birth)
+
     return {
         "person_id": person_id,
         "person": person,
         "consent_attestations": consent_written,
         "consent_errors": consent_errors,
         "testing_only": is_testing,
+        "life_record": life_record,
     }
 
 
@@ -898,6 +918,11 @@ def api_create_person_intake(payload: NarratorIntakePayload):
     except Exception as exc:
         profile_error = str(exc)
 
+    life_record = _establish_in_life_record(
+        person_id, full_name=payload.full_legal_name, preferred_name=payload.preferred_name,
+        pronouns=_pronoun_label(payload.pronouns, payload.pronouns_other or ""),
+        birth_date=payload.date_of_birth, birth_place=payload.place_of_birth)
+
     # ── Response ────────────────────────────────────────────────────
     person_row = get_person(person_id) or {"id": person_id}
     return {
@@ -909,4 +934,5 @@ def api_create_person_intake(payload: NarratorIntakePayload):
         "bio_facts_errors": bio_facts_errors,
         "profile_json_error": profile_error,
         "testing_only": payload.testing_only,
+        "life_record": life_record,
     }
