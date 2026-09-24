@@ -1839,6 +1839,118 @@ These are Lori and Profile Seed paths. Batch D moves them to the Life Record. **
 - **Legacy-surface sweep.** With the difficult fictional narrator, visit every surface above: open it, navigate it, switch narrators and come back. The Life Record revision must not move.
 - **Network check.** For an ordinary operator editing biography, the only writes are `PATCH /api/life-record` plus narrator creation and consent. Any `PUT /api/bio-builder/questionnaire`, `/api/profiles`, `/api/interview/projection`, `/api/graph` or bio-editor write is **either a retained, named REVIEW mechanism from section B, or a defect.**
 
+## C-2b — Bio Builder consolidation and authority cleanup — ACCEPTED / CLOSED 2026-09-24 (`be6b8b1`)
+
+**Governing brief (Chris, 2026-09-24, after C-2 closed at `7d1e020`).** C-2b is
+consolidation and authority cleanup: **no new store, no D-3 rewrite.** Every write to
+the earlier biography system is either **held** or moved to the Life Record. The gate
+is decided by **what an action writes, not by its verb** — "Approve" is held only
+where it writes. Roadmap after it, unchanged: C-3 … C-7 → Batch D (D-0 authority and
+consumer contract + Life Map → Memoir; D-1 historical context via
+`timeline_context_events`; D-2 narrator-defined chapters as Life Record data; D-3 Lori
+and Review; D-4 memoir; D-5 agreement gate) → Batch E (Portable Narrator) → Phase 6
+fictional release candidate → Phase 7 real narrators.
+
+**Target reached:** Bio Builder is `Questionnaire · Sources & Notes · Review · Family · ⋯ Legacy`,
+with the header `<name> · Life Record revision N` read from the Life Record.
+
+### What changed
+
+| Area | Change | Where |
+|---|---|---|
+| Navigation | Five tabs. Review holds four sections: *From sources & notes* (candidates), *From Lori* (suggestions), *Source claims* (shadow review), *Conflicts*. Old tab names are aliases into the new area and section. `lifeThreads` routes to **Questionnaire**, never to the retired renderer | `bio-builder.js` `_TAB_ALIASES`, `_REVIEW_SECTIONS` |
+| Retired from navigation | Life Threads, Reset Identity (the Bio Builder button), the shell's Operator Intake tab (hidden, not deleted), the top-level Earlier Answers tab (now under Legacy) | `hornelore1.0.html` |
+| Status labels | Sources & Notes and Family: **DRAFT · NOT IN THE LIFE RECORD**. Review: **REVIEW**. Legacy: **READ ONLY · LEGACY**, with no controls | `_statusBanner` |
+| Header | Prefers the Life Record: V2's `lorevox:life-record-shown` event `{pid, revision, name}`, else `GET /api/life-record/{pid}`. **No UUID fallback.** The event is cached per narrator and repaints only for the active one | `bio-builder.js` `_lifeRecordHeader`, listener; `questionnaire-v2.js` |
+| Authority hold | New `life-record-authority.js`, loaded before every review surface. Guarded sites check it **immediately before the write call**; a missing module means **HELD** (fail closed). Held items stay pending — they are not counted committed, not removed from the queue | `life-record-authority.js` |
+| Family / Life Threads | Their `_persistDrafts` is now `_persistGraphDraftsLocal`: FT/LT localStorage only. **Every** Family call site (Add, Edit, Delete, Connect, Seed ×4) goes through that alias, so none can carry the earlier-questionnaire PUT. Cut at the persistence seam, not at the buttons | `bio-builder-core.js`, `bio-builder-family-tree.js:39`, `bio-builder-life-threads.js:35` |
+| Narrator switch | Three paths could create or refresh `lorevox_qq_draft_<pid>`: navigation persist (`_persistDrafts` with `navigationOnly`), the backend-restore mirror in `_restoreQuestionnaireFromBackend`, and app.js Phase G's snapshot mirror. **All three removed.** Existing drafts are left exactly as they are | `bio-builder-core.js`, `app.js` |
+| `questionnaire_first` | Label "(retired)"; radio **disabled**; `lvSetSessionStyle` refuses it; a stored value hydrates as `oral_history`. Storage is not rewritten. The existing opt-in `lv_qf_live_ownership=1` still restores it for testing | `app.js` `_lvQfLegacyOptIn` |
+| Old editor | `_openSection`, `_closeSection`, `_addRepeatEntry`, `_saveSection` no longer exported from `LorevoxBioBuilder` (caller audit: no normal runtime user) | `bio-builder.js` |
+| Wording | "Questionnaire always wins", "approved truth", "structured biography", "Confirmed truth / safe to promote", "Promoted Truth", "graph is the truth model", "Canonical relationship graph" — all rewritten to say what the thing does | `conflict-console.js`, `bio-review.js`, `wo13-review.js`, `relationships.py`, graph comments, html help |
+
+### Review actions — classified by what they write
+
+| Action | Writes | C-2b |
+|---|---|---|
+| Suggestions → **Accept** / "Save this as my value" / acknowledge | server merges into the earlier questionnaire + `projection_json` | **HELD** — no Accept rendered (absent, with the reason), `_accept` refuses |
+| Suggestions → Decline | review disposition | kept |
+| Source claims → **Correct / Correct + Follow-up** with a field path | `projectValue(human_edit)` → projection + earlier questionnaire | **HELD**, claim stays open |
+| Source claims → Correct on a candidate; Approve on a candidate | `LorevoxCandidateReview._promote` — **in memory** | kept (session staging, labelled so) |
+| Source claims → Reject / Source only / status on a WO-13 row | review log; `PATCH` row status | kept |
+| Conflicts → **Replace / Merge** | `projectValue` | **HELD**, conflict stays open |
+| Conflicts → Keep current / follow-up / ambiguous | disagreement log | kept |
+| WO-13 → **Promote approved** | `POST /api/family-truth/promote` | **HELD**, button disabled "(paused)" |
+| WO-13 → status (approve, reject, …) | `PATCH` row status | kept — wording now "a decision only; nothing is promoted" |
+| Candidates → Approve / Merge / Reject | `state.bioBuilder.review` — **memory only** | **not held**; relabelled "Mark approved", "Mark merge", "Staged in this browser session only — not saved, and not part of the Life Record" |
+
+### Carried, not C-2b
+
+- **Life Threads code is kept.** Named runtime dependency: `life-map.js:337` reads its
+  theme counts. Reusable ideas for D-2 (narrator-defined chapters): themes as tags over
+  Life Map periods; the thread ↔ era cross-reference; a narrator's own thread names as
+  chapter candidates. It must not become a second narrative structure.
+- **Identity onboarding in chat** (`app.js:6085-6307` → `lvBbSyncIdentity`) still writes
+  the earlier questionnaire. Runtime, not an operator button → **D-3** (B5 above).
+- **`lorevox_proj_draft_`** is still written on switch by projection sync → D-0 (B7).
+- **Bug Panel Bio editor** remains a default-off alternate authority → D-0 (B4).
+- **Readiness gate reads the legacy profile; real-narrator identity floor** → D-0.
+- Bug Panel reset tools stay (developer), labelled "Earlier system only — the Life Record is NOT reset."
+
+### Evidence
+
+**Contract gate:** `tests/test_bb_consolidation.py` → `tests/bb_consolidation_harness.js`
+(real `#bioBuilderPopover` markup + shipped scripts in page order, loaded as real
+`<script>` elements; fake server recording every request; the legacy questionnaire
+**has content**, the condition under which the old Family path PUT). **37 checks.**
+
+*Found while building it — two harness defects that made checks pass vacuously:*
+1. Scripts loaded with `window.eval` do **not** share top-level `const API` between
+   files in jsdom, so every module that guards on `API` silently did nothing. Scripts
+   now load as real `<script>` elements, and the harness refuses to run if `API` or
+   `state` is not shared.
+2. `render()` returns early unless the popover is open, and jsdom has no
+   `:popover-open`, so `render()` never ran. The popover now carries the `open`
+   attribute the page's own check accepts.
+
+*Found BY it — three product defects, fixed in C-2b:* the backend-restore mirror and
+app.js Phase G mirror were creating `lorevox_qq_draft_<pid>` on every switch; and the
+header fell back to `_currentPersonName()` (the earlier profile's name), which is the
+"find another name" patch the brief ruled out. It now says "Name not yet in the Life
+Record" (or "Reading the Life Record…" while loading) and never an id or profile name.
+
+**Mutations (each run against a copy of `ui/`; every one broke the check it should):**
+authority opened · Family back on the old persist (the PUT reappeared on Add, Connect,
+Seed, Delete) · navigation writing the old draft · the restore mirror put back ·
+conflict guard removed · shadow guard removed · Accept button restored · conflict and
+shadow guards made fail-OPEN when the module is missing · `questionnaire_first` radio
+enabled and selection allowed · profile-name fallback put back in the header.
+**One equivalent mutation, recorded honestly:** removing the pid check from the
+`lorevox:life-record-shown` listener survives, because the header reads V2's own state
+for the active narrator first and that overwrites any stale cache entry. The
+stale-event check stays; it cannot discriminate that particular edit.
+
+**Existing suites, sandbox (`PYTHONPYCACHEPREFIX=/tmp/pyc python3`, node 20):**
+save_sequences, graph 52/52, operator intake 5/5 + helpers 16, questionnaire
+save-outcome, cache authority, single questionnaire, persist-empty-guard 17,
+questionnaire meta 12, operator intent 8, spouse edge types 26, profile cache and
+seed authority 53; Python `test_bb_consolidation` + `test_qv2_shell` +
+`test_qv2_adapter` + `test_questionnaire_route_fanout` + `test_operator_picker` +
+`test_oral_history_default_integration`: **45 OK** — all pass.
+
+**Laptop `.venv` (Chris, WSL, 2026-09-24):** the same six Python modules **45 OK, 0 skips**
+(63.6 s); node: save sequences, graph 52/52, Operator Intake 5/5, persist-empty-guard 17,
+questionnaire cache authority, single questionnaire — all pass. The `boom`, HTTP 500,
+409 and narrator-switch lines in that output are exercised failure paths, not failures.
+**Accepted on review (Chris + ChatGPT); C-3 next.**
+
+**Browser sweep (Chrome, live stack, final code, Maren Holt (fictional)):** five tabs;
+header "Maren Holt (fictional) · Life Record revision 2"; every area, every review
+section and every old tab name opened; **the only non-GET request was the
+stack-dashboard UI heartbeat**; no `lorevox_qq_draft_*` key; Promote disabled;
+`questionnaire_first` radio disabled and the style `oral_history`; Life Record revision
+2 before and 2 after.
+
 ## 6. Explicit statement
 
 *(Corrected 2026-09-23 at B3 start. This section was written for the Repair A
