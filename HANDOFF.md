@@ -18,7 +18,7 @@ rule back. The claim that matters is the one about obligations.)*
 >
 > ---
 >
-> # NOW — **INTEGRATED LIFE RECORD. Phase 1 (extraction) closed; Batch B (the canonical Life Record and its one writer) is next.** `WO-HORNELORE-INTEGRATED-LIFE-RECORD-01`
+> # NOW — **INTEGRATED LIFE RECORD. Phase 1 closed; Batch B (the canonical Life Record and its one writer) BUILT, awaiting `.venv` verification.** `WO-HORNELORE-INTEGRATED-LIFE-RECORD-01`
 >
 > **Roadmap order, fixed by Chris 2026-09-23:** Batch B Life Record → Batch C actual Questionnaire V2 (an editor OF the record) → Batch D Lori / Profile Seed / Life Map / memoir → Batch E package integration → Phase 6 fictional release candidate → Phase 7 real narrators. Anything that does not close the current step goes to `docs/BACKLOG.md` unless it is a genuine blocker.
 >
@@ -29,11 +29,11 @@ rule back. The claim that matters is the one about obligations.)*
 > | **working root** `/mnt/c/lorevox_data` | **cleared by Chris's authorisation**: three narrators hard-deleted through the product's own route, **0 people**, browser drafts cleared (checkpoint §1.1a). Development uses **fictional narrators only** from here. The three family packages and `hornelore_data` are untouched and are **not** to be re-imported by default |
 > | **design** | pushed. `WO-LIFE-RECORD-01`, concept catalog spec, decision sheet, generated appendix, validator (19 rules · 12 situations · 20 refusals · 11 contracts), mutation gate (31 caught) |
 > | **Repair A** (`bio-builder-graph.js`) | **landed**, 46 checks, reviewed externally against the diff. A routine sync never deletes; explicit removal with tombstones; a save cannot outrun or outlive its restore; explicit No survives a restore |
-> | **owed from Repair A** | server-side version check on the graph PUT (Batch B / D9) · durable *unknown* life status (Batch B) · questionnaire Remove control + `removals` route field (Batch C / D10) |
+> | **owed from Repair A** | ~~server-side version check on the graph PUT~~ and ~~durable *unknown* life status~~ — **built in Batch B** (B-4, B-2) · questionnaire Remove control + `removals` route field (Batch C / D10) |
 > | **decisions** | **D1–D10 decided by Chris 2026-09-22**, with refinements to D1c, D1f, D2 and D5, recorded at the top of the decisions file. That record governs where it refines the packet |
 > | **Phase 1 / Batch A + B0–B3** | **CLOSED 2026-09-23** (`ee847e8`). Catalog + migration plan (A1/A5), decided aliases (A2), extractor vocabulary (A3), date-uncertainty repair and D1c handling (B2), subject and event binding for birth/death facts (B3, with the case_065 place repair). v2 bank 67/114, must_not_write 0, no true fact lost to B3. Carried items: `docs/BACKLOG.md` §10. Record: checkpoint, B0–B3 sections |
-> | **next** | **Batch B build plan** — checkpoint section "Batch B — build plan (2026-09-23)". its product questions are settled (pronouns, former names); **Chris approves the plan**, then Batch B is built in the order B-1 → B-5 |
-> | **product code for the new life record** | **not started** — Batch B is its first product code |
+> | **Batch B** | **built 2026-09-23**, B-1 → B-5: migrations `0063` (life record) + `0064` (graph revision), `services/life_record/` (rules · store · writer · graph_projection), `/api/life-record` routes, graph PUT guard + client. Sandbox green; the fastapi route tests skip there. Record: checkpoint section "Batch B — built" |
+> | **next** | **Chris runs the `.venv` verification** (route tests must not skip) and commits; then **Batch C** — the actual Questionnaire V2 as an editor of the record |
 >
 > **The `⛔ DO NOT ENTER QUESTIONNAIRE DATA` banner further down is SUPERSEDED.** `WO-QUESTIONNAIRE-PERSISTENCE-INTEGRITY-01` (2026-09-17) made `merge_whole_document` the only questionnaire writer: no implicit removals, optimistic concurrency, prior document archived (`questionnaire_persistence.py:559`). `db.upsert_questionnaire` now refuses unless forced (`db.py:6882`). **Not re-verified here:** whether each of the five callers that banner lists was converted. Treat that as `unverified`, not closed.
 >

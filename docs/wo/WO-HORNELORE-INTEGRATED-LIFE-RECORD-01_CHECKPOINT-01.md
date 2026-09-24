@@ -1411,7 +1411,7 @@ Every table gets a `DbLane` entry in `narrator_data_inventory.py` **in this batc
 - **Unknown ≠ No; stated zero is kept.** "Six siblings stated, two named" keeps both.
 - Dates keep their text, and "around 1945" never becomes exact.
 - Conflicting assertions coexist until one is **explicitly** accepted; a correction supersedes, it does not erase.
-- **The model rules are written once.** The 21 rules in `scripts/design/validate_life_record_design.py` move into product code (`services/life_record/rules.py`), and the design validator becomes a thin wrapper that imports them.
+- **The model rules are written once.** The 19 rules in `scripts/design/validate_life_record_design.py` move into product code (`services/life_record/rules.py`), and the design validator becomes a thin wrapper that imports them.
 
 **B-4 · Graph as projection (D9).**
 - `project_graph(narrator_id)` rebuilds `graph_persons` / `graph_relationships` **from the record**.
@@ -1474,12 +1474,44 @@ Every table gets a `DbLane` entry in `narrator_data_inventory.py` **in this batc
 | **captured words** | `story_candidates.id TEXT` (UUID) (`0004`) | `lr_stories.candidate_id` references it; a captured story never copies the body |
 | **graph writers** | `routers/relationships.py`: full PUT `:88`, person upsert `:95`, person delete `:119`, relationship upsert `:126`, relationship delete `:149`. **The UI calls only GET and PUT** (`bio-builder-graph.js:981`, `:1043`) | **a revision covers all five writers.** Every graph write bumps it; the PUT requires the revision it hydrated (409 if stale); GET returns it. The only UI change is the graph client sending back the revision it read, which is the guard itself, not Batch C UI |
 | **compare-and-write pattern** | `questionnaire_persistence.py:384`: `BEGIN IMMEDIATE` around compare-and-write | the writer follows the same pattern |
-| **model rules** | 21 rules, a reference `apply_changes` and `resolve_life_span` in `scripts/design/validate_life_record_design.py` | they move into `services/life_record/`; the script imports them. **One copy of the rules** |
+| **model rules** | 19 rules, a reference `apply_changes` and `resolve_life_span` in `scripts/design/validate_life_record_design.py` | they move into `services/life_record/`; the script imports them. **One copy of the rules** |
 
 **Stated plainly, the one transitional fact:**
 - Between Batch B and Batch C, the record has **no UI writer yet**, so the live graph is still written by the UI's PUT, **now version-guarded**. `project_graph()` exists and is proven equal to the record in B-5.
 - **Batch C** switches the UI to the record's writer and removes the UI's graph writes. From then on the graph is **only** a projection.
 - No replacement shadow store is created in the meantime.
+
+## Batch B — built (2026-09-23), awaiting `.venv` verification
+
+*(The plan above said "21 rules". The validator has **19** — corrected in place.)*
+
+**Built exactly as planned, with two deliberate deviations. Both come from "one fact, one home":**
+- **Life status is not a column.** It is `person.life_status` assertions, and `lifeStatus` is **derived** at assembly: the accepted assertion, else the only live one, else absent (= unknown). A column beside the assertions would be a second home for one fact.
+- **A date is not an event column.** It is an assertion on the event, under the event type's catalog concept. The assembly carries `dateAssertions` + `acceptedAssertionId` + a derived `date`, which is exactly the shape the moved rules read. Two live accounts with no decision assemble with **no** `date`.
+
+| chunk | what landed | evidence (sandbox, `python3`, `PYTHONPYCACHEPREFIX`) |
+|---|---|---|
+| **B-1** | `0063_life_record.sql` (14 `lr_*` tables, single-column keys, `narrator_id` cascade from `people`); 14 `DbLane`s + `ColumnRef`s; concept `person.pronouns` (catalog 85 concepts) | inventory parity 16 OK · erasure 38 + 4 + 51 (12 skipped) OK · package export 24 · restore 21 · roundtrip 11 · encoded refs 20 OK · concept plan 12 OK |
+| **B-3** | the 19 rules moved **verbatim** to `services/life_record/rules.py`; age reuses `life_spine.validator.compute_age`; the design validator imports them | validator: 19 rules · 12 situations · 20 refusals · 11 contracts, DESIGN COHERENT · its mutation gate: every mutation caught |
+| **B-2** | `store.assemble` (reads only) · `writer.apply_changes` (per-path `expectedPrevious`, `BEGIN IMMEDIATE`, ownership on every id, catalog fail-closed, rules before commit, `lr_revisions` audit with previous values) · `GET`/`PATCH /api/life-record/{narrator_id}` | `tests/test_life_record_writer.py` — the B-5 list, **34 tests OK** |
+| **B-4** | `0064_graph_revision.sql`; all five graph writers bump the revision; the PUT needs the hydrated revision (**428** if none, **409** if stale); rows tagged `source='life_record'` / ids `lr:*` are writable **only** by `graph_projection.project_graph`, which the writer runs **inside its own transaction**; the graph client sends back the revision it read, serializes its PUTs, and on a 409 re-reads and retries **once** | `tests/test_life_record_graph.py` **17 OK, 2 route tests skipped** (no fastapi in the sandbox — `.venv` must run them) · JS harness **52 checks** (new revision cases R1–R3), every client mutant caught |
+| **B-5** | `scripts/design/mutate_life_record_writer.py` — writer, assembly, graph guard and projection | **29 required mutations caught** (`.venv`, 2026-09-23: 170 tests OK, zero skips; baseline 53, 0 red). 4 single-layer mutations report `info`, because each guard has a second layer. **Those single guards are not independently test-critical; the invariant is.** Three are proven by a mutation that removes BOTH layers (another narrator's candidate: writer + `rules.py`; routes touching projected rows: source guard + `lr:` prefix). The fourth — a captured story carrying a body — has as its second layer `0063`'s CHECK constraint, which the gate does not mutate; that invariant rests on the schema |
+
+**The mutation gate found three tests that could not fail, and they were fixed before anything was reported green.**
+- "no in-place assertion edit" was refused one layer earlier than the guard it named. A test that re-adds an existing id now pins that guard.
+- "cross-narrator" was stopped by narrator-scoped reads before the ownership check ever ran. An assertion about another narrator's person now pins the check.
+- "a captured story never copies the words" named a candidate that doesn't exist, so it was refused for the wrong reason. It now uses real `story_candidates` rows.
+
+**Exit-gate item not closable in Batch B, stated rather than implied:**
+- *"an unaccepted event does not appear as a promoted Life Map event"* — nothing outside `services/life_record/` reads an `lr_*` table (grep, 2026-09-23). The item therefore holds **vacuously**: no Life Map reader of the record exists yet.
+- The positive version is Batch D's. **Beware the name collision:** `trip_timeline_bridge.sync_trip_to_life_record` is older, unrelated trip code and does not touch `lr_*`.
+
+**The transitional fact, now concrete:**
+- Projected graph rows sit beside the rows the UI writes. The UI's PUT must return projected rows unchanged, or it is refused (**422**).
+- Nothing writes the record yet except `PATCH`, so today no narrator has projected rows.
+- Batch C moves the questionnaire onto the writer, and the UI's graph writes retire.
+
+**Pre-existing, unchanged:** the two `test_narrator_merge` composite-key failures (migrations 0059–0061) reproduce at HEAD. `0064` briefly joined them only because its **comment** read "primary key (the …"; the comment was reworded.
 
 ## 6. Explicit statement
 
