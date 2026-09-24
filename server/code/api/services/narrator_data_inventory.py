@@ -299,6 +299,26 @@ DB_LANES: Tuple[DbLane, ...] = (
                 "not by the UI hiding a button. Identity is suggestion_id "
                 "where one exists, canonical tuple for pre-2026-09-20 rows. "
                 "See 0061"),
+    # ── the canonical Life Record (0063, Batch B-1) ─────────────────
+    # AUTHORITATIVE: the one source of record for the biography (§2.1);
+    # everything else that holds biography is a projection of it. PORTABLE
+    # and ERASABLE with the narrator. Batch E proves the package round trip;
+    # declaring the lanes now is what keeps erasure and the exporter's
+    # "refuse, never dangle" rule from silently missing these tables.
+    DbLane("lr_record", _D("narrator_id"), CLASS_AUTHORITATIVE, "yes", True),
+    DbLane("lr_people", _D("narrator_id"), CLASS_AUTHORITATIVE, "yes", True),
+    DbLane("lr_names", _D("narrator_id"), CLASS_AUTHORITATIVE, "yes", True),
+    DbLane("lr_places", _D("narrator_id"), CLASS_AUTHORITATIVE, "yes", True),
+    DbLane("lr_events", _D("narrator_id"), CLASS_AUTHORITATIVE, "yes", True),
+    DbLane("lr_event_participants", _D("narrator_id"), CLASS_AUTHORITATIVE, "yes", True),
+    DbLane("lr_relationships", _D("narrator_id"), CLASS_AUTHORITATIVE, "yes", True),
+    DbLane("lr_animals", _D("narrator_id"), CLASS_AUTHORITATIVE, "yes", True),
+    DbLane("lr_stories", _D("narrator_id"), CLASS_AUTHORITATIVE, "yes", True),
+    DbLane("lr_story_refs", _D("narrator_id"), CLASS_AUTHORITATIVE, "yes", True),
+    DbLane("lr_sources", _D("narrator_id"), CLASS_AUTHORITATIVE, "yes", True),
+    DbLane("lr_assertions", _D("narrator_id"), CLASS_AUTHORITATIVE, "yes", True),
+    DbLane("lr_acceptances", _D("narrator_id"), CLASS_AUTHORITATIVE, "yes", True),
+    DbLane("lr_revisions", _D("narrator_id"), CLASS_AUTHORITATIVE, "yes", True),
     DbLane("bio_facts", _D("narrator_id"), CLASS_DERIVED, "yes", True),
     DbLane("facts", _D("person_id"), CLASS_DERIVED, "yes", True),
     DbLane("family_truth_notes", _D("person_id"), CLASS_DERIVED, "yes", True),
@@ -306,6 +326,10 @@ DB_LANES: Tuple[DbLane, ...] = (
     DbLane("family_truth_promoted", _D("person_id"), CLASS_DERIVED, "yes", True),
     DbLane("graph_persons", _D("narrator_id"), CLASS_DERIVED, "yes", True),
     DbLane("graph_relationships", _D("narrator_id"), CLASS_DERIVED, "yes", True),
+    # Batch B-4: the graph's concurrency revision. Travels with the graph it
+    # versions; a restored package keeps its number, so a stale tab still
+    # cannot replace the restored family.
+    DbLane("graph_revisions", _D("narrator_id"), CLASS_DERIVED, "yes", True),
     DbLane("life_phases", _D("person_id"), CLASS_DERIVED, "yes", True),
     DbLane("timeline_events", _D("person_id"), CLASS_DERIVED, "yes", True),
     DbLane("follow_up_bank", _D("person_id"), CLASS_DERIVED, "yes", True),
@@ -459,6 +483,22 @@ FS_LANES: Tuple[FsLane, ...] = (
 # ══════════════════════════════════════════════════════════════════════
 
 COLUMN_ONLY_REFERENCES: Tuple[ColumnRef, ...] = (
+    # ── 0063 Life Record pointers kept as plain columns ───────────────
+    # Each would form a cycle with its FK parent or points back into its own
+    # table, so the SQL declares none; the writer enforces them (B-3) and the
+    # exporter checks them here. Polymorphic targets
+    # (lr_assertions.subject_id, lr_story_refs.target_id) are checked by the
+    # writer, not declarable as one parent table.
+    ColumnRef("lr_record", "narrator_person_id", "lr_people"),
+    ColumnRef("lr_people", "birth_event_id", "lr_events"),
+    ColumnRef("lr_people", "death_event_id", "lr_events"),
+    ColumnRef("lr_people", "preferred_name_id", "lr_names"),
+    ColumnRef("lr_places", "merged_into_id", "lr_places"),
+    ColumnRef("lr_relationships", "derived_from_event_id", "lr_events"),
+    ColumnRef("lr_stories", "supersedes_id", "lr_stories"),
+    ColumnRef("lr_assertions", "supersedes_id", "lr_assertions"),
+    ColumnRef("lr_assertions", "superseded_by_id", "lr_assertions"),
+    ColumnRef("lr_assertions", "conflict_with_id", "lr_assertions"),
     ColumnRef("trip_turn_links", "conv_id", "sessions", "conv_id"),           # 0039:130
     ColumnRef("trip_turn_links", "user_turn_row_id", "turns", "id"),           # 0039:135
     ColumnRef("trip_turn_links", "assistant_turn_row_id", "turns", "id"),

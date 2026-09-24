@@ -386,6 +386,11 @@ PROFILE_JSON_BINDINGS = {
     "kinship.occupation": ("person.occupation", "by_relation"),
     "kinship.deceased": ("person.life_status", "by_relation"),
     "kinship.relation": ("relationship.kind", "by_relation"),
+    # Pronouns (Batch B-1, Chris 2026-09-23): written by the questionnaire
+    # projection when a personal pronouns value exists
+    # (bio_questionnaire_writer.py:171). Optional, custom allowed, NEVER
+    # inferred; pronouns do not imply gender identity.
+    "personal.pronouns": ("person.pronouns", "narrator"),
     # pets[] entries
     "pets.name": ("animal.name", "animal"),
     "pets.species": ("animal.species", "animal"),
@@ -409,6 +414,10 @@ CONCEPTS = {
     "person.death.place": ("Place of death", "place_ref", "one"),
     "person.death.reported_age": ("Age at death, as reported by a source", "number", "one"),
     "person.life_status": ("Life status", "enum:deceased|explicitly_living|unknown", "one"),
+    # Current pronouns plus optional history (time-bounded assertions in the
+    # Life Record). Not recorded is its own state; nothing infers pronouns,
+    # and they imply no gender identity (Chris, 2026-09-23).
+    "person.pronouns": ("Pronouns", "text", "many"),
     "person.occupation": ("Occupation", "text", "many"),
     "person.education": ("Education (of a relative)", "text", "many"),
     "person.heritage": ("Heritage, self-described", "text", "many"),

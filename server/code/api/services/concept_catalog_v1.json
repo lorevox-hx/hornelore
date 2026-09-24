@@ -5058,6 +5058,11 @@
     "subject": "by_relation"
    },
    {
+    "concept_id": "person.pronouns",
+    "key": "personal.pronouns",
+    "subject": "narrator"
+   },
+   {
     "concept_id": "animal.breed",
     "key": "pets.breed",
     "subject": "animal"
@@ -8323,6 +8328,47 @@
    "value_type": "text"
   },
   {
+   "cardinality": "many",
+   "concept_id": "person.pronouns",
+   "decision_ids": [],
+   "extraction": {
+    "eligible": false,
+    "scope": [],
+    "write_mode": "per_binding"
+   },
+   "label": "Pronouns",
+   "lori": {
+    "askable": "responsive_only",
+    "askable_by_subject": {},
+    "prompt_role": {
+     "narrator": "retrieved",
+     "other": "retrieved"
+    },
+    "retrievable": true
+   },
+   "memoir": {
+    "route": "operator_use_only"
+   },
+   "narrative_value": "unassessed",
+   "provenance": {
+    "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
+    "lori.prompt_role": "default: retrieved",
+    "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
+    "narrative_value": "unassessed: no asking key binds this concept",
+    "questionnaire": "measured: questionnaire_schema.load_schema"
+   },
+   "questionnaire": "not_offered",
+   "special_projection": null,
+   "storage": {
+    "db_lane": "pending — Batch B tables",
+    "entity": "person",
+    "owner": "life_record"
+   },
+   "subject_kind": "person",
+   "value_type": "text"
+  },
+  {
    "cardinality": "one",
    "concept_id": "person.reported_count.children",
    "decision_ids": [
@@ -9640,7 +9686,7 @@
  ],
  "counts": {
   "asking_keys": 84,
-  "concepts": 84,
+  "concepts": 85,
   "paths": 196,
   "paths_retired": 16,
   "profile_seed_evidence": 69,
@@ -9698,7 +9744,7 @@
   "decisions_sha256": "9e302bad10861ca2398ffbb4e73b9744ad61f27285a29980d5bb924057b54556",
   "measured_vocabularies_sha256": "381dd1eebae6ecaaa41d40d319ba442d4ce069e5ccdfb36146ad59270eca7efc",
   "questionnaire_schema": "questionnaire_schema.load_schema [7b974b9c2f23]",
-  "semantic_source_sha256": "327881cd096b1ccce4c704873374ef687db9d20755dadc7fa85799d3a26d04bb"
+  "semantic_source_sha256": "d29a1e5768d93fc280b2c46580bc3102231f912b4181c02ab1e522ead9a47942"
  },
  "reconciliations": [
   {

@@ -20,6 +20,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ..db import (
+    GraphRevisionConflict,
+    GraphWriteRefused,
     get_person,
     graph_delete_person,
     graph_delete_relationship,
@@ -74,6 +76,13 @@ class GraphRelUpsert(BaseModel):
 class GraphReplaceFull(BaseModel):
     persons: List[Dict[str, Any]] = Field(default_factory=list)
     relationships: List[Dict[str, Any]] = Field(default_factory=list)
+    # Batch B-4: the revision the client hydrated from (GET returns it).
+    # Required — a full replacement from an unknown baseline is refused.
+    revision: Optional[int] = None
+
+
+def _refused(e: GraphWriteRefused):
+    raise HTTPException(status_code=422, detail=str(e))
 
 
 # ── Endpoints ──
@@ -89,13 +98,31 @@ def api_graph_get(narrator_id: str):
 def api_graph_replace(narrator_id: str, body: GraphReplaceFull):
     if not get_person(narrator_id):
         raise HTTPException(status_code=404, detail="Narrator not found")
-    return graph_replace_full(narrator_id, body.persons, body.relationships)
+    if body.revision is None:
+        raise HTTPException(status_code=428, detail="A full graph replacement must carry the "
+                            "revision it was read at (GET /api/graph/{narrator_id} returns it).")
+    try:
+        return graph_replace_full(narrator_id, body.persons, body.relationships,
+                                  expected_revision=body.revision)
+    except GraphRevisionConflict as e:
+        raise HTTPException(status_code=409, detail={
+            "reason": "the family graph changed since it was read; re-read it and re-apply",
+            "revision": e.current, "baseRevision": e.expected})
+    except GraphWriteRefused as e:
+        _refused(e)
 
 
 @router.post("/{narrator_id}/person", summary="Upsert a person node")
 def api_graph_upsert_person(narrator_id: str, body: GraphPersonUpsert):
     if not get_person(narrator_id):
         raise HTTPException(status_code=404, detail="Narrator not found")
+    try:
+        return _upsert_person(narrator_id, body)
+    except GraphWriteRefused as e:
+        _refused(e)
+
+
+def _upsert_person(narrator_id: str, body: GraphPersonUpsert):
     return graph_upsert_person(
         narrator_id=narrator_id,
         person_id=body.id,
@@ -118,7 +145,11 @@ def api_graph_upsert_person(narrator_id: str, body: GraphPersonUpsert):
 
 @router.delete("/person/{person_id}", summary="Delete a person node")
 def api_graph_delete_person(person_id: str):
-    if not graph_delete_person(person_id):
+    try:
+        deleted = graph_delete_person(person_id)
+    except GraphWriteRefused as e:
+        _refused(e)
+    if not deleted:
         raise HTTPException(status_code=404, detail="Person node not found")
     return {"ok": True}
 
@@ -127,6 +158,13 @@ def api_graph_delete_person(person_id: str):
 def api_graph_upsert_rel(narrator_id: str, body: GraphRelUpsert):
     if not get_person(narrator_id):
         raise HTTPException(status_code=404, detail="Narrator not found")
+    try:
+        return _upsert_rel(narrator_id, body)
+    except GraphWriteRefused as e:
+        _refused(e)
+
+
+def _upsert_rel(narrator_id: str, body: GraphRelUpsert):
     return graph_upsert_relationship(
         narrator_id=narrator_id,
         rel_id=body.id,
@@ -148,6 +186,10 @@ def api_graph_upsert_rel(narrator_id: str, body: GraphRelUpsert):
 
 @router.delete("/relationship/{rel_id}", summary="Delete a relationship edge")
 def api_graph_delete_rel(rel_id: str):
-    if not graph_delete_relationship(rel_id):
+    try:
+        deleted = graph_delete_relationship(rel_id)
+    except GraphWriteRefused as e:
+        _refused(e)
+    if not deleted:
         raise HTTPException(status_code=404, detail="Relationship not found")
     return {"ok": True}

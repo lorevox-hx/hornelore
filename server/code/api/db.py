@@ -7720,6 +7720,67 @@ def _ensure_phase_q1_tables(con: sqlite3.Connection, cur: sqlite3.Cursor) -> Non
     )
 
 
+# ── Graph revision + ownership (Batch B-4, 2026-09-23) ──
+#
+# Every graph write bumps `graph_revisions` (migration 0064). A full PUT must
+# carry the revision it hydrated from. Rows whose source is the Life Record
+# projection are written ONLY by the projection (services/life_record/
+# graph_projection.py); the graph routes may not edit, forge or delete them,
+# because a graph row that disagrees with the record is a shadow store.
+
+GRAPH_PROJECTION_SOURCE = "life_record"
+GRAPH_PROJECTION_ID_PREFIX = "lr:"   # reserved: only the projection mints these ids
+_GRAPH_PERSON_CONTENT = ("display_name", "first_name", "middle_name", "last_name",
+                         "maiden_name", "birth_date", "birth_place", "occupation")
+_GRAPH_REL_CONTENT = ("from_person_id", "to_person_id", "relationship_type", "subtype",
+                      "label", "start_date", "end_date")
+
+
+class GraphRevisionConflict(Exception):
+    """The graph moved since the client hydrated it."""
+    def __init__(self, current: int, expected: Optional[int]):
+        super().__init__(f"graph is at revision {current}; the write was based on {expected}")
+        self.current, self.expected = current, expected
+
+
+class GraphWriteRefused(Exception):
+    """A graph write that would cross a narrator or edit the projection."""
+
+
+def graph_current_revision(con: sqlite3.Connection, narrator_id: str) -> int:
+    r = con.execute("SELECT revision FROM graph_revisions WHERE narrator_id=?",
+                    (narrator_id,)).fetchone()
+    return int(r[0]) if r else 0
+
+
+def graph_bump_revision(con: sqlite3.Connection, narrator_id: str) -> int:
+    """Called by EVERY graph writer, inside its own transaction."""
+    con.execute(
+        "INSERT INTO graph_revisions(narrator_id, revision, updated_at) VALUES (?,1,?) "
+        "ON CONFLICT(narrator_id) DO UPDATE SET revision = revision + 1, "
+        "updated_at = excluded.updated_at", (narrator_id, _now_iso()))
+    return graph_current_revision(con, narrator_id)
+
+
+def _graph_guard_row(con: sqlite3.Connection, table: str, row_id: str,
+                     narrator_id: Optional[str], source: Optional[str] = None) -> Optional[sqlite3.Row]:
+    """Refuse a write to another narrator's row, to a projected row, or one
+    that claims to be projected. Returns the existing row (or None)."""
+    if source == GRAPH_PROJECTION_SOURCE:
+        raise GraphWriteRefused("only the Life Record projection writes source='life_record'")
+    if str(row_id).startswith(GRAPH_PROJECTION_ID_PREFIX):
+        raise GraphWriteRefused(f"{GRAPH_PROJECTION_ID_PREFIX!r} ids are minted only by the "
+                                "Life Record projection")
+    row = con.execute(f"SELECT narrator_id, source FROM {table} WHERE id=?", (row_id,)).fetchone()
+    if row is None:
+        return None
+    if narrator_id is not None and row["narrator_id"] != narrator_id:
+        raise GraphWriteRefused(f"{row_id!r} belongs to another narrator")
+    if row["source"] == GRAPH_PROJECTION_SOURCE:
+        raise GraphWriteRefused(f"{row_id!r} is projected from the Life Record; edit it there")
+    return row
+
+
 # ── Graph Persons CRUD ──
 
 def graph_upsert_person(
@@ -7745,6 +7806,7 @@ def graph_upsert_person(
     now = _now_iso()
     con = _connect()
     try:
+        _graph_guard_row(con, "graph_persons", pid, narrator_id, source)
         con.execute(
             """INSERT INTO graph_persons
                    (id, narrator_id, display_name, first_name, middle_name,
@@ -7774,6 +7836,7 @@ def graph_upsert_person(
              source, provenance, confidence,
              now, now, _json_dump(meta or {})),
         )
+        graph_bump_revision(con, narrator_id)
         con.commit()
         return {
             "id": pid, "narrator_id": narrator_id,
@@ -7825,8 +7888,12 @@ def graph_delete_person(person_id: str) -> bool:
     """Delete a person node (cascades to relationship edges)."""
     con = _connect()
     try:
+        row = _graph_guard_row(con, "graph_persons", person_id, None)
+        if row is None:
+            return False
         con.execute("DELETE FROM graph_relationships WHERE from_person_id=? OR to_person_id=?", (person_id, person_id))
         cur = con.execute("DELETE FROM graph_persons WHERE id=?", (person_id,))
+        graph_bump_revision(con, row["narrator_id"])
         con.commit()
         return cur.rowcount > 0
     finally:
@@ -7857,6 +7924,11 @@ def graph_upsert_relationship(
     now = _now_iso()
     con = _connect()
     try:
+        _graph_guard_row(con, "graph_relationships", rid, narrator_id, source)
+        for end in (from_person_id, to_person_id):
+            owner = con.execute("SELECT narrator_id FROM graph_persons WHERE id=?", (end,)).fetchone()
+            if owner is not None and owner["narrator_id"] != narrator_id:
+                raise GraphWriteRefused(f"{end!r} belongs to another narrator")
         con.execute(
             """INSERT INTO graph_relationships
                    (id, narrator_id, from_person_id, to_person_id,
@@ -7884,6 +7956,7 @@ def graph_upsert_relationship(
              source, provenance, confidence, start_date, end_date,
              now, now, _json_dump(meta or {})),
         )
+        graph_bump_revision(con, narrator_id)
         con.commit()
         return {
             "id": rid, "narrator_id": narrator_id,
@@ -7933,7 +8006,11 @@ def graph_delete_relationship(rel_id: str) -> bool:
     """Delete a relationship edge."""
     con = _connect()
     try:
+        row = _graph_guard_row(con, "graph_relationships", rel_id, None)
+        if row is None:
+            return False
         cur = con.execute("DELETE FROM graph_relationships WHERE id=?", (rel_id,))
+        graph_bump_revision(con, row["narrator_id"])
         con.commit()
         return cur.rowcount > 0
     finally:
@@ -7941,22 +8018,92 @@ def graph_delete_relationship(rel_id: str) -> bool:
 
 
 def graph_get_full(narrator_id: str) -> Dict[str, Any]:
-    """Load the full relationship graph for a narrator (persons + relationships)."""
+    """Load the full relationship graph for a narrator (persons + relationships).
+
+    The revision is read FIRST. If a write lands between it and the lists, the
+    client holds data newer than its revision, so its next PUT is refused and
+    it re-hydrates — the safe direction. The reverse order would let a client
+    hold an old graph under a new revision and overwrite the newer one."""
+    con = _connect()
+    try:
+        revision = graph_current_revision(con, narrator_id)
+    finally:
+        con.close()
     return {
         "narrator_id": narrator_id,
+        "revision": revision,
         "persons": graph_list_persons(narrator_id),
         "relationships": graph_list_relationships(narrator_id),
     }
 
 
-def graph_replace_full(narrator_id: str, persons: List[Dict[str, Any]], relationships: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Replace the entire relationship graph for a narrator (atomic)."""
+def _graph_projected_rows_unchanged(stored: Dict[str, sqlite3.Row], payload: List[Dict[str, Any]],
+                                    content: tuple, flags: tuple, kind: str) -> List[Dict[str, Any]]:
+    """Payload rows that are NOT projected. A projected row must come back
+    exactly as the projection wrote it: edited, dropped or forged → refused."""
+    seen, rest = set(), []
+    for p in payload:
+        pid = p.get("id")
+        if pid in stored:
+            s = stored[pid]
+            diff = [k for k in content if str(p.get(k) or "") != str(s[k] or "")]
+            diff += [k for k in flags if bool(p.get(k)) != bool(s[k])]
+            if diff:
+                raise GraphWriteRefused(f"{kind} {pid!r} is projected from the Life Record; "
+                                        f"{', '.join(diff)} can only change there")
+            seen.add(pid)
+        elif (p.get("source") == GRAPH_PROJECTION_SOURCE
+              or str(pid or "").startswith(GRAPH_PROJECTION_ID_PREFIX)):
+            raise GraphWriteRefused("only the Life Record projection writes source='life_record' "
+                                    f"or {GRAPH_PROJECTION_ID_PREFIX!r} ids")
+        else:
+            rest.append(p)
+    missing = sorted(set(stored) - seen)
+    if missing:
+        raise GraphWriteRefused(f"projected {kind}s cannot be removed here: {', '.join(missing)}")
+    return rest
+
+
+def graph_replace_full(narrator_id: str, persons: List[Dict[str, Any]], relationships: List[Dict[str, Any]],
+                       expected_revision: Optional[int] = None) -> Dict[str, Any]:
+    """Replace the entire relationship graph for a narrator (atomic).
+
+    Batch B-4: refused with GraphRevisionConflict unless `expected_revision`
+    is the graph's current revision. Rows projected from the Life Record are
+    kept exactly as the projection wrote them."""
     now = _now_iso()
     con = _connect()
     try:
-        # Clear existing graph
-        con.execute("DELETE FROM graph_relationships WHERE narrator_id=?", (narrator_id,))
-        con.execute("DELETE FROM graph_persons WHERE narrator_id=?", (narrator_id,))
+        con.execute("BEGIN IMMEDIATE")
+        current = graph_current_revision(con, narrator_id)
+        if expected_revision is None or int(expected_revision) != current:
+            raise GraphRevisionConflict(current, expected_revision)
+
+        stored_p = {r["id"]: r for r in con.execute(
+            "SELECT * FROM graph_persons WHERE narrator_id=? AND source=?",
+            (narrator_id, GRAPH_PROJECTION_SOURCE))}
+        stored_r = {r["id"]: r for r in con.execute(
+            "SELECT * FROM graph_relationships WHERE narrator_id=? AND source=?",
+            (narrator_id, GRAPH_PROJECTION_SOURCE))}
+        persons = _graph_projected_rows_unchanged(stored_p, persons, _GRAPH_PERSON_CONTENT,
+                                                  ("deceased", "is_narrator"), "person")
+        relationships = _graph_projected_rows_unchanged(stored_r, relationships,
+                                                        _GRAPH_REL_CONTENT, (), "relationship")
+        for table, rows in (("graph_persons", persons), ("graph_relationships", relationships)):
+            for row in rows:
+                if row.get("id"):
+                    owner = con.execute(f"SELECT narrator_id FROM {table} WHERE id=?",
+                                        (row["id"],)).fetchone()
+                    if owner is not None and owner["narrator_id"] != narrator_id:
+                        raise GraphWriteRefused(f"{row['id']!r} belongs to another narrator")
+
+        # Clear the narrator's UI-written rows. Projected rows stay exactly as
+        # the projection wrote them (only their updated_at would move on a
+        # re-insert, so they are simply not touched).
+        con.execute("DELETE FROM graph_relationships WHERE narrator_id=? AND source<>?",
+                    (narrator_id, GRAPH_PROJECTION_SOURCE))
+        con.execute("DELETE FROM graph_persons WHERE narrator_id=? AND source<>?",
+                    (narrator_id, GRAPH_PROJECTION_SOURCE))
 
         # Insert persons
         for p in persons:
@@ -8001,6 +8148,7 @@ def graph_replace_full(narrator_id: str, persons: List[Dict[str, Any]], relation
                  _json_dump(r.get("meta", {}))),
             )
 
+        graph_bump_revision(con, narrator_id)
         con.commit()
         return graph_get_full(narrator_id)
     except Exception:

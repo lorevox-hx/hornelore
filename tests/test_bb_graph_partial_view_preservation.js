@@ -50,7 +50,12 @@ const SRC = fs.readFileSync(
 
 /* ── load the shipped module against a fake browser ────────────────── */
 function loadGraphModule() {
-  const captured = { puts: [], gets: [] };
+  const captured = { puts: [], gets: [], refused: [] };
+  /* A FAKE SERVER THAT ENFORCES THE REVISION, as the real one does since
+     Batch B-4 (db.graph_replace_full): a PUT without a revision is 428, a
+     PUT from a stale revision is 409, an accepted PUT bumps it. `puts`
+     holds ACCEPTED replacements only — what actually reached storage. */
+  const server = { rev: 0 };
   /* Pending GETs are held PER REQUEST, keyed by the person_id in the url.
      A single shared resolver was the first version, and narrator B's GET
      then overwrote narrator A's — so A's promise never settled and the
@@ -78,8 +83,17 @@ function loadGraphModule() {
   };
   const fetchImpl = (url, opts) => {
     if (opts && opts.method === "PUT") {
-      captured.puts.push({ url, body: JSON.parse(opts.body) });
-      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true }) });
+      const body = JSON.parse(opts.body);
+      const code = typeof body.revision !== "number" ? 428
+                 : body.revision !== server.rev ? 409 : 200;
+      if (code !== 200) {
+        captured.refused.push({ url, body, status: code });
+        return Promise.resolve({ ok: false, status: code, text: () => Promise.resolve("") });
+      }
+      server.rev += 1;
+      captured.puts.push({ url, body });
+      return Promise.resolve({ ok: true, status: 200,
+                               json: () => Promise.resolve({ revision: server.rev }) });
     }
     captured.gets.push(url);
     return new Promise((res) => { pendingGets.push({ url: url, resolve: res }); });
@@ -92,7 +106,8 @@ function loadGraphModule() {
   const mod = win.LorevoxBioBuilderModules.graph;
   if (!mod) throw new Error("the shipped module did not export its graph API");
   return {
-    mod, bb, captured, hooks,
+    mod, bb, captured, hooks, server,
+    pendingCount: () => pendingGets.length,
     onNarratorSwitch: (b) => hooks.forEach((fn) => fn(b)),
     /* Release one in-flight GET. `match` selects by url substring (a
        narrator id) or, when a NUMBER, by position in flight — needed when
@@ -106,11 +121,26 @@ function loadGraphModule() {
         " (in flight: " + JSON.stringify(pendingGets.map((g) => g.url)) + ")");
       const g = pendingGets.splice(i, 1)[0];
       const code = status || 200;
+      const withRev = payload && typeof payload === "object" && !("revision" in payload)
+        ? Object.assign({ revision: server.rev }, payload) : payload;
       g.resolve({ ok: code >= 200 && code < 300, status: code,
-                  json: () => Promise.resolve(payload) });
+                  json: () => Promise.resolve(withRev) });
     },
   };
 }
+
+/* Hydrate as production does before any save: the switch hook's GET, here
+   answered with `payload` (an empty family by default). A PUT from a graph
+   that never hydrated is refused client-side — there is no revision to send. */
+async function hydrate(h, payload) {
+  const restoring = h.mod.restoreFromBackend(h.bb.personId);
+  h.releaseGet(payload || { persons: [], relationships: [] });
+  await restoring;
+}
+const tick = () => new Promise((r) => setTimeout(r, 0));
+/* Bounded wait: a mutant that leaves a request hanging must FAIL a check,
+   not hang the suite until an outer timeout kills it without a message. */
+const settle = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(r, ms || 50))]);
 
 const h0 = loadGraphModule();
 check("the shipped graph module loads and exports its API",
@@ -144,15 +174,17 @@ const FULL_QUESTIONNAIRE = {
    preservation checks passed while the graph silently doubled, which is the
    fixture-supplies-the-property failure this repository has named. Deriving
    it means the ids are whatever production actually uses. */
-function deriveStoredGraph() {
+async function deriveStoredGraph() {
   const h = loadGraphModule();
   h.bb.personId = NARRATOR;
   h.bb.graph = { persons: {}, relationships: {} };
+  await hydrate(h);
   h.bb.questionnaire = FULL_QUESTIONNAIRE;
   h.mod.syncFromQuestionnaire();
-  h.mod.persistToBackend();
+  await h.mod.persistToBackend();
   if (!h.captured.puts.length) throw new Error("could not derive a stored graph");
   const body = JSON.parse(JSON.stringify(h.captured.puts[0].body));
+  delete body.revision;   // a PUT body's baseline is not the stored graph's revision
   // One profile-sourced record, which no questionnaire sync may ever touch.
   body.persons.push({ id: "gp_prof", display_name: "Nuria Vasquez", source: "profile",
                       provenance: "profile:kinship" });
@@ -162,7 +194,10 @@ function deriveStoredGraph() {
   return body;
 }
 
-const STORED_GRAPH = deriveStoredGraph();
+let STORED_GRAPH = null;
+
+(async function run() {
+  STORED_GRAPH = await deriveStoredGraph();
 
 check("the derived fixture holds the whole family before any partial view",
   ["Alba Vasquez", "Tomas Vasquez", "Sigrid Lindqvist", "Halvard Lindqvist", "Nuria Vasquez"]
@@ -172,6 +207,9 @@ check("the derived fixture holds the whole family before any partial view",
 
 /* Restore the stored graph, set a questionnaire, run the REAL sync +
    persist, and hand back the body that actually went over the wire. */
+const names = (body) => body.persons.map((p) => p.display_name).filter(Boolean).sort();
+const relIds = (body) => body.relationships.map((r) => r.id).sort();
+
 async function persistAfterSync(questionnaire) {
   const h = loadGraphModule();
   h.bb.personId = NARRATOR;
@@ -188,10 +226,7 @@ async function persistAfterSync(questionnaire) {
   return h.captured.puts[h.captured.puts.length - 1].body;
 }
 
-const names = (body) => body.persons.map((p) => p.display_name).filter(Boolean).sort();
-const relIds = (body) => body.relationships.map((r) => r.id).sort();
 
-(async function run() {
 
   /* ── 1. THE MEASURED INCIDENT: a three-leaf projection ───────────── */
   {
@@ -376,9 +411,10 @@ const relIds = (body) => body.relationships.map((r) => r.id).sort();
     let h = loadGraphModule();
     h.bb.personId = NARRATOR;
     h.bb.graph = { persons: {}, relationships: {} };
+    await hydrate(h);
     h.bb.questionnaire = first;
     h.mod.syncFromQuestionnaire();
-    h.mod.persistToBackend();
+    await h.mod.persistToBackend();
     const stored = JSON.parse(JSON.stringify(h.captured.puts[0].body));
 
     h = loadGraphModule();
@@ -522,6 +558,7 @@ const relIds = (body) => body.relationships.map((r) => r.id).sort();
     const h = loadGraphModule();
     h.bb.personId = NARRATOR;
     h.bb.graph = { persons: {}, relationships: {} };
+    await hydrate(h);
     h.bb.questionnaire = both;
     h.mod.fullSync();
     await new Promise((r) => setTimeout(r, 0));
@@ -786,6 +823,73 @@ const relIds = (body) => body.relationships.map((r) => r.id).sort();
       !h.captured.puts.some((p) => p.url.indexOf(A) !== -1),
       "narrator B's graph was sent to narrator A's endpoint: " +
       JSON.stringify(h.captured.puts.map((p) => [p.url, names(p.body)])));
+  }
+
+  /* ══ THE SERVER REVISION (Batch B-4, 2026-09-23) ═══════════════════
+     The browser's guards above are local; the server now refuses a full
+     replacement that is not based on the graph's current revision. These
+     drive the real module against a fake server that enforces it. */
+
+  /* R1. a graph that never hydrated sends no replacement at all */
+  {
+    const h = loadGraphModule();
+    h.bb.personId = NARRATOR;
+    h.bb.graph = { persons: {}, relationships: {} };
+    h.bb.questionnaire = FULL_QUESTIONNAIRE;
+    await h.mod.fullSync();
+    await tick();
+    check("a graph with no known server revision sends no full replacement",
+      h.captured.puts.length === 0 && h.captured.refused.length === 0,
+      h.captured.puts.length + " accepted, " + h.captured.refused.length + " refused — a " +
+      "PUT with no baseline cannot know what it would erase");
+  }
+
+  /* R2. consecutive saves carry the revision the previous save returned */
+  {
+    const h = loadGraphModule();
+    h.bb.personId = NARRATOR;
+    await hydrate(h, STORED_GRAPH);
+    h.bb.questionnaire = FULL_QUESTIONNAIRE;
+    const first = h.mod.fullSync();
+    const second = h.mod.fullSync();                    // fired before the first answers
+    await settle(Promise.all([first, second]));
+    check("two saves in a row are both accepted, each on the revision before it",
+      h.captured.puts.length === 2 && h.captured.refused.length === 0 &&
+      h.captured.puts[0].body.revision === 0 && h.captured.puts[1].body.revision === 1,
+      "accepted revisions " + JSON.stringify(h.captured.puts.map((p) => p.body.revision)) +
+      ", refused " + h.captured.refused.length + " — saves must be serialized on the " +
+      "server's revision, not race it");
+  }
+
+  /* R3. THE CASE THE GUARD EXISTS FOR: another tab saved first */
+  {
+    const h = loadGraphModule();
+    h.bb.personId = NARRATOR;
+    await hydrate(h, STORED_GRAPH);                     // this tab reads revision 0
+    h.server.rev = 1;                                   // another tab saves a cousin
+    const NEWER = JSON.parse(JSON.stringify(STORED_GRAPH));
+    NEWER.persons.push({ id: "gp_cousin", display_name: "Joana Vasquez", source: "manual" });
+    h.bb.questionnaire = FULL_QUESTIONNAIRE;
+    const saving = h.mod.fullSync();                    // stale: based on revision 0
+    await tick();
+    check("a save based on a stale revision is refused by the server",
+      h.captured.refused.length === 1 && h.captured.refused[0].status === 409 &&
+      h.captured.puts.length === 0,
+      "refused " + JSON.stringify(h.captured.refused.map((r) => r.status)) +
+      ", accepted " + h.captured.puts.length);
+    check("...and the client re-reads the graph instead of giving up or overwriting",
+      h.pendingCount() === 1,
+      h.pendingCount() + " GET(s) in flight after the 409 — without a re-read the edit is " +
+      "either lost or, worse, retried blind");
+    if (h.pendingCount()) h.releaseGet(NEWER);         // the re-read answers
+    await settle(saving);
+    const body = h.captured.puts.length ? h.captured.puts[0].body : null;
+    check("...the client re-reads and saves ONCE more on the fresh revision",
+      h.captured.puts.length === 1 && body.revision === 1,
+      h.captured.puts.length + " accepted; revision " + (body && body.revision));
+    check("...and the other tab's relative survives the retry",
+      !!body && body.persons.some((p) => p.display_name === "Joana Vasquez"),
+      "the retried replacement erased the newer edit: " + (body ? JSON.stringify(names(body)) : ""));
   }
 
   /* the file must be text — a literal control character in a string once

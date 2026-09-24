@@ -873,6 +873,16 @@
   var _restoreFailedFor = null;   // narrator whose LAST restore did not hydrate
   var _touchedSinceRestore = {};  // ids written locally since the restore began
 
+  /* THE SERVER'S REVISION, not a local counter. Batch B-4 (2026-09-23).
+     PUT /api/graph/{pid} is a full replacement, and the server now refuses
+     one that is not based on the graph's current revision (409), or that
+     carries no revision at all (428). We send back exactly the revision we
+     hydrated from — or the one our own last successful PUT returned — and
+     never a guessed one. PUTs are serialized so a second save cannot race
+     the first one's revision. */
+  var _graphRevision = { pid: null, rev: null };
+  var _putChain = Promise.resolve();
+
   /* THREE MORE HOLES IN THE SAME BOUNDARY, found on external review of the
      first version of this gate (2026-09-22), each reproduced against the
      exported functions before being fixed:
@@ -928,7 +938,13 @@
     return _putGraph(pid);
   }
 
-  function _putGraph(pid) {
+  function _putGraph(pid, retried) {
+    var next = _putChain.then(function () { return _putGraphNow(pid, retried); });
+    _putChain = next.catch(function () {});
+    return next;
+  }
+
+  function _putGraphNow(pid, retried) {
     var bbNow = _bb();
     if (!bbNow || bbNow.personId !== pid) {
       console.warn("[bb-graph] REFUSING to send " + String(pid).slice(0, 8) +
@@ -978,14 +994,48 @@
       };
     });
 
+    if (_graphRevision.pid !== pid || typeof _graphRevision.rev !== "number") {
+      console.warn("[bb-graph] REFUSING to send " + String(pid).slice(0, 8) +
+        "'s PUT: no server revision is known for this graph, and a full " +
+        "replacement from an unknown baseline could erase a newer edit.");
+      return Promise.resolve();
+    }
+
     return fetch(API.GRAPH_PUT(pid), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ persons: persons, relationships: relationships })
+      body: JSON.stringify({ persons: persons, relationships: relationships,
+                             revision: _graphRevision.rev })
     })
     .then(function (r) {
-      if (r.ok) console.log("[bb-graph] Graph persisted to backend for " + pid.slice(0, 8));
-      else console.warn("[bb-graph] Backend persist failed: " + r.status);
+      if (r.ok) {
+        return r.json().then(function (j) {
+          if (_graphRevision.pid === pid && j && typeof j.revision === "number") {
+            _graphRevision.rev = j.revision;
+          }
+          console.log("[bb-graph] Graph persisted to backend for " + pid.slice(0, 8) +
+            " at revision " + (j && j.revision));
+        });
+      }
+      if (r.status === 409 && !retried) {
+        /* Someone else saved this family since we read it. Re-read (edits
+           made locally since the read keep their values), re-derive from the
+           questionnaire, and try ONCE more against the fresh revision. */
+        console.warn("[bb-graph] The family graph changed on the server since it " +
+          "was read (409). Re-reading it before saving again.");
+        var reread = restoreFromBackend(pid);
+        if (!reread) return;
+        return reread.then(function () {
+          var now = _bb();
+          if (!now || now.personId !== pid || _restoreFailedFor === pid) return;
+          syncFromQuestionnaire();
+          syncFromProfile();
+          return _putGraphNow(pid, true);
+        });
+      }
+      return r.text().then(function (t) {
+        console.warn("[bb-graph] Backend persist failed: " + r.status + " " + t);
+      });
     })
     .catch(function (e) {
       console.warn("[bb-graph] Backend persist error", e);
@@ -1110,6 +1160,8 @@
           });
         }
 
+        _graphRevision = { pid: _myPid,
+                           rev: (typeof j.revision === "number") ? j.revision : null };
         inflight.outcome = "ok";
         if (_restoreFailedFor === _myPid) _restoreFailedFor = null;
 
@@ -1261,7 +1313,8 @@
        narrator is stamped stale and discards itself rather than merging
        into the incoming narrator's graph. WO-BIO-VIEW-SAFETY-01. */
     _graphRestoreGen += 1;
-    // Clear graph for new narrator
+    // Clear graph for new narrator — and the outgoing narrator's revision
+    _graphRevision = { pid: null, rev: null };
     bb.graph = { persons: {}, relationships: {} };
     // Restore from backend (async, overwrites when data arrives)
     restoreFromBackend(bb.personId);

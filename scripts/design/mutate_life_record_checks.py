@@ -23,6 +23,13 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TARGET = os.path.join(HERE, "validate_life_record_design.py")
+# Since Batch B-3 (2026-09-23) the rules live ONCE, in the product; the
+# validator imports them. A mutation's anchor may be in either file.
+RULES_FILE = os.path.join(HERE, "..", "..", "server", "code", "api", "services",
+                          "life_record", "rules.py")
+_CODE = os.path.join(HERE, "..", "..", "server", "code")
+if _CODE not in sys.path:
+    sys.path.insert(0, _CODE)
 
 # (description, find, replace, the check that must notice)
 MUTATIONS = [
@@ -257,18 +264,51 @@ LAXNESS_MUTATIONS = [
 ]
 
 
-def _load(source_text):
-    path = os.path.join(tempfile.mkdtemp(), "mutant.py")
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write(source_text)
-    spec = importlib.util.spec_from_file_location("mutant", path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+def _load(source_text, rules_text=None):
+    """Load the validator; when `rules_text` is given, the validator imports
+    THAT (mutated) copy of the product rules instead of the real one."""
+    import api.services.life_record as _pkg
+    real = sys.modules.get("api.services.life_record.rules")
+    d = tempfile.mkdtemp()
+    try:
+        if rules_text is not None:
+            rpath = os.path.join(d, "rules.py")
+            with open(rpath, "w", encoding="utf-8") as fh:
+                fh.write(rules_text)
+            rspec = importlib.util.spec_from_file_location(
+                "api.services.life_record.rules", rpath)
+            rmod = importlib.util.module_from_spec(rspec)
+            sys.modules["api.services.life_record.rules"] = rmod
+            rspec.loader.exec_module(rmod)
+            _pkg.rules = rmod
+        path = os.path.join(d, "mutant.py")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(source_text)
+        spec = importlib.util.spec_from_file_location("mutant", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    finally:
+        if rules_text is not None:
+            if real is not None:
+                sys.modules["api.services.life_record.rules"] = real
+                _pkg.rules = real
+            else:
+                sys.modules.pop("api.services.life_record.rules", None)
+                if hasattr(_pkg, "rules"):
+                    delattr(_pkg, "rules")      # never leave the mutant reachable
+
+
+def _mutant(src, rsrc, old, new):
+    """The module with ONE mutation applied to whichever file holds it."""
+    if old in src:
+        return _load(src.replace(old, new, 1))
+    return _load(src, rsrc.replace(old, new, 1))
 
 
 def main():
     src = open(TARGET, encoding="utf-8").read()
+    rsrc = open(RULES_FILE, encoding="utf-8").read()
     ok = True
 
     baseline = _load(src)
@@ -278,11 +318,11 @@ def main():
 
     print("\nCONTRACT CHECKS\n" + "─" * 74)
     for name, old, new, expect in MUTATIONS:
-        if old not in src:
+        if old not in src and old not in rsrc:
             print(f"  STALE {name[:54]:<54} anchor not found")
             ok = False
             continue
-        fired = [t for t, fn in _load(src.replace(old, new, 1)).CONTRACTS if fn()]
+        fired = [t for t, fn in _mutant(src, rsrc, old, new).CONTRACTS if fn()]
         hit = any(expect in t for t in fired)
         ok &= hit
         print(f"  {'ok  ' if hit else 'FAIL'} {name[:54]:<54} "
@@ -290,11 +330,11 @@ def main():
 
     print("\nMODEL RULES\n" + "─" * 74)
     for name, old, new, expect in RULE_MUTATIONS:
-        if old not in src:
+        if old not in src and old not in rsrc:
             print(f"  STALE {name[:54]:<54} anchor not found")
             ok = False
             continue
-        m = _load(src.replace(old, new, 1))
+        m = _mutant(src, rsrc, old, new)
         broke = [t for t, bio in m.CASES.items() if m.run(bio)]
         hit = any(expect in t for t in broke)
         ok &= hit
@@ -303,11 +343,11 @@ def main():
 
     print("\nRULES MADE LAXER — a refusal must stop being refused\n" + "─" * 74)
     for name, old, new, fixture in LAXNESS_MUTATIONS:
-        if old not in src:
+        if old not in src and old not in rsrc:
             print(f"  STALE {name[:54]:<54} anchor not found")
             ok = False
             continue
-        m = _load(src.replace(old, new, 1))
+        m = _mutant(src, rsrc, old, new)
         if fixture is None:                       # a contract notices instead
             hit = any(fn() for _, fn in m.CONTRACTS)
         else:
