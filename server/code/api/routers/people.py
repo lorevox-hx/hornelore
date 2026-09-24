@@ -581,6 +581,37 @@ def _write_bio_fact_safe(
         return None
 
 
+def _intake_biography_sections(payload: "NarratorIntakePayload") -> List[str]:
+    """The optional biography sections that carry an answer. An empty or
+    absent section is not an answer; `military` PRESENT (even served=False)
+    is — the form's explicit No (see Stage 3)."""
+    def filled(model) -> bool:
+        if model is None:
+            return False
+        for v in model.model_dump().values():
+            if isinstance(v, list) and v:
+                return True
+            if isinstance(v, str) and v.strip():
+                return True
+            # A number is an answer when it is PRESENT — 0 included ("married 0
+            # times" is a stated answer, not a blank). These fields default to
+            # None, so presence is the whole test. (C-3 review: `and v` let 0 through.)
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                return True
+            if v is True:
+                return True
+        return False
+    out = []
+    for name in ("family_of_origin", "marriage", "education_work", "faith", "today"):
+        if filled(getattr(payload, name)):
+            out.append(name)
+    if payload.children:
+        out.append("children")
+    if payload.military is not None:
+        out.append("military")
+    return out
+
+
 @router.post("/intake", summary="Create a narrator from a full intake payload")
 def api_create_person_intake(payload: NarratorIntakePayload):
     """Server-side fan-out for the structured intake form.
@@ -640,6 +671,24 @@ def api_create_person_intake(payload: NarratorIntakePayload):
                 status_code=422,
                 detail="consent_disclosure_reviewed must be true unless testing_only=true",
             )
+
+    # Batch C-3 (2026-09-24) — CREATION IS NOT A SECOND BIOGRAPHY SEED.
+    # A real narrator is created from identity + consent; their family,
+    # marriage, children, work, service, faith and "today" are entered in
+    # the Questionnaire, which writes the Life Record. The UI has sent
+    # identity + consent only since C-2; this makes the server refuse the
+    # rest rather than fan it into profile_json / bio_facts, so no caller can
+    # establish biography outside the Life Record through creation.
+    # testing_only narrators (the Lori harnesses under scripts/) keep the
+    # earlier seeding until Batch D moves Lori onto the Life Record — named
+    # in the checkpoint, not a normal operator path. The identity mirror into
+    # profile_json.personal and the people row's DOB/POB stay: both are D-0.
+    if not payload.testing_only and _intake_biography_sections(payload):
+        raise HTTPException(status_code=422, detail={
+            "reason": "biography is not seeded at creation",
+            "sections": _intake_biography_sections(payload),
+            "use": "create the narrator from identity and consent, then enter family and life "
+                   "details in Bio Builder → Questionnaire, which writes the Life Record"})
 
     # ── Stage 1: create the people row ───────────────────────────────
     try:

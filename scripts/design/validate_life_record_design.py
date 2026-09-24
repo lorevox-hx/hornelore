@@ -299,6 +299,60 @@ MUST_FAIL["a birth pointer aimed at someone else's wedding"] = ({
     "relationships": [], "stories": [], "places": [], "animals": [],
 }, "birth/death refs are the person's own")
 
+MUST_FAIL["the same parent stored twice (C-3, 2026-09-24)"] = ({
+    "narrator_person_id": "P1",
+    "people": [{"id": "P1", "names": [{"fullText": "Ada Roche"}]},
+               {"id": "P2", "names": [{"fullText": "Nuala Roche"}]}],
+    "events": [],
+    "relationships": [
+        {"id": "R1", "subjectPersonId": "P2", "otherPersonId": "P1", "kind": "parent_of", "basis": "stated"},
+        {"id": "R2", "subjectPersonId": "P2", "otherPersonId": "P1", "kind": "parent_of", "basis": "stated"}],
+    "stories": [], "places": [], "animals": [],
+}, "no relationship stored twice")
+
+MUST_FAIL["a sibling stored once in each direction under one kind"] = ({
+    "narrator_person_id": "P1",
+    "people": [{"id": "P1", "names": [{"fullText": "Ada Roche"}]},
+               {"id": "P2", "names": [{"fullText": "Liam Roche"}]}],
+    "events": [],
+    "relationships": [
+        {"id": "R1", "subjectPersonId": "P2", "otherPersonId": "P1", "kind": "friend_of", "basis": "stated"},
+        {"id": "R2", "subjectPersonId": "P1", "otherPersonId": "P2", "kind": "friend_of", "basis": "stated"}],
+    "stories": [], "places": [], "animals": [],
+}, "no relationship stored twice")
+
+CASES["married, divorced and remarried to the same person (C-3, 2026-09-24)"] = {
+    "narrator_person_id": "P1",
+    "people": [{"id": "P1", "names": [{"fullText": "Ada Roche"}]},
+               {"id": "P2", "names": [{"fullText": "Cormac Roche"}]},
+               {"id": "P3", "names": [{"fullText": "Bridget Roche"}]}],
+    "events": [],
+    "relationships": [
+        {"id": "R1", "subjectPersonId": "P2", "otherPersonId": "P1", "kind": "spouse_of", "basis": "stated",
+         "period": {"start": D("1960", "1960", "year"), "end": D("1968", "1968", "year")}},
+        # stored in the SAME direction: rule_no_stored_inverse refuses the
+        # reverse direction even with a different period (a known strictness,
+        # recorded in the C-3 checkpoint; the editor always stores person→narrator)
+        {"id": "R2", "subjectPersonId": "P2", "otherPersonId": "P1", "kind": "spouse_of", "basis": "stated",
+         "period": {"start": D("1975", "1975", "year")}},
+        # one person, two different relationships: grandmother AND caregiver
+        {"id": "R3", "subjectPersonId": "P3", "otherPersonId": "P1", "kind": "grandparent_of", "basis": "stated"},
+        {"id": "R4", "subjectPersonId": "P3", "otherPersonId": "P1", "kind": "caregiver_of", "basis": "stated"}],
+    "stories": [], "places": [], "animals": [],
+}
+
+CASES["married once with dates unknown, remarried the same person in 1992 (C-3 review)"] = {
+    "narrator_person_id": "P1",
+    "people": [{"id": "P1", "names": [{"fullText": "Ada Roche"}]},
+               {"id": "P2", "names": [{"fullText": "Pat Roche"}]}],
+    "events": [],
+    "relationships": [
+        {"id": "R1", "subjectPersonId": "P2", "otherPersonId": "P1", "kind": "spouse_of", "basis": "stated"},
+        {"id": "R2", "subjectPersonId": "P2", "otherPersonId": "P1", "kind": "spouse_of", "basis": "stated",
+         "period": {"start": D("1992", "1992", "year")}}],
+    "stories": [], "places": [], "animals": [],
+}
+
 MUST_FAIL["a birth pointer aimed at another person's birth"] = ({
     "narrator_person_id": "P1",
     "people": [{"id": "P1", "names": [{"fullText": "Ada Roche"}], "birthEventRef": "B2"},

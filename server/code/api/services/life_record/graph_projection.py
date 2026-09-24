@@ -61,6 +61,10 @@ def _derived_value(node: Dict[str, Any], concept: str) -> Any:
 def _text(v: Any) -> str:
     if v is None:
         return ""
+    # A date {text, value, precision} shows as what the person said, not as
+    # JSON (C-3: relationship periods reached the graph as '{"precision": …}').
+    if isinstance(v, dict) and isinstance(v.get("text"), str):
+        return v["text"]
     return v if isinstance(v, str) else json.dumps(v, ensure_ascii=False, sort_keys=True)
 
 

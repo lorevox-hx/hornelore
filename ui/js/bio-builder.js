@@ -457,6 +457,7 @@
     draft:  { label: "DRAFT · NOT IN THE LIFE RECORD", color: "#d97706" },
     review: { label: "REVIEW",                         color: "#6366f1" },
     legacy: { label: "READ ONLY · LEGACY",             color: "#64748b" },
+    derived: { label: "DERIVED FROM THE LIFE RECORD",  color: "#059669" },
   };
   function _statusBanner(kind, text) {
     var s = _STATUS[kind];
@@ -509,11 +510,24 @@
     else                                        _renderCandidatesTab(pane, pid);
   }
 
+  /* Batch C-3 (2026-09-24): Family is DERIVED from the Life Record — it is
+     no longer an editor. People and relationships are entered in the
+     Questionnaire, which writes the record; this view reads it. The earlier
+     Family Tree editor and its browser drafts are kept (not deleted) but are
+     no longer reachable from here. */
+  var _pendingQuestionnaireTopic = null;
   function _renderFamily(container, pid) {
-    var body = _area(container, "draft",
-      "This family tree is a working draft kept in this browser. It does not change the Life Record. " +
-      "Enter family members in Questionnaire; from the next update this view will be drawn from the Life Record itself.");
-    _renderFamilyTreeTab(body, pid);
+    var body = _area(container, "derived",
+      "Drawn from the Life Record. Nothing here can be edited — people and relationships are entered in the Questionnaire.");
+    var qv2 = window.LorevoxQuestionnaireV2;
+    if (!qv2 || !qv2.renderFamilyView) {
+      body.innerHTML = '<div class="bb-empty-state">The Life Record view is not loaded.</div>';
+      return;
+    }
+    qv2.renderFamilyView(body, pid, function (topic) {
+      _pendingQuestionnaireTopic = topic || "family";
+      _switchTab("questionnaire");
+    });
   }
 
   function _renderLegacy(container, pid) {
@@ -534,7 +548,8 @@
   function _renderQuestionnaireV2(container, pid) {
     var qv2 = window.LorevoxQuestionnaireV2;
     if (!qv2) { container.innerHTML = '<div class="bb-empty-state">Questionnaire V2 is not loaded.</div>'; return; }
-    qv2.render(container, pid);
+    var topic = _pendingQuestionnaireTopic; _pendingQuestionnaireTopic = null;
+    qv2.render(container, pid, topic ? { topic: topic } : undefined);
   }
   function _renderEarlierAnswers(container, pid) {
     var qv2 = window.LorevoxQuestionnaireV2;
@@ -991,28 +1006,14 @@
   NS._getCandidateText    = _getCandidateText;
   NS._getCandidateSnippet = _getCandidateSnippet;
 
-  // Family Tree tab (v3)
-  NS._ftAddNode              = _ftAddNode;
-  NS._ftDeleteNode           = _ftDeleteNode;
-  NS._ftEditNode             = _ftEditNode;
-  NS._ftSaveNode             = _ftSaveNode;
-  NS._ftAddEdge              = _ftAddEdge;
-  NS._ftSaveEdge             = _ftSaveEdge;
-  NS._ftDeleteEdge           = _ftDeleteEdge;
-  NS._ftSeedFromProfile       = _ftSeedFromProfile;
-  NS._ftSeedFromQuestionnaire = _ftSeedFromQuestionnaire;
-  NS._ftSeedFromCandidates   = _ftSeedFromCandidates;
-
-  // Life Threads tab (v3)
-  NS._ltAddNode              = _ltAddNode;
-  NS._ltDeleteNode           = _ltDeleteNode;
-  NS._ltEditNode             = _ltEditNode;
-  NS._ltSaveNode             = _ltSaveNode;
-  NS._ltAddEdge              = _ltAddEdge;
-  NS._ltSaveEdge             = _ltSaveEdge;
-  NS._ltDeleteEdge           = _ltDeleteEdge;
-  NS._ltSeedFromCandidates   = _ltSeedFromCandidates;
-  NS._ltSeedThemes           = _ltSeedThemes;
+  // Family Tree and Life Threads editors (v3): NO LONGER EXPORTED.
+  // Batch C-3 (2026-09-24) — Family is a derived view of the Life Record and
+  // Life Threads is retired from navigation (C-2b), so their Add / Edit /
+  // Connect / Delete / Seed handlers have no normal caller. Unexporting them
+  // makes an accidental second family authority harder to resurrect; the code
+  // stays in bio-builder-family-tree.js / bio-builder-life-threads.js
+  // (reachable to tests through LorevoxBioBuilderModules), and existing
+  // browser drafts are kept.
 
   // v4: Persistence
   NS._persistDrafts          = _persistDrafts;

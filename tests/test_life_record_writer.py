@@ -161,6 +161,76 @@ class Relationships(_Db):
         self.assertEqual((r["subjectPersonId"], r["otherPersonId"], r["kind"]), ("p-mother", NORA, "parent_of"))
         self.assertEqual(r["assertion"]["value"], "parent_of")
 
+    # C-3 (2026-09-24): through the WRITER, not only the rule function.
+    def _parent(self, rid, **extra):
+        return {"op": "add", "path": f"relationships/{rid}",
+                "value": dict({"subjectPersonId": "p-m", "otherPersonId": NORA, "kind": "parent_of"}, **extra)}
+
+    def test_the_same_relationship_twice_is_refused_and_writes_nothing(self):
+        self.ok([{"op": "add", "path": "people/p-m", "value": {}}, self._parent("r1")])
+        r = self.write([self._parent("r2")])
+        self.assertFalse(r["ok"])
+        self.assertIn("no relationship stored twice", {x.get("rule") for x in r["refused"]})
+        self.assertEqual(len(self.rec()["relationships"]), 1)
+
+    def test_a_refused_relationship_takes_its_new_person_with_it(self):
+        # C-3: adding a relative is person + name + relationship in ONE change
+        # set; if the relationship is refused, no orphan person is left.
+        self.ok([{"op": "add", "path": "people/p-m", "value": {}}, self._parent("r1")])
+        r = self.write([{"op": "add", "path": "people/p-new", "value": {}},
+                        self.name("p-new", "n-new", "Ada Whitfield"),
+                        {"op": "add", "path": "relationships/r-new",
+                         "value": {"subjectPersonId": "p-new", "otherPersonId": NORA, "kind": "other"}}])  # no describedAs
+        self.assertFalse(r["ok"])
+        self.assertIsNone(self.person("p-new"))
+        self.assertEqual(self.count("lr_names"), 0)
+
+    def test_one_person_in_two_different_relationships_is_one_person(self):
+        self.ok([{"op": "add", "path": "people/p-m", "value": {}}, self._parent("r1"),
+                 {"op": "add", "path": "relationships/r2",
+                  "value": {"subjectPersonId": "p-m", "otherPersonId": NORA, "kind": "caregiver_of"}}])
+        self.assertEqual(sorted(r["kind"] for r in self.rec()["relationships"]), ["caregiver_of", "parent_of"])
+        self.assertEqual(sum(1 for p in self.rec()["people"] if p["id"] == "p-m"), 1)
+
+    def test_a_symmetric_relationship_is_one_fact_in_either_direction(self):
+        self.ok([{"op": "add", "path": "people/p-s", "value": {}},
+                 {"op": "add", "path": "relationships/r1",
+                  "value": {"subjectPersonId": "p-s", "otherPersonId": NORA, "kind": "friend_of"}}])
+        r = self.write([{"op": "add", "path": "relationships/r2",
+                         "value": {"subjectPersonId": NORA, "otherPersonId": "p-s", "kind": "friend_of"}}])
+        self.assertFalse(r["ok"])
+
+    def test_two_unions_with_the_same_person_at_different_times_both_stand(self):
+        d = lambda t: {"text": t, "value": t, "precision": "year"}  # noqa: E731
+        self.ok([{"op": "add", "path": "people/p-s", "value": {}},
+                 {"op": "add", "path": "relationships/r1",
+                  "value": {"subjectPersonId": "p-s", "otherPersonId": NORA, "kind": "spouse_of",
+                            "period": {"start": d("1960"), "end": d("1968")}}},
+                 {"op": "add", "path": "relationships/r2",
+                  "value": {"subjectPersonId": "p-s", "otherPersonId": NORA, "kind": "spouse_of",
+                            "period": {"start": d("1975")}}}])
+        self.assertEqual(len(self.rec()["relationships"]), 2)
+
+    def test_a_marriage_with_unknown_dates_and_a_dated_remarriage_both_stand(self):
+        # C-3 review: a missing period on one side is NOT equality.
+        d = {"text": "1992", "value": "1992", "precision": "year"}
+        self.ok([{"op": "add", "path": "people/p-s", "value": {}},
+                 {"op": "add", "path": "relationships/r1",
+                  "value": {"subjectPersonId": "p-s", "otherPersonId": NORA, "kind": "spouse_of"}},
+                 {"op": "add", "path": "relationships/r2",
+                  "value": {"subjectPersonId": "p-s", "otherPersonId": NORA, "kind": "spouse_of",
+                            "period": {"start": d}}}])
+        self.assertEqual(len(self.rec()["relationships"]), 2)
+
+    def test_the_same_span_twice_is_still_the_same_relationship(self):
+        d = {"text": "1992", "value": "1992", "precision": "year"}
+        v = {"subjectPersonId": "p-s", "otherPersonId": NORA, "kind": "spouse_of", "period": {"start": d}}
+        self.ok([{"op": "add", "path": "people/p-s", "value": {}},
+                 {"op": "add", "path": "relationships/r1", "value": v}])
+        r = self.write([{"op": "add", "path": "relationships/r2", "value": dict(v)}])
+        self.assertFalse(r["ok"])
+        self.assertIn("no relationship stored twice", {x.get("rule") for x in r["refused"]})
+
     def test_a_referenced_person_is_not_removed_implicitly(self):
         self.ok([{"op": "add", "path": "people/p-m", "value": {}},
                  {"op": "add", "path": "relationships/r1",

@@ -164,6 +164,18 @@ class ProjectionAgreesWithTheRecord(_Graph):
         self.assertEqual((self.projected(), self.graph()["revision"]), (before, rev))
 
 
+class PeriodsProjectAsSaid(_Graph):
+    def test_a_relationship_period_reaches_the_graph_as_its_text(self):
+        # C-3 (2026-09-24): it reached graph_relationships.start_date as JSON.
+        self.ok([{"op": "add", "path": "people/p-s", "value": {}},
+                 {"op": "add", "path": "relationships/r-s",
+                  "value": {"subjectPersonId": "p-s", "otherPersonId": NORA, "kind": "spouse_of",
+                            "period": {"start": {"text": "about 1962", "value": None, "precision": "unknown"},
+                                       "end": {"text": "1980", "value": "1980", "precision": "year"}}}}])
+        rel = next(r for r in self.graph()["relationships"] if r["id"] == G.graph_id("r-s"))
+        self.assertEqual((rel["start_date"], rel["end_date"]), ("about 1962", "1980"))
+
+
 class RevisionGuard(_Graph):
     def test_get_returns_a_revision_and_every_writer_bumps_it(self):
         revs = [self.graph()["revision"]]

@@ -7,7 +7,8 @@
    the page shows and on EVERY request it makes.
 
    A FAKE SERVER answers reads with fixture values (a narrator named in the
-   Life Record, a legacy questionnaire WITH content, one Lori suggestion). The
+   Life Record with one relative, a legacy questionnaire WITH content, one Lori
+   suggestion). The
    legacy document has content on purpose: that is the condition under which
    the old Family Tree path sent `PUT /api/bio-builder/questionnaire`, so the
    no-legacy-write checks can fail.
@@ -73,6 +74,11 @@ function boot(opts) {
     if ((m = u.match(/\/api\/life-record\/([^/?]+)$/))) {
       body = record(decodeURIComponent(m[1]), m[1] === A ? "Maren Holt (fictional)" : "Owen Marsh (fictional)", 2);
       if (m[1] === C) { body.people = []; body.revision = 0; }   // in the people table, nothing in the Life Record
+      if (m[1] === A) {                                           // one relative, so Family has someone to derive
+        body.people.push({ id: "p-astrid", names: [{ id: "n-astrid", fullText: "Astrid Holt", kind: "current" }] });
+        body.relationships.push({ id: "r-astrid", subjectPersonId: "p-astrid", otherPersonId: A, kind: "parent_of",
+                                  basis: "stated", qualifiers: ["adoptive"] });
+      }
     } else if (u.indexOf("/api/bio-builder/questionnaire") !== -1) {
       body = { questionnaire: { personal: { fullName: "Maren Holt", placeOfBirth: "Tromsø" } }, _meta: {}, source: "ui_save", version: 3 };
     } else if (u.indexOf("/api/graph/") !== -1) {
@@ -130,6 +136,10 @@ const clickTab = async (t, tab) => {
 
 (async function run() {
   const t = boot();
+  // An EARLIER Family Tree draft already in this browser (C-2b kept them).
+  // C-3: it must be neither promoted into the Life Record nor shown as family.
+  const GHOST = JSON.stringify({ v: 1, d: { nodes: [{ id: "ft-ghost", role: "sibling", displayName: "Ghost Relative" }], edges: [] } });
+  t.w.localStorage.setItem("lorevox_ft_draft_" + A, GHOST);
   await openFor(t, A);
 
   /* 1 — navigation */
@@ -180,30 +190,48 @@ const clickTab = async (t, tab) => {
     /Earlier Questionnaire Answers/.test(lg.textContent) && /READ ONLY · LEGACY/.test(lg.textContent) &&
     lg.querySelectorAll("input, textarea, select, button").length === 0, lg.innerHTML.slice(0, 200));
   await clickTab(t, "familyTree");
-  check("Family is labelled DRAFT · NOT IN THE LIFE RECORD",
-    /DRAFT · NOT IN THE LIFE RECORD/.test(t.$("#bbTabContent").textContent), t.$("#bbTabContent").textContent.slice(0, 150));
-
-  /* 5 — Family Tree edits: local draft only, never the old questionnaire PUT.
-         The legacy document HAS content, the condition the old path fired on. */
-  const w0 = t.writes().length;
-  const add = t.$$("#bbTabContent button").filter((b) => /Add Person/.test(b.textContent))[0];
-  if (add) add.dispatchEvent(new t.w.MouseEvent("click", { bubbles: true }));
+  const fam = t.$("#bbTabContent");
+  check("Family is DERIVED FROM THE LIFE RECORD and shows the record's people (C-3)",
+    /DERIVED FROM THE LIFE RECORD/.test(fam.textContent) && /Astrid Holt/.test(fam.textContent) &&
+    /revision 2/.test(fam.textContent), fam.textContent.slice(0, 300));
+  check("...with no family editor: no Add / Edit / Connect / Seed / Delete, only 'Edit in Questionnaire'",
+    fam.querySelectorAll("input, textarea, select").length === 0 &&
+    t.$$("#bbTabContent button").map((b) => b.textContent.trim()).join("|") === "Edit in Questionnaire",
+    t.$$("#bbTabContent button").map((b) => b.textContent.trim()).join("|"));
+  check("an earlier Family Tree draft is neither shown on Family nor sent anywhere — and it is kept",
+    !/Ghost Relative/.test(fam.textContent) && !t.log.some((r) => /Ghost Relative/.test(r.body || "")) &&
+    t.w.localStorage.getItem("lorevox_ft_draft_" + A) !== null, fam.textContent.slice(0, 200));
+  check("...and its old handlers are no longer exported",
+    ["_ftAddNode", "_ftSaveNode", "_ftAddEdge", "_ftSaveEdge", "_ftDeleteNode", "_ftSeedFromProfile",
+     "_ftSeedFromQuestionnaire", "_ftSeedFromCandidates", "_ltAddNode", "_ltSeedThemes"]
+      .every((k) => t.w.LorevoxBioBuilder[k] === undefined), "still exported");
+  const editBtn = t.$("#bbTabContent [data-qv2-family-edit]");
+  if (editBtn) editBtn.dispatchEvent(new t.w.MouseEvent("click", { bubbles: true }));
   await settle();
+  check("'Edit in Questionnaire' opens the Questionnaire on Family and caregivers",
+    t.$("#bbTabQuestionnaire").classList.contains("bb-tab-active") &&
+    !!t.$('#bbTabContent [data-qv2-panel="family"]'), (t.$("#bbTabContent [data-qv2-panel]") || {}).outerHTML);
+
+  /* 5 — the earlier Family Tree code is kept but unreachable. Its persistence
+         seam is still pinned (C-2b), driven through the module itself: local
+         draft only, never the old questionnaire PUT. The legacy document HAS
+         content, the condition the old path fired on. */
+  const FT = t.w.LorevoxBioBuilderModules.familyTree;
+  const w0 = t.writes().length;
+  FT._ftAddNode("other"); await settle();
   const nameIn = t.$("#ftEditName");
   if (nameIn) nameIn.value = "Ada Holt";
-  const save = t.$$("#bbTabContent button").filter((b) => /^Save$/.test(b.textContent.trim()))[0];
-  if (save) save.dispatchEvent(new t.w.MouseEvent("click", { bubbles: true }));
-  await settle();
-  check("a Family Tree add-and-save really ran", !!(add && nameIn && save), "controls not found");
+  const nodeId = (t.w.state.bioBuilder.familyTreeDraftsByPerson[A].nodes.slice(-1)[0] || {}).id;
+  nodeId && FT._ftSaveNode(nodeId); await settle();
+  check("a Family Tree add-and-save really ran (module)", !!(nameIn && nodeId) &&
+    t.w.state.bioBuilder.familyTreeDraftsByPerson[A].nodes.some((n) => n.displayName === "Ada Holt"), "did not run");
   check("...and sent no request at all (no PUT /api/bio-builder/questionnaire)",
     t.writes().length === w0, JSON.stringify(t.writes().slice(w0)));
-  const nodeId = (t.w.state.bioBuilder.familyTreeDraftsByPerson[A].nodes.find((n) => n.displayName === "Ada Holt") || {}).id;
-  const LB = t.w.LorevoxBioBuilder;
-  LB._ftAddEdge && nodeId && LB._ftAddEdge(nodeId); await settle();
-  if (t.$("#bbTabContent button") && LB._ftSaveEdge) { LB._ftSaveEdge(nodeId); await settle(); }
-  LB._ftSeedFromQuestionnaire && LB._ftSeedFromQuestionnaire(); await settle();
-  LB._ftSeedFromProfile && LB._ftSeedFromProfile(); await settle();
-  nodeId && LB._ftDeleteNode(nodeId, true); await settle();
+  nodeId && FT._ftAddEdge(nodeId); await settle();
+  nodeId && FT._ftSaveEdge && FT._ftSaveEdge(nodeId); await settle();
+  FT._ftSeedFromQuestionnaire(); await settle();
+  FT._ftSeedFromProfile(); await settle();
+  nodeId && FT._ftDeleteNode(nodeId, true); await settle();
   check("Family Connect, Seed (questionnaire/profile) and Delete send no request either",
     !!nodeId && t.writes().length === w0, JSON.stringify({ nodeId, writes: t.writes().slice(w0) }));
   check("...the draft stayed in this browser",

@@ -94,6 +94,36 @@ def rule_no_stored_inverse(b):
     return bad
 
 
+_SYMMETRIC = {"sibling_of", "spouse_of", "partner_of", "friend_of", "chosen_family_of"}
+
+
+def rule_no_duplicate_relationship(b):
+    """§3.7 — one relationship is stored once. ADDED 2026-09-24 (Batch C-3):
+    the writer accepted the same "P is parent_of N" twice, so an editor that
+    re-added an existing relative would silently double them in every
+    projection. Two edges of one kind between one pair are the same fact
+    when their periods are EQUAL — both absent, or both the same span. A
+    period present on one and absent on the other, or two different spans,
+    are two relationships (married Pat once, dates unknown; remarried Pat in
+    1992). For a symmetric kind the pair is unordered. Different kinds are
+    different facts (a grandmother who was also the caregiver is two
+    relationships to ONE person). CORRECTED in C-3 review: it first treated a
+    missing period on EITHER side as a duplicate, so the unknown-dates
+    remarriage it was written to allow could not be stored."""
+    seen, bad = {}, []
+    for r in b.get("relationships", []):
+        pair = (r["subjectPersonId"], r["otherPersonId"])
+        if r["kind"] in _SYMMETRIC:
+            pair = tuple(sorted(pair))
+        key = (pair, r["kind"], r.get("describedAs") or "")
+        per = json.dumps(r.get("period"), sort_keys=True) if r.get("period") else None
+        for other_id, other_per in seen.get(key, []):
+            if per == other_per:
+                bad.append(f"relationship {r['id']}: the same relationship as {other_id} is stored twice")
+        seen.setdefault(key, []).append((r["id"], per))
+    return bad
+
+
 def rule_derived_relationships_not_hand_edited(b):
     """§3.7 — basis=derived_from_event must name its event and must not carry
     hand-edited attributes."""
@@ -496,6 +526,7 @@ RULES = [
     ("relationship endpoints resolve", rule_relationship_endpoints_resolve),
     ("relationship kinds valid", rule_relationship_kind_valid),
     ("no stored inverse relationships", rule_no_stored_inverse),
+    ("no relationship stored twice", rule_no_duplicate_relationship),
     ("derived relationships not hand-edited", rule_derived_relationships_not_hand_edited),
     ("event participants resolve", rule_event_participants_resolve),
     ("life status valid, never inferred", rule_life_status_valid_and_not_inferred),

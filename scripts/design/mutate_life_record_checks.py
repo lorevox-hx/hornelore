@@ -186,6 +186,16 @@ RULE_MUTATIONS = [
      'if rc["value"] == 0:\n'
      '            bad.append(f"reportedCounts.{concept}: derived from an empty list")',
      "9 · an only child"),
+
+    ("the duplicate rule ignores periods, so a remarriage is refused",
+     'if per == other_per:',
+     'if True:',
+     "married, divorced and remarried to the same person (C-3, 2026-09-24)"),
+
+    ("the duplicate rule reverts to treating a MISSING period as a match (the C-3 review defect)",
+     'if per == other_per:',
+     'if per is None or other_per is None or per == other_per:',
+     "married once with dates unknown, remarried the same person in 1992 (C-3 review)"),
 ]
 
 # A rule made LAXER breaks no passing case — it lets a refusal through. These
@@ -254,6 +264,17 @@ LAXNESS_MUTATIONS = [
      '            elif s["candidateRef"] not in candidates:',
      'elif candidates and s["candidateRef"] not in candidates:',
      "a captured story with no resolvable candidate"),
+
+    # C-3 (2026-09-24): the duplicate-relationship rule.
+    ("the duplicate-relationship rule never fires",
+     'bad.append(f"relationship {r[\'id\']}: the same relationship as {other_id} is stored twice")',
+     'pass',
+     "the same parent stored twice (C-3, 2026-09-24)"),
+
+    ("a symmetric kind is keyed by ordered pair, so A→B and B→A both pass",
+     'if r["kind"] in _SYMMETRIC:\n            pair = tuple(sorted(pair))',
+     'pass',
+     "a sibling stored once in each direction under one kind"),
 
     ("the required-facts ceiling goes back to being measured, not enforced",
      'if used + len(line) > ceiling:\n'

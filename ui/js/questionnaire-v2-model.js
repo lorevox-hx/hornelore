@@ -205,8 +205,16 @@
         kind: r.kind, describedAs: r.describedAs || null, narratorLabel: r.narratorLabel || null,
         qualifiers: r.qualifiers || null, period: r.period || null, basis: r.basis,
         role: roleForNarrator(r, nid),
+        detailedRole: detailedRole(r, nid),
         withPersonId: r.subjectPersonId === nid ? r.otherPersonId
                     : r.otherPersonId === nid ? r.subjectPersonId : null,
+        lineageSide: answerOf("relationship.qualifier.lineage_side",
+                              r["relationship.qualifier.lineage_side"] || [],
+                              r["relationship.qualifier.lineage_sideAcceptedId"]),
+        // C-3: EXACTLY the writer's view of `relationships/<id>` — the value a
+        // `set` must name as expectedPrevious. Built from the record's own
+        // keys, never from the display fields above (which fill in nulls).
+        raw: rawOf(r, REL_KEYS),
       };
     });
 
@@ -320,6 +328,74 @@
   }
 
   function pick(r) { return r.id; }
+
+  /* C-3 — the writer's own view of an entity path (writer.py _REL_FIELDS /
+     _NAME_FIELDS): only the keys the record carries, nulls omitted. */
+  var REL_KEYS = ["subjectPersonId", "otherPersonId", "kind", "describedAs", "qualifiers",
+                  "narratorLabel", "period", "basis", "derivedFromEventId"];
+  var NAME_KEYS = ["fullText", "kind", "givenParts", "family", "birthFamily", "prefixes",
+                   "suffixes", "use", "period", "pronunciation", "originStory"];
+  function rawOf(x, keys) {
+    var o = {};
+    keys.forEach(function (k) { if (x[k] !== undefined && x[k] !== null) o[k] = x[k]; });
+    return o;
+  }
+  function rawName(n) { return rawOf(n, NAME_KEYS); }
+
+  /* C-3 — how the editor states a relationship. "subject is <kind> of
+     other": `narratorIs` says which end the narrator is. Nothing here is
+     preselected; the operator chooses. */
+  var ROLES = {
+    parent:        { kind: "parent_of",        narratorIs: "other",   label: "Parent",      topic: "family" },
+    sibling:       { kind: "sibling_of",       narratorIs: "other",   label: "Sibling",     topic: "family" },
+    grandparent:   { kind: "grandparent_of",   narratorIs: "other",   label: "Grandparent", topic: "family" },
+    caregiver:     { kind: "caregiver_of",     narratorIs: "other",   label: "Raised or cared for the narrator", topic: "family" },
+    spouse:        { kind: "spouse_of",        narratorIs: "other",   label: "Spouse",      topic: "partners" },
+    partner:       { kind: "partner_of",       narratorIs: "other",   label: "Partner",     topic: "partners" },
+    child:         { kind: "parent_of",        narratorIs: "subject", label: "Child",       topic: "partners" },
+    grandchild:    { kind: "grandparent_of",   narratorIs: "subject", label: "Grandchild",  topic: "partners" },
+    chosen_family: { kind: "chosen_family_of", narratorIs: "other",   label: "Chosen family", topic: "wider" },
+    friend:        { kind: "friend_of",        narratorIs: "other",   label: "Friend",      topic: "wider" },
+    mentor:        { kind: "mentor_of",        narratorIs: "other",   label: "Mentor",      topic: "wider" },
+    mentee:        { kind: "mentor_of",        narratorIs: "subject", label: "Someone the narrator mentored", topic: "wider", notOffered: true },
+    cared_for:     { kind: "caregiver_of",     narratorIs: "subject", label: "Someone the narrator cared for", topic: "wider" },
+    other:         { kind: "other",            narratorIs: "other",   label: "Other (describe)", topic: "wider" },
+  };
+  /* Offered qualifiers. None is preselected; several may apply. Lineage side
+     (maternal / paternal) is NOT here: it is its own catalog concept,
+     relationship.qualifier.lineage_side, recorded as an assertion. */
+  var QUALIFIERS = [
+    ["biological", "biological"], ["adoptive", "adoptive"], ["step", "step"], ["foster", "foster"],
+    ["half", "half"], ["in_law", "in-law"], ["twin", "twin"], ["older", "older"], ["younger", "younger"],
+    ["former", "former"],
+  ];
+
+  function detailedRole(r, nid) {
+    var subj = r.subjectPersonId === nid, other = r.otherPersonId === nid;
+    if (!subj && !other) return "indirect";
+    for (var k in ROLES) {
+      var d = ROLES[k];
+      if (d.kind !== r.kind) continue;
+      if (r.kind === "sibling_of" || r.kind === "spouse_of" || r.kind === "partner_of" ||
+          r.kind === "friend_of" || r.kind === "chosen_family_of" || r.kind === "other") return k;
+      if ((d.narratorIs === "other" && other) || (d.narratorIs === "subject" && subj)) return k;
+    }
+    return "other";
+  }
+
+  /* C-3 — a date as said. The text is kept exactly; a value is filled only
+     when the text IS that value (2024-05-01 → day, 2024-05 → month, 1962 →
+     year). Anything else — "about 1962", "spring 1970", "before the war" —
+     keeps its text with value null and precision "unknown" (the same
+     convention identity.py uses at narrator creation). C-4 widens this. */
+  function parseDateText(text) {
+    var t = String(text == null ? "" : text).trim();
+    if (!t) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return { text: t, value: t, precision: "day" };
+    if (/^\d{4}-\d{2}$/.test(t)) return { text: t, value: t, precision: "month" };
+    if (/^\d{4}$/.test(t)) return { text: t, value: t, precision: "year" };
+    return { text: t, value: null, precision: "unknown" };
+  }
   function index(list) { var o = {}; list.forEach(function (x) { o[x.id] = x; }); return o; }
 
   /* What a relationship means FOR THE NARRATOR. One direction is stored
@@ -363,7 +439,9 @@
   }
 
   var api = { TOPICS: TOPICS, ANSWER: ANSWER, fromRecord: fromRecord,
-              roleForNarrator: roleForNarrator };
+              roleForNarrator: roleForNarrator, detailedRole: detailedRole,
+              ROLES: ROLES, QUALIFIERS: QUALIFIERS, parseDateText: parseDateText,
+              rawName: rawName, answerOf: answerOf };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (root) root.LorevoxQuestionnaireV2Model = api;
 })(typeof window !== "undefined" ? window : null);
