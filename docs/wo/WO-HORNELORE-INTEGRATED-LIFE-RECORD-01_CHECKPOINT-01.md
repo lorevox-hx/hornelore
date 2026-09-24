@@ -1358,6 +1358,129 @@ All five parts sit at the finalization seam, in this order: kinship guard → **
 - No true fact was lost to B3, no new silent false write, the prompt is byte-identical, and mnw is 0. v2 is 67/114.
 - The next roadmap step is **Phase 2 / Batch B — the canonical integrated Life Record and its one writer**, then Batch C, the actual Questionnaire V2 in Hornelore.
 
+## Batch B — build plan (2026-09-23), for Chris's approval before code
+
+**Goal:** Hornelore has **one coherent record of a person's life**, with one writer. The questionnaire (Batch C), Lori and Profile Seed (Batch D) and the package (Batch E) later converge on it. **This is a build plan, not a research phase.**
+
+**Fixed inputs — nothing here is re-decided.**
+- **Decisions:** D7(a) canonical occurrences **beneath** the DOB + seven-era scaffold · D8(a) **shared SQLite**, narrator isolation in the writer and data model · D9(a) the graph becomes a **projection**, and its PUT gets a version check until then.
+- **Design:** `WO-LIFE-RECORD-01` §2–§5: the model (§3), the writer contract (§3.10), names (§4), dates (§5), counts, and story ownership (§2.6).
+- **Owed from Repair A:** a durable *unknown* life status, and the server-side version check on the graph PUT.
+
+**What Batch B does NOT do:**
+- no UI change (the questionnaire is Batch C);
+- no Lori or Profile Seed change (Batch D);
+- no package or export change beyond the erase and export **lanes** every new table needs (Batch E does the rest);
+- no per-narrator database;
+- no migration of live data — the working root holds 0 people (§0A);
+- no extraction work.
+
+### The build order — five chunks, one coherent batch
+
+**B-1 · Schema.** One new migration, `0063_life_record.sql`, through the existing filename-tracked runner. Every table is narrator-scoped.
+
+| table | holds |
+|---|---|
+| `lr_record` | one row per narrator: `narrator_person_id`, `revision`, `schema_version` |
+| `lr_people` | stable id, `life_status` ∈ {`deceased`, `explicitly_living`, `unknown`} (default **unknown**, never inferred), `birth_event_id`, `death_event_id` (pointers, §3.8) |
+| `lr_names` | `full_text` as supplied (never parsed), supplied parts, `family`, `birth_family`, `kind` (current / former / variant / also-known-as), `use`, optional period, `pronunciation`, `origin_story` |
+| `lr_places` | shared places, referenced by id, never text-rewritten |
+| `lr_events` + `lr_event_participants` | typed occurrences (birth · death · union · separation · move · education · work · service · …); date as **text + optional EDTF value + precision** (§5); place; participants with roles |
+| `lr_relationships` | subject → other, kind, `described_as`, qualifiers, period, basis (stated / derived from event); one direction stored |
+| `lr_animals` | their own entity, not people (D1f) |
+| `lr_stories` + refs | `origin` captured → **a reference to `story_candidates`, no copied body**; authored → body here; `supersedes` (§2.6) |
+| `lr_assertions` | value · concept · subject · **`recorded_by` and `asserted_by` kept separate** · source · `recorded_at` · status · `supersedes` · `conflict_with` |
+| `lr_acceptances` | the explicit decision per proposition: `accepted_assertion_id`, decided by, decided at. **Provenance is not truth; acceptance is a human act** (§2.4) |
+| `lr_revisions` | audit: revision, base revision, changed paths, actor, time |
+
+Every table gets a `DbLane` entry in `narrator_data_inventory.py` **in this batch**. Without one, narrator erasure would miss the table — the §3.11 gate.
+
+**B-2 · The one writer.** `services/life_record/writer.py`: `apply_changes(narrator_id, base_revision, changes, actor)`, per §3.10.
+- `set` / `add` / `remove` on addressed paths (`people/<id>/lifeStatus`, `people/<id>/names/<id>`, `events/<id>/date`, …).
+- **`expectedPrevious` required on every `set` and `remove`**, including the explicit absent case.
+- **Conflict per path:** rejected if and only if a path's current value differs from its `expectedPrevious`; unrelated concurrent edits both succeed.
+- Runs inside `BEGIN IMMEDIATE`, all-or-nothing. A conflict names every offending path with its current value, and writes nothing.
+- **Every id is checked to belong to this narrator**; a cross-narrator reference is refused.
+- The model rules run on the resulting record **before commit**; a violation rolls back.
+- Routes: `GET /api/life-record/{narrator_id}` writes nothing; `PATCH` calls the writer.
+
+**B-3 · Identity rules — enforced by the writer, not the UI.**
+- Server-side stable ids; **no inferred person merges**; a new name never mints a person.
+- `birth_event_id` and `death_event_id` must point at **that person's own** birth or death event. Another person's birth, a union event, or a missing or ambiguous reference is refused.
+- A death event implies deceased; nothing infers the reverse. *Unknown* stays unknown.
+- **Unknown ≠ No; stated zero is kept.** "Six siblings stated, two named" keeps both.
+- Dates keep their text, and "around 1945" never becomes exact.
+- Conflicting assertions coexist until one is **explicitly** accepted; a correction supersedes, it does not erase.
+- **The model rules are written once.** The 21 rules in `scripts/design/validate_life_record_design.py` move into product code (`services/life_record/rules.py`), and the design validator becomes a thin wrapper that imports them.
+
+**B-4 · Graph as projection (D9).**
+- `project_graph(narrator_id)` rebuilds `graph_persons` / `graph_relationships` **from the record**.
+- The graph PUT (`relationships.py:88`) gets an expected-revision check **now**, so it cannot silently overwrite. That discharges the Repair A debt.
+- The UI keeps using its current graph and questionnaire until Batch C switches it to the record. Batch B adds no second UI truth.
+
+**B-5 · Acceptance on real SQLite.** A fresh isolated root, migrated by the product's own runner, with fictional narrators only.
+- **Required for Batch B:** every item of the Phase 2 exit gate (below).
+- **Also:** the design validator's rules and contracts, run against the record **as assembled from the database**, not against a hand-built JSON.
+- **Concurrency:** two concurrent writers — disjoint paths succeed, the same path conflicts; a stale write is rejected.
+- **Plus:** tests and a mutation gate for each writer rule. The gate is `.venv`-run, like B2 and B3.
+
+**B-5 acceptance fixture** (Chris, 2026-09-23 — focused, not a giant program), each on real isolated SQLite:
+- create a person;
+- add relationships;
+- an approximate DOB;
+- two conflicting DOB assertions, then accept one;
+- correct it later without deleting history;
+- living / deceased / unknown;
+- same-name distinct people;
+- a stale same-path write rejected;
+- a non-overlapping concurrent edit allowed;
+- an atomic multi-part write;
+- no cross-narrator contamination;
+- the graph projection agrees with the canonical data.
+
+**Phase 2 exit gate** (Chris's requirements sheet; covered by the fixture above plus these):
+- one narrator with several related people;
+- the same fact type about different people stays on the right person;
+- current and former name belong to **one** person;
+- current pronouns persist;
+- unknown life status stays unknown;
+- approximate dates stay approximate;
+- conflicting assertions coexist until one is accepted;
+- a correction does not erase provenance;
+- a stale update cannot overwrite newer information;
+- narrator words stay separate from extracted facts (a captured story is a reference, never a copied body);
+- an unaccepted event does not appear as a promoted Life Map event.
+
+### Settled by Chris, 2026-09-23 — nothing left to ask before B-1
+
+- **Pronouns:** optional **person** facts, for any person; custom values supported; history optional and time-bounded; **never inferred**. Pronouns do not imply gender identity.
+- **No structured gender-identity or sexual-orientation fields in Batch B or C.**
+- **Former names:** they do not create another person, and carry a `use` and an optional period. **They are not disclosed merely because they exist.**
+  - Batch B stores `use`, default `historical_only`.
+  - Batch D enforces it for Lori and the memoir.
+- **Everything else comes from D1–D13, unchanged.** In particular:
+  - `person.death.reported_age` is a reported assertion, and a computed age is never stored as that fact;
+  - service is `event.service.*` with the right person as participant;
+  - the seven-era scaffold stays;
+  - age is always `life_spine.validator.compute_age` (`validator.py:110`) — no second formula.
+
+### The code surface checked — the only discovery Batch B needed
+
+| what | found | consequence |
+|---|---|---|
+| **schema mechanism** | `db/migrations/*.sql`, applied by filename through `migrations_runner.run_pending_migrations` (`db.py:1586`); latest `0062` | **`0063_life_record.sql`.** No `_ensure_*` imperative schema for the new model |
+| **existing stable id** | `people.id TEXT PRIMARY KEY` (`db.py:623`) is the narrator | **retained:** the narrator's own record person **is** `people.id`. Every other person gets a server-issued id. No existing id is rewritten; the working root holds 0 people, so nothing is migrated |
+| **erasure** | `PRAGMA foreign_keys=ON` (`db.py:149`); `hard_delete_person` relies on the FK cascade (`db.py:6117`); graph tables cascade from `people(id)` | every `lr_*` table carries `narrator_id REFERENCES people(id) ON DELETE CASCADE`, plus a `DbLane` entry so inventory and export see it |
+| **captured words** | `story_candidates.id TEXT` (UUID) (`0004`) | `lr_stories.candidate_id` references it; a captured story never copies the body |
+| **graph writers** | `routers/relationships.py`: full PUT `:88`, person upsert `:95`, person delete `:119`, relationship upsert `:126`, relationship delete `:149`. **The UI calls only GET and PUT** (`bio-builder-graph.js:981`, `:1043`) | **a revision covers all five writers.** Every graph write bumps it; the PUT requires the revision it hydrated (409 if stale); GET returns it. The only UI change is the graph client sending back the revision it read, which is the guard itself, not Batch C UI |
+| **compare-and-write pattern** | `questionnaire_persistence.py:384`: `BEGIN IMMEDIATE` around compare-and-write | the writer follows the same pattern |
+| **model rules** | 21 rules, a reference `apply_changes` and `resolve_life_span` in `scripts/design/validate_life_record_design.py` | they move into `services/life_record/`; the script imports them. **One copy of the rules** |
+
+**Stated plainly, the one transitional fact:**
+- Between Batch B and Batch C, the record has **no UI writer yet**, so the live graph is still written by the UI's PUT, **now version-guarded**. `project_graph()` exists and is proven equal to the record in B-5.
+- **Batch C** switches the UI to the record's writer and removes the UI's graph writes. From then on the graph is **only** a projection.
+- No replacement shadow store is created in the meantime.
+
 ## 6. Explicit statement
 
 *(Corrected 2026-09-23 at B3 start. This section was written for the Repair A

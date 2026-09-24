@@ -10,7 +10,7 @@ rule back. The claim that matters is the one about obligations.)*
 
 ---
 
-> # ▶ CURRENT ACTION — **INTEGRATED LIFE RECORD: BATCH A1 + A5 LANDED; A2–A4 WAIT FOR THE BASELINE EVAL (2026-09-22)**
+> # ▶ CURRENT ACTION — **INTEGRATED LIFE RECORD: PHASE 1 CLOSED (B3 ACCEPTED); PHASE 2 / BATCH B — BUILD PLAN FOR CHRIS (2026-09-23)**
 >
 > The NOW block is directly below this heading. **It is the authority for what to do next.**
 >
@@ -18,7 +18,9 @@ rule back. The claim that matters is the one about obligations.)*
 >
 > ---
 >
-> # NOW — **INTEGRATED LIFE RECORD. Design pushed, Repair A landed, D1–D10 decided.** `WO-HORNELORE-INTEGRATED-LIFE-RECORD-01`
+> # NOW — **INTEGRATED LIFE RECORD. Phase 1 (extraction) closed; Batch B (the canonical Life Record and its one writer) is next.** `WO-HORNELORE-INTEGRATED-LIFE-RECORD-01`
+>
+> **Roadmap order, fixed by Chris 2026-09-23:** Batch B Life Record → Batch C actual Questionnaire V2 (an editor OF the record) → Batch D Lori / Profile Seed / Life Map / memoir → Batch E package integration → Phase 6 fictional release candidate → Phase 7 real narrators. Anything that does not close the current step goes to `docs/BACKLOG.md` unless it is a genuine blocker.
 >
 > **Read in this order:** the work order **`docs/wo/WO-HORNELORE-INTEGRATED-LIFE-RECORD-01_Spec.md`** (revision 2, which authorised the §0A cleanup) → **`docs/wo/WO-HORNELORE-INTEGRATED-LIFE-RECORD-01_CHECKPOINT-01.md`** (current state, code map, Repair A record) → **`docs/wo/WO-HORNELORE-INTEGRATED-LIFE-RECORD-01_DECISIONS.md`** (what Chris decides next) → `docs/wo/WO-LIFE-RECORD-01_Spec.md` (the design).
 >
@@ -29,9 +31,9 @@ rule back. The claim that matters is the one about obligations.)*
 > | **Repair A** (`bio-builder-graph.js`) | **landed**, 46 checks, reviewed externally against the diff. A routine sync never deletes; explicit removal with tombstones; a save cannot outrun or outlive its restore; explicit No survives a restore |
 > | **owed from Repair A** | server-side version check on the graph PUT (Batch B / D9) · durable *unknown* life status (Batch B) · questionnaire Remove control + `removals` route field (Batch C / D10) |
 > | **decisions** | **D1–D10 decided by Chris 2026-09-22**, with refinements to D1c, D1f, D2 and D5, recorded at the top of the decisions file. That record governs where it refines the packet |
-> | **Batch A** | **A1 concept catalog + A5 migration plan landed** (checkpoint §5B): 83 concepts, every producer key bound, compiled and fail-closed; 44 tests, 17 mutations caught. **A2 built and held**; it lands with A3 as one extractor batch |
-> | **next** | **Chris runs the baseline eval** with the stack up and warm: `./scripts/archive/run_question_bank_extraction_eval.py --mode live --api http://localhost:8000 --output docs/reports/master_loop01_r6-batchA-base.json` (CLAUDE.md's standard eval command; it runs against the empty working root and writes nothing to it). Then A2+A3 (retirements, alias delivery, spouse repeatable marker) → eval; then A4 (relevance-scoped extraction) → eval. Two open items for Chris: the five undecided notes buckets, and confirming `event.service.*` for D1e |
-> | **product code for the new life record** | **not started** |
+> | **Phase 1 / Batch A + B0–B3** | **CLOSED 2026-09-23** (`ee847e8`). Catalog + migration plan (A1/A5), decided aliases (A2), extractor vocabulary (A3), date-uncertainty repair and D1c handling (B2), subject and event binding for birth/death facts (B3, with the case_065 place repair). v2 bank 67/114, must_not_write 0, no true fact lost to B3. Carried items: `docs/BACKLOG.md` §10. Record: checkpoint, B0–B3 sections |
+> | **next** | **Batch B build plan** — checkpoint section "Batch B — build plan (2026-09-23)". its product questions are settled (pronouns, former names); **Chris approves the plan**, then Batch B is built in the order B-1 → B-5 |
+> | **product code for the new life record** | **not started** — Batch B is its first product code |
 >
 > **The `⛔ DO NOT ENTER QUESTIONNAIRE DATA` banner further down is SUPERSEDED.** `WO-QUESTIONNAIRE-PERSISTENCE-INTEGRITY-01` (2026-09-17) made `merge_whole_document` the only questionnaire writer: no implicit removals, optimistic concurrency, prior document archived (`questionnaire_persistence.py:559`). `db.upsert_questionnaire` now refuses unless forced (`db.py:6882`). **Not re-verified here:** whether each of the five callers that banner lists was converted. Treat that as `unverified`, not closed.
 >
