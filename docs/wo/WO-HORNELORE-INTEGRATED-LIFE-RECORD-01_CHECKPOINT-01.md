@@ -1729,6 +1729,20 @@ These are Lori and Profile Seed paths. Batch D moves them to the Life Record. **
 - **The narrator-room style pill shows "Questionnaire first"** from the stale stored value. → **C-2b**: normalise the retired stored style on load.
 - **The Bio Builder subtitle shows the id `8a144b74`.** → **C-2b** (name + revision in the header).
 
+
+**C-2 ACCEPTED / CLOSED 2026-09-24.**
+- **R7 live:** PASS (above).
+- **Focused gate** (`.venv`, WSL): **119 tests OK, 0 skips, 1 expected failure**, in 53.5 s (1m11s wall). The expected failure is the documented `test_profile_seed_ordinary_intake_reachability` defect; had it begun passing, unittest would have reported it as an unexpected success.
+- **Operator Intake write-safety:** 5/5.
+- **Process note, recorded rather than hidden:** `ss` showed ports 8000 and 8082 still listening when `repair_draft_0063.py` ran, so the repair ran with the old stack apparently up, contrary to the procedure. It was **not** reopened, because every later check came out clean:
+  - the script's own fresh-root comparison;
+  - `integrity_check` ok, and `foreign_key_check` clean;
+  - drift check 0 differ, 0 missing;
+  - after `start_all.sh` restarted the processes, a real PATCH committed and survived reload.
+
+  **The procedure stands: stop the stack first, and confirm with `ss -ltnp` that 8000/8082 are down.**
+- **Next: C-2b**, the Bio Builder consolidation. C-3 follows it.
+
 **The one-time database repair** is `scripts/repair_draft_0063.py`, run with the stack **stopped**. It repairs the database; `0063` itself is not edited.
 
 - **0 · Nothing to do?** If the live `lr_*` schema already equals a freshly migrated root, it exits without a backup and without touching anything. A rerun is a no-op.
