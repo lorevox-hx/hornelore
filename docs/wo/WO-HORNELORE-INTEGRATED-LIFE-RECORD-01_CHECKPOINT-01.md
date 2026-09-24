@@ -1629,6 +1629,46 @@ Every table gets a `DbLane` entry in `narrator_data_inventory.py` **in this batc
 
 **For C-5:** `lr_stories` carries a `kind` but no catalog concept, so a Life Today routine and a generic description cannot be told apart. The adapter places a story by concept when the record has one, else by kind and what it refers to. C-5 decides whether stories get a nullable `concept_id` (a catalog `story.*` concept).
 
+### C-2 — built 2026-09-23: the Questionnaire V2 shell
+
+**`ui/js/questionnaire-v2.js`.** The Bio Builder's **Questionnaire** tab *is* V2 now (`bio-builder.js` → `LorevoxQuestionnaireV2.render`).
+- **Layout:** eleven topics in a side nav, a topic panel showing the Life Record through the C-1 model, a header with the record revision, the unsaved count, **Save** and **Discard changes**, and inline messages for saved / info / conflict / refused.
+- **One real field ships, to make the pipe real end to end:** the narrator's birth order, a one-valued assertion. Every other field arrives with C-3 to C-5 on the same framework.
+- **Writes, exactly:**
+  - Opening, hydrating, topic navigation and narrator switch send only GETs and write no storage.
+  - An edit writes the draft `lorevox_qv2_draft_<pid>`, stamped with the revision it was made against.
+  - **Save** sends one `PATCH /api/life-record/<pid>` of writer operations, never a document:
+    - a first answer is `add`;
+    - a changed answer adds a new assertion that `supersedes` the old one, then sets the old one's `supersededBy`, and its `status → superseded` with `expectedPrevious`.
+  - The record is then **re-read**, and the draft is cleared.
+- **Conflict and refusal:** a 409 is shown with the paths and their current values, and the draft is kept; nothing is resent. A 422 shows the refusal.
+- **Provenance:** operator-typed values go in as `source=operator`, `assertedBy=operator`, `recordedBy=operator`.
+
+**Earlier answers:**
+- A new Bio Builder tab renders the legacy questionnaire **read-only**: values only, with no input and no button.
+- **Operator Intake is read-only too.** It was a second live editor of the same legacy questionnaire (a whole-document `PUT` at `operator-intake.js:322`); its Save now refuses, the button is disabled, and a banner points to the Questionnaire tab. The legacy 20-section editor is no longer reachable from the UI. Nothing was deleted.
+
+**Evidence** (sandbox `python3` + node + jsdom):
+- **`tests/test_qv2_shell.py` + `tests/qv2_shell_harness.js`: 25 DOM checks.**
+  - It loads the real `api.js`, model and shell into jsdom and drives them by clicks and change events.
+  - **The fake server is not a double:** every Life Record request goes to `tests/qv2_bridge.py`, which runs the shipped writer on the test's real SQLite.
+  - The DOM checks cover: open, navigate, switch, a late response for the previous narrator, dirty state, the narrator-scoped draft, navigating with an edit pending, reload and restore, discard, the Save PATCH shape, re-reading, a stale-tab 409 shown with the draft kept, a first answer, and Earlier answers holding no controls.
+  - **The DB is then checked in Python.** Exactly one Nora write, the Save, landed; the stale tab's did not. The old account is superseded and linked, and the new one is operator-recorded and operator-asserted. Owen got one first-answer write and nothing leaked.
+- **12 shell mutations, all caught.** The first run found one survivor: "navigation saves" was invisible because nothing was pending. A check that navigates *with an edit pending* now pins it.
+- `test_operator_intake_write_safety.js`: 5/5, including the new read-only check, whose guard mutation is caught.
+- The legacy harnesses still pass: `test_bio_builder_save_sequences.js` and the graph harness, 52/52.
+
+**Still writing the legacy questionnaire — Batch D's, named, not touched:**
+- `session-loop.js:744` and `:1021` — Lori's session loop PUTs identity and answers.
+- `bio-builder-core.js:1493`, `:1720` and `:1979` — identity sync and Reset Identity.
+
+These are Lori and Profile Seed paths. Batch D moves them to the Life Record. **They are not operator editors,** so there is still only one editable authority.
+
+**Next — the early one-field smoke (agreed), on the first stack start:**
+- Operator: create a fictional narrator → Bio Builder → Questionnaire → birth order → Save → reload.
+- Then read the value back with `GET /api/life-record/<pid>`.
+- It proves the real browser and the real HTTP route agree on the PATCH shape before C-3 builds on it.
+
 ## 6. Explicit statement
 
 *(Corrected 2026-09-23 at B3 start. This section was written for the Repair A
