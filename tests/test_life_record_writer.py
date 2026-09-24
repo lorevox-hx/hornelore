@@ -270,6 +270,21 @@ class ConflictAcceptCorrect(_Db):
         self.assertEqual(self.rec()["events"][0]["date"]["value"], "1939-08-30")
 
 
+class ManyValuedConceptsHoldSeveralFacts(_Db):
+    """Found by Batch C-1: two languages were refused as a 'dispute'. The
+    catalog's cardinality decides: `many` holds several facts."""
+
+    def test_two_languages_are_two_facts_not_competing_accounts(self):
+        self.ok([self.assertion("l1", "person", NORA, "person.languages", "Igbo"),
+                 self.assertion("l2", "person", NORA, "person.languages", "Swedish")])
+        self.assertEqual([a["value"] for a in self.person(NORA)["person.languages"]], ["Igbo", "Swedish"])
+
+    def test_a_one_valued_concept_still_needs_linking(self):
+        self.ok([self.assertion("f1", "person", NORA, "person.faith.raised", "Anglican")])
+        r = self.write([self.assertion("f2", "person", NORA, "person.faith.raised", "Methodist")])
+        self.assertFalse(r["ok"], "two unlinked accounts of a `one` concept stay refused")
+
+
 class LifeStatus(_Db):
     def _people(self):
         self.ok([{"op": "add", "path": f"people/{p}", "value": {}} for p in ("p-dead", "p-alive", "p-unknown")] +

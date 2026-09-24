@@ -237,6 +237,23 @@ def rule_assertions_well_formed(b):
     return bad
 
 
+def _many_valued_concepts():
+    """Concepts whose catalog cardinality is `many` — several live values are
+    several FACTS (two languages, two heritages), not two accounts of one.
+
+    DEFECT FIXED 2026-09-23 (found by Batch C-1): this rule compared every
+    list of assertions as one proposition, so "Igbo" beside "Swedish" was
+    refused as an unlinked dispute and no narrator could record two languages.
+    Cardinality lives in ONE place, the concept catalog, and is read from it.
+    An event's `dateAssertions` are keyed by that name, not by a concept id,
+    so a residence or service period is still one proposition per event."""
+    try:
+        from ..concept_catalog import load
+    except ImportError:          # the rules imported outside the product package
+        from api.services.concept_catalog import load
+    return {cid for cid, c in load()._concepts.items() if c.get("cardinality") == "many"}
+
+
 def proposition_key(list_key, assertion):
     """The identity of ONE proposition: what concept, about what, in what
     context. Two assertions COMPETE only when they share this key and differ
@@ -261,12 +278,13 @@ def rule_competing_claims_kept_and_linked(b):
     would call two successive jobs a contradiction. Conflict is a fact about
     PROPOSITIONS, so the proposition is what is compared."""
     bad = []
+    many = _many_valued_concepts()
 
     def check(node, path, parent=None, key=None):
         if isinstance(node, list):
             assertions = [x for x in node if isinstance(x, dict) and "value" in x
                           and ("source" in x or "status" in x)]
-            if len(assertions) > 1:
+            if len(assertions) > 1 and key not in many:
                 groups = {}
                 for a in assertions:
                     groups.setdefault(proposition_key(key, a), []).append(a)

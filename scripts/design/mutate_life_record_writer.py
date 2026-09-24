@@ -26,10 +26,11 @@ import ast  # noqa: E402
 
 from api import db as _dbmod  # noqa: E402
 from api.services.life_record import graph_projection as _gp  # noqa: E402
+from api.services.life_record import rules as _rules  # noqa: E402
 from api.services.life_record import store as _store, writer as _writer  # noqa: E402
 
 TESTS = ("tests.test_life_record_writer", "tests.test_life_record_graph")
-W, S, G, D = _writer, _store, _gp, _dbmod
+W, S, G, D, R = _writer, _store, _gp, _dbmod, _rules
 # db.py is mutated ONE FUNCTION AT A TIME: re-running the whole module would
 # re-bind the exception classes other modules imported, and reset DB_PATH.
 FUNCTION_LEVEL = {D}
@@ -111,6 +112,13 @@ MUTATIONS = [
      "        person.setdefault('lifeStatus', {'value': 'explicitly_living'})\n"
      "        # Reported counts (",
      "LifeStatus.test_living_deceased_and_unknown"),
+
+    ("many-valued concepts are treated as disputes again", R,
+     "if len(assertions) > 1 and key not in many:", "if len(assertions) > 1:",
+     "ManyValuedConceptsHoldSeveralFacts.test_two_languages_are_two_facts_not_competing_accounts"),
+    ("every concept is treated as many-valued", R,
+     "if len(assertions) > 1 and key not in many:", "if False:",
+     "ManyValuedConceptsHoldSeveralFacts.test_a_one_valued_concept_still_needs_linking"),
 
     # ── B-4: the graph revision guard ──────────────────────────────────
     ("a full replacement ignores the revision", D,
@@ -222,7 +230,7 @@ def _install(mod, original_src, find, repl, saved):
 
 
 def main():
-    originals = {m: _source(m) for m in (W, S, G, D)}
+    originals = {m: _source(m) for m in (W, S, G, D, R)}
     ran, red = _run()
     print(f"baseline: {ran} tests, {len(red)} red")
     if red:
