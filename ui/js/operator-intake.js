@@ -428,8 +428,8 @@
       '</header>' +
       '<div class="oi-section-body">' + body + '</div>' +
       '<div class="oi-section-footer">' +
-      '<button type="button" class="oi-save-btn" data-oi-save-section="' +
-      _esc(section.id) + '">Save ' + _esc(section.label) + '</button>' +
+      '<button type="button" class="oi-save-btn" disabled data-oi-save-section="' +
+      _esc(section.id) + '" title="Read-only: edit in Bio Builder → Questionnaire">Read-only</button>' +
       '</div>' +
       '</section>';
   }
@@ -449,9 +449,9 @@
       '<header class="oi-tab-header">' +
       '<h2 class="oi-tab-title">Operator Intake</h2>' +
       '<p class="oi-tab-hint">' +
-      'Enter or correct narrator details. Field badges show what the system ' +
-      'already knows from intake + extraction + document review. Save each ' +
-      'section independently — changes persist to canonical truth.' +
+      '<strong>Read-only.</strong> These are the earlier questionnaire\'s values. ' +
+      'To enter or correct narrator details, use Bio Builder → Questionnaire, ' +
+      'which writes the Life Record.' +
       '</p>' +
       '<div class="oi-tab-source-line">Reading from: <code>' +
       _esc(_state.source || "legacy_blob") + '</code></div>' +
@@ -565,8 +565,19 @@
     }
   }
 
+  /* Batch C (2026-09-23): this tab edited the EARLIER questionnaire — the
+     same whole-document PUT the Bio Builder editor used — which made it a
+     second editable authority beside Questionnaire V2. It is read-only now:
+     V2 is the only editor, and it writes the Life Record. The values stay
+     visible here; nothing is deleted. */
+  var READ_ONLY = true;
+
   async function _saveSection(sectionId, container) {
     if (!_state.personId) return;
+    if (READ_ONLY) {
+      _toast("Operator Intake is read-only. Edit this narrator in Bio Builder → Questionnaire.", "error");
+      return;
+    }
     _readSectionFromForm(sectionId, container);
     var saveBtn = container.querySelector(
       '[data-oi-save-section="' + sectionId + '"]'

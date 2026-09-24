@@ -4182,6 +4182,11 @@
         <button id="bbTabQuestionnaire" class="bb-tab" data-tab="questionnaire"
                 onclick="window.LorevoxBioBuilder._switchTab('questionnaire')"
                 role="tab" aria-selected="false">Questionnaire</button>
+        <!-- Batch C: the earlier questionnaire, READ-ONLY. Questionnaire V2
+             (the tab above) is the only editor; it writes the Life Record. -->
+        <button id="bbTabEarlierAnswers" class="bb-tab" data-tab="earlierAnswers"
+                onclick="window.LorevoxBioBuilder._switchTab('earlierAnswers')"
+                role="tab" aria-selected="false">Earlier answers</button>
         <button id="bbTabSources"       class="bb-tab" data-tab="sources"
                 onclick="window.LorevoxBioBuilder._switchTab('sources')"
                 role="tab" aria-selected="false">Source Inbox</button>
@@ -5648,6 +5653,10 @@
 <script src="js/bio-builder-graph.js"></script>
 <script src="js/bio-builder-family-tree.js"></script>
 <script src="js/bio-builder-life-threads.js"></script>
+<!-- Batch C: Questionnaire V2 — an editor of the Life Record. The model is
+     pure; the shell is looked up by bio-builder.js at render time. -->
+<script src="js/questionnaire-v2-model.js"></script>
+<script src="js/questionnaire-v2.js"></script>
 <script src="js/bio-builder.js"></script>
 <!-- WO-OPERATOR-INTAKE-TAB-01 (2026-06-16): dedicated operator intake tab.
      Loads after bio-builder modules because it reads the same questionnaire

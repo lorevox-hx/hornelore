@@ -162,6 +162,38 @@ function makeContainer() {
     ctx._state.personId === B,
     "a late response must not move _state.personId either");
 
+  /* ── 3. Batch C: this tab is read-only — Save sends nothing ─────────
+     Lifted from the shipped source (READ_ONLY and _saveSection together)
+     and run with a network that records any attempt. */
+  {
+    const flagAt = SRC.indexOf("var READ_ONLY = ");
+    const start = SRC.indexOf("async function _saveSection(");
+    if (flagAt === -1 || start === -1) throw new Error("read-only guard not found in shipped source");
+    let depth = 0, end = -1;
+    for (let j = SRC.indexOf("{", start); j < SRC.length; j++) {
+      if (SRC[j] === "{") depth++;
+      else if (SRC[j] === "}") { depth--; if (depth === 0) { end = j + 1; break; } }
+    }
+    const flag = SRC.slice(flagAt, SRC.indexOf(";", flagAt) + 1);
+    const c = { puts: 0, toasts: [] };
+    // eslint-disable-next-line no-new-func
+    const save = new Function("c", `
+      const _state = { personId: "p1", questionnaire: {}, dirtySections: {} };
+      const _readSectionFromForm = () => {};
+      const _putSection = async () => { c.puts++; return {}; };
+      const _fetchQuestionnaire = async () => ({});
+      const _renderAll = () => {};
+      const _toast = (m) => c.toasts.push(m);
+      ${flag}
+      ${SRC.slice(start, end)}
+      return _saveSection;`)(c);
+    await save("personal", { querySelector: () => null });
+    check("Operator Intake Save sends nothing: the earlier questionnaire is read-only",
+      c.puts === 0 && /read-only/i.test(c.toasts.join(" ")),
+      c.puts + " PUT(s); toasts " + JSON.stringify(c.toasts) + ". A second editor of the legacy " +
+      "questionnaire beside Questionnaire V2 is a second authority");
+  }
+
   console.log("");
   if (fail) { console.log("  " + fail + " FAILED"); process.exit(1); }
   console.log("  all " + pass + " checks passed");

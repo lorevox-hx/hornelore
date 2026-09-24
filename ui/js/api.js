@@ -65,6 +65,8 @@ const API = {
   PERSON_RESTORE:   (id) => `${ORIGIN}/api/people/${id}/restore`,
   // Phase G — Storage Authority
   BB_QQ_GET:        (id) => `${ORIGIN}/api/bio-builder/questionnaire?person_id=${encodeURIComponent(id)}`,
+  // Batch C: the canonical Life Record — GET reads, PATCH is the one writer.
+  LIFE_RECORD:      (id) => `${ORIGIN}/api/life-record/${encodeURIComponent(id)}`,
   BB_QQ_PUT:        ORIGIN + "/api/bio-builder/questionnaire",
   // WO-03A. The dedicated human-entry route. It is a SEPARATE endpoint
   // rather than a flag on the PUT because the classification has to be a

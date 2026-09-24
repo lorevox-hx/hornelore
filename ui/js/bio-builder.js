@@ -360,7 +360,7 @@
   }
 
   function _renderTabs() {
-    ["bbTabCapture","bbTabQuestionnaire","bbTabSources","bbTabCandidates","bbTabFamilyTree","bbTabLifeThreads","bbTabShadowReview","bbTabConflicts","bbTabSuggestions"].forEach(function (tid) {
+    ["bbTabCapture","bbTabQuestionnaire","bbTabEarlierAnswers","bbTabSources","bbTabCandidates","bbTabFamilyTree","bbTabLifeThreads","bbTabShadowReview","bbTabConflicts","bbTabSuggestions"].forEach(function (tid) {
       var el = _el(tid); if (!el) return;
       el.classList.toggle("bb-tab-active", el.dataset.tab === _activeTab);
     });
@@ -390,7 +390,12 @@
       return;
     }
     if      (_activeTab === "capture")       _renderCaptureTab(content, pid);
-    else if (_activeTab === "questionnaire") _renderQuestionnaireTab(content, pid, _activeSection, _renderActiveTab);
+    // Batch C: the Questionnaire tab IS Questionnaire V2, an editor of the
+    // Life Record. The earlier 20-section editor is no longer reachable from
+    // the UI; its answers are shown read-only under "Earlier answers", so
+    // there is exactly one editable authority.
+    else if (_activeTab === "questionnaire")  _renderQuestionnaireV2(content, pid);
+    else if (_activeTab === "earlierAnswers") _renderEarlierAnswers(content, pid);
     else if (_activeTab === "sources")       _renderSourcesTab(content, pid);
     else if (_activeTab === "candidates")    _renderCandidatesTab(content, pid);
     else if (_activeTab === "familyTree")    _renderFamilyTreeTab(content, pid);
@@ -398,6 +403,19 @@
     else if (_activeTab === "shadowReview") _renderShadowReviewTab(content, pid);
     else if (_activeTab === "conflicts")    _renderConflictsTab(content, pid);
     else if (_activeTab === "suggestions")  _renderSuggestionsTab(content, pid);
+  }
+
+  /* Batch C — looked up at render time (questionnaire-v2.js loads before
+     this file, but a missing module must render a message, not throw). */
+  function _renderQuestionnaireV2(container, pid) {
+    var qv2 = window.LorevoxQuestionnaireV2;
+    if (!qv2) { container.innerHTML = '<div class="bb-empty-state">Questionnaire V2 is not loaded.</div>'; return; }
+    qv2.render(container, pid);
+  }
+  function _renderEarlierAnswers(container, pid) {
+    var qv2 = window.LorevoxQuestionnaireV2;
+    if (!qv2) { container.innerHTML = '<div class="bb-empty-state">Questionnaire V2 is not loaded.</div>'; return; }
+    qv2.renderEarlierAnswers(container, pid);
   }
 
   /* WO-03B — the review surface for Lori's proposals. Same lazy-global
