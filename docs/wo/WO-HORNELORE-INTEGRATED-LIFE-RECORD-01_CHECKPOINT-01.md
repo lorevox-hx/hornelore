@@ -1575,6 +1575,60 @@ Every table gets a `DbLane` entry in `narrator_data_inventory.py` **in this batc
 
 **Build order: C-1 → C-7 exactly as in the brief.** The only additions are migration `0065` (removal state) and the enum value check, both landing with C-6 and C-4 respectively. There is no micro-approval between chunks, and non-blocking UI issues go to `docs/BACKLOG.md`.
 
+### Batch C — the review, as refined before code (Chris + ChatGPT, 2026-09-23)
+
+- **Order:** C-1 → C-2 → C-3 → C-4 → C-5 → C-6 → C-7 → Batch D. **C-7 is the closeout gate, not another development phase.**
+- **An early one-field smoke, before C-7.** Once the first real Save path exists (C-3 or C-4), run one check against the live API: open a fictional narrator, edit one field, the browser sends a real `PATCH /api/life-record/…`, reload, and the adapter reconstructs the value. It is a cheap check that the UI and the server agree on the PATCH shape before eleven topics are built on it.
+- **Migration, split three ways:**
+  - **C:** legacy answers are visible read-only, and nothing migrates.
+  - **E:** prove the generic old-package/schema migration on fictional data if package compatibility needs it.
+  - **Phase 7:** apply the proven path to real archived narrators, deliberately.
+- **ONE epistemic vocabulary** for every yes/no-shaped question: `yes | no | unknown | declined`, and blank = no assertion. Controls do not invent their own.
+- **Removal:** removed is a durable canonical state, and hard deletion is narrator erasure only. C-6 owns it; C-1 does not attempt it.
+
+### C-1 — built 2026-09-23: the read model
+
+**`ui/js/questionnaire-v2-model.js`** — `fromRecord(record, {trips?})` turns the record exactly as `GET /api/life-record` returns it into the eleven-topic view.
+- **It is pure:** no fetch, no storage, no DOM, no clock.
+- **Identity:** every person, relationship, event, place, animal and story keeps its record id. One person appearing in several topics is the same id.
+- **Relationships are read in both stored directions** to give the role relative to the narrator: parent, caregiver, sibling, grandparent, partner, child, grandchild, wider, cared_for. A person unrelated to the narrator goes to topic 4 "others" — never lost.
+- **An answer is `blank`, `value` or `unresolved`.** Blank means no live assertion; 0, "no" and "unknown" are values; two live accounts with no decision are unresolved, and both are shown.
+- **Names come through whole**, preferred first then current, and former names are kept. Stories are either authored text or a captured `candidateRef`, never a copy. Trips arrive as `{tripId, label}` references only.
+
+**Evidence — `tests/test_qv2_adapter.py`, 9 OK (sandbox `python3` + node):**
+- A difficult fictional narrator is written through the **shipped writer** onto `init_db` SQLite, then read through the **shipped** adapter under node. The narrator has:
+  - a current name plus a former one, and custom pronouns;
+  - an approximate DOB, a disputed parent DOB, and a caregiver aunt with a stated 0;
+  - military answers yes / no / unknown / blank, and two same-named people;
+  - a former spouse with a period, a union dated to the month, and children in both stored directions;
+  - a grandchild with no intermediate relative, and an in-law unrelated to the narrator;
+  - a range-dated home, a current home with a co-resident, work and service events, a dog, and authored plus captured stories.
+- **Zero IO:** the probe traps fetch, XHR, `localStorage`, `sessionStorage`, IndexedDB, `document`, `navigator` and sockets, and the DB file hash is unchanged across the run.
+- **9 adapter mutations, all caught:**
+  - blank collapsing into a value;
+  - guessing between two accounts;
+  - normalizing a date's text;
+  - reading `child_of` in one direction only;
+  - copying a captured story's words;
+  - dropping the unrelated;
+  - copying a trip whole;
+  - touching storage;
+  - hiding former names.
+
+**A Batch B defect found and fixed by C-1 (`rules.py`):**
+- `rule_competing_claims_kept_and_linked` compared every assertion list as ONE proposition. So "Igbo" beside "Swedish" was refused as an unlinked dispute, and **no narrator could record two languages or two heritages**.
+- The rule now reads cardinality from the one catalog (`_many_valued_concepts`), where `many` means several facts. An event's `dateAssertions` are unaffected: one period per event is still one proposition.
+- **Pinned:**
+  - by 2 writer tests (two languages save; two unlinked accounts of a `one` concept are still refused);
+  - by 2 new mutations (the writer gate: every mutation caught, baseline 55);
+  - the design validator is still COHERENT, and its gate still catches every mutation.
+
+**Two schema gaps C-4 must close first — both found while mapping, neither a redesign:**
+1. **Work, education and separation events cannot carry a date.** The writer accepts dates only for event types with a catalog date concept (`store.EVENT_DATE_CONCEPT`: birth, death, union, move, service). The brief's multiple *dated* jobs and education entries need date concepts `event.work.period` and `event.education.period` (plus a separation date) added to the catalog and the map.
+2. **There is no event type for community activity.** The catalog has `event.activity.{organization, period, role}`, but `lr_events.type` has no `activity`. The fix is a migration adding it (SQLite needs a table rebuild for a CHECK change) and `activity → event.activity.period`.
+
+**For C-5:** `lr_stories` carries a `kind` but no catalog concept, so a Life Today routine and a generic description cannot be told apart. The adapter places a story by concept when the record has one, else by kind and what it refers to. C-5 decides whether stories get a nullable `concept_id` (a catalog `story.*` concept).
+
 ## 6. Explicit statement
 
 *(Corrected 2026-09-23 at B3 start. This section was written for the Repair A
