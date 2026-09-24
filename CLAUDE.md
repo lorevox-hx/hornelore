@@ -483,6 +483,26 @@ about the laptop. The authoritative reading of these venvs is the one taken in W
 - **Cold boot takes ~4 minutes** — the HTTP listener comes up in ~60–70s but the LLM weights + extractor warmup continue for another 2–3 minutes after that. A `curl /` health check is NOT sufficient; it only proves the socket is listening, not that the extractor can serve a real request in <30s. This is why Chris owns start/stop: the agent-run combined blocks that restart the stack and immediately kick off evals cold-start the first case into a 90s read-timeout (observed on cg_001 during narrative-field r5c, 2026-04-21).
 - If Chris ever explicitly asks for a combined restart+eval block, gate the eval behind an extractor-warmup probe (POST a trivial extract and loop until round-trip is <30s), not a bare `curl /` loop.
 
+## Migrations are immutable once ANY persistent database has applied them (locked 2026-09-24)
+
+**A numbered migration is landed the moment a running stack applies it to a persistent
+database — committed or not.** After that its file is never edited; a schema correction is a
+**new** migration number. The runner (`db/migrations_runner.py`) tracks **filenames only**, with
+no checksum, so an edited file is silently never re-applied: the repository describes one
+schema while the database holds another, and tests on fresh databases cannot see it.
+
+This happened: a draft of `0063_life_record.sql` (composite keys) was applied to the working
+root on 2026-09-24 while B-1 was still being edited with the stack up. The final file was
+committed at `4918a7e`, and the first real browser Save failed with a 503
+(`table lr_revisions has no column named id`).
+
+- **Agents: do not edit a migration while a stack that could run it is up.** Iterate on a new
+  file in a scratch database, or ask Chris to stop the stack first.
+- **Detect drift, read-only:** `scripts/check_schema_drift.py <db>` compares a live database
+  with one built by `init_db` and names every object that differs.
+- **Fresh-database contract:** `tests/test_life_record_schema_contract.py`.
+- **Owed, not built:** migration checksums in `schema_migrations` (see `docs/BACKLOG.md` §11).
+
 ## Sandbox hazard: stale `__pycache__` on `/mnt/c` (recorded 2026-08-04)
 
 **A test run from the agent sandbox can execute code that is not the code on disk.** The `__pycache__` directories under `server/` are **not deletable from the sandbox** — `rm` returns `Operation not permitted` — and they hold `.pyc` for both `cpython-310` and `cpython-312`. Python's mtime-based invalidation is unreliable across the 9p `/mnt/c` mount, so an edited module can keep loading its previous bytecode.

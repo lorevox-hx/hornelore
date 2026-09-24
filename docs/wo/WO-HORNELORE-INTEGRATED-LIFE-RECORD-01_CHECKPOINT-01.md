@@ -1669,6 +1669,162 @@ These are Lori and Profile Seed paths. Batch D moves them to the Life Record. **
 - Then read the value back with `GET /api/life-record/<pid>`.
 - It proves the real browser and the real HTTP route agree on the PATCH shape before C-3 builds on it.
 
+### C-2 — LIVE ACCEPTANCE FAILED (2026-09-24); repair C-2R1–R7
+
+**C-2 is not closed.** Commits `98744b0` and `341edbd` stand; nothing is reverted.
+
+**Why it failed, as measured:**
+- `.venv`: `test_qv2_shell` **timed out at 170 s**. The bridge spawned a new Python per request, and importing `api.db` on `/mnt/c` is slow.
+- **Live, in Chris's Chrome** (checked by Claude through the extension):
+  1. **No fictional narrator could be created easily.**
+     - The real-narrator form demands legal name, preferred name, an **exact** DOB, birthplace, residence and **pronouns**, plus consent (`narrator-intake.js:310-328`).
+     - The testing path was a blocking `window.prompt()`.
+  2. **A brand-new narrator could never make the first Life Record write.**
+     - A new narrator reads as revision 0 with no people. That is correct, and GET writes nothing.
+     - The model returned no narrator, so the shell rendered "Nothing recorded yet" with **no input**.
+     - The writer would have created the narrator's person on the first write, but the UI offered nothing to write.
+     - **The harness missed it because the fixture pre-seeded every narrator's Life Record.** That breaks the doctrine rule that a fixture may not supply the property being proven.
+  3. **The first real Save returned 503: `sqlite3.OperationalError: table lr_revisions has no column named id`.**
+     - Chris's root applied a **draft** of `0063` (composite keys on four tables) at 2026-09-24 00:09 UTC, while B-1 was still being edited with the stack up. That was 18:09 local; the final file was committed at `4918a7e`, 20:53.
+     - The migration runner tracks filenames, so it never re-applied the final file.
+     - **Lesson: a migration is "landed" the moment any running stack applies it — committed or not. Never edit a migration while a stack that could run it is up.**
+     - All 14 `lr_*` tables on that root were **empty**, so the repair (drop them and let the runner re-apply `0063`) loses nothing.
+  4. **The retired Questionnaire First path still steered narrator open.**
+     - The browser still held `hornelore_session_style_v1 = questionnaire_first`. It survived the root cleanup because it lives in the browser.
+     - `session-loop.js` had retired QF chat turns, but `hornelore1.0.html:6290` and `session-style-router.js` still ran the QF open bypass and identity walk.
+
+**Repairs (sandbox-verified; the live check follows the restart):**
+
+| # | Repair | Evidence |
+|---|---|---|
+| R1 | **New Narrator:** an inline "fictional narrator for testing" name field and button (no `prompt()`), which creates the narrator and **opens Bio Builder → Questionnaire**. "Save and continue to Bio Builder" now does that too | Live: one `POST /api/people`, Bio Builder opens on V2 for the new narrator |
+| R2 | **Life Record bootstrap:** creation writes the identity floor **through the one writer** (`services/life_record/identity.py`, from both creation routes): name (never split), preferred name, pronouns, birth date **as typed** (an ISO day is a day; other text keeps its words), birthplace. The model also presents an empty, editable narrator when the record has none; that is a view only, and nothing is stored by building it | `tests/test_life_record_identity.py` (4 + 1 route test that needs FastAPI) |
+| R3 | **Empty-state UX:** with no narrator, the eleven topics show disabled beside a "Create or select a narrator" prompt. A new narrator's topics are live and say "the first Save creates their record". No internal id is ever shown as a name | shell harness |
+| R4 | **Legacy intake authority:** the seven biography sections are removed from the New Narrator form, and it sends identity + consent only. The server's section fan-out has no UI caller now and is **retirement-bound** (inventory B14) | Live: the modal has 0 sections |
+| R5 | **Startup:** the QF open bypass and identity walk now honour the same opt-in (`lv_qf_live_ownership=1`) as the rest of the QF retirement | Live: open status `incomplete`, not `questionnaire_first` |
+| R6 | **Tests:** one persistent bridge process; `settle` waits for real replies. New scenarios: no narrator, and a **FRESH narrator with no Life Record** (not pre-seeded), whose first Save creates the record; the DB checks confirm `lr_record` rev 1 and the narrator's `lr_people` row | `test_qv2_shell`: 30 checks, 45 s in the sandbox. The mutation that drops the empty-narrator view is caught |
+| + | **Rules crash:** a year-precision date with no normalised value raised `None.count` (a 500, not a refusal) | Fixed; pinned by `test_a_year_with_no_normalised_value_is_kept_not_a_crash` |
+| R7 | **Live acceptance**, run in Chris's Chrome 2026-09-24 after the database repair: <ul><li>Drift check: **0 differ, 0 missing** (258 objects).</li><li>The browser still held `hornelore_session_style_v1=questionnaire_first`, with no opt-in, so the retired path was **actively provoked**.</li></ul> | **PASS**, all 15 steps — see the list after this table |
+
+
+**R7, step by step (2026-09-24, live):**
+1. The fictional create (inline button) sent one `POST /api/people`.
+2. The narrator was selected automatically, with open status `incomplete` and **no QF state**.
+3. Bio Builder opened on V2.
+4. All **11 topics** were visible.
+5. The header showed **"Maren Holt (fictional)"** at **record revision 1**: the server wrote the identity at creation.
+6. Real keystrokes in birth order marked **1 unsaved change**.
+7. Save was clicked.
+8. The browser sent **`PATCH /api/life-record/8a144b74-… → 200`**, after its CORS preflight, then a re-read GET.
+9. There was no 503 and no "Failed to fetch".
+10. **"Saved."** appeared and the revision went **1 → 2**.
+11. Full page reload: no narrator was selected on cold start.
+12. The narrator was re-selected and V2 reopened.
+13. **"second of three"** came back from the server at revision 2, with nothing unsaved. The server stores it as `operator_entered`, asserted by the operator and recorded by the operator.
+14. All 10 Bio Builder tabs and all 11 topics were viewed: **zero writes, revision still 2**.
+15. Narrator Session was opened: **no Bio Builder hijack, no QF state, Lori silent, zero writes.**
+
+**Seen in R7, not C-2 regressions — carried forward:**
+- **The room's readiness card says "missing: name and date of birth"** although the name is in the Life Record and on the `people` row. The gate reads the legacy profile store, which the fictional path does not write, and it requires a DOB. Its "Complete profile basics" button starts the legacy identity onboarding, which writes old stores; it was deliberately not clicked. → **D-0**: readiness reads the Life Record, plus the open real-narrator identity-floor decision.
+- **The narrator-room style pill shows "Questionnaire first"** from the stale stored value. → **C-2b**: normalise the retired stored style on load.
+- **The Bio Builder subtitle shows the id `8a144b74`.** → **C-2b** (name + revision in the header).
+
+**The one-time database repair** is `scripts/repair_draft_0063.py`, run with the stack **stopped**. It repairs the database; `0063` itself is not edited.
+
+- **0 · Nothing to do?** If the live `lr_*` schema already equals a freshly migrated root, it exits without a backup and without touching anything. A rerun is a no-op.
+- **P · Preflight, read-only.** `integrity_check` must be `ok`, **no migration may be pending**, and there must be exactly one `0063` row.
+- **1 · Back up** the database, with the WAL checkpointed into the copy first.
+- **2 · Refuse** unless all 14 `lr_*` tables are empty.
+- **3–4 · One transaction.** Drop exactly the 14 tables and delete exactly the `0063` row. Then **recompute the pending set inside the transaction**, and roll back unless it is exactly `[0063_life_record.sql]`. Without the row deletion, the filename-tracked runner would never re-run `0063`.
+- **5 · Apply** with the normal runner.
+- **6 · Compare** every `lr_*` object with the fresh root, and check that `lr_revisions` is keyed on `id`.
+- **7 · Check integrity:** `integrity_check`, `foreign_key_check`, and no pending migrations left.
+
+**Rehearsed on copies of the live database:**
+
+| Case | Result |
+|---|---|
+| the real case | **REPAIRED** — 39 objects identical, integrity ok |
+| a rerun | "nothing to repair", no backup |
+| another migration pending | refused at P, **file hash unchanged** |
+| no `0063` row | refused at P, hash unchanged |
+| a non-empty `lr_record` | refused at 2, rows and tables intact. The backup had already been written; the database content was untouched |
+
+**Drift check** (`scripts/check_schema_drift.py`, read-only): before the repair, **exactly 4 of the 258 objects the code builds** differed on the live root (`lr_acceptances`, `lr_event_participants`, `lr_revisions`, `lr_story_refs`); after the rehearsed repair, 0 differed. **Governance:** the immutability rule is now in `CLAUDE.md`, the fresh-database key contract is pinned in `tests/test_life_record_schema_contract.py`, and migration checksums are in `BACKLOG` §11.
+
+**Decision left open (D-0, not assumed):** whether the **real-narrator** identity floor should drop its exact-DOB, residence and pronouns requirements. Those requirements feed Lori's first-turn anchoring and the Profile Seed readiness test (`test_profile_seed_ordinary_intake_reachability`). The fictional path needs only a name today.
+
+## Legacy-surface and authority inventory (2026-09-24, read-only audit, no code changed)
+
+**Locked rule (Chris, 2026-09-24):**
+- **Questionnaire V2 is the only normal operator editor of canonical biography.** Truth enters through the Life Record writer and nowhere else.
+- Every other biography surface is exactly one of:
+  - **CURRENT RECORD**
+  - **READ-ONLY · LEGACY**
+  - **DRAFT · NOT IN LIFE RECORD**
+  - **REVIEW**
+  - **DERIVED**
+- Nothing is left unnamed or "temporary". Every item below has a destination.
+
+**Two release gates:**
+- **Batch C exit — operator-authority gate:** no normal operator-facing biography write bypasses the Life Record writer. This includes New Narrator.
+- **Batch D exit — runtime-authority gate:** no Lori, profile, projection, graph, sync or legacy background writer establishes authoritative biography outside the Life Record.
+
+**Source:** three read-only sweeps of `ui/`, `server/`, and every non-GET browser request. Citations are to the tree at C-2 (local, not yet committed).
+
+### A. Operator-facing surfaces — Batch C owns these
+
+| # | Surface | What it does today | Category → destination |
+|---|---|---|---|
+| A1 | **Bio Builder → Questionnaire** (V2) | `PATCH /api/life-record` | **CURRENT RECORD.** C-3 to C-5 complete it |
+| A2 | **Earlier answers** tab | GET only, no controls | **READ-ONLY · LEGACY.** C: retitle it "Earlier Questionnaire Answers — READ ONLY · LEGACY", with the explanation and a pointer to V2. It becomes the **single** legacy location |
+| A3 | **Operator Intake** (top-level shell tab "Intake", `hornelore1.0.html:3049`) | Save refuses (C-2), but inputs, "+ Add", "Remove" and "Unsaved changes" still work locally (`operator-intake.js:390, 409, 614-630`). The header comments still say it writes canonical truth (`:13-16`, html `:3405-3412`) | C: **remove it from primary navigation** and fold its content into A2. No Save, Add, Remove, dirty state or "canonical truth" language survives |
+| A4 | **The old 20-section editor** (`bio-builder-questionnaire.js`) | Unreachable from the tabs (C-2), but still exported: `LorevoxBioBuilder._saveSection` (`bio-builder.js:743`) and its save markup (`bio-builder-questionnaire.js:1313`) | C: extract only the read-only renderer A2 needs, and unexport the Save, add and remove handlers. Deletion is recorded for D closeout |
+| A5 | **New Narrator intake modal** (`+ New`, html `:2943`, modal `:5043-5413` → `narrator-intake.js:377`) | A rich biography form: family, marriage, children, work, military, faith, Today. `POST /api/people/intake` fans it into the people row, **`profile_json`** and **`bio_facts`** (`routers/people.py:564`). "Save and continue to Bio Builder" does not open Bio Builder (`narrator-intake.js:419-426`) | C (C-3): **identity floor + consent → create → open Questionnaire V2.** Any biography field that remains must write through the Life Record writer. The fan-out to `profile_json`/`bio_facts` ends |
+| A6 | **Reset Identity** (Bio Builder header `#bbResetIdentityBtn`, html `:4170`; also in Bug Panel `:4677`) | Clears legacy questionnaire, profile basics, projection identity and suggestions. Legacy PUT (`bio-builder-core.js:1979`). `PATCH /api/people` sets DOB/POB to null (`:1984`). Restarts onboarding. **Leaves the Life Record untouched**, so the button lies | C: **remove it from Bio Builder.** Corrections go through V2 with history. A fictional-test recovery tool, if still wanted, lives in the Bug Panel with Life Record semantics (D). Stale "Questionnaire First" wording goes |
+| A7 | **Family Tree** (Bio Builder tab) | Add, Edit, Delete, Connect, Seed ×4. **Every edit and seed calls `_persistDrafts` → a whole-document `PUT /api/bio-builder/questionnaire`** (`bio-builder-family-tree.js:391, 435, 488, 500, 650, 775, 873, 967, 1016`). "Graph is the truth model" language at `:877-882` | **A live legacy write from an operator surface today.** C: badge it **DRAFT · NOT IN LIFE RECORD**, stop the server PUT side effect, and correct the "truth" language. D: it becomes a **DERIVED** view of Life Record people and relationships, not an editor |
+| A8 | **Life Threads** (Bio Builder tab) | Its own editable narrative graph, seeded from the legacy questionnaire. **Same `_persistDrafts` → legacy PUT** on every edit (`bio-builder-life-threads.js:161, 200, 250, 258, 299, 351`) | C: DRAFT badge, and stop the legacy PUT side effect. **D-0 decision:** retire it, or redefine it as non-authoritative references to Life Map objects. It must not become a second narrative structure |
+| A9 | **Quick Capture** | "Save Note" writes localStorage only (`bio-builder.js:739-745`) | **DRAFT · NOT IN LIFE RECORD.** C: badge it, and change "Save Note" to "Keep note" (it never reached the server) |
+| A10 | **Source Inbox** | Cards and candidates live in memory only; nothing persists | **DRAFT.** C: badge |
+| A11 | **Candidates** | Approve, Merge, Reject — **in memory only, lost on reload** (`bio-review.js:575-598`). The subtitle promises "structured biography" (`:481`) | **DRAFT/REVIEW.** C: badge it, and say plainly that approval here does not enter the Life Record. D: Accept → Life Record assertion |
+| A12 | **Bug Panel → Reset BB for Current Narrator** / **Deep Reset Projection** (html `:4887-4915`) | Legacy PUT `{}` (`bio-builder-core.js:1495, 1722`); projection PUT replace (`:1756`). The Life Record is untouched | Developer tools. C: label them "legacy stores only — the Life Record is not reset". D: retire them, or rewrite them against the Life Record |
+| A13 | **Peek at Memoir → Edit → "Save & Close"** (html `:10025-10048`) | Replaces the on-page text only. **Not persisted**, and the DOCX/TXT export takes whatever is on the page | Misleading. **Memoir-lane issue → D-0** (operator prose has no store). C: relabel it "Edit this preview (not saved)" |
+
+### B. Review and runtime paths — Batch D owns these (D-0 contract, D-3 Lori)
+
+| # | Path | Writes today | Destination |
+|---|---|---|---|
+| B1 | **Suggestions** tab: Accept, or "Save this as my value" (`suggestion-review.js:498`) | The server merges into the **legacy questionnaire blob** + `projection_json` (`services/suggestion_review.py:340-601`). Its hints send the operator to old sections that are now read-only (`:327, 335`) | **REVIEW.** D-3: Accept → a Life Record assertion + acceptance. C: fix the hint text to point at V2 |
+| B2 | **Shadow Review** Correct, and **Conflicts** Replace/Merge | `projectValue(human_edit)` → `projection_json` PATCH **+ legacy PUT** (Path B). "Questionnaire always wins" means the legacy blob (`shadow-review.js:927`; `conflict-console.js:38, 103`) | **REVIEW.** D-3: resolve against Life Record assertions. C: badge it and correct the "questionnaire truth" wording |
+| B3 | **WO-13 Review** → Promote (`wo13-review.js:244, 265`) | `family_truth_rows` / `family_truth_promoted`, which feed `peek_at_memoir` and the chronology | **REVIEW** into a separate truth store. D-0: retire it, or make promotion a Life Record acceptance |
+| B4 | **Bug Panel Bio editor** (`HORNELORE_OPERATOR_BIO_EDITOR`) | Enters, approves and resolves **`bio_facts`** directly (`operator_bio_editor.py:223-390`) | **An alternate authority.** D-0: rebuild it as a Life Record assertion/acceptance inspector, or retire its writes. Default-off is not the final answer |
+| B5 | Identity onboarding in chat (`app.js:6270-6460`) | One spoken name reaches **four stores**:<ul><li>`lvBbSyncIdentity` → legacy PUT</li><li>`projectValue` → suggestion POST</li><li>`PATCH`/`POST /api/people`</li><li>`saveProfile` → `PUT /api/profiles` (`profile_json`)</li></ul> | D-3: one Life Record assertion, marked narrator-stated. The other stores become projections or retire |
+| B6 | `session-loop.js` `_saveBBAnswer` (`:1026`) and `_overwriteBbPersonal` (`:748`) | Legacy PUTs from the retired Questionnaire First walk | D-0: **remove**, not leave dormant |
+| B7 | `projection-sync.js` `_syncPrefillIfBlank` (`:435`) / `_syncDirectTrustedWrite` (`:514`) → `_triggerBBPersist` | Every accepted extraction or projection write also sends a whole legacy questionnaire PUT | D-3: stop projecting into the legacy questionnaire |
+| B8 | chat_ws correction mode → `projection_writer.apply_correction` (`chat_ws.py:5147`); extraction → `bio_facts` (`HORNELORE_BIO_FACT_ROUTING`, off) | `projection_json`, `bio_facts` | D-3: corrections go through the Life Record supersede path |
+| B9 | `POST /api/interview/answer` (`interview.py:288`) | `interview_answers`, section summaries, memoir drafts | D-0: classify it (history, not biography authority) |
+| B10 | Trips: `trip_timeline_bridge.sync_trip_to_life_record` | **Misnamed:** writes `timeline_events` + `trip_bio_suggestions`, not `lr_*` | D-0: rename it, and state that trips stay in the trip domain as references |
+| B11 | Photo intake / media archive metadata (people, events, dates) | photo and media tables, with people tagged by free text | D-0: classify it (media metadata; linking people to Life Record ids is later work) |
+| B12 | `init_db` startup `_wo13_backfill_facts_to_family_truth_rows` (`db.py:336, 1467`) | **Automatic at every startup** | D-0: retire it along with B3 |
+| B13 | The `people` row: `display_name`, `date_of_birth`, `place_of_birth` | Identity duplicated outside the Life Record; written by intake, onboarding, `PATCH /api/people` and identity approval | D-0: the people row is the narrator **shell** (id, consent, label); DOB and POB become a projection of Life Record birth |
+| B14 | Legacy API and storage | `PUT /api/bio-builder/questionnaire` (+ `/answer`, `/narrator-answer`); `bio_questionnaire_writer` | **Retirement-bound** at D closeout, once B1–B7 are moved. `GET` + `bio_questionnaire_view` stay as the read-only legacy/migration adapter |
+| B15 | Graph API (`routers/relationships.py:3-14` still calls itself "Canonical relationship graph API") | Manual PUT, POST and DELETE on a projection (guarded since B-4) | C: correct the docstring. D-0: remove manual mutation once A7 is a derived view |
+| B16 | Legacy browser drafts (`lorevox_qq_draft_`, `_ft_`, `_lt_`, `_proj_draft_`) | Unrelated to V2's `lorevox_qv2_draft_` | **V2 never hydrates from them** (true today: `questionnaire-v2.js` reads only its own key). C-6/C-7: inventory the old keys, then ignore them or offer an explicit import. Nothing is silently resurrected |
+| B17 | The Bio Builder popover comment "Truth rule: Bio Builder writes only to state.bioBuilder" (html `:4158`) | False: A6, A7, A8, B1 and B2 all write server stores | C: correct it |
+
+### C. Legitimate and kept (named so they are not mistaken for gaps)
+
+- **Story candidate review** (Bug Panel, `PATCH /api/operator/story-candidates`): **REVIEW** of the narrator's recorded words and their placement. This is story ownership, not a second biography store.
+- **Portable Narrator restore:** writes `lr_*` in bulk as a package transfer. It is not an editor.
+- **Delete / restore narrator.**
+- **Profile Seed pause/resume.**
+- **Life Map, chronology accordion, timeline, photo timeline:** read-only (**DERIVED**).
+
+### Additions to C-7
+
+- **Legacy-surface sweep.** With the difficult fictional narrator, visit every surface above: open it, navigate it, switch narrators and come back. The Life Record revision must not move.
+- **Network check.** For an ordinary operator editing biography, the only writes are `PATCH /api/life-record` plus narrator creation and consent. Any `PUT /api/bio-builder/questionnaire`, `/api/profiles`, `/api/interview/projection`, `/api/graph` or bio-editor write is **either a retained, named REVIEW mechanism from section B, or a defect.**
+
 ## 6. Explicit statement
 
 *(Corrected 2026-09-23 at B3 start. This section was written for the Repair A
