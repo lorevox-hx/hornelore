@@ -120,6 +120,10 @@ class QuestionnairePeople(_Db):
                          "a grandchild with no parent in between: one relationship, nothing inferred")
         self.assertEqual(self.rows("SELECT count(*) FROM lr_people WHERE narrator_id=?", OWEN), [(1,)],
                          "narrator B received nothing from A's draft")
+        # C-3 follow-up: the old V1 draft's answer landed under the id assigned at hydration
+        self.assertEqual(self.rows("SELECT id, value_json FROM lr_assertions WHERE narrator_id=? "
+                                   "AND concept_id='person.birth.order'", OWEN),
+                         [(self.result["facts"]["oldDraftId"], '"the eldest"')])
         tomas = self.person_named("Tomas Berg")
         (rt,) = [v for v in rels.values() if tomas in v[:2]]
         self.assertEqual(rt[2:4], ("spouse_of", '["former"]'))

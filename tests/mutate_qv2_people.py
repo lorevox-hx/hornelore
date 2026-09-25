@@ -38,7 +38,7 @@ MUTATIONS = {
                                        '    return { text: t, value: t.replace(/[^0-9]/g, ""), precision: "year" };'),
     "names-block-hides-other-names": (SHELL, '    var saved = p ? p.names : [];', '    var saved = p ? p.names.slice(0, 1) : [];'),
     # ChatGPT's invariant list (review of 16a68e1)
-    "assertion-id-minted-at-save": (SHELL, 'assertionOp(e.kindAssertionId || newId("qv2a-"), "relationship"',
+    "assertion-id-minted-at-save": (SHELL, 'assertionOp(idOf(e, "kindAssertionId"), "relationship"',
                                     'assertionOp(newId("qv2a-"), "relationship"'),
     "inverse-row-generated": (SHELL, '        var out = [{ op: "add", path: "relationships/" + e.relId, value: e.value },',
                               '        var out = [{ op: "add", path: "relationships/" + e.relId, value: e.value },\n'
@@ -70,6 +70,16 @@ MUTATIONS = {
     "ui-missing-period-counts-as-a-match": (SHELL,
         '      return JSON.stringify(sortKeys(x.period || null)) === JSON.stringify(sortKeys(v.period || null));',
         '      return !(x.period && v.period && JSON.stringify(sortKeys(x.period)) !== JSON.stringify(sortKeys(v.period)));'),
+    # C-3 follow-up (post-commit review)
+    "child_of-not-read": (MODEL, '    if (r.kind === "child_of") return subj ? "parent" : "child";\n', ''),
+    "child_of-not-normalised-in-duplicate-check": (SHELL, '      if (x.kind !== "child_of") return x;', '      return x;'),
+    "old-draft-ids-not-persisted": (SHELL, '    if (!changed) return;', '    if (!changed || true) return;'),
+    "old-draft-not-upgraded": (SHELL, '          upgradeDraftIds(pid, d);', '          void 0;'),
+    # the regression the follow-up exists to prevent: no upgrade, and Save mints the id
+    "old-draft-id-minted-at-save": (SHELL, ['          upgradeDraftIds(pid, d);',
+                                            '    if (!e[field]) throw new Error('],
+                                           ['          void 0;',
+                                            '    if (!e[field]) e[field] = newId("qv2a-"); if (false) throw new Error(']),
 }
 
 
@@ -80,9 +90,12 @@ def run(name):
     shutil.copytree(REPO / "ui" / "js", tmp / "ui" / "js")
     target = tmp / path
     src = target.read_text()
-    if find not in src:
-        return "ANCHOR MISSING"
-    target.write_text(src.replace(find, repl, 1))
+    finds, repls = (find, repl) if isinstance(find, list) else ([find], [repl])
+    for f_, r_ in zip(finds, repls):     # several edits = one mutation
+        if f_ not in src:
+            return "ANCHOR MISSING"
+        src = src.replace(f_, r_, 1)
+    target.write_text(src)
     env = dict(os.environ, QV2_ROOT=str(tmp), PYTHONPYCACHEPREFIX="/tmp/pyc",
                PYTHONPATH=str(REPO / "server" / "code"))
     r = subprocess.run([sys.executable, "-m", "unittest", "tests.test_qv2_people"], cwd=REPO, env=env,

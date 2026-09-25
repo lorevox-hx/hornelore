@@ -385,11 +385,20 @@ def api_update_person(person_id: str, payload: PersonUpdate):
 
 
 # ═════════════════════════════════════════════════════════════════════
-# WO-OPERATOR-NEW-NARRATOR-INTAKE-FORM-01 Phase 2 — full-intake
-# orchestrator. POST /api/people/intake fans out a single rich payload
-# across people + consent_attestations + profiles.profile_json +
-# bio_facts so the operator's pre-session knowledge lands in every
-# downstream surface Lori reads.
+# POST /api/people/intake — narrator creation from the structured form.
+#
+# SINCE BATCH C-3 (2026-09-24): a REAL narrator is created from identity +
+# consent only. The optional biography sections (family of origin,
+# marriage, children, education/work, military, faith, today) are REFUSED
+# for a real narrator (422 naming them); biography is entered in Bio
+# Builder → Questionnaire, which writes the Life Record.
+#
+# The rich fan-out into profiles.profile_json + bio_facts below survives
+# ONLY as the `testing_only` transitional exception — the Lori harnesses
+# under scripts/ build fixtures through it — and is to be retired in D-3,
+# when Lori reads the Life Record. (This header described the fan-out as
+# the route's purpose, "WO-OPERATOR-NEW-NARRATOR-INTAKE-FORM-01 Phase 2",
+# until the C-3 follow-up.)
 # ═════════════════════════════════════════════════════════════════════
 
 import json
@@ -614,9 +623,17 @@ def _intake_biography_sections(payload: "NarratorIntakePayload") -> List[str]:
 
 @router.post("/intake", summary="Create a narrator from a full intake payload")
 def api_create_person_intake(payload: NarratorIntakePayload):
-    """Server-side fan-out for the structured intake form.
+    """Create a narrator from the structured intake form.
 
-    Writes land in three places per section:
+    NORMAL (real narrator, testing_only=false): identity + consent. Writes
+    the people row, the consent attestations, the identity mirror in
+    profile_json.personal (a D-0 duplicate, kept because Profile Seed
+    readiness reads it) and the narrator's identity in the Life Record.
+    Any biography section is refused with 422 before anything is written.
+
+    TRANSITIONAL (testing_only=true, through D-3): the earlier rich fan-out
+    still runs, for the Lori harnesses. It is never reached from the UI.
+    What that legacy fan-out writes, per section:
       * Identity → people row columns (existing schema)
       * Consent → consent_attestations rows
       * Family-of-origin scalars (parents) → bio_facts at

@@ -96,6 +96,32 @@
     } catch (e) { /* a full or blocked store loses only the local copy */ }
   }
 
+  /* C-3 follow-up — a draft written before C-3 (same draft version) can hold
+     edits with no pre-minted assertion id. The id must exist BEFORE Save, so
+     a retried Save re-sends the same id and is refused whole instead of
+     storing a second account. Assign any missing id ONCE, here, and persist
+     the upgraded draft immediately — keeping its own baseRevision and
+     provenance. The draft is not discarded and its version is not bumped. */
+  function upgradeDraftIds(pid, d) {
+    var changed = false;
+    var need = function (e, field, when) {
+      if (when && !e[field]) { e[field] = newId("qv2a-"); changed = true; }
+    };
+    Object.keys(d.edits).forEach(function (k) {
+      var e = d.edits[k];
+      if (!e || typeof e !== "object") return;
+      if (e.kind === "answer") need(e, "newAssertionId", true);
+      if (e.kind === "newperson") need(e, "lifeStatusAssertionId", !!e.lifeStatus);
+      if (e.kind === "newrel") { need(e, "kindAssertionId", true); need(e, "lineageAssertionId", !!e.lineage); }
+    });
+    if (!changed) return;
+    try {
+      root.localStorage.setItem(DRAFT_PREFIX + pid, JSON.stringify({
+        v: DRAFT_VERSION, pid: pid, baseRevision: d.baseRevision, edits: d.edits,
+        provenance: d.provenance }));
+    } catch (e) { /* storage refused: the ids still hold for this page's Save */ }
+  }
+
   /* ── hydrate: GET only; a response for another narrator or an older
         request is discarded at the point of use ────────────────────── */
   function hydrate(pid, keepMessage) {
@@ -122,6 +148,7 @@
         if (!keepMessage) S.message = null;
         var d = readDraft(pid);
         if (d && d.edits && Object.keys(S.edits).length === 0) {
+          upgradeDraftIds(pid, d);                                     // C-3 follow-up: before anything can Save
           S.edits = d.edits;
           if (d.provenance && PROVENANCE[d.provenance]) S.provenance = d.provenance;
           S.draftRevision = d.baseRevision;
@@ -270,7 +297,16 @@
      is kinder than a refused Save. */
   function duplicateOf(v) {
     var sym = { sibling_of: 1, spouse_of: 1, partner_of: 1, friend_of: 1, chosen_family_of: 1 };
+    // A stored `child_of` is the parent_of the editor writes, seen from the
+    // other end — compare it in the editor's direction.
+    var norm = function (x) {
+      if (x.kind !== "child_of") return x;
+      var y = {}; Object.keys(x).forEach(function (k) { y[k] = x[k]; });
+      y.kind = "parent_of"; y.subjectPersonId = x.otherPersonId; y.otherPersonId = x.subjectPersonId;
+      return y;
+    };
     var same = function (x) {
+      x = norm(x);
       if (x.kind !== v.kind || (x.describedAs || "") !== (v.describedAs || "")) return false;
       var a = x.subjectPersonId === v.subjectPersonId && x.otherPersonId === v.otherPersonId;
       var b = sym[v.kind] && x.subjectPersonId === v.otherPersonId && x.otherPersonId === v.subjectPersonId;
@@ -416,8 +452,16 @@
      assertion that supersedes the old one, which is kept (a correction never
      erases). Every `set` carries the value it expects to replace, so someone
      else's newer change is a 409. */
+  /* Every id is minted before Save (at edit time, or by upgradeDraftIds at
+     hydration). Minting one HERE would give a retried Save a different id —
+     so a missing id stops the Save instead. */
+  function idOf(e, field) {
+    if (!e[field]) throw new Error("an unsaved change has no id (" + e.kind + "." + field + ") — reload to repair the draft");
+    return e[field];
+  }
+
   function answerOps(edit, src) {
-    var id = edit.newAssertionId || newId("qv2a-");   // drafts from before C-3 carry none
+    var id = idOf(edit, "newAssertionId");
     if (edit.basis.state === "blank") {
       return [assertionOp(id, edit.subjectType, edit.subjectId, edit.concept, edit.value, src)];
     }
@@ -437,7 +481,7 @@
         var ops = [{ op: "add", path: "people/" + e.personId, value: {} },
                    { op: "add", path: "people/" + e.personId + "/names/" + e.nameId,
                      value: { fullText: e.fullText, kind: "current" } }];
-        if (e.lifeStatus) ops.push(assertionOp(e.lifeStatusAssertionId || newId("qv2a-"), "person", e.personId,
+        if (e.lifeStatus) ops.push(assertionOp(idOf(e, "lifeStatusAssertionId"), "person", e.personId,
                                                "person.life_status", e.lifeStatus, src));
         return ops;
       }
@@ -456,9 +500,9 @@
       case "newrel": {
         var out = [{ op: "add", path: "relationships/" + e.relId, value: e.value },
                    // who said so: the relationship's provenance, as an assertion
-                   assertionOp(e.kindAssertionId || newId("qv2a-"), "relationship", e.relId, "relationship.kind",
+                   assertionOp(idOf(e, "kindAssertionId"), "relationship", e.relId, "relationship.kind",
                                e.value.kind, src)];
-        if (e.lineage) out.push(assertionOp(e.lineageAssertionId || newId("qv2a-"), "relationship", e.relId,
+        if (e.lineage) out.push(assertionOp(idOf(e, "lineageAssertionId"), "relationship", e.relId,
                                             "relationship.qualifier.lineage_side", e.lineage, src));
         return out;
       }
@@ -485,7 +529,13 @@
   function save() {
     if (!S || S.status !== "ready" || !Object.keys(S.edits).length) return Promise.resolve();
     var pid = S.pid;
-    var changes = buildChanges();
+    var changes;
+    try { changes = buildChanges(); }
+    catch (err) {
+      S.message = { kind: "error", text: "Not saved: " + err.message + ". Your changes are kept here." };
+      paint();
+      return Promise.resolve();
+    }
     S.status = "saving"; S.conflict = null; S.refused = null; S.message = null;
     paint();
     return root.fetch(lifeRecordUrl(pid), {

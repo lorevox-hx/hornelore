@@ -100,6 +100,71 @@ const pendingPersonId = (t, name) => (Object.values(t.V2._state().edits)
 const relCardFor = (t, name) => $$(t, "[data-qv2-rel]").find((c) => c.querySelector("strong").textContent === name);
 
 (async function run() {
+  /* 0 — C-3 follow-up: a draft written BEFORE C-3 (same draft version) has an
+     answer edit with no newAssertionId. Hydration must assign it ONCE and
+     persist it before any Save; every Save built from it uses that id. */
+  {
+    const oldDraft = { v: 1, pid: B, baseRevision: 1, provenance: "operator", edits: {
+      ["person:" + B + ":person.birth.order"]: { kind: "answer", topic: "narrator", subjectType: "person",
+        subjectId: B, concept: "person.birth.order", value: "the eldest",
+        basis: { state: "blank", assertionId: null, value: null, status: null } } } };
+    const key = "lorevox_qv2_draft_" + B;
+    const o = openTab({ [key]: JSON.stringify(oldDraft) });
+    o.V2.render(o.c, B); await settle();
+    const stored = JSON.parse(o.storage()[key] || "null");
+    const id = stored && Object.values(stored.edits)[0].newAssertionId;
+    check("an old draft's missing assertion id is assigned at hydration and PERSISTED before any Save",
+      !!id && /^qv2a-/.test(id) && o.writes().length === 0 && stored.baseRevision === 1 && stored.v === 1,
+      JSON.stringify(stored));
+    const b1 = o.V2._buildChanges(), b2 = o.V2._buildChanges();
+    check("...every Save built from it uses that same id (no id minted at Save)",
+      b1[0].path === "assertions/" + id && b2[0].path === "assertions/" + id, JSON.stringify([b1[0].path, b2[0].path]));
+    const o2 = openTab(o.storage());                       // a second tab / reload reads the upgraded draft
+    o2.V2.render(o2.c, B); await settle();
+    check("...and a reload keeps it (the upgrade is not repeated with a new id)",
+      o2.V2._buildChanges()[0].path === "assertions/" + id, o2.V2._buildChanges()[0].path);
+    click(o, $(o, '[data-qv2-action="save"]')); await settle();
+    const p = o.writes()[0];
+    const again = await bridge("PATCH", B, JSON.stringify(p.body));
+    check("...the Save lands under that id, and a retry of it is refused whole",
+      p && p.body.changes[0].path === "assertions/" + id && again.status === 422 &&
+      /already exists/.test(JSON.stringify(again.body)), JSON.stringify(again).slice(0, 200));
+    facts.oldDraftId = id;
+  }
+
+  /* 0b — C-3 follow-up: a stored `child_of` (never written by the editor) is
+     read in both directions. */
+  {
+    const M = openTab().w.LorevoxQuestionnaireV2Model;
+    check("narrator child_of P reads as P the PARENT; P child_of narrator reads as P the CHILD",
+      M.detailedRole({ subjectPersonId: "N", otherPersonId: "P", kind: "child_of" }, "N") === "parent" &&
+      M.detailedRole({ subjectPersonId: "P", otherPersonId: "N", kind: "child_of" }, "N") === "child",
+      [M.detailedRole({ subjectPersonId: "N", otherPersonId: "P", kind: "child_of" }, "N"),
+       M.detailedRole({ subjectPersonId: "P", otherPersonId: "N", kind: "child_of" }, "N")].join());
+    const r = openTab();
+    r.w.fetch = () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({
+      narrator_id: "N", narrator_person_id: "N", revision: 5, events: [], stories: [], places: [], animals: [],
+      people: [{ id: "N", names: [{ id: "n", fullText: "Narrator", kind: "current" }] },
+               { id: "M", names: [{ id: "m", fullText: "Mother Older", kind: "current" }] },
+               { id: "K", names: [{ id: "k", fullText: "Kid Older", kind: "current" }] }],
+      relationships: [{ id: "r1", subjectPersonId: "N", otherPersonId: "M", kind: "child_of", basis: "stated" },
+                      { id: "r2", subjectPersonId: "K", otherPersonId: "N", kind: "child_of", basis: "stated" }] }) });
+    r.V2.renderFamilyView(r.f, "N"); await settle();
+    const txt = r.f.innerHTML;
+    check("Family shows an old child_of record under Parents and under Children, the right way round",
+      /Parents<\/h4><ul><li>Mother Older/.test(txt) && /Children<\/h4><ul><li>Kid Older/.test(txt), r.f.textContent.slice(0, 200));
+    // ...and the editor treats it as the parent_of it would write: adding the
+    // same mother as a parent again is caught on the form, not refused at Save.
+    r.V2.render(r.c, "N"); await settle();
+    topic(r, "family");
+    check("the editor lists the old child_of mother as a Parent", !!relCardFor(r, "Mother Older") &&
+      /Parent/.test(relCardFor(r, "Mother Older").textContent), text(r).slice(0, 300));
+    addSomeone(r, { person: "M", role: "parent" });
+    check("...and adding her again as a parent is recognised as already recorded",
+      /already recorded/.test(($(r, "[data-qv2-form-error]") || {}).textContent || "") &&
+      Object.keys(r.V2._state().edits).length === 0, ($(r, "[data-qv2-form-error]") || {}).textContent);
+  }
+
   const t = openTab();
   t.V2.render(t.c, A); await settle();
   const opened = t.log.length;

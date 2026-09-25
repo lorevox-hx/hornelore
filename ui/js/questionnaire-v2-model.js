@@ -373,6 +373,12 @@
   function detailedRole(r, nid) {
     var subj = r.subjectPersonId === nid, other = r.otherPersonId === nid;
     if (!subj && !other) return "indirect";
+    // `child_of` is a valid stored kind the editor never WRITES (it writes
+    // `parent_of` from the parent's side), but records from before C-3 or
+    // other producers may carry it. Read it, both ways (C-3 follow-up):
+    //   narrator child_of P  → P is the narrator's PARENT
+    //   P child_of narrator  → P is the narrator's CHILD
+    if (r.kind === "child_of") return subj ? "parent" : "child";
     for (var k in ROLES) {
       var d = ROLES[k];
       if (d.kind !== r.kind) continue;
