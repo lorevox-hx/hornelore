@@ -22,14 +22,57 @@ import tempfile
 import unittest
 
 _TMP = tempfile.mkdtemp(prefix="hl-conn-guard-")
+
+# Fresh import of api.db against the temp DATA_DIR — and NOTHING ELSE CHANGES
+# FOR THE REST OF THE PROCESS (C-4D, 2026-09-25).
+#
+# This used to delete every loaded `api.db` from sys.modules and import a new
+# one, leaving it installed. A suite loaded earlier kept the OLD module (and
+# set DB_PATH on it), while product code resolving `from .. import db` at call
+# time got the NEW one — trips then looked for a narrator in the wrong
+# database ("person_id … does not match any narrator"). Reproduced with
+#   unittest tests.test_c1_trips_person_id_fk_migration tests.test_db_connection_hygiene
+#
+# Now: save DATA_DIR, every loaded `api.db` / `*.api.db` module object and the
+# `db` attribute of the `api` / `server.code.api` packages; import the isolated
+# copy (kept here as `db`; api.db reads DATA_DIR once, at import, so it stays
+# on the temp directory); then put every one of them back.
+# Pinned by tests/test_db_hygiene_isolation.py.
+_MISSING = object()
+_DB_NAMES = [m for m in list(sys.modules) if m == "api.db" or m.endswith(".api.db")]
+_saved_modules = {m: sys.modules[m] for m in _DB_NAMES}
+_saved_data_dir = os.environ.get("DATA_DIR", _MISSING)
+_saved_pkg_attr = {p: getattr(sys.modules[p], "db", _MISSING)
+                   for p in ("api", "server.code.api") if p in sys.modules}
+
 os.environ["DATA_DIR"] = _TMP
-
-# Fresh import against the temp DATA_DIR (guard against another suite
-# having imported api.db already in this process).
-for _m in [m for m in list(sys.modules) if m == "api.db" or m.endswith(".api.db")]:
+for _m in _DB_NAMES:
     del sys.modules[_m]
+try:
+    import api.db as db  # noqa: E402  — this module's isolated copy
+finally:
+    for _m in [m for m in list(sys.modules) if m == "api.db" or m.endswith(".api.db")]:
+        del sys.modules[_m]
+    sys.modules.update(_saved_modules)
+    for _p in ("api", "server.code.api"):
+        _pkg = sys.modules.get(_p)
+        if _pkg is None:
+            continue
+        _attr = _saved_pkg_attr.get(_p, _MISSING)
+        if _attr is _MISSING:
+            if "db" in vars(_pkg):
+                delattr(_pkg, "db")        # the package had no db before this module
+        else:
+            setattr(_pkg, "db", _attr)
+    if _saved_data_dir is _MISSING:
+        os.environ.pop("DATA_DIR", None)
+    else:
+        os.environ["DATA_DIR"] = _saved_data_dir
 
-import api.db as db  # noqa: E402
+
+def tearDownModule():
+    import shutil
+    shutil.rmtree(_TMP, ignore_errors=True)
 
 
 class WrapCoverageTest(unittest.TestCase):

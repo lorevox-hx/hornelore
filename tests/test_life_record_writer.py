@@ -243,8 +243,8 @@ class Relationships(_Db):
 
 class EventDatesC4C(_Db):
     """C-4C: work, education and separation events carry their own date
-    concepts through the one writer; the wrong concept is refused; `activity`
-    is mapped but the schema does not admit the event type until C-4D."""
+    concepts through the one writer; the wrong concept is refused. `activity`
+    was mapped in C-4C and admitted by migration 0065 in C-4D."""
 
     def _event(self, eid, etype):
         return {"op": "add", "path": f"events/{eid}",
@@ -271,13 +271,17 @@ class EventDatesC4C(_Db):
                 self.assertFalse(r.get("ok"), r)
                 self.assertIn("lives on that event", json.dumps(r))
 
-    def test_activity_is_mapped_but_the_schema_does_not_admit_it_yet(self):
+    def test_activity_is_mapped_and_since_c4d_admitted(self):
+        # C-4C mapped it; migration 0065 (C-4D) admitted the type.
         from api.services.life_record import store
         self.assertEqual(store.EVENT_DATE_CONCEPT["activity"], "event.activity.period")
-        r = self.write([self._event("e-act", "activity")])
-        self.assertFalse(r.get("ok"), "C-4D owns admitting the activity type — no migration in C-4C")
-        self.assertIn("CHECK", json.dumps(r))
-        self.assertEqual(self.count("lr_events"), 0)
+        d = date("1970 to 1985", "1970/1985", "year")
+        self.ok([self._event("e-act", "activity"),
+                 self.assertion("a-act", "event", "e-act", "event.activity.period", d)])
+        self.assertEqual(next(e for e in self.rec()["events"] if e["id"] == "e-act")["date"], d)
+        r = self.write([self._event("e-act2", "activity"),
+                        self.assertion("a-act2", "event", "e-act2", "event.work.period", d)])
+        self.assertFalse(r.get("ok"), "an activity's date is event.activity.period, not a work period")
 
 
 class Dates(_Db):

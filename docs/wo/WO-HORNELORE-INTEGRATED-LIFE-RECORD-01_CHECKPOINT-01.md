@@ -2473,6 +2473,112 @@ skipped (route tests — no fastapi); `test_qv2_capabilities` 18 OK; `test_qv2_p
 **Not in C-4C:** no migration, no runner repair, no event/place editing UI, no story work.
 Incidental findings went to `docs/BACKLOG.md` §12.
 
+### C-4D — ACCEPTED / CLOSED 2026-09-25
+
+**Order, as directed:** runner behaviour pinned first, the smallest repair second, then —
+and only then — the next migration number re-derived and the `activity` rebuild written.
+Stack down throughout; every database scratch.
+
+**1. The runner, measured before any change** (`tests/test_migrations_runner.py`, 11 tests,
+run against the unchanged `db/migrations_runner.py`): **6 of 11 red.** A runner-managed file
+failing half way LEFT ITS PARTIAL SCHEMA COMMITTED and unrecorded; the retry then failed
+(`table a already exists`) — a bricked boot; a failing tracking insert left the body
+committed; a self-managed file failing inside its own `BEGIN` left the transaction open; a
+parent-table rebuild with children could not run at all (`FOREIGN KEY constraint failed` —
+SQLite ignores `PRAGMA foreign_keys` inside a transaction, and the runner had no protocol).
+Already true and kept: success recorded once, rerun a no-op, own-transaction files apply,
+foreign keys ON afterwards, the historical sequence builds clean.
+
+**2. The repair** (`db/migrations_runner.py`, contract in its docstring):
+
+| File kind | Behaviour |
+|---|---|
+| **runner-managed** (files with no BEGIN/COMMIT/ROLLBACK of their own, 0065 among them) | runs inside ONE `BEGIN IMMEDIATE` the runner opens, **with its `schema_migrations` row**; any failure, the tracking insert included, rolls the whole file back |
+| runner-managed + `-- migration: foreign_keys=off` | foreign keys switched off OUTSIDE the transaction; before commit the runner compares `PRAGMA foreign_key_check` with the state before the file and **refuses any NEW violation** (an old one elsewhere does not block); restored after |
+| **self-managed** (historical files with their own `BEGIN … COMMIT`, immutable) | run as they are; on failure the open transaction is rolled back; tracking row still written after the file's own commit (narrow window, inherent to a file that commits itself — documented, not hidden) |
+| every file | `PRAGMA foreign_keys` restored to its value before the file, success or failure |
+
+Detection is by statement-level `BEGIN[ …];` / `COMMIT;` / `ROLLBACK;`; trigger bodies
+(`BEGIN` without `;`, `END;`) do not count. After the repair: **11/11 green**; the historical
+migration suites (0018/0021, 0034, 0037) green.
+
+**3. Migration `0065_life_record_activity_event.sql`.** Number re-derived just before writing:
+highest shipped was `0064`, nothing untracked. Runner-managed, first line the
+`foreign_keys=off` directive; no BEGIN/COMMIT/PRAGMA. Rebuilds `lr_events` with the SAME
+columns, order, defaults, FKs (`people` ON DELETE CASCADE, `lr_places`) and index
+(`idx_lr_events_narrator`), adding only `'activity'` to the type CHECK. Only
+`lr_event_participants(event_id)` holds a real FK to `lr_events` (the other event pointers
+are plain columns). `tests/test_migration_0065_activity_event.py` builds a scratch database by
+`init_db` with 0065 hidden, writes a real Life Record through the writer (birth + place +
+date, union with two participants + attributes + a derived relationship, education, work,
+service), applies 0065 by the real runner and proves: events, participants, assertions,
+relationships, columns, FKs, child FKs and indexes **identical** before and after; the stored
+table SQL differs only by `'activity'` (plus SQLite quoting a renamed table's name —
+normalised explicitly); participant and place references resolve; the child FK is still
+enforced; `foreign_key_check` empty, `integrity_check` ok; `activity` admitted with its
+`event.activity.period` date; all twelve old types still admitted; a bogus type refused;
+a rerun a no-op; a fresh database builds with `activity`. C-4C's writer pin
+("activity refused until C-4D") now reads "admitted since C-4D", and an activity's date
+must be `event.activity.period`.
+
+**Mutations — the initial R1–R8 / M1–M8 gate.** `tests/mutate_migrations_c4d.py` (new; 16 at
+this stage, 19 after H1–H3 were added in step 4; in place via
+`tests/mutation_runner.py`, anchors verified intact afterwards): runner R1–R8 (no
+transaction; body committed before its row; no rollback; foreign keys not restored; directive
+ignored; new violations not refused; old violations blocking; own-transaction files
+unrecognised) and migration M1–M8 (activity missing; a column not copied; index not
+recreated; place FK dropped; cascade dropped; directive removed; rows of one type dropped;
+a bogus type admitted). **16/16 caught** in the sandbox, no equivalents.
+
+**4. Trips preservation — a test-isolation defect confirmed and repaired.** C-4D changes the
+runner every trips migration goes through, so trips preservation must hold in ONE interpreter,
+not only in a fresh one. It did not: under `.venv`,
+`unittest tests.test_c1_trips_person_id_fk_migration tests.test_db_connection_hygiene` →
+FAILED (errors=1), `test_delete_person_cascade_deletes_trips`: "person_id … does not match any
+narrator". Cause (read in the code): `test_db_connection_hygiene` deleted `api.db` from
+`sys.modules` and left a fresh copy installed; the trips test kept the old module and its
+`DB_PATH`, while `trips.py` / `trip_repository.py` resolve `from .. import db` at call time and
+got the new one. It predates C-4D (same failure with the HEAD runner and without 0065).
+**Test-only repair** in `tests/test_db_connection_hygiene.py`: save `DATA_DIR`, every
+`api.db` / `*.api.db` module and the `api` / `server.code.api` packages' `db` attribute; import
+the isolated copy (kept as the suite's own `db` — it reads `DATA_DIR` once, at import, so stays on
+its temp directory); restore all of them; remove the temp directory at module teardown. No
+trips, runner, migration or `tests/__init__.py` change. Pinned by
+`tests/test_db_hygiene_isolation.py` (module identity, package attribute, `DATA_DIR` both unset
+and preset, isolated copy still isolated) and mutations **H1–H3** in the C-4D gate (judged by
+that regression plus the trips suite on the far side of the hygiene suite). H3 first survived —
+the restore line only runs when `DATA_DIR` was set, and the test process has it unset; the
+regression now runs both ways and H3 is caught. **Whole-tree `discover` isolation is NOT
+claimed** (BACKLOG §9 row narrowed, not closed).
+
+**Mutation gate now 19:** R1–R8, M1–M8, H1–H3.
+
+**Acceptance evidence — `.venv`, Chris's laptop, 2026-09-25:**
+- first bank (runner, 0065, 0018/0021, import provenance, Life Record schema/writer/dates,
+  capabilities): **157 OK**; trips FK migration alone **11 OK**; package export/restore/round-trip,
+  erasure and inventory **110 OK**; catalog current; design 20 · 14 · 22 · 11 **DESIGN COHERENT**;
+  mutation gate (R/M) **16/16**, anchors intact. (Run twice; identical.)
+- the isolation defect **reproduced** before the repair: trips → hygiene **FAILED (errors=1)**.
+- after the repair: trips → hygiene **16 OK**; hygiene → trips **16 OK**; the full same-process
+  C-4D bank (runner, 0065, 0018/0021, import provenance, Life Record schema/writer/dates,
+  capabilities, trips, hygiene, hygiene isolation) **179 OK**.
+- mutation gate **19/19 caught** — R1–R8 runner, M1–M8 migration 0065, H1–H3 hygiene isolation;
+  post-mutation anchors check **`anchors missing: []`**.
+
+**History, not acceptance evidence — sandbox (`python3` 3.10):** runner 11 + migration 6 OK; the
+twelve-module combination that failed before the hygiene repair now 226 OK (8 skipped, no
+fastapi); trips + hygiene 16 OK in both orders; hygiene isolation regression OK;
+erasure/inventory 109 OK (12 skipped); package export 24, restore 21, round-trip + encoded
+references 31; `compile --check` current; design validator COHERENT; `test_qv2_capabilities`
+OK; mutations 19/19 (H1–H3 in the sandbox, R/M earlier).
+
+**Not in C-4D:** no UI (activity editor is C-4G), no C-4E work, `0065` applied to NO
+persistent database before acceptance.
+
+**Supervisor review (ChatGPT, 2026-09-25):** the complete 11-diff patch reviewed — implementation
+accepted; one cleanup (hard-coded historical migration counts removed; the initial 16-mutation
+gate distinguished from the final 19/19) made and re-reviewed. **C-4D ACCEPTED / CLOSED.** Next: C-4E.
+
 ## Roadmap refinements (Chris + ChatGPT, 2026-09-24, after the research review)
 
 Recorded here so each lands in the right phase; **none is current work.** Governing rule
