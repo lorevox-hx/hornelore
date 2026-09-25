@@ -2395,7 +2395,7 @@ unchanged legacy period end during an unrelated edit. Sandbox runs after the rep
 **C-4B — ACCEPTED 2026-09-24** (ChatGPT review of the repaired 20-file patch; the
 `/api/people/intake` DOB repair is kept). Committed and pushed: `ac2aad0` (code), `b347854` (docs).
 
-### C-4C — BUILT / TESTED 2026-09-25: product code passed supervisor review; documentation closeout pending final pre-commit verification (not yet ACCEPTED / CLOSED)
+### C-4C — ACCEPTED / CLOSED 2026-09-25
 
 **Ruling (supervisor, frozen for the slice): TODAY ONLY.** The catalog's concept-level
 `questionnaire` property now means *can the currently shipped Questionnaire V2 editor
@@ -2463,7 +2463,8 @@ includes `questionnaire-v2-model.js` (the compiler reads it); **28/28 caught**.
 
 **Supervisor review (ChatGPT, 2026-09-25):** the 15-diff patch was reviewed against the frozen
 work order — **product code accepted**; one documentation-only repair (stale pre-run and
-pre-push wording) required before commit.
+pre-push wording) was made and its corrected patch reviewed — **documentation accepted**.
+**C-4C ACCEPTED / CLOSED.** Next: C-4D.
 
 **History, not acceptance evidence — sandbox (`python3` 3.10, node 22):** 131 run OK, 5
 skipped (route tests — no fastapi); `test_qv2_capabilities` 18 OK; `test_qv2_people` OK;
