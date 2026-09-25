@@ -1,0 +1,734 @@
+{
+  "_about": "C-4 date contract — the ONE shared fixture corpus for the browser parser (ui/js) and the server parser/validator (Python). Both must reproduce every case exactly. Recorded 2026-09-24 (C-4A); decided by Chris + ChatGPT; see the checkpoint section 'C-4 date contract'.",
+  "_shape": "Each case: id, text (exactly as entered, after ordinary trim), and EITHER expect {value, precision} OR expect 'refuse'. A text-only result is expect {value: null, precision: 'unknown'}.",
+  "precision_vocabulary": [
+    "day",
+    "month",
+    "year",
+    "unknown"
+  ],
+  "cases": [
+    {
+      "id": "iso-day",
+      "text": "1989-06-12",
+      "expect": {
+        "value": "1989-06-12",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "iso-day-leap",
+      "text": "2000-02-29",
+      "expect": {
+        "value": "2000-02-29",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "month-name-day-us",
+      "text": "June 12, 1989",
+      "expect": {
+        "value": "1989-06-12",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "month-name-day-eu",
+      "text": "12 June 1989",
+      "expect": {
+        "value": "1989-06-12",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "month-abbrev-day",
+      "text": "Feb 3 1941",
+      "expect": {
+        "value": "1941-02-03",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "iso-month",
+      "text": "1989-06",
+      "expect": {
+        "value": "1989-06",
+        "precision": "month"
+      }
+    },
+    {
+      "id": "month-name-month",
+      "text": "June 1989",
+      "expect": {
+        "value": "1989-06",
+        "precision": "month"
+      }
+    },
+    {
+      "id": "month-name-month-case",
+      "text": "june 1989",
+      "expect": {
+        "value": "1989-06",
+        "precision": "month"
+      }
+    },
+    {
+      "id": "month-abbrev-dot",
+      "text": "Sept. 1962",
+      "expect": {
+        "value": "1962-09",
+        "precision": "month"
+      }
+    },
+    {
+      "id": "year",
+      "text": "1989",
+      "expect": {
+        "value": "1989",
+        "precision": "year"
+      }
+    },
+    {
+      "id": "about-year",
+      "text": "about 1989",
+      "expect": {
+        "value": "1989~",
+        "precision": "year"
+      }
+    },
+    {
+      "id": "around-year",
+      "text": "around 1989",
+      "expect": {
+        "value": "1989~",
+        "precision": "year"
+      }
+    },
+    {
+      "id": "circa-year",
+      "text": "circa 1989",
+      "expect": {
+        "value": "1989~",
+        "precision": "year"
+      }
+    },
+    {
+      "id": "c-dot-year",
+      "text": "c. 1989",
+      "expect": {
+        "value": "1989~",
+        "precision": "year"
+      }
+    },
+    {
+      "id": "ca-dot-year",
+      "text": "ca. 1989",
+      "expect": {
+        "value": "1989~",
+        "precision": "year"
+      }
+    },
+    {
+      "id": "approximately-year",
+      "text": "approximately 1989",
+      "expect": {
+        "value": "1989~",
+        "precision": "year"
+      }
+    },
+    {
+      "id": "about-month",
+      "text": "about June 1989",
+      "expect": {
+        "value": "1989-06~",
+        "precision": "month"
+      }
+    },
+    {
+      "id": "about-day",
+      "text": "around June 12, 1989",
+      "expect": {
+        "value": "1989-06-12~",
+        "precision": "day"
+      }
+    },
+    {
+      "id": "probably-year",
+      "text": "probably 1989",
+      "expect": {
+        "value": "1989?",
+        "precision": "year"
+      }
+    },
+    {
+      "id": "possibly-year",
+      "text": "possibly 1989",
+      "expect": {
+        "value": "1989?",
+        "precision": "year"
+      }
+    },
+    {
+      "id": "perhaps-year",
+      "text": "perhaps 1989",
+      "expect": {
+        "value": "1989?",
+        "precision": "year"
+      }
+    },
+    {
+      "id": "maybe-year",
+      "text": "maybe 1989",
+      "expect": {
+        "value": "1989?",
+        "precision": "year"
+      }
+    },
+    {
+      "id": "question-year",
+      "text": "1989?",
+      "expect": {
+        "value": "1989?",
+        "precision": "year"
+      }
+    },
+    {
+      "id": "question-month",
+      "text": "June 1989?",
+      "expect": {
+        "value": "1989-06?",
+        "precision": "month"
+      }
+    },
+    {
+      "id": "both-probably-about",
+      "text": "probably around 1989",
+      "expect": {
+        "value": "1989%",
+        "precision": "year"
+      }
+    },
+    {
+      "id": "both-about-question",
+      "text": "about 1989?",
+      "expect": {
+        "value": "1989%",
+        "precision": "year"
+      }
+    },
+    {
+      "id": "decade",
+      "text": "1920s",
+      "expect": {
+        "value": "192X",
+        "precision": "year"
+      }
+    },
+    {
+      "id": "decade-the",
+      "text": "the 1920s",
+      "expect": {
+        "value": "192X",
+        "precision": "year"
+      }
+    },
+    {
+      "id": "decade-apostrophe",
+      "text": "1920's",
+      "expect": {
+        "value": "192X",
+        "precision": "year"
+      }
+    },
+    {
+      "id": "decade-round-century-ambiguous",
+      "text": "1900s",
+      "expect": {
+        "value": null,
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "decade-2000s-ambiguous",
+      "text": "the 2000s",
+      "expect": {
+        "value": null,
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "decade-short-ambiguous",
+      "text": "the '20s",
+      "expect": {
+        "value": null,
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "decade-words",
+      "text": "the twenties",
+      "expect": {
+        "value": null,
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "range-en-dash",
+      "text": "1980–1985",
+      "expect": {
+        "value": "1980/1985",
+        "precision": "year"
+      }
+    },
+    {
+      "id": "range-hyphen-years",
+      "text": "1980-1985",
+      "expect": {
+        "value": "1980/1985",
+        "precision": "year"
+      }
+    },
+    {
+      "id": "range-to",
+      "text": "1980 to 1985",
+      "expect": {
+        "value": "1980/1985",
+        "precision": "year"
+      }
+    },
+    {
+      "id": "range-from-to",
+      "text": "from 1980 to 1985",
+      "expect": {
+        "value": "1980/1985",
+        "precision": "year"
+      }
+    },
+    {
+      "id": "range-through",
+      "text": "1980 through 1985",
+      "expect": {
+        "value": "1980/1985",
+        "precision": "year"
+      }
+    },
+    {
+      "id": "range-months",
+      "text": "June 1980 to May 1985",
+      "expect": {
+        "value": "1980-06/1985-05",
+        "precision": "month"
+      }
+    },
+    {
+      "id": "range-mixed",
+      "text": "1980-06/1985",
+      "expect": {
+        "value": "1980-06/1985",
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "range-mixed-words",
+      "text": "June 1980 to 1985",
+      "expect": {
+        "value": "1980-06/1985",
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "range-same-year",
+      "text": "1980 to 1980",
+      "expect": {
+        "value": "1980/1980",
+        "precision": "year"
+      }
+    },
+    {
+      "id": "range-qualified-endpoint-text-only",
+      "text": "about 1980 to 1985",
+      "expect": {
+        "value": null,
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "range-between-text-only",
+      "text": "between 1980 and 1985",
+      "expect": {
+        "value": null,
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "ongoing-present",
+      "text": "1980 to present",
+      "expect": {
+        "value": "1980/..",
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "ongoing-dash-present",
+      "text": "1980–present",
+      "expect": {
+        "value": "1980/..",
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "ongoing-now",
+      "text": "1980 to now",
+      "expect": {
+        "value": "1980/..",
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "ongoing-word",
+      "text": "1980 (ongoing)",
+      "expect": {
+        "value": "1980/..",
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "end-unknown",
+      "text": "1980 to unknown",
+      "expect": {
+        "value": "1980/",
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "start-unknown",
+      "text": "unknown to 1985",
+      "expect": {
+        "value": "/1985",
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "bare-from",
+      "text": "from 1980",
+      "expect": {
+        "value": null,
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "bare-since",
+      "text": "since 1980",
+      "expect": {
+        "value": null,
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "bare-until",
+      "text": "until 1980",
+      "expect": {
+        "value": null,
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "before",
+      "text": "before 1980",
+      "expect": {
+        "value": null,
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "after",
+      "text": "after 1980",
+      "expect": {
+        "value": null,
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "early-decade",
+      "text": "early 1920s",
+      "expect": {
+        "value": null,
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "late-decade",
+      "text": "late 1920s",
+      "expect": {
+        "value": null,
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "season",
+      "text": "spring 1970",
+      "expect": {
+        "value": null,
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "relative-event",
+      "text": "after the war",
+      "expect": {
+        "value": null,
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "age-relative",
+      "text": "when I was 12",
+      "expect": {
+        "value": null,
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "slashed-ambiguous",
+      "text": "12/06/1989",
+      "expect": {
+        "value": null,
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "slashed-unambiguous-still-text",
+      "text": "25/06/1989",
+      "expect": {
+        "value": null,
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "spanish-text-only",
+      "text": "junio de 1989",
+      "expect": {
+        "value": null,
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "spanish-approx-text-only",
+      "text": "alrededor de 1989",
+      "expect": {
+        "value": null,
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "year-out-of-range-text-only",
+      "text": "0975",
+      "expect": {
+        "value": null,
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "prose-with-year",
+      "text": "the year we moved, 1962 I think",
+      "expect": {
+        "value": null,
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "slashed-day-first-still-text",
+      "text": "13/06/1989",
+      "expect": {
+        "value": null,
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "ongoing-still",
+      "text": "1980 (still)",
+      "expect": {
+        "value": "1980/..",
+        "precision": "unknown"
+      }
+    },
+    {
+      "id": "numeric-approx-any-language",
+      "text": "1989~",
+      "expect": {
+        "value": "1989~",
+        "precision": "year"
+      }
+    },
+    {
+      "id": "numeric-uncertain-month",
+      "text": "1989-06?",
+      "expect": {
+        "value": "1989-06?",
+        "precision": "month"
+      }
+    },
+    {
+      "id": "refuse-iso-month-13",
+      "text": "1989-13",
+      "expect": "refuse"
+    },
+    {
+      "id": "refuse-iso-impossible",
+      "text": "1989-19-47",
+      "expect": "refuse"
+    },
+    {
+      "id": "refuse-iso-feb-30",
+      "text": "1989-02-30",
+      "expect": "refuse"
+    },
+    {
+      "id": "refuse-non-leap",
+      "text": "1900-02-29",
+      "expect": "refuse"
+    },
+    {
+      "id": "refuse-month-name-day",
+      "text": "June 31, 1989",
+      "expect": "refuse"
+    },
+    {
+      "id": "refuse-reversed-range",
+      "text": "1985 to 1980",
+      "expect": "refuse"
+    }
+  ],
+  "server_agreement": {
+    "_about": "What the server does with a SUPPLIED {text, value, precision} that differs from what it previously stored. It parses text with the same rules; the supplied value/precision must equal the parse. Valid EDTF alone is not enough.",
+    "cases": [
+      {
+        "id": "agree",
+        "supplied": {
+          "text": "about 1989",
+          "value": "1989~",
+          "precision": "year"
+        },
+        "expect": "accept"
+      },
+      {
+        "id": "wrong-year",
+        "supplied": {
+          "text": "1987",
+          "value": "1989",
+          "precision": "year"
+        },
+        "expect": "refuse"
+      },
+      {
+        "id": "wrong-precision",
+        "supplied": {
+          "text": "June 1989",
+          "value": "1989-06",
+          "precision": "year"
+        },
+        "expect": "refuse"
+      },
+      {
+        "id": "invented-value-for-vague-text",
+        "supplied": {
+          "text": "after the war",
+          "value": "1946",
+          "precision": "year"
+        },
+        "expect": "refuse"
+      },
+      {
+        "id": "vague-text-null",
+        "supplied": {
+          "text": "after the war",
+          "value": null,
+          "precision": "unknown"
+        },
+        "expect": "accept"
+      },
+      {
+        "id": "dropped-qualifier",
+        "supplied": {
+          "text": "about 1989",
+          "value": "1989",
+          "precision": "year"
+        },
+        "expect": "refuse"
+      },
+      {
+        "id": "legacy-precision-not-emitted",
+        "supplied": {
+          "text": "about 1989",
+          "value": "1989~",
+          "precision": "approximate"
+        },
+        "expect": "refuse"
+      },
+      {
+        "id": "invalid-date-text",
+        "supplied": {
+          "text": "1989-02-30",
+          "value": null,
+          "precision": "unknown"
+        },
+        "expect": "refuse"
+      },
+      {
+        "id": "empty-text",
+        "supplied": {
+          "text": "",
+          "value": null,
+          "precision": "unknown"
+        },
+        "expect": "refuse"
+      }
+    ]
+  },
+  "legacy_compatibility": {
+    "_about": "Stored dates from before C-4. They are READ as they are and never rewritten. A write that carries one UNCHANGED (e.g. re-sending a relationship with its old period while editing its label) is accepted without re-validation; only a date the write actually changes is held to the contract.",
+    "cases": [
+      {
+        "id": "c3-approx-null",
+        "stored": {
+          "text": "about 1989",
+          "value": null,
+          "precision": "unknown"
+        },
+        "unchanged_in_write": "accept",
+        "readable": true
+      },
+      {
+        "id": "b-era-approximate",
+        "stored": {
+          "text": "around 1915",
+          "value": "1915~",
+          "precision": "approximate"
+        },
+        "unchanged_in_write": "accept",
+        "readable": true
+      },
+      {
+        "id": "b-era-uncertain",
+        "stored": {
+          "text": "1938?",
+          "value": "1938?",
+          "precision": "uncertain"
+        },
+        "unchanged_in_write": "accept",
+        "readable": true
+      },
+      {
+        "id": "identity-unknown",
+        "stored": {
+          "text": "3 March 1941",
+          "value": null,
+          "precision": "unknown"
+        },
+        "unchanged_in_write": "accept",
+        "readable": true
+      }
+    ]
+  },
+  "_rulings": "Supervisor rulings 2026-09-24: 192X has precision year (precision is the granularity of the representation, not a claim of exactness — consumers must read ~ ? % X in value); slashed numeric dates are text only; language-neutral numeric syntax (1989, 1989-06, 1989-06-12, 1989?, 1989~) normalises in any interface language, English lexical phrases normalise in C-4, Spanish lexical phrases are text only; only explicit ongoing wording (to present, now, ongoing, still) opens an interval."
+}

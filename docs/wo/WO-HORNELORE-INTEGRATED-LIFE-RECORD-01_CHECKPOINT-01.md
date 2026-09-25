@@ -2199,6 +2199,139 @@ caught.
 9. **Life Threads code has a runtime consumer** (`life-map.js:337`); D-0/D-2 replace
    that dependency deliberately. It is not C-3 cleanup.
 
+## C-4 — dates, places, events and periods (ACTIVE)
+
+**Sequence (Chris, 2026-09-24):** C-4A date contract + fixtures → C-4B parser + server
+validation → C-4C catalog / V2 reconciliation + missing date concepts → C-4D migration
+(`activity` event type) → C-4E birth / death / places → C-4F homes and moves, unions and
+separations → C-4G education / work / service / activity → focused mutation + live
+acceptance and closeout. **One commit per accepted slice.** The catalog reconciliation and
+the SQLite table rebuild are separate commits. Nothing from C-5 (stories, Life Today), C-6
+(removal), D-1 (historical context) or D-3 (Lori) is pulled in. Stack down until a slice
+needs the live check.
+
+### C-4A — the date contract (DECIDED; recorded 2026-09-24)
+
+A date keeps the shape `{text, value, precision}`:
+
+| Field | Meaning |
+|---|---|
+| `text` | the wording as entered, after ordinary input trimming — never rewritten |
+| `value` | a value from **Hornelore's bounded EDTF profile** (below), or `null` when the wording cannot be converted without inference |
+| `precision` | calendar granularity only: **`day` · `month` · `year` · `unknown`** |
+
+Approximation and uncertainty live in `value` — `~` approximate, `?` uncertain, `%` both —
+and **new writes never emit `precision: "approximate"` or `"uncertain"`.** The profile is a
+deliberate subset of EDTF Levels 0–1, not a claim of conformance.
+
+**The shared fixture corpus is `tests/fixtures/life_record_dates_v1.json`** — 76 parse
+cases (6 refusals, 23 text-only), 9 server-agreement cases and 4 legacy-compatibility
+cases. The browser parser and the server parser/validator must both reproduce every case;
+the corpus, not this prose, is the executable contract.
+
+**Recognised (whole text must match; case-insensitive; internal whitespace collapsed for
+matching only — `text` is stored as entered):**
+- exact day, month, year: ISO (`1989-06-12`, `1989-06`, `1989`) and English month names
+  (`June 12, 1989`, `12 June 1989`, `June 1989`, `Feb 3 1941`, `Sept. 1962`);
+- approximate: `about / around / circa / c. / ca. / approximately X` → `X~`;
+- uncertain: `probably / possibly / perhaps / maybe X`, or `X?` → `X?`;
+- both: an approximate word **and** an uncertainty marker → `X%`;
+- decades: `1920s`, `the 1920s`, `1920's` → `192X`;
+- closed ranges with unqualified endpoints: `X–Y`, `X-Y` (two years), `X to Y`,
+  `from X to Y`, `X through Y` → `X/Y`;
+- explicitly ongoing: `X to present / now`, `X–present`, `X (ongoing)`, `X (still)` → `X/..`;
+- explicitly unknown endpoint: `X to unknown` → `X/`, `unknown to Y` → `/Y`.
+
+Qualifiers apply to the day, month or year they precede; `precision` is that granularity.
+A closed range whose endpoints share a granularity takes it (`1980/1985` → `year`);
+mixed-granularity, open and unknown-endpoint ranges are `unknown`.
+
+**Text only (`value: null`, `precision: "unknown"`):** `early / late 1920s`; `before /
+after X`; bare `from X`, `since X`, `until X`; `between X and Y`; seasons (`spring 1970`);
+relative-event phrases (`after the war`); age-relative phrases (`when I was 12`); ranges with
+a qualified endpoint (`about 1980 to 1985`); and anything else not matched as a whole.
+
+**Refused (never silently downgraded to text):** a date-shaped value that is not a real
+calendar date — `1989-13`, `1989-19-47`, `1989-02-30`, `1900-02-29`, `June 31, 1989` — and a
+reversed range (`1985 to 1980`). Calendar validation is real (month lengths, Gregorian leap
+years), not regex shape.
+
+**Supervisor rulings (2026-09-24) — closed:**
+1. **`1920s` → `{value: "192X", precision: "year"}`.** No `decade` value. EDTF defines
+   `192X` as a year expression with an unspecified digit. **Precision is the granularity of
+   the representation, not a claim that the value is exact**: a consumer that reads
+   `precision: "year"` and ignores `X`, `?`, `~` or `%` in `value` is wrong — pinned by a test
+   in C-4B.
+2. **Slashed numeric dates are text only** — `12/06/1989`, `06/12/1989`, even `13/06/1989`.
+   No locale inference; hyphenated ISO/EDTF forms are the machine-readable ones.
+3. **Language-neutral numeric syntax normalises in any interface language** (`1989`,
+   `1989-06`, `1989-06-12`, `1989?`, `1989~`); **English lexical phrases** normalise in C-4;
+   **Spanish lexical phrases are text only** — a later Spanish profile is a bounded addition
+   with its own fixtures.
+4. **Server validation scope:** every CHANGED assertion whose catalog `value_type` is `date`
+   or `date_interval` (derived from the catalog, not a hand list — this also covers e.g.
+   `animal.birth.date`), plus changed `relationship.period` and changed name periods,
+   validated structurally with the same date/interval validator. **`story.when` is NOT in
+   C-4** (its shape is undefined; C-5 owns stories and can opt it in). Unchanged legacy dates
+   pass through byte-for-byte.
+5. **The V2 capability declaration is one executable JS constant whose literal is strict
+   JSON, bounded by unmistakable marker comments** in `questionnaire-v2-model.js`. V2 uses
+   that object at runtime; the catalog compiler extracts and JSON-parses the same literal. The
+   parity test is **behavioural**: drive the V2 controls in the harness, capture the Life
+   Record changes they build, translate structural fields (e.g. relationship periods) to their
+   catalog concepts, and prove the writable set equals the declaration.
+
+**Also approved:** round-century `…00s` text only; recognised years 1000–2999 (other
+four-digit strings text only, not refused); bare `since X` text only; only explicit ongoing
+wording (`to present`, `now`, `ongoing`, `still`) opens an interval.
+
+**Authority.** The browser proposes; the server validates. For any date object a write
+changes, the server parses its `text` with the same rules and requires the supplied `value`
+and `precision` to equal the parse exactly — `{text: "1987", value: "1989"}` is refused even
+though `1989` is valid EDTF, and unrecognised text must arrive with `value: null`,
+`precision: "unknown"`. Empty text is refused.
+
+**Compatibility (mandatory).** Stored dates from before C-4 — C-3's
+`{value: null, precision: "unknown"}` periods, Batch B-era `precision: "approximate" /
+"uncertain"` values, identity's `unknown` birth dates — are read as they are and **never
+rewritten**: no background conversion, no startup normalisation, no data migration. A write
+that carries one **unchanged** (re-sending a relationship with its old period while editing
+its label) is accepted without re-validation; only a date the write actually changes is held
+to the contract. This gets a permanent regression test in C-4B.
+
+**Consumers that must learn the new values in C-4B** (found reading the code):
+- `rules.age_at` treats a date as approximate only through
+  `precision in {"approximate", "uncertain"}` and parses the value with
+  `strip("~?")` + `int(...)` — it would treat `1989~` (precision `year`) as NOT
+  approximate, and would crash on `192X`, `1989%` or an interval. It must read the
+  qualifier from the value (and still honour the legacy precision values).
+- `rules.rule_dates_keep_original_text` already fits (a year-precision value may not carry
+  `-`; legacy approximate/uncertain precision still requires `~`/`?`).
+- Graph projection reads `text` only; the V2 model passes values through; nothing else in
+  the product reads Life Record date values yet (Batch D does).
+
+**C-4D precondition — the migration runner (verified by reading `db/migrations_runner.py`).**
+Its docstring says each file is applied inside its own transaction and that a failure leaves
+`schema_migrations` without the row. The code calls `con.executescript(sql)` with no `BEGIN`
+of its own — `executescript` commits any pending transaction and then does no implicit
+transaction control — and only afterwards inserts the tracking row and commits. So: a
+migration without its own `BEGIN … COMMIT` applies statement by statement (31 of the 63
+migrations carry one; `0063` and `0064` do not), and a migration can commit its schema change
+while the tracking insert fails, leaving it "unapplied" and retried against an already-changed
+schema. **Before `0065` is written, C-4D first pins the runner's actual atomicity and
+foreign-key behaviour in a focused test and, if needed, narrowly repairs it so the migration
+body and its applied marker cannot leave an ambiguous half-landed migration.** No broad
+redesign of the migration system. Then the `activity` table rebuild (which may need
+`PRAGMA foreign_keys=OFF` before its own `BEGIN`, then `COMMIT`, re-enable and
+`foreign_key_check`) is built on that proven behaviour.
+
+**Death and places (for C-4E), as directed:** a death event requires the resulting person
+to be deceased — if they are not already, the same Save adds the deceased assertion (and
+supersedes a different live one); if they already are, no redundant assertion. Marking a
+person deceased never creates a death event or date. Places: explicit **Choose existing
+place** or **Create new place**; suggestions may show matching labels; nothing is merged or
+identified from a string, and the Save knows which was chosen.
+
 ## Roadmap refinements (Chris + ChatGPT, 2026-09-24, after the research review)
 
 Recorded here so each lands in the right phase; **none is current work.** Governing rule
