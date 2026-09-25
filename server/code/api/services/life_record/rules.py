@@ -640,17 +640,19 @@ def age_at(birth, when):
         return None
     compute_age = _shipped_compute_age()
     from datetime import date
+    from . import dates as _dates
 
-    def parts(d):
-        s = str(d["value"]).strip("~?")
-        return (int(s[:4]),
-                int(s[5:7]) if len(s) >= 7 else None,
-                int(s[8:10]) if len(s) >= 10 else None)
-
-    by, bm, bd = parts(birth)
-    wy, wm, wd = parts(when)
-    vague = {"approximate", "uncertain"}
-    approximate = (birth.get("precision") in vague or when.get("precision") in vague)
+    # C-4: approximation lives in the VALUE (`1945~` is year precision and
+    # still approximate); the legacy precision words are honoured too. A
+    # value with no calendar parts — a range, `192X` — is not a point in
+    # time, and an age at it would be invented.
+    bp, wp = _dates.calendar_parts(birth["value"]), _dates.calendar_parts(when["value"])
+    if bp is None or wp is None:
+        return None
+    by, bm, bd = bp
+    wy, wm, wd = wp
+    qb, qw = _dates.qualifiers(birth), _dates.qualifiers(when)
+    approximate = qb["approximate"] or qb["uncertain"] or qw["approximate"] or qw["uncertain"]
     complete = None not in (bm, bd, wm, wd)
 
     if complete and not approximate:

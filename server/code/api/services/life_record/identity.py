@@ -13,12 +13,10 @@ and `profile_json` keep their copies for the consumers that still read them
 """
 from __future__ import annotations
 
-import re
 from typing import Any, Dict, List, Optional
 
+from . import dates as _dates
 from . import writer as _writer
-
-_ISO_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def establish_narrator(narrator_id: str, *, full_name: str,
@@ -55,19 +53,33 @@ def establish_narrator(narrator_id: str, *, full_name: str,
         changes.append(asserted(f"{narrator_id}-pronouns", "person", narrator_id, "person.pronouns", pr))
 
     dob, pob = (birth_date or "").strip(), (birth_place or "").strip()
-    if dob or pob:
+    # C-4: the date is parsed by the same contract as every other date. A
+    # date-shaped value that is not a real date (or a range, for a birth) is
+    # NOT written and NOT downgraded to words — creation still succeeds and
+    # says what it left out, so the operator can correct it in the record.
+    dob_value, dob_refused = None, None
+    if dob:
+        r = _dates.parse(dob)
+        if r[0] == "refuse":
+            dob_refused = r[1]
+        elif r[1] and "/" in r[1]:
+            dob_refused = f"{dob!r} is a range; a birth date is one date"
+        else:
+            dob_value = {"text": dob, "value": r[1], "precision": r[2]}
+    if dob_value or pob:
         ev = f"{narrator_id}-birth"
         value: Dict[str, Any] = {"type": "birth", "participants": [{"person": narrator_id, "role": "subject"}]}
         if pob:
             changes.append({"op": "add", "path": f"places/{narrator_id}-birthplace", "value": {"label": pob}})
             value["place"] = f"{narrator_id}-birthplace"
         changes.append({"op": "add", "path": f"events/{ev}", "value": value})
-        if dob:
-            # the text exactly as given; an ISO day is a day, anything else
-            # keeps its words and claims no precision it was not given
-            changes.append(asserted(f"{narrator_id}-dob", "event", ev, "person.birth.date",
-                                    {"text": dob, "value": dob if _ISO_DAY.match(dob) else None,
-                                     "precision": "day" if _ISO_DAY.match(dob) else "unknown"}))
+        if dob_value:
+            # the text exactly as given, with the value the contract derives
+            # from it — never a day it was not given
+            changes.append(asserted(f"{narrator_id}-dob", "event", ev, "person.birth.date", dob_value))
         changes.append({"op": "set", "path": f"people/{narrator_id}/birthEventRef",
                         "value": ev, "expectedPrevious": None})
-    return _writer.apply_changes(narrator_id, None, changes, actor)
+    out = _writer.apply_changes(narrator_id, None, changes, actor)
+    if dob_refused and out.get("ok"):
+        out["notRecorded"] = [{"field": "birth_date", "reason": dob_refused}]
+    return out

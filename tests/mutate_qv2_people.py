@@ -34,8 +34,15 @@ MUTATIONS = {
     "count-stored-as-text": (SHELL, '      return { value: parseInt(value, 10) };', '      return { value: value };'),
     "provenance-ignored": (SHELL, "    var src = PROVENANCE[S.provenance] || PROVENANCE.operator;",
                            "    var src = PROVENANCE.operator;"),
-    "approximate-date-given-a-value": (MODEL, '    return { text: t, value: null, precision: "unknown" };',
-                                       '    return { text: t, value: t.replace(/[^0-9]/g, ""), precision: "year" };'),
+    # C-4B: "about 1989" now HAS a value (1989~), so the C-3 mutation that
+    # invented one for vague text no longer discriminates; these replace it.
+    "approximation-dropped": (MODEL, 'var mark = approx && uncertain ? "%" : approx ? "~" : uncertain ? "?" : "";',
+                              'var mark = "";'),
+    "refused-date-kept-as-words": (SHELL, '    if (bad) return { error: bad[1] + ": " + bad[0].refuse };', ''),
+    # C-4B review: an unchanged legacy end is re-parsed (and silently rewritten)
+    "legacy-period-reparsed-on-unrelated-edit": (SHELL, '      return !!(t && stored && typeof stored === "object" &&',
+                                                 '      return false && !!(t && stored && typeof stored === "object" &&'),
+    "range-accepted-as-one-end": (SHELL, '    if (rng) return { error: rng[1] + " is one date, not a range." };', ''),
     "names-block-hides-other-names": (SHELL, '    var saved = p ? p.names : [];', '    var saved = p ? p.names.slice(0, 1) : [];'),
     # ChatGPT's invariant list (review of 16a68e1)
     "assertion-id-minted-at-save": (SHELL, 'assertionOp(idOf(e, "kindAssertionId"), "relationship"',

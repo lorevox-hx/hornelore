@@ -120,6 +120,12 @@ MUTATIONS = [
      'return {"years": hi, "exact": True, "render": str(hi)}',
      "uncertainty propagates"),
 
+    ("C-4: read approximation from precision only (ignore the ~ ? % in the value)",
+     'approximate = qb["approximate"] or qb["uncertain"] or qw["approximate"] or qw["uncertain"]',
+     'approximate = (birth.get("precision") in ("approximate", "uncertain")\n'
+     '                   or when.get("precision") in ("approximate", "uncertain"))',
+     "uncertainty propagates"),
+
     ("give a living narrator's span a computed end the product does not have",
      'end, kind = None, "open"                 # the shipped behaviour, kept',
      'end, kind = {"text": today, "value": today, "precision": "day"}, "today_computed"',

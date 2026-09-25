@@ -389,18 +389,154 @@
     return "other";
   }
 
-  /* C-3 — a date as said. The text is kept exactly; a value is filled only
-     when the text IS that value (2024-05-01 → day, 2024-05 → month, 1962 →
-     year). Anything else — "about 1962", "spring 1970", "before the war" —
-     keeps its text with value null and precision "unknown" (the same
-     convention identity.py uses at narrator creation). C-4 widens this. */
+  /* C-4B — THE DATE CONTRACT (checkpoint "C-4"; C-4A decided 2026-09-24).
+     A date is {text, value, precision}: text as entered (trimmed, never
+     rewritten); value from Hornelore's bounded EDTF profile or null; precision
+     the granularity of the representation only — day | month | year | unknown.
+     Approximation / uncertainty live in the value: ~ ? %.
+
+     This is the BROWSER'S PROPOSAL. The server (services/life_record/dates.py)
+     parses the same text with the same rules and refuses any disagreement.
+     Both must reproduce tests/fixtures/life_record_dates_v1.json exactly.
+
+     Returns null for empty input; {text, value, precision}; or
+     {text, refuse: reason} for a date-shaped string that is not a real date
+     (never silently downgraded to words). */
+  var DATE_MONTHS = { january: 1, jan: 1, february: 2, feb: 2, march: 3, mar: 3, april: 4, apr: 4,
+    may: 5, june: 6, jun: 6, july: 7, jul: 7, august: 8, aug: 8, september: 9, sep: 9, sept: 9,
+    october: 10, oct: 10, november: 11, nov: 11, december: 12, dec: 12 };
+  var MONTH_RX = "(" + Object.keys(DATE_MONTHS).sort(function (a, b) { return b.length - a.length; })
+    .join("|") + ")\\.?";
+  var APPROX_WORDS = ["approximately", "around", "about", "circa", "ca.", "c."];
+  var UNCERTAIN_WORDS = ["probably", "possibly", "perhaps", "maybe"];
+  var REFUSE = { refuse: true };
+  var YEAR_MIN = 1000, YEAR_MAX = 2999;
+
+  function pad(n, w) { var s = String(n); while (s.length < w) s = "0" + s; return s; }
+  function yearOk(y) { return y >= YEAR_MIN && y <= YEAR_MAX; }
+  function monthDays(y, m) { return new Date(Date.UTC(y, m, 0)).getUTCDate(); }   // real Gregorian month length
+  function full(rx, s) { var m = new RegExp("^(?:" + rx + ")$").exec(s); return m; }
+
+  function singleDate(s) {
+    var m, y, mo, d, g;
+    if ((m = full("(\\d{4})-(\\d{2})-(\\d{2})", s))) {
+      y = +m[1]; mo = +m[2]; d = +m[3];
+      if (!yearOk(y)) return null;
+      if (mo < 1 || mo > 12 || d < 1 || d > monthDays(y, mo)) return REFUSE;
+      return { v: pad(y, 4) + "-" + pad(mo, 2) + "-" + pad(d, 2), p: "day", parts: [y, mo, d] };
+    }
+    if ((m = full("(\\d{4})-(\\d{2})", s))) {
+      y = +m[1]; mo = +m[2];
+      if (!yearOk(y)) return null;
+      if (mo < 1 || mo > 12) return REFUSE;
+      return { v: pad(y, 4) + "-" + pad(mo, 2), p: "month", parts: [y, mo, null] };
+    }
+    if ((m = full("(\\d{4})", s))) {
+      y = +m[1];
+      return yearOk(y) ? { v: pad(y, 4), p: "year", parts: [y, null, null] } : null;
+    }
+    if ((m = full(MONTH_RX + " (\\d{1,2}),? (\\d{4})", s)) || (m = full("(\\d{1,2}) " + MONTH_RX + ",? (\\d{4})", s))) {
+      g = m.slice(1);
+      if (/^\d+$/.test(g[0])) { d = +g[0]; mo = DATE_MONTHS[g[1]]; y = +g[2]; }
+      else { mo = DATE_MONTHS[g[0]]; d = +g[1]; y = +g[2]; }
+      if (!yearOk(y)) return null;
+      if (d < 1 || d > monthDays(y, mo)) return REFUSE;
+      return { v: pad(y, 4) + "-" + pad(mo, 2) + "-" + pad(d, 2), p: "day", parts: [y, mo, d] };
+    }
+    if ((m = full(MONTH_RX + ",? (\\d{4})", s))) {
+      mo = DATE_MONTHS[m[1]]; y = +m[2];
+      if (!yearOk(y)) return null;
+      return { v: pad(y, 4) + "-" + pad(mo, 2), p: "month", parts: [y, mo, null] };
+    }
+    return null;
+  }
+
+  function qualifiedDate(s) {
+    var approx = false, uncertain = false, i;
+    for (i = 0; i < UNCERTAIN_WORDS.length; i++) {
+      if (s.indexOf(UNCERTAIN_WORDS[i] + " ") === 0) { uncertain = true; s = s.slice(UNCERTAIN_WORDS[i].length + 1); break; }
+    }
+    for (i = 0; i < APPROX_WORDS.length; i++) {
+      if (s.indexOf(APPROX_WORDS[i] + " ") === 0) { approx = true; s = s.slice(APPROX_WORDS[i].length + 1); break; }
+    }
+    var last = s.charAt(s.length - 1);
+    if (last === "%") { approx = uncertain = true; s = s.slice(0, -1); }
+    else if (last === "~") { approx = true; s = s.slice(0, -1); }
+    else if (last === "?") { uncertain = true; s = s.slice(0, -1); }
+    s = s.trim();
+    var r = singleDate(s);
+    if (!r || r === REFUSE) return r;
+    var mark = approx && uncertain ? "%" : approx ? "~" : uncertain ? "?" : "";
+    return { v: r.v + mark, p: r.p, parts: r.parts };
+  }
+
+  function decadeDate(s) {
+    var m = full("(?:the )?(\\d{3})0(?:s|'s)", s);
+    if (!m) return null;
+    var y = +m[1] * 10;
+    if (!yearOk(y) || y % 100 === 0) return null;        // "1900s": decade or century — ambiguous
+    return { v: m[1] + "X", p: "year" };
+  }
+
+  function earliest(p) { return [p[0], p[1] || 1, p[2] || 1]; }
+  function latest(p) { return [p[0], p[1] || 12, p[2] || (p[1] ? monthDays(p[0], p[1]) : 31)]; }
+  function after(a, b) { for (var i = 0; i < 3; i++) { if (a[i] !== b[i]) return a[i] > b[i]; } return false; }
+
+  function intervalDate(s) {
+    var pats = ["(.+?) (?:to) (?:present|now)", "(.+?) ?[–—-] ?present", "(.+?) \\((?:ongoing|still)\\)", "(.+?)/\\.\\."];
+    var m, a, b, i;
+    for (i = 0; i < pats.length; i++) {
+      if ((m = full(pats[i], s))) {
+        a = singleDate(m[1].trim());
+        if (a === REFUSE) return REFUSE;
+        if (a) return { v: a.v + "/..", p: "unknown" };
+      }
+    }
+    if ((m = full("(.+?) to (?:unknown|\\?)", s))) {
+      a = singleDate(m[1].trim());
+      if (a === REFUSE) return REFUSE;
+      if (a) return { v: a.v + "/", p: "unknown" };
+    }
+    if ((m = full("(?:unknown|\\?) to (.+)", s))) {
+      b = singleDate(m[1].trim());
+      if (b === REFUSE) return REFUSE;
+      if (b) return { v: "/" + b.v, p: "unknown" };
+    }
+    var closed = ["(?:from )?(.+?) (?:to|through|thru) (.+)", "(.+?) ?[–—] ?(.+)", "(\\d{4})-(\\d{4})", "([^/]+)/([^/]+)"];
+    for (i = 0; i < closed.length; i++) {
+      if (!(m = full(closed[i], s))) continue;
+      a = singleDate(m[1].trim()); b = singleDate(m[2].trim());
+      if (a === REFUSE || b === REFUSE) return REFUSE;
+      if (!a || !b) continue;
+      if (after(earliest(a.parts), latest(b.parts))) return REFUSE;      // a reversed range
+      return { v: a.v + "/" + b.v, p: a.p === b.p ? a.p : "unknown" };
+    }
+    return null;
+  }
+
   function parseDateText(text) {
     var t = String(text == null ? "" : text).trim();
     if (!t) return null;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return { text: t, value: t, precision: "day" };
-    if (/^\d{4}-\d{2}$/.test(t)) return { text: t, value: t, precision: "month" };
-    if (/^\d{4}$/.test(t)) return { text: t, value: t, precision: "year" };
+    var s = t.replace(/\s+/g, " ").toLowerCase();        // for matching only — never stored
+    var fns = [intervalDate, qualifiedDate], r, i;
+    for (i = 0; i < fns.length; i++) {
+      r = fns[i](s);
+      if (r === REFUSE) return { text: t, refuse: "“" + t + "” is not a real date — correct it, or write it in words" };
+      if (r) return { text: t, value: r.v, precision: r.p };
+    }
+    r = decadeDate(s);
+    if (r) return { text: t, value: r.v, precision: r.p };
     return { text: t, value: null, precision: "unknown" };
+  }
+
+  /* What a CONSUMER must read from a stored date: the marks in the value AND
+     the legacy precision words. Precision alone never says "exact". */
+  function dateQualifiers(d) {
+    var v = String((d && d.value) || ""), p = d && d.precision;
+    var last = v.charAt(v.length - 1);
+    return { approximate: last === "~" || last === "%" || p === "approximate",
+             uncertain: last === "?" || last === "%" || p === "uncertain",
+             unspecifiedDigits: v.indexOf("X") !== -1, interval: v.indexOf("/") !== -1, hasValue: !!v };
   }
   function index(list) { var o = {}; list.forEach(function (x) { o[x.id] = x; }); return o; }
 
@@ -447,7 +583,7 @@
   var api = { TOPICS: TOPICS, ANSWER: ANSWER, fromRecord: fromRecord,
               roleForNarrator: roleForNarrator, detailedRole: detailedRole,
               ROLES: ROLES, QUALIFIERS: QUALIFIERS, parseDateText: parseDateText,
-              rawName: rawName, answerOf: answerOf };
+              rawName: rawName, answerOf: answerOf, dateQualifiers: dateQualifiers };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (root) root.LorevoxQuestionnaireV2Model = api;
 })(typeof window !== "undefined" ? window : null);

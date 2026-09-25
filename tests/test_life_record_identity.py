@@ -54,7 +54,7 @@ class EstablishNarrator(_Db):
         self.assertEqual([a["value"] for a in me["person.pronouns"]], ["she/her"])
         self.assertEqual(me["person.pronouns"][0]["assertedBy"], "operator", "never labelled the narrator's")
         ev = rec["events"][0]
-        self.assertEqual(ev["date"], {"text": "around 1939", "value": None, "precision": "unknown"},
+        self.assertEqual(ev["date"], {"text": "around 1939", "value": "1939~", "precision": "year"},
                          "approximate words keep their words; no day is invented")
         self.assertEqual(rec["places"][0]["label"], "Minot, North Dakota")
 

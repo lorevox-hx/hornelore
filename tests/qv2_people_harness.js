@@ -165,6 +165,49 @@ const relCardFor = (t, name) => $$(t, "[data-qv2-rel]").find((c) => c.querySelec
       Object.keys(r.V2._state().edits).length === 0, ($(r, "[data-qv2-form-error]") || {}).textContent);
   }
 
+  /* 0c — C-4B review: a LEGACY period is carried, not re-parsed, by an
+     unrelated edit. The stored ends are exactly C-3's and B-era's shapes. */
+  {
+    const LEGACY_START = { text: "about 1989", value: null, precision: "unknown" };          // C-3
+    const LEGACY_END = { text: "around 1995", value: "1995~", precision: "approximate" };    // B-era
+    const r = openTab();
+    r.w.fetch = () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({
+      narrator_id: "N", narrator_person_id: "N", revision: 5, events: [], stories: [], places: [], animals: [],
+      people: [{ id: "N", names: [{ id: "n", fullText: "Narrator", kind: "current" }] },
+               { id: "S", names: [{ id: "s", fullText: "Spouse Legacy", kind: "current" }] }],
+      relationships: [{ id: "r1", subjectPersonId: "N", otherPersonId: "S", kind: "spouse_of", basis: "stated",
+                        period: { start: LEGACY_START, end: LEGACY_END } }] }) });
+    r.V2.render(r.c, "N"); await settle();
+    topic(r, "partners");
+    const openRel = () => click(r, relCardFor(r, "Spouse Legacy").querySelector('[data-qv2-action="open-rel"]'));
+    const relForm = () => $(r, '[data-qv2-form="rel"]');
+    const type = (f, v) => { const el = relForm().querySelector('[data-f="' + f + '"]'); el.value = v;
+      el.dispatchEvent(new r.w.Event("input", { bubbles: true })); };
+    openRel();
+    type("narratorLabel", "my first husband");                 // the ONLY thing the operator changes
+    click(r, relForm().querySelector('[data-qv2-action="keep-rel"]'));
+    const e1 = r.V2._state().edits["reledit:r1"];
+    check("an unrelated relationship edit carries both legacy period ends byte-for-byte (not re-parsed)",
+      e1 && e1.after.narratorLabel === "my first husband" &&
+      JSON.stringify(e1.after.period.start) === JSON.stringify(LEGACY_START) &&
+      JSON.stringify(e1.after.period.end) === JSON.stringify(LEGACY_END) && !$(r, "[data-qv2-form-error]"),
+      JSON.stringify(e1 && e1.after.period));
+    const set1 = (r.V2._buildChanges() || []).find((c) => c.path === "relationships/r1");
+    check("...and the Save sends that same stored period, with the stored value as expectedPrevious",
+      set1 && JSON.stringify(set1.value.period) === JSON.stringify({ start: LEGACY_START, end: LEGACY_END }) &&
+      JSON.stringify(set1.expectedPrevious.period) === JSON.stringify({ start: LEGACY_START, end: LEGACY_END }),
+      JSON.stringify(set1));
+    // mixed: the operator changes ONE end — it is parsed; the other stays legacy
+    openRel();
+    type("until", "1996");
+    click(r, relForm().querySelector('[data-qv2-action="keep-rel"]'));
+    const e2 = r.V2._state().edits["reledit:r1"];
+    check("changing one end parses that end under C-4 and leaves the other legacy end untouched",
+      e2 && JSON.stringify(e2.after.period.start) === JSON.stringify(LEGACY_START) &&
+      JSON.stringify(e2.after.period.end) === JSON.stringify({ text: "1996", value: "1996", precision: "year" }),
+      JSON.stringify(e2 && e2.after.period));
+  }
+
   const t = openTab();
   t.V2.render(t.c, A); await settle();
   const opened = t.log.length;
@@ -215,6 +258,17 @@ const relCardFor = (t, name) => $$(t, "[data-qv2-rel]").find((c) => c.querySelec
   change(t, $(t, '[data-qv2-answer$=":person.reported_count.siblings"]'));
 
   topic(t, "partners");
+  // C-4B: a date that is not a real date is refused ON THE FORM — never
+  // downgraded to words — and a range is not one end of a period.
+  const pendingBeforeDates = dirty(t);
+  addSomeone(t, { name: "Tomas Berg", role: "spouse", from: "1971", until: "1989-02-30" });
+  check("an impossible date is refused on the form; nothing is pending",
+    /Until/.test(($(t, "[data-qv2-form-error]") || {}).textContent || "") && dirty(t) === pendingBeforeDates,
+    ($(t, "[data-qv2-form-error]") || {}).textContent);
+  addSomeone(t, { name: "Tomas Berg", role: "spouse", from: "1971 to 1989" });
+  check("a range typed into one end of a period is refused on the form; nothing is pending",
+    /one date, not a range/.test(($(t, "[data-qv2-form-error]") || {}).textContent || "") && dirty(t) === pendingBeforeDates,
+    ($(t, "[data-qv2-form-error]") || {}).textContent);
   addSomeone(t, { name: "Tomas Berg", role: "spouse", q: ["former"], from: "1971", until: "about 1989" });
   addSomeone(t, { name: "Nils Berg", role: "child" });
   // a grandchild with no parent recorded in between — nothing is inferred to connect them

@@ -128,8 +128,8 @@ class QuestionnairePeople(_Db):
         (rt,) = [v for v in rels.values() if tomas in v[:2]]
         self.assertEqual(rt[2:4], ("spouse_of", '["former"]'))
         self.assertEqual(json.loads(rt[5]), {"start": {"text": "1971", "value": "1971", "precision": "year"},
-                                             "end": {"text": "about 1989", "value": None, "precision": "unknown"}},
-                         "a date as said: text kept, no value invented for 'about 1989'")
+                                             "end": {"text": "about 1989", "value": "1989~", "precision": "year"}},
+                         "C-4: text kept as said; the approximation lives in the value, precision is granularity")
         pike = self.person_named("Mrs. Pike")
         self.assertEqual(self.rows("SELECT kind, described_as FROM lr_relationships WHERE subject_person_id=?", pike),
                          [("other", "the neighbour who taught her to read")])

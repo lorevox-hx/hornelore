@@ -25,6 +25,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "server" / "code"))
 
 from api import db as _db  # noqa: E402
+from api.services.life_record import dates as D  # noqa: E402
 from api.services.life_record import rules as R  # noqa: E402
 from api.services.life_record import writer as W  # noqa: E402
 
@@ -242,17 +243,45 @@ class Relationships(_Db):
 
 class Dates(_Db):
     def test_approximate_dob_stays_approximate_and_anchors_the_span(self):
-        self.ok(self.birth("e-b", NORA, "around 1945", "1945~", "approximate", "a-dob"))
+        # C-4: approximation lives in the VALUE; precision is granularity.
+        self.ok(self.birth("e-b", NORA, "around 1945", "1945~", "year", "a-dob"))
         rec = self.rec()
         ev = rec["events"][0]
-        self.assertEqual(ev["date"], date("around 1945", "1945~", "approximate"))
+        self.assertEqual(ev["date"], date("around 1945", "1945~", "year"))
         span = R.resolve_life_span(rec)
-        self.assertEqual((span["available"], span["precision"]), (True, "approximate"))
+        self.assertEqual((span["available"], span["precision"]), (True, "year"))
+        # C-4: the certainty lives in the date's value; a consumer reads it
+        # from there (no second representation on the span).
+        self.assertTrue(D.qualifiers(span["start"])["approximate"],
+                        "year precision is NOT a claim of exactness")
+
+    def _legacy(self, aid, value):
+        """Put a pre-C-4 date in by SQL — the writer now refuses to create one."""
+        con = sqlite3.connect(str(_db.DB_PATH))
+        con.execute("UPDATE lr_assertions SET value_json = ? WHERE id = ?",
+                    (json.dumps(value, sort_keys=True), aid))
+        con.commit()
+        con.close()
 
     def test_a_year_with_no_normalised_value_is_kept_not_a_crash(self):
-        self.ok(self.birth("e-b", NORA, "sometime in 1939", None, "year", "a-dob"))
+        # Legacy shape (C-3 and earlier): year precision with no value. The
+        # rules used to crash on it; it must still read, and an unrelated
+        # write must still pass the rules with it in the record.
+        self.ok(self.birth("e-b", NORA, "1939", "1939", "year", "a-dob"))
+        self._legacy("a-dob", {"text": "sometime in 1939", "value": None, "precision": "year"})
         self.assertEqual(self.rec()["events"][0]["date"],
                          {"text": "sometime in 1939", "value": None, "precision": "year"})
+        self.ok([self.name(NORA, "n1", "Nora Whitfield")])
+
+    def test_a_legacy_approximate_dob_still_reads_as_approximate(self):
+        self.ok(self.birth("e-b", NORA, "1945", "1945", "year", "a-dob"))
+        self._legacy("a-dob", date("around 1945", "1945~", "approximate"))
+        rec = self.rec()
+        self.assertEqual(rec["events"][0]["date"], date("around 1945", "1945~", "approximate"))
+        span = R.resolve_life_span(rec)
+        self.assertEqual(span["precision"], "approximate", "a legacy date is never rewritten")
+        self.assertTrue(D.qualifiers(span["start"])["approximate"])
+        self.ok([self.name(NORA, "n1", "Nora Whitfield")])
 
     def test_no_dob_no_fabricated_scaffold(self):
         self.ok([self.name(NORA, "n1", "Nora Whitfield")])

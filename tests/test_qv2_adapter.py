@@ -65,7 +65,7 @@ class QuestionnaireV2ReadModel(_Db):
             a("pr1", "person", N, "person.pronouns", "ze/zir"),
             {"op": "add", "path": "places/pl-lagos", "value": {"label": "Lagos"}},
             event("e-nb", "birth", [(N, "subject")], place="pl-lagos"),
-            a("d-nb", "event", "e-nb", "person.birth.date", date("around 1939", "1939~", "approximate")),
+            a("d-nb", "event", "e-nb", "person.birth.date", date("around 1939", "1939~", "year")),
             {"op": "set", "path": f"people/{N}/birthEventRef", "value": "e-nb", "expectedPrevious": None},
             a("bo", "person", N, "person.birth.order", "second of four"),
             a("rc-sib", "person", N, "person.reported_count.siblings", 3),
@@ -110,9 +110,10 @@ class QuestionnaireV2ReadModel(_Db):
         self.ok([   # 3 — partners, unions and children
             person("p-sp1"), self.name("p-sp1", "nsp1", "Tomas Berg"),
             person("p-pt2"), self.name("p-pt2", "npt2", "Lena Holm"),
-            rel("r-sp1", N, "p-sp1", "spouse_of", period={"start": "June 1961", "end": "1970"},
+            rel("r-sp1", N, "p-sp1", "spouse_of", period={"start": date("June 1961", "1961-06", "month"),
+                                                        "end": date("1970", "1970", "year")},
                 qualifiers={"status": "former"}),
-            rel("r-pt2", "p-pt2", N, "partner_of", period={"start": "1975"}),
+            rel("r-pt2", "p-pt2", N, "partner_of", period={"start": date("1975", "1975", "year")}),
             event("e-u1", "union", [(N, "partner"), ("p-sp1", "partner")]),
             a("d-u1", "event", "e-u1", "event.union.date", date("June 1961", "1961-06", "month")),
             event("e-sep", "separation", [(N, "partner"), ("p-sp1", "partner")]),
@@ -136,7 +137,7 @@ class QuestionnaireV2ReadModel(_Db):
             {"op": "add", "path": "places/pl-vax", "value": {"label": "Växjö"}},
             event("e-h1", "move", [(N, "resident")], place="pl-upp"),
             a("d-h1", "event", "e-h1", "event.residence.period",
-              date("between 1958 and 1960", "1958/1960", "range")),
+              date("between 1958 and 1960", None, "unknown")),
             event("e-h2", "move", [(N, "resident"), ("p-pt2", "resident")], place="pl-vax",
                   attributes={"current": True}),
             event("e-ed", "education", [(N, "student")]),
@@ -160,8 +161,10 @@ class QuestionnaireV2ReadModel(_Db):
                 "origin": "captured", "kind": "memory", "candidateRef": "c-ines"}},
         ])
 
-    def view(self, trips=None):
+    def view(self, trips=None, after_build=None):
         self.build()
+        if after_build:
+            after_build()
         record = json.loads(json.dumps(self.rec()))
         d = Path(self.tmp.name)
         (d / "record.json").write_text(json.dumps(record))
@@ -232,7 +235,7 @@ class QuestionnaireV2ReadModel(_Db):
         _, out = self.view()
         v = out["view"]
         self.assertEqual(v["people"][N]["birth"]["date"]["value"],
-                         {"text": "around 1939", "value": "1939~", "precision": "approximate"})
+                         {"text": "around 1939", "value": "1939~", "precision": "year"})
         self.assertEqual(v["people"][N]["birth"]["placeLabel"], "Lagos")
         self.assertEqual(v["events"]["e-h1"]["date"]["value"]["text"], "between 1958 and 1960")
         self.assertEqual(v["events"]["e-u1"]["date"]["value"]["precision"], "month")
@@ -241,12 +244,32 @@ class QuestionnaireV2ReadModel(_Db):
         self.assertEqual(sorted(x["value"]["text"] for x in mb["alternatives"]), ["1912", "1913"])
         self.assertIsNone(v["events"]["e-w1"]["date"], "work carries no date concept yet (C-4)")
 
+    def test_a_legacy_date_is_read_as_stored_never_rewritten(self):
+        """C-4 compatibility: dates stored before the contract (precision
+        'approximate' / 'range') are READ exactly as stored. The legacy rows
+        are put in by SQL, because the writer now refuses to create them."""
+        legacy = {"d-nb": {"text": "around 1939", "value": "1939~", "precision": "approximate"},
+                  "d-h1": {"text": "between 1958 and 1960", "value": "1958/1960", "precision": "range"}}
+
+        def put_legacy():
+            con = sqlite3.connect(str(_db.DB_PATH))
+            for aid, val in legacy.items():
+                con.execute("UPDATE lr_assertions SET value_json = ? WHERE id = ?",
+                            (json.dumps(val, sort_keys=True), aid))
+            con.commit()
+            con.close()
+        _, out = self.view(after_build=put_legacy)
+        v = out["view"]
+        self.assertEqual(v["people"][N]["birth"]["date"]["value"], legacy["d-nb"])
+        self.assertEqual(v["events"]["e-h1"]["date"]["value"], legacy["d-h1"])
+
     def test_partners_children_grandchildren_and_the_unrelated_are_all_kept(self):
         _, out = self.view()
         t, R = out["view"]["topics"], out["view"]["relationships"]
         self.assertEqual(sorted(t["partners"]["relationships"]), ["r-pt2", "r-sp1"])
         self.assertEqual(R["r-sp1"]["qualifiers"], {"status": "former"})
-        self.assertEqual(R["r-sp1"]["period"], {"start": "June 1961", "end": "1970"})
+        self.assertEqual(R["r-sp1"]["period"], {"start": date("June 1961", "1961-06", "month"),
+                                                "end": date("1970", "1970", "year")})
         self.assertEqual(sorted(t["partners"]["unions"]), ["e-sep", "e-u1"])
         self.assertEqual(sorted(t["partners"]["children"]), ["r-c1", "r-c2"], "both stored directions")
         self.assertEqual(t["partners"]["grandchildren"], ["r-g1"], "no intermediate relative needed")

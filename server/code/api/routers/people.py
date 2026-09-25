@@ -102,6 +102,24 @@ class PersonUpdate(BaseModel):
     )
 
 
+def _legacy_birth_date(raw: Optional[str]) -> str:
+    """C-4B: what the LEGACY people row / profile mirror may keep of a birth
+    date. The same contract as the Life Record: a date-shaped value that is
+    not a real date (``1939-02-30``) or a range is NOT stored anywhere — the
+    legacy ``_sanitise_dob`` checks shape only, so it would keep it while the
+    Life Record says "not recorded". Recognised and text-only dates pass
+    unchanged. The ORIGINAL input still goes to ``establish_narrator`` so the
+    response can say what was not recorded and why."""
+    from ..services.life_record import dates as _dates
+    text = (raw or "").strip()
+    if not text:
+        return ""
+    r = _dates.parse(text)
+    if r[0] == "refuse" or (r[1] and "/" in r[1]):
+        return ""
+    return raw
+
+
 def _establish_in_life_record(person_id: str, **identity) -> dict:
     """Batch C-2R2: a new narrator exists in the Life Record from creation,
     written through the one writer. A failure here is REPORTED in the
@@ -113,7 +131,8 @@ def _establish_in_life_record(person_id: str, **identity) -> dict:
     except Exception as exc:  # pragma: no cover - surfaced, not hidden
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
     return {"ok": bool(r.get("ok")), "revision": r.get("revision"),
-            **({} if r.get("ok") else {"refused": r.get("refused") or r.get("conflict")})}
+            **({} if r.get("ok") else {"refused": r.get("refused") or r.get("conflict")}),
+            **({"notRecorded": r["notRecorded"]} if r.get("notRecorded") else {})}
 
 
 @router.post("", summary="Create a new person")
@@ -166,7 +185,7 @@ def api_create_person(payload: PersonCreate):
         person = create_person(
             display_name=payload.display_name,
             role=payload.role,
-            date_of_birth=payload.date_of_birth,
+            date_of_birth=_legacy_birth_date(payload.date_of_birth),
             place_of_birth=payload.place_of_birth,
             narrator_type=payload.narrator_type or "live",
             pronouns=pron,
@@ -712,7 +731,7 @@ def api_create_person_intake(payload: NarratorIntakePayload):
         person = create_person(
             display_name=payload.preferred_name.strip(),
             role="",
-            date_of_birth=payload.date_of_birth,
+            date_of_birth=_legacy_birth_date(payload.date_of_birth),
             place_of_birth=payload.place_of_birth,
             narrator_type="live",
             pronouns=payload.pronouns,
@@ -762,7 +781,7 @@ def api_create_person_intake(payload: NarratorIntakePayload):
     personal: Dict[str, Any] = {
         "fullName": payload.full_legal_name.strip(),
         "preferredName": payload.preferred_name.strip(),
-        "dateOfBirth": payload.date_of_birth,
+        "dateOfBirth": _legacy_birth_date(payload.date_of_birth),
         "placeOfBirth": payload.place_of_birth,
         "currentResidence": payload.current_residence,
         "pronouns": _pronoun_label(payload.pronouns, payload.pronouns_other or ""),

@@ -1024,6 +1024,19 @@ def contract_uncertainty_propagates():
     if vague["exact"] or not vague["render"].startswith("about"):
         bad.append("an approximate birth produced an exact age — false precision")
 
+    # C-4 contract: approximation lives in the VALUE. `1945~` is YEAR
+    # precision and still approximate — reading precision alone is the bug.
+    vague_new = age_at(D("around 1945", "1945~", "year"), D("1965", "1965", "year"))
+    if vague_new["exact"] or not vague_new["render"].startswith("about"):
+        bad.append("a C-4 approximate birth (1945~, year) produced an unqualified age")
+    day_uncertain = age_at(D("1939-08-30?", "1939-08-30?"), D("1971-09-01", "1971-09-01"))
+    if day_uncertain["exact"]:
+        bad.append("an uncertain day-precision birth produced an exact age")
+    if age_at(D("the 1920s", "192X", "year"), D("1965", "1965", "year")) is not None:
+        bad.append("an age was computed from a decade (192X) — a range is not a birth day")
+    if age_at(D("1939", "1939", "year"), D("1960 to 1965", "1960/1965", "unknown")) is not None:
+        bad.append("an age was computed at an interval — a range is not a point in time")
+
     if age_at(None, D("1971", "1971", "year")) is not None:
         bad.append("an age was computed with no birth date")
     return bad

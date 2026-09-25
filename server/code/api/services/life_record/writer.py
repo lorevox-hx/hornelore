@@ -58,6 +58,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from ... import db as _db
+from . import dates as _dates
 from . import graph_projection as _graph
 from . import rules as _rules
 from . import store as _store
@@ -86,6 +87,32 @@ class _Refuse(Exception):
 def _catalog_concepts() -> set:
     from ..concept_catalog import load
     return set(load()._concepts)
+
+
+def _value_type(concept: str) -> Optional[str]:
+    from ..concept_catalog import load
+    c = load().concept(concept)
+    return (c or {}).get("value_type")
+
+
+def _check_period(path: str, new: Any, old: Any) -> None:
+    """C-4B: a relationship's or a name's period is {start?, end?}, each ONE
+    date under the contract. Only an endpoint this write CHANGES is checked —
+    a legacy endpoint carried through unchanged passes byte-for-byte, so an
+    unrelated edit never fails on a date stored before C-4."""
+    if new is None or _same(new, old):
+        return
+    if not isinstance(new, dict):
+        raise _Refuse(path, "a period is {start?, end?}, each a date {text, value, precision}")
+    old = old if isinstance(old, dict) else {}
+    extra = set(new) - {"start", "end"}
+    if extra - set(old):
+        raise _Refuse(path, f"a period carries only start and end (not {sorted(extra - set(old))})")
+    for end in ("start", "end"):
+        if end in new and new[end] is not None and not _same(new[end], old.get(end)):
+            why = _dates.check(new[end], allow_interval=False)
+            if why:
+                raise _Refuse(path, f"period {end}: {why}")
 
 
 # ── entity specs: the client-facing fields of each simple entity ────────
@@ -265,6 +292,8 @@ class _Tx:
                 return
             if not isinstance(v, dict) or not str(v.get("fullText") or "").strip():
                 raise _Refuse(path, "a name needs its fullText, as supplied")
+            _check_period(path, v.get("period"),
+                          (self.view(path) or {}).get("period") if op == "set" else None)
             cols = {col: (_dump(v.get(key)) if js else v.get(key)) for key, col, js in _NAME_FIELDS}
             cols["kind"] = cols["kind"] or "current"
             if cols["kind"] != "current" and cols["use"] is None:
@@ -369,6 +398,9 @@ class _Tx:
                                      (v[key],)).fetchone()
                     if cand is None or cand["narrator_id"] != self.nid:
                         raise _Refuse(path, "the captured story's candidate is not this narrator's")
+        if coll == "relationships":
+            _check_period(path, v.get("period"),
+                          (self.view(path) or {}).get("period") if op == "set" else None)
         if coll == "relationships" and cols.get("basis") is None:
             cols["basis"] = "stated"
         if op == "add":
@@ -420,6 +452,14 @@ class _Tx:
         self.own(_SUBJECT_TABLE[stype], sid, path)
         if concept not in _catalog_concepts():
             raise _Refuse(path, f"{concept!r} is not a concept in the catalog (fail closed)")
+        vtype = _value_type(concept)
+        if vtype in ("date", "date_interval"):
+            # C-4B: an assertion is never edited, so every date assertion a
+            # write adds is a CHANGED date — the catalog's value_type decides
+            # that it is one, and the contract decides whether it agrees.
+            why = _dates.check(v.get("value"), allow_interval=(vtype == "date_interval"))
+            if why:
+                raise _Refuse(path, why)
         if concept in _store.DATE_CONCEPTS:
             ev = self.con.execute("SELECT type FROM lr_events WHERE id = ?", (sid,)).fetchone()
             if stype != "event" or ev is None or _store.EVENT_DATE_CONCEPT.get(ev["type"]) != concept:

@@ -59,7 +59,7 @@ class _Graph(_Db):
              "value": {"type": "birth", "place": "pl-spk",
                        "participants": [{"person": "p-ada", "role": "subject"}]}},
             self.assertion("a-ada-b", "event", "e-ada-b", "person.birth.date",
-                           date("around 1915", "1915~", "approximate")),
+                           date("around 1915", "1915~", "year")),
             {"op": "set", "path": "people/p-ada/birthEventRef", "value": "e-ada-b",
              "expectedPrevious": None},
             {"op": "add", "path": "people/p-tom", "value": {}},
@@ -170,7 +170,7 @@ class PeriodsProjectAsSaid(_Graph):
         self.ok([{"op": "add", "path": "people/p-s", "value": {}},
                  {"op": "add", "path": "relationships/r-s",
                   "value": {"subjectPersonId": "p-s", "otherPersonId": NORA, "kind": "spouse_of",
-                            "period": {"start": {"text": "about 1962", "value": None, "precision": "unknown"},
+                            "period": {"start": {"text": "about 1962", "value": "1962~", "precision": "year"},
                                        "end": {"text": "1980", "value": "1980", "precision": "year"}}}}])
         rel = next(r for r in self.graph()["relationships"] if r["id"] == G.graph_id("r-s"))
         self.assertEqual((rel["start_date"], rel["end_date"]), ("about 1962", "1980"))

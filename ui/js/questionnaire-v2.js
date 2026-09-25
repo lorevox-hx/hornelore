@@ -272,22 +272,44 @@
     };
   }
 
-  function periodOf(f) {
-    var P = model().parseDateText, start = P(f.from), end = P(f.until), out = {};
+  /* A period's two ends are SINGLE dates (C-4 contract). A refused date or a
+     range typed into one end is a form error — never silently downgraded.
+
+     `prior` is the STORED period of an existing relationship. An end whose
+     text the operator did not change is carried as the stored object, byte for
+     byte — re-parsing it would silently rewrite a legacy date (C-3's
+     {text:"about 1989", value:null} would become 1989~) during an unrelated
+     edit, and the server would rightly accept that as a changed end. */
+  function periodOf(f, prior) {
+    var P = model().parseDateText;
+    var kept = function (typed, stored) {   // the operator did not touch this end
+      var t = String(typed == null ? "" : typed).trim();
+      return !!(t && stored && typeof stored === "object" &&
+                t === String(stored.text == null ? "" : stored.text).trim());
+    };
+    var pr = prior && typeof prior === "object" ? prior : {};
+    var keepStart = kept(f.from, pr.start), keepEnd = kept(f.until, pr.end);
+    var start = keepStart ? pr.start : P(f.from), end = keepEnd ? pr.end : P(f.until), out = {};
+    // Only an end the operator CHANGED is held to the contract here — the
+    // same rule the writer applies (writer._check_period).
+    var fresh = [[start, "From", keepStart], [end, "Until", keepEnd]].filter(function (x) { return x[0] && !x[2]; });
+    var bad = fresh.filter(function (x) { return x[0].refuse; })[0];
+    if (bad) return { error: bad[1] + ": " + bad[0].refuse };
+    var rng = fresh.filter(function (x) { return x[0].value && x[0].value.indexOf("/") >= 0; })[0];
+    if (rng) return { error: rng[1] + " is one date, not a range." };
     if (start) out.start = start;
     if (end) out.end = end;
-    return Object.keys(out).length ? out : null;
+    return Object.keys(out).length ? { period: out } : { period: null };
   }
 
   /* A relationship as the writer stores it: "subject is <kind> of other". */
-  function relValue(role, personId, f) {
+  function relValue(role, personId, f, per) {
     var R = model().ROLES[role], nid = S.view.narratorPersonId;
     var v = { subjectPersonId: R.narratorIs === "other" ? personId : nid,
               otherPersonId: R.narratorIs === "other" ? nid : personId, kind: R.kind };
     if (f.describedAs) v.describedAs = f.describedAs;
     if (f.qualifiers && f.qualifiers.length) v.qualifiers = f.qualifiers.slice();
     if (f.narratorLabel) v.narratorLabel = f.narratorLabel;
-    var per = periodOf(f);
     if (per) v.period = per;
     return v;
   }
@@ -330,9 +352,11 @@
     var personId = f.person;
     if (!personId && !f.fullText) return err("Write the person's name as it is said — whole, as one line.");
     if (personId === nid) return err("That is the narrator.");
+    var pd = periodOf(f);
+    if (pd.error) return err(pd.error);
     var isNew = !personId;
     if (isNew) personId = newId("qv2p-");
-    var value = relValue(f.role, personId, f);
+    var value = relValue(f.role, personId, f, pd.period);
     if (!isNew && duplicateOf(value)) return err("That relationship is already recorded.");
     if (isNew) {
       S.edits["newperson:" + personId] = { kind: "newperson", topic: topic, personId: personId,
@@ -356,14 +380,15 @@
     var r = S.view.relationships[relId]; if (!r) return;
     var f = readForm(form);
     if (r.kind === "other" && !f.describedAs) { S.formError = { topic: S.topic, text: "\"Other\" needs its description." }; paint(); return; }
+    var pd = periodOf(f, r.raw.period);
+    if (pd.error) { S.formError = { topic: S.topic, text: pd.error }; paint(); return; }
     var after = {};
     Object.keys(r.raw).forEach(function (k) { after[k] = r.raw[k]; });
     ["describedAs", "qualifiers", "narratorLabel", "period"].forEach(function (k) { delete after[k]; });
     if (f.describedAs) after.describedAs = f.describedAs;
     if (f.qualifiers.length) after.qualifiers = f.qualifiers;
     if (f.narratorLabel) after.narratorLabel = f.narratorLabel;
-    var per = periodOf(f);
-    if (per) after.period = per;
+    if (pd.period) after.period = pd.period;
     var key = "reledit:" + relId;
     if (JSON.stringify(sortKeys(after)) === JSON.stringify(sortKeys(r.raw))) delete S.edits[key];
     else S.edits[key] = { kind: "reledit", topic: S.topic, relId: relId, before: r.raw, after: after };
