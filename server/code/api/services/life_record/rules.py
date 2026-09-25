@@ -203,6 +203,27 @@ def rule_birth_death_refs_are_the_persons_own(b):
     return bad
 
 
+def rule_one_birth_one_death_per_person(b):
+    """C-4E — a person is the SUBJECT of at most one birth event and at most
+    one death event. A second account of when or where is a competing
+    assertion on the SAME event (kept and linked), never a second occurrence;
+    an editor that "adds" a birth instead of extending the existing one is
+    refused here, not trusted."""
+    bad = []
+    seen = {}
+    for e in b.get("events", []):
+        if e.get("type") not in ("birth", "death"):
+            continue
+        for part in e.get("participants", []):
+            if part.get("role") == "subject":
+                seen.setdefault((e["type"], part["person"]), []).append(e["id"])
+    for (typ, pid), ids in sorted(seen.items()):
+        if len(ids) > 1:
+            bad.append(f"person {pid}: {len(ids)} {typ} events ({', '.join(sorted(ids))}) — one occurrence, "
+                       "competing accounts go on it")
+    return bad
+
+
 def rule_no_duplicate_birth_death_storage(b):
     """§3.8 — dates live on the event. A person must not also carry one."""
     bad = []
@@ -530,6 +551,7 @@ RULES = [
     ("derived relationships not hand-edited", rule_derived_relationships_not_hand_edited),
     ("event participants resolve", rule_event_participants_resolve),
     ("life status valid, never inferred", rule_life_status_valid_and_not_inferred),
+    ("one birth and one death per person", rule_one_birth_one_death_per_person),
     ("birth/death dates stored once", rule_no_duplicate_birth_death_storage),
     ("birth/death refs are the person's own", rule_birth_death_refs_are_the_persons_own),
     ("assertions well formed", rule_assertions_well_formed),

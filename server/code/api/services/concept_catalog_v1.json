@@ -7497,7 +7497,7 @@
     "narrative_value": "measured: max over bound asking keys",
     "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "not_offered",
+   "questionnaire": "editable",
    "special_projection": {
     "supplies": "life_span.start",
     "when": "subject_is_narrator"
@@ -7608,7 +7608,7 @@
     "narrative_value": "measured: max over bound asking keys",
     "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "not_offered",
+   "questionnaire": "editable",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -7699,7 +7699,7 @@
     "narrative_value": "unassessed: no asking key binds this concept",
     "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "not_offered",
+   "questionnaire": "editable",
    "special_projection": {
     "supplies": "life_span.end",
     "when": "subject_is_narrator"
@@ -7748,7 +7748,7 @@
     "narrative_value": "unassessed: no asking key binds this concept",
     "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "not_offered",
+   "questionnaire": "editable",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -9953,8 +9953,8 @@
   ],
   "questionnaire": {
    "derived_readonly": 1,
-   "editable": 12,
-   "not_offered": 75
+   "editable": 16,
+   "not_offered": 71
   }
  },
  "decisions_used": {
@@ -9997,9 +9997,9 @@
  },
  "fingerprints": {
   "decisions_sha256": "9e302bad10861ca2398ffbb4e73b9744ad61f27285a29980d5bb924057b54556",
-  "measured_vocabularies_sha256": "55c08bb92edc368e4cb8b7ea04d6c474ec99ce42b0e70c541ce6f9e4b0c982e5",
+  "measured_vocabularies_sha256": "1f65f9a0c3f35ab9a9766c94b897ec8e4674f7c463ffd4cd5638ed1d7a6b169e",
   "questionnaire_schema": "questionnaire_schema.load_schema [7b974b9c2f23]",
-  "qv2_capabilities_literal_sha256": "9f17ded3cbf6bbb53fe284c48c3a74276ce4d99a65d98904da3ec14245a1365e",
+  "qv2_capabilities_literal_sha256": "ebb2eaed0829eb9a7c931ea5cbdf5940eea188af9d1facec396fb3adb4068872",
   "semantic_source_sha256": "590e3d7e7a92e9b68f203acf87568a4e44b03b28ba2ca5046847ea1d114b065c"
  },
  "reconciliations": [

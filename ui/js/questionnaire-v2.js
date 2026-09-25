@@ -213,6 +213,14 @@
 
   function setAnswerEdit(topic, subjectType, subjectId, concept, answer, rawValue) {
     if (!can(concept)) return;                          // fail closed (C-4C)
+    if (concept === "person.life_status" && subjectType === "person") {
+      var dv = S.edits[vitalKey("death", subjectId)];
+      if (dv && dv.deceased) {                          // C-4E: the death edit already sets Deceased
+        S.formError = { topic: topic, text: "A death is recorded for this person in an unsaved change, " +
+                        "which also records them as deceased — undo that first to change this." };
+        return;
+      }
+    }
     var key = answerKey(subjectType, subjectId, concept);
     var value = typeof rawValue === "string" ? rawValue.trim() : rawValue;
     var current = answer.state === "value" ? answer.value : undefined;
@@ -232,7 +240,7 @@
                        concept: concept, value: c.value, newAssertionId: keepId || newId("qv2a-"),
                        basis: { state: answer.state, assertionId: answer.assertionId || null,
                                 value: current === undefined ? null : current,
-                                status: last ? last.status : null } };
+                                status: last ? last.status : null, accepted: !!answer.accepted } };
     }
     writeDraft();
   }
@@ -268,6 +276,7 @@
       person: get("person"), fullText: get("fullText"), role: get("role"), describedAs: get("describedAs"),
       narratorLabel: get("narratorLabel"), lineage: get("lineage"), lifeStatus: get("lifeStatus"),
       from: get("from"), until: get("until"), nameKind: get("nameKind"),
+      date: get("date"), place: get("place"), newPlaceLabel: get("newPlaceLabel"),
       qualifiers: Array.prototype.slice.call(form.querySelectorAll('[data-f="q"]'))
         .filter(function (x) { return x.checked; }).map(function (x) { return x.value; }),
     };
@@ -448,6 +457,113 @@
     writeDraft();
   }
 
+  /* ── Birth and death (C-4E) ─────────────────────────────────────────
+     Both are canonical EVENTS whose subject is the person: the date is an
+     assertion on the event (person.birth.date / person.death.date), the place
+     is the event's place_id. An existing occurrence is EXTENDED, never
+     duplicated (the writer refuses a second one: rule "one birth and one death
+     per person"). A place is chosen by ID or created as a NEW place — a
+     matching label never means the same place. Recording a death also records
+     the person deceased, in the same Save, when they are not already; marking
+     someone deceased never creates a death. */
+  var VITAL = {
+    birth: { date: "person.birth.date", place: "person.birth.place", ref: "birthEventRef", label: "Birth" },
+    death: { date: "person.death.date", place: "person.death.place", ref: "deathEventRef", label: "Death" },
+  };
+  function vitalKey(kind, pid) { return "vital:" + kind + ":" + pid; }
+
+  function keepVital(personId, kind, form) {
+    var V = VITAL[kind], p = S.view.people[personId]; if (!V || !p) return;
+    var f = readForm(form), cur = p[kind], key = vitalKey(kind, personId);
+    var err = function (t) { S.formError = { topic: S.topic, text: V.label + ": " + t }; paint(); };
+    // the date — a SINGLE date under the C-4 contract, or left as it is
+    var date = null, typed = can(V.date) ? f.date : "";
+    if (typed) {
+      var stored = cur.date && cur.date.state === "value" ? cur.date.value : null;
+      if (cur.date && cur.date.state === "unresolved")
+        return err("two accounts of this date are recorded — decide between them in review first.");
+      if (!(stored && String(stored.text || "").trim() === typed)) {        // an unchanged date is not re-parsed
+        date = model().parseDateText(typed);
+        if (date && date.refuse) return err(date.refuse);
+        if (date && date.value && date.value.indexOf("/") >= 0) return err("a " + kind + " is one date, not a range.");
+      }
+    }
+    // the place — chosen by ID, or created new; never matched by its label
+    var place = { mode: "keep" }, sel = can(V.place) ? f.place : "";
+    if (sel === "new") {
+      var label = String(f.newPlaceLabel || "").trim();
+      if (!label) return err("write the new place's name, as it is said.");
+      place = { mode: "new", placeId: newId("qv2pl-"), label: label };
+    } else if (sel && sel.indexOf("existing:") === 0) {
+      var pid2 = sel.slice("existing:".length);
+      if (!S.view.places[pid2]) return err("that place is not in this record.");
+      if (pid2 !== cur.placeId) place = { mode: "existing", placeId: pid2 };
+    }
+    if (!date && place.mode === "keep") {            // nothing said: nothing to keep, nothing invented
+      delete S.edits[key]; S.formError = null; forget("vital-" + kind + ":" + personId); writeDraft(); paint(); return;
+    }
+    // a death needs the person deceased — added in the same Save when they are not already
+    var deceased = null;
+    if (kind === "death") {
+      var ls = p.lifeStatus, pend = S.edits[answerKey("person", personId, "person.life_status")];
+      if (pend) {
+        if (pend.value !== "deceased") return err("this person is set to “" + pend.value + "” in an unsaved change — " +
+                                                  "make that Deceased, or undo it, first.");
+      } else if (ls.state === "unresolved") {
+        return err("two accounts of whether this person is living are recorded — decide between them in review first.");
+      } else if (!(ls.state === "value" && ls.value === "deceased")) {
+        deceased = { assertionId: newId("qv2a-"),
+                     basis: { state: ls.state, assertionId: ls.assertionId || null,
+                              status: ((ls.history || []).filter(function (a) { return a.id === ls.assertionId; })[0] || {}).status || null,
+                              accepted: !!ls.accepted } };
+      }
+    }
+    var dateBasis = cur.date && cur.date.state === "value"
+      ? { state: "value", assertionId: cur.date.assertionId,
+          status: ((cur.date.history || []).filter(function (a) { return a.id === cur.date.assertionId; })[0] || {}).status || null,
+          accepted: !!cur.date.accepted }
+      : { state: "blank", assertionId: null, status: null };
+    S.edits[key] = { kind: "vital", vitalKind: kind, topic: S.topic, personId: personId,
+                     eventId: cur.eventId || newId("qv2e-"), isNew: !cur.eventId, eventBefore: cur.raw || null,
+                     date: date, dateBasis: dateBasis, dateAssertionId: date ? newId("qv2a-") : null,
+                     place: place, deceased: deceased };
+    S.formError = null;
+    if (place.mode === "new") {                        // suggest — never merge
+      var same = Object.keys(S.view.places || {}).filter(function (id) {
+        return String(S.view.places[id].label || "").trim().toLowerCase() === place.label.toLowerCase(); });
+      if (same.length) S.message = { kind: "info", text: "A place called “" + place.label + "” is already recorded. " +
+        "This creates a SEPARATE place — if it is the same one, undo and choose it from the list instead." };
+    }
+    forget("vital-" + kind + ":" + personId);
+    writeDraft(); paint();
+  }
+
+  function vitalOps(e, src) {
+    var V = VITAL[e.vitalKind], ops = [];
+    var placeId = e.place.mode === "keep" ? (e.eventBefore ? e.eventBefore.place || null : null) : e.place.placeId;
+    if (e.place.mode === "new") ops.push({ op: "add", path: "places/" + e.place.placeId, value: { label: e.place.label } });
+    if (e.isNew) {
+      var v = { type: e.vitalKind, participants: [{ person: e.personId, role: "subject" }] };
+      if (placeId) v.place = placeId;
+      ops.push({ op: "add", path: "events/" + e.eventId, value: v });
+      ops.push({ op: "set", path: "people/" + e.personId + "/" + V.ref, value: e.eventId, expectedPrevious: null });
+    } else if (e.place.mode !== "keep") {
+      var after = {}; Object.keys(e.eventBefore).forEach(function (k) { after[k] = e.eventBefore[k]; });
+      after.place = placeId;
+      ops.push({ op: "set", path: "events/" + e.eventId, value: after, expectedPrevious: e.eventBefore });
+    }
+    if (e.date) {
+      ops = ops.concat(answerOps({ kind: "vital", newAssertionId: idOf(e, "dateAssertionId"), basis: e.dateBasis,
+                                   subjectType: "event", subjectId: e.eventId, concept: V.date, value: e.date }, src));
+    }
+    if (e.deceased) {
+      ops = ops.concat(answerOps({ kind: "vital", newAssertionId: e.deceased.assertionId, basis: e.deceased.basis,
+                                   subjectType: "person", subjectId: e.personId, concept: "person.life_status",
+                                   value: "deceased" }, src));
+    }
+    return ops;
+  }
+
   function addPronoun(form) {
     var f = form.querySelector('[data-f="pronoun"]'), t = f ? String(f.value || "").trim() : "";
     if (!t || !can("person.pronouns")) return;
@@ -506,12 +622,23 @@
       return [assertionOp(id, edit.subjectType, edit.subjectId, edit.concept, edit.value, src)];
     }
     var old = edit.basis.assertionId;
-    return [
+    var ops = [
       assertionOp(id, edit.subjectType, edit.subjectId, edit.concept, edit.value, src, { supersedes: old }),
       { op: "set", path: "assertions/" + old + "/supersededBy", value: id, expectedPrevious: null },
       { op: "set", path: "assertions/" + old + "/status", value: "superseded",
         expectedPrevious: edit.basis.status },
     ];
+    // C-4E review: when the assertion being corrected is the one a human
+    // EXPLICITLY ACCEPTED, the operator's correction moves that recorded
+    // acceptance to the correction in the same Save — otherwise the decision
+    // is left on a superseded assertion and the fact (a birth anchor, a life
+    // status) resolves to nothing. Never inferred: only an acceptance that
+    // exists is moved, and it carries the id it expects to replace.
+    if (edit.basis.accepted) {
+      ops.push({ op: "set", path: "acceptances/" + edit.subjectType + "/" + edit.subjectId + "/" + edit.concept,
+                 value: id, expectedPrevious: old });
+    }
+    return ops;
   }
 
   function opsFor(e, src) {
@@ -550,12 +677,14 @@
         return [{ op: "set", path: "relationships/" + e.relId, value: e.after, expectedPrevious: e.before }];
       case "pronoun":
         return [assertionOp(e.assertionId, "person", e.personId, "person.pronouns", e.value, src)];
+      case "vital":
+        return vitalOps(e, src);
     }
     return [];
   }
 
   // People before the names, relationships and answers that refer to them.
-  var ORDER = { newperson: 0, newname: 1, nameedit: 2, preferred: 3, newrel: 4, reledit: 5, answer: 6, pronoun: 7 };
+  var ORDER = { newperson: 0, newname: 1, nameedit: 2, preferred: 3, newrel: 4, reledit: 5, vital: 6, answer: 7, pronoun: 8 };
 
   function buildChanges() {
     var src = PROVENANCE[S.provenance] || PROVENANCE.operator;
@@ -740,6 +869,50 @@
     return html;
   }
 
+  /* Birth / death of one person (C-4E): what is recorded, and — when the
+     capability declaration allows — a form for the date and the place. The
+     place is chosen from the record BY ID (same-named places are told apart by
+     their record id) or created new; nothing is matched by its label. */
+  function placeChoices(currentId) {
+    var P = S.view.places || {}, count = {};
+    var norm = function (l) { return String(l || "").trim().toLowerCase(); };
+    Object.keys(P).forEach(function (id) { count[norm(P[id].label)] = (count[norm(P[id].label)] || 0) + 1; });
+    return Object.keys(P).map(function (id) {
+      var l = P[id].label || "(unnamed place)";
+      return ["existing:" + id, l + (count[norm(l)] > 1 ? " — record " + id.slice(-6) : "") +
+                                (id === currentId ? " (current)" : "")];
+    });
+  }
+  function vitalSummary(e) {
+    var parts = [];
+    if (e.date) parts.push(e.date.text);
+    if (e.place.mode === "new") parts.push("new place “" + e.place.label + "”");
+    if (e.place.mode === "existing") parts.push((S.view.places[e.place.placeId] || {}).label || e.place.placeId);
+    if (e.deceased) parts.push("and recorded as deceased");
+    return parts.join(" · ");
+  }
+  function vitalBlock(personId, kind) {
+    var V = VITAL[kind], p = S.view.people[personId]; if (!p) return "";
+    var cur = p[kind], key = vitalKey(kind, personId), pend = S.edits[key], fk = "vital-" + kind + ":" + personId;
+    var html = "<h4>" + V.label + '</h4><p data-qv2-vital="' + esc(kind + ":" + personId) + '">' +
+      (cur.date ? answerText(cur.date) : "not recorded") + (cur.placeLabel ? " · " + esc(cur.placeLabel) : "") + "</p>";
+    if (pend) html += '<p class="qv2-pending-vital">' + esc(vitalSummary(pend)) + unsaved(key) + "</p>";
+    var canDate = can(V.date), canPlace = can(V.place);
+    if (!canDate && !canPlace) return html;
+    var storedText = cur.date && cur.date.state === "value" && cur.date.value ? cur.date.value.text || "" : "";
+    return html + '<div class="qv2-form qv2-inline" data-qv2-form="vital-' + kind + '" data-person="' + esc(personId) + '">' +
+      (canDate ? '<label class="qv2-field">Date <input type="text" data-f="date" value="' + esc(fv(fk, "date", storedText)) +
+                 '" placeholder="as said, e.g. 12 June 1939 or about 1939"></label>' : "") +
+      (canPlace ? '<label class="qv2-field">Place <select data-f="place">' +
+                  options([["new", "+ Create a new place (named below)"]].concat(placeChoices(cur.placeId)), fv(fk, "place", ""),
+                          cur.placeId ? "— keep the current place —" : "— not recorded —") + "</select></label>" +
+                  '<label class="qv2-field">New place <input type="text" data-f="newPlaceLabel" value="' +
+                  esc(fv(fk, "newPlaceLabel", "")) + '" placeholder="only when creating a new place"></label>' : "") +
+      (kind === "death" ? '<p class="qv2-hint">Recording a death also records this person as deceased.</p>' : "") +
+      '<button type="button" data-qv2-action="keep-vital" data-person="' + esc(personId) + '" data-kind="' + kind +
+      '">Keep ' + kind + "</button></div>";
+  }
+
   /* One relationship to the narrator, saved or pending. */
   function relCard(rel) {
     var R = model().ROLES, v = S.view;
@@ -785,7 +958,8 @@
       '<button type="button" data-qv2-action="keep-rel" data-rel="' + esc(r.id) + '">Keep these changes</button> ' +
       '<button type="button" data-qv2-action="close-rel">Close</button>' +
       '<p class="qv2-hint">To say this person is ALSO something else to the narrator (a grandmother who raised them), ' +
-      "add that below and choose them from \"someone already recorded\" — they stay one person.</p></div></div>";
+      "add that below and choose them from \"someone already recorded\" — they stay one person.</p></div>" +
+      (p ? vitalBlock(r.withPersonId, "birth") + vitalBlock(r.withPersonId, "death") : "") + "</div>";
   }
 
   function relsForTopic(t) {
@@ -874,8 +1048,7 @@
           (can("person.pronouns") ? '<div class="qv2-form qv2-inline" data-qv2-form="pronoun"><input type="text" data-f="pronoun" value="' +
             esc(fv("pronoun:", "pronoun", "")) + '" placeholder="Pronouns, as the narrator uses them"> ' +
             '<button type="button" data-qv2-action="add-pronoun">Add</button></div>' : "") +
-          "<h4>Birth</h4><p>" + answerText(N.birth.date) +
-            (N.birth.placeLabel ? " · " + esc(N.birth.placeLabel) : "") + "</p>" +
+          vitalBlock(N.id, "birth") + vitalBlock(N.id, "death") +
           answerInput("narrator", "person", N.id, "person.birth.order", "Birth order, as the narrator describes it",
                       N.birthOrder) +
           "<h4>Current home</h4>" + list(T.currentHomes.map(eventLine));
@@ -1003,6 +1176,7 @@
       else if (act === "keep-rel") keepRelationshipEdit(a.getAttribute("data-rel"), a.closest("[data-qv2-form]"));
       else if (act === "add-name") addName(a.getAttribute("data-person"), a.closest("[data-qv2-form]"));
       else if (act === "add-pronoun") addPronoun(a.closest("[data-qv2-form]"));
+      else if (act === "keep-vital") keepVital(a.getAttribute("data-person"), a.getAttribute("data-kind"), a.closest("[data-qv2-form]"));
     });
     var remember = function (ev) {
       var fm = ev.target.closest && ev.target.closest("[data-qv2-form]");

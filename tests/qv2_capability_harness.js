@@ -99,6 +99,10 @@ const answer = (t, concept, v) => { const el = need(t, '[data-qv2-answer$=":' + 
   const pf = need(t, '[data-qv2-form="pronoun"]'); setField(t, pf, "pronoun", "she/her");
   click(t, pf.querySelector('[data-qv2-action="add-pronoun"]'));
   answer(t, "person.birth.order", "the middle one");
+  // C-4E: the narrator's birth — a date and an EXISTING place chosen by id
+  const nb = need(t, '[data-qv2-form="vital-birth"][data-person="' + A + '"]');
+  setField(t, nb, "date", "30 August 1939"); setField(t, nb, "place", "existing:pl-1");
+  click(t, nb.querySelector('[data-qv2-action="keep-vital"]'));
 
   /* family: sibling count; add a new person with every relationship control */
   topic(t, "family");
@@ -117,6 +121,11 @@ const answer = (t, concept, v) => { const el = need(t, '[data-qv2-answer$=":' + 
   setField(t, rf2, "until", "1995");
   click(t, rf2.querySelector('[data-qv2-action="keep-rel"]'));
   void rf;
+  // C-4E: her death — a date and a NEW place
+  click(t, need(t, '[data-qv2-rel="r1"] [data-qv2-action="open-rel"]'));
+  const dv = need(t, '[data-qv2-form="vital-death"][data-person="p-m"]');
+  setField(t, dv, "date", "1995"); setField(t, dv, "place", "new"); setField(t, dv, "newPlaceLabel", "Fargo");
+  click(t, dv.querySelector('[data-qv2-action="keep-vital"]'));
 
   /* partners: children and grandchildren counts */
   topic(t, "partners");
@@ -143,6 +152,7 @@ const answer = (t, concept, v) => { const el = need(t, '[data-qv2-answer$=":' + 
       preferred: $$(c, "[data-qv2-preferred]").length, addName: $$(c, '[data-qv2-form="name"]').length,
       pronoun: $$(c, '[data-qv2-form="pronoun"]').length, addPerson: $$(c, '[data-qv2-form="person"]').length,
       period: $$(c, '[data-f="from"], [data-f="until"]').length,
+      vital: $$(c, '[data-qv2-form^="vital-"]').length,
     };
   }
   out.closed = census;

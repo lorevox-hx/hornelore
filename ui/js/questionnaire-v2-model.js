@@ -80,6 +80,10 @@
       "person.life_status",
       "person.pronouns",
       "person.birth.order",
+      "person.birth.date",
+      "person.birth.place",
+      "person.death.date",
+      "person.death.place",
       "person.reported_count.siblings",
       "person.reported_count.children",
       "person.reported_count.grandchildren",
@@ -172,6 +176,16 @@
     (record.places || []).filter(visible).forEach(function (p) { places[p.id] = p; });
     (record.events || []).filter(visible).forEach(function (e) { events[e.id] = e; });
     var placeLabel = function (id) { return id && places[id] ? places[id].label : null; };
+    /* An event EXACTLY as the writer's view of `events/<id>` holds it — the
+       `expectedPrevious` of any `set` on it (C-4E). */
+    var rawEvent = function (e) {
+      if (!e) return null;
+      var r = { type: e.type, participants: (e.participants || []).map(function (x) {
+        return { person: x.person, role: x.role }; }) };
+      if (e.place) r.place = e.place;
+      if (e.attributes) r.attributes = e.attributes;
+      return r;
+    };
 
     // people
     var people = {};
@@ -185,11 +199,11 @@
         preferredNameId: p.preferredNameRef || null,
         pronouns: items(p, "person.pronouns"),
         lifeStatus: answerOf("person.life_status", lsList, p["person.life_statusAcceptedId"]),
-        birth: { eventId: birth ? birth.id : null, date: dateField(birth),
+        birth: { eventId: birth ? birth.id : null, raw: rawEvent(birth), date: dateField(birth),
                  placeId: birth ? birth.place || null : null,
                  placeLabel: birth ? placeLabel(birth.place) : null,
                  time: field(p, "person.birth.time") },
-        death: { eventId: death ? death.id : null, date: dateField(death),
+        death: { eventId: death ? death.id : null, raw: rawEvent(death), date: dateField(death),
                  placeId: death ? death.place || null : null,
                  placeLabel: death ? placeLabel(death.place) : null,
                  reportedAge: field(p, "person.death.reported_age") },
@@ -222,8 +236,8 @@
       people[nid] = {
         id: nid, isNarrator: true, names: [], preferredNameId: null, pronouns: [],
         lifeStatus: none("person.life_status"),
-        birth: { eventId: null, date: null, placeId: null, placeLabel: null, time: none("person.birth.time") },
-        death: { eventId: null, date: null, placeId: null, placeLabel: null, reportedAge: none("person.death.reported_age") },
+        birth: { eventId: null, raw: null, date: null, placeId: null, placeLabel: null, time: none("person.birth.time") },
+        death: { eventId: null, raw: null, date: null, placeId: null, placeLabel: null, reportedAge: none("person.death.reported_age") },
         birthOrder: none("person.birth.order"), occupation: none("person.occupation"),
         education: none("person.education"), militaryService: none("person.military_service"),
         reportedCounts: { siblings: none("person.reported_count.siblings"),

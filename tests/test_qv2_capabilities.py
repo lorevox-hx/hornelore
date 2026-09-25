@@ -30,6 +30,18 @@ Structural translation (the editor writes structure, not only assertions):
                                          changed; other fields have no concept
     add   assertions/<a>              → its conceptId
     add   people/<p>                  → (person existence is not a concept)
+    set   assertions/<a>/supersededBy|status
+                                      → (bookkeeping on the OLD assertion; the new
+                                         one carries the concept)
+    add|set events/<e> (birth|death)  → person.<birth|death>.place when its place
+                                         is set or changed (C-4E); the event itself
+                                         is structure
+    add   places/<pl>                 → (a place's existence is not a concept)
+    set   people/<p>/birthEventRef|deathEventRef
+                                      → (the link to the person's own event)
+    set   acceptances/<type>/<id>/<concept>
+                                      → (an explicit acceptance moved to the
+                                         correction of the accepted assertion)
 Anything else is UNTRANSLATED and fails the test — a write this file does not
 understand is a write nobody has classified.
 """
@@ -64,6 +76,10 @@ FROZEN_EXPECTED = frozenset({
     "person.life_status",
     "person.pronouns",
     "person.birth.order",
+    "person.birth.date",
+    "person.birth.place",
+    "person.death.date",
+    "person.death.place",
     "person.reported_count.siblings",
     "person.reported_count.children",
     "person.reported_count.grandchildren",
@@ -72,11 +88,10 @@ FROZEN_EXPECTED = frozenset({
     "relationship.qualifier.lineage_side",
 })
 # Displayed by V2 today, NOT editable (C-4E–G / C-5 own their editors).
-READ_ONLY_TODAY = ("person.death.date", "person.death.reported_age", "person.languages",
+READ_ONLY_TODAY = ("person.death.reported_age", "person.birth.time", "person.languages",
                    "person.education", "person.military_service", "story.desired",
                    "story.life_today.routine", "story.name_origin", "story.reading",
-                   "person.birth.date", "event.union.date", "event.residence.period",
-                   "event.service.period")
+                   "event.union.date", "event.residence.period", "event.service.period")
 FUTURE_EVENT_DATES = ("event.work.period", "event.education.period", "event.separation.date",
                       "event.activity.period")
 SPLIT_NAME_PARTS = ("person.name.given", "person.name.family", "person.name.birth_family")
@@ -111,6 +126,24 @@ def translate(changes):
         if op == "add" and len(p) == 2 and p[0] == "assertions":
             concepts.add(v["conceptId"])
             continue
+        # supersession bookkeeping on an OLD assertion — the new one carries the concept
+        if op == "set" and len(p) == 3 and p[0] == "assertions" and p[2] in ("supersededBy", "status"):
+            continue
+        # an explicit acceptance MOVED to the correction of the accepted assertion
+        # (C-4E review) — a human decision's bookkeeping, not a new concept
+        if op == "set" and len(p) == 4 and p[0] == "acceptances":
+            continue
+        # C-4E: birth / death are events; their PLACE is the event's place
+        if len(p) == 2 and p[0] == "events" and (v or {}).get("type") in ("birth", "death"):
+            before = (ch.get("expectedPrevious") or {}).get("place") if op == "set" else None
+            if (v or {}).get("place") and (v or {}).get("place") != before:
+                concepts.add(f"person.{v['type']}.place")
+            if op in ("add", "set"):
+                continue
+        if op == "add" and len(p) == 2 and p[0] == "places":
+            continue                                   # a place's existence is not a concept
+        if op == "set" and len(p) == 3 and p[0] == "people" and p[2] in ("birthEventRef", "deathEventRef"):
+            continue                                   # the link from the person to their own event
         untranslated.append(ch)
     return concepts, untranslated
 
@@ -152,6 +185,7 @@ class CapabilityParity(unittest.TestCase):
                    db.name(NORA, "n2", "Ines Okafor", kind="former"),
                    {"op": "set", "path": f"people/{NORA}/preferredNameRef", "value": "n1",
                     "expectedPrevious": None},
+                   {"op": "add", "path": "places/pl-1", "value": {"label": "Minot"}},
                    {"op": "add", "path": "people/p-m", "value": {}},
                    db.name("p-m", "nm", "Ada Okafor"),
                    {"op": "add", "path": "relationships/r1", "value": {
@@ -307,7 +341,7 @@ class CompiledCatalogAgrees(unittest.TestCase):
     def test_the_old_form_no_longer_decides_but_is_still_recorded(self):
         paths = self.cat["bindings"]["paths"]
         legacy = {r["concept_id"] for r in paths if "questionnaire" in r["in"]}
-        for c in SPLIT_NAME_PARTS + ("person.birth.date", "event.union.date"):
+        for c in SPLIT_NAME_PARTS + ("event.residence.period", "event.union.date"):
             self.assertIn(c, legacy, f"{c}: its legacy form path must stay recorded")
             self.assertEqual(self.q[c], "not_offered", f"{c}: the old form must not make it editable")
         prov = {c["concept_id"]: c["provenance"] for c in self.cat["concepts"]}

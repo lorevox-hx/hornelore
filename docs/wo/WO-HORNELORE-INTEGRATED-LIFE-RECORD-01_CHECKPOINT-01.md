@@ -2579,6 +2579,93 @@ persistent database before acceptance.
 accepted; one cleanup (hard-coded historical migration counts removed; the initial 16-mutation
 gate distinguished from the final 19/19) made and re-reviewed. **C-4D ACCEPTED / CLOSED.** Next: C-4E.
 
+### C-4E — ACCEPTED / CLOSED 2026-09-25
+
+**Measured first.** V2 already READ birth/death (`model.people[].birth|death`: event id, date
+answer, place id/label) but had no control that wrote them. The writer already refused a death
+event whose subject is not `deceased` (`rule_life_status_valid_and_not_inferred`), a birth/death
+pointer to anything but the person's own event (`rule_birth_death_refs_are_the_persons_own`), a
+date on the wrong event type (`EVENT_DATE_CONCEPT`), and rolled back any refused change set. The
+PATCH route writes only `lr_*` — no `people` / `profile_json` mirror is on this path. Nothing
+stopped a SECOND birth or death event for one person.
+
+**Built:**
+
+| Where | What |
+|---|---|
+| `life_record/rules.py` | new rule **"one birth and one death per person"** — at most one birth and one death event with the person as subject; a second account is a competing assertion on the SAME event. (Checked first: no persistent database here holds any `lr_events` yet, so the rule refuses nothing already stored.) |
+| `questionnaire-v2-model.js` | each person's `birth` / `death` carries `raw` — the event exactly as the writer's view holds it, for `expectedPrevious`. Capability declaration **+4**: `person.birth.date`, `person.birth.place`, `person.death.date`, `person.death.place` |
+| `questionnaire-v2.js` | a Birth and a Death block on the narrator topic and on each relative's opened card. **Date**: a single date under the C-4 contract (impossible dates and ranges refused on the form; an unchanged stored text is not re-parsed; an unresolved date is not editable here). **Place**: chosen from the record BY ID (same-named places are listed separately with their record id) or **created new** — a new place whose name is already recorded gets a non-blocking suggestion, never a merge. An existing event is **extended** (a `set` carrying its exact previous value); a new one is added with the person's `birthEventRef` / `deathEventRef`. A corrected date **supersedes** the old assertion (both kept, provenance kept). **Death** adds `deceased` in the SAME change set when the person is not already deceased (superseding a live status); refused on the form when a pending non-deceased status edit or two unresolved statuses would contradict it; a life-status edit is refused while a pending death already sets it. **Deceased alone** (the life-status control) writes no event. Every control is gated by `can(concept)` |
+| `concept_catalog_v1.json` | regenerated: editable **12 → 16**, not_offered 75 → 71, derived 1 |
+
+**Tests.** `tests/test_qv2_vital.py` + `tests/qv2_vital_harness.js` (the real editor against the
+real writer, then the database): impossible date and range refused on the form with nothing
+pending; same-named places offered separately by id; the narrator's birth created with its date and
+the SECOND "Minot" by id, then moved to the FIRST by a single `set` on the same event; Ada's existing
+birth extended — same event, place untouched, "1915" superseded by "about 1915" with both
+provenances kept; her death recorded with date "unknown" (text kept, no value) and a NEW "Minot" —
+a third, distinct place row — with `deceased` superseding "living" in the same Save; Olaf marked
+deceased alone → no death event, no pointer; one Save = one accepted PATCH; read-back from the
+server after Save; a death beside a pending non-deceased status refused on the form; an unrelated
+work event and its date untouched; the legacy `people` row untouched. Writer-level: death without
+deceased refused whole; a failing deceased half leaves no death; death + deceased in one change set
+accepted; a second birth and a second death refused; the wrong date concept on a birth refused.
+`test_qv2_capabilities`: FROZEN_EXPECTED +4, the harness drives the new controls, translation rules
+for birth/death events, places, pointers and supersession bookkeeping; the fail-closed census now
+also counts the birth/death forms.
+
+**Mutations.** `tests/mutate_qv2_vital.py` (new, 10, in place via `tests/mutation_runner.py`):
+death without deceased; deceased inventing a death; the editor duplicating a birth/death; the
+writer rule removed; place resolved by label instead of id; same-name place silently reused;
+the writer committing a rule-breaking change set (partial death); death date under the birth
+concept; impossible date bypassing the form; an unchanged date re-parsed. **10/10 caught** in the
+sandbox; anchors intact afterwards. (One sandbox batch was cut off by the agent's time limit
+mid-mutation; V2 was restored by hand and every anchor verified before continuing — BACKLOG §12
+already records this sandbox hazard; it does not arise under `.venv`.)
+
+**First MAG-Chris run (`.venv`, 2026-09-25) — superseded by the repair below, kept as history:**
+the 12-module bank (`test_qv2_vital`, `test_qv2_capabilities`, `test_qv2_people`,
+`test_qv2_adapter`, `test_qv2_shell`, `test_bb_consolidation`, `test_life_record_writer`, `_dates`,
+`_graph`, `_identity`, `_schema_contract`, `test_concept_catalog`) 192 OK, 0 skips; catalog current;
+design validator 21 · 14 · 22 · 11 DESIGN COHERENT; C-4E mutations 10/10; C-4C capability
+mutations 16/16; anchors intact.
+
+**Pre-commit review (ChatGPT, 2026-09-25) — REPAIR BEFORE COMMIT, one defect.** Correcting an
+EXPLICITLY ACCEPTED vital assertion left `lr_acceptances` pointing at the assertion just
+superseded. `answerOps()` superseded the old assertion but never moved the decision, so (a) an
+accepted birth date, once corrected, resolved to nothing — the birth anchor vanished instead of
+moving; (b) recording the death of someone whose "explicitly living" was ACCEPTED left no resolved
+life status in the record the writer assembles for its rules, so the death rule refused the whole
+Save. The fixture's living status was not accepted, which is why every test and mutation stayed
+green. **Repair** (`questionnaire-v2.js`, shared `answerOps`): every edit basis now records whether
+the assertion being replaced is the explicitly accepted one (ordinary answers, the vital date, the
+generated deceased status); when it is, the same Save adds
+`set acceptances/<subjectType>/<subjectId>/<concept> = <new id>` with `expectedPrevious = <old id>`
+— the writer's existing acceptance path, optimistic-concurrency protected. Nothing is inferred:
+only an acceptance that exists is moved. `test_qv2_capabilities` classifies that set as acceptance
+bookkeeping. **Regression** (`test_qv2_vital`, Greta): an accepted birth date "1920" beside a
+retained competing "1921" is corrected to "1922" — A superseded (not deleted), B untouched and still
+conflicted, the acceptance on C, the record's resolved date C; her ACCEPTED "living" is replaced by
+a death in the SAME Save — `deceased` supersedes it, the acceptance moves to it, the death event,
+pointer and date land together; the PATCH carries both acceptance moves, each guarded by the id it
+replaces. **Mutation V11** (the transfer removed) is caught — 8 tests fail, confirming the defect
+refused the Save exactly as the review predicted. Vital gate: **11** mutations.
+
+**MAG-Chris evidence after the repair (`.venv`, 2026-09-25):** the same 12-module bank
+**194 OK, 0 skips**; `compile_concept_catalog.py --check` **catalog is current**; design validator
+21 rules · 14 situations · 22 refusals · 11 contracts — **DESIGN COHERENT**; C-4E vital mutation
+gate **11/11 caught** (V11 — the acceptance transfer removed — 8 failing); C-4C capability mutation
+gate **16/16 caught**; post-gate anchor check **`anchors missing: []`**.
+
+**History, not acceptance evidence — sandbox (`python3` 3.10, node 22):** `test_qv2_vital` 14 OK;
+`test_qv2_capabilities` 18 OK; Life Record writer/dates/graph/identity, adapter, catalog, schema
+156 OK (8 skipped, no fastapi); `test_qv2_people`, `test_qv2_shell`, `test_bb_consolidation` OK;
+`compile --check` current; design validator 21 · 14 · 22 · 11 COHERENT; design mutation gate every
+mutation caught.
+
+**Not in C-4E:** homes/moves, unions/separations, education/work/service/activity editors,
+removal, C-5 topics, Lori, Life Map, memoir. No migration.
+
 ## Roadmap refinements (Chris + ChatGPT, 2026-09-24, after the research review)
 
 Recorded here so each lands in the right phase; **none is current work.** Governing rule
