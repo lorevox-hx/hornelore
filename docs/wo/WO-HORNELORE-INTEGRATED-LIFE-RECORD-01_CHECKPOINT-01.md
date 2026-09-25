@@ -1951,7 +1951,20 @@ stack-dashboard UI heartbeat**; no `lorevox_qq_draft_*` key; Promote disabled;
 `questionnaire_first` radio disabled and the style `oral_history`; Life Record revision
 2 before and 2 after.
 
-## C-3 — people and relationships (built 2026-09-24; `.venv` green, live PASS — awaiting review and commit)
+## C-3 — people and relationships — ACCEPTED / CLOSED 2026-09-24 (`e387522` + `8a87738`, and the post-commit follow-up)
+
+**Current totals — the ONLY current figures in this section.** Every other number below
+is labelled with the moment it was measured.
+
+| Gate | Value |
+|---|---|
+| `tests.test_qv2_people` (DOM checks + database checks) | **45** (37 at the first commit; +8 in the follow-up) |
+| `tests/mutate_qv2_people.py` | **26 / 26 caught** (21 at the first commit; +5 in the follow-up) |
+| Design validator | **20 rules · 14 situations · 22 refusals · 11 contracts**, COHERENT |
+| `tests.test_intake_no_biography_seed` | **5** route tests (run under `.venv`; skip without fastapi) |
+| Last full `.venv` run (historical — before the review repairs; not rerun) | 214 OK, 0 skips, 1 expected failure |
+| **Final gate** — follow-up, laptop `.venv` (Chris, 2026-09-24) | `test_qv2_people`, `test_qv2_adapter`, `test_qv2_shell`, `test_bb_consolidation`, `test_intake_no_biography_seed`: **18 OK, 0 skips** (the 5 intake route tests ran); `mutate_qv2_people.py`: **26 of 26 caught** |
+| `tests.test_bb_consolidation` | 41 checks |
 
 **Boundary, as Chris set it (with ChatGPT's review of `16a68e1`):** Questionnaire V2
 edits people and relationships against the existing writer. Family becomes a read-only
@@ -2016,8 +2029,8 @@ decision.
   `profile_json.personal` and the `people` row's DOB/POB also stay: they are the D-0
   duplicate-identity item, and Profile Seed readiness reads them. The real-narrator
   identity floor is untouched and still an open D-0 decision.
-  `tests/test_intake_no_biography_seed.py` (4 route tests; **skip without fastapi** — they
-  run under `.venv`).
+  `tests/test_intake_no_biography_seed.py` (route tests; **skip without fastapi** — they
+  run under `.venv`; count in the totals table).
 - **New model rule `rule_no_duplicate_relationship`** (`rules.py`): the writer accepted
   "P is `parent_of` N" twice. One pair + one kind + one description is one fact —
   unordered for symmetric kinds — **when the periods are EQUAL** (both absent, or the
@@ -2026,8 +2039,8 @@ decision.
   in the supervisor review: the first version treated a missing period on either side
   as a duplicate, so that remarriage could not be stored. The browser's pre-check now
   uses the same equality.)*
-  Writer tests through `apply_changes` (4); design validator now **20 rules · 13
-  situations · 22 refusals** (a remarriage + grandmother-and-caregiver case must hold;
+  Writer tests through `apply_changes`; the design validator gained must-hold and
+  must-refuse cases (a remarriage + grandmother-and-caregiver case must hold;
   a doubled parent and a friend stored both ways must be refused); validator mutation
   gate: 3 new mutations, all caught; writer mutation gate: all caught.
 - **Known strictness, recorded not changed:** `rule_no_stored_inverse` refuses a second
@@ -2037,9 +2050,9 @@ decision.
 - **Graph projection:** a relationship period reached `graph_relationships.start_date`
   as JSON; it is now the text as said. Pinned in `test_life_record_graph`.
 
-### Evidence (sandbox `python3` + node 20; `.venv` owed)
+### Evidence at build (sandbox `python3` + node 20) — counts: see the totals table
 
-- `tests.test_qv2_people` → `tests/qv2_people_harness.js`: **32 DOM checks** through the
+- `tests.test_qv2_people` → `tests/qv2_people_harness.js`: DOM checks through the
   real forms, every request answered by the **shipped writer on real SQLite**, then the
   database checked in Python: 10 people (two named Erik Lund, two ids; a grandchild with
   no parent recorded between — one relationship, nothing inferred); Greta one id,
@@ -2052,7 +2065,7 @@ decision.
   nothing, shows none of them on narrator B, and switching back restores them with the
   same ids and the chosen provenance; a verbatim re-send of the first Save is refused
   whole; a refused relationship takes its new person with it (writer test).
-- `tests/mutate_qv2_people.py`: **18 mutations, all caught** (21 after the review repairs). The seven added after the
+- `tests/mutate_qv2_people.py`: all mutations caught (count in the totals table). The seven added after the
   review attack invariants, not wording: an assertion id minted at Save · an inverse row
   generated · the relationship left out of the PATCH · narrator A's draft landing on B
   (the first version of this mutation was inert — it edited a line the empty-draft early
@@ -2091,19 +2104,17 @@ ChatGPT reviewed the product diff and found three defects none of the tests expo
    restoring the old presence rule (caught), and a harness check that the browser
    refuses the same span and accepts the unknown-dates second marriage.
 
-After the repairs (focused, sandbox `python3` + node): `test_qv2_people` (now **37**
-checks), `test_life_record_writer`, `test_intake_no_biography_seed` (5 route tests skip
-without fastapi — `.venv`), `test_bb_consolidation`: all OK; design validator **20 rules ·
-14 situations · 22 refusals · 11 contracts**, COHERENT; validator mutation gate, writer
-mutation gate and **all 21 C-3 mutations** caught (3 new: late Family answer, late Family
-failure, missing period treated as a match). The live acceptance below stands: none of
+After the repairs (focused, sandbox `python3` + node): `test_qv2_people`,
+`test_life_record_writer`, `test_intake_no_biography_seed`, `test_bb_consolidation`: all
+OK; design validator COHERENT; validator mutation gate, writer mutation gate and every
+C-3 mutation caught (3 new here: late Family answer, late Family failure, missing period
+treated as a match). The live acceptance below stands: none of
 the repairs changes the path it walked.
 
 ### Live acceptance — Chrome, live stack, Maren Holt (fictional), 2026-09-24
 
 **Laptop `.venv` first (before the review repairs):** 214 tests OK, **0 skips**, 1 expected failure (the one C-2
-carries); design validator 20 rules · 13 situations · 22 refusals · 11 contracts,
-COHERENT; node suites all `exit=0` (save sequences, graph 52/52, Operator Intake 5/5,
+carries); design validator COHERENT (13 situations at that time — 14 after the review); node suites all `exit=0` (save sequences, graph 52/52, Operator Intake 5/5,
 persist-empty 17).
 
 | Step | Result |
@@ -2120,6 +2131,41 @@ Identity + consent creation of a real narrator was **not** exercised live on pur
 would leave a real narrator on the working root); `tests.test_intake_no_biography_seed`
 covers it under `.venv`. **C-7 adds:** a normal operator cannot reach the `testing_only`
 seeding exception (it is API-only, never sent by the UI).
+
+### Post-commit follow-up — two transition defects (after `8a87738`) — ACCEPTED 2026-09-24
+
+C-3 was committed and pushed (`e387522` implementation, `8a87738` docs) before the final
+review finished. Those commits are the baseline and are **not** amended or rewritten; this
+is one narrow corrective commit on top. C-3 is not reopened as a phase.
+
+1. **Read-side `child_of`.** `child_of` is a valid stored kind the editor never writes
+   (it writes `parent_of` from the parent's side), but records from before C-3 or from
+   other producers can carry it. `detailedRole()` fell through to "other" for it. Now:
+   narrator `child_of` P → P is **Parent**; P `child_of` narrator → P is **Child**. The
+   editor still offers no second child direction. The browser's duplicate pre-check reads
+   a stored `child_of` as the `parent_of` it would write, so re-adding that parent is
+   caught on the form rather than refused at Save by `rule_no_stored_inverse`.
+2. **Drafts from before C-3.** A C-2 draft has the same draft version but its answer edits
+   carry no `newAssertionId`, and Save used to mint one — so a retried Save could send a
+   different id. Now `upgradeDraftIds()` assigns any missing id **once, at hydration**, and
+   **persists the upgraded draft immediately** (its own `baseRevision` and provenance kept;
+   not discarded; version not bumped). Save never mints: a missing id stops the Save with a
+   message and sends nothing.
+
+Also: the `api_create_person_intake` header and docstring now describe the real behaviour —
+identity + consent for a real narrator; the rich fan-out only as the `testing_only`
+transitional exception through D-3.
+
+**Accepted on supervisor review (Chris + ChatGPT), including the `child_of` duplicate pre-check. Verified under `.venv` (Chris, 2026-09-24): 18 OK, 0 skips; `test_qv2_people` 45 checks; all 26 C-3 mutations caught. The earlier full `.venv` (214 OK, 0 skips, 1 expected failure) and the live Chrome acceptance remain valid and were not rerun — the follow-up does not touch the path they walked. C-3 is CLOSED; C-4 is next.**
+
+**Pinned (+8 checks, +5 mutations):** an old V1 answer draft with no `newAssertionId` is
+upgraded and persisted before any Save, two Save builds use the same id, a reload keeps it,
+the Save lands under it (checked in the database) and a verbatim retry is refused whole;
+`child_of` read both ways by the model, on Family (Parents / Children) and in the editor,
+where re-adding the parent is "already recorded". Mutations: `child_of` not read ·
+`child_of` not normalised in the duplicate check · upgraded ids not persisted · draft not
+upgraded · draft not upgraded **and** Save minting the id (the exact regression) — all
+caught.
 
 ### Corrections recorded from the review of `16a68e1` (Chris + ChatGPT)
 
@@ -2152,6 +2198,28 @@ seeding exception (it is API-only, never sent by the UI).
    transitional guard go. A global flip would reopen all four against the old stores.
 9. **Life Threads code has a runtime consumer** (`life-map.js:337`); D-0/D-2 replace
    that dependency deliberately. It is not C-3 cleanup.
+
+## Roadmap refinements (Chris + ChatGPT, 2026-09-24, after the research review)
+
+Recorded here so each lands in the right phase; **none is current work.** Governing rule
+unchanged: current phase first; anything that does not close the current requirement goes
+to BACKLOG unless it is a genuine blocker. Sequence: C-2 ✅ → C-2b ✅ → C-3 (post-commit
+repair, then ✅) → C-4 → C-5 → C-6 → C-7 → D-0 → D-1 → D-2 → D-3 → D-4 → D-5 → E →
+Phase 6 → Phase 7.
+
+| Phase | Refinement |
+|---|---|
+| **C-4** | **Opens with the date-value decision.** Keep `{text, value, precision}`: `text` exactly as supplied; `value` a **bounded EDTF** expression only where the text maps to it unambiguously; `precision` retained/validated. "1989" → `1989`; "about 1989" → `1989~`; "1920s" → `192X`; "before the war" → text only, `value` null. No invented precision; not the whole ISO standard. C-4 also owns the schema gaps already found (work / education / separation date concepts; the missing `activity` event type) and takes **the next unused migration number**. |
+| **Migrations** | No number is reserved (C-6 is no longer "0065"). A phase that needs schema work takes the next unused number when that work lands; developed on disposable scratch databases; once applied to any persistent dev DB it is immutable, and a correction takes the following number. |
+| **C-7** | No normal operator action may establish or alter canonical biography outside the Life Record writer. **Decline, Reject, Source only, Keep current and other non-biographical review-state decisions may remain.** Also verify a normal operator cannot reach the `testing_only` intake exception. |
+| **D-0** | Decides the **final real-narrator identity/readiness floor.** The Life Record supports unknown and partial biography, but Profile Seed/readiness still depend on DOB / residence / pronoun / profile mirrors. Do not silently make those legacy requirements permanent, and do not prematurely declare them eliminated. (Expectation, not a decision: identity + consent should be enough to create a narrator.) |
+| **D-1 / D-2** | Historical-event similarity may surface an **operator-reviewed suggestion** for an undated story. It never writes a date, era, Life Map placement or chapter. |
+| **D-3** | Source checklist is the **whole B1–B17 inventory**. Each held action is rebuilt onto the Life Record and its old branch removed; the authority guard is never turned off globally. **Lori never asserts an unconfirmed fact inside a question that solicits agreement** — solved first through Life Record status, prompt construction and Lori's question policy; a post-generation guard only if measurement shows failures remain. |
+| **D-4 / D-5** | **Claim-level traceability:** every factual biographical claim and purported scene detail in a memoir traces to a Life Record assertion, a narrator-captured story, or clearly identified operator-authored interpretation. Connective prose may exist; it may not invent biography or pass itself off as the narrator's recollection. |
+| **Doctrine (proposed for `CLAUDE.md` design principles, on Chris's confirmation)** | Lorevox does not generate synthetic visual depictions purporting to show a narrator's memories. Authentic family photos and media remain supported. |
+| **Batch E** | Not lane design: `narrator_data_inventory.py` already declares the 14 `lr_*` lanes and `graph_revisions` (derived, portable/erasable). E = populate the Life Record + graph revisions → export → validate → isolated restore → re-export → prove semantic and reference equivalence. The wipe script's `graph_revisions` omission stays BACKLOG §11 unless it blocks E. |
+| **Phase 6** | Two new gates before any real narrator: **STT** — measure the configuration we intend to ship on controlled fictional recordings, both ordinary WER and a critical-fact error rate (names, dates, locations, numbers, relationships, negation); **memoir** — traceability and representational-bias evaluation on difficult fictional biographies. |
+| **Phase 7** | Unchanged: no real-narrator testing because one subsystem looks ready. |
 
 ## 6. Explicit statement
 
