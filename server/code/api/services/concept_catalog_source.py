@@ -439,12 +439,17 @@ CONCEPTS = {
     "event.union.date": ("Union date", "date", "one"),
     "event.union.place": ("Union place", "place_ref", "one"),
     "event.union.participant": ("Union partner", "person_ref", "many"),
+    # C-4C (2026-09-25): the date of a separation event, as union date is of a
+    # union. Bound by life_record/store.py EVENT_DATE_CONCEPT, not by a form path.
+    "event.separation.date": ("Separation date", "date", "one"),
     "event.education.schooling": ("Schooling", "occurrence", "many"),
     "event.education.higher": ("Higher education", "occurrence", "many"),
     "event.education.level": ("Highest level reached", "text", "one"),
     "event.education.training": ("Training", "occurrence", "many"),
+    "event.education.period": ("Period of study", "date_interval", "many"),   # C-4C, event-date map
     "event.work.career": ("Work", "occurrence", "many"),
     "event.work.early": ("Early work", "occurrence", "many"),
+    "event.work.period": ("Period worked", "date_interval", "many"),          # C-4C, event-date map
     "event.activity.organization": ("Organisation", "occurrence", "many"),
     "event.activity.role": ("Role in an organisation", "text", "many"),
     "event.activity.period": ("Years active", "date_interval", "many"),

@@ -52,9 +52,46 @@
      store.EVENT_DATE_CONCEPT. Types absent here carry no date yet. */
   var EVENT_DATE_CONCEPT = {
     birth: "person.birth.date", death: "person.death.date",
-    union: "event.union.date", move: "event.residence.period",
-    service: "event.service.period",
+    union: "event.union.date", separation: "event.separation.date",
+    move: "event.residence.period", education: "event.education.period",
+    work: "event.work.period", service: "event.service.period",
+    activity: "event.activity.period",
   };
+
+  /* ── what THIS editor can write TODAY (C-4C) ──────────────────────────
+     The catalog compiler (scripts/catalog/compile_concept_catalog.py) reads
+     the JSON literal between the two markers — byte for byte, with
+     json.loads — to decide each concept's `questionnaire` property. The
+     editor consults the same object (isEditableConcept) before it offers a
+     control that writes a concept, so the declaration cannot drift from the
+     controls without tests/test_qv2_capabilities.py failing.
+
+     TODAY ONLY. A concept is listed here when a shipped control writes it,
+     never because a later slice will add one (C-4E–G add their own when their
+     controls land). The literal must stay strict JSON: double quotes, no
+     comments, no trailing commas. */
+  /* QV2_CAPABILITIES_JSON_BEGIN */
+  var QV2_CAPABILITIES = {
+    "version": 1,
+    "editableConcepts": [
+      "person.name.full",
+      "person.name.preferred",
+      "person.name.alias",
+      "person.life_status",
+      "person.pronouns",
+      "person.birth.order",
+      "person.reported_count.siblings",
+      "person.reported_count.children",
+      "person.reported_count.grandchildren",
+      "relationship.kind",
+      "relationship.period",
+      "relationship.qualifier.lineage_side"
+    ]
+  };
+  /* QV2_CAPABILITIES_JSON_END */
+  function isEditableConcept(concept) {
+    return QV2_CAPABILITIES.editableConcepts.indexOf(concept) !== -1;
+  }
 
   var TOPIC_OF_EVENT = {
     move: "homes", education: "learning_work", work: "learning_work",
@@ -583,7 +620,9 @@
   var api = { TOPICS: TOPICS, ANSWER: ANSWER, fromRecord: fromRecord,
               roleForNarrator: roleForNarrator, detailedRole: detailedRole,
               ROLES: ROLES, QUALIFIERS: QUALIFIERS, parseDateText: parseDateText,
-              rawName: rawName, answerOf: answerOf, dateQualifiers: dateQualifiers };
+              rawName: rawName, answerOf: answerOf, dateQualifiers: dateQualifiers,
+              CAPABILITIES: QV2_CAPABILITIES, isEditableConcept: isEditableConcept,
+              EVENT_DATE_CONCEPT: EVENT_DATE_CONCEPT };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (root) root.LorevoxQuestionnaireV2Model = api;
 })(typeof window !== "undefined" ? window : null);

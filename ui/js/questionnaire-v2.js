@@ -212,6 +212,7 @@
   }
 
   function setAnswerEdit(topic, subjectType, subjectId, concept, answer, rawValue) {
+    if (!can(concept)) return;                          // fail closed (C-4C)
     var key = answerKey(subjectType, subjectId, concept);
     var value = typeof rawValue === "string" ? rawValue.trim() : rawValue;
     var current = answer.state === "value" ? answer.value : undefined;
@@ -271,6 +272,11 @@
         .filter(function (x) { return x.checked; }).map(function (x) { return x.value; }),
     };
   }
+
+  /* C-4C: the editor offers a control that writes a concept ONLY when the
+     model's capability declaration (QV2_CAPABILITIES) lists that concept.
+     Fail closed: undeclared → the value is shown, never editable here. */
+  function can(concept) { return model().isEditableConcept(concept); }
 
   /* A period's two ends are SINGLE dates (C-4 contract). A refused date or a
      range typed into one end is a form error — never silently downgraded.
@@ -347,6 +353,11 @@
   function addPersonOrRelationship(topic, form) {
     var f = readForm(form), nid = S.view.narratorPersonId;
     var err = function (t) { S.formError = { topic: topic, text: t }; paint(); };
+    if (!can("relationship.kind")) return;
+    if (!f.person && !can("person.name.full")) return;
+    if (!can("person.life_status")) f.lifeStatus = "";
+    if (!can("relationship.qualifier.lineage_side")) f.lineage = "";
+    if (!can("relationship.period")) { f.from = ""; f.until = ""; }
     if (!f.role || !model().ROLES[f.role]) return err("Choose how this person is related to the narrator.");
     if (f.role === "other" && !f.describedAs) return err("Describe the relationship when it is \"Other\".");
     var personId = f.person;
@@ -380,7 +391,9 @@
     var r = S.view.relationships[relId]; if (!r) return;
     var f = readForm(form);
     if (r.kind === "other" && !f.describedAs) { S.formError = { topic: S.topic, text: "\"Other\" needs its description." }; paint(); return; }
-    var pd = periodOf(f, r.raw.period);
+    // No period control is offered when relationship.period is not editable:
+    // the stored period is then carried exactly as it is, never dropped.
+    var pd = can("relationship.period") ? periodOf(f, r.raw.period) : { period: r.raw.period || null };
     if (pd.error) { S.formError = { topic: S.topic, text: pd.error }; paint(); return; }
     var after = {};
     Object.keys(r.raw).forEach(function (k) { after[k] = r.raw[k]; });
@@ -405,6 +418,8 @@
 
   function addName(personId, form) {
     var f = readForm(form);
+    if (!can("person.name.full")) return;
+    if (f.nameKind === "also_known_as" && !can("person.name.alias")) return;
     if (!f.fullText) { S.formError = { topic: S.topic, text: "Write the name whole, as it is said." }; paint(); return; }
     var nameId = newId("qv2n-");
     S.edits["newname:" + nameId] = { kind: "newname", topic: S.topic, personId: personId, nameId: nameId,
@@ -415,7 +430,7 @@
   }
 
   function editName(personId, nameId, text) {
-    var p = S.view.people[personId]; if (!p) return;
+    var p = S.view.people[personId]; if (!p || !can("person.name.full")) return;
     var n = p.names.filter(function (x) { return x.id === nameId; })[0]; if (!n) return;
     var key = "nameedit:" + nameId, t = String(text || "").trim();
     if (!t || t === n.fullText) delete S.edits[key];     // an empty box is not a removal
@@ -425,7 +440,7 @@
   }
 
   function setPreferred(personId, nameId) {
-    var p = S.view.people[personId]; if (!p) return;
+    var p = S.view.people[personId]; if (!p || !can("person.name.preferred")) return;
     var key = "preferred:" + personId;
     if (nameId === p.preferredNameId) delete S.edits[key];
     else S.edits[key] = { kind: "preferred", topic: S.topic, personId: personId, nameId: nameId,
@@ -435,7 +450,7 @@
 
   function addPronoun(form) {
     var f = form.querySelector('[data-f="pronoun"]'), t = f ? String(f.value || "").trim() : "";
-    if (!t) return;
+    if (!t || !can("person.pronouns")) return;
     var id = newId("qv2a-");
     S.edits["pronoun:" + id] = { kind: "pronoun", topic: "narrator", assertionId: id,
                                  personId: S.view.narratorPersonId, value: t };
@@ -659,7 +674,7 @@
   function answerInput(topic, subjectType, subjectId, concept, label, ans) {
     var key = answerKey(subjectType, subjectId, concept);
     var pending = S.edits[key];
-    var editable = ans.state !== "unresolved";
+    var editable = ans.state !== "unresolved" && can(concept);
     var shown = pending ? String(pending.value) : (ans.state === "value" ? valueText(ans.value) : "");
     return '<label class="qv2-field">' + esc(label) +
       (editable
@@ -673,7 +688,8 @@
   function answerSelect(topic, subjectType, subjectId, concept, label, ans, pairs) {
     var key = answerKey(subjectType, subjectId, concept);
     var pending = S.edits[key];
-    if (ans.state === "unresolved") return '<span class="qv2-field">' + esc(label) + " " + answerText(ans) + "</span>";
+    if (ans.state === "unresolved" || !can(concept))
+      return '<span class="qv2-field">' + esc(label) + " " + answerText(ans) + "</span>";
     var cur = pending ? pending.value : (ans.state === "value" ? ans.value : "");
     return '<label class="qv2-field">' + esc(label) + ' <select data-qv2-answer="' + esc(key) +
       '" data-topic="' + esc(topic) + '"' + (pending ? ' class="qv2-dirty"' : "") + ">" +
@@ -699,21 +715,27 @@
     var html = saved.map(function (n) {
       var pend = S.edits["nameedit:" + n.id];
       var pref = S.edits["preferred:" + personId] ? S.edits["preferred:" + personId].nameId : (p.preferredNameId || null);
-      return '<div class="qv2-name"><input type="text" data-qv2-name="' + esc(personId + ":" + n.id) + '" value="' +
-        esc(pend ? pend.fullText : n.fullText) + '"' + (pend ? ' class="qv2-dirty"' : "") + "> <small>" +
+      return '<div class="qv2-name">' + (can("person.name.full")
+          ? '<input type="text" data-qv2-name="' + esc(personId + ":" + n.id) + '" value="' +
+            esc(pend ? pend.fullText : n.fullText) + '"' + (pend ? ' class="qv2-dirty"' : "") + ">"
+          : esc(n.fullText)) + " <small>" +
         esc((NAME_KINDS.filter(function (k) { return k[0] === (n.kind || "current"); })[0] || [0, n.kind])[1]) +
         (n.use ? " · " + esc(n.use.replace(/_/g, " ")) : "") + "</small>" +
-        ' <label class="qv2-pref"><input type="radio" name="qv2pref-' + esc(personId) + '" data-qv2-preferred="' +
-        esc(personId + ":" + n.id) + '"' + (pref === n.id ? " checked" : "") + "> preferred</label></div>";
+        (can("person.name.preferred")
+          ? ' <label class="qv2-pref"><input type="radio" name="qv2pref-' + esc(personId) + '" data-qv2-preferred="' +
+            esc(personId + ":" + n.id) + '"' + (pref === n.id ? " checked" : "") + "> preferred</label>"
+          : (pref === n.id ? " <small>(preferred)</small>" : "")) + "</div>";
     }).join("");
     html += pendingOf("newname").filter(function (e) { return e.personId === personId; }).map(function (e) {
       return '<div class="qv2-name">' + esc(e.fullText) + " <small>" + esc(e.nameKind) + "</small>" +
         unsaved("newname:" + e.nameId) + "</div>";
     }).join("");
     var nk = "name:" + personId;
+    if (!can("person.name.full")) return html;
+    var kinds = NAME_KINDS.filter(function (k) { return k[0] !== "also_known_as" || can("person.name.alias"); });
     html += '<div class="qv2-form qv2-inline" data-qv2-form="name" data-person="' + esc(personId) + '">' +
       '<input type="text" data-f="fullText" value="' + esc(fv(nk, "fullText", "")) + '" placeholder="Another name, written whole"> ' +
-      '<select data-f="nameKind">' + options(NAME_KINDS, fv(nk, "nameKind", "current") || "current", null) + "</select> " +
+      '<select data-f="nameKind">' + options(kinds, fv(nk, "nameKind", "current") || "current", null) + "</select> " +
       '<button type="button" data-qv2-action="add-name" data-person="' + esc(personId) + '">Add name</button></div>';
     return html;
   }
@@ -755,9 +777,11 @@
         rv("describedAs", shown.describedAs || "") + '"></label>' : "") +
       '<label class="qv2-field">What the narrator calls them <input type="text" data-f="narratorLabel" value="' +
         rv("narratorLabel", shown.narratorLabel || "") + '"></label>' +
-      '<label class="qv2-field">From <input type="text" data-f="from" value="' + rv("from", per.start ? per.start.text : "") +
-        '" placeholder="as said, e.g. 1962 or about 1962"></label>' +
-      '<label class="qv2-field">Until <input type="text" data-f="until" value="' + rv("until", per.end ? per.end.text : "") + '"></label>' +
+      (can("relationship.period")
+        ? '<label class="qv2-field">From <input type="text" data-f="from" value="' + rv("from", per.start ? per.start.text : "") +
+          '" placeholder="as said, e.g. 1962 or about 1962"></label>' +
+          '<label class="qv2-field">Until <input type="text" data-f="until" value="' + rv("until", per.end ? per.end.text : "") + '"></label>'
+        : "") +
       '<button type="button" data-qv2-action="keep-rel" data-rel="' + esc(r.id) + '">Keep these changes</button> ' +
       '<button type="button" data-qv2-action="close-rel">Close</button>' +
       '<p class="qv2-hint">To say this person is ALSO something else to the narrator (a grandmother who raised them), ' +
@@ -787,20 +811,21 @@
     var err = S.formError && S.formError.topic === t ? '<div class="qv2-msg qv2-error" data-qv2-form-error>' +
       esc(S.formError.text) + "</div>" : "";
     var k = "person:" + t, g = function (f) { return esc(fv(k, f, "")); };
+    if (!can("relationship.kind")) return "";
     return '<div class="qv2-form qv2-add" data-qv2-form="person" data-topic="' + esc(t) + '"><h4>Add someone</h4>' + err +
       '<label class="qv2-field">Who <select data-f="person"><option value="">— a new person —</option>' +
         options(everyonePickable(), fv(k, "person", ""), null) + "</select></label>" +
-      '<label class="qv2-field">Name (new person) <input type="text" data-f="fullText" value="' + g("fullText") +
-        '" placeholder="Whole name, as it is said"></label>' +
+      (can("person.name.full") ? '<label class="qv2-field">Name (new person) <input type="text" data-f="fullText" value="' + g("fullText") +
+        '" placeholder="Whole name, as it is said"></label>' : "") +
       '<label class="qv2-field">Relationship to the narrator <select data-f="role">' +
         options(roles, fv(k, "role", ""), "— choose —") + "</select></label>" +
       '<label class="qv2-field">Described as (for "Other") <input type="text" data-f="describedAs" value="' + g("describedAs") + '"></label>' +
       '<div class="qv2-field">Qualifiers ' + qualifierBoxes(fv(k, "qualifiers", [])) + "</div>" +
-      '<label class="qv2-field">Side of the family <select data-f="lineage">' + options(LINEAGE, fv(k, "lineage", ""), "— not recorded —") + "</select></label>" +
+      (can("relationship.qualifier.lineage_side") ? '<label class="qv2-field">Side of the family <select data-f="lineage">' + options(LINEAGE, fv(k, "lineage", ""), "— not recorded —") + "</select></label>" : "") +
       '<label class="qv2-field">What the narrator calls them <input type="text" data-f="narratorLabel" value="' + g("narratorLabel") + '"></label>' +
-      '<label class="qv2-field">Living? (new person) <select data-f="lifeStatus">' + options(LIFE_STATUS, fv(k, "lifeStatus", ""), "— not recorded —") + "</select></label>" +
-      '<label class="qv2-field">From <input type="text" data-f="from" value="' + g("from") + '" placeholder="as said"></label>' +
-      '<label class="qv2-field">Until <input type="text" data-f="until" value="' + g("until") + '"></label>' +
+      (can("person.life_status") ? '<label class="qv2-field">Living? (new person) <select data-f="lifeStatus">' + options(LIFE_STATUS, fv(k, "lifeStatus", ""), "— not recorded —") + "</select></label>" : "") +
+      (can("relationship.period") ? '<label class="qv2-field">From <input type="text" data-f="from" value="' + g("from") + '" placeholder="as said"></label>' +
+        '<label class="qv2-field">Until <input type="text" data-f="until" value="' + g("until") + '"></label>' : "") +
       '<button type="button" data-qv2-action="add-person" data-topic="' + esc(t) + '">Add</button></div>';
   }
 
@@ -846,9 +871,9 @@
           "<h4>Names</h4>" + namesBlock(N.id) +
           "<h4>Pronouns</h4>" + list(N.pronouns.map(function (p) { return esc(p.value); }).concat(
             pendingOf("pronoun").map(function (e) { return esc(e.value) + unsaved("pronoun:" + e.assertionId); }))) +
-          '<div class="qv2-form qv2-inline" data-qv2-form="pronoun"><input type="text" data-f="pronoun" value="' +
+          (can("person.pronouns") ? '<div class="qv2-form qv2-inline" data-qv2-form="pronoun"><input type="text" data-f="pronoun" value="' +
             esc(fv("pronoun:", "pronoun", "")) + '" placeholder="Pronouns, as the narrator uses them"> ' +
-            '<button type="button" data-qv2-action="add-pronoun">Add</button></div>' +
+            '<button type="button" data-qv2-action="add-pronoun">Add</button></div>' : "") +
           "<h4>Birth</h4><p>" + answerText(N.birth.date) +
             (N.birth.placeLabel ? " · " + esc(N.birth.placeLabel) : "") + "</p>" +
           answerInput("narrator", "person", N.id, "person.birth.order", "Birth order, as the narrator describes it",

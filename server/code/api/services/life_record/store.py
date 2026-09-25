@@ -32,8 +32,14 @@ EVENT_DATE_CONCEPT = {
     "birth": "person.birth.date",
     "death": "person.death.date",
     "union": "event.union.date",
+    "separation": "event.separation.date",      # C-4C
     "move": "event.residence.period",
+    "education": "event.education.period",      # C-4C
+    "work": "event.work.period",                # C-4C
     "service": "event.service.period",
+    # C-4C maps it now; an `activity` event cannot exist until C-4D's
+    # migration admits the type (lr_events.type CHECK).
+    "activity": "event.activity.period",
 }
 DATE_CONCEPTS = set(EVENT_DATE_CONCEPT.values())
 

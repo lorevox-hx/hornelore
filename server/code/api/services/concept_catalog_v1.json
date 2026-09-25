@@ -758,6 +758,44 @@
     "tier3_eligible": true
    }
   ],
+  "event_dates": [
+   {
+    "concept_id": "event.activity.period",
+    "event_type": "activity"
+   },
+   {
+    "concept_id": "person.birth.date",
+    "event_type": "birth"
+   },
+   {
+    "concept_id": "person.death.date",
+    "event_type": "death"
+   },
+   {
+    "concept_id": "event.education.period",
+    "event_type": "education"
+   },
+   {
+    "concept_id": "event.residence.period",
+    "event_type": "move"
+   },
+   {
+    "concept_id": "event.separation.date",
+    "event_type": "separation"
+   },
+   {
+    "concept_id": "event.service.period",
+    "event_type": "service"
+   },
+   {
+    "concept_id": "event.union.date",
+    "event_type": "union"
+   },
+   {
+    "concept_id": "event.work.period",
+    "event_type": "work"
+   }
+  ],
   "paths": [
    {
     "alias_of": null,
@@ -5803,13 +5841,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -5846,13 +5885,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -5889,13 +5929,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -5932,13 +5973,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -5975,13 +6017,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -6023,13 +6066,14 @@
    "narrative_value": "medium",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -6068,11 +6112,12 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
    "questionnaire": "not_offered",
    "special_projection": null,
@@ -6114,13 +6159,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -6159,13 +6205,14 @@
    "narrative_value": "high",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -6204,13 +6251,14 @@
    "narrative_value": "low",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -6219,6 +6267,48 @@
    },
    "subject_kind": "event",
    "value_type": "text"
+  },
+  {
+   "cardinality": "many",
+   "concept_id": "event.education.period",
+   "decision_ids": [],
+   "extraction": {
+    "eligible": false,
+    "scope": [],
+    "write_mode": "per_binding"
+   },
+   "label": "Period of study",
+   "lori": {
+    "askable": "responsive_only",
+    "askable_by_subject": {},
+    "prompt_role": {
+     "narrator": "retrieved",
+     "other": "retrieved"
+    },
+    "retrievable": true
+   },
+   "memoir": {
+    "route": "operator_use_only"
+   },
+   "narrative_value": "unassessed",
+   "provenance": {
+    "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
+    "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
+    "lori.prompt_role": "default: retrieved",
+    "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
+    "narrative_value": "unassessed: no asking key binds this concept",
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
+   },
+   "questionnaire": "not_offered",
+   "special_projection": null,
+   "storage": {
+    "db_lane": "pending — Batch B tables",
+    "entity": "event",
+    "owner": "life_record"
+   },
+   "subject_kind": "event",
+   "value_type": "date_interval"
   },
   {
    "cardinality": "many",
@@ -6249,13 +6339,14 @@
    "narrative_value": "high",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -6296,11 +6387,12 @@
    "narrative_value": "high",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
    "questionnaire": "not_offered",
    "special_projection": null,
@@ -6339,11 +6431,12 @@
    "narrative_value": "medium",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
    "questionnaire": "not_offered",
    "special_projection": null,
@@ -6382,13 +6475,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -6427,13 +6521,14 @@
    "narrative_value": "high",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -6470,13 +6565,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -6515,13 +6611,14 @@
    "narrative_value": "high",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -6530,6 +6627,48 @@
    },
    "subject_kind": "event",
    "value_type": "occurrence"
+  },
+  {
+   "cardinality": "one",
+   "concept_id": "event.separation.date",
+   "decision_ids": [],
+   "extraction": {
+    "eligible": false,
+    "scope": [],
+    "write_mode": "per_binding"
+   },
+   "label": "Separation date",
+   "lori": {
+    "askable": "responsive_only",
+    "askable_by_subject": {},
+    "prompt_role": {
+     "narrator": "retrieved",
+     "other": "retrieved"
+    },
+    "retrievable": true
+   },
+   "memoir": {
+    "route": "operator_use_only"
+   },
+   "narrative_value": "unassessed",
+   "provenance": {
+    "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
+    "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
+    "lori.prompt_role": "default: retrieved",
+    "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
+    "narrative_value": "unassessed: no asking key binds this concept",
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
+   },
+   "questionnaire": "not_offered",
+   "special_projection": null,
+   "storage": {
+    "db_lane": "pending — Batch B tables",
+    "entity": "event",
+    "owner": "life_record"
+   },
+   "subject_kind": "event",
+   "value_type": "date"
   },
   {
    "cardinality": "one",
@@ -6563,13 +6702,14 @@
    "narrative_value": "high",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -6606,11 +6746,12 @@
    "narrative_value": "low",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
    "questionnaire": "not_offered",
    "special_projection": null,
@@ -6649,11 +6790,12 @@
    "narrative_value": "medium",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
    "questionnaire": "not_offered",
    "special_projection": null,
@@ -6692,11 +6834,12 @@
    "narrative_value": "low",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
    "questionnaire": "not_offered",
    "special_projection": null,
@@ -6737,11 +6880,12 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
    "questionnaire": "not_offered",
    "special_projection": null,
@@ -6782,13 +6926,14 @@
    "narrative_value": "high",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -6827,13 +6972,14 @@
    "narrative_value": "high",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -6872,13 +7018,14 @@
    "narrative_value": "medium",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -6915,13 +7062,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -6961,13 +7109,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -7010,13 +7159,14 @@
    "narrative_value": "high",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -7056,13 +7206,14 @@
    "narrative_value": "high",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -7099,13 +7250,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -7144,13 +7296,14 @@
    "narrative_value": "medium",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -7189,13 +7342,14 @@
    "narrative_value": "high",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -7234,13 +7388,14 @@
    "narrative_value": "high",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -7249,6 +7404,48 @@
    },
    "subject_kind": "event",
    "value_type": "occurrence"
+  },
+  {
+   "cardinality": "many",
+   "concept_id": "event.work.period",
+   "decision_ids": [],
+   "extraction": {
+    "eligible": false,
+    "scope": [],
+    "write_mode": "per_binding"
+   },
+   "label": "Period worked",
+   "lori": {
+    "askable": "responsive_only",
+    "askable_by_subject": {},
+    "prompt_role": {
+     "narrator": "retrieved",
+     "other": "retrieved"
+    },
+    "retrievable": true
+   },
+   "memoir": {
+    "route": "operator_use_only"
+   },
+   "narrative_value": "unassessed",
+   "provenance": {
+    "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
+    "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
+    "lori.prompt_role": "default: retrieved",
+    "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
+    "narrative_value": "unassessed: no asking key binds this concept",
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
+   },
+   "questionnaire": "not_offered",
+   "special_projection": null,
+   "storage": {
+    "db_lane": "pending — Batch B tables",
+    "entity": "event",
+    "owner": "life_record"
+   },
+   "subject_kind": "event",
+   "value_type": "date_interval"
   },
   {
    "cardinality": "one",
@@ -7293,13 +7490,14 @@
    "narrative_value": "high",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "source: PROMPT_ROLE (identity_facts, prompt_composer.py:576-602; WO-LIFE-RECORD-01 §9.1)",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": {
     "supplies": "life_span.start",
     "when": "subject_is_narrator"
@@ -7345,11 +7543,12 @@
    "narrative_value": "high",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
    "questionnaire": "editable",
    "special_projection": null,
@@ -7402,13 +7601,14 @@
    "narrative_value": "high",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "source: PROMPT_ROLE (identity_facts, prompt_composer.py:576-602; WO-LIFE-RECORD-01 §9.1)",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -7445,13 +7645,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -7491,11 +7692,12 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
    "questionnaire": "not_offered",
    "special_projection": {
@@ -7539,11 +7741,12 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
    "questionnaire": "not_offered",
    "special_projection": null,
@@ -7584,11 +7787,12 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
    "questionnaire": "not_offered",
    "special_projection": null,
@@ -7630,11 +7834,12 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
    "questionnaire": "not_offered",
    "special_projection": null,
@@ -7675,13 +7880,14 @@
    "narrative_value": "medium",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -7720,13 +7926,14 @@
    "narrative_value": "high",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -7771,13 +7978,14 @@
    "narrative_value": "high",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -7818,13 +8026,14 @@
    "narrative_value": "medium",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -7861,11 +8070,12 @@
    "narrative_value": "high",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
    "questionnaire": "not_offered",
    "special_projection": null,
@@ -7907,11 +8117,12 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections + decision D1f",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "source: PROMPT_ROLE (identity_facts, prompt_composer.py:576-602; WO-LIFE-RECORD-01 §9.1)",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
    "questionnaire": "editable",
    "special_projection": null,
@@ -7950,11 +8161,12 @@
    "narrative_value": "high",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
    "questionnaire": "not_offered",
    "special_projection": null,
@@ -7993,13 +8205,14 @@
    "narrative_value": "medium",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "not_offered",
+   "questionnaire": "editable",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -8046,13 +8259,14 @@
    "narrative_value": "low",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -8099,13 +8313,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -8144,11 +8359,12 @@
    "narrative_value": "low",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "source: PROMPT_ROLE (identity_facts, prompt_composer.py:576-602; WO-LIFE-RECORD-01 §9.1)",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
    "questionnaire": "editable",
    "special_projection": null,
@@ -8208,13 +8424,14 @@
    "narrative_value": "high",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "source: PROMPT_ROLE (identity_facts, prompt_composer.py:576-602; WO-LIFE-RECORD-01 §9.1)",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -8259,11 +8476,12 @@
    "narrative_value": "low",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "source: PROMPT_ROLE (identity_facts, prompt_composer.py:576-602; WO-LIFE-RECORD-01 §9.1)",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
    "questionnaire": "editable",
    "special_projection": null,
@@ -8311,13 +8529,14 @@
    "narrative_value": "high",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -8352,13 +8571,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "not_offered",
+   "questionnaire": "editable",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -8399,13 +8619,14 @@
    "narrative_value": "high",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "not_offered",
+   "questionnaire": "editable",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -8442,13 +8663,14 @@
    "narrative_value": "medium",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "not_offered",
+   "questionnaire": "editable",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -8485,13 +8707,14 @@
    "narrative_value": "high",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "not_offered",
+   "questionnaire": "editable",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -8528,11 +8751,12 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "rule: derived concepts are not asked",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "rule: derived concepts are read-only"
    },
    "questionnaire": "derived_readonly",
    "special_projection": null,
@@ -8584,11 +8808,12 @@
    "narrative_value": "medium",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "source: PROMPT_ROLE (identity_facts, prompt_composer.py:576-602; WO-LIFE-RECORD-01 §9.1)",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
    "questionnaire": "editable",
    "special_projection": null,
@@ -8630,13 +8855,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "not_offered",
+   "questionnaire": "editable",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -8676,11 +8902,12 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
    "questionnaire": "editable",
    "special_projection": null,
@@ -8719,13 +8946,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -8770,13 +8998,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -8815,11 +9044,12 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
    "questionnaire": "not_offered",
    "special_projection": null,
@@ -8860,13 +9090,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -8909,13 +9140,14 @@
    "narrative_value": "medium",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -8952,13 +9184,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -8995,13 +9228,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -9040,11 +9274,12 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
    "questionnaire": "not_offered",
    "special_projection": null,
@@ -9089,13 +9324,14 @@
    "narrative_value": "medium",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -9132,13 +9368,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -9179,11 +9416,12 @@
    "narrative_value": "medium",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
    "questionnaire": "not_offered",
    "special_projection": null,
@@ -9224,11 +9462,12 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
    "questionnaire": "not_offered",
    "special_projection": null,
@@ -9270,13 +9509,14 @@
    "narrative_value": "high",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -9317,13 +9557,14 @@
    "narrative_value": "medium",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -9360,13 +9601,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -9405,13 +9647,14 @@
    "narrative_value": "high",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -9448,13 +9691,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "existing trip_* lanes",
@@ -9491,13 +9735,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "existing trip_* lanes",
@@ -9534,13 +9779,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "existing trip_* lanes",
@@ -9577,13 +9823,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "existing trip_* lanes",
@@ -9624,13 +9871,14 @@
    "narrative_value": "medium",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "measured: max over bound asking keys",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "existing trip_* lanes",
@@ -9667,13 +9915,14 @@
    "narrative_value": "unassessed",
    "provenance": {
     "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
     "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
     "lori.prompt_role": "default: retrieved",
     "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
     "narrative_value": "unassessed: no asking key binds this concept",
-    "questionnaire": "measured: questionnaire_schema.load_schema"
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "editable",
+   "questionnaire": "not_offered",
    "special_projection": null,
    "storage": {
     "db_lane": "existing trip_* lanes",
@@ -9686,7 +9935,8 @@
  ],
  "counts": {
   "asking_keys": 84,
-  "concepts": 85,
+  "concepts": 88,
+  "event_date_bindings": 9,
   "paths": 196,
   "paths_retired": 16,
   "profile_seed_evidence": 69,
@@ -9700,7 +9950,12 @@
    "personal.childhoodHome",
    "personal.culture",
    "personal.ethnicity"
-  ]
+  ],
+  "questionnaire": {
+   "derived_readonly": 1,
+   "editable": 12,
+   "not_offered": 75
+  }
  },
  "decisions_used": {
   "D11": {
@@ -9742,9 +9997,10 @@
  },
  "fingerprints": {
   "decisions_sha256": "9e302bad10861ca2398ffbb4e73b9744ad61f27285a29980d5bb924057b54556",
-  "measured_vocabularies_sha256": "381dd1eebae6ecaaa41d40d319ba442d4ce069e5ccdfb36146ad59270eca7efc",
+  "measured_vocabularies_sha256": "55c08bb92edc368e4cb8b7ea04d6c474ec99ce42b0e70c541ce6f9e4b0c982e5",
   "questionnaire_schema": "questionnaire_schema.load_schema [7b974b9c2f23]",
-  "semantic_source_sha256": "d29a1e5768d93fc280b2c46580bc3102231f912b4181c02ab1e522ead9a47942"
+  "qv2_capabilities_literal_sha256": "9f17ded3cbf6bbb53fe284c48c3a74276ce4d99a65d98904da3ec14245a1365e",
+  "semantic_source_sha256": "590e3d7e7a92e9b68f203acf87568a4e44b03b28ba2ca5046847ea1d114b065c"
  },
  "reconciliations": [
   {

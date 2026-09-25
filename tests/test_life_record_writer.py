@@ -241,6 +241,45 @@ class Relationships(_Db):
         self.assertIsNotNone(self.person("p-m"))
 
 
+class EventDatesC4C(_Db):
+    """C-4C: work, education and separation events carry their own date
+    concepts through the one writer; the wrong concept is refused; `activity`
+    is mapped but the schema does not admit the event type until C-4D."""
+
+    def _event(self, eid, etype):
+        return {"op": "add", "path": f"events/{eid}",
+                "value": {"type": etype, "participants": [{"person": NORA, "role": "subject"}]}}
+
+    def test_each_new_event_type_takes_its_own_date_concept(self):
+        for etype, concept, d in (("work", "event.work.period", date("1960 to 1975", "1960/1975", "year")),
+                                  ("education", "event.education.period", date("1950 to 1954", "1950/1954", "year")),
+                                  ("separation", "event.separation.date", date("1971", "1971", "year"))):
+            with self.subTest(etype):
+                self.ok([self._event(f"e-{etype}", etype),
+                         self.assertion(f"a-{etype}", "event", f"e-{etype}", concept, d)])
+                ev = next(e for e in self.rec()["events"] if e["id"] == f"e-{etype}")
+                self.assertEqual(ev["date"], d, "the store reads it back as that event's date")
+
+    def test_the_wrong_date_concept_is_refused_on_each_new_type(self):
+        d = date("1960 to 1975", "1960/1975", "year")
+        for etype, wrong in (("work", "event.education.period"), ("education", "event.work.period"),
+                             ("separation", "event.union.date"), ("union", "event.separation.date")):
+            with self.subTest(etype):
+                r = self.write([self._event(f"e-{etype}", etype),
+                                self.assertion(f"a-{etype}", "event", f"e-{etype}", wrong,
+                                               d if wrong.endswith("period") else date("1971", "1971", "year"))])
+                self.assertFalse(r.get("ok"), r)
+                self.assertIn("lives on that event", json.dumps(r))
+
+    def test_activity_is_mapped_but_the_schema_does_not_admit_it_yet(self):
+        from api.services.life_record import store
+        self.assertEqual(store.EVENT_DATE_CONCEPT["activity"], "event.activity.period")
+        r = self.write([self._event("e-act", "activity")])
+        self.assertFalse(r.get("ok"), "C-4D owns admitting the activity type — no migration in C-4C")
+        self.assertIn("CHECK", json.dumps(r))
+        self.assertEqual(self.count("lr_events"), 0)
+
+
 class Dates(_Db):
     def test_approximate_dob_stays_approximate_and_anchors_the_span(self):
         # C-4: approximation lives in the VALUE; precision is granularity.

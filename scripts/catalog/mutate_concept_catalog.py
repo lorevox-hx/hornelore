@@ -23,6 +23,8 @@ NEED_DIRS = ["server/code/api", "scripts/design", "scripts/catalog"]
 NEED_FILES = ["docs/wo/WO-HORNELORE-INTEGRATED-LIFE-RECORD-01_DECISIONS.md",
               "docs/specs/CONCEPT-DECISION-APPENDIX.md",
               "ui/js/bio-builder-questionnaire.js", "ui/js/projection-map.js",
+              # C-4C: the compiler reads the V2 capability declaration from here
+              "ui/js/questionnaire-v2-model.js",
               "tests/test_concept_catalog.py", "tests/test_concept_migration_plan.py"]
 LOADER = "server/code/api/services/concept_catalog.py"
 COMPILER = "scripts/catalog/compile_concept_catalog.py"

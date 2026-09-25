@@ -242,7 +242,10 @@ class QuestionnaireV2ReadModel(_Db):
         mb = v["people"]["p-mother"]["birth"]["date"]
         self.assertEqual(mb["state"], "unresolved")
         self.assertEqual(sorted(x["value"]["text"] for x in mb["alternatives"]), ["1912", "1913"])
-        self.assertIsNone(v["events"]["e-w1"]["date"], "work carries no date concept yet (C-4)")
+        # C-4C: work now has a date concept (event.work.period); nothing was
+        # asserted for it, so it reads as blank — never invented.
+        self.assertEqual((v["events"]["e-w1"]["date"]["concept"], v["events"]["e-w1"]["date"]["state"]),
+                         ("event.work.period", "blank"))
 
     def test_a_legacy_date_is_read_as_stored_never_rewritten(self):
         """C-4 compatibility: dates stored before the contract (precision

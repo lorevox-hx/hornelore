@@ -40,6 +40,9 @@ sys.path.insert(0, os.path.join(ROOT, "server", "code"))
 OUT = os.path.join(ROOT, "server", "code", "api", "services", "concept_catalog_v1.json")
 APPENDIX = os.path.join(ROOT, "docs", "specs", "CONCEPT-DECISION-APPENDIX.md")
 PROJECTION_JS = os.path.join(ROOT, "ui", "js", "projection-map.js")
+QV2_MODEL_JS = os.path.join(ROOT, "ui", "js", "questionnaire-v2-model.js")
+LR_STORE_PY = os.path.join(ROOT, "server", "code", "api", "services", "life_record", "store.py")
+QV2_BEGIN, QV2_END = "/* QV2_CAPABILITIES_JSON_BEGIN */", "/* QV2_CAPABILITIES_JSON_END */"
 COMPILER_VERSION = "concept-catalog-compiler/1"
 
 
@@ -71,6 +74,70 @@ def _split(path):
 
 class CompileRefused(Exception):
     pass
+
+
+def read_qv2_capabilities(text, concepts, derived):
+    """C-4C: the concept-level `questionnaire` property comes from what the
+    SHIPPED Questionnaire V2 editor can write today — the one capability object
+    in questionnaire-v2-model.js, between its two markers, read as strict JSON.
+    There is no second list here. Every malformation refuses the compile.
+
+    Returns (sorted editable concept ids, the literal's sha256)."""
+    def refuse(why):
+        raise CompileRefused([f"QV2 capability declaration: {why}"])
+    nb, ne = text.count(QV2_BEGIN), text.count(QV2_END)
+    if nb == 0:
+        refuse("begin marker missing")
+    if ne == 0:
+        refuse("end marker missing")
+    if nb > 1 or ne > 1:
+        refuse("more than one marker block")
+    block = text[text.index(QV2_BEGIN) + len(QV2_BEGIN):text.index(QV2_END)]
+    if text.index(QV2_END) < text.index(QV2_BEGIN):
+        refuse("end marker precedes begin marker")
+    m = re.fullmatch(r"\s*var\s+QV2_CAPABILITIES\s*=\s*(\{.*\})\s*;\s*", block, re.S)
+    if not m:
+        refuse("the block must be exactly `var QV2_CAPABILITIES = {...};`")
+    try:
+        obj = json.loads(m.group(1))
+    except ValueError as exc:
+        refuse(f"not strict JSON ({exc})")
+    if not isinstance(obj, dict) or set(obj) != {"version", "editableConcepts"}:
+        refuse("object must have exactly `version` and `editableConcepts`")
+    if obj["version"] != 1:
+        refuse(f"unknown version {obj['version']!r}")
+    ec = obj["editableConcepts"]
+    if not isinstance(ec, list) or not ec:
+        refuse("`editableConcepts` must be a non-empty list")
+    if any(not isinstance(c, str) for c in ec):
+        refuse("every editable concept must be a string")
+    if len(ec) != len(set(ec)):
+        refuse("duplicate editable concept")
+    for c in ec:
+        if c not in concepts:
+            refuse(f"`{c}` is not a concept in the source")
+        if c in derived:
+            refuse(f"`{c}` is derived_readonly and cannot be declared editable")
+    return sorted(ec), hashlib.sha256(m.group(1).encode("utf-8")).hexdigest()
+
+
+def read_event_date_map(concepts):
+    """C-4C: life_record/store.py EVENT_DATE_CONCEPT — the canonical owner of
+    each event type's date — is a MEASURED concept binding, not a form path.
+    Loaded from the shipped module; each mapped concept must exist and be a
+    date or date_interval."""
+    store = _load("lr_store_for_catalog", os.path.relpath(LR_STORE_PY, ROOT))
+    edc = dict(store.EVENT_DATE_CONCEPT)
+    problems = []
+    for etype, cid in sorted(edc.items()):
+        if cid not in concepts:
+            problems.append(f"EVENT_DATE_CONCEPT[{etype!r}] names undefined concept `{cid}`")
+        elif concepts[cid][1] not in ("date", "date_interval"):
+            problems.append(f"EVENT_DATE_CONCEPT[{etype!r}] → `{cid}` is {concepts[cid][1]}, "
+                            "not a date or date_interval")
+    if problems:
+        raise CompileRefused(problems)
+    return edc
 
 
 def _repeatable_write_modes():
@@ -142,7 +209,10 @@ def compile_catalog():
     problems = []
 
     # ── measure ──────────────────────────────────────────────────────────
-    q, q_sym = bcc.vocab_questionnaire()
+    q, q_sym = bcc.vocab_questionnaire()          # LEGACY form path membership (bindings only)
+    qv2_editable, qv2_sha = read_qv2_capabilities(_read_text(QV2_MODEL_JS), src.CONCEPTS,
+                                                  src.DERIVED_CONCEPTS)
+    event_dates = read_event_date_map(src.CONCEPTS)
     x, x_sym = bcc.vocab_extraction()
     pm, pm_sym = bcc.vocab_projection()
     asking = {r["field_key"]: r for r in seeds.asking()["rows"]}
@@ -311,7 +381,10 @@ def compile_catalog():
                     for k, (c_, s_) in sorted(src.PROFILE_JSON_BINDINGS.items())]
 
     # ── concepts ─────────────────────────────────────────────────────────
+    event_date_rows = [{"event_type": t_, "concept_id": c_}
+                       for t_, c_ in sorted(event_dates.items())]
     used = ({r["concept_id"] for r in path_rows if r["concept_id"]}
+            | {r["concept_id"] for r in event_date_rows}
             | {r["concept_id"] for r in profile_rows}
             | {r["concept_id"] for r in asking_rows}
             | {r["concept_id"] for r in seed_rows})
@@ -326,7 +399,9 @@ def compile_catalog():
         label, vtype, card = src.CONCEPTS[cid]
         prows = [r for r in path_rows if r["concept_id"] == cid]
         arows = [r for r in asking_rows if r["concept_id"] == cid]
-        in_form = any("questionnaire" in r["in"] for r in prows)
+        # C-4C: whether the CURRENT editor can write it — not whether the
+        # legacy form had a path for it (that stays on the path rows' `in`).
+        in_v2 = cid in qv2_editable
         # Eligibility comes only from paths still offered to the extractor.
         x_rows = [r for r in prows
                   if r["extraction_member"] and not r["extraction_retired_by"]]
@@ -344,7 +419,7 @@ def compile_catalog():
             "value_type": vtype, "cardinality": card,
             # ── the four independent properties (D1f); none defaults from another
             "questionnaire": ("derived_readonly" if derived else
-                              "editable" if in_form else "not_offered"),
+                              "editable" if in_v2 else "not_offered"),
             "extraction": {
                 "eligible": bool(x_rows) or added,
                 "scope": sorted({r["section"] for r in x_rows} | set(added_scope)),
@@ -376,7 +451,11 @@ def compile_catalog():
                                     else "pending — Batch B tables")},
             "decision_ids": dec,
             "provenance": {
-                "questionnaire": "measured: questionnaire_schema.load_schema",
+                "questionnaire": ("rule: derived concepts are read-only" if derived else
+                                  "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), "
+                                  "behaviour-checked by tests/test_qv2_capabilities.py"),
+                "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema "
+                                              "(path membership only — bindings.paths[].in)",
                 "extraction": ("measured: EXTRACTABLE_FIELDS sections"
                                + (f" + decision {added_dec}" if added else "")),
                 "lori.askable": ("rule: derived concepts are not asked" if derived else
@@ -400,7 +479,8 @@ def compile_catalog():
     if problems:
         raise CompileRefused(problems)
 
-    measured = {"questionnaire": sorted(q), "extraction": {k: x[k] for k in sorted(x)},
+    measured = {"questionnaire": sorted(q), "qv2_capabilities": qv2_editable,
+                "event_date_map": event_dates, "extraction": {k: x[k] for k in sorted(x)},
                 "projection_map": {k: pm[k] for k in sorted(pm)},
                 "asking": {k: asking[k] for k in sorted(asking)}, "profile_seed": topics}
     return {
@@ -411,6 +491,7 @@ def compile_catalog():
         "fingerprints": {
             "measured_vocabularies_sha256": _sha(measured),
             "questionnaire_schema": q_sym,
+            "qv2_capabilities_literal_sha256": qv2_sha,
             "semantic_source_sha256": _sha({k: getattr(src, k) for k in dir(src)
                                            if k.isupper()}),
             "decisions_sha256": _sha({d: (v["state"], v["refinement"]) for d, v in decisions.items()}),
@@ -420,6 +501,9 @@ def compile_catalog():
         "reconciliations": src.RECONCILIATIONS,
         "counts": {
             "concepts": len(concepts),
+            "questionnaire": {v: sum(c["questionnaire"] == v for c in concepts)
+                              for v in ("editable", "not_offered", "derived_readonly")},
+            "event_date_bindings": len(event_date_rows),
             "paths": len(path_rows),
             "paths_retired": sum(r["disposition"] == "retired" for r in path_rows),
             "asking_keys": len(asking_rows),
@@ -428,7 +512,7 @@ def compile_catalog():
                 {r["path"] for r in seed_rows if r["producer_vocabulary"] == "none"}),
         },
         "concepts": concepts,
-        "bindings": {"paths": path_rows, "asking_keys": asking_rows,
+        "bindings": {"paths": path_rows, "event_dates": event_date_rows, "asking_keys": asking_rows,
                      "profile_seed": seed_rows, "profile_json": profile_rows},
     }
 
