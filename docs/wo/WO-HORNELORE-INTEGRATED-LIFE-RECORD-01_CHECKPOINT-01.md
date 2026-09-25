@@ -2332,6 +2332,69 @@ person deceased never creates a death event or date. Places: explicit **Choose e
 place** or **Create new place**; suggestions may show matching labels; nothing is merged or
 identified from a string, and the Save knows which was chosen.
 
+### C-4B — ACCEPTED 2026-09-24: one parser in each runtime, and a writer that holds changed dates
+
+**Built and accepted:**
+
+| Where | What |
+|---|---|
+| `server/code/api/services/life_record/dates.py` (new) | `parse(text)` → value / text-only / refuse; `check(obj, allow_interval)` — the writer's agreement test; `qualifiers(obj)` and `calendar_parts(value)` for consumers, honouring the legacy precision words |
+| `ui/js/questionnaire-v2-model.js` | `parseDateText` replaced by the full parser (returns `{text, refuse}` for a date-shaped non-date); `dateQualifiers` exported |
+| `ui/js/questionnaire-v2.js` | `periodOf(form, prior)` returns `{error}` for a refused end or a range typed into one end; both callers show it on the form and add nothing. **On an existing relationship an end whose text is unchanged is carried as the stored object byte-for-byte** and is not re-validated (the writer's rule, mirrored); only a changed end is parsed |
+| `writer.py` | every **added** assertion whose **catalog `value_type`** is `date` / `date_interval` is checked (`allow_interval` from the type — the name of the concept decides nothing); relationship and name periods: **only an endpoint the write changes** is checked, so an unchanged legacy endpoint passes byte-for-byte |
+| `identity.py` | parses by the contract; a refused birth date is **not written and not downgraded** — creation succeeds and reports `notRecorded`; a refused date alone creates no birth event |
+| `routers/people.py` | `_legacy_birth_date`: a refused or range birth date reaches the **legacy `people` row as `""`** (the legacy `_sanitise_dob` checks shape only and kept `1939-02-30`); the original input still goes to `establish_narrator`, whose `notRecorded` the response carries. Applied to `POST /api/people` and to `POST /api/people/intake` (people row and its `personal.dateOfBirth` profile mirror). `_sanitise_dob` is not changed |
+| `rules.py` | `age_at` reads qualifiers from the value and the legacy words, and returns `None` for a decade or a range (no calendar point). **`resolve_life_span` is unchanged** — a `qualifiers` field was added and then removed on review: certainty has one representation, the date's value, and callers read it with `dates.qualifiers(span["start"])` |
+
+**Ruling 4 as built:** not `story.when` (C-5). Assertions are never edited, so every date
+assertion a write adds is a changed date; periods compare against the stored value.
+
+**Tests changed to the contract (they wrote legacy vocabulary through the writer):**
+`test_life_record_writer` (Dates), `test_life_record_graph`, `test_life_record_identity`,
+`test_qv2_adapter` (and its relationship periods were bare strings), `test_qv2_people`
+(`about 1989` is now `1989~`/`year`). **Legacy shapes are now put in by SQL** and pinned as
+readable and carried: `test_qv2_adapter.test_a_legacy_date_is_read_as_stored_never_rewritten`,
+`test_life_record_writer` legacy DOB tests, and in `test_life_record_dates` every
+`legacy_compatibility` corpus case through an unrelated **relationship** edit and an unrelated
+**name** edit, plus the mixed case for each owner (one end changed and held to the contract, the
+legacy end untouched; changing the legacy end itself is then checked).
+
+**New:** `tests/test_life_record_dates.py` (both parsers against the whole corpus, browser ==
+server per case, text never rewritten, every `server_agreement` case through the real writer,
+catalog-derived typing, period endpoints, legacy carry for both owners, age consumers, identity,
+and route tests: a bad DOB is `ok` + `notRecorded` with name, pronouns and place kept and
+`people.date_of_birth == ""`; a failed Life Record write is `ok: false` + `refused` and never
+`notRecorded`; the intake route keeps the bad DOB out of the row and the profile mirror);
+`tests/mutate_life_record_dates.py` (**27** mutations over `dates.py`, the JS parser, `writer.py`,
+`rules.py`, `identity.py` and `routers/people.py`, run through `tests/mutation_runner.py` —
+restore after every mutation, verified byte-identical at exit; the four route mutations need
+fastapi, so only `.venv` can catch them); **four** C-4B mutations in `tests/mutate_qv2_people.py`
+(three replacing the C-3 one `about 1989` no longer discriminates, and
+`legacy-period-reparsed-on-unrelated-edit`); five harness checks (impossible date and range in
+one end refused on the form; an unrelated edit carries both legacy ends; the Save sends them with
+the stored `expectedPrevious`; changing one end parses only that end); one design-validator
+contract extension and one mutation (approximation read from precision only).
+
+**Review history (not acceptance evidence).** First `.venv` run on the pre-review tree: 117 OK,
+0 skips, 19/19 date mutations. ChatGPT's pre-commit patch review then found two defects, both
+repaired: the bad DOB still stored in the legacy `people` row, and the editor re-parsing an
+unchanged legacy period end during an unrelated edit. Sandbox runs after the repairs (121 run,
+13 route skips — no fastapi) were orientation only.
+
+**Acceptance evidence — `.venv`, Chris, 2026-09-24, on the repaired tree:**
+- 11-suite bank: **125 tests OK, 0 skips.** The two bridge-sync tracebacks are the deliberate
+  injected failures in `test_c2_bridge_order_swap`; the suite ended OK.
+- Date mutation gate (`tests/mutate_life_record_dates.py`): **27/27 caught**, including the four
+  route-level DOB mutations.
+- Targeted C-4B people mutations (`tests/mutate_qv2_people.py`): **4/4 caught**, including
+  `legacy-period-reparsed-on-unrelated-edit`.
+- Design validator: 20 rules · 14 situations · 22 refusals · 11 contracts — **DESIGN COHERENT**.
+- Design mutation gate: **every mutation caught**.
+- Final pre-commit patch: **20 diffs**, `git diff --check` clean.
+
+**C-4B — ACCEPTED 2026-09-24** (ChatGPT review of the repaired 20-file patch; the
+`/api/people/intake` DOB repair is kept). Ready to commit. Next: **C-4C**.
+
 ## Roadmap refinements (Chris + ChatGPT, 2026-09-24, after the research review)
 
 Recorded here so each lands in the right phase; **none is current work.** Governing rule
