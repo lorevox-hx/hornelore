@@ -30,7 +30,7 @@ import sys
 # ─────────────────────────────────────────────────────────────────────
 
 # ── MOVED 2026-09-23 (Batch B-3) ──────────────────────────────────────
-# The vocabularies, the 21 model rules, `RULES`, the life-span resolver and
+# The vocabularies, the 22 model rules, `RULES`, the life-span resolver and
 # `run` now live ONCE, in the product: server/code/api/services/life_record/
 # rules.py. This file imports them, so the design situations below and the
 # product writer are judged by the same code.
@@ -528,6 +528,20 @@ MUST_FAIL["a derived relationship edited by hand"] = ({
                        "assertion": A("spouse_of")}],
     "stories": [], "places": [], "animals": [],
 }, "derived relationships not hand-edited")
+
+MUST_FAIL["a derived spouse pointing at someone not in its union (C-4F)"] = ({
+    "narrator_person_id": "P1",
+    "people": [{"id": "P1", "names": [{"fullText": "Ada Roche"}]},
+               {"id": "P2", "names": [{"fullText": "Alex Roche"}]},
+               {"id": "P3", "names": [{"fullText": "Sam Roche"}]}],
+    "events": [{"id": "E1", "type": "union", "date": D("1970", "1970", "year"),
+                "participants": [{"person": "P1", "role": "partner"},
+                                 {"person": "P2", "role": "partner"}]}],
+    "relationships": [{"id": "R1", "subjectPersonId": "P3", "otherPersonId": "P1",
+                       "kind": "spouse_of", "basis": "derived_from_event",
+                       "derivedFromEventId": "E1", "assertion": A("spouse_of")}],
+    "stories": [], "places": [], "animals": [],
+}, "derived relationships match their event's people")
 
 MUST_FAIL["competing claims silently reduced to one"] = ({
     "narrator_person_id": "P1",

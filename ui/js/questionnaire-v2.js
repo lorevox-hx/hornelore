@@ -59,6 +59,7 @@
   var COUNT_CONCEPTS = {
     "person.reported_count.siblings": "siblings", "person.reported_count.children": "children",
     "person.reported_count.grandchildren": "grandchildren",
+    "person.reported_count.marriages": "marriages",
   };
 
   function model() { return root.LorevoxQuestionnaireV2Model; }
@@ -250,7 +251,7 @@
      by another field never wipes a half-filled form. */
   function formKey(form) {
     return form.getAttribute("data-qv2-form") + ":" + (form.getAttribute("data-topic") ||
-      form.getAttribute("data-rel") || form.getAttribute("data-person") || "");
+      form.getAttribute("data-rel") || form.getAttribute("data-person") || form.getAttribute("data-event") || "");
   }
   function rememberForm(form) {
     if (!S.forms) S.forms = {};
@@ -277,6 +278,14 @@
       narratorLabel: get("narratorLabel"), lineage: get("lineage"), lifeStatus: get("lifeStatus"),
       from: get("from"), until: get("until"), nameKind: get("nameKind"),
       date: get("date"), place: get("place"), newPlaceLabel: get("newPlaceLabel"),
+      partner: get("partner"), occKind: get("occKind"),
+      current: (function () { var el = form.querySelector('[data-f="current"]'); return el ? !!el.checked : null; })(),
+      homeType: get("homeType"),
+      // C-4F review: one selector per recorded participant, keyed by who is there now
+      swaps: (function () { var o = {};
+        Array.prototype.slice.call(form.querySelectorAll('[data-f^="swap:"]')).forEach(function (el) {
+          o[el.getAttribute("data-f").slice(5)] = String(el.value || ""); });
+        return o; })(),
       qualifiers: Array.prototype.slice.call(form.querySelectorAll('[data-f="q"]'))
         .filter(function (x) { return x.checked; }).map(function (x) { return x.value; }),
     };
@@ -564,6 +573,191 @@
     return ops;
   }
 
+  /* ── Homes, unions and separations (C-4F) ────────────────────────────
+     Each is its OWN occurrence — an event with its own id. A home is a `move`
+     event (the narrator its resident): its place is the event's place, its
+     period an event.residence.period assertion under the C-4 contract, where
+     "to present" (`/..`) is stated as ongoing and "to ?" (`/`) is an unknown
+     end — a missing end is never read as current. A union and a separation
+     are separate events with the same two participants: the same pair NEVER
+     means the same occurrence (married, divorced, remarried = three events),
+     and a separation does not touch the union it ends. The relationship's own
+     period is a different, stated fact and is not derived from these.
+     Places are chosen by id or created new, never matched by name. */
+  var OCC = {
+    move:       { date: "event.residence.period", place: "event.residence.place", role: "resident",
+                  interval: true, label: "Home" },
+    union:      { date: "event.union.date", place: "event.union.place", role: "partner",
+                  interval: false, label: "Union", partner: "event.union.participant" },
+    separation: { date: "event.separation.date", place: null, role: "partner",
+                  interval: false, label: "Separation", partner: "event.separation.participant" },
+  };
+
+  function occPlace(f, concept, currentId, err) {
+    var sel = concept && can(concept) ? f.place : "";
+    if (sel === "new") {
+      var label = String(f.newPlaceLabel || "").trim();
+      if (!label) return err("write the new place's name, as it is said.");
+      return { mode: "new", placeId: newId("qv2pl-"), label: label };
+    }
+    if (sel && sel.indexOf("existing:") === 0) {
+      var id = sel.slice("existing:".length);
+      if (!S.view.places[id]) return err("that place is not in this record.");
+      if (id !== currentId) return { mode: "existing", placeId: id };
+    }
+    return { mode: "keep" };
+  }
+
+  function keepOccurrence(form, eventId) {
+    var f = readForm(form), nid = S.view.narratorPersonId;
+    var ev = eventId ? S.view.events[eventId] : null;
+    var kind = ev ? ev.type : (form.getAttribute("data-kind") || f.occKind);
+    var C = OCC[kind]; if (!C) return;
+    var err = function (t) { S.formError = { topic: S.topic, text: C.label + ": " + t }; paint(); return null; };
+    var partnerId = null;
+    if (!ev && C.partner) {
+      if (!can(C.partner)) return;
+      partnerId = f.partner;
+      if (!partnerId || !S.view.people[partnerId] || partnerId === nid) return err("choose who this is with.");
+    }
+    // the date or period — under the C-4 contract; an unchanged stored text is not re-parsed
+    var date = null, typed = can(C.date) ? f.date : "", cur = ev ? ev.date : null;
+    if (typed) {
+      var stored = cur && cur.state === "value" ? cur.value : null;
+      if (cur && cur.state === "unresolved") return err("two accounts of this date are recorded — decide between them in review first.");
+      if (!(stored && String(stored.text || "").trim() === typed)) {
+        date = model().parseDateText(typed);
+        if (date && date.refuse) { return err(date.refuse); }  // C-4F: never downgraded to words
+        if (!C.interval && date && date.value && date.value.indexOf("/") >= 0) return err("this is one date, not a range.");
+      }
+    }
+    var place = occPlace(f, C.place, ev ? ev.placeId : null, err);
+    if (place === null) return;
+    /* A home is current ONLY when the operator says so (the box), never from
+       the period (C-4F). `current` is null when unchanged. What THIS edit
+       states must not contradict itself: a current home with an ENDED period,
+       or a period said to run "to present" on a home that is not current. A
+       contradiction already stored, untouched by this edit, never blocks an
+       unrelated change (no writer rule; several homes may be current). */
+    var current = null;
+    if (kind === "move" && f.current !== null && can(C.date)) {
+      var was = !!(ev && ev.attributes && ev.attributes.current === true);
+      if (f.current !== was) current = f.current;
+      var isNow = f.current;
+      var storedV = cur && cur.state === "value" && cur.value ? String(cur.value.value || "") : "";
+      var pv = date ? String(date.value || "") : storedV;
+      var slash = pv.indexOf("/"), end = slash >= 0 ? pv.slice(slash + 1) : null;
+      if ((current === true || (date && isNow)) && end !== null && end !== "" && end !== "..")
+        return err("a current home cannot have a period that has ended — correct the period, or untick current.");
+      if (date && !isNow && end === "..")
+        return err("a period that runs “to present” is a current home — tick Current, or give the period its end.");
+      if (current === false && !date && /\/\.\.$/.test(storedV))
+        return err("this home's period runs “to present” — correct the period as well, or keep it current.");
+    }
+    /* C-4F review — correcting who took part. One selector per recorded
+       non-narrator participant; each changes ONLY that participant, every
+       other participant and role is kept. Nobody may appear twice. */
+    var swaps = {}, nSwaps = 0, derived = [];
+    if (ev && C.partner && can(C.partner)) {
+      var present = (ev.participants || []).map(function (x) { return x.personId; }), taken = {};
+      var fs = f.swaps || {};
+      for (var old in fs) {
+        var nw = fs[old];
+        if (!nw || nw === old || old === nid || present.indexOf(old) === -1) continue;
+        if (!S.view.people[nw] || nw === nid) return err("choose who this is with.");
+        if (present.indexOf(nw) !== -1 || taken[nw])
+          return err(personName(nw) + " is already in this " + C.label.toLowerCase() + " — nobody is recorded in it twice.");
+        taken[nw] = true; swaps[old] = nw; nSwaps++;
+      }
+      if (nSwaps) {
+        // a relationship DERIVED from this occurrence follows the correction in the same Save
+        var afterPeople = present.map(function (x) { return swaps[x] || x; }), stale = false;
+        Object.keys(S.view.relationships || {}).forEach(function (rid) {
+          var r = S.view.relationships[rid].raw;
+          if (!r || r.basis !== "derived_from_event" || r.derivedFromEventId !== eventId) return;
+          var a = swaps[r.subjectPersonId] || r.subjectPersonId, b = swaps[r.otherPersonId] || r.otherPersonId;
+          if (a === b || afterPeople.indexOf(a) === -1 || afterPeople.indexOf(b) === -1) { stale = true; return; }
+          if (a !== r.subjectPersonId || b !== r.otherPersonId) {
+            var nr = {}; Object.keys(r).forEach(function (k) { nr[k] = r[k]; });
+            nr.subjectPersonId = a; nr.otherPersonId = b;
+            derived.push({ relId: rid, before: r, after: nr });
+          }
+        });
+        if (stale) return err("a relationship derived from this " + C.label.toLowerCase() +
+                              " would no longer match its people — resolve it in review first.");
+      }
+    }
+    var homeType = null;
+    if (!ev && kind === "move" && f.homeType && can("event.residence.type")) homeType = f.homeType;
+    var key = "occ:" + (eventId || "");
+    if (ev && !date && place.mode === "keep" && current === null && !nSwaps) {   // nothing changed on this occurrence
+      delete S.edits[key]; S.formError = null; forget("occ:" + eventId); writeDraft(); paint(); return;
+    }
+    if (!ev && kind === "move" && !date && place.mode === "keep") return err("say where, or when, or both.");
+    if (!ev && current === false) current = null;         // a new home is simply not marked current
+    var id = eventId || newId("qv2e-");
+    if (!ev) key = "occ:" + id;
+    var basis = cur && cur.state === "value"
+      ? { state: "value", assertionId: cur.assertionId, accepted: !!cur.accepted,
+          status: ((cur.history || []).filter(function (a) { return a.id === cur.assertionId; })[0] || {}).status || null }
+      : { state: "blank", assertionId: null, status: null };
+    S.edits[key] = { kind: "occ", occKind: kind, topic: S.topic, eventId: id, isNew: !ev,
+                     eventBefore: ev ? ev.raw : null, partnerId: partnerId,
+                     date: date, dateBasis: basis, dateAssertionId: date ? newId("qv2a-") : null, place: place,
+                     current: current, swaps: nSwaps ? swaps : null, derived: derived,
+                     homeType: homeType, homeTypeAssertionId: homeType ? newId("qv2a-") : null };
+    S.formError = null;
+    if (place.mode === "new") {                        // suggest — never merge
+      var same = Object.keys(S.view.places || {}).filter(function (pid) {
+        return String(S.view.places[pid].label || "").trim().toLowerCase() === place.label.toLowerCase(); });
+      if (same.length) S.message = { kind: "info", text: "A place called “" + place.label + "” is already recorded. " +
+        "This creates a SEPARATE place — if it is the same one, undo and choose it from the list instead." };
+    }
+    forget(form.getAttribute("data-qv2-form") + ":" + (form.getAttribute("data-event") || form.getAttribute("data-topic") || ""));
+    writeDraft(); paint();
+  }
+
+  function occOps(e, src) {
+    var C = OCC[e.occKind], nid = S.view.narratorPersonId, ops = [];
+    var placeId = e.place.mode === "keep" ? (e.eventBefore ? e.eventBefore.place || null : null) : e.place.placeId;
+    if (e.place.mode === "new") ops.push({ op: "add", path: "places/" + e.place.placeId, value: { label: e.place.label } });
+    if (e.isNew) {
+      var parts = [{ person: nid, role: C.role }];
+      if (e.partnerId) parts.push({ person: e.partnerId, role: C.role });
+      var v = { type: e.occKind, participants: parts };
+      if (placeId) v.place = placeId;
+      if (e.current === true) v.attributes = { current: true };
+      ops.push({ op: "add", path: "events/" + e.eventId, value: v });
+    } else if (e.place.mode !== "keep" || (e.current !== null && e.current !== undefined) || e.swaps) {
+      // ONE set on the SAME event (its id never changes — stories point at it),
+      // carrying every other field and attribute exactly as it was
+      var after = {}; Object.keys(e.eventBefore).forEach(function (k) { after[k] = e.eventBefore[k]; });
+      after.place = placeId;
+      if (!after.place) delete after.place;
+      if (e.current !== null && e.current !== undefined) {
+        var attrs = {}; Object.keys(e.eventBefore.attributes || {}).forEach(function (k) { attrs[k] = e.eventBefore.attributes[k]; });
+        if (e.current) attrs.current = true; else delete attrs.current;
+        if (Object.keys(attrs).length) after.attributes = attrs; else delete after.attributes;
+      }
+      if (e.swaps) {        // only the corrected participant changes; every other one, and every role, is kept
+        after.participants = e.eventBefore.participants.map(function (x) {
+          return { person: e.swaps[x.person] || x.person, role: x.role }; });
+      }
+      ops.push({ op: "set", path: "events/" + e.eventId, value: after, expectedPrevious: e.eventBefore });
+      (e.derived || []).forEach(function (d) {     // the derived relationship follows its event, same Save
+        ops.push({ op: "set", path: "relationships/" + d.relId, value: d.after, expectedPrevious: d.before });
+      });
+    }
+    if (e.isNew && e.homeType) {                     // the new home's kind, in the same Save as the home
+      ops.push(assertionOp(idOf(e, "homeTypeAssertionId"), "event", e.eventId, "event.residence.type", e.homeType, src));
+    }
+    if (e.date) {
+      ops = ops.concat(answerOps({ kind: "occ", newAssertionId: idOf(e, "dateAssertionId"), basis: e.dateBasis,
+                                   subjectType: "event", subjectId: e.eventId, concept: C.date, value: e.date }, src));
+    }
+    return ops;
+  }
+
   function addPronoun(form) {
     var f = form.querySelector('[data-f="pronoun"]'), t = f ? String(f.value || "").trim() : "";
     if (!t || !can("person.pronouns")) return;
@@ -679,12 +873,14 @@
         return [assertionOp(e.assertionId, "person", e.personId, "person.pronouns", e.value, src)];
       case "vital":
         return vitalOps(e, src);
+      case "occ":
+        return occOps(e, src);
     }
     return [];
   }
 
   // People before the names, relationships and answers that refer to them.
-  var ORDER = { newperson: 0, newname: 1, nameedit: 2, preferred: 3, newrel: 4, reledit: 5, vital: 6, answer: 7, pronoun: 8 };
+  var ORDER = { newperson: 0, newname: 1, nameedit: 2, preferred: 3, newrel: 4, reledit: 5, vital: 6, occ: 7, answer: 8, pronoun: 9 };
 
   function buildChanges() {
     var src = PROVENANCE[S.provenance] || PROVENANCE.operator;
@@ -913,6 +1109,95 @@
       '">Keep ' + kind + "</button></div>";
   }
 
+  /* Homes / unions / separations (C-4F): each stored occurrence with its own
+     small form, then a form to add one. */
+  function occOthers(ev) {             // every recorded non-narrator participant, none hidden
+    var nid = S.view.narratorPersonId;
+    return (ev.participants || []).filter(function (x) { return x.personId !== nid; })
+      .map(function (x) { return x.personId; });
+  }
+  function occSummary(e) {
+    var parts = [OCC[e.occKind].label];
+    if (e.partnerId) parts.push("with " + personName(e.partnerId));
+    if (e.swaps) Object.keys(e.swaps).forEach(function (o) {
+      parts.push(personName(o) + " → " + personName(e.swaps[o])); });
+    if (e.homeType) parts.push(e.homeType);
+    if (e.date) parts.push(e.date.text);
+    if (e.current === true) parts.push("current home");
+    if (e.current === false) parts.push("no longer current");
+    if (e.place.mode === "new") parts.push("new place “" + e.place.label + "”");
+    if (e.place.mode === "existing") parts.push((S.view.places[e.place.placeId] || {}).label || e.place.placeId);
+    return parts.join(" · ");
+  }
+  function occFields(C, fk, storedText, currentPlaceId, isCurrent) {
+    return (C.interval && can(C.date) ? '<label class="qv2-field"><input type="checkbox" data-f="current"' +
+             (fv(fk, "current", !!isCurrent) ? " checked" : "") + "> Current home (they live here now)</label>" : "") +
+      (can(C.date) ? '<label class="qv2-field">' + (C.interval ? "Period" : "Date") +
+             ' <input type="text" data-f="date" value="' + esc(fv(fk, "date", storedText)) + '" placeholder="' +
+             (C.interval ? "as said, e.g. 1962 to 1975, or 1990 to present" : "as said, e.g. June 1961 or about 1961") +
+             '"></label>' : "") +
+      (C.place && can(C.place) ? '<label class="qv2-field">Place <select data-f="place">' +
+             options([["new", "+ Create a new place (named below)"]].concat(placeChoices(currentPlaceId)), fv(fk, "place", ""),
+                     currentPlaceId ? "— keep the current place —" : "— not recorded —") + "</select></label>" +
+             '<label class="qv2-field">New place <input type="text" data-f="newPlaceLabel" value="' +
+             esc(fv(fk, "newPlaceLabel", "")) + '" placeholder="only when creating a new place"></label>' : "");
+  }
+  function occCard(eid) {
+    var ev = S.view.events[eid], C = OCC[ev.type]; if (!C) return "";
+    var key = "occ:" + eid, pend = S.edits[key], fk = "occ:" + eid, others = occOthers(ev);
+    var head = '<div class="qv2-card" data-qv2-occ="' + esc(eid) + '"><strong>' + esc(C.label) + "</strong>" +
+      (others.length ? " — with " + others.map(function (x) { return esc(personName(x)); }).join(" and ") : "") + (ev.placeLabel ? " · " + esc(ev.placeLabel) : "") +
+      (ev.date ? " · " + answerText(ev.date) : "") +
+      (ev.attributes && ev.attributes.current === true ? ' · <span data-qv2-current>current home</span>' : "") + (pend ? '<p>' + esc(occSummary(pend)) + unsaved(key) + "</p>" : "");
+    var canSwap = !!(C.partner && can(C.partner));
+    if (!can(C.date) && !(C.place && can(C.place)) && !canSwap) return head + "</div>";
+    var storedText = ev.date && ev.date.state === "value" && ev.date.value ? ev.date.value.text || "" : "";
+    var nid = S.view.narratorPersonId, sw = fv(fk, "swaps", {}) || {};
+    var swapFields = canSwap ? others.map(function (pid) {
+      return '<label class="qv2-field">With <select data-f="swap:' + esc(pid) + '">' + options(Object.keys(S.view.people)
+        .filter(function (id) { return id !== nid; }).map(function (id) { return [id, personName(id)]; }),
+        sw[pid] || pid, null) + "</select></label>"; }).join("") : "";
+    return head + '<div class="qv2-form qv2-inline" data-qv2-form="occ" data-event="' + esc(eid) + '">' + swapFields +
+      occFields(C, fk, storedText, ev.placeId, ev.attributes && ev.attributes.current === true) +
+      '<button type="button" data-qv2-action="keep-occ" data-event="' + esc(eid) + '">Keep</button></div>' +
+      (ev.type === "move"
+        ? answerInput("homes", "event", eid, "event.residence.type", "Kind of home (house, farm, apartment…)", ev.residenceType)
+        : "") + "</div>";
+  }
+  function occSection(kinds, topic) {
+    var nid = S.view.narratorPersonId;
+    var ids = Object.keys(S.view.events).filter(function (id) {
+      var e = S.view.events[id];
+      return kinds.indexOf(e.type) !== -1 && (e.participants || []).some(function (x) { return x.personId === nid; });
+    });
+    var html = ids.length ? ids.map(occCard).join("") : '<p class="qv2-blank">None recorded yet.</p>';
+    html += pendingOf("occ").filter(function (e) { return e.isNew && kinds.indexOf(e.occKind) !== -1; }).map(function (e) {
+      return '<div class="qv2-card qv2-pending-occ">' + esc(occSummary(e)) + unsaved("occ:" + e.eventId) + "</div>";
+    }).join("");
+    var addable = kinds.filter(function (k) { var C = OCC[k];
+      return C.partner ? can(C.partner) : (can(C.date) || (C.place && can(C.place))); });
+    if (!addable.length) return html;
+    var fk = "occ-new:" + topic, C0 = OCC[addable[0]];
+    var chosen = fv(fk, "occKind", addable[0]);
+    var sel = addable.length === 1 || addable.indexOf(chosen) === -1 ? addable[0] : chosen, Cs = OCC[sel];
+    var partnerPicker = Cs.partner
+      ? '<label class="qv2-field">With <select data-f="partner">' + options(Object.keys(S.view.people)
+          .filter(function (id) { return id !== nid; }).map(function (id) { return [id, personName(id)]; }),
+          fv(fk, "partner", ""), "— choose who —") + "</select></label>" : "";
+    var kindPicker = addable.length > 1
+      ? '<label class="qv2-field">What <select data-f="occKind">' + options(addable.map(function (k) {
+          return [k, OCC[k].label]; }), fv(fk, "occKind", addable[0]), null) + "</select></label>" : "";
+    return html + '<div class="qv2-form qv2-add" data-qv2-form="occ-new" data-topic="' + esc(topic) + '"' +
+      (addable.length === 1 ? ' data-kind="' + addable[0] + '"' : "") + "><h4>Add " +
+      (addable.length === 1 ? C0.label.toLowerCase() : "a union or separation") + "</h4>" +
+      kindPicker + partnerPicker + occFields(Cs, fk, "", null) +
+      (sel === "move" && can("event.residence.type") ? '<label class="qv2-field">Kind of home <input type="text" ' +
+        'data-f="homeType" value="' + esc(fv(fk, "homeType", "")) + '" placeholder="house, farm, apartment…"></label>' : "") +
+      (addable.indexOf("separation") !== -1 ? '<p class="qv2-hint">A separation is its own record: it never changes the union it ends, ' +
+        "and the same two people can marry again.</p>" : "") +
+      '<button type="button" data-qv2-action="keep-occ">Add</button></div>';
+  }
+
   /* One relationship to the narrator, saved or pending. */
   function relCard(rel) {
     var R = model().ROLES, v = S.view;
@@ -1012,12 +1297,16 @@
                           N.reportedCounts.siblings);
     }
     if (t === "partners") {
-      html += "<h4>Unions</h4>" + list(S.view.topics.partners.unions.map(eventLine));
+      html += "<h4>Unions and separations</h4>" + occSection(["union", "separation"], "partners");
       if (N) {
         html += answerInput(t, "person", N.id, "person.reported_count.children", "Number of children, as said",
                             N.reportedCounts.children) +
                 answerInput(t, "person", N.id, "person.reported_count.grandchildren", "Number of grandchildren, as said",
-                            N.reportedCounts.grandchildren);
+                            N.reportedCounts.grandchildren) +
+                // C-4F: a STATED count — "married three times" survives with two unions identified
+                answerInput(t, "person", N.id, "person.reported_count.marriages",
+                            "How many times the narrator says they married (a count, even if not every marriage is recorded)",
+                            N.reportedCounts.marriages);
       }
     }
     if (t === "wider") {
@@ -1051,7 +1340,7 @@
           vitalBlock(N.id, "birth") + vitalBlock(N.id, "death") +
           answerInput("narrator", "person", N.id, "person.birth.order", "Birth order, as the narrator describes it",
                       N.birthOrder) +
-          "<h4>Current home</h4>" + list(T.currentHomes.map(eventLine));
+          "<h4>Current home</h4><div data-qv2-current-homes>" + list(T.currentHomes.map(eventLine)) + "</div>";
       case "family":
       case "partners":
       case "wider":
@@ -1067,6 +1356,8 @@
         return (N ? "<h4>Interests</h4>" + list(N.interests.map(function (x) { return esc(x.value); })) : "") +
           list((T.events || []).map(eventLine)) +
           "<h4>Trips</h4>" + list((T.trips || []).map(function (x) { return esc(x.label || x.tripId); }));
+      case "homes":
+        return "<h4>Homes</h4>" + occSection(["move"], "homes");
       default:
         return list((T.events || []).map(eventLine));
     }
@@ -1176,6 +1467,7 @@
       else if (act === "keep-rel") keepRelationshipEdit(a.getAttribute("data-rel"), a.closest("[data-qv2-form]"));
       else if (act === "add-name") addName(a.getAttribute("data-person"), a.closest("[data-qv2-form]"));
       else if (act === "add-pronoun") addPronoun(a.closest("[data-qv2-form]"));
+      else if (act === "keep-occ") keepOccurrence(a.closest("[data-qv2-form]"), a.getAttribute("data-event") || null);
       else if (act === "keep-vital") keepVital(a.getAttribute("data-person"), a.getAttribute("data-kind"), a.closest("[data-qv2-form]"));
     });
     var remember = function (ev) {
@@ -1185,6 +1477,7 @@
     root_.addEventListener("input", remember);
     root_.addEventListener("change", function (ev) {
       remember(ev);
+      if (ev.target.getAttribute && ev.target.getAttribute("data-f") === "occKind") { paint(); return; }
       var prov = ev.target.closest("[data-qv2-provenance]");
       if (prov) { S.provenance = PROVENANCE[prov.value] ? prov.value : "operator"; writeDraft(); return; }
       var nm = ev.target.closest("[data-qv2-name]");
@@ -1205,6 +1498,10 @@
     if (subjectType === "relationship") {
       var r = S.view.relationships[subjectId];
       return r && concept === "relationship.qualifier.lineage_side" ? r.lineageSide : null;
+    }
+    if (subjectType === "event") {                     // C-4F: the kind of home
+      var ev = S.view.events[subjectId];
+      return ev && concept === "event.residence.type" ? ev.residenceType : null;
     }
     if (subjectType !== "person") return null;
     var p = S.view.people[subjectId]; if (!p) return null;

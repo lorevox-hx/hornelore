@@ -24,6 +24,7 @@ def establish_narrator(narrator_id: str, *, full_name: str,
                        pronouns: Optional[str] = None,
                        birth_date: Optional[str] = None,
                        birth_place: Optional[str] = None,
+                       current_residence: Optional[str] = None,
                        actor: str = "operator:new_narrator") -> Dict[str, Any]:
     full = (full_name or "").strip()
     if not full:
@@ -79,6 +80,19 @@ def establish_narrator(narrator_id: str, *, full_name: str,
             changes.append(asserted(f"{narrator_id}-dob", "event", ev, "person.birth.date", dob_value))
         changes.append({"op": "set", "path": f"people/{narrator_id}/birthEventRef",
                         "value": ev, "expectedPrevious": None})
+    # C-4F: where the narrator lives NOW, as the operator typed it. One place
+    # (the text as given — never split into street / town / state) and one
+    # home: a `move` occurrence with the narrator as resident, EXPLICITLY
+    # current. No period is written: when they moved in was not given, and
+    # a start date is never invented. The legacy people/profile copy stays
+    # for its readers until D-0; it is no longer the only authority.
+    home = (current_residence or "").strip()
+    if home:
+        changes.append({"op": "add", "path": f"places/{narrator_id}-residence", "value": {"label": home}})
+        changes.append({"op": "add", "path": f"events/{narrator_id}-home",
+                        "value": {"type": "move", "place": f"{narrator_id}-residence",
+                                  "participants": [{"person": narrator_id, "role": "resident"}],
+                                  "attributes": {"current": True}}})
     out = _writer.apply_changes(narrator_id, None, changes, actor)
     if dob_refused and out.get("ok"):
         out["notRecorded"] = [{"field": "birth_date", "reason": dob_refused}]

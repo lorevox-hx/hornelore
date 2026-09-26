@@ -246,7 +246,8 @@ def api_create_person(payload: PersonCreate):
     life_record = _establish_in_life_record(
         person_id, full_name=payload.display_name,
         pronouns=_pronoun_label(pron, payload.pronouns_other or "") if pron else None,
-        birth_date=payload.date_of_birth, birth_place=payload.place_of_birth)
+        birth_date=payload.date_of_birth, birth_place=payload.place_of_birth,
+        current_residence=payload.current_residence)
 
     return {
         "person_id": person_id,
@@ -1006,7 +1007,8 @@ def api_create_person_intake(payload: NarratorIntakePayload):
     life_record = _establish_in_life_record(
         person_id, full_name=payload.full_legal_name, preferred_name=payload.preferred_name,
         pronouns=_pronoun_label(payload.pronouns, payload.pronouns_other or ""),
-        birth_date=payload.date_of_birth, birth_place=payload.place_of_birth)
+        birth_date=payload.date_of_birth, birth_place=payload.place_of_birth,
+        current_residence=payload.current_residence)
 
     # ── Response ────────────────────────────────────────────────────
     person_row = get_person(person_id) or {"id": person_id}

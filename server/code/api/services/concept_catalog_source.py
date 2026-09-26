@@ -428,6 +428,10 @@ CONCEPTS = {
     "person.military_service": ("Served in the military", "boolean_3", "one"),
     "person.reported_count.children": ("Children, count as stated", "number", "one"),
     "person.reported_count.grandchildren": ("Grandchildren, count as stated", "number", "one"),
+    # C-4F: "I was married three times" survives when only two unions are
+    # identified — a STATED count (WO-LIFE-RECORD-01 §7), never computed from
+    # the union events, and not a marital-status scalar.
+    "person.reported_count.marriages": ("Marriages, count as stated", "number", "one"),
     "person.reported_count.siblings": ("Siblings, count as stated", "number", "one"),
     "person.zodiac_sign": ("Zodiac sign (derived from birth date)", "text", "one"),
     "relationship.kind": ("Relationship to the narrator", "enum:relationship_kind", "one"),
@@ -442,6 +446,10 @@ CONCEPTS = {
     # C-4C (2026-09-25): the date of a separation event, as union date is of a
     # union. Bound by life_record/store.py EVENT_DATE_CONCEPT, not by a form path.
     "event.separation.date": ("Separation date", "date", "one"),
+    # C-4F review: a separation's participants are structural data the event
+    # already stores — named here as event.union.participant names a union's,
+    # instead of being counted as a date write.
+    "event.separation.participant": ("Separation partner", "person_ref", "many"),
     "event.education.schooling": ("Schooling", "occurrence", "many"),
     "event.education.higher": ("Higher education", "occurrence", "many"),
     "event.education.level": ("Highest level reached", "text", "one"),

@@ -63,6 +63,33 @@ class EstablishNarrator(_Db):
         self.assertEqual(W.read_record(NORA)["events"][0]["date"],
                          {"text": "1939-08-30", "value": "1939-08-30", "precision": "day"})
 
+    # C-4F — the intake's REQUIRED "currently lives in" is canonical, not legacy-only
+    def test_the_current_residence_is_one_place_and_one_current_home(self):
+        r = establish_narrator(NORA, full_name="Nora Whitfield", current_residence="Las Vegas, NM")
+        self.assertTrue(r["ok"], r)
+        rec = W.read_record(NORA)
+        self.assertEqual([p["label"] for p in rec["places"]], ["Las Vegas, NM"], "the text as typed, one place")
+        homes = [e for e in rec["events"] if e["type"] == "move"]
+        self.assertEqual(len(homes), 1)
+        h = homes[0]
+        self.assertEqual((h["place"], h["participants"], h.get("attributes")),
+                         (rec["places"][0]["id"], [{"person": NORA, "role": "resident"}], {"current": True}),
+                         "explicitly current")
+        self.assertNotIn("date", h, "no start date is invented; no end is inferred")
+        self.assertNotIn("dateAssertions", h)
+
+    def test_a_multi_level_residence_stays_one_place_and_one_home(self):
+        label = "412 Elm Street, South Side, Chicago, Illinois"
+        establish_narrator(NORA, full_name="Nora Whitfield", current_residence=label)
+        rec = W.read_record(NORA)
+        self.assertEqual([(p["label"], p.get("parts")) for p in rec["places"]], [(label, None)],
+                         "never split into street / neighbourhood / city — parts are supplied, not guessed")
+        self.assertEqual(len([e for e in rec["events"] if e["type"] == "move"]), 1)
+
+    def test_no_residence_no_home(self):
+        establish_narrator(NORA, full_name="Nora Whitfield", current_residence="   ")
+        self.assertEqual(W.read_record(NORA)["events"], [])
+
     def test_no_name_no_write(self):
         self.assertFalse(establish_narrator(NORA, full_name="  ")["ok"])
         self.assertEqual(W.read_record(NORA)["revision"], 0)
@@ -81,6 +108,23 @@ class CreateRouteEstablishes(_Db):
         self.assertTrue(body["life_record"]["ok"], body)
         rec = W.read_record(body["person_id"])
         self.assertEqual([n["fullText"] for n in rec["people"][0]["names"]], ["Probe Fictional"])
+
+    def test_the_intake_route_establishes_the_current_residence_in_the_record(self):
+        app = FastAPI()
+        app.include_router(_people_router.router)
+        r = TestClient(app).post("/api/people/intake", json={
+            "full_legal_name": "Probe Fictional", "preferred_name": "Probe",
+            "date_of_birth": "1939", "place_of_birth": "Minot", "pronouns": "she_her",
+            "current_residence": "Las Vegas, NM", "testing_only": True})
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertTrue(body["life_record"]["ok"], body)
+        rec = W.read_record(body["person_id"])
+        homes = [e for e in rec["events"] if e["type"] == "move"]
+        self.assertEqual(len(homes), 1, rec["events"])
+        place = {p["id"]: p["label"] for p in rec["places"]}[homes[0]["place"]]
+        self.assertEqual((place, homes[0].get("attributes")), ("Las Vegas, NM", {"current": True}))
+        self.assertNotIn("date", homes[0])
 
 
 if __name__ == "__main__":

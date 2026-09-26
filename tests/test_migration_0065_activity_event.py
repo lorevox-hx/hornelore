@@ -200,15 +200,27 @@ class Migration0065(unittest.TestCase):
                  self.a("a-act", "e-act", "event.activity.period", d("1970 to present", "1970/..", "unknown"))])
         self.assertEqual(next(e for e in W.read_record(NORA)["events"] if e["id"] == "e-act")["date"]["value"],
                          "1970/..")
+        # Every pre-0065 type is still admitted — each on a FRESH person, so the
+        # records stay model-valid: the fixture already gives Nora her birth
+        # (`e-birth`), and "one birth and one death per person" (C-4E) rightly
+        # refuses a second. Birth is exercised, not skipped; the rule is not
+        # weakened; a death still carries `deceased` in the same Save.
         for i, t in enumerate(OLD_TYPES):
+            pid = f"p-old-{i}"
+            person = [{"op": "add", "path": f"people/{pid}", "value": {}},
+                      {"op": "add", "path": f"people/{pid}/names/n-{i}", "value": {"fullText": f"Probe {t}"}}]
             if t == "death":        # a death needs the person deceased, in the same Save (model rule)
-                self.ok([self.ev(f"e-{i}", t, [(NORA, "subject")]),
-                         {"op": "add", "path": "assertions/a-dead", "value": {
-                             "subjectType": "person", "subjectId": NORA, "conceptId": "person.life_status",
-                             "value": "deceased", "source": "operator", "assertedBy": "operator",
-                             "status": "operator_entered"}}])
+                self.ok(person + [self.ev(f"e-{i}", t, [(pid, "subject")]),
+                                  {"op": "add", "path": "assertions/a-dead", "value": {
+                                      "subjectType": "person", "subjectId": pid, "conceptId": "person.life_status",
+                                      "value": "deceased", "source": "operator", "assertedBy": "operator",
+                                      "status": "operator_entered"}}])
             else:
-                self.ok([self.ev(f"e-{i}", t, [(NORA, "subject")])])
+                self.ok(person + [self.ev(f"e-{i}", t, [(pid, "subject")])])
+        stored = {e["id"]: e["type"] for e in W.read_record(NORA)["events"]}
+        self.assertEqual({f"e-{i}": stored.get(f"e-{i}") for i in range(len(OLD_TYPES))},
+                         {f"e-{i}": t for i, t in enumerate(OLD_TYPES)},
+                         "every old type landed, as itself, after 0065")
         r = self.write([self.ev("e-bogus", "hobby", [(NORA, "subject")])])
         self.assertFalse(r.get("ok"), "an unknown event type is still refused")
 

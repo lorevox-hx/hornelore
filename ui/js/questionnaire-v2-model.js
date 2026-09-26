@@ -84,9 +84,18 @@
       "person.birth.place",
       "person.death.date",
       "person.death.place",
+      "event.residence.place",
+      "event.residence.period",
+      "event.residence.type",
+      "event.union.participant",
+      "event.union.date",
+      "event.union.place",
+      "event.separation.date",
+      "event.separation.participant",
       "person.reported_count.siblings",
       "person.reported_count.children",
       "person.reported_count.grandchildren",
+      "person.reported_count.marriages",
       "relationship.kind",
       "relationship.period",
       "relationship.qualifier.lineage_side"
@@ -215,6 +224,7 @@
           siblings: field(p, "person.reported_count.siblings"),
           children: field(p, "person.reported_count.children"),
           grandchildren: field(p, "person.reported_count.grandchildren"),
+          marriages: field(p, "person.reported_count.marriages"),
         },
         heritage: items(p, "person.heritage"),
         languages: items(p, "person.languages"),
@@ -242,7 +252,8 @@
         education: none("person.education"), militaryService: none("person.military_service"),
         reportedCounts: { siblings: none("person.reported_count.siblings"),
                           children: none("person.reported_count.children"),
-                          grandchildren: none("person.reported_count.grandchildren") },
+                          grandchildren: none("person.reported_count.grandchildren"),
+                          marriages: none("person.reported_count.marriages") },
         heritage: [], languages: [], faithRaised: none("person.faith.raised"),
         faithCurrent: none("person.faith.current"), interests: [], stories: [],
         notYetInRecord: true,
@@ -295,10 +306,12 @@
 
     var eventViews = Object.keys(events).map(function (id) {
       var e = events[id];
-      return { id: e.id, type: e.type, placeId: e.place || null, placeLabel: placeLabel(e.place),
+      return { id: e.id, type: e.type, raw: rawEvent(e), placeId: e.place || null, placeLabel: placeLabel(e.place),
                attributes: e.attributes || null,
                participants: (e.participants || []).map(function (x) { return { personId: x.person, role: x.role }; }),
                date: dateField(e),
+               // C-4F: the kind of home, an ordinary assertion on the move event
+               residenceType: e.type === "move" ? field(e, "event.residence.type") : null,
                involvesNarrator: (e.participants || []).some(function (x) { return x.person === nid; }) };
     });
 
@@ -312,6 +325,11 @@
     TOPICS.forEach(function (t) { topics[t.id] = { id: t.id, n: t.n, title: t.title }; });
 
     topics.narrator.personId = nid;
+    /* A home is CURRENT only when a human said so: the move event's explicit
+       `attributes.current === true` — ONE truth (C-4F). It is never read from
+       the period: a missing end, an unknown end ("to ?", `1990/`) and even a
+       period once stated "to present" (`1990/..`, which may have been said
+       years ago) do not make a home current on their own. */
     topics.narrator.currentHomes = eventViews.filter(function (e) {
       return e.type === "move" && e.involvesNarrator && e.attributes && e.attributes.current === true;
     }).map(function (e) { return e.id; });

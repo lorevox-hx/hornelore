@@ -131,6 +131,28 @@ const answer = (t, concept, v) => { const el = need(t, '[data-qv2-answer$=":' + 
   topic(t, "partners");
   answer(t, "person.reported_count.children", "2");
   answer(t, "person.reported_count.grandchildren", "0");
+  // C-4F: a union (partner, date, EXISTING place) and a separation; the stated marriage count
+  for (const [kind, date, place] of [["union", "June 1961", "existing:pl-1"], ["separation", "1975", null]]) {
+    setField(t, need(t, '[data-qv2-form="occ-new"]'), "occKind", kind);     // the form re-renders for the kind
+    const uf = need(t, '[data-qv2-form="occ-new"]');
+    setField(t, uf, "partner", "p-s"); setField(t, uf, "date", date);
+    if (place !== null) setField(t, uf, "place", place);
+    click(t, uf.querySelector('[data-qv2-action="keep-occ"]'));
+  }
+  answer(t, "person.reported_count.marriages", "2");
+  // C-4F review: correct the person a STORED union was filed with — same event
+  const cu = need(t, '[data-qv2-form="occ"][data-event="e-u"]');
+  setField(t, cu, "swap:p-w", "p-t");
+  click(t, cu.querySelector('[data-qv2-action="keep-occ"]'));
+
+  /* homes (C-4F): the kind of a stored home; a new CURRENT home with a period and a place */
+  topic(t, "homes");
+  answer(t, "event.residence.type", "apartment");
+  const hf = need(t, '[data-qv2-form="occ-new"]');
+  setField(t, hf, "date", "1990 to present"); setField(t, hf, "place", "existing:pl-1");
+  const cb = hf.querySelector('[data-f="current"]'); if (!cb) throw new Error("field not offered: current");
+  cb.checked = true; change(t, cb);
+  click(t, hf.querySelector('[data-qv2-action="keep-occ"]'));
 
   const n0 = t.log.length;
   click(t, need(t, '[data-qv2-action="save"]')); await settle();
@@ -144,7 +166,7 @@ const answer = (t, concept, v) => { const el = need(t, '[data-qv2-answer$=":' + 
   c.M.CAPABILITIES.editableConcepts.length = 0;
   c.V2.render(c.c, A); await settle();
   const census = {};
-  for (const tp of ["narrator", "family", "partners", "wider"]) {
+  for (const tp of ["narrator", "family", "partners", "wider", "homes"]) {
     topic(c, tp);
     const r1 = $(c, '[data-qv2-rel="r1"] [data-qv2-action="open-rel"]'); if (r1) click(c, r1);
     census[tp] = {
@@ -153,6 +175,8 @@ const answer = (t, concept, v) => { const el = need(t, '[data-qv2-answer$=":' + 
       pronoun: $$(c, '[data-qv2-form="pronoun"]').length, addPerson: $$(c, '[data-qv2-form="person"]').length,
       period: $$(c, '[data-f="from"], [data-f="until"]').length,
       vital: $$(c, '[data-qv2-form^="vital-"]').length,
+      occ: $$(c, '[data-qv2-form^="occ"]').length, current: $$(c, '[data-f="current"]').length, swap: $$(c, '[data-f^="swap:"]').length,
+      homeType: $$(c, '[data-f="homeType"]').length,
     };
   }
   out.closed = census;

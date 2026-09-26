@@ -6482,7 +6482,7 @@
     "narrative_value": "unassessed: no asking key binds this concept",
     "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "not_offered",
+   "questionnaire": "editable",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -6528,7 +6528,7 @@
     "narrative_value": "measured: max over bound asking keys",
     "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "not_offered",
+   "questionnaire": "editable",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -6572,7 +6572,7 @@
     "narrative_value": "unassessed: no asking key binds this concept",
     "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "not_offered",
+   "questionnaire": "editable",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -6660,7 +6660,7 @@
     "narrative_value": "unassessed: no asking key binds this concept",
     "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "not_offered",
+   "questionnaire": "editable",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -6669,6 +6669,48 @@
    },
    "subject_kind": "event",
    "value_type": "date"
+  },
+  {
+   "cardinality": "many",
+   "concept_id": "event.separation.participant",
+   "decision_ids": [],
+   "extraction": {
+    "eligible": false,
+    "scope": [],
+    "write_mode": "per_binding"
+   },
+   "label": "Separation partner",
+   "lori": {
+    "askable": "responsive_only",
+    "askable_by_subject": {},
+    "prompt_role": {
+     "narrator": "retrieved",
+     "other": "retrieved"
+    },
+    "retrievable": true
+   },
+   "memoir": {
+    "route": "operator_use_only"
+   },
+   "narrative_value": "unassessed",
+   "provenance": {
+    "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
+    "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
+    "lori.prompt_role": "default: retrieved",
+    "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
+    "narrative_value": "unassessed: no asking key binds this concept",
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
+   },
+   "questionnaire": "editable",
+   "special_projection": null,
+   "storage": {
+    "db_lane": "pending — Batch B tables",
+    "entity": "event",
+    "owner": "life_record"
+   },
+   "subject_kind": "event",
+   "value_type": "person_ref"
   },
   {
    "cardinality": "one",
@@ -7213,7 +7255,7 @@
     "narrative_value": "measured: max over bound asking keys",
     "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "not_offered",
+   "questionnaire": "editable",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -7257,7 +7299,7 @@
     "narrative_value": "unassessed: no asking key binds this concept",
     "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "not_offered",
+   "questionnaire": "editable",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -7303,7 +7345,7 @@
     "narrative_value": "measured: max over bound asking keys",
     "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
    },
-   "questionnaire": "not_offered",
+   "questionnaire": "editable",
    "special_projection": null,
    "storage": {
     "db_lane": "pending — Batch B tables",
@@ -8682,6 +8724,48 @@
   },
   {
    "cardinality": "one",
+   "concept_id": "person.reported_count.marriages",
+   "decision_ids": [],
+   "extraction": {
+    "eligible": false,
+    "scope": [],
+    "write_mode": "per_binding"
+   },
+   "label": "Marriages, count as stated",
+   "lori": {
+    "askable": "responsive_only",
+    "askable_by_subject": {},
+    "prompt_role": {
+     "narrator": "retrieved",
+     "other": "retrieved"
+    },
+    "retrievable": true
+   },
+   "memoir": {
+    "route": "operator_use_only"
+   },
+   "narrative_value": "unassessed",
+   "provenance": {
+    "extraction": "measured: EXTRACTABLE_FIELDS sections",
+    "legacy_questionnaire_paths": "measured: questionnaire_schema.load_schema (path membership only — bindings.paths[].in)",
+    "lori.askable": "measured: bio_schema Tier-3 eligibility of bound asking keys",
+    "lori.prompt_role": "default: retrieved",
+    "memoir": "rule: WO-LIFE-RECORD-01 §2.6/§9.2",
+    "narrative_value": "unassessed: no asking key binds this concept",
+    "questionnaire": "declared: QV2_CAPABILITIES (ui/js/questionnaire-v2-model.js), behaviour-checked by tests/test_qv2_capabilities.py"
+   },
+   "questionnaire": "editable",
+   "special_projection": null,
+   "storage": {
+    "db_lane": "pending — Batch B tables",
+    "entity": "person",
+    "owner": "life_record"
+   },
+   "subject_kind": "person",
+   "value_type": "number"
+  },
+  {
+   "cardinality": "one",
    "concept_id": "person.reported_count.siblings",
    "decision_ids": [],
    "extraction": {
@@ -9935,7 +10019,7 @@
  ],
  "counts": {
   "asking_keys": 84,
-  "concepts": 88,
+  "concepts": 90,
   "event_date_bindings": 9,
   "paths": 196,
   "paths_retired": 16,
@@ -9953,8 +10037,8 @@
   ],
   "questionnaire": {
    "derived_readonly": 1,
-   "editable": 16,
-   "not_offered": 71
+   "editable": 25,
+   "not_offered": 64
   }
  },
  "decisions_used": {
@@ -9997,10 +10081,10 @@
  },
  "fingerprints": {
   "decisions_sha256": "9e302bad10861ca2398ffbb4e73b9744ad61f27285a29980d5bb924057b54556",
-  "measured_vocabularies_sha256": "1f65f9a0c3f35ab9a9766c94b897ec8e4674f7c463ffd4cd5638ed1d7a6b169e",
+  "measured_vocabularies_sha256": "2bdfbc4d174ef208f8d7fbe2a1af8f4f9a7833cb0fe70cf2b3bafc7f9f469fb4",
   "questionnaire_schema": "questionnaire_schema.load_schema [7b974b9c2f23]",
-  "qv2_capabilities_literal_sha256": "ebb2eaed0829eb9a7c931ea5cbdf5940eea188af9d1facec396fb3adb4068872",
-  "semantic_source_sha256": "590e3d7e7a92e9b68f203acf87568a4e44b03b28ba2ca5046847ea1d114b065c"
+  "qv2_capabilities_literal_sha256": "bf896d2dacf69f7449684bac9bbc455b0442e62f0f03d42ad4f87f2b78474ba4",
+  "semantic_source_sha256": "b900ab923416e928a43996ea4a3e5daf67ad9639cd7dc8a906614863b94207e7"
  },
  "reconciliations": [
   {

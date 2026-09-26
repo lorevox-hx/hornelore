@@ -140,6 +140,25 @@ def rule_derived_relationships_not_hand_edited(b):
     return bad
 
 
+def rule_derived_relationship_matches_its_event(b):
+    """§3.7 — a derived relationship "is edited through its event", so its two
+    people must be participants of that event (C-4F). General: every event
+    type, every producer — correcting an event's participant can never leave a
+    relationship derived from it pointing at the old person. A stated
+    relationship is a separate fact and is not checked against any event."""
+    parts = {e["id"]: {p["person"] for p in e.get("participants", [])} for e in b.get("events", [])}
+    bad = []
+    for r in b.get("relationships", []):
+        if r.get("basis") != "derived_from_event" or r.get("derivedFromEventId") not in parts:
+            continue                      # unresolved events are the rule above's to report
+        people = parts[r["derivedFromEventId"]]
+        for end in ("subjectPersonId", "otherPersonId"):
+            if r.get(end) not in people:
+                bad.append(f"relationship {r['id']}: derived from {r['derivedFromEventId']}, "
+                           f"but {r.get(end)!r} is not a participant of it")
+    return bad
+
+
 def rule_event_participants_resolve(b):
     ids = {p["id"] for p in b["people"]}
     bad = []
@@ -549,6 +568,7 @@ RULES = [
     ("no stored inverse relationships", rule_no_stored_inverse),
     ("no relationship stored twice", rule_no_duplicate_relationship),
     ("derived relationships not hand-edited", rule_derived_relationships_not_hand_edited),
+    ("derived relationships match their event's people", rule_derived_relationship_matches_its_event),
     ("event participants resolve", rule_event_participants_resolve),
     ("life status valid, never inferred", rule_life_status_valid_and_not_inferred),
     ("one birth and one death per person", rule_one_birth_one_death_per_person),

@@ -42,6 +42,22 @@ Structural translation (the editor writes structure, not only assertions):
     set   acceptances/<type>/<id>/<concept>
                                       → (an explicit acceptance moved to the
                                          correction of the accepted assertion)
+    add|set events/<e> (move)         → event.residence.place when its place is
+                                         set or changed; event.residence.period
+                                         when `attributes.current` is set or
+                                         changed (C-4F: "current" is the state of
+                                         the home's period, declared by a human —
+                                         the catalog has no separate concept)
+    add|set events/<e> (union)        → event.union.place when its place is set
+                                         or changed
+    add|set events/<e> (union |       → event.<union|separation>.participant when
+            separation)                  the participants are set (add) or CHANGED
+                                         (set) — C-4F review: a participant write is
+                                         never classified as a date write
+    set   relationships/<r>, derived  → (a relationship DERIVED from an event
+                                         following its event's participant
+                                         correction — the event's write carries the
+                                         concept; §3.7)
 Anything else is UNTRANSLATED and fails the test — a write this file does not
 understand is a write nobody has classified.
 """
@@ -83,6 +99,15 @@ FROZEN_EXPECTED = frozenset({
     "person.reported_count.siblings",
     "person.reported_count.children",
     "person.reported_count.grandchildren",
+    "person.reported_count.marriages",       # C-4F
+    "event.residence.place",                 # C-4F
+    "event.residence.period",                # C-4F
+    "event.residence.type",                  # C-4F
+    "event.union.participant",               # C-4F
+    "event.union.date",                      # C-4F
+    "event.union.place",                     # C-4F
+    "event.separation.date",                 # C-4F
+    "event.separation.participant",          # C-4F review
     "relationship.kind",
     "relationship.period",
     "relationship.qualifier.lineage_side",
@@ -91,9 +116,10 @@ FROZEN_EXPECTED = frozenset({
 READ_ONLY_TODAY = ("person.death.reported_age", "person.birth.time", "person.languages",
                    "person.education", "person.military_service", "story.desired",
                    "story.life_today.routine", "story.name_origin", "story.reading",
-                   "event.union.date", "event.residence.period", "event.service.period")
-FUTURE_EVENT_DATES = ("event.work.period", "event.education.period", "event.separation.date",
-                      "event.activity.period")
+                   "event.service.period",
+                   # C-4F boundary: the telling of a home or a union is a STORY (C-5)
+                   "story.home", "story.union")
+FUTURE_EVENT_DATES = ("event.work.period", "event.education.period", "event.activity.period")
 SPLIT_NAME_PARTS = ("person.name.given", "person.name.family", "person.name.birth_family")
 
 
@@ -118,6 +144,8 @@ def translate(changes):
             if (v or {}).get("period"):
                 concepts.add("relationship.period")
             continue
+        if len(p) == 2 and p[0] == "relationships" and op == "set" and (v or {}).get("basis") == "derived_from_event":
+            continue                                   # follows its event's participant correction (§3.7)
         if len(p) == 2 and p[0] == "relationships" and op == "set":
             before = (ch.get("expectedPrevious") or {}).get("period")
             if (v or {}).get("period") != before:
@@ -140,6 +168,21 @@ def translate(changes):
                 concepts.add(f"person.{v['type']}.place")
             if op in ("add", "set"):
                 continue
+        # C-4F: homes, unions and separations are occurrences (events)
+        if len(p) == 2 and p[0] == "events" and (v or {}).get("type") in ("move", "union", "separation") \
+                and op in ("add", "set"):
+            t = v["type"]
+            prev = (ch.get("expectedPrevious") or {}) if op == "set" else {}
+            if t in ("move", "union") and v.get("place") and v.get("place") != prev.get("place"):
+                concepts.add("event.residence.place" if t == "move" else "event.union.place")
+            if t == "move" and (v.get("attributes") or {}).get("current") != (prev.get("attributes") or {}).get("current"):
+                concepts.add("event.residence.period")
+            if t in ("union", "separation"):
+                now = sorted((x["person"], x["role"]) for x in v.get("participants") or [])
+                was = sorted((x["person"], x["role"]) for x in prev.get("participants") or [])
+                if (op == "add" and len(now) > 1) or (op == "set" and now != was):
+                    concepts.add(f"event.{t}.participant")
+            continue
         if op == "add" and len(p) == 2 and p[0] == "places":
             continue                                   # a place's existence is not a concept
         if op == "set" and len(p) == 3 and p[0] == "people" and p[2] in ("birthEventRef", "deathEventRef"):
@@ -190,7 +233,18 @@ class CapabilityParity(unittest.TestCase):
                    db.name("p-m", "nm", "Ada Okafor"),
                    {"op": "add", "path": "relationships/r1", "value": {
                        "subjectPersonId": "p-m", "otherPersonId": NORA, "kind": "parent_of",
-                       "period": {"start": {"text": "1939", "value": "1939", "precision": "year"}}}}])
+                       "period": {"start": {"text": "1939", "value": "1939", "precision": "year"}}}},
+                   # C-4F: a stored home (for its kind) and a spouse (for unions)
+                   {"op": "add", "path": "events/e-h", "value": {
+                       "type": "move", "participants": [{"person": NORA, "role": "resident"}]}},
+                   {"op": "add", "path": "people/p-s", "value": {}}, db.name("p-s", "ns", "Sam Berg"),
+                   {"op": "add", "path": "relationships/r-s", "value": {
+                       "subjectPersonId": "p-s", "otherPersonId": NORA, "kind": "spouse_of"}},
+                   # C-4F review: a STORED union filed with the wrong person, to correct
+                   {"op": "add", "path": "people/p-w", "value": {}}, db.name("p-w", "nw", "Wren Hale"),
+                   {"op": "add", "path": "people/p-t", "value": {}}, db.name("p-t", "nt", "Taylor Reed"),
+                   {"op": "add", "path": "events/e-u", "value": {"type": "union", "participants": [
+                       {"person": NORA, "role": "partner"}, {"person": "p-w", "role": "partner"}]}}])
             root = os.environ.get("QV2_ROOT")
             cls.r = run_harness(root)
             cls.decl = declared(root)
@@ -241,6 +295,17 @@ class CapabilityParity(unittest.TestCase):
         # hide a translator that stopped recognising the edit)
         edits = [c for c in rel if c["op"] == "set"]
         self.assertEqual(translate(edits)[0], {"relationship.period"})
+
+    def test_correcting_a_stored_unions_participant_is_a_participant_write(self):
+        # translated ON ITS OWN: the new union/separation adds also carry participants,
+        # which would otherwise hide a translator that stopped recognising the SET
+        sets = [c for c in self.changes if c["path"] == "events/e-u"]
+        self.assertEqual([c["op"] for c in sets], ["set"])
+        self.assertEqual(translate(sets)[0], {"event.union.participant"})
+        seps = [c for c in self.changes if c["op"] == "add" and c["path"].startswith("events/")
+                and c["value"]["type"] == "separation"]
+        self.assertEqual(translate(seps)[0], {"event.separation.participant"},
+                         "a separation's participants are not a date write")
 
     def test_names_are_whole_and_only_also_known_as_is_an_alias(self):
         names = [c for c in self.changes if "/names/" in c["path"]]
@@ -341,7 +406,11 @@ class CompiledCatalogAgrees(unittest.TestCase):
     def test_the_old_form_no_longer_decides_but_is_still_recorded(self):
         paths = self.cat["bindings"]["paths"]
         legacy = {r["concept_id"] for r in paths if "questionnaire" in r["in"]}
-        for c in SPLIT_NAME_PARTS + ("event.residence.period", "event.union.date"):
+        # (C-4F moved event.residence.period / event.union.date to EDITABLE via V2;
+        # these still have legacy form paths and are still not offered — the
+        # two story concepts are also the C-4F narrative boundary: the memories
+        # of a home and the proposal / wedding story are C-5's, not event fields)
+        for c in SPLIT_NAME_PARTS + ("event.service.period", "story.home", "story.union"):
             self.assertIn(c, legacy, f"{c}: its legacy form path must stay recorded")
             self.assertEqual(self.q[c], "not_offered", f"{c}: the old form must not make it editable")
         prov = {c["concept_id"]: c["provenance"] for c in self.cat["concepts"]}
@@ -353,11 +422,11 @@ class CompiledCatalogAgrees(unittest.TestCase):
 
     def test_new_event_date_concepts(self):
         con = {c["concept_id"]: c for c in self.cat["concepts"]}
-        for cid, vt, card in (("event.work.period", "date_interval", "many"),
-                              ("event.education.period", "date_interval", "many"),
-                              ("event.separation.date", "date", "one")):
+        for cid, vt, card, q in (("event.work.period", "date_interval", "many", "not_offered"),
+                                 ("event.education.period", "date_interval", "many", "not_offered"),
+                                 ("event.separation.date", "date", "one", "editable")):     # C-4F
             self.assertEqual((con[cid]["value_type"], con[cid]["cardinality"], con[cid]["questionnaire"]),
-                             (vt, card, "not_offered"), cid)
+                             (vt, card, q), cid)
         bound = {(r["event_type"], r["concept_id"]) for r in self.cat["bindings"]["event_dates"]}
         for pair in (("work", "event.work.period"), ("education", "event.education.period"),
                      ("separation", "event.separation.date"), ("activity", "event.activity.period")):

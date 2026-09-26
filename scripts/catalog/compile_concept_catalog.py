@@ -387,7 +387,12 @@ def compile_catalog():
             | {r["concept_id"] for r in event_date_rows}
             | {r["concept_id"] for r in profile_rows}
             | {r["concept_id"] for r in asking_rows}
-            | {r["concept_id"] for r in seed_rows})
+            | {r["concept_id"] for r in seed_rows}
+            # C-4F: the V2 editor is a producer in its own right. A concept it
+            # declares editable (validated against CONCEPTS above, so a typo
+            # still refuses) is bound — `person.reported_count.marriages` has
+            # no legacy path, asking key or profile key: V2 is where it is said.
+            | set(qv2_editable))
     for c in sorted(used - set(src.CONCEPTS)):
         problems.append(f"binding names undefined concept `{c}`")
     for c in sorted(set(src.CONCEPTS) - used):
