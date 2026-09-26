@@ -2666,7 +2666,7 @@ mutation caught.
 **Not in C-4E:** homes/moves, unions/separations, education/work/service/activity editors,
 removal, C-5 topics, Lori, Life Map, memoir. No migration.
 
-### C-4F — BUILT 2026-09-25; review repair 2026-09-26; MAG-Chris `.venv` green; awaiting final review
+### C-4F — ACCEPTED / CLOSED 2026-09-26 (`2836a15` code, `fd6c4bf` record)
 
 **Measured first** (`verified_by_read`, lines cited):
 
@@ -2857,8 +2857,43 @@ themselves after 0065. The production rule and migration 0065 are unchanged.
 - **Design (unchanged):** no structured gender-identity, sexual-orientation or assigned-sex field;
   a transition story is a story, with provenance.
 
+**Final review (ChatGPT, 2026-09-26): ACCEPT.** Accepted on the `.venv` evidence above (0065 6 OK;
+232 OK, 0 skips; catalog current; 22 · 14 · 23 · 11 DESIGN COHERENT; 32/32 · 11/11 · 16/16; diff-check
+clean). The second-Keep behaviour is NOT repaired inside C-4F: it is a shared V2 pending-edit defect,
+now its own BACKLOG item ("QV2 pending-edit composition"), to be fixed once in the shared model.
+
 **Not in C-4F:** education / work / service / activity editors (C-4G), story editing (C-5), removal
 (C-6), Lori (D), the intake family blocks (C-7 / D-0). No migration.
+
+### C-4R — CONTROLLED V2 CATALOG RESET — NEXT (decided 2026-09-26; work order owed)
+
+**Why, measured.** C-4G would build Learning / Work / Service editors on two semantics that are
+wrong today: (1) the shared V2 projection files `homes`, `learning_work`, `service` and `experiences`
+events by `TOPIC_OF_EVENT[e.type]` alone — no narrator-participant test — so a relative's job
+already appears in the narrator's Learning & Work list (C-4F's Homes/Partners editors avoid it only
+by filtering when they draw); (2) `lr_events.type` is one value, so an apprenticeship, work-study or
+clinical placement cannot be both learning and work without a second, drifting record. And the
+catalog compiler, until C-4F, refused any concept no OLD vocabulary bound — the literal mechanism by
+which the old questionnaire decided the vocabulary.
+
+**What it is.** Not a deletion and not a data reset: the Life Record becomes the authority for
+concepts, and the old questionnaire / extractor / asking / profile vocabularies become compatibility
+BINDINGS. Nothing stored is touched (ids, assertions, provenance, dates, stories, trips).
+
+| Phase | Scope |
+|---|---|
+| R0 | freeze and inventory: 90 concepts, 196 paths (16 retired), **131** extractor targets, 84 asking keys, 30 profile keys, 69 Profile Seed rows, 9 event-date bindings; every producer / consumer; the test baseline |
+| R1 | Life Record concepts are canonical; a concept no longer needs an old-vocabulary producer |
+| R2 | explicit **subject policy** on each projection (e.g. `narrator_participant` · `related_person` · `any_subject`) — not a hard-coded "participants contains narrator" convention; fix the shared V2 projection with it |
+| **R3-0** | **STOP/GO design decision: how domain membership is stored** — (A) a many-valued `event.domain` assertion (no migration) or (B) a structural relation / field (next migration number). Invariant either way: **domain membership classifies ONE occurrence for one or more views; it never creates another occurrence identity**, and `type` (what it is) is not secretly the domain (where it is shown) |
+| R3 | implement the decided representation |
+| R4 | old vocabularies kept as bindings (map · alias · split · compose · retired · unsupported) |
+| R5 | cut over ONLY Life Record validation, the V2 read model, the V2 capability declaration and the V2 topic projections. **Extractor, Lori asking / retrieval and memoir stay in Batch D** (D-0, D-3's B1–B17), as scheduled |
+| R6 | acceptance + mutations: relative isolation (a father's railway job never in the narrator's list, still on his card); two concurrent jobs; an apprenticeship = one event, two views; work-study; a sibling's college never in the narrator's education |
+
+Sequence: C-4F accepted → C-4F commits → this follow-up → the CLAUDE.md test-log rule → **STOP** →
+C-4R work order → R3-0 decision → bounded C-4R → C-4G-0 (hard requirements already recorded under
+C-4F) → C-4G editors.
 
 ## Roadmap refinements (Chris + ChatGPT, 2026-09-24, after the research review)
 
