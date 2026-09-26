@@ -558,6 +558,26 @@ cd /mnt/c/Users/chris/hornelore
 
 No exceptions, even for a single-line command, and even when the previous block already `cd`-ed there. Chris runs these from a fresh `wsl` prompt that lands in `/mnt/c/Users/chris`, so a block without the `cd` fails with `No such file or directory` and he has to go and look the path up. Blocks are copied whole and out of order; each one has to stand alone.
 
+## Every test / gate block also saves its output (locked 2026-09-26)
+
+**Any block of tests, gates, validators or evals handed to Chris is wrapped so its full output
+is shown on screen AND saved to `C:\Users\chris\Desktop\Tests`**, with the slice name and a
+timestamp so a rerun never overwrites an earlier result:
+
+```bash
+cd /mnt/c/Users/chris/hornelore
+mkdir -p /mnt/c/Users/chris/Desktop/Tests
+{
+  ...the commands...
+} 2>&1 | tee /mnt/c/Users/chris/Desktop/Tests/<slice>-<what>-$(date +%Y%m%d-%H%M).txt
+```
+
+Why: a long run (a mutation gate takes 20+ minutes) scrolls past the terminal, and acceptance
+evidence was repeatedly lost to partial copy-paste — including the design validator's verdict hidden
+by `| tail -3`. The saved file is what gets uploaded for review. **Never pipe a validator or gate
+through `tail`**; the verdict and counts are the evidence. Git and one-line inspection blocks are
+exempt. Review patches go to the same folder.
+
 ## Standard test command (copy-paste ready)
 
 Per-module, never whole-tree discovery (cross-suite state contamination is documented in `HANDOFF.md` §7). `.venv` is the test venv and a green agent-sandbox run is evidence only — **but read the skip count before calling anything verified**, because `.venv` has no fastapi and route tests skip there silently while unittest still prints `OK`. See the venv bullet under **Environment**.
