@@ -2666,6 +2666,200 @@ mutation caught.
 **Not in C-4E:** homes/moves, unions/separations, education/work/service/activity editors,
 removal, C-5 topics, Lori, Life Map, memoir. No migration.
 
+### C-4F — BUILT 2026-09-25; review repair 2026-09-26; MAG-Chris `.venv` green; awaiting final review
+
+**Measured first** (`verified_by_read`, lines cited):
+
+| Question | Finding |
+|---|---|
+| How is a home stored? | A `move` event, narrator `resident`; place = the event's place; period = an `event.residence.period` assertion (`store.py:31`) |
+| How is "current" represented? | **`attributes.current === true` on the move event** — the one established form (`test_qv2_adapter.py:142`, read by the V2 model). The writer stores `attributes` as free JSON (`writer.py:128`); nothing wrote it before C-4F |
+| Kind of home? | `event.residence.type` is a catalog concept (`concept_catalog_source.py:458`); `store.attach` already carries every non-date assertion on an event (`store.py:188`) — representable cleanly as an ordinary assertion on the move |
+| A childhood flag? | **No representation exists.** The design lists "childhood/current flags" (WO-LIFE-RECORD-01 §8.2 topic 5); no column, attribute, concept or reader. **Not invented** — reported below |
+| Place granularity (`lr_places.parts_json`)? | **No established shape.** The writer accepts `parts` as any JSON (`writer.py:127`), the store returns it (`store.py:172`); no contract, validator, reader or fixture; the model spec says only "optional normalised form". **Not invented** — reported below. The label is kept exactly as typed, so "412 Elm Street, South Side, Chicago, Illinois" is ONE place and ONE home (pinned) |
+| Unions and separations? | Separate `union` / `separation` events, participants `partner`; no dedupe rule; the relationship's own `period` is a separate stated fact |
+| Intake `current_residence`? | **Authority gap, confirmed.** Required by both creation routes, sent by `narrator-intake.js:192`, stored on `people` / `profile_json`, and NOT passed to `establish_narrator` (`people.py:246`, `:1006`) |
+| A stated marriage count? | **None in the catalog** — only siblings / children / grandchildren (`concept_catalog_source.py:429-431`). The intake's `number_of_marriages` is accepted by the model (`people.py:477`) and written NOWHERE; its form element does not exist in the shipped page |
+| Gendered inference anywhere on the Life Record path? | None in writer, rules, store, model or editor; the graph projection passes `kind` verbatim (`graph_projection.py:102`). The only gendered wording is the operator-chosen lineage labels (`questionnaire-v2.js:51`) — reported below |
+
+**Built:**
+
+| Where | What |
+|---|---|
+| `questionnaire-v2.js` | **Homes** topic: every stored home its own form — period (C-4 contract; unchanged stored text never re-parsed; ranges allowed, impossible dates refused), place by id or new (never merged by name), **Current home** box (the ONLY source of current; a current home with an ENDED period is refused on the form), and, on a stored home, **kind of home**. Add-a-home form. **Partners** topic: every stored union / separation its own form; add a union (partner required, one date, place) or a separation (partner, one date; a place is REFUSED, never dropped). The same pair never means the same occurrence — a new one is always a new event; a separation never touches its union; a stored occurrence is edited by ONE `set` on the SAME event (id kept — stories point at it). **Stated marriage count** beside the children counts. All gated by `can()` |
+| `questionnaire-v2-model.js` | `raw` event for `expectedPrevious`; `residenceType`; `marriages` in reported counts; `currentHomes` = explicit flag only (a `/..` period does NOT make a home current). Declaration **+8** |
+| `life_record/identity.py`, `routers/people.py` | both creation routes pass `current_residence`; `establish_narrator` writes ONE place (text as typed, never split) and ONE `move` occurrence, narrator resident, `attributes.current = true`, **no period**. The legacy copy stays until D-0 |
+| `concept_catalog_source.py` | `person.reported_count.marriages` ("Marriages, count as stated", number, one) |
+| `compile_concept_catalog.py` | a concept the V2 declaration lists (already validated against CONCEPTS) counts as **bound** — V2 is the only producer of the stated marriage count |
+| `concept_catalog_v1.json` | regenerated: 89 concepts; editable **16 → 24** |
+
+**Declared editable (+8):** `event.residence.place`, `event.residence.period`, `event.residence.type`,
+`event.union.participant`, `event.union.date`, `event.union.place`, `event.separation.date`,
+`person.reported_count.marriages`. "Current" is not a concept: it is the state of the home's
+period, so its control is gated by `event.residence.period`. *(The first build gated a
+separation's participants by `event.separation.date` because no participant concept existed. That
+workaround is RETIRED by the review repair below: `event.separation.participant` now names them.)*
+
+**Tests.** `tests/test_qv2_occurrences.py` + `tests/qv2_occurrence_harness.js` (the real editor against
+the real writer, then the database) — 19 tests, 30 DOM checks: impossible period refused with nothing
+pending; an ended period cannot be marked current; two homes edited stay two changes; same-named
+places offered separately by id; a place-only edit leaves a LEGACY period (inserted by SQL) byte-for-byte,
+with no new assertion; an accepted period corrected supersedes and carries its acceptance; unticking a
+current home removes only the flag and invents no period; kind of home is an assertion on that home, not
+an attribute; a new place with a recorded name is suggested, never merged; "to present" + ticked →
+current; "1980 to ?" → not current; union without a partner, a union date range, and a separation with a
+place all refused; union → separation → union for one pair = three distinct events, the first union and
+its date byte-identical; the relationship row untouched; the stated count 3 kept beside two identified
+unions; three stories pointing at a home, a legacy home and a union — `lr_story_refs` and `lr_stories`
+byte-identical, every ref resolves; unrelated work event and legacy `people` untouched; one Save = one
+accepted PATCH; read-back from the server. Writer-level: a union date on a home refused whole; an
+impossible period and a union-date range refused at the writer; a rule-breaking change set commits
+nothing; marry, separate, marry again accepted.
+`tests/test_life_record_identity.py` +4: the intake residence is one place + one current home, no date;
+a multi-level label stays one place, parts not guessed; blank → no home; the `/api/people/intake` route
+establishes it (route test — fastapi).
+`tests/test_life_record_person_independence.py` (new, 8): one narrator id through a transition; a former
+name is a name, not a person; pronouns superseded, not erased; `parent_of` + `biological` as a
+qualifier; a chosen "Mama" is a label; union participants are people with role `partner`; nothing
+gendered in the record, the graph projection or the V2 view; no sex / gender / orientation concept is
+catalogued; the transition rewrote no relationship or occurrence.
+`tests/test_qv2_capabilities.py`: FROZEN_EXPECTED +8; translation rules for move / union /
+separation events; the harness drives a union, a separation, the stated count, kind of home and a new
+current home; fail-closed census adds the Homes topic and the occurrence forms. `story.home` and
+`story.union` pinned NOT editable (the C-4F narrative boundary).
+
+**Mutations.** `tests/mutate_qv2_occurrences.py` (new, 20): O1 place by label; O2 same-label reuse;
+O3 no-closed-end read as current; O4 impossible period bypass; O5 one home's edit overwrites another;
+O6 union deduplicated by pair; O7 separation rewrites its union; O8 second union refused; O9 union date
+under the wrong concept; O10 partial commit; O11 unchanged legacy period re-parsed; O12 every new home
+written current; O13 an edited occurrence minted anew (stranding stories); O14 acceptance left behind;
+O15 separation place silently dropped; O16 stated marriage count computed from unions; O17 intake
+residence legacy-only; O18 intake residence not current; O19 projection turns `parent_of` into a
+gendered title; O20 current home with an ended period. **20/20 caught in the sandbox**, one mutation per
+tool call (the host cuts a call at ~178 s and kills the process; one early batch was cut mid-O2 and later
+mid-O3 — both restored by hand and every anchor re-verified before continuing; BACKLOG §12). All three
+C-4 gates' anchors are unique (`mutate_qv2_vital` V9's anchor had become a prefix of a C-4F line; the
+C-4F line was reshaped so it no longer matches).
+
+**MAG-Chris evidence (`.venv`, 2026-09-25):** the 14-module bank (`test_qv2_occurrences`,
+`test_life_record_person_independence`, `test_qv2_vital`, `test_qv2_capabilities`, `test_qv2_people`,
+`test_qv2_adapter`, `test_qv2_shell`, `test_bb_consolidation`, `test_life_record_writer`, `_dates`,
+`_graph`, `_identity`, `_schema_contract`, `test_concept_catalog`) **225 OK, 0 skips** (the intake
+route tests ran); `test_migration_0065_activity_event` **6 ran, 1 failure — the pre-existing C-4D/C-4E
+interaction below, exactly as predicted** *(first run; superseded by the rerun after the test repair)*; `compile_concept_catalog.py --check` **catalog is current**;
+design validator **DESIGN COHERENT**; C-4F occurrence gate **20/20 caught**; C-4E vital gate
+**11/11 caught**; C-4C capability gate **16/16 caught**.
+
+**Sandbox (`python3` 3.10, node 22) — history, not acceptance evidence:** occurrences 19 OK;
+capabilities + catalog 59 OK; vital 16 OK; people, shell, bb_consolidation OK; adapter / writer / dates /
+graph / identity / schema / catalog / person-independence / 0065 / hygiene 180 ran, **1 failure (see
+below), 9 skipped (no fastapi)**; `compile --check` current; design validator 21 · 14 · 22 · 11
+**DESIGN COHERENT**.
+
+**Pre-commit review repair (ChatGPT, 2026-09-26) — ONE bounded pass.** The pre-repair MAG-Chris gate
+was clean (0065 6/6 after the test repair; 225 OK; catalog current; 21 · 14 · 22 · 11 DESIGN
+COHERENT; 20/20 · 11/11 · 16/16), and the working tree was proven byte-identical to the reviewed
+patch after the gates. The review found defects the gates could not see:
+
+| Finding | Repair |
+|---|---|
+| A stored union / separation's participant could not be corrected — the only way out was a replacement event, stranding its stories | one selector per recorded non-narrator participant; each changes ONLY that person; every other participant and role kept; one guarded `set` on the SAME event id. Nobody may appear twice in one occurrence (refused on the form; no generic writer rule — other event types not measured) |
+| Correcting a participant could leave a relationship DERIVED from the event pointing at the old person | **new writer rule "derived relationships match their event's people"** — general, every event type, every producer (§3.7). The editor moves each affected derived relationship's matching endpoint in the SAME Save (guarded `set`, everything else byte-for-byte); refuses if the result cannot match. Stated relationships untouched. Measured first: no product path creates a derived relationship and the working root holds 0 (`lorevox_data`, read-only) — the rule refuses nothing stored |
+| The add form showed a Place control for a Separation, which the handler then refused | the form renders the SELECTED kind's fields and re-renders when the kind changes; Separation offers no Place. The now-unreachable handler refusal and its mutation (O15) are retired |
+| "To present" with Current unticked was allowed | refused both ways for what THIS edit states: a new/changed `…/..` period with Current unticked; unticking Current while a stored `/..` period stays. A current home with an ended period stays refused, now ALSO only for what the edit states (the first build refused an unrelated place edit on a stored contradiction — fixed). No writer rule; several current homes remain legal |
+| A separation's participants were counted as a date write | new concept **`event.separation.participant`** (no migration); capability translation recognises participant writes on BOTH add and set, for unions and separations |
+| Participants beyond two were preserved but unpinned; the header showed only the first | preservation cases: a three-person union and a home with a co-resident survive unrelated edits exactly; a correction changes only the corrected person; the header lists everyone |
+| A new home could get its kind only after a Save | the add-home form carries Kind of home; written in the same change set as the home |
+
+**Evidence (sandbox, `python3`, history — `.venv` rerun owed):** `test_qv2_occurrences` **25 OK,
+46 DOM checks** (two Saves: every home and union case; then the participant corrections, the refused
+duplicate, the derived relationship following, the stated one untouched, story refs intact); writer
+tests: a stale derived relationship refused whole; a participant `set` without its derived update
+refused whole, with it accepted. `test_qv2_capabilities` **19 OK** (a stored union's participant
+correction translates on its own to `event.union.participant`; a separation add to
+`event.separation.participant`). Person-independence / identity / 0065 / writer / dates / graph /
+schema / catalog / adapter **174 OK (9 skipped, no fastapi)**; vital, people, shell,
+bb_consolidation OK; `compile --check` current (**90 concepts, 25 editable**); design validator
+**22 rules · 14 situations · 23 refusals · 11 contracts — DESIGN COHERENT** (new refusal: a derived
+spouse pointing at someone not in its union). Mutation gate now **32** (O15 retired; O21–O33 added:
+correction disabled; correction collapses the occurrence; duplicate participant allowed; stale derived
+relationship permitted; derived update omitted; separation Place reappears; "to present" saved
+non-current; untick keeps "to present"; a stored contradiction blocks an unrelated edit; [oracle]
+participant SET unrecognised; [oracle] separation participants as a date write; new-home kind left out;
+header hides participants). In the sandbox all 13 new + re-anchored O20 **caught**; anchors of all
+three gates unique and restored.
+
+**MAG-Chris evidence after the repair (`.venv`, 2026-09-26) — the acceptance evidence:**
+`test_migration_0065_activity_event` **6 OK**; the 14-module C-4F/preservation bank **232 OK, 0 skips**
+(225 before the repair + 6 occurrence tests + 1 capability test); `compile_concept_catalog.py --check`
+**catalog is current**; design validator **22 rules · 14 situations · 23 refusals · 11 contracts —
+DESIGN COHERENT**; C-4F occurrence gate **32/32 caught**; C-4E vital gate **11/11 caught**; C-4C
+capability gate **16/16 caught**; `git diff --check HEAD` clean; afterwards every anchor of all three
+gates present once and no mutation in place. Output kept at
+`C:\Users\chris\Desktop\Tests\c4f-repair-rerun-*.txt`.
+
+**Observed, not repaired (pre-existing pattern, also in the C-4E vital forms):** after a Keep the
+occurrence form shows the STORED values, so a second Keep on the same occurrence before Save replaces
+the first pending change rather than merging with it (an unsaved date edit would be dropped if the
+second Keep changed only a participant). The pending summary shows what remains. A form-state fix
+belongs to whichever slice next touches the pending-edit model.
+
+**Found, NOT caused by C-4F — TEST repaired in C-4F on review direction (2026-09-25):**
+`tests.test_migration_0065_activity_event.test_activity_is_admitted_every_old_type_still_works_and_bogus_is_refused`
+was red at HEAD: its loop added a `birth` for Nora, whose fixture already holds `e-birth` (`:113`), and
+C-4E's "one birth and one death per person" rightly refused it (the C-4E bank did not include this
+module). **Repair, test-only:** each pre-0065 type is now written on its OWN fresh person, so every
+record is model-valid (death still carries `deceased` in the same Save); birth is exercised, not
+skipped; and the test now reads the record back and asserts all twelve old types landed as
+themselves after 0065. The production rule and migration 0065 are unchanged.
+
+**Gaps reported, not invented:**
+1. **Place parts** — no `parts` contract exists. Deciding the vocabulary (address / neighbourhood /
+   city / county / region / state / country) and whether it is operator-supplied only is a schema
+   decision; until then the label is authoritative and never split.
+2. **Childhood flag** — no representation. Options for the decision: a stated attribute beside
+   `current`, or nothing (childhood is a question about the period against the birth date, which must
+   never be inferred).
+3. **Kind of home on a NEW home** — offered once the home is saved (the answer control needs the
+   event); not on the add form.
+4. **Current-vs-ended contradiction** is refused on the form only; there is no writer rule (a rule
+   would refuse every unrelated Save for a narrator whose stored data already contradicts).
+5. **Latent intake legacy writes (API-only today).** `IntakePayload` still accepts family of origin,
+   spouses (year married, status), `marital_status`, `number_of_marriages`, children and education
+   (`people.py:472-480`, handled `:800-905`): names split, `relation: "Father"/"Mother"` labels,
+   counts COMPUTED from list lengths (`sibling_count = len(...)`, `children_count = len(...)`), a
+   `marital_status` scalar — all into `profile_json` / `bio_facts`, none into the Life Record. The
+   shipped form sends none of it (no such elements in `hornelore1.0.html`), so it is reachable only by a
+   direct API call. **Belongs to C-7 / D-0**, not C-4F.
+6. **Lineage labels** "Mother's side" / "Father's side" (`questionnaire-v2.js:51`) are operator-chosen
+   and store `maternal` / `paternal`; they infer nothing, but the wording presumes a parent's gender.
+   A later relabel ("through <parent's name>") is a C-3-vocabulary decision.
+
+**Carried forward as HARD requirements (not implemented here):**
+- **C-4G — education as repeatable occurrences.** Institution; level/type (elementary · middle /
+  junior high · high school · college / university · graduate / professional · vocational / trade ·
+  other); canonical place; attendance period; completion date only if stated; degree / certificate
+  only if stated; field of study only if stated. Unknown stays unknown; graduation never required by
+  attendance; no degree inferred from an institution; **highest attainment is a stated fact, never
+  computed from education events** ("I only finished eighth grade" stands with no school named).
+  Existing concepts to reconcile: `event.education.schooling`, `.higher`, `.level`, `.training`,
+  `.period`, and the research keys (elementary_school … highest_education_level). No `education.notes`.
+- **C-5 — the telling is a story.** `residence.memories` → `story.home`; `marriage.proposalStory`,
+  `marriage.weddingDetails` → `story.union`; teachers, the walk to school, the first day → story
+  material that may reference the education event, the school place and people. No notes buckets.
+  C-5 decides the story's durable semantic concept (C-1's open question) so a wedding story files under
+  Partners, not generically. Keep four things distinct: the narrator's words (captured, via
+  `story_candidates`), facts inside them (assertions after review), operator-authored story (labelled),
+  and operator working notes (workflow metadata, never biography, never memoir).
+- **D (Lori) — current name and pronouns govern present-day conversation**; a historical name or past
+  pronoun is never surfaced merely because an event predates a change, only where the narrator
+  preserved it and the context needs it.
+- **Design (unchanged):** no structured gender-identity, sexual-orientation or assigned-sex field;
+  a transition story is a story, with provenance.
+
+**Not in C-4F:** education / work / service / activity editors (C-4G), story editing (C-5), removal
+(C-6), Lori (D), the intake family blocks (C-7 / D-0). No migration.
+
 ## Roadmap refinements (Chris + ChatGPT, 2026-09-24, after the research review)
 
 Recorded here so each lands in the right phase; **none is current work.** Governing rule
